@@ -33,6 +33,14 @@ import {
   settingsValidator,
   sweepHandler,
 } from "./lib/customDomains/handlers";
+import {
+  admitLookupHandler,
+  emailStepsHandler,
+  liveMailFactsHandler,
+  recordSurveyHandler,
+  stepsMailFactsHandler,
+} from "./lib/customDomains/assist";
+import { domainSurveyValidator } from "./lib/schema/domains";
 import { agentDomainHandler, agentDomainValidator } from "./lib/websites/agentDomain";
 
 /** What the Domain settings section draws. */
@@ -68,6 +76,16 @@ export const remove = mutation({
   args: { domainId: v.id("customDomains") },
   returns: v.null(),
   handler: async (ctx, args) => await removeHandler(ctx, args),
+});
+
+/**
+ * Email the setup steps to whoever runs the domain. Plain text, no link into
+ * Context, a few a day (`lib/customDomains/assist.ts`).
+ */
+export const emailSteps = mutation({
+  args: { domainId: v.id("customDomains"), to: v.string(), note: v.union(v.string(), v.null()) },
+  returns: v.null(),
+  handler: async (ctx, args) => await emailStepsHandler(ctx, args),
 });
 
 /** Which workspace a hostname serves, for the router and the site page. */
@@ -149,4 +167,27 @@ export const sweep = internalMutation({
   args: {},
   returns: v.null(),
   handler: async (ctx) => await sweepHandler(ctx),
+});
+
+/** The lookup's gate: owner, Premium, under the hourly limit. Returns the target to compare against. */
+export const admitLookup = internalMutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({ target: v.string() }),
+  handler: async (ctx, args) => await admitLookupHandler(ctx, args),
+});
+
+export const recordSurvey = internalMutation({
+  args: { domainId: v.id("customDomains"), survey: domainSurveyValidator },
+  returns: v.null(),
+  handler: async (ctx, args) => await recordSurveyHandler(ctx, args),
+});
+
+export const stepsMailFacts = internalQuery({
+  args: { domainId: v.id("customDomains"), senderId: v.id("users") },
+  handler: async (ctx, args) => await stepsMailFactsHandler(ctx, args),
+});
+
+export const liveMailFacts = internalQuery({
+  args: { domainId: v.id("customDomains") },
+  handler: async (ctx, args) => await liveMailFactsHandler(ctx, args),
 });

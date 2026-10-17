@@ -44,6 +44,7 @@ import {
   type CustomHostname,
   type ProviderConfig,
 } from "./lib/customDomains/provider";
+import { rootForwards, surveyDomain } from "./lib/customDomains/survey";
 import { rootProves } from "./lib/customDomains/www";
 
 async function providerConfig(ctx: ActionCtx): Promise<ProviderConfig | null> {
@@ -151,6 +152,37 @@ async function runCheck(
   }
 
   await ctx.runMutation(internal.functions.customDomains.recordCheck, { domainId, findings });
+  await runSurvey(ctx, row);
+}
+
+/**
+ * Beside each check of a root row still being set up: what public DNS says is
+ * in the way, so the screen can name it. A `www.` connected on its own also
+ * asks whether its root forwards to it, live or not, until it does.
+ * Best-effort: nothing here changes whether a domain goes live.
+ */
+async function runSurvey(ctx: ActionCtx, row: Doc<"customDomains">): Promise<void> {
+  const deployment = customDomainsDeployment();
+  if (deployment === null || row.wwwOf !== undefined) return;
+  const pending = row.status === "pending";
+  const forwardingAsked = row.hostname.startsWith("www.") && row.survey?.forwards !== true;
+  if (!pending && !forwardingAsked) return;
+  const [survey, forwards] = await Promise.all([
+    pending
+      ? surveyDomain({
+          hostname: row.hostname,
+          verifyToken: row.verifyToken,
+          target: deployment.target,
+          ownershipVerified: row.ownershipVerified,
+          routingVerified: row.routingVerified,
+        })
+      : Promise.resolve({ zone: row.survey?.zone ?? null, dnsHost: row.survey?.dnsHost ?? null, hints: [] }),
+    forwardingAsked ? rootForwards(row.hostname) : Promise.resolve(row.survey?.forwards ?? null),
+  ]);
+  await ctx.runMutation(internal.functions.customDomains.recordSurvey, {
+    domainId: row._id,
+    survey: { ...survey, forwards, at: Date.now() },
+  });
 }
 
 /** First registration, and every "Check again". */

@@ -33,6 +33,8 @@ import type * as functions_contextPlugins from "../functions/contextPlugins.js";
 import type * as functions_controlPlane from "../functions/controlPlane.js";
 import type * as functions_customDomains from "../functions/customDomains.js";
 import type * as functions_customDomainsProvision from "../functions/customDomainsProvision.js";
+import type * as functions_customDomainsMail from "../functions/customDomainsMail.js";
+import type * as functions_customDomainsLookup from "../functions/customDomainsLookup.js";
 import type * as functions_devlog from "../functions/devlog.js";
 import type * as functions_dropboxRemoval from "../functions/dropboxRemoval.js";
 import type * as functions_emoji from "../functions/emoji.js";
@@ -223,6 +225,8 @@ declare const fullApi: ApiFromModules<{
   "functions/controlPlane": typeof functions_controlPlane;
   "functions/customDomains": typeof functions_customDomains;
   "functions/customDomainsProvision": typeof functions_customDomainsProvision;
+  "functions/customDomainsMail": typeof functions_customDomainsMail;
+  "functions/customDomainsLookup": typeof functions_customDomainsLookup;
   "functions/devlog": typeof functions_devlog;
   "functions/dropboxRemoval": typeof functions_dropboxRemoval;
   "functions/emoji": typeof functions_emoji;

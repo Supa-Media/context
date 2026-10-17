@@ -38,6 +38,33 @@ export const customDomainProblem = v.union(
   v.literal("TIMED_OUT"),
 );
 
+/** The company that runs a domain's DNS, as `lib/customDomains/survey.ts` names it. */
+export const dnsHostValidator = v.object({ key: v.string(), name: v.string() });
+
+/** A mistake the setup screen names on its step. See `DomainHint` in `survey.ts`. */
+export const domainHintValidator = v.union(
+  v.object({ code: v.literal("DOUBLED_OWNERSHIP"), name: v.string() }),
+  v.object({ code: v.literal("DOUBLED_ROUTING"), name: v.string() }),
+  v.object({ code: v.literal("PROXIED") }),
+  v.object({ code: v.literal("CAA_BLOCKS"), name: v.string() }),
+  v.object({
+    code: v.literal("POINTS_ELSEWHERE"),
+    site: v.union(v.string(), v.null()),
+    value: v.union(v.string(), v.null()),
+  }),
+);
+
+/** What the last look at public DNS found, beside the checks themselves. */
+export const domainSurveyValidator = v.object({
+  /** Where the zone starts, when the resolver said. */
+  zone: v.union(v.string(), v.null()),
+  dnsHost: v.union(dnsHostValidator, v.null()),
+  hints: v.array(domainHintValidator),
+  /** `www.<root>` connected alone: the root forwards to it. `null`: not asked or no answer. */
+  forwards: v.union(v.boolean(), v.null()),
+  at: v.number(),
+});
+
 export const domainTables = {
   customDomains: defineTable({
     workspaceId: v.id("workspaces"),
@@ -83,6 +110,16 @@ export const domainTables = {
      * (`lib/customDomains/www.ts`).
      */
     wwwOf: v.optional(v.id("customDomains")),
+    /** The last survey of public DNS (`lib/customDomains/survey.ts`). Root rows only. */
+    survey: v.optional(domainSurveyValidator),
+    /**
+     * The owner emailed the setup steps to whoever runs the domain. The
+     * address the owner typed, kept so the screen can say who has them and
+     * the "it's live" mail can reach them too.
+     */
+    stepsSent: v.optional(v.object({ to: v.string(), at: v.number() })),
+    /** The "it's live" mail went out for this claim. */
+    liveMailSentAt: v.optional(v.number()),
   })
     .index("by_hostname", ["hostname"])
     .index("by_workspace", ["workspaceId"])
