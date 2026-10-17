@@ -123,3 +123,64 @@ test("the played person answers YES when the gateway held a call for their OK, a
   assert.equal(personAnswers({ asked: 0, answer: "Done." }), null, "a clean turn is for the played person or nobody");
   assert.equal(personAnswers({ answer: "an older gateway with no asked field" }), null);
 });
+
+/** A world whose turns are scripted: each is `{answer, progress?, tools?, browser?}`. */
+function scriptedWorld(turns) {
+  const events = [];
+  let n = 0;
+  return {
+    browser: () => [...events],
+    async text() {
+      const turn = turns[Math.min(n, turns.length - 1)];
+      n += 1;
+      events.push(...(turn.browser ?? []));
+      return { ok: true, ms: 1, model: null, asked: 0, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, progress: [], tools: [], ...turn };
+    },
+  };
+}
+
+const STREAMLY = {
+  text: "When does my Streamly plan renew?",
+  body: "",
+  personStarts: null,
+  ifAsked: [
+    { when: "whether she signs in with Gmail or another email, or sent a link to save her login", say: "I'd rather just sign in myself this time" },
+    { when: "to sign in, open a link, or take over the browser", say: "Done, I'm signed in" },
+  ],
+};
+
+test("a handoff or a link to save a login is answered from the brief, not ended by the played person", async () => {
+  const { converse } = await import("../run.mjs");
+  // The fake person (`playPerson`) answers nothing, as a model reading "text me
+  // when you're done" as nothing asked did: only the brief's lines carry on.
+  const world = scriptedWorld([
+    { answer: "Here's a link to save your Streamly login. Text me when you're done.", tools: [{ tool: "vault_add_link", ok: true }] },
+    { answer: "I've opened Streamly. Sign in at the link and text me when you're done.", browser: ["open streamly.example/login", "handoff streamly.example"] },
+    { answer: "It renews on 3 December.", browser: ["open streamly.example/account"] },
+  ]);
+  const result = await converse(world, STREAMLY, { fake: true });
+  assert.deepEqual(
+    result.conversation.filter((turn) => turn.from === "person").map((turn) => turn.text),
+    [STREAMLY.text, "I'd rather just sign in myself this time", "Done, I'm signed in"],
+  );
+  assert.equal(result.conversation.at(-1).text, "It renews on 3 December.");
+});
+
+test("an earlier turn's handoff is not answered again, and a failed vault_add_link asks nothing", async () => {
+  const { handOffAnswer } = await import("../run.mjs");
+  assert.equal(handOffAnswer({ tools: [] }, STREAMLY, []), null);
+  assert.equal(handOffAnswer({ tools: [{ tool: "vault_add_link", ok: false }] }, STREAMLY, []), null);
+  assert.equal(handOffAnswer({ tools: [{ tool: "vault_add_link (held for OK)", ok: true }] }, STREAMLY, []), "I'd rather just sign in myself this time");
+  assert.equal(handOffAnswer({ tools: [] }, { ifAsked: [] }, ["handoff streamly.example"]), null, "a brief with no line for it is the played person's");
+});
+
+test("each progress line the turn texted counts as one of the assistant's texts, before its answer", async () => {
+  const { converse } = await import("../run.mjs");
+  const world = scriptedWorld([{ answer: "Done.", progress: ["Opening Streamly now."] }]);
+  const result = await converse(world, { ...STREAMLY, ifAsked: [] }, { fake: true });
+  assert.deepEqual(
+    result.conversation.map((turn) => turn.text),
+    [STREAMLY.text, "Opening Streamly now.", "Done."],
+  );
+  assert.equal(result.texts, 2);
+});
