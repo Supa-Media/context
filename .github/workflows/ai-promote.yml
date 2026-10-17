@@ -1,0 +1,153 @@
+# Makes a setup the live one when the rounds that measured it pass the
+# promotion gate (apps/mcp/bench/promote.mjs), or puts the previous live file
+# back. Decided by Dev2 on 2026-10-17: the testing loop runs Actions and
+# promotes to production on its own, under the spend cap and the bar, with no
+# person's approval per promotion ("yes add auto promote and the spend cap to
+# the benchmark action").
+#
+# It answers no question and spends no model money: it reads the scored
+# result notes of AI Benchmark runs that already happened (their
+# benchmark-result and benchmark-key artifacts), one per test the gate needs
+# (core and tasks for the texting assistant), each with `production` and the
+# candidate run side by side. The gate refuses rounds of an earlier live file,
+# an earlier candidate, an earlier or weakened test, too few runs or cases, or
+# a candidate under the bars or worse than live; the refusal's reasons are the
+# run's summary. A promotion archives the replaced file in
+# `@context-lc ai/history/<job>/` first; `revert` puts the newest one back.
+#
+# Manual only, like AI Benchmark, and in the same concurrency group: both sign
+# in as the benchmark runner, whose refresh token rotates on every use, so two
+# at once would retire each other's token.
+name: AI Promote
+
+on:
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "The job whose live file to change (ai/production/<job>.md)"
+        required: false
+        default: "texting-assistant"
+      setup:
+        description: "The setup to make live (ai/setups/<job>/<setup>.md); empty with revert"
+        required: false
+        default: ""
+      runs:
+        description: "AI Benchmark run ids, comma-separated: one scored round per test the gate needs, each running production and the setup"
+        required: false
+        default: ""
+      revert:
+        description: "Put the newest file in ai/history/<job>/ back live instead"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  # Downloading the AI Benchmark runs' artifacts.
+  actions: read
+
+concurrency:
+  group: ai-benchmark
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    name: Promote or revert
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    env:
+      BENCH_RUNNER_CLIENT_ID: ${{ secrets.BENCH_RUNNER_CLIENT_ID }}
+      BENCH_RUNNER_REFRESH_TOKEN: ${{ secrets.BENCH_RUNNER_REFRESH_TOKEN }}
+      BENCH_RUNNER_REFRESH_TOKEN_LIVE: ${{ secrets.BENCH_RUNNER_REFRESH_TOKEN_LIVE }}
+      # Free text reaches the steps through env only (scripts/check-workflow-interpolation.mjs).
+      PROMOTE_JOB: ${{ inputs.job || 'texting-assistant' }}
+      PROMOTE_SETUP: ${{ inputs.setup }}
+      PROMOTE_RUNS: ${{ inputs.runs }}
+      PROMOTE_REVERT: ${{ inputs.revert && 'yes' || '' }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Refuse an argument that is not the shape it should be
+        run: |
+          set -euo pipefail
+          refuse() { echo "::error::$1"; exit 1; }
+          [[ "$PROMOTE_JOB" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]] || refuse "job must be a lowercase name."
+          [[ "$PROMOTE_SETUP" =~ ^([a-z0-9][a-z0-9-]{0,63})?$ ]] || refuse "setup must be a setup name."
+          [[ "$PROMOTE_RUNS" =~ ^[0-9,]{0,256}$ ]] || refuse "runs must be comma-separated run ids."
+          if [ -n "$PROMOTE_REVERT" ]; then
+            [ -z "$PROMOTE_SETUP$PROMOTE_RUNS" ] || refuse "revert takes no setup and no runs."
+          else
+            [ -n "$PROMOTE_SETUP" ] && [ -n "$PROMOTE_RUNS" ] || refuse "name the setup and the runs that measured it, or choose revert."
+          fi
+
+      - name: Refuse to run without the benchmark runner's sign-in
+        env:
+          GH_ADMIN_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+        run: |
+          for var in BENCH_RUNNER_CLIENT_ID BENCH_RUNNER_REFRESH_TOKEN GH_ADMIN_TOKEN; do
+            if [ -z "${!var}" ]; then echo "::error::$var is empty: the benchmark runner's grant (pnpm ai connect, apps/mcp/bench/context.mjs) is not set up."; exit 1; fi
+          done
+
+      # As in AI Benchmark: the rotated token is kept before anything else runs.
+      - name: Sign in as the benchmark runner and keep the rotated token
+        env:
+          GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          pnpm --silent ai signin
+          next="$(pnpm --silent ai signin --show refresh-token)"
+          echo "::add-mask::$next"
+          gh secret set BENCH_RUNNER_REFRESH_TOKEN_LIVE --env production --repo "$GITHUB_REPOSITORY" --body "$next"
+
+      # The tests as they stand in Context, which the gate compares against
+      # the rounds' test versions and the repository's committed copies.
+      - name: Fetch the job's setups and tests from Context
+        if: ${{ !inputs.revert }}
+        run: pnpm ai pull "$PROMOTE_JOB"
+
+      - name: Fetch the rounds' scored results
+        id: rounds
+        if: ${{ !inputs.revert }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          results=""
+          for run in ${PROMOTE_RUNS//,/ }; do
+            dir="$RUNNER_TEMP/rounds/$run"
+            gh run download "$run" --repo "$GITHUB_REPOSITORY" -n benchmark-result -n benchmark-key -D "$dir"
+            result="$(find "$dir" -maxdepth 1 -name '*.md' ! -name '* key.md' | head -n 1)"
+            [ -n "$result" ] || { echo "::error::run $run has no benchmark-result artifact."; exit 1; }
+            results="${results:+$results,}$result"
+          done
+          echo "results=$results" >> "$GITHUB_OUTPUT"
+
+      - name: Promote through the gate
+        if: ${{ !inputs.revert }}
+        env:
+          RESULTS: ${{ steps.rounds.outputs.results }}
+        run: |
+          set -uo pipefail
+          pnpm --silent ai promote "$PROMOTE_JOB" --setup "$PROMOTE_SETUP" --results "$RESULTS" --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" | tee -a "$GITHUB_STEP_SUMMARY"
+          exit "${PIPESTATUS[0]}"
+
+      - name: Put the previous live file back
+        if: ${{ inputs.revert }}
+        run: pnpm --silent ai promote "$PROMOTE_JOB" --revert | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the runner's rotated token
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ secrets.GH_ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          [ -f "$RUNNER_TEMP/bench-runner.json" ] || exit 0
+          next="$(pnpm --silent ai signin --show refresh-token)"
+          echo "::add-mask::$next"
+          gh secret set BENCH_RUNNER_REFRESH_TOKEN_LIVE --env production --repo "$GITHUB_REPOSITORY" --body "$next"

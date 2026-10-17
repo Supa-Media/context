@@ -70,7 +70,7 @@ a comparison can be pasted into a thread.
 - **Nothing an AI writes is trusted until a person checks it.** A case or
   setup an AI drafted carries `- drafted: <who>` (or `status: draft`), shows
   as drafted, is skipped by the bench until a person marks it checked, and
-  the improver never promotes: it drafts setups and cases and leaves them in
+  the improver never promotes (the AI Promote gate does, since 2026-10-17: see benchmarks.md): it drafts setups and cases and leaves them in
   Activity under "needs a person".
 - **Skill reach is front matter.** A skill is on for Tex when the live
   texting setup lists it under `skills:`; "Every AI" and "Helpers" write
