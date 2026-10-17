@@ -35,18 +35,34 @@ export const TEXTED_ASK_CAP = 2_900;
 
 /**
  * What a turn's answer ends with, and the part of it texted exactly as
- * written. The person may allow only what they read, so an ask holding an
- * email that would not fit in one text is withdrawn (and `asked` emptied)
- * rather than cut.
+ * written. The person may allow only what they read, so an ask that would not
+ * fit in one text is withdrawn (and `asked` emptied) rather than cut.
+ *
+ * Every ask goes out verbatim, in a text of its own, whether or not it holds
+ * an email. Handed back as part of the answer instead, it is the model's
+ * prose that decides whether the person ever reads it:
+ * `apps/agent/src/format.ts` keeps three texts and folds every later
+ * paragraph into the third, and `apps/agent/src/clients.ts` sends at most
+ * 3,000 characters of each, so a long answer cuts the ask line off its own
+ * end. The record stays armed for half an hour either way, and a bare "yes"
+ * afterwards releases what the person never saw. A handle claim is the ask
+ * this matters most for: it holds no email, it is the one ask the deployment
+ * switch still makes (`../tools/session.js`), and a claimed handle is never
+ * given back.
  */
 export async function textedAsk(store, session, asked) {
   if (asked.length === 0) return { ask: null, verbatim: [] };
   const ask = askLine(asked);
-  if (!asked.some((record) => typeof record.detail === "string")) return { ask, verbatim: [] };
   if (ask.length <= TEXTED_ASK_CAP) return { ask, verbatim: [ask] };
+  const holdsEmail = asked.some((record) => typeof record.detail === "string");
   await withdrawPending(store, { userId: session.actorUserId, ids: asked.map((record) => record.id) });
   asked.length = 0;
-  return { ask: "That was too long to show you whole in one text, so I've dropped it. Ask me for one email at a time.", verbatim: [] };
+  return {
+    ask:
+      "That was too long to show you whole in one text, so I've dropped it. " +
+      (holdsEmail ? "Ask me for one email at a time." : "Ask me for one thing at a time."),
+    verbatim: [],
+  };
 }
 
 /** Control characters and bidi overrides out of words the model wrote, before a person reads them. */

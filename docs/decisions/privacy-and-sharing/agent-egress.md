@@ -137,6 +137,21 @@ bench) answers YES the way a person who asked for the change does. Test:
 says so"; `bench/test/run.test.mjs`, "the played person answers YES when the
 gateway held a call for their OK".
 
+**The ask goes out in a text of its own (2026-10-17).** Appended to the
+model's answer and left there, the ask line is the model's to lose: the reply
+worker keeps three texts and folds every later paragraph into the third
+(`apps/agent/src/format.ts`), then sends at most 3,000 characters of each
+(`apps/agent/src/clients.ts`), so a long enough answer cuts the ask off its
+own end — while the record stays armed for half an hour and a later bare
+"yes" releases what was never read. So `textedAsk` hands every ask back as a
+`verbatim` part, which the reply worker pulls out of the answer and texts
+whole and last, and an ask too long for one text is withdrawn rather than
+cut. This had been done for an ask holding an email and not for the rest; the
+rest is where the handle claim is, which is the one ask the deployment switch
+still makes and the one thing here nobody can undo. Test:
+`emailGate.test.mjs`, "an ask holding no email is texted whole too, or
+withdrawn rather than cut".
+
 **What it costs, measured rather than guessed.** Nothing on reads and
 ordinary writes: the gate is one classification per call and touches storage
 only for a widening. For the texting assistant, one extra text on a widening

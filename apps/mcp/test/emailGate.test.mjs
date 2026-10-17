@@ -35,6 +35,9 @@
  *     texted turn is refused` fails.
  * 11. `textedAsk` without its length cap. → `an ask holding an email that
  *     outgrows one text is withdrawn, not cut` fails.
+ * 12. `textedAsk` returning an ask that holds no email as prose (no
+ *     `verbatim`, no cap). → `an ask holding no email is texted whole too, or
+ *     withdrawn rather than cut` fails.
  */
 
 import { ask, call, request, textOf, createEgressWorld, TOKEN_CONSOLE, TOKEN_MCP, TOKEN_ROUTINE, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
@@ -310,8 +313,8 @@ export async function runEmailGateChecks(check) {
 
   const memory = createMemoryStore();
   const actor = { userId: "u1", clientId: "context_texts" };
-  const hold = (detail, summary) =>
-    createPending(memory, { name: detail ? "send_email" : "set_visibility", args: { summary }, actor, widening: { summary }, detail, texting: true });
+  const hold = (detail, summary, name = detail ? "send_email" : "set_visibility") =>
+    createPending(memory, { name, args: { summary }, actor, widening: { summary }, detail, texting: true });
   const short = [await hold("To: jo@example.com\n\nshort", "email jo")];
   const fits = await textedAsk(memory, { actorUserId: "u1" }, short);
   const long = [await hold("x".repeat(2_450), "email jo again"), ...(await Promise.all(Array.from({ length: 20 }, (_, i) => hold(undefined, `share note ${i} with the team`))))];
@@ -326,6 +329,38 @@ export async function runEmailGateChecks(check) {
       long.length === 0 &&
       (await listPending(memory, { userId: "u1" })).length === 1 &&
       TEXTED_ASK_CAP < 3_000,
+  );
+
+  /*
+    AN ASK HOLDING NO EMAIL GOES OUT WHOLE TOO.
+
+    A handle claim is the one ask the deployment switch still makes
+    (`src/tools/session.js`), and it holds no email, so it used to be handed
+    back as part of the answer rather than as a text of its own. Glued to the
+    end of a long answer the formatter cuts it: `apps/agent/src/format.ts`
+    keeps three texts and folds every later paragraph into the third, and
+    `apps/agent/src/clients.ts` sends at most 3,000 characters of each. The
+    record stays armed for half an hour either way, so a bare "yes" afterwards
+    releases a claim the person never read — and a claimed handle is never
+    given back.
+  */
+  const claimSummary = "claim the handle @acme for a new shared workspace (handles are permanent)";
+  const claim = [await hold(undefined, claimSummary, "create_workspace")];
+  const claimed = await textedAsk(memory, { actorUserId: "u1" }, claim);
+  const spill = await Promise.all(
+    Array.from({ length: 12 }, (_, i) => hold(undefined, `share note ${i} with the team ${"y".repeat(300)}`)),
+  );
+  const spilled = await textedAsk(memory, { actorUserId: "u1" }, spill);
+  check(
+    "an ask holding no email is texted whole too, or withdrawn rather than cut",
+    claimed.verbatim.length === 1 &&
+      claimed.verbatim[0] === claimed.ask &&
+      claimed.ask.includes(claimSummary) &&
+      spilled.verbatim.length === 0 &&
+      !spilled.ask.includes("yyyy") &&
+      spilled.ask.length < TEXTED_ASK_CAP &&
+      spill.length === 0 &&
+      (await listPending(memory, { userId: "u1" })).length === 2,
   );
 
   check(
