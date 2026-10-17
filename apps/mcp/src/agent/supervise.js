@@ -33,6 +33,7 @@ import mail from "../../../../packages/shared/src/mail.cjs";
 import routines from "../../../../packages/shared/src/routines.cjs";
 import { AGENTS } from "./delegate.js";
 import { JOBS_PATH } from "./jobs.js";
+import { appendConversation, readConversation } from "./conversation.js";
 
 const { parseMail } = mail;
 const { frontMatter } = routines;
@@ -227,3 +228,36 @@ export async function closeJob(callTool, task) {
 
 /** The line the texting conversation keeps in front of what a supervisor texted. */
 export const updateLine = (task, title) => `(Tex's supervisor, about "${title}", handed to ${task.label}: ${task.ref})`;
+
+/**
+ * A routine run's supervision, worked out before any model opens: null for a
+ * routine that supervises nothing, `{ skip }` with the outcome to record when
+ * nothing needs a model, else the question and the run's `mail_agent`.
+ */
+export async function prepareSupervision(callTool, routine, { runs = [], handle = "them", now = Date.now() } = {}) {
+  const task = supervisedTask(routine.fields);
+  if (task === null) return null;
+  const run = await superviseRun(callTool, task, { now, runs, handle: handle ?? "them" });
+  if (run.kind === "quiet") return { skip: "skipped" };
+  if (run.kind === "gone") return { skip: "finished" };
+  return { task, ...run, mail: mailAgentSession(callTool, task, run.mailbox) };
+}
+
+/**
+ * What a supervisor texted reaches the main loop: it goes in the texting
+ * conversation of the person's own workspace, so their next text to Tex
+ * carries it, marked as read from outside. A finished job is tidied. Best
+ * effort: the text is still owed.
+ */
+export async function deliverSupervision(store, callTool, supervision, ran, afterAnswer) {
+  const personal = store.contexts?.find((entry) => entry.current)?.kind === "personal";
+  if (ran.text && personal) {
+    try {
+      const history = await readConversation(store, "texts");
+      await appendConversation(store, "texts", history, updateLine(supervision.task, supervision.title), ran.text, { tainted: true });
+    } catch {
+      // See above.
+    }
+  }
+  if (ran.outcome === "finished") await afterAnswer(closeJob(callTool, supervision.task));
+}
