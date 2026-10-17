@@ -686,9 +686,27 @@ describe("dismissing what a finished move said", () => {
       return { owner, mine, moveId };
     }
 
-    test("cannot be answered for good, because its notice is how it gets finished", async () => {
+    /** A failed move that had already carried part of the folder across. */
+    async function failedPartway(t: TestConvex) {
+      const made = await failed(t);
+      await t.run((ctx) => ctx.db.patch(made.moveId, { movedObjects: 3 }));
+      return made;
+    }
+
+    test("having carried nothing, can be answered for good: there is no half to reunite", async () => {
       const t = setupTest();
       const { owner, mine, moveId } = await failed(t);
+
+      const answer = await asUser(t, owner).mutation(api.functions.contextMoves.dismissContextMove, { moveId });
+
+      // A refusal here is what kept a failed move's line on every launch with nothing to finish.
+      expect(answer).toEqual({ dismissed: true });
+      expect(await listedBy(t, owner, mine)).toEqual([]);
+    });
+
+    test("partway, cannot be answered for good, because its notice is how it gets finished", async () => {
+      const t = setupTest();
+      const { owner, mine, moveId } = await failedPartway(t);
 
       const answer = await asUser(t, owner).mutation(
         api.functions.contextMoves.dismissContextMove,
@@ -704,7 +722,7 @@ describe("dismissing what a finished move said", () => {
 
     test("and is still resumable afterwards", async () => {
       const t = setupTest();
-      const { owner, moveId } = await failed(t);
+      const { owner, moveId } = await failedPartway(t);
       await asUser(t, owner).mutation(api.functions.contextMoves.dismissContextMove, { moveId });
 
       const { resumed } = await asUser(t, owner).action(

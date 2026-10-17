@@ -251,14 +251,13 @@ export function BrowseNotices({
             <Button
               variant="ghost"
               /*
-                "Not now" on a failure, because that is what the press does.
-                `dismissContextMove` takes a completed move only — a failed
-                one's notice carries the single control that can finish it
-                (see that mutation on why a fresh move cannot), so putting it
-                aside is for the session and it comes back. A "Dismiss" that
-                undismisses itself overnight is a button that lies.
+                "Not now" on a failure partway, because that is what the press
+                does: its notice carries the single control that can finish
+                it, so putting it aside is for the session. A failure that
+                carried nothing, like a finished move, is answered for good
+                (`dismissContextMove`), so it says "Dismiss".
               */
-              label={move.resumable ? "Not now" : "Dismiss"}
+              label={move.dismissLabel}
               /*
                 Both halves, and neither is the other's fallback. The server
                 is where a durable answer lives — the row is listable for a

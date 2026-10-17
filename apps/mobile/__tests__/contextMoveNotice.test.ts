@@ -152,12 +152,16 @@ describe("when it stops", () => {
     );
     // Everything carried stays carried, so "Try again" picks up, not re-runs.
     expect(notice.resumable).toBe(true);
+    // Half a folder is in each place: put aside for the session only.
+    expect(notice.dismissLabel).toBe("Not now");
   });
 
   test("a failure that carried nothing says so in one sentence", () => {
     const notice = describeContextMove(move({ status: "failed", objects: 0 }));
     expect(notice.text).toBe("acme didn't move to @work.");
     expect(notice.resumable).toBe(true);
+    // Nothing to reunite, so the server keeps the answer and the word is "Dismiss".
+    expect(notice.dismissLabel).toBe("Dismiss");
   });
 
   test("one note carried is singular, and a reason gets its full stop", () => {

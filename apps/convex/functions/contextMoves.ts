@@ -211,10 +211,12 @@ export const resumeContextMove = action({
  * that notice permanently hideable would mean one press leaves a folder split
  * across two contexts with the clean way to reunite it gone from the screen.
  *
- * So a failure can be put aside for the session — the pane's own state does
- * that, and the button says "Not now" rather than "Dismiss" — and it comes
- * back, because it is still true. Only `complete` is an outcome there is
- * nothing left to do about, and only `complete` can be answered for good.
+ * So a failure partway can be put aside for the session — the pane's own
+ * state does that, and the button says "Not now" rather than "Dismiss" — and
+ * it comes back, because it is still true. A failure that carried nothing has
+ * no half to reunite: Try again is a fresh start, and the line coming back on
+ * every launch was a banner nobody could clear (Dev2, 2026-10-17). So
+ * `complete`, and `failed` with nothing moved, can be answered for good.
  *
  * Idempotent: two devices can both be showing the line, and the second press
  * is a consequence of that rather than a race worth reporting.
@@ -230,7 +232,9 @@ export const dismissContextMove = mutation({
     // must not be two distinguishable answers.
     if (row === null) throw workspaceNotFound();
     await requireWorkspaceRole(ctx, row.sourceWorkspaceId, actorUserId, "owner");
-    if (row.status !== "complete") return { dismissed: false };
+    // A failure that carried nothing has no half anywhere to reunite, so it may be put aside for good too.
+    const answerable = row.status === "complete" || (row.status === "failed" && row.movedObjects === 0);
+    if (!answerable) return { dismissed: false };
     if (row.dismissedAt === undefined) {
       await ctx.db.patch(args.moveId, { dismissedAt: Date.now() });
     }

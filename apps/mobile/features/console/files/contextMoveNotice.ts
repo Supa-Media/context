@@ -48,6 +48,12 @@ export interface ContextMoveNotice {
    * beside one would be pressed and ignored.
    */
   dismissible: boolean;
+  /**
+   * What the dismiss control says. "Dismiss" where the server keeps the answer
+   * (a finished move, or a failure that carried nothing); "Not now" on a
+   * failure partway, which comes back until it is finished.
+   */
+  dismissLabel: "Dismiss" | "Not now";
 }
 
 /** `312 notes` / `1 note`, because "1 notes" is the tell that nobody read it. */
@@ -86,6 +92,7 @@ export function describeContextMove(move: ContextMoveProgress): ContextMoveNotic
           : `Moving ${name} to ${move.destination}, ${countOf(move.objects)} so far…`,
       resumable: false,
       dismissible: false,
+      dismissLabel: "Dismiss",
     };
   }
   if (move.status === "failed") {
@@ -102,6 +109,7 @@ export function describeContextMove(move: ContextMoveProgress): ContextMoveNotic
         reasonOf(move.error),
       resumable: true,
       dismissible: true,
+      dismissLabel: move.objects === 0 ? "Dismiss" : "Not now",
     };
   }
   const lines = [`Moved ${name} to ${move.destination}.`];
@@ -125,6 +133,7 @@ export function describeContextMove(move: ContextMoveProgress): ContextMoveNotic
     text: lines.join(" "),
     resumable: false,
     dismissible: true,
+    dismissLabel: "Dismiss",
   };
 }
 
