@@ -163,7 +163,14 @@ export function parseTest(raw) {
   // Collect the lines under each numbered heading; ignore anything before the first.
   const sections = [];
   let cur = null;
+  // A fenced block is a case's input (`check.mjs`), whose own headings are text.
+  let fenced = false;
   for (const line of lines.slice(bodyStart)) {
+    if (line.trim().startsWith("```")) fenced = !fenced;
+    else if (fenced) {
+      if (cur) cur.lines.push(line);
+      continue;
+    }
     const h = line.match(/^## (\d+)\. (.+?)\s*$/);
     if (h) {
       cur = { n: Number(h[1]), text: h[2], lines: [] };

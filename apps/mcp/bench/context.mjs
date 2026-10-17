@@ -215,7 +215,10 @@ export async function pullSetups({ job, dir, connection, fetchImpl = fetch }) {
   const livePath = `${PRODUCTION_FOLDER}/${job}.md`;
   const live = production.includes(livePath);
   const paths = listed.filter((path) => dirname(path) === prefix && basename(path) !== "about.md" && basename(path) !== `${LIVE_SETUP}.md`);
-  if (paths.length === 0 && !live) throw new Error(`no setups in ${prefix}/ or ${livePath} in Context: write one there (the production file's format) and run again`);
+  // A job with no prompt (transcription, connected AIs) has only its test to pull.
+  const testPath = `${TESTS_FOLDER}/${job}.md`;
+  const hasTest = (await listPaths(connection, TESTS_FOLDER, fetchImpl)).includes(testPath);
+  if (paths.length === 0 && !live && !hasTest) throw new Error(`no setups in ${prefix}/ or ${livePath} in Context, and no ${testPath}: write one there (the production file's format) and run again`);
   const folder = join(dir, "setups", job);
   await rm(folder, { recursive: true, force: true });
   await mkdir(folder, { recursive: true });

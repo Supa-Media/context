@@ -248,8 +248,23 @@ jobs:
           [ -n "$BENCH_FAKE" ] && args+=("$BENCH_FAKE")
           pnpm ai search "${args[@]}"
 
+      # The jobs that are one call with one input (`bench/check.mjs`): the
+      # dream, meeting summaries, transcription and connected AIs. Each case
+      # names words that must or must not come out; no judge, so neither the
+      # judging nor the scoring below runs for them.
+      - name: Check a job that is not a conversation
+        if: ${{ inputs.judge_run_id == '' && contains(fromJSON('["dream","meeting-summaries","meeting-transcription","connected-ais"]'), inputs.job) }}
+        env:
+          RESULT: ${{ steps.name.outputs.result }}
+        run: |
+          args=("$BENCH_JOB" --out "$RESULT")
+          [ -n "$BENCH_SETUPS" ] && [ "$BENCH_SETUPS" != "all" ] && args+=(--setups "$BENCH_SETUPS")
+          [ -n "$BENCH_QUESTIONS" ] && args+=(--questions "$BENCH_QUESTIONS")
+          [ -n "$BENCH_FAKE" ] && args+=("$BENCH_FAKE")
+          pnpm ai check "${args[@]}"
+
       - name: Run every setup against every question
-        if: ${{ inputs.judge_run_id == '' && inputs.job != 'search' }}
+        if: ${{ inputs.judge_run_id == '' && inputs.job != 'search' && !contains(fromJSON('["dream","meeting-summaries","meeting-transcription","connected-ais"]'), inputs.job) }}
         env:
           RESULT: ${{ steps.name.outputs.result }}
         run: |
@@ -276,7 +291,7 @@ jobs:
           pnpm --silent ai calibrate "${args[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Judge every answer, blind
-        if: ${{ !inputs.calibrate && inputs.job != 'search' }}
+        if: ${{ !inputs.calibrate && inputs.job != 'search' && !contains(fromJSON('["dream","meeting-summaries","meeting-transcription","connected-ais"]'), inputs.job) }}
         env:
           RESULT: ${{ steps.name.outputs.result }}
         run: |
@@ -286,7 +301,7 @@ jobs:
           pnpm ai judge "${args[@]}"
 
       - name: Score
-        if: ${{ !inputs.calibrate && inputs.job != 'search' }}
+        if: ${{ !inputs.calibrate && inputs.job != 'search' && !contains(fromJSON('["dream","meeting-summaries","meeting-transcription","connected-ais"]'), inputs.job) }}
         env:
           RESULT: ${{ steps.name.outputs.result }}
         run: pnpm ai score "$RESULT"
