@@ -1,4 +1,4 @@
-import { MeetingGatewayError, type MeetingsGateway } from "./gateway";
+import { MeetingGatewayError, MeetingHeldByDevice, type MeetingsGateway } from "./gateway";
 import {
   ackStep,
   classifySyncFailure,
@@ -104,6 +104,11 @@ export async function drainMeetings(
       synced.push(record.session.id);
       continue;
     }
+    if (outcome === "held") {
+      // Held by something on this device that sends it on its own. Not a
+      // failure about the connection, so the meetings behind it still go.
+      continue;
+    }
     if (outcome === "rejected") {
       rejected.push(record.session.id);
       // Deliberately keeps going: a refusal is about *this* meeting, and the
@@ -121,7 +126,7 @@ export async function drainMeetings(
 async function sendOne(
   record: MeetingRecord,
   deps: DrainDeps,
-): Promise<{ record: MeetingRecord; outcome: "synced" | "rejected" | "failed" }> {
+): Promise<{ record: MeetingRecord; outcome: "synced" | "rejected" | "failed" | "held" }> {
   let current = record;
 
   for (const step of pendingSteps(record)) {
@@ -138,6 +143,18 @@ async function sendOne(
       if (folderRejected) current = { ...current, folderRejected: true };
       if (events.length > 0) deps.onEvents?.(current.session.id, events);
     } catch (error) {
+      /*
+        The desktop shell queued it. No attempt is counted: the shell's outbox
+        is durable and drains on its own, so six of these answers are not six
+        failures, and parking on them is what put "Not saved to your context"
+        over a meeting the machine was still sending. See `handedOver`.
+      */
+      if (error instanceof MeetingHeldByDevice) {
+        return {
+          record: { ...current, handedOver: true, lastError: error.message },
+          outcome: "held",
+        };
+      }
       const outcome = classifySyncFailure(asGatewayError(error));
       if (outcome.kind === "rejected") {
         return {
