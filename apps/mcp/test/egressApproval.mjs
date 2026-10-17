@@ -1,18 +1,13 @@
 /**
- * An MCP client whose person says yes, at once, to whatever the egress gate
- * holds.
+ * An MCP client whose person says yes, at once, to whatever is held for them.
  *
- * The gate (`src/privacy/egress.js`, decided 2026-10-09) holds every call from
- * an MCP client that would widen who can see something — a link, a publish, a
- * visibility change, a move into a wider folder or another workspace — until
- * the person approves it from a first-party surface. Most of this suite
- * exercises what those tools *do* once they run, and was written when an MCP
- * client's call ran at once; it still tests exactly that, through a helper
- * that approves on the person's behalf from the console and calls again, which
- * is the path a held call takes in the product. The gate itself, and what it
- * refuses, is `agentEgress.test.mjs` and `egress.test.mjs`; nothing here
- * weakens it, because the console grant these helpers approve with is the
- * same first-party grant the app holds.
+ * Since the owner removed the widening gate (2026-10-17), the only calls held
+ * are the ones nobody can take back: an email, a calendar change, a handle
+ * claim. Much of this suite was written while every widening was held, and
+ * calls tools through `approving`, which runs the call and, only when it was
+ * held, approves it from the person's console and calls again — the path a
+ * held call takes in the product. For any call that is not held it is just
+ * the call. What is held, and who may answer, is `agentEgress.test.mjs`.
  */
 import worker from "../src/index.js";
 import { createWorkerCtx } from "./workerCtx.mjs";

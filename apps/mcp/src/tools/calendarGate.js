@@ -1,8 +1,7 @@
 /**
  * THE CALENDAR GATE: no change reaches the person's calendar without their
  * yes to that exact change (`docs/decisions/communications/calendar-writes.md`),
- * held the way `emailGate.js` holds an email and before the deployment's
- * `EGRESS_APPROVALS = "off"`, which does not switch this off:
+ * held the way `emailGate.js` holds an email:
  *
  *   1. The change is checked as the control plane will check it, and the
  *      limits are asked about without spending them, so the person is never

@@ -7,8 +7,6 @@
  *  - a private note in another workspace never reaches a caller who cannot
  *    see it there, by path or by count (the tier is that workspace's, not ours);
  *  - a workspace that will not open is still named, with the honest reason;
- *  - every workspace whose text went into the answer is reported as read, and
- *    one that gave the model nothing is not (the egress ledger weighs this);
  *  - the default answer for four workspaces stays under 12,000 characters.
  */
 
@@ -18,7 +16,6 @@ import { after, before, test } from "node:test";
 import worker from "../src/index.js";
 import { surveyOtherContexts, toolOrient } from "../src/orient/tool.js";
 import { parsePrivacyManifest } from "../src/privacy/engine.js";
-import { readReachOf, withReadReach } from "../src/privacy/egress.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
 import { createBucket } from "./orientation/fixtures.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
@@ -363,7 +360,7 @@ test("the default answer for four workspaces stays under 12,000 characters", asy
 });
 
 /* -------------------------------------------------------------------------- */
-/* Reach, below the worker: the ledger hears every workspace that rendered.    */
+/* Other workspaces, below the worker.                                         */
 /* -------------------------------------------------------------------------- */
 
 /** A store for one workspace, with its tree answering through `treeManifest`. */
@@ -383,7 +380,7 @@ function memoryWorkspace(files) {
   };
 }
 
-test("reach: every workspace whose text was rendered is reported, the one that opened nothing is not", async () => {
+test("every other workspace is rendered or named, the one that will not open with its reason", async () => {
   const rules = parsePrivacyManifest(HOME_MANIFEST);
   const here = memoryWorkspace({
     "privacy.md": HOME_MANIFEST,
@@ -417,17 +414,9 @@ test("reach: every workspace whose text was rendered is reported, the one that o
   assert.ok(text.includes("A paragraph of One."), "@one's text is in the answer");
   assert.ok(text.includes("two.md") || text.includes("1-projects/"), "@two's structure is in the answer");
   assert.ok(text.includes("Could not be opened just now"), "@shut is named");
-  assert.deepEqual(
-    readReachOf(result),
-    [
-      { workspaceId: "ws_one", scope: "team" },
-      { workspaceId: "ws_two", scope: "team" },
-    ],
-    "exactly the workspaces whose text was rendered, at the tier they were read at"
-  );
 });
 
-test("surveyOtherContexts reports reach for the workspaces it renders and no others", async () => {
+test("surveyOtherContexts renders what opens and names what does not", async () => {
   const store = {
     contexts: [
       { name: "@here", current: true },
@@ -441,12 +430,9 @@ test("surveyOtherContexts reports reach for the workspaces it renders and no oth
     }
     throw new Error("storage disconnected");
   };
-  const { section, reached } = await surveyOtherContexts(store, openContext);
+  const { section } = await surveyOtherContexts(store, openContext);
   assert.ok(section.includes("### @one"));
   assert.ok(section.includes("Could not be opened just now"));
-  assert.deepEqual(reached, [{ workspaceId: "ws_one", scope: "team" }]);
-  // The wiring: a result carrying it reports it to the ledger.
-  assert.deepEqual(readReachOf(withReadReach({}, reached)), reached);
 });
 
 test("the manual names a manage action's path among its args, and upload's files", async () => {

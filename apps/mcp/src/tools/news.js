@@ -89,8 +89,7 @@ export const TOOL_NEWS = Object.freeze([
     date: "2026-10-17",
     text:
       'manage action visibility takes `people: [{ who, role }]`: who else may open one note, named by a member\'s or a group\'s @handle ' +
-      "or by anyone's email address, with role view or edit. It adds to the people already named. Naming anybody always waits " +
-      "for the person's yes in their Context app or by text, so tell them what you asked and that it is waiting.",
+      "or by anyone's email address, with role view or edit. It adds to the people already named, and runs at once.",
   },
   {
     date: "2026-10-16",

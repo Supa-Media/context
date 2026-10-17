@@ -73,7 +73,6 @@ test/nameTwins.test.mjs
 test/noteCap.test.mjs
 test/openaiAppsChallenge.test.mjs
 test/orientOtherWorkspaces.test.mjs
-test/orientReadReach.test.mjs
 test/privacyAuthority.test.mjs
 test/privacy/rowAccess.test.mjs
 test/privacy/rowTokens.test.mjs

@@ -7,8 +7,7 @@
  * "Maybe we have Tex summarize it and say, can I send this to the team, and
  * then with their explicit yes we're able to send it." The texts are theirs,
  * in their own bucket (`agent/conversation.js`); nobody on the team reads them
- * unless the person hands them over. So, held in `egressGate` before the
- * deployment's `EGRESS_APPROVALS = "off"` like an email:
+ * unless the person hands them over. So, held in `egressGate` like an email:
  *
  *   1. From another AI, `report_problem` runs as it always has: the message
  *      alone, no texts, and `share_texts` is refused.

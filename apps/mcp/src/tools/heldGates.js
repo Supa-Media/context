@@ -1,8 +1,7 @@
 /**
- * The calls that always wait for the person's yes to their exact copy,
- * whatever the deployment's egress switch says (`session.js`): an email
- * (`emailGate.js`), a calendar change (`calendarGate.js`), and a bug report
- * filed by text (`reportGate.js`).
+ * The calls that always wait for the person's yes to their exact copy
+ * (`session.js`): an email (`emailGate.js`), a calendar change
+ * (`calendarGate.js`), and a bug report filed by text (`reportGate.js`).
  */
 
 import { EMAIL_TOOL, emailGate } from "./emailGate.js";

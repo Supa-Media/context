@@ -24,7 +24,7 @@ import type { ApprovalsView } from "./useApprovals";
 
 /** The line above the list, so a person knows what a row is asking. */
 export const APPROVALS_INTRO =
-  "An AI client asked to do something that would let more people see it. Nothing runs until you say yes.";
+  "An AI is waiting for your yes before it does something that can't be taken back, or uses one of your keys.";
 
 export const APPROVALS_EMPTY = "Nothing is waiting for your OK.";
 

@@ -131,12 +131,12 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A root domain brings its `www.`, which only redirects
 - An incident note is metadata, never a summary of vendor text
 - A team gets a new note from someone's inbox, never the meeting or email itself
-- An AI client never widens who can see something without a person saying yes
+- [The widening gate is removed; only an email, a calendar change, a handle claim and a key's first use ask](./privacy-and-sharing/agent-egress.md) (2026-10-17)
 - A note shared with a named person opens for them wherever it lives
 - [Blocking is per recipient, and a report is never an oracle](./privacy-and-sharing/reporting-and-blocking.md) (2026-10-15)
 - [The share dialog writes a list and its base together, and a domain is never a grantee](./privacy-and-sharing/share-dialog-lists.md) (2026-10-17)
 - [A note shared by name through its access list is reported and blocked the same way](./privacy-and-sharing/reporting-and-blocking.md) (2026-10-17)
-- [Naming people on a note waits for the person, whoever is named](./privacy-and-sharing/agent-egress.md) (2026-10-17)
+- [Naming people on a note](./privacy-and-sharing/agent-egress.md) (2026-10-17)
 
 ## [Per-note encryption](./encryption.md)
 

@@ -250,9 +250,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   /*
     THE EGRESS LEDGER FOR THIS TURN. `/agent` sees a turn whole — the
     question is the person's own words and every tool call passes through
-    this gateway — so the gate can ask only when the turn read something the
-    new audience could not see (`privacy/egress.js`). An MCP client gets no
-    ledger and is always asked.
+    this gateway — so the ledger can say whether it took in anything from
+    outside the workspace, and carry the asks it raised (`privacy/egress.js`).
   */
   const ledger = newLedger();
   /*

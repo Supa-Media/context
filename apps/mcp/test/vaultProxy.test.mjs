@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { newEntryId, writeEntry } from "../src/vault/entries.js";
 import { HIDDEN, echoForms, isSharedHost, proxyFetch, proxyPin, savedPin } from "../src/vault/proxy.js";
 import { toolVaultFetch, toolVaultList } from "../src/tools/vault.js";
-import { mightWiden, wideningOf } from "../src/privacy/egress.js";
+import { mightWiden } from "../src/privacy/egress.js";
 import { AUDIT_PREFIX } from "../../../packages/shared/src/storageLayout.cjs";
 
 const KEY = "fake-vault-value-not-a-real-key-0042";
@@ -306,14 +306,10 @@ test("vault_list says which entries can be used through fetch, and where", async
   assert.equal(text.includes(KEY), false);
 });
 
-test("a request through Context counts as sending outside the workspace for the approval gate", async () => {
+test("a request through Context counts as sending outside the workspace, so housekeeping never makes one", () => {
   const args = { fetch: { entry: "v0", field: "K", url: "https://api.stripe.com/v1" } };
   assert.equal(mightWiden("vault_list", args), true);
   assert.equal(mightWiden("vault_list", {}), false);
-  const widening = await wideningOf("vault_list", args, { privacy: async () => ({ rules: [], overrides: {} }) });
-  assert.equal(widening.audience, "outside");
-  assert.match(widening.summary, /api\.stripe\.com/);
-  assert.equal(await wideningOf("vault_list", {}, { privacy: async () => ({ rules: [], overrides: {} }) }), null);
 });
 
 test("the save page's pin is checked by the rules every use checks", () => {

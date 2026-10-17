@@ -6,8 +6,7 @@
  * "If we just give a send email command to an agent who's working on a bunch
  * of stuff and context is muddied … it could just send what [the person]
  * doesn't want." So a `send_email` call never runs as it is made. It runs in
- * `egressGate` before anything else, and before the deployment's
- * `EGRESS_APPROVALS = "off"`, which switches off widening holds and not this:
+ * `egressGate` before anything else:
  *
  *   1. The email is checked as the control plane will check it, and the
  *      limits are asked about without spending them, so the person is never
