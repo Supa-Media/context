@@ -279,9 +279,13 @@ export function meetingSubtitle(
  * included — a two-person call reads "2 people", which is what somebody looking
  * at the row expects, rather than "1 other person". `self` is on the protocol's
  * `Attendee` so a screen that needs the distinction can still make it.
+ *
+ * The person alone is not a count: every meeting now carries their own row
+ * (it names their lines in a call's transcript), and "1 person" on every row
+ * would say nothing and hide the source label that says something.
  */
 export function attendeeCount(attendees: readonly Attendee[]): number {
-  return attendees.length;
+  return attendees.some((attendee) => attendee.self !== true) ? attendees.length : 0;
 }
 
 const SOURCE_LABELS: Record<MeetingSource["kind"], string> = {

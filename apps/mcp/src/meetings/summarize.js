@@ -24,7 +24,9 @@
  * keeps the draft; a write that fails leaves a line saying so, which the next
  * open retries. The model and both prompts come from
  * `@context-lc ai/production/meeting-summaries.md` when it validates
- * (`summaryPrompts`), and the built-in words otherwise.
+ * (`summaryPrompts`), and the built-in words otherwise. Both requests carry
+ * the names this workspace uses (`names.js`), so a misheard "Text" is
+ * written as the Tex they meant.
  */
 
 import {
@@ -50,6 +52,7 @@ import { promptSections } from "../agent/production.js";
 import { loadPrivacyState } from "../privacy/state.js";
 import { toolReadNote } from "../tools/notes/read.js";
 import { toolWriteNote } from "../tools/notes/write.js";
+import { workspaceNames } from "./names.js";
 
 /** The route, beside the workspace selector: `/@team/meetings/summary` is the team's. */
 export const MEETING_SUMMARY_PATH = "/meetings/summary";
@@ -179,12 +182,12 @@ async function askModel(request, config, { metadata, fetchImpl, now, model = DEF
  * than none. `prompts` is `summaryPrompts`' answer. Exported for the AI
  * benchmark (`bench/jobs/meetingSummaries.mjs`), which runs this exact path.
  */
-export async function draftSummary(markdown, { instruction, today }, config, options, usage, prompts = summaryPrompts(null)) {
+export async function draftSummary(markdown, { instruction, today, names }, config, options, usage, prompts = summaryPrompts(null)) {
   const asked = { ...options, model: prompts.model };
-  const draft = await askModel(buildSummaryRequest(markdown, { instruction, today, system: prompts.write }), config, asked, usage);
+  const draft = await askModel(buildSummaryRequest(markdown, { instruction, today, names, system: prompts.write }), config, asked, usage);
   if (!draft) return null;
   try {
-    return (await askModel(buildCheckRequest(markdown, draft, { today, system: prompts.check }), config, asked, usage)) ?? draft;
+    return (await askModel(buildCheckRequest(markdown, draft, { today, names, system: prompts.check }), config, asked, usage)) ?? draft;
   } catch {
     return draft;
   }
@@ -246,11 +249,12 @@ export async function summarizeMeetingNote(store, session, request, deps) {
     fetchImpl: deps.fetchImpl,
     now,
   };
+  const names = await workspaceNames(store, scope, privacy);
   let output = null;
   try {
     output = await draftSummary(
       meeting.text,
-      { instruction: typeof request.instruction === "string" ? request.instruction : undefined, today: meetingDay(meeting.text, now) },
+      { instruction: typeof request.instruction === "string" ? request.instruction : undefined, today: meetingDay(meeting.text, now), names },
       config,
       options,
       usage,

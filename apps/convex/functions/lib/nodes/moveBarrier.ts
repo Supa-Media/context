@@ -85,6 +85,9 @@ async function runMoveBatch(
   }
 }
 
+/** The operations that take keyed rows to the trash where a path's bytes would be deleted. */
+const TRASHING_KEYED_ROWS = new Set(["removeNewFolder", "pluginDelete", "contextMoveDelete", "contextMoveFinish"]);
+
 /** The operations that may queue a folder move: everything else moves in one go. */
 const QUEUEING = new Set(["move", "archive"]);
 
@@ -223,7 +226,8 @@ export function attachQueueMove(
   }
   // A keyed workspace refuses a permanent delete of a path (`deletePath`); these two operations trash the
   // rows instead, which keeps the note restorable (`trashKeyedRows` in `fileOps/deleting.ts`).
-  if (args.operation.kind === "removeNewFolder" || args.operation.kind === "pluginDelete") {
+  // A move into another workspace takes its notes out of a keyed one the same way (`contextMoveImport.ts`).
+  if (TRASHING_KEYED_ROWS.has(args.operation.kind)) {
     Object.defineProperty(store, "trashKeyedRows", {
       value: (trash: { path: string; clearance: ReturnType<typeof clearanceOf>; now: number; expectedEtag?: string }) =>
         startRowTrash(ctx, { workspaceId: args.workspaceId, store: bucket, projection, ...trash }),

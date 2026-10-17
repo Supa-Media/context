@@ -16,7 +16,6 @@ import { loadPrivacyState } from "../privacy/state.js";
 import { folderPrefix } from "../search/indexable.js";
 import { splitMessageAnchor } from "../search/commsIndex.js";
 import { toolError, toolText } from "./results.js";
-import { withReadReach } from "../privacy/egress.js";
 import { holdSearchPasses } from "../search/heldPasses.js";
 
 /** Most hits a search across every workspace shows. */
@@ -112,7 +111,7 @@ async function searchEverywhere(store, searchingHere, names, query, embed) {
         const privacy = await loadPrivacyState(targetStore);
         if (privacy.error) return null;
         const found = await searchOne(targetStore, target.scope, privacy.rules, privacy.overrides, query, "", embed);
-        return { name, found, workspaceId: target.workspaceId, scope: target.scope };
+        return { name, found };
       } catch {
         return null;
       }
@@ -128,28 +127,7 @@ async function searchEverywhere(store, searchingHere, names, query, embed) {
     matchCount: elsewhere.reduce((total, { found }) => total + found.matchCount, here.matchCount),
     matchCountIsFloor: here.matchCountIsFloor || elsewhere.some(({ found }) => found.matchCountIsFloor),
     crossWorkspace: hits.some((hit) => hit.key.startsWith("@")),
-    reached: reachOf(hits, elsewhere),
   };
-}
-
-/**
- * The workspaces whose notes actually reached the answer, for the egress
- * ledger (`privacy/egress.js`).
- *
- * The ones with a hit in the fused list, and no others: a workspace searched
- * and found nothing in handed the model nothing, and recording it would make
- * the gate ask about a read that never happened. A hit that lost its place to
- * `EVERYWHERE_HITS` is the same — it is not in the answer, so it was not
- * read. Keyed by the name each hit carries in front of its path, which is how
- * the fan-out labels them.
- */
-export function reachOf(hits, elsewhere) {
-  const shown = new Set(
-    hits.map((hit) => (typeof hit?.key === "string" ? hit.key.match(/^(@[^/]+)\//)?.[1] : null)).filter(Boolean),
-  );
-  return elsewhere
-    .filter(({ name, workspaceId }) => typeof workspaceId === "string" && shown.has(name))
-    .map(({ workspaceId, scope }) => ({ workspaceId, scope }));
 }
 
 export async function toolSearchNotes(store, scope, rules, overrides, query, prefixArg) {
@@ -244,10 +222,7 @@ export async function toolSearchNotes(store, scope, rules, overrides, query, pre
     out +=
       '\n\nA path that starts with @name/ is in that workspace: pass context: "@name" with its path to read_note, or to any other tool, to reach it.';
   }
-  // The workspaces this one call read from, for the turn's egress ledger: a
-  // fan-out hands the model notes from several, and the ledger is told about
-  // the one the call was routed to by `callToolForSession` alone.
-  return withReadReach(toolText(out), found.reached ?? []);
+  return toolText(out);
 }
 
 /** The first heading if the note has one, else its filename. */

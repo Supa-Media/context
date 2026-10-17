@@ -3,7 +3,7 @@
  * session or a storage binding, and asking whether a turn may spend the
  * built-in model.
  */
-import { ControlPlaneError } from "./client.js";
+import { CONTROL_PLANE_SITE_TIMEOUT_MS, ControlPlaneError } from "./client.js";
 
 export function createSessionMethods({ post, required }) {
   return {
@@ -143,6 +143,26 @@ export function createSessionMethods({ post, required }) {
      */
     async startMoveBatch(accessToken, expectedWorkspaceId, moves) {
       return required(await post("/gateway/moves/batch", { accessToken, expectedWorkspaceId, moves }), "move");
+    },
+
+    /**
+     * Ask the control plane to move a note or folder into another workspace
+     * the grant reaches (`/gateway/moves/across`), with the engine the
+     * console's Move uses: the only way a keyed note crosses. The same proofs
+     * as `startQueuedMove`; both workspaces' roles are checked there.
+     *
+     * @returns {Promise<{status: "complete"|"failed"|"moving", movedObjects: number, skipped: {path: string, reason: string}[], error?: string}|null>}
+     */
+    async moveAcross(accessToken, sourceWorkspaceId, destinationWorkspaceId, from, to) {
+      return required(
+        // The engine carries the note before it answers: longer than a lookup.
+        await post(
+          "/gateway/moves/across",
+          { accessToken, sourceWorkspaceId, destinationWorkspaceId, from, to },
+          { timeoutMs: CONTROL_PLANE_SITE_TIMEOUT_MS }
+        ),
+        "move"
+      );
     },
 
     /**

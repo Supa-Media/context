@@ -31,7 +31,7 @@ export { ACTIVITY_PATH } from "@context/shared/src/activity.cjs";
   one module, so a `.cjs` path typed slightly differently in a component is a
   thing that cannot happen.
 */
-export { clientOf, repairPrompt, strayRows } from "@context/shared/src/activity.cjs";
+export { actorLabel, clientOf, repairPrompt, strayRows } from "@context/shared/src/activity.cjs";
 
 /** One line of the file, as the console receives it. */
 export interface ActivityEntry {
@@ -457,6 +457,8 @@ export interface ActivityView {
   unseenPaths: ReadonlySet<string>;
   /** Whether the first read has landed. Nothing is drawn as `0` before it. */
   loaded: boolean;
+  /** The reader's own `@name`, when known: whose hand "their own" is. */
+  me?: string | null;
   /** Re-read the file. Called when this console writes something. */
   refresh: () => void;
   /** Catch up to now. Safe to call twice; the marker only moves forward. */

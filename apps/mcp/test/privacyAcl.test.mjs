@@ -131,17 +131,16 @@ export async function runPrivacyAclChecks() {
     "team nested creation is blocked only when the inherited folder default is private",
     teamBlockedUnderManagedPrivate.isError && !objects.has(`${managedFolder}/team-must-not-create.md`)
   );
-  // The egress gate holds a widening from an MCP client until the person
-  // answers (`egressApproval.mjs`): nobody answering, nothing changes.
+  // A publication needs the tools' own confirmation; without it nothing changes.
   const publishFolderWithoutConfirmation = await callUnapproved("priv-token", "set_folder_visibility", {
     path: managedFolder,
     visibility: "inherit",
     expected_privacy_etag: privateFolderPrivacyEtag,
   });
   check(
-    "private folder to inherited-team transition waits for the person",
+    "private folder to inherited-team transition requires confirmation",
     publishFolderWithoutConfirmation.isError &&
-      /^Not done: this would let the folder/.test(publishFolderWithoutConfirmation.content?.[0]?.text ?? "") &&
+      /confirmation required/.test(publishFolderWithoutConfirmation.content?.[0]?.text ?? "") &&
       (await call("team-token", "read_note", { path: managedTeamPath }))?.isError
   );
   const publishFolderWithConfirmation = await call("priv-token", "set_folder_visibility", {
@@ -306,9 +305,9 @@ export async function runPrivacyAclChecks() {
     expected_etag: nowPrivateMeetingEtag,
   });
   check(
-    "private to team transition waits for the person",
+    "private to team transition requires confirmation",
     publishWithoutConfirmation.isError &&
-      /^Not done: this would make/.test(publishWithoutConfirmation.content?.[0]?.text ?? "") &&
+      /confirmation required/.test(publishWithoutConfirmation.content?.[0]?.text ?? "") &&
       (await call("team-token", "read_note", { path: teamMeetingPath }))?.isError
   );
   const publishWithConfirmation = await call("priv-token", "set_visibility", {

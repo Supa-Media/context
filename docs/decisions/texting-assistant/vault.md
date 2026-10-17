@@ -62,6 +62,53 @@ specific person.
 - Once given, the member's own assistants can have it filled for them through
   their own grants, under the same fill rules. They never see it either.
 
+### A key is given to a person, a group or everyone, to use or to see
+
+Decided by the owner, 2026-10-17, on the vault sharing boards: "make sure we
+can share with groups, people or the whole workspace". Given in Settings ›
+Vault on the key itself; the rules are `apps/mcp/src/vault/access.js`, read by
+the gateway and the control plane alike.
+
+- **A share is `{ to, level, by, at }`** in the key's sealed meta. `to` is a
+  member's id, a group of the workspace as `@name`, or `*` for every member,
+  people who join later included. A group is matched against the same
+  `@names` a note's privacy rule is (`grantedNamesFor`), so a key given to a
+  group reaches exactly the people and connections a note pointed at it does.
+- **`use` or `see`, default `use`.** `use` lets the person's own AIs use the
+  key through Context; the person is never shown the value and gets no view
+  link. `see` adds Show. The most generous share wins. The saver always sees
+  it, and a person on the old people list with no share keeps seeing it.
+- **Each AI's yes belongs to a person** (`by` on every yes, one-time grant,
+  use and refusal). One person's yes never lets somebody else's copy of the
+  same app use the key. A record from before `by` existed is the saver's.
+- **Who may give it away:** whoever saved it, or an owner or editor who can
+  see it. Somebody given it to use can never pass it on, an editor included.
+  Groups are given by owners only, since only owners are shown groups. Only a
+  shared workspace's keys can be given; a personal key is moved first.
+- **Taking it back takes their AIs with it.** Everyone who no longer has the
+  key by any route loses their AIs' yeses, grants, uses and refusals, so
+  giving it again starts them afresh. A person may hand back a key given to
+  them by name; nobody can take it from whoever saved it.
+- Audited as `vault.shared` / `vault.unshared` with the kind and level only.
+- **Whoever newly has it is told by email** (`functions/vaultNotify.ts`):
+  who gave it, in which workspace, use or see, and a link to Settings ›
+  Vault; never the key's name, site or value. Scheduled, never awaited, so
+  Give says nothing about anybody's mailbox; at most 50 people per Give and
+  10 such mails per person a day. A level change on an existing share sends
+  nothing.
+- **A personal key is moved, not given** (`functions/vaultMove.ts`): only
+  its saver, only into a shared workspace they own or edit, as the barrier's
+  own reveal, add and delete. Its AIs' yeses stay behind, so they ask again
+  there. Audited `vault.moved` in both workspaces.
+
+**What it costs:** a key's meta can now name up to 200 shares, and a
+non-manager sees only their own AIs on a shared key. Reversing per-person
+yeses fails "one person's yes never lets another person's AI in"
+(`apps/mcp/test/vaultSharing.test.mjs`); letting a use-only person give it on
+fails "somebody given a key for their AIs can't pass it on"
+(`apps/convex/__tests__/vaultSharing.test.ts`). When entries become notes
+(below), a share maps onto a tree row's grantee with view meaning `see`.
+
 ### Saving and sharing are a person's action on a signed-in page; an agent only asks
 
 Decided by the owner, 2026-10-10: "this must be a human action ... the agent

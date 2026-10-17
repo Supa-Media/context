@@ -1,4 +1,3 @@
-import { LEGACY_ATTEMPT_TABLE } from "../functions/dropboxRemoval";
 /**
  * THE BINDING, ENUMERATED — so a fifth connect flow cannot arrive without it.
  *
@@ -195,7 +194,6 @@ describe("every third-party connect carries the browser binding", () => {
     ][];
     const attemptTables = tables.filter(([, t]) => "hashedState" in (t.validator?.fields ?? {}));
     expect(attemptTables.map(([name]) => name).sort()).toEqual([
-      LEGACY_ATTEMPT_TABLE,
       "googleConnectAttempts",
     ]);
     for (const [name, table] of attemptTables) {

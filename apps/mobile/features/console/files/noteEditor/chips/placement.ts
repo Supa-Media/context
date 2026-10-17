@@ -15,4 +15,6 @@ export interface ChipsPlacementProps {
   edit: ChipEdit | undefined;
   source: FolderListSource | undefined;
   onOther?: () => void;
+  /** Who changed the note last when it was not the reader's own hand (`LastChangeLine`). */
+  lastChange?: { text: string; onOpen?: () => void } | null;
 }

@@ -88,9 +88,16 @@ export interface PaletteItem {
    * workspace being browsed: a result elsewhere opens that workspace, and is a
    * different row from a same-named path here.
    */
-  workspace?: { slug: string; current: boolean };
+  workspace?: { slug: string; current: boolean; id?: string };
   /** Why a search result matched, drawn as a tag (`WHY_LABEL`). */
   why?: "name" | "words" | "meaning";
+  /**
+   * The reason in words where `WHY_LABEL` is too coarse: "Has 2 of 3 words"
+   * rather than "Has your words" (leadership weekly, 2026-10-17).
+   */
+  reason?: string;
+  /** When the note was last written (ms): a search row's "edited Sep 12". */
+  edited?: number;
   /** `filter`: a typed-filter suggestion in ⌘K (`layout/searchFilters.ts`), never a note. */
   kind: "note" | "folder" | "command" | "filter";
 }
@@ -546,6 +553,30 @@ export function recentItems(
     if (/\.[^./]+$/.test(baseName(path)) && !isPrivacyManifest(path)) recent.push(noteItem(path, naming));
   }
   return recent;
+}
+
+/**
+ * What an untyped search lists for a signed-in person: their own Recent, the
+ * one phone Home draws, each row saying what they did ("You edited 9:12").
+ * Drawn as `recentItems` draws a path, with the saying in `snippet`.
+ */
+export function accountRecentItems(
+  rows: readonly { path: string; at: number; kind?: "opened" | "edited" }[],
+  items: readonly PaletteItem[],
+  label: (row: { at: number; kind?: "opened" | "edited" }) => string,
+  naming: NoteNaming = {},
+  limit: number = RECENT_LIMIT,
+): PaletteItem[] {
+  const said = new Map(rows.map((row) => [row.path, label(row)]));
+  return recentItems(
+    rows.map((row) => row.path),
+    items,
+    naming,
+    limit,
+  ).map((item) => {
+    const saying = said.get(item.id);
+    return saying === undefined || saying === "" ? item : { ...item, snippet: saying };
+  });
 }
 
 /**

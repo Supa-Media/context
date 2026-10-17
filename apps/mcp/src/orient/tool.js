@@ -28,7 +28,6 @@ import { appOf } from "../tools/liveList.js";
 import { splitReducedRecallNotes } from "../search/visible.js";
 import { toolError, toolText } from "../tools/results.js";
 import { chaosSection } from "../chaos/orient.js";
-import { withReadReach } from "../privacy/egress.js";
 import { HOW_TO_WORK, inToolNames } from "./howToWork.js";
 import { actionManual, actionNames, findAction, toolsManual } from "./manual.js";
 import { connectedBlock, openOnce, surveyOf, surveyOtherContexts } from "./workspaces.js";
@@ -212,11 +211,7 @@ async function overview(store, scope, rules, overrides) {
     );
   }
   parts.push(say(`## How to work here\n\n${HOW_TO_WORK}`));
-  const text = parts.join("\n\n---\n\n");
-  // The ledger has to hear every workspace this one call read from, the way
-  // `search` reports its own fan-out: it is what `approvalRequired` weighs
-  // before letting this turn widen anything (`privacy/egress.js`).
-  return withReadReach(toolText(text), others.reached);
+  return toolText(parts.join("\n\n---\n\n"));
 }
 
 /**

@@ -252,7 +252,7 @@ export function ConsoleFrame({
   const insideContext = route.kind === "context";
   const browsing = route.kind === "context" && route.view === "browse";
   const sharedHere = onShared(route);
-  const { search, paletteItems, recent, places } = usePaletteSearch({
+  const { search, paletteItems, recent, recentYours, places } = usePaletteSearch({
     data, insideContext, current, paletteOpen, history, scope: searchScope, phone,
   });
   /*
@@ -653,7 +653,7 @@ export function ConsoleFrame({
         <OpenAsideOn at={openAsideAt} />
 
         {consolePalette({
-          paletteOpen, paletteItems, recent, search, setPaletteOpen, router, data,
+          paletteOpen, paletteItems, recent, recentYours, search, setPaletteOpen, router, data,
           scope: searchScope, setScope: setSearchScope,
           places: phone ? { ...places, rootLabel: current?.displayName ?? "Your workspace" } : undefined,
         })}

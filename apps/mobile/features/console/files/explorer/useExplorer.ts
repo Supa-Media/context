@@ -10,6 +10,7 @@ import { itemsFor, type MenuActionId, type MenuTarget } from "../menu";
 import { runMenuAction, type ActionContext, type Dialog } from "../actions";
 import { useRightClick } from "../rightClick";
 import { baseName, folderLabel, parentPath } from "../paths";
+import { onNarrowTree } from "../treeFilter";
 import { itemsFromListings, rank } from "../palette";
 import { NO_PICK, type TreePick } from "../selection";
 import { buildTreeRows, findEntry, targetFolder, type TreeRow } from "../tree";
@@ -443,6 +444,8 @@ export function useExplorer({
    * close, so the two cannot come to disagree about whether closing clears.
    */
   const closeFilter = useCallback(() => setQuery(""), []);
+  // ⌘K's Tab narrows this tree, the filter field's old job (`treeFilter.ts`).
+  useEffect(() => onNarrowTree(setQuery), []);
 
   return {
     descending,

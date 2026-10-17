@@ -9,7 +9,7 @@
  */
 
 import { recordChange } from "../activity/record.js";
-import { listMeta, mayUse, isEntryId, readMeta } from "../vault/entries.js";
+import { listMeta, mayUse, maySee, isEntryId, readMeta } from "../vault/entries.js";
 import { firstUseAllowed } from "../vault/asks.js";
 import { noteUse } from "../vault/usage.js";
 import { ProxyRefused, proxyFetch, proxyPin } from "../vault/proxy.js";
@@ -50,7 +50,7 @@ export async function toolVaultList(store, args) {
   const keys = store?.encryptionKey;
   const { workspaceId, userId } = store?.actor ?? {};
   if (!keys || typeof workspaceId !== "string") return toolText(EMPTY);
-  const entries = (await listMeta(store, keys, workspaceId)).filter(({ meta }) => mayUse(meta, userId));
+  const entries = (await listMeta(store, keys, workspaceId)).filter(({ meta }) => mayUse(meta, userId, store.actor?.groups));
   if (entries.length === 0) return toolText(EMPTY);
   return toolText(
     [
@@ -108,7 +108,7 @@ export async function toolVaultShareLink(store, args) {
   if (!/^[a-z0-9-]{2,32}$/.test(handle)) return toolError("with must be the person's @handle.");
   const keys = store.encryptionKey;
   const meta = keys ? await readMeta(store, keys, store.actor.workspaceId, args.entry) : null;
-  if (meta === null || !mayUse(meta, store.actor.userId)) return toolError("There is no such login in vault_list.");
+  if (meta === null || !mayUse(meta, store.actor.userId, store.actor.groups)) return toolError("There is no such login in vault_list.");
   const minted = await calls.request({ kind: "share", entryId: args.entry, handle });
   if (minted === null || typeof minted.url !== "string") {
     return toolError(`That link could not be made. Is @${handle} a member of this workspace?`);
@@ -124,7 +124,10 @@ export async function toolVaultViewLink(store, args) {
   if (env === null) return toolError(`env is one of ${ENVS.join(", ")}.`);
   const keys = store.encryptionKey;
   const meta = keys ? await readMeta(store, keys, store.actor?.workspaceId, args.entry) : null;
-  if (meta === null || !mayUse(meta, store.actor?.userId)) return toolError("There is no such entry in vault_list.");
+  if (meta === null || !mayUse(meta, store.actor?.userId, store.actor?.groups)) return toolError("There is no such entry in vault_list.");
+  if (!maySee(meta, store.actor?.userId, store.actor?.groups)) {
+    return toolError("This key was given to the person for their AIs to use, not to see. Ask whoever saved it to let them see it in Settings › Vault.");
+  }
   const minted = await calls.request({ kind: "view", entryId: args.entry, ...(env ? { env } : {}) });
   if (minted === null || typeof minted.url !== "string") return toolError("That link could not be made right now.");
   return describe(minted, `Link to see ${meta.name || "the entry"}`);

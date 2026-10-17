@@ -251,8 +251,14 @@ export interface RecorderError {
    * `call-audio-missing`: the meeting is recording the microphone only because
    * the call's own audio was not shared, or stopped being shared. It is held
    * until a share succeeds, and drawn with a button that asks again.
+   *
+   * `call-audio-skipped`: this browser shared no sound the last
+   * `STOP_ASKING_AFTER` times, so this meeting did not ask (`callAudioMemory`).
+   * `call-audio-room`: the person chose to record the room, with no call.
+   * Both are said quietly, with a link that asks for the call's audio after
+   * all; neither is a fault.
    */
-  kind?: "background-unavailable" | "call-audio-missing";
+  kind?: "background-unavailable" | "call-audio-missing" | "call-audio-skipped" | "call-audio-room";
 }
 
 /**
@@ -335,7 +341,17 @@ export { notesOnlyRecorder } from "./notesOnly";
 export { audioRecorder } from "./audio";
 export { fakeRecorder, fakeSegment, type FakeRecorder } from "./fake";
 export { SEGMENT_MS } from "./segments";
-export { useAudioLevel } from "./level";
+export { publishRecorderSplit, useAudioLevel, useSplitAudioLevel, type SplitLevel } from "./level";
+export {
+  STOP_ASKING_AFTER,
+  askForCallAudioAgain,
+  callAudioGivenUp,
+  noteCallAudioShare,
+  onCallAudioMemory,
+  readCallAudioMemory,
+  type CallAudioMemory,
+} from "./callAudioMemory";
+export { MAC_APP_URL, browserName, onMac, onPhoneOrTablet, type BrowserName } from "./browser";
 export {
   setTranscriptionClient,
   type ChunkTranscriber,

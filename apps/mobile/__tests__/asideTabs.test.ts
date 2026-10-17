@@ -98,11 +98,14 @@ describe("the catalogue", () => {
 });
 
 /**
- * THE APPROVALS TAB IS THERE ONLY WHEN IT CAN BE ANSWERED.
+ * THE APPROVALS TAB IS THERE ONLY WHILE SOMETHING IS WAITING.
  *
- * It is the answer to a question the context's AI clients asked. It is absent
- * when the console has no approvals route to ask — the homepage and the demo
- * pass none — rather than an empty list claiming nothing is waiting.
+ * It is the answer to a question the context's AI clients asked: an email, a
+ * calendar change, a new @handle, a vault key's first use. It is absent when
+ * the console has no approvals route to ask — the homepage and the demo pass
+ * none — and, since the widening gate was removed (Dev2, 2026-10-17), when
+ * nothing is waiting: an empty tab every day was the friction removed. It
+ * stays while the person reads what their last answer did.
  *
  * ## Sabotage record
  *
@@ -110,13 +113,23 @@ describe("the catalogue", () => {
  *
  *  1. The approvals term dropped, so the tab shows where it cannot be answered.
  *     → **1 fails**: `Approvals is absent where it cannot be answered`.
+ *  2. The waiting term dropped, so an empty tab shows every day.
+ *     → **1 fails**: `Approvals is absent while nothing is waiting`.
  */
 describe("which tabs a console shows", () => {
-  test("a console that can answer approvals shows both, in order", () => {
-    expect(visibleAsideTabs({ approvals: true })).toEqual(["meetings", "approvals"]);
+  test("a console with something waiting shows both, in order", () => {
+    expect(visibleAsideTabs({ approvals: true, waiting: 1 })).toEqual(["meetings", "approvals"]);
   });
 
   test("Approvals is absent where it cannot be answered", () => {
-    expect(visibleAsideTabs({ approvals: false })).toEqual(["meetings"]);
+    expect(visibleAsideTabs({ approvals: false, waiting: 1 })).toEqual(["meetings"]);
+  });
+
+  test("Approvals is absent while nothing is waiting", () => {
+    expect(visibleAsideTabs({ approvals: true, waiting: 0 })).toEqual(["meetings"]);
+  });
+
+  test("an answer just given keeps the tab until the person leaves it", () => {
+    expect(visibleAsideTabs({ approvals: true, waiting: 0, answered: true })).toEqual(["meetings", "approvals"]);
   });
 });

@@ -253,6 +253,18 @@ export async function storeForSession(session, env, controlPlane) {
    * then a note moves as a row change through `startQueuedMove`, and never as
    * bytes (`tools/moves/queuedFolder.js`). Non-enumerable, as the seam is.
    */
+  /**
+   * Move a note into another workspace through the control plane's engine
+   * (`tools/moves/acrossKeyed.js`), from this request's workspace. Bound to
+   * this request's own session, as `startQueuedMove` is.
+   */
+  Object.defineProperty(store, "moveAcross", {
+    value: async (destinationWorkspaceId, from, to) =>
+      await controlPlane.moveAcross(session.accessToken, session.workspaceId, destinationWorkspaceId, from, to),
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
   Object.defineProperty(store, "keyedLayout", {
     value: opened.idLayout === "keys",
     enumerable: false,

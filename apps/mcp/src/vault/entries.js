@@ -77,9 +77,8 @@ export function siteMatches(sites, origin) {
   });
 }
 
-export function mayUse(meta, userId) {
-  return typeof userId === "string" && userId.length > 0 && Array.isArray(meta?.people) && meta.people.includes(userId);
-}
+/** Who may use a key, and how much of it: `access.js`. */
+export { mayUse, maySee } from "./access.js";
 
 async function readRecord(store, id) {
   return (await readVersioned(store, id))?.record ?? null;

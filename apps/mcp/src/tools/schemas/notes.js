@@ -261,7 +261,7 @@ export function noteWriteToolDefinitions() {
       title: "Set note visibility",
       description:
         "Personal connection only. Set enforced visibility for one existing note without moving it. Private notes may coexist beside team notes in either folder default. Publishing private to team requires confirm_team_publish=true. " +
-        "people names who else may open this one note: a member's or a group's @handle, or anyone's email address, inside the workspace or not, each with view or edit. It adds to the people already named and removes nobody; the owner only. Naming anybody always waits for the person's yes in their Context app or by text before it runs, so tell them what you asked and that it is waiting.",
+        "people names who else may open this one note: a member's or a group's @handle, or anyone's email address, inside the workspace or not, each with view or edit. It adds to the people already named and removes nobody; the owner only. It runs at once, so name only the people the person asked for.",
       inputSchema: {
         type: "object",
         properties: {

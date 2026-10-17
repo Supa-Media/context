@@ -150,7 +150,7 @@ routes to a team again needs its own before it ships.
 
 ### An AI client never widens who can see something without a person saying yes
 
-Moved to [An AI client never widens who can see something without a person saying yes](./privacy-and-sharing/agent-egress.md#an-ai-client-never-widens-who-can-see-something-without-a-person-saying-yes-decided-by-the-owner-2026-10-09).
+Removed by the owner on 2026-10-17. See [The widening gate is removed](./privacy-and-sharing/agent-egress.md#the-widening-gate-is-removed-decided-by-the-owner-2026-10-17); the original decision is kept there as history.
 
 ### A note shared with a named person opens for them wherever it lives
 

@@ -392,14 +392,28 @@ phone restarted" is a fact about our software on a particular evening, not about
 somebody's meeting, and they should not have to delete it out of their own file.
 The app says it; the note does not.
 
-**Loud is a bar, not a toast, and it has no dismiss.** `Toast` is eight seconds,
-tuned for an undo somebody is already looking at. A meeting that did not save is
-still not saved eight seconds later, and a notice that removes itself can be
-missed by being in another room. `StrandedBar` is up while the meeting is
-stranded and goes when it is filed or discarded — the two things that make it
-untrue. **The Retry is on the bar itself**: the whole failure is a person who
-did not know there was anything to press, and putting the press three screens
-behind a notice is the same bug with a sentence in front of it.
+**A bar, not a toast, and since 2026-10-17 small and closable.** `Toast` is
+eight seconds, tuned for an undo somebody is already looking at; a meeting that
+did not save is still not saved eight seconds later, so `StrandedBar` stays up
+until the meeting is filed or discarded, with **Retry on the bar itself**. It
+first shipped as a full-width red bar with no dismiss, and on the desktop it sat
+over the note list for days ("it's blocking everything", the owner, 2026-10-17)
+— partly because it fired for meetings the machine was still sending (below). A
+notice that hides content is a second failure on top of the first, so it now
+hugs its text, wears the floating chrome with a red dot rather than a red box,
+and has a close button. Closing hides it for that meeting's current problem only
+(`noticeDismissed`, compared by `landingKey`); the meeting stays in the list and
+on its page, and a different problem brings the notice back.
+
+**A finalize the desktop shell has queued is held, not failed.** Inside the
+shell, the shell's durable outbox writes the meeting, and a finalize it has only
+queued answers the page "queued". Counting that as a failed attempt parked the
+meeting as `RETRIES_EXHAUSTED` after six drains, over a Retry that could only
+get "queued" again. `MeetingHeldByDevice` marks the record `handedOver`: no
+attempt is counted, every drain asks the shell again (it answers with the note
+path once the note lands), and `recoverStaleFinalizes` never fails it on the
+clock. `parseRecord` puts a record an earlier build parked over the queued
+sentence back as held. Test: `meetingsController/heldByDesktop.test.ts`.
 
 It stands down while anything is recording. `RecordingBar` holds that exact slot
 and `zIndex` cannot arbitrate between two stacking contexts — and somebody

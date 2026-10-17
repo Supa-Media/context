@@ -131,12 +131,12 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A root domain brings its `www.`, which only redirects
 - An incident note is metadata, never a summary of vendor text
 - A team gets a new note from someone's inbox, never the meeting or email itself
-- An AI client never widens who can see something without a person saying yes
+- [The widening gate is removed; only an email, a calendar change, a handle claim and a key's first use ask](./privacy-and-sharing/agent-egress.md) (2026-10-17)
 - A note shared with a named person opens for them wherever it lives
 - [Blocking is per recipient, and a report is never an oracle](./privacy-and-sharing/reporting-and-blocking.md) (2026-10-15)
 - [The share dialog writes a list and its base together, and a domain is never a grantee](./privacy-and-sharing/share-dialog-lists.md) (2026-10-17)
 - [A note shared by name through its access list is reported and blocked the same way](./privacy-and-sharing/reporting-and-blocking.md) (2026-10-17)
-- [Naming people on a note waits for the person, whoever is named](./privacy-and-sharing/agent-egress.md) (2026-10-17)
+- [Naming people on a note](./privacy-and-sharing/agent-egress.md) (2026-10-17)
 
 ## [Per-note encryption](./encryption.md)
 
@@ -683,17 +683,19 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Who may text the line is Linq's list, managed from the console](./texting-assistant/allowlist.md)
 - [Letting someone in off the waitlist puts their phone on the list](./texting-assistant/allowlist.md)
 - [A phone let in off the waitlist is set up by text, handle first (2026-10-17)](./texting-assistant/onboarding.md)
+- [A bug filed by text goes to the team only on the person's YES, texts included (2026-10-17)](./texting-assistant/bug-reports.md)
 - Staging has a texts simulator, and nothing else does
 - An answer reads like a text, and the typing bubble shows while it works
 - Every agent turn is logged by name and duration, never by text
 - The autofill vault lives sealed in the person's bucket
 - [A login is sealed in the workspace's own bucket, and only the fill step opens it](./texting-assistant/vault.md)
 - [Personal logins stay personal; a shared workspace's vault is shared login by login](./texting-assistant/vault.md)
+- [A key is given to a person, a group or everyone, to use or to see](./texting-assistant/vault.md)
 - [Saving and sharing are a person's action on a signed-in page; an agent only asks](./texting-assistant/vault.md)
 - [A vault holds secrets too: named fields, most with a value for dev, staging and prod](./texting-assistant/vault.md)
 - [An AI uses a key without seeing it; a vault entry is a Markdown note under `.context/vault/`](./texting-assistant/vault.md)
 - [Tex signs in itself; handing its browser over is the rare case](./texting-assistant/vault.md)
-- The built-in model is for Premium, capped, and metered like Jev
+- The built-in model is free, capped at 100 a day, and metered like Jev
 - Claude models are reached through one AI gateway, plan credit first
 - Other providers' models and routes go through the same gateway, Unified Billing only
 - The agent opens only addresses it was given

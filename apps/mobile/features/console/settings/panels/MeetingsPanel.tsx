@@ -1,7 +1,9 @@
-import { StyleSheet } from "react-native";
+import { useEffect, useState } from "react";
+import { Linking, StyleSheet } from "react-native";
 
 import { Text } from "../../../design/components/Text";
-import { useThemedStyles } from "../../../design/theme";
+import { TextLink } from "../../../design/components/TextLink";
+import { useThemedStyles, type Colors } from "../../../design/theme";
 import { atName } from "../../format";
 import { selectedContext, type ConsoleData } from "../../types";
 /*
@@ -12,6 +14,15 @@ import { selectedContext, type ConsoleData } from "../../types";
 */
 import { ThisMachineCard } from "../../../meetings/components/ThisMachineCard";
 import { useMeetingsSnapshot } from "../../../meetings/useMeetings";
+import {
+  MAC_APP_URL,
+  STOP_ASKING_AFTER,
+  askForCallAudioAgain,
+  browserName,
+  callAudioGivenUp,
+  onCallAudioMemory,
+  readCallAudioMemory,
+} from "../../../meetings/capture";
 import { loadedFolders } from "../../files/browser";
 import { MeetingsDestination } from "./MeetingsDestination";
 import { PanelHead } from "./PanelHead";
@@ -116,13 +127,55 @@ function AudioLine() {
   }
 
   return (
-    <Text variant="foot" style={styles.audio} testID="meetings-call-audio">
-      {capture.systemAudioNeedsPicker ? CALL_AUDIO_PICKER_SENTENCE : CALL_AUDIO_SENTENCE}
+    <>
+      {capture.systemAudioNeedsPicker ? <BrowserCallAudio /> : null}
+      <Text variant="foot" style={styles.audio} testID="meetings-call-audio">
+        {capture.systemAudioNeedsPicker ? CALL_AUDIO_PICKER_SENTENCE : CALL_AUDIO_SENTENCE}
+      </Text>
+    </>
+  );
+}
+
+/**
+ * Whether this browser has stopped being asked for the call's audio.
+ *
+ * After `STOP_ASKING_AFTER` shares in a row with no sound, meetings here start
+ * with the microphone only (`callAudioMemory`, board m4, 2026-10-17). This is
+ * the one place that state is visible with no meeting running, and Try again
+ * puts the picker back for the next meeting. Nothing when the browser is fine.
+ */
+export function BrowserCallAudio() {
+  const styles = useThemedStyles(makeStyles);
+  const [memory, setMemory] = useState(readCallAudioMemory);
+  useEffect(() => onCallAudioMemory(() => setMemory(readCallAudioMemory())), []);
+  if (!callAudioGivenUp(memory)) return null;
+
+  const browser = browserName();
+  const times = STOP_ASKING_AFTER === 2 ? "two" : String(STOP_ASKING_AFTER);
+  return (
+    <Text variant="foot" style={styles.audio} testID="meetings-call-audio-given-up">
+      <Text variant="foot" style={styles.crit}>
+        {`Call audio isn't working in ${browser === "This browser" ? "this browser" : browser}.`}
+      </Text>
+      {` The last ${times} meetings recorded only your voice, so meetings here no longer ask. `}
+      <TextLink
+        label="Try again"
+        onPress={askForCallAudioAgain}
+        testID="meetings-call-audio-try-again"
+      />
+      {" · The "}
+      <TextLink
+        label="Mac app"
+        onPress={() => void Linking.openURL(MAC_APP_URL).catch(() => {})}
+        testID="meetings-call-audio-mac-app"
+      />
+      {" records both sides with no prompt."}
     </Text>
   );
 }
 
-const makeStyles = () =>
+const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     audio: { marginTop: 12, maxWidth: 546 },
+    crit: { color: colors.critText },
   });

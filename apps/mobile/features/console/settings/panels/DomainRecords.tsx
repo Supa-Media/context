@@ -13,6 +13,7 @@ import {
   type DnsRecord,
   type DomainView,
 } from "../../domain/domain";
+import { RecordHints } from "./DomainHelp";
 
 /**
  * Three dots and three words — Verified · Connected · HTTPS — instead of a
@@ -74,6 +75,7 @@ function Record({ domain, record, now }: { domain: DomainView; record: DnsRecord
         </Pill>
       </View>
       <Text variant="rowSub">{recordPurpose(record)}</Text>
+      {record.done ? null : <RecordHints domain={domain} purpose={record.purpose} />}
       <Text variant="eyebrow" style={styles.label}>
         Name
       </Text>

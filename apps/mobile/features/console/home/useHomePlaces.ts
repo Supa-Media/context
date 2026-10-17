@@ -5,6 +5,7 @@ import type { Id } from "@context/convex/_generated/dataModel";
 import { parentPath } from "../files/paths";
 import { EMPTY_QUERY_SPEC } from "../querySpec";
 import type { HomeOpened, HomePin, HomeRecent } from "./homeModel";
+import { drivenByAutomation, personIsTyping, watchPersonInput } from "./personInput";
 
 const NO_PINS: readonly HomePin[] = [];
 const NO_OPENS: readonly HomeOpened[] = [];
@@ -105,6 +106,23 @@ export function useHomePlaces(workspaceId: string | null | undefined, enabled: b
 }
 
 /**
+ * This person's Recent on its own, for ⌘K's untyped search: the same list
+ * phone Home draws, so every device and tab agrees (owner, 2026-10-17).
+ * `null` while not asked for or not answered: the palette then falls back to
+ * where this tab has been.
+ */
+export function useAccountRecents(workspaceId: string | null | undefined, enabled: boolean): readonly HomeRecent[] | null {
+  const ws = enabled && workspaceId != null ? (workspaceId as Id<"workspaces">) : null;
+  const spec = useMemo(
+    () => (ws === null ? EMPTY_QUERY_SPEC : { recents: { query: api.functions.places.recentNotes, args: { workspaceId: ws } } }),
+    [ws],
+  );
+  const answer = (useQueries(spec) as Record<string, unknown>).recents;
+  // Not asked, not answered yet, or refused: the palette falls back to this tab's own history.
+  return answer === undefined || answer instanceof Error ? null : (answer as readonly HomeRecent[]);
+}
+
+/**
  * Count one open of the folder on screen — or of the folder a note is in —
  * for You open most. Once per arrival: staying on a page, or a redraw of it,
  * is not another open.
@@ -125,6 +143,8 @@ export function useRecordOpen(
     last.current = key;
     // The workspace's own page is Home itself, not a folder somebody opens.
     if (workspaceId == null || folder === null || folder === "") return;
+    // A page run by automation is not the person opening anything (`personInput.ts`).
+    if (drivenByAutomation()) return;
     void (async () => {
       try {
         await convex.mutation(api.functions.places.recordOpen, {
@@ -139,12 +159,15 @@ export function useRecordOpen(
 }
 
 /**
- * Put the open note at the top of this person's Recent: when it is opened,
+ * Put the open note at the top of this person's Recent: when they open it,
  * and again while they type in it (at most once a minute). Every layout
  * counts, so a note written on a laptop is in Recent on the phone. Somebody
  * else changing a note never moves it here — that is the whole point of
  * Recent (owner, 2026-10-05: "the notes that I've personally recently
- * opened/edited").
+ * opened/edited"; 2026-10-17: "what I physically did, not like one of my
+ * agents"). So a changed draft counts only when the person is typing
+ * (`personInput.ts`): an agent's edit merged into the open note changes the
+ * draft too. A page run by automation records nothing.
  */
 export function useRecordRecent(
   workspaceId: string | null | undefined,
@@ -154,20 +177,33 @@ export function useRecordRecent(
   typed: string | null,
 ): void {
   const convex = useConvex();
-  const last = useRef<{ key: string; at: number } | null>(null);
+  const last = useRef<{ key: string; at: number; kind: "opened" | "edited" } | null>(null);
+  useEffect(() => {
+    watchPersonInput();
+  }, []);
   useEffect(() => {
     if (!enabled || workspaceId == null || notePath === null) return;
+    if (drivenByAutomation()) return;
     const key = `${workspaceId}\u001f${notePath}`;
     const now = Date.now();
     const previous = last.current;
-    // Arriving counts at once; staying counts again only for typing, once a minute.
-    if (previous !== null && previous.key === key && (typed === null || now - previous.at < RECENT_EDIT_EVERY_MS)) return;
-    last.current = { key, at: now };
+    const arriving = previous === null || previous.key !== key;
+    /*
+      Arriving counts at once. Staying counts only for their own typing: the
+      first keystroke turns "opened" into "edited", then once a minute more.
+    */
+    if (!arriving) {
+      if (typed === null || !personIsTyping(now)) return;
+      if (previous.kind === "edited" && now - previous.at < RECENT_EDIT_EVERY_MS) return;
+    }
+    const kind = arriving ? "opened" : "edited";
+    last.current = { key, at: now, kind };
     void (async () => {
       try {
         await convex.mutation(api.functions.places.recordRecent, {
           workspaceId: workspaceId as Id<"workspaces">,
           path: notePath,
+          kind,
         });
       } catch {
         // Recent is a convenience; a note that was not recorded changes nothing on screen.

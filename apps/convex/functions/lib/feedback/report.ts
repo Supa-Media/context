@@ -58,6 +58,11 @@ export interface FeedbackReport {
   /** For an agent's report: which AI app filed it, as its grant names it. */
   agentClient?: string;
   /**
+   * For a bug report filed by text: the person's recent texts with Tex, sent
+   * only on their YES to the report (`agentReport.ts`).
+   */
+  texts?: string;
+  /**
    * For a report about content (`functions/reports.ts`): what was reported and
    * the ids the server resolved it to. Ids only — never a note's text, title
    * or path, and never a share or invitation token.

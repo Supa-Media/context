@@ -246,7 +246,7 @@ describe("Dismiss", () => {
  * it hid so long: the button *was* wired, to a `useState` set in the pane, so
  * it worked perfectly — until the app was closed. A finished move stays
  * listable for a day, so the row came back on the next launch and so did the
- * line. "Moved 1 note to @supa." every time you open the app, with a Dismiss
+ * line. "Moved acme to @supa." every time you open the app, with a Dismiss
  * that never sticks.
  *
  * So the press has two halves and the test pins both: the pane hides the line
@@ -280,7 +280,7 @@ describe("Dismiss, on a move into another context", () => {
     );
     // The line is there to begin with — otherwise the press below proves
     // nothing about a notice that was never drawn.
-    expect(container.textContent).toContain("Moved 1 note to @supa.");
+    expect(container.textContent).toContain("Moved acme to @supa.");
 
     press(container, "browse-context-move-dismiss-mv1");
 
@@ -319,7 +319,12 @@ describe("Dismiss, on a move into another context", () => {
     const button = container.querySelector('[data-testid="browse-context-move-dismiss-mv2"]');
     expect(button?.textContent).toBe("Not now");
     // And the control that finishes it is still the point of the notice.
-    expect(container.querySelector('[data-testid="browse-context-move-resume-mv2"]')).not.toBeNull();
+    expect(
+      container.querySelector('[data-testid="browse-context-move-resume-mv2"]')?.textContent,
+    ).toBe("Try again");
+    expect(container.textContent).toContain(
+      "acme stopped partway: 12 notes are in @supa. The bucket stopped answering.",
+    );
     unmount();
   });
 
@@ -332,7 +337,7 @@ describe("Dismiss, on a move into another context", () => {
     // `contextMoves` is a subscription and does not turn around inside the
     // press. Without the pane's own set the line would sit there for a beat
     // after being dismissed, which is a button that reads as broken.
-    expect(container.textContent).not.toContain("Moved 1 note to @supa.");
+    expect(container.textContent).not.toContain("Moved acme to @supa.");
     unmount();
   });
 });

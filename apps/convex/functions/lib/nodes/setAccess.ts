@@ -150,6 +150,28 @@ async function setPendingAccess(
   return { ok: true, version: nextVersion };
 }
 
+/**
+ * Keep notes about to arrive private, in rows mode: a move from another workspace lands each note at a path with no
+ * row yet, and its row is born private (`pendingAccess.ts`). A path that already has a row is left alone, since the
+ * landing refuses it. `false` when the pending list is full: the caller must not land anything then.
+ */
+export async function pendPrivateArrivals(ctx: MutationCtx, workspaceId: Id<"workspaces">, paths: readonly string[]): Promise<boolean> {
+  for (const path of paths) {
+    const row = await ctx.db
+      .query("nodes")
+      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
+      .unique();
+    if (row !== null) continue;
+    const state = await ctx.db
+      .query("nodeAccessState")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+      .unique();
+    const answer = await setPendingAccess(ctx, { workspaceId, path, base: "private", kind: "file" } as SetAccessArgs, state);
+    if (!answer.ok) return false;
+  }
+  return true;
+}
+
 /** The token a grant is audited by: its kind, its id and its role. An email is audited only as its SHA-256. */
 async function auditToken(grant: { kind: string; userId?: string; groupId?: string; email?: string; role: string }): Promise<string> {
   let id: string;

@@ -31,14 +31,17 @@ import { smsKeys } from "./phoneCodes";
 import { putOnTexLine } from "./waitlistTex";
 
 /**
- * What the text says; `signInUrl` is the deployment's /login. It comes from
+ * What the text says; `signInUrl` is the deployment's /login, named only
+ * when Tex's number is not. It comes from
  * the Messaging Service, not from Tex's line, so a reply reaches nobody:
  * `texLine` is Tex's own number, named only once this phone is on Tex's list
  * (`waitlistTex.ts`), so "text Tex" is never an invitation the line ignores.
  */
 export function admittedText(signInUrl: string, texLine: string | null = null): string {
   if (texLine !== null) {
-    return `You're in! Text Tex at ${texLine} and Tex will set you up, or sign in with this phone number at ${signInUrl}`;
+    // One call to action: the sign-in link started a different setup from
+    // texting Tex, which confused new people (onboarding test, 2026-10-17).
+    return `You're in! Text Tex at ${texLine} and Tex will set you up.`;
   }
   return `You're in! Context is ready for you. Sign in with this phone number at ${signInUrl}`;
 }

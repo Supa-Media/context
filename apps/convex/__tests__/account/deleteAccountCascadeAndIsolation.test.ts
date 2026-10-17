@@ -1,4 +1,3 @@
-import { LEGACY_PROVIDER } from "../../functions/dropboxRemoval";
 import { describe, expect, test, vi } from "vitest";
 import { api } from "../../_generated/api";
 import {
@@ -19,34 +18,6 @@ import {
 } from "./fixtures.helpers";
 
 describe("deleteAccount", () => {
-  test("deleting an account with a legacy non-served binding row removes the row and its envelope, and schedules no revoke", async () => {
-    const { t, owner } = await onboardedAccount();
-
-    // A row from a removed provider, written directly: what is under test is
-    // the deletion, not a connect flow that no longer exists.
-    await t.run(async (ctx) => {
-      const row = await ctx.db.query("storageBindings").unique();
-      await ctx.db.patch(row!._id, {
-        provider: LEGACY_PROVIDER,
-        encryptedRefreshToken: "v2:current:FAKE:ENVELOPE",
-        endpoint: undefined,
-        region: undefined,
-        bucket: undefined,
-        accessKeyId: undefined,
-        encryptedSecretAccessKey: undefined,
-      });
-    });
-
-    await asUser(t, owner).mutation(api.functions.account.deleteAccount, {});
-
-    const rows = await t.run((ctx) => ctx.db.query("storageBindings").collect());
-    expect(rows).toHaveLength(0);
-    const scheduled = await t.run((ctx) =>
-      ctx.db.system.query("_scheduled_functions").collect(),
-    );
-    expect(JSON.stringify(scheduled)).not.toContain("v2:current:FAKE:ENVELOPE");
-  });
-
   test("deleting a Google-backed account schedules a revoke per live connection, and none for a disconnected one", async () => {
     const { t, owner, workspaceId } = await onboardedAccount();
 

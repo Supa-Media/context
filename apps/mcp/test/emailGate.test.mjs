@@ -15,8 +15,6 @@
  *
  *  1. `emailGate` returning null for every call (no hold). → `a texted email
  *     is held, shown whole, and not sent` fails: the email is sent at once.
- *  2. The gate placed after the `EGRESS_APPROVALS` switch. → `with the egress
- *     switch off, an email is still held` fails.
  *  3. A checker "no" treated as "unsure". → `a Mail checker no refuses it
  *     before the person is asked` fails.
  *  4. `emailCaller` treating every client as "texting-assistant". → `an MCP
@@ -198,13 +196,12 @@ export async function runEmailGateChecks(check) {
     for (const left of await approvals()) await request(env, TOKEN_CONSOLE, "/approvals", { id: left.id, action: "deny" });
 
     model.install([
-      { toolCalls: [{ name: "read_note", args: { path: "2-areas/second.md" } }] },
-      { toolCalls: [{ name: "set_visibility", args: { path: "2-areas/second.md", visibility: "team" } }] },
+      { toolCalls: [{ name: "create_workspace", args: { slug: "mixed-co", name: "Mixed Co" } }] },
       { toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "Re: mixed" } }] },
       verdict("yes"),
-      { text: "Drafted, and I'd share second with the team." },
+      { text: "Drafted, and I'd set up @mixed-co." },
     ]);
-    const mixed = await ask(env, TOKEN_TEXTS, "share second with the team and email Jo it's fine");
+    const mixed = await ask(env, TOKEN_TEXTS, "set up a mixed co workspace and email Jo it's fine");
     before = sends().length;
     await ask(env, TOKEN_TEXTS, "ok");
     model.install([{ text: "Yes what?" }]);
@@ -301,14 +298,6 @@ export async function runEmailGateChecks(check) {
     const elsewhere = await call(env, TOKEN_MCP, "send_email", { ...EMAIL, context: "@egress-team" });
     check("send_email takes no context", elsewhere.isError === true && /takes no context/.test(textOf(elsewhere)));
 
-    /* ---------------- the egress switch ---------------- */
-
-    const off = { ...env, EGRESS_APPROVALS: "off" };
-    model.install([{ toolCalls: [{ name: "send_email", args: EMAIL }] }, verdict("yes"), { text: "Drafted." }]);
-    before = sends().length;
-    await ask(off, TOKEN_TEXTS, "send Jo the thursday email");
-    check("with the egress switch off, an email is still held", sends().length === before && pending().length === 1);
-    await ask(off, TOKEN_TEXTS, "no");
   } finally {
     world.restore();
   }

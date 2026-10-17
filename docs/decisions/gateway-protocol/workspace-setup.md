@@ -57,17 +57,17 @@ never complete; giving the secret to the agent would undo the binding that
 stops a connect built by one person being finished by another. So the action
 hands back the app's own page, and the person starts the connect there.
 
-## None of the three widens, so the egress gate does not hold them
+## None of the three widens
 
-A write addressed into another workspace is held by the egress gate as a
-widening unless it is classified ([agent egress](../privacy-and-sharing/agent-egress.md)).
-These three are classified by name in `NEVER_WIDENS` (`apps/mcp/src/privacy/egress.js`):
-a new workspace's only member is the person; a layout writes folders and
+A new workspace's only member is the person; a layout writes folders and
 `about.md` text Context wrote, chosen from a fixed list, so nothing the model
-read can ride in it; and `connect_google` writes nothing. Listed by name, so a
-tool added later is still held until somebody classifies it.
+read can ride in it; and `connect_google` writes nothing. Until the owner
+removed the widening gate on 2026-10-17
+([agent egress](../privacy-and-sharing/agent-egress.md)) they were listed in
+`NEVER_WIDENS` so it would not hold them as writes into another workspace;
+with the gate gone, nothing holds them, and the list went too.
 
-## A real create waits for the person's yes, even with the gate switched off (2026-10-17)
+## A real create waits for the person's yes (2026-10-17)
 
 Not widening is not harmless. A `create_workspace` that is not a dry run
 claims an @handle, and handles never free up (retiring a name does not free
@@ -75,16 +75,16 @@ it; see [vocabulary](../vocabulary-and-workspaces.md)); it also spends one of
 the person's ten owned-workspace slots. Run with no yes, any connected AI
 client, or an instruction planted in a page it read, could squat names for
 good and use the slots up. So the claim is held through the same approvals
-as a widening (`.context/approvals/pending/`, answered in the app at
-`/approvals` or by a texted YES), classified in `classify`
-(`apps/mcp/src/privacy/egress.js`) with `audience: "private"` (the person is
-the only member) and `permanent: true`. It stays in `NEVER_WIDENS`, which is
-about whether a call is a write *into another workspace*; `permanent` is a
-separate reason to hold. `dry_run: true` claims nothing and is never held, so
-checking a name stays free.
+as an email (`.context/approvals/pending/`, answered in the app at
+`/approvals` or by a texted YES), by `handleClaimOf` in
+`apps/mcp/src/tools/session.js`. It outlived the widening gate, which the
+owner removed on 2026-10-17, because it was never about widening: it is about
+irreversibility. `dry_run: true` claims nothing and is never held, so checking
+a name stays free.
 
-**`permanent` asks on every gateway, the `EGRESS_APPROVALS = "off"` switch
-included, and from every turn, a clean one included.** The owner switched the
+**It asked on every gateway, the old `EGRESS_APPROVALS = "off"` switch
+included, and from every turn, a clean one included** (history: the switch
+went with the gate). The owner switched the
 gate off because ordinary writes into shared workspaces were being held, a
 cost in friction for a risk the person can undo (a write can be edited back,
 a visibility narrowed again). Neither holds here: a claim is rare, one per
@@ -94,9 +94,8 @@ never covered, so honouring the switch for it would extend the owner's
 decision past what it said. For the same reason a texted turn whose ledger is
 clean still asks: a clean ledger means the person's own words asked for a
 workspace, not that the model spelled the handle they meant, and a typo
-claimed is a typo kept. The two places: `approvalRequired` returns true for a
-`permanent` call unless it is the person's replayed yes, and `egressGate`
-(`apps/mcp/src/tools/session.js`) does not let the switch pass one.
+claimed is a typo kept. Now one place: `handleClaimOf` holds every real
+create unless it is the person's replayed yes.
 
 **Tex's onboarding by text keeps working.** The held call answers the model
 with the texting line ("Tell them plainly what you want to do; they will be
@@ -149,8 +148,8 @@ of fifteen still allows a tenth".
   in its header.
 - `apps/mcp/test/workspaceSetup.test.mjs`: the actions translate, reach the
   addressed workspace, and a read-only connection never reaches the control
-  plane; the egress gate (on in tests) does not hold a layout or a connect,
-  and holds a real create for the person's yes, switch or no switch.
+  plane; a layout or a connect is never held, and a real create is held for
+  the person's yes.
 - `apps/mobile/__tests__/workspaceCreate.test.ts`: an agent's layout is the
   picker's preset, row for row.
 - `apps/mobile/__tests__/checkoutReturn.test.ts`: the Connected apps link

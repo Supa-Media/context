@@ -46,7 +46,12 @@ export async function gatewayFeedbackHandler(ctx: ActionCtx, body: Record<string
   if (sentry === null) return json({ report: null, refused: "not_configured" });
 
   try {
-    const report = parseAgentReport({ message: body.message, clientName: session.clientName ?? "" });
+    const report = parseAgentReport({
+      message: body.message,
+      clientName: session.clientName ?? "",
+      clientId: session.clientId,
+      texts: body.texts,
+    });
     const sent = await deliverFeedback(ctx, {
       sentry,
       userId: session.actorUserId as Id<"users">,

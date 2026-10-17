@@ -159,6 +159,7 @@ export type Command =
   | "treeCollapse"
   | "treeExpand"
   | "treeOpen"
+  | "narrowTree"
   | "dismiss";
 
 /** Where the keystroke landed. A binding only fires in a scope that allows it. */
@@ -295,6 +296,8 @@ export const BINDINGS: readonly Binding[] = [
   { command: "treeCollapse", key: "arrowleft", scopes: TREE },
   { command: "treeExpand", key: "arrowright", scopes: TREE },
   { command: "treeOpen", key: "enter", scopes: TREE_AND_OVERLAY },
+  /* ⌘K's Tab: narrow the tree to the names typed (the tree's filter, since search is one bar). */
+  { command: "narrowTree", key: "tab", scopes: ["overlay"] },
 
   /*
     THE NOTE'S MARKER CHORDS, AND THEY ARE DOWN HERE DELIBERATELY.

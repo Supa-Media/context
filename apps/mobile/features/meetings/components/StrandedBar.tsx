@@ -7,7 +7,7 @@ import { useThemedStyles, type Colors, type Shadows } from "../../design/theme";
 import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
 import { meetings } from "../controller";
-import { meetingLanding, strandedMeetings } from "../landing";
+import { meetingLanding, unacknowledgedStranded } from "../landing";
 import { meetingHref } from "../route";
 import { useMeetingsSnapshot } from "../useMeetings";
 
@@ -16,50 +16,40 @@ import { useMeetingsSnapshot } from "../useMeetings";
  *
  * ## The gap this closes
  *
- * A meeting that fails to reach the bucket was, until this, visible in exactly
- * two places: its own page at `/meetings/:id`, and the console's Meetings
- * panel. Both require having gone looking. Nothing in the app said a word
- * anywhere else — not the recording bar (`live === null` for a failed meeting,
- * so it renders `null`), not the aside tab's dot (`meetingNeedsAttention` in
- * `aside/tabs.ts` reads `meetingLive` only), not the console's title pill, not
- * a notification: `expo-notifications` is in the binary and nothing in this app
- * imports it.
+ * A meeting that fails to reach the bucket was once visible only on its own
+ * page and in the console's Meetings panel, both of which require having gone
+ * looking. The owner recorded 31 minutes, the finalize got stuck, and they
+ * found out days later. So a stranded meeting is said here, at the edge of the
+ * screen this app already uses to interrupt somebody.
  *
- * So the owner recorded 31 minutes, the finalize got stuck, the app said
- * nothing at all, and they found out days later by opening the meeting. Their
- * instruction was *"it should be very LOUD and dramatic if something went
- * wrong"*. This is that, at the one edge of the screen this app already uses to
- * interrupt somebody.
+ * ## Why it is small, and why it can be closed
  *
- * ## Why a bar and not a toast
+ * The first version was a full-width red bar with no dismiss, on the argument
+ * that a meeting which did not save is still not saved eight seconds later.
+ * On the desktop it sat over the note list for days ("it's blocking
+ * everything"), partly because it fired for meetings the machine was still
+ * sending (see `handedOver` in `record.ts`). A notice that hides content is a
+ * second failure on top of the first, so it now hugs its text, wears the
+ * chrome every floating control wears with a red dot rather than a red box
+ * (no tinted boxes), and has a close button.
  *
- * `Toast` exists and is wrong for this. A toast is eight seconds long, which is
- * tuned for an undo somebody is already looking at; a meeting that did not save
- * is still not saved eight seconds later, and a notice that removes itself is a
- * notice that can be missed by being in another room. **This has no dismiss.**
- * It is up while the meeting is stranded and it goes when the meeting is filed
- * or discarded — which are the two things that make it untrue.
+ * Closing hides the notice for this meeting's current problem only
+ * (`dismissNotice`, `unacknowledgedStranded`). The recording stays on the
+ * device, in the Meetings list and on its own page with Retry and Copy note,
+ * and a different problem brings the notice back. Nothing is lost by closing.
  *
  * ## Why it stands down for a live recording
  *
- * `RecordingBar` occupies this exact slot — same inset, same height, same
- * floated edge — and `zIndex` cannot arbitrate between them, because every
- * react-native-web `View` opens a stacking context and they are in different
- * ones (`docs/decisions/app-and-console.md`). Two bars in one place is the
- * defect `RecordingBar`'s own header is mostly about.
+ * `RecordingBar` occupies this exact slot, and `zIndex` cannot arbitrate
+ * between them because every react-native-web `View` opens a stacking context
+ * (`docs/decisions/app-and-console.md`). Somebody recording now is also the
+ * one person who must not be pulled away from it.
  *
- * It is also the right call on its own terms. Somebody recording *now* is the
- * one person who must not be pulled away from it, and a meeting that failed an
- * hour ago will still have failed when they stop. The bar comes up the moment
- * the recording ends.
+ * ## What it offers
  *
- * ## What it offers, and why Retry is on the bar itself
- *
- * One press, in place. The whole failure this exists for is a person who did
- * not know there was anything to press; putting the press three screens away
- * behind a notice would be the same bug with a sentence in front of it. Tapping
- * the body opens the meeting, which is where the reason, the transcript and
- * Copy note are.
+ * Retry, in place, when retrying can help. Tapping the text opens the meeting,
+ * which is where the reason, the transcript and Copy note are. The close
+ * button is the third and last thing on it.
  */
 export function StrandedBar({ bottomInset = 0 }: { bottomInset?: number }) {
   const styles = useThemedStyles(makeStyles);
@@ -68,13 +58,8 @@ export function StrandedBar({ bottomInset = 0 }: { bottomInset?: number }) {
   const router = useRouter();
   const pathname = usePathname();
 
-  const stranded = strandedMeetings(snapshot.records);
-  /*
-    The first one, and a count for the rest. A bar wide enough for one meeting
-    that lists three is a bar that names none of them legibly — and the count
-    is what stops "Jhon / Seyi didn't save" from reading as though it is the
-    only thing wrong.
-  */
+  const stranded = unacknowledgedStranded(snapshot.records);
+  // The first one, and a count for the rest.
   const first = stranded[0] ?? null;
   const id = first?.session.id ?? null;
   const landing = first === null ? null : meetingLanding(first);
@@ -90,30 +75,29 @@ export function StrandedBar({ bottomInset = 0 }: { bottomInset?: number }) {
     else void meetings.retry(id);
   }, [id, landing?.retry]);
 
+  const dismiss = useCallback(() => {
+    // Every one it is naming, not only the first: "+2" closed is three
+    // notices closed, or the next press would be a surprise.
+    for (const record of stranded) meetings.dismissNotice(record.session.id);
+  }, [stranded]);
+
   if (first === null || landing === null) return null;
-  // A recording owns this slot. See the header — both for the geometry and for
-  // the reason it is right anyway.
   if (snapshot.live !== null) return null;
-  // The meeting's own screen says all of this, with room to say it properly.
   if (pathname === meetingHref(first.session.id)) return null;
 
   const others = stranded.length - 1;
+  const name = others > 0 ? `${first.session.title} +${others}` : first.session.title;
   const label =
     `${first.session.title} was not saved to your context. ${landing.title}` +
     (others > 0 ? ` And ${others} more like it.` : "");
 
   return (
     <View
+      pointerEvents="box-none"
       style={[styles.slot, { bottom: floatingStackBottom(bottomInset, chrome) }]}
-      accessibilityRole="alert"
-      accessibilityLabel={label}
-      testID="stranded-bar"
+      testID="stranded-bar-slot"
     >
-      <View style={styles.bar}>
-        <View style={styles.mark}>
-          <Icon name="close" size={15} color={styles.markGlyph.color} />
-        </View>
-
+      <View style={styles.bar} accessibilityRole="alert" accessibilityLabel={label} testID="stranded-bar">
         <Pressable
           onPress={open}
           accessibilityRole="button"
@@ -121,24 +105,37 @@ export function StrandedBar({ bottomInset = 0 }: { bottomInset?: number }) {
           style={styles.middle}
           testID="stranded-bar-open"
         >
-          <Text variant="mini" style={styles.title} numberOfLines={1}>
-            {others > 0 ? `${first.session.title} +${others}` : first.session.title}
+          <View style={styles.dot} />
+          <Text variant="foot" style={styles.title} numberOfLines={1}>
+            {name}
           </Text>
           <Text variant="foot" style={styles.reason} numberOfLines={1}>
-            Not saved to your context
+            not saved
           </Text>
         </Pressable>
 
+        {landing.retry !== null ? (
+          <Pressable
+            onPress={retry}
+            accessibilityRole="button"
+            accessibilityLabel={`Try saving ${first.session.title} again`}
+            style={({ pressed }) => [styles.action, pressed && styles.pressed]}
+            testID="stranded-bar-retry"
+          >
+            <Text variant="foot" style={styles.actionLabel}>
+              Retry
+            </Text>
+          </Pressable>
+        ) : null}
+
         <Pressable
-          onPress={retry}
+          onPress={dismiss}
           accessibilityRole="button"
-          accessibilityLabel={`Try saving ${first.session.title} again`}
-          style={({ pressed }) => [styles.action, pressed && styles.pressed]}
-          testID="stranded-bar-retry"
+          accessibilityLabel="Close this notice. The meeting stays in Meetings."
+          style={({ pressed }) => [styles.close, pressed && styles.pressed]}
+          testID="stranded-bar-dismiss"
         >
-          <Text variant="mini" style={styles.actionLabel}>
-            Retry
-          </Text>
+          <Icon name="close" size={14} color={styles.closeGlyph.color} />
         </Pressable>
       </View>
     </View>
@@ -151,49 +148,45 @@ const makeStyles = (colors: Colors, shadows: Shadows) =>
       position: "absolute",
       left: layout.bottomBarInset,
       right: layout.bottomBarInset,
+      // Centred and hugging its content, so the band either side of it stays
+      // clickable (`box-none`) and the notice covers one line of a list, not
+      // the width of the window.
+      alignItems: "center",
       // Ordering among siblings only — see `RecordingBar`'s note and the
       // stacking-context section of `docs/decisions/app-and-console.md`. This
       // is correct because it is mounted last in the layout that holds it.
       zIndex: 1,
     },
     bar: {
-      minHeight: layout.bottomBarHeight,
+      maxWidth: "100%",
       borderRadius: radii.pill,
-      /*
-        The crit wash rather than the chrome the recording bar wears. This is
-        the one piece of floating furniture in the app that is about something
-        being wrong, and it may not read as another neutral pill somebody has
-        learned to look past.
-      */
-      backgroundColor: colors.critWash,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.crit,
+      backgroundColor: colors.chrome,
       boxShadow: shadows.floating,
       flexDirection: "row",
       alignItems: "center",
-      gap: space.x2,
-      paddingHorizontal: layout.bottomBarPad,
-      paddingVertical: space.x2,
+      gap: space.x1,
+      paddingLeft: space.x3,
+      paddingRight: space.x1,
+      paddingVertical: 0,
     },
-    mark: {
-      width: layout.chromeButton,
-      height: layout.chromeButton,
-      borderRadius: radii.pill,
-      backgroundColor: colors.crit,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    markGlyph: { color: colors.ground },
-    middle: { flex: 1, gap: 1 },
-    title: { color: colors.text, fontWeight: "600" },
-    reason: { color: colors.critText },
+    middle: { flexShrink: 1, flexDirection: "row", alignItems: "center", gap: space.x2, minHeight: layout.chromeButton },
+    dot: { width: 8, height: 8, borderRadius: radii.pill, backgroundColor: colors.crit },
+    title: { color: colors.text, fontWeight: "600", flexShrink: 1 },
+    reason: { color: colors.critText, flexShrink: 0 },
     action: {
       minHeight: layout.chromeButton,
       justifyContent: "center",
-      paddingHorizontal: space.x3,
+      paddingHorizontal: space.x2,
       borderRadius: radii.pill,
-      backgroundColor: colors.crit,
     },
-    actionLabel: { color: colors.ground, fontWeight: "600", fontSize: t.meta },
-    pressed: { opacity: 0.8 },
+    actionLabel: { color: colors.text, fontWeight: "600", fontSize: t.meta },
+    close: {
+      width: layout.chromeButton,
+      height: layout.chromeButton,
+      borderRadius: radii.pill,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    closeGlyph: { color: colors.muted },
+    pressed: { opacity: 0.6 },
   });
