@@ -32,7 +32,7 @@
  * @param {"main"|"think"} tier what the router picked
  * @param {string} main the setup's everyday model
  */
-export function planFor(router, tier, main) {
+export function thinkRoundsFor(router, tier, main) {
   if (router === null || tier !== "think") return null;
   const rounds = router.thinkRounds;
   if (!Number.isInteger(rounds) || rounds < 1) return null;

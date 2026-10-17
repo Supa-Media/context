@@ -50,7 +50,7 @@ import { systemPrompt } from "./prompt.js";
 import { localNowPrompt } from "./localNow.js";
 import { workspacesPrompt } from "./workspaces.js";
 import { pickTier } from "./router.js";
-import { addModelUsage, failedCall, modelForRound, planFor } from "./modelPlan.js";
+import { addModelUsage, failedCall, modelForRound, thinkRoundsFor } from "./modelPlan.js";
 import { PROGRESS_PROMPT, PROGRESS_TOOL } from "./progress.js";
 import { usedTools } from "./conversation.js";
 import { SIX_TOOLS, sixToolsOver } from "./sixTools.js";
@@ -368,7 +368,7 @@ export async function runTurn(options) {
     const routed = await pickTier({ decide: router.decide, text: [question, attachmentsLine(attachments)].filter(Boolean).join("\n"), history, routeAt: router.routeAt });
     usage.decision += routed.tokens;
     if (routed.tier === "think") model = router.think;
-    plan = planFor(router, routed.tier, mainModel);
+    plan = thinkRoundsFor(router, routed.tier, mainModel);
     // How sure the router was that this text needs thinking, kept whether or
     // not it cleared the setup's cutoff: a benchmark tunes the cutoff from the
     // near misses. Absent when it picked another tier or did not answer.

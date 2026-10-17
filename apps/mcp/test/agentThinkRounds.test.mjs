@@ -35,7 +35,7 @@ import { test } from "node:test";
 
 import { aiGatewayConfig, resetCreditState } from "../src/agent/aiGateway.js";
 import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { meterParts, modelForRound, planFor } from "../src/agent/modelPlan.js";
+import { meterParts, modelForRound, thinkRoundsFor } from "../src/agent/modelPlan.js";
 import { parseSetup } from "../src/agent/production.js";
 import { runTurn } from "../src/agent/turn.js";
 import { priceUsd, runPriceUsd } from "../bench/report.mjs";
@@ -221,11 +221,11 @@ test("the fallback still takes over mid-plan, and the turn stays on it", async (
   assert.deepEqual(Object.keys(result.usageByModel).sort(), ["@cf/acme/spare", "@cf/acme/think"]);
 });
 
-test("planFor and modelForRound: a plan only for a think pick with think_rounds", () => {
-  assert.equal(planFor(null, "think", HAIKU), null);
-  assert.equal(planFor({ think: OPUS }, "think", HAIKU), null, "no think_rounds: the whole turn on think");
-  assert.equal(planFor({ think: OPUS, thinkRounds: 1 }, "main", HAIKU), null);
-  const plan = planFor({ think: OPUS, thinkRounds: 2 }, "think", HAIKU);
+test("thinkRoundsFor and modelForRound: a plan only for a think pick with think_rounds", () => {
+  assert.equal(thinkRoundsFor(null, "think", HAIKU), null);
+  assert.equal(thinkRoundsFor({ think: OPUS }, "think", HAIKU), null, "no think_rounds: the whole turn on think");
+  assert.equal(thinkRoundsFor({ think: OPUS, thinkRounds: 1 }, "main", HAIKU), null);
+  const plan = thinkRoundsFor({ think: OPUS, thinkRounds: 2 }, "think", HAIKU);
   assert.deepEqual(plan, { think: OPUS, main: HAIKU, rounds: 2 });
   assert.deepEqual([0, 1, 2, 3].map((round) => modelForRound(plan, round, false).model), [OPUS, OPUS, HAIKU, HAIKU]);
   assert.deepEqual(modelForRound(plan, 3, true), { model: OPUS, reason: "escalated" });
