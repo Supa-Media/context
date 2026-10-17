@@ -24,7 +24,8 @@ counted against the same daily cap.
 
 **What it does** (`apps/mcp/src/agent/dream.js`). It reads the transcripts
 written since the last dream (`tex/transcripts/`, at most six notes; a first
-dream looks back three days and also reads `index.md`), shows the model the
+dream looks back three days and takes a first look around the workspace, see
+below), shows the model the
 current note, and lets it rewrite `tex/about-me.md` once. A night with nothing
 new and a note already started is `nothing_new` and runs no model.
 
@@ -71,7 +72,7 @@ token and workspace to `POST /gateway/dreams/start`
 person's `texDreams` row due now, and the minute cron hands it out through
 the same claim as a nightly dream, with the same re-checks, the dreams
 client's own 15-minute grant, the `dream.run` audit and the same one-note
-dispatcher. A first dream still looks back three days and reads `index.md`.
+dispatcher. A first dream still looks back three days and takes a first look.
 
 **Who, and how often.** Only a grant that clears `gatewayOwnerClearance` on
 the person's own personal workspace (owner, write, private); never a shared
@@ -101,3 +102,37 @@ only the dream's turn checks tells the agent "started" for a dream that will
 be refused for want of Premium; no window lets a looping agent spend a model
 turn a minute on one note. Tests: `apps/convex/__tests__/dreamNow.test.ts`,
 `apps/mcp/test/dreamNow.test.mjs`.
+
+## A first look, whenever there is no note yet (2026-10-17)
+
+Reported by the owner (Dev2), 2026-10-17: "some users do not have an about me
+and a first look at their workspaces." A first dream read only `index.md`;
+with no front page and no texts it wrote nothing, which still counted as
+dreamed, so `since` was set and every later night with no texts was
+`nothing_new`. They were left with no note until they texted.
+
+**Now.** Any dream that finds no `tex/about-me.md` (missing or empty) is a
+first dream, whatever `since` says, and runs a model even with no
+transcripts. Its words (`FIRST_LOOK` in `dream.js`, always added under
+Tonight, after the setup note's own words) tell it to look around first (the
+whole map, `index.md`, the newest project and area notes, the newest mail in
+`0-inbox/email/`) and always start the note, marking guesses as guesses. A
+first dream gets 20 rounds and passes `roundCap`, since `runTurn` otherwise
+cuts every job to 8, which had silently cut the dream's 12 too.
+
+**The backfill.** An hourly sweep (`armFirstLooks`,
+`apps/convex/functions/lib/dreams/firstLook.ts`) makes a dream due now for
+each person whose phone was linked a day or more ago, who has no live
+`tex/about-me.md` tree row, no dream armed or under way, and no first look
+before (`texDreams.firstLookAt`, once each). It only writes a schedule row, so
+the claim's re-checks and the one-note dispatcher hold as for any dream, and a
+note that exists is never touched. The day's wait leaves new people to
+onboarding, which starts when the note is missing and writes it from their
+mail.
+
+**What a simplification would cost:** keying `first` on `since` again leaves
+anyone whose first dream found nothing without a note for good; sweeping
+without `firstLookAt` dreams every hour about someone whose workspace is
+empty; sweeping a new phone beats onboarding to the note. Tests:
+`apps/mcp/test/agentDream.test.mjs` ("a first look"),
+`apps/convex/__tests__/dreamsFirstLook.test.ts`.

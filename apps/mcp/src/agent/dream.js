@@ -12,6 +12,8 @@
  *
  *   1. It finds the day's transcripts (`tex/transcripts/`, `transcript.js`)
  *      written since the last dream, and reads `tex/about-me.md` (`aboutMe.js`).
+ *      With no note yet it is a first look: it also looks around their
+ *      workspace and always starts the note (`FIRST_LOOK`).
  *   2. A model reads them and rewrites `tex/about-me.md`, under the same
  *      500-line cap every write to it has. It may read their notes and write
  *      that one note, and nothing else: no other note, no other workspace, no
@@ -51,6 +53,8 @@ export const MAX_DREAM_TRANSCRIPTS = 6;
 /** A first dream (or one whose `since` is unknown) looks back this many days. */
 export const FIRST_DREAM_DAYS = 3;
 const DREAM_ROUNDS = 12;
+/** A first dream also takes a first look around their workspace, so it gets more rounds. */
+export const FIRST_DREAM_ROUNDS = 20;
 const MAX_WHY_CHARS = 4_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -131,6 +135,21 @@ export const DREAM_INSTRUCTIONS = [
 ].join("\n\n");
 
 /**
+ * A first dream's extra words: `tex/about-me.md` does not exist yet, so it
+ * takes a first look around their workspace and starts the note from that,
+ * even with no texts to read (the owner, 2026-10-17: "some users do not have
+ * an about me and a first look at their workspaces"). Before this a first
+ * dream read only `index.md`, and with no front page and no texts it wrote
+ * nothing, which left them without the note for good.
+ */
+export const FIRST_LOOK = [
+  `This is your first dream about them, and ${ABOUT_ME_PATH} doesn't exist yet. Take a first look at their workspace before you write:`,
+  "list_notes with no prefix for the whole map; index.md, their front page, if it exists; then their newest notes in their projects and areas folders, and their newest mail in 0-inbox/email/ if there is any.",
+  `Then write a first ${ABOUT_ME_PATH} from what you found: who they are, what they work on, the people around them, how they keep their notes. ` +
+    "Start it even if you learn only a little, and mark a guess as a guess. Never leave it unwritten on a first dream.",
+].join(" ");
+
+/**
  * What the dream is asked to do: the setup's words (`instructions`, the
  * production note's body) or the built-in ones, then tonight's facts.
  */
@@ -141,9 +160,7 @@ export function dreamQuestion({ transcripts, first, since, timeZone, instruction
     transcripts.length > 0
       ? `Read these transcripts of your texts with them (tool calls and thinking included, never what a tool returned):\n${transcripts.map((path) => `- ${path}`).join("\n")}`
       : "There are no transcripts of your texts with them yet.",
-    first
-      ? "This is your first dream about them: also read index.md, their front page, if it exists, and start the note from what it says about them."
-      : "",
+    first ? FIRST_LOOK : "",
   ].filter(Boolean);
   const words = typeof instructions === "string" && instructions.trim() !== "" ? instructions.trim() : DREAM_INSTRUCTIONS;
   return [words, "## Tonight", ...tonight].join("\n\n");
@@ -244,7 +261,9 @@ export async function handleDream(request, env, store, session, controlPlane) {
   const listing = listed?.isError === true ? "" : (listed?.content ?? []).map((part) => part?.text ?? "").join("\n");
   const transcripts = transcriptsToRead(listing, { since, now: started, timeZone });
   const before = await readAboutMe(dispatch);
-  const first = since === null && before === "";
+  // No note yet is a first dream, whatever `since` says: an earlier first dream
+  // that wrote nothing must not leave them without one.
+  const first = before === "";
   // Nothing new to read and a note already started: tonight is quiet, and costs no model turn.
   if (transcripts.length === 0 && !first) return json({ outcome: "nothing_new" });
 
@@ -282,7 +301,9 @@ export async function handleDream(request, env, store, session, controlPlane) {
       aboutMe: before,
       localNow: { now: started, timeZone },
       observe: (event) => events.push(event),
-      maxRounds: DREAM_ROUNDS,
+      maxRounds: first ? FIRST_DREAM_ROUNDS : DREAM_ROUNDS,
+      // Without this, runTurn's default cap (8) would silently cut both down.
+      roundCap: FIRST_DREAM_ROUNDS,
     });
   } catch (error) {
     await meter(null, true, error instanceof ProviderError ? error.model : model);
