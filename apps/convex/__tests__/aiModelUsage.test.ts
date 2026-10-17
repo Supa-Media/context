@@ -178,8 +178,9 @@ describe("a built-in turn names its model", () => {
 
   test("a refused turn writes nothing to aiModelUsage", async () => {
     const t = setupTest();
-    const { workspaceId, accessToken } = await texter(t, { paying: false });
-    expect(await ask(t, accessToken)).toEqual({ allowed: false, reason: "not_premium" });
+    const { workspaceId, accessToken } = await texter(t);
+    await t.run((ctx) => ctx.db.insert("jevSwitches", { feature: BUILTIN_FEATURE, off: true, updatedAt: Date.now() }));
+    expect(await ask(t, accessToken)).toEqual({ allowed: false, reason: "switched_off" });
     expect(await modelRows(t, workspaceId)).toEqual([]);
   });
 });

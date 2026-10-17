@@ -197,13 +197,11 @@ describe("asking", () => {
 });
 
 describe("the gate", () => {
-  test("a workspace that is not Premium is told so, and nothing is armed", async () => {
+  test("a workspace that is not paying may dream too: Tex is free (2026-10-17)", async () => {
     const t = setupTest();
     const { userId, workspaceId } = await person(t, "ada", { premium: false });
     const token = await grant(t, workspaceId, userId);
-    expect(await ask(t, token, workspaceId)).toEqual({ status: "not_included" });
-    expect(await row(t, userId)).toBeNull();
-    expect(await requested(t, workspaceId)).toEqual([]);
+    expect(await ask(t, token, workspaceId)).toEqual({ status: "started" });
   });
 
   test("the built-in model switched off is unavailable", async () => {

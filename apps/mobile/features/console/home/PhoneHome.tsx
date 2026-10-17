@@ -7,6 +7,7 @@ import { useColors, useThemedStyles, type Colors, type Shadows } from "../../des
 import {
   buildHome,
   countLabel,
+  recentLabel,
   whenLabel,
   type HomeOpened,
   type HomePin,
@@ -224,13 +225,18 @@ export function PhoneHome({
               <NoteRow
                 key={note.path}
                 note={note}
-                when={whenOf(note.seenAt ?? note.updatedAt, now)}
+                when={note.seenAt === undefined ? whenOf(note.updatedAt, now) : recentLabel(note.seenKind, note.seenAt, now)}
                 onPress={() => onOpen(note.path)}
                 onLongPress={hold(note.path)}
                 opening={opening === note.path}
               />
             ))}
           </Card>
+          {recents === null ? null : (
+            <Text variant="treeMeta" style={[styles.foot, styles.recentRule]}>
+              Notes you opened or typed in, on any device.
+            </Text>
+          )}
         </Section>
       )}
 
@@ -331,4 +337,5 @@ const makeStyles = (colors: Colors, shadows: Shadows) =>
     railTile: { width: 148 },
     empty: { paddingHorizontal: space.x1 },
     foot: { color: colors.muted },
+    recentRule: { paddingHorizontal: space.x1, paddingTop: space.x1 },
   });

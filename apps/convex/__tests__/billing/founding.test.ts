@@ -261,11 +261,11 @@ describe("Tex's dream sees a founding account as Premium", () => {
     expect(await dreamVerdict(t, founder, "dreamer")).toMatchObject({ allowed: true });
   });
 
-  test("the 101st account's dream is refused as not Premium", async () => {
+  test("the 101st account's dream may use it too: Tex is free, only the cap differs", async () => {
     const t = setupTest();
     await accounts(t, FOUNDING_PREMIUM_ACCOUNTS);
     const late = await createUser(t, "late-dreamer@example.invalid");
     await catchUp(t);
-    expect(await dreamVerdict(t, late, "late-dreamer")).toEqual({ allowed: false, reason: "not_premium" });
+    expect(await dreamVerdict(t, late, "late-dreamer")).toMatchObject({ allowed: true });
   });
 });

@@ -587,7 +587,7 @@ describe("no public function can reach a storage secret", () => {
     expect(PUBLIC_FORBIDDEN_FIELDS).toContain("encryptedsecretaccesskey");
     expect(PUBLIC_FORBIDDEN_FIELDS).toContain("encryptedsetupcredential");
     expect(BARRIER_FORBIDDEN_FIELDS).toContain("encryptedsetupcredential");
-    // The legacy token columns, which the hand-written list never knew about.
+    // The Google token columns, which the hand-written list never knew about.
     expect(PUBLIC_FORBIDDEN_FIELDS).toContain("encryptedrefreshtoken");
     expect(PUBLIC_FORBIDDEN_FIELDS).toContain("encryptedaccesstoken");
     expect(PUBLIC_FORBIDDEN_FIELDS).toContain("encryptedverifier");

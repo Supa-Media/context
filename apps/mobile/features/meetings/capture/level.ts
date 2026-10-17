@@ -195,3 +195,90 @@ export function onRecorderLevel(listener: (level: number | null) => void): () =>
     recorderLevelListeners.delete(listener);
   };
 }
+
+/* --------------------------- two lines: You, Call -------------------------- */
+
+/**
+ * The microphone and the call, measured apart, for the live card's two lines.
+ *
+ * `loudest` above argued that two meters would be read wrong, and for a mark
+ * that answers *"can it hear anything"* it still is: the phone's transport
+ * keeps the one mark. The console's card asks a different question, the one
+ * that cost people half their calls: *is the call itself being heard?* Two
+ * labelled lines answer it at a glance, and a flat Call line beside a moving
+ * You line is the warning before the warning (Dev2, 2026-10-17). `call` is
+ * `null` wherever nothing is measuring a call — no share, a phone, a shell
+ * with no loopback tap — and the card draws that as a flat grey line, never a
+ * quiet green one.
+ */
+export interface SplitLevel {
+  you: number | null;
+  call: number | null;
+}
+
+const splitListeners = new Set<(level: SplitLevel | null) => void>();
+
+/** The browser recorder's two readings. `null` when nothing is listening. */
+export function publishRecorderSplit(level: SplitLevel | null): void {
+  for (const listener of splitListeners) {
+    try {
+      listener(level);
+    } catch {
+      // Same rule as `publishRecorderLevel`: a screen's bug never stops capture.
+    }
+  }
+}
+
+export function onRecorderSplit(listener: (level: SplitLevel | null) => void): () => void {
+  splitListeners.add(listener);
+  return () => {
+    splitListeners.delete(listener);
+  };
+}
+
+function clamp(value: number): number {
+  return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0;
+}
+
+/**
+ * Subscribe to both lines while `live`. The shell's bridge already carries the
+ * pair; the browser's recorder publishes it beside its single level; a phone
+ * has only the one, which is the You line with no Call.
+ */
+export function useSplitAudioLevel(
+  live: boolean,
+  bridgeOf: () => DesktopBridge | null = getDesktopBridge,
+): SplitLevel | null {
+  const [level, setLevel] = useState<SplitLevel | null>(null);
+
+  useEffect(() => {
+    if (!live) {
+      setLevel(null);
+      return;
+    }
+    const bridge = bridgeOf();
+    if (bridge !== null && typeof bridge.onLevel === "function") {
+      const off = bridge.onLevel((reading) =>
+        setLevel({ you: clamp(reading.mic), call: clamp(reading.systemAudio) }),
+      );
+      return () => {
+        off();
+        setLevel(null);
+      };
+    }
+    const offSplit = onRecorderSplit(setLevel);
+    // A recorder that only knows one number (the phone's) still moves the You line.
+    const offSingle = onRecorderLevel((single) =>
+      setLevel((now) =>
+        now !== null && now.call !== null ? now : single === null ? null : { you: single, call: null },
+      ),
+    );
+    return () => {
+      offSplit();
+      offSingle();
+      setLevel(null);
+    };
+  }, [live, bridgeOf]);
+
+  return level;
+}

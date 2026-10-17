@@ -18,7 +18,8 @@ import {
 import { collaborationHead } from "../../live/collaborationHttp.js";
 import { contextNameFor } from "../../context/identity.js";
 import { isEncryptedNote } from "../../encryption.js";
-import { isKeyedWorkspace, KEYED_PATH_REFUSAL } from "../../store/idLayout.js";
+import { isKeyedWorkspace } from "../../store/idLayout.js";
+import { moveNoteAcrossKeyed } from "./acrossKeyed.js";
 import { normalizePath } from "../../notes/paths.js";
 import { recordChange } from "../../activity/record.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
@@ -40,10 +41,10 @@ export async function toolMoveNoteAcrossContexts(
   }
   if (isPlumbing(source) || isPlumbing(destination)) return toolError("that path is reserved");
   // Either side keyed: this reads and retires paths, and a keyed note's bytes
-  // are not at its path. Each side would need its own id layer to move
-  // correctly, so neither is moved; refused before anything is read or written.
+  // are not at its path. The control plane's engine moves it instead
+  // (`acrossKeyed.js`), before anything here is read or written.
   if ((await isKeyedWorkspace(sourceStore)) || (await isKeyedWorkspace(destinationStore))) {
-    return toolError(KEYED_PATH_REFUSAL);
+    return await moveNoteAcrossKeyed(sourceStore, sourceSession, destinationSession, source, destination, expectedSourceEtag);
   }
 
   const sourcePrivacy = await loadPrivacyState(sourceStore);

@@ -159,19 +159,6 @@ crons.interval(
   {},
 );
 
-/**
- * Empty the rows Dropbox left behind (`functions/dropboxRemoval.ts`): Dropbox
- * storage bindings and parked connect attempts, a page at a time. It touches
- * no note, tree row or bucket. Once every deployment counts zero, this entry,
- * the purge and the legacy schema lines go together.
- */
-crons.interval(
-  "empty the rows Dropbox left behind",
-  { hours: 1 },
-  internal.functions.dropboxRemoval.purge,
-  {},
-);
-
 crons.interval(
   "sweep agent turns past their retention",
   { hours: 1 },

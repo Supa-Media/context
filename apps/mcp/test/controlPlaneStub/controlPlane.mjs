@@ -737,7 +737,7 @@ export function createControlPlaneStub(options = {}) {
       case "/gateway/feedback": {
         if (!(await grantForAccessToken(body.accessToken))) return ok({ report: null });
         if (flags.feedbackRefusal) return ok({ report: null, refused: flags.feedbackRefusal });
-        feedback.push({ accessToken: body.accessToken, message: body.message });
+        feedback.push({ accessToken: body.accessToken, message: body.message, texts: body.texts });
         return ok({ report: { eventId: "0".repeat(31) + feedback.length } });
       }
 

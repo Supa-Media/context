@@ -4,6 +4,8 @@ import { layout } from "../../../design/tokens";
 import { Reveal } from "../../../design/components/Reveal";
 import { DrawingEditor } from "../DrawingEditor";
 import { ActivityPage } from "../../activity/ActivityPage";
+import { ACTIVITY_PATH } from "../../activity/activity";
+import { lastChangeOf } from "../../activity/lastChange";
 import { LockedNoteView } from "../../encryption/LockedNoteView";
 import { LiveEditor } from "../LiveEditor";
 import { Properties } from "./Properties";
@@ -137,6 +139,16 @@ export function noteDocument(view: NoteView) {
     !activityList &&
     chipsFit(state.path);
   const adding = addAsked > 0 && wholeEdit !== undefined;
+  /*
+    Who changed this note last, when it was not the reader's own hand (board 3,
+    option A, owner 2026-10-17): Recent lists only what they did, so their
+    agents' work is said here, where the note is.
+  */
+  const changed = activity === undefined ? null : lastChangeOf(activity.entries, state.path, activity.me ?? null, Date.now());
+  const lastChange =
+    changed === null
+      ? null
+      : { text: changed.text, onOpen: onOpenNote === undefined ? undefined : () => onOpenNote(ACTIVITY_PATH) };
   // Where the note's own first character is — see the Properties call below.
   const gutter = compact ? layout.readingMargin : noteGutterFor(docWidth);
   const localTitleEdit = (text: string) => {
@@ -323,6 +335,7 @@ export function noteDocument(view: NoteView) {
             edit={wholeEdit}
             source={folderLists}
             onOther={wholeEdit === undefined ? undefined : () => setAddAsked(addAsked + 1)}
+            lastChange={lastChange}
           />
         ) : null}
         <LiveEditor

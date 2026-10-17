@@ -20,7 +20,7 @@
 
 import { TRANSCRIPTION_ENGINES } from "./protocol.js";
 import { DEFAULT_TITLE } from "./session.js";
-import { UNKNOWN_SPEAKER, formatClock, groupIntoTurns } from "./transcript.js";
+import { UNKNOWN_SPEAKER, formatClock, labelledTurns } from "./transcript.js";
 
 /** @typedef {import("./protocol.js").MeetingSession} MeetingSession */
 
@@ -473,7 +473,7 @@ function transcriptBody(session, offsetMs, maxGapMs) {
   const flags = (session.flags ?? []).map((flag) =>
     shift === 0 || !flag || typeof flag.at !== "number" ? flag : { ...flag, at: flag.at + shift }
   );
-  const turns = groupIntoTurns(segments, { maxGapMs });
+  const turns = labelledTurns(segments, session.attendees, { maxGapMs });
   /*
     A flag sits *after* the turn it was pressed during — you press during a
     sentence, and the mark reads as a note on what was just said — except for

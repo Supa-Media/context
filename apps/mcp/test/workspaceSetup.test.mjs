@@ -225,6 +225,27 @@ test("Tex asks by text before claiming a handle, and the texted YES claims it", 
   }
 });
 
+test("on a texted turn, Tex gets the Gmail link and lays out a workspace (onboarding by text)", async () => {
+  const before = setupCalls().length;
+  model.requests.length = 0;
+  model.install([
+    {
+      toolCalls: [
+        { name: "manage", args: { action: "connect_google", args: { kind: "gmail" } } },
+        { name: "manage", args: { action: "layout", args: { template: "business" }, context: "@homer-team" } },
+      ],
+    },
+    { text: "Tap Connect on this page, then text me." },
+  ]);
+  assert.equal(await text("ready"), "Tap Connect on this page, then text me.");
+  assert.equal(setupCalls().length, before + 2, "both reached the control plane");
+  assert.equal(setupCalls().at(-1).workspaceId, "ws_team");
+  // What the model read back: the app's page, and that a new person signs in by phone first.
+  const results = JSON.stringify(model.requests.at(-1));
+  assert.match(results, /console\/@homer\?settings=integrations/);
+  assert.match(results, /phone number/);
+});
+
 test("a connection that cannot write never reaches the control plane", async () => {
   const before = setupCalls().length;
   for (const [action, args] of [

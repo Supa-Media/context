@@ -6,7 +6,8 @@
  * path is a frozen copy nothing reads again. So:
  *  - the whole-bucket rotation walks the tree's names (the layer routes each
  *    to its live bytes), and reports every rewrap it makes to the tree;
- *  - a folder move and a move across workspaces refuse outright;
+ *  - a folder move refuses outright, and so does a move across workspaces
+ *    from a store with no control plane to ask (`keyedMoveAcross.test.mjs`);
  *  - a queued materialize refuses when the control plane says the workspace is keyed.
  *
  * Sabotage, each run as a temporary local edit and reverted, and each failing here:

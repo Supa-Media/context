@@ -96,6 +96,17 @@ export const NO_SPEECH =
 */
 export const SYSTEM_AUDIO_UNSHARED = "Only your voice is being recorded.";
 
+/** Said, quietly, when the person chose to record the room with no call. */
+export const CALL_AUDIO_ROOM = "Recording the room.";
+
+/**
+ * Said, quietly, when this browser was not asked for the call's audio because
+ * it shared none the last two times. Not a warning: nothing was chosen wrong.
+ */
+export function callAudioSkipped(browser: string): string {
+  return `Recording your voice only. ${browser} didn't share call audio the last two times.`;
+}
+
 /** The share was stopped from the browser's own bar, mid-meeting. */
 export const SYSTEM_AUDIO_ENDED = "Call audio stopped. Only your voice is being recorded.";
 
@@ -126,6 +137,7 @@ export const CAPTURE_MESSAGES: readonly string[] = Object.freeze([
   NO_SESSION_ID,
   SYSTEM_AUDIO_UNSHARED,
   SYSTEM_AUDIO_ENDED,
+  CALL_AUDIO_ROOM,
   ALREADY_RECORDING,
 ]);
 

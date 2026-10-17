@@ -71,6 +71,9 @@ export const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingTop: space.x3,
     paddingBottom: space.x1,
   },
+  /** The heading with its small print beside it (`emptyNote`). */
+  headingRow: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between" },
+  headingNote: { flexShrink: 1, paddingRight: space.x4, paddingTop: space.x3, paddingBottom: space.x1 },
   empty: {
     paddingHorizontal: space.x4,
     paddingVertical: space.x5,

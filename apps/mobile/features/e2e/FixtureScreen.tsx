@@ -44,7 +44,7 @@ export interface FixtureParams {
   role?: string | string[];
   /** `screen=shared-link`: `no` draws a link addressed to a person rather than open to anyone. */
   anyone?: string | string[];
-  /** `screen=meeting-card`: `unshared`, `ended` or `desktop`, which call-audio warning to draw. */
+  /** `screen=meeting-card`: which call-audio state to draw; `MeetingCardFixture` lists them. */
   warn?: string | string[];
   checkout?: string | string[];
   screen?: string | string[];

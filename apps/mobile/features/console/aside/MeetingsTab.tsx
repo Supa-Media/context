@@ -8,7 +8,7 @@ import { Text } from "../../design/components/Text";
 import { layout, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { CallAudioWarning } from "../../meetings/components/CallAudioWarning";
-import { LiveWaveform } from "../../meetings/components/LiveWaveform";
+import { LiveMeters } from "../../meetings/components/LiveMeters";
 import { MeetingTitleField } from "../../meetings/components/MeetingTitleField";
 import { TransportMark } from "../../meetings/components/TransportMark";
 import { writeClipboard } from "../../design/clipboard";
@@ -227,13 +227,6 @@ function LiveMeeting({ record }: { record: MeetingRecord }) {
           <Text variant="mono" style={styles.liveClock} testID="aside-live-clock">
             {elapsed}
           </Text>
-          {/*
-            The one thing on this card that moves is the meter, and there is one
-            of it — `Waveform`'s rule, which the phone's transport learned the
-            hard way: a mark shaped like a meter claims to be measuring whether
-            or not anything is.
-          */}
-          <LiveWaveform live={!paused && !ending} testID="aside-live-level" />
         </View>
 
         <Text variant="foot" style={styles.dest} testID="aside-live-destination">
@@ -243,6 +236,13 @@ function LiveMeeting({ record }: { record: MeetingRecord }) {
               ? "Filed into your inbox when you stop."
               : `→ ${describeDestination(record.destination)}`}
         </Text>
+
+        {/*
+          Two lines, You and Call, where there was one mark beside the clock:
+          seeing the call move is how somebody knows the other side is being
+          heard (board m3, 2026-10-17). `LiveMeters` says why it is its own leaf.
+        */}
+        <LiveMeters live={!paused && !ending} testID="aside-live-level" />
 
         {ending ? (
           <Text variant="foot" style={styles.dest} testID="aside-live-ending">

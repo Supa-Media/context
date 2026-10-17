@@ -16,7 +16,7 @@ import { maskAccessKeyId } from "../crypto";
 import { managedBucketName } from "../managedStorage";
 import { requireWorkspaceAccess } from "../workspaceAuth";
 import { storageLayoutStateValidator } from "../storageLayout";
-import { capabilitiesValidator, isServedProvider } from "./shapes";
+import { capabilitiesValidator } from "./shapes";
 import {
   bindingIsManaged,
   ownerViewFor,
@@ -195,9 +195,7 @@ export async function getStorageBindingHandler(
     .query("storageBindings")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
     .unique();
-  // A legacy row from a removed provider is no binding the console can show:
-  // the member is offered storage to connect, as they would be with none.
-  if (binding === null || !isServedProvider(binding.provider)) return null;
+  if (binding === null) return null;
   const handoff = isOwner
     ? await ctx.db
       .query("managedStorageMigrations")

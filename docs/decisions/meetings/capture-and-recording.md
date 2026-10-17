@@ -150,6 +150,32 @@ carries three consequences that are the whole of this decision:
   would then be refused for a reason that has nothing to do with what anybody
   chose.
 
+**The picker is explained once, and a browser that keeps failing stops being
+asked (owner, 2026-10-17).** At the Supa Leadership Weekly the owner asked why
+every meeting "asks you to record your screen", and Arc on a Mac never shared
+sound though its permission was "already checked". So, per browser
+(`capture/callAudioMemory.ts`, in that browser's own storage, because whether a
+share carries sound is a fact about one browser on one machine):
+
+- until a share has carried sound there, Record first shows a short note in the
+  picker's own words, "Only the sound is used. Your screen is never recorded.",
+  and Continue is the press the picker rides;
+- after `STOP_ASKING_AFTER` (2) silent shares in a row, a meeting starts on the
+  microphone without the picker and says so in one muted line with Try again;
+  Settings › Meetings shows the same, and one share that works resets it;
+- "Nobody on a call? Record the room" on the note skips the picker for that one
+  meeting. It is not the removed switch: nothing is stored, and the next meeting
+  asks again.
+
+The default is unchanged: every meeting still asks for the call's audio
+wherever it can. Reverting this means the picker in front of every meeting
+again, with no word first, failing the same way each time —
+`meetingsCaptureWeb/callAudioMemory.test.ts` and `meetingsFlow.test.ts` fail.
+
+The console's live card draws two lines, You and Call, measured by one analyser
+per input, so a flat Call line is visible before any warning (board m3). The
+phone's transport keeps one mark: it answers "can it hear anything".
+
 **Three ways the ask comes back empty, and they are the ordinary case rather
 than the edge one.** The picker is cancelled; the source chosen carries no audio
 (system audio left off, a Mac older than macOS 14.2, anything at all on a
@@ -357,3 +383,43 @@ to put and no non-negotiable that would survive putting it there.
 What a "simplification" of this costs: drop the channel break and the far side
 of every call goes back inside a block attributed to whoever spoke first, which
 is worse than no attribution because it reads like evidence.
+
+### Route 1 is taken: the microphone gets your name and the call is "On the call", only on a session that had two sides (owner, 2026-10-17)
+
+The owner saw the You and Call meters (board m3) and asked for the same split
+in the transcript (board m5): *"we should even show that in the transcript to
+distinguish speakers"*. That is route 1 above, and it is built.
+
+- **Where the side comes from.** The desktop shell already records the
+  microphone and the machine's sound as two files, so its segments arrive
+  stamped `mic` or `system`. A browser records one mixed file, so the engine
+  answers `mixed`. The web recorder now keeps the meter readings it draws, ten a
+  second, for five minutes against the session clock
+  (`capture/talkTimeline.ts`), and re-stamps each segment with the side that
+  was clearly louder while it was said: one side must be over a voice floor, a
+  margin louder than the other (so a call bleeding into the microphone on
+  speakers is still the call), and hold 70% of the segment's voiced readings.
+  Anything closer is `mixed`. With no call reading in the window (a room
+  meeting, or a browser with no analyser) the segment keeps the engine's answer.
+- **What the evidence of two sides is.** At least one segment on `system`. A
+  room meeting, a share that carried no sound, and the phone (which never hears
+  a call) have none, so every line there stays `Speaker`. That is the guard
+  against the false attribution this section refused.
+- **What the lines are called** (`speakerLabeller` in `@context/meetings`):
+  - `mic` is the name on the session's own attendee row (`self: true`). The app
+    adds that row when a meeting starts, from the person's personal workspace
+    name, so the note reads right to anyone it is shared with. No name means
+    `Speaker`, never "You".
+  - `system` is `On the call`, because one file of call audio cannot tell two
+    callers apart.
+  - `mixed` is `Speaker`.
+  - A label an engine really produced still wins.
+- **The attendee count ignores the self row alone**, so a meeting nobody else
+  is known in still shows its source ("In person", "Zoom") and not "1 person".
+
+What a "simplification" costs:
+- Labelling `mic` without the two-sided check names the microphone in a room.
+  The check is `a meeting where the call said nothing never names the
+  microphone`.
+- Dropping the margin turns near-ties and speaker bleed into confident names.
+  The check is `two sides at nearly the same level name nobody`.

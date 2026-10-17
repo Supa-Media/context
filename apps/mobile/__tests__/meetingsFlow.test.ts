@@ -5,6 +5,11 @@
 import { beforeEach, describe, expect, jest, test } from "@jest/globals";
 import { act, createElement, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
+import {
+  STOP_ASKING_AFTER,
+  noteCallAudioShare,
+  setCallAudioStorage,
+} from "../features/meetings/capture/callAudioMemory";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -396,6 +401,7 @@ describe("the call's audio is always taken, with no setting and no question", ()
   async function startWith(
     capability: Partial<Recorder["capability"]>,
     chosen: boolean | null = null,
+    primer: "continue" | "room" | null = capability.systemAudioNeedsPicker === true ? "continue" : null,
   ): Promise<Recorder> {
     const { store, recorder } = await configure(capability);
     // The old settings switch's key, written the way it used to be.
@@ -406,9 +412,48 @@ describe("the call's audio is always taken, with no setting and no question", ()
     await settle();
     press("new-meeting");
     await settle();
+    if (primer !== null) {
+      // A browser that has never shared a call here is told what is coming first.
+      expect(text()).toContain("Record both sides of the call");
+      expect(recorder.startedWith).toBeNull();
+      press(primer === "continue" ? "meeting-call-audio-primer-continue" : "meeting-call-audio-primer-room");
+      await settle();
+    }
     mounted.unmount();
     return recorder;
   }
+
+  beforeEach(() => {
+    const map = new Map<string, string>();
+    setCallAudioStorage({
+      getItem: (key) => map.get(key) ?? null,
+      setItem: (key, value) => void map.set(key, value),
+      removeItem: (key) => void map.delete(key),
+    });
+  });
+
+  test("Continue on the first-time note is the press that opens the picker", async () => {
+    const recorder = await startWith({ systemAudio: true, systemAudioNeedsPicker: true }, null, "continue");
+    expect(recorder.startedWith?.systemAudio).toBe(true);
+  });
+
+  test("recording the room starts this one meeting without the call", async () => {
+    const recorder = await startWith({ systemAudio: true, systemAudioNeedsPicker: true }, null, "room");
+    expect(recorder.startedWith?.systemAudio).toBe(false);
+  });
+
+  test("once a share has worked in this browser, Record records with no note", async () => {
+    noteCallAudioShare(true);
+    const recorder = await startWith({ systemAudio: true, systemAudioNeedsPicker: true }, null, null);
+    expect(recorder.startedWith?.systemAudio).toBe(true);
+  });
+
+  test("a browser that has stopped being asked shows no note either", async () => {
+    for (let i = 0; i < STOP_ASKING_AFTER; i += 1) noteCallAudioShare(false);
+    const recorder = await startWith({ systemAudio: true, systemAudioNeedsPicker: true }, null, null);
+    // Still asked for: the recorder is what decides not to open the picker.
+    expect(recorder.startedWith?.systemAudio).toBe(true);
+  });
 
   test("the shell's silent tap is on, because it costs nothing to take", async () => {
     const recorder = await startWith({ systemAudio: true, systemAudioNeedsPicker: false });
