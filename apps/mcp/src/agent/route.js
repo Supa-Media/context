@@ -197,7 +197,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   if (session.actorClientId === TEXTS_CLIENT_ID) {
     const verdict = sent.length > 0 ? null : approvalVerdict(question); // a yes with a photo is about the photo
     if (verdict !== null) {
-      const settled = await settleByText(store, session, verdict);
+      const settled = await settleByText(store, session, verdict, question);
       if (settled !== null) {
         // The yes and what it released go in today's transcript too (`transcript.js`), after the reply.
         const noted = openTranscript(dispatch, { now: received, timeZone: readTimeZone(body.timeZone), question }).finish({ answer: settled });
@@ -598,7 +598,11 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     // said: a person can allow only what they were told about, and the model
     // relaying it is a courtesy rather than the mechanism.
     const { answer: told, pictures } = outgoing.take(turn.answer);
-    const answer = ledger.asked.length === 0 ? told : `${told}\n\n${askLine(ledger.asked)}`;
+    const ask = ledger.asked.length === 0 ? null : askLine(ledger.asked);
+    const answer = ask === null ? told : `${told}\n\n${ask}`;
+    // An email's ask is texted exactly as written (`apps/agent/src/reply.ts`):
+    // the person may allow only the copy they read, links and lines included.
+    const verbatim = ask !== null && ledger.asked.some((record) => typeof record.detail === "string") ? [ask] : [];
     /*
       A browser handed to the person goes out as a link the gateway adds, so
       the model never holds it. The link is their own `/tex/<handle>` page,
@@ -628,6 +632,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       // How many held calls the answer's last line asks about, so a caller that
       // plays the person (the bench) knows a YES is awaited; zero on a clean turn.
       asked: ledger.asked.length,
+      ...(verbatim.length > 0 ? { verbatim } : {}),
       ...(pictures.length > 0 ? { pictures } : {}),
       provider: turn.provider,
       model: turn.model,

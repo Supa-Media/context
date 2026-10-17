@@ -158,6 +158,39 @@ describe("replyTo", () => {
     expect(reply).toEqual(["Three things."]);
   });
 
+  it("texts an email the person must approve exactly as the gateway wrote it", async () => {
+    const ask = [
+      "Here is the email I'd send:",
+      "",
+      "To: jo@example.com",
+      "Subject: **Links**",
+      "",
+      "See [one](https://a.example/1), [two](https://a.example/2) and [three](https://a.example/3).",
+      "notes/plan.md",
+      "",
+      "Reply YES to send it now, or NO to drop it.",
+    ].join("\n");
+    const reply = await replyTo(
+      message("email jo the links"),
+      deps({
+        "/agent-texts/session": () => [200, { status: "linked", accessToken: "grant-for-this-person" }],
+        "/agent": () => [200, { answer: `I drafted it, see [the plan](https://a.example/plan).\n\n${ask}`, verbatim: [ask] }],
+      }),
+    );
+    expect(reply).toEqual(["I drafted it, see the plan.", "https://a.example/plan", ask]);
+  });
+
+  it("ignores a verbatim part the answer does not contain", async () => {
+    const reply = await replyTo(
+      message("hi"),
+      deps({
+        "/agent-texts/session": () => [200, { status: "linked", accessToken: "grant-for-this-person" }],
+        "/agent": () => [200, { answer: "**Hi.**", verbatim: ["Reply YES to send it now"] }],
+      }),
+    );
+    expect(reply).toEqual(["Hi."]);
+  });
+
   it("tells the gateway the person's time zone, so Tex knows the time where they are", async () => {
     const reply = await replyTo(
       message("remind me to sleep in 2 minutes"),

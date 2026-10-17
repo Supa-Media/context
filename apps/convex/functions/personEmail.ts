@@ -63,7 +63,9 @@ export const claimPersonEmail = internalMutation({
     // A person's mail is connected to their personal workspace, and only a
     // connection whose consent granted sending may send.
     const personal = await ownedPersonalWorkspace(ctx, cleared.actorUserId);
-    if (personal === null || personal.createdBy !== cleared.actorUserId) {
+    // Only from the person's own workspace: an editor grant on a shared one
+    // must not reach the mail of whoever holds it.
+    if (personal === null || personal.createdBy !== cleared.actorUserId || cleared.workspaceId !== personal._id) {
       return { ok: false as const, refused: "not_allowed" as const };
     }
     const connections = await ctx.db

@@ -214,7 +214,11 @@ export async function linkPhone(
 // ── Gateway ───────────────────────────────────────────────────────────────
 
 export type AgentAnswer =
-  | { kind: "answer"; text: string; pictures: OutgoingPicture[] }
+  /**
+   * `verbatim`: parts of `text` the gateway needs texted exactly as written,
+   * never reformatted (an email the person is asked to approve). Absent when none.
+   */
+  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; verbatim?: string[] }
   | { kind: "no_model" }
   | { kind: "daily_limit" }
   /** The gateway could not start the turn (503: nothing ran), so asking again is safe. */
@@ -267,11 +271,20 @@ export async function askAgent(
   return agentAnswer(result.status, result.json);
 }
 
+/** At most a few verbatim parts, each one a string the answer really contains. */
+function readVerbatim(value: unknown, answer: string): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((part): part is string => typeof part === "string" && part.trim() !== "" && answer.includes(part))
+    .slice(0, 5);
+}
+
 function agentAnswer(status: number, json: unknown): AgentAnswer {
   const body = record(json);
   const pictures = readPictures(body.pictures);
   if (status === 200 && typeof body.answer === "string" && (body.answer.trim() || pictures.length > 0)) {
-    return { kind: "answer", text: body.answer.trim(), pictures };
+    const verbatim = readVerbatim(body.verbatim, body.answer);
+    return { kind: "answer", text: body.answer.trim(), pictures, ...(verbatim.length > 0 ? { verbatim } : {}) };
   }
   if (status === 409) return { kind: "no_model" };
   if (status === 429) return { kind: "daily_limit" };

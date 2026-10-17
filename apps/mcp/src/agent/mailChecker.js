@@ -25,8 +25,8 @@ import { requestViaGateway } from "./aiGateway.js";
 export const MAIL_CHECKER_MODEL = "anthropic/claude-haiku-5-5";
 /** The latest texts it reads, each side counted; the rest is older than any ask a YES could answer. */
 const CHECKED_TURNS = 12;
+/** Older texts are cut to this; the latest is read whole, since a "don't send" can end it. */
 const MAX_TEXT_CHARS = 2_000;
-const MAX_BODY_CHARS = 6_000;
 
 const SYSTEM = [
   "You check one email before a person is asked to approve it. An AI assistant drafted it while texting with the person.",
@@ -43,7 +43,7 @@ const SYSTEM = [
 export function conversationFor(history, question) {
   const turns = (Array.isArray(history) ? history : []).slice(-CHECKED_TURNS);
   const lines = turns.map((turn) => `${turn.role === "user" ? "PERSON" : "ASSISTANT"}: ${String(turn.text ?? "").slice(0, MAX_TEXT_CHARS)}`);
-  lines.push(`PERSON: ${String(question ?? "").slice(0, MAX_TEXT_CHARS)}`);
+  lines.push(`PERSON: ${String(question ?? "")}`);
   return lines.join("\n\n");
 }
 
@@ -53,7 +53,8 @@ export function draftFor(email) {
     ...(email.cc.length > 0 ? [`Cc: ${email.cc.join(", ")}`] : []),
     `Subject: ${email.subject}`,
     "",
-    email.body.slice(0, MAX_BODY_CHARS),
+    // Whole: a commitment nobody asked for could sit in an unread tail.
+    email.body,
   ].join("\n");
 }
 

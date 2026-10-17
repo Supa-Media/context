@@ -130,6 +130,16 @@ function ApprovalRow({
         ].join(" · ")}
       </Text>
 
+      {approval.detail !== undefined ? (
+        // The person may allow only what they read: an email is shown whole,
+        // before the buttons, with no press needed (`apps/mcp/src/tools/emailGate.js`).
+        <ScrollView style={styles.readBox} nestedScrollEnabled testID={`approval-read-${approval.id}`}>
+          <Text variant="body" selectable>
+            {approval.detail}
+          </Text>
+        </ScrollView>
+      ) : null}
+
       {vaultUse ? null : (
         <Pressable
           role="button"
@@ -242,6 +252,12 @@ const makeStyles = (colors: Colors) =>
       borderRadius: 6,
       backgroundColor: colors.chrome,
       padding: space.x2,
+    },
+    readBox: {
+      maxHeight: 360,
+      borderRadius: 6,
+      backgroundColor: colors.chrome,
+      padding: space.x3,
     },
     actions: { flexDirection: "row", gap: space.x2, flexWrap: "wrap" },
   });

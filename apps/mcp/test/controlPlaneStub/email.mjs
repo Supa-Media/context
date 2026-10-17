@@ -17,6 +17,8 @@ export function createEmailRoute(clearedEditor, flags) {
     if (!cleared) answer = { ok: false, refused: "not_allowed" };
     else if (flags.emailRefusal) answer = { ok: false, refused: flags.emailRefusal };
     else if (!flags.emailSender) answer = { ok: false, refused: "no_sender" };
+    // Only a mailbox the person connected sends, as the real route checks.
+    else if (body.email?.from && body.email.from !== flags.emailSender) answer = { ok: false, refused: "no_sender" };
     else answer = { ok: true, from: flags.emailSender };
     calls.push({ accessToken: body.accessToken, email: body.email, check: body.check === true, answer });
     return answer;

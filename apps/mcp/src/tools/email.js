@@ -19,9 +19,9 @@ export const MAX_RECIPIENTS = 10;
 export const MAX_SUBJECT = 200;
 export const MAX_BODY = 20_000;
 
-const ADDRESS = /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$/;
-const BODY_CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f‪-‮⁦-⁩]/;
-const SUBJECT_CONTROL = /[\u0000-\u001f\u007f‪-‮⁦-⁩]/;
+const ADDRESS = /^[A-Za-z0-9.!#$%&\x27*+/=?^_\x60{|}~-]{1,64}@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$/;
+const BODY_CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f\u202a-\u202e\u2066-\u2069]/;
+const SUBJECT_CONTROL = /[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/;
 
 function addresses(value, field) {
   if (value === undefined) return { list: [] };
@@ -44,8 +44,8 @@ function addresses(value, field) {
  * the person was shown.
  */
 export function readEmail(args) {
-  const from = addresses(args?.from, "from");
   const to = addresses(args?.to, "to");
+  const from = addresses(args?.from, "from");
   const cc = addresses(args?.cc, "cc");
   for (const part of [from, to, cc]) if (part.error) return { error: part.error };
   if (from.list.length > 1) return { error: "from is one of the person's own connected Gmail addresses, or left out." };
@@ -89,7 +89,7 @@ export const REFUSED = {
   not_allowed: "Not sent: this connection cannot send email as the person.",
   no_sender:
     "Not sent: the person has no Gmail connected that Context may send from. Context can't send email yet; give them the draft to copy and send themselves.",
-  hourly_limit: "Not sent: the person has sent 5 emails through Context in the last hour. Try again later.",
+  hourly_limit: "Not sent: the person has sent 5 emails through Context this hour. Try again later.",
   daily_limit: "Not sent: the person has sent 20 emails through Context today. Try again tomorrow.",
   recipient_limit: "Not sent: the person has already emailed one of these addresses 3 times today through Context.",
   not_configured: "Not sent: this Context deployment does not send email.",

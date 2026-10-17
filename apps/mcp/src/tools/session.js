@@ -85,15 +85,10 @@ async function answeringNoteCap(run) {
  * the audience the widening is measured against.
  */
 async function egressGate(suppliedName, supplied, args, { store, session, target, targetStore, into }) {
-  /*
-    The gate reads a call by the name it is dispatched under, never by the
-    spelling the client used: `archive_chat` is `save_context` and would
-    otherwise be a tool the gate has never heard of. What is stored and
-    replayed stays the name as supplied, so a released call routes as asked.
-  */
+  // Read by the name it is dispatched under (`archive_chat` is `save_context`);
+  // stored and replayed as supplied, so a released call routes as asked.
   const name = canonicalToolName(suppliedName);
-  // An email is held for the person's yes to its exact copy, always: the
-  // deployment switch below is about widenings, and this is not one of those.
+  // An email always waits for a yes to its exact copy, whatever the switch below says.
   if (name === EMAIL_TOOL) return await emailGate(supplied, { store, session, target });
   /*
     Any tool that changes something, addressed into a workspace the call did

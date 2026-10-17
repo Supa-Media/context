@@ -22,10 +22,15 @@ what happens to the draft (`apps/mcp/src/tools/emailGate.js`):
    nothing a stranger wrote reaches it. "No" (a recipient, words or timing the
    person did not ask for) refuses before the person is bothered; "unsure" is
    shown beside the email; a checker that cannot run marks it unchecked.
-4. **The call is held as a pending approval carrying the whole email.** A
-   texted YES within half an hour sends exactly that copy, settled before any
-   model runs; any other text disarms it, so a changed draft is a new ask.
-   Another AI's email is approved in the app, which shows the whole email.
+4. **The call is held as a pending approval carrying the whole email.** The
+   copy is texted exactly as written, outside the reply's formatting (which
+   drops links and lines), and an email too long for one text (2,500
+   characters) is never asked about by text. Only a literal YES within half
+   an hour sends it, settled before any model runs; "ok", "sure" or any other
+   text disarms it, so a changed draft is a new ask. An email that named no
+   sender is held with the mailbox it was shown from, and refused rather than
+   sent from another if that mailbox is gone. Another AI's email is approved
+   in the app, which shows the whole email above its buttons.
 
 The checker can stop an email and never send one. The deployment's
 `EGRESS_APPROVALS = "off"` switches off widening holds, not this gate: the gate
@@ -42,6 +47,10 @@ switch order, the checker's "no", the caller check or the disarm is removed
 
 Five emails an hour, twenty a day, three a day to any one recipient, at most
 ten recipients an email (`apps/convex/functions/lib/personEmail.ts`). The
+windows are fixed, not rolling, so up to ten can go either side of an hour's
+edge. A Gmail recipient counts as one mailbox however it is spelled (dots,
+`+tags`, googlemail.com). Only the person's own personal workspace may send:
+a grant on a shared workspace never reaches its holder's Gmail. The
 limits are authoritative in Convex (`claimPersonEmail`), keyed by the person
 and by a hash of each recipient, so no address is stored for them. Every
 window is checked before any is spent, so a refused email spends nothing. The

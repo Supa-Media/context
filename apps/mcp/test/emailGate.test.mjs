@@ -23,6 +23,12 @@
  *     client may not send unless the Mail checker's note lets it` fails.
  *  5. `disarmTexting` not called before a model turn. → `a yes after the
  *     person moved on sends nothing` fails.
+ *  6. The held call keeping the supplied args (no bound `from`). → `an email
+ *     goes only from the mailbox the person was shown, or not at all` fails.
+ *  7. Email records settled on any yes word. → `an "ok" to an email is not a
+ *     yes` fails.
+ *  8. No texted length cap. → `an email too long to show whole in one text is
+ *     never asked about by text` fails.
  */
 
 import { ask, call, request, textOf, createEgressWorld, TOKEN_CONSOLE, TOKEN_MCP, TOKEN_ROUTINE, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
@@ -64,6 +70,13 @@ export async function runEmailGateChecks(check) {
         ),
     );
     check(
+      "the ask is texted exactly as written, apart from the answer's formatting",
+      Array.isArray(asked.body?.verbatim) &&
+        asked.body.verbatim.length === 1 &&
+        asked.body.verbatim[0].startsWith("Here is the email I'd send:") &&
+        (asked.body?.answer ?? "").endsWith(asked.body.verbatim[0]),
+    );
+    check(
       "the limits were asked about before the person was, without spending",
       controlPlane.emailCalls.length === 1 && controlPlane.emailCalls[0].check === true,
     );
@@ -82,7 +95,7 @@ export async function runEmailGateChecks(check) {
       yes.status === 200 &&
         model.requests.length === before &&
         sends().length === 1 &&
-        JSON.stringify(sends()[0].email) === JSON.stringify({ to: EMAIL.to, cc: [], subject: EMAIL.subject, body: EMAIL.body }) &&
+        JSON.stringify(sends()[0].email) === JSON.stringify({ from: "seyi@gmail.example", to: EMAIL.to, cc: [], subject: EMAIL.subject, body: EMAIL.body }) &&
         /^Done: send an email to jo@example\.com, "Re: Thursday"\.$/.test(yes.body?.answer ?? "") &&
         pending().length === 0,
     );
@@ -122,6 +135,51 @@ export async function runEmailGateChecks(check) {
       "approving it in the app sends it once",
       approved.body?.status === "approved" && approved.body?.ok === true && sends().length === before + 1 && sends().at(-1).email.subject === "Re: Friday",
     );
+
+    /* ---------------- the sender shown is the sender ---------------- */
+
+    model.install([{ toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "Re: sender" } }] }, verdict("yes"), { text: "Drafted." }]);
+    await ask(env, TOKEN_TEXTS, "tell Jo yes");
+    controlPlane.flags.emailSender = "other@gmail.example";
+    before = sends().length;
+    const moved = await ask(env, TOKEN_TEXTS, "YES");
+    check(
+      "an email goes only from the mailbox the person was shown, or not at all",
+      sends().length === before + 1 &&
+        sends().at(-1).email.from === "seyi@gmail.example" &&
+        sends().at(-1).answer.ok === false &&
+        /^I tried to send an email/.test(moved.body?.answer ?? ""),
+    );
+    controlPlane.flags.emailSender = "seyi@gmail.example";
+
+    /* ---------------- a text shows it whole, or it is not asked ---------------- */
+
+    model.install([
+      { toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "Re: long", body: "word ".repeat(600) } }] },
+      verdict("yes"),
+      { text: "It was too long to text." },
+    ]);
+    before = pending().length;
+    await ask(env, TOKEN_TEXTS, "send Jo the long version");
+    check(
+      "an email too long to show whole in one text is never asked about by text",
+      pending().length === before && JSON.stringify(model.requests.at(-1)?.messages ?? []).includes("too long to show the person whole in a text"),
+    );
+
+    /* ---------------- only a YES sends an email ---------------- */
+
+    model.install([{ toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "Re: ok" } }] }, verdict("yes"), { text: "Drafted." }]);
+    await ask(env, TOKEN_TEXTS, "email Jo that it's fine");
+    model.install([{ text: "Want me to send it? Reply YES." }]);
+    before = sends().length;
+    const okay = await ask(env, TOKEN_TEXTS, "ok");
+    model.install([{ text: "Yes what?" }]);
+    await ask(env, TOKEN_TEXTS, "yes");
+    check(
+      'an "ok" to an email is not a yes: it goes to the model and disarms the email',
+      sends().length === before && /Reply YES/.test(okay.body?.answer ?? ""),
+    );
+    for (const left of await approvals()) await request(env, TOKEN_CONSOLE, "/approvals", { id: left.id, action: "deny" });
 
     /* ---------------- the Mail checker ---------------- */
 
@@ -169,7 +227,7 @@ export async function runEmailGateChecks(check) {
     await ask(env, TOKEN_TEXTS, "send Jo the thursday email");
     check(
       "an email the limits would refuse is never put to the person",
-      pending().length === 0 && JSON.stringify(model.requests.at(-1)?.messages ?? []).includes("5 emails through Context in the last hour"),
+      pending().length === 0 && JSON.stringify(model.requests.at(-1)?.messages ?? []).includes("5 emails through Context this hour"),
     );
     controlPlane.flags.emailRefusal = null;
 

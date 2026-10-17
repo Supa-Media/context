@@ -18,7 +18,7 @@ import { internal } from "../../../_generated/api";
 import type { ActionCtx } from "../../../_generated/server";
 import { hashToken } from "../crypto";
 import { json, stringField } from "../gatewayAuth";
-import { gmailRaw, readPersonEmail, recipientsOf } from "../personEmail";
+import { gmailRaw, readPersonEmail, recipientLimitKey, recipientsOf } from "../personEmail";
 
 const GMAIL_SEND_ENDPOINT = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send";
 
@@ -34,7 +34,8 @@ export async function gatewayPersonEmailHandler(ctx: ActionCtx, body: Record<str
   if (accessToken === null || expected === null) return json({ ok: false, refused: "not_allowed" });
   if (email === null) return json({ ok: false, refused: "invalid" });
 
-  const recipientHashes = await Promise.all(recipientsOf(email).map((address) => hashToken(address)));
+  const mailboxes = [...new Set(recipientsOf(email).map(recipientLimitKey))];
+  const recipientHashes = await Promise.all(mailboxes.map((mailbox) => hashToken(mailbox)));
   const claimed = await ctx.runMutation(internal.functions.personEmail.claimPersonEmail, {
     hashedAccessToken: await hashToken(accessToken),
     expectedWorkspaceId: expected,

@@ -12,14 +12,17 @@
  * and spends nothing". Accepting a subject with a newline in
  * `readPersonEmail` let "Bcc:" ride into the subject, failing the header test.
  * Dropping the `gmail.send` scope check sent from a read-only connection,
- * failing "a Gmail connected to read only sends nothing".
+ * failing "a Gmail connected to read only sends nothing". Dropping the check
+ * that the cleared workspace is the person's own sent from Alice's Gmail on a
+ * shared workspace's request, failing "a grant on a shared workspace never
+ * reaches its person's own Gmail".
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { gatewayPost, seedGoogleConnection } from "./fixtures.helpers";
+import { createWorkspace, gatewayPost, seedGoogleConnection, seedStorageBinding } from "./fixtures.helpers";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { ACCESS_A, ACCESS_B, bodyOf, token, twoConnectedTenants } from "./controlPlane/fixtures.helpers";
-import { GMAIL_SEND_SCOPE, PERSON_EMAIL_HOURLY_LIMIT, PERSON_EMAIL_RECIPIENT_DAILY_LIMIT, gmailRaw, readPersonEmail } from "../functions/lib/personEmail";
+import { GMAIL_SEND_SCOPE, PERSON_EMAIL_HOURLY_LIMIT, PERSON_EMAIL_RECIPIENT_DAILY_LIMIT, gmailRaw, readPersonEmail, recipientLimitKey } from "../functions/lib/personEmail";
 
 const realFetch = globalThis.fetch;
 
@@ -77,6 +80,14 @@ async function send(t: Tenants["t"], accessToken: string, workspaceId: string, e
   return await bodyOf(await gatewayPost(t, "/gateway/email/send", { accessToken, expectedWorkspaceId: workspaceId, email: EMAIL, ...extra }));
 }
 
+describe("who counts as one recipient", () => {
+  test("a Gmail address is one mailbox however it is spelled", () => {
+    expect(recipientLimitKey("j.o+news@googlemail.com")).toBe("jo@gmail.com");
+    expect(recipientLimitKey("JO@Gmail.com")).toBe("jo@gmail.com");
+    expect(recipientLimitKey("j.o+x@example.invalid")).toBe("j.o+x@example.invalid");
+  });
+});
+
 describe("sending an email as the person", () => {
   test("it goes through their own Gmail, and nothing of it is kept", async () => {
     const sent = gmail();
@@ -102,6 +113,18 @@ describe("sending an email as the person", () => {
     expect(await send(t, ACCESS_A, aliceWs)).toEqual({ ok: false, refused: "no_sender" });
     expect(await send(t, ACCESS_A, aliceWs, { check: true })).toEqual({ ok: false, refused: "no_sender" });
     expect(sent).toHaveLength(0);
+  });
+
+  test("a grant on a shared workspace never reaches its person's own Gmail", async () => {
+    const sent = gmail();
+    const { t, alice, aliceWs } = await connected();
+    const shared = await createWorkspace(t, alice, "alfa-team", { kind: "shared" });
+    await seedStorageBinding(t, { workspaceId: shared, boundBy: alice, bucket: "tenant-a-team" });
+    expect(await send(t, ACCESS_A, shared, { check: true })).toEqual({ ok: false, refused: "not_allowed" });
+    expect(await send(t, ACCESS_A, shared)).toEqual({ ok: false, refused: "not_allowed" });
+    expect(sent).toHaveLength(0);
+    // ...while the same grant still sends from the person's own workspace.
+    expect(await send(t, ACCESS_A, aliceWs)).toEqual({ ok: true, from: FROM });
   });
 
   test("a person with no Gmail connected has no sender", async () => {
@@ -170,6 +193,14 @@ describe("sending an email as the person", () => {
     expect(await send(t, ACCESS_A, aliceWs, { email: { ...EMAIL, to: ["JO@example.invalid"] } })).toEqual({ ok: false, refused: "recipient_limit" });
     expect((await send(t, ACCESS_A, aliceWs, { email: { ...EMAIL, to: ["sam@example.invalid"] } })).ok).toBe(true);
     expect(sent).toHaveLength(PERSON_EMAIL_RECIPIENT_DAILY_LIMIT + 1);
+  });
+
+  test("another spelling of a Gmail address is the same recipient", async () => {
+    gmail();
+    const { t, aliceWs } = await connected();
+    const jo = { ...EMAIL, to: ["jo@gmail.com"] };
+    for (let i = 0; i < PERSON_EMAIL_RECIPIENT_DAILY_LIMIT; i++) expect((await send(t, ACCESS_A, aliceWs, { email: jo })).ok).toBe(true);
+    expect(await send(t, ACCESS_A, aliceWs, { email: { ...EMAIL, to: ["j.o+again@googlemail.com"] } })).toEqual({ ok: false, refused: "recipient_limit" });
   });
 
   test("a Gmail failure is reported, not called sent", async () => {

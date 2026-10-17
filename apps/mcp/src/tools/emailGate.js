@@ -35,6 +35,8 @@ import { readHelperCallers } from "../agent/production.js";
 export { EMAIL_TOOL };
 
 export const MAIL_CHECKER = "mail-checker";
+/** The longest copy a texted ask shows: one text, under the 3,000 a text keeps (`apps/agent/src/clients.ts`). */
+export const TEXTED_COPY_CAP = 2_500;
 /** Who may send when the Mail checker's note names nobody. */
 export const DEFAULT_EMAIL_CALLERS = ["texting-assistant"];
 
@@ -93,6 +95,18 @@ export async function emailGate(supplied, { store, session, target }) {
   }
   if (room?.ok !== true) return toolError(REFUSED[room?.refused] ?? REFUSED.unavailable);
 
+  /*
+    The sender the person is shown is the one that sends: an email that named
+    none is held with the address the control plane chose, and if that mailbox
+    is gone by the YES it is refused rather than sent from another.
+  */
+  const args = !email.from && typeof room.from === "string" ? { ...supplied, from: room.from } : supplied;
+  // A connected AI calling again after the person approved the held copy.
+  if (args !== supplied) {
+    const releasedBound = await takeDone(store, { name: EMAIL_TOOL, args, userId: session.actorUserId, clientId: session.actorClientId });
+    if (releasedBound) return releasedBound;
+  }
+
   const texting = session.egress?.texting === true;
   let checked = null;
   if (texting) {
@@ -112,12 +126,17 @@ export async function emailGate(supplied, { store, session, target }) {
   const detail = `${emailCopy({ ...email, from: email.from ?? room.from })}${caveat}`;
   // The person may allow only what they read, so a copy the record would cut is never asked about.
   if (detail.length > DETAIL_CAP) return toolError("Not sent: this email is too long to show the person whole. Shorten it.");
-  const existing = await findPending(store, { name: EMAIL_TOOL, args: supplied, userId: session.actorUserId });
+  if (texting && detail.length > TEXTED_COPY_CAP) {
+    return toolError(
+      `Not sent: this email is too long to show the person whole in a text. Shorten it to under ${TEXTED_COPY_CAP.toLocaleString("en-US")} characters, or give them the draft.`,
+    );
+  }
+  const existing = await findPending(store, { name: EMAIL_TOOL, args, userId: session.actorUserId });
   const record =
     (existing ? await rearmForText(store, existing, texting) : null) ??
     (await createPending(store, {
       name: EMAIL_TOOL,
-      args: supplied,
+      args,
       actor: store.actor,
       tier: session.scope,
       scopes: session.scopes,

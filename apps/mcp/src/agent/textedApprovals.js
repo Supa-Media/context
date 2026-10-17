@@ -35,12 +35,16 @@ function clean(text) {
   return text.replace(/[\u0000-\u0008\u000b-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, "");
 }
 
+/** An email is sent only on the word it asked for: "ok" or "sure" to an email is not a yes. */
+const EMAIL_YES = /^\s*yes\s*[.!]*\s*$/i;
+const EMAIL_TOOL = "send_email";
+
 /**
  * Settle what this thread's latest ask put to the person, as their text said.
  * Returns the reply, or null when nothing was waiting — in which case the text
  * is an ordinary one and the model answers it.
  */
-export async function settleByText(store, session, verdict) {
+export async function settleByText(store, session, verdict, texted = "") {
   // Only what this thread asked about, lately, and not since moved on from: a
   // yes here never releases a call some other client raised that the person was
   // not told of. Every record left armed was asked in the thread's latest ask,
@@ -49,6 +53,8 @@ export async function settleByText(store, session, verdict) {
   if (waiting.length === 0) return null;
   const replies = [];
   for (const { record } of [...waiting].reverse()) {
+    // Left unsettled, the email is disarmed with the rest when the text goes on to the model.
+    if (verdict === "approve" && record.tool === EMAIL_TOOL && !EMAIL_YES.test(texted)) continue;
     const settled = await settlePending(store, record.id, {
       userId: session.actorUserId,
       action: verdict,

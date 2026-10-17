@@ -37,6 +37,11 @@ export interface Approval {
   tool: string;
   /** The arguments exactly as the client sent them. Read-only on the screen. */
   args: unknown;
+  /**
+   * What the person must read in full before saying yes, when the summary is
+   * not enough: an email's whole copy. Shown open, never behind a toggle.
+   */
+  detail?: string;
   /** Who would be able to see it, as the gateway words it. `null` when not said. */
   audience: string | null;
   /** The asking client's display name, e.g. "Claude Desktop". `null` when unnamed. */
@@ -176,6 +181,7 @@ function approvalFrom(raw: unknown): Approval | null {
     createdAt,
     expiresAt,
     kind: record.kind === "vault_use" ? "vault_use" : null,
+    ...(typeof record.detail === "string" && record.detail.length > 0 ? { detail: record.detail } : {}),
   };
 }
 

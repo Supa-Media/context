@@ -104,6 +104,20 @@ export function recipientsOf(email: PersonEmail): string[] {
   return [...email.to, ...email.cc];
 }
 
+/**
+ * The mailbox an address reaches, for the per-recipient limit: Gmail ignores
+ * dots and a `+tag` in its local part, and googlemail.com is gmail.com, so
+ * `j.o+1@googlemail.com` is the same person as `jo@gmail.com` and shares their
+ * three a day. Other domains are taken as written.
+ */
+export function recipientLimitKey(address: string): string {
+  const at = address.lastIndexOf("@");
+  const local = address.slice(0, at).toLowerCase();
+  const domain = address.slice(at + 1).toLowerCase();
+  if (domain !== "gmail.com" && domain !== "googlemail.com") return `${local}@${domain}`;
+  return `${local.split("+")[0]!.replace(/\./g, "")}@gmail.com`;
+}
+
 /** The counters one send spends, all or none (`functions/personEmail.ts`). */
 export function personEmailPolicies(userId: string, recipientHashes: string[]) {
   return [

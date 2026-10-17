@@ -22,6 +22,8 @@
  *  3. The empty state hidden while a listing is still in flight, so a list with
  *     nothing in it looks like it is still loading forever.
  *     → **1 fails**: `an empty listing says so`.
+ *  4. An email's copy behind the "Show what would run" toggle.
+ *     → **1 fails**: `an email is shown whole before Approve`.
  */
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -135,6 +137,14 @@ describe("what is waiting", () => {
     expect(row).toContain("Asked by Claude Desktop");
     expect(row).toContain("Asked 5 min ago");
     expect(row).toContain("Expires in 14 min");
+  });
+
+  test("an email is shown whole before Approve, with no press needed", () => {
+    const copy = "From: seyi@gmail.example\nTo: jo@example.com, sam@example.com\nSubject: Re: Thursday\n\nHi Jo,\n\nThursday at 3 works.\n\nSee https://a.example/1 and https://a.example/2.";
+    const panel = mount(view({ items: [{ ...ITEM, id: "ap_mail", tool: "send_email", summary: 'send an email to jo@example.com and 1 more, "Re: Thursday"', detail: copy }] }));
+    expect(panel.find("approval-read-ap_mail")?.textContent).toBe(copy);
+    expect(panel.find("approval-detail-ap_mail")).toBeNull();
+    expect(panel.find("approve-ap_mail")).not.toBeNull();
   });
 
   test("the arguments are one press away, and only shown when asked for", () => {
