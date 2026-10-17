@@ -322,6 +322,10 @@ describe("no public function can reach a storage secret", () => {
         // inbound email has nobody behind it. Read the CREDENTIAL_HTTP_ROUTES
         // comment before adding another.
         "http.gatewayIngestBinding",
+        // THE PERSON'S OWN GMAIL. `/gateway/email/send` mints a Google access
+        // token for one send and spends it on one request to Gmail; the token
+        // is never returned. See its CREDENTIAL_HTTP_ROUTES entry.
+        "http.gatewayPersonEmail",
         // THE PLATFORM'S OWN CREDENTIALS, AND THE ONE FUNCTION THAT OPENS ONE.
         //
         // Not a customer's anything — see the `functions/admin.ts` entry in
