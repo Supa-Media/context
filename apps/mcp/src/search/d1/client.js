@@ -416,5 +416,40 @@ export function createD1Client(descriptor, options = {}) {
     return { applied, skipped: false };
   }
 
-  return { query, runAll, databaseId: config.databaseId, state: config.state };
+  /**
+   * Several reads in ONE request, each statement's rows in order.
+   *
+   * A search over a personal context asks both tables, and two parallel
+   * requests are two subrequests where the `{batch}` body is one (decided by
+   * the owner, 2026-10-17: a search is a call or two, not one per table). An
+   * answer of the wrong shape, or a refused batch, falls back to one request
+   * per statement, all at once, which is what this did before.
+   */
+  async function queryAll(statements) {
+    const list = Array.isArray(statements) ? statements : [];
+    if (list.length === 1) return [await query(list[0].sql, list[0].params ?? [])];
+    if (list.length > 1 && !batchRefused) {
+      let result = null;
+      try {
+        ({ result } = await post(
+          { batch: list.map(({ sql, params }) => ({ sql, params: params ?? [] })) },
+          `BATCH ${list.length}`,
+        ));
+      } catch (error) {
+        if (!(error instanceof D1Error && error.code === "REFUSED")) throw error;
+        batchRefused = true;
+      }
+      if (
+        Array.isArray(result) &&
+        result.length === list.length &&
+        result.every((entry) => entry && typeof entry === "object" && entry.success !== false && Array.isArray(entry.results))
+      ) {
+        return result.map((entry) => entry.results);
+      }
+      if (result !== null) batchRefused = true;
+    }
+    return await Promise.all(list.map(({ sql, params }) => query(sql, params ?? [])));
+  }
+
+  return { query, queryAll, runAll, databaseId: config.databaseId, state: config.state };
 }

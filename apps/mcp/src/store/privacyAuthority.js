@@ -202,7 +202,9 @@ export function withPrivacyAuthority(store, authority) {
 
   const render = async () => {
     const rules = held;
-    const file = await store.get(PRIVACY_KEY);
+    // Rows mode: the rows are the truth and there is no `privacy.md` (notes-by-id), so the bucket is not asked
+    // for its prose. Every search and every listing reads the rules through here, once per workspace.
+    const file = typeof rules.accessVersion === "number" ? null : await store.get(PRIVACY_KEY);
     const fileText = file === null ? null : await file.text();
     const text = hasRowToken(rules) ? renderForReading(fileText, rules) : renderWithRules(fileText, rules);
     return { text, file, rules };

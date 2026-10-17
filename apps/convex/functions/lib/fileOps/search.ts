@@ -331,7 +331,12 @@ export async function searchNotes(
     // Shown at the names the tree draws while a queued folder move copies,
     // judged again there, as `search_notes` answers (`atTreeNames`).
     const withMoves = atTreeNames(
-      await withMeaning(store, found, await meaningPending, { keyField: "path", isVisible }),
+      await withMeaning(store, found, await meaningPending, {
+        keyField: "path",
+        isVisible,
+        // Snippets for the notes only meaning found, out of the database in one statement rather than a read each.
+        ...(projection !== null ? { projection: { client: () => projection, filling: projection.filling === true } } : {}),
+      }),
       (store as { pendingMoves?: unknown }).pendingMoves,
       { isVisible, prefix: underFolder, keyField: "path" },
     );
