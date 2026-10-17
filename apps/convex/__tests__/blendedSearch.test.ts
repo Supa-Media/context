@@ -157,6 +157,16 @@ describe("blending several ranked lists", () => {
   });
 });
 
+describe("a row keeps what its source knew", () => {
+  test("a loose hit stays loose through the blend, and a strict one never becomes it", () => {
+    const a = { ...source("a", 1), hits: [{ path: "x.md", title: "X", snippets: [], loose: true }] };
+    const b = source("b", 1);
+    const rows = fuse([a, b]);
+    expect(rows.find((row) => row.key === "a")?.loose).toBe(true);
+    expect(rows.find((row) => row.key === "b")?.loose).toBe(false);
+  });
+});
+
 describe("paging across sources", () => {
   test("page two resumes each context where page one stopped reading it", () => {
     const sources = [source("a", 30, 0, 30), source("b", 2, 0, 30)];

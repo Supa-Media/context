@@ -261,14 +261,16 @@ describe("nothing behind an open overlay may fire", () => {
   });
 
   test("only dismiss and the overlay's own navigation resolve there", () => {
-    const allowed = new Set<Command>(["dismiss", "treeUp", "treeDown", "treeOpen"]);
+    // Tab is ⌘K's own too: it narrows the tree to the names typed, which is
+    // what the tree's filter field did before search became one bar (2026-10-17).
+    const allowed = new Set<Command>(["dismiss", "treeUp", "treeDown", "treeOpen", "narrowTree"]);
     for (const binding of BINDINGS) {
       for (const apple of [true, false]) {
         const got = resolve(eventFor(binding, apple), "overlay", apple);
         if (got !== null) expect(allowed.has(got)).toBe(true);
       }
     }
-    // …and those four really do resolve, so the assertion above is not vacuous.
+    // …and those five really do resolve, so the assertion above is not vacuous.
     for (const command of allowed) {
       const binding = BINDINGS.find((candidate) => candidate.command === command) as Binding;
       expect(resolve(eventFor(binding, true), "overlay", true)).toBe(command);

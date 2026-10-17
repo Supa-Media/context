@@ -1,5 +1,5 @@
 import { StyleSheet } from "react-native";
-import { layout, pointerType as t, radii, space } from "../../../design/tokens";
+import { layout, radii, space } from "../../../design/tokens";
 import type { Colors, Shadows } from "../../../design/theme";
 import { NO_DRAG_REGION } from "../../../app/appFrame/styles";
 
@@ -38,23 +38,10 @@ export const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.creat
   noDrag: NO_DRAG_REGION,
   /** `Notes`, inset to where a field's first character would sit. */
   label: { flex: 1, minWidth: 0, paddingLeft: space.x2 },
-  /** The filter, once somebody has asked for it. Always boxed: it is a field. */
-  filter: {
-    flex: 1,
-    minWidth: 0,
-    height: 28,
-    paddingHorizontal: space.x2,
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.well,
-    color: colors.text,
-    fontSize: t.meta,
-    // Its own border is the field; no browser focus ring on top of it.
-    outlineWidth: 0,
-    // Safari draws its focus ring whatever the width; only `none` stops it.
-    outlineStyle: "none" as never,
-  },
+  /** "Names with “avo”" and Clear, while ⌘K's Tab narrows the tree: plain text, no box. */
+  narrowed: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: space.x2, paddingLeft: space.x2 },
+  narrowedText: { flexShrink: 1, minWidth: 0 },
+  narrowedClear: { color: colors.accent, fontWeight: "600" },
   tools: { flexDirection: "row", alignItems: "center", gap: 6 },
   iconButton: {
     width: 28,

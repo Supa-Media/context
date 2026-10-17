@@ -28,6 +28,9 @@ export type BlendedAnswer = {
     path: string;
     title: string;
     snippet: string;
+    meaningOnly?: boolean;
+    loose?: boolean;
+    edited?: number;
   }[];
   matchCount: number;
   matchCountIsFloor: boolean;
