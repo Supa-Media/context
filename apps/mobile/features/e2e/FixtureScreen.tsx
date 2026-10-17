@@ -16,6 +16,7 @@ import { SharedLinkFixture } from "./SharedLinkFixture";
 import { SharedInboxFixture } from "./SharedInboxFixture";
 import { PhoneCheckScreen } from "../auth/PhoneCheckScreen";
 import { PaletteFilterFixture } from "./PaletteFilterFixture";
+import { PaletteResultsFixture } from "./PaletteResultsFixture";
 import { MeetingCardFixture } from "./MeetingCardFixture";
 import { MoveNoticeFixture } from "./MoveNoticeFixture";
 
@@ -102,6 +103,8 @@ export function FixtureScreen({ params }: { params: FixtureParams }) {
   }
   // ⌘K's in: filter and workspace chips, on invented workspaces. See its own header.
   if (first(params.screen) === "palette-filters") return <PaletteFilterFixture />;
+  // ⌘K's answered search: rich rows, preview, Tab narrows the tree. See its own header.
+  if (first(params.screen) === "palette-results") return <PaletteResultsFixture />;
   if (first(params.screen) === "shared") return <SharedInboxFixture at={first(params.at)} />;
   if (first(params.screen) === "shared-link") return <SharedLinkFixture anyone={first(params.anyone) !== "no"} folder={first(params.at) === "folder"} />;
 

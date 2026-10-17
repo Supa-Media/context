@@ -88,9 +88,16 @@ export interface PaletteItem {
    * workspace being browsed: a result elsewhere opens that workspace, and is a
    * different row from a same-named path here.
    */
-  workspace?: { slug: string; current: boolean };
+  workspace?: { slug: string; current: boolean; id?: string };
   /** Why a search result matched, drawn as a tag (`WHY_LABEL`). */
   why?: "name" | "words" | "meaning";
+  /**
+   * The reason in words where `WHY_LABEL` is too coarse: "Has 2 of 3 words"
+   * rather than "Has your words" (leadership weekly, 2026-10-17).
+   */
+  reason?: string;
+  /** When the note was last written (ms): a search row's "edited Sep 12". */
+  edited?: number;
   /** `filter`: a typed-filter suggestion in ⌘K (`layout/searchFilters.ts`), never a note. */
   kind: "note" | "folder" | "command" | "filter";
 }

@@ -57,6 +57,10 @@ export interface BlendedResult {
   snippet: string;
   /** Found by what the note is about, not by the words typed. */
   meaningOnly?: boolean;
+  /** Has some of the words typed, not all of them. */
+  loose?: boolean;
+  /** When the note was last written (ms), where the tree knows. */
+  edited?: number;
 }
 
 /** One context that was searched, and how it went. */
