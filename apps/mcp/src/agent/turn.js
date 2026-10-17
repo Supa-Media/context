@@ -208,8 +208,8 @@ function noModel() {
  * did not ask for: an older client that asked for "anthropic" learns it has
  * none, and its person is not billed against a cap they did not choose.
  *
- * The control plane says whether this grant may (a texting or routine grant on
- * a Premium workspace under the daily cap). That answer also counts the turn,
+ * The control plane says whether this grant may (a texting or routine grant
+ * under the daily cap). That answer also counts the turn,
  * so it is asked once, here, and never per round.
  */
 export async function openProvider(controlPlane, session, requested, env = {}) {
