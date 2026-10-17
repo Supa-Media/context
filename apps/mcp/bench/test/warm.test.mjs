@@ -71,8 +71,8 @@ test("a warm run indexes every workspace, and the first search of a conversation
   const prepared = await prepareRun(bench, { today: "2026-10-08" });
   try {
     assert.equal(globalThis.fetch, fetchBefore, "warming leaves no stub installed");
-    assert.ok([...prepared.buckets.get("maya").keys()].some((key) => key.startsWith(".context/")), "the index shards are in the snapshot");
-    assert.ok(prepared.passes.get("maya") >= 1);
+    assert.equal(prepared.indexed.get("maya"), Object.keys(bench.workspaces.maya.files).length, "every note is in the search database");
+    assert.ok(![...prepared.buckets.get("maya").keys()].some((key) => key.startsWith(".context/search/")), "and no index file is in the bucket");
 
     const world = await createWorld(bench, "Maya", SETUP, { gatewayFetch: scripted([{ name: "search_notes", input: { query: "dentist" } }]) }, "2026-10-08", prepared);
     let logs;

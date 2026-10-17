@@ -9,7 +9,7 @@
  * That is not something the behavioural tests can see. Reverting all five call
  * sites in `fileOps.ts` from `hasOverride(overrides, k)` to `overrides.has(k)`
  * was measured against the full suite and passed 1430/1430: the folded twin
- * only differs on a Dropbox-backed context, and the suites do not stand one up.
+ * only differs on a context whose store folds case, and the suites do not stand one up.
  * So the guard is structural, in the shape this repository already uses for a
  * rule two copies have to keep — read the file, do not trust a comment.
  *

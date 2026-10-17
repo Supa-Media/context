@@ -4,7 +4,7 @@
  * A connect attempt is a workspace-scoped row carrying an encrypted PKCE
  * verifier: half a live credential, parked between "the person left for the
  * provider's consent screen" and "the provider's callback proved it was
- * really them" — see `dropboxConnectAttempts` and `googleConnectAttempts` in
+ * really them" — see `googleConnectAttempts` in
  * `schema.ts` for the argument in full. It lives minutes, not hours, and it
  * must not outlive the workspace that started it.
  *
@@ -12,8 +12,8 @@
  *
  * `deleteWorkspaceCascade` (`functions/account.ts`) needs the complete set of
  * these tables, and a hand-maintained list is exactly the shape that grows a
- * silent gap: `dropboxConnectAttempts` was swept from the day account
- * deletion existed, `googleConnectAttempts` was not, for no reason other than
+ * silent gap: a connect-attempt table was swept by account deletion for a
+ * while and not by the next, for no reason other than
  * nobody added the second line when the second provider shipped — reviewed
  * and named as out of scope on the pull request that added the Google flow.
  * A third provider built the same way would repeat exactly that miss unless

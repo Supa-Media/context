@@ -5,8 +5,12 @@
  * plan, 2026-10-16: a person cannot judge a prompt change from pass counts
  * alone).
  *
+ * A round of one setup (live alone, as the testing loop runs it) has nothing to
+ * set beside it, so there the note holds the cases that setup failed in any
+ * run instead: what the loop reads to decide its next change.
+ *
  * Bounded on purpose. Only cases where one setup passed every run and another
- * did not, at most `MAX_CASES` of them, one run per setup (the first failed
+ * did not (or, alone, failed a run), at most `MAX_CASES` of them, one run per setup (the first failed
  * run, else the first), each text cut at `MAX_TEXT`. Never an answer id, and
  * never the key: the note says which setup wrote a reply, which the key says
  * for every answer, so it is written after judging and only for the cases
@@ -35,7 +39,8 @@ export function repliesNote({ key, judged, answers, questions, front, date }) {
   for (const n of numbers) {
     const bySetup = setups.map((setup) => ({ setup, runs: key.filter((row) => row.setup === setup && row.question === n && answered(row)).sort((a, b) => a.run - b.run) }));
     const outcomes = bySetup.filter((item) => item.runs.length > 0).map((item) => item.runs.every(runPassed));
-    if (!(outcomes.includes(true) && outcomes.includes(false))) continue;
+    const keep = setups.length === 1 ? outcomes.includes(false) : outcomes.includes(true) && outcomes.includes(false);
+    if (!keep) continue;
     differing.push({ n, bySetup });
     if (differing.length === MAX_CASES) break;
   }
@@ -43,8 +48,9 @@ export function repliesNote({ key, judged, answers, questions, front, date }) {
 
   const lines = ["---", "role: benchmark-replies", `job: ${front.job ?? "unknown"}`, `date: ${front.date ?? date}`];
   if (front.test) lines.push(`test: ${front.test}`);
-  lines.push("---", "", `# ${front.job ?? "unknown"}, ${front.date ?? date}: replies that differ`, "");
-  lines.push("Written by the AI Benchmark. For each case where one setup passed every run and another did not: one run per setup, the first that failed, else the first.", "");
+  lines.push("---", "", `# ${front.job ?? "unknown"}, ${front.date ?? date}: ${setups.length === 1 ? "replies that failed" : "replies that differ"}`, "");
+  const which = setups.length === 1 ? "For each case the setup failed in any run" : "For each case where one setup passed every run and another did not";
+  lines.push(`Written by the AI Benchmark. ${which}: one run per setup, the first that failed, else the first.`, "");
 
   for (const { n, bySetup } of differing) {
     const q = questions.get(n);

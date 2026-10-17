@@ -70,7 +70,7 @@ describe('a bulk operation acts only on what the caller can see', () => {
    * "The destination must not exist" is about a destination of either kind.
    * File-onto-file was always caught by the collision loop and folder-onto-
    * folder by the merge refusal; the two crossed pairs went through and left a
-   * file key shadowing a folder prefix, which a Dropbox binding cannot even
+   * file key shadowing a folder prefix, which some stores cannot even
    * represent.
    */
   /**
@@ -207,7 +207,7 @@ describe('a bulk operation acts only on what the caller can see', () => {
     });
 
     // A page that drops the earlier key — a provider returning fewer objects
-    // than asked for, which S3 and Dropbox both may do. Without the refusal the
+    // than asked for, which S3 and some other stores both may do. Without the refusal the
     // walk misses `note copy.md`, `duplicateName` picks it, and the guard
     // answers "that file does not exist" — the oracle this test's neighbour
     // exists to close, reopened by an incomplete listing.

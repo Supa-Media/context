@@ -44,6 +44,9 @@
  *
  * ## Sabotage record
  *
+ * Measured while a search still copied notes behind its answer; since
+ * 2026-10-17 it does not, and the control plane's pass does (`fill.mjs`).
+ *
  * Run as temporary local edits and reverted, counts **as measured** — one
  * measured zero included, because a record that lists only the satisfying
  * numbers is decoration. "+dies" means the suite stopped after that failure

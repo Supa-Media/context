@@ -195,7 +195,7 @@ export interface NodeSink {
   prune(startedAt: number): Promise<{ more: boolean }>;
   /** The sweep finished at `at`: ready, cursor and start cleared, error cleared, live files counted. */
   finish(at: number): Promise<void>;
-  /** The store cannot be resumed in key order (Dropbox): never served, never swept again. */
+  /** The store cannot be resumed in key order (one that ignores it): never served, never swept again. */
   unsupported(): Promise<void>;
   /** A change too big to re-check: the next due check starts a sweep. */
   dirty(): Promise<void>;

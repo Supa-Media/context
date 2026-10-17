@@ -37,16 +37,6 @@ export const OWN_MOVE_FORM_LEDE =
   "changed or deleted. " +
   STILL_LIVE_OWN;
 
-/**
- * Dropbox support is ending (`docs/decisions/billing.md`: no new Dropbox
- * connections). No date is given, so nothing is promised that has to be kept.
- */
-export const DROPBOX_ENDING = {
-  line: "Dropbox support is ending. Move this workspace to a bucket you own, or to Context storage.",
-  toBucket: "Move to my bucket",
-  toContext: "Use Context storage",
-};
-
 export const TAKE_IT_WITH_YOU = {
   title: "Take your workspace with you",
   body:

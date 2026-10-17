@@ -68,6 +68,20 @@ export function providerSpec(provider: Provider): ProviderSpec {
   return PROVIDERS.find((entry) => entry.value === provider) ?? PROVIDERS[3];
 }
 
+/**
+ * Whether this build knows how to run a binding's provider.
+ *
+ * A binding can still name a provider this build no longer supports (a
+ * retired provider, until its cleanup runs). Anything that switches on
+ * provider must treat `false` as "storage not supported" — never crash, and
+ * never guess at a credential shape the binding does not have.
+ */
+export function isSupportedProvider(provider: string): boolean {
+  // The same family words `providerLabel` recognises, because the row carries
+  // either the id (`r2`) or a name (`Cloudflare R2`) and both must count.
+  return /r2|s3|b2|backblaze/i.test(provider);
+}
+
 export interface ConnectFormValues {
   provider: Provider;
   endpoint: string;
@@ -173,11 +187,10 @@ export function validateConnectForm(values: ConnectFormValues): ConnectErrors {
  * A root prefix, checked. `undefined` means there is nothing wrong with it —
  * including when it is empty, because a root prefix is always optional.
  *
- * Its own function because the Dropbox card asks the same question with
- * different words: `CLAUDE.md` permits a root prefix **the customer chose**
- * and forbids us deriving one, so both surfaces have to accept a typed folder
- * and both have to refuse the same shapes. Two copies of "no leading slash, no
- * `..`" is two chances for one of them to drift into accepting a traversal.
+ * Its own function so that every surface that takes a root prefix refuses the
+ * same shapes: a root prefix is one the customer chose, and two copies of
+ * "no leading slash, no `..`" are two chances for one of them to drift into
+ * accepting a traversal.
  */
 export function validateRootPrefix(value: string, container = "bucket"): string | undefined {
   const prefix = value.trim();

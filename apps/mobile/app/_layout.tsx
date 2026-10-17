@@ -79,7 +79,7 @@ export default function RootLayout() {
           <SafeAreaProvider>
           {/*
             `shouldHandleCode` keeps ConvexAuthProvider's hands off the `?code=`
-            that Dropbox (and any future /connect/ provider) sends back — left
+            that a storage provider (any /connect/ callback) sends back — left
             to its default, it redeems that foreign code as a login code, gets
             `tokens: null`, and stores the sign-out. See features/auth/handleCode.
 

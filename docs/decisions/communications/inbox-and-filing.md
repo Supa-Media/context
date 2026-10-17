@@ -258,8 +258,8 @@ they are silent.
   and `normalizeMeetingFolder` already carry the rules, and this package
   reuses them rather than writing a third validator — two implementations of
   "does this string escape its bucket" is how one of them ends up weaker.
-- **Case folds on Dropbox and not on R2.** `DropboxStore` treats `Foo` and
-  `foo` as one file. An address-derived segment that differs only in case is
+- **Case folds on some stores and not on R2.** A store that treats `Foo` and
+  `foo` as one file makes an address-derived segment that differs only in case
   two folders on one backend and one on another, and privacy answers are
   folded case-insensitively precisely because of it.
 

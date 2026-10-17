@@ -74,8 +74,8 @@ billing sessions or connector sync state as a shortcut to a working login.
 Encrypted storage credentials are bound to workspace IDs and encryption keys;
 a copied row cannot be decrypted with staging's independent key.
 
-Google and Dropbox require their staging callback URLs to be registered with
-the provider before enabling their connect UI. Google mail/calendar connection
+Google requires its staging callback URL to be registered with the provider
+before enabling its connect UI. Google mail/calendar connection
 flags can remain disabled while registration is pending. Email ingestion uses
 `staging.context.lc` and requires its own MX records and Email Routing rule to
 `context-email-staging`; deploying the Worker does not change production MX.

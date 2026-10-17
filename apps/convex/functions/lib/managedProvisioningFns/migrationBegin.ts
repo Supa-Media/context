@@ -262,8 +262,8 @@ function ownerTargetFields(
 }
 
 /**
- * Park a destination for a `to_own` move: from the storage the owner holds now
- * (a bucket, or Dropbox) into another bucket they hold.
+ * Park a destination for a `to_own` move: from the bucket the owner holds now
+ * into another bucket they hold.
  *
  * Context's storage is on neither end, so nothing here reads or writes the
  * plan row: a free workspace may not have one, and the console reads this
@@ -301,7 +301,6 @@ export async function beginOwnStorageMoveHandler(
     });
   }
   if (
-    current.provider !== "dropbox" &&
     current.endpoint !== undefined &&
     sameEndpoint(current.endpoint, args.target.endpoint) &&
     current.bucket === args.target.bucket &&

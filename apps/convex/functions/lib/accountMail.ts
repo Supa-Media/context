@@ -31,7 +31,7 @@ export async function sendAccountMail(
   }
 }
 
-/** The app's address, for links in account mail (`APP_ORIGIN`, as billing and Dropbox read it). */
+/** The app's address, for links in account mail (`APP_ORIGIN`, as billing reads it). */
 export function appOrigin(): string {
   const origin = process.env.APP_ORIGIN ?? "https://context.lc";
   return origin.replace(/\/+$/, "");

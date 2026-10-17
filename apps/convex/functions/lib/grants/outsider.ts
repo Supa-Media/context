@@ -29,7 +29,23 @@
  * ## What is not here
  *
  * Members never take this path: their reach is `grantedNamesFor`, unchanged.
- * An outsider edit grant is read as a view in this slice.
+ *
+ * ## Edit
+ *
+ * An outsider may write a note's body when the row that governs it
+ * (`governingRowOf`, the walk `canSee` makes) names them with `edit`, the same
+ * rule a member's edit grant follows (`lib/filesFns/memberWrite.ts`). Only a
+ * body write over a version they read: never a create, a move, a rename or a
+ * form block. `canEdit` on a `GrantedNode` is that answer; the write itself is
+ * `writeGrantedNote` in `lib/shares/grantedRead.ts`.
+ *
+ * ## A block takes the blocked person's grants away from the blocker
+ *
+ * Someone who blocks the person who shared a note with them by name stops
+ * seeing it, here and in @shared, the way a blocked sharer's share link stops
+ * (`lib/blocks.ts`). A row stays open when anyone the caller has not blocked
+ * also named them on it, and a grant that records no granter is kept: only a
+ * grant the blocked person wrote is taken away.
  */
 
 import type { Doc, Id } from "../../../_generated/dataModel";
@@ -37,8 +53,11 @@ import type { QueryCtx } from "../../../_generated/server";
 import { clearanceOf } from "../clearance";
 import { normalizePath } from "../fileOps";
 import { accessSourceOf } from "../nodes/accessBackfill";
+import { isCanonicalPath } from "../filesFns/memberWrite";
 import { accessRowsOf } from "../nodes/accessRows";
-import { accessNamesFor, renderAccess, viewNameFor } from "../nodes/rowAccess";
+import { blockedBy } from "../blocks";
+import { governingRowOf } from "../nodes/governingRow";
+import { accessNamesFor, editNameFor, renderAccess, viewNameFor, type AccessRow } from "../nodes/rowAccess";
 import { canSee, type PrivacyOverrides, type PrivacyRule } from "../privacy";
 import { ownedConfirmedEmailsOf } from "../signInEmails";
 import { getMembership } from "../workspaceAuth";
@@ -58,6 +77,8 @@ export interface GuestView {
   names: readonly string[];
   rules: PrivacyRule[];
   overrides: PrivacyOverrides;
+  /** The workspace's live access rows the view was rendered from, for the edit walk. */
+  rows: readonly AccessRow[];
 }
 
 /** A row an outsider may read, as the live rows say it is. */
@@ -65,6 +86,8 @@ export interface GrantedNode {
   path: string;
   kind: "file" | "folder";
   names: string[];
+  /** Whether the outsider holds `edit` on the row that governs this note (`guestCanEdit`). Never for a folder. */
+  canEdit: boolean;
 }
 
 /**
@@ -97,6 +120,19 @@ export function guestCanSee(view: GuestView, path: string): boolean {
 }
 
 /**
+ * Whether the guest view lets its holder write `path`'s body: the path opens to
+ * them, it is a canonical note path, and the row that governs it names them with
+ * `edit`. A view grant is not enough, and an edit grant on some other row (a
+ * folder whose note sets its own list) is not enough: a note's list replaces its
+ * folder's.
+ */
+export function guestCanEdit(view: GuestView, path: string): boolean {
+  if (!isCanonicalPath(path) || !guestCanSee(view, path)) return false;
+  const governing = governingRowOf(view.rows, path);
+  return governing !== null && view.names.includes(editNameFor(governing.noteId));
+}
+
+/**
  * The caller's guest view of one workspace, or `null` when they have no place there.
  *
  * `null` for: rows mode not on (grants are read from rows only), a workspace
@@ -115,10 +151,62 @@ export async function guestViewOf(
   if ((await getMembership(ctx, workspaceId, userId)) !== null) return null;
   const rows = await accessRowsOf(ctx, workspaceId);
   const held = emails ?? (await ownedConfirmedEmailsOf(ctx, userId));
-  const names = accessNamesFor({ userId, emails: held }, rows);
+  const names = withoutBlockedGrants(accessNamesFor({ userId, emails: held }, rows), await blockedGrantNames(ctx, userId, workspaceId, held));
   if (names.length === 0) return null;
   const { rules, overrides } = renderAccess(rows, "guest");
-  return { workspaceId, names, rules, overrides };
+  return { workspaceId, names, rules, overrides, rows };
+}
+
+function withoutBlockedGrants(names: string[], blocked: ReadonlySet<string>): string[] {
+  return blocked.size === 0 ? names : names.filter((name) => !blocked.has(name));
+}
+
+/**
+ * The names the caller holds in this workspace only through grants written by people they blocked.
+ *
+ * Empty, after one indexed read, for a caller who has blocked nobody. Otherwise the grant rows naming the
+ * caller here (by account, and by each confirmed address) are grouped by row; a row every one of whose grants
+ * a blocked person wrote gives up its view and edit names.
+ */
+async function blockedGrantNames(
+  ctx: QueryCtx,
+  userId: Id<"users">,
+  workspaceId: Id<"workspaces">,
+  emails: readonly string[],
+): Promise<Set<string>> {
+  const blocked = await blockedBy(ctx, userId);
+  if (blocked.size === 0) return new Set();
+  const grants = await ctx.db
+    .query("nodeAccess")
+    .withIndex("by_workspace_user", (q) => q.eq("workspaceId", workspaceId).eq("granteeUserId", userId))
+    .take(MAX_OUTSIDER_GRANTS_SCANNED);
+  for (const email of emails) {
+    const room = MAX_OUTSIDER_GRANTS_SCANNED - grants.length;
+    if (room <= 0) break;
+    const lower = email.trim().toLowerCase();
+    grants.push(
+      ...(await ctx.db
+        .query("nodeAccess")
+        .withIndex("by_workspace_email", (q) => q.eq("workspaceId", workspaceId).eq("granteeEmail", lower))
+        .take(room)),
+    );
+  }
+  // Per row: whether any grant naming the caller there was written by someone they have not blocked.
+  const kept = new Map<Id<"nodes">, boolean>();
+  for (const grant of grants) {
+    const clean = grant.grantedBy === undefined || !blocked.has(grant.grantedBy);
+    kept.set(grant.nodeId, (kept.get(grant.nodeId) ?? false) || clean);
+  }
+  const out = new Set<string>();
+  for (const [nodeId, clean] of kept) {
+    if (clean) continue;
+    const node = await ctx.db.get(nodeId);
+    if (node === null) continue;
+    const noteId = node.noteId ?? node._id;
+    out.add(viewNameFor(noteId));
+    out.add(editNameFor(noteId));
+  }
+  return out;
 }
 
 /**
@@ -172,7 +260,8 @@ export async function authorizeGrant(
   const node = await liveNodeFor(ctx, args.workspaceId, { noteId: args.noteId, path: args.path });
   if (node === null) return null;
   if (!guestCanSee(view, node.path)) return null;
-  return { path: node.path, kind: node.kind, names: [...view.names] };
+  const canEdit = node.kind === "file" && guestCanEdit(view, node.path);
+  return { path: node.path, kind: node.kind, names: [...view.names], canEdit };
 }
 
 /**

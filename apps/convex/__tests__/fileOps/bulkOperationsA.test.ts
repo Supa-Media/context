@@ -346,7 +346,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
 
     // A store whose pages never end. This is the shape that matters rather
     // than any particular object count: the page size a provider returns is a
-    // hint — S3 may hand back fewer keys than asked and Dropbox documents its
+    // hint — S3 may hand back fewer keys than asked and some providers document their
     // limit as approximate — so the number of objects behind the cap is not
     // something this code can know. What it can know is that it did not finish.
     const endless: FileStore = {

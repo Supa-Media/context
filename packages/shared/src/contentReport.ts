@@ -15,7 +15,7 @@ export const REPORT_REASONS = ["spam", "harassment", "sexual", "violence", "ille
 export type ReportReason = (typeof REPORT_REASONS)[number];
 
 /** What is being reported. */
-export const REPORT_TARGET_KINDS = ["share", "invitation", "workspace_note", "public_page"] as const;
+export const REPORT_TARGET_KINDS = ["share", "grant", "invitation", "workspace_note", "public_page"] as const;
 export type ReportTargetKind = (typeof REPORT_TARGET_KINDS)[number];
 
 export const REPORT_LIMITS = {

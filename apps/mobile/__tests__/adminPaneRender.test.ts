@@ -204,7 +204,6 @@ function census(over: Record<string, unknown> = {}) {
       gmail: 1,
       calendar: 1,
       chat: 0,
-      dropbox: 1,
       mailOpen: 0,
       mailAllowlisted: 2,
       obsidian: 1,

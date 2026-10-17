@@ -24,7 +24,7 @@ import {
  * Upstream behavior: every cold load calls `fetchAccessToken({
  * forceRefreshToken: true })`, which spends the **single-use** refresh token
  * even when the stored JWT is hours from expiring. If navigation interrupts
- * the localStorage save of the replacement pair (exactly what a Dropbox
+ * the localStorage save of the replacement pair (exactly what a storage
  * OAuth redirect does), the browser keeps the old refresh token; presenting
  * it after the server's 10s reuse window is treated as token theft and the
  * whole session tree is invalidated — the "it keeps signing me out" Seyi hit

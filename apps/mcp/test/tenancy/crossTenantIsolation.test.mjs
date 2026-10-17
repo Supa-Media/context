@@ -1,7 +1,7 @@
 /**
  * Multi-tenancy: cross-tenant isolation on the S3 pair (§1) and the same
- * property on the Dropbox pair, a harder case since nothing but the access
- * token tells two Dropbox tenants apart (§1b).
+ * property on the second pair (§1b), whose two tenants share a rootPrefix and
+ * a key layout, so only the bucket and the key pair tell them apart.
  *
  * Split out of tenancy.test.mjs; see fixtures.mjs for the shared harness and
  * that file's module doc for the sabotage-testing record. `listA`, `listB`,
@@ -9,10 +9,10 @@
  * `runTenancySecretLeakChecks` (§14) asserts none of them ever say a secret.
  */
 
-import { DROPBOX_TOKEN_C, TOKEN_A, TOKEN_B, TOKEN_C, TOKEN_D, callTool, rpc, withControlPlaneOverride } from "./fixtures.mjs";
+import { SECRET_C, TOKEN_A, TOKEN_B, TOKEN_C, TOKEN_D, callTool, rpc, withControlPlaneOverride } from "./fixtures.mjs";
 
 export async function runTenancyCrossTenantIsolationChecks(check, harness) {
-  const { env, controlPlane, bucketA, bucketB, folderC, folderD } = harness;
+  const { env, controlPlane, bucketA, bucketB, bucketC, bucketD } = harness;
 
   /* ------------------------- 1. cross-tenant isolation ------------------------ */
 
@@ -95,27 +95,25 @@ export async function runTenancyCrossTenantIsolationChecks(check, harness) {
   check("naming your own workspace in the URL works", aSelectsSelf.body?.result !== undefined);
   check("the @ is cosmetic and normalised away", aSelectsSelfBare.body?.result !== undefined);
 
-  /* ------------- 1b. the same, for a workspace backed by Dropbox ------------- */
+  /* ------------- 1b. the same, for the second pair of S3 tenants ------------- */
 
   /**
-   * Tenancy has to hold on the one-click tier too, and it is a *harder* case
-   * than S3, not an easier one. Two S3 tenants at least differ by bucket name;
-   * two Dropbox tenants are the same two hostnames, the same paths, and the
-   * same customer-chosen folder — separated by the access token in the binding
-   * and by nothing else at all. The store the factory built is the only thing
-   * standing between them.
+   * This pair is the harder case. Both tenants have the same rootPrefix and the
+   * same paths, so the store the factory built for each binding is the only
+   * thing standing between them: a binding that pointed at the other bucket
+   * would read identical keys and answer plausibly.
    */
   const listC = (await callTool(env, TOKEN_C, "list_notes"))?.content?.[0]?.text || "";
   check(
-    "a dropbox-backed workspace serves its own notes end to end",
+    "the second-pair workspace serves its own notes end to end",
     listC.includes("1-projects/alpha.md") && listC.includes("1-projects/gamma-secret.md")
   );
   check(
-    "a dropbox listing is not rootPrefix-decorated either",
+    "its listing is not rootPrefix-decorated either",
     !listC.includes("context/1-projects") && !listC.includes("/context/")
   );
   check(
-    "a dropbox tenant's listing never names the other dropbox tenant's notes",
+    "its listing never names the other second-pair tenant's notes",
     !listC.includes("delta-secret") && !listC.includes("DELTA-ONLY")
   );
   check(
@@ -127,7 +125,7 @@ export async function runTenancyCrossTenantIsolationChecks(check, harness) {
     path: "1-projects/delta-secret.md",
   });
   check(
-    "one dropbox tenant cannot read a path that exists only in the other",
+    "one second-pair tenant cannot read a path that exists only in the other",
     cReadsD?.isError === true && !cReadsD.content[0].text.includes("DELTA-ONLY")
   );
   const dReadsC = await callTool(env, TOKEN_D, "read_note", {
@@ -143,12 +141,12 @@ export async function runTenancyCrossTenantIsolationChecks(check, harness) {
   const cReadsShared = await callTool(env, TOKEN_C, "read_note", { path: "1-projects/alpha.md" });
   const dReadsShared = await callTool(env, TOKEN_D, "read_note", { path: "1-projects/alpha.md" });
   check(
-    "two dropbox tenants sharing a folder name are separated by the access token alone",
+    "two second-pair tenants sharing a path are separated by their bucket and key alone",
     cReadsShared.content[0].text.includes("gamma's own file") &&
       dReadsShared.content[0].text.includes("delta's own file")
   );
   check(
-    "and a dropbox tenant's copy is not an S3 tenant's copy",
+    "and a second-pair tenant's copy is not the first pair's copy",
     !cReadsShared.content[0].text.includes("alpha rewrote this") &&
       !cReadsShared.content[0].text.includes("beta's own file")
   );
@@ -157,18 +155,18 @@ export async function runTenancyCrossTenantIsolationChecks(check, harness) {
     path: "1-projects/gamma-secret.md",
   });
   check(
-    "an S3 tenant cannot reach a dropbox tenant's notes",
+    "an S3 tenant cannot reach a second-pair tenant's notes",
     aReadsGamma?.isError === true && !aReadsGamma.content[0].text.includes("GAMMA-ONLY")
   );
   const cSearch =
     (await callTool(env, TOKEN_C, "search_notes", { query: "BETA-ONLY-MARKER" }))?.content?.[0]
       ?.text || "";
   check(
-    "and a dropbox tenant's search cannot reach an S3 tenant's content",
+    "and a second-pair tenant's search cannot reach the first pair's content",
     !cSearch.includes("beta-secret") && !cSearch.includes("BETA-ONLY-MARKER\n")
   );
 
-  const deltaBeforeWrite = folderD.get("/context/1-projects/alpha.md").body;
+  const deltaBeforeWrite = bucketD.get("context/1-projects/alpha.md").body;
   const cWrites = await callTool(env, TOKEN_C, "write_note", {
     path: "1-projects/alpha.md",
     content: "gamma rewrote this",
@@ -176,14 +174,14 @@ export async function runTenancyCrossTenantIsolationChecks(check, harness) {
     confirm_team_publish: true,
     expected_etag: cReadsShared.content[0].text.match(/^etag: (\S+)/)?.[1],
   });
-  check("a dropbox-backed workspace can write", !cWrites.isError);
+  check("a second-pair workspace can write", !cWrites.isError);
   check(
-    "the write landed in that customer's own Dropbox folder",
-    folderC.get("/context/1-projects/alpha.md").body === "gamma rewrote this"
+    "the write landed in that customer's own bucket",
+    bucketC.get("context/1-projects/alpha.md").body === "gamma rewrote this"
   );
   check(
-    "and left the other dropbox tenant's identically-pathed file untouched",
-    folderD.get("/context/1-projects/alpha.md").body === deltaBeforeWrite
+    "and left the other second-pair tenant's identically-pathed file untouched",
+    bucketD.get("context/1-projects/alpha.md").body === deltaBeforeWrite
   );
   check(
     "and never reached an S3 tenant's bucket",
@@ -211,24 +209,31 @@ export async function runTenancyCrossTenantIsolationChecks(check, harness) {
     }
   };
 
+  const secondPairBinding = (overrides) => ({
+    binding: {
+      workspaceId: "ws_c",
+      provider: "s3",
+      endpoint: "https://s3.example-object-storage.test",
+      region: "auto",
+      bucket: "tenant-c",
+      rootPrefix: "context/",
+      accessKeyId: "AKIAEXAMPLEEXAMPLECC",
+      secretAccessKey: SECRET_C,
+      forcePathStyle: true,
+      capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
+      status: "active",
+      ...overrides,
+    },
+  });
+
   const restoreTokenless = withControlPlaneOverride((path) => {
-    if (path === "/gateway/binding") {
-      return {
-        binding: {
-          workspaceId: "ws_c",
-          provider: "dropbox",
-          rootPrefix: "context/",
-          capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
-          status: "active",
-        },
-      };
-    }
+    if (path === "/gateway/binding") return secondPairBinding({ accessKeyId: undefined, secretAccessKey: undefined });
     return null;
   }, controlPlane);
   const tokenless = await listNotesOrThrow(TOKEN_C);
   restoreTokenless();
   check(
-    "a dropbox binding with no access token is a refusal, not a store",
+    "an s3 binding with no key pair is a refusal, not a store",
     tokenless.status === 503
   );
   check(
@@ -240,12 +245,27 @@ export async function runTenancyCrossTenantIsolationChecks(check, harness) {
   // while carrying it is how the bug would reach production unnoticed.
   const restoreRefresh = withControlPlaneOverride((path) => {
     if (path === "/gateway/binding") {
+      return secondPairBinding({ refreshToken: "rt.FAKE-long-lived-must-never-arrive" });
+    }
+    return null;
+  }, controlPlane);
+  const withRefresh = await listNotesOrThrow(TOKEN_C);
+  restoreRefresh();
+  check(
+    "a binding carrying a refresh token is refused even though its key pair works",
+    withRefresh.status === 503 && !withRefresh.text.includes("gamma-secret")
+  );
+
+  // A workspace still bound to a store removed on 2026-10-16 is refused at the
+  // wire as a 503, the same as any binding the gateway will not build, and
+  // nothing is read from anywhere.
+  const restoreRetiredBound = withControlPlaneOverride((path) => {
+    if (path === "/gateway/binding") {
       return {
         binding: {
           workspaceId: "ws_c",
-          provider: "dropbox",
-          accessToken: DROPBOX_TOKEN_C,
-          refreshToken: "rt.FAKE-long-lived-must-never-arrive",
+          provider: "retired-store",
+          accessToken: "sl.FAKE-retired-token",
           rootPrefix: "context/",
           capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
           status: "active",
@@ -254,11 +274,11 @@ export async function runTenancyCrossTenantIsolationChecks(check, harness) {
     }
     return null;
   }, controlPlane);
-  const withRefresh = await listNotesOrThrow(TOKEN_C);
-  restoreRefresh();
+  const retiredBound = await listNotesOrThrow(TOKEN_C);
+  restoreRetiredBound();
   check(
-    "a binding carrying a refresh token is refused even though its access token works",
-    withRefresh.status === 503 && !withRefresh.text.includes("gamma-secret")
+    "a workspace still bound to a retired store is a 503 refusal, not a store",
+    retiredBound.status === 503 && !retiredBound.text.includes("gamma-secret")
   );
 
   harness.listA = listA;
@@ -266,4 +286,5 @@ export async function runTenancyCrossTenantIsolationChecks(check, harness) {
   harness.listC = listC;
   harness.tokenless = tokenless;
   harness.withRefresh = withRefresh;
+  harness.retiredBound = retiredBound;
 }

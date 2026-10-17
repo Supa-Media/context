@@ -359,13 +359,7 @@ export const verifyStorageBinding = internalAction({
     // From here on a plaintext secret is in scope. It is used to construct one
     // store, and every string that leaves this function goes through
     // `redactSecrets` before it is recorded.
-    // Whatever this credential actually carries. A Dropbox one has an access
-    // token and no key pair; listing fields that do not exist would put
-    // `undefined` in the redaction set and quietly redact nothing.
-    const secrets =
-      credential.provider === "dropbox"
-        ? [credential.accessToken]
-        : [credential.secretAccessKey, credential.accessKeyId];
+    const secrets = [credential.secretAccessKey, credential.accessKeyId];
 
     let store: ScaffoldStore;
     try {
@@ -391,11 +385,7 @@ export const verifyStorageBinding = internalAction({
         scaffoldReason: "not-attempted",
         error: redactSecrets(errorMessage(error), secrets),
         // Ambiguous addressing is a question about a *bucket in a host name*.
-        // Dropbox has neither, so asking it there would classify every Dropbox
-        // configuration error as an S3 endpoint problem the owner cannot act
-        // on.
         errorCode:
-          credential.provider !== "dropbox" &&
           credential.forcePathStyle === undefined &&
           addressingIsAmbiguous(credential.endpoint, credential.bucket)
             ? "AMBIGUOUS_ADDRESSING"
@@ -421,15 +411,7 @@ export const verifyStorageBinding = internalAction({
       });
     }
 
-    // The bucket name only exists to name the thing in a message. A Dropbox
-    // binding has a folder instead, and saying "folder" is what stops the
-    // console telling somebody to check a bucket they never created.
-    const summary = summarizeProbe(probe, {
-      bucket:
-        credential.provider === "dropbox"
-          ? (credential.rootPrefix ?? "your Dropbox folder")
-          : credential.bucket,
-    });
+    const summary = summarizeProbe(probe, { bucket: credential.bucket });
 
     if (!summary.ok) {
       return await record(ctx, args, {

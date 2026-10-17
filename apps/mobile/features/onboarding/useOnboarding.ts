@@ -130,7 +130,7 @@ export function useOnboarding(
      *
      * `fork` is the sign-in gate's (`resume.ts`): a name, and no storage.
      * `storage` is a return from Stripe, which lands on the settling screen.
-     * `structure` is what an old Dropbox round trip still sends; the layout
+     * `structure` is what a link from an older build still carries; the layout
      * choice moved to the console, so it re-enters by finishing.
      */
     resume?: "structure" | "storage" | "fork";

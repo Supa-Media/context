@@ -76,6 +76,7 @@ test/orientReadReach.test.mjs
 test/privacyAuthority.test.mjs
 test/privacy/rowAccess.test.mjs
 test/privacy/rowTokens.test.mjs
+test/privacy/notePeople.test.mjs
 test/privacy/rowsWrites.test.mjs
 test/privacy/setAccessBody.test.mjs
 test/queuedFolderMove.test.mjs
@@ -125,4 +126,5 @@ test/orientV2.test.mjs
 test/controlPlaneRequired.test.mjs
 test/cleanupPage.test.mjs
 test/searchHeldPasses.test.mjs
+bench/test/check.test.mjs
 bench/test/core.test.mjs

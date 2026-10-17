@@ -84,6 +84,11 @@ const TOP_KEY = /^([a-z][a-z0-9_]*):(?: +(.*))?$/;
 // Hyphens are allowed one level down, for skill names (`skills.js`).
 const SUB_KEY = /^ {2}([a-z][a-z0-9_-]*):(?: +(.*))?$/;
 
+/** Tex's nightly dream (`dream.js`): its model, and the words that ask for the dream. */
+export const PRODUCTION_DREAM_PATH = "ai/production/dream.md";
+/** Meeting summaries (`meetings/summarize.js`): the model, and the write and check prompts. */
+export const PRODUCTION_MEETING_SUMMARIES_PATH = "ai/production/meeting-summaries.md";
+
 /**
  * `{ job, model, tools, maxSteps, prompt, version }`, or `null` when the file
  * is refused. Never throws. `version` is the first 12 hex characters of the
@@ -291,6 +296,67 @@ export async function readProductionSetup(store, session, { texting }) {
   } catch {
     return null;
   }
+}
+
+/**
+ * A background job's setup, `ai/production/<job>.md` (the dream, meeting
+ * summaries), read and validated as the texting one is, or `null`. Moved out
+ * of the code on the owner's word (2026-10-17: "move the prompt into a note
+ * for me"); `null` means the job uses its built-in words, exactly as before.
+ * Never throws.
+ *
+ * @param {object} store the session's store, carrying `contexts` and `openPinnedContext`
+ * @param {object} session the caller's session
+ * @param {string} path one of the `PRODUCTION_*_PATH` constants
+ */
+export async function readJobSetup(store, session, path) {
+  try {
+    return await readPinnedNote(await pinnedReach(store, session), path, parseSetup);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The same, for a route whose store opens no other context (meeting
+ * summaries): `openPinned` opens the pinned workspace and nothing else, and is
+ * used only to read the job's own note. Never throws.
+ *
+ * @param {{contexts: Array, openPinned: () => Promise<{session: object, store: object}>}} reach
+ * @param {string} path
+ */
+export async function readJobSetupWith(reach, path) {
+  try {
+    return await readPinnedNote({ contexts: reach.contexts, openPinned: reach.openPinned, here: null }, path, parseSetup);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A setup body cut at its `## <Name>` headings: `{ write: "...", check: "..." }`
+ * by lower-cased name. Text before the first heading is the note's own
+ * description for people and is never sent. A body with no heading is `{}`.
+ *
+ * @param {string} prompt a parsed setup's `prompt`
+ */
+export function promptSections(prompt) {
+  const sections = {};
+  let name = null;
+  let lines = [];
+  const close = () => {
+    if (name !== null && lines.join("\n").trim() !== "") sections[name] = lines.join("\n").trim();
+  };
+  for (const line of String(prompt ?? "").split(/\r?\n/)) {
+    const heading = /^## +(.+?)\s*$/.exec(line);
+    if (heading) {
+      close();
+      name = heading[1].toLowerCase();
+      lines = [];
+    } else if (name !== null) lines.push(line);
+  }
+  close();
+  return sections;
 }
 
 /**

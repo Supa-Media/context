@@ -8,7 +8,7 @@ import { createRoot } from "react-dom/client";
 /*
   The body reads no route and no Convex client; its module reaches expo-router,
   which this project's jest transform does not compile, so the names are
-  stubbed exactly as dropboxScreens.test.ts does.
+  stubbed exactly as storageScreens.test.ts does.
 */
 jest.mock("expo-router", () => ({
   Redirect: () => null,

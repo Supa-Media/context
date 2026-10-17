@@ -189,8 +189,8 @@ export const createCheckoutSession = internalAction({
  * is a chargeback, not a loose end.
  *
  * Scheduled from `deleteWorkspaceCascade` with the subscription id **in the
- * args**, before the row carrying it is deleted, exactly as the Dropbox
- * revocation twelve lines above it is. Scheduled and not called: that mutation
+ * args**, before the row carrying it is deleted, as the Google revocation
+ * above it is. Scheduled and not called: that mutation
  * is public and must not reach the payment key.
  *
  * ## Failure is a log line and nothing else

@@ -77,6 +77,10 @@ crons.interval(
  * had one (`functions/dreams.ts`). It writes only a schedule row; whether the
  * dream runs, and as whom, is asked again when it is handed out.
  */
+// A share follows its note by id (`lib/shares/entryNote.ts`). Fills the id on shares minted before it existed,
+// and on any a mint could not stamp because its note was not in the tree yet.
+crons.interval("stamp share links with their note's id", { hours: 24 }, internal.functions.shares.stampEntryNoteIds, {});
+
 crons.interval("arm Tex's first dreams", { hours: 24 }, internal.functions.dreams.armLinkedDreams, {});
 
 /**

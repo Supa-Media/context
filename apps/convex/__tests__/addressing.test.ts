@@ -302,9 +302,9 @@ describe("the answer reaches the gateway", () => {
         internal.functions.storage.getBindingForGateway,
         { workspaceId },
       );
-      // An S3 fixture: the credential union only carries this on the bucket
-      // shape, and a Dropbox binding reaching here would be the bug.
-      expect(credential?.provider).not.toBe("dropbox");
+      // An S3 fixture: the gateway credential is the bucket shape only,
+      // and a binding of any other shape must never reach here.
+      expect(["r2", "s3", "b2", "s3-compatible"]).toContain(credential?.provider);
       expect(
         (credential as { forcePathStyle?: boolean } | null)?.forcePathStyle,
       ).toBe(forcePathStyle);

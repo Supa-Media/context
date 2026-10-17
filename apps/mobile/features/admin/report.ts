@@ -451,7 +451,6 @@ export const PROVIDER_LABELS: Record<string, string> = {
   s3: "Amazon S3",
   b2: "Backblaze B2",
   "s3-compatible": "S3-compatible",
-  dropbox: "Dropbox",
 };
 
 export function providerLabel(provider: string): string {

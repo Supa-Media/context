@@ -105,18 +105,8 @@ describe("deleteAccount", () => {
         expiresAt: Date.now() + 86_400_000,
         createdAt: Date.now(),
       });
-      await ctx.db.insert("dropboxConnectAttempts", {
-        hashedState: "fake-hashed-state-not-real",
-        encryptedVerifier: "v2:current:FAKE:VERIFIER",
-        workspaceId,
-        startedBy: owner,
-        redirectUri: "https://console.example/callback",
-        expiresAt: Date.now() + 600_000,
-        createdAt: Date.now(),
-      });
       // The named gap this file exists to close: a parked Google connect,
-      // same shape as the Dropbox one above, previously left out of the
-      // cascade entirely.
+      // previously left out of the cascade entirely.
       await ctx.db.insert("googleConnectAttempts", {
         hashedState: "fake-hashed-google-state-not-real",
         encryptedVerifier: "v2:current:FAKE:GOOGLE-VERIFIER",
@@ -297,7 +287,6 @@ describe("deleteAccount", () => {
       expect(await ctx.db.query("vaultImportJobs").collect()).toHaveLength(0);
       expect(await ctx.db.query("workspaceInvitations").collect()).toHaveLength(0);
       expect(await ctx.db.query("auditEvents").collect()).toHaveLength(0);
-      expect(await ctx.db.query("dropboxConnectAttempts").collect()).toHaveLength(0);
       expect(await ctx.db.query("googleConnectAttempts").collect()).toHaveLength(0);
       expect(await ctx.db.query("googleConnections").collect()).toHaveLength(0);
       expect(await ctx.db.query("ingestionTickets").collect()).toHaveLength(0);

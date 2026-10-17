@@ -29,7 +29,7 @@ function toIso(value) {
 
 /**
  * The token the diff compares against: the listed etag where the backend
- * reports one (R2 and S3 do), else `uploaded:size` (Dropbox reports no etag at
+ * reports one (R2 and S3 do), else `uploaded:size` (a listing may report no etag at
  * all). Named `version` everywhere below for that reason.
  */
 function versionOf(object) {
@@ -106,7 +106,7 @@ export async function listNoteObjects(store, budget, reserve, isIndexable) {
       version: versionOf(object),
       uploaded: toIso(object.uploaded),
       // What the sizing and the placement are computed from, and the reason
-      // both cost no store op: R2, S3 and Dropbox all report a size on a
+      // both cost no store op: R2 and S3 both report a size on a
       // listing, so how much index a note will take up is knowable before
       // anything has been read. `null` where a backend does not, which
       // `indexVolumeOf` reads as one note's worth — the assumption counting

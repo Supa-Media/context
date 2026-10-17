@@ -54,10 +54,6 @@ Moved to [Context-owned objects have one versioned namespace](./storage-and-cred
 
 Moved to [Version history is the customer's object versioning, not a copy we keep](./storage-and-credentials/versioned-objects.md#version-history-is-the-customers-object-versioning-not-a-copy-we-keep).
 
-### Dropbox's client secret is optional hardening, not a second credential to guard
-
-Moved to [Dropbox's client secret is optional hardening, not a second credential to guard](./storage-and-credentials/versioned-objects.md#dropboxs-client-secret-is-optional-hardening-not-a-second-credential-to-guard).
-
 ## Managed storage: a bucket we run, in an account that holds nothing else
 
 Moved to [Managed storage: a bucket we run, in an account that holds nothing else](./storage-and-credentials/managed-storage.md#managed-storage-a-bucket-we-run-in-an-account-that-holds-nothing-else).
@@ -130,14 +126,6 @@ Moved to [A managed bucket holds sealed bodies, and every way out is plain](./st
 
 Moved to [A move between the owner's own buckets is a third direction, and never touches the old one](./storage-and-credentials/own-storage-moves.md#a-move-between-the-owners-own-buckets-is-a-third-direction-and-never-touches-the-old-one).
 
-## Dropbox is a source and never a destination, and its grant outlives the switch for the catch-up
-
-Moved to [Dropbox is a source and never a destination, and its grant outlives the switch for the catch-up](./storage-and-credentials/own-storage-moves.md#dropbox-is-a-source-and-never-a-destination-and-its-grant-outlives-the-switch-for-the-catch-up).
-
-## Dropbox workspaces are told support is ending, without a date
-
-Moved to [Dropbox workspaces are told support is ending, without a date](./storage-and-credentials/own-storage-moves.md#dropbox-workspaces-are-told-support-is-ending-without-a-date).
-
 ## Names, folders and privacy live on tree rows; the bucket holds bodies by id
 
 Moved to [Names, folders and privacy live on tree rows; the bucket holds bodies by id](./storage-and-credentials/notes-by-id.md#names-folders-and-privacy-live-on-tree-rows-the-bucket-holds-bodies-by-id).
@@ -145,3 +133,7 @@ Moved to [Names, folders and privacy live on tree rows; the bucket holds bodies 
 ## Deleting an account erases the storage we ran for it
 
 Moved to [Deleting an account erases the storage we ran for it](./storage-and-credentials/managed-erasure.md#deleting-an-account-erases-the-storage-we-ran-for-it).
+
+## Dropbox is not a storage option (decided by the owner, 2026-10-17)
+
+Dropbox support is removed entirely. A storage binding row still marked `dropbox` is refused as unsupported, and `internal.functions.dropboxRemoval.purge` cleans those rows up. A customer's notes in their own Dropbox are never touched by Context: not read, moved or deleted. Own storage is an S3-compatible bucket (R2, S3, B2 or `s3-compatible`).

@@ -147,7 +147,7 @@ export async function toolRotateEncryptionKeys(store, scope) {
     batch and comes back "clean"; the missed note is not bounded by anything.
 
     Compared through `uploadedBefore`, because `uploaded` is the storage
-    backend's clock and carries only whole seconds on S3 and Dropbox.
+    backend's clock and carries only whole seconds on S3.
   */
   const boundary = Date.now();
 

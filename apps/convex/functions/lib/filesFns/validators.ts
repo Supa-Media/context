@@ -272,6 +272,13 @@ export const movedValidator = v.object({
   etag: v.optional(v.string()),
   /** Files a queued folder move carries; the bucket catches up behind the tree. See `movePath`. */
   queued: v.optional(v.number()),
+  /**
+   * A keyed workspace's move: rows changed and no bytes moved (`lib/nodes/rowMoveStart.ts`), with each moved
+   * file's old and new path. Optional, because only that move reports them; without them in the validator a
+   * keyed rename through `moveEntry` failed validation after the rows had already moved.
+   */
+  rowed: v.optional(v.boolean()),
+  moved: v.optional(v.array(v.object({ from: v.string(), to: v.string() }))),
 });
 
 export const deletedValidator = v.object({

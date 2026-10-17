@@ -206,7 +206,6 @@ export async function censusReportHandler(ctx: QueryCtx, args: { days?: number }
   const statusCounts = new Map<string, number>();
   let managed = 0;
   let customer = 0;
-  let dropbox = 0;
 
   for (const binding of bindingsPage.rows) {
     boundContexts.add(keyOf(binding.workspaceId));
@@ -219,7 +218,6 @@ export async function censusReportHandler(ctx: QueryCtx, args: { days?: number }
       binding.bucket === managedBucketName(binding.workspaceId);
     if (isManaged) managed += 1;
     else customer += 1;
-    if (binding.provider === "dropbox") dropbox += 1;
 
     const slot = providerCounts.get(binding.provider) ?? { managed: 0, customer: 0 };
     if (isManaged) slot.managed += 1;
@@ -498,7 +496,6 @@ export async function censusReportHandler(ctx: QueryCtx, args: { days?: number }
       gmail: googleProducts.filter((product) => product === "gmail").length,
       calendar: googleProducts.filter((product) => product === "calendar").length,
       chat: googleProducts.filter((product) => product === "chat").length,
-      dropbox,
       mailOpen: mailPage.rows.filter((row) => row.allowAnySender).length,
       mailAllowlisted: mailPage.rows.filter(
         (row) =>

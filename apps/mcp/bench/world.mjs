@@ -240,8 +240,17 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
 
   controlPlane.addWorkspace("ws_pinned", PINNED, binding("bench-pinned", 999), { kind: "shared" });
   const pinned = s3.bucketFor("bench-pinned");
-  pinned.set("privacy.md", { body: manifest({ shared: true, files: [PRODUCTION_TEXTING_PATH] }), etag: "p0", lastModified: modified(baseMs) });
+  // Another job's setup under test (the dream's, `check.mjs`) sits beside the texting one, where production reads it.
+  const pinnedNotes = models.pinnedNotes ?? [];
+  pinned.set("privacy.md", {
+    body: manifest({ shared: true, files: [PRODUCTION_TEXTING_PATH, ...pinnedNotes.map((note) => note.path)] }),
+    etag: "p0",
+    lastModified: modified(baseMs),
+  });
   pinned.set(PRODUCTION_TEXTING_PATH, { body: setupRaw, etag: "s0", lastModified: modified(noteModifiedAt(setupRaw, baseMs)) });
+  for (const [i, note] of pinnedNotes.entries()) {
+    pinned.set(note.path, { body: note.raw, etag: `n${i}`, lastModified: modified(noteModifiedAt(note.raw, baseMs)) });
+  }
   // The setup's task skills (`src/agent/skills.js`), where production keeps them.
   for (const [i, skill] of (models.skills ?? []).entries()) {
     pinned.set(skillPath(skill.name), { body: skill.raw, etag: `k${i}`, lastModified: modified(baseMs) });
@@ -254,7 +263,8 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     userId: `user_bench_${own.workspace}`,
     accessToken: token,
     scopes: ["context:read", "context:write", "context:private"],
-    clientId: "context_texts",
+    // The texting client, unless a job's check runs as its own (the dreams client, `check.mjs`).
+    clientId: models.clientId ?? "context_texts",
     alsoMemberOf: [
       ...rows.filter((row) => !row.personal).map((row) => ({ workspaceId: ids.get(row.workspace), role: row.role })),
       { workspaceId: "ws_pinned", role: "member" },
@@ -439,6 +449,52 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       const body = await response.json().catch(() => null);
       const text = (body?.result?.content ?? []).map((block) => block.text ?? "").join("\n");
       return { ok: response.status === 200 && body?.result?.isError !== true, text, ms };
+    },
+
+    /** A note put into the person's own workspace before a job runs, as if it were already there. */
+    place(path, body) {
+      s3.bucketFor(`bench-${own.workspace}`).set(path, { body, etag: `placed-${path.length}`, lastModified: modified(baseMs) });
+    },
+
+    /** A note's text in the person's own workspace, or null. */
+    read(path) {
+      const object = s3.bucketFor(`bench-${own.workspace}`).get(path);
+      return object ? bodyText(object) : null;
+    },
+
+    /** One `/agent` call with this body, as the world's grant: Tex's nightly dream, for a dreams grant. */
+    async agent(body) {
+      const { ctx, settle } = createWorkerCtx();
+      const started = realNow();
+      const response = await worker.fetch(
+        new Request("https://mcp.bench.invalid/agent", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+        env,
+        ctx,
+      );
+      const answer = await response.json().catch(() => null);
+      await settle();
+      const usage = controlPlane.builtinReports.at(-1) ?? {};
+      return { status: response.status, body: answer, ms: realNow() - started, model: usage.model ?? null };
+    },
+
+    /** One JSON-RPC call to the MCP endpoint, as an AI client connected with this grant makes it. */
+    async mcp(method, params = {}) {
+      const { ctx, settle } = createWorkerCtx();
+      const response = await worker.fetch(
+        new Request("https://mcp.bench.invalid/mcp", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+        }),
+        env,
+        ctx,
+      );
+      await settle();
+      return response.json().catch(() => null);
     },
 
     close() {

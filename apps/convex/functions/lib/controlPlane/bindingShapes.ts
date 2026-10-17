@@ -64,22 +64,7 @@ export interface S3GatewayBinding {
   status: string;
 }
 
-/**
- * The Dropbox payload: a short-lived access token, a folder, and nothing else.
- *
- * A separate shape rather than the S3 one with holes, so there is no way to
- * hand the gateway a Dropbox binding that still carries a bucket credential.
- */
-export interface DropboxGatewayBinding {
-  workspaceId: Id<"workspaces">;
-  provider: "dropbox";
-  accessToken: string;
-  rootPrefix?: string;
-  capabilities: StorageCapabilities;
-  status: string;
-}
-
-export type GatewayBinding = S3GatewayBinding | DropboxGatewayBinding;
+export type GatewayBinding = S3GatewayBinding;
 
 /**
  * The D1 write credential, for the one workspace this binding was opened for.
@@ -227,16 +212,6 @@ export const s3BindingValidator = v.object({
   accessKeyId: v.string(),
   secretAccessKey: v.string(),
   forcePathStyle: v.optional(v.boolean()),
-  capabilities: capabilitiesValidator,
-  status: v.string(),
-});
-
-/** The Dropbox payload. A separate shape, never the S3 one with holes. */
-export const dropboxBindingValidator = v.object({
-  workspaceId: v.id("workspaces"),
-  provider: v.literal("dropbox"),
-  accessToken: v.string(),
-  rootPrefix: v.optional(v.string()),
   capabilities: capabilitiesValidator,
   status: v.string(),
 });

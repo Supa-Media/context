@@ -62,6 +62,7 @@ import { searchSettingsFor } from "../search/settings.js";
 import { transcriptionForwarder } from "../ingestion/transcription.js";
 import { toolSuggestDestination } from "../routing/suggestDestination.js";
 import { PINNED_CONTEXT_NAME } from "../orient/globalNote.js";
+import { PRODUCTION_MEETING_SUMMARIES_PATH, readJobSetupWith } from "../agent/production.js";
 import { handleTryIt } from "../agent/tryIt.js";
 import { withSearchPassesHeld } from "../search/heldPasses.js";
 import { MOVER_PAGE_PATH, handleMoverPage } from "../moves/mover.js";
@@ -511,7 +512,22 @@ export async function route(request, env, ctx) {
       // and not merely at what tier.
       if (summaryRoute) {
         store.actor = actorFor(session);
-        return handleMeetingSummary(request, store, session, { controlPlane, env });
+        // The summary's own setup note is the one other thing this route reads:
+        // `@context-lc ai/production/meeting-summaries.md`, through the
+        // caller's own membership and clearance there, opened only for that
+        // read. The meeting's store itself still opens nothing.
+        const readSetup = () =>
+          readJobSetupWith(
+            {
+              contexts: contextsFor(session),
+              openPinned: async () => {
+                const target = sessionForContext(session, PINNED_CONTEXT_NAME);
+                return { session: target, store: await storeForSession(target, env, controlPlane) };
+              },
+            },
+            PRODUCTION_MEETING_SUMMARIES_PATH,
+          );
+        return handleMeetingSummary(request, store, session, { controlPlane, env, readSetup });
       }
 
       if (meetingRoute) {

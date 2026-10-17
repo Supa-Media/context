@@ -13,9 +13,7 @@ import { readFileSync } from "node:fs";
 import worker from "../../src/index.js";
 import { R2Store } from "../../src/store/r2.js";
 import { S3Store, parseListObjectsV2, deriveSigningKey } from "../../src/store/s3.js";
-import { DropboxStore } from "../../src/store/dropbox.js";
 import { probeStore, normalizeEtag, pruneEmptyFolders, PROBE_PREFIX } from "../../src/store/index.js";
-import { dropboxTaggedError as dbxTagged } from "../controlPlaneStub.mjs";
 
 export {
   readFileSync,
@@ -24,12 +22,10 @@ export {
   S3Store,
   parseListObjectsV2,
   deriveSigningKey,
-  DropboxStore,
   probeStore,
   normalizeEtag,
   pruneEmptyFolders,
   PROBE_PREFIX,
-  dbxTagged,
 };
 
 export const FAKE_CONFIG = {
@@ -147,19 +143,3 @@ export function memoryBucket({
   };
 }
 
-/** Dropbox response/store fixtures shared by the Dropbox and folders sections. */
-export function dbxJson(body, status = 200, headers = {}) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json", ...headers },
-  });
-}
-
-export function dropbox(handler, overrides = {}) {
-  return new DropboxStore({
-    accessToken: "sl.FAKE-not-a-real-token",
-    fetch: fetchStub(handler),
-    sleep: async () => {},
-    ...overrides,
-  });
-}

@@ -115,7 +115,7 @@ because each looks simpler:
   normal case here, not a corner. Silently discarding one side of it is the one
   thing this product cannot do.
 - **A conflict copy in the bucket** (`foo (conflict 2026-08-31).md` beside the
-  original, Dropbox's answer). **Rejected by the owner**, and this is now a rule
+  original). **Rejected by the owner**, and this is now a rule
   rather than an open question. It has one real advantage — the typing survives
   the *device* being lost, which parking does not — and it costs more than it is
   worth: writing a file the customer did not ask for into storage we are a guest

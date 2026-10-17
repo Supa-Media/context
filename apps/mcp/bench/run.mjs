@@ -35,6 +35,7 @@ import { scoreCommand } from "./score.mjs";
 import { summaryCommand } from "./summary.mjs";
 import { calibrateCommand } from "./calibrate.mjs";
 import { searchCommand } from "./search.mjs";
+import { checkCommand } from "./check.mjs";
 import { connectCommand, publishCommand, publishSetup, pullCommand, signIn, signInCommand } from "./context.mjs";
 import { improveCommand } from "./improve.mjs";
 import { keyMarkdown, keyPathFor, resultMarkdown } from "./report.mjs";
@@ -379,6 +380,7 @@ const USAGE = [
   "       pnpm ai summary <result file>",
   "       pnpm ai calibrate <judged result file> [--decision <model>] [--sample <n>] [--fake]",
   "       pnpm ai search [--dir <benchmarks folder>] [--setups a,b] [--questions 1,2] [--out <note>] [--fake]",
+  "       pnpm ai check <dream|meeting-summaries|meeting-transcription|connected-ais> [--dir <folder>] [--setups a,b] [--questions 1,2] [--out <note>] [--fake]",
   "       pnpm ai connect [--endpoint <url>]           once, by a person: the runner's grant on Context",
   "       pnpm ai signin [--show refresh-token]        the runner's sign-in, from BENCH_RUNNER_* in the environment",
   "       pnpm ai pull <job> [--dir <benchmarks folder>]   the job's setups from Context into setups/<job>/",
@@ -395,6 +397,7 @@ const COMMANDS = new Map([
   ["summary", summaryCommand],
   ["calibrate", calibrateCommand],
   ["search", searchCommand],
+  ["check", checkCommand],
   ["connect", connectCommand],
   ["signin", signInCommand],
   ["pull", (options) => pullCommand(options, benchFolder(options))],

@@ -328,7 +328,7 @@ export function useCreateWorkspace(): CreateWorkspaceController {
     would start again at step 1 with the name already claimed, which is the
     worst possible landing for somebody who has just paid. The workspace's own
     Premium section is a real page that already draws the settling wait, so
-    that is where the return goes — the same trade the Dropbox route makes,
+    that is where the return goes — the same trade the connect callback makes,
     and `WorkspaceStorageStep` says so before the press rather than after it.
 
     `returned` is always `null`: nothing comes back to this screen, so there is

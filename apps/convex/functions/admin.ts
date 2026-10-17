@@ -676,7 +676,6 @@ export const censusReport = query({
       gmail: v.number(),
       calendar: v.number(),
       chat: v.number(),
-      dropbox: v.number(),
       mailOpen: v.number(),
       mailAllowlisted: v.number(),
       obsidian: v.number(),

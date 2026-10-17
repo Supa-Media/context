@@ -18,7 +18,7 @@
  * - what is left of nothing (`///`, `..`) is called "Task".
  *
  * A name is **unique against the folder, ignoring case** — a bucket synced to
- * a Mac or through Dropbox cannot hold `Plan.md` beside `plan.md` — and
+ * a Mac or through a sync client cannot hold `Plan.md` beside `plan.md` — and
  * against a folder of the same stem, since `x/task.md` becomes `x/task/`
  * the first time it gets a subtask. A front note's name (`overview.md`,
  * `index.md`, `README.md`) is never a task's: a task called "Overview" would

@@ -29,7 +29,7 @@ describe("bindStorage", () => {
 
     expect(binding).not.toBeNull();
     // An S3 binding always carries this; the field is only optional because a
-    // Dropbox binding has no bucket secret at all.
+    // binding from a removed provider has no bucket secret at all.
     expect(binding!.encryptedSecretAccessKey).toBeDefined();
     expect(binding!.encryptedSecretAccessKey).not.toContain(
       FAKE_STORAGE.secretAccessKey,

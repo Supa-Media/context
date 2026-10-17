@@ -4,7 +4,7 @@ import type { ConsoleRoute } from "./nav";
  * What right-clicking a context in the rail offers.
  *
  * Seyi's ask, verbatim: "we can access settings for a context by
- * right-clicking it … because the top right little Dropbox button just isn't
+ * right-clicking it … because the top right little storage button just isn't
  * very visible." The storage pill is real but it is one small control in a
  * corner; the rail entry is the thing a person already knows is *the
  * context*, so the context's verbs belong on it too.

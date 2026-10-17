@@ -1,12 +1,12 @@
 /**
  * Google's OAuth mechanics, as pure functions over a stubbed socket. Same
- * shape and the same four things that have to hold as `dropboxOAuth.test.ts`
- * — see that file's header for the full argument — restated here for a
- * different provider and a different id-token trust boundary:
+ * shape and the same four things that have to hold for every connect flow,
+ * restated here for a different provider and a different id-token trust
+ * boundary:
  *
- *  1. PKCE is reused from `dropboxOAuth.ts` rather than reimplemented, so its
- *     own test already pins the RFC 7636 vector; this file proves the reuse
- *     actually happened.
+ *  1. PKCE is reused from `pkce.ts` rather than reimplemented, so its own test
+ *     already pins the RFC 7636 vector; this file proves the reuse actually
+ *     happened.
  *  2. No code, verifier, or token reaches an error.
  *  3. `invalid_grant` is not a transient failure.
  *  4. Nothing secret is in a URL — and specifically here, the account

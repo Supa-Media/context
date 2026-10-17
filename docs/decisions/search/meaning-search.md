@@ -245,10 +245,31 @@ not land costs recall until the catch-up's next pass, never a wrong answer:
 a meaning-only hit is read at its path before it is shown, and one that is not
 there is dropped.
 
-**The switch-over has no gap.** A map written before this holds paths. Each
-such note is embedded once under its id, and its path-keyed passages are
-deleted only after the id's have landed, so a search finds it throughout. An id
+**The switch-over has no gap and no new embeds.** A map written before this
+holds paths. Each such note whose version still matches is adopted: its
+path-keyed passages are copied under its id, and deleted only after the copy
+has landed, so a search finds it throughout. A note changed meanwhile is
+embedded under its id instead. An id
 missing from a listing that was cut short is not deleted, since a moved note's
 new folder may be the part the listing never reached. `meaningById.test.mjs`
 and the "census is keyed by note id" case in
 `apps/convex/__tests__/meaningPass.test.ts` fail if any of this is reversed.
+
+### Fast search renames a moved note's rows, and reads it only for a new name
+
+Decided 2026-10-17, the same plan section. A note moved to another folder under
+the same file name keeps its rows: `followChange`
+(`apps/mcp/src/search/d1/follow.js`) renames them in place, as it already did
+for a moved folder, and moves the chunks to the other tier's table with an
+`INSERT … SELECT` when the new folder changes the tier. Neither reads the note.
+Before this, every moved note was read and projected again, and a moved
+folder's notes whose tier changed were read one by one up to the read cap and
+dropped past it until the sweep came round.
+
+A note given a **new name** is still read and projected, because its title
+follows its name: a rename rewrites the heading (`followHeading.ts`, "a note's
+heading is its name"), and a note with no heading takes its title from the file
+name. So does a note the projection does not hold yet, and a drawing. Keying
+the rows by note id instead would not save that read: the title still has to
+change on a rename. `apps/mcp/test/searchFollow.test.mjs` fails if a same-name move reads,
+if a tier move drops the chunks, or if a rename stops reprojecting.

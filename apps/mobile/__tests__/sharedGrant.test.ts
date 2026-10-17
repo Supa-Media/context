@@ -152,3 +152,18 @@ describe("a grant item in Shared with me", () => {
     expect(inbox.matchesFilter(granted, "acme")).toBe(true);
   });
 });
+
+describe("a grant is reported by its note id, never a path", () => {
+  test("a share names its token; a grant names its workspace and note id", () => {
+    expect(inbox.reportTargetOf(share)).toEqual({ kind: "share", token: (share as { token: string }).token });
+    const target = inbox.reportTargetOf(granted);
+    expect(target).toEqual({ kind: "grant", workspaceId: granted.workspaceId, noteId: granted.noteId });
+    expect(JSON.stringify(target)).not.toContain(granted.entryPath);
+  });
+
+  test("a grant with a granter offers to block them; one with none offers only the report", () => {
+    const byAna = { ...granted, sharedBy: "user-ana", sharedByHandle: "ana", sharedByName: "Ana" };
+    expect(inbox.reportPersonOf(byAna)).toEqual({ handle: "ana", name: "Ana" });
+    expect(inbox.reportPersonOf(granted)).toBeNull();
+  });
+});

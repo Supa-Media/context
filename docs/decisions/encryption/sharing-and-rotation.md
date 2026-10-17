@@ -148,7 +148,7 @@ which is which is a decision.**
 
   **Two smaller corrections in the same place, both measured.** The comparison
   is made at **whole-second resolution with a strict `<`**, because S3's
-  `ListObjectsV2` and Dropbox's `server_modified` report whole seconds: a
+  `ListObjectsV2` reports whole seconds: a
   millisecond boundary against a truncated timestamp lost a note moved behind
   the cursor in four of eight runs on a second-granularity store stub. And the
   progress file carries `wrote`, the keys the last call itself re-wrapped,

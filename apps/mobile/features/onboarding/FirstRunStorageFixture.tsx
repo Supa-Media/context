@@ -88,7 +88,6 @@ export function FirstRunStorageFixture({
     <WelcomeChrome step="storage" shape={{}}>
       <StorageStepBody
         connectState={{ kind: "idle" }}
-        workspaceId="fixture-workspace"
         contextName="@seyi"
         connect={async () => ({ status: "ok" })}
         managed={managed}

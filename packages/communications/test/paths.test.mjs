@@ -102,7 +102,7 @@ export function runPathChecks(check) {
   check("...nor a percent escape that could decode to one", !slugifyAddress("%2e%2e@example.com").includes("%"));
   check("a slug is bounded, because the whole key has to stay addressable", slugifyAddress(`${"a".repeat(400)}@example.com`).length <= MAX_SLUG_LENGTH);
   check("...and does not end mid-separator after the cut", !slugifyAddress(`${"a".repeat(MAX_SLUG_LENGTH - 1)}-b@example.com`).endsWith("-"));
-  check("case folds, because Dropbox folds and R2 does not", slugifyAddress("A@Example.com") === slugifyAddress("a@example.com"));
+  check("case folds, because some stores fold and R2 does not", slugifyAddress("A@Example.com") === slugifyAddress("a@example.com"));
 
   check("two addresses that slugify alike get different folders", (() => {
     const first = chooseMailboxSlug("a.b@example.com", []);
