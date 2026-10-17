@@ -90,3 +90,28 @@ existence oracle. Checking the block anywhere but those three predicates lets
 one channel be softer than the others — the drift `shareStillStands` exists to
 prevent. `apps/convex/__tests__/reportAndBlock.test.ts` fails on each guard,
 and its header records the sabotage runs.
+
+### A note shared by name through its access list is reported and blocked the same way (2026-10-17)
+
+Notes by id added a third way to put a note in front of a stranger: the owner
+names them on a row's access list (by account or by email), and the note
+appears in their @shared as a grant, with no share token. Each such row now
+has the same Report (or block) control a named share has.
+
+- **A grant is reported by its workspace and stable note id**, never a path:
+  `{ kind: "grant", workspaceId, noteId }`. It resolves through
+  `outsiderGrantsFor`, the re-derivation @shared lists it with, so a grant the
+  list would not show does not resolve, and the receipt is the same either
+  way. The person blocked is the grant row's `grantedBy`; a row that records
+  none offers the report without the block.
+- **A block reaches grants as a fourth reader.** `guestViewOf` drops the names
+  a caller holds in a workspace only through grants written by people they
+  blocked, so the note leaves @shared and refuses to open with the one
+  refusal every closed grant gets. A row someone the caller has not blocked
+  also named them on stays open. Nothing is deleted; unblocking restores it.
+
+What a simplification would cost: reporting a grant by path forwards the
+owner's words; resolving it from any note id in the workspace makes the report
+an existence probe; and a block that leaves grants in place offers a "Report or
+block" that does not block. `__tests__/grants/grantReportBlock.test.ts` fails
+on each.

@@ -4,7 +4,8 @@
 
 /**
  * Screenshots of @shared: the Shared with me list beside its sidebar, a granted
- * note open in place, a granted folder, and the folder's empty and refused states,
+ * note open in place (read only, and writable for a grant with edit), a granted
+ * folder, and the folder's empty and refused states,
  * for the design audit (`docs/decisions/app-and-console.md`). Same technique as
  * `account-setup-shots.ts`: the shipped components, rendered by react-dom into a
  * real DOM, written out as self-contained `.html`, and photographed by Playwright.
@@ -17,6 +18,7 @@
  *     pnpm exec jest --testMatch '**\/scripts/shared-grant-shots.ts' --testPathIgnorePatterns '[]'
  *
  * The HTML and the photo step land in `SHARED_GRANT_SHOTS_DIR` (default below).
+ * Photograph them with `node scripts/capture-shared-grant-shots.mjs <that dir>`.
  */
 
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
@@ -490,6 +492,33 @@ describe("shared with me shots", () => {
         readGrantedNote: async () => {
           throw new Error("refused");
         },
+      },
+    );
+  }, 120_000);
+
+  test("07 a granted note you may edit, open writable", async () => {
+    await board(
+      "07-granted-note-edit",
+      (viewport) =>
+        shell(
+          createElement(SharedGrantView, {
+            target: NOTE_GRANT,
+            item: NOTE_ITEM,
+            phone: viewport.name === "phone",
+            now: NOW,
+            onList: () => {},
+            onGo: () => {},
+          }),
+          sidebarFor(grantItemKey(GRANT_WORKSPACE, "n-granted-long")),
+          viewport,
+        ),
+      {
+        readGrantedNote: async () => ({
+          path: "1-projects/riverside/quarterly-planning.md",
+          text: GRANTED_NOTE_TEXT,
+          canEdit: true,
+          etag: "etag-fake-1",
+        }),
       },
     );
   }, 120_000);

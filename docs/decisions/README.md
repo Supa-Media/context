@@ -135,6 +135,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A note shared with a named person opens for them wherever it lives
 - [Blocking is per recipient, and a report is never an oracle](./privacy-and-sharing/reporting-and-blocking.md) (2026-10-15)
 - [The share dialog writes a list and its base together, and a domain is never a grantee](./privacy-and-sharing/share-dialog-lists.md) (2026-10-17)
+- [A note shared by name through its access list is reported and blocked the same way](./privacy-and-sharing/reporting-and-blocking.md) (2026-10-17)
+- [Naming people on a note waits for the person, whoever is named](./privacy-and-sharing/agent-egress.md) (2026-10-17)
 
 ## [Per-note encryption](./encryption.md)
 
@@ -335,6 +337,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Notes reach the index two ways, and a map in the bucket says which are in
 - Both indexes fill in tier order: T0 everything else, T1 the Inbox, T2 the Archive
 - A note's passages are filed under its note id, and a move only re-points them
+- Fast search renames a moved note's rows, and reads it only for a new name
 
 ## [The mobile app and the console](./app-and-console.md)
 

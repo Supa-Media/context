@@ -66,9 +66,7 @@ export function grantLine(row: Recipient, role: GrantRole, handle: string): stri
   }
   if (row.kind === "group") return `Everyone in the group can ${verb} this. You can take it back.`;
   if (row.kind === "invite") {
-    // Edit from outside the workspace reads as view until the gateway lets outsiders write.
-    if (role === "edit") return `They can read it once they sign in with ${row.key}. People outside ${handle} can view only, for now.`;
-    return `They can read it once they sign in with ${row.key}, and find it under Shared with me.`;
+    return `They can ${verb} it once they sign in with ${row.key}, and find it under Shared with me.`;
   }
   return `They can ${verb} it in ${handle}. You can take it back.`;
 }

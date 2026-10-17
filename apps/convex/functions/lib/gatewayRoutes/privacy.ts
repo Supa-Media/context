@@ -19,7 +19,7 @@ import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { hashToken } from "../crypto";
 import { json, nullableStringField, stringField } from "../gatewayAuth";
-import { setAccessOp } from "./privacySetAccess";
+import { addGranteesOp, setAccessOp } from "./privacySetAccess";
 
 /** The grant scope that may change a workspace's notes, and so its rules. */
 const SCOPE_WRITE = "context:write";
@@ -93,6 +93,11 @@ export async function gatewayPrivacyHandler(ctx: ActionCtx, body: Record<string,
     // A tier or list set on one row. Only meaningful once the rows are the truth; `nodesAccess.setAccess` says so.
     if (actor === undefined) return refused();
     return await setAccessOp(ctx, body, workspaceId, actor);
+  }
+  if (op === "addGrantees") {
+    // People named on one row by an AI client, after the person's yes. The rows decide; owner only.
+    if (actor === undefined) return refused();
+    return await addGranteesOp(ctx, body, workspaceId, actor);
   }
   // In rows mode the rules are not written any more: the rows are the truth, and the gateway writes them through `setAccess`.
   if (ROWS_REFUSED_OPS.has(op) && (await ctx.runQuery(internal.functions.nodesAccess.rowsMode, {}))) {

@@ -63,7 +63,7 @@ export const ACTIONS = {
     move_many: { tool: "move_notes", summary: "Move up to 100 notes at once, all or none.", take: plain },
     move_folder: { tool: "move_folder", summary: "Move or rename a folder and everything in it.", take: plain },
     archive: { tool: "archive_note", summary: "Move a note into the archive (there is no delete).", take: plain },
-    visibility: { tool: "set_visibility", summary: "Make one note private or team.", take: plain },
+    visibility: { tool: "set_visibility", summary: "Make one note private or team, or name people who may open it.", take: plain },
     folder_visibility: { tool: "set_folder_visibility", summary: "Make a folder private, team or inherited.", take: plain },
     encrypt: { tool: "set_encryption", summary: "Encrypt or decrypt one note.", take: plain },
     review_proposal: { tool: "review_proposal", summary: "Approve or reject a proposed note.", take: plain },

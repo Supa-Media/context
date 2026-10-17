@@ -14,6 +14,7 @@
 
 import { v } from "convex/values";
 import { internalMutation, internalQuery, mutation, query, type MutationCtx } from "../_generated/server";
+import { addGranteesHandler } from "./lib/nodes/addGrantees";
 import { granteeRequestValidator, setGranteesAnswerValidator, setGranteesHandler } from "./lib/nodes/setGrantees";
 import { shareListHandler, shareListValidator } from "./lib/nodes/shareList";
 import { accessSourceOf, resolveHandle } from "./lib/nodes/accessBackfill";
@@ -297,4 +298,19 @@ export const shareList = query({
   args: { workspaceId: v.id("workspaces"), path: v.string() },
   returns: shareListValidator,
   handler: async (ctx, args) => await shareListHandler(ctx, args),
+});
+
+/**
+ * People an AI client adds to one row's list, after the person said yes to it (`/gateway/privacy`, op
+ * `addGrantees`; `lib/nodes/addGrantees.ts`). Adds to the list rather than replacing it. Owner only.
+ */
+export const addGrantees = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    path: v.string(),
+    entries: v.array(granteeRequestValidator),
+    actor: v.object({ userId: v.id("users"), role: v.union(v.literal("owner"), v.literal("editor")) }),
+  },
+  returns: setGranteesAnswerValidator,
+  handler: async (ctx, args) => await addGranteesHandler(ctx, args),
 });

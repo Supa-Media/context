@@ -146,10 +146,19 @@ export async function readSharedNoteHandler(
     not see is the same `SHARE_UNAVAILABLE` as one that never existed. Any
     new caller has to re-argue that.
   */
-  const [entryPath, requested] = (await ctx.runQuery(internal.functions.smallData.forward, {
+  /*
+    A share stamped with its note's id (`entryNote.ts`) already knows where the
+    note is now, so its entry path is never forwarded: forwarding a live path
+    could hand the link to whatever moved away from it. A path the reader asks
+    for under a folder share is still forwarded, since it may be one they
+    bookmarked before a rename. An unstamped row forwards both, as before.
+  */
+  const [forwardedEntry, forwardedAsked] = (await ctx.runQuery(internal.functions.smallData.forward, {
     workspaceId: grant.workspaceId,
     paths: [grant.entryPath, asked],
   })) as [string, string];
+  const entryPath = grant.byId ? grant.entryPath : forwardedEntry;
+  const requested = grant.byId && args.path === undefined ? grant.entryPath : forwardedAsked;
   const shareGrant = { ...grant, entryPath };
 
   /*
@@ -409,7 +418,13 @@ export async function readThroughShare(
   scope: "private" | "team" = "team",
   // An outsider's names (`lib/grants/outsider.ts`), read through the same barrier. Empty for every other share.
   grantedNames: readonly string[] = [],
-): Promise<{ text: string }> {
+  /**
+   * Keep the note's comments: only for an outsider who may edit it
+   * (`grantedRead.ts`), whose save writes the whole text back. Stripping them
+   * there would delete every thread on the first save.
+   */
+  options: { keepComments?: boolean } = {},
+): Promise<{ text: string; etag: string; editable: boolean }> {
   try {
     /*
       THE TREE DECIDES SEALED BEFORE THE BUCKET IS ASKED FOR THE BODY.
@@ -473,7 +488,11 @@ export async function readThroughShare(
       here, before the text leaves the control plane, so a link holder never
       receives them rather than merely not seeing them drawn.
     */
-    return { text: stripComments(result.text) };
+    // `editable`: what the bucket says of this object, beside who is asking. An encrypted note, or one the
+    // gateway serves read-only, is not written through a grant either.
+    const editable = !result.readOnly && result.encrypted !== true;
+    const text = options.keepComments === true ? result.text : stripComments(result.text);
+    return { text, etag: result.etag, editable };
   } catch (error) {
     const code =
       error instanceof ConvexError

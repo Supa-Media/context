@@ -18,6 +18,7 @@ import { titleFromPath } from "../shareTitle";
 import { scheduleCardRender } from "../../shareCard";
 import { isLive } from "./standing";
 import { assertShareCapacity } from "./mint";
+import { entryNoteIdAt } from "./entryNote";
 
 export const linkShareKindArgs = { workspaceId: v.id("workspaces"), path: v.string() };
 
@@ -170,6 +171,9 @@ export async function mintLinkShareHandler(
   const token = randomOpaqueToken();
 
   let shareId: Id<"noteShares">;
+  // The note this share follows wherever it moves (`entryNote.ts`). Re-stamped on a re-mint, which may name
+  // the note now at this path rather than the one an older row was minted on.
+  const entryNoteId = await entryNoteIdAt(ctx.db, args.workspaceId, args.path);
   if (existing !== null) {
     shareId = existing._id;
     await ctx.db.patch(existing._id, {
@@ -185,11 +189,13 @@ export async function mintLinkShareHandler(
       createdBy: args.actorUserId,
       createdAt: now,
       revokedAt: undefined,
+      entryNoteId,
     });
   } else {
     shareId = await ctx.db.insert("noteShares", {
       workspaceId: args.workspaceId,
       entryPath: args.path,
+      entryNoteId,
       entryKind: args.entryKind,
       // Nobody to name, and nobody to sign in. One field carries the
       // audience — see the schema.

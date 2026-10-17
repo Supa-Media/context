@@ -107,8 +107,10 @@ describe("what the field offers", () => {
     expect(pickOf({ kind: "domain", key: "domain:a.b", label: "Everyone at a.b", domain: "a.b" })).toBeNull();
   });
 
-  test("an email given edit is told it reads as view for now; an outsider's row says they are outside", () => {
-    expect(grantLine({ kind: "invite", key: "x@example.test", label: "x@example.test" }, "edit", "@acme")).toContain("view only");
+  test("an email given edit is told they can edit it once they sign in (#1803); an outsider's row says they are outside", () => {
+    expect(grantLine({ kind: "invite", key: "x@example.test", label: "x@example.test" }, "edit", "@acme")).toBe(
+      "They can edit it once they sign in with x@example.test, and find it under Shared with me.",
+    );
     expect(grantDetail({ kind: "user", userId: "u9", label: "Mara", member: false, role: "view" }, "@acme")).toBe("Not in @acme");
   });
 });
