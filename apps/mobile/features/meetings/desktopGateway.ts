@@ -1,5 +1,6 @@
 import { getDesktopBridge, type DesktopBridge, type MeetingWriteAck } from "@context/desktop-bridge";
-import { MeetingGatewayError, type MeetingAddress, type MeetingsGateway } from "./gateway";
+import { QUEUED_ON_THIS_MACHINE } from "./record";
+import { MeetingGatewayError, MeetingHeldByDevice, type MeetingAddress, type MeetingsGateway } from "./gateway";
 import { ERRORS } from "./protocol";
 import type {
   IngestAck,
@@ -61,9 +62,11 @@ import type {
  * not in the bucket. `docs/decisions/app-and-console.md` is unambiguous: *the UI
  * must never claim a write it has not seen acknowledged.*
  *
- * So a queued finalize is thrown as `unavailable`, which is transient:
- * `sync.ts` keeps the record, `pendingSteps` will offer the finalize again, and
- * the next attempt either gets the path or is queued again. Re-finalizing is
+ * So a queued finalize is thrown as `MeetingHeldByDevice` (`unavailable`, but
+ * held rather than failed): `sync.ts` keeps the record without counting an
+ * attempt, `pendingSteps` will offer the finalize again, and the next attempt
+ * either gets the path or is queued again. Counting it as a failure is what
+ * parked meetings the shell was still sending, under a bar nobody could clear. Re-finalizing is
  * idempotent by the gateway's own rule — *"finalizing twice answers with the
  * note that already exists"* — so the retry costs one request and cannot write
  * a second note.
@@ -81,8 +84,7 @@ import type {
 /** Everything a refused meeting can put in front of a person, and the whole of it. */
 export const DESKTOP_WRITE_SENTENCES = {
   /** The shell has it; the bucket does not yet. */
-  queued:
-    "This meeting is queued on this machine and will be filed as soon as your context can be reached.",
+  queued: QUEUED_ON_THIS_MACHINE,
   /** A destination the gateway's own selector would not read as a context. */
   unroutable:
     "This meeting is addressed to a context this app cannot reach, so it is being kept here.",
@@ -190,7 +192,7 @@ export function createDesktopGateway(meetings: DesktopMeetings): MeetingsGateway
           shell's queue is still holding it either way — this is about what the
           *page* is allowed to draw.
         */
-        throw new MeetingGatewayError(ERRORS.unavailable, DESKTOP_WRITE_SENTENCES.queued);
+        throw new MeetingHeldByDevice(DESKTOP_WRITE_SENTENCES.queued);
       }
       return {
         sessionId: session.id,

@@ -188,7 +188,40 @@ export interface MeetingRecord {
    * `complete`, `empty`, or `failed` is not read again by that function.
    */
   retriedAt?: number;
+  /**
+   * The desktop shell has this meeting's finalize in its own queue, and the
+   * bucket does not have it yet.
+   *
+   * Not a failure, and that is what this flag is for. The shell's outbox is
+   * durable and drains on its own timer with no page open, so a finalize it
+   * answered "queued" is being sent by something; counting that answer toward
+   * `MAX_SYNC_ATTEMPTS` parked a meeting the machine was still holding and put
+   * "Not saved to your context" over the app with a Retry that could only get
+   * the same answer again. A held record is asked again on every drain (the
+   * shell answers with the note's path once it lands) and is never failed by
+   * `recoverStaleFinalizes`. Cleared by the first acknowledged step.
+   */
+  handedOver?: true;
+  /**
+   * The problem this person already closed the bar for, as `landingKey` spells
+   * it. The bar stays down while the meeting's problem is still that one, and
+   * comes back only for a different one. The meeting itself, its page and its
+   * row in the list are untouched: this hides a notice, never a recording.
+   *
+   * On the record rather than on the account because the stranded meeting
+   * exists only on this device; there is no other device it could be dismissed
+   * from.
+   */
+  noticeDismissed?: string;
 }
+
+/**
+ * What a desktop shell says when it is holding a finalize, as the page draws
+ * it. Here rather than in `desktopGateway.ts` so `parseRecord` can recognise a
+ * meeting an earlier build parked over this sentence and put it back.
+ */
+export const QUEUED_ON_THIS_MACHINE =
+  "This meeting is queued on this machine and will be filed as soon as your context can be reached.";
 
 export const MEETING_RECORD_VERSION = 1;
 
@@ -330,7 +363,8 @@ export function ackStep(record: MeetingRecord, step: SyncStep, now: number): Mee
   }
   if (step.kind === "notes") acked.notes = step.markdown;
   if (step.kind === "finalize") acked.finalized = true;
-  return { ...record, acked, updatedAt: now, attempts: 0, lastError: undefined };
+  const { handedOver: _handedOver, ...rest } = record;
+  return { ...rest, acked, updatedAt: now, attempts: 0, lastError: undefined };
 }
 
 /* ------------------------------- failures -------------------------------- */
@@ -573,9 +607,37 @@ export function parseRecord(raw: string | null, workspaceId: string): MeetingRec
     runningSince: typeof record.runningSince === "string" ? record.runningSince : null,
     updatedAt: typeof record.updatedAt === "number" ? record.updatedAt : 0,
     attempts: typeof record.attempts === "number" ? record.attempts : 0,
-    rejection: record.rejection,
-    lastError: record.lastError,
+    ...restoredSyncState(record),
     retriedAt: typeof record.retriedAt === "number" ? record.retriedAt : undefined,
+    ...(typeof record.noticeDismissed === "string" ? { noticeDismissed: record.noticeDismissed } : {}),
+  };
+}
+
+/**
+ * The rejection and handover a record comes back with, after one repair.
+ *
+ * Builds before `handedOver` existed parked a desktop meeting the shell was
+ * still holding: six "queued" answers became `RETRIES_EXHAUSTED` over
+ * `QUEUED_ON_THIS_MACHINE`, which is a bar nobody could clear. That rejection
+ * is a statement about this app's bookkeeping, not about the meeting, so it is
+ * put back as a held handover and the next drain asks the shell again.
+ */
+function restoredSyncState(
+  record: Partial<MeetingRecord>,
+): Pick<MeetingRecord, "rejection" | "lastError" | "handedOver"> {
+  const rejection = record.rejection;
+  if (
+    rejection !== undefined &&
+    rejection.code === "RETRIES_EXHAUSTED" &&
+    typeof rejection.message === "string" &&
+    rejection.message.startsWith(QUEUED_ON_THIS_MACHINE)
+  ) {
+    return { rejection: undefined, lastError: QUEUED_ON_THIS_MACHINE, handedOver: true };
+  }
+  return {
+    rejection,
+    lastError: record.lastError,
+    ...(record.handedOver === true ? { handedOver: true as const } : {}),
   };
 }
 
