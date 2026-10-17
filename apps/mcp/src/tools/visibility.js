@@ -1,4 +1,4 @@
-/** `set_visibility` and `set_folder_visibility` — the tools that write privacy.md. */
+/** `set_visibility` and `set_folder_visibility` — the tools that write privacy.md, and name people on a note. */
 
 import { eligible as collaborationEligible, supported as collaborationSupported, readDocument as readCollaborationDocument } from "@context/collaboration";
 import {
@@ -25,6 +25,7 @@ import { normalizePath } from "../notes/paths.js";
 import { normalizeVisibility } from "../notes/format.js";
 import { recordChange } from "../activity/record.js";
 import { toolError, toolText, writePermissionError } from "./results.js";
+import { addPeopleToNote } from "./notePeople.js";
 
 /** A rows-mode refusal as the tool answers it: FORBIDDEN is the permission error; a CONFLICT is the file's own words. */
 function rowsRefusal(error, operation) {
@@ -43,9 +44,21 @@ export async function toolSetVisibility(store, scope, rules, overrides, args) {
   if (!path || !path.endsWith(".md") || isPlumbing(path)) {
     return toolError("invalid path (must be a non-reserved .md note)");
   }
+  // `people` alone names who else may open the note and leaves its visibility as it is.
+  if (args.visibility === undefined && args.people !== undefined) {
+    if (!(await getWithLegacyFallback(store, path))) return toolError("not found");
+    return await addPeopleToNote(store, path, args.people);
+  }
   const visibility = normalizeVisibility(args.visibility);
   if (!["private", "team"].includes(visibility)) {
     return toolError("visibility must be private or team");
+  }
+  if (args.people !== undefined) {
+    const changed = await toolSetVisibility(store, scope, rules, overrides, { ...args, people: undefined });
+    if (changed.isError === true) return changed;
+    const named = await addPeopleToNote(store, path, args.people);
+    return named.isError === true ? named : toolText(`${changed.content[0].text}
+${named.content[0].text}`);
   }
   if (!writesOneRule(path)) return toolError(UNWRITABLE_PATH_REFUSAL);
   const obj = await getWithLegacyFallback(store, path);

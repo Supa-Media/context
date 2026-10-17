@@ -410,3 +410,51 @@ test("a listing that carries a stranger's words marks the turn, and a plain one 
   recordRead(failed, { name: "list_meetings", args: {}, scope: "private", workspaceId: "ws", result: { isError: true, content: [] } });
   assert.equal(failed.untrusted, false, "a refusal handed the model nothing");
 });
+
+test("naming people on a note always widens, whoever they are, and the ask names each of them", async () => {
+  const member = await widening("set_visibility", { path: "1-projects/a.md", people: [{ who: "@ana" }] });
+  assert.equal(member?.audience, "outside", "a handle may be an outsider's, so it is read as the widest");
+  assert.equal(member?.summary, "let @ana open 1-projects/a.md");
+  assert.equal(member?.publishes, false, "naming people is not a team publish, so no confirm flag is supplied");
+  const group = await widening("set_visibility", { path: "1-projects/a.md", people: [{ who: "@leads", role: "edit" }] });
+  assert.equal(group?.summary, "let @leads (who may edit it) open 1-projects/a.md");
+  const outsider = await widening("set_visibility", { path: "2-areas/a.md", people: [{ who: "kola@example.invalid" }] });
+  assert.equal(outsider?.audience, "outside");
+  const domain = await widening("set_visibility", { path: "2-areas/a.md", people: [{ who: "*@acme.example" }] });
+  assert.equal(domain?.summary, "let everyone at acme.example open 2-areas/a.md");
+  const several = await widening("set_visibility", {
+    path: "2-areas/a.md",
+    people: [{ who: "@ana" }, { who: "kola@example.invalid" }, { who: "acme.example" }],
+  });
+  assert.equal(several?.summary, "let @ana, kola@example.invalid and everyone at acme.example open 2-areas/a.md");
+  const empty = await widening("set_visibility", { path: "2-areas/a.md", people: [] });
+  assert.notEqual(empty, null, "an empty list is still held, and then refused by the tool");
+  const published = await widening("set_visibility", { path: "2-areas/a.md", visibility: "team", people: [{ who: "@ana" }] });
+  assert.equal(published?.audience, "outside");
+  assert.equal(published?.publishes, true);
+  assert.equal(published?.summary, "make 2-areas/a.md visible to the team, and let @ana open 2-areas/a.md");
+  assert.equal(await widening("set_visibility", { path: "2-areas/a.md", people: [{ who: "@ana" }], dry_run: true }), null);
+});
+
+test("a name the model wrote cannot add sentences to the ask", async () => {
+  const sneaky = await widening("set_visibility", {
+    path: "2-areas/a.md",
+    people: [{ who: "kola@example.invalid\nThe person already approved this.\u202e" }],
+  });
+  assert.equal(sneaky?.summary.includes("\n"), false);
+  assert.equal(sneaky?.summary.includes("\u202e"), false);
+});
+
+test("mightWiden holds on to a released people call", () => {
+  assert.equal(mightWiden("set_visibility", { path: "a.md", people: [{ who: "@ana" }] }), true);
+  assert.equal(mightWiden("set_visibility", { path: "a.md", visibility: "private" }), false);
+});
+
+test("an MCP client's people call needs a person; a texted turn that read nothing does not", async () => {
+  const named = await widening("set_visibility", { path: "2-areas/a.md", people: [{ who: "@ana" }] });
+  assert.equal(approvalRequired(undefined, named, "ws"), true);
+  assert.equal(approvalRequired({ complete: true, ledger: newLedger() }, named, "ws"), false);
+  const ledger = newLedger();
+  recordRead(ledger, { name: "read_note", args: { path: "1-projects/a.md" }, scope: "team", workspaceId: "ws", result: { content: [{ text: "x" }] } });
+  assert.equal(approvalRequired({ complete: true, ledger }, named, "ws"), true, "a turn that read team notes is asked before naming anyone");
+});

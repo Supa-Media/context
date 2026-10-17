@@ -65,7 +65,7 @@ export const granteeRequestValidator = v.object({
 const UNRESOLVED: SetGranteesAnswer = { ok: false, code: "GRANTEE_NOT_FOUND" };
 
 /** One entry as a grantee the rules take, or `null` for one that resolves to nobody (`UNRESOLVED`). */
-async function resolveEntry(
+export async function resolveEntry(
   ctx: MutationCtx,
   workspaceId: Id<"workspaces">,
   entry: GranteeRequest,
