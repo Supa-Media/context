@@ -182,7 +182,7 @@ describe("the browser that started a Chat connect is the one that may finish it"
   /**
    * **THE FLOW THAT WAS LEFT OUT, and the demonstration that it mattered.**
    *
-   * The change that bound Dropbox, Gmail and Calendar left this one completing
+   * The change that bound Gmail and Calendar left this one completing
    * on `{state, code}` alone. Constructed against it, the attack ran to
    * completion: an attacker starts a Chat connect for a workspace they really own,
    * sends the authorize URL to somebody else, that person consents on Google's

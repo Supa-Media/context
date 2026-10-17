@@ -322,7 +322,7 @@ describe("the sync manifest", () => {
     test("a store that does not list in key order gets no cursor at all", async () => {
       const store = await bucket();
       const list = store.list.bind(store);
-      // Dropbox's recursive `list_folder` promises no order, and a "last path"
+      // some stores' recursive listings promise no order, and a "last path"
       // is only a position in a listing that has one.
       store.list = async (options) => {
         const page = await list(options);

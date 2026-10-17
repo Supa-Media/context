@@ -17,10 +17,6 @@ import { internal } from "../../../_generated/api";
 import type { ActionCtx } from "../../../_generated/server";
 import type { Id } from "../../../_generated/dataModel";
 import {
-  isDropboxReconnectRequired,
-  refreshDropboxToken,
-} from "../dropboxOAuth";
-import {
   CredentialCryptoError,
   decryptSecret,
   encryptSecret,
@@ -35,7 +31,7 @@ import type {
   RekeyResult,
   SealedBinding,
 } from "./shapes";
-import { ACCESS_TOKEN_MARGIN_MS } from "./gatewayBinding";
+import { isServedProvider } from "./shapes";
 import {
   REKEY_BATCH_SIZE,
   type GoogleConnectionRekeyCandidates,
@@ -53,34 +49,12 @@ export const getBindingForGatewayHandler = async (
   );
   if (binding === null) return null;
 
-  // Dropbox is served from a *refreshed* short-lived access token, and the
-  // payload it gets carries nothing else. Two rules meet here:
-  //
-  //  - **The refresh token never leaves the control plane.** A compromised
-  //    gateway then holds minutes of one workspace's storage rather than the
-  //    standing ability to mint tokens for it. Same reasoning as "never
-  //    cache a decrypted credential across requests", one layer up.
-  //  - **The payload is built per provider, never spread from the row.** A
-  //    workspace rebound from S3 to Dropbox can leave a stale `accessKeyId`
-  //    behind; spread, that reaches the gateway as a credential for storage
-  //    this binding no longer points at.
-  if (binding.provider === "dropbox") {
-    const accessToken = await dropboxAccessToken(
-      ctx,
-      args.workspaceId,
-      binding,
-    );
-    return {
-      provider: "dropbox",
-      accessToken,
-      rootPrefix: binding.rootPrefix,
-      capabilities: binding.capabilities,
-      status: binding.status,
-    };
-  }
+  // A row whose provider this deployment does not serve (a legacy row awaiting
+  // purge) is reported as no binding, the same answer as a workspace with none.
+  if (!isServedProvider(binding.provider)) return null;
 
   // Narrowed rather than asserted. These five are guaranteed together for
-  // every non-Dropbox provider by `bindStorage`, and a row that somehow
+  // every provider by `bindStorage`, and a row that somehow
   // lacks one is a corrupt binding, not something to paper over with `!`.
   if (
     !binding.endpoint ||
@@ -136,106 +110,6 @@ export const getBindingForGatewayHandler = async (
     status: binding.status,
   };
 };
-
-async function dropboxAccessToken(
-  ctx: { runMutation: (ref: never, args: never) => Promise<unknown> },
-  workspaceId: Id<"workspaces">,
-  binding: SealedBinding,
-): Promise<string> {
-  if (!binding.encryptedRefreshToken) {
-    throw new ConvexError({
-      code: "CREDENTIAL_UNAVAILABLE",
-      message: "This context's Dropbox connection is incomplete. Reconnect it.",
-    });
-  }
-
-  const keyset = requireKeyset();
-  const context = { workspaceId: workspaceId as string };
-  const stillFresh =
-    typeof binding.accessTokenExpiresAt === "number" &&
-    binding.accessTokenExpiresAt - Date.now() > ACCESS_TOKEN_MARGIN_MS;
-
-  if (stillFresh && binding.encryptedAccessToken) {
-    try {
-      return await decryptSecret(binding.encryptedAccessToken, keyset, context);
-    } catch {
-      // A cached token that will not open is not worth failing a read over
-      // when a new one is one call away. Fall through and refresh.
-    }
-  }
-
-  let refreshToken: string;
-  try {
-    refreshToken = await decryptSecret(
-      binding.encryptedRefreshToken,
-      keyset,
-      context,
-    );
-  } catch (error) {
-    if (error instanceof CredentialCryptoError) {
-      throw new ConvexError({
-        code: "CREDENTIAL_UNAVAILABLE",
-        message:
-          "This context's Dropbox credential could not be opened. Reconnect Dropbox to replace it.",
-      });
-    }
-    throw error;
-  }
-
-  const clientId = process.env.DROPBOX_APP_KEY;
-  if (typeof clientId !== "string" || clientId.length === 0) {
-    throw new ConvexError({
-      code: "DROPBOX_NOT_CONFIGURED",
-      message: "Dropbox is not configured on this deployment.",
-    });
-  }
-  // Optional, unlike the key above: PKCE already proved this flow, so a
-  // deployment with no secret configured refreshes as the public client this
-  // feature shipped with. See `lib/dropboxOAuth.ts` for why sending one where
-  // it is available costs nothing and buys an independent check.
-  const clientSecret = process.env.DROPBOX_APP_SECRET || undefined;
-
-  let refreshed;
-  try {
-    refreshed = await refreshDropboxToken({
-      clientId,
-      clientSecret,
-      refreshToken,
-    });
-  } catch (error) {
-    // A revoked grant is not a transient failure, and the two need different
-    // words: one is "reconnect Dropbox", the other is "try again".
-    if (isDropboxReconnectRequired(error)) {
-      throw new ConvexError({
-        code: "STORAGE_REAUTH_REQUIRED",
-        message:
-          "Dropbox access for this context was revoked. Reconnect Dropbox to restore it.",
-      });
-    }
-    throw new ConvexError({
-      code: "STORAGE_UNAVAILABLE",
-      message: "Dropbox could not be reached. Try again.",
-    });
-  }
-
-  await ctx.runMutation(
-    internal.functions.storage.recordDropboxRefresh as never,
-    {
-      workspaceId,
-      encryptedAccessToken: await encryptSecret(
-        refreshed.accessToken,
-        keyset,
-        context,
-      ),
-      accessTokenExpiresAt: refreshed.expiresAt,
-      encryptedRefreshToken: refreshed.refreshToken
-        ? await encryptSecret(refreshed.refreshToken, keyset, context)
-        : undefined,
-    } as never,
-  );
-
-  return refreshed.accessToken;
-}
 
 /** The body of `rekeyStorageBindings`: see its registration for the contract. */
 export const rekeyStorageBindingsHandler = async (

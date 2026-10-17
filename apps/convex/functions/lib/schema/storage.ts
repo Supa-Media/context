@@ -36,23 +36,16 @@ export const storageTables = {
       v.literal("s3"),
       v.literal("b2"),
       v.literal("s3-compatible"),
+      // Legacy: Dropbox was removed on 2026-10-17. Kept only so existing rows still validate; removed once internal.functions.dropboxRemoval.purge has run in production.
       v.literal("dropbox"),
     ),
     /**
      * ## Two shapes in one table, and why the S3 fields became optional
      *
-     * Every field below used to be required, because every binding was a
-     * bucket. Dropbox has no endpoint, no region, no bucket and no access key
-     * — it has an OAuth grant and a folder — so the S3 five are now optional
-     * and **which set is required is a function of `provider`**.
-     *
-     * That is a real loss: the schema no longer refuses a half-built binding
-     * on its own. It is bought back in `bindStorage`, which validates per
-     * provider before writing, and in the gateway, which rejects a binding
-     * missing what its own provider needs rather than half-building a store.
-     * Both have tests. A validator that cannot express "these five together or
-     * those two together" is the trade; splitting into two tables would put
-     * the workspace→storage relationship in two places, which is worse.
+     * The S3 fields are optional so a row can be written before its bucket is
+     * known. The gateway rejects a binding missing what its provider needs
+     * rather than half-building a store, and `bindStorage` validates before it
+     * writes.
      */
     endpoint: v.optional(v.string()),
     region: v.optional(v.string()),
@@ -61,9 +54,7 @@ export const storageTables = {
      * The folder inside the customer's storage, applied at the adapter
      * boundary and invisible above it.
      *
-     * For S3 this is the optional prefix inside a bucket. For Dropbox it is
-     * the folder inside the app folder, and it is how one Dropbox account
-     * holds more than one context.
+     * The optional prefix inside a bucket.
      *
      * **It is the customer's choice, never ours.** `CLAUDE.md` forbids
      * namespacing somebody's storage on their behalf; a prefix we derived and
@@ -74,31 +65,10 @@ export const storageTables = {
     rootPrefix: v.optional(v.string()),
     accessKeyId: v.optional(v.string()),
     encryptedSecretAccessKey: v.optional(v.string()),
-    /**
-     * The Dropbox grant. Envelopes from `encryptSecret`, exactly like the S3
-     * secret, and subject to the same rule: never returned by a
-     * client-callable function, never logged.
-     *
-     * **The refresh token never leaves the control plane.** The gateway is
-     * handed a short-lived access token and nothing else, so a compromised
-     * gateway yields minutes of one workspace's storage rather than the
-     * standing ability to mint tokens for it. That is the same reasoning as
-     * "never cache a decrypted credential across requests", one layer up.
-     *
-     * `accessTokenExpiresAt` exists so a refresh happens on a schedule rather
-     * than on a 401: discovering expiry by failing a customer's read is a
-     * worse way to find out, and Dropbox's access tokens are short by design.
-     */
+    // Legacy: Dropbox was removed on 2026-10-17. Kept only so existing rows still validate; removed once internal.functions.dropboxRemoval.purge has run in production.
     encryptedRefreshToken: v.optional(v.string()),
     encryptedAccessToken: v.optional(v.string()),
     accessTokenExpiresAt: v.optional(v.number()),
-    /**
-     * Whose Dropbox this is. Not a secret and not a credential — it is what
-     * lets the console say which account is connected, and lets a reconnect
-     * notice that a *different* account just arrived, which is the difference
-     * between "you signed in again" and "your context now points somewhere
-     * else".
-     */
     dropboxAccountId: v.optional(v.string()),
     /**
      * How the bucket is addressed in a request URL: as a path segment

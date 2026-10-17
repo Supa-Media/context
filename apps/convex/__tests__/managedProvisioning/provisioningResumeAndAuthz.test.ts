@@ -23,8 +23,8 @@ describe("provisioning a managed bucket", () => {
     const sourceBindingId = await t.run((ctx) =>
       ctx.db.insert("storageBindings", {
         workspaceId,
-        provider: "dropbox",
-        bucket: "dropbox-source",
+        provider: "s3",
+        bucket: "source-bucket",
         status: "connected",
         capabilities: { conditionalWrite: false },
         boundBy: owner,

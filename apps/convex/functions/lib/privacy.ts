@@ -331,13 +331,10 @@ export class UnreadableManifestError extends Error {
  * One object, one privacy answer — even where two strings name one object.
  *
  * Every decision below is keyed on an exact path, which is sound on a keyspace
- * where one string is one object. R2 and S3 are that; Dropbox is not — the
- * gateway's `DropboxStore` header records that it "treats `Foo.md` and
- * `foo.md` as the same file and normalises Unicode", and deliberately does not
- * re-case a caller's key. Note paths reach both engines from outside (an AI
- * client's tool call here, a console request there), so on a Dropbox-backed
- * context the caller chooses which of two strings to send and therefore which
- * of two answers to be scored by.
+ * where one string is one object. R2 and S3 are that. A store that folds case
+ * or Unicode is not, and would let a caller choose which of two strings to send
+ * and therefore which of two answers to be scored by: note paths reach the
+ * engine from outside (an AI client's tool call here, a console request there).
  *
  * So the fold happens where the decision is made rather than where the bytes
  * are stored, and on **every** backend: a privacy answer that depends on which
@@ -490,8 +487,9 @@ export class PrivacyOverrides extends Map<string, Visibility> {
  * did not name is the same failure that keeps folder rules unfolded, and on a
  * case-sensitive store — R2, S3, every context deployed today — `a/Foo.md`
  * really is a different file from the `a/foo.md` that was published. Two
- * entries that fold together are one file on Dropbox and a contradiction the
- * owner never resolved; `private` is the answer that cannot leak.
+ * entries that fold together would be one file on a case-folding store and a
+ * contradiction the owner never resolved; `private` is the answer that cannot
+ * leak.
  */
 export function overrideFor(
   overrides: ReadonlyMap<string, Visibility> | undefined,

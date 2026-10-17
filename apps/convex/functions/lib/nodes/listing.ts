@@ -34,7 +34,7 @@ export const NODE_LISTING_ROWS = 5_000;
 /**
  * Where a workspace's tree is, for a reader: `served` once its first copy has
  * finished, `loading` before that, `unsupported` for a store that cannot be
- * listed in key order (Dropbox), which no sweep can copy.
+ * listed in key order (one that ignores key order), which no sweep can copy.
  *
  * Decided by the owner, 2026-10-13 ("the only thing that should be reading
  * from storage directly should be actually opening and editing a note"):

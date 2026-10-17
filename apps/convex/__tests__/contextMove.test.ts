@@ -832,7 +832,7 @@ describe("what a cross-context move refuses to do", () => {
 
     // Invisible to a per-object check too: every destination is `work/acme/…`
     // and none of them is `work/acme`. The result would be a file key
-    // shadowing a folder prefix, a shape a Dropbox binding cannot represent.
+    // shadowing a folder prefix, a shape some stores cannot represent.
     expect(result.failure).toBe("DESTINATION_EXISTS");
     expect(destination.snapshot()["work/acme"]).toBe("not a folder");
   });
