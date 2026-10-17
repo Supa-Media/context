@@ -4,7 +4,7 @@ import { Text } from "../../design/components/Text";
 import { leading, radii } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { EARLY_TESTER_PRICE_SHORT } from "../settings/panels/premium";
-import { FOUNDING_PRICE_LINE } from "../settings/panels/founding";
+import { FOUNDING_NOTES_LINE, FOUNDING_PRICE_LINE } from "../settings/panels/founding";
 import { ConnectForm } from "./ConnectForm";
 import type { ConnectFormValues } from "./connect";
 
@@ -67,7 +67,9 @@ export function StorageChoice({
           <ChoiceCard
             testID="choose-managed"
             title="Context-managed Premium storage"
-            sub={`Get 50 GB for this context. Context sets it up and keeps it running. ${managed.stagingFreeStorage ? "Free on staging; no payment required." : managed.founding === true ? FOUNDING_PRICE_LINE : EARLY_TESTER_PRICE_SHORT}`}
+            sub={managed.founding === true && managed.stagingFreeStorage !== true
+              ? `Context sets it up and keeps it running. ${FOUNDING_PRICE_LINE} ${FOUNDING_NOTES_LINE}`
+              : `Get 50 GB for this context. Context sets it up and keeps it running. ${managed.stagingFreeStorage ? "Free on staging; no payment required." : EARLY_TESTER_PRICE_SHORT}`}
             badge={managed.founding === true ? "Included" : managed.price}
             badgeTone={managed.founding === true ? "ok" : "neutral"}
             selected={false}

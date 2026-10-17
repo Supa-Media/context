@@ -246,9 +246,9 @@ Tex's own jobs, each with its record:
 - [Dreams](./texting-assistant/dreams.md): nightly, brings `tex/about-me.md`
   up to date from the day's transcripts, logged in `tex/dreams/`.
 - [Heartbeat](./texting-assistant/heartbeat.md): three looks a day, one text at most.
-- [Housekeeping](./texting-assistant/housekeeping.md): archives finished
-  projects, merges duplicate contacts, folds thin folders and lowers the chaos
-  score, logging each change in `tex/housekeeping/` with how to undo it.
+- [Attention](./texting-assistant/attention.md): agents ask Tex to text them; `tex/attention.md` decides.
+- [Housekeeping](./texting-assistant/housekeeping.md): archives, merges and folds to lower the
+  chaos score, logging each change in `tex/housekeeping/` with how to undo it.
 - [Delegation](./texting-assistant/delegation.md): hands a whole sub-project
   to Claude Code, Codex, Claude, Claude Design or ChatGPT, with the task note's
   mail as the channel and a supervisor routine keeping the agent on track.

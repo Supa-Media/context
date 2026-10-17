@@ -29,11 +29,14 @@
  *
  * The Worker texts the answer to the person's own linked phones and nobody
  * else's, and the control plane allows at most one texted check-in a day.
+ * The same claim also carries the pings the person's agents asked for
+ * (`attention: true`, `attention.js`), which are texted as they are.
  * The control plane hears an outcome code.
  */
 
 import { readTimeZone, DEFAULT_TIME_ZONE } from "./localNow.js";
-import { HEARTBEAT_FOLDER, HEARTBEAT_SETTINGS_PATH } from "./checkIns.js";
+import { ATTENTION_FOLDER, ATTENTION_SETTINGS_PATH, HEARTBEAT_FOLDER, HEARTBEAT_SETTINGS_PATH } from "./checkIns.js";
+import { deliverAttention } from "./attention.js";
 import { TRANSCRIPTS_FOLDER, eventLines } from "./transcript.js";
 import { DREAMS_FOLDER } from "./dream.js";
 import { ABOUT_ME_PATH } from "./aboutMe.js";
@@ -75,8 +78,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const HEARTBEAT_READS = new Set(["read_note", "list_notes", "search_notes"]);
 
 /** Tex's own job output, which never counts as something that changed. */
-const OWN_OUTPUT = [`${HEARTBEAT_FOLDER}/`, `${DREAMS_FOLDER}/`, "tex/housekeeping/"];
-const OWN_NOTES = new Set([ABOUT_ME_PATH, HEARTBEAT_SETTINGS_PATH]);
+const OWN_OUTPUT = [`${HEARTBEAT_FOLDER}/`, `${DREAMS_FOLDER}/`, "tex/housekeeping/", `${ATTENTION_FOLDER}/`];
+const OWN_NOTES = new Set([ABOUT_ME_PATH, HEARTBEAT_SETTINGS_PATH, ATTENTION_SETTINGS_PATH]);
 
 /** The words a check-in's text is kept under in the texting conversation, in place of a question. */
 export const CHECK_IN_QUESTION =
@@ -283,6 +286,21 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
 
   const timeZone = readTimeZone(given.timeZone) ?? DEFAULT_TIME_ZONE;
   const started = Date.now();
+
+  // A claim for the pings their agents asked for (`attention.js`): texted as they are, no look and no model.
+  if (given.attention === true) {
+    const delivered = await deliverAttention(dispatch, store, { now: started, timeZone });
+    console.log(
+      JSON.stringify({
+        event: "attention_delivery",
+        workspace: session.workspaceId,
+        grant: session.grantId,
+        pings: delivered?.count ?? 0,
+        ms: Date.now() - started,
+      }),
+    );
+    return json(delivered ? { outcome: "speak", answer: delivered.text } : { outcome: "quiet" });
+  }
   const since = typeof given.since === "number" && Number.isFinite(given.since) ? given.since : started - FIRST_LOOK_MS;
 
   const settingsNote = await readWithEtag(dispatch, HEARTBEAT_SETTINGS_PATH);

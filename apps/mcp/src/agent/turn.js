@@ -57,7 +57,7 @@ import { resultInV2Names } from "../tools/v2/speak.js";
 import { aboutMePrompt } from "./aboutMe.js";
 import { jobsPrompt } from "./jobs.js";
 import { TRANSCRIPTS_PROMPT } from "./transcript.js";
-import { CHECK_IN_PROMPT } from "./checkIns.js";
+import { ATTENTION_PROMPT, CHECK_IN_PROMPT } from "./checkIns.js";
 
 export { describePlace, systemPrompt } from "./prompt.js";
 
@@ -376,6 +376,7 @@ export async function runTurn(options) {
     (jobs === null ? "" : jobsPrompt(jobs, { edits: tools.some((tool) => tool.name === "write_note") })) +
     (observe && texting ? TRANSCRIPTS_PROMPT : "") + // a dream (`dream.js`) is told to read them
     (observe && texting ? CHECK_IN_PROMPT : "") + // what its own check-ins do (`heartbeat.js`)
+    (observe && texting ? ATTENTION_PROMPT : "") + // the pings other agents ask it to text (`attention.js`)
     (localNow === null ? "" : localNowPrompt(localNow.now, localNow.timeZone)) +
     workspacesPrompt(workspaces);
   let system = systemFor(model);

@@ -12,7 +12,10 @@ import { v } from "convex/values";
  *
  * METADATA ONLY: who, which workspace, a few times and a lease, and the last
  * outcome as a code from a closed list (`HEARTBEAT_OUTCOMES`). One row per
- * person. Deleted with the account (`deleteTextLinksOf`).
+ * person. Deleted with the account (`deleteTextLinksOf`). The same row
+ * carries when the person's attention pings are due
+ * (`docs/decisions/texting-assistant/attention.md`), which ride the
+ * check-in's claim, grant and path to their phone.
  */
 export const heartbeatTables = {
   texHeartbeats: defineTable({
@@ -30,9 +33,26 @@ export const heartbeatTables = {
     /** The lease: when a check-in was handed out, and the id its result names. */
     claimedAt: v.optional(v.number()),
     runId: v.optional(v.string()),
+    /** What the claim `runId` names is for: a check-in (absent) or the person's waiting attention pings. */
+    runKind: v.optional(v.literal("attention")),
+    /**
+     * Attention pings (`lib/attention/`): when the waiting ones are next due,
+     * null or absent when none waits. The pings themselves are in
+     * `tex/attention/` in their bucket; only when, and how many, is here.
+     */
+    attentionDueAt: v.optional(v.union(v.number(), v.null())),
+    /** The local day (`YYYY-MM-DD`) the two counts are for, and the counts of pings accepted that day. */
+    attentionDay: v.optional(v.string()),
+    attentionCount: v.optional(v.number()),
+    emergencyCount: v.optional(v.number()),
+    /** When pings last reached their phone, so ordinary ones are spaced out. */
+    attentionTextedAt: v.optional(v.number()),
+    /** Deliveries in a row that failed; the waiting pings are given up after a few. */
+    attentionTries: v.optional(v.number()),
     updatedAt: v.number(),
   })
     .index("by_user", ["userId"])
     .index("by_nextBeatAt", ["nextBeatAt"])
+    .index("by_attentionDueAt", ["attentionDueAt"])
     .index("by_run_id", ["runId"]),
 };

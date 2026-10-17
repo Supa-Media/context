@@ -132,3 +132,4 @@ test/agentDelegate.test.mjs
 test/workspaceSetup.test.mjs
 test/dreamNow.test.mjs
 bench/test/promote.test.mjs
+test/attention.test.mjs

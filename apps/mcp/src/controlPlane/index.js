@@ -15,6 +15,7 @@ import { createEmailMethods } from "./email.js";
 import { createCalendarMethods } from "./calendar.js";
 import { createWorkspaceMethods } from "./workspaces.js";
 import { createDreamMethods } from "./dreams.js";
+import { createAttentionMethods } from "./attention.js";
 
 export { ControlPlaneError, sha256Hex, isLoopbackHost };
 
@@ -46,5 +47,6 @@ export function createControlPlane(env, options = {}) {
     ...createCalendarMethods({ post }),
     ...createWorkspaceMethods({ post, required }),
     ...createDreamMethods({ post }),
+    ...createAttentionMethods({ post }),
   };
 }

@@ -229,6 +229,28 @@ export interface PlanFacts {
   managedStorage?: boolean;
   status?: PlanStatus;
   freeManaged?: boolean;
+  founding?: boolean;
+  stripeCustomerId?: string;
+  stripeStatus?: PlanStatus;
+}
+
+/**
+ * Founding Premium that nobody pays for through Stripe.
+ *
+ * The founders' deal is limited Premium, not paid Premium (decided by the
+ * owner, 2026-10-17): everything Premium turns on, but the free tier's note
+ * cap stays on storage we run, and the founder may still buy full Premium to
+ * lift it. A founder whose Stripe subscription is active pays, and is treated
+ * as paying; one with no customer, or whose subscription ended, is not.
+ * `stripeStatus` is what Stripe last said; a row written before it existed
+ * falls back to `status`, which for a subscriber is the same word.
+ */
+export function foundingAtNoCharge(
+  plan: Pick<PlanFacts, "founding" | "status" | "stripeCustomerId" | "stripeStatus"> | null,
+): boolean {
+  if (plan?.founding !== true) return false;
+  if (plan.stripeCustomerId === undefined) return true;
+  return !planIsPaying(plan.stripeStatus ?? plan.status ?? "none");
 }
 
 /**
@@ -255,7 +277,8 @@ export function managedStorageEntitled(
  * on the free tier, and one whose subscription lapsed. **A lapse puts a context
  * back on the free plan; it never makes it read-only** (decided by the owner,
  * 2026-09-29). Everybody in it keeps reading, editing, moving and exporting;
- * only creating a note past the cap is refused. Paying lifts the cap, and a
+ * only creating a note past the cap is refused. Paying lifts the cap; founding
+ * Premium at no charge does not. A
  * bucket the customer owns is never capped by us (it is theirs, and they pay
  * the provider).
  *
@@ -268,10 +291,11 @@ export function managedStorageEntitled(
  * somebody may leave with their notes.
  */
 export function noteCapFor(
-  plan: Pick<PlanFacts, "status"> | null,
+  plan: Pick<PlanFacts, "status" | "founding" | "stripeCustomerId" | "stripeStatus"> | null,
   storageIsManaged: boolean,
 ): number | null {
   if (!storageIsManaged || plan === null) return null;
-  if (planIsPaying(plan.status ?? "none")) return null;
+  // A founder at no charge is active but keeps the cap (`foundingAtNoCharge`).
+  if (planIsPaying(plan.status ?? "none") && !foundingAtNoCharge(plan)) return null;
   return FREE_MANAGED_NOTE_CAP;
 }

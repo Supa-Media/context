@@ -44,6 +44,9 @@ export const PRIVATE_TIER_ONLY_TOOLS = new Set([
   // Starting Tex's dream is the personal workspace's owner's, for the same
   // reason: the control plane refuses anyone else (`lib/dreams/now.ts`).
   "dream_now",
+  // Texting the person is theirs alone: the control plane refuses anyone
+  // but the owner of their own personal workspace (`lib/attention/ask.ts`).
+  "notify_me",
 ]);
 
 /**

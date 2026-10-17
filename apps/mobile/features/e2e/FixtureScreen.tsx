@@ -3,6 +3,7 @@ import { CHECKOUT_PARAM, checkoutOutcomeFrom } from "@context/shared";
 import { AppFrameFixture } from "./AppFrameFixture";
 import { AiLibraryFixture } from "./AiLibraryFixture";
 import { DomainFixture } from "./DomainFixture";
+import { MailFixture } from "./MailFixture";
 import { AppFrameVisualFixture } from "./AppFrameVisualFixture";
 import { ResumeFixture, isResumeSurface } from "./ResumeFixture";
 import { E2EFixtureScreen } from "../console/E2EFixtureScreen";
@@ -84,6 +85,7 @@ export function FixtureScreen({ params }: { params: FixtureParams }) {
   if (first(params.screen) === "cast-studio") return <CastStudioFixture />;
   if (first(params.screen) === "cast-studio-pages") return <CastStudioFixture pages />;
   if (first(params.screen) === "cast-studio-folders") return <CastStudioFixture folders />;
+  if (first(params.screen) === "mail") return <MailFixture />;
   if (first(params.screen) === "domain") return <DomainFixture at={first(params.at)} site={first(params.site)} />;
   // The live map open over Browse, on invented data. See its own header.
   if (first(params.screen) === "live-map") return <LiveMapFixture />;

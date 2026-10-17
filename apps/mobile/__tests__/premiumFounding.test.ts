@@ -21,6 +21,8 @@
  *   `foundingAtNoCharge` ignoring `hasStripeCustomer`                      2
  *   the panel drawing the price row for a founder                         1
  *   `foundingAtNoCharge` ignoring `subscriptionLive: false`                3
+ *   the includes card saying "Unlimited notes" to a founder at no charge  1
+ *   the usage line saying "Free plan" to a founder                       1
  *   `ManagedConfirm` keeping the payment copy for a founder               1
  */
 
@@ -41,9 +43,12 @@ import {
   type PremiumView,
 } from "../features/console/settings/panels/premium";
 import {
+  FOUNDING_NOTES_LINE,
   FOUNDING_PRICE_LINE,
   foundingAtNoCharge,
 } from "../features/console/settings/panels/founding";
+import { premiumIncludeRows } from "../features/console/settings/panels/PremiumIncludes";
+import { FreeTierNudge } from "../features/console/settings/panels/FreeTierNudge";
 import { renewalLine } from "../features/console/settings/panels/premium";
 import { entitlementsHint } from "../features/console/settings/panels/premiumEntitlements";
 import { ManagedConfirm } from "../features/onboarding/steps/ManagedConfirm";
@@ -258,5 +263,55 @@ describe("the storage cards a founder chooses from", () => {
     const card = screen.querySelector('[data-testid="welcome-fork-fresh"]')?.textContent ?? "";
     expect(card).toContain(FOUNDING_PRICE_LINE);
     expect(card).not.toMatch(/\$5|before anything is charged/);
+  });
+});
+
+describe("the founders' deal keeps the 1,000-note cap", () => {
+  const capped = (over: Partial<PremiumStatus> = {}) =>
+    founder({ noteCap: 1000, notes: 412, ...over });
+
+  test("the includes card says up to 1,000 notes, never unlimited", () => {
+    const notes = premiumIncludeRows(capped()).find((row) => row.key === "notes");
+    expect(notes?.label).toBe("Up to 1,000 notes");
+    expect(notes?.detail).toContain("Full Premium lifts the cap");
+    expect(JSON.stringify(premiumIncludeRows(capped()))).not.toMatch(/Unlimited/);
+    // A founder paying through Stripe has paid Premium: unlimited.
+    const paying = premiumIncludeRows(founder({ hasStripeCustomer: true, subscriptionLive: true }));
+    expect(paying.find((row) => row.key === "notes")?.label).toBe("Unlimited notes");
+  });
+
+  test("the usage line names the founders' deal, not the free plan", () => {
+    const screen = render(createElement(FreeTierNudge, { status: capped() }));
+    expect(screen.querySelector('[data-testid="premium-free-usage"]')?.textContent).toBe(
+      "Founding member: 412 of 1,000 notes.",
+    );
+  });
+
+  test("at the cap, a founder is offered full Premium and their own bucket", () => {
+    const screen = render(
+      createElement(FreeTierNudge, {
+        status: capped({ notes: 1000 }),
+        onLevelUp: () => {},
+        onBringOwn: () => {},
+      }),
+    );
+    const text = screen.textContent ?? "";
+    expect(text).toContain("Full Premium");
+    expect(text).toContain("founding members' cap");
+    expect(text).not.toContain("free tier stays free");
+    expect(screen.querySelector('[data-testid="payment-level-up"]')).not.toBeNull();
+    expect(screen.querySelector('[data-testid="payment-bring-own"]')).not.toBeNull();
+  });
+
+  test("the storage card a founder chooses from names the cap, not 50 GB", () => {
+    const screen = render(
+      createElement(StorageChoice, {
+        connect: async () => ({ status: "connected" }),
+        managed: { price: "$5 a month", founding: true, onChoose: () => {} },
+      }),
+    );
+    const card = screen.querySelector('[data-testid="choose-managed"]')?.textContent ?? "";
+    expect(card).toContain(FOUNDING_NOTES_LINE);
+    expect(card).not.toContain("50 GB");
   });
 });

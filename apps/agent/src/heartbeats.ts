@@ -6,6 +6,7 @@
  *       │
  *       ├─▶ control plane: whose check-in is due? (each with its own grant and phones)
  *       ├─▶ gateway /agent {heartbeat}: look, as that person; a text or nothing
+ *       │     (or, flagged `attention`, the pings their agents asked for, as they are)
  *       ├─▶ SenderInbox for each of their phones: text it, in the chat it last texted from
  *       └─▶ control plane: the outcome, as a code
  *
@@ -28,7 +29,15 @@ export type HeartbeatOutcome =
   | "daily_limit"
   | "no_provider";
 
-export type DueHeartbeat = { runId: string; accessToken: string; timeZone: string; since: number | null; phones: string[] };
+/** `attention`: a claim for the pings the person's agents asked for, which the gateway texts as they are, with no look. */
+export type DueHeartbeat = {
+  runId: string;
+  accessToken: string;
+  timeZone: string;
+  since: number | null;
+  phones: string[];
+  attention: boolean;
+};
 
 /** What the gateway's look came to: a text to send, or an outcome with nothing to say. */
 export type Looked = { outcome: "speak"; answer: string } | { outcome: Exclude<HeartbeatOutcome, "texted" | "no_chat"> };
@@ -65,7 +74,7 @@ export async function fetchDueHeartbeats(fetcher: Fetch, origin: string, secret:
     if (!nonEmpty(beat.runId) || !nonEmpty(beat.accessToken) || typeof beat.timeZone !== "string") continue;
     const phones = Array.isArray(beat.phones) ? beat.phones.filter(nonEmpty).slice(0, MAX_PHONES) : [];
     const since = typeof beat.since === "number" && Number.isFinite(beat.since) ? beat.since : null;
-    due.push({ runId: beat.runId, accessToken: beat.accessToken, timeZone: beat.timeZone, since, phones });
+    due.push({ runId: beat.runId, accessToken: beat.accessToken, timeZone: beat.timeZone, since, phones, attention: beat.attention === true });
   }
   return due;
 }
@@ -79,7 +88,7 @@ export async function runHeartbeat(fetcher: Fetch, gatewayOrigin: string, beat: 
       "gateway",
       `${gatewayOrigin}/agent`,
       beat.accessToken,
-      { heartbeat: { timeZone: beat.timeZone, since: beat.since } },
+      { heartbeat: { timeZone: beat.timeZone, since: beat.since, ...(beat.attention ? { attention: true } : {}) } },
       HEARTBEAT_TIMEOUT_MS,
     );
   } catch {
