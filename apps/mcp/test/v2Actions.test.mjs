@@ -185,6 +185,7 @@ const MANAGE = [
   ["create_workspace", "create_workspace", { slug: "acme", name: "Acme", dry_run: true }],
   ["layout", "apply_layout", { template: "business" }],
   ["connect_google", "connect_google", { kind: "gmail" }],
+  ["dream_now", "dream_now", {}],
 ];
 
 for (const [action, tool, args] of MANAGE) {

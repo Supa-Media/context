@@ -862,6 +862,9 @@ export const gatewayWorkspacesConnectGoogle = gatewayRoute(workspaceRoutes.gatew
 http.route({ path: "/gateway/workspaces/create", method: "POST", handler: gatewayWorkspacesCreate });
 http.route({ path: "/gateway/workspaces/layout", method: "POST", handler: gatewayWorkspacesLayout });
 http.route({ path: "/gateway/workspaces/connect-google", method: "POST", handler: gatewayWorkspacesConnectGoogle });
+/* Tex's dream now, for the owner's own agent (`lib/dreams/now.ts`). */
+export const gatewayDreamsStart = gatewayRoute(dreams.gatewayDreamsStartHandler);
+http.route({ path: "/gateway/dreams/start", method: "POST", handler: gatewayDreamsStart });
 
 /* A website's status or a publish, for an owner's or editor's agent. */
 export const gatewaySite = gatewayRoute(site.gatewaySiteHandler);
@@ -878,6 +881,8 @@ export const agentTextsInvite = agentWorkerRoute(agentTexts.agentTextsInviteHand
 export const agentTextsUnlink = agentWorkerRoute(agentTexts.agentTextsUnlinkHandler);
 http.route({ path: "/agent-texts/invite", method: "POST", handler: agentTextsInvite });
 http.route({ path: "/agent-texts/unlink", method: "POST", handler: agentTextsUnlink });
+export const agentTextsSetup = agentWorkerRoute(agentTexts.agentTextsSetupHandler);
+http.route({ path: "/agent-texts/setup", method: "POST", handler: agentTextsSetup });
 
 /* Routines and Tex's nightly dreams: what is due now, and how each went (a code, never text). */
 export const agentRoutinesDue = agentWorkerRoute(routines.agentRoutinesDueHandler);

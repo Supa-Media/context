@@ -39,6 +39,7 @@ import { runGmailAttachmentChecks } from "./gmailSync/attachments.test.mjs";
 import { runGmailAdversarialFilenameChecks } from "./gmailSync/adversarialFilenames.test.mjs";
 import { runGmailAdversarialSyncChecks } from "./gmailSync/adversarialSync.test.mjs";
 import { runGmailContactChecks } from "./gmailSync/contacts.test.mjs";
+import { runGmailRecentImportChecks } from "./gmailSync/recentImport.test.mjs";
 
 export async function runGmailSyncChecks(check) {
   const { event } = await runGmailParsingAndQueryChecks(check);
@@ -49,4 +50,5 @@ export async function runGmailSyncChecks(check) {
   await runGmailAdversarialFilenameChecks(check);
   await runGmailAdversarialSyncChecks(check);
   await runGmailContactChecks(check);
+  await runGmailRecentImportChecks(check);
 }

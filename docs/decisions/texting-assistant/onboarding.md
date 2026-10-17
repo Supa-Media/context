@@ -1,0 +1,97 @@
+# The texting assistant — setting somebody up by text
+
+_Part of [the texting assistant](../texting-assistant.md)._
+
+### A phone let in off the waitlist is set up by text, handle first
+
+Decided by the owner (Dev2), 2026-10-17: onboarding happens by text, the
+handle first, Gmail and the rest later in the conversation. Somebody let in
+off the waitlist is texted "Text Tex at X and Tex will set you up"
+(`waitlistText.ts`) and put on Tex's line (`waitlistTex.ts`). Until this, Tex
+answered them with the sign-in link, because they had no account, no
+workspace and no link, so the promise in that text was not kept.
+
+Now an unlinked phone the control plane may set up gets a fixed exchange
+instead of the link (`functions/textSetup.ts`, `apps/agent/src/setup.ts`):
+
+1. Any text: Tex asks for the handle they want. A row remembers that it
+   asked (`textSetups`, stage `asked`, a day at most).
+2. The next one-word text is the answer, checked with the app's own rules
+   (`checkAvailability`: format, the reserved list in `lib/names.ts`, taken).
+   A refusal says why, and Tex asks again. Twenty setup texts per phone an
+   hour.
+3. A good handle makes, in one transaction: the account if the phone has
+   none (`newPhoneAccount`, the same as `signInUser` for an admitted phone),
+   the personal workspace through `createWorkspaceHandler` (every check
+   `createWorkspace` makes), the free managed bucket where the deployment
+   offers one (what "Start fresh" gives, `lib/textSetup/storage.ts`), and the
+   phone's link. Tex texts the console link for the new handle on its own.
+   The five starting folders are laid out when the bucket first verifies
+   (`lib/textSetup/layout.ts`, through `applyStructureHandler`), only on our own
+   bucket and only when the probe saw it empty, as the app does after "Start
+   fresh". The next text is an ordinary linked session.
+
+**It is a state machine, not a model with tools.** The person has no grant
+until the link exists, and a model given account-making tools before there
+is a grant would be the one thing in the product deciding identity from what
+somebody typed. The exchange cannot be talked into anything: the Worker
+cuts out one word and the control plane decides. The words of the message
+never leave the Worker; at most a single word reaches the control plane.
+
+**Who may be set up.** Only what phone sign-in would let in, and nothing more:
+
+- a phone nobody holds, once staff let it in (`isPhoneAdmitted`);
+- a phone confirmed on an account (`phoneHolder`) whose account owns no
+  personal workspace yet, is not paused by "This wasn't me", has no texting
+  link to another number, and, if it came in through a work domain, has a
+  personal email (the rule `finishSetup` applies). Its emails are mailed as
+  for a phone sign-in.
+
+Everyone else — a stranger, a waiting or removed row, the review phone, a
+paused phone — gets the sign-in link as before. So does a control plane too
+old to know the route (404), so the Worker can deploy first.
+
+**Why the sender number is enough here, and where it is not.** The sending
+number is the login for texts already: only iMessage is answered, Apple
+authenticates its senders, a webhook is acted on only with Linq's signature
+(unchanged), and only numbers on Tex's contact list are delivered at all. A
+texted sign-in code proves the same thing, possession of the number, and
+that is all `signInUser` asks of an admitted phone before making its
+account. So this creates nothing a texted code could not. Two cases are
+held back on purpose:
+
+- **An account that already owns a personal workspace is never linked by
+  this.** It keeps the link-and-code flow. A carrier recycles numbers, and a
+  confirmed phone from years ago must not start answering from somebody's
+  notes on the strength of one text; the code shown in the signed-in app is
+  the second half of that proof. Setup also never makes a second account for
+  a held phone, never moves a phone off an account, and never links a phone
+  to any account but the one holding it.
+- **A held account with no workspace of its own is set up as itself.** Its
+  confirmed phone already signs it in with a texted code, which reaches its
+  memberships too, so a link adds no reach that phone sign-in did not. The
+  sign-in alert mail is the same one, with "This wasn't me".
+
+The big changes in [account safety](../identity-and-access/account-safety.md)
+stay behind an email code: this adds no email, changes no phone and moves no
+storage.
+
+**Audited under the person, through Tex.** `texts.setup.account_created`
+(new accounts only), `texts.setup.workspace_created`, `texts.phone.linked`
+(`via: "text_setup"`) and `texts.setup.storage_started`, each with the new
+account as `actorUserId` and `context_texts` as `actorClientId`; the free
+bucket and the layout add their own events (`billing.free_managed_started`,
+`workspace.structure_applied`). Phone numbers appear in the trail only as
+their last four digits.
+
+An account made by a phone now also schedules the founding Premium walk, as
+an account made by email always did (`onUserCreated`): without it, a texted
+setup among the first hundred would have been told Tex needs Premium.
+
+Tests: `apps/convex/__tests__/textSetup.test.ts` ("an account that already
+owns a personal workspace is never set up or linked by a text", "sets up that
+account and no other", "is held to the app's handle rules", "never lays out a
+bucket that is not our own, or one not seen empty") and
+`apps/agent/src/setup.test.ts` ("the message's words never leave the
+Worker", "texts no link but the console's"). Each file's header records the
+sabotage runs.

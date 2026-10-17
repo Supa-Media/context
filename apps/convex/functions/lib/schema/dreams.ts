@@ -27,6 +27,8 @@ export const dreamTables = {
     lastDreamedAt: v.optional(v.number()),
     /** A code from `DREAM_OUTCOMES`. Never text. */
     lastOutcome: v.optional(v.string()),
+    /** When the person's own agent last asked for a dream now (`lib/dreams/now.ts`), for its window. */
+    askedAt: v.optional(v.number()),
     /** The lease: when a dream was handed out, and the id its result names. */
     claimedAt: v.optional(v.number()),
     runId: v.optional(v.string()),

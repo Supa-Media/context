@@ -6,7 +6,12 @@
  *    short-lived grant on the person's personal workspace.
  *  - `POST /agent-texts/dreams/result`: how one went, as a code.
  *
- * Neither carries note text in either direction.
+ * And behind the gateway's secret, with the person's own access token:
+ *
+ *  - `POST /gateway/dreams/start`: their agent asks for a dream now
+ *    (`lib/dreams/now.ts`).
+ *
+ * None carries note text in either direction.
  */
 
 import { internal } from "../../../_generated/api";
@@ -43,4 +48,21 @@ export async function agentDreamsResultHandler(ctx: ActionCtx, body: Record<stri
   if (runId === null || runId.length > 128 || !isDreamOutcome(outcome)) return badRequest();
   const status = await ctx.runMutation(internal.functions.dreams.recordDreamResult, { runId, outcome });
   return json({ status });
+}
+
+/**
+ * `POST /gateway/dreams/start` — `{ accessToken, expectedWorkspaceId }` →
+ * `{ dream: { status, retryAt? } | null }`. Always 200; `null` is every caller
+ * who may not ask, one answer for every reason. The person and the workspace
+ * come off the token's live grant, never from anything the gateway names.
+ */
+export async function gatewayDreamsStartHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
+  const accessToken = stringField(body, "accessToken");
+  const expected = stringField(body, "expectedWorkspaceId");
+  if (accessToken === null || expected === null) return json({ dream: null });
+  const dream = await ctx.runMutation(internal.functions.dreams.requestDreamNow, {
+    hashedAccessToken: await hashToken(accessToken),
+    expectedWorkspaceId: expected,
+  });
+  return json({ dream });
 }

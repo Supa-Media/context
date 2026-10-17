@@ -45,7 +45,7 @@ false on data.chat".
 ### A phone is linked by texting back a code, and the link only shows it
 
 A phone nobody has linked is texted a sign-in link (`/texts/<token>`), not
-instructions. Opening it signed in shows `link CODE` for that phone, named by
+instructions, unless it may be [set up by text](./texting-assistant/onboarding.md). Opening it signed in shows `link CODE` for that phone, named by
 its last four digits, and the person texts it back. The link carries the
 number so nobody types it; it does not link anything. The code still has to
 arrive *from* that phone, so a forwarded link, or one opened over a shoulder,

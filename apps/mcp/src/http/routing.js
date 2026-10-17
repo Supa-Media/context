@@ -113,6 +113,14 @@ export function attachLinkCalls(store, session, controlPlane, env) {
     writable: false,
     configurable: true,
   });
+  // `dream_now`: Tex's dream for this context, now. The control plane clears
+  // the owner of their personal workspace off this token and decides.
+  Object.defineProperty(store, "dreamNow", {
+    value: () => controlPlane.dreamNow(session.accessToken, session.workspaceId),
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
   // The Convex tree, for the agent tools that list (`tree/served.js`). The
   // control plane picks the workspace and clearance off this token's grant.
   Object.defineProperty(store, "treeManifest", {

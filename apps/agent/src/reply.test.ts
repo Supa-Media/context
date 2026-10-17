@@ -82,6 +82,7 @@ describe("replyTo", () => {
       deps(
         {
           "/agent-texts/session": () => [200, { status: "unlinked" }],
+          "/agent-texts/setup": () => [200, { status: "not_eligible" }],
           "/agent-texts/invite": (body, auth) => {
             expect(body).toEqual({ phone: "+15555550100" });
             expect(auth).toBe("Bearer worker-secret");
@@ -96,7 +97,7 @@ describe("replyTo", () => {
     expect(reply).toHaveLength(2);
     expect(reply[1]).toBe(url);
     expect(reply.join(" ")).not.toContain("Settings");
-    expect(seen).toEqual(["/agent-texts/session", "/agent-texts/invite"]);
+    expect(seen).toEqual(["/agent-texts/session", "/agent-texts/setup", "/agent-texts/invite"]);
   });
 
   it("sends no link when none was issued, or when the one offered is not https", async () => {
@@ -105,6 +106,7 @@ describe("replyTo", () => {
         message("hi"),
         deps({
           "/agent-texts/session": () => [200, { status: "unlinked" }],
+          "/agent-texts/setup": () => [200, { status: "not_eligible" }],
           "/agent-texts/invite": () => [200, answer],
         }),
       );

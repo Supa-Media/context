@@ -28,19 +28,40 @@ export function dateRange(startDate, endDate) {
  */
 export async function syncDayFromGmail(options) {
   const query = buildDayQuery({ folders: options.folders, date: options.date });
-  const ids = await listAllMessageIds({ fetchImpl: options.fetchImpl, accessToken: options.accessToken, query });
+  const ids = await listAllMessageIds({
+    fetchImpl: options.fetchImpl,
+    accessToken: options.accessToken,
+    query,
+    ...(options.maxListPages === undefined ? {} : { maxPages: options.maxListPages }),
+  });
+  // `known` and `maxFetches` are the first-connect import's (`recent.js`): it
+  // has already fetched some of this day's messages, and it may not fetch more
+  // than its ceiling. A day over the ceiling is not written at all — never
+  // from part of its list, which is the one thing a day must not be.
+  const known = options.known ?? new Map();
+  if (options.maxFetches !== undefined) {
+    const unknown = ids.filter((id) => !known.has(id)).length;
+    if (unknown > options.maxFetches) {
+      return { bytesWritten: 0, partsWritten: 0, contactsWritten: 0, quotaExceeded: false, messageCount: 0, fetched: 0, skipped: true };
+    }
+  }
   const events = [];
+  let fetched = 0;
   for (const id of ids) {
     // A message listed a moment ago and gone by the time it is fetched is
     // ordinary in a live mailbox — the owner deleted it, or a filter moved it
     // to Trash, between the two calls. The day is regenerated from whatever
     // Gmail still has, which is exactly what "the day is always the complete,
     // current query result" means; it is not a reason to abandon the day.
-    const message = await getMessageOrNull({
-      fetchImpl: options.fetchImpl,
-      accessToken: options.accessToken,
-      id,
-    });
+    let message = known.get(id);
+    if (message === undefined) {
+      fetched += 1;
+      message = await getMessageOrNull({
+        fetchImpl: options.fetchImpl,
+        accessToken: options.accessToken,
+        id,
+      });
+    }
     if (message === null) continue;
     events.push(gmailMessageToEvent(message, { mailboxSlug: options.mailboxSlug }));
   }
@@ -61,7 +82,7 @@ export async function syncDayFromGmail(options) {
     attachmentRetentionDays: options.attachmentRetentionDays,
     contacts: options.contacts,
   });
-  return { ...result, messageCount: events.length };
+  return { ...result, messageCount: events.length, fetched, skipped: false };
 }
 
 /**

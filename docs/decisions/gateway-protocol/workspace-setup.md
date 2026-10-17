@@ -67,6 +67,69 @@ a new workspace's only member is the person; a layout writes folders and
 read can ride in it; and `connect_google` writes nothing. Listed by name, so a
 tool added later is still held until somebody classifies it.
 
+## A real create waits for the person's yes, even with the gate switched off (2026-10-17)
+
+Not widening is not harmless. A `create_workspace` that is not a dry run
+claims an @handle, and handles never free up (retiring a name does not free
+it; see [vocabulary](../vocabulary-and-workspaces.md)); it also spends one of
+the person's ten owned-workspace slots. Run with no yes, any connected AI
+client, or an instruction planted in a page it read, could squat names for
+good and use the slots up. So the claim is held through the same approvals
+as a widening (`.context/approvals/pending/`, answered in the app at
+`/approvals` or by a texted YES), classified in `classify`
+(`apps/mcp/src/privacy/egress.js`) with `audience: "private"` (the person is
+the only member) and `permanent: true`. It stays in `NEVER_WIDENS`, which is
+about whether a call is a write *into another workspace*; `permanent` is a
+separate reason to hold. `dry_run: true` claims nothing and is never held, so
+checking a name stays free.
+
+**`permanent` asks on every gateway, the `EGRESS_APPROVALS = "off"` switch
+included, and from every turn, a clean one included.** The owner switched the
+gate off because ordinary writes into shared workspaces were being held, a
+cost in friction for a risk the person can undo (a write can be edited back,
+a visibility narrowed again). Neither holds here: a claim is rare, one per
+workspace a person makes, and nothing undoes it. The switch is about
+widening; this hold is about irreversibility, which the switch's reasoning
+never covered, so honouring the switch for it would extend the owner's
+decision past what it said. For the same reason a texted turn whose ledger is
+clean still asks: a clean ledger means the person's own words asked for a
+workspace, not that the model spelled the handle they meant, and a typo
+claimed is a typo kept. The two places: `approvalRequired` returns true for a
+`permanent` call unless it is the person's replayed yes, and `egressGate`
+(`apps/mcp/src/tools/session.js`) does not let the switch pass one.
+
+**Tex's onboarding by text keeps working.** The held call answers the model
+with the texting line ("Tell them plainly what you want to do; they will be
+asked to reply YES"), the turn's answer ends with the gateway's own one-line
+ask ("I need your OK: claim the handle @woodshop for a new shared workspace
+(handles are permanent). Reply YES"), and the person's bare YES runs it
+through `agent/route.js` before any model, as for every other held call. The
+cost is one text per workspace made. An MCP client is told the person can
+approve it in the Context app and to call again with the same arguments.
+
+What a simplification would cost: letting the switch pass a claim, or a clean
+ledger, puts every handle one injected sentence (or one misheard name) away
+from being taken forever. Tests: `apps/mcp/test/egress.test.mjs` ("claiming a
+handle always waits for the person, and a dry run never does");
+`apps/mcp/test/workspaceSetup.test.mjs` ("create_workspace checks a handle,
+then claims it ... once they say yes", "a dry run is never held, and a claim
+is held even with the widening gate switched off", "Tex asks by text before
+claiming a handle, and the texted YES claims it"), sabotage in its header.
+
+## The owned-workspace cap counts owners before it limits (2026-10-17)
+
+`createWorkspaceHandler` (`apps/convex/functions/lib/workspaces/create.ts`)
+used to read the first eleven of a person's memberships and then keep the
+owner rows. Memberships come back in creation order, so someone who had
+joined eleven or more workspaces before creating their own counted none of
+their owned ones and never met the cap. The owner filter now runs before the
+limit. No index covers `role` on `workspaceMembers`, so it is a filter on the
+`by_user` range rather than a new index: the scan is bounded by one person's
+memberships, which is small, and a schema index was not worth a migration for
+it. Tests in `apps/convex/__tests__/workspaces.test.ts`: "a member of many
+contexts who owns ten is refused the eleventh", "owning nine while a member
+of fifteen still allows a tenth".
+
 ## What a "simplification" would cost
 
 - **Calling `startGmailConnect` from the gateway and returning its URL** breaks
@@ -86,7 +149,8 @@ tool added later is still held until somebody classifies it.
   in its header.
 - `apps/mcp/test/workspaceSetup.test.mjs`: the actions translate, reach the
   addressed workspace, and a read-only connection never reaches the control
-  plane; the egress gate (on in tests) does not hold them.
+  plane; the egress gate (on in tests) does not hold a layout or a connect,
+  and holds a real create for the person's yes, switch or no switch.
 - `apps/mobile/__tests__/workspaceCreate.test.ts`: an agent's layout is the
   picker's preset, row for row.
 - `apps/mobile/__tests__/checkoutReturn.test.ts`: the Connected apps link

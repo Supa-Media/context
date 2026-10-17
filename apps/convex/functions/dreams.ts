@@ -9,6 +9,7 @@
 import { v } from "convex/values";
 import { internalMutation } from "../_generated/server";
 import { armLinkedDreamsHandler, claimDueDreamsHandler, recordDreamResultHandler } from "./lib/dreams/runs";
+import { requestDreamNowHandler } from "./lib/dreams/now";
 
 export const claimDueDreams = internalMutation({
   args: {
@@ -32,4 +33,20 @@ export const armLinkedDreams = internalMutation({
   args: {},
   returns: v.number(),
   handler: armLinkedDreamsHandler,
+});
+
+/** The person's own agent asks for a dream now (`lib/dreams/now.ts`); the minute cron runs it. */
+export const requestDreamNow = internalMutation({
+  args: { hashedAccessToken: v.string(), expectedWorkspaceId: v.string() },
+  returns: v.union(
+    v.null(),
+    v.object({ status: v.literal("started") }),
+    v.object({ status: v.literal("running") }),
+    v.object({ status: v.literal("recent"), retryAt: v.number() }),
+    v.object({ status: v.literal("not_included") }),
+    v.object({ status: v.literal("daily_limit") }),
+    v.object({ status: v.literal("unavailable") }),
+    v.object({ status: v.literal("not_texting") }),
+  ),
+  handler: requestDreamNowHandler,
 });

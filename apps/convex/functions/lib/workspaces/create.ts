@@ -46,11 +46,17 @@ export async function createWorkspaceHandler(
 
   // How many contexts this account already owns. Read before the name is
   // even looked at: hitting the cap must not depend on what you asked for.
+  // The owner filter runs before the limit, never after it: memberships come
+  // back in the order they were made, so someone who joined many contexts
+  // before creating their own would otherwise have every owned row past the
+  // limit, counted as none, and never meet the cap. No index covers the role,
+  // so this scans the person's memberships until it has found enough owners.
   const owned = await ctx.db
     .query("workspaceMembers")
     .withIndex("by_user", (q) => q.eq("userId", userId))
-    .take(MAX_WORKSPACES_PER_USER + 1);
-  if (!isTestAccount && owned.filter((m) => m.role === "owner").length >= MAX_WORKSPACES_PER_USER) {
+    .filter((q) => q.eq(q.field("role"), "owner"))
+    .take(MAX_WORKSPACES_PER_USER);
+  if (!isTestAccount && owned.length >= MAX_WORKSPACES_PER_USER) {
     throw new ConvexError({
       code: "WORKSPACE_LIMIT_REACHED",
       message: `You can own at most ${MAX_WORKSPACES_PER_USER} contexts.`,

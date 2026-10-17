@@ -127,7 +127,7 @@ async function egressGate(suppliedName, supplied, args, { store, session, target
     this gateway is not asking anybody. So it lets the call through and
     nothing else — in particular it does not stand in for a person below.
   */
-  const switchedOff = session.egressOff === true;
+  const switchedOff = session.egressOff === true && widening?.permanent !== true; // a handle claim still asks
   if (switchedOff || !approvalRequired(session.egress, widening, target.workspaceId)) {
     /*
       A widening the gate lets through carries the person's yes into the
@@ -204,7 +204,7 @@ async function egressGate(suppliedName, supplied, args, { store, session, target
     );
   }
   if (ledger && !ledger.asked.some((asked) => asked.id === record.id)) ledger.asked.push(record);
-  const because = reasonFor(session.egress);
+  const because = reasonFor(session.egress, widening);
   // `held` tells the turn (and so the turn log and the bench) that this call
   // was not refused but is waiting for the person; it runs when they say yes.
   return {

@@ -17,6 +17,7 @@ import {
 } from "../storageLayout";
 import { managedBucketName } from "../managedStorage";
 import { capabilitiesValidator } from "./shapes";
+import { layOutTextedWorkspace } from "../textSetup/layout";
 
 /**
  * How much provider failure text we keep.
@@ -188,6 +189,11 @@ export async function recordVerificationHandler(
         managedProvisioningAt: now,
         updatedAt: now,
       });
+    }
+    // A workspace set up by text gets its starting folders now, with no
+    // screen waiting to ask for them (`lib/textSetup/layout.ts`).
+    if (args.ok) {
+      await layOutTextedWorkspace(ctx, args.workspaceId, args.scaffoldReason ?? binding.scaffoldReason);
     }
   }
 
