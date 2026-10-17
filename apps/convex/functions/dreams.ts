@@ -10,6 +10,7 @@ import { v } from "convex/values";
 import { internalMutation } from "../_generated/server";
 import { armLinkedDreamsHandler, claimDueDreamsHandler, recordDreamResultHandler } from "./lib/dreams/runs";
 import { requestDreamNowHandler } from "./lib/dreams/now";
+import { armFirstLooksHandler } from "./lib/dreams/firstLook";
 
 export const claimDueDreams = internalMutation({
   args: {
@@ -33,6 +34,13 @@ export const armLinkedDreams = internalMutation({
   args: {},
   returns: v.number(),
   handler: armLinkedDreamsHandler,
+});
+
+/** Hourly (`crons.ts`): a first look for everyone with a phone and no about-me (`lib/dreams/firstLook.ts`). */
+export const armFirstLooks = internalMutation({
+  args: {},
+  returns: v.number(),
+  handler: armFirstLooksHandler,
 });
 
 /** The person's own agent asks for a dream now (`lib/dreams/now.ts`); the minute cron runs it. */

@@ -20,6 +20,10 @@
  *     → "the log says exactly what changed…" fails.
  *  5. `handleDream` ignoring `ai/production/dream.md` (2026-10-17).
  *     → "the dream runs on its setup note's words and model…" fails.
+ *  6. `first` back to `since === null && before === ""` (2026-10-17).
+ *     → "with no about-me a dream is a first look…" fails.
+ *  7. `roundCap` dropped from the dream's `runTurn`.
+ *     → "a first look gets more than the turn's default eight rounds" fails.
  */
 
 import worker from "../src/index.js";
@@ -27,6 +31,8 @@ import { transcriptPath } from "../src/agent/transcript.js";
 import { PRODUCTION_DREAM_PATH } from "../src/agent/production.js";
 import {
   DREAM_INSTRUCTIONS,
+  FIRST_DREAM_ROUNDS,
+  FIRST_LOOK,
   aboutMeChanges,
   dreamCallTool,
   dreamQuestion,
@@ -42,6 +48,7 @@ const S3_ENDPOINT = "https://s3.example-dream.test";
 const TOKEN_DREAMS = `cat_dream_dreams_${"0".repeat(22)}`;
 const TOKEN_TEXTS = `cat_dream_texts_${"0".repeat(23)}`;
 const TOKEN_DREAMS_PINNED = `cat_dream_pinned_${"0".repeat(22)}`;
+const TOKEN_DREAMS_FIRST = `cat_dream_firsts_${"0".repeat(22)}`;
 const DREAM_NOTE_WORDS = "DREAM-NOTE-WORDS: keep only what lasts about them.";
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -338,6 +345,60 @@ export async function runAgentDreamChecks(check) {
     check(
       "a quiet night is nothing_new and costs no model turn",
       quiet.status === 200 && quiet.body?.outcome === "nothing_new" && model.requests.length === before,
+    );
+
+    /* ---------------- a first look ---------------- */
+
+    // No note yet, no transcripts since the last dream, and an earlier dream
+    // already ran (`since` is set): before 2026-10-17 this was nothing_new, so
+    // anyone whose first dream wrote nothing never got the note at all.
+    controlPlane.addWorkspace("ws_first", "firstlook", {
+      provider: "s3",
+      status: "active",
+      endpoint: S3_ENDPOINT,
+      region: "auto",
+      bucket: "tenant-dream-first",
+      accessKeyId: "AKIAEXAMPLEEXAMPLEDF",
+      secretAccessKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEDF",
+      forcePathStyle: true,
+      capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
+    });
+    await controlPlane.addGrant({
+      accessToken: TOKEN_DREAMS_FIRST,
+      workspaceId: "ws_first",
+      role: "owner",
+      scopes: ["context:read", "context:write", "context:private"],
+      clientId: "context_dreams",
+      userId: "user_first",
+    });
+    controlPlane.setBuiltinVerdict("ws_first", BUILTIN_ALLOWED);
+    const fresh = s3.bucketFor("tenant-dream-first");
+    fresh.set("privacy.md", { body: PRIVACY_MANIFEST, etag: "f0" });
+    fresh.set("todo.md", { body: "# To do\n\n- Water the plants\n", etag: "f1" });
+    const looks = Array.from({ length: 10 }, () => ({ toolCalls: [{ name: "list_notes", args: {} }] }));
+    model.install([
+      ...looks,
+      { toolCalls: [{ name: "write_note", args: { path: "tex/about-me.md", content: "# About them\n\n- Keeps a to-do list (todo.md)\n" } }] },
+      { text: "First look: started the note from their workspace." },
+    ]);
+    const firstFrom = model.requests.length;
+    const looked = await ask(env, TOKEN_DREAMS_FIRST, dream(Date.now() + DAY_MS));
+    const firstPrompt = JSON.stringify(model.requests[firstFrom] ?? {});
+    check(
+      "with no about-me a dream is a first look, even with no texts and an earlier dream behind it",
+      looked.status === 200 &&
+        looked.body?.outcome === "dreamed" &&
+        firstPrompt.includes("Take a first look at their workspace") &&
+        (fresh.get("tex/about-me.md")?.body ?? "").includes("Keeps a to-do list"),
+    );
+    check(
+      "a first look gets more than the turn's default eight rounds",
+      FIRST_DREAM_ROUNDS > 8 && model.requests.length - firstFrom === looks.length + 2,
+    );
+    check(
+      "a first dream is told never to leave the note unwritten",
+      dreamQuestion({ transcripts: [], first: true, since: null, timeZone: "UTC" }).includes(FIRST_LOOK) &&
+        !dreamQuestion({ transcripts: [], first: false, since: 0, timeZone: "UTC" }).includes(FIRST_LOOK),
     );
   } finally {
     restoreControlPlane();

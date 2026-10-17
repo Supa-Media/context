@@ -84,6 +84,13 @@ crons.interval("stamp share links with their note's id", { hours: 24 }, internal
 crons.interval("arm Tex's first dreams", { hours: 24 }, internal.functions.dreams.armLinkedDreams, {});
 
 /**
+ * And a first look, now, for anyone Tex texts with who still has no
+ * `tex/about-me.md` (`functions/lib/dreams/firstLook.ts`): once each, and only
+ * a schedule row.
+ */
+crons.interval("give Tex's people a first look", { hours: 1 }, internal.functions.dreams.armFirstLooks, {});
+
+/**
  * The same for Tex's daytime check-in (`functions/heartbeats.ts`): a first one
  * for everyone with a linked phone who has none. Only a schedule row; whether
  * it runs, and as whom, is asked again when it is handed out.
