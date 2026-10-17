@@ -335,6 +335,19 @@ export function speakerLabeller(segments, attendees) {
 }
 
 /**
+ * Turns, each with the label the note draws for it (see `speakerLabeller`).
+ *
+ * @param {TranscriptSegment[]} segments
+ * @param {Array<{name?: string, self?: boolean}>} [attendees]
+ * @param {{maxGapMs?: number}} [options]
+ * @returns {TranscriptTurn[]}
+ */
+export function labelledTurns(segments, attendees, options = {}) {
+  const label = speakerLabeller(segments, attendees);
+  return groupIntoTurns(segments, options).map((turn) => ({ ...turn, speaker: label(turn) }));
+}
+
+/**
  * `mm:ss`, or `h:mm:ss` once a meeting runs past the hour. Used by the note
  * renderer and by the enhancement prompt, so it lives with the transcript.
  *
