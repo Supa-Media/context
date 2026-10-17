@@ -20,6 +20,10 @@ import {
   entitlementRows,
   entitlementsHint,
 } from "../../console/settings/panels/premiumEntitlements";
+import {
+  FOUNDING_PRICE_LINE,
+  foundingAtNoCharge,
+} from "../../console/settings/panels/founding";
 
 /**
  * The last screen before Stripe, in a first run.
@@ -100,6 +104,11 @@ export function ManagedConfirm({
 }) {
   const styles = useThemedStyles(makeStyles);
   const free = status.stagingFreeStorage === true;
+  // Founding Premium: the plan is already active and nobody pays for it, so
+  // "Continue" goes straight to setting up storage and nothing here may read
+  // as a subscription, a price or a payment.
+  const founding = !free && foundingAtNoCharge(status);
+  const noPayment = free || founding;
   const price = formatPrice(status);
   const chosen = status.selected.managedStorage;
 
@@ -109,6 +118,7 @@ export function ManagedConfirm({
       {free ? <Notice tone="warn"><Text variant="rowSub">{STAGING_DATA_WARNING}</Text></Notice> : null}
       <Text variant="rowSub" style={styles.lede}>
         {free ? "Create a dedicated bucket for this staging workspace. No payment or card is required."
+          : founding ? "Your founding membership includes a bucket we run for this workspace. You are not buying your files — those are yours either way, and always leave with you."
           : "You are subscribing to the services we run for this context. You are not buying your files — those are yours either way, and always leave with you."}
       </Text>
 
@@ -133,12 +143,20 @@ export function ManagedConfirm({
           disabled={state === "opening" || state === "ready"}
           testID="managed-confirm-entitlement"
         />
-        <Row divided style={styles.priceRow}>
-          <Text variant="rowSub">Price</Text>
-          <Text variant="rowTitle" testID="managed-confirm-price">
-            {price}
-          </Text>
-        </Row>
+        {founding ? (
+          <Row divided style={styles.priceRow}>
+            <Text variant="rowSub" testID="managed-confirm-founding">
+              {FOUNDING_PRICE_LINE}
+            </Text>
+          </Row>
+        ) : (
+          <Row divided style={styles.priceRow}>
+            <Text variant="rowSub">Price</Text>
+            <Text variant="rowTitle" testID="managed-confirm-price">
+              {price}
+            </Text>
+          </Row>
+        )}
         {/*
           What the number on the row above actually is, before the terms that
           apply to it. This screen is the one place in the product where
@@ -147,12 +165,14 @@ export function ManagedConfirm({
           storage card uses — a promise abbreviated at the moment of payment is
           the one somebody would be right to feel misled by later.
         */}
-        <Hint style={styles.gap}>
-          <Text variant="rowSub">{free ? "Free for testing on staging." : EARLY_TESTER_PRICE_NOTE}</Text>
-        </Hint>
+        {founding ? null : (
+          <Hint style={styles.gap}>
+            <Text variant="rowSub">{free ? "Free for testing on staging." : EARLY_TESTER_PRICE_NOTE}</Text>
+          </Hint>
+        )}
         <Hint style={styles.gap}>
           <Text variant="rowSub">
-            {free ? "No subscription. " : "Billed monthly. Cancel any time from this context’s settings; cancelling never deletes a note. "}
+            {noPayment ? "No subscription. " : "Billed monthly. Cancel any time from this context’s settings; cancelling never deletes a note. "}
             Up to {formatBytes(status.ceilingBytes)} of notes and
             attachments — stored bytes are not metered yet, and we will tell you long
             before it matters.
@@ -161,9 +181,9 @@ export function ManagedConfirm({
       </Card>
 
       <View style={styles.gap}>
-        <Text variant="eyebrow">{free ? "What happens next" : "What happens after you pay"}</Text>
+        <Text variant="eyebrow">{noPayment ? "What happens next" : "What happens after you pay"}</Text>
         <View style={styles.steps}>
-          {(free ? FIRST_RUN_AFTER_PAY.slice(1) : afterPay).map((line, index) => (
+          {(noPayment ? FIRST_RUN_AFTER_PAY.slice(1) : afterPay).map((line, index) => (
             <View key={line} style={styles.stepRow}>
               {/*
                 Numbered, because this genuinely is a sequence — three things
@@ -209,7 +229,7 @@ export function ManagedConfirm({
                 : "Continue"
           }
           accessibilityLabel={
-            free ? "Create staging storage without payment" : state === "ready"
+            free ? "Create staging storage without payment" : founding ? "Set up managed storage" : state === "ready"
               ? "Open the payment page, which is hosted by Stripe"
               : "Continue to payment"
           }
@@ -227,9 +247,11 @@ export function ManagedConfirm({
         />
         {state === "opening" ? <ActivityIndicator size="small" /> : null}
       </Row>
-      <Text variant="foot" style={styles.foot}>
-{free ? "This workspace uses staging storage." : "Payment is handled by Stripe. We never see your card."}
-      </Text>
+      {founding ? null : (
+        <Text variant="foot" style={styles.foot}>
+          {free ? "This workspace uses staging storage." : "Payment is handled by Stripe. We never see your card."}
+        </Text>
+      )}
 
       {/*
         THE EXIT, HERE TOO, AND NOT AS A FOOTNOTE.

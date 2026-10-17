@@ -15,6 +15,7 @@ import {
 import {
   wouldEmptyRequiredSelection,
 } from "../console/settings/panels/premiumEntitlements";
+import { foundingAtNoCharge } from "../console/settings/panels/founding";
 import type { ManagedConfirmState } from "./steps/ManagedConfirm";
 
 /**
@@ -63,6 +64,11 @@ export interface ManagedOffer {
   available: boolean;
   /** `$5 a month`, from the same config the checkout charges. */
   price: string;
+  /**
+   * Founding Premium nobody pays for: every card that would show `price`
+   * says so instead. Optional so a fixture without it reads as "not founding".
+   */
+  founding?: boolean;
   /** The plan as the control plane reports it, or `null` before it answers. */
   status: PremiumStatus | null;
   /** Which of the three screens the storage step is drawing. */
@@ -279,6 +285,7 @@ export function useManagedOffer(options: {
   return {
     available: Platform.OS === "web" && status?.managedStorageAvailable === true,
     price: status === null ? "" : formatPrice(status),
+    founding: foundingAtNoCharge(status),
     status,
     mode,
     session: sessionState,
