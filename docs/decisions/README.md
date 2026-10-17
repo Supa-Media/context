@@ -665,6 +665,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The Worker holds message text only while it is answering it
 - Messages pass through Linq
 - [Who may text the line is Linq's list, managed from the console](./texting-assistant/allowlist.md)
+- [Letting someone in off the waitlist puts their phone on the list](./texting-assistant/allowlist.md)
 - Staging has a texts simulator, and nothing else does
 - An answer reads like a text, and the typing bubble shows while it works
 - Every agent turn is logged by name and duration, never by text
