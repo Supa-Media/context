@@ -100,7 +100,8 @@ describe("the vault list in Settings", () => {
     await save(w, "Stripe", { host: "api.stripe.com", style: "bearer", ask: true });
     await sayYes(w, "client_claude", "Claude Code");
     const [entry] = await asUser(w.t, w.seyi).action(api.functions.vaultSettings.listVaultEntries, { workspaceId: w.team });
-    expect(entry.proxy!.clients).toEqual([{ id: "client_claude", name: "Claude Code", at: 1 }]);
+    // A yes from before people were recorded is the saver's own.
+    expect(entry.proxy!.clients).toEqual([{ id: "client_claude", name: "Claude Code", at: 1, by: String(w.seyi), byName: "You", mine: true }]);
     expect(JSON.stringify(entry).includes("until")).toBe(false);
   });
 
@@ -161,8 +162,9 @@ describe("the vault list in Settings", () => {
     await store.put(".context/approvals/pending/b.json", ask("client_old", String(w.seyi), Date.now() - 1));
     await store.put(".context/approvals/pending/c.json", ask("client_x", String(w.sayo), Date.now() + 60_000));
     const [entry] = await asUser(w.t, w.seyi).action(api.functions.vaultSettings.listVaultEntries, { workspaceId: w.team });
-    expect(entry.proxy!.uses).toEqual([{ id: "client_claude", name: "Claude Code", count: 31, at: 5, method: "GET", path: "/v1/customers" }]);
-    expect(entry.proxy!.refused).toEqual([{ id: "client_gpt", name: "ChatGPT", at: 4 }]);
+    const yours = { by: String(w.seyi), byName: "You", mine: true };
+    expect(entry.proxy!.uses).toEqual([{ id: "client_claude", name: "Claude Code", count: 31, at: 5, method: "GET", path: "/v1/customers", ...yours }]);
+    expect(entry.proxy!.refused).toEqual([{ id: "client_gpt", name: "ChatGPT", at: 4, ...yours }]);
     expect(entry.proxy!.waiting).toBe(1);
     expect(entry.savedByYou).toBe(true);
     expect(entry.savedAt).toBeGreaterThan(0);

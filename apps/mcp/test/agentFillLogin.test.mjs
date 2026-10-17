@@ -36,12 +36,12 @@ function memoryStore() {
   };
 }
 
-async function vaultWith({ workspaceId = "ws_1", userId = "user_a", people = ["user_a"] } = {}) {
+async function vaultWith({ workspaceId = "ws_1", userId = "user_a", people = ["user_a"], createdBy = people[0] } = {}) {
   const store = memoryStore();
   const id = newEntryId();
   await writeEntry(store, KEYS, workspaceId, {
     id,
-    meta: { name: "Netflix", sites: ["netflix.com"], people, createdBy: "user_a", createdAt: 1, updatedAt: 1 },
+    meta: { name: "Netflix", sites: ["netflix.com"], people, createdBy, createdAt: 1, updatedAt: 1 },
     secret: { username: USERNAME, password: PASSWORD },
   });
   Object.defineProperty(store, "encryptionKey", { value: KEYS, enumerable: false });

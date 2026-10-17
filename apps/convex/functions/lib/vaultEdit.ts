@@ -13,8 +13,9 @@
  */
 
 import type { Infer } from "convex/values";
-import { changeEntry, deleteEntry, mayUse, readMeta } from "../../../mcp/src/vault/entries.js";
+import { changeEntry, deleteEntry, readMeta } from "../../../mcp/src/vault/entries.js";
 import { fieldSummaries } from "../../../mcp/src/vault/fields.js";
+import { mayManage } from "./vaultPeople";
 import type { FieldValues, Revealed, VaultMeta, operationValidator } from "./vaultShapes";
 
 type Operation = Infer<typeof operationValidator>;
@@ -22,9 +23,11 @@ type EditOperation = Extract<Operation, { kind: "edit" }>;
 type DeleteOperation = Extract<Operation, { kind: "delete" }>;
 export type EditResult = { meta: VaultMeta; changed: string[] } | "refused" | "conflict";
 
-/** Owners and editors may change any key given to them; anyone else only one they saved. */
-const maySay = (meta: VaultMeta, op: { userId: string; anyKey: boolean }) =>
-  mayUse(meta, op.userId) && (op.anyKey || meta.createdBy === op.userId);
+/**
+ * Owners and editors may change any key they were given to see; anyone else
+ * only one they saved. A key given for AIs only is never changed by its holder.
+ */
+const maySay = mayManage;
 
 /** The names of the fields whose values differ, in the order they are now. */
 function changedFields(before: FieldValues[], after: FieldValues[]): string[] {
