@@ -258,19 +258,11 @@ Tex's own jobs, each with its record:
 
 ### The built-in model is free, capped at 100 a day, and metered like Jev
 
-Decided by the owner, 2026-10-17 (leadership meeting: "Text will be free for
-now, with a 1,000-note limit and a 100-texts-a-day cap"; confirmed in the Tex
-project as "Open to all"), replacing "Premium, capped" of 2026-10-06. Every
-workspace's texts are answered by a model we pay for (GLM-4.7 Flash on Workers
-AI, or Claude Haiku 5.5 once a gateway is configured, see below;
-`AGENT_BUILTIN_MODEL` to swap it), up to 100 turns per UTC day, paying or not:
-the Jev feature `assistant` is plan `everyone` with `dailyCallsFree` equal to
-the paying cap. The 1,000-note limit is the free plan's existing cap on managed
-storage (`noteCapFor`), untouched. Tex's dream, daytime check-ins, housekeeping
-and routines run on the same feature, so they count toward the same 100. A
-paid texting plan waits until the product is stable. Tests:
-`apps/convex/__tests__/builtinModel.test.ts` ("a free texter may too" and "a
-free texter's 101st turn of the day is refused as the daily cap").
+Decided by the owner, 2026-10-17 ("Open to all"), replacing "Premium, capped".
+Every workspace's texts are answered by a model we pay for (GLM-4.7 Flash or
+Claude Haiku 5.5, see below; `AGENT_BUILTIN_MODEL` to swap it), up to 100 turns
+per UTC day, paying or not (plan `everyone`, `dailyCallsFree: 100`); dreams,
+check-ins, housekeeping and routines count toward the same 100.
 
 **Removed 2026-10-10 (owner's decision): saved provider keys deleted; the
 assistant uses only the built-in model.** People could once save their own
