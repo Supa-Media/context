@@ -283,6 +283,7 @@ export const setGrantees = mutation({
     path: v.string(),
     grantees: v.array(granteeRequestValidator),
     base: v.optional(v.union(v.literal("private"), v.literal("team"), v.literal("inherit"))),
+    expectedVersion: v.optional(v.number()),
   },
   returns: setGranteesAnswerValidator,
   handler: async (ctx, args) => await setGranteesHandler(ctx, args),

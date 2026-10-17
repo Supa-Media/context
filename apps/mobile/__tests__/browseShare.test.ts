@@ -60,6 +60,9 @@ jest.mock("../features/agent/useConsoleGrant", () => ({
 
 jest.mock("convex/react", () => ({
   useQueries: () => ({}), useConvex: () => ({ query: async () => undefined }), // an owner picker, which nothing here opens
+  // The share dialog's list (`useShareGrants`): none here, so it draws as it did before lists existed.
+  useQuery: () => undefined,
+  useMutation: () => async () => ({ ok: true, version: 1 }),
   useAction: () => async () => Promise.reject(new Error("not used in this test")),
 }));
 

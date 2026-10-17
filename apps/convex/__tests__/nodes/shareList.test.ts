@@ -106,6 +106,15 @@ describe("reading one row's list", () => {
     expect(await list(w, w.owner, PLAN)).toMatchObject({ base: "private", tier: "private", from: null, grantees: [] });
   });
 
+  test("the domains that let people join are listed, switched-off ones are not", async () => {
+    const w = await world();
+    await w.t.run(async (ctx) => {
+      await ctx.db.insert("workspaceDomains", { workspaceId: w.ws, domain: "acme.example", role: "member", enabled: true, addedBy: w.owner, addedAt: 1 } as never);
+      await ctx.db.insert("workspaceDomains", { workspaceId: w.ws, domain: "old.example", role: "member", enabled: false, addedBy: w.owner, addedAt: 1 } as never);
+    });
+    expect((await list(w, w.owner, PLAN))?.domains).toEqual(["acme.example"]);
+  });
+
   test("only the owner reads the list: a member, another tenant's owner and a missing path all get null", async () => {
     const w = await world();
     await save(w, PLAN, [{ email: "pat@example.test", role: "view" }], "private");
@@ -158,6 +167,23 @@ describe("writing a list and its base together", () => {
     const answer = await list(w, w.owner, PLAN);
     // Someone outside is shown by name, never by their address.
     expect(answer?.grantees).toEqual([{ kind: "user", userId: w.stranger, label: "Stranger", member: false, role: "view" }]);
+  });
+});
+
+describe("a list written from a stale read", () => {
+  test("is refused as CONFLICT, and nothing is written", async () => {
+    const w = await world();
+    const read = (await list(w, w.owner, PLAN))!.version;
+    await save(w, PLAN, [{ email: "first@example.test", role: "view" }], "private");
+    const stale = await asUser(w.t, w.owner).mutation(api.functions.nodesAccess.setGrantees, {
+      workspaceId: w.ws,
+      path: PLAN,
+      base: "private",
+      grantees: [{ email: "second@example.test", role: "view" }],
+      expectedVersion: read,
+    });
+    expect(stale).toEqual({ ok: false, code: "CONFLICT" });
+    expect((await list(w, w.owner, PLAN))?.grantees).toEqual([{ kind: "email", email: "first@example.test", role: "view" }]);
   });
 });
 

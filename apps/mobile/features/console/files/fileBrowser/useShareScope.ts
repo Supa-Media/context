@@ -43,6 +43,17 @@ type ShareScopeDeps =
     | "sharesRef"
   >;
 
+/**
+ * What the visibility control may do from a listing's visibility. A group rule it cannot change (`group`). A note
+ * with its own list reads to its owner as its token (`@#<noteId>`, `rowAccess.ts`), which is not a group: the share
+ * dialog shows the list's tier and changes it here, and the server keeps the list. The token says nothing about
+ * the tier, so a press on it starts from what the dialog showed (`listed`). Anything else is a tier (`tier`).
+ */
+export function scopeGuard(visibility: string): "group" | "listed" | "tier" {
+  if (visibility.startsWith("@#")) return "listed";
+  return isGroupVisibility(visibility as Parameters<typeof isGroupVisibility>[0]) ? "group" : "tier";
+}
+
 export function useShareScope(deps: ShareScopeDeps) {
   const {
     createLinkShareAction, createShare, createTeamShareMutation, listingsRef, revokeShareMutation,
@@ -133,7 +144,7 @@ export function useShareScope(deps: ShareScopeDeps) {
           cannot see, and silence would leave them pressing it again.
         */
         const current = findEntry(listingsRef.current, path)?.visibility;
-        if (current !== undefined && isGroupVisibility(current)) {
+        if (current !== undefined && scopeGuard(current) === "group") {
           setNotice(
             `${path} is shared with ${current}, which this control cannot change. ` +
               "Use the group settings for this context.",
@@ -159,7 +170,7 @@ export function useShareScope(deps: ShareScopeDeps) {
           caller has already resolved a group rule into a position.
         */
         const liveScope =
-          current === undefined
+          current === undefined || scopeGuard(current) === "listed"
             ? undefined
             : scopeOf(
                 current,

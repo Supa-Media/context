@@ -76,6 +76,9 @@ const mockAction = async () => {
 };
 jest.mock("convex/react", () => ({
   useQueries: () => ({}),
+  // The share dialog's list (`useShareGrants`): none here, so it draws as it did before lists existed.
+  useQuery: () => undefined,
+  useMutation: () => async () => ({ ok: true, version: 1 }),
   // An owner picker searches through the client; nothing here opens one.
   useConvex: () => mockConvex,
   useAction: () => mockAction,

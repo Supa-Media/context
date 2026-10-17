@@ -20,6 +20,7 @@ import { groupLabelOf } from "../names";
 import { getMembership } from "../workspaceAuth";
 import { accessSourceOf } from "./accessBackfill";
 import { accessVersionOf } from "./accessRows";
+import { MAX_DOMAINS_PER_WORKSPACE } from "../../workspaceDomains";
 
 const roleValidator = v.union(v.literal("view"), v.literal("edit"));
 
@@ -55,6 +56,8 @@ export const shareListValidator = v.union(
     /** The folder whose setting this row follows, or `null` when the row sets its own (or nothing above does). */
     from: v.union(v.string(), v.null()),
     grantees: v.array(shareEntryValidator),
+    /** The domains whose people join this workspace when they sign in, switched on (`workspaceDomains`). */
+    domains: v.array(v.string()),
   }),
 );
 
@@ -140,6 +143,14 @@ export async function shareListHandler(
   if (row === null) return null;
 
   const version = await accessVersionOf(ctx, args.workspaceId);
+  const domains = (
+    await ctx.db
+      .query("workspaceDomains")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .take(MAX_DOMAINS_PER_WORKSPACE)
+  )
+    .filter((row) => row.enabled)
+    .map((row) => row.domain);
   const own = await listOf(ctx, row);
   if (row.access?.base !== undefined || own.length > 0) {
     return {
@@ -150,6 +161,7 @@ export async function shareListHandler(
       tier: row.access?.base === "team" ? "team" : "private",
       from: null,
       grantees: await entriesOf(ctx, workspace, own),
+      domains,
     };
   }
   for (const path of ancestorsOf(args.path)) {
@@ -164,7 +176,8 @@ export async function shareListHandler(
       tier: folder.access?.base === "team" ? "team" : "private",
       from: path,
       grantees: await entriesOf(ctx, workspace, list),
+      domains,
     };
   }
-  return { version, kind: row.kind, base: null, tier: "private", from: null, grantees: [] };
+  return { version, kind: row.kind, base: null, tier: "private", from: null, grantees: [], domains };
 }

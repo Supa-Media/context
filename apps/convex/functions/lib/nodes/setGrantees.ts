@@ -40,7 +40,7 @@ export interface GranteeRequest {
 
 export type SetGranteesAnswer =
   | { ok: true; version: number }
-  | { ok: false; code: "NOT_FOUND" | "FORBIDDEN" | "NOT_ROWS_MODE" | "GRANTEE_NOT_FOUND" | "INVALID" };
+  | { ok: false; code: "NOT_FOUND" | "FORBIDDEN" | "NOT_ROWS_MODE" | "GRANTEE_NOT_FOUND" | "INVALID" | "CONFLICT" };
 
 export const setGranteesAnswerValidator = v.union(
   v.object({ ok: v.literal(true), version: v.number() }),
@@ -52,6 +52,7 @@ export const setGranteesAnswerValidator = v.union(
       v.literal("NOT_ROWS_MODE"),
       v.literal("GRANTEE_NOT_FOUND"),
       v.literal("INVALID"),
+      v.literal("CONFLICT"),
     ),
   }),
 );
@@ -129,6 +130,8 @@ export async function setGranteesHandler(
     grantees: GranteeRequest[];
     /** The row's base, set in the same write. Omitted keeps it; `inherit` takes the folder's and needs an empty list. */
     base?: "private" | "team" | "inherit";
+    /** The access version the caller read (`shareList`); another is `CONFLICT`, and nothing is written. */
+    expectedVersion?: number;
   },
 ): Promise<SetGranteesAnswer> {
   const userId = (await requireAuthId(ctx)) as Id<"users">;
@@ -172,11 +175,13 @@ export async function setGranteesHandler(
     workspaceId: args.workspaceId,
     path: args.path,
     base: args.base ?? row.access?.base ?? "inherit",
+    expectedVersion: args.expectedVersion,
     grantees,
     actor: { userId, role: "owner" },
   });
   if (answer.ok) return answer;
   if (answer.code === "INVALID") return { ok: false, code: "INVALID" };
+  if (answer.code === "CONFLICT") return { ok: false, code: "CONFLICT" };
   // The row is there, so a NOT_FOUND from the rules is a grantee they do not accept.
   if (answer.code === "NOT_FOUND") return UNRESOLVED;
   throw new Error(`setAccessRow answered ${answer.code} for an owner on an existing row`);
