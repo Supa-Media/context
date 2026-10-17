@@ -5,6 +5,7 @@ import { callAudioGivenUp, noteCallAudioShare, readCallAudioMemory } from "../ca
 import { browserName } from "../browser";
 import { MAX_INFLIGHT_CHUNKS, SEGMENT_MS, chunkIdFor } from "../segments";
 import { resolveTranscriber } from "../transcriber";
+import { talkTimeline } from "../talkTimeline";
 import {
   type AudioGraph,
   browserCanShareSystemAudio,
@@ -69,6 +70,8 @@ export function mediaRecorderRecorder(): MeetingRecorder {
   let chunkStartedAtMs = 0;
   /** Something else holds the input and we are waiting for `unmute`. */
   let interrupted = false;
+  /** Which side was louder, on the session clock. See `talkTimeline.ts`. */
+  const talk = talkTimeline();
 
   // Same reason as the phone's: a rotation tick cannot await, so every touch of
   // the device goes through one chain. The send is deliberately not on it.
@@ -172,6 +175,7 @@ export function mediaRecorderRecorder(): MeetingRecorder {
         const heard = call === null ? null : read(call);
         publishRecorderLevel(Math.max(you ?? 0, heard ?? 0));
         publishRecorderSplit({ you, call: heard });
+        if (active !== null) talk.note(chunkStartOffsetMs + (Date.now() - chunkStartedAtMs), you, heard);
       } catch {
         // A graph going away underneath this timer is not a capture failure
         // and is not worth a chip. The meter says it has no reading.
@@ -324,7 +328,17 @@ export function mediaRecorderRecorder(): MeetingRecorder {
       report({ recoverable: true, message: NO_SPEECH });
       return;
     }
-    for (const segment of segments) emit(segment);
+    for (const segment of segments) emit(withSpeakerSide(segment));
+  }
+
+  /**
+   * The segment, with the side that was louder while it was said, when the
+   * meeting has a call to compare against. Otherwise exactly what the engine
+   * said (`mixed`), so a room meeting never gains a speaker.
+   */
+  function withSpeakerSide(segment: TranscriptSegment): TranscriptSegment {
+    const channel = talk.channelFor(segment.startMs, segment.endMs);
+    return channel === null ? segment : { ...segment, channel };
   }
 
   /**
@@ -517,6 +531,7 @@ export function mediaRecorderRecorder(): MeetingRecorder {
       chunkIndex = 0;
       chunkStartOffsetMs = 0;
       interrupted = false;
+      talk.clear();
 
       try {
         openChunk();

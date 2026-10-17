@@ -20,7 +20,7 @@ import { newMeetingId } from "../ids";
 import { NOT_DURABLE_REASON, loadMeetings } from "../local";
 import { emptyAck, type MeetingRecord } from "../record";
 import { mayResume } from "../resume";
-import { PROTOCOL_VERSION } from "../protocol";
+import { PROTOCOL_VERSION, type Attendee } from "../protocol";
 import { can, hasNothingCaptured, isLive, seedProjection, transcriptionFor } from "../session";
 import { type ConfigureInput, type StartInput, type ContinueInput, DRAIN_DEADLINE_MS, DEFAULT_EMPTY_REASON, UNCONFIGURED } from "./types";
 
@@ -208,7 +208,7 @@ export class LifecycleMixin {
       startedAt: at,
       source: input.source ?? { kind: "unknown" },
       device: config.device,
-      attendees: input.attendees,
+      attendees: withSelf(input.attendees, config.selfName?.() ?? null),
       /*
         Taken from the recorder this build has, at the one moment a session is
         built, so the note that lands in somebody's bucket says how it was made.
@@ -658,4 +658,18 @@ export class LifecycleMixin {
       }
     }
   }
+}
+
+/**
+ * The attendees a meeting starts with, plus the person recording it.
+ *
+ * Their row is what lets a two-sided call's transcript say whose voice the
+ * microphone heard (see `ConfigureInput.selfName`). Not added twice when the
+ * caller already named them, and never with an empty name.
+ */
+export function withSelf(attendees: Attendee[] | undefined, name: string | null): Attendee[] | undefined {
+  const label = name?.replace(/\s+/g, " ").trim() ?? "";
+  const list = attendees ?? [];
+  if (label === "" || list.some((attendee) => attendee.self === true)) return attendees;
+  return [{ name: label, self: true }, ...list];
 }
