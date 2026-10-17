@@ -378,3 +378,51 @@ test("the world runs the egress gate the way the deployed gateway does", async (
   assert.equal(deployedVar('[vars]\nEGRESS_APPROVALS = "off"\n[env.staging.vars]\nEGRESS_APPROVALS = "on"\n', "EGRESS_APPROVALS"), "off");
   assert.equal(deployedVar('[vars]\nOTHER = "x"\n[env.staging.vars]\nEGRESS_APPROVALS = "off"\n', "EGRESS_APPROVALS"), undefined);
 });
+
+/** A model that never stops calling tools, counting its rounds; a progress text first when `say` is given. */
+function neverDone(rounds, say = null) {
+  return async () => {
+    rounds.n += 1;
+    const first = rounds.n === 1 && say !== null;
+    const reply = {
+      content: [
+        first
+          ? { type: "tool_use", id: `toolu_${rounds.n}`, name: "send", input: { action: "progress", args: { text: say } } }
+          : { type: "tool_use", id: `toolu_${rounds.n}`, name: "read_note", input: { path: "health/dentist.md" } },
+      ],
+      stop_reason: "tool_use",
+    };
+    return new Response(JSON.stringify({ ...reply, usage: { input_tokens: 10, output_tokens: 5 } }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+}
+
+const withSteps = (n) => SETUP.replace("---\n\nYou", `max_steps: ${n}\n---\n\nYou`);
+
+test("a bench turn is asked for the way the texting Worker asks, so it gets the setup's max_steps", async () => {
+  // A plain JSON ask is a quick turn, capped at 8 rounds (`src/agent/turn.js`);
+  // the texting Worker streams (`apps/agent/src/clients.ts`) and gets the
+  // setup's own max_steps, up to the long cap. The bench must measure that.
+  const rounds = { n: 0 };
+  const world = await createWorld(bench, "Maya", withSteps(24), { gatewayFetch: neverDone(rounds) });
+  try {
+    await world.text("go");
+  } finally {
+    world.close();
+  }
+  assert.equal(rounds.n, 24);
+});
+
+test("a progress line texted on the way comes back with the turn, as a text the person got", async () => {
+  const rounds = { n: 0 };
+  const world = await createWorld(bench, "Maya", withSteps(2), { gatewayFetch: neverDone(rounds, "On it.") });
+  try {
+    const turn = await world.text("go");
+    assert.ok(turn.ok, turn.error ?? "");
+    assert.deepEqual(turn.progress, ["On it."]);
+  } finally {
+    world.close();
+  }
+});

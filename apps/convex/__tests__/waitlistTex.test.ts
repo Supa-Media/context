@@ -5,7 +5,7 @@ import { ADMIN_EMAILS_ENV_VAR } from "../functions/lib/admin";
 import { LINQ_ZERO_SERVICE, SHARED_LINE_CAP } from "../functions/lib/adminFns/texAllowlist";
 import { OPEN_SIGNUP_ENV_VAR } from "../functions/lib/waitlist";
 import { admittedText } from "../functions/waitlistText";
-import { drainScheduled, setupTest, type TestConvex } from "./fixtures.helpers";
+import { asUser, createUser, drainScheduled, setupTest, type TestConvex } from "./fixtures.helpers";
 
 /**
  * LETTING SOMEBODY IN PUTS THEM ON TEX'S LIST.
@@ -56,6 +56,7 @@ beforeEach(() => {
     const url = String(input);
     calls.push({ url, body: String(init.body ?? "") });
     const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
+    if (url.endsWith("/VerificationCheck")) return json({ status: "approved", valid: true });
     if (url.startsWith("https://api.twilio.com/")) return new Response(JSON.stringify({ sid: "SM_fake" }), { status: 201 });
     if (url === `${LINQ_ZERO_SERVICE}/cli/account-info`) {
       return json({ orgId: ORG, accountInfo: { accountLabel: linq.label, phones: [{ phoneNumber: TEX }] } });
@@ -66,6 +67,11 @@ beforeEach(() => {
     if (url === `${LINQ_ZERO_SERVICE}/cli/contacts/add`) {
       if (linq.failAdd !== null) return new Response("linq-body", { status: linq.failAdd });
       listed.push(JSON.parse(String(init.body)).contactPhone);
+      return json({});
+    }
+    if (url === `${LINQ_ZERO_SERVICE}/cli/contacts/remove`) {
+      const gone = JSON.parse(String(init.body)).contactPhone;
+      listed = listed.filter((phone) => phone !== gone);
       return json({});
     }
     throw new Error(`network access attempted: ${url}`);
@@ -234,9 +240,49 @@ describe("Let in on an address", () => {
     );
     await drainScheduled(t);
     expect(listed).toEqual([PHONE]);
+    // The person confirmed the phone, so the trail names them, not staff.
     expect(await trail(t)).toEqual([
-      ["tex.allowlist_added", STAFF, { phone: "0142", via: "waitlist", outcome: "added" }],
+      ["tex.allowlist_added", "jon@studio.test", { phone: "0142", via: "phone_confirmed", outcome: "added" }],
     ]);
+  });
+
+  test("changing the phone frees the old number's slot, so a person holds one", async () => {
+    const t = setupTest();
+    const as = await staff(t);
+    const OLD = "+15555550143";
+    const jon = await createUser(t, "jon@studio.test");
+    await t.run((ctx) => ctx.db.patch(jon, { phone: OLD, phoneVerificationTime: Date.now() }));
+    await as.mutation(api.functions.admin.admitWaitlist, { ids: [await row(t, { email: "jon@studio.test" })] });
+    await drainScheduled(t);
+    expect(listed).toEqual([OLD]);
+
+    expect(await asUser(t, jon).action(api.functions.phoneCheck.confirmPhoneCode, { phone: PHONE, code: "123456" })).toEqual({
+      status: "confirmed",
+    });
+    await drainScheduled(t);
+    expect(listed).toEqual([PHONE]);
+    const actions = (await trail(t)).map(([action, actor]) => [action, actor]);
+    expect(actions).toEqual([
+      ["tex.allowlist_added", STAFF],
+      ["tex.allowlist_removed", "jon@studio.test"],
+      ["tex.allowlist_added", "jon@studio.test"],
+    ]);
+  });
+
+  test("on a full list, a phone change still gets the new number on", async () => {
+    const t = setupTest();
+    const as = await staff(t);
+    const OLD = "+15555550143";
+    const jon = await createUser(t, "jon@studio.test");
+    await t.run((ctx) => ctx.db.patch(jon, { phone: OLD, phoneVerificationTime: Date.now() }));
+    await as.mutation(api.functions.admin.admitWaitlist, { ids: [await row(t, { email: "jon@studio.test" })] });
+    await drainScheduled(t);
+    listed = [...listed, ...phones(SHARED_LINE_CAP - 1)];
+    await asUser(t, jon).action(api.functions.phoneCheck.confirmPhoneCode, { phone: PHONE, code: "123456" });
+    await drainScheduled(t);
+    expect(listed).toContain(PHONE);
+    expect(listed).not.toContain(OLD);
+    expect(listed).toHaveLength(SHARED_LINE_CAP);
   });
 
   test("somebody never let in off the waitlist is not added when they confirm a phone", async () => {

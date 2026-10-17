@@ -40,6 +40,7 @@ import { deferredWork } from "../mcp/usage.js";
 import { enforceOrigin, isTransportPath } from "../origin.js";
 import { handleAgent } from "../agent/route.js";
 import { DREAMS_CLIENT_ID, handleDream } from "../agent/dream.js";
+import { HOUSEKEEPING_CLIENT_ID, handleHousekeeping } from "../agent/housekeeping.js";
 import { streamTurn, wantsProgress } from "../agent/progress.js";
 import { handleApprovals } from "./approvals.js";
 import { handleTexComputer, TEX_COMPUTER_PATHS } from "./texComputer.js";
@@ -632,6 +633,8 @@ export async function route(request, env, ctx) {
         // A turn is one invocation: the index passes its searches start wait
         // for it to end, or every later call queues behind them (`search/heldPasses.js`).
         const held = (turn) => withSearchPassesHeld(store, turn);
+        // Tex's housekeeping has its own client and its own guarded turn (`agent/housekeeping.js`).
+        if (session.actorClientId === HOUSEKEEPING_CLIENT_ID) return await held(() => handleHousekeeping(request, env, store, session, controlPlane));
         // Tex's nightly dream has its own client and its own turn, and does nothing else (`agent/dream.js`).
         if (session.actorClientId === DREAMS_CLIENT_ID) return await held(() => handleDream(request, env, store, session, controlPlane));
         // The texting Worker asks for a long task as a stream of progress

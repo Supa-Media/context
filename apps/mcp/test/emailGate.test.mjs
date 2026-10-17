@@ -208,9 +208,9 @@ export async function runEmailGateChecks(check) {
   /* ---------------- the pure parts ---------------- */
 
   check(
-    "who asks: Tex, the app, any other AI, and never a routine or a dream",
+    "who asks: Tex or any other AI, and never a routine, a dream or the app",
     emailCaller("context_texts") === "texting-assistant" &&
-      emailCaller("context_console") === "app-assistant" &&
+      emailCaller("context_console") === null &&
       emailCaller("mcp_client_x") === "connected-ais" &&
       emailCaller("context_routines") === null &&
       emailCaller("context_dreams") === null &&

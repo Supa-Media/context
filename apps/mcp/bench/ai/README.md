@@ -46,6 +46,10 @@ this folder: it is public, like the rest of the repository.
   write: maya/tex/routines/once/ with at: 2026-10-09 9:00 am` lines are
   checked from the run's record too: a note written at that path (under it
   when it ends in `/`) with that front matter.
+- `tests/housekeeping.md`: Tex's housekeeping (`mode: housekeeping`, decided
+  2026-10-17). Nobody texts: each case is one run over Tomas's deliberately
+  messy workspace, graded by `must file: <note> under <folder>/` lines, which
+  check where each named note ended up (`bench/checks.mjs`).
 - `sites/`: the scripted web a test with `web: scripted` runs on, one file per
   site (`bench/sites.mjs` says the format). Invented sites use `.example`.
 - `setups/<job>/`: written by `pnpm ai pull <job>` and ignored by git. A

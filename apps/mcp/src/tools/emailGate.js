@@ -39,15 +39,17 @@ export const MAIL_CHECKER = "mail-checker";
 export const DEFAULT_EMAIL_CALLERS = ["texting-assistant"];
 
 const TEXTS_CLIENT_ID = "context_texts";
-const CONSOLE_CLIENT_ID = "context_console";
-/** First-party clients with nobody on the line: never a sender. */
-const UNATTENDED = new Set(["context_routines", "context_dreams"]);
+/**
+ * First-party clients that never send: routines and dreams have nobody on the
+ * line, and the app has no assistant of its own (deleted 2026-10-17); it is
+ * where the person approves.
+ */
+const NEVER_SENDS = new Set(["context_routines", "context_dreams", "context_console"]);
 
 /** The `callers:` key a connection asks as, or null for one that never may. */
 export function emailCaller(clientId) {
   if (clientId === TEXTS_CLIENT_ID) return "texting-assistant";
-  if (clientId === CONSOLE_CLIENT_ID) return "app-assistant";
-  if (typeof clientId !== "string" || clientId === "" || UNATTENDED.has(clientId)) return null;
+  if (typeof clientId !== "string" || clientId === "" || NEVER_SENDS.has(clientId)) return null;
   return "connected-ais";
 }
 

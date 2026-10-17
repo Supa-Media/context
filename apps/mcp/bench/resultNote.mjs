@@ -69,6 +69,8 @@ function readBlock(id, lines) {
   const errorLine = tail.find((line) => line.startsWith("Error: "));
   // What the scripted browser did (`sites.mjs`), for the checks (`checks.mjs`).
   const browserLine = tail.find((line) => line.startsWith("Browser: "));
+  // Where housekeeping left each note a `file` check names (`checks.mjs`).
+  const filedLine = tail.find((line) => line.startsWith("Filed: "));
   let time = null;
   if (timeLine) {
     const m = timeLine.match(TIME);
@@ -81,6 +83,7 @@ function readBlock(id, lines) {
     tools: toolList === "none" ? [] : toolList.split(", "),
     changes: tail.filter((line) => line.startsWith("- ")),
     browser: browserLine ? browserLine.slice("Browser: ".length).split(" | ").filter(Boolean) : [],
+    where: filedLine ? filedWhere(filedLine.slice("Filed: ".length)) : {},
     time,
     error: errorLine ? errorLine.slice("Error: ".length) : null,
   };
@@ -231,4 +234,14 @@ export function parseJudgedSections(raw) {
     }
   }
   return sections;
+}
+
+/** A `Filed:` line read back: note → `{ at, front, text }`, or null where it was gone. */
+function filedWhere(line) {
+  try {
+    const parsed = JSON.parse(line);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
 }
