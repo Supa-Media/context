@@ -26,6 +26,8 @@ export const DETAILS_MAX = REPORT_LIMITS.detailsChars;
 export type ReportTarget =
   | { kind: "share"; token: string }
   | { kind: "invitation"; token: string }
+  /** A note or folder shared with you by name: the workspace and its stable note id, never a path. */
+  | { kind: "grant"; workspaceId: string; noteId: string }
   | { kind: "workspace_note"; workspaceId: string; path: string }
   | { kind: "public_page"; token?: string; handle?: string; path?: string };
 

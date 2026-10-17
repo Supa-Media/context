@@ -14,7 +14,16 @@ import { NoteEditor } from "../files/NoteEditor";
 import { PersonFace } from "../faces/PersonFace";
 import { ReportLink } from "../../report/ReportLink";
 import type { GrantEditing } from "./useGrantEditor";
-import { itemTitle, sharedLinkHref, sharerFace, sharerLabel, shortWhen, type SharedItem } from "./sharedInbox";
+import {
+  itemTitle,
+  reportPersonOf,
+  reportTargetOf,
+  sharedLinkHref,
+  sharerFace,
+  sharerLabel,
+  shortWhen,
+  type SharedItem,
+} from "./sharedInbox";
 
 export type Loaded =
   | { kind: "loading" }
@@ -92,7 +101,7 @@ export function SharedNoteShown({
   editing,
 }: {
   loaded: Loaded;
-  /** The share's token, which its report names; `null` for a grant, which has none. */
+  /** The share's token, which its links follow; `null` for a grant, which has none. */
   token: string | null;
   item: SharedItem | null;
   phone: boolean;
@@ -181,13 +190,7 @@ export function SharedNoteShown({
           </Text>
           {` shared this with you · ${when}`}
         </Text>
-        {token === null ? null : (
-          <ReportLink
-            target={{ kind: "share", token }}
-            person={{ handle: item.sharedByHandle, name: item.sharedByName }}
-            testID="shared-note-report"
-          />
-        )}
+        <ReportLink target={reportTargetOf(item)} person={reportPersonOf(item)} testID="shared-note-report" />
       </View>
     );
 

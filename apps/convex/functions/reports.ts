@@ -52,6 +52,7 @@ import { reportTargetValidator, resolveReportTarget, type ReportTarget } from ".
 
 const KIND_LABELS: Record<ReportTarget["kind"], string> = {
   share: "a note shared with them",
+  grant: "a note shared with them by name",
   invitation: "an invitation",
   workspace_note: "a note in a workspace they belong to",
   public_page: "a public page",

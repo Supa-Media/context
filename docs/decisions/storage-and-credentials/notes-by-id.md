@@ -151,13 +151,24 @@ bytes leaves the note in place. `keyedTrash.test.ts` (the trash, restore, cap
 and name-collision cases) and the cap cases in `keyedRowMove.test.ts` fail if
 either is reversed.
 
-**Open:** collaboration heads are still path-keyed. They now record the note id
+**A head made before heads recorded ids** (built 2026-10-17, `adoptUnstampedHead`
+in `packages/collaboration/src/load.js`). An active head with no note id, at a
+name whose row has one, takes the row's id when what it last accepted is the
+note's Markdown now (or, before any state, the text it was seeded from). Anything
+else is not proven to be the note's history: loading it would write that
+history's text over the note, which is what happened to a note created at a
+trashed note's name when the trash left the head behind. So the note starts a
+document of its own over its Markdown, and the old state is left in the bucket.
+The cost is that a note changed outside collaboration while its head had no id
+starts a new generation once, and an offline editor on the old one cannot
+reattach; the Markdown is never overwritten. `test/rename.mjs` fails if the
+check is skipped or stamps without comparing.
+
+**Open:** collaboration heads are still path-keyed. They record the note id
 they were made for, so a name cannot pass one note's history to another, but
-keying the heads by note id would remove the carry entirely. A head created
-before this change has no id and is not checked: a trashed note whose head was
-left at its name before this change can still pass its history to a note later
-created there. The rename gap in the section above is the other open item for a
-workspace with live collaborative notes.
+keying the heads by note id would remove the carry entirely. The rename gap in
+the section above is the other open item for a workspace with live
+collaborative notes.
 
 ## The gateway refuses every request without a control plane
 
