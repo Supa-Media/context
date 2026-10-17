@@ -22,7 +22,6 @@ import {
   HOUSEKEEPING_GRANT_TTL_MS,
   HOUSEKEEPING_LEASE_MS,
   MAX_DUE_HOUSEKEEPING,
-  WAIT_FOR_TEXT_OUTCOMES,
   armHousekeeping,
   isHousekeepingOutcome,
   nextHousekeepingAfter,
@@ -105,8 +104,8 @@ export async function claimDueHousekeepingHandler(
 
 /**
  * How a run went: a code from the closed list, and nothing else. Releases the
- * lease and ends the grant. One with no model waits for their next text;
- * anything else goes on tomorrow. An unknown run id or code changes nothing.
+ * lease and ends the grant. Every run goes on tomorrow, one that found no
+ * model included: a plan can change overnight. An unknown run id or code changes nothing.
  */
 export async function recordHousekeepingResultHandler(
   ctx: MutationCtx,
@@ -119,9 +118,7 @@ export async function recordHousekeepingResultHandler(
     .unique();
   if (row === null) return "unknown";
   const now = Date.now();
-  const nextRunAt = WAIT_FOR_TEXT_OUTCOMES.has(args.outcome)
-    ? null
-    : (row.nextRunAt ?? nextHousekeepingAfter(await zoneOf(ctx, row.userId), now));
+  const nextRunAt = row.nextRunAt ?? nextHousekeepingAfter(await zoneOf(ctx, row.userId), now);
   await ctx.db.patch(row._id, {
     lastOutcome: args.outcome,
     claimedAt: undefined,
@@ -136,7 +133,8 @@ export async function recordHousekeepingResultHandler(
 
 /**
  * Daily, for everyone who has linked a phone: a row and a first run for
- * anyone who has none yet. Anyone with a row is left to its schedule.
+ * anyone who has none yet, and a next run for a row that stopped. Anyone
+ * with a run ahead is left to its schedule.
  */
 export async function armLinkedHousekeepingHandler(ctx: MutationCtx): Promise<number> {
   const now = Date.now();
@@ -146,7 +144,7 @@ export async function armLinkedHousekeepingHandler(ctx: MutationCtx): Promise<nu
       .query("texHousekeeping")
       .withIndex("by_user", (q) => q.eq("userId", link.userId))
       .first();
-    if (row !== null) continue;
+    if (row !== null && row.nextRunAt !== null) continue;
     const workspaceId = await personalWorkspaceOf(ctx, link.userId);
     if (workspaceId === null) continue;
     await armHousekeeping(ctx, { userId: link.userId, workspaceId, timeZone: await zoneOf(ctx, link.userId), now });
