@@ -5,10 +5,13 @@
  * Four outcomes for any text:
  * - `link ABC123` links this phone to the account that the code was shown to.
  * - `unlink` disconnects this phone from whichever account it answers from.
- * - From a phone nobody linked, the reply is a sign-in link that shows the
- *   code to text back, and nothing about whether any account exists. The link
- *   goes out as a text of its own, because iMessage draws a link card only for
- *   a message that is nothing but the link.
+ * - From a phone nobody linked that the control plane may set up (let in off
+ *   the waitlist, or confirmed on an account with no workspace yet), Tex sets
+ *   it up by text, handle first (`setup.ts`), and links it.
+ * - From any other phone nobody linked, the reply is a sign-in link that shows
+ *   the code to text back, and nothing about whether any account exists. The
+ *   link goes out as a text of its own, because iMessage draws a link card
+ *   only for a message that is nothing but the link.
  * - From a linked phone, the gateway answers with that person's own grant.
  *
  * The assistant introduces itself as Tex (the owner, 2026-10-10): Context is
@@ -25,6 +28,7 @@ import {
   type Fetch,
 } from "./clients";
 import { prepareAttachments, type ImagesLike } from "./attachments";
+import { handleCandidate, setupReply, textSetup } from "./setup";
 import { textsFromAnswer } from "./format";
 import type { OutgoingPicture } from "./outgoing";
 import type { Inbound } from "./inbound";
@@ -139,6 +143,15 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       throw deps.retry && error instanceof ServiceError ? new TryLater() : error;
     });
     if (session.status === "unlinked") {
+      // Nothing but one word of the text goes, and no model runs before a link.
+      const setup = await textSetup(
+        deps.fetch,
+        deps.controlPlaneOrigin,
+        deps.workerSecret,
+        message.from,
+        handleCandidate(message.text),
+      );
+      if (setup.status !== "not_eligible") return setupReply(setup);
       const invite = await requestLinkInvite(
         deps.fetch,
         deps.controlPlaneOrigin,

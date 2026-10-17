@@ -51,4 +51,26 @@ export const textLinkTables = {
     .index("by_phone", ["phone"])
     .index("by_hashed_token", ["hashedToken"])
     .index("by_expires", ["expiresAt"]),
+
+  /**
+   * Setting somebody up by text (`functions/textSetup.ts`), one row per step
+   * still owed. `asked`: Tex asked this unlinked, admitted `phone` for a
+   * handle, so its next one-word text is read as the answer. `layout`: the
+   * workspace was made and its free managed bucket is on the way; the first
+   * verification of that bucket lays out the five starting folders for
+   * `userId`, and the row goes. Never a message. Swept a day after `at`, and
+   * deleted with the account.
+   */
+  textSetups: defineTable({
+    stage: v.union(v.literal("asked"), v.literal("layout")),
+    /** E.164, on `asked` only: a `layout` row keeps no number. */
+    phone: v.optional(v.string()),
+    userId: v.optional(v.id("users")),
+    workspaceId: v.optional(v.id("workspaces")),
+    at: v.number(),
+  })
+    .index("by_phone", ["phone"])
+    .index("by_workspace", ["workspaceId"])
+    .index("by_user", ["userId"])
+    .index("by_at", ["at"]),
 };

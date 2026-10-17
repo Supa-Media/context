@@ -165,15 +165,27 @@ export const signInUser = internalMutation({
       return held;
     }
     if (!(await isPhoneAdmitted(ctx.db, phone))) return null;
-    const now = Date.now();
-    const userId = await ctx.db.insert("users", { phone, phoneVerificationTime: now, isActive: true, createdAt: now });
-    // What `onUserCreated` does for an account made by email (`auth.ts`).
-    await scheduleSignupAlert(ctx, { kind: "account", userId });
-    await scheduleXConversion(ctx, { kind: "account", userId });
-    await scheduleMetaConversion(ctx, { kind: "account", userId });
-    return userId;
+    return await newPhoneAccount(ctx, phone);
   },
 });
+
+/**
+ * The account a phone staff let in makes, with the phone already confirmed by
+ * whatever proved it: a texted code (`signInUser`) or an iMessage from it
+ * (`textSetup.ts`). The caller has checked the phone is admitted and held by
+ * nobody.
+ */
+export async function newPhoneAccount(ctx: MutationCtx, phone: string): Promise<Id<"users">> {
+  const now = Date.now();
+  const userId = await ctx.db.insert("users", { phone, phoneVerificationTime: now, isActive: true, createdAt: now });
+  // What `onUserCreated` does for an account made by email (`auth.ts`),
+  // founding Premium included: scheduled, so nothing in it fails this.
+  await scheduleSignupAlert(ctx, { kind: "account", userId });
+  await scheduleXConversion(ctx, { kind: "account", userId });
+  await scheduleMetaConversion(ctx, { kind: "account", userId });
+  await ctx.scheduler.runAfter(0, internal.functions.foundingPremium.catchUp, {});
+  return userId;
+}
 
 /** Spend one code check for `phone`; asked by the provider before Twilio is. */
 export const spendCheck = internalMutation({

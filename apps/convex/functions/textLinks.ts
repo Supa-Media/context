@@ -565,9 +565,9 @@ async function ensureTextsClient(ctx: MutationCtx): Promise<void> {
   });
 }
 
-/** Account deletion: links, pending codes and Tex's dream, check-in and housekeeping schedules go with the person. */
+/** Account deletion: links, pending codes, a setup still owed and Tex's dream, check-in and housekeeping schedules go with the person. */
 export async function deleteTextLinksOf(ctx: MutationCtx, userId: Id<"users">): Promise<void> {
-  for (const table of ["phoneLinks", "phoneLinkCodes", "texDreams", "texHeartbeats", "texHousekeeping"] as const) {
+  for (const table of ["phoneLinks", "phoneLinkCodes", "textSetups", "texDreams", "texHeartbeats", "texHousekeeping"] as const) {
     const rows = await ctx.db
       .query(table)
       .withIndex("by_user", (q) => q.eq("userId", userId))

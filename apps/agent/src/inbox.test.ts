@@ -53,6 +53,8 @@ function deps(opts: {
       if (status !== 200) return Response.json({}, { status });
       return Response.json(opts.unlinked ? { status: "unlinked" } : { status: "linked", accessToken: "t" });
     }
+    // A phone nobody may set up by text (`setup.ts`) gets the sign-in link.
+    if (path === "/agent-texts/setup") return Response.json({ status: "not_eligible" });
     if (path === "/agent-texts/invite") {
       return Response.json({ status: "issued", url: "https://app.example/texts/abc123" });
     }

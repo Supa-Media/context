@@ -163,6 +163,12 @@ crons.interval(
 );
 
 crons.interval(
+  "sweep text setups nobody finished",
+  { hours: 1 },
+  internal.functions.textSetup.purgeTextSetups,
+);
+
+crons.interval(
   "sweep expired sign-in alerts",
   { hours: 1 },
   internal.functions.signInAlerts.purgeExpiredAlerts,
