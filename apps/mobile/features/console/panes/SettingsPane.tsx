@@ -271,17 +271,19 @@ export function SettingsPane({
             <Text variant="rowTitle">This storage isn&apos;t supported any more</Text>
             <Text variant="rowSub" style={styles.rowSub}>
               {actions
-                ? "Your notes are untouched. Connect a bucket you own below to keep this context's notes on storage Context can run."
-                : "Your notes are untouched. Only an owner of this context can connect storage to it."}
+                ? "Your notes are still in the storage you connected. Connect a bucket you own below to keep this context's notes on storage Context can run."
+                : "Your notes are still in the storage you connected. Only an owner of this context can connect storage to it."}
             </Text>
           </Card>
           {actions ? (
-            <SettingsStorageChoice
-              workspaceId={actions.workspaceId}
-              contextName={current == null ? "this context" : `@${current.slug}`}
-              connect={actions.connect}
-              onOpenPremium={onSelect === undefined ? undefined : () => onSelect("premium")}
-            />
+            <View style={styles.afterNotice}>
+              <SettingsStorageChoice
+                workspaceId={actions.workspaceId}
+                contextName={current == null ? "this context" : `@${current.slug}`}
+                connect={actions.connect}
+                onOpenPremium={onSelect === undefined ? undefined : () => onSelect("premium")}
+              />
+            </View>
           ) : null}
         </>
       ) : (
@@ -519,6 +521,13 @@ export function StatusPill({
   storage: ConsoleStorage;
   testID?: string;
 }) {
+  if (storage.managed !== true && !isSupportedProvider(storage.provider)) {
+    return (
+      <Pill tone="warn" leading={<Dot tone="warn" />} testID={testID}>
+        Not supported
+      </Pill>
+    );
+  }
   if (storage.connected) {
     return (
       <Pill tone="ok" leading={<Dot tone="ok" />} testID={testID}>
@@ -544,6 +553,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   under: { marginTop: 12, gap: 9, flexWrap: "wrap" },
   searchHead: { marginTop: 32, marginBottom: 10 },
   rowSub: { marginTop: 2 },
+  afterNotice: { marginTop: 12 },
   detailsToggle: { marginTop: 10, alignSelf: "flex-start" },
   failure: { marginTop: 15 },
   notice: { marginTop: 15 },
