@@ -200,6 +200,8 @@ export interface PaletteProps {
   placeholder: string;
   /** Rendered above the list when the query is empty (e.g. "Recent"). */
   emptyHeading?: string;
+  /** Small print beside `emptyHeading`: what the list holds, said once. */
+  emptyNote?: string;
   /**
    * What an untyped palette lists instead of `items`: the notes somebody was
    * just in (`recentItems`). Absent or empty, it lists `items` as it always
@@ -253,6 +255,7 @@ export function Palette({
   items,
   placeholder,
   emptyHeading,
+  emptyNote,
   recent,
   noMatchMessage,
   search,
@@ -617,9 +620,16 @@ export function Palette({
 
   const heading =
     emptyHeading && notes && query.trim() === "" && found > 0 ? (
-      <Text variant="eyebrow" style={styles.heading} testID="palette-heading">
-        {emptyHeading}
-      </Text>
+      <View style={styles.headingRow}>
+        <Text variant="eyebrow" style={styles.heading} testID="palette-heading">
+          {emptyHeading}
+        </Text>
+        {emptyNote === undefined ? null : (
+          <Text variant="rowSub" numberOfLines={1} style={styles.headingNote} testID="palette-heading-note">
+            {emptyNote}
+          </Text>
+        )}
+      </View>
     ) : null;
 
 

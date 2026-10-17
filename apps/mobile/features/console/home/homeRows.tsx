@@ -132,7 +132,9 @@ export function NoteRow({
           <Text style={styles.rowTitle} numberOfLines={1}>
             {note.title}
           </Text>
-          <Text variant="meta">{when}</Text>
+          <Text variant="meta" numberOfLines={1} style={styles.rowWhen}>
+            {when}
+          </Text>
         </View>
         {detail === "" ? null : (
           <Text variant="meta" numberOfLines={1}>
@@ -258,6 +260,8 @@ const makeStyles = (colors: Colors) =>
     rowText: { flex: 1, gap: 2 },
     rowTop: { flexDirection: "row", alignItems: "baseline", gap: space.x2 },
     rowTitle: { flexShrink: 1, flexGrow: 1, fontFamily: fonts.body, fontSize: touchType.ui, color: colors.text },
+    /** "You edited Thu" stays one line beside a long title; the title gives way. */
+    rowWhen: { flexShrink: 0 },
     folderName: { flex: 1, flexDirection: "row", alignItems: "center", gap: space.x1 + 2 },
     /** Where the 20pt folder icon sits, so a row with an emoji lines up with one without. */
     addLabel: { color: colors.muted, fontFamily: fonts.body, fontSize: touchType.ui, lineHeight: 22 },

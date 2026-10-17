@@ -14,6 +14,7 @@
  *
  *   recentNotes filters by workspace only (every member's rows)   → "recent is the caller's own, newest first"
  *   recordRecent inserts a second row for a path it has           → "opening again moves it up, as one row"
+ *   recordRecent keeps the first kind it wrote                    → "the row says what they did last: opened, or edited"
  *   no ceiling                                                    → "the oldest makes room at the ceiling"
  *   retarget leaves placeRecents alone                            → "a note's recent row follows the mover's move"
  *   placeRecents left out of the sweeps                           → "they leave with the account, the member and the workspace"
@@ -82,6 +83,28 @@ describe("recent notes", () => {
       ["b.md", Date.UTC(2026, 9, 5, 10)],
     ]);
     expect(await allRecents(t)).toHaveLength(2);
+  });
+
+  test("the row says what they did last: opened, or edited", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.UTC(2026, 9, 17, 9));
+    const { t, seyi, ws } = await world();
+    const me = asUser(t, seyi);
+    await me.mutation(recordRecent, { workspaceId: ws, path: "a.md" });
+    vi.setSystemTime(Date.UTC(2026, 9, 17, 9, 5));
+    await me.mutation(recordRecent, { workspaceId: ws, path: "b.md", kind: "edited" });
+    expect((await me.query(recentNotes, { workspaceId: ws })).map((r) => [r.path, r.kind])).toEqual([
+      ["b.md", "edited"],
+      ["a.md", "opened"],
+    ]);
+    vi.setSystemTime(Date.UTC(2026, 9, 17, 10));
+    await me.mutation(recordRecent, { workspaceId: ws, path: "b.md", kind: "opened" });
+    vi.setSystemTime(Date.UTC(2026, 9, 17, 10, 5));
+    await me.mutation(recordRecent, { workspaceId: ws, path: "a.md", kind: "edited" });
+    expect((await me.query(recentNotes, { workspaceId: ws })).map((r) => [r.path, r.kind])).toEqual([
+      ["a.md", "edited"],
+      ["b.md", "opened"],
+    ]);
   });
 
   test("a workspace the caller is not in is refused and nothing is written; a bad path is refused", async () => {
