@@ -20,7 +20,8 @@
  * ## What an index holds
  *
  * A fingerprint per passage of a note, and as metadata only the note's path,
- * which passage it was, and the visibility tier it had when it was written.
+ * its note id where it has one, which passage it was, and the visibility tier
+ * it had when it was written.
  * **No note text.** A hit is turned back into words by reading the note from
  * the customer's own storage, under the caller's own `canSee`, at search time.
  */
@@ -165,17 +166,14 @@ export function createMeaningClient(descriptor, options = {}) {
     return list.length;
   }
 
-  /**
-   * Which of `ids` the index holds. Only ids come back: `get_by_ids` answers
-   * with each vector's numbers too, and nothing here needs them.
-   */
-  async function existingIds(ids) {
+  /** Every `get_by_ids` answer for `ids`, in groups under the 20-id cap. */
+  async function fetchByIds(ids) {
     const list = (Array.isArray(ids) ? ids : []).filter((id) => typeof id === "string" && id);
     const groups = [];
     for (let start = 0; start < list.length; start += DELETE_BATCH) {
       groups.push(list.slice(start, start + DELETE_BATCH));
     }
-    const found = new Set();
+    const vectors = [];
     for (let start = 0; start < groups.length; start += DELETE_CONCURRENCY) {
       const answers = await Promise.all(
         groups
@@ -184,11 +182,32 @@ export function createMeaningClient(descriptor, options = {}) {
       );
       for (const answer of answers) {
         for (const vector of Array.isArray(answer) ? answer : []) {
-          if (vector && typeof vector.id === "string") found.add(vector.id);
+          if (vector && typeof vector.id === "string") vectors.push(vector);
         }
       }
     }
-    return found;
+    return vectors;
+  }
+
+  /** Which of `ids` the index holds. */
+  async function existingIds(ids) {
+    return new Set((await fetchByIds(ids)).map((vector) => vector.id));
+  }
+
+  /**
+   * The passages the index holds for `ids`, as `{id, values, metadata}`: what
+   * a move re-writes under a new path without asking the model again. A vector
+   * whose numbers are not a whole fingerprint is left out, so it is embedded
+   * again rather than copied broken.
+   */
+  async function getByIds(ids) {
+    const out = [];
+    for (const vector of await fetchByIds(ids)) {
+      if (!isVector(vector.values)) continue;
+      const metadata = vector.metadata && typeof vector.metadata === "object" ? vector.metadata : {};
+      out.push({ id: vector.id, values: vector.values, metadata });
+    }
+    return out;
   }
 
   /**
@@ -227,5 +246,5 @@ export function createMeaningClient(descriptor, options = {}) {
     return out;
   }
 
-  return { upsert, deleteByIds, existingIds, query, indexName: config.indexName, state: config.state };
+  return { upsert, deleteByIds, existingIds, getByIds, query, indexName: config.indexName, state: config.state };
 }
