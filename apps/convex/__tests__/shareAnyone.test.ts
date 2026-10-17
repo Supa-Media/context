@@ -828,6 +828,34 @@ describe("an unlisted link over an encrypted note", () => {
     expect(errorCode(error)).toBe("PATH_ENCRYPTED");
   });
 
+  test("waits for a scheduled facts fill before checking the mint refusal", async () => {
+    const f = await fixture();
+    await drainScheduled(f.t);
+    f.backend.seed(ENTRY, ENCRYPTED_NOTE);
+
+    let started!: () => void;
+    const reading = new Promise<void>((resolve) => { started = resolve; });
+    vi.stubGlobal("fetch", async (...args: Parameters<typeof f.backend.fetchImpl>) => {
+      if (String(args[0]).includes(ENTRY) && args[1]?.method === "GET") {
+        started();
+        // A slow bucket keeps the scheduled fill's lease held while the
+        // fixture tries to catch up. Extra manual passes cannot take it.
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+      }
+      return f.backend.fetchImpl(...args);
+    });
+    await copyTree(f.t, f.workspaceId);
+    await reading;
+    expect(await f.t.mutation(internal.functions.nodeFacts.claim, {
+      workspaceId: f.workspaceId,
+      now: Date.now(),
+    })).toBeNull();
+    await readIntoTree(f);
+
+    const error = await captureError(() => unlisted(f));
+    expect(errorCode(error)).toBe("PATH_ENCRYPTED");
+  });
+
   test("...and that is a different answer from a note the team cannot read", async () => {
     const f = await fixture();
     // Distinguishable *to the owner*, who is past owner clearance and reading a
@@ -898,11 +926,7 @@ describe("an unlisted link over an encrypted note", () => {
  */
 async function readIntoTree(f: Fixture): Promise<void> {
   await copyTree(f.t, f.workspaceId);
-  for (let pass = 0; pass < 4; pass += 1) {
-    await f.t.action(internal.functions.files.runFileOperation, {
-      workspaceId: f.workspaceId,
-      scope: "private" as const,
-      operation: { kind: "nodesFactFill" as const },
-    });
-  }
+  // The sweep schedules a facts fill. Manual passes can all skip while that
+  // job holds the lease, so await its completion before testing the mint.
+  await drainScheduled(f.t);
 }
