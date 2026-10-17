@@ -143,7 +143,7 @@ async function converse(world, question, person) {
 /**
  * The test a job runs when none is named. The texting assistant's is its core
  * set, `tests/core.md` (decided by the owner, 2026-10-14: a short set of the
- * basics, run often; the long sets stay for rounds, by name). A folder
+ * basics, run often; the golden tasks run by name for a round). A folder
  * without the core set runs the job's own test, as before.
  */
 export const DEFAULT_TESTS = Object.freeze({ "texting-assistant": "core" });
