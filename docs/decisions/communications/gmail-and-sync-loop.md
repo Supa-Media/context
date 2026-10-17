@@ -490,3 +490,73 @@ true:
   is a property of its pass rather than of this loop.
 
 Neither is half-built here. Gmail is built properly and the two are named.
+
+### A first connect reads the last fifty messages, and that is not a backfill
+
+Decided by the owner on 2026-10-17, for Tex's onboarding: when somebody connects
+Gmail, Tex reads their last fifty emails to get to know them. Before this, a
+fresh connection read nothing until new mail arrived, so the first thing Tex
+could say about a person was nothing.
+
+**Why the backfill was off, as far as the record shows.** #388 ("Make personal
+integrations forward-only", merged 2026-09-09) removed the user-triggered
+historical import and left `GOOGLE_GMAIL_BACKFILL_DISABLED` and
+`GOOGLE_SYNC_FORWARD_ONLY` as refusals. Its description lists what changed and
+gives no reason, and no decision file states one. What the files around it do
+record is the cost of the thing it removed: a window measured in days, up to
+"all mail" (the 36,500-day sentinel above), so the work was as large as the
+mailbox was busy; a run spread across many invocations, with its own run rows,
+progress units and stall sweep; a console button that started it; and a wall
+clock passed into rendering, which a one-shot import survived and a repeating
+pass would not. "The first backfill is the first thing a person waits for and
+the first bill they see" is the scoping note's own sentence.
+
+**What was built instead, and why none of that comes back:**
+
+- **A count, not a window.** One `messages.list` page of fifty, newest first,
+  across the connection's folders with Spam and Trash excluded. No date, no
+  second page, so a busy mailbox costs the same as a quiet one. Like the rest
+  of this file it has only met a fixture: it trusts `messages.list` to answer
+  newest first. If a real mailbox does not, the import reads fifty recent
+  messages that are not exactly the latest fifty, which is wrong in the safe
+  direction: still fifty, still whole days.
+- **Every day those fifty land on is written whole**, by `syncDayFromGmail`, the
+  forward pass's own unit. Most of those days are already whole inside the
+  fifty. The oldest may not be, and writing part of a day is the one thing a
+  day must never be. So it is written whole if the import stays under
+  `RECENT_IMPORT_FETCH_CEILING` (200) message fetches in all, and skipped if it
+  would not. Newest first, so the ceiling only ever costs the oldest day.
+- **No `now`.** An imported day is byte-identical to the same day written by
+  the forward pass, so a retry or a reconnect writes nothing new. Nothing is
+  deduplicated, because nothing is appended.
+- **Once per account, and nobody can ask for it.** The binding writes
+  `gmail.recentImport: pending` only when Gmail first lands on a row. A
+  reconnect, a row revived after a disconnect, and every row connected before
+  this existed keep what they had, which for the last of those is nothing.
+  There is no button, no window to pick and no "sync more", and
+  `startGoogleSyncRun` and `runGoogleGmailBackfill` refuse exactly as before.
+- **One pass, inside the one credential barrier.** The import runs in
+  `runFileOperation` on Gmail's turn, in place of that turn's forward pass,
+  using the token the pass already minted and the scope the connect already
+  granted. It reads no history and moves no cursor. The connect stored a
+  cursor; a row without one takes its baseline before reading, so mail landing
+  during the import is caught by the cursor too and is never missed by both.
+  Quota-bound like every pass, and audited like every pass that writes, with
+  `boundBy` as the actor and counts only.
+- **A broken import cannot hold Gmail hostage.** A failure spends one of three
+  attempts (`RECENT_IMPORT_MAX_ATTEMPTS`) on the ordinary failure ladder. After
+  the third the import is marked `abandoned` and Gmail syncs forward without
+  it. A quota stop ends it as `done`: the quota is the row's failure to show,
+  not a reason to read the fifty again.
+
+**What reversing it costs.** Widening the count, or swapping it for a date
+window, brings back the variable-size first pass this section exists to rule
+out. Writing the cut oldest day from part of its list breaks
+`syncDayFromGmail`'s whole-day rule, and the next pass would silently disagree
+with what the import wrote. Arming the import on reconnect makes connecting
+again a second read of somebody's history that they did not ask for. The
+checks: `apps/mcp/test/gmailSync/recentImport.test.mjs` (the fifty, the
+whole-day rule, the ceiling, byte-identity with the forward pass, retry writes
+nothing) and `apps/convex/__tests__/googleSyncLoop/recentImport.test.ts` (who
+is owed one, once, the next pass is forward, attempts run out, the backfill is
+still refused).

@@ -175,6 +175,23 @@ export const googleTables = {
          */
         historyId: v.optional(v.string()),
         lastSyncedAt: v.optional(v.number()),
+        /**
+         * The first-connect import of the fifty most recent messages (owner,
+         * 2026-10-17). `pending` is written only when Gmail first lands on
+         * this account's row, so a reconnect, a revived row and every row
+         * written before this field existed never import. `attempts` counts
+         * failed tries; at `RECENT_IMPORT_MAX_ATTEMPTS` the import is given up
+         * and the forward pass carries on alone. Counts only, never a subject
+         * or an address. See `docs/decisions/communications/gmail-and-sync-loop.md`.
+         */
+        recentImport: v.optional(
+          v.object({
+            status: v.union(v.literal("pending"), v.literal("done"), v.literal("abandoned")),
+            attempts: v.number(),
+            completedAt: v.optional(v.number()),
+            messages: v.optional(v.number()),
+          }),
+        ),
         ...productAttemptFields,
       }),
     ),

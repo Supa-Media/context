@@ -70,6 +70,7 @@ import {
   timeoutFetch,
   writeSharedCalendarDay,
 } from "./forwardSyncSupport";
+import { runGmailRecentImport } from "./gmailRecentImport";
 import type { OperationResult } from "./operationTypes";
 import { ensureGooglePush } from "../googlePush/ensure";
 
@@ -385,7 +386,7 @@ async function runGoogleChatForwardSync(
 /**
  * ONE FORWARD PASS: advance this connection's cursor, write whatever changed.
  *
- * Forward-only, per #388 and `docs/decisions/communications.md`. Three shapes:
+ * Forward-only per #388, bar one first-connect import (`gmailRecentImport.ts`). Three shapes:
  *
  *  - **No cursor yet.** The connection was bound before a baseline could be
  *    read, so one is taken now from `users.getProfile` and stored. Nothing is
@@ -453,6 +454,7 @@ async function runMintedPass(
 ): Promise<ForwardSyncResult> {
   if (job.product === "chat") return await runGoogleChatForwardSync(ctx, store, job, accessToken);
   if (job.product === "calendar") return await runGoogleCalendarForwardSync(ctx, store, job, accessToken);
+  if (job.recentImport === true) return await runGmailRecentImport(ctx, store, job, accessToken);
 
   if (job.historyId === undefined) {
     const historyId = await getProfileHistoryId({

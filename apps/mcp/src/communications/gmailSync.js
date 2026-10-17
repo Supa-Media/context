@@ -37,7 +37,8 @@
 // `attachments.js` (fetch/retain/sweep, plus the manifest), `api.js` (the
 // Gmail REST client and search query), `render.js` (rendering a day and
 // writing it through the storage adapter, including `syncOneDay`), and
-// `sync.js` (backfill and incremental orchestration). This file re-exports
+// `sync.js` (backfill and incremental orchestration), and `recent.js` (the
+// first-connect import of the fifty most recent messages). This file re-exports
 // the same names it always has.
 
 export { GMAIL_API_ORIGIN, FOLDER_LABEL_IDS } from "./gmail/api.js";
@@ -77,4 +78,5 @@ export {
 } from "./gmail/api.js";
 export { renderDay, writeDayPart, writeContactDraft, syncOneDay } from "./gmail/render.js";
 export { dateRange, syncDayFromGmail, runBackfill, runIncrementalSync } from "./gmail/sync.js";
+export { RECENT_IMPORT_MESSAGES, RECENT_IMPORT_FETCH_CEILING, runRecentImport } from "./gmail/recent.js";
 export { openContactLookup } from "./contactLookup.js";

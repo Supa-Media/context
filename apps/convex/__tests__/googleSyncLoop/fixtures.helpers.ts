@@ -118,8 +118,12 @@ export function googleAndBucket(options: {
      */
     | { pages: { recordId?: string; messageIds?: string[] }[]; historyId: string };
   messages?: { id: string; date: string; subject: string; text: string }[];
+  /** `messages.list` answers this status instead of a page, to make a pass fail. */
+  listStatus?: number;
 }) {
   const calls: string[] = [];
+  /** The query string of each `messages.list` call, in step with `calls` (empty for any other call). */
+  const listQueries: string[] = [];
   const messages = options.messages ?? [];
   const json = (body: unknown, status = 200) =>
     new Response(JSON.stringify(body), {
@@ -139,6 +143,7 @@ export function googleAndBucket(options: {
       return await options.backend.fetchImpl(input, init);
     }
     calls.push(url.pathname);
+    listQueries.push(url.pathname === "/gmail/v1/users/me/messages" ? url.search : "");
 
     if (url.pathname === "/gmail/v1/users/me/profile") {
       return json({ historyId: options.profileHistoryId ?? "5000" });
@@ -198,19 +203,29 @@ export function googleAndBucket(options: {
       const before = /before:(\d+)/.exec(query);
       const from = after ? Number(after[1]) * 1000 : -Infinity;
       const to = before ? Number(before[1]) * 1000 : Infinity;
-      const matching = messages.filter((message) => {
-        const at = Date.parse(message.date);
-        return at >= from && at < to;
-      });
-      return json({
-        messages: matching.map((message) => ({ id: message.id, threadId: `thread-${message.id}` })),
+      if (options.listStatus !== undefined) return json({ error: { code: options.listStatus } }, options.listStatus);
+      // Newest first and paged by `maxResults`, the way Gmail answers.
+      const matching = messages
+        .filter((message) => {
+          const at = Date.parse(message.date);
+          return at >= from && at < to;
+        })
+        .sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
+      const maxResults = Number(url.searchParams.get("maxResults") ?? "100");
+      const start = Number(url.searchParams.get("pageToken") ?? "0");
+      const body: Record<string, unknown> = {
+        messages: matching
+          .slice(start, start + maxResults)
+          .map((message) => ({ id: message.id, threadId: `thread-${message.id}` })),
         resultSizeEstimate: matching.length,
-      });
+      };
+      if (start + maxResults < matching.length) body.nextPageToken = String(start + maxResults);
+      return json(body);
     }
     return json({ error: { code: 404 } }, 404);
   };
 
-  return { fetchImpl, calls };
+  return { fetchImpl, calls, listQueries };
 }
 
 export function chatAndBucket(options: { backend: MemoryS3 }) {

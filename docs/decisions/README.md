@@ -526,6 +526,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The Gmail restricted scope is Google's decision, so v1 runs on fixtures
 - The five open decisions, and who settles them
 - The forward sync loop: a pull, on a floor of five minutes
+- A first connect reads the last fifty messages, and that is not a backfill (owner, 2026-10-17)
 - Push makes a pass due sooner; the loop still does everything
 - What is deliberately not built
 - iMessage reads `chat.db` in place, through the one binary every Mac already has

@@ -131,6 +131,10 @@ Moved to [The Gmail connection: control plane, sync algorithm, and what phase 1 
 
 Moved to [The forward sync loop: a pull, on a floor of five minutes](./communications/gmail-and-sync-loop.md#the-forward-sync-loop-a-pull-on-a-floor-of-five-minutes).
 
+### A first connect reads the last fifty messages, and that is not a backfill
+
+In [A first connect reads the last fifty messages, and that is not a backfill](./communications/gmail-and-sync-loop.md#a-first-connect-reads-the-last-fifty-messages-and-that-is-not-a-backfill).
+
 ### Push makes a pass due sooner; the loop still does everything
 
 Moved to [Push makes a pass due sooner; the loop still does everything](./communications/google-push.md#push-makes-a-pass-due-sooner-the-loop-still-does-everything).

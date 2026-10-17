@@ -76,6 +76,8 @@ export type ForwardSyncJob =
       attachmentMode: "metadata-only" | "store";
       attachmentRetentionDays?: number | "forever";
       historyId?: string;
+      /** This pass is the first-connect import of the fifty most recent messages. */
+      recentImport?: boolean;
     }
   | {
       kind: "run";
