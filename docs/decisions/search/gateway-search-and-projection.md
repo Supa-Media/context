@@ -359,3 +359,26 @@ picked up).
 on a filling database copies nothing into it", "and a search reports no copy
 progress of its own"), `searchProjection/serve.test.mjs` ("or behind that
 same response"), and in the control plane `searchDatabaseOnly.test.ts`.
+
+## A search reads no note to answer
+
+Decided by the owner, 2026-10-17, the same evening. On a context with a search
+database, the snippet beside a note found only by meaning comes out of the
+database's own chunks, in one statement for every such note
+(`search/d1/passages.js`), rather than a read of each note out of the bucket:
+up to six reads per workspace per search, each a tree lookup, a HEAD and a GET
+on a keyed workspace. Both tables of a personal context are asked in one
+batched request (`queryAll` in `search/d1/client.js`), and a rows-mode
+workspace's rules are rendered without asking the bucket for a `privacy.md`
+that no longer exists (`store/privacyAuthority.js`). A search on such a
+context is then the session, the binding, and per workspace one database
+request for the words, one meaning query and one database request for the
+snippets.
+
+A note the database holds no row for is dropped when the database is ready
+(deleted since it was embedded, as before) and read from the bucket when it is
+still filling, since it may simply not be copied yet. A statement that fails
+reads the notes, as a context with no database does. A note a queued move is
+carrying somewhere the caller may not see is never asked for.
+
+**What fails if reversed:** `meaningSnippetsFromDatabase.test.mjs`.
