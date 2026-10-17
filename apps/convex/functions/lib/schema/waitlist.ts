@@ -65,6 +65,12 @@ export const waitlistTables = {
      * stranger typing numbers never makes Context text anyone.
      */
     admittedTextAt: v.optional(v.number()),
+    /**
+     * When Tex texted first from its own line to start setting this person
+     * up (Dev2, 2026-10-17: let in means Tex at once). Claimed before the
+     * send and cleared if it fails, so each row is greeted at most once.
+     */
+    texGreetedAt: v.optional(v.number()),
   })
     .index("by_email", ["email"])
     .index("by_phone", ["phone"])

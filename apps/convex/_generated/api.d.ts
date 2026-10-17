@@ -152,6 +152,7 @@ import type * as functions_telemetry from "../functions/telemetry.js";
 import type * as functions_appearance from "../functions/appearance.js";
 import type * as functions_textLinks from "../functions/textLinks.js";
 import type * as functions_textSetup from "../functions/textSetup.js";
+import type * as functions_texGreeting from "../functions/texGreeting.js";
 import type * as functions_routines from "../functions/routines.js";
 import type * as functions_retiredTables from "../functions/retiredTables.js";
 import type * as functions_dreams from "../functions/dreams.js";
@@ -333,6 +334,7 @@ declare const fullApi: ApiFromModules<{
   "functions/appearance": typeof functions_appearance;
   "functions/textLinks": typeof functions_textLinks;
   "functions/textSetup": typeof functions_textSetup;
+  "functions/texGreeting": typeof functions_texGreeting;
   "functions/routines": typeof functions_routines;
   "functions/retiredTables": typeof functions_retiredTables;
   "functions/dreams": typeof functions_dreams;

@@ -20,6 +20,7 @@ import { internal } from "../_generated/api";
 import { internalAction, internalQuery } from "../_generated/server";
 import { validAppOrigin } from "./lib/invitationEmail";
 import { smsKeys } from "./phoneCodes";
+import { greetByTex } from "./texGreeting";
 import { putOnTexLine } from "./waitlistTex";
 
 /**
@@ -54,6 +55,14 @@ export const sendAdmitted = internalAction({
       console.log(JSON.stringify({ event: `waitlist_text_${event}`, waitlistId: args.waitlistId, ...extra }));
     // On Tex's list before the text names Tex, whether or not a text goes.
     const texLine = await putOnTexLine(ctx, args.waitlistId);
+    // Tex texting first says "you're in" itself, from the line they answer.
+    if (texLine !== null) {
+      const facts = await ctx.runQuery(internal.functions.waitlistText.textFacts, { waitlistId: args.waitlistId });
+      if (facts !== null && (await greetByTex(ctx, args.waitlistId, facts.phone, texLine))) {
+        log("skipped", { reason: "tex_greeted" });
+        return null;
+      }
+    }
     const origin = validAppOrigin();
     if (origin === null) {
       log("skipped", { reason: "app_origin_unset" });

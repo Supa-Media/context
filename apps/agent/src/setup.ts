@@ -78,6 +78,7 @@ export async function textSetup(
 const FORMAT =
   "A handle is 2 to 32 lowercase letters, numbers or hyphens, like @ada or @ada-lovelace. Text me just the one you want.";
 
+/** `ask` is also Tex's first text to a person let in (`TEX_GREETING`, apps/convex/functions/texGreeting.ts): keep the two the same. */
 export const SETUP_COPY = {
   ask: "Hi, I'm Tex, your Context assistant. You're in, so let's set you up. First, your handle: it's your name on Context, like @ada. Text me the one you want.",
   taken: (handle?: string) =>
