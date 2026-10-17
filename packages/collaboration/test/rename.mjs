@@ -320,7 +320,9 @@ test("a rename interrupted at any storage write resumes: a retry or the next rea
  * Sabotage, each confirmed to fail a case here:
  *  - drop the `head.noteId !== noteId` check in `load` and the new-note case opens the trashed note's document;
  *  - drop `internalTrash` from `renameDocument`'s path check and the trash cases throw INELIGIBLE_DOCUMENT;
- *  - drop the `noteId` from `identityHead` and the restored head loses its id, so the next open cannot tell notes apart.
+ *  - drop the `noteId` from `identityHead` and the restored head loses its id, so the next open cannot tell notes apart;
+ *  - skip `adoptUnstampedHead` and a new note at a trashed note's name opens the old document and has its Markdown
+ *    replaced by the old note's text; stamp every id-less head without comparing texts and the same happens.
  */
 const ID_A = "0190a000-0000-7000-8000-00000000000a";
 const ID_B = "0190a000-0000-7000-8000-00000000000b";
@@ -429,7 +431,7 @@ test("a rename that fails before the claim does not let a new note at the name t
   assert.equal(opened.text, "# New\n");
 });
 
-test("a head made before the row had an id is not refused for lacking one: its history stays with the note", async () => {
+test("a head made before the row had an id keeps the note's history and takes the row's id", async () => {
   const store = new KeyedStore();
   const note = await editedNote(store, "from.md", "# Plan\n\nLegacy.\n");
   assert.equal(store.headAt("from.md").noteId, undefined);
@@ -438,6 +440,43 @@ test("a head made before the row had an id is not refused for lacking one: its h
   const after = await readDocument(store, "from.md");
 
   assert.equal(after.documentId, note.documentId);
+  assert.equal(after.text, note.text);
+  assert.equal(store.headAt("from.md").noteId, ID_A, "the head now names the note it was made for");
+  // A second open is an ordinary one: the head is checked like any made since.
+  assert.equal((await readDocument(store, "from.md")).documentId, note.documentId);
+});
+
+test("an id-less head a trashed note left at its name is not inherited by a new note there, and its text is not written over the new note", async () => {
+  // Sabotage: stamp every id-less head without comparing texts in `adoptUnstampedHead`, and the new note
+  // opens the trashed note's document and has its Markdown replaced by the trashed note's text.
+  const store = new KeyedStore();
+  const trashed = await editedNote(store, "from.md", "# Plan\n\nSecret.\n");
+  assert.equal(store.headAt("from.md").noteId, undefined, "made before heads recorded ids");
+  moveKeyedRow(store, "from.md", TRASH);
+  store.seedNote("from.md", "# New\n");
+  store.noteIds.set("from.md", ID_B);
+
+  const opened = await readDocument(store, "from.md");
+
+  assert.notEqual(opened.documentId, trashed.documentId, "the new note starts its own document");
+  assert.equal(opened.text, "# New\n");
+  assert.equal(await (await store.get("from.md")).text(), "# New\n", "the new note's Markdown is its own");
+  assert.equal(store.headAt("from.md").noteId, ID_B);
+  const oldState = JSON.parse(store.objects.get(`.context/collaboration/v1/documents/${trashed.documentId}.json`).text);
+  assert.equal(oldState.text, trashed.text, "the trashed note's history is left untouched");
+});
+
+test("an id-less head whose note was changed outside collaboration starts a document over the Markdown, which is kept", async () => {
+  const store = new KeyedStore();
+  const note = await editedNote(store, "from.md", "# Plan\n\nBefore.\n");
+  await store.put("from.md", "# Plan\n\nEdited elsewhere.\n");
+  store.noteIds.set("from.md", ID_A);
+
+  const opened = await readDocument(store, "from.md");
+
+  assert.notEqual(opened.documentId, note.documentId);
+  assert.equal(opened.text, "# Plan\n\nEdited elsewhere.\n");
+  assert.equal(await (await store.get("from.md")).text(), "# Plan\n\nEdited elsewhere.\n");
 });
 
 test("a trash location is refused as a rename target unless the caller names the trash", async () => {

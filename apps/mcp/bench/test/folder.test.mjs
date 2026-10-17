@@ -29,7 +29,8 @@ test("the repository's folder exists, loads, and holds the tests; the setups are
     Object.keys(bench.workspaces).length >= 9,
     "nine invented workspaces",
   );
-  assert.ok(bench.tests["texting-assistant"], "the texting-assistant test");
+  assert.ok(bench.tests.core, "the core set");
+  assert.ok(bench.tests.tasks, "the golden tasks");
   assert.ok(bench.tests.search, "the search test");
   // Decided 2026-10-10: a setup is edited and promoted in `@context-lc ai/`,
   // so none is committed here; `pnpm ai pull <job>` fills setups/<job>/ before
