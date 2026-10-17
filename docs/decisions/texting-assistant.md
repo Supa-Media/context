@@ -247,6 +247,11 @@ Tex's nightly dream, which brings `tex/about-me.md` up to date from the
 day's transcripts and logs what it changed in `tex/dreams/`:
 [dreams](./texting-assistant/dreams.md).
 
+Tex's housekeeping, which archives finished projects, merges duplicate
+contacts, folds thin folders and lowers the chaos score on its own, logging
+each change in `tex/housekeeping/` with how to put it back:
+[housekeeping](./texting-assistant/housekeeping.md).
+
 Golden tasks (jobs Tex must always get right, gating a setup), the task
 skills it reads before doing one, and why a read skill may vouch for an
 address: [golden tasks](./texting-assistant/golden-tasks.md).

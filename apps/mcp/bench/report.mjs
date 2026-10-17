@@ -237,6 +237,9 @@ function runBlock(run, setup) {
   lines.push(`Tools: ${tools}`, "");
   // What a scripted browser did (`sites.mjs`): one line, read back by the checks.
   if (run.browser?.length) lines.push(`Browser: ${run.browser.map((event) => event.replace(/\s+/g, " ").replaceAll(" | ", " / ")).join(" | ")}`, "");
+  // Where housekeeping left each note a `file` check names: one line, read back by the checks.
+  const where = Object.entries(run.where ?? {});
+  if (where.length) lines.push(`Filed: ${where.map(([note, now]) => `${note} → ${now ?? "gone"}`).join(" | ")}`, "");
   if (run.changes?.length) {
     lines.push("Changes recorded:", "");
     for (const c of run.changes) {

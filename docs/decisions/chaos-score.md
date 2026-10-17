@@ -68,6 +68,11 @@ before and after, the app shows the number in words, and none of them
 carry a "tidy now" button. A "simplification" that brings automatic tidying
 back is the feature the owner just removed.
 
+One exception, asked for by the owner on 2026-10-17: Tex's housekeeping acts
+on the score by itself, with every change logged and reversible
+([housekeeping](./texting-assistant/housekeeping.md)). It is the only actor
+that does; everything else here still only reports.
+
 One surface gives advice, because the owner asked for it (2026-10-13): a
 crowded or thin folder's page has one muted line beside its title ("14
 things in here · calm is 4 or 5"), and pressing it says how that folder

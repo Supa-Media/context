@@ -123,3 +123,28 @@ test("the played person answers YES when the gateway held a call for their OK, a
   assert.equal(personAnswers({ asked: 0, answer: "Done." }), null, "a clean turn is for the played person or nobody");
   assert.equal(personAnswers({ answer: "an older gateway with no asked field" }), null);
 });
+
+test("a housekeeping test runs Tex's housekeeping once and records where each named note ended up", async () => {
+  const dir = await benchFolder();
+  try {
+    await writeFile(
+      join(dir, "workspaces/people.md"),
+      "| Person | Workspace | Role |\n|---|---|---|\n| Ana | ana (personal) | owner |\n",
+    );
+    await mkdir(join(dir, "workspaces/ana/1-projects/kitchen"), { recursive: true });
+    await writeFile(join(dir, "workspaces/ana/1-projects/kitchen/overview.md"), "---\nstatus: finished\n---\n\n# Kitchen\n\nDone.\n");
+    await writeFile(
+      join(dir, "tests/housekeeping.md"),
+      "---\nmode: housekeeping\nrun_as: Ana\nruns: 1\n---\n\n## 1. Leaves notes it is unsure of\n\n- kind: task\n" +
+        "- must file: ana/health/dentist.md under ana/health/dentist.md\n- must file: ana/1-projects/kitchen/overview.md under ana/1-projects/\n",
+    );
+    const out = join(dir, "result.md");
+    await execFileAsync(process.execPath, [RUN, "run", "texting-assistant", "--dir", dir, "--fake", "--no-fluff", "--test", "housekeeping", "--out", out], { timeout: 120000 });
+    const note = await readFile(out, "utf8");
+    assert.ok(note.includes("Filed: ana/health/dentist.md → ana/health/dentist.md | ana/1-projects/kitchen/overview.md → ana/1-projects/kitchen/overview.md"), note);
+    assert.ok(note.includes("# Tex kept house,"), "the answer carries the log the run wrote");
+    assert.ok(!note.includes("Error:"), note.slice(0, 800));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

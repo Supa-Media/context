@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { checkVerdicts, readCheck, recordedFront, writeTarget } from "../checks.mjs";
+import { checkVerdicts, filedNotes, readCheck, recordedFront, writeTarget } from "../checks.mjs";
 
 const once = "- must write: maya/routines/once/ with at: 2026-10-09 9:00 am";
 const weekdays = "- must write: maya/routines/daily/ with at: 7:30 am, on: weekdays";
@@ -85,4 +85,28 @@ test("a result note's Changes recorded lines grade the same as the live record",
     "- deleted maya/todo.md: ",
   ];
   assert.deepEqual(grade([once, weekdays, "- must not write: maya/todo.md"], changes), [true, true, true]);
+});
+
+test("a file check grades where housekeeping left a note: under a folder, at a path, or gone", () => {
+  const lines = [
+    "- must file: tomas/1-projects/kitchen/overview.md under tomas/4-archive/",
+    "- must file: tomas/todo.md under tomas/todo.md",
+    "- must not file: tomas/2-areas/car/insurance.md under tomas/2-areas/car/",
+  ];
+  const where = (map) => checkVerdicts({ checks: lines.map(readCheck) }, { tools: [], browser: [], changes: [], where: map }).map((v) => v.pass);
+  assert.deepEqual(
+    where({
+      "tomas/1-projects/kitchen/overview.md": "tomas/4-archive/1-projects/kitchen/overview.md",
+      "tomas/todo.md": "tomas/todo.md",
+      "tomas/2-areas/car/insurance.md": "tomas/2-areas/insurance.md",
+    }),
+    [true, true, true],
+  );
+  assert.deepEqual(
+    where({ "tomas/1-projects/kitchen/overview.md": null, "tomas/todo.md": "tomas/inbox/todo.md", "tomas/2-areas/car/insurance.md": "tomas/2-areas/car/insurance.md" }),
+    [false, false, false],
+    "a note that is gone, moved elsewhere, or left where it was",
+  );
+  assert.deepEqual(filedNotes({ checks: lines.map(readCheck) }), ["tomas/1-projects/kitchen/overview.md", "tomas/todo.md", "tomas/2-areas/car/insurance.md"]);
+  assert.throws(() => readCheck("- must file: tomas/todo.md in tomas/x/"), /file check/);
 });

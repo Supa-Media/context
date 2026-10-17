@@ -20,6 +20,7 @@
  */
 
 import { TRANSCRIPTS_FOLDER } from "../src/agent/transcript.js";
+import { HOUSEKEEPING_CLIENT_ID } from "../src/agent/housekeeping.js";
 import worker from "../src/index.js";
 import { PRODUCTION_TEXTING_PATH } from "../src/agent/production.js";
 import { skillPath } from "../src/agent/skills.js";
@@ -271,6 +272,18 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     ],
   });
 
+  // Tex's housekeeping (`src/agent/housekeeping.js`) has its own client, over
+  // the person's own workspace and nothing else.
+  const houseToken = `cat_house_${person.toLowerCase().replace(/[^a-z]/g, "")}_${"0".repeat(24)}`;
+  await controlPlane.addGrant({
+    workspaceId: ids.get(own.workspace),
+    role: "owner",
+    userId: `user_bench_${own.workspace}`,
+    accessToken: houseToken,
+    scopes: ["context:read", "context:write", "context:private"],
+    clientId: HOUSEKEEPING_CLIENT_ID,
+  });
+
   const before = new Map([...ids].map(([name]) => [name, snapshot(s3.bucketFor(`bench-${name}`))]));
   const env = {
     CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
@@ -378,6 +391,86 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
           cacheWrite: usage.cacheWriteTokens ?? 0,
         },
       };
+    },
+
+    /**
+     * One housekeeping run over the person's own workspace, answered as a turn
+     * is: its answer is the line it would text and the log it wrote.
+     */
+    async keepHouse() {
+      const { ctx, settle } = createWorkerCtx();
+      const started = realNow();
+      const response = await worker.fetch(
+        new Request("https://mcp.bench.invalid/agent", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${houseToken}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ housekeeping: { timeZone: "UTC" } }),
+        }),
+        env,
+        ctx,
+      );
+      const ms = realNow() - started;
+      const body = await response.json().catch(() => null);
+      await settle();
+      const usage = controlPlane.builtinReports.at(-1) ?? {};
+      const log = typeof body?.log === "string" ? (await this.read(body.log))?.body ?? "" : "";
+      return {
+        ok: response.status === 200 && typeof body?.outcome === "string",
+        answer: [body?.line || `(${body?.outcome ?? "no outcome"}: nothing to text)`, log].filter(Boolean).join("\n\n"),
+        asked: 0,
+        error: response.status === 200 ? null : String(body?.error ?? `status ${response.status}`),
+        ms,
+        model: usage.model ?? null,
+        tools: [],
+        usage: {
+          input: usage.inputTokens ?? 0,
+          output: usage.outputTokens ?? 0,
+          cacheRead: usage.cacheReadTokens ?? 0,
+          cacheWrite: usage.cacheWriteTokens ?? 0,
+        },
+      };
+    },
+
+    /**
+     * A note read through the gateway as the person's own client reads it:
+     * `{ path, body }` where it is now (a moved note's old name follows it),
+     * or null when there is none. `workspace` is another of theirs by name.
+     */
+    async read(path, workspace = null) {
+      const { ctx, settle } = createWorkerCtx();
+      const context = workspace === null || workspace === own.workspace ? null : `@${workspace}`;
+      const response = await worker.fetch(
+        new Request("https://mcp.bench.invalid/mcp", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "tools/call",
+            params: { name: "read_note", arguments: { path, ...(context ? { context } : {}) } },
+          }),
+        }),
+        env,
+        ctx,
+      );
+      const body = await response.json().catch(() => null);
+      await settle();
+      if (!body?.result || body.result.isError === true) return null;
+      const text = (body.result.content ?? []).map((block) => block.text ?? "").join("\n");
+      const split = text.indexOf("\n\n");
+      return { path: /^path: (.+)$/m.exec(text)?.[1] ?? path, body: split === -1 ? "" : text.slice(split + 2) };
+    },
+
+    /** Where each `<workspace>/<path>` named is now, as `<workspace>/<path>`, or null. */
+    async where(notes) {
+      const out = {};
+      for (const note of notes) {
+        const at = note.indexOf("/");
+        const workspace = note.slice(0, at);
+        const found = await this.read(note.slice(at + 1), workspace);
+        out[note] = found ? `${workspace}/${found.path}` : null;
+      }
+      return out;
     },
 
     /** What the scripted browser did this conversation (`sites.mjs`); empty without one. */

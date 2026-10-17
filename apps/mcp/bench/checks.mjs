@@ -20,6 +20,11 @@
  *   - must write: maya/tex/routines/once/ with at: 2026-10-09 9:00 am
  *                                    a note written at that path (a folder when
  *                                    it ends in `/`), with that front matter
+ *   - must file: tomas/1-projects/kitchen/overview.md under tomas/4-archive/
+ *                                    where the note that was at that path is
+ *                                    after the run (housekeeping moves notes,
+ *                                    and a moved note's old name follows it):
+ *                                    under a folder ending in `/`, or that path
  *
  * Each also takes `must not`. A verdict is a "must" or "must not" line like
  * the judge's, so a failed check fails its question, and on a task, the gate.
@@ -27,7 +32,7 @@
 
 import { cadenceFromFolder, parseTime, parseWeekdays } from "../../../packages/shared/src/routines.cjs";
 
-const CHECK = /^- (must|must not) (call|reach|hand off|type|choose|set|publish|connect|write):\s*(.+)$/;
+const CHECK = /^- (must|must not) (call|reach|hand off|type|choose|set|publish|connect|write|file):\s*(.+)$/;
 
 /** A check line, or null when the line is not one. */
 export function readCheck(line) {
@@ -35,6 +40,7 @@ export function readCheck(line) {
   if (!m) return null;
   // A malformed write line fails when the test is read, not as a failed check.
   if (m[2] === "write") writeTarget(m[3].trim());
+  if (m[2] === "file") fileTarget(m[3].trim());
   return { kind: m[1], what: m[2], value: m[3].trim(), line: `${m[2]} ${m[3].trim()}` };
 }
 
@@ -63,6 +69,8 @@ function happened(check, answer) {
       return events.some((event) => event.toLowerCase() === `connect ${value}`);
     case "write":
       return wrote(check.value, answer.changes ?? []);
+    case "file":
+      return filed(check.value, answer.where ?? {});
     default:
       return false;
   }
@@ -169,6 +177,26 @@ function wrote(value, changes) {
     const fields = recordedFront(write.detail);
     return Object.entries(front).every(([key, want]) => sameValue(key, want, fields[key]));
   });
+}
+
+/** A `file` check's two halves: `<workspace>/<path> under <workspace>/<place>`. */
+export function fileTarget(value) {
+  const m = /^(\S+\/\S+\.md)\s+under\s+(\S+)$/.exec(value.trim());
+  if (!m) throw new Error(`file check: "${value}" is not "<workspace>/<note>.md under <workspace>/<folder>/"`);
+  return { note: m[1], place: m[2] };
+}
+
+/** The notes a question's `file` checks name, for the run to look up afterwards. */
+export function filedNotes(question) {
+  return (question.checks ?? []).filter((check) => check.what === "file").map((check) => fileTarget(check.value).note);
+}
+
+/** Whether the note named is at the place named, from the record's `where` (note → where it is now, or null). */
+function filed(value, where) {
+  const { note, place } = fileTarget(value);
+  const now = where[note];
+  if (typeof now !== "string") return false;
+  return place.endsWith("/") ? now.startsWith(place) : now === place;
 }
 
 /** The question's checks graded on one answer, as verdicts. */

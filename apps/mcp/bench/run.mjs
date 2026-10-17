@@ -40,6 +40,7 @@ import { connectCommand, publishCommand, publishSetup, pullCommand, signIn, sign
 import { improveCommand } from "./improve.mjs";
 import { keyMarkdown, keyPathFor, resultMarkdown } from "./report.mjs";
 import { createWorld } from "./world.mjs";
+import { filedNotes } from "./checks.mjs";
 import { realNow } from "./clock.mjs";
 import { benchFolder } from "./folder.mjs";
 
@@ -117,7 +118,8 @@ export function personAnswers(turn) {
 }
 
 /** One conversation: the person's opening text, then as many turns as they take. */
-async function converse(world, question, person) {
+async function converse(world, question, person, mode = null) {
+  if (mode === "housekeeping") return await keepHouse(world, question);
   const conversation = [];
   const totals = { ms: 0, personMs: 0, tools: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, model: null, error: null };
   let message = question.personStarts ?? question.text;
@@ -140,6 +142,27 @@ async function converse(world, question, person) {
     totals.personMs += realNow() - personStarted;
   }
   return { conversation, ...totals, texts: conversation.filter((turn) => turn.from === "assistant").length };
+}
+
+/**
+ * A housekeeping test (`mode: housekeeping`): nobody texts. Tex runs once over
+ * the person's own workspace, and the record says where each note a `file`
+ * check names ended up (`checks.mjs`).
+ */
+async function keepHouse(world, question) {
+  const turn = await world.keepHouse();
+  const where = await world.where(filedNotes(question));
+  return {
+    conversation: turn.ok ? [{ from: "assistant", text: turn.answer }] : [],
+    ms: turn.ms,
+    personMs: 0,
+    tools: turn.tools,
+    usage: turn.usage,
+    model: turn.model,
+    error: turn.error,
+    texts: turn.ok ? 1 : 0,
+    where,
+  };
 }
 
 /**
@@ -239,13 +262,13 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
       const wallStarted = realNow();
       let world = await createWorld(bench, as, setup.raw, models, today, prepared);
       try {
-        let result = await converse(world, question, person);
+        let result = await converse(world, question, person, test.front.mode ?? null);
         let reran = null;
         if (result.error && !options.fake) {
           reran = result.error;
           world.close();
           world = await createWorld(bench, as, setup.raw, models, today, prepared);
-          result = await converse(world, question, person);
+          result = await converse(world, question, person, test.front.mode ?? null);
         }
         records.push({
           ...(reran === null ? {} : { reran }),
