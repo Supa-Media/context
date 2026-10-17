@@ -291,13 +291,12 @@ describe("the five steps a move walks", () => {
 /**
  * The move between two buckets the owner holds (`to_own`): the same card,
  * offered on their own storage, with copy that never claims the workspace runs
- * from Context's storage, and for Dropbox the note that its support is ending.
+ * from Context's storage.
  *
  * ## Sabotage record
  *
  * Drawing the managed offer on own storage failed the first test; keeping
- * `STILL_LIVE` for an own move failed the second; dropping the Dropbox branch
- * failed the third.
+ * `STILL_LIVE` for an own move failed the second.
  */
 describe("moving between the owner's own buckets", () => {
   const own = (overrides: Partial<ConsoleStorage> = {}) =>
@@ -331,13 +330,4 @@ describe("moving between the owner's own buckets", () => {
     screen.unmount();
   });
 
-  test("on Dropbox, says support is ending and offers both ways off it", () => {
-    let premium = 0;
-    const screen = mount({ storage: own({ provider: "dropbox" }), onOpenPremium: () => premium++ });
-    expect(screen.q("storage-dropbox-ending")?.textContent).toContain("Dropbox support is ending");
-    expect(screen.q("storage-own-move")?.textContent).toBe("Move to my bucket");
-    screen.click("storage-dropbox-to-context");
-    expect(premium).toBe(1);
-    screen.unmount();
-  });
 });

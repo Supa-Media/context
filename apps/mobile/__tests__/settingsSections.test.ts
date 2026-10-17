@@ -280,7 +280,6 @@ describe("searching the list", () => {
     ["claude", "integrations"],
     ["revoke", "integrations"],
     ["username", "profile"],
-    ["dropbox", "storage"],
     ["rebuild index", "storage"],
     ["fast search", "storage"],
     ["who can see", "sharing"],

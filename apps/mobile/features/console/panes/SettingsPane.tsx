@@ -31,6 +31,7 @@ import { PluginsPanel } from "../settings/panels/PluginsPanel";
 import { selectedContext, type ConsoleData, type ConsoleStorage } from "../types";
 import type { SettingsSectionKey } from "../settings/sections";
 import { ConnectForm } from "../storage/ConnectForm";
+import { isSupportedProvider } from "../storage/connect";
 import { StorageCard } from "../settings/panels/StorageCard";
 import { storageCompany } from "../settings/panels/StorageHealth";
 import { StorageMigrationCard } from "../storage/StorageMigration";
@@ -107,6 +108,11 @@ export function SettingsPane({
   const storage = data.storage;
   const actions = data.storageActions;
   const current = selectedContext(data);
+  // A binding whose provider this build no longer runs (a retired provider,
+  // until its cleanup lands) is shown as "not supported": no controls that
+  // assume a provider we cannot operate, and nothing crashes on it.
+  const unsupported =
+    storage !== null && storage !== undefined && storage.managed !== true && !isSupportedProvider(storage.provider);
   const [rebinding, setRebinding] = useState(false);
   const [switchingBack, setSwitchingBack] = useState(false);
   // The `to_own` move's destination form: a different job from `rebinding`,
@@ -149,17 +155,15 @@ export function SettingsPane({
       {show("storage") ? (
       <>
       {/*
-        The sentence has to name the thing the reader can actually go and do,
-        and that differs by backend: an S3 owner revokes a key at their
-        provider, a Dropbox owner unlinks Context in their Dropbox account.
-        Telling the second to revoke a key sends them looking for a screen that
-        does not exist.
+        The sentence has to name the thing the reader can actually go and do.
+        A provider this build no longer supports has no key to revoke that we
+        can name, so it gets the unsupported notice below instead.
       */}
       <PanelHead section="storage" sectioned={section !== undefined} first>
         {storage?.managed === true
           ? "Where your notes are kept. Context runs this bucket for you; take every file with you, free, any time."
-          : storage?.provider === "dropbox"
-          ? "Where your notes are kept. Plain files in your own Dropbox. Unlink Context in your Dropbox settings and we lose access right away."
+          : unsupported
+          ? "Where your notes are kept. This kind of storage is no longer supported, and your files are untouched."
           : `Where your notes are kept. Plain files in storage you own. Remove our key at ${
               (storage && storageCompany(storage)) ?? "your provider"
             } and we lose access right away.`}
@@ -222,10 +226,7 @@ export function SettingsPane({
         // Two different jobs behind one flag, decided by what is connected now.
         //
         // Rotating an S3 key must not mean retyping an endpoint, so that path
-        // gets the form back with everything but the secret prefilled. A
-        // Dropbox binding has no key to rotate and nothing to prefill — what
-        // its owner wants is either the same consent screen again or a bucket
-        // instead, which is exactly the pair `StorageChoice` draws.
+        // gets the form back with everything but the secret prefilled.
         storage.managed === true ? (
           <ConnectForm
             lede={HANDOFF_FORM_LEDE}
@@ -236,18 +237,6 @@ export function SettingsPane({
               return { status: "copying" };
             }}
             onCancel={() => setRebinding(false)}
-          />
-        ) : storage.provider === "dropbox" ? (
-          <SettingsStorageChoice allowDropbox
-            workspaceId={actions.workspaceId}
-            contextName={current == null ? "this context" : `@${current.slug}`}
-            connect={async (values) => {
-              const result = await actions.connect(values);
-              setRebinding(false);
-              return result;
-            }}
-            onCancel={() => setRebinding(false)}
-            onOpenPremium={onSelect === undefined ? undefined : () => onSelect("premium")}
           />
         ) : (
           <ConnectForm
@@ -261,11 +250,11 @@ export function SettingsPane({
             // from the control plane, so it is the one field that starts empty.
             //
             // `?? ""` on all three, and it is load-bearing rather than tidy.
-            // These three became optional when Dropbox arrived, and `initial`
-            // is spread *over* `emptyConnectForm()` — so an explicit
-            // `undefined` wins, and `values.endpoint.trim()` throws on the
-            // next render. `Partial<ConnectFormValues>` accepts `undefined`
-            // happily, so the type checker has nothing to say about it.
+            // They are optional on the binding (a binding mid-connect may not
+            // have them yet), and `initial` is spread *over* `emptyConnectForm()`
+            // — so an explicit `undefined` wins, and `values.endpoint.trim()`
+            // throws on the next render. `Partial<ConnectFormValues>` accepts
+            // `undefined` happily, so the type checker has nothing to say about it.
             initial={{
               endpoint: storage.endpoint ?? "",
               region: storage.region ?? "",
@@ -276,6 +265,25 @@ export function SettingsPane({
             onCancel={() => setRebinding(false)}
           />
         )
+      ) : unsupported ? (
+        <>
+          <Card testID="storage-unsupported">
+            <Text variant="rowTitle">This storage isn&apos;t supported any more</Text>
+            <Text variant="rowSub" style={styles.rowSub}>
+              {actions
+                ? "Your notes are untouched. Connect a bucket you own below to keep this context's notes on storage Context can run."
+                : "Your notes are untouched. Only an owner of this context can connect storage to it."}
+            </Text>
+          </Card>
+          {actions ? (
+            <SettingsStorageChoice
+              workspaceId={actions.workspaceId}
+              contextName={current == null ? "this context" : `@${current.slug}`}
+              connect={actions.connect}
+              onOpenPremium={onSelect === undefined ? undefined : () => onSelect("premium")}
+            />
+          ) : null}
+        </>
       ) : (
         <>
           <StorageCard
@@ -311,7 +319,6 @@ export function SettingsPane({
               data.demo || storage.managed !== true ? undefined : () => data.files.download("", "folder")
             }
             onSwitchBack={() => setSwitchingBack(true)}
-            onOpenPremium={onSelect === undefined ? undefined : () => onSelect("premium")}
           />
           <LeftBehindNotice
             left={storage.leftBehind}
@@ -322,7 +329,7 @@ export function SettingsPane({
 
       <FolderMovesCard view={data.advanced.moves} />
 
-      {storage?.connected === true && actions ? (
+      {storage?.connected === true && actions && !unsupported ? (
         <SettingsVaultImport workspaceId={actions.workspaceId} />
       ) : null}
 

@@ -20,7 +20,7 @@
  *    note override may name one — which no word on the screen suggested.
  *
  * So the words move to the ones people already hold from Google Drive and
- * Dropbox, which is where this audience's intuitions come from:
+ * other file-sharing apps, which is where this audience's intuitions come from:
  *
  *  - `private` → **Restricted**, and then the sentence says *who*: only you, or
  *    only this context's owners. "Restricted" carries no claim about who,

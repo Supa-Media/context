@@ -169,8 +169,6 @@ function websitePage(): ReactElement {
   const page = { kind: "page", siteName: "Seyi", routePath: "/", audience: "public", title: "Home" } as const;
   return createElement(WebsitePage, { name: "Seyi", view: { ...page, description: null, markdown: "# Home\n\nHello.", navigation: [] }, navigate: () => {}, signIn: () => {} });
 }
-const { DropboxCallbackScreen } =
-  require("../features/console/storage/DropboxCallbackScreen") as typeof import("../features/console/storage/DropboxCallbackScreen");
 const { GoogleCallbackScreen } =
   require("../features/console/google/GoogleCallbackScreen") as typeof import("../features/console/google/GoogleCallbackScreen");
 const { CliConnectedScreen } =
@@ -291,7 +289,6 @@ const ROUTES: Record<string, Coverage> = {
   "tex/[handle].tsx": { kind: "screen", mount: () => createElement(requireRoute("tex/[handle].tsx")) },
   "[handle]/index.tsx": { kind: "screen", mount: () => websitePage() },
   "[handle]/[...path].tsx": { kind: "screen", mount: () => websitePage() },
-  "connect/dropbox.tsx": { kind: "screen", mount: () => createElement(DropboxCallbackScreen) },
   "connect/google.tsx": { kind: "screen", mount: () => createElement(GoogleCallbackScreen) },
   "connect/cli.tsx": { kind: "screen", mount: () => createElement(CliConnectedScreen) },
   /*

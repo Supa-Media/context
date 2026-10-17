@@ -151,20 +151,6 @@ export function useBrowseNotices({
    * noise at the worst possible moment.
    */
   /*
-    Dropbox support is ending (`docs/decisions/billing.md`), so an owner of a
-    Dropbox workspace is asked to move off it: to a bucket of theirs, or to
-    Context storage. Owner-only, because only an owner can move storage
-    (`storageActions` is absent for anybody else), and not while a move is
-    already running. Answered on the account and asked again two weeks later
-    (`IN_APP_MESSAGES`), with no device copy, which would keep it away for good.
-  */
-  const dropboxEnding = useInAppMessage({
-    id: "dropbox-ending",
-    workspaceId: files.contextId,
-    eligible: dropboxEndingEligible(data),
-    deviceKey: null,
-  });
-  /*
     "Add the five main folders?": the owner of a real workspace whose root
     lacks one of the main folders; never the homepage's visitor, the demo,
     or a website page. Answered once, either way, on the account
@@ -295,7 +281,6 @@ export function useBrowseNotices({
     manifestBroken ||
     files.notice !== null ||
     moveNotices.length > 0 ||
-    dropboxEnding.visible ||
     missingFolders.visible ||
     storageMigration.visible;
 
@@ -305,7 +290,6 @@ export function useBrowseNotices({
     setup,
     layingOut,
     storageMigration,
-    dropboxEnding,
     missingFolders,
     intro,
     introAnswer,
@@ -314,21 +298,6 @@ export function useBrowseNotices({
     moveNotices,
     hasNotice,
   };
-}
-
-/**
- * Whether the "Dropbox support is ending" notice may be asked for: an owner
- * (the only role with storage controls), of a workspace on Dropbox, with no
- * move already copying it somewhere.
- */
-export function dropboxEndingEligible(
-  data: Pick<ConsoleData, "storage" | "storageActions">,
-): boolean {
-  return (
-    data.storageActions !== undefined &&
-    data.storage?.provider === "dropbox" &&
-    data.storage.handoffStatus !== "copying"
-  );
 }
 
 /** Where the band is, for auto-organize: the phone's entry line is the workspace page's. */

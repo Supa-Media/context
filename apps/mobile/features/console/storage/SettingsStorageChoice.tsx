@@ -23,26 +23,16 @@ export function SettingsStorageChoice({
   connect,
   onCancel,
   onOpenPremium,
-  allowDropbox = false,
 }: {
   workspaceId: string;
   contextName: string;
   connect: StorageActions["connect"];
   onCancel?: () => void;
   onOpenPremium?: () => void;
-  /** Only when this context's current binding is already Dropbox. */
-  allowDropbox?: boolean;
 }) {
   const client = useConvex();
   if (client === undefined) {
-    return (
-      <StorageChoice
-        workspaceId={workspaceId}
-        connect={connect}
-        onCancel={onCancel}
-        allowDropbox={allowDropbox}
-      />
-    );
+    return <StorageChoice connect={connect} onCancel={onCancel} />;
   }
   return (
     <SettingsStorageChoiceLive
@@ -51,7 +41,6 @@ export function SettingsStorageChoice({
       connect={connect}
       onCancel={onCancel}
       onOpenPremium={onOpenPremium}
-      allowDropbox={allowDropbox}
     />
   );
 }
@@ -62,14 +51,12 @@ function SettingsStorageChoiceLive({
   connect,
   onCancel,
   onOpenPremium,
-  allowDropbox,
 }: {
   workspaceId: Id<"workspaces">;
   contextName: string;
   connect: StorageActions["connect"];
   onCancel?: () => void;
   onOpenPremium?: () => void;
-  allowDropbox: boolean;
 }) {
   const managed = useManagedOffer({ workspaceId, returned: null, origin: "settings" });
 
@@ -107,10 +94,8 @@ function SettingsStorageChoiceLive({
 
   return (
     <StorageChoice
-      workspaceId={workspaceId}
       connect={connect}
       onCancel={onCancel}
-      allowDropbox={allowDropbox}
       free={managed.free === null ? undefined : {
         cap: managed.free.cap,
         onChoose: managed.startFree,

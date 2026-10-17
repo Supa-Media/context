@@ -655,11 +655,11 @@ describe("isSafeRedirect", () => {
     catalogue, which is six `https` constants and one `cursor://` deep link.
 
     What makes it worth closing anyway is the company it keeps. **This app has
-    five ways out to another application, and the other four are stricter than
+    four ways out to another application, and the other three are stricter than
     this one:** `safeHref` over a shared note's Markdown is an allowlist
-    (`https`, `mailto`, `tel`), `leaveForGoogle` and `leaveForDropbox` check an
-    exact origin, and the `Landing` links are module constants. One denylist
-    among four allowlists, guarding the value a *remote party* had the most
+    (`https`, `mailto`, `tel`), `leaveForGoogle` checks an exact origin, and the
+    `Landing` links are module constants. One denylist among allowlists, guarding
+    the value a *remote party* had the most
     influence over, is the odd one out — and the docblock had already decided
     which way it should go.
   */

@@ -6,8 +6,8 @@ import { browseHref, settingsHref, slugFromSegment } from "../../../../features/
  *
  * Settings stopped being a route and became an overlay drawn over Browse by
  * `console/_layout.tsx`, addressed as `?settings=<section>`. The old path stays
- * because it is in the wild: the Dropbox failure notice links to it, the search
- * nudge rows link to it, and somebody has it in a chat. Every one of those must
+ * because it is in the wild: the search nudge rows link to it, and somebody
+ * has it in a chat. Every one of those must
  * keep landing on settings rather than on a dead page.
  *
  * **It reads the segment and nothing else.** An earlier version resolved the
