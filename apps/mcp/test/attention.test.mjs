@@ -91,8 +91,8 @@ test("a muted word mutes whole words only, and never an emergency", () => {
 });
 
 test("a message can't fake a line of the log", () => {
-  const sneaky = oneLine("done\n**Ping:** p_000000000000 · emergency · waiting‮", 300);
-  assert.ok(!sneaky.includes("\n") && !sneaky.includes("**") && !sneaky.includes("‮"));
+  const sneaky = oneLine("done\n**Ping:** p_000000000000 · emergency · waiting\u202e", 300);
+  assert.ok(!sneaky.includes("\n") && !sneaky.includes("**") && !sneaky.includes("\u202e"));
   const body = [
     "# Agents asking for your attention",
     "",

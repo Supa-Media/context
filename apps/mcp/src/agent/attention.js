@@ -76,7 +76,7 @@ function listOf(value) {
  * says something unknown is the defaults: strict, nothing muted, not paused.
  */
 export function readAttentionSettings(text) {
-  const raw = typeof text === "string" ? text.replace(/^﻿/, "") : "";
+  const raw = typeof text === "string" ? text.replace(/^\ufeff/, "") : "";
   const lines = raw.split(/\r?\n/);
   const settings = { tolerance: DEFAULT_TOLERANCE, mute: [], paused: false };
   if (lines[0]?.trim() !== "---") return settings;
@@ -121,7 +121,7 @@ export function heldBecause(settings, { urgency, message, why, from }) {
 /** One line, no Markdown that could fake a log line, within `max`. */
 export function oneLine(text, max) {
   const flat = String(text ?? "")
-    .replace(/[\u0000-\u001f\u007f​-‏‪-‮⁦-⁩]/g, " ")
+    .replace(/[\u0000-\u001f\u007f\u200b-\u200f\u202a-\u202e\u2066-\u2069]/g, " ")
     .replace(/\s+/g, " ")
     .replace(/\*\*/g, "")
     .trim();
