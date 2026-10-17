@@ -146,10 +146,19 @@ export async function readSharedNoteHandler(
     not see is the same `SHARE_UNAVAILABLE` as one that never existed. Any
     new caller has to re-argue that.
   */
-  const [entryPath, requested] = (await ctx.runQuery(internal.functions.smallData.forward, {
+  /*
+    A share stamped with its note's id (`entryNote.ts`) already knows where the
+    note is now, so its entry path is never forwarded: forwarding a live path
+    could hand the link to whatever moved away from it. A path the reader asks
+    for under a folder share is still forwarded, since it may be one they
+    bookmarked before a rename. An unstamped row forwards both, as before.
+  */
+  const [forwardedEntry, forwardedAsked] = (await ctx.runQuery(internal.functions.smallData.forward, {
     workspaceId: grant.workspaceId,
     paths: [grant.entryPath, asked],
   })) as [string, string];
+  const entryPath = grant.byId ? grant.entryPath : forwardedEntry;
+  const requested = grant.byId && args.path === undefined ? grant.entryPath : forwardedAsked;
   const shareGrant = { ...grant, entryPath };
 
   /*

@@ -50,6 +50,7 @@ import * as previews from "./lib/shares/previews";
 import * as readPath from "./lib/shares/readPath";
 import * as gatewayOwner from "./lib/shares/gatewayOwner";
 import * as grantedRead from "./lib/shares/grantedRead";
+import * as entryNote from "./lib/shares/entryNote";
 import * as validators from "./lib/shares/validators";
 
 export { MAX_ACTIVE_SHARES } from "./lib/shares/standing";
@@ -470,6 +471,26 @@ export const listGrantedFolder = action({
   args: grantedRead.listGrantedFolderArgs,
   returns: grantedRead.listGrantedFolderReturns,
   handler: grantedRead.listGrantedFolderHandler,
+});
+
+/* -------------------------------------------------------------------------- */
+/*     a share follows its note by id                                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Fill `entryNoteId` on shares minted before it existed, a page at a time,
+ * until the walk ends. Started by the daily cron. See `lib/shares/entryNote.ts`.
+ */
+export const stampEntryNoteIds = internalMutation({
+  args: entryNote.stampEntryNoteIdsArgs,
+  returns: entryNote.stampEntryNoteIdsReturns,
+  handler: async (ctx, args) => {
+    const result = await entryNote.stampEntryNoteIdsPage(ctx, args);
+    if (result.next !== null) {
+      await ctx.scheduler.runAfter(0, internal.functions.shares.stampEntryNoteIds, { cursor: result.next });
+    }
+    return result;
+  },
 });
 
 export const previewForNote = query({
