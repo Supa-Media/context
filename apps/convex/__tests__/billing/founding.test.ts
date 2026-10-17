@@ -154,14 +154,14 @@ describe("who is founding", () => {
 });
 
 describe("nobody is charged, and Stripe cannot take it away", () => {
-  test("a founding workspace opens no checkout", async () => {
+  test("a founding workspace is active with nobody billed", async () => {
+    // A founder may still choose to buy full Premium, which lifts the note
+    // cap (`foundingCap.test.ts`); being granted founding opens nothing.
     const t = setupTest();
     const owner = await createUser(t, "first-person@example.invalid");
     await catchUp(t);
     const workspaceId = await createWorkspace(t, owner, "first-person", { kind: "personal" });
-    await expect(
-      asUser(t, owner).mutation(api.functions.billing.startCheckout, { workspaceId }),
-    ).rejects.toMatchObject({ data: expect.objectContaining({ code: "ALREADY_PREMIUM" }) });
+    expect(await plan(t, workspaceId)).toMatchObject({ status: "active", founding: true });
     expect(await t.run((ctx) => ctx.db.query("billingSessions").collect())).toEqual([]);
     expect((await plan(t, workspaceId))?.stripeCustomerId).toBeUndefined();
   });

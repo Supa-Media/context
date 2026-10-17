@@ -12,6 +12,13 @@ import type { PremiumStatus } from "./premium";
 export const FOUNDING_PRICE_LINE = "Founding member: Premium at no charge.";
 
 /**
+ * The founders' deal is limited Premium (decided by the owner, 2026-10-17):
+ * on storage we run it keeps the free tier's note cap. Said wherever a founder
+ * chooses that storage, so the cap is never a surprise later.
+ */
+export const FOUNDING_NOTES_LINE = "Up to 1,000 notes on storage we run; full Premium lifts the cap.";
+
+/**
  * Where the plan's card would say who is billed. A plan belongs to a workspace,
  * so a shared workspace a founder makes later pays as any other.
  */

@@ -6,7 +6,7 @@ import { Text } from "../../design/components/Text";
 import { TextLink } from "../../design/components/TextLink";
 import { leading, pointerType as t, radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
-import { FOUNDING_PRICE_LINE } from "../../console/settings/panels/founding";
+import { FOUNDING_NOTES_LINE, FOUNDING_PRICE_LINE } from "../../console/settings/panels/founding";
 
 /**
  * What "Start fresh" can offer, decided by the control plane — never assumed.
@@ -77,7 +77,7 @@ export function ForkStep({
               {offer.kind === "free"
                 ? `Five folders to get you going, on our free bucket · ${offer.cap.toLocaleString("en-US")} notes. No countdown.`
                 : offer.founding === true
-                  ? `Five folders to get you going, on a bucket we run for you. ${FOUNDING_PRICE_LINE}`
+                  ? `Five folders to get you going, on a bucket we run for you. ${FOUNDING_PRICE_LINE} ${FOUNDING_NOTES_LINE}`
                   : `Five folders to get you going, on a bucket we run for you · ${offer.price}. You see what it covers before anything is charged.`}
             </Text>
             <Text style={styles.cardNote}>

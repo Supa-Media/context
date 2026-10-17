@@ -539,6 +539,17 @@ word beside the floor (`stripeStatus`), and `billing.status` reports
 other founder: no "Manage billing", no price, no paid-period date. A founder
 who cancels at period end is told billing stops and Premium stays.
 
+**The founders' deal is limited Premium, not paid Premium** (decided by the
+owner, 2026-10-17: "it shouldn't be the exact same as people paying ... it
+should still have a 1000 note restriction"). A founder at no charge
+(`foundingAtNoCharge`: founding, and no live Stripe subscription) keeps every
+Premium gate, but on storage we run the free tier's `FREE_MANAGED_NOTE_CAP`
+still applies (`noteCapFor`); their own bucket is never capped. To lift it a
+founder may buy full Premium: `startCheckout` refuses an active plan except a
+founder's at no charge, and once that subscription is live the cap is gone;
+if it ends, the founder is back on the capped deal, never below it. Tests:
+`apps/convex/__tests__/billing/foundingCap.test.ts`.
+
 **What a simplification would cost:** counting live accounts instead of grant
 rows lets a deletion promote account 101; checking an account flag inside each
 gate instead of the plan leaves the next gate free-for-founders by omission;
