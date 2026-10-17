@@ -1,5 +1,6 @@
 import { View } from "react-native";
 import { Button } from "../../../design/components/Button";
+import { TextLink } from "../../../design/components/TextLink";
 import { Text } from "../../../design/components/Text";
 import { useThemedStyles } from "../../../design/theme";
 import type { FileBrowser } from "../../files/browser";
@@ -239,8 +240,7 @@ export function BrowseNotices({
             paragraph made a one-line fact the tallest thing in the band.
           */}
           {move.resumable ? (
-            <Button
-              variant="ghost"
+            <TextLink
               label="Try again"
               onPress={() => files.resumeContextMove(move.id)}
               disabled={files.busy}
@@ -248,8 +248,7 @@ export function BrowseNotices({
             />
           ) : null}
           {move.dismissible ? (
-            <Button
-              variant="ghost"
+            <TextLink
               /*
                 "Not now" on a failure partway, because that is what the press
                 does: its notice carries the single control that can finish
