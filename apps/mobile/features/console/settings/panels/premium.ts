@@ -643,7 +643,9 @@ export function usageLine(status: PremiumStatus, now = Date.now()): string | nul
     status.notesCountedAt === undefined
       ? ""
       : `, counted ${relativeTime(status.notesCountedAt, now)}`;
-  return `${notes} in this context${when}. The ${formatBytes(status.ceilingBytes)} ceiling is on stored bytes, which are not metered yet.`;
+  // The ceiling is named once, under "What Premium includes"; repeating it
+  // here as "not metered" was jargon beside a number that is a note count.
+  return `${notes} in this workspace${when}.`;
 }
 
 /**

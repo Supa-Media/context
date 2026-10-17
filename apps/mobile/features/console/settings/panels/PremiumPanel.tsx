@@ -541,12 +541,13 @@ function planLede(
   status: PremiumView["status"],
   state: PremiumState,
   settling: boolean,
-): string {
+): string | null {
   if (settling) return "Setting up Premium for this workspace.";
   if (status === null) return "What this workspace pays for.";
   switch (state) {
     case "premium":
-      return "This workspace is on Premium.";
+      // The card's title and pill already say it; a third time read as noise.
+      return null;
     case "past_due":
       return "Premium for this workspace is paused.";
     case "canceled":
