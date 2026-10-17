@@ -33,7 +33,6 @@ import {
   subscribePageCache,
 } from "../files/folderPage/pageCache";
 import { NoteIntentContext } from "../files/noteIntent";
-import { useOrganizerView } from "../../organizer/OrganizerContext";
 import { useMapRoute } from "../map/live/MapRouteContext";
 
 /**
@@ -328,9 +327,7 @@ export function BrowsePane({
    * each other by construction.
    */
   const commsRoute = selected === null ? null : classifyCommsPath(selected.path);
-  // What changed draws where the document would (`BrowseDocument`).
-  const organizerPage = useOrganizerView()?.pageOpen === true;
-  // And so does the live map, filling the slot (`?map=1`).
+  // The live map draws where the document would, filling the slot (`?map=1`).
   const mapPage = useMapRoute()?.open === true && current != null;
 
   const openDocument = (
@@ -483,7 +480,6 @@ export function BrowsePane({
         openDocument={openDocument}
         notices={notices}
         pathBar={pathBar}
-        page={organizerPage}
         fill={mapPage}
         onSwipeHome={selected !== null ? () => void files.deselect() : undefined}
       />
