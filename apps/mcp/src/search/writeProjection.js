@@ -96,7 +96,10 @@ export async function indexWrittenNotesAfterResponse(store, notes) {
     ? (notes ?? []).filter((note) => note?.removed).map((note) => note.path)
     : [];
   return afterResponse(store, async () => {
-    await indexWrittenNotes(store, notes);
+    // A context with a search database keeps no index in its bucket: the
+    // database follows the change itself (`followChangeAfterResponse`), and
+    // the bucket's index was six calls per write for nothing (2026-10-17).
+    if (!store.searchIndex) await indexWrittenNotes(store, notes);
     if (removed.length > 0) await removeMeaningNotes(store, removed);
   });
 }

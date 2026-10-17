@@ -284,9 +284,8 @@ That replaces "off is a working state" for a context that has a database: a
 refused or slow database now costs a search its answer for as long as it
 lasts, rather than costing it seconds of bucket reads. The bucket's own index
 and the scan remain only for a gateway with no search database (self-hosted,
-or a deployment with no Cloudflare credential), and the passes that keep the
-shard index current still run behind the response until the projection is fed
-without it.
+or a deployment with no Cloudflare credential). Nothing keeps a shard index
+for a context with a database any more; see the next section but one.
 
 **What fails if reversed:** `searchProjection/serve.test.mjs` ("a search
 during the backfill opens no note and no index file in the bucket", "the
@@ -331,3 +330,32 @@ search's pass spent its whole budget on the same notes, all day. The cost of
 the rule is one extra read of a note that changed between a listing and its
 read, after which the two agree. `test/searchKeyed/census.test.mjs` ("settles")
 fails if it is reversed.
+
+## Nothing runs behind a search on a context with a search database
+
+Decided by the owner, 2026-10-17, after a Tex turn spent about 2,000 calls
+("ideally, it's just one call, max two to three"). A search over a context
+with a search database, ready or still filling, starts no index pass, reads no
+manifest and copies nothing into the database behind its answer. Its cost is
+the database query (and the meaning query beside it) and nothing else.
+
+The database is kept current elsewhere, once per change rather than once per
+search: a write follows itself into a `ready` database
+(`search/writeProjection.js`, `search/d1/follow.js`), the control plane's
+scheduled copy fills one still filling (`fileOps/projection.ts`), and the
+daily check removes rows for notes that are gone (`prunePass.ts`). The
+bucket's shard index under `.context/search/` is not maintained for such a
+context at all: a write does not re-index into it, the console's search
+schedules no pass over it, and a `maintainIndex` pass ends before opening the
+bucket. The shard index and the passes behind a search remain for a gateway
+with no search database.
+
+The cost is stated: a note written into the bucket by anything but the app
+is found only once the control plane's pass reaches it, which the owner
+accepted on 2026-10-15 (nothing outside the app writing into the bucket is
+picked up).
+
+**What fails if reversed:** `searchProjection/endToEnd.test.mjs` ("a search
+on a filling database copies nothing into it", "and a search reports no copy
+progress of its own"), `searchProjection/serve.test.mjs` ("or behind that
+same response"), and in the control plane `searchDatabaseOnly.test.ts`.

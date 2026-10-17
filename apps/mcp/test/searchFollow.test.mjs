@@ -47,6 +47,7 @@ import {
 import { followChange, underPattern } from "../src/search/d1/follow.js";
 import { projectNote, upsertStatements } from "../src/search/d1/project.js";
 import { searchChangeOf } from "../src/activity/record.js";
+import { fillSearchDatabase } from "./searchProjection/fill.mjs";
 
 const READY = { ...DESCRIPTOR, state: "ready" };
 /** `1-projects` is team, everything else private: see `PRIVACY_MANIFEST`. */
@@ -333,12 +334,13 @@ test("through the worker: a moved note and a moved folder are searchable at thei
       return JSON.stringify(body);
     }
 
-    // Converge the projection while it fills, then serve from it.
-    for (let round = 0; round < 4; round += 1) await call("search_notes", { query: "bilby" });
-    assert.equal(d1.rows("SELECT COUNT(*) AS n FROM notes")[0].n, 3);
+    // Filled the way the control plane fills it, then served from it.
+    fillSearchDatabase(d1.dbFor(DESCRIPTOR.databaseId), [
+      { path: "1-projects/older.md", content: "# Older\n\nA bilby was seen once.\n", visibility: "team" },
+      { path: "1-projects/trip/day-one.md", content: "# Day one\n\nThe dunnart camp.\n", visibility: "team" },
+      { path: "1-projects/trip/day-two.md", content: "# Day two\n\nMore dunnart tracks.\n", visibility: "team" },
+    ]);
     controlPlane.bindings.set(WS, s3Binding("follow-bucket", READY));
-    // And make the R2 index's listing fresh, so no full pass rides the next searches.
-    await call("search_notes", { query: "bilby" });
 
     await call("write_note", { path: "1-projects/fresh.md", content: "# Fresh\n\nA second bilby, just now.\n" });
     const afterWrite = await call("search_notes", { query: "bilby" });
