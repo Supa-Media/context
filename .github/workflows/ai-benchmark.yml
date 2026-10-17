@@ -86,6 +86,14 @@ on:
         description: "The decision model to calibrate; empty means Clef"
         required: false
         default: ""
+      improve:
+        description: "After scoring: draft one experiment from live's failures into ai/setups/<job>/ (draft), or draft it and run it against live on the same test (draft and test). It never promotes."
+        type: choice
+        options:
+          - "no"
+          - draft
+          - draft and test
+        default: "no"
 
 permissions:
   contents: read
@@ -145,6 +153,7 @@ jobs:
       BENCH_JUDGE_RUN_ID: ${{ inputs.judge_run_id }}
       BENCH_CALIBRATE: ${{ inputs.calibrate && 'yes' || '' }}
       BENCH_DECISION: ${{ inputs.decision }}
+      BENCH_IMPROVE: ${{ inputs.improve || 'no' }}
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
@@ -169,6 +178,8 @@ jobs:
           [[ "$BENCH_JUDGE_RUN_ID" =~ ^[0-9]{0,20}$ ]] || refuse "judge_run_id must be a run id, or empty."
           [[ "$BENCH_DECISION" =~ ^[a-z0-9@/._-]{0,64}$ ]] || refuse "decision must be a model id."
           [ -z "$BENCH_CALIBRATE" ] || [ -n "$BENCH_JUDGE_RUN_ID" ] || refuse "calibrate needs judge_run_id: the run whose judged answers to compare against."
+          [ "$BENCH_IMPROVE" = "no" ] || [ -z "$BENCH_JUDGE_RUN_ID$BENCH_CALIBRATE" ] || refuse "improve drafts from a round this run answers: leave judge_run_id and calibrate empty."
+          [ "$BENCH_IMPROVE" = "no" ] || [ "$BENCH_JOB" != "search" ] || refuse "improve drafts from a judged round; the search job has no judge."
 
       - name: Refuse to run without the keys a real round needs
         if: ${{ !inputs.fake }}
@@ -326,6 +337,68 @@ jobs:
           RESULT: ${{ steps.name.outputs.result }}
         run: pnpm ai publish "$RESULT" --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
+      # The loop's next step (bench/improve.mjs): one experiment drafted from
+      # the failures of the setup the round measured (live, unless the round
+      # left it out), written beside it in ai/setups/<job>/ where the AI tab
+      # lists it. It never promotes. A fake run drafts with a scripted
+      # improver and writes nothing to Context.
+      - name: Draft an improvement from the failures
+        id: improve
+        if: ${{ inputs.improve != 'no' && inputs.improve != '' && inputs.judge_run_id == '' && !inputs.calibrate && inputs.job != 'search' }}
+        env:
+          RESULT: ${{ steps.name.outputs.result }}
+        run: |
+          set -euo pipefail
+          if [ "$BENCH_SETUPS" = "all" ] || [[ ",$BENCH_SETUPS," == *",production,"* ]]; then base=production; else base="${BENCH_SETUPS%%,*}"; fi
+          args=("$RESULT" --setup "$base")
+          if [ -n "$BENCH_FAKE" ]; then args+=("$BENCH_FAKE"); else args+=(--publish); fi
+          name="$(pnpm --silent ai improve "${args[@]}")"
+          [[ "$name" =~ ^([a-z0-9][a-z0-9-]{0,63})?$ ]] || { echo "::error::the improver printed something that is not a setup name"; exit 1; }
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          if [ -z "$name" ]; then
+            echo "**Improve:** $base failed nothing and met every bar, so there was nothing to draft." >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "## Drafted: $name"
+              echo ""
+              grep -E '^(change|why): ' "apps/mcp/bench/ai/setups/$BENCH_JOB/$name.md" | sed 's/^/- /'
+              echo ""
+              echo "Written to ai/setups/$BENCH_JOB/$name.md. Run it against $base with setups \`$base,$name\`, or archive it from the AI tab."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # draft and test: the person who pressed Run asked for the second round
+      # too, so the draft runs against the setup it came from on the same test
+      # and cases, judged and scored the same way, as its own result.
+      - name: Run the draft against the setup it came from
+        id: retest
+        if: ${{ inputs.improve == 'draft and test' && steps.improve.outputs.name != '' }}
+        env:
+          RESULT: ${{ steps.name.outputs.result }}
+          BASE: ${{ steps.improve.outputs.base }}
+          DRAFT: ${{ steps.improve.outputs.name }}
+        run: |
+          set -euo pipefail
+          retest="${RESULT%.md} retest.md"
+          echo "result=$retest" >> "$GITHUB_OUTPUT"
+          echo "key=${retest%.md} key.md" >> "$GITHUB_OUTPUT"
+          args=("$BENCH_JOB" --parallel "$BENCH_PARALLEL" --out "$retest" --setups "$BASE,$DRAFT")
+          [ -n "$BENCH_TEST" ] && args+=(--test "$BENCH_TEST")
+          [ -n "$BENCH_QUESTIONS" ] && args+=(--questions "$BENCH_QUESTIONS")
+          [ -n "$BENCH_RUNS" ] && args+=(--runs "$BENCH_RUNS")
+          [ -n "$BENCH_FAKE" ] && args+=("$BENCH_FAKE")
+          pnpm ai run "${args[@]}"
+          judge=("$retest" --max-usd "$BENCH_MAX_USD")
+          [ -n "$BENCH_JUDGE" ] && judge+=(--judge "$BENCH_JUDGE")
+          [ -n "$BENCH_FAKE" ] && judge+=("$BENCH_FAKE")
+          pnpm ai judge "${judge[@]}"
+          pnpm ai score "$retest"
+          { echo ""; echo "## The draft against $BASE"; echo ""; pnpm --silent ai summary "$retest"; } >> "$GITHUB_STEP_SUMMARY"
+          if [ -z "$BENCH_FAKE" ]; then
+            pnpm ai publish "$retest" --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          fi
+
       # The publish may have signed in again after the hour: keep that token too.
       - name: Keep the runner's rotated token
         if: ${{ always() }}
@@ -353,6 +426,26 @@ jobs:
         with:
           name: benchmark-key
           path: ${{ steps.name.outputs.key }}
+          if-no-files-found: ignore
+          retention-days: 90
+
+      # Named outside `benchmark-*`, so a later judge_run_id of this run
+      # downloads the first round's result and key alone.
+      - name: Upload the draft's round
+        if: ${{ always() && steps.retest.outputs.result != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: retest-result
+          path: ${{ steps.retest.outputs.result }}
+          if-no-files-found: ignore
+          retention-days: 90
+
+      - name: Upload the draft's key, separately
+        if: ${{ always() && steps.retest.outputs.key != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: retest-key
+          path: ${{ steps.retest.outputs.key }}
           if-no-files-found: ignore
           retention-days: 90
 

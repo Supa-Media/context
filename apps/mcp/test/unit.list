@@ -59,6 +59,7 @@ test/managedEncryption.test.mjs
 test/meaningCatchup.test.mjs
 test/meaningSearch.test.mjs
 test/meaningServe.test.mjs
+test/meaningById.test.mjs
 test/meaningWrite.test.mjs
 test/meetingClaimTree.test.mjs
 test/meetingResolveTree.test.mjs
@@ -115,6 +116,7 @@ test/featureSwitches.test.mjs
 bench/test/calibrate.test.mjs
 bench/test/context.test.mjs
 bench/test/folder.test.mjs
+bench/test/improve.test.mjs
 bench/test/search.test.mjs
 bench/test/summary.test.mjs
 test/v2Actions.test.mjs

@@ -661,3 +661,52 @@ instead of running the job would pass a note the gateway refuses. Tests:
 model…"), `test/meetingSummary.test.mjs` ("a summary runs on the setup note's
 model and its Write and Check prompts…"), `bench/test/check.test.mjs`.
 
+### A failed round drafts its own next experiment, and a person runs it (2026-10-17)
+
+**Decided by the owner (2026-10-17)**: the benchmark should be a loop, not a
+report: golden tasks pass or fail with their cost and time, "and if not, we
+know how to improve it ... whether it's editing the prompt or changing the
+model". The rules of 2026-10-16 still bound it: the improver never promotes,
+and an AI starts a round only when a person asks.
+
+- **`pnpm ai improve <result>`** (`bench/improve.mjs`) reads a scored round
+  and shows one model (Opus 5.5 by default) the setup's whole file, its row
+  of scores against the test's bars, and every case it failed: the failed
+  lines with the judge's reason, the texts, the tools and the recorded
+  changes, two runs a case at most. It asks for ONE change as exact
+  find-and-replace edits on the file, the front matter included, so a model
+  change and a prompt change are the same kind of edit. The draft is written
+  beside the setups as an experiment in the AI tab's own shape (`title`,
+  `based_on`, `change`, `why`, `made_by: improver (...)`; live's `from`,
+  `live_since` and `promoted_by` dropped), and `--publish` writes it to
+  `@context-lc ai/setups/<job>/`, as a new note only.
+- **A draft that cannot be used is sent back with the reason**, up to three
+  times: an edit whose find is not in the file exactly once, no change, a
+  file `parseSetup` refuses, or a capitalised name the test uses mid-sentence
+  (a person, a place, a venue) that the setup never used. That last one is
+  the owner's 2026-10-10 rule held by code rather than by a prompt line: a
+  prompt that names the test's people was written for the test.
+- **It spends only when there is something to fix.** A setup that failed no
+  case and met every bar drafts nothing and makes no call; otherwise the
+  most three attempts could cost is printed first and refused over
+  `--max-usd` (default $1).
+- **The Action's `improve` input** is `no`, `draft` (draft and publish), or
+  `draft and test`: the person who pressed Run asked for a second round too,
+  so the draft runs against the setup it came from on the same test and
+  cases, is judged and scored the same way, and lands as its own
+  `… retest scores.md` beside the first. Its result and key upload as
+  `retest-result` and `retest-key`, outside the `benchmark-*` pattern that
+  `judge_run_id` downloads.
+
+**What a simplification would cost:** an improver that edits live, or
+promotes its own winner, ships a prompt nobody read; one that rewrites the
+whole prompt cannot be compared one change at a time and loses the prompt's
+voice; one that may name the test's people lifts the score and nothing
+else. Tests (`bench/test/improve.test.mjs`, `bench/test/context.test.mjs`):
+"a draft that names the test's people or places is refused", "the improver
+is asked again with the reason, and its usable draft is the one kept" (the
+`parseSetup` check sabotaged, it fails), "a scored round's failures become
+one experiment beside live, read by the gateway; live is untouched", "a
+setup that failed nothing and met every bar has nothing to improve, and
+spends nothing" (the early return sabotaged, it fails), "an improver's draft
+is written as a new setup beside live, and never over one already there".

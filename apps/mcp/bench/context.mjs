@@ -352,6 +352,21 @@ export async function publishResult({ result, runUrl = null, connection, fetchIm
   return path;
 }
 
+/**
+ * Write a drafted experiment into `ai/setups/<job>/` (`bench/improve.mjs`),
+ * where the AI tab lists it beside live and a person runs or archives it. A
+ * new note only: a draft never replaces a setup someone else wrote.
+ */
+export async function publishSetup({ job, name, file, connection, fetchImpl = fetch }) {
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(job) || !/^[a-z0-9][a-z0-9-]*$/.test(name) || name === LIVE_SETUP) throw new Error(`not a setup to write: ${job}/${name}`);
+  const path = `${SETUPS_FOLDER}/${job}/${name}.md`;
+  const existing = await callTool(connection, "read_note", { path }, fetchImpl);
+  if (!existing.isError) throw new Error(`${path} is already in Context: a draft never replaces a setup`);
+  const written = await callTool(connection, "write_note", { path, content: await readFile(file, "utf8"), summary: `improver draft for ${job}` }, fetchImpl);
+  if (written.isError) throw new Error(`write_note ${path}: ${written.text}`);
+  return path;
+}
+
 /** Where a result's replies note goes in Context: beside its scores note. */
 export function repliesPathFor(resultFile) {
   return `${RESULTS_FOLDER}/${repliesName(basename(resultFile, ".md"))}`;

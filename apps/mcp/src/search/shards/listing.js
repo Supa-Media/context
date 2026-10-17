@@ -1,5 +1,6 @@
 import { inWaves } from "../maintain.js";
 import { servedListingStore } from "../../tree/served.js";
+import { isNoteId } from "../../store/noteIdKeys.js";
 import { LIST_PAGE_LIMIT, MANIFEST_WRITE_RESERVE, FETCH_FLOOR, LIST_CONCURRENCY } from "./constants.js";
 
 // -- the listing walk ------------------------------------------------------
@@ -111,6 +112,9 @@ export async function listNoteObjects(store, budget, reserve, isIndexable) {
       // `indexVolumeOf` reads as one note's worth — the assumption counting
       // notes was already making.
       size: Number.isFinite(object.size) ? object.size : null,
+      // The tree's note id for the row, where the listing is the tree's and
+      // the row has one; a bucket's own listing never names one.
+      ...(isNoteId(object.noteId) ? { noteId: object.noteId } : {}),
     });
   };
 
