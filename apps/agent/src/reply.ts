@@ -99,6 +99,13 @@ export const COPY = {
   dailyLimit:
     "That's all the questions I can answer for you today. Text me again tomorrow.",
   unavailable: "Something went wrong on my side. Please try again in a minute.",
+  /**
+   * No bucket yet: right after setup by text, a new one takes a minute or two
+   * to answer (`setup.ts` says so), and a text in that window used to get
+   * `unavailable`, which reads as broken on the first try.
+   */
+  noStorage:
+    "Your notes aren't ready for me yet. If you just signed up, they're still being set up, so text me again in a couple of minutes. Otherwise, reconnect your storage in Context.",
 };
 
 export function linkCode(text: string): string | null {
@@ -193,6 +200,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
     }
     if (answer.kind === "no_model") return COPY.noModel;
     if (answer.kind === "daily_limit") return COPY.dailyLimit;
+    if (answer.kind === "no_storage") return COPY.noStorage;
     if (answer.kind === "not_started" && deps.retry) throw new TryLater();
     return COPY.unavailable;
   } catch (error) {

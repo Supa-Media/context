@@ -248,6 +248,17 @@ describe("replyTo", () => {
     expect(reply).toEqual([COPY.dailyLimit]);
   });
 
+  it("says the notes are still getting ready when the workspace has no bucket yet", async () => {
+    const reply = await replyTo(
+      message("hi"),
+      deps({
+        "/agent-texts/session": () => [200, { status: "linked", accessToken: "t" }],
+        "/agent": () => [503, { error: "storage_unavailable" }],
+      }),
+    );
+    expect(reply).toEqual([COPY.noStorage]);
+  });
+
   it("says something went wrong when the control plane or gateway fails", async () => {
     expect(await replyTo(message("hi"), deps({ "/agent-texts/session": () => [500, {}] }))).toEqual([
       COPY.unavailable,

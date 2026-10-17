@@ -10,6 +10,7 @@ import { APP_REVIEW_PHONE } from "./lib/reviewerAccount";
 import { attachedEmailsOf } from "./lib/signInEmails";
 import { joinedThroughDomain, ownedPersonalWorkspace } from "./lib/accountSetup";
 import { createWorkspaceHandler } from "./lib/workspaces/create";
+import { catchUpFoundingPremium } from "./lib/billing/founding";
 import { startTextedStorage } from "./lib/textSetup/storage";
 import { newPhoneAccount, phoneHolder } from "./phoneSignIn";
 import { scheduleSignInAlert } from "./signInAlerts";
@@ -154,6 +155,13 @@ async function setUp(
   askedId: Id<"textSetups">,
 ): Promise<SetupAnswer> {
   const userId = who.kind === "held" ? who.userId : await newPhoneAccount(ctx, phone);
+  // A new account among the first hundred is granted founding Premium here,
+  // not only by the walk `newPhoneAccount` schedules: the workspace below is
+  // then Premium from its first moment (`createWorkspaceHandler`), so its
+  // bucket starts once, as a founder's, and the first linked text is
+  // answered. Left to the scheduled walk, the bucket started as a free one
+  // and the walk's activation started a second provisioning beside it.
+  if (who.kind === "new") await catchUpFoundingPremium(ctx);
   const user = await ctx.db.get(userId);
   const displayName = user?.name?.trim() || handle;
   const { workspaceId, slug } = await createWorkspaceHandler(ctx, userId, { slug: handle, displayName, kind: "personal" });
