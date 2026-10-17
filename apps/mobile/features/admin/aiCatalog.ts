@@ -69,11 +69,8 @@ export interface AiJob {
  */
 export const AI_JOBS: readonly AiJob[] = [
   { key: "texting-assistant", label: "Tex, by text", group: "people", where: "Everyone with Tex", benchable: true, home: "note" },
-  { key: "app-assistant", label: "App assistant", group: "people", where: "Ask in the app", benchable: false, home: "note" },
   { key: "connected-ais", label: "Connected AIs", group: "people", where: "Claude, ChatGPT and others on the MCP", benchable: true, home: "theirs", model: "their own models" },
   { key: "dream", label: "Nightly dream", group: "background", where: "Tex's about-me, every night", benchable: true, home: "note" },
-  { key: "auto-organize", label: "Auto-organize", group: "background", where: "Sorting the inbox", benchable: false, home: "code", model: "Clef" },
-  { key: "what-changed", label: "What changed", group: "background", where: "Tidy-up suggestions", benchable: false, home: "code", model: "GLM-4.7 Flash" },
   { key: "meeting-transcription", label: "Meeting transcription", group: "other", where: "Recorded meetings", benchable: true, home: "none", model: "Whisper" },
   { key: "meeting-summaries", label: "Meeting summaries", group: "other", where: "Recorded meetings", benchable: true, home: "note" },
   // Search has no prompt: bge-m3 embeds, and its settings are tuned by `ai/setups/search/` (`bench/search.mjs`).
@@ -306,14 +303,11 @@ export function skillFolder(row: AiNoteRow): string {
 }
 
 /**
- * Where a job's model spend is counted in the AI costs report. Tex by text and
- * the app assistant are one `assistant` feature there, so both rows show it.
+ * Where a job's model spend is counted in the AI costs report. Tex by text is
+ * the `assistant` feature there.
  */
 export const COST_FEATURE: Readonly<Record<string, string>> = {
   "texting-assistant": "assistant",
-  "app-assistant": "assistant",
-  "auto-organize": "organizer",
-  "what-changed": "whatChanged",
   "meeting-transcription": "transcription",
   search: "meaning",
 };
