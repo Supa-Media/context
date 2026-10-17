@@ -44,8 +44,16 @@ import { filedNotes } from "./checks.mjs";
 import { realNow } from "./clock.mjs";
 import { benchFolder } from "./folder.mjs";
 
-/** The most texts the played person may send in one conversation. */
+/**
+ * The fewest texts the played person may send in one conversation. A brief
+ * with more "if asked" lines gets room for each of them plus the opening text
+ * and one more: golden task 7 (buy a domain) takes five, and at four the round
+ * of 2026-10-17 cut it off before Tex was told it could add the DNS records.
+ */
 const MAX_PERSON_TEXTS = 4;
+
+/** How many texts the played person may send for this question. */
+export const personTextLimit = (question) => Math.max(MAX_PERSON_TEXTS, (question.ifAsked?.length ?? 0) + 2);
 
 function parseArgs(argv) {
   // `pnpm ai search --fake` names no job: a first word that is a flag is one.
@@ -149,7 +157,8 @@ export async function converse(world, question, person, mode = null) {
   const conversation = [];
   const totals = { ms: 0, personMs: 0, tools: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, model: null, error: null };
   let message = question.personStarts ?? question.text;
-  for (let texts = 0; message !== null && texts < MAX_PERSON_TEXTS; texts += 1) {
+  const limit = personTextLimit(question);
+  for (let texts = 0; message !== null && texts < limit; texts += 1) {
     conversation.push({ from: "person", text: message });
     const seen = world.browser().length;
     const turn = await world.text(message);
