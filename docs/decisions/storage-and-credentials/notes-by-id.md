@@ -92,7 +92,8 @@ archive of a file or folder rewrites `nodes` rows and copies nothing:
   an interrupted rename. A failure before the claim needs a retry of
   `renameDocument`, which nothing makes yet.
 - **Not carried yet:** body links are not rewritten (forwarding covers them);
-  shares and routines are not re-keyed.
+  routines are not re-keyed. Shares need no carrying: they follow the note by
+  its id (below).
 
 **Known gap.** A rename can fail before the new name is claimed (the journal
 and the state freeze come first). Then the row has moved, the old head is still
@@ -255,3 +256,31 @@ What a "simplification" would cost: keeping the newest row, or re-id'ing without
 fresh-copy rule, leaves a note reading another's body; a repair that clears no copy
 record leaves the old copy marked fresh under a key that is no longer the row's.
 `sharedIds.test.ts` fails for each (the keeper sabotage, and the in-flight copy case).
+
+## A share link follows its note by id
+
+*Built on 2026-10-17.* A share row records the `noteId` of the row it was
+minted on (`noteShares.entryNoteId`), stamped at every mint and re-mint. The
+read path (`lib/shares/entryNote.ts`, `liveEntryOf`) resolves the share's note by
+that id when exactly one live row of the share's kind holds it, and then does
+not forward the path again: forwarding a live path could hand the link to
+whatever moved away from it. A link therefore reaches its note after any number
+of row moves, and a different note later created at the old path never borrows
+it.
+
+Where the id cannot answer, the minted path goes through the forwarding ledger
+exactly as before: a row minted before the field, a move in a workspace whose
+rows are not keyed yet (a byte move that does not carry the id gives the moved
+note a new one), and an id two live rows hold. A daily cron
+(`shares.stampEntryNoteIds`) fills the id on older rows, resolving each through
+the ledger first. Links stay share rows, never a value of a row's access, and
+nothing about who may read changes: the path reached is read at `team` scope
+through the live access rows, so a link followed into a private folder is
+absent.
+
+What a "simplification" would cost. Going back to the path loses links once the
+ledger forgets a move, and serves a new note at an old path. Forwarding the
+id-resolved path again lets a note that moved away lend its old address's
+ledger entry to the link of the note now there. `shareFollowsNoteId.test.ts`
+fails on each ("a renamed note opens with no forwarding left", "a note that
+moved away does not lend its old path's ledger entry to the note now there").

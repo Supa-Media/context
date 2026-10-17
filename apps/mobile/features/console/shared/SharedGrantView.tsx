@@ -13,6 +13,7 @@ import { useThemedStyles, type Colors } from "../../design/theme";
 import { baseName, displayName } from "../files/paths";
 import { SharedNoteShown, type Loaded } from "./SharedNoteView";
 import { grantQuery, type GrantTarget } from "./sharedGrant";
+import { useGrantEditor, type EditableNote } from "./useGrantEditor";
 import { itemTitle, SHARED_HREF, type SharedItem } from "./sharedInbox";
 
 /**
@@ -20,9 +21,11 @@ import { itemTitle, SHARED_HREF, type SharedItem } from "./sharedInbox";
  *
  * The same page a share is, with the read done by `shares.readGrantedNote` (a
  * note) or `shares.listGrantedFolder` (a folder), addressed by the grant's note
- * id or, for a note reached from a folder, its path. Read only: this never opens
- * a live room, so nothing here can write. A link inside a granted note opens
- * that note as a grant too, and the server refuses it unless it is granted.
+ * id or, for a note reached from a folder, its path. A note whose grant is
+ * edit opens in the same editor, writable, and saves through
+ * `shares.writeGrantedNote` (`useGrantEditor`); every other grant is read only.
+ * Neither opens a live room. A link inside a granted note opens that note as a
+ * grant too, and the server refuses it unless it is granted.
  */
 export function SharedGrantView({
   target,
@@ -72,6 +75,7 @@ function GrantedNote({
 }) {
   const read = useAction(api.functions.shares.readGrantedNote);
   const [loaded, setLoaded] = useState<Loaded>({ kind: "loading" });
+  const [editable, setEditable] = useState<EditableNote | null>(null);
   const { workspaceId } = target;
   const by = target.ref.by;
   const ref = target.ref.by === "id" ? target.ref.noteId : target.ref.path;
@@ -79,9 +83,12 @@ function GrantedNote({
   useEffect(() => {
     let live = true;
     setLoaded({ kind: "loading" });
+    setEditable(null);
     read(grantArgs(workspaceId, by, ref))
       .then((note) => {
-        if (live) setLoaded({ kind: "note", path: note.path, text: note.text });
+        if (!live) return;
+        setLoaded({ kind: "note", path: note.path, text: note.text });
+        if (note.canEdit && note.etag !== null) setEditable({ path: note.path, text: note.text, etag: note.etag });
       })
       .catch(() => {
         if (live) setLoaded({ kind: "refused" });
@@ -91,9 +98,12 @@ function GrantedNote({
     };
   }, [read, workspaceId, by, ref]);
 
+  const editing = useGrantEditor(workspaceId, editable);
+
   return (
     <SharedNoteShown
       loaded={loaded}
+      editing={editing}
       token={null}
       item={item}
       phone={phone}

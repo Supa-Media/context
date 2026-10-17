@@ -71,6 +71,20 @@ export const shareTables = {
      */
     entryPath: v.string(),
     /**
+     * The stable id of the row this share was minted on (`nodes.noteId`).
+     *
+     * **The share follows this, not `entryPath`.** A rename or a move changes a
+     * row's path and never its id, so a link already pasted somewhere reaches the
+     * note wherever it is now, and a different note that later sits at the old
+     * path is never served through it (`lib/shares/entryNote.ts`). `entryPath`
+     * stays as what the owner pointed at, for the re-share lookup and the history.
+     *
+     * Optional, and absent means the share predates this field: it is resolved
+     * through the forwarding ledger as before until `stampEntryNoteIds` fills it.
+     * An id no single live row holds falls back to the same ledger read.
+     */
+    entryNoteId: v.optional(v.string()),
+    /**
      * Whether `entryPath` is one note or a folder whose subtree this reaches.
      *
      * **Optional, and absent means `note`** — every row written before folder
@@ -349,6 +363,8 @@ export const shareTables = {
     /** "Shared with me": the `(kind, recipient)` prefix finds every share addressed to you. */
     .index("by_recipient", ["recipientKind", "recipient", "status"])
     .index("by_token", ["token"])
+    /** The rows `stampEntryNoteIds` still has to fill: those with no `entryNoteId`. */
+    .index("by_entryNoteId", ["entryNoteId"])
     /**
      * The one row a re-share must find. Sharing the same note with the same
      * person twice is one grant, not two — otherwise revoking would be a game

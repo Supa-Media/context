@@ -434,8 +434,7 @@ what was granted to them, read-only, and nothing else.
   the snapshot the readers judge by, and write one `access.list` row. Email grants
   are left as they are: they name an address, and the owner who wrote one takes
   it back. (An open question, below.)
-- **Edit is read as view.** An outsider's edit grant reads the note and writes
-  nothing in this slice.
+- **Edit writes the body, and nothing else.** See the next section.
 
 What a "simplification" would cost. Trusting the candidate grant row, instead of
 the names the live rows give, lets a revoked grant, or a grant a stale snapshot
@@ -454,3 +453,42 @@ reaches them as an outsider. Removing it too would be a second decision with its
 own cost (an owner who named a person by address and then removed them from the
 workspace for an unrelated reason would lose that address's grant without being
 asked), so this slice leaves it and says so.
+
+## An outsider with edit saves the note's body
+
+*Built on 2026-10-17.* An outsider whose grant on the row that governs a note is
+`edit` saves that note's body through `shares.writeGrantedNote`, and does
+nothing else with it. It is the member rule (`memberWrite.ts`, above) on the
+outsider's own view of the rows.
+
+- **Decided by the governing row, under the guest rendering.** `guestCanEdit`
+  (`lib/grants/outsider.ts`) asks that the path open to the outsider
+  (`guestCanSee`), that it be canonical, and that the row `governingRowOf`
+  finds for it names them with `edit`. A note's own list replaces its folder's,
+  so a folder edit grant does not reach a note whose list gives them view. A
+  `team` note inside a folder granted to them is closed, as it is for reading.
+- **A body write over a version they read.** `expectedEtag` is required (a
+  write with none would create a note), a form block is refused with
+  `GRANT_FORM_REFUSED` (its responses are a creation), and the path written is
+  the one `authorizeGrant` resolved, never the one typed. It goes through
+  `runFileOperation` at `team` scope with the outsider's names, the barrier a
+  member's edit grant writes through. A conflict passes through as the editor's
+  `CONFLICT`; every other refusal is `SHARE_UNAVAILABLE`. The save is audited in
+  the workspace's trail under the outsider's account.
+- **An editor reads the comments.** `readGrantedNote` keeps the comments block
+  and anchors for an outsider who may edit, because the save writes the whole
+  text back and stripping them would delete every thread. A reader still gets
+  them stripped, as a link does.
+- **In the app** the note opens in Shared with me in the same editor, writable,
+  with a "Can edit" pill (`useGrantEditor`): the editor reducer and autosave
+  every note uses, with each save sent through the grant. No live room is
+  opened for an outsider.
+
+What a "simplification" would cost. Reading `edit` off any row the outsider
+holds, instead of the governing one, lets a folder grant override a note's
+narrower list. Treating view as edit hands a reader the bytes. Stripping
+comments for an editor deletes threads on the first save.
+`outsiderEdit.test.ts` fails on each ("a note's own view list beats the
+folder's edit", "a view grant reads and cannot save", "an editor reads the
+comments, and a reader does not"), and `sharedGrantEdit.test.ts` pins the app
+wiring.
