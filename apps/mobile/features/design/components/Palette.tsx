@@ -106,9 +106,8 @@ import { FilterTokens, type PaletteFilters } from "./PaletteFilterTokens";
 /*                                  measures                                  */
 /* -------------------------------------------------------------------------- */
 
-import { POINTER_ROW_HEIGHT, PaletteRow } from "./PaletteRow";
-import { PaletteResultRow, isRich, rowHeight, rowTop } from "./PaletteResultRow";
-import { PaletteFoot, PREVIEW_MIN_WIDTH } from "./PaletteFoot";
+import { PaletteMatchRow, isRich, richListHeight, rowHeight, rowTop } from "./PaletteResultRow";
+import { PaletteFoot, PaletteSplit, previewPane } from "./PaletteFoot";
 
 export { POINTER_ROW_HEIGHT, TOUCH_ROW_HEIGHT, highlightRuns, secondLine } from "./PaletteRow";
 
@@ -126,7 +125,6 @@ const PANEL_TOP_MAX = 180;
  * spelled out even though only half of it typechecks.
  */
 const LISTBOX_ROLE = "listbox" as unknown as Role;
-
 
 /* -------------------------------------------------------------------------- */
 /*                                    props                                   */
@@ -562,9 +560,6 @@ export function Palette({
   const notes = looked?.notes !== false;
 
   const typedWords = useMemo(() => words.split(/[^\p{L}\p{N}]+/u), [words]);
-  const rich = matchItems.some(isRich);
-  // Answers are three lines each, so their list takes more of the window than nine one-line rows did.
-  const richListHeight = Math.max(POINTER_ROW_HEIGHT * 9, Math.min(600, Math.round(height * 0.62)));
   const list = (
     <ScrollView
       ref={scroller}
@@ -575,7 +570,7 @@ export function Palette({
       onLayout={onListLayout}
       onScroll={onListScroll}
       scrollEventThrottle={16}
-      style={touch ? styles.listTouch : rich ? [styles.listPointer, { maxHeight: richListHeight }] : styles.listPointer}
+      style={touch ? styles.listTouch : matchItems.some(isRich) ? [styles.listPointer, { maxHeight: richListHeight(height) }] : styles.listPointer}
       contentContainerStyle={styles.listContent}
     >
       {/*
@@ -611,30 +606,17 @@ export function Palette({
               {typing?.heading ?? filters?.idle?.heading}
             </Text>
           ) : null}
-          {isRich(match.item) ? (
-            <PaletteResultRow
-              match={match}
-              words={typedWords}
-              selected={index === selected}
-              touch={touch}
-              onPress={() => {
-                setCursor(index);
-                open(match.item);
-              }}
-              testID={`palette-row-${index}`}
-            />
-          ) : (
-            <PaletteRow
-              match={match}
-              selected={index === selected}
-              touch={touch}
-              onPress={() => {
-                setCursor(index);
-                open(match.item);
-              }}
-              testID={`palette-row-${index}`}
-            />
-          )}
+          <PaletteMatchRow
+            match={match}
+            words={typedWords}
+            selected={index === selected}
+            touch={touch}
+            onPress={() => {
+              setCursor(index);
+              open(match.item);
+            }}
+            testID={`palette-row-${index}`}
+          />
         </Fragment>
       ))}
       {/*
@@ -681,12 +663,7 @@ export function Palette({
     PANEL_TOP_MAX,
     Math.max(PANEL_TOP_MIN, Math.round(height * PANEL_TOP_FRACTION)),
   );
-  const highlighted = selected < 0 ? undefined : matchItems[selected];
-  const reading =
-    preview !== undefined && width >= PREVIEW_MIN_WIDTH && highlighted !== undefined && isRich(highlighted)
-      ? preview(highlighted, words)
-      : null;
-  const wide = preview !== undefined && width >= PREVIEW_MIN_WIDTH && rich;
+  const { wide, reading } = previewPane(preview, width, matchItems, selected, words);
 
   return (
     <Modal transparent animationType="fade" visible onRequestClose={onDismiss}>
@@ -713,16 +690,7 @@ export function Palette({
           {heading}
           {sourceNotice}
           {reducedRecallNotice}
-          {wide ? (
-            <View style={styles.split}>
-              <View style={styles.splitList}>{list}</View>
-              <View style={styles.splitPreview} testID="palette-preview">
-                {reading}
-              </View>
-            </View>
-          ) : (
-            list
-          )}
+          {wide ? <PaletteSplit list={list} preview={reading} /> : list}
           {onNarrowTree === undefined ? null : <PaletteFoot onNarrowTree={narrow} />}
         </Pressable>
       </Pressable>

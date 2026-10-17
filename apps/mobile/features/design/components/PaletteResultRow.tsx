@@ -4,7 +4,7 @@ import { WHY_LABEL, type Match, type PaletteItem } from "../../console/files/pal
 import { space } from "../tokens";
 import { useThemedStyles, type Colors } from "../theme";
 import { Text } from "./Text";
-import { POINTER_ROW_HEIGHT, TOUCH_ROW_HEIGHT, highlightRuns } from "./PaletteRow";
+import { POINTER_ROW_HEIGHT, PaletteRow, TOUCH_ROW_HEIGHT, highlightRuns } from "./PaletteRow";
 
 /**
  * A search answer's row: its name and reason, then the words from inside it
@@ -23,6 +23,11 @@ import { POINTER_ROW_HEIGHT, TOUCH_ROW_HEIGHT, highlightRuns } from "./PaletteRo
 
 export const RICH_POINTER_ROW_HEIGHT = 92;
 export const RICH_TOUCH_ROW_HEIGHT = 104;
+
+/** Answers are three lines each, so their list takes more of the window than nine one-line rows did. */
+export function richListHeight(windowHeight: number): number {
+  return Math.max(POINTER_ROW_HEIGHT * 9, Math.min(600, Math.round(windowHeight * 0.62)));
+}
 
 /** A note the search answered with, as opposed to a name, folder or command. */
 export function isRich(item: PaletteItem): boolean {
@@ -80,6 +85,13 @@ export function metaLine(item: PaletteItem, now?: number): string {
   return [item.detail, item.edited === undefined ? undefined : editedLabel(item.edited, now)]
     .filter((part): part is string => part !== undefined && part !== "")
     .join(" · ");
+}
+
+/** The row a match is drawn as: an answer's three lines, or the one-line row for everything else. */
+export function PaletteMatchRow(props: Parameters<typeof PaletteResultRow>[0]) {
+  if (isRich(props.match.item)) return <PaletteResultRow {...props} />;
+  const { words: _words, ...row } = props;
+  return <PaletteRow {...row} />;
 }
 
 export function PaletteResultRow({

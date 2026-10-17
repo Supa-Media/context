@@ -28,9 +28,6 @@ export const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   /** Room for the list and the highlighted note beside it (board B1). */
   panelWide: { maxWidth: 1040 },
-  split: { flexDirection: "row", alignItems: "stretch" },
-  splitList: { width: 520, flexShrink: 0, borderRightWidth: 1, borderRightColor: colors.line },
-  splitPreview: { flex: 1, minWidth: 0 },
   panelHeader: {
     flexDirection: "row",
     alignItems: "center",
