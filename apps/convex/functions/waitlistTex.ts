@@ -11,9 +11,11 @@
  * the moment, because a number off the list cannot text Tex at all.
  *
  * Never fails the Let in: a full list, a line with no list, or Linq being
- * down is logged and put on the admin trail under the staff member who let
- * the row in, and staff free a slot or add the number from Tex access. Only
- * a row still admitted is added, so one removed since Let in is not.
+ * down is logged and put on the admin trail under whoever acted (the staff
+ * member who let the row in, or the person confirming their phone), and
+ * staff free a slot or add the number from Tex access. Only a row still
+ * admitted is added, so one removed since Let in is not. A phone change
+ * takes the old number off first, so each person holds one slot.
  */
 
 import { v } from "convex/values";
@@ -26,7 +28,7 @@ import {
   type ActionCtx,
   type QueryCtx,
 } from "../_generated/server";
-import { addToLinqLineAt } from "./lib/adminFns/texAllowlist";
+import { addToLinqLineAt, removeFromLinqLine } from "./lib/adminFns/texAllowlist";
 import { recordAdminAudit } from "./lib/adminFns/audit";
 import { confirmedEmailsOf, currentPhoneOf } from "./lib/emailProof";
 
@@ -48,30 +50,55 @@ export const texFacts = internalQuery({
   },
 });
 
-/** The trail entry, under whoever let the row in. Last four digits only. */
+/**
+ * The trail entry, under whoever acted: `actorUserId` when a person changed
+ * it themselves (confirming a phone), else the staff member who let the row
+ * in. Last four digits only.
+ */
 export const recordOutcome = internalMutation({
-  args: { waitlistId: v.id("waitlist"), phone: v.string(), outcome: v.string() },
+  args: {
+    waitlistId: v.id("waitlist"),
+    phone: v.string(),
+    outcome: v.string(),
+    actorUserId: v.optional(v.id("users")),
+  },
   returns: v.null(),
   handler: async (ctx, args) => {
     const row = await ctx.db.get(args.waitlistId);
-    const staff = row?.admittedBy === undefined ? null : await ctx.db.get(row.admittedBy);
-    if (staff === null || staff.email === undefined) return null;
-    const actor = { userId: staff._id, email: staff.email };
-    const details = { phone: args.phone.slice(-4), via: "waitlist", outcome: args.outcome };
-    const action = args.outcome === "added" ? "tex.allowlist_added" : "tex.allowlist_refused";
+    const actingId = args.actorUserId ?? row?.admittedBy;
+    const acting = actingId === undefined ? null : await ctx.db.get(actingId);
+    if (acting === null || acting.email === undefined) return null;
+    const actor = { userId: acting._id, email: acting.email };
+    const via = args.actorUserId === undefined ? "waitlist" : "phone_confirmed";
+    const details = { phone: args.phone.slice(-4), via, outcome: args.outcome };
+    const action =
+      args.outcome === "added"
+        ? "tex.allowlist_added"
+        : args.outcome === "removed"
+          ? "tex.allowlist_removed"
+          : "tex.allowlist_refused";
     await recordAdminAudit(ctx, actor, action, "tex", details);
     return null;
   },
 });
 
+/** Who acted, and the number a phone change leaves behind. */
+export interface PutOnOptions {
+  actorUserId?: Id<"users">;
+  replaces?: string;
+}
+
 /**
  * Put the admitted row's phone on the list, and say the line's number when
  * the phone is on it (added now, or already), else `null`. Never throws.
+ * `replaces` comes off first, so a changed phone frees its old slot before
+ * the new one takes one, and a full list does not lock the person out.
  */
 export async function putOnTexLine(
   ctx: ActionCtx,
   waitlistId: Id<"waitlist">,
   phone?: string,
+  options: PutOnOptions = {},
 ): Promise<string | null> {
   const log = (event: string, extra: Record<string, unknown> = {}) =>
     console.log(JSON.stringify({ event: `waitlist_tex_${event}`, waitlistId, ...extra }));
@@ -83,18 +110,28 @@ export async function putOnTexLine(
       log("skipped", { reason: "linq_not_connected" });
       return null;
     }
-    const { change, line, unlimited } = await addToLinqLineAt({ LINQ_API_KEY: process.env.LINQ_API_KEY }, number);
+    const env = { LINQ_API_KEY: process.env.LINQ_API_KEY };
+    const record = async (phoneOf: string, outcome: string) =>
+      await ctx.runMutation(internal.functions.waitlistTex.recordOutcome, {
+        waitlistId,
+        phone: phoneOf,
+        outcome,
+        ...(options.actorUserId === undefined ? {} : { actorUserId: options.actorUserId }),
+      });
+    if (options.replaces !== undefined && options.replaces !== number) {
+      const removal = await removeFromLinqLine(env, options.replaces);
+      log(`old_${removal.status}`);
+      // Only a slot actually freed goes on the trail; "absent" changed nothing.
+      if (removal.status === "removed" || removal.status === "error") await record(options.replaces, removal.status);
+    }
+    const { change, line, unlimited } = await addToLinqLineAt(env, number);
     // A paid line has no list to be on, and "already" changed nothing.
     if (unlimited || change.status === "already") {
       log(unlimited ? "unlimited" : "already");
       return line;
     }
     log(change.status, change.status === "error" ? { reason: change.error } : {});
-    await ctx.runMutation(internal.functions.waitlistTex.recordOutcome, {
-      waitlistId,
-      phone: number,
-      outcome: change.status,
-    });
+    await record(number, change.status);
     return change.status === "added" ? line : null;
   } catch {
     log("failed", { reason: "unexpected" });
@@ -120,10 +157,16 @@ export async function admittedRowOf(ctx: QueryCtx, userId: Id<"users">): Promise
 
 /** For a row the "You're in" text does not cover: an address, or a row told already. */
 export const putOnLine = internalAction({
-  args: { waitlistId: v.id("waitlist"), phone: v.optional(v.string()) },
+  args: {
+    waitlistId: v.id("waitlist"),
+    phone: v.optional(v.string()),
+    actorUserId: v.optional(v.id("users")),
+    replaces: v.optional(v.string()),
+  },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await putOnTexLine(ctx, args.waitlistId, args.phone);
+    const { actorUserId, replaces } = args;
+    await putOnTexLine(ctx, args.waitlistId, args.phone, { actorUserId, replaces });
     return null;
   },
 });

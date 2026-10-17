@@ -16,7 +16,10 @@ import { after, before, beforeEach, test } from "node:test";
 
 import worker from "../src/index.js";
 import { DEFAULT_BUILTIN_MODEL, DEFAULT_GATEWAY_MODEL } from "../src/agent/builtin.js";
-import { PRODUCTION_APP_PATH, PRODUCTION_TEXTING_PATH, parseSetup } from "../src/agent/production.js";
+import { PRODUCTION_TEXTING_PATH, parseSetup } from "../src/agent/production.js";
+
+/** The retired app assistant's note (removed by the owner, 2026-10-17), left in the bucket to prove nothing reads it. */
+const RETIRED_APP_PATH = "ai/production/app-assistant.md";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { BUILTIN_ALLOWED, systemText } from "./agentModelFixture.mjs";
@@ -245,7 +248,7 @@ after(() => {
 beforeEach(() => {
   gatewayCalls.length = 0;
   pinnedBucket.set("privacy.md", { body: manifest(), etag: "p1" });
-  pinnedBucket.set(PRODUCTION_APP_PATH, { body: setupFile({ prompt: WHO }), etag: "a0" });
+  pinnedBucket.set(RETIRED_APP_PATH, { body: setupFile({ prompt: WHO }), etag: "a0" });
   pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: setupFile(), etag: "s0" });
 });
 
@@ -267,10 +270,10 @@ test("a texted turn is told the texting production prompt, and not the app one",
   assert.ok(system.includes("you change notes yourself when they ask"), "what the code decides is still said");
 });
 
-test("an app turn reads the app file, not the texting one", async () => {
+test("an app turn has no production setup: the built-in words, and the retired app file is never read", async () => {
   await ask(onGateway, TOKEN_APP);
   const system = gatewaySystem();
-  assert.ok(system.includes(WHO));
+  assert.ok(!system.includes(WHO), "the retired app file is not read");
   assert.ok(!system.includes(PROMPT));
   assert.ok(system.includes("Cite the note path"));
 });

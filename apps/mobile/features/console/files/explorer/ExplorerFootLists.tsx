@@ -12,9 +12,7 @@ import { PeopleList } from "../../agents/ActiveBar";
 import type { AgentActivityView } from "../../agents/agentActivity";
 import { ACTIVITY_PATH, emptyLine, type ActivityView } from "../../activity/activity";
 import type { ExplorerProps } from "./props";
-import { ACTIVITY_LIFT, AGENTS_LINE_HEIGHT, makeStyles } from "./styles";
-import { useOrganizerUndoFor, useOrganizerView } from "../../../organizer/OrganizerContext";
-import { changesCount } from "../../../organizer/rules";
+import { makeStyles } from "./styles";
 import type { ExplorerState } from "./useExplorer";
 
 /**
@@ -46,15 +44,7 @@ export function ExplorerFootLists({
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
-  const organizer = useOrganizerView();
-  const undoFor = useOrganizerUndoFor();
-  /*
-    The popovers sit above the foot's lines, and auto-organize's "What
-    changed" is one more of them — so every popover rises by it, or the list
-    covers the line.
-  */
-  const organizerLine = changesCount(organizer?.status ?? null) !== null;
-  const lift = organizerLine ? { bottom: (sheetLift?.bottom ?? ACTIVITY_LIFT) + AGENTS_LINE_HEIGHT } : sheetLift;
+  const lift = sheetLift;
   return (
     <>
       {/*
@@ -75,7 +65,6 @@ export function ExplorerFootLists({
               seenAt={activity.seenAt}
               now={activityOpen}
               empty={emptyLine(access !== undefined)}
-              undoFor={undoFor}
               onOpen={(path) => {
                 setActivityOpen(null);
                 activity.markSeen();

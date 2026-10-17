@@ -176,7 +176,7 @@ test("pullSetups brings the job's skills folder too, and nothing deeper", async 
 test("pullSetups runs the live setup as production, beside the setups being tried", async () => {
   const notes = {
     "ai/production/texting-assistant.md": "---\nmodels:\n  main: anthropic/claude-haiku-5-5\n---\n\nLive.\n",
-    "ai/production/app-assistant.md": "---\nmodels:\n  main: anthropic/claude-haiku-5-5\n---\n\nAnother job.\n",
+    "ai/production/other-job.md": "---\nmodels:\n  main: anthropic/claude-haiku-5-5\n---\n\nAnother job.\n",
     "ai/setups/texting-assistant/guide.md": "---\njob: texting-assistant\n---\n\nGuide.\n",
     "ai/setups/texting-assistant/production.md": "---\njob: texting-assistant\n---\n\nAn old copy someone named production.\n",
   };

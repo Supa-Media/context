@@ -17,8 +17,8 @@
  *   workspace, so an owner of two answers for each.
  * - `store`: where the answer is kept. `messageReads` is the shared table;
  *   `own` is a message whose answer already lives on the row it is about
- *   (the setup checklist on the membership, auto-organize's notice on its
- *   settings) and so is only arbitrated here, never written through it.
+ *   (the setup checklist on the membership) and so is only arbitrated here,
+ *   never written through it.
  * - `askAgainAfterMs`: a message that may come back, at most this often.
  *   Absent means answered for good.
  * - `variants`: whether an answer is kept per variant (see
@@ -65,8 +65,6 @@ export const IN_APP_MESSAGES = {
     store: "messageReads",
     variants: true,
   },
-  /** Auto-organize's one-time notice for people already on Premium. */
-  "organizer-notice": { kind: "tip", priority: 30, scope: "workspace", store: "own" },
   /** The one-time storage layout update. */
   "storage-layout-offer": { kind: "tip", priority: 20, scope: "workspace", store: "messageReads" },
   /** "Track these folders by status?" */

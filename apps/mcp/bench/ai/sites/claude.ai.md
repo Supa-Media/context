@@ -27,11 +27,11 @@ text: How can I help you today?
 title: Connectors | Claude
 signed in only
 text: Connectors let Claude use your tools and data.
-text: Context is not added yet.
-text (added claude): Context: added, not connected. Press Connect to sign in to it.
+text (!added claude): Context is not added yet.
+text (added claude, !connected claude): Context: added, not connected. Press Connect to sign in to it.
 text (connected claude): Context: connected. Choose when Claude may use its tools.
 - button: Add custom connector -> https://claude.ai/customize/connectors?modal=add-custom-connector
-- button (added claude): Connect -> https://context.lc/authorize?client=claude
+- button (added claude, !connected claude): Connect -> https://context.lc/authorize?client=claude
 - select (connected claude): Read-only tools (Needs approval, Always allow)
 - select (connected claude): Write/delete tools (Needs approval, Always allow)
 

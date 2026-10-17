@@ -12,8 +12,8 @@ import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { type JevCtx, withJev } from "../functions/lib/jev/client";
 import { JEV_FEATURES } from "../functions/lib/jev/features";
-import { addModelUsage, costMicroUsd, estimateTokens, utcDay, writingCostMicroUsd } from "../functions/lib/jev/meter";
-import { CLEF_MODEL, GEMMA_MODEL, GLM_MODEL } from "../functions/lib/jev/models";
+import { addModelUsage, costMicroUsd, estimateTokens, utcDay } from "../functions/lib/jev/meter";
+import { CLEF_MODEL, GLM_MODEL } from "../functions/lib/jev/models";
 import type { JevTransport } from "../functions/lib/jev/worker";
 import { BUILTIN_FEATURE } from "../functions/builtinModel";
 import { createUser, createWorkspace, asUser, gatewayPost, setupTest, type TestConvex } from "./fixtures.helpers";
@@ -186,19 +186,12 @@ describe("a built-in turn names its model", () => {
 
 describe("a Jev answer names its models", () => {
   const REQUEST = { state: "Shipped the fix on Tuesday.", questions: { shipped: { type: "noul", instructions: "Did it ship?", criteria: { true: "yes", false: "no" } } } };
-  const WRITE = { instructions: "What changed?", text: "Dana left on Friday.", schema: { type: "object" } };
-  const WRITTEN = { output: { changes: [] }, usage: { input: 1_000_000, output: 100_000 } };
-
-  function fakeTransport(answer: Record<string, unknown> | null = { shipped: { type: "noul", noul: 0.9 } }, written: typeof WRITTEN | null = WRITTEN) {
-    const sent: { model?: string }[] = [];
+  function fakeTransport(answer: Record<string, unknown> | null = { shipped: { type: "noul", noul: 0.9 } }) {
+    const sent: unknown[] = [];
     const transport: JevTransport = {
       async send(request) {
-        sent.push(request as { model?: string });
+        sent.push(request);
         return answer;
-      },
-      async write(request) {
-        sent.push(request as { model?: string });
-        return written;
       },
     };
     return { transport, sent };
@@ -223,54 +216,37 @@ describe("a Jev answer names its models", () => {
     return workspaceId;
   }
 
-  test("a decide and a write produce a Clef row and a GLM row whose costs sum to the jevUsage cost", async () => {
+  test("a decide produces a Clef row whose cost sums to the jevUsage cost", async () => {
     const t = setupTest();
     const workspaceId = await payingWorkspace(t);
     const { transport } = fakeTransport();
-    await withJev(jevCtx(t), { feature: "organizer", workspaceId, transport }, async (jev) => {
+    await withJev(jevCtx(t), { feature: "ownerSuggest", workspaceId, transport }, async (jev) => {
       expect(await jev!.decide(REQUEST)).not.toBeNull();
-      expect(await jev!.write(WRITE)).toEqual(WRITTEN);
     });
     const decideTokens = estimateTokens(REQUEST.state.length + JSON.stringify(REQUEST.questions).length);
     const rows = await modelRows(t, workspaceId);
-    expect(rowFor(rows, CLEF_MODEL, "organizer")).toMatchObject({ calls: 1, inputTokens: decideTokens, outputTokens: 0, costMicroUsd: costMicroUsd(decideTokens) });
-    expect(rowFor(rows, GLM_MODEL, "organizer")).toMatchObject({ calls: 1, inputTokens: 1_000_000, outputTokens: 100_000, costMicroUsd: 100_000 });
-    expect(rows).toHaveLength(2);
-    expect(sumCost(rows)).toBe((await jevCost(t, "organizer", workspaceId))!.costMicroUsd);
-  });
-
-  test("a gemma write is counted under gemma's model id", async () => {
-    const t = setupTest();
-    const workspaceId = await payingWorkspace(t);
-    const { transport, sent } = fakeTransport();
-    await withJev(jevCtx(t), { feature: "organizer", workspaceId, transport }, async (jev) => {
-      await jev!.write({ ...WRITE, model: "gemma" });
-    });
-    expect(sent[0]).toMatchObject({ model: "gemma" });
-    const rows = await modelRows(t, workspaceId);
+    expect(rowFor(rows, CLEF_MODEL, "ownerSuggest")).toMatchObject({ calls: 1, inputTokens: decideTokens, outputTokens: 0, costMicroUsd: costMicroUsd(decideTokens) });
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ model: GEMMA_MODEL, calls: 1, costMicroUsd: writingCostMicroUsd(WRITTEN.usage) });
-    expect(sumCost(rows)).toBe((await jevCost(t, "organizer", workspaceId))!.costMicroUsd);
+    expect(sumCost(rows)).toBe((await jevCost(t, "ownerSuggest", workspaceId))!.costMicroUsd);
   });
 
   test("failed answers add no model rows", async () => {
     const t = setupTest();
     const workspaceId = await payingWorkspace(t);
-    const { transport } = fakeTransport(null, null);
-    await withJev(jevCtx(t), { feature: "organizer", workspaceId, transport }, async (jev) => {
+    const { transport } = fakeTransport(null);
+    await withJev(jevCtx(t), { feature: "ownerSuggest", workspaceId, transport }, async (jev) => {
       expect(await jev!.decide(REQUEST)).toBeNull();
-      expect(await jev!.write(WRITE)).toBeNull();
     });
     expect(await modelRows(t, workspaceId)).toEqual([]);
-    expect(await jevCost(t, "organizer", workspaceId)).toMatchObject({ calls: 0, failed: 2 });
+    expect(await jevCost(t, "ownerSuggest", workspaceId)).toMatchObject({ calls: 0, failed: 1 });
   });
 
   test("a refused gate writes nothing to aiModelUsage", async () => {
     const t = setupTest();
     const workspaceId = await payingWorkspace(t);
-    await t.run((ctx) => ctx.db.insert("jevSwitches", { feature: "organizer", off: true, updatedAt: Date.now() }));
+    await t.run((ctx) => ctx.db.insert("jevSwitches", { feature: "ownerSuggest", off: true, updatedAt: Date.now() }));
     const { transport, sent } = fakeTransport();
-    await withJev(jevCtx(t), { feature: "organizer", workspaceId, transport }, async (jev) => {
+    await withJev(jevCtx(t), { feature: "ownerSuggest", workspaceId, transport }, async (jev) => {
       expect(jev).toBeNull();
     });
     expect(sent).toHaveLength(0);
@@ -281,7 +257,7 @@ describe("a Jev answer names its models", () => {
     const t = setupTest();
     const workspaceId = await payingWorkspace(t);
     await t.mutation(internal.functions.jev.recordUsage, {
-      feature: "organizer",
+      feature: "ownerSuggest",
       workspaceId,
       calls: 1,
       failed: 0,
@@ -293,7 +269,7 @@ describe("a Jev answer names its models", () => {
     });
     const rows = await modelRows(t, workspaceId);
     expect(rows).toEqual([expect.objectContaining({ model: CLEF_MODEL, calls: 1, costMicroUsd: 240_000 })]);
-    expect((await jevCost(t, "organizer", workspaceId))!.costMicroUsd).toBe(240_000);
+    expect((await jevCost(t, "ownerSuggest", workspaceId))!.costMicroUsd).toBe(240_000);
   });
 });
 
@@ -306,10 +282,10 @@ describe("addModelUsage", () => {
     const zero = { calls: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, costMicroUsd: 0 };
     const one = { ...zero, calls: 1, input: 10, costMicroUsd: 2 };
     await t.run(async (ctx) => {
-      await addModelUsage(ctx, "organizer", workspaceId, "bad model", one, now);
-      await addModelUsage(ctx, "organizer", workspaceId, "", one, now);
-      await addModelUsage(ctx, "organizer", workspaceId, "a".repeat(129), one, now);
-      await addModelUsage(ctx, "organizer", workspaceId, CLEF_MODEL, zero, now);
+      await addModelUsage(ctx, "ownerSuggest", workspaceId, "bad model", one, now);
+      await addModelUsage(ctx, "ownerSuggest", workspaceId, "", one, now);
+      await addModelUsage(ctx, "ownerSuggest", workspaceId, "a".repeat(129), one, now);
+      await addModelUsage(ctx, "ownerSuggest", workspaceId, CLEF_MODEL, zero, now);
     });
     expect(await modelRows(t, workspaceId)).toEqual([]);
   });
@@ -319,7 +295,7 @@ describe("addModelUsage", () => {
     const owner = await createUser(t, "long-owner@example.invalid");
     const workspaceId = await createWorkspace(t, owner, "long-studio", { kind: "shared" });
     const name = "a".repeat(128);
-    await t.run((ctx) => addModelUsage(ctx, "organizer", workspaceId, name, { calls: 1, input: 1, output: 0, cacheRead: 0, cacheWrite: 0, costMicroUsd: 1 }, Date.now()));
+    await t.run((ctx) => addModelUsage(ctx, "ownerSuggest", workspaceId, name, { calls: 1, input: 1, output: 0, cacheRead: 0, cacheWrite: 0, costMicroUsd: 1 }, Date.now()));
     expect(await modelRows(t, workspaceId)).toHaveLength(1);
   });
 });

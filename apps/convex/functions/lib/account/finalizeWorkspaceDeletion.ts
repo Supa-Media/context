@@ -41,13 +41,6 @@ export async function finalizeWorkspaceDeletion(
     .collect();
   for (const state of websiteStates) await ctx.db.delete(state._id);
 
-  // Auto-organize's switches and counters; its suggestions are in the bucket.
-  const organizer = await ctx.db
-    .query("organizerSettings")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-    .collect();
-  for (const row of organizer) await ctx.db.delete(row._id);
-
   // Members' answers to this workspace's in-app messages: labels and times.
   const messageReads = await ctx.db
     .query("messageReads")

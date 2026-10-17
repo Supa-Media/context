@@ -6,7 +6,6 @@ import {
   useOptionalLocalSearchParams,
 } from "../../app/useOptionalLocalSearchParams";
 import { resolveContextRoute, settingsFromQuery, type ConsoleRoute } from "../nav";
-import { changesFromQuery } from "../../organizer/changesRoute";
 import { mapFromQuery } from "../map/live/route";
 import type { ConsoleData } from "../types";
 import type { ConsoleRouter } from "./types";
@@ -28,7 +27,6 @@ export function useConsoleParams() {
     settings?: string | string[];
     checkout?: string | string[];
     connect?: string | string[];
-    changes?: string | string[];
     map?: string | string[];
   }>();
   const openSettingsSection = settingsFromQuery(settingsParams.settings);
@@ -45,10 +43,8 @@ export function useConsoleParams() {
   );
   // The guided agent setup, over whatever is open — see `AgentSetupOverlay`.
   const connectAgent = agentFromQuery(settingsParams.connect);
-  // What changed, drawn where a note would be — see `WhatChangedPage`.
-  const changesOpen = changesFromQuery(settingsParams.changes);
   const mapOpen = mapFromQuery(settingsParams.map);
-  return { quickParams, openSettingsSection, checkoutReturn, connectAgent, changesOpen, mapOpen };
+  return { quickParams, openSettingsSection, checkoutReturn, connectAgent, mapOpen };
 }
 
 /**

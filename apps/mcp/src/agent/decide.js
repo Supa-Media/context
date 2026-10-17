@@ -5,7 +5,7 @@
  * it was given (`choice`) or places text on a scale (`score`), in tens of
  * milliseconds. The agent uses it for the small choices that would otherwise
  * cost a whole round of the writing model; see `computer.js`. It reads,
- * stores and trains on nothing it is sent, the same seam as auto-organize
+ * stores and trains on nothing it is sent, the same seam as the icon picker
  * (`infra/transcribe-worker/src/decide.ts`, docs/decisions/storage-and-credentials/inference.md).
  *
  * Only a built-in turn uses it, because only a built-in turn is metered: what

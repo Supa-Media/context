@@ -299,6 +299,16 @@ export function webSession(computer, question, { decide = null, search = null, a
       browser?.vouch(text);
     },
     /**
+     * `delegate` handed a job off (`delegate.js`): its start address may be
+     * opened, and its message typed there and only there.
+     */
+    delegated(url, message) {
+      const start = canonicalUrl(url);
+      if (start === null) return;
+      allowed.add(start);
+      browser?.delegateValue(new URL(start).hostname, message);
+    },
+    /**
      * The setup's trusted sites (`trustedSites.js`): any page of theirs with
      * no query string may be opened without the person writing its address.
      */

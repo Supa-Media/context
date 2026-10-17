@@ -139,6 +139,34 @@ function snapshot(bucket) {
 }
 
 /**
+ * Read a streamed `/agent` answer the way the texting Worker does
+ * (`apps/agent/src/clients.ts` `askAgentStreaming`): each `{"progress"}` line
+ * is a text sent, ticks are skipped, and the last `{status, body}` line is the
+ * turn's own answer. A reply that is not a stream (refused before the turn
+ * ran) is read as plain JSON; a stream with no final line is a failed turn.
+ */
+export async function readStream(response) {
+  if (!(response.headers.get("content-type") ?? "").includes("application/x-ndjson")) {
+    return { response, body: await response.json().catch(() => null), progress: [] };
+  }
+  const progress = [];
+  const text = await response.text();
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (!line) continue;
+    let parsed;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (typeof parsed?.progress === "string" && parsed.progress.trim()) progress.push(parsed.progress.trim());
+    else if (typeof parsed?.status === "number") return { response: { status: parsed.status }, body: parsed.body ?? null, progress };
+  }
+  return { response: { status: 502 }, body: { error: "stream ended with no answer" }, progress };
+}
+
+/**
  * Register every workspace and fill its bucket, from the fixture or from a
  * prepared run's snapshot. Every workspace exists whoever is asking, so a leak
  * is a real leak. `search` is `null` (no search database: the cold world),
@@ -345,23 +373,29 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       const { ctx, settle } = createWorkerCtx();
       // The real clock, not the world's: a turn's recorded time is how long it took.
       const started = realNow();
-      const response = await worker.fetch(
+      // Asked for as a stream, as the texting Worker asks (`apps/agent/src/clients.ts`):
+      // a streamed turn is the long one, with the setup's max_steps, and a
+      // plain JSON ask would measure the quick turn's 8 rounds instead.
+      const streamed = await worker.fetch(
         new Request("https://mcp.bench.invalid/agent", {
           method: "POST",
-          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/x-ndjson" },
           body: JSON.stringify({ question: message, conversation: "texts" }),
         }),
         env,
         ctx,
       );
+      const { response, body, progress } = await readStream(streamed);
       const ms = realNow() - started;
-      const body = await response.json().catch(() => null);
       await settle();
       const turn = controlPlane.turnReports.at(-1) ?? {};
       const usage = controlPlane.builtinReports.at(-1) ?? {};
       return {
         ok: response.status === 200 && typeof body?.answer === "string",
         answer: body?.answer ?? "",
+        // Lines the turn texted while it worked: each is a text the person got,
+        // sent before the answer, as the texting Worker sends them (`apps/agent/src/inbox.ts`).
+        progress,
         // Held calls the answer asks a YES for (`route.js`); the played person answers.
         asked: typeof body?.asked === "number" ? body.asked : 0,
         // The gateway hides a provider's reason from the caller; the turn log

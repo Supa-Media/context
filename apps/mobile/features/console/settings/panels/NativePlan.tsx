@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { View } from "react-native";
 import { Button } from "../../../design/components/Button";
 import { Card } from "../../../design/components/Card";
@@ -6,11 +6,10 @@ import { Text } from "../../../design/components/Text";
 import { EXPORT_PROMISE, managedMigrationCopy, premiumStateOf, type PremiumView } from "./premium";
 
 /** The native companion displays the current plan without selling it. */
-export function NativePlan({ view, onOpenStorage, onDownload, autoOrganize }: {
+export function NativePlan({ view, onOpenStorage, onDownload }: {
   view: PremiumView;
   onOpenStorage?: () => void;
   onDownload?: () => void;
-  autoOrganize?: { top?: ReactNode; afterIncludes?: ReactNode };
 }) {
   const [working, setWorking] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -19,7 +18,6 @@ export function NativePlan({ view, onOpenStorage, onDownload, autoOrganize }: {
   return (
     <View>
       <Text variant="paneTitle">Current plan</Text>
-      {autoOrganize?.top}
       <Card>
         <Text variant="rowTitle" testID="native-plan-title">
           {view.status === null ? (view.loading ? "Loading…" : "Plan unavailable") :
@@ -49,7 +47,6 @@ export function NativePlan({ view, onOpenStorage, onDownload, autoOrganize }: {
         /> : null}
         {failed ? <Text variant="foot" role="status">That did not go through. Check your connection and try again.</Text> : null}
       </Card>}
-      {autoOrganize?.afterIncludes}
       {onOpenStorage ? <Button label="Storage settings" onPress={onOpenStorage} /> : null}
       {onDownload ? <Button label="Download all notes" onPress={onDownload} /> : null}
       <Text variant="foot">{EXPORT_PROMISE}</Text>

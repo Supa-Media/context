@@ -2,7 +2,7 @@
  * `POST /decide` — one piece of note text and a few typed questions in, typed
  * answers out, nothing kept.
  *
- * The auto-organize sweep's only way to reach Clef, Cloudflare's decision
+ * The control plane's only way to reach Clef, Cloudflare's decision
  * model, which Workers AI serves as `@cf/cloudflare/clef` and which reads,
  * stores and trains on nothing it is sent. Clef never writes text: it answers yes/no (`noul`), picks one of the options it was
  * given (`choice`), or places the text on a scale (`score`). The reasoning for

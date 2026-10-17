@@ -77,11 +77,16 @@ test("a scripted model connects ChatGPT through the gateway and the scripted sit
   try {
     const first = await world.text("can you make sure my chatgpt is properly set up to use context");
     assert.equal(first.ok, true);
-    assert.match(first.answer, /https:\/\/app\.bench\.invalid\/tex\/maya$/, "the gateway appended the person's own take-over page");
-    assert.ok(!first.answer.includes(LIVE_VIEW_ORIGIN), "and never the browser's own live-view link");
+    // A streamed turn, as the texting Worker asks for, texts the person's own
+    // take-over page the moment it exists, as a progress line (`browse.js` `say`).
+    assert.ok(
+      first.progress.some((line) => /https:\/\/app\.bench\.invalid\/tex\/maya$/.test(line)),
+      "the gateway texted the person's own take-over page",
+    );
+    assert.ok(![...first.progress, first.answer].some((text) => text.includes(LIVE_VIEW_ORIGIN)), "and never the browser's own live-view link");
     tools.push(...first.tools);
     const second = await world.text("Done, I'm signed in");
-    assert.match(second.answer, /take over the browser on context\.lc/);
+    assert.match(second.progress.join("\n"), /take over the browser on context\.lc/);
     tools.push(...second.tools);
     const third = await world.text("Done");
     tools.push(...third.tools);

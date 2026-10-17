@@ -25,7 +25,6 @@ import type { GroupsView } from "./groups/groups";
 import type { MembersView } from "./members/members";
 import type { FastSearchView } from "./search/fastSearch";
 import type { SharesView } from "./shares/shares";
-import type { OrganizerView } from "../organizer/useOrganizer";
 import type { ChaosSource } from "../chaos/useChaosScore";
 import type { ConnectFormValues } from "./storage/connect";
 import type { NoteLimit } from "./noteLimit";
@@ -458,11 +457,6 @@ export interface ConsoleData {
    * the demo console and until the first answer lands.
    */
   agents?: AgentActivityView;
-  /**
-   * Auto-organize for the selected workspace (`features/organizer`). Absent on
-   * the demo console; every surface treats absence as drawing nothing.
-   */
-  organizer?: OrganizerView;
   /**
    * The chaos score for the selected workspace (`features/chaos`). Absent on
    * the demo console; every surface treats absence as drawing nothing.

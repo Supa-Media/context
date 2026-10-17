@@ -421,8 +421,8 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     from: [
       /*
         The live map is not a route of its own: it is `?map=1` on this page, a
-        page in the document slot over Browse, the way What changed is
-        `?changes=1`. So its two ways in are claims about this route, and its
+        page in the document slot over Browse. So its two ways in are claims
+        about this route, and its
         navigation is `router.setParams` on the route it is already on.
       */
       {
@@ -434,7 +434,7 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
         navigation: [
           {
             file: "features/console/map/live/route.ts",
-            contains: ['router.setParams({ map: "1", changes: undefined, settings: undefined })'],
+            contains: ['router.setParams({ map: "1", settings: undefined })'],
           },
         ],
         region: "screen",

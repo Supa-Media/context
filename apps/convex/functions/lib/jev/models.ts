@@ -9,9 +9,13 @@
 
 /** Jev's `decide`: the Cloudflare model that answers the yes/no questions. */
 export const CLEF_MODEL = "@cf/cloudflare/clef";
-/** Jev's `write` by default, and the built-in texting model. */
+/** The built-in texting model. */
 export const GLM_MODEL = "@cf/zai-org/glm-4.7-flash";
-/** Jev's `write` when a request asks for `model: "gemma"`. */
+/**
+ * The second writing model What changed could ask for. Nothing calls it since
+ * that feature was removed (the owner, 2026-10-17); kept so the AI costs
+ * report still names and prices the usage rows it left behind.
+ */
 export const GEMMA_MODEL = "@cf/google/gemma-4-26b-a4b-it";
 /**
  * Meeting summaries' model, as the gateway names it: the Anthropic model the

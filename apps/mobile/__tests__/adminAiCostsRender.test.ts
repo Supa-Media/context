@@ -116,11 +116,11 @@ function report(over: Partial<AiCostsReport> = {}): AiCostsReport {
     perQuestionUsd: 0.0018,
     features: [
       {
-        feature: "whatChanged",
-        label: "What changed",
+        feature: "meetingSummary",
+        label: "Meeting summaries",
         models: ["@cf/zai-org/glm-4.7-flash"],
         uses: 640,
-        unit: "new items",
+        unit: "requests",
         eachUsd: 0.0016,
         costUsd: 1.01,
       },
@@ -134,8 +134,8 @@ function report(over: Partial<AiCostsReport> = {}): AiCostsReport {
         costUsd: 0.75,
       },
       {
-        feature: "organizer",
-        label: "Auto-organize",
+        feature: "iconSuggest",
+        label: "Icon suggestions",
         models: ["@cf/cloudflare/clef"],
         uses: 398,
         unit: "notes",
@@ -159,14 +159,14 @@ function report(over: Partial<AiCostsReport> = {}): AiCostsReport {
         day: "2026-10-06",
         byFeature: [
           { feature: "assistant", costUsd: 0.2 },
-          { feature: "whatChanged", costUsd: 0.1 },
+          { feature: "meetingSummary", costUsd: 0.1 },
         ],
       },
       {
         day: "2026-10-07",
         byFeature: [
           { feature: "assistant", costUsd: 0.31 },
-          { feature: "whatChanged", costUsd: 0.1 },
+          { feature: "meetingSummary", costUsd: 0.1 },
         ],
       },
     ],
@@ -179,8 +179,8 @@ function report(over: Partial<AiCostsReport> = {}): AiCostsReport {
         costUsd: 0.62,
         byFeature: [
           { feature: "assistant", costUsd: 0.34 },
-          { feature: "whatChanged", costUsd: 0.22 },
-          { feature: "organizer", costUsd: 0.06 },
+          { feature: "meetingSummary", costUsd: 0.22 },
+          { feature: "iconSuggest", costUsd: 0.06 },
         ],
         questionsToday: 34,
         questionsCap: 100,
@@ -191,7 +191,7 @@ function report(over: Partial<AiCostsReport> = {}): AiCostsReport {
         plan: "Premium",
         workspaces: 1,
         costUsd: 0.48,
-        byFeature: [{ feature: "whatChanged", costUsd: 0.48 }],
+        byFeature: [{ feature: "meetingSummary", costUsd: 0.48 }],
         questionsToday: 6,
         questionsCap: 100,
       },
@@ -226,12 +226,12 @@ function account(over: Partial<NonNullable<AccountShape>> = {}): AccountShape {
     busiestDay: { day: "2026-10-06", costUsd: 0.06 },
     today: [
       { feature: "assistant", label: "Texting assistant", used: 34, cap: 100 },
-      { feature: "whatChanged", label: "What changed", used: 12, cap: 100 },
+      { feature: "meetingSummary", label: "Meeting summaries", used: 12, cap: 100 },
     ],
     rows: [
       { workspace: "maya", feature: "assistant", label: "Texting assistant", models: ["@cf/zai-org/glm-4.7-flash", "@cf/cloudflare/clef"], costUsd: 0.34 },
-      { workspace: "maya", feature: "whatChanged", label: "What changed", models: ["@cf/zai-org/glm-4.7-flash"], costUsd: 0.15 },
-      { workspace: "northwind", feature: "organizer", label: "Auto-organize", models: ["@cf/cloudflare/clef"], costUsd: 0.04 },
+      { workspace: "maya", feature: "meetingSummary", label: "Meeting summaries", models: ["@cf/zai-org/glm-4.7-flash"], costUsd: 0.15 },
+      { workspace: "northwind", feature: "iconSuggest", label: "Icon suggestions", models: ["@cf/cloudflare/clef"], costUsd: 0.04 },
     ],
     ...over,
   };
@@ -246,7 +246,7 @@ describe("the AI costs view, wide", () => {
     expect(find("ai-costs-tile-spent")?.textContent).toContain("$3.27");
     expect(find("ai-costs-tile-spent")?.textContent).toContain("+$1.90 vs the 30 days before");
     expect(find("ai-costs-tile-per-account")?.textContent).toContain("$0.24");
-    expect(find("ai-costs-tile-top-feature")?.textContent).toContain("What changed");
+    expect(find("ai-costs-tile-top-feature")?.textContent).toContain("Meeting summaries");
     expect(find("ai-costs-tile-per-question")?.textContent).toContain("$0.0018");
     expect(find("ai-costs-feature-assistant")?.textContent).toContain("Texting assistant");
     expect(find("ai-costs-model-@cf/zai-org/glm-4.7-flash")?.textContent).toContain("GLM-4.7 Flash");
@@ -303,7 +303,7 @@ describe("the AI costs view, on a phone", () => {
   test("the tiles and the two plain lists, with no daily bars and no model table", () => {
     mount(createElement(AiCostsView, { report: report(), cloudflare: cloudflareOn, onOpenAccount: () => {} }));
     expect(find("ai-costs-tile-spent")).not.toBeNull();
-    expect(find("ai-costs-feature-whatChanged")).not.toBeNull();
+    expect(find("ai-costs-feature-meetingSummary")).not.toBeNull();
     expect(find("ai-costs-no-account-transcription")).not.toBeNull();
     expect(find("ai-costs-days")).toBeNull();
     expect(find("ai-costs-models")).toBeNull();

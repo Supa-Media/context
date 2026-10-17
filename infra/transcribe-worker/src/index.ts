@@ -142,7 +142,6 @@
 import { isAuthorized } from "./auth";
 import { handleDecide } from "./decide";
 import { handleEmbed } from "./embed";
-import { handleExtract } from "./extract";
 import { CALLER_HEADER, checkRateLimit, readCaller } from "./rateLimit";
 import type { RateLimiter } from "./rateLimit";
 import type { BoundedBody } from "./transcribe";
@@ -308,17 +307,13 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
       rateLimit: typeof env.TRANSCRIBE_RATE_LIMIT?.limit === "function",
     });
   }
-  // Clef, for the auto-organize sweep. Its own module; same secret, same rules.
+  // Clef, for the control plane's small decisions (icon and owner suggestions). Its own module; same secret, same rules.
   if (request.method === "POST" && path === "/decide") {
     return handleDecide(request, env);
   }
   // Meaning fingerprints, for the icon picker's suggestion. Same secret, same rules.
   if (request.method === "POST" && path === "/embed") {
     return handleEmbed(request, env);
-  }
-  // A writing model, for "What changed". Its own module; same secret, same rules.
-  if (request.method === "POST" && path === "/extract") {
-    return handleExtract(request, env);
   }
   if (request.method !== "POST" || path !== "/transcribe") {
     return json(404, { error: "not found" });

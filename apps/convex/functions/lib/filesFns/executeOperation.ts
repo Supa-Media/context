@@ -87,7 +87,6 @@ import {
 import { toConvexError } from "./operationErrors";
 import { executeContextMoveOperation, isContextMoveOperation } from "./contextMoveOperations";
 import { executePluginOperation } from "./executePluginOperation";
-import { runOrganizerOperation } from "../organizer/sweepOps";
 
 
 /**
@@ -472,8 +471,6 @@ export async function executeOperation(
         const found = await listFolderPaths(store, { clearance });
         return { kind: "folderPaths", ...found };
       }
-      case "organizer":
-        return { kind: "organizerResult", output: await runOrganizerOperation(store, clearance, operation, now, actor) };
       case "routineRuns":
         return { kind: "routineRuns", runs: await readRoutineRuns(store, { path: operation.path, clearance }) };
       case "readActivity": {
