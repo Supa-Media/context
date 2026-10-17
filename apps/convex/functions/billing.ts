@@ -81,7 +81,8 @@ import {
   refreshNoteCountHandler,
   startFreeManagedHandler,
 } from "./lib/billing/freeManaged";
-import { storeSelectionAtUpgrade } from "./lib/billing/upgradeSelection";
+import { activateWithoutStripe, storeSelectionAtUpgrade } from "./lib/billing/upgradeSelection";
+import { foundingStatus } from "./lib/billing/founding";
 import { startManagedMoveIfChosen } from "./lib/billing/managedMove";
 
 /**
@@ -123,26 +124,10 @@ export const activateTestPremium = mutation({
       throw new ConvexError({ code: "FORBIDDEN", message: "This test upgrade is not available." });
     }
 
-    if ((await planFor(ctx, args.workspaceId))?.status === "active") return { active: true };
     // One plan: the upgrade fills in what it buys (`selectionAtUpgrade`).
-    const { plan, selected } = await storeSelectionAtUpgrade(ctx, args.workspaceId);
-    const now = Date.now();
-    await ctx.db.patch(plan._id, { status: "active", updatedAt: now });
-
-    if (selected.managedStorage) {
-      const binding = await ctx.db
-        .query("storageBindings")
-        .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-        .unique();
-      if (!bindingIsManaged(binding, args.workspaceId)) {
-        await ctx.db.patch(plan._id, { managedProvisioning: "running" });
-        await ctx.scheduler.runAfter(
-          0,
-          internal.functions.managedProvisioning.provisionManagedStorage,
-          { workspaceId: args.workspaceId },
-        );
-      }
-    }
+    const activated = await activateWithoutStripe(ctx, args.workspaceId);
+    if (activated === null) return { active: true };
+    const { selected } = activated;
     await recordAudit(ctx, {
       workspaceId: args.workspaceId,
       actorUserId: userId,
@@ -564,6 +549,9 @@ export const applyStripeEvent = internalMutation({
     } else {
       return { applied: false, reason: "not_paid" };
     }
+    // A founding plan is Premium whatever Stripe says: a founder who once
+    // subscribed, and cancels, keeps it (`lib/billing/founding.ts`).
+    status = foundingStatus(plan, status);
 
     /*
       NOBODY EVER PAYS FOR NOTHING.

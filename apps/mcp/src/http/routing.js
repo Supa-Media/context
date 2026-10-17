@@ -52,6 +52,29 @@ export function attachLinkCalls(store, session, controlPlane, env) {
     writable: false,
     configurable: true,
   });
+  // An email the person said yes to (`tools/email.js`), sent through their
+  // own Gmail. The control plane picks the sender off this token and holds the limits.
+  Object.defineProperty(store, "email", {
+    value: {
+      check: (email) => controlPlane.sendPersonEmail(session.accessToken, session.workspaceId, email, { check: true }),
+      send: (email) => controlPlane.sendPersonEmail(session.accessToken, session.workspaceId, email),
+    },
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+  // Setting a workspace up (`tools/workspaces.js`): created as this person,
+  // laid out or connected in this context. The control plane clears each.
+  Object.defineProperty(store, "workspaceSetup", {
+    value: {
+      create: (request) => controlPlane.createWorkspace(session.accessToken, session.workspaceId, request),
+      layout: (request) => controlPlane.layoutWorkspace(session.accessToken, session.workspaceId, request),
+      connectGoogle: (kind) => controlPlane.connectGoogle(session.accessToken, session.workspaceId, kind),
+    },
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
   // A website's status, check or publish (`write_note` `site`), for this context.
   Object.defineProperty(store, "site", {
     value: (request) => controlPlane.site(session.accessToken, session.workspaceId, request),

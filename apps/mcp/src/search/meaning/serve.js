@@ -18,7 +18,9 @@
  * Absent index, a model that is down, a Vectorize that refuses: the word
  * answer comes back exactly as it would have, and the failure is one log line
  * with a closed code. The extra work is bounded: one embedding, one query, and
- * at most `MEANING_SNIPPET_READS` note reads for the matches the words missed.
+ * snippets for at most `MEANING_SNIPPET_READS` matches the words missed: one
+ * statement to the search database where the context has one, else that many
+ * note reads.
  */
 
 import { ACTIVITY_PATH } from "../../../../../packages/shared/src/activity.cjs";
@@ -30,6 +32,8 @@ import { meaningPassages, rankMeaningMatches } from "./project.js";
 import { meaningEmbedderFor } from "./store.js";
 import { DEFAULT_SEARCH_SETTINGS, searchSettingsOf } from "../settings.js";
 import { logicalPath, pendingMovesOf, readAtTreeName } from "../../moves/queued.js";
+import { createD1Client } from "../d1/client.js";
+import { passageSnippets } from "../d1/passages.js";
 
 /**
  * The closeness below which a match is noise rather than "the same topic".
@@ -193,6 +197,53 @@ async function meaningSnippet(store, match, chars = 200, isVisible) {
   return { title: noteTitle(match.path, text), snippets: line ? [line] : [] };
 }
 
+/** The gateway store's search database, as `snippetsFor` asks it, or `null` when it has none. */
+function projectionOf(store) {
+  const descriptor = store?.searchIndex;
+  if (!(descriptor?.state === "ready" || descriptor?.state === "backfilling")) return null;
+  return { client: () => createD1Client(descriptor), filling: descriptor.state === "backfilling" };
+}
+
+/**
+ * Snippets for the notes found only by meaning, by entry: out of the search
+ * database in one statement where the context has one (`d1/passages.js`),
+ * else a read of each note, all at once.
+ *
+ * A note the database holds no row for is dropped when the database is
+ * ready, since a ready database holds every note the writes have kept; a
+ * filling one has not copied everything yet, so the note is read instead. A
+ * statement that failed reads them all, the way a context with no database
+ * does. Either way a note a queued move is carrying somewhere the caller may
+ * not see is never opened, as `readAtTreeName` keeps it unread.
+ */
+async function snippetsFor(store, reading, chars, isVisible, given) {
+  const read = async (entries) =>
+    Promise.all(entries.map(async (entry) => [entry, await meaningSnippet(store, entry.meaning, chars, isVisible)]));
+  const projection = given ?? projectionOf(store);
+  if (reading.length === 0 || !projection) return new Map(await read(reading));
+  const pending = pendingMovesOf(store?.pendingMoves);
+  const askable = reading.filter((entry) => {
+    const named = pending.length > 0 ? logicalPath(entry.meaning.path, pending) : entry.meaning.path;
+    return named === entry.meaning.path || (typeof isVisible === "function" && isVisible(named));
+  });
+  let answered = null;
+  try {
+    answered = await passageSnippets(projection.client(), askable.map((entry) => entry.meaning), chars);
+  } catch {
+    answered = null;
+  }
+  if (answered === null) return new Map(await read(askable));
+  const out = new Map();
+  const unread = [];
+  for (const entry of askable) {
+    const snippet = answered.get(entry.meaning.path);
+    if (snippet) out.set(entry, snippet);
+    else if (projection.filling) unread.push(entry);
+  }
+  for (const [entry, snippet] of await read(unread)) out.set(entry, snippet);
+  return out;
+}
+
 /**
  * The word search's answer with the meaning matches folded in, in the word
  * search's own hit shape plus `meaningOnly`. Every word hit stays; at most
@@ -216,10 +267,15 @@ async function meaningSnippet(store, match, chars = 200, isVisible) {
  * @param {object} store
  * @param {{hits: any[], matchCount?: number}} found
  * @param {any} matches
+ * `projection` is the search database to take snippets from, for a caller
+ * that holds its own client (the console): `{client: () => client, filling}`.
+ * Absent, it is the store's own (`store.searchIndex`), or none.
+ *
  * @param {{ keyField?: string, extraNotes?: number, snippetChars?: number,
- *   isVisible?: (path: string) => boolean }} [options]
+ *   isVisible?: (path: string) => boolean,
+ *   projection?: {client: () => object, filling: boolean} }} [options]
  */
-export async function withMeaning(store, found, matches, { keyField = "key", extraNotes, snippetChars, isVisible } = {}) {
+export async function withMeaning(store, found, matches, { keyField = "key", extraNotes, snippetChars, isVisible, projection } = {}) {
   const settings = searchSettingsOf(store);
   const most = typeof extraNotes === "number" ? extraNotes : settings.extraNotes;
   const chars = typeof snippetChars === "number" ? snippetChars : settings.snippetChars;
@@ -238,9 +294,7 @@ export async function withMeaning(store, found, matches, { keyField = "key", ext
   // The notes read for a snippet, all at once: one after another they were a
   // read's wait each, up to six in a row per workspace.
   const reading = merged.filter((entry) => !entry.word).slice(0, readCap);
-  const reads = new Map(
-    await Promise.all(reading.map(async (entry) => [entry, await meaningSnippet(store, entry.meaning, chars, isVisible)])),
-  );
+  const reads = await snippetsFor(store, reading, chars, isVisible, projection);
   const out = [];
   // The evidence behind each hit, beside the hits rather than on them: a
   // search across workspaces (`tools/search.js`) ranks by it, since one

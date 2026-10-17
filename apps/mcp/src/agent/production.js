@@ -389,3 +389,31 @@ export async function readProductionSkill(store, session, path) {
     return null;
   }
 }
+
+/**
+ * Who may call a helper agent, from its note's `callers:` in the pinned
+ * workspace (`ai/agents/<key>.md`, the AI tab's "who may call it" switches):
+ * a list of job keys, or `null` when the note is absent, unreadable or has no
+ * `callers:` line. Read as a setup is, through the caller's own reach. Never throws.
+ */
+export async function readHelperCallers(store, session, key) {
+  if (typeof key !== "string" || !/^[a-z][a-z0-9-]{0,40}$/.test(key)) return null;
+  try {
+    return await readPinnedNote(await pinnedReach(store, session), `ai/agents/${key}.md`, helperCallersOf);
+  } catch {
+    return null;
+  }
+}
+
+/** `callers: [a, b]` or `callers: a, b` in a note's front matter, or `null`. */
+export function helperCallersOf(raw) {
+  const front = typeof raw === "string" ? FRONT_MATTER.exec(raw) : null;
+  if (!front) return null;
+  const line = front[1].split(/\r?\n/).find((entry) => /^callers:/.test(entry));
+  if (line === undefined) return null;
+  const value = line.slice("callers:".length).trim().replace(/^\[(.*)\]$/, "$1");
+  return value
+    .split(",")
+    .map((item) => item.trim().replace(/^["']|["']$/g, ""))
+    .filter((item) => /^[a-z][a-z0-9-]{0,40}$/.test(item));
+}

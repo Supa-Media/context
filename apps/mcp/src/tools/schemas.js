@@ -19,6 +19,8 @@ import { activityToolDefinitions } from "./schemas/activity.js";
 import { routingToolDefinitions } from "./schemas/routing.js";
 import { feedbackToolDefinitions } from "./schemas/feedback.js";
 import { vaultToolDefinitions } from "./schemas/vault.js";
+import { emailToolDefinitions } from "./schemas/email.js";
+import { workspaceToolDefinitions } from "./schemas/workspaces.js";
 import { v2ToolDefinitions } from "./v2/schemas.js";
 
 export function baseToolDefinitions() {
@@ -34,6 +36,8 @@ export function baseToolDefinitions() {
     ...routingToolDefinitions(),
     ...feedbackToolDefinitions(),
     ...vaultToolDefinitions(),
+    ...emailToolDefinitions(),
+    ...workspaceToolDefinitions(),
     ...v2ToolDefinitions(),
   ];
 }

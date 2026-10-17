@@ -73,6 +73,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Storage we run is offered wherever a context is made, personal or shared
 - What is deliberately not built
 - The free managed tier
+- Founding Premium: the first 100 accounts
 
 ## [Identity, grants, invitations, and ingestion](./identity-and-access.md)
 
@@ -175,6 +176,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A drawing merges by element, and by Excalidraw's own rules
 - A new argument reaches a client that a new tool cannot
 - [Six tools that never change, and new capabilities are actions](./gateway-protocol/six-tools.md)
+- [An agent sets a workspace up, and only a third party's sign-in needs a browser](./gateway-protocol/workspace-setup.md)
 - [A CLI learns its workspaces from `scope_info`, as data; the metadata names the app](./gateway-protocol/cli-workspaces.md)
 - [An agent reports a problem through the bug button's intake](./gateway-protocol/report-problem.md)
 - [Agents remember facts with one tool, and the note stays clean](./gateway-protocol/remember.md)
@@ -528,6 +530,9 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - What is deliberately not built
 - iMessage reads `chat.db` in place, through the one binary every Mac already has
 - The destination rule is shared, so the field can say something before Save
+- No email leaves without the person's yes to that exact copy (owner, 2026-10-17)
+- Rate limits live in the control plane, and are all-or-none
+- Mail goes out through the person's own Gmail, and waits for Google (owner, 2026-10-17)
 
 ## [The desktop shell](./desktop.md)
 
@@ -692,6 +697,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Every turn knows the time where the person is (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Tex keeps a daily transcript in the person's own tex/ folder (2026-10-15)](./texting-assistant/transcripts.md)
 - [Tex dreams once a night, and keeps `tex/about-me.md` current (2026-10-15)](./texting-assistant/dreams.md)
+- [Tex keeps house: it organizes the workspace itself, and every change can be put back (2026-10-17)](./texting-assistant/housekeeping.md)
 - [Every turn knows which workspaces there are, and writes where the project is (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Tex keeps its thinking from one step to the next (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Tex's jobs are task notes on the project's board (2026-10-14)](./texting-assistant/tool-shelf.md)

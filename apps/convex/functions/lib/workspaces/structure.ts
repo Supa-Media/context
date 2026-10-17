@@ -8,7 +8,6 @@
  */
 
 import { ConvexError } from "convex/values";
-import { requireAuthId } from "@supa-media/convex/auth";
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
@@ -19,15 +18,20 @@ import { requireWorkspaceRole, workspaceNotFound } from "../workspaceAuth";
 import { APPLY_STRUCTURE_LIMIT, APPLY_STRUCTURE_WINDOW_MS } from "./constants";
 import { folderRejectionError } from "./errors";
 
+/**
+ * `userId` is the authenticated caller: the app's signed-in user, or the
+ * person a gateway grant resolved to (`gatewayRoutes/workspaces.ts`). The
+ * owner check below is the same for both.
+ */
 export async function applyStructureHandler(
   ctx: MutationCtx,
+  userId: Id<"users">,
   args: {
     workspaceId: Id<"workspaces">;
     template: "para" | "custom";
     folders?: { folder: string; description: string }[];
   },
 ): Promise<{ queued: boolean; template: string; folders: string[] }> {
-  const userId = (await requireAuthId(ctx)) as Id<"users">;
   await requireWorkspaceRole(ctx, args.workspaceId, userId, "owner");
 
   // Read here, and handed to the scaffolder below, because it decides what

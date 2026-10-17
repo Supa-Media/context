@@ -85,12 +85,24 @@ export const ACTIONS = {
     vault_add: { tool: "vault_add_link", summary: "Get a link where the person saves a login or secret.", take: plain },
     vault_share: { tool: "vault_share_link", summary: "Get a link to give a saved login to another member.", take: plain },
     vault_view: { tool: "vault_view_link", summary: "Get a link where the person sees a saved entry.", take: plain },
+    create_workspace: {
+      tool: "create_workspace",
+      summary: "Create a shared workspace the person owns; dry_run checks the @handle is free.",
+      take: plain,
+    },
+    layout: { tool: "apply_layout", summary: "Lay down a workspace's starting folders, or add one built-in folder.", take: plain },
+    connect_google: { tool: "connect_google", summary: "Get the link where the person connects Gmail or Calendar.", take: plain },
   },
   send: {
     api: {
       tool: "vault_list",
       summary: "Call an API with a key from the vault; the key is added for you and never shown.",
       take: (call) => ({ fetch: call.args || {} }),
+    },
+    email: {
+      tool: "send_email",
+      summary: "Send one email as the person through their Gmail, once they say yes to that exact email.",
+      take: plain,
     },
   },
 };

@@ -50,7 +50,8 @@ export function v2ToolDefinitions() {
       description:
         "Change where something lives or who sees it, in ways Context can undo: move, move_many, " +
         "move_folder, archive, visibility, folder_visibility, encrypt, review_proposal, suggest_destination, " +
-        "website, share_link, revoke_link, vault_add, vault_share, vault_view. Ask the person before anything " +
+        "website, share_link, revoke_link, vault_add, vault_share, vault_view, create_workspace, layout, " +
+        "connect_google. Ask the person before anything " +
         "that lets more people see something. orient lists every action and its args.",
       inputSchema: {
         type: "object",
@@ -68,7 +69,7 @@ export function v2ToolDefinitions() {
       title: "Send",
       description:
         "Do something outside Context that cannot be taken back: api calls a site with a key saved in the " +
-        "vault, which you never see. Ask the person first. orient lists every action and its args.",
+        "vault, which you never see; email sends one email as the person, once they say yes to it. Ask the person first. orient lists every action and its args.",
       inputSchema: {
         type: "object",
         properties: {

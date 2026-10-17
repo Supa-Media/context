@@ -20,16 +20,31 @@ export function approvalVerdict(text) {
 
 /** The line a texted answer ends with when the turn held something for the person. */
 export function askLine(asked) {
-  const what = asked.map((record) => record.summary).join("; ");
+  // An email is shown whole: the person can allow only the copy they read (`emailGate.js`).
+  const emails = asked.filter((record) => typeof record.detail === "string");
+  if (emails.length > 0 && emails.length === asked.length) {
+    const copies = emails.map((record) => clean(record.detail)).join("\n\n---\n\n");
+    return `Here ${emails.length === 1 ? "is the email" : "are the emails"} I'd send:\n\n${copies}\n\nReply YES to send ${emails.length === 1 ? "it" : "them"} now, or NO to drop ${emails.length === 1 ? "it" : "them"}.`;
+  }
+  const what = asked.map((record) => (typeof record.detail === "string" ? `${record.summary}:\n\n${clean(record.detail)}\n\n` : record.summary)).join("; ");
   return `Before I ${asked.length === 1 ? "do that" : "do those"}, I need your OK: ${what}. Reply YES to go ahead, or NO to drop it.`;
 }
+
+/** Control characters and bidi overrides out of words the model wrote, before a person reads them. */
+function clean(text) {
+  return text.replace(/[\u0000-\u0008\u000b-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, "");
+}
+
+/** An email is sent only on the word it asked for: "ok" or "sure" to an email is not a yes. */
+const EMAIL_YES = /^\s*yes\s*[.!]*\s*$/i;
+const EMAIL_TOOL = "send_email";
 
 /**
  * Settle what this thread's latest ask put to the person, as their text said.
  * Returns the reply, or null when nothing was waiting — in which case the text
  * is an ordinary one and the model answers it.
  */
-export async function settleByText(store, session, verdict) {
+export async function settleByText(store, session, verdict, texted = "") {
   // Only what this thread asked about, lately, and not since moved on from: a
   // yes here never releases a call some other client raised that the person was
   // not told of. Every record left armed was asked in the thread's latest ask,
@@ -38,6 +53,8 @@ export async function settleByText(store, session, verdict) {
   if (waiting.length === 0) return null;
   const replies = [];
   for (const { record } of [...waiting].reverse()) {
+    // Left unsettled, the email is disarmed with the rest when the text goes on to the model.
+    if (verdict === "approve" && record.tool === EMAIL_TOOL && !EMAIL_YES.test(texted)) continue;
     const settled = await settlePending(store, record.id, {
       userId: session.actorUserId,
       action: verdict,

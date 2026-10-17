@@ -98,6 +98,13 @@ crons.interval("arm Tex's first dreams", { hours: 24 }, internal.functions.dream
  */
 crons.interval("empty the trash", { hours: 24 }, internal.functions.trash.emptyDue, {});
 
+/**
+ * Grant founding Premium to accounts still owed it (`lib/billing/founding.ts`),
+ * so accounts made before it shipped do not wait for the next sign-up. Once
+ * the hundred are granted it returns at its first read.
+ */
+crons.interval("grant founding Premium", { hours: 1 }, internal.functions.foundingPremium.catchUp, {});
+
 crons.interval(
   "re-read routine folders",
   { hours: 6 },

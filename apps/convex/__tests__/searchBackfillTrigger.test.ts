@@ -119,6 +119,8 @@ describe("the trigger", () => {
 
   test("the chain schedules its next link, and only while there is one to do", async () => {
     const { t, workspaceId } = await opted({ notes: 3 });
+    // The census is the tree's names: with no tree the link lists nothing and copies nothing.
+    await copyTree(t, workspaceId);
 
     // One link over the whole fixture finishes it, so nothing follows: `ready`
     // ends the chain as surely as no progress does.
@@ -128,11 +130,11 @@ describe("the trigger", () => {
     // And a link that cannot finish the job schedules exactly one more —
     // never a fan-out, whatever it moved.
     const { t: t2, workspaceId: w2 } = await opted({ notes: 3 });
+    await copyTree(t2, w2);
     await t2.action(internal.functions.files.runFileOperation, {
       workspaceId: w2,
       scope: "private" as const,
-      // A cap of zero notes: the R2 index advances, the copy does not, which
-      // is the cold-workspace link.
+      // A link that cannot finish the job.
       operation: { kind: "projectIndex" as const, passes: 4 },
     });
     expect((await queued(t2, "runFileOperation")).length).toBeLessThanOrEqual(1);
@@ -140,6 +142,7 @@ describe("the trigger", () => {
 
   test("the chain runs out of links rather than running forever", async () => {
     const { t, workspaceId } = await opted({ notes: 3 });
+    await copyTree(t, workspaceId);
 
     // The last link of a chain schedules nothing even if it moved something.
     await t.action(internal.functions.files.runFileOperation, {
@@ -209,6 +212,7 @@ describe("the trigger", () => {
     // reach the credential and fails on the missing binding — so the quiet
     // return above is the guard working, not the fixture being inert.
     const { t: t2, workspaceId: w2 } = await opted({ notes: 3 });
+    await copyTree(t2, w2);
     await t2.run(async (ctx) => {
       for (const binding of await ctx.db.query("storageBindings").collect()) {
         await ctx.db.delete(binding._id);

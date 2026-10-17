@@ -70,8 +70,10 @@ import { runAgentRoutineTexChecks } from "./agentRoutineTex.test.mjs";
 import { runAgentDelegateRouteChecks } from "./agentDelegateRoute.test.mjs";
 import { runAgentTranscriptChecks } from "./agentTranscriptRoute.test.mjs";
 import { runAgentDreamChecks } from "./agentDream.test.mjs";
+import { runAgentHousekeepingChecks } from "./agentHousekeeping.test.mjs";
 import { runAgentEgressChecks } from "./agentEgress.test.mjs";
 import { runAgentEgressTextingChecks } from "./agentEgressTexting.test.mjs";
+import { runEmailGateChecks } from "./emailGate.test.mjs";
 import { runAgentSearchChecks } from "./agentSearch.test.mjs";
 import { runEncryptionChecks } from "./encryption.test.mjs";
 import { runEncryptionGatewayChecks } from "./encryptionGateway.test.mjs";
@@ -165,10 +167,13 @@ await suite("runAgentDelegateRouteChecks", () => runAgentDelegateRouteChecks(che
 // Tex's daily transcript in tex/transcripts/, written as a text is answered.
 await suite("runAgentTranscriptChecks", () => runAgentTranscriptChecks(check));
 await suite("runAgentDreamChecks", () => runAgentDreamChecks(check));
+await suite("runAgentHousekeepingChecks", () => runAgentHousekeepingChecks(check));
 // The egress gate: a widening tool call waits for a person, outside the model.
 await suite("runAgentEgressChecks", () => runAgentEgressChecks(check));
 // The texting-turn half of the egress gate, on its own fresh world (agentEgressFixtures.mjs).
 await suite("runAgentEgressTextingChecks", () => runAgentEgressTextingChecks(check));
+// The send-review gate: every email waits for the person's yes to its exact copy.
+await suite("runEmailGateChecks", () => runEmailGateChecks(check));
 await suite("runAgentSearchChecks", () => runAgentSearchChecks(check));
 
 // A privacy rule that names a group: what the tools do when they meet one.

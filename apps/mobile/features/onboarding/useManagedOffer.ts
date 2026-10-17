@@ -212,6 +212,13 @@ export function useManagedOffer(options: {
   const proceed = useCallback(() => {
     if (Platform.OS !== "web") return;
     if (workspaceId === null) return;
+    // Already Premium (a founding account): pressing the card chose managed
+    // storage, and that choice on a paying plan already started the bucket.
+    if (status?.status === "active") {
+      setFailure(undefined);
+      setMode("settling");
+      return;
+    }
     if (status?.stagingFreeStorage === true) {
       setOpening(true);
       setFailure(undefined);
@@ -237,7 +244,7 @@ export function useManagedOffer(options: {
         setFailure("That did not go through. Check your connection and try again."),
       )
       .finally(() => setOpening(false));
-  }, [convex, origin, session, status?.stagingFreeStorage, workspaceId]);
+  }, [convex, origin, session, status?.status, status?.stagingFreeStorage, workspaceId]);
 
   const retry = useCallback(() => {
     if (workspaceId === null) return;

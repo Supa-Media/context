@@ -26,8 +26,10 @@
  * Everything in here is obviously fake. This repository is public.
  */
 
+import { createEmailRoute } from "./email.mjs";
 import { createMailRoutes } from "./mail.mjs";
 import { createTreeRoutes } from "./tree.mjs";
+import { createWorkspaceRoutes } from "./workspaces.mjs";
 
 const encoder = new TextEncoder();
 
@@ -93,6 +95,9 @@ export function createControlPlaneStub(options = {}) {
   const siteCalls = [];
   const vaultCalls = [];
   const flags = {
+    /** Who may send email, or a refusal for every send (`email.mjs`). */
+    emailSender: null,
+    emailRefusal: null,
     /** Answer `/gateway/feedback` with this refusal word instead of accepting. */
     feedbackRefusal: null,
     omitBindingWorkspaceId: false,
@@ -316,6 +321,9 @@ export function createControlPlaneStub(options = {}) {
 
   // Note mail mailboxes (`mail.mjs`).
   const mail = createMailRoutes(grantForAccessToken, coveredContexts);
+  const email = createEmailRoute(clearedEditor, flags);
+  // Setting a workspace up (`workspaces.mjs`).
+  const workspaceSetup = createWorkspaceRoutes({ grantForAccessToken, coveredContexts, workspaces, grants });
 
   async function handle(url, init = {}) {
     gatewayCalls.total += 1;
@@ -908,7 +916,8 @@ export function createControlPlaneStub(options = {}) {
       }
 
       default: {
-        const answered = (await mail.handle(path, body)) ?? (await tree.handle(path, body));
+        const answered =
+          (await mail.handle(path, body)) ?? (await tree.handle(path, body)) ?? (await workspaceSetup.handle(path, body)) ?? (await email.handle(path, body));
         if (answered !== undefined) return ok(answered);
         return new Response(JSON.stringify({ error: "not_found" }), { status: 404 });
       }
@@ -977,6 +986,8 @@ export function createControlPlaneStub(options = {}) {
     feedback,
     siteCalls,
     vaultCalls,
+    emailCalls: email.calls,
+    workspaceSetupCalls: workspaceSetup.calls,
     accessTokens,
     refreshTokens,
     gatewayJobs,
