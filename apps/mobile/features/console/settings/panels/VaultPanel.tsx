@@ -107,7 +107,8 @@ function LiveVault({ workspaceId }: { workspaceId: string }) {
         ...(clientId === undefined ? {} : { clientId }),
         ...(by === undefined ? {} : { by }),
       }),
-    choices: () => client.query(api.functions.vaultPeople.vaultShareChoices, { workspaceId: id }),
+    // Async, so a client without queries (the demo, render tests) rejects into the catch rather than throwing.
+    choices: async () => client.query(api.functions.vaultPeople.vaultShareChoices, { workspaceId: id }),
     give: (entryId, to, level) => client.action(api.functions.vaultSettings.giveVaultKey, { workspaceId: id, entryId, to, level }),
     takeBack: (entryId, to) => client.action(api.functions.vaultSettings.takeBackVaultKey, { workspaceId: id, entryId, to }),
     allow: (entryId, clientId) => client.action(api.functions.vaultSettings.allowVaultAI, { workspaceId: id, entryId, clientId }),
