@@ -103,38 +103,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { AsidePanel } from "../features/console/aside/AsidePanel";
 import { NO_MEETING } from "../features/console/aside/tabs";
-import type { ApprovalsView } from "../features/approvals/useApprovals";
-
-/** A console that can answer approvals, with nothing waiting. */
-const NOTHING_WAITING: ApprovalsView = {
-  available: true,
-  phase: "listed",
-  loading: false,
-  items: [],
-  error: null,
-  busyId: null,
-  notice: null,
-  refresh: () => {},
-  decide: () => {},
-};
-
-/** The same console with one email waiting for the person's yes. */
-const APPROVALS: ApprovalsView = {
-  ...NOTHING_WAITING,
-  items: [
-    {
-      id: "a1",
-      summary: "send an email to sam@example.com",
-      tool: "send_email",
-      args: {},
-      audience: null,
-      client: "Claude",
-      createdAt: Date.now(),
-      expiresAt: Date.now() + 30 * 60_000,
-      kind: null,
-    },
-  ],
-};
+import { APPROVALS, NOTHING_WAITING } from "./approvalsFixture";
 
 /** A running meeting, in the shape `MeetingsSnapshot.live` carries. */
 function recording(state: "recording" | "paused" = "recording") {
