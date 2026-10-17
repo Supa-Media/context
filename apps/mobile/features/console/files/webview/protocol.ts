@@ -81,18 +81,9 @@ export type EditorCommand =
   | { name: "wrap"; before: string; after: string }
   /** Put `prefix` at the start of the caret's line, or take it off again. */
   | { name: "toggleLinePrefix"; prefix: string }
-  /**
-   * Make the caret's line a title (`# `), a heading (`## `) or body text
-   * (`""`), whatever it was: the Aa panel's three styles (phone writing
-   * board, 2026-10-17). A set rather than a toggle, so Title then Heading is
-   * `## `, never `## # `.
-   */
+  /** Set the caret line's heading marks (`# `, `## `, `""`): Aa's styles. A set, never stacked. */
   | { name: "lineStyle"; prefix: string }
-  /**
-   * The line drawn under a new note's "Title" (`untitledTitle.ts`), or `null`
-   * for none: "Your agent will file it" in the Inbox. Drawing only — a reader
-   * gets it too, and it never takes focus.
-   */
+  /** The line under a new note's "Title" (`untitledTitle.ts`), or `null`. Draws only; never focuses. */
   | { name: "titleHint"; text: string | null }
   /**
    * `[[]]`, caret between the brackets, with the `[[` completion opened
@@ -169,8 +160,7 @@ export function decodeCommand(value: unknown): EditorCommand | null {
       return { name: "lineStyle", prefix: command.prefix };
     case "titleHint": {
       const text = (command as { text?: unknown }).text;
-      if (text !== null && (typeof text !== "string" || text.length > 200)) return null;
-      return { name: "titleHint", text };
+      return text === null || (typeof text === "string" && text.length <= 200) ? { name: "titleHint", text } : null;
     }
     case "insertLink":
       return (command as { ask?: unknown }).ask === true ? { name: "insertLink", ask: true } : { name: "insertLink" };
@@ -485,8 +475,7 @@ export type ToHost =
    * on an edit — coalesced to one message a frame, like every other.
    */
   | { v: number; type: "caret"; top: number; bottom: number }
-  /** What the caret's line is (`lineState.ts`), when it changes: the Aa panel lights it. */
-  | { v: number; type: "line-state"; style: LineState["style"]; list: LineState["list"] }
+  | { v: number; type: "line-state"; style: LineState["style"]; list: LineState["list"] } // Aa lights it
   /** The guest failed to start. Surfaced rather than left as a blank rectangle. */
   | { v: number; type: "failed"; message: string }
   /**
