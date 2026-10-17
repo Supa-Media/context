@@ -35,7 +35,8 @@ import { scoreCommand } from "./score.mjs";
 import { summaryCommand } from "./summary.mjs";
 import { calibrateCommand } from "./calibrate.mjs";
 import { searchCommand } from "./search.mjs";
-import { connectCommand, publishCommand, pullCommand, signInCommand } from "./context.mjs";
+import { connectCommand, publishCommand, publishSetup, pullCommand, signIn, signInCommand } from "./context.mjs";
+import { improveCommand } from "./improve.mjs";
 import { keyMarkdown, keyPathFor, resultMarkdown } from "./report.mjs";
 import { createWorld } from "./world.mjs";
 import { realNow } from "./clock.mjs";
@@ -52,7 +53,7 @@ function parseArgs(argv) {
   const options = { command, job };
   for (let i = 0; i < rest.length; i += 1) {
     const flag = rest[i];
-    if (flag === "--fake" || flag === "--verbose" || flag === "--no-fluff" || flag === "--cold") options[flag.slice(2)] = true;
+    if (flag === "--fake" || flag === "--verbose" || flag === "--no-fluff" || flag === "--cold" || flag === "--publish") options[flag.slice(2)] = true;
     else if (flag.startsWith("--")) options[flag.slice(2)] = rest[++i];
   }
   return options;
@@ -382,6 +383,8 @@ const USAGE = [
   "       pnpm ai signin [--show refresh-token]        the runner's sign-in, from BENCH_RUNNER_* in the environment",
   "       pnpm ai pull <job> [--dir <benchmarks folder>]   the job's setups from Context into setups/<job>/",
   "       pnpm ai publish <result file> [--run-url <url>]  the result's scores note into Context",
+  "       pnpm ai improve <result file> [--setup production] [--model <model>] [--max-usd 1] [--publish] [--fake]",
+  "                                                    draft one experiment from a scored round's failures",
 ].join("\n");
 
 const COMMANDS = new Map([
@@ -396,6 +399,7 @@ const COMMANDS = new Map([
   ["signin", signInCommand],
   ["pull", (options) => pullCommand(options, benchFolder(options))],
   ["publish", publishCommand],
+  ["improve", async (options) => improveCommand(options, { publish: async (draft) => publishSetup({ ...draft, connection: await signIn({ env: process.env }) }) })],
 ]);
 
 // The command line runs only when this file is the entry point; a test may

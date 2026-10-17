@@ -115,6 +115,7 @@ test/featureSwitches.test.mjs
 bench/test/calibrate.test.mjs
 bench/test/context.test.mjs
 bench/test/folder.test.mjs
+bench/test/improve.test.mjs
 bench/test/search.test.mjs
 bench/test/summary.test.mjs
 test/v2Actions.test.mjs

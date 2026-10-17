@@ -699,6 +699,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [The assistant texts like a capable friend, and the benchmark grades the voice (2026-10-09)](./texting-assistant/benchmarks.md)
 - [A busy provider is retried, a failed one is replaced, and both are counted (2026-10-09)](./texting-assistant/benchmarks.md)
 - [A round runs the live setup, the live skills and the tests edited in Context (2026-10-16)](./texting-assistant/benchmarks.md)
+- [A failed round drafts its own next experiment, and a person runs it (2026-10-17)](./texting-assistant/benchmarks.md)
 - [Some jobs Tex must always get right, and they gate a setup (2026-10-11)](./texting-assistant/golden-tasks.md)
 - [A short core set is the default run; the long sets stay for rounds (2026-10-14)](./texting-assistant/golden-tasks.md)
 - [How Tex does a job lives in a skill note, read when it applies (2026-10-11)](./texting-assistant/golden-tasks.md)
