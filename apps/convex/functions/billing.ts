@@ -54,6 +54,7 @@ import {
   planStatusFromStripe,
   type Entitlements,
   type PlanStatus,
+  foundingAtNoCharge,
 } from "./lib/premium";
 import { stagingStorageIsFree } from "./lib/managedStorage";
 import { isHandledEventType, type StripeEventFacts } from "./lib/stripe";
@@ -315,7 +316,10 @@ export const startCheckout = mutation({
       throw new ConvexError({ code: "STAGING_NO_PAYMENT", message: "Storage is free on staging. Reload the app to create your bucket without payment." });
     }
 
-    if (planIsPaying(statusOf(await planFor(ctx, args.workspaceId)))) {
+    // A founder at no charge may buy full Premium: that is what lifts the
+    // founders' note cap. Anyone actually paying is refused a second plan.
+    const current = await planFor(ctx, args.workspaceId);
+    if (planIsPaying(statusOf(current)) && !foundingAtNoCharge(current)) {
       throw new ConvexError({
         code: "ALREADY_PREMIUM",
         message: "This context is already on Premium.",

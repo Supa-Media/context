@@ -3,6 +3,7 @@ import { Text } from "../../../design/components/Text";
 import { leading, space } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
 import { PaymentStep } from "../../../onboarding/redesign/PaymentStep";
+import { foundingAtNoCharge } from "./founding";
 import { formatBytes, formatPrice, type PremiumStatus } from "./premium";
 
 /**
@@ -45,7 +46,7 @@ export function FreeTierNudge({
     return (
       <View style={styles.line} testID="premium-free-usage">
         <Text variant="rowSub" style={styles.lineText}>
-          {`Free plan: ${usage.used.toLocaleString("en-US")} of ${usage.cap.toLocaleString("en-US")} notes.`}
+          {`${foundingAtNoCharge(status) ? "Founding member" : "Free plan"}: ${usage.used.toLocaleString("en-US")} of ${usage.cap.toLocaleString("en-US")} notes.`}
         </Text>
       </View>
     );
@@ -57,6 +58,7 @@ export function FreeTierNudge({
         cap={usage.cap}
         monthly={formatPrice(status)}
         ceiling={formatBytes(status.ceilingBytes)}
+        founding={foundingAtNoCharge(status)}
         onLevelUp={onLevelUp}
         onBringOwn={onBringOwn}
       />

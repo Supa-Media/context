@@ -22,6 +22,7 @@ import {
 } from "../../console/settings/panels/premiumEntitlements";
 import {
   FOUNDING_PRICE_LINE,
+  FOUNDING_NOTES_LINE,
   foundingAtNoCharge,
 } from "../../console/settings/panels/founding";
 
@@ -118,7 +119,7 @@ export function ManagedConfirm({
       {free ? <Notice tone="warn"><Text variant="rowSub">{STAGING_DATA_WARNING}</Text></Notice> : null}
       <Text variant="rowSub" style={styles.lede}>
         {free ? "Create a dedicated bucket for this staging workspace. No payment or card is required."
-          : founding ? "Your founding membership includes a bucket we run for this workspace. You are not buying your files — those are yours either way, and always leave with you."
+          : founding ? `Your founding membership includes a bucket we run for this workspace. ${FOUNDING_NOTES_LINE} You are not buying your files — those are yours either way, and always leave with you.`
           : "You are subscribing to the services we run for this context. You are not buying your files — those are yours either way, and always leave with you."}
       </Text>
 

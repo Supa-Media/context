@@ -3,6 +3,7 @@ import { Card } from "../../../design/components/Card";
 import { Pill } from "../../../design/components/Pill";
 import { Text } from "../../../design/components/Text";
 import { useThemedStyles } from "../../../design/theme";
+import { foundingAtNoCharge } from "./founding";
 import { formatBytes, premiumStateOf, type PremiumStatus } from "./premium";
 
 /**
@@ -29,19 +30,35 @@ export function premiumIncludeRows(status: PremiumStatus): IncludeRow[] {
   // Only where the notes live on a bucket we run. The owner's own storage has
   // no cap of ours to lift, and paying never moves it.
   if (status.storageIsManaged || status.selected.managedStorage) {
+    // The founders' deal keeps the free tier's note cap (decided by the owner,
+    // 2026-10-17); "Unlimited" would be untrue for them.
+    if (foundingAtNoCharge(status)) {
+      const cap = (status.noteCap ?? FOUNDING_NOTE_CAP).toLocaleString("en-US");
+      rows.push({
+        key: "notes",
+        label: `Up to ${cap} notes`,
+        detail: `Founding members get ${cap} notes on storage we run. Full Premium lifts the cap, and storage of your own has none.`,
+      });
+      return [...rows, DOMAIN_ROW];
+    }
     rows.push({
       key: "notes",
       label: "Unlimited notes",
       detail: `Room for ${formatBytes(status.ceilingBytes)}, far more than most people ever write.`,
     });
   }
-  rows.push({
-    key: "domain",
-    label: "Your own domain",
-    detail: "Links and your website open at an address like docs.acme.com.",
-  });
+  rows.push(DOMAIN_ROW);
   return rows;
 }
+
+/** What the founders' deal caps notes at when the server has not said (it always should on storage we run). */
+const FOUNDING_NOTE_CAP = 1000;
+
+const DOMAIN_ROW: IncludeRow = {
+  key: "domain",
+  label: "Your own domain",
+  detail: "Links and your website open at an address like docs.acme.com.",
+};
 
 export function PremiumIncludes({ status }: { status: PremiumStatus }) {
   const styles = useThemedStyles(makeStyles);

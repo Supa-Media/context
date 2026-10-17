@@ -41,7 +41,7 @@ import { FOUNDING_BLURB, FOUNDING_PRICE_LINE, foundingAtNoCharge } from "./found
 import { PanelHead } from "./PanelHead";
 import { usePremium } from "./usePremium";
 import { useArming } from "../../useArming";
-import { FreeTierNudge } from "./FreeTierNudge";
+import { FreeTierNudge, freeTierUsage } from "./FreeTierNudge";
 import type { SettingsSectionKey } from "../sections";
 
 
@@ -371,7 +371,8 @@ export function PremiumBody({
               <Text variant="rowSub">{renewalLine(status)}</Text>
             </Hint>
           )}
-          {usageLine(status) === null ? null : (
+          {/* A capped plan already reads "412 of 1,000 notes" above the card. */}
+          {usageLine(status) === null || freeTierUsage(status) !== null ? null : (
             <Notice style={styles.notice} testID="premium-usage">
               <Text variant="rowSub">{usageLine(status)}</Text>
             </Notice>

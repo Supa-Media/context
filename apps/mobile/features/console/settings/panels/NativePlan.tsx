@@ -4,6 +4,7 @@ import { Button } from "../../../design/components/Button";
 import { Card } from "../../../design/components/Card";
 import { Text } from "../../../design/components/Text";
 import { EXPORT_PROMISE, managedMigrationCopy, premiumStateOf, type PremiumView } from "./premium";
+import { foundingAtNoCharge } from "./founding";
 
 /** The native companion displays the current plan without selling it. */
 export function NativePlan({ view, onOpenStorage, onDownload }: {
@@ -26,9 +27,9 @@ export function NativePlan({ view, onOpenStorage, onDownload }: {
         </Text>
         <Text variant="rowSub">This app uses the storage and features available to this brain or workspace.</Text>
       </Card>
-      {state !== "premium" && typeof view.status?.noteCap === "number" ? (
+      {typeof view.status?.noteCap === "number" && (state !== "premium" || foundingAtNoCharge(view.status)) ? (
         <Text variant="rowSub">
-          {`Free storage: ${(view.status.notes ?? 0).toLocaleString("en-US")} of ${view.status.noteCap.toLocaleString("en-US")} notes.`}
+          {`${foundingAtNoCharge(view.status) ? "Founding member" : "Free storage"}: ${(view.status.notes ?? 0).toLocaleString("en-US")} of ${view.status.noteCap.toLocaleString("en-US")} notes.`}
         </Text>
       ) : null}
       {migration === null ? null : <Card testID="managed-storage-migration">
