@@ -38,6 +38,10 @@
  * 12. `textedAsk` returning an ask that holds no email as prose (no
  *     `verbatim`, no cap). → `an ask holding no email is texted whole too, or
  *     withdrawn rather than cut` fails.
+ * 13. The gates raising holds armed (`armed: false` dropped in `emailGate`).
+ *     → `a hold is armed only once its ask goes out whole` fails.
+ * 14. `textedAsk` arming before its length check. → `an ask too long to send
+ *     stays unarmed even when withdrawing it fails` fails.
  */
 
 import { ask, call, request, textOf, createEgressWorld, TOKEN_CONSOLE, TOKEN_MCP, TOKEN_ROUTINE, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
@@ -46,7 +50,7 @@ import { helperCallersOf } from "../src/agent/production.js";
 import { conversationFor, readVerdict } from "../src/agent/mailChecker.js";
 import { readEmail } from "../src/tools/email.js";
 import { TEXTED_ASK_CAP, textedAsk } from "../src/agent/textedApprovals.js";
-import { createPending, listPending } from "../src/tools/approvals.js";
+import { createPending, disarmRecords, listPending } from "../src/tools/approvals.js";
 import { createMemoryStore } from "./gmailSync/fixtures.mjs";
 
 const EMAIL = { to: ["jo@example.com"], subject: "Re: Thursday", body: "Hi Jo,\n\nThursday at 3 works for me.\n\nSeyi" };
@@ -362,6 +366,43 @@ export async function runEmailGateChecks(check) {
       spill.length === 0 &&
       (await listPending(memory, { userId: "u1" })).length === 2,
   );
+
+  /*
+    A HOLD IS ARMED ONLY ONCE ITS ASK GOES OUT WHOLE (Codex, re-reviewing
+    #1826): withdrawing an ask that would not fit, and disarming one the
+    person moved on from, both swallow storage errors, so a record left armed
+    by a failed delete would be released by the next bare "yes".
+  */
+  const lazy = createMemoryStore();
+  const raise = (summary, detail) =>
+    createPending(lazy, { name: detail ? "send_email" : "set_visibility", args: { summary }, actor, widening: { summary }, detail, texting: true, armed: false });
+  const armedFor = async (store) => (await listPending(store, { userId: "u1", texting: true })).length;
+  const one = [await raise("email jo", "To: jo@example.com\n\nshort")];
+  const unarmedBefore = await armedFor(lazy);
+  await textedAsk(lazy, { actorUserId: "u1" }, one);
+  check("a hold is armed only once its ask goes out whole", unarmedBefore === 0 && (await armedFor(lazy)) === 1);
+  await lazy.delete((await listPending(lazy, { userId: "u1" }))[0].key);
+
+  const failing = (store, fail) => new Proxy(store, { get: (target, prop) => (fail.has(prop) ? async () => { throw new Error("storage down"); } : typeof target[prop] === "function" ? target[prop].bind(target) : target[prop]) });
+  const tooLong = [await raise("email jo again", "x".repeat(2_450)), ...(await Promise.all(Array.from({ length: 20 }, (_, i) => raise(`share note ${i} with the team`))))];
+  const dropped = await textedAsk(failing(lazy, new Set(["delete"])), { actorUserId: "u1" }, tooLong);
+  const brokenArm = [await raise("email kim", "To: kim@example.com\n\nhi")];
+  const notPut = await textedAsk(failing(lazy, new Set(["put", "delete"])), { actorUserId: "u1" }, brokenArm);
+  check(
+    "an ask too long to send stays unarmed even when withdrawing it fails",
+    dropped.verbatim.length === 0 &&
+      (await listPending(lazy, { userId: "u1" })).length === 22 &&
+      (await armedFor(lazy)) === 0 &&
+      notPut.verbatim.length === 0 &&
+      brokenArm.length === 0 &&
+      (await armedFor(lazy)) === 0,
+  );
+
+  const stuckStore = createMemoryStore();
+  await createPending(stuckStore, { name: "send_email", args: { summary: "s" }, actor, widening: { summary: "s" }, detail: "To: jo@example.com", texting: true });
+  const stuck = await disarmRecords(failing(stuckStore, new Set(["put", "delete"])), await listPending(stuckStore, { userId: "u1", texting: true }));
+  const cleared = await disarmRecords(stuckStore, await listPending(stuckStore, { userId: "u1", texting: true }));
+  check("an email that cannot be disarmed or dropped is reported, so the person is told", stuck === 1 && cleared === 0 && (await armedFor(stuckStore)) === 0);
 
   check(
     "who asks: Tex or any other AI, and never a routine, a dream or the app",

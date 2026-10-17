@@ -211,7 +211,10 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       must not release a call raised two texts ago. Disarmed here, before the
       model runs, so an ask this turn raises is the only one a yes can reach.
     */
-    await disarmTexting(store, { userId: session.actorUserId });
+    if ((await disarmTexting(store, { userId: session.actorUserId })) > 0) {
+      // Still armed, a yes to the model's next question would release it.
+      return json({ answer: "I couldn't clear what I asked you before. Reply NO to drop it, then send that again.", provider: "gateway", model: "none", steps: [] });
+    }
   }
 
   try {

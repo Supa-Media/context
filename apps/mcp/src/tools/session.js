@@ -37,7 +37,7 @@ import { toolError } from "./results.js";
 import { toolMoveNoteAcrossContexts } from "./moves/acrossContexts.js";
 import { NoteCapReached, asRelocation } from "../store/noteCap.js";
 import { NEVER_WIDENS, approvalRequired, mightWiden, reasonFor, recordRead, wideningOf } from "../privacy/egress.js";
-import { createPending, findPending, rearmForText, takeDone } from "./approvals.js";
+import { createPending, findPending, takeDone } from "./approvals.js";
 import { EMAIL_TOOL, emailGate } from "./emailGate.js";
 import { loadPrivacyState } from "../privacy/state.js";
 import { CHAOS_TOOLS, chaosLines, takeChaos, withChaosLines, within } from "../chaos/report.js";
@@ -184,7 +184,7 @@ async function egressGate(suppliedName, supplied, args, { store, session, target
   const texting = session.egress?.texting === true;
   const existing = await findPending(store, { name: suppliedName, args: supplied, userId });
   const record =
-    (existing ? await rearmForText(store, existing, texting) : null) ??
+    existing?.record ??
     (await createPending(store, {
       name: suppliedName,
       args: supplied,
@@ -196,6 +196,7 @@ async function egressGate(suppliedName, supplied, args, { store, session, target
       widening,
       workspaceId: target.workspaceId,
       texting,
+      armed: false, // armed by `textedAsk` once the ask goes out whole
     }));
   if (record === null) {
     return toolError(

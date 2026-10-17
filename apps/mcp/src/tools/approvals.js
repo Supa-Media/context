@@ -114,7 +114,7 @@ export async function findPending(store, { name, args, userId, now = Date.now() 
  */
 export async function createPending(
   store,
-  { name, args, actor, tier, scopes, widening, detail, workspaceId, texting, kind, entryId, ttlMs, now = Date.now() },
+  { name, args, actor, tier, scopes, widening, detail, workspaceId, texting, armed = texting, kind, entryId, ttlMs, now = Date.now() },
 ) {
   const all = await readAll(store, PENDING_PREFIX);
   if (all.filter(({ record }) => !expired(record, now)).length >= PENDING_CAP) return null;
@@ -137,8 +137,10 @@ export async function createPending(
     },
     tier: tier === "private" ? "private" : "team",
     scopes: Array.isArray(scopes) ? scopes.filter((scope) => typeof scope === "string") : [],
-    texting: texting === true,
-    ...(texting === true ? { texting_until: now + TEXTING_TTL_MS } : {}),
+    // Raised for a texted ask, a record keeps that ask's half-hour life, but
+    // is armed for a yes only when `armed` (`armForText`).
+    texting: texting === true && armed === true,
+    ...(texting === true && armed === true ? { texting_until: now + TEXTING_TTL_MS } : {}),
     // An ask that is not a held call (`vault/asks.js`): settled by its own
     // grant, never replayed.
     ...(typeof kind === "string" ? { kind } : {}),
@@ -172,19 +174,39 @@ export async function rearmForText(store, { key, record }, texting, now = Date.n
  * record that cannot be disarmed is dropped, which is the safe direction.
  */
 export async function disarmTexting(store, { userId, now = Date.now() }) {
-  await disarmRecords(store, await listPending(store, { userId, texting: true, now }));
+  return disarmRecords(store, await listPending(store, { userId, texting: true, now }));
 }
 
-/** Disarm these listed records for texting, or drop one that cannot be disarmed. */
+/**
+ * Disarm these listed records for texting, or drop one that cannot be
+ * disarmed. Returns how many could be neither: still armed, so a later bare
+ * yes would reach them, and the caller says so to the person.
+ */
 export async function disarmRecords(store, entries) {
+  let stuck = 0;
   for (const { key, etag, record } of entries) {
     try {
       const put = await store.put(key, JSON.stringify({ ...record, texting: false }), etag ? { onlyIf: { etagMatches: etag } } : undefined);
-      if (!put) await deleteWithLegacyFallback(store, key).catch(() => {});
+      if (put) continue;
     } catch {
-      await deleteWithLegacyFallback(store, key).catch(() => {});
+      // dropped below instead
     }
+    if (!(await deleteWithLegacyFallback(store, key).then(() => true, () => false))) stuck += 1;
   }
+  return stuck;
+}
+
+/**
+ * Arm these records for a texted yes, once the ask naming them is known to
+ * go out whole (`textedAsk`). They are raised unarmed, so an ask that is never
+ * sent leaves nothing a yes can reach even when withdrawing it fails. Throws
+ * when one cannot be armed.
+ */
+export async function armForText(store, { userId, ids, now = Date.now() }) {
+  const wanted = new Set(ids);
+  const found = (await listPending(store, { userId, now })).filter(({ record }) => wanted.has(record.id));
+  if (found.length !== wanted.size) throw new Error("an ask is no longer waiting");
+  for (const entry of found) await rearmForText(store, entry, true, now);
 }
 
 /** Drop asks by id for this person: a turn that failed before it could tell them. */

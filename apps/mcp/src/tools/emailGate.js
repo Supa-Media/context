@@ -27,7 +27,7 @@
  * through to `send_email` itself.
  */
 
-import { DETAIL_CAP, callKey, createPending, findPending, rearmForText, takeDone } from "./approvals.js";
+import { DETAIL_CAP, callKey, createPending, findPending, takeDone } from "./approvals.js";
 import { toolError } from "./results.js";
 import { EMAIL_TOOL, REFUSED, emailCopy, emailSummary, readEmail } from "./email.js";
 import { readHelperCallers } from "../agent/production.js";
@@ -138,7 +138,7 @@ export async function emailGate(supplied, { store, session, target }) {
   }
   const existing = await findPending(store, { name: EMAIL_TOOL, args, userId: session.actorUserId });
   const record =
-    (existing ? await rearmForText(store, existing, texting) : null) ??
+    existing?.record ??
     (await createPending(store, {
       name: EMAIL_TOOL,
       args,
@@ -149,6 +149,7 @@ export async function emailGate(supplied, { store, session, target }) {
       detail,
       workspaceId: target.workspaceId,
       texting,
+      armed: false, // armed by `textedAsk` once the ask goes out whole
     }));
   if (record === null) {
     return toolError("Not sent: the person has too many things waiting for their OK. Ask them to clear some first.");

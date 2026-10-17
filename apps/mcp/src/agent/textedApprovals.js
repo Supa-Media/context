@@ -5,7 +5,7 @@
  */
 
 import { callToolForSession } from "../tools/session.js";
-import { disarmRecords, listPending, replayAsAsked, settlePending, withdrawPending } from "../tools/approvals.js";
+import { armForText, disarmRecords, listPending, replayAsAsked, settlePending, withdrawPending } from "../tools/approvals.js";
 
 /** A text that is nothing but yes, or nothing but no; anything else goes to the model. */
 const YES = /^\s*(?:yes|yes please|yep|yeah|yup|ok|okay|sure|do it|go ahead|go for it|confirm|confirmed|approve|approved|allow|y)\s*[.!]*\s*$/i;
@@ -53,9 +53,22 @@ export const TEXTED_ASK_CAP = 2_900;
 export async function textedAsk(store, session, asked) {
   if (asked.length === 0) return { ask: null, verbatim: [] };
   const ask = askLine(asked);
-  if (ask.length <= TEXTED_ASK_CAP) return { ask, verbatim: [ask] };
+  const ids = asked.map((record) => record.id);
   const holdsEmail = asked.some((record) => typeof record.detail === "string");
-  await withdrawPending(store, { userId: session.actorUserId, ids: asked.map((record) => record.id) });
+  if (ask.length <= TEXTED_ASK_CAP) {
+    // Raised unarmed (`../tools/approvals.js`): armed only now that the ask
+    // goes out whole, so an ask that is dropped instead leaves nothing a yes
+    // can reach, even if withdrawing it below fails.
+    try {
+      await armForText(store, { userId: session.actorUserId, ids });
+      return { ask, verbatim: [ask] };
+    } catch {
+      await withdrawPending(store, { userId: session.actorUserId, ids }).catch(() => {});
+      asked.length = 0;
+      return { ask: "Something went wrong putting that to you, so I've dropped it. Ask me again.", verbatim: [] };
+    }
+  }
+  await withdrawPending(store, { userId: session.actorUserId, ids }).catch(() => {});
   asked.length = 0;
   return {
     ask:
@@ -119,6 +132,8 @@ export async function settleByText(store, session, verdict, texted = "") {
   }
   // An email the text did not say YES to is disarmed now: when the text settled
   // something else, no model turn follows to disarm it, and a later bare yes must not reach it.
-  await disarmRecords(store, notYes);
+  if ((await disarmRecords(store, notYes)) > 0) {
+    replies.push("I couldn't set aside the email I showed you, so it is still waiting: reply NO to drop it.");
+  }
   return replies.length === 0 ? null : replies.join("\n");
 }

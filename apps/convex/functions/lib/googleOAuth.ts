@@ -134,6 +134,31 @@ export function scopesForProducts(products: readonly GoogleProduct[]): string[] 
   return [...scopes];
 }
 
+/** Sending one email the person approved (`docs/decisions/communications/sending-email.md`). Sensitive. */
+export const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
+/** Adding, moving and cancelling events the person approved (`calendar-writes.md`). Sensitive. */
+export const CALENDAR_WRITE_SCOPE = "https://www.googleapis.com/auth/calendar.events";
+
+/**
+ * The write permissions, asked for only of testers (staff and the production
+ * test account, `lib/googleWriteTesters.ts`) until Google has reviewed them
+ * (decided by the owner, 2026-10-17: "it should work for testing accounts
+ * before we need it approved"). An unverified app may ask its test users for
+ * any scope; everyone else's consent screen stays the read-only one Google is
+ * reviewing. Every write still waits for the person's yes to the exact copy.
+ */
+export const TESTER_WRITE_SCOPES: Partial<Record<GoogleProduct, readonly string[]>> = {
+  gmail: [GMAIL_SEND_SCOPE],
+  calendar: [CALENDAR_WRITE_SCOPE],
+};
+
+/** `scopesForProducts`, plus the write scopes of those products for a tester. */
+export function scopesForConnect(products: readonly GoogleProduct[], tester: boolean): string[] {
+  const scopes = new Set(scopesForProducts(products));
+  if (tester) for (const product of products) for (const scope of TESTER_WRITE_SCOPES[product] ?? []) scopes.add(scope);
+  return [...scopes];
+}
+
 /**
  * Which of the granted scopes belong to one product — the per-product slice
  * `docs/decisions/communications.md` asks for, computed from the one
