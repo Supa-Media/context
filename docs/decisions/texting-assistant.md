@@ -239,27 +239,21 @@ exception to two rules, bounded as follows:
 Built 2026-10-10, with personal and shared vaults and sharing as a person's
 own action: [the vault](./texting-assistant/vault.md).
 
-Tex's daily transcript of each person's texts, thinking and tool calls in
-their own `tex/transcripts/` folder, written as each text is answered:
-[transcripts](./texting-assistant/transcripts.md).
+Tex's own jobs, each with its record:
 
-Tex's nightly dream, which brings `tex/about-me.md` up to date from the
-day's transcripts and logs what it changed in `tex/dreams/`:
-[dreams](./texting-assistant/dreams.md).
-
-Tex's housekeeping, which archives finished projects, merges duplicate
-contacts, folds thin folders and lowers the chaos score on its own, logging
-each change in `tex/housekeeping/` with how to put it back:
-[housekeeping](./texting-assistant/housekeeping.md).
-
-Tex handing a whole sub-project to Claude Code, Codex, Claude, Claude Design
-or ChatGPT, with the task note's mail as the channel and a supervisor routine
-that keeps the agent on track and delivers its result:
-[delegation](./texting-assistant/delegation.md).
-
-Golden tasks (jobs Tex must always get right, gating a setup), the task
-skills it reads before doing one, and why a read skill may vouch for an
-address: [golden tasks](./texting-assistant/golden-tasks.md).
+- [Transcripts](./texting-assistant/transcripts.md): each person's texts,
+  thinking and tool calls, daily in their own `tex/transcripts/`.
+- [Dreams](./texting-assistant/dreams.md): nightly, brings `tex/about-me.md`
+  up to date from the day's transcripts, logged in `tex/dreams/`.
+- [Housekeeping](./texting-assistant/housekeeping.md): archives finished
+  projects, merges duplicate contacts, folds thin folders and lowers the chaos
+  score, logging each change in `tex/housekeeping/` with how to undo it.
+- [Delegation](./texting-assistant/delegation.md): hands a whole sub-project
+  to Claude Code, Codex, Claude, Claude Design or ChatGPT, with the task note's
+  mail as the channel and a supervisor routine keeping the agent on track.
+- [Golden tasks](./texting-assistant/golden-tasks.md): jobs Tex must always
+  get right, gating a setup; the task skills it reads before doing one, and
+  why a read skill may vouch for an address.
 
 ### The built-in model is for Premium, capped, and metered like Jev
 
