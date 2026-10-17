@@ -37,7 +37,7 @@ over as easily as under, and a floor would be a second false claim rather than
 a hedge.
 
 Two readers are legitimate and stay: onboarding's `structureStepFor` and the
-Dropbox callback both read the field within seconds of the walk that wrote it,
+bucket-connect callback both read the field within seconds of the walk that wrote it,
 standing in front of a bucket they have just watched being verified.
 `applyStructure`'s server-side guards read it too, but they are a pre-filter and
 not the safety boundary — `hasExistingContext` re-lists the bucket, and every

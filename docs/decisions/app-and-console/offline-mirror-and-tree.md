@@ -80,8 +80,7 @@ is absent for everybody; `privacy.md` reaches only the owner, marked
 empty manifest would be an oracle of a different shape.
 
 **Versions come from the listing, never from a read.** The etag on each entry
-is the store's own — S3's `ETag`, Dropbox's `rev` (which the Dropbox listing
-used to drop) — and is the value `readNote` returns, so one walk says which
+is the store's own — S3's `ETag` — and is the value `readNote` returns, so one walk says which
 notes changed and nothing else is fetched. An entry without an etag means the
 store listed none: read it to learn its version, never "unchanged".
 
@@ -91,8 +90,8 @@ and at `team` scope that key is routinely a private note: handing it back would
 name one private path per page, to exactly the reader the filter exists for.
 So a page ends on a visible entry and the next call asks the store to start
 after it (`startAfter`, ListObjectsV2's `start-after`). That only means
-something on a store that lists in key order and honours the position, and
-Dropbox does neither, so both are *checked*: a listing seen out of order gets no
+something on a store that lists in key order and honours the position, so
+both are *checked*: a listing seen out of order gets no
 cursor, and a resumed walk that comes back with a key at or before the cursor
 stops. Either way the page says `truncated: true` — the pages so far are a
 floor, and the client must not read a missing path as a deletion — rather than

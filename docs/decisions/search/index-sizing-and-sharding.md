@@ -94,7 +94,7 @@ measures four times smaller than one written in real prose. The bench draws
 Three parts, and each answers something the one before it cannot:
 
 - **The count follows the volume.** `indexVolumeOf(path, size)` reads the
-  listing's own `size` — R2, S3 and Dropbox all report one, so this costs no
+  listing's own `size` — R2 and S3 both report one, so this costs no
   store op — and answers what that note can take up in the index: at most one
   `NOTE_INDEX_CHAR_CAP` window for an ordinary note however large the file is,
   and `1.25 x` its bytes for a bundled one, whose documents are a set. The
