@@ -71,6 +71,32 @@ export const runCheck = internalAction({
   },
 });
 
+/**
+ * Something rewrote every object in the bucket without naming them (the
+ * managed-encryption walk sealing it, sealing it again, or taking it back to
+ * plain), so each id key's version moved under its row. A workspace with id
+ * copies or keyed rows is diagnosed (`checkPass.ts`): a keyed row takes its
+ * key's new version, and a copy that now differs is copied again. A workspace
+ * the id copy never reached has nothing to check. INTERNAL.
+ */
+export const checkAfterRewrite = internalMutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.boolean(),
+  handler: async (ctx, { workspaceId }): Promise<boolean> => {
+    const row = await copyRowOf(ctx.db, workspaceId);
+    if (row === null) return false;
+    await ctx.scheduler.runAfter(0, internal.functions.noteIdsCopy.runCheck, {
+      workspaceId,
+      runId: row.runId,
+      checkedAt: Date.now(),
+      checked: 0,
+      missing: 0,
+      differs: 0,
+    });
+    return true;
+  },
+});
+
 /** Take the page's lease: the run's cursor, or `null` when it is not current, paused, or already leased. */
 export const claimCopy = internalMutation({
   args: { workspaceId: v.id("workspaces"), runId: v.number(), now: v.number() },
