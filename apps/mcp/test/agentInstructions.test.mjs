@@ -208,5 +208,7 @@ test("an overgrown file is refused, so it cannot crowd out the question", async 
   pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: setupFile("texting-assistant", `${WHO}\n${"x".repeat(40_001)}`), etag: "a1" });
   const system = await systemFor(TOKEN_TEXTS);
   assert.ok(!system.includes(WHO));
-  assert.ok(system.length < 5_000, `system was ${system.length} characters`);
+  // A bound on the built-in words alone, far under the 40,000 refused: raised
+  // from 5,000 when texted turns were told about their check-ins (heartbeat.js).
+  assert.ok(system.length < 6_000, `system was ${system.length} characters`);
 });

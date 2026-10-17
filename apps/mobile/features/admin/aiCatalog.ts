@@ -72,6 +72,7 @@ export const AI_JOBS: readonly AiJob[] = [
   { key: "app-assistant", label: "App assistant", group: "people", where: "Ask in the app", benchable: false, home: "note" },
   { key: "connected-ais", label: "Connected AIs", group: "people", where: "Claude, ChatGPT and others on the MCP", benchable: true, home: "theirs", model: "their own models" },
   { key: "dream", label: "Nightly dream", group: "background", where: "Tex's about-me, every night", benchable: true, home: "note" },
+  { key: "heartbeat", label: "Check-in", group: "background", where: "Tex texting on its own, a few times a day", benchable: true, home: "note" },
   { key: "auto-organize", label: "Auto-organize", group: "background", where: "Sorting the inbox", benchable: false, home: "code", model: "Clef" },
   { key: "what-changed", label: "What changed", group: "background", where: "Tidy-up suggestions", benchable: false, home: "code", model: "GLM-4.7 Flash" },
   { key: "meeting-transcription", label: "Meeting transcription", group: "other", where: "Recorded meetings", benchable: true, home: "none", model: "Whisper" },

@@ -30,6 +30,7 @@ import {
   checkInText,
   heartbeatCallTool,
   heartbeatPath,
+  heartbeatQuestion,
   readSettings,
   textedLines,
 } from "../src/agent/heartbeat.js";
@@ -126,6 +127,7 @@ function unitChecks(check) {
       { key: "todo.md", uploaded: at("2026-10-17T09:00:00Z") },
       { key: "tex/heartbeat/2026-10-17.md", uploaded: at("2026-10-17T12:30:00Z") },
       { key: "tex/dreams/2026-10-17.md", uploaded: at("2026-10-17T12:30:00Z") },
+      { key: "tex/housekeeping/2026-10-17.md", uploaded: at("2026-10-17T12:30:00Z") },
       { key: "tex/about-me.md", uploaded: at("2026-10-17T12:30:00Z") },
       { key: "tex/heartbeat.md", uploaded: at("2026-10-17T12:30:00Z") },
       { key: ".context/agent/x.md", uploaded: at("2026-10-17T12:30:00Z") },
@@ -154,6 +156,18 @@ function unitChecks(check) {
     "SKIP, however it is dressed, is a quiet look; anything else is the text",
     checkInText("SKIP") === null && checkInText(" skip. ") === null && checkInText("SKIP: nothing new") === null &&
       checkInText("") === null && checkInText("Found the image you asked for.") === "Found the image you asked for.",
+  );
+  const asked = heartbeatQuestion({
+    changed: [{ key: "todo.md", at: since }],
+    now: since + 60_000,
+    texted: [],
+    instructions: "SETUP-WORDS: look only at deadlines.",
+    theirs: "Only text me about rent.",
+  });
+  check(
+    "the setup note's words replace the built-in ones; the changes, their words and SKIP are always said",
+    asked.startsWith("SETUP-WORDS") && !asked.includes("glances at what changed") && asked.includes("- todo.md (1m ago)") &&
+      asked.includes("Only text me about rent.") && asked.trim().endsWith("exactly SKIP and nothing else."),
   );
   check("the day's log is dated in their zone", heartbeatPath(Date.UTC(2026, 9, 17, 3, 0), "America/New_York") === "tex/heartbeat/2026-10-16.md");
 }
