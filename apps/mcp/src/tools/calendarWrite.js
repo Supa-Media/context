@@ -21,8 +21,8 @@ const MAX_SPAN_MS = 14 * 24 * 60 * 60 * 1000;
 
 const DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:\d{2})$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
-const CONTROL = /[\u0000-\u001f\u007f‪-‮⁦-⁩]/;
-const NOTES_CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f‪-‮⁦-⁩]/;
+const CONTROL = /[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/;
+const NOTES_CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f\u202a-\u202e\u2066-\u2069]/;
 
 function time(value) {
   if (typeof value !== "string") return null;

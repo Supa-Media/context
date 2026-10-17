@@ -183,7 +183,7 @@ describe("what a change may be", () => {
     expect(readCalendarChange({ ...CREATE, end: CREATE.start })).toBeNull();
     expect(readCalendarChange({ ...CREATE, end: "2026-11-20T16:00:00-04:00" })).toBeNull();
     expect(readCalendarChange({ ...CREATE, title: "Hi\nthere" })).toBeNull();
-    expect(readCalendarChange({ ...CREATE, notes: "a ‮ b" })).toBeNull();
+    expect(readCalendarChange({ ...CREATE, notes: "a \u202e b" })).toBeNull();
     expect(readCalendarChange({ ...CANCEL, location: "x" })).toBeNull();
     expect(readCalendarChange({ ...MOVE, new_end: undefined })).toBeNull();
     expect(readCalendarChange({ ...CREATE, action: "invite" })).toBeNull();
