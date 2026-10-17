@@ -216,6 +216,13 @@ export function googleAuthorizeUrl(options: {
   state: string;
   /** From `scopesForProducts`. Never a raw product-name array — this file does not know what a product is. */
   scopes: readonly string[];
+  /**
+   * The address of the account being reconnected. Google pre-selects it on
+   * its account chooser; it is a hint, never a constraint — the person can
+   * still pick another account, and the binding keys on whatever Google
+   * returns, not on this.
+   */
+  loginHint?: string;
 }): string {
   if (typeof options.state !== "string" || options.state.length === 0) {
     throw new Error("A Google authorize URL needs a state value");
@@ -269,6 +276,7 @@ export function googleAuthorizeUrl(options: {
   url.searchParams.set("include_granted_scopes", "true");
   url.searchParams.set("scope", options.scopes.join(" "));
   url.searchParams.set("state", options.state);
+  if (options.loginHint !== undefined) url.searchParams.set("login_hint", options.loginHint);
   return url.toString();
 }
 

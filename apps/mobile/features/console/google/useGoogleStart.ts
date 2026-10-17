@@ -16,14 +16,15 @@ import { leaveForGoogle } from "./leaveForGoogle";
 export function useGoogleStart(workspaceId: string | null): {
   redirectUri: string | null;
   state: GoogleStartState;
-  start: (syncServices: GoogleSyncServices) => void;
+  /** `loginHint` is the address of an account being reconnected. */
+  start: (syncServices: GoogleSyncServices, loginHint?: string) => void;
 } {
   const startConnect = useAction(api.functions.googleConnect.startGoogleConnect);
   const [state, setState] = useState<GoogleStartState>({ kind: "idle" });
   const redirectUri = googleRedirectUri(browserOrigin());
 
   const start = useCallback(
-    (syncServices: GoogleSyncServices) => {
+    (syncServices: GoogleSyncServices, loginHint?: string) => {
       if (workspaceId === null || redirectUri === null) return;
       setState({ kind: "starting" });
       void (async () => {
@@ -32,6 +33,7 @@ export function useGoogleStart(workspaceId: string | null): {
             workspaceId: workspaceId as Id<"workspaces">,
             redirectUri,
             syncServices,
+            ...(loginHint === undefined ? {} : { loginHint }),
           });
           const oauthState = stateFromGoogleAuthorizeUrl(authorizeUrl);
           if (oauthState === null || !rememberGoogleCompletionSecret(oauthState, completionSecret)) {

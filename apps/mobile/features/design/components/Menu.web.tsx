@@ -424,6 +424,12 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: colors.surface3,
     boxShadow: "0 24px 60px -18px rgba(0,0,0,.9)",
     overflow: "hidden",
-    zIndex: 1000,
+    /*
+      Above react-native-web's `Modal` (its ModalAnimation layer is 9999), so
+      a popover opened from inside one — the settings overlay is a Modal —
+      paints over it instead of under it. Found on Mail and calendar's "…"
+      menu, which opened invisibly behind the page that opened it.
+    */
+    zIndex: 10000,
   },
 });

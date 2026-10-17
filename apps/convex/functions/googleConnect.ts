@@ -114,6 +114,7 @@ import * as binding from "./lib/googleConnect/binding";
 import * as backfill from "./lib/googleConnect/backfill";
 import * as syncTokens from "./lib/googleConnect/syncTokens";
 import * as validators from "./lib/googleConnect/validators";
+import { validateLoginHint } from "./lib/googleConnect/loginHint";
 
 export {
   BACKFILL_DAYS_DEFAULT,
@@ -308,6 +309,7 @@ export const startGoogleConnect = action({
         challenge,
         state,
         scopes: await connectScopes(ctx, userId, products),
+        loginHint: validateLoginHint(args.loginHint),
       }),
     };
   },
