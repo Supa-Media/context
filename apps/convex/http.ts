@@ -871,6 +871,9 @@ http.route({ path: "/gateway/workspaces/connect-google", method: "POST", handler
 /* Tex's dream now, for the owner's own agent (`lib/dreams/now.ts`). */
 export const gatewayDreamsStart = gatewayRoute(dreams.gatewayDreamsStartHandler);
 http.route({ path: "/gateway/dreams/start", method: "POST", handler: gatewayDreamsStart });
+/* An agent asks for the person's attention (`lib/attention/ask.ts`); delivered by their check-in row. */
+export const gatewayAttentionAsk = gatewayRoute(heartbeats.gatewayAttentionAskHandler);
+http.route({ path: "/gateway/attention/ask", method: "POST", handler: gatewayAttentionAsk });
 
 /* A website's status or a publish, for an owner's or editor's agent. */
 export const gatewaySite = gatewayRoute(site.gatewaySiteHandler);

@@ -105,6 +105,11 @@ export const ACTIONS = {
       summary: "Send one email as the person through their Gmail, once they say yes to that exact email.",
       take: plain,
     },
+    notify: {
+      tool: "notify_me",
+      summary: "Have Tex text the person now: they asked to be told, or it is an emergency. Their settings may hold it.",
+      take: plain,
+    },
     calendar: {
       tool: "calendar_event",
       summary: "Add, move or cancel one event on the person's Google Calendar, once they say yes to that exact change.",

@@ -131,6 +131,14 @@ export function attachLinkCalls(store, session, controlPlane, env) {
     writable: false,
     configurable: true,
   });
+  // `notify_me`: a ping for this connection's person. The control plane
+  // clears the owner of their personal workspace off this token and decides.
+  Object.defineProperty(store, "requestAttention", {
+    value: (urgency, deliver) => controlPlane.requestAttention(session.accessToken, session.workspaceId, urgency, deliver),
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
   // The Convex tree, for the agent tools that list (`tree/served.js`). The
   // control plane picks the workspace and clearance off this token's grant.
   Object.defineProperty(store, "treeManifest", {

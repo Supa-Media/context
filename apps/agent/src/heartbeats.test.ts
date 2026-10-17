@@ -9,6 +9,7 @@ const beat = (runId: string, over: Partial<DueHeartbeat> = {}): DueHeartbeat => 
   timeZone: "Europe/London",
   since: null,
   phones: [`+1555000${runId.length}`],
+  attention: false,
   ...over,
 });
 
@@ -79,6 +80,27 @@ describe("a tick of check-ins", () => {
     ]);
     // The control plane's calls carry the Worker's secret, never a check-in's grant.
     for (const call of h.calls.filter((c) => c.path !== "/agent")) expect(call.auth).toBe("Bearer worker-secret");
+  });
+
+  it("a claim for the person's pings asks the gateway for those, and texts them like a check-in", async () => {
+    const h = harness({
+      heartbeats: [{ ...beat("p", { phones: ["+15550003"] }), attention: true }, beat("look")],
+      gateway: (_token, body) =>
+        body.heartbeat.attention === true
+          ? Response.json({ outcome: "speak", answer: "Claude Code: it is in production." })
+          : Response.json({ outcome: "quiet" }),
+    });
+    await h.run();
+    const asked = h.calls.filter((call) => call.path === "/agent");
+    expect(asked.find((call) => call.auth === "Bearer grant_p")!.body).toEqual({
+      heartbeat: { timeZone: "Europe/London", since: null, attention: true },
+    });
+    expect(asked.find((call) => call.auth === "Bearer grant_look")!.body.heartbeat.attention).toBeUndefined();
+    expect(h.texts).toEqual([{ phone: "+15550003", text: "Claude Code: it is in production.", key: "heartbeat:p:+15550003" }]);
+    expect(byRun(h.results)).toEqual([
+      { runId: "look", outcome: "quiet" },
+      { runId: "p", outcome: "texted" },
+    ]);
   });
 
   it("something to say and no chat to say it in is no_chat; a refused send is failed", async () => {

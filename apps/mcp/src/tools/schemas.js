@@ -23,6 +23,7 @@ import { emailToolDefinitions } from "./schemas/email.js";
 import { calendarToolDefinitions } from "./schemas/calendarWrite.js";
 import { workspaceToolDefinitions } from "./schemas/workspaces.js";
 import { dreamToolDefinitions } from "./schemas/dreams.js";
+import { attentionToolDefinitions } from "./schemas/attention.js";
 import { v2ToolDefinitions } from "./v2/schemas.js";
 
 export function baseToolDefinitions() {
@@ -42,6 +43,7 @@ export function baseToolDefinitions() {
     ...calendarToolDefinitions(),
     ...workspaceToolDefinitions(),
     ...dreamToolDefinitions(),
+    ...attentionToolDefinitions(),
     ...v2ToolDefinitions(),
   ];
 }
