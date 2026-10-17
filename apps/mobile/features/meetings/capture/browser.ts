@@ -23,7 +23,6 @@ export type BrowserName =
 
 export interface BrowserFacts {
   userAgent: string;
-  platform: string;
   maxTouchPoints: number;
   arcTheme: boolean;
   brave: boolean;
@@ -44,7 +43,6 @@ function facts(): BrowserFacts | null {
   }
   return {
     userAgent: navigator.userAgent ?? "",
-    platform: (navigator as { platform?: string }).platform ?? "",
     maxTouchPoints: navigator.maxTouchPoints ?? 0,
     arcTheme,
     brave: typeof (navigator as { brave?: unknown }).brave === "object",
@@ -64,11 +62,14 @@ export function browserName(input: BrowserFacts | null = facts()): BrowserName {
   return "This browser";
 }
 
-/** A Mac, and not an iPad asking for the desktop site. */
+/**
+ * A Mac, and not an iPad asking for the desktop site. By the user agent and
+ * touch points only: `design/applePlatform` is the one reader of
+ * `navigator.platform`, and it answers a keyboard question, not this one.
+ */
 export function onMac(input: BrowserFacts | null = facts()): boolean {
   if (input === null) return false;
-  const mac = /Mac/.test(input.platform) || /Macintosh/.test(input.userAgent);
-  return mac && input.maxTouchPoints <= 1;
+  return /Macintosh/.test(input.userAgent) && input.maxTouchPoints <= 1;
 }
 
 /** A phone or tablet, where no browser can hand over a call's sound. */
@@ -76,7 +77,7 @@ export function onPhoneOrTablet(input: BrowserFacts | null = facts()): boolean {
   if (input === null) return false;
   if (/Android|iPhone|iPad|iPod|Mobi/.test(input.userAgent)) return true;
   // iPadOS asks for the desktop site and reports itself as a Mac with touch.
-  return /Mac/.test(input.platform) && input.maxTouchPoints > 1;
+  return /Macintosh/.test(input.userAgent) && input.maxTouchPoints > 1;
 }
 
 /** Where the Mac app is, for "record in the Mac app". Its public releases page. */
