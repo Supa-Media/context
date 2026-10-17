@@ -30,6 +30,8 @@
  *     → "no cap: a big folder and every change after it go through" fails.
  *  9. The landing-folder check removed.
  *     → "housekeeping refuses everything that widens, leaves, sends or creates" fails.
+ * 10. `roundCap` not passed to `runTurn` (a texted turn's eight rounds).
+ *     → "a run gets more rounds than a texted turn's eight" fails.
  *  6. The whole-top-level-folder refusal removed.
  *     → "a move that touches a protected path at either end, or a whole
  *       top-level folder, is refused" fails.
@@ -351,6 +353,17 @@ export async function runAgentHousekeepingChecks(check) {
       "a run that changes nothing says so, in the same day's log, and texts nothing",
       calm.status === 200 && calm.body?.outcome === "unchanged" && calm.body?.line === "" && log().includes("_Nothing changed._") &&
         (log().match(/^## /gm) ?? []).length === 2,
+    );
+
+    /* ---------------- a long run is not cut at a texted turn's rounds ---------------- */
+
+    const reading = Array.from({ length: 12 }, () => ({ toolCalls: [{ name: "list_notes", args: { prefix: "2-areas/" } }] }));
+    model.install([...reading, { text: "I looked through everything and it is already in order." }]);
+    const sent = model.requests.length;
+    const long = await ask(env, TOKEN_HOUSE, run);
+    check(
+      "a run gets more rounds than a texted turn's eight",
+      long.status === 200 && long.body?.outcome === "unchanged" && model.requests.length - sent === 13 && log().includes("already in order"),
     );
 
     /* ---------------- the client does nothing else ---------------- */

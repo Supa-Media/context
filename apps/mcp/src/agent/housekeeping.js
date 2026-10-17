@@ -57,8 +57,14 @@ export const HOUSEKEEPING_FOLDER = "tex/housekeeping";
  */
 export const HOUSEKEEPING_CLIENT_ID = "context_housekeeping";
 
-/** Model rounds in one run: no cap on what it changes, only on a turn that never ends. */
-const HOUSEKEEPING_ROUNDS = 60;
+/**
+ * One run's bounds: no cap on what it changes, only on a turn that never ends.
+ * Both are lifted past a texted turn's (eight rounds, 70 s of tools), and the
+ * tools' budget sits inside the texting Worker's five-minute wait for the run
+ * (`apps/agent/src/housekeeping.ts`), leaving room for the last rounds.
+ */
+const HOUSEKEEPING_ROUNDS = 40;
+const HOUSEKEEPING_TOOL_BUDGET_MS = 180_000;
 const MAX_WHY_CHARS = 4_000;
 const MAX_LINE_CHARS = 280;
 
@@ -237,6 +243,8 @@ export async function handleHousekeeping(request, env, store, session, controlPl
       localNow: { now: started, timeZone },
       observe: (event) => events.push(event),
       maxRounds: HOUSEKEEPING_ROUNDS,
+      roundCap: HOUSEKEEPING_ROUNDS,
+      toolBudgetMs: HOUSEKEEPING_TOOL_BUDGET_MS,
     });
   } catch (error) {
     await meter(null, true, error instanceof ProviderError ? error.model : model);

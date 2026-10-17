@@ -37,7 +37,9 @@ there), every path under `tex/`, `routines/`, `website/` or `.context/`, or at
 the top of the workspace, a whole top-level folder, and a move into a
 top-level folder that is neither built in nor already holding notes. No cap
 on how much one run changes (owner, 2026-10-17: "remove limit"); only the
-model's rounds are bounded, so a turn that never ends still ends.
+model's rounds (40) and its tools' time (3 minutes) are bounded, so a turn
+that never ends still ends. Until 2026-10-17 a run was silently held to a
+texted turn's eight rounds, which cut the first benchmark short.
 
 **Reversible and logged.** Every change is a move, an archive or a versioned
 rewrite. `tex/housekeeping/YYYY-MM-DD.md` lists each one with the line that
