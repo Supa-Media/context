@@ -41,6 +41,12 @@
  * this gate exists for. A dry run (`dry_run: true`) changes nothing and is
  * never held.
  *
+ * One call is held that widens nothing: claiming a workspace's @handle
+ * (`create_workspace` without `dry_run`). A handle is never freed, so the
+ * claim is marked `permanent`, and a permanent call waits for the person from
+ * every turn and on every gateway, the deployment switch included (Dev2,
+ * 2026-10-17; docs/decisions/gateway-protocol/workspace-setup.md).
+ *
  * ## When a widening needs a person
  *
  * A turn the gateway sees whole — a texted question, the app's agent panel —
@@ -120,6 +126,10 @@ export const UNTRUSTED_LISTINGS = new Set(["list_meetings", "list_contacts", "li
  * and `about.md` text Context wrote, picked from a fixed list; and
  * `connect_google` writes nothing and hands back a page in the app. Listed by
  * name, so a tool added next year is still held until somebody classifies it.
+ *
+ * Never widening is not never held: a real `create_workspace` claims a handle
+ * nobody can give back, and `classify` holds it as `permanent` for that reason
+ * alone, wherever it is addressed.
  */
 export const NEVER_WIDENS = new Set(["create_workspace", "apply_layout", "connect_google"]);
 
@@ -456,6 +466,17 @@ async function classify(name, args, { into, privacy }) {
     case "submit_form":
     case "update_submission":
       return elsewhere ? { audience: "team", summary: `write into ${into}` } : null;
+    /*
+      Not a widening: the new workspace's only member is the person. Held all
+      the same, because a handle is never freed and the claim also spends one
+      of the person's owned-workspace slots, so a planted instruction or a
+      model's misreading could squat names for good. The audience is the
+      person alone; `permanent` is what makes it wait.
+    */
+    case "create_workspace": {
+      const slug = typeof a.slug === "string" ? a.slug.trim().replace(/^@/, "").toLowerCase() : "";
+      return { audience: "private", permanent: true, summary: `claim the handle @${slug} for a new shared workspace (handles are permanent)` };
+    }
     default:
       return null;
   }
@@ -530,6 +551,8 @@ export function mightWiden(name, args, { into = null, writes } = {}) {
     case "move_notes":
     case "move_folder":
       return a.confirm_team_publish === true;
+    case "create_workspace":
+      return true;
     default:
       return false;
   }
@@ -542,10 +565,15 @@ export function mightWiden(name, args, { into = null, writes } = {}) {
  * for a call a person already approved; `{ complete: true, ledger, texting }`
  * for a turn this gateway sees whole; absent for an MCP client, whose turn it
  * does not, so absent fails closed.
+ *
+ * A `permanent` call waits whatever the turn read: a clean ledger says the
+ * person's own words asked for it, not that they chose this exact handle,
+ * and a claim is the one step here nobody can undo.
  */
 export function approvalRequired(egress, widening, targetWorkspaceId) {
   if (!widening) return false;
   if (egress?.approved === true) return false;
+  if (widening.permanent === true) return true;
   if (egress?.complete !== true || !egress.ledger) return true;
   const { ledger } = egress;
   if (ledger.untrusted) return true;
@@ -557,7 +585,8 @@ export function approvalRequired(egress, widening, targetWorkspaceId) {
 }
 
 /** Why the turn needs a person, in the words the model is told. */
-export function reasonFor(egress) {
+export function reasonFor(egress, widening = null) {
+  if (widening?.permanent === true) return "a @handle, once claimed, is never given back";
   if (egress?.ledger?.untrusted) return "this conversation read content from outside the workspace";
   if (egress?.complete === true) return "this conversation read notes the new audience cannot see";
   return "a connected AI client cannot widen who can see something on its own";

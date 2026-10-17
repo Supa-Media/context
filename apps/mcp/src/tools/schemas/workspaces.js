@@ -13,7 +13,8 @@ export function workspaceToolDefinitions() {
       description:
         "Create a new shared workspace owned by the person, with them as its only member. slug is its " +
         "@handle (lowercase letters, digits and hyphens; permanent once claimed), name what it is called. " +
-        "Pass dry_run: true first to check the handle is free without claiming it. Context gives it storage " +
+        "Pass dry_run: true first to check the handle is free without claiming it. A real create waits for " +
+        "the person's yes, because a handle is never freed. Context gives it storage " +
         "it runs where it can; the answer says. Then lay it out with apply_layout, passing context set to " +
         "the new @handle. Inviting people is done in the app.",
       inputSchema: {

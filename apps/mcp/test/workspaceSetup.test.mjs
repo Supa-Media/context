@@ -13,9 +13,16 @@
  * workspace run because the three tools are classified as never widening
  * (`NEVER_WIDENS` in `privacy/egress.js`), not because the gate is off.
  *
+ * A real create claims a handle that is never freed, so it waits for the
+ * person's yes on every gateway, switch or no switch, and from a texted turn
+ * too; a dry run never does (`permanent` in `privacy/egress.js`).
+ *
  * Sabotage (temporary local edits, reverted; failures measured):
  *   `workspaceSetup.layout` sent with a fixed workspace, not the addressed one  1
  *   `NEVER_WIDENS` emptied (the gate holds them as writes elsewhere)            2
+ *   the `create_workspace` case removed from `classify` (a claim runs at once)  3
+ *   the switch lets a permanent claim through (`egressOff` alone)              2
+ *   `approvalRequired` ignoring `permanent` (a clean texted turn claims)       1
  */
 
 import assert from "node:assert/strict";
@@ -24,12 +31,18 @@ import { after, before, test } from "node:test";
 import worker from "../src/index.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
+import { isHeld, releaseNewest } from "./egressApproval.mjs";
+import { fakeModel } from "./agentEgressFixtures.mjs";
+import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-workspace-setup.test";
 const OWNER = `cat_wssetup_owner_${"0".repeat(22)}`;
 const READONLY = `cat_wssetup_ro_${"0".repeat(25)}`;
 const MEMBER = `cat_wssetup_member_${"0".repeat(21)}`;
-const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET };
+const CONSOLE = `cat_wssetup_console_${"0".repeat(20)}`;
+const TEXTS = `cat_wssetup_texts_${"0".repeat(22)}`;
+const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
+const model = fakeModel();
 
 function binding(bucket) {
   return {
@@ -63,13 +76,37 @@ async function call(token, name, args) {
 
 const manage = (token, action, args, extra = {}) => call(token, "manage", { action, args, ...extra });
 
+/** A text to the assistant, as the texting thread sends it. */
+async function text(question) {
+  const { ctx, settle } = createWorkerCtx();
+  const response = await worker.fetch(
+    new Request("https://mcp.context.test/agent", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${TEXTS}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ question, conversation: "texts" }),
+    }),
+    env,
+    ctx,
+  );
+  const body = JSON.parse(await response.text());
+  await settle();
+  return body?.answer ?? "";
+}
+
 let controlPlane;
 let restoreS3;
 let restoreControlPlane;
+let previousFetch;
 before(async () => {
   restoreS3 = createS3Backend(S3_ENDPOINT).install();
   controlPlane = createControlPlaneStub();
   restoreControlPlane = controlPlane.install();
+  previousFetch = globalThis.fetch;
+  const withStubs = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = typeof input === "string" ? input : input.url;
+    return url.startsWith(AI_GATEWAY_ORIGIN) ? model.handle(url, init) : withStubs(input, init);
+  };
   controlPlane.addWorkspace("ws_home", "homer", binding("ws-home"));
   controlPlane.addWorkspace("ws_team", "homer-team", binding("ws-team"), { kind: "shared" });
   controlPlane.addWorkspace("ws_other", "marge", binding("ws-other"));
@@ -81,6 +118,20 @@ before(async () => {
     alsoMemberOf: [{ workspaceId: "ws_team", role: "owner" }],
   });
   await controlPlane.addGrant({ workspaceId: "ws_home", userId: "user_homer", accessToken: READONLY, scopes: ["context:read"] });
+  for (const [accessToken, clientId] of [
+    [CONSOLE, "context_console"],
+    [TEXTS, "context_texts"],
+  ]) {
+    await controlPlane.addGrant({
+      workspaceId: "ws_home",
+      userId: "user_homer",
+      accessToken,
+      clientId,
+      scopes: ["context:read", "context:write", "context:private"],
+      alsoMemberOf: [{ workspaceId: "ws_team", role: "owner" }],
+    });
+  }
+  controlPlane.setBuiltinVerdict("ws_home", BUILTIN_ALLOWED);
   await controlPlane.addGrant({
     workspaceId: "ws_other",
     userId: "user_marge",
@@ -89,13 +140,14 @@ before(async () => {
   });
 });
 after(() => {
+  if (previousFetch) globalThis.fetch = previousFetch;
   restoreControlPlane?.();
   restoreS3?.();
 });
 
 const setupCalls = () => controlPlane.workspaceSetupCalls;
 
-test("create_workspace checks a handle, then claims it as the connection's own person", async () => {
+test("create_workspace checks a handle, then claims it as the connection's own person once they say yes", async () => {
   const free = await manage(OWNER, "create_workspace", { slug: "@Springfield-Co", dry_run: true });
   assert.equal(free.isError, false, free.text);
   assert.match(free.text, /@springfield-co is free\. Nothing was claimed/);
@@ -103,16 +155,74 @@ test("create_workspace checks a handle, then claims it as the connection's own p
   const reserved = await manage(OWNER, "create_workspace", { slug: "brain", dry_run: true });
   assert.match(reserved.text, /not available: That name is reserved/);
 
-  const made = await manage(OWNER, "create_workspace", { slug: "springfield-co", name: "Springfield Co" });
+  const claims = () => setupCalls().filter((entry) => entry.dryRun === false).length;
+  const claimsBefore = claims();
+  const asked = { slug: "springfield-co", name: "Springfield Co" };
+  const held = await manage(OWNER, "create_workspace", asked);
+  assert.equal(isHeld({ isError: held.isError, content: [{ text: held.text }] }), true, held.text);
+  assert.match(held.text, /claim the handle @springfield-co/);
+  assert.match(held.text, /never/);
+  assert.equal(claims(), claimsBefore, "nothing reached the control plane before the yes");
+
+  assert.equal(await releaseNewest(env, CONSOLE), true);
+  assert.equal(claims(), claimsBefore + 1, "the yes runs the claim once");
+  const made = await manage(OWNER, "create_workspace", asked);
   assert.equal(made.isError, false, made.text);
+  assert.equal(claims(), claimsBefore + 1, "the re-call is handed the released result, not run again");
   assert.match(made.text, /created the shared workspace @springfield-co/);
   assert.match(made.text, /action: "layout"/);
   const last = setupCalls().at(-1);
   assert.deepEqual([last.userId, last.slug, last.dryRun], ["user_homer", "springfield-co", false]);
 
+  assert.equal((await manage(OWNER, "create_workspace", { slug: "springfield-co", name: "Again" })).isError, true);
+  assert.equal(await releaseNewest(env, CONSOLE), true);
   const again = await manage(OWNER, "create_workspace", { slug: "springfield-co", name: "Again" });
   assert.equal(again.isError, true);
   assert.match(again.text, /taken/);
+});
+
+test("a dry run is never held, and a claim is held even with the widening gate switched off", async () => {
+  env.EGRESS_APPROVALS = "off";
+  try {
+    const before = setupCalls().length;
+    const check = await manage(OWNER, "create_workspace", { slug: "switched-off-co", dry_run: true });
+    assert.equal(check.isError, false, check.text);
+    assert.equal(setupCalls().length, before + 1);
+
+    const claim = await manage(OWNER, "create_workspace", { slug: "switched-off-co", name: "Switched Off" });
+    assert.equal(claim.isError, true, claim.text);
+    assert.match(claim.text, /claim the handle @switched-off-co/);
+    assert.equal(setupCalls().length, before + 1, "the claim did not reach the control plane");
+  } finally {
+    delete env.EGRESS_APPROVALS;
+  }
+});
+
+test("Tex asks by text before claiming a handle, and the texted YES claims it", async () => {
+  env.EGRESS_APPROVALS = "off";
+  try {
+    const claims = () => setupCalls().filter((entry) => entry.dryRun === false).length;
+    const before = claims();
+    model.install([
+      {
+        toolCalls: [
+          { name: "manage", args: { action: "create_workspace", args: { slug: "woodshop", name: "Woodshop" } } },
+        ],
+      },
+      { text: "I can set up @woodshop for you." },
+    ]);
+    const asked = await text("make me a workspace called Woodshop, @woodshop");
+    assert.match(asked, /I need your OK: claim the handle @woodshop/);
+    assert.match(asked, /Reply YES/);
+    assert.equal(claims(), before, "a turn that read nothing still waits: the handle is permanent");
+
+    const yes = await text("YES");
+    assert.match(yes, /^Done: claim the handle @woodshop/);
+    assert.equal(claims(), before + 1);
+    assert.equal(setupCalls().at(-1).slug, "woodshop");
+  } finally {
+    delete env.EGRESS_APPROVALS;
+  }
 });
 
 test("a connection that cannot write never reaches the control plane", async () => {

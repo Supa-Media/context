@@ -61,8 +61,11 @@ own support intake rather than an address the model chose. Nor do the
 workspace setup tools (`create_workspace`, `apply_layout`, `connect_google`;
 Dev2, 2026-10-17), wherever they are addressed: they show nobody anything new
 and carry nothing the model chose (`NEVER_WIDENS`; see
-[workspace setup](../gateway-protocol/workspace-setup.md)). `apps/mcp/src/privacy/egress.js`
-is the list.
+[workspace setup](../gateway-protocol/workspace-setup.md)). A real
+`create_workspace` is held anyway, for a different reason: it claims a handle
+that is never freed, so it is marked `permanent` and waits for the person from
+every turn, with the deployment switch off too (Dev2, 2026-10-17; same page).
+`apps/mcp/src/privacy/egress.js` is the list.
 
 **When a widening waits for a person.** A turn this gateway sees whole — a
 texted question, the app's agent panel — keeps a ledger: which workspaces the
