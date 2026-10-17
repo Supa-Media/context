@@ -89,6 +89,8 @@ const SUB_KEY = /^ {2}([a-z][a-z0-9_-]*):(?: +(.*))?$/;
 export const PRODUCTION_DREAM_PATH = "ai/production/dream.md";
 /** Tex's check-in (`heartbeat.js`): its model, and the words that say what is worth a text. */
 export const PRODUCTION_HEARTBEAT_PATH = "ai/production/heartbeat.md";
+/** Tex's housekeeping (`housekeeping.js`): its model, and the words that say how to organize. */
+export const PRODUCTION_HOUSEKEEPING_PATH = "ai/production/housekeeping.md";
 /** Meeting summaries (`meetings/summarize.js`): the model, and the write and check prompts. */
 export const PRODUCTION_MEETING_SUMMARIES_PATH = "ai/production/meeting-summaries.md";
 

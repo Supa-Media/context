@@ -138,8 +138,11 @@ test("a housekeeping test runs Tex's housekeeping once and records where each na
       "---\nmode: housekeeping\nrun_as: Ana\nruns: 1\n---\n\n## 1. Leaves notes it is unsure of\n\n- kind: task\n" +
         "- must file: ana/health/dentist.md under ana/health/dentist.md\n- must file: ana/1-projects/kitchen/overview.md under ana/1-projects/\n",
     );
+    // Housekeeping's own setup, as `pnpm ai pull housekeeping` writes it; the test is the job's own.
+    await mkdir(join(dir, "setups/housekeeping"), { recursive: true });
+    await writeFile(join(dir, "setups/housekeeping/production.md"), "---\njob: housekeeping\nmodels:\n  main: anthropic/claude-haiku-5-5\n---\n\nTidy what you are sure of.\n");
     const out = join(dir, "result.md");
-    await execFileAsync(process.execPath, [RUN, "run", "texting-assistant", "--dir", dir, "--fake", "--no-fluff", "--test", "housekeeping", "--out", out], { timeout: 120000 });
+    await execFileAsync(process.execPath, [RUN, "run", "housekeeping", "--dir", dir, "--fake", "--no-fluff", "--out", out], { timeout: 120000 });
     const note = await readFile(out, "utf8");
     const filed = JSON.parse(note.split("\n").find((line) => line.startsWith("Filed: ")).slice("Filed: ".length));
     assert.equal(filed["ana/health/dentist.md"].at, "ana/health/dentist.md", note);
@@ -214,4 +217,16 @@ test("each progress line the turn texted counts as one of the assistant's texts,
     [STREAMLY.text, "Opening Streamly now.", "Done."],
   );
   assert.equal(result.texts, 2);
+});
+
+test("a housekeeping run puts its setup where housekeeping reads it, beside a plain texting one", async () => {
+  const { setupInWorld } = await import("../run.mjs");
+  const setup = { raw: "---\njob: housekeeping\n---\n\nTidy.\n" };
+  const [texting, models] = setupInWorld("housekeeping", setup, { pinnedNotes: [{ path: "ai/production/dream.md", raw: "d" }] });
+  assert.match(texting, /job: texting-assistant/);
+  assert.deepEqual(models.pinnedNotes.map((note) => note.path), ["ai/production/dream.md", "ai/production/housekeeping.md"]);
+  assert.equal(models.pinnedNotes[1].raw, setup.raw);
+  const [own, same] = setupInWorld("texting-assistant", setup, {});
+  assert.equal(own, setup.raw);
+  assert.deepEqual(same, {});
 });

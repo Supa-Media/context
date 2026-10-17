@@ -26,7 +26,7 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { basename, join, resolve } from "node:path";
 
-import { parseSetup } from "../src/agent/production.js";
+import { PRODUCTION_HOUSEKEEPING_PATH, parseSetup } from "../src/agent/production.js";
 import { expandWorkspaces, readBenchFolder, runnableQuestions } from "./load.mjs";
 import { anthropicGateway, cachedEmbeddings, claudeTransport, fakeAi, fakeGateway, playPerson, workersAi } from "./models.mjs";
 import { prepareRun } from "./warm.mjs";
@@ -212,6 +212,20 @@ export function testFor(options, tests) {
   return core && Object.hasOwn(tests, core) ? core : options.job;
 }
 
+/** A texting setup for a run that measures another job's, which texts nobody. */
+const PLAIN_TEXTING_SETUP = "---\njob: texting-assistant\nmodels:\n  main: anthropic/claude-haiku-5-5\n---\n\nYou are a test assistant.\n";
+
+/**
+ * Where a run's setup goes in its world: the texting assistant's where
+ * production reads it, housekeeping's at `ai/production/housekeeping.md`
+ * beside a plain texting one, as `housekeeping.js` reads it.
+ */
+export function setupInWorld(job, setup, models) {
+  if (job !== "housekeeping") return [setup.raw, models];
+  const pinnedNotes = [...(models.pinnedNotes ?? []), { path: PRODUCTION_HOUSEKEEPING_PATH, raw: setup.raw }];
+  return [PLAIN_TEXTING_SETUP, { ...models, pinnedNotes }];
+}
+
 /** What a run reads before it answers anything: the folder, the test, the setups, the questions. */
 async function loadRun(options) {
   const dir = benchFolder(options);
@@ -285,6 +299,7 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
   const records = [];
   try {
     for (const { setup, question, run: n } of jobs) {
+      const [worldSetup, worldModels] = setupInWorld(options.job, setup, models);
       const as = question.as ?? test.front.run_as;
       // An answer the model never gave is run once more in a fresh world
       // (decided 2026-10-09): the gateway has already retried the round and
@@ -293,14 +308,14 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
       // rerun is recorded, with the error it replaced, and counted.
       // The world pins `Date` while it exists, so wall time is read from the real clock.
       const wallStarted = realNow();
-      let world = await createWorld(bench, as, setup.raw, models, today, prepared);
+      let world = await createWorld(bench, as, worldSetup, worldModels, today, prepared);
       try {
         let result = await converse(world, question, person, test.front.mode ?? null);
         let reran = null;
         if (result.error && !options.fake) {
           reran = result.error;
           world.close();
-          world = await createWorld(bench, as, setup.raw, models, today, prepared);
+          world = await createWorld(bench, as, worldSetup, worldModels, today, prepared);
           result = await converse(world, question, person, test.front.mode ?? null);
         }
         records.push({

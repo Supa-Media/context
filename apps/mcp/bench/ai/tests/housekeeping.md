@@ -1,5 +1,5 @@
 ---
-job: texting-assistant
+job: housekeeping
 mode: housekeeping
 run_as: Tomas
 today: 2026-10-17
@@ -9,6 +9,7 @@ good_enough:
   score: 100%
   price: under $0.10 a run
   speed: under 120 s
+  texts: 1 or fewer
 ---
 
 # Housekeeping

@@ -24,6 +24,11 @@ import { asUser, createUser, createWorkspace, gatewayPost, setupTest } from "./f
  *     → "carries a housekeeping grant on their personal workspace, audited" fails
  *   `claimDueHousekeepingHandler` not asking `texJobWorkspace`
  *     → "an unlinked phone gets no housekeeping" fails
+ *   HOUSEKEEPING_CLIENT_ID left out of `builtinModel.ts`'s BUILTIN_CLIENTS
+ *     (as it shipped on 2026-10-17, refusing every run as `not_texts`)
+ *     → "a run's grant may spend the built-in model on a founding plan" fails
+ *   `armLinkedHousekeepingHandler` skipping every existing row
+ *     → "the daily sweep starts again a row that stopped" fails
  */
 
 vi.setConfig({ testTimeout: 20_000 });
@@ -173,6 +178,33 @@ describe("handing out a run", () => {
   });
 });
 
+describe("the model", () => {
+  test("a run's grant may spend the built-in model on a founding plan", async () => {
+    const t = setupTest();
+    const { userId, workspaceId } = await linked(t);
+    await text(t);
+    await makeDue(t, userId);
+    const [run] = await due(t);
+    const now = Date.now();
+    await t.run((ctx) =>
+      ctx.db.insert("workspacePlans", {
+        workspaceId,
+        managedStorage: false,
+        fastSearch: true,
+        status: "active",
+        founding: true,
+        createdAt: now,
+        updatedAt: now,
+      }),
+    );
+    const started = await t.mutation(internal.functions.builtinModel.startBuiltinTurn, {
+      hashedAccessToken: await hashToken(run!.accessToken),
+      expectedWorkspaceId: workspaceId,
+    });
+    expect(started).toMatchObject({ allowed: true });
+  });
+});
+
 describe("hearing back", () => {
   test("a finished run ends its grant and goes on tomorrow", async () => {
     const t = setupTest();
@@ -189,17 +221,27 @@ describe("hearing back", () => {
     expect(await session(t, run!.accessToken)).toBeNull();
   });
 
-  test("no model waits for the next text", async () => {
+  test("no model goes on tomorrow, like any other run", async () => {
     const t = setupTest();
     const { userId } = await linked(t);
     await text(t);
     await makeDue(t, userId);
     const [run] = await due(t);
     await result(t, run!.runId, "no_provider");
-    expect((await row(t, userId))!.nextRunAt).toBeNull();
-    expect(await t.mutation(internal.functions.housekeeping.armLinkedHousekeeping, {})).toBe(0);
+    const next = (await row(t, userId))!.nextRunAt!;
+    expect(next).toBeGreaterThan(Date.now());
+    expect(newYorkHour(next)).toBe(9);
+  });
+
+  test("the daily sweep starts again a row that stopped", async () => {
+    const t = setupTest();
+    const { userId } = await linked(t);
     await text(t);
-    expect((await row(t, userId))!.nextRunAt!).toBeGreaterThan(Date.now());
+    const stopped = await row(t, userId);
+    await t.run((ctx) => ctx.db.patch(stopped!._id, { nextRunAt: null, lastOutcome: "no_provider" }));
+    expect(await t.mutation(internal.functions.housekeeping.armLinkedHousekeeping, {})).toBe(1);
+    expect(newYorkHour((await row(t, userId))!.nextRunAt!)).toBe(9);
+    expect(await t.mutation(internal.functions.housekeeping.armLinkedHousekeeping, {})).toBe(0);
   });
 
   test("a sentence for an outcome, or an unknown run, is refused or ignored", async () => {

@@ -35,8 +35,11 @@ widen who sees something (`mightWiden`), any other workspace, any other tool,
 every path that names a workspace (`@name/…`, which the session would route
 there), every path under `tex/`, `routines/`, `website/` or `.context/`, or at
 the top of the workspace, a whole top-level folder, and a move into a
-top-level folder that is neither built in nor already holding notes. At most
-30 changing calls and 150 notes a run, a folder counting every note in it.
+top-level folder that is neither built in nor already holding notes. No cap
+on how much one run changes (owner, 2026-10-17: "remove limit"); only the
+model's rounds (40) and its tools' time (3 minutes) are bounded, so a turn
+that never ends still ends. Until 2026-10-17 a run was silently held to a
+texted turn's eight rounds, which cut the first benchmark short.
 
 **Reversible and logged.** Every change is a move, an archive or a versioned
 rewrite. `tex/housekeeping/YYYY-MM-DD.md` lists each one with the line that
@@ -47,6 +50,16 @@ log }`, where `line` is one sentence it may text.
 **Who runs it.** Its own client, `context_housekeeping`, on a short-lived
 grant for the personal workspace; never the texting, dream or heartbeat
 check-in client, because those read or write one note and this changes many.
+The control plane lets that client spend the built-in model
+(`builtinModel.ts`), on the same Premium plan, cap and kill switch as the
+others; the first 100 accounts' founding plans count as Premium. Until
+2026-10-17 it was missing from that list, so every run was refused.
+
+**Its words.** `@context-lc ai/production/housekeeping.md`, the AI tab's
+Housekeeping job, like the dream's and the check-in's: its body replaces the
+built-in instructions (`HOUSEKEEPING_INSTRUCTIONS`) and its `models.main`
+the model, when valid. The run's facts (today, the health report) and the
+answer the gateway reads stay in code.
 
 **When.** Once a day, at the first look after 9am in their own time zone:
 after the night's dream, before the day fills up. It rides the same minute
@@ -55,12 +68,14 @@ loop as the dream and the check-in (the texting Worker's Cron asks
 row (`texHousekeeping`) and lease rather than sharing the check-in's, so a
 slow tidy never holds up a check-in. Everyone with a linked phone is armed by a
 daily sweep and by their texts; whether it runs, and as whom, is asked again
-at each claim (`lib/texJobs.ts`). No model (not Premium) stops it until their
-next text. It texts nobody: what it did is in its log, and `line` is kept for
+at each claim (`lib/texJobs.ts`). Every run goes on to tomorrow, one that
+found no model included, and the daily sweep restarts a row that stopped. It
+texts nobody: what it did is in its log, and `line` is kept for
 the check-in to mention if the person asks for that.
 
 **Measured.** `apps/mcp/bench/ai/tests/housekeeping.md` (`mode: housekeeping`)
-runs it on Tomas's deliberately messy workspace and grades where each note
+(AI Benchmark, job `housekeeping`, with the live setup note) runs it on
+Tomas's deliberately messy workspace and grades where each note
 ended up with `must file` checks (`bench/checks.mjs`), not with the judge.
 
 **What a simplification would cost.** Running it under the texting client or

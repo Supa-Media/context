@@ -314,7 +314,9 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   });
 
   // Tex's housekeeping (`src/agent/housekeeping.js`) has its own client, over
-  // the person's own workspace and nothing else.
+  // the person's own workspace, plus the pinned one every account reaches,
+  // where it reads its setup (`ai/production/housekeeping.md`); its guard
+  // refuses any call that names another workspace.
   const houseToken = `cat_house_${person.toLowerCase().replace(/[^a-z]/g, "")}_${"0".repeat(24)}`;
   await controlPlane.addGrant({
     workspaceId: ids.get(own.workspace),
@@ -323,6 +325,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     accessToken: houseToken,
     scopes: ["context:read", "context:write", "context:private"],
     clientId: HOUSEKEEPING_CLIENT_ID,
+    alsoMemberOf: [{ workspaceId: "ws_pinned", role: "member" }],
   });
 
   const before = new Map([...ids].map(([name]) => [name, snapshot(s3.bucketFor(`bench-${name}`))]));
