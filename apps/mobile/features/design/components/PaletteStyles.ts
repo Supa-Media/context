@@ -26,6 +26,8 @@ export const makeStyles = (colors: Colors) => StyleSheet.create({
     overflow: "hidden",
     boxShadow: "0 40px 100px -30px rgba(0,0,0,1)",
   },
+  /** Room for the list and the highlighted note beside it (board B1). */
+  panelWide: { maxWidth: 1040 },
   panelHeader: {
     flexDirection: "row",
     alignItems: "center",

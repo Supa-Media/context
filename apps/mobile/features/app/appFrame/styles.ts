@@ -236,12 +236,17 @@ export const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.creat
       enough for the word and the keycap, narrow enough to leave the tabs
       their room — with a hairline edge on the resting fill, which is what
       says "you can type here" before anybody hovers it.
+
+      Then it became the only search (leadership weekly, 2026-10-17): the
+      file tree's own magnifier and filter field went, and their job is Tab
+      inside ⌘K. So it is 280pt and says both jobs, still at the trailing
+      edge where the tabs leave it room.
     */
     flexDirection: "row",
     alignItems: "center",
     gap: space.x2,
     height: 28,
-    width: 200,
+    width: 280,
     flexShrink: 1,
     minWidth: 96,
     paddingLeft: 9,

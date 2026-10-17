@@ -6,8 +6,9 @@ import { expect, test, type Page } from "@playwright/test";
  * It used to: entering the column faded `Notes` out, boxed an invisible filter
  * field under it and faded in two more buttons, so the header redrew every
  * time somebody reached for a note. The owner asked for it to stay the same
- * (2026-09-26), and the header is now `Notes` plus Filter, New and View, drawn
- * once — see `ExplorerToolbar.tsx`.
+ * (2026-09-26), and the header is now `Notes` plus New and View, drawn once —
+ * see `ExplorerToolbar.tsx`. The filter magnifier went when search became one
+ * bar (2026-10-17); `paletteResults.spec.ts` holds ⌘K's Tab that replaced it.
  *
  * This is here and not in the unit suite because the claim is about a real
  * pointer: `View`'s `onPointerEnter` is a pointer event and jsdom defines no
@@ -60,15 +61,17 @@ test.beforeEach(async ({ page }) => {
   await page.mouse.move(1200, 500);
 });
 
-test("at rest the tools are three lit buttons in the title row over the tree", async ({ page }) => {
+test("at rest the tools are two lit buttons in the title row over the tree", async ({ page }) => {
   // Up in the row over the column, beside the tree's toggle (owner, 2026-09-28),
   // with no `Notes` label: the tree under it says what it is.
   await expect(page.getByTestId("frame-column-head").getByTestId("explorer-header")).toBeVisible();
   await expect(page.getByTestId("explorer-header")).not.toContainText("Notes");
-  for (const id of ["explorer-filter-toggle", "explorer-new", "explorer-view"]) {
+  for (const id of ["explorer-new", "explorer-view"]) {
     expect(await page.getByTestId(id).isVisible()).toBe(true);
   }
-  expect(await page.getByTestId("explorer-filter").count()).toBe(0);
+  // One search bar: the tree has no magnifier and no field of its own.
+  expect(await page.getByTestId("explorer-filter-toggle").count()).toBe(0);
+  expect(await page.getByTestId("explorer-header").locator("input").count()).toBe(0);
 });
 
 test("the pointer entering the column leaves the header exactly as it was", async ({ page }) => {
@@ -83,33 +86,6 @@ test("the pointer entering the column leaves the header exactly as it was", asyn
   await page.mouse.move(1200, 500);
   await page.waitForTimeout(300);
   expect(await header(page)).toBe(before);
-});
-
-test("the filter is a press away, and the tree does not move when it opens", async ({ page }) => {
-  const tree = page.getByTestId("explorer-tree");
-  const treeBefore = await tree.boundingBox();
-
-  await page.getByTestId("explorer-filter-toggle").click();
-  const field = page.getByTestId("explorer-filter");
-  await expect(field).toBeFocused();
-  const treeAfter = await tree.boundingBox();
-  if (treeBefore === null || treeAfter === null) throw new Error("no box for the tree");
-  expect(treeAfter.y).toBe(treeBefore.y);
-
-  await page.keyboard.press("Escape");
-  await expect(field).toHaveCount(0);
-});
-
-test("pressing the lit magnifier on an empty field closes it rather than reopening it", async ({
-  page,
-}) => {
-  // The field blurs on mousedown and puts itself away before the press lands;
-  // the press must not read that as "closed" and open it again.
-  await page.getByTestId("explorer-filter-toggle").click();
-  await expect(page.getByTestId("explorer-filter")).toBeFocused();
-
-  await page.getByTestId("explorer-filter-toggle").click();
-  await expect(page.getByTestId("explorer-filter")).toHaveCount(0);
 });
 
 /**
@@ -129,18 +105,4 @@ test("the first tab starts where the note does, and keeps its rounded corner", a
     return tab === null ? null : getComputedStyle(tab).borderTopLeftRadius;
   });
   expect(radius).toBe("8px");
-});
-
-test("in the title row, New and View step aside while the filter is open", async ({ page }) => {
-  await page.getByTestId("explorer-filter-toggle").click();
-  await expect(page.getByTestId("explorer-filter")).toBeFocused();
-  await expect(page.getByTestId("explorer-new")).toHaveCount(0);
-  await expect(page.getByTestId("explorer-view")).toHaveCount(0);
-  const field = await page.getByTestId("explorer-filter").boundingBox();
-  if (field === null) throw new Error("no field");
-  expect(field.width).toBeGreaterThan(120);
-
-  await page.keyboard.press("Escape");
-  await expect(page.getByTestId("explorer-new")).toBeVisible();
-  await expect(page.getByTestId("explorer-view")).toBeVisible();
 });

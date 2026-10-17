@@ -12,6 +12,7 @@ import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-c
 import { Explorer } from "../features/console/files/Explorer";
 import type { FileBrowser } from "../features/console/files/browser";
 import { emptyEditor } from "../features/console/files/editor";
+import { narrowTree } from "../features/console/files/treeFilter";
 
 /**
  * THE FILE TREE'S HEADER IS THE SAME HEADER WHETHER OR NOT A POINTER IS NEAR.
@@ -19,8 +20,9 @@ import { emptyEditor } from "../features/console/files/editor";
  * It used to draw on approach: entering the column faded `Notes` out, gave an
  * invisible filter field under it a box, and faded in new-folder and sort. The
  * owner asked for it to stay the same (2026-09-26) and chose the design this
- * file holds: `Notes`, then Filter, New and View, drawn once, with New and
- * View as menus and the filter a field that a press on the magnifier reveals.
+ * file holds: `Notes`, then New and View, drawn once, as menus. The filter
+ * magnifier went when search became one bar (leadership weekly, 2026-10-17):
+ * ⌘K's Tab narrows the tree, and the label's place then says so, with Clear.
  *
  * jsdom lays nothing out and has no `PointerEvent`, so what is asserted here is
  * structure and behaviour on press. That the header does not change when the
@@ -160,16 +162,17 @@ function pressLabelled(label: string): void {
 /* -------------------------------------------------------------------------- */
 
 describe("the tree's header", () => {
-  test("is the column's name and three buttons, and nothing waits for a pointer", () => {
+  test("is the column's name and two buttons, and nothing waits for a pointer", () => {
     const container = mount();
     const header = byId("explorer-header")!;
 
     expect(header.textContent).toContain("Notes");
-    for (const id of ["explorer-filter-toggle", "explorer-new", "explorer-view"]) {
+    for (const id of ["explorer-new", "explorer-view"]) {
       expect(header.querySelector(`[data-testid="${id}"]`)).not.toBeNull();
     }
-    // No field until somebody asks for one: the label is not a disguised input.
-    expect(byId("explorer-filter")).toBeNull();
+    // One search bar: the tree has no field and no magnifier of its own.
+    expect(byId("explorer-filter-toggle")).toBeNull();
+    expect(header.querySelector("input")).toBeNull();
     // The reversal guard for the approach fade. Every node in the header is
     // drawn at rest; a group parked at opacity 0 for a pointer to light is
     // exactly what the owner asked to be rid of.
@@ -182,30 +185,31 @@ describe("the tree's header", () => {
     expect(container.querySelector('[data-testid="explorer-sort"]')).toBeNull();
   });
 
-  test("a reader gets Filter and View, and no New", () => {
+  test("a reader gets View, and no New", () => {
     mount([], false);
     expect(byId("explorer-new")).toBeNull();
-    expect(byId("explorer-filter-toggle")).not.toBeNull();
     expect(byId("explorer-view")).not.toBeNull();
   });
 });
 
-describe("the filter is asked for, not approached", () => {
-  test("the magnifier swaps the label for a field, and pressing it again puts it back", () => {
+describe("⌘K's Tab narrows the tree", () => {
+  test("the label's place says what it shows, and Clear puts the whole tree back", () => {
     const container = mount();
+    expect(byId("explorer-narrowed")).toBeNull();
 
-    press(byId("explorer-filter-toggle"));
-    const field = byId("explorer-filter")!;
-    expect(field.tagName.toLowerCase()).toBe("input");
-    expect(field.getAttribute("placeholder")).toBe("Filter");
-    expect(field.getAttribute("aria-label")).toBe("Filter notes and folders");
-    expect(byId("explorer-header")!.textContent).not.toContain("Notes");
-    // Lit while it filters, so a shortened tree says why.
-    expect(byId("explorer-filter-toggle")!.getAttribute("aria-label")).toBe("Clear the filter");
+    act(() => narrowTree("plan"));
+    expect(byId("explorer-narrowed")!.textContent).toContain("Names with “plan”");
+    // The tree is narrowed to names with the words: index.md is not one.
+    expect(container.textContent).not.toContain("index");
 
-    press(byId("explorer-filter-toggle"));
-    expect(byId("explorer-filter")).toBeNull();
+    press(byId("explorer-filter-clear"));
+    expect(byId("explorer-narrowed")).toBeNull();
     expect(container.textContent).toContain("Notes");
+    expect(container.textContent).toContain("index");
+  });
+
+  test("with no tree mounted, asking narrows nothing and throws nothing", () => {
+    expect(() => narrowTree("plan")).not.toThrow();
   });
 });
 

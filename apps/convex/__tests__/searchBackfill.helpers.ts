@@ -112,10 +112,15 @@ export function stubD1(): StubD1 {
    */
   function matchRows(sql: string, params: unknown[]): Record<string, unknown>[] {
     const tier = sql.includes("notes_private_fts") ? "private" : "team";
-    const wanted = String(params[0] ?? "")
-      .split(/\s+/)
-      .map((token) => token.replace(/^"|"$/g, "").toLowerCase())
+    // A relaxed expression (`toRelaxedMatchExpression`) is `"a"* OR "b"*`:
+    // any one word, a trailing `*` matching words that start with it.
+    const expression = String(params[0] ?? "");
+    const any = expression.includes(" OR ");
+    const wanted = expression
+      .split(any ? / OR / : /\s+/)
+      .map((token) => token.replace(/^"|"\*?$/g, "").toLowerCase())
       .filter((token) => token.length > 0);
+    const prefixes = any ? new Set(expression.split(/ OR /).filter((token) => token.endsWith("*")).map((token) => token.replace(/^"|"\*$/g, "").toLowerCase())) : new Set<string>();
     // `substr(path, 1, length(?)) = ?` binds the prefix twice; the limit is
     // always last.
     const prefix = params.length > 2 ? String(params[1]) : "";
@@ -126,7 +131,9 @@ export function stubD1(): StubD1 {
       .filter((chunk) => {
         const haystack = `${chunk.title} ${chunk.text}`.toLowerCase();
         const words = new Set(haystack.split(/[^\p{L}\p{N}_]+/u));
-        return wanted.every((token) => words.has(token));
+        const has = (token: string) =>
+          words.has(token) || (prefixes.has(token) && [...words].some((word) => word.startsWith(token)));
+        return any ? wanted.some(has) : wanted.every(has);
       })
       .slice(0, limit)
       .map((chunk, index) => ({

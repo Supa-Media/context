@@ -1,4 +1,8 @@
-import { useState, type ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
+import { useAction } from "convex/react";
+import { api } from "@context/convex/_generated/api";
+import type { Id } from "@context/convex/_generated/dataModel";
+import type { NoteReader } from "./NotePreview";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Text } from "../../design/components/Text";
 import { fonts, layout, pointerType, radii, space } from "../../design/tokens";
@@ -134,6 +138,8 @@ export interface PaletteChrome {
   bar: ReactNode;
   /** The every-workspace search, or `null` where ⌘K searches the old way. */
   everywhere: EverywhereSearch | null;
+  /** Reads the highlighted answer for the preview beside the list; `null` where there is none. */
+  read: NoteReader | null;
 }
 
 /**
@@ -161,7 +167,7 @@ export function PaletteSearchHost({
   reachability: Reachability;
   render: (chrome: PaletteChrome) => ReactNode;
 }) {
-  if (!enabled) return <>{render({ search: fallback, accessory: null, bar: undefined, everywhere: null })}</>;
+  if (!enabled) return <>{render({ search: fallback, accessory: null, bar: undefined, everywhere: null, read: null })}</>;
   return <EverywhereOn currentSlug={currentSlug} contexts={contexts} reachability={reachability} render={render} />;
 }
 
@@ -179,6 +185,12 @@ function EverywhereOn({
   const device = useBlendedDeviceSearch(contexts, reachability);
   const everywhere = useEverywhereSearch({ enabled: true, currentSlug, device });
   const [open, setOpen] = useState(false);
+  const readNote = useAction(api.functions.files.readNote);
+  // The same read the editor opens a note with, so the preview sees what the caller may see and nothing else.
+  const read = useCallback<NoteReader>(
+    async (workspaceId, path) => await readNote({ workspaceId: workspaceId as Id<"workspaces">, path }),
+    [readNote],
+  );
   const accessory = (
     <TimingPill
       timing={everywhere.timing}
@@ -197,7 +209,7 @@ function EverywhereOn({
       {open && everywhere.timing !== null ? <TimingPanel timing={everywhere.timing} /> : null}
     </View>
   );
-  return <>{render({ search: everywhere.search, accessory, bar, everywhere })}</>;
+  return <>{render({ search: everywhere.search, accessory, bar, everywhere, read })}</>;
 }
 
 const makeStyles = (colors: Colors) =>

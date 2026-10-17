@@ -98,12 +98,12 @@ describe("itemsFromBlended", () => {
   test("a row in the current workspace is current and keeps its bare path as id", () => {
     const [first] = itemsFromBlended(rows, "rent", "supa");
     expect(first.id).toBe("1-projects/2-planning/rent-plan.md");
-    expect(first.workspace).toEqual({ slug: "supa", current: true });
+    expect(first.workspace).toEqual({ slug: "supa", current: true, id: "ws_supa" });
   });
 
   test("a row in another workspace is not current", () => {
     const items = itemsFromBlended(rows, "rent", "supa");
-    expect(items[1].workspace).toEqual({ slug: "seyi", current: false });
+    expect(items[1].workspace).toEqual({ slug: "seyi", current: false, id: "ws_seyi" });
   });
 
   test("detail is '@slug · folder' with sort prefixes dropped, and '@slug' for a root note", () => {

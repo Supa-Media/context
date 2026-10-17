@@ -1,10 +1,10 @@
 import { useCallback, useRef, useState } from "react";
-import { TextInput, View } from "react-native";
+import { View } from "react-native";
 import { Menu } from "../../../design/components/Menu";
 import { Text } from "../../../design/components/Text";
 import { isApplePlatform } from "../../../design/applePlatform";
 import { describeBinding } from "../../../design/keymap";
-import { useColors, useThemedStyles } from "../../../design/theme";
+import { useThemedStyles } from "../../../design/theme";
 import type { FileBrowser } from "../browser";
 import { setListingOrder } from "../listingOrder";
 import type { MenuItem } from "../menu";
@@ -12,7 +12,6 @@ import { baseName, folderLabel } from "../paths";
 import { IconButton } from "./IconButton";
 import { makeStyles } from "./styles";
 import type { ExplorerState } from "./useExplorer";
-import { useFieldFont } from "../../../design/fieldFont";
 import { useMapRoute } from "../../map/live/MapRouteContext";
 
 type NewId = "new-note" | "new-folder" | "new-drawing";
@@ -31,10 +30,10 @@ type ViewId = "sort-asc" | "sort-desc" | "collapse";
  * design they chose (2026-09-26) is this one: a label and three buttons, drawn
  * once. Hovering a button lights that button and nothing else.
  *
- * - **Filter** swaps the label for a field, on a press rather than on
- *   approach. It stays lit while a query is filtering, so a shortened tree
- *   always has a visible reason, and pressing it lit (or Escape in the
- *   field) clears the query and puts the label back.
+ * - **No filter field.** The magnifier that opened one went when search
+ *   became one bar (leadership weekly, 2026-10-17): ⌘K's Tab narrows the
+ *   tree instead, and while it is narrowed the label's place says so, with
+ *   Clear.
  * - **New** is a menu — note, folder, drawing — naming the folder it makes
  *   them in. ⌘N still makes a note in one step.
  * - **View** is a menu — sort order, and collapse every folder. Collapse-all
@@ -50,7 +49,7 @@ type ViewId = "sort-asc" | "sort-desc" | "collapse";
  * (`inBar`, see `columnTools.ts`): the owner's option A (2026-09-28), which
  * fills what was an empty row and lets the tree start one row higher. There
  * is no `Notes` in that row, because the tree under it says what it is. The
- * filter still opens in the label's place, which up there is the room before
+ * narrowed line takes the label's place, which up there is the room before
  * the buttons.
  */
 export function ExplorerToolbar({
@@ -59,7 +58,6 @@ export function ExplorerToolbar({
   setDialog,
   descending,
   query,
-  setQuery,
   closeFilter,
   inBar = false,
 }: {
@@ -68,36 +66,18 @@ export function ExplorerToolbar({
   setDialog: ExplorerState["setDialog"];
   descending: ExplorerState["descending"];
   query: string;
-  setQuery: ExplorerState["setQuery"];
   closeFilter: ExplorerState["closeFilter"];
   /** Drawn in the title row over the column rather than at its head. */
   inBar?: boolean;
 }) {
-  const colors = useColors();
   const styles = useThemedStyles(makeStyles);
-  const fieldFont = useFieldFont();
-  const [filterOpen, setFilterOpen] = useState(false);
   const [open, setOpen] = useState<"new" | "view" | null>(null);
   const [anchor, setAnchor] = useState<{ x: number; y: number } | undefined>(undefined);
   const newRef = useRef<View>(null);
   const viewRef = useRef<View>(null);
-  /**
-   * When an empty field last put itself away on blur.
-   *
-   * Pressing the lit magnifier blurs the field on mousedown, before the press
-   * lands — so the blur has already closed it, and the press would read
-   * "closed" and open it again. A press within a moment of that blur is the
-   * same gesture, and is left as the close it was.
-   */
-  const blurClosedAt = useRef(0);
 
-  /** A query that is filtering keeps its field, whoever asked for it. */
-  const filtering = filterOpen || query !== "";
-
-  const putFilterAway = useCallback(() => {
-    closeFilter();
-    setFilterOpen(false);
-  }, [closeFilter]);
+  /** A query from ⌘K's Tab is narrowing the tree. */
+  const filtering = query !== "";
 
   /**
    * Open a menu under its own button.
@@ -162,48 +142,31 @@ export function ExplorerToolbar({
   return (
     <View style={inBar ? styles.toolbarInBar : styles.toolbar} testID="explorer-header">
       {filtering ? (
-        <TextInput
-          value={query}
-          onChangeText={setQuery}
-          placeholder="Filter"
-          placeholderTextColor={colors.muted}
-          /*
-            Autofocused because it has just been asked for: this field is
-            mounted by a press on the magnifier, so the caret belongs in it.
-            (The old field was permanent and could not do this without
-            stealing the caret on every mount.)
-          */
-          autoFocus={filterOpen}
-          onKeyPress={(event) => {
-            if (event.nativeEvent.key === "Escape") putFilterAway();
-          }}
-          /* An empty field somebody has left goes back to being the label. */
-          onBlur={() => {
-            if (query !== "") return;
-            blurClosedAt.current = Date.now();
-            setFilterOpen(false);
-          }}
-          style={[styles.filter, fieldFont, inBar && styles.noDrag]}
-          accessibilityLabel="Filter notes and folders"
-          autoCapitalize="none"
-          autoCorrect={false}
-          spellCheck={false}
-          testID="explorer-filter"
-        />
+        /*
+          The tree narrowed by ⌘K's Tab (`treeFilter.ts`): one plain line in
+          the label's place saying what it shows, and Clear (board A3). The
+          tree's own field and magnifier went when search became one bar
+          (leadership weekly, 2026-10-17).
+        */
+        <View style={[styles.narrowed, inBar && styles.noDrag]} testID="explorer-narrowed">
+          <Text variant="treeMeta" numberOfLines={1} style={styles.narrowedText}>
+            {`Names with “${query}”`}
+          </Text>
+          <Text
+            variant="treeMeta"
+            role="button"
+            accessibilityLabel="Clear, and show the whole tree"
+            onPress={closeFilter}
+            style={styles.narrowedClear}
+            testID="explorer-filter-clear"
+          >
+            Clear
+          </Text>
+        </View>
       ) : (
         <View style={styles.label}>{inBar ? null : <Text variant="eyebrow">Notes</Text>}</View>
       )}
       <View style={[styles.tools, inBar && styles.noDrag]}>
-        <IconButton
-          label={filtering ? "Clear the filter" : "Filter notes and folders"}
-          icon="search"
-          on={filtering}
-          onPress={() => {
-            if (filtering) putFilterAway();
-            else if (Date.now() - blurClosedAt.current > 400) setFilterOpen(true);
-          }}
-          testID="explorer-filter-toggle"
-        />
         {/*
           Up in the title row the field shares a narrow run with the window's
           buttons, so while it is open New and View step aside for it.

@@ -68,6 +68,8 @@ export interface SearchHit {
   snippets: string[];
   /** Found by what the note is about, not by the words typed ("Same topic, different words"). */
   meaningOnly?: boolean;
+  /** Has some of the words typed, not all of them (the projection's relaxed any-word pass). */
+  loose?: boolean;
 }
 
 export interface SearchResults {
@@ -340,8 +342,13 @@ export async function searchNotes(
       (store as { pendingMoves?: unknown }).pendingMoves,
       { isVisible, prefix: underFolder, keyField: "path" },
     );
-    const { meaning: _meaning, evidence: _evidence, ...results } = withMoves;
-    return { ...(results as SearchResults), timing: timed(wordsMs) };
+    const { meaning: _meaning, evidence, ...results } = withMoves;
+    // `withMeaning` moves `loose` off the hits into `evidence`; the console
+    // puts it back on, since its rows count the words a loose hit has
+    // ("Has 2 of 3 words", board B1 of the leadership weekly, 2026-10-17).
+    const looseAt = (evidence ?? {}) as Record<string, { loose?: boolean } | undefined>;
+    const hits = (results as SearchResults).hits.map((hit) => (looseAt[hit.path]?.loose === true ? { ...hit, loose: true } : hit));
+    return { ...(results as SearchResults), hits, timing: timed(wordsMs) };
   };
 
   /*

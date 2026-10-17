@@ -92,7 +92,6 @@ export function Explorer({
   const {
     descending,
     query,
-    setQuery,
     dialog,
     setDialog,
     menu,
@@ -146,7 +145,6 @@ export function Explorer({
       setDialog={setDialog}
       descending={descending}
       query={query}
-      setQuery={setQuery}
       closeFilter={closeFilter}
       inBar={frame.columnTools !== null}
     />

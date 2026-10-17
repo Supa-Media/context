@@ -31,10 +31,13 @@ export function usePaletteKeys({
   move,
   choose,
   onDismiss,
+  onTab,
 }: {
   move: (delta: number) => void;
   choose: () => void;
   onDismiss: () => void;
+  /** Tab, where the palette offers it ("show only these names in the tree"); absent, Tab moves focus as usual. */
+  onTab?: () => void;
 }) {
   useEffect(() => {
     if (Platform.OS !== "web" || typeof document === "undefined") return;
@@ -75,6 +78,10 @@ export function usePaletteKeys({
         case "dismiss":
           onDismiss();
           break;
+        case "narrowTree":
+          if (onTab === undefined) return;
+          onTab();
+          break;
         default:
           // Unreachable: the overlay scope resolves to nothing else. Left in
           // so that adding an overlay binding fails visibly here rather than
@@ -95,5 +102,5 @@ export function usePaletteKeys({
     */
     document.addEventListener("keydown", onKeyDown, true);
     return () => document.removeEventListener("keydown", onKeyDown, true);
-  }, [move, choose, onDismiss]);
+  }, [move, choose, onDismiss, onTab]);
 }
