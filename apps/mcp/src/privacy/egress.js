@@ -112,6 +112,17 @@ export const LISTING_TOOLS = new Set([
  */
 export const UNTRUSTED_LISTINGS = new Set(["list_meetings", "list_contacts", "list_proposals", "list_plugins"]);
 
+/**
+ * Tools that write, and never widen wherever they are addressed, so a call to
+ * one in another workspace is not held as a write there (Dev2, 2026-10-17).
+ * Each carries nothing the model chose to anyone new: `create_workspace` makes
+ * a workspace whose only member is the person; `apply_layout` writes folders
+ * and `about.md` text Context wrote, picked from a fixed list; and
+ * `connect_google` writes nothing and hands back a page in the app. Listed by
+ * name, so a tool added next year is still held until somebody classifies it.
+ */
+export const NEVER_WIDENS = new Set(["create_workspace", "apply_layout", "connect_google"]);
+
 /** The `share` values on `write_note` that mint a link (`notes/write.js`). */
 const SHARE_VALUES = new Set(["members", "anyone", "collect"]);
 

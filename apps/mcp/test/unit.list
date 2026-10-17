@@ -128,3 +128,5 @@ test/cleanupPage.test.mjs
 test/searchHeldPasses.test.mjs
 bench/test/check.test.mjs
 bench/test/core.test.mjs
+test/agentDelegate.test.mjs
+test/workspaceSetup.test.mjs

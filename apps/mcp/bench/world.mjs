@@ -20,6 +20,7 @@
  */
 
 import { TRANSCRIPTS_FOLDER } from "../src/agent/transcript.js";
+import { HOUSEKEEPING_CLIENT_ID } from "../src/agent/housekeeping.js";
 import worker from "../src/index.js";
 import { PRODUCTION_TEXTING_PATH } from "../src/agent/production.js";
 import { skillPath } from "../src/agent/skills.js";
@@ -39,6 +40,19 @@ import { assertIsoDate, installClock, noonUtcMs, noteModifiedAt, realNow } from 
 const BRAVE_SEARCH = "https://api.search.brave.com/";
 
 export const S3_ENDPOINT = "https://s3.bench.invalid";
+/** How much of a filed note's text a record keeps, for `containing` checks. */
+const MAX_FILED_TEXT = 2000;
+
+/** A note's front matter as `key → value`, lower-cased keys, quotes dropped. */
+export function frontOf(text) {
+  const m = /^---\n([\s\S]*?)\n---(?:\n|$)/.exec(String(text ?? ""));
+  const out = {};
+  for (const line of (m?.[1] ?? "").split("\n")) {
+    const f = /^([A-Za-z][\w-]*):\s*(.*?)\s*$/.exec(line);
+    if (f) out[f[1].toLowerCase()] = f[2].replace(/^(["'])(.*)\1$/, "$2");
+  }
+  return out;
+}
 const PINNED = "context-lc";
 
 /**
@@ -122,6 +136,34 @@ function bodyText(object) {
 
 function snapshot(bucket) {
   return new Map([...bucket].map(([key, object]) => [key, bodyText(object)]));
+}
+
+/**
+ * Read a streamed `/agent` answer the way the texting Worker does
+ * (`apps/agent/src/clients.ts` `askAgentStreaming`): each `{"progress"}` line
+ * is a text sent, ticks are skipped, and the last `{status, body}` line is the
+ * turn's own answer. A reply that is not a stream (refused before the turn
+ * ran) is read as plain JSON; a stream with no final line is a failed turn.
+ */
+export async function readStream(response) {
+  if (!(response.headers.get("content-type") ?? "").includes("application/x-ndjson")) {
+    return { response, body: await response.json().catch(() => null), progress: [] };
+  }
+  const progress = [];
+  const text = await response.text();
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (!line) continue;
+    let parsed;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (typeof parsed?.progress === "string" && parsed.progress.trim()) progress.push(parsed.progress.trim());
+    else if (typeof parsed?.status === "number") return { response: { status: parsed.status }, body: parsed.body ?? null, progress };
+  }
+  return { response: { status: 502 }, body: { error: "stream ended with no answer" }, progress };
 }
 
 /**
@@ -271,6 +313,18 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     ],
   });
 
+  // Tex's housekeeping (`src/agent/housekeeping.js`) has its own client, over
+  // the person's own workspace and nothing else.
+  const houseToken = `cat_house_${person.toLowerCase().replace(/[^a-z]/g, "")}_${"0".repeat(24)}`;
+  await controlPlane.addGrant({
+    workspaceId: ids.get(own.workspace),
+    role: "owner",
+    userId: `user_bench_${own.workspace}`,
+    accessToken: houseToken,
+    scopes: ["context:read", "context:write", "context:private"],
+    clientId: HOUSEKEEPING_CLIENT_ID,
+  });
+
   const before = new Map([...ids].map(([name]) => [name, snapshot(s3.bucketFor(`bench-${name}`))]));
   const env = {
     CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
@@ -319,23 +373,29 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       const { ctx, settle } = createWorkerCtx();
       // The real clock, not the world's: a turn's recorded time is how long it took.
       const started = realNow();
-      const response = await worker.fetch(
+      // Asked for as a stream, as the texting Worker asks (`apps/agent/src/clients.ts`):
+      // a streamed turn is the long one, with the setup's max_steps, and a
+      // plain JSON ask would measure the quick turn's 8 rounds instead.
+      const streamed = await worker.fetch(
         new Request("https://mcp.bench.invalid/agent", {
           method: "POST",
-          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/x-ndjson" },
           body: JSON.stringify({ question: message, conversation: "texts" }),
         }),
         env,
         ctx,
       );
+      const { response, body, progress } = await readStream(streamed);
       const ms = realNow() - started;
-      const body = await response.json().catch(() => null);
       await settle();
       const turn = controlPlane.turnReports.at(-1) ?? {};
       const usage = controlPlane.builtinReports.at(-1) ?? {};
       return {
         ok: response.status === 200 && typeof body?.answer === "string",
         answer: body?.answer ?? "",
+        // Lines the turn texted while it worked: each is a text the person got,
+        // sent before the answer, as the texting Worker sends them (`apps/agent/src/inbox.ts`).
+        progress,
         // Held calls the answer asks a YES for (`route.js`); the played person answers.
         asked: typeof body?.asked === "number" ? body.asked : 0,
         // The gateway hides a provider's reason from the caller; the turn log
@@ -378,6 +438,89 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
           cacheWrite: usage.cacheWriteTokens ?? 0,
         },
       };
+    },
+
+    /**
+     * One housekeeping run over the person's own workspace, answered as a turn
+     * is: its answer is the line it would text and the log it wrote.
+     */
+    async keepHouse() {
+      const { ctx, settle } = createWorkerCtx();
+      const started = realNow();
+      const response = await worker.fetch(
+        new Request("https://mcp.bench.invalid/agent", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${houseToken}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ housekeeping: { timeZone: "UTC" } }),
+        }),
+        env,
+        ctx,
+      );
+      const ms = realNow() - started;
+      const body = await response.json().catch(() => null);
+      await settle();
+      const usage = controlPlane.builtinReports.at(-1) ?? {};
+      const log = typeof body?.log === "string" ? (await this.readThrough(body.log))?.body ?? "" : "";
+      return {
+        ok: response.status === 200 && typeof body?.outcome === "string",
+        answer: [body?.line || `(${body?.outcome ?? "no outcome"}: nothing to text)`, log].filter(Boolean).join("\n\n"),
+        asked: 0,
+        error: response.status === 200 ? null : String(body?.error ?? `status ${response.status}`),
+        ms,
+        model: usage.model ?? null,
+        tools: [],
+        usage: {
+          input: usage.inputTokens ?? 0,
+          output: usage.outputTokens ?? 0,
+          cacheRead: usage.cacheReadTokens ?? 0,
+          cacheWrite: usage.cacheWriteTokens ?? 0,
+        },
+      };
+    },
+
+    /**
+     * A note read through the gateway as the person's own client reads it:
+     * `{ path, body }` where it is now (a moved note's old name follows it),
+     * or null when there is none. `workspace` is another of theirs by name.
+     */
+    async readThrough(path, workspace = null) {
+      const { ctx, settle } = createWorkerCtx();
+      const context = workspace === null || workspace === own.workspace ? null : `@${workspace}`;
+      const response = await worker.fetch(
+        new Request("https://mcp.bench.invalid/mcp", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "tools/call",
+            params: { name: "read_note", arguments: { path, ...(context ? { context } : {}) } },
+          }),
+        }),
+        env,
+        ctx,
+      );
+      const body = await response.json().catch(() => null);
+      await settle();
+      if (!body?.result || body.result.isError === true) return null;
+      const text = (body.result.content ?? []).map((block) => block.text ?? "").join("\n");
+      const split = text.indexOf("\n\n");
+      return { path: /^path: (.+)$/m.exec(text)?.[1] ?? path, body: split === -1 ? "" : text.slice(split + 2) };
+    },
+
+    /**
+     * Where each `<workspace>/<path>` named is now: `{ at, front, text }`,
+     * `at` as `<workspace>/<path>`, or null when it is gone.
+     */
+    async where(notes) {
+      const out = {};
+      for (const note of notes) {
+        const cut = note.indexOf("/");
+        const workspace = note.slice(0, cut);
+        const found = await this.readThrough(note.slice(cut + 1), workspace);
+        out[note] = found ? { at: `${workspace}/${found.path}`, front: frontOf(found.body), text: found.body.slice(0, MAX_FILED_TEXT) } : null;
+      }
+      return out;
     },
 
     /** What the scripted browser did this conversation (`sites.mjs`); empty without one. */

@@ -40,6 +40,7 @@ import { connectCommand, publishCommand, publishSetup, pullCommand, signIn, sign
 import { improveCommand } from "./improve.mjs";
 import { keyMarkdown, keyPathFor, resultMarkdown } from "./report.mjs";
 import { createWorld } from "./world.mjs";
+import { filedNotes } from "./checks.mjs";
 import { realNow } from "./clock.mjs";
 import { benchFolder } from "./folder.mjs";
 
@@ -116,13 +117,41 @@ export function personAnswers(turn) {
   return turn.asked > 0 ? "YES" : null;
 }
 
+const called = (turn, name) => (turn.tools ?? []).some((call) => call.ok !== false && (call.tool === name || call.tool.startsWith(`${name} `)));
+const briefLine = (question, when) => question.ifAsked.find((line) => when.test(line.when))?.say ?? null;
+
+/**
+ * What the person texts back, from the brief and without the model, when the
+ * turn left them something to do: a handoff of the browser (`sites.mjs`
+ * records it) is answered with the brief's "if asked to sign in, open a link,
+ * or take over the browser" line, and a link to save a login (`vault_add_link`)
+ * with its "sent a link to save her login" line. A played model read "text me
+ * when you're done" as nothing asked and ended the conversation (round of
+ * 2026-10-17), so the task never reached the page behind the sign-in. Null
+ * when the turn did neither, or the brief has no line for it.
+ *
+ * @param {{tools?: Array<{tool: string, ok?: boolean}>}} turn
+ * @param {{ifAsked: Array<{when: string, say: string}>}} question
+ * @param {string[]} events the browser's record for this turn alone
+ */
+export function handOffAnswer(turn, question, events) {
+  if (events.some((event) => event.startsWith("handoff "))) {
+    const line = briefLine(question, /take over the browser|open a link|\bsign in\b/);
+    if (line !== null) return line;
+  }
+  if (called(turn, "vault_add_link")) return briefLine(question, /sent a link to save/);
+  return null;
+}
+
 /** One conversation: the person's opening text, then as many turns as they take. */
-async function converse(world, question, person) {
+export async function converse(world, question, person, mode = null) {
+  if (mode === "housekeeping") return await keepHouse(world, question);
   const conversation = [];
   const totals = { ms: 0, personMs: 0, tools: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, model: null, error: null };
   let message = question.personStarts ?? question.text;
   for (let texts = 0; message !== null && texts < MAX_PERSON_TEXTS; texts += 1) {
     conversation.push({ from: "person", text: message });
+    const seen = world.browser().length;
     const turn = await world.text(message);
     totals.ms += turn.ms;
     totals.tools.push(...turn.tools);
@@ -132,14 +161,41 @@ async function converse(world, question, person) {
       totals.error = turn.error;
       break;
     }
+    // Each progress line is a text the person got before the answer, as the
+    // texting Worker sends them (`apps/agent/src/inbox.ts`), so it counts as one.
+    for (const line of turn.progress ?? []) conversation.push({ from: "assistant", text: line });
     conversation.push({ from: "assistant", text: turn.answer });
     // Only a back-and-forth has a person who answers back. The time the played
     // person takes is the run's, not the setup's: it is kept apart from `ms`.
     const personStarted = realNow();
-    message = personAnswers(turn) ?? (question.personStarts !== null || question.ifAsked.length > 0 ? await playPerson(person, question.body, conversation) : null);
+    message =
+      personAnswers(turn) ??
+      handOffAnswer(turn, question, world.browser().slice(seen)) ??
+      (question.personStarts !== null || question.ifAsked.length > 0 ? await playPerson(person, question.body, conversation) : null);
     totals.personMs += realNow() - personStarted;
   }
   return { conversation, ...totals, texts: conversation.filter((turn) => turn.from === "assistant").length };
+}
+
+/**
+ * A housekeeping test (`mode: housekeeping`): nobody texts. Tex runs once over
+ * the person's own workspace, and the record says where each note a `file`
+ * check names ended up (`checks.mjs`).
+ */
+async function keepHouse(world, question) {
+  const turn = await world.keepHouse();
+  const where = await world.where(filedNotes(question));
+  return {
+    conversation: turn.ok ? [{ from: "assistant", text: turn.answer }] : [],
+    ms: turn.ms,
+    personMs: 0,
+    tools: turn.tools,
+    usage: turn.usage,
+    model: turn.model,
+    error: turn.error,
+    texts: turn.ok ? 1 : 0,
+    where,
+  };
 }
 
 /**
@@ -239,13 +295,13 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
       const wallStarted = realNow();
       let world = await createWorld(bench, as, setup.raw, models, today, prepared);
       try {
-        let result = await converse(world, question, person);
+        let result = await converse(world, question, person, test.front.mode ?? null);
         let reran = null;
         if (result.error && !options.fake) {
           reran = result.error;
           world.close();
           world = await createWorld(bench, as, setup.raw, models, today, prepared);
-          result = await converse(world, question, person);
+          result = await converse(world, question, person, test.front.mode ?? null);
         }
         records.push({
           ...(reran === null ? {} : { reran }),

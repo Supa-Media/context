@@ -45,6 +45,8 @@ export const ASSISTANT_SEND_ACTIONS = {
   browse: { tool: "browse", summary: "Drive a browser step by step.", take: own },
   fill_login: { tool: "fill_login", summary: "Sign in on the open page with a saved login you never see.", take: own },
   progress: { tool: "text_progress", summary: "Text the person a short line while you work.", take: own },
+  delegate: { tool: "delegate", summary: "Hand a whole sub-project to Claude Code, Codex, Claude, Claude Design or ChatGPT.", take: own },
+  mail_agent: { tool: "mail_agent", summary: "Mail the agent doing the job you supervise.", take: own },
 };
 
 /** `fetch` ids only the assistant has: its skills (`skills.js`) and the conversation's earlier texts. */

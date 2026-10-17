@@ -191,7 +191,7 @@ function describeStatus(site) {
   lines.push(
     problems.length > 0
       ? "fix the problems, then check again."
-      : `to publish exactly this draft: write_note { path: "website/index.md", site: { action: "publish", draft: "${site.draft}" } }`,
+      : `to publish exactly this draft: manage { action: "website", args: { action: "publish", draft: "${site.draft}" } }`,
   );
   return toolText(lines.join("\n"));
 }
@@ -244,7 +244,7 @@ function describeCheck(check) {
   lines.push(
     blocking > 0
       ? "fix the problems that stop Publish, then check again."
-      : `to publish exactly this draft: write_note { path: "website/index.md", site: { action: "publish", draft: "${check.draft}" } }`,
+      : `to publish exactly this draft: manage { action: "website", args: { action: "publish", draft: "${check.draft}" } }`,
   );
   if (check.inspected) {
     const fence = check.inspected.path.endsWith(".css.md") ? "css" : "html";
@@ -290,7 +290,7 @@ function describeHistory(history) {
     for (const version of history.versions) {
       lines.push(`- revision ${version.revision}${when(version.publishedAt)}: ${version.pages} pages${version.live ? " (live now)" : ""}`);
     }
-    lines.push('to see one version\'s files: write_note { path: "website/index.md", site: { action: "history", revision: N } }');
+    lines.push('to see one version\'s files: manage { action: "website", args: { action: "history", revision: N } }');
     return toolText(lines.join("\n"));
   }
   const version = history.version;

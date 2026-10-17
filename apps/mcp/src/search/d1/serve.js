@@ -146,7 +146,8 @@ export async function searchProjection(
    * **Every op taken before any query starts, and then all of them at once.**
    *
    * The two halves are independent — separate tables, separate statements —
-   * so awaiting them one at a time bought nothing and cost a round trip. That
+   * so awaiting them one at a time bought nothing and cost a round trip, and
+   * they now travel as one batched request where the client takes one. That
    * matters more here than anywhere else in the search: this client talks to
    * D1 over Cloudflare's HTTP API rather than a native binding, because the
    * databases are created per workspace at runtime and a Worker's D1 bindings
@@ -168,9 +169,12 @@ export async function searchProjection(
       if (!budget.take(reserve)) return null;
     }
   }
-  const answers = await Promise.all(
-    tables.map((table) => client.query(searchSql(table, options), searchParams(match, options)))
-  );
+  const statements = tables.map((table) => ({ sql: searchSql(table, options), params: searchParams(match, options) }));
+  // Both tables in one request where the client can batch (`client.js`).
+  const answers =
+    typeof client.queryAll === "function"
+      ? await client.queryAll(statements)
+      : await Promise.all(statements.map(({ sql, params }) => client.query(sql, params)));
 
   const rows = [];
   let truncated = false;

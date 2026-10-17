@@ -81,6 +81,7 @@ export {
   checkoutOutcomeFrom,
   checkoutReturnPath,
   contextSegment as checkoutContextSegment,
+  integrationsSettingsPath,
   portalReturnPath,
   premiumSettingsPath,
   type CheckoutOrigin,

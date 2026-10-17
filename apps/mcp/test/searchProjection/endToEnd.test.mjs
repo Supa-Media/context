@@ -296,8 +296,9 @@ export async function runEndToEndChecks(check) {
      *
      * So it is split in two. The backfill really must go quiet once the row is
      * ready, and that is the first half. The second is that a search now
-     * *asks*: a personal connection reads both tiers, so four searches make
-     * eight reads and not one write.
+     * *asks*: a personal connection reads both tiers, in one batched request
+     * (decided by the owner, 2026-10-17), so four searches make four reads
+     * and not one write.
      */
     check(
       "and the backfill stops writing entirely",
@@ -305,7 +306,7 @@ export async function runEndToEndChecks(check) {
     );
     check(
       "while a search now actually asks the projection it filled",
-      reads(settledRequests).length === 8,
+      reads(settledRequests).length === 4,
     );
     check(
       "and asks it nothing else — no census, no cursor, no listing",

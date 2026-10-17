@@ -19,6 +19,7 @@ import {
   type PendingInvite,
 } from "../features/workspace/create";
 import { PARA_FOLDERS } from "@context/convex/functions/lib/scaffold";
+import { layoutStructure } from "@context/convex/functions/lib/workspaces/layouts";
 import {
   DEFAULT_PRESET,
   WORKSPACE_PRESETS,
@@ -224,6 +225,18 @@ describe("the presets are things the control plane will accept", () => {
       expect(toFolderSpecs(rows)).toHaveLength(rows.length);
     },
   );
+
+  /**
+   * An agent lays a workspace out by name (`manage` action layout,
+   * `functions/lib/workspaces/layouts.ts`), and it must lay down what this
+   * picker would: the same template and the same rows, description included.
+   */
+  test.each(["para", "business", "product"] as const)("an agent's %s layout is this preset's", (key) => {
+    const structure = layoutStructure(key);
+    expect(structure.template).toBe(templateFor(key));
+    const rows = "folders" in structure ? structure.folders : [];
+    expect(rows).toEqual(toFolderSpecs(presetRows(key)));
+  });
 
   test("every folder carries a description, since it becomes that folder's about note", () => {
     for (const preset of WORKSPACE_PRESETS) {

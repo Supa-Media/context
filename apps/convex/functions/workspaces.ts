@@ -14,6 +14,8 @@
  */
 
 import { v } from "convex/values";
+import { requireAuthId } from "@supa-media/convex/auth";
+import type { Id } from "../_generated/dataModel";
 import {
   action,
   internalMutation,
@@ -129,7 +131,7 @@ export const createWorkspace = mutation({
     workspaceId: v.id("workspaces"),
     slug: v.string(),
   }),
-  handler: (ctx, args) => createWorkspaceHandler(ctx, args),
+  handler: async (ctx, args) => createWorkspaceHandler(ctx, (await requireAuthId(ctx)) as Id<"users">, args),
 });
 
 /* -------------------------------------------------------------------------- */
@@ -193,7 +195,7 @@ export const applyStructure = mutation({
     /** The folder names as they will be written. Echoed so a client can confirm. */
     folders: v.array(v.string()),
   }),
-  handler: (ctx, args) => applyStructureHandler(ctx, args),
+  handler: async (ctx, args) => applyStructureHandler(ctx, (await requireAuthId(ctx)) as Id<"users">, args),
 });
 
 /**

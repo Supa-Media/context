@@ -57,7 +57,11 @@ is asked is told all of them, and the gate supplies `confirm_team_publish`
 only when the call asked to publish. Reads, ordinary
 writes inside the workspace the call started in, and dry runs never widen
 and never ask; nor does `report_problem`, whose one destination is Context's
-own support intake rather than an address the model chose. `apps/mcp/src/privacy/egress.js`
+own support intake rather than an address the model chose. Nor do the
+workspace setup tools (`create_workspace`, `apply_layout`, `connect_google`;
+Dev2, 2026-10-17), wherever they are addressed: they show nobody anything new
+and carry nothing the model chose (`NEVER_WIDENS`; see
+[workspace setup](../gateway-protocol/workspace-setup.md)). `apps/mcp/src/privacy/egress.js`
 is the list.
 
 **When a widening waits for a person.** A turn this gateway sees whole — a
@@ -193,3 +197,34 @@ classifying only emails lets a group or a domain through. Tests:
 `agentEgress.test.mjs` ("an MCP client naming a member / a group / someone
 outside the workspace / a domain on a note is held for the person's yes",
 "the model's own confirmation does not release a name").
+
+### A delegated job's message leaves only for the agent's own site, and only from a clean turn (2026-10-17)
+
+`delegate` ([delegation](../texting-assistant/delegation.md)) gives Tex a
+message of the model's own words to type into another agent's chat box
+(claude.ai, chatgpt.com). The words can carry anything the turn read, so the
+browser may type them without open web only under two conditions. First, the
+message was written by `delegate` in this call, in a turn whose egress ledger
+is still clean: nothing from a page, a search result, an attachment, another
+agent's mail or a tainted earlier answer has been read. Second, it is typed on
+that agent's own host and nowhere else, with the host re-checked at the keys
+(`browse.js` `delegateValue`). `again` rebuilds the message from the task
+note, which anyone who can write the note may have edited, so it never
+vouches. The note's brief is not the person's words.
+
+The reason: in a clean turn, nothing outside the person and their notes can
+have chosen the words or the destination. The site is the person's own
+account with an agent they picked, the same trust as a site they named. A
+host-wide allowance (another person's GPT on chatgpt.com, say) is accepted
+for that reason: no page has been read that could steer the model there.
+Under `open_web: yes` (our deployment) typing is unrestricted anyway, by the
+owner's decision of 2026-10-14. These conditions are what a self-hosted
+gateway without open web keeps.
+
+What a simplification would cost: vouching in any turn lets a page read
+earlier in the same text dictate a brief full of the person's notes, which is
+then typed onto that site. Vouching `again` lets a collaborator's edit to a
+task note do the same. Tests: `agentDelegate.test.mjs` ("a turn that read
+something from outside never vouches for the message", "again gives the same
+message … writing nothing", "a delegated message is typed only on its agent's
+own site").
