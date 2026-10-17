@@ -182,6 +182,25 @@ describe("replyTo", () => {
     expect(reply).toEqual(["I drafted it, see the plan.", "https://a.example/plan", ask]);
   });
 
+  it("texts an ask whole however long the answer before it is", async () => {
+    // Folded into the answer instead, the ask is the model's to lose: three
+    // texts are kept and every later paragraph joins the third, which is then
+    // sent 3,000 characters at a time. The held call stays armed either way.
+    const ask =
+      "Before I do that, I need your OK: claim the handle @acme for a new shared workspace " +
+      "(handles are permanent). Reply YES to go ahead, or NO to drop it.";
+    const told = ["Sure.", "Here is what I found.", "x".repeat(2_960)].join("\n\n");
+    const reply = await replyTo(
+      message("make me a workspace for acme"),
+      deps({
+        "/agent-texts/session": () => [200, { status: "linked", accessToken: "grant-for-this-person" }],
+        "/agent": () => [200, { answer: `${told}\n\n${ask}`, verbatim: [ask] }],
+      }),
+    );
+    expect(reply.at(-1)).toBe(ask);
+    expect(reply.every((part) => part.length <= 3_000)).toBe(true);
+  });
+
   it("ignores a verbatim part the answer does not contain", async () => {
     const reply = await replyTo(
       message("hi"),

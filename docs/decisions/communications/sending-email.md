@@ -24,8 +24,9 @@ what happens to the draft (`apps/mcp/src/tools/emailGate.js`):
    shown beside the email; a checker that cannot run marks it unchecked.
 4. **The call is held as a pending approval carrying the whole email.** The
    copy is texted exactly as written, outside the reply's formatting (which
-   drops links and lines), and an email too long for one text (2,500
-   characters) is never asked about by text. A texted turn asks about one
+   drops links and lines) and in a text of its own, as every ask now is
+   ([agent-egress](../privacy-and-sharing/agent-egress.md)), and an email too
+   long for one text (2,500 characters) is never asked about by text. A texted turn asks about one
    email at most, and an ask holding an email that would outgrow one text
    (other asks beside it included) is withdrawn rather than cut. Only a
    literal YES within half an hour sends it, settled before any model runs;
