@@ -7,29 +7,49 @@ import type { ConsoleRouter } from "../layout/types";
 import type { ConsoleRoute } from "../nav";
 import { SharedSidebar } from "./SharedSidebar";
 import type { SharedEntry } from "./SharedInboxHost";
-import { SHARED_HREF, sharedNoteHref, sharerLabel } from "./sharedInbox";
+import { firstOf, openKeyOf, parseGrant } from "./sharedGrant";
+import { SHARED_HREF, sharedItemHref, sharedItemKey, sharerLabel, type SharedItem } from "./sharedInbox";
 
 /** Whether the console is on @shared, which swaps the tree's column and the status line for its own. */
 export function onShared(route: ConsoleRoute): boolean {
   return route.kind === "app" && route.section === "shared";
 }
 
-/** The open note's token, from `?note=`: read by the sidebar and the status line, which sit above the route. */
-function useOpenToken(): string | null {
-  const note = useOptionalGlobalSearchParams<{ note?: string | string[] }>().note;
-  const token = Array.isArray(note) ? note[0] : note;
-  return token === undefined || token === "" ? null : token;
+/**
+ * The key of the open row, from the address: the token in `?note=`, or the grant
+ * in `?grant=`. Read by the sidebar and the status line, which sit above the route.
+ */
+function useOpenKey(): string | null {
+  const params = useOptionalGlobalSearchParams<{
+    note?: string | string[];
+    grant?: string | string[];
+    by?: string | string[];
+    kind?: string | string[];
+  }>();
+  const note = firstOf(params.note);
+  if (note !== undefined && note !== "") return note;
+  const grant = parseGrant({ grant: firstOf(params.grant), by: firstOf(params.by), kind: firstOf(params.kind) });
+  return grant === null ? null : openKeyOf(grant);
+}
+
+/** The address a listed row opens at, found from its key. */
+function hrefFor(items: readonly SharedItem[] | undefined, key: string): string | null {
+  const item = items?.find((candidate) => sharedItemKey(candidate) === key);
+  return item === undefined ? null : sharedItemHref(item);
 }
 
 function SidebarSlot({ entry, router, foot }: { entry: SharedEntry; router: ConsoleRouter; foot: ReactNode }) {
-  const selected = useOpenToken();
+  const selected = useOpenKey();
   return (
     <SharedSidebar
       items={entry.items}
       seenAt={entry.seenAt}
       selected={selected}
       onEverything={() => router.push(SHARED_HREF)}
-      onOpen={(token) => router.push(sharedNoteHref(token))}
+      onOpen={(key) => {
+        const href = hrefFor(entry.items, key);
+        if (href !== null) router.push(href);
+      }}
       foot={foot}
     />
   );
@@ -37,8 +57,8 @@ function SidebarSlot({ entry, router, foot }: { entry: SharedEntry; router: Cons
 
 /** Board A2's foot line: "Shared with me · 4 items", or "Shared by Ana Ruiz" on an open note. */
 function StatusSlot({ entry }: { entry: SharedEntry }) {
-  const selected = useOpenToken();
-  const open = selected === null ? undefined : entry.items?.find((item) => item.token === selected);
+  const selected = useOpenKey();
+  const open = selected === null ? undefined : entry.items?.find((item) => sharedItemKey(item) === selected);
   const count = entry.items?.length ?? 0;
   const text =
     open !== undefined ? `Shared by ${sharerLabel(open)}` : `Shared with me · ${count} item${count === 1 ? "" : "s"}`;

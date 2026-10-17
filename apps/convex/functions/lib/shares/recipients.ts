@@ -8,13 +8,14 @@
  * module registers none.
  */
 
-import { v } from "convex/values";
+import { v, type Infer } from "convex/values";
 import type { ObjectType } from "convex/values";
 import { requireAuthId } from "@supa-media/convex/auth";
 import type { QueryCtx } from "../../../_generated/server";
 import type { Doc, Id } from "../../../_generated/dataModel";
 import { handleForUser, identifiersForUser } from "../identities";
 import { getMembership, roleAtLeast } from "../workspaceAuth";
+import { grantedItemValidator, grantedItemsFor, itemKey } from "./grantedInbox";
 import { shareableRules, sharedNoteTitle, sharerName } from "./inboxTitle";
 import { MAX_SHARES_RETURNED, isLive, shareStillStands } from "./standing";
 
@@ -89,30 +90,36 @@ export async function resolveShareHandler(
 
 export const listSharedWithMeArgs = {};
 
-export const listSharedWithMeReturns = v.array(
-  v.object({
-    token: v.string(),
-    workspaceId: v.id("workspaces"),
-    slug: v.string(),
-    displayName: v.string(),
-    /** Whether the note lives in somebody's own context or a shared one. */
-    workspaceKind: v.union(v.literal("personal"), v.literal("shared")),
-    entryPath: v.string(),
-    sharedBy: v.id("users"),
-    /**
-     * The sharer's handle, without the `@`, so the list can draw their face
-     * and name them. `null` for an account with none. The sharer chose to
-     * address the reader, and the reader can already see who sent the link
-     * on the share page, so naming them here discloses nothing new.
-     */
-    sharedByHandle: v.union(v.string(), v.null()),
-    /** The sharer's account name, for the row and the people list (`./inboxTitle.ts`). */
-    sharedByName: v.union(v.string(), v.null()),
-    /** The note's own title, or `null` to fall back on its file name (`./inboxTitle.ts`). */
-    title: v.union(v.string(), v.null()),
-    createdAt: v.number(),
-  }),
-);
+/**
+ * One item of the list: a share sent to me, or a grant I hold (`./grantedInbox.ts`).
+ *
+ * A grant is not a token and opens by its note id, so it carries no token; `kind` says which.
+ */
+const sharedItemValidator = v.object({
+  kind: v.literal("share"),
+  token: v.string(),
+  workspaceId: v.id("workspaces"),
+  slug: v.string(),
+  displayName: v.string(),
+  /** Whether the note lives in somebody's own context or a shared one. */
+  workspaceKind: v.union(v.literal("personal"), v.literal("shared")),
+  entryPath: v.string(),
+  sharedBy: v.id("users"),
+  /**
+   * The sharer's handle, without the `@`, so the list can draw their face
+   * and name them. `null` for an account with none. The sharer chose to
+   * address the reader, and the reader can already see who sent the link
+   * on the share page, so naming them here discloses nothing new.
+   */
+  sharedByHandle: v.union(v.string(), v.null()),
+  /** The sharer's account name, for the row and the people list (`./inboxTitle.ts`). */
+  sharedByName: v.union(v.string(), v.null()),
+  /** The note's own title, or `null` to fall back on its file name (`./inboxTitle.ts`). */
+  title: v.union(v.string(), v.null()),
+  createdAt: v.number(),
+});
+
+export const listSharedWithMeReturns = v.array(v.union(sharedItemValidator, grantedItemValidator));
 
 /**
  * Everything shared with me. The recipient's own channel.
@@ -159,13 +166,13 @@ export async function listSharedWithMeHandler(
   // `@handle`, once by email — the row kept below is the latest share.
   rows.sort((a, b) => b.createdAt - a.createdAt);
 
-  const summaries = [];
+  const summaries: Array<SharedSummary> = [];
   const seen = new Set<string>();
   const sharers = new Map<Id<"users">, { handle: string | null; name: string | null }>();
   // Per context, not per row: see `shareableRules`.
   const rules = new Map<Id<"workspaces">, Awaited<ReturnType<typeof shareableRules>>>();
   for (const row of rows) {
-    const key = `${row.workspaceId}\u0000${row.entryPath}`;
+    const key = itemKey(row.workspaceId, row.entryPath);
     if (seen.has(key)) continue;
     // The authority, not the gathering above — and the same predicate the
     // link path answers, so this inbox can never be the softer of the two.
@@ -181,6 +188,7 @@ export async function listSharedWithMeHandler(
     const sharer = sharers.get(row.createdBy);
     if (!rules.has(workspace._id)) rules.set(workspace._id, await shareableRules(ctx, workspace._id));
     summaries.push({
+      kind: "share",
       token: row.token,
       workspaceId: workspace._id,
       slug: workspace.slug,
@@ -194,8 +202,14 @@ export async function listSharedWithMeHandler(
       createdAt: row.createdAt,
     });
   }
-  return summaries;
+
+  // The grants I hold in other people's workspaces, minus any note a share already lists. Then one list, newest first.
+  const granted = await grantedItemsFor(ctx, userId, new Set(summaries.map((item) => itemKey(item.workspaceId, item.entryPath))));
+  return [...summaries, ...granted].sort((a, b) => b.createdAt - a.createdAt);
 }
+
+/** One share item as the handler builds it, before the list is joined with grants. */
+type SharedSummary = Infer<typeof sharedItemValidator>;
 
 export const authorizeShareReadArgs = {
   /**

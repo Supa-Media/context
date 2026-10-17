@@ -60,7 +60,8 @@ describe("what @shared lists", () => {
 
     const rows = await asUser(t, lk).query(api.functions.shares.listSharedWithMe, {});
     expect(rows.map((row) => row.entryPath)).toEqual(["1-projects/beneath-the-chaos.md", "1-projects/plan.md"]);
-    expect(rows[0]!.token).toBe(byHandle.token);
+    const newest = rows[0]!;
+    expect(newest.kind === "share" && newest.token).toBe(byHandle.token);
   });
 
   test("each row names its sharer and the kind of workspace it lives in", async () => {
