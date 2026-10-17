@@ -115,7 +115,7 @@ export function changedSince(entries, since) {
  * A note that is missing or can't be read is the defaults.
  */
 export function readSettings(text) {
-  const raw = typeof text === "string" ? text.replace(/^﻿/, "") : "";
+  const raw = typeof text === "string" ? text.replace(/^\uFEFF/, "") : "";
   const lines = raw.split(/\r?\n/);
   let body = raw;
   let paused = false;
