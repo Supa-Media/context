@@ -238,6 +238,13 @@ export const billingTables = {
      * Absent on every other row.
      */
     freeManaged: v.optional(v.boolean()),
+    /**
+     * Premium at no charge because its owner holds a founding grant
+     * (`foundingPremium` below). Set together with `status: "active"`, and
+     * what keeps a Stripe event from ever turning this plan off
+     * (`foundingStatus`). Absent on every other row.
+     */
+    founding: v.optional(v.boolean()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -339,4 +346,25 @@ export const billingTables = {
   })
     .index("by_workspace", ["workspaceId"])
     .index("by_expiresAt", ["expiresAt"]),
+
+  /**
+   * Founding Premium: the first `FOUNDING_PREMIUM_ACCOUNTS` accounts, in
+   * account creation order, are Premium at no charge (decided by the owner,
+   * Dev2, 2026-10-17; `lib/billing/founding.ts`).
+   *
+   * One row per grant, written once and never deleted, **not even with the
+   * account**: the cap counts grants ever made, so a founder deleting their
+   * account frees no slot and nobody's standing moves. The row holds an
+   * opaque id and two times, nothing about the person.
+   */
+  foundingPremium: defineTable({
+    userId: v.id("users"),
+    /** 1-based, in grant order. */
+    seq: v.number(),
+    /** The account's `_creationTime`: where the next catch-up resumes. */
+    accountCreatedAt: v.number(),
+    grantedAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_seq", ["seq"]),
 };

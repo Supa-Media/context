@@ -15,6 +15,7 @@ import { claimName, checkAvailability, nameRejectionError } from "../nameClaims"
 import { seedIngestionSettings } from "../ingestionStore";
 import { consumeRateLimit } from "../rateLimit";
 import { isProductionTestAccount } from "../testAccount";
+import { applyFoundingPremium, foundingGrantOf } from "../billing/founding";
 import { normalizeDisplayName } from "./rename";
 import {
   MAX_WORKSPACES_PER_USER,
@@ -107,6 +108,11 @@ export async function createWorkspaceHandler(
   // is the feature, and `seedIngestionSettings` throws if called anyway.
   if (args.kind === "personal") {
     await seedIngestionSettings(ctx, { workspaceId, ownerUserId: userId, now });
+    // A founder's personal workspace is Premium from its first moment
+    // (`lib/billing/founding.ts`).
+    if ((await foundingGrantOf(ctx, userId)) !== null) {
+      await applyFoundingPremium(ctx, workspaceId, userId);
+    }
   }
 
   return { workspaceId, slug: availability.normalized };
