@@ -53,20 +53,16 @@ export function scrubProviderError(
   binding: {
     accessKeyId?: string;
     encryptedSecretAccessKey?: string;
-    encryptedRefreshToken?: string;
-    encryptedAccessToken?: string;
   },
 ): string {
   let scrubbed = raw;
-  // Every credential-shaped value the binding holds, whichever provider it is.
-  // Listing them explicitly rather than iterating the row keeps a future
-  // non-secret field from being redacted out of an error by accident, and a
-  // future secret one from being missed — it has to be named here either way.
+  // Every credential-shaped value the binding holds. Listing them explicitly
+  // rather than iterating the row keeps a future non-secret field from being
+  // redacted out of an error by accident, and a future secret one from being
+  // missed — it has to be named here either way.
   for (const known of [
     binding.encryptedSecretAccessKey,
     binding.accessKeyId,
-    binding.encryptedRefreshToken,
-    binding.encryptedAccessToken,
   ]) {
     if (typeof known === "string" && known.length > 0) {
       scrubbed = scrubbed.split(known).join("[redacted]");

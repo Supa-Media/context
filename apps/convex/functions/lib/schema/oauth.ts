@@ -2,8 +2,7 @@ import { defineTable } from "convex/server";
 import { v } from "convex/values";
 
 /**
- * MCP OAuth clients, parked authorizations, per-client grants, and (legacy) Dropbox
- * connect round trip, kept for rows written before its removal.
+ * MCP OAuth clients, parked authorizations, and per-client grants.
  *
  * One slice of the control-plane schema, spread into `defineSchema` by
  * `apps/convex/schema.ts` in declaration order. Metadata only — see that
@@ -178,22 +177,6 @@ export const oauthTables = {
    * revocable. Revoking ChatGPT must not log Claude out, which is why the
    * grant, not the user session, is the unit of authority.
    */
-  // Legacy: Dropbox was removed on 2026-10-17. Kept only so existing rows still validate; removed once internal.functions.dropboxRemoval.purge has run in production.
-  dropboxConnectAttempts: defineTable({
-    hashedState: v.string(),
-    hashedCompletion: v.optional(v.string()),
-    encryptedVerifier: v.string(),
-    workspaceId: v.id("workspaces"),
-    startedBy: v.id("users"),
-    redirectUri: v.string(),
-    rootPrefix: v.optional(v.string()),
-    resumeTo: v.optional(v.literal("onboarding")),
-    expiresAt: v.number(),
-    createdAt: v.number(),
-  })
-    .index("by_hashed_state", ["hashedState"])
-    .index("by_expiresAt", ["expiresAt"]),
-
   oauthGrants: defineTable({
     /** Ephemeral first-party browser instance; never an authorization credential. */
     consoleInstanceId: v.optional(v.string()),

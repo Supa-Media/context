@@ -70,10 +70,8 @@ export interface BindingResult {
 /**
  * The providers a binding can be served to the gateway under.
  *
- * A provider removed from the product can still have rows in the schema until
- * its purge has run (the purge module is named in the schema). Such a row is never
- * served: `getBindingForGateway` reports no binding for it, exactly as it would
- * for a provider this deployment does not know.
+ * Guards a provider string this deployment does not serve: `getBindingForGateway`
+ * reports no binding for it, exactly as it would for a provider it does not know.
  */
 export const SERVED_PROVIDERS = ["r2", "s3", "b2", "s3-compatible"] as const;
 export type ServedProvider = (typeof SERVED_PROVIDERS)[number];
@@ -89,7 +87,7 @@ export function isServedProvider(provider: string): provider is ServedProvider {
  * check at the consumer refuses rather than half-builds.
  */
 export interface SealedBinding {
-  /** A served provider, or a row from a removed one awaiting purge. See `SERVED_PROVIDERS`. */
+  /** A served provider. See `SERVED_PROVIDERS`. */
   provider: string;
   endpoint?: string;
   region?: string;

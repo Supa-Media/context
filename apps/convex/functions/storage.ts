@@ -65,7 +65,6 @@ import { recordAudit } from "./lib/audit";
 import { requireWorkspaceRole } from "./lib/workspaceAuth";
 import {
   initialCapabilities,
-  isServedProvider,
   type BindingResult,
 } from "./lib/storage/shapes";
 import {
@@ -398,10 +397,7 @@ export const applyBinding = internalMutation({
     }
 
     let bindingId: Id<"storageBindings">;
-    if (existing === null || !isServedProvider(existing.provider)) {
-      // A legacy row from a removed provider is replaced, not patched, so no
-      // field of its old shape survives the rebind.
-      if (existing !== null) await ctx.db.delete(existing._id);
+    if (existing === null) {
       bindingId = await ctx.db.insert("storageBindings", {
         ...fields,
         createdAt: now,
