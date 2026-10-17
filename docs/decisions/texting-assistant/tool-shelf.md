@@ -32,6 +32,16 @@ note-only write); showing Tex every action regardless of grant gets it refused
 mid-task. Tests: `apps/mcp/test/agentSixTools.test.mjs`, and the attacks through
 the six in `apps/mcp/test/agentRoutine.test.mjs`.
 
+## Tex sets workspaces up without a browser (Dev2, 2026-10-17)
+
+Decided by Dev2, 2026-10-17: what is UI-only about Context itself is doable
+through the MCP, so Tex does not send the person to a browser for Context; only
+a third party's sign-in needs one. Tex holds `manage` create_workspace, layout
+and connect_google like any connected app, through `textingWriteTools`, with
+nothing withheld. connect_google gives a link to the app's Connected apps page,
+because Google's own sign-in is the person's to finish. See
+[workspace setup](../gateway-protocol/workspace-setup.md).
+
 ## The conversation is kept long and shown short (2026-10-14)
 
 Same conversation: "Every text is a brand new turn. I don't necessarily think

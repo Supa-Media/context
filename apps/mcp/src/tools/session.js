@@ -36,7 +36,7 @@ import { canonicalToolName, coercedArguments, toolArgumentRefusal } from "./adve
 import { toolError } from "./results.js";
 import { toolMoveNoteAcrossContexts } from "./moves/acrossContexts.js";
 import { NoteCapReached, asRelocation } from "../store/noteCap.js";
-import { approvalRequired, mightWiden, reasonFor, recordRead, wideningOf } from "../privacy/egress.js";
+import { NEVER_WIDENS, approvalRequired, mightWiden, reasonFor, recordRead, wideningOf } from "../privacy/egress.js";
 import { createPending, findPending, rearmForText, takeDone } from "./approvals.js";
 import { loadPrivacyState } from "../privacy/state.js";
 import { CHAOS_TOOLS, chaosLines, takeChaos, withChaosLines, within } from "../chaos/report.js";
@@ -103,6 +103,7 @@ async function egressGate(suppliedName, supplied, args, { store, session, target
     isKnownTool(name) &&
     toolIsWriting(name) &&
     !ROUTING_PLANNING_TOOLS.has(name) &&
+    !NEVER_WIDENS.has(name) &&
     // A tool masked from this tier is an invented name to it, byte for byte;
     // holding it would be the one answer that tells the two apart.
     !toolExistenceMasked(name, target.scope);

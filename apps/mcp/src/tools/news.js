@@ -42,6 +42,14 @@ export const TOOL_NEWS = Object.freeze([
   {
     date: "2026-10-17",
     text:
+      'manage has three new actions, callable now: create_workspace `{ slug, name }` makes a shared workspace the person owns ' +
+      '(`dry_run: true` checks the @handle is free), layout `{ template: "para" | "business" | "product" }` or `{ folder }` ' +
+      "lays a workspace out (pass context), and connect_google `{ kind: \"gmail\" | \"calendar\" }` gives the link where the " +
+      "person connects Google themselves.",
+  },
+  {
+    date: "2026-10-17",
+    text:
       'manage action visibility takes `people: [{ who, role }]`: who else may open one note, named by a member\'s or a group\'s @handle ' +
       "or by anyone's email address, with role view or edit. It adds to the people already named. Naming anybody always waits " +
       "for the person's yes in their Context app or by text, so tell them what you asked and that it is waiting.",
@@ -129,7 +137,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "1b060ee2";
+export const TOOL_SHAPE = "ceea5442";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;
