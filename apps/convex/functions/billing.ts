@@ -45,7 +45,6 @@
 
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
-import { startOrganizerOnUpgrade } from "./lib/organizer/settings";
 import { internalMutation, internalQuery, mutation, query } from "../_generated/server";
 import { recordAudit } from "./lib/audit";
 import { requireWorkspaceRole } from "./lib/workspaceAuth";
@@ -129,7 +128,6 @@ export const activateTestPremium = mutation({
     const { plan, selected } = await storeSelectionAtUpgrade(ctx, args.workspaceId);
     const now = Date.now();
     await ctx.db.patch(plan._id, { status: "active", updatedAt: now });
-    await startOrganizerOnUpgrade(ctx, args.workspaceId, false, true);
 
     if (selected.managedStorage) {
       const binding = await ctx.db
@@ -609,7 +607,6 @@ export const applyStripeEvent = internalMutation({
       lastEventAt: args.createdSeconds,
       updatedAt: Date.now(),
     });
-    await startOrganizerOnUpgrade(ctx, plan.workspaceId, planIsPaying(plan.status), planIsPaying(status));
 
     await recordAudit(ctx, {
       workspaceId: plan.workspaceId,

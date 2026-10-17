@@ -30,8 +30,6 @@ export const BGE_MODEL = "@cf/baai/bge-m3";
  */
 export const FEATURE_ORDER = [
   "assistant",
-  "whatChanged",
-  "organizer",
   "ownerSuggest",
   "transcription",
   "meaning",
@@ -40,8 +38,6 @@ export const FEATURE_ORDER = [
 /** One colour per feature, from the console's own series palette (`./Charts`). */
 const FEATURE_TONES: Readonly<Record<string, SegmentTone>> = {
   assistant: "accent",
-  whatChanged: "shared",
-  organizer: "muted",
   ownerSuggest: "ok",
   transcription: "warn",
   meaning: "crit",
@@ -50,8 +46,6 @@ const FEATURE_TONES: Readonly<Record<string, SegmentTone>> = {
 /** What a person calls each feature. Anything else keeps the server's label. */
 const FEATURE_NAMES: Readonly<Record<string, string>> = {
   assistant: "Texting assistant",
-  whatChanged: "What changed",
-  organizer: "Auto-organize",
   ownerSuggest: "Owner suggestion",
   transcription: "Meeting transcription",
   meaning: "Search by meaning",
@@ -332,7 +326,6 @@ export function todayLine(item: { feature: string; label: string; used: number; 
 /** What a capped feature counts, in words. */
 export function todayUnit(feature: string): string {
   if (feature === "assistant") return "questions";
-  if (feature === "whatChanged") return "new items";
   return "uses";
 }
 

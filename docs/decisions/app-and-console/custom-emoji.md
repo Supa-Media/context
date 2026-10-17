@@ -151,7 +151,7 @@ person picks one. Opening the picker shows two quick picks above the grid:
   answered "none of these" for names such as `once` and showed no
   suggestion. A name that says nothing (`untitled-…`, `New folder`) is not
   sent. Metered as the `iconSuggest` feature, every plan, editors only
-  (`folderIcons.suggest`); `iconSuggest.live.test.ts`, in the "Organizer Eval
+  (`folderIcons.suggest`); `iconSuggest.live.test.ts`, in the "Icon Suggest
   (live)" workflow, prints what the real model suggests for real names.
 
   **By meaning, first** (the owner, 2026-10-14, for speed: "do a meaning

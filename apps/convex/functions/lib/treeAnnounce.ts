@@ -6,7 +6,6 @@
  */
 
 import type { FileStore, PrivacyState } from "./fileOps";
-import { isPlumbing } from "./privacy";
 import { treeAudiences } from "./treeAudiences";
 
 /**
@@ -116,30 +115,4 @@ export function recordWrites(store: FileStore): Set<string> {
     return landed;
   };
   return paths;
-}
-
-/**
- * What an operation that decides its paths deep inside itself did to the
- * tree, read off the store as it goes: the organizer files, archives and
- * undoes through `movePath`, and before this nothing told the tree, so an
- * open folder kept drawing a note the organizer had moved until its next walk.
- *
- * A key it deleted is `gone`, judged by the manifest from before the change,
- * as a move's source is. Plumbing (`.context/`, `privacy.md`) is not a tree
- * path; a rules change is noticed by `announceTreeChange` from the etag.
- */
-export function recordTreeChange(store: FileStore): () => TreeChange | null {
-  const removed = new Set<string>();
-  const remove = store.delete.bind(store);
-  store.delete = async (key, options) => {
-    const landed = await remove(key, options);
-    if (landed !== null) removed.add(key);
-    return landed;
-  };
-  const written = recordWrites(store);
-  return () => {
-    const paths = [...written].filter((path) => !isPlumbing(path));
-    if (paths.length === 0) return null;
-    return { paths, narrows: true, gone: [...removed].filter((path) => !isPlumbing(path)) };
-  };
 }

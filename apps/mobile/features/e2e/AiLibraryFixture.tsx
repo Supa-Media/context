@@ -52,7 +52,6 @@ const NOTES: FolderNote[] = [
     ),
   },
   { path: "ai/production/search.md", updatedAt: ago(200), size: 1_400, props: props({ job: "search", from: "everywhere-wide", live_since: "2026-10-08", promoted_by: "Fixture Person" }, "Search") },
-  { path: "ai/production/app-assistant.md", updatedAt: ago(400), size: 8_000, props: props({ job: "app-assistant", models: { main: "anthropic/claude-haiku-5-5" } }, "App assistant") },
   setup("live-5-2026-10-14", 30, 23_762, { came_from: "live-4-high-effort-2026-10-14 of the core set, revised after gh-29", why: LONG_WHY, made_by: "Claude" }),
   setup("live-4-high-effort-2026-10-14", 40, 22_286, { came_from: "live-3-2026-10-14", change: "Think at high effort instead of medium", made_by: "Claude" }),
   setup("live-3-2026-10-14", 50, 22_200, { based_on: "live-2-2026-10-14", why: "Three more examples of replies that sound like a person: a repeating routine, a list, and are you a bot." }),

@@ -7,17 +7,35 @@
  * list in the job log and judge it. It fails only when a name gets no
  * suggestion at all.
  *
- * Skipped unless ORGANIZER_LIVE_URL and ORGANIZER_LIVE_SECRET are set, as the
- * "Organizer Eval (live)" workflow sets them. Only invented names are sent;
+ * Skipped unless ICON_LIVE_URL and ICON_LIVE_SECRET are set, as the
+ * "Icon Suggest (live)" workflow sets them. Only invented names are sent;
  * a run is two requests a name.
  */
 
 import { describe, expect, test } from "vitest";
 import { suggestIconFor } from "@context/shared/src/iconSuggest";
-import { deployedWorker } from "./organizerEval/sweep.helpers";
 
-const url = process.env.ORGANIZER_LIVE_URL ?? "";
-const secret = process.env.ORGANIZER_LIVE_SECRET ?? "";
+const url = process.env.ICON_LIVE_URL ?? "";
+const secret = process.env.ICON_LIVE_SECRET ?? "";
+/** Any 64 hex characters: the Worker counts callers by it and never sees a workspace id. */
+const CALLER = "c4".repeat(32);
+
+type DecideRequest = { state: string; questions: Record<string, unknown> };
+
+/** The deployed Worker's `/decide`, over the network, exactly as the control plane calls it. */
+function deployedWorker(baseUrl: string, key: string) {
+  return async (request: DecideRequest): Promise<{ answers: Record<string, unknown> | null; status: string }> => {
+    const response = await fetch(`${baseUrl.replace(/\/+$/, "")}/decide`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${key}`, "content-type": "application/json", "x-caller-hash": CALLER },
+      body: JSON.stringify(request),
+    });
+    // The Worker's own refusal ("502 the decision engine failed") never quotes a name.
+    if (!response.ok) return { answers: null, status: `${response.status} ${(await response.text()).slice(0, 200)}` };
+    const body = (await response.json()) as { answers?: Record<string, unknown> };
+    return { answers: body.answers ?? null, status: String(response.status) };
+  };
+}
 
 const NAMES = [
   "tex/routines/once",

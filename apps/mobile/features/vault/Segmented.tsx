@@ -6,9 +6,8 @@ import { radii } from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
 
 /**
- * Pick one of two or three, drawn as a track with the choice raised in it:
- * the What changed page's tabs (`organizer/WhatChangedPage.tsx`), at full
- * width so each segment is a thumb's width on a phone. A radio group to a
+ * Pick one of two or three, drawn as a track with the choice raised in it, at
+ * full width so each segment is a thumb's width on a phone. A radio group to a
  * screen reader, because that is what it is: one answer, chosen in place.
  */
 export function Segmented<T extends string>({

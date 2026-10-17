@@ -12,8 +12,8 @@
  * new name is drawn everywhere while the links are still being repaired. The
  * after-change re-check still runs and sees the same thing.
  *
- * Only for a person's own `move`: the organizer moves many notes in one
- * operation and re-checks them at its end.
+ * Only for a person's own `move`; any other operation is re-checked once,
+ * at its end.
  */
 
 import type { Id } from "../../../_generated/dataModel";

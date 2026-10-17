@@ -26,7 +26,7 @@ Until 2026-10-13 only the **mover's** places followed a move made in the app,
 because a Convex query could not ask the bucket who may see a path, and
 rewriting another member's pin could hand them a path `privacy.md` keeps from
 them. The Convex tree now mirrors the rules, so every member's places follow
-a move (made in the app, by an agent, by the organizer, or queued) where that
+a move (made in the app, by an agent, or queued) where that
 member may see each place's new name, judged one place at a time; anybody
 else's stay put and stop showing, and an undo brings them back. See phase 4
 B2 in [convex-tree](./convex-tree.md).

@@ -4,22 +4,19 @@
  *
  * A keyed note's bytes are at `notes/<noteId>.md`; the object at its path is a
  * frozen copy. A listing of the bucket, a clear of it, a move out of it, or a
- * byte move by old name would act on the frozen copies, so each one is refused
- * (or, for the organizer's listing, answered from the tree only). A workspace
- * that is not keyed is unchanged, and every case below also runs unkeyed.
+ * byte move by old name would act on the frozen copies, so each one is refused.
+ * A workspace that is not keyed is unchanged, and every case below also runs
+ * unkeyed.
  *
  * Sabotage, each confirmed to fail a case here:
- *  - list the bucket in the organizer's listing: the keyed-without-tree case lists it;
  *  - drop `refuseKeyedStore` from the vault clear: the keyed clear deletes the bucket;
  *  - drop the context-move refusal: the keyed move lists and reads by path;
  *  - drop the move's keyed check: the keyed move walks the old name and moves frozen copies.
  */
 import { describe, expect, test } from "vitest";
-import { FileOpError } from "../../functions/lib/fileOps/errors";
 import { clearVaultBatch } from "../../functions/lib/fileOps/vaultImport";
 import { planContextMoveBatch } from "../../functions/lib/fileOps/contextMoveExport";
-import { listEverything } from "../../functions/lib/organizer/sweepOps";
-import { attachWorkspaceKeyed, isKeyedStore, KEYED_REFUSAL, treeOnlyView } from "../../functions/lib/noteIds/keyedStore";
+import { attachWorkspaceKeyed, isKeyedStore, KEYED_REFUSAL } from "../../functions/lib/noteIds/keyedStore";
 import { MOVE_FAILED_KEYED, runMoveWork } from "../../functions/lib/nodes/moveWork";
 import { clearanceOf } from "../../functions/lib/clearance";
 import { memoryStore } from "../storeStub.helpers";
@@ -64,43 +61,6 @@ describe("a keyed question", () => {
     expect(await isKeyedStore(store)).toBe(true);
     expect(await isKeyedStore(store)).toBe(true);
     expect(asked).toBe(1);
-  });
-});
-
-describe("the organizer's listing in a keyed workspace", () => {
-  test("is the tree's, and refuses when the tree is not there rather than listing the bucket", async () => {
-    const store = keyed(memoryStore() as Store);
-    store.seed("1-projects/a.md", "# A\n");
-    const listed = counted(store);
-    await expect(listEverything(store, OWNER)).rejects.toMatchObject({ code: "KEYED_WORKSPACE" });
-    expect(listed).toEqual([]);
-  });
-
-  test("answers from the tree's rows when they are attached, and never from the bucket", async () => {
-    const store = keyed(memoryStore() as Store);
-    store.seed("notes/0192f1a2-3b4c-7d5e-8f60-000000000001.md", "frozen id key\n");
-    Object.defineProperty(store, "treeListing", {
-      value: {
-        list: async () => ({ objects: [{ key: "1-projects/a.md", etag: "e1", size: 4, uploaded: new Date(0) }], truncated: false }),
-      },
-    });
-    const listed = counted(store);
-    const entries = await listEverything(store, OWNER);
-    expect(entries.map((entry) => entry.path)).toEqual(["1-projects/a.md"]);
-    expect(listed).toEqual([]);
-  });
-
-  test("an unkeyed workspace still lists the bucket", async () => {
-    const store = memoryStore() as Store;
-    store.seed("1-projects/a.md", "# A\n");
-    const listed = counted(store);
-    const entries = await listEverything(store, OWNER);
-    expect(entries.map((entry) => entry.path)).toEqual(["1-projects/a.md"]);
-    expect(listed.length).toBeGreaterThan(0);
-  });
-
-  test("the tree-only view refuses a store with no tree attached", () => {
-    expect(() => treeOnlyView(memoryStore() as Store)).toThrow(FileOpError);
   });
 });
 

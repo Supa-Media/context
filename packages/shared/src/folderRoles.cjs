@@ -15,8 +15,8 @@
  *
  * ## The five main folders are protected; extras are not
  *
- * Inbox, Projects, Areas, Resources and Archive are what every system prompt,
- * the organizer and `archive_note` rely on, so they cannot be renamed, moved
+ * Inbox, Projects, Areas, Resources and Archive are what every system prompt
+ * and `archive_note` rely on, so they cannot be renamed, moved
  * or deleted through the product (decided by the owner, 2026-10-08). What is
  * inside them is the person's to move. Extras (Clients, Teams, Products) are
  * offered, not required, and can be removed like any folder.
@@ -181,7 +181,7 @@ function rolesIn(names) {
  * top-level folder names?
  *
  * One folder per main role is protected: the one `rolesIn` picks, which is
- * the one orient, the organizer and `archive_note` file into. A second folder
+ * the one orient and `archive_note` file into. A second folder
  * claiming the same role (an agent's `projects` beside `Projects`, a
  * `9-archive` beside `4-archive`) is an ordinary folder, so it can be emptied
  * into the real one and removed (decided by the owner, 2026-10-14).

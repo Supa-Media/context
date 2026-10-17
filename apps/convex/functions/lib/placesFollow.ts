@@ -3,7 +3,7 @@
  * where it went (phase 4 B2 of `docs/decisions/app-and-console/convex-tree.md`).
  *
  * Until now only the mover's places followed a move, made in the app. Every
- * other member's pin, and every move an agent, the organizer or a sync tool
+ * other member's pin, and every move an agent or a sync tool
  * made, was left naming the old path, and simply stopped showing. That rule
  * existed because a Convex function could not ask `privacy.md` who may see the
  * new path, and rewriting a pin for somebody who may not would hand them the

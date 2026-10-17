@@ -1,6 +1,6 @@
 import { NativePlan } from "./NativePlan";
 import { STAGING_DATA_WARNING } from "../../../app/StagingNotice";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { ActivityIndicator, Platform, StyleSheet, View } from "react-native";
 import { useConvex } from "convex/react";
 import type { CheckoutOutcome } from "@context/shared";
@@ -39,7 +39,6 @@ import {
 import { PremiumIncludes } from "./PremiumIncludes";
 import { PanelHead } from "./PanelHead";
 import { usePremium } from "./usePremium";
-import { usePremiumOrganizerSlots } from "../../../organizer/PremiumParts";
 import { useArming } from "../../useArming";
 import { FreeTierNudge } from "./FreeTierNudge";
 import type { SettingsSectionKey } from "../sections";
@@ -156,7 +155,6 @@ function PremiumLive({
   onDownload?: () => void;
 }) {
   const view = usePremium({ workspaceId: workspaceId as Id<"workspaces"> });
-  const autoOrganize = usePremiumOrganizerSlots(returned);
   return (
     <PremiumBody
       view={view}
@@ -164,7 +162,6 @@ function PremiumLive({
       returned={returned}
       onOpenStorage={onOpenStorage}
       onDownload={onDownload}
-      autoOrganize={autoOrganize}
     />
   );
 }
@@ -184,15 +181,8 @@ export function PremiumBody({
   slowAfter = CHECKOUT_SETTLING_SLOW_MS,
   onOpenStorage,
   onDownload,
-  autoOrganize,
 }: {
   view: PremiumView;
-  /**
-   * Auto-organize's places on this screen: the first-run card above the plan,
-   * the disclosure inside "What Premium includes", and the owner's switches
-   * after it. Absent everywhere but a live console — see `PremiumParts`.
-   */
-  autoOrganize?: { top?: ReactNode; included?: ReactNode; afterIncludes?: ReactNode };
   /** Opens Settings › Storage — the free tier's "bring your own" way out. */
   onOpenStorage?: () => void;
   /** Downloads every note as a .zip. Absent in the demo. */
@@ -238,7 +228,7 @@ export function PremiumBody({
       .finally(() => setWorking(false));
   };
 
-  if (Platform.OS !== "web") return <NativePlan view={view} onOpenStorage={onOpenStorage} onDownload={onDownload} autoOrganize={autoOrganize} />;
+  if (Platform.OS !== "web") return <NativePlan view={view} onOpenStorage={onOpenStorage} onDownload={onDownload} />;
 
   const status = view.status;
   const state = premiumStateOf(status?.status);
@@ -301,8 +291,6 @@ export function PremiumBody({
           </View>
         </Notice>
       )}
-
-      {autoOrganize?.top ?? null}
 
       {status === null ? (
         <Card>
@@ -415,10 +403,8 @@ export function PremiumBody({
       )}
 
       {status === null ? null : (
-        <PremiumIncludes status={status} extra={autoOrganize?.included} />
+        <PremiumIncludes status={status} />
       )}
-
-      {autoOrganize?.afterIncludes ?? null}
 
       {failure === null ? (
         <></>

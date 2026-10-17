@@ -18,8 +18,6 @@ import type * as functions_accountDeletion from "../functions/accountDeletion.js
 import type * as functions_accountSetup from "../functions/accountSetup.js";
 import type * as functions_audit from "../functions/audit.js";
 import type * as functions_billing from "../functions/billing.js";
-import type * as functions_organizer from "../functions/organizer.js";
-import type * as functions_organizerRoutes from "../functions/organizerRoutes.js";
 import type * as functions_jev from "../functions/jev.js";
 import type * as functions_billingStripe from "../functions/billingStripe.js";
 import type * as functions_authorizations from "../functions/authorizations.js";
@@ -152,6 +150,7 @@ import type * as functions_telemetry from "../functions/telemetry.js";
 import type * as functions_appearance from "../functions/appearance.js";
 import type * as functions_textLinks from "../functions/textLinks.js";
 import type * as functions_routines from "../functions/routines.js";
+import type * as functions_retiredTables from "../functions/retiredTables.js";
 import type * as functions_dreams from "../functions/dreams.js";
 import type * as functions_builtinModel from "../functions/builtinModel.js";
 import type * as functions_meetingSummary from "../functions/meetingSummary.js";
@@ -193,8 +192,6 @@ declare const fullApi: ApiFromModules<{
   "functions/accountSetup": typeof functions_accountSetup;
   "functions/audit": typeof functions_audit;
   "functions/billing": typeof functions_billing;
-  "functions/organizer": typeof functions_organizer;
-  "functions/organizerRoutes": typeof functions_organizerRoutes;
   "functions/jev": typeof functions_jev;
   "functions/billingStripe": typeof functions_billingStripe;
   "functions/managedHandoff": typeof functions_managedHandoff;
@@ -327,6 +324,7 @@ declare const fullApi: ApiFromModules<{
   "functions/appearance": typeof functions_appearance;
   "functions/textLinks": typeof functions_textLinks;
   "functions/routines": typeof functions_routines;
+  "functions/retiredTables": typeof functions_retiredTables;
   "functions/dreams": typeof functions_dreams;
   "functions/builtinModel": typeof functions_builtinModel;
   "functions/meetingSummary": typeof functions_meetingSummary;

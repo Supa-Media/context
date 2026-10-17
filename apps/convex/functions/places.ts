@@ -279,8 +279,8 @@ const ruleListValidator = v.object({
 });
 
 /**
- * Called by the credential barrier after a move made in one go (the app, the
- * organizer, an agent's move told to the tree), with the rules the bucket
+ * Called by the credential barrier after a move made in one go (the app, an
+ * agent's move told to the tree), with the rules the bucket
  * holds after it: every member's places follow, where they may see the new
  * name (`lib/placesFollow.ts`).
  */
