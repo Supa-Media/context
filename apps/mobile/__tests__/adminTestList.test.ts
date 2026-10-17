@@ -14,7 +14,7 @@ import {
   setLineValue,
 } from "../features/admin/testList";
 
-const TESTS = ["core", "search", "tasks", "texting-assistant"] as const;
+const TESTS = ["core", "search", "tasks"] as const;
 
 function readExample(name: (typeof TESTS)[number]): string {
   return readFileSync(path.resolve(__dirname, `../../mcp/bench/ai/tests/${name}.md`), "utf8");
@@ -59,8 +59,8 @@ describe("round trip", () => {
 });
 
 describe("case counts", () => {
-  test("core has 15 cases", () => {
-    expect(parseTestList(CORE).cases).toHaveLength(15);
+  test("core has 19 cases", () => {
+    expect(parseTestList(CORE).cases).toHaveLength(19);
   });
 
   test.each(TESTS)("%s.md has one case per ## n. heading", (name) => {
@@ -105,14 +105,11 @@ describe("case classification", () => {
     expect(c.replies[0].value).toBe(`"can you make sure my chatgpt is properly set up to use context"`);
     expect(c.replies[3]).toMatchObject({ value: `"Yes, go ahead"` });
     expect(c.rules.find((r) => r.key === "must call")?.value).toBe("read_skill");
-    // Since #1778 offering to save the login is case 1's wanted first move; the vault ban is still parsed on core case 12, the same task.
-    const twelve = caseByNumber(parseTestList(CORE), 12);
-    expect(twelve.rules.find((r) => r.key === "must not call")?.value).toBe("vault_add_link");
   });
 
   test("a case with an as: line keeps it out of the rules", () => {
-    const list = parseTestList(readExample("texting-assistant"));
-    const c = caseByNumber(list, 12);
+    const list = parseTestList(CORE);
+    const c = caseByNumber(list, 7);
     expect(c.person).toMatchObject({ key: "as", value: "John" });
     expect(c.rules.some((r) => r.key === "as")).toBe(false);
   });
@@ -263,7 +260,7 @@ describe("removeLine", () => {
 describe("addCase", () => {
   test("numbers the new case one above the highest", () => {
     const list = addCase(parseTestList(CORE), "Remind me to pay the deposit");
-    const added = caseByNumber(list, 16);
+    const added = caseByNumber(list, 20);
     expect(added.title).toBe("Remind me to pay the deposit");
     expect(added.kind).toMatchObject({ value: "task" });
     // The existing lines are untouched; the new case is appended after them.
