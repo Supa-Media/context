@@ -6,6 +6,7 @@ import { jest } from "@jest/globals";
 import type { MeetingRecorder, RecorderError } from "../../features/meetings/capture";
 import { audioRecorder } from "../../features/meetings/capture/audio.web";
 import { fakeTranscriber, setTranscriber, type FakeTranscriber } from "../../features/meetings/capture/transcriber";
+import { setCallAudioStorage } from "../../features/meetings/capture/callAudioMemory";
 
 /**
  * The browser build records the microphone, and reports honestly when it
@@ -288,6 +289,8 @@ export const webState = {
   contexts: [] as FakeAudioContext[],
   /** What one sample of the fake room reads, as a linear amplitude. */
   analyserAmplitude: 0,
+  /** The shared call's own amplitude; `null` reads the room's. */
+  callAmplitude: null as number | null,
   /** An `AudioContext` that starts suspended, the way autoplay policy hands one back. */
   contextStartsSuspended: false,
   /** ...and one that will not come out of it, which is a silent recording. */
@@ -375,16 +378,22 @@ export function installGetUserMedia(withPicker = false, pickerSharesAudio = true
 
 export class FakeAudioNode {
   readonly connected: unknown[] = [];
+  /** The stream a source node reads, so an analyser knows what it measures. */
+  source: unknown = null;
   connect(target: unknown): unknown {
     this.connected.push(target);
+    if (target instanceof FakeAnalyser) target.measures = this.source;
     return target;
   }
 }
 
 export class FakeAnalyser extends FakeAudioNode {
   fftSize = 32;
+  measures: unknown = null;
   getFloatTimeDomainData(samples: Float32Array): void {
-    samples.fill(webState.analyserAmplitude);
+    // The shared call can be louder or quieter than the room, apart.
+    const call = this.measures instanceof FakeStream && this.measures.label === "share";
+    samples.fill(call && webState.callAmplitude !== null ? webState.callAmplitude : webState.analyserAmplitude);
   }
 }
 
@@ -426,12 +435,18 @@ export class FakeAudioContext {
 
   createMediaStreamSource(stream: unknown): FakeAudioNode {
     this.sourced.push(stream);
-    return new FakeAudioNode();
+    const node = new FakeAudioNode();
+    node.source = stream;
+    return node;
   }
 
+  readonly analysers: FakeAnalyser[] = [];
+
   createAnalyser(): FakeAnalyser {
-    this.analyser = new FakeAnalyser();
-    return this.analyser;
+    const made = new FakeAnalyser();
+    this.analysers.push(made);
+    this.analyser ??= made;
+    return made;
   }
 
   createMediaStreamDestination(): FakeStreamDestination {
@@ -535,6 +550,8 @@ export function resetWebBrowser(): void {
   webState.prompts = [];
   webState.contexts = [];
   webState.analyserAmplitude = 0;
+  webState.callAmplitude = null;
+  setCallAudioStorage(memoryStore());
   webState.contextStartsSuspended = false;
   webState.contextRefusesToResume = false;
   (globalThis as Record<string, unknown>).Blob = FakeBlob;
@@ -550,4 +567,18 @@ export function teardownWebBrowser(): void {
   removeGetUserMedia();
   removeAudioContext();
   (globalThis as Record<string, unknown>).Blob = realBlob;
+}
+
+/** A fresh browser storage per test, so one test's failed shares are not the next's. */
+export function memoryStore(): {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+} {
+  const map = new Map<string, string>();
+  return {
+    getItem: (key) => map.get(key) ?? null,
+    setItem: (key, value) => void map.set(key, value),
+    removeItem: (key) => void map.delete(key),
+  };
 }

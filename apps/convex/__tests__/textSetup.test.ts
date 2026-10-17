@@ -5,6 +5,7 @@ import { createUser, createWorkspace, drainScheduled, seedStorageBinding, setupT
 import { MANAGED_R2_ACCOUNT_ID_ENV_VAR, managedBucketName } from "../functions/lib/managedStorage";
 import { SETUP_ASK_TTL_MS } from "../functions/textSetup";
 import { APP_REVIEW_PHONE } from "../functions/lib/reviewerAccount";
+import { FOUNDING_PREMIUM_ACCOUNTS } from "../functions/lib/billing/founding";
 
 /**
  * SETTING SOMEBODY UP BY TEXT (Dev2, 2026-10-17: onboarding happens by text,
@@ -34,6 +35,7 @@ import { APP_REVIEW_PHONE } from "../functions/lib/reviewerAccount";
  *   the `texts.phone.linked` audit dropped                                1
  *   the layout run on any bucket, not only our own                        1
  *   the layout ignoring what the probe found                              1
+ *   a new phone's founding grant left to the scheduled walk               2
  */
 
 const AGENT_SECRET = "test-agent-worker-secret-not-a-real-one";
@@ -281,7 +283,10 @@ describe("storage", () => {
         row: await ctx.db.query("textSetups").unique(),
       };
     });
-    expect(plan).toMatchObject({ freeManaged: true, managedStorage: true });
+    // Among the first hundred, so Premium before the bucket starts: our storage
+    // on a founder's plan, started once, never a free bucket beside it.
+    expect(plan).toMatchObject({ founding: true, status: "active", managedStorage: true });
+    expect(plan?.freeManaged).toBeUndefined();
     expect(row).toMatchObject({ stage: "layout", workspaceId, userId });
     expect(row?.phone).toBeUndefined();
     await drainScheduled(t);
@@ -340,7 +345,30 @@ describe("storage", () => {
     await setup(t);
     expect(await setup(t, "ada")).toMatchObject({ status: "set_up", storage: "none" });
     expect(await t.run((ctx) => ctx.db.query("textSetups").collect())).toEqual([]);
-    expect(await t.run((ctx) => ctx.db.query("workspacePlans").collect())).toEqual([]);
+    expect(await t.run((ctx) => ctx.db.query("workspacePlans").collect())).toEqual([
+      expect.objectContaining({ founding: true, managedStorage: false }),
+    ]);
+  });
+
+  test("past the first hundred, a new phone starts the free bucket", async () => {
+    vi.stubEnv(MANAGED_R2_ACCOUNT_ID_ENV_VAR, ACCOUNT_ID);
+    vi.stubGlobal("fetch", async () => {
+      throw new Error("offline");
+    });
+    const t = setupTest();
+    await t.run(async (ctx) => {
+      for (let seq = 1; seq <= FOUNDING_PREMIUM_ACCOUNTS; seq += 1) {
+        const userId = await ctx.db.insert("users", { email: `founder${seq}@example.com`, createdAt: 1 });
+        await ctx.db.insert("foundingPremium", { userId, seq, accountCreatedAt: Date.now(), grantedAt: 1 });
+      }
+    });
+    await admit(t);
+    await setup(t);
+    expect(await setup(t, "ada")).toMatchObject({ status: "set_up", storage: "on_the_way" });
+    const plan = await t.run((ctx) => ctx.db.query("workspacePlans").unique());
+    expect(plan).toMatchObject({ freeManaged: true, managedStorage: true });
+    expect(plan?.founding).toBeUndefined();
+    await drainScheduled(t);
   });
 });
 

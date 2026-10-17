@@ -137,7 +137,10 @@ const LEVEL_FFT_SIZE = 2048;
  */
 export interface AudioGraph {
   context: AudioContext;
+  /** The microphone alone: the meter's "You" line. */
   analyser: AnalyserNode | null;
+  /** The shared call alone: the meter's "Call" line. `null` with no share. */
+  callAnalyser: AnalyserNode | null;
   mixed: MediaStream | null;
 }
 
@@ -228,20 +231,23 @@ export async function buildGraph(
     }
 
     /*
-      One analyser fed by every input, rather than one per input and `loudest`
-      over the pair. The bridge carries two numbers because the shell genuinely
-      knows both and a diagnostics screen may want the split; here the two
-      inputs are already being summed into one recording, and the question the
-      mark answers — *"can this hear anything"* — is a question about that
-      recording. A browser with no `getFloatTimeDomainData` has no meter, which
-      is `null` rather than a zero, for the reason `capture/level.ts` gives.
+      One analyser per input. The live card draws two lines, You and Call
+      (Dev2, 2026-10-17: seeing the call move is how you know it is being
+      heard), so the two are measured apart; the single mark elsewhere is the
+      louder of the pair, as the shell's bridge already does. A browser with no
+      `getFloatTimeDomainData` has no meter, which is `null` rather than a
+      zero, for the reason `capture/level.ts` gives.
     */
-    const analyser = context.createAnalyser();
-    analyser.fftSize = LEVEL_FFT_SIZE;
-    for (const source of sources) source.connect(analyser);
-    const usable = typeof analyser.getFloatTimeDomainData === "function";
+    const meter = (source: MediaStreamAudioSourceNode): AnalyserNode | null => {
+      const node = context.createAnalyser();
+      node.fftSize = LEVEL_FFT_SIZE;
+      source.connect(node);
+      return typeof node.getFloatTimeDomainData === "function" ? node : null;
+    };
+    const analyser = meter(sources[0]);
+    const callAnalyser = sources.length > 1 ? meter(sources[1]) : null;
 
-    return { context, analyser: usable ? analyser : null, mixed };
+    return { context, analyser, callAnalyser, mixed };
   } catch {
     void context.close().catch(() => {});
     return null;

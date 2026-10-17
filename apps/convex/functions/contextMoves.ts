@@ -405,6 +405,7 @@ export const readMove = internalQuery({
       movedObjects: v.number(),
       movedBytes: v.number(),
       skipped: v.array(skipValidator),
+      error: v.optional(v.string()),
     }),
   ),
   handler: async (ctx, args) => {
@@ -420,6 +421,7 @@ export const readMove = internalQuery({
       movedObjects: row.movedObjects,
       movedBytes: row.movedBytes,
       skipped: row.skipped,
+      ...(row.error === undefined ? {} : { error: row.error }),
     };
   },
 });

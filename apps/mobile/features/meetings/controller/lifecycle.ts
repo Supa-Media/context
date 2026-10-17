@@ -247,6 +247,7 @@ export class LifecycleMixin {
       captureError: null,
       backgroundCaptureWarning: null,
       callAudioWarning: null,
+      callAudioNote: null,
     });
 
     // Install failure reporting before opening the recorder: an audio backend
@@ -358,7 +359,7 @@ export class LifecycleMixin {
     } catch {
       shared = false;
     }
-    if (shared) this.set({ ...this.snapshot, callAudioWarning: null });
+    if (shared) this.set({ ...this.snapshot, callAudioWarning: null, callAudioNote: null });
     return shared;
   }
 
@@ -622,7 +623,17 @@ export class LifecycleMixin {
         return;
       }
       if (error.kind === "call-audio-missing") {
-        this.set({ ...this.snapshot, callAudioWarning: error.message });
+        this.set({ ...this.snapshot, callAudioWarning: error.message, callAudioNote: null });
+        return;
+      }
+      if (error.kind === "call-audio-skipped" || error.kind === "call-audio-room") {
+        this.set({
+          ...this.snapshot,
+          callAudioNote: {
+            kind: error.kind === "call-audio-room" ? "room" : "skipped",
+            message: error.message,
+          },
+        });
         return;
       }
       if (!error.recoverable) {

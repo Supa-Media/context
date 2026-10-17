@@ -256,13 +256,13 @@ Tex's own jobs, each with its record:
   get right, gating a setup; the task skills it reads before doing one, and
   why a read skill may vouch for an address.
 
-### The built-in model is for Premium, capped, and metered like Jev
+### The built-in model is free, capped at 100 a day, and metered like Jev
 
-Decided by the owner, 2026-10-06 ("Premium, capped"). A Premium workspace's
-texts are answered by a model we pay for (GLM-4.7 Flash on Workers AI, or
-Claude Haiku 5.5 once a gateway is configured, see below; `AGENT_BUILTIN_MODEL`
-to swap it), up to 100 questions a day. Anyone else is told the assistant is
-not available to them.
+Decided by the owner, 2026-10-17 ("Open to all"), replacing "Premium, capped".
+Every workspace's texts are answered by a model we pay for (GLM-4.7 Flash or
+Claude Haiku 5.5, see below; `AGENT_BUILTIN_MODEL` to swap it), up to 100 turns
+per UTC day, paying or not (plan `everyone`, `dailyCallsFree: 100`); dreams,
+check-ins, housekeeping and routines count toward the same 100.
 
 **Removed 2026-10-10 (owner's decision): saved provider keys deleted; the
 assistant uses only the built-in model.** People could once save their own

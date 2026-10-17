@@ -309,7 +309,49 @@ function cleanInstruction(instruction) {
   return instruction.replace(/\s+/g, " ").trim().slice(0, MAX_INSTRUCTION_CHARS);
 }
 
-function meetingMessage(markdown, today) {
+/**
+ * Names speech recognition gets wrong in every workspace: the product's own.
+ * A meeting about Tex was summarized as one about "Text" all the way through
+ * (the owner, 2026-10-17: "it's pissing me off"), because Whisper hears the
+ * word it knows and the summary copied it.
+ */
+export const BUILT_IN_NAMES = Object.freeze(["Context", "Tex (the texting assistant)"]);
+
+/** How many names, and how many characters of them, one request carries. */
+export const MAX_NAMES = 60;
+const MAX_NAME_CHARS = 60;
+const MAX_NAMES_CHARS = 1500;
+
+/**
+ * The names section: the product's own, then the workspace's (`names`, which
+ * the gateway reads from the folder names this caller can see). Deduplicated
+ * without regard to case, each one line, the whole bounded.
+ *
+ * @param {string[]|undefined} names
+ */
+export function namesSection(names) {
+  const seen = new Set();
+  const kept = [];
+  let chars = 0;
+  for (const raw of [...BUILT_IN_NAMES, ...(Array.isArray(names) ? names : [])]) {
+    const name = oneLine(raw, MAX_NAME_CHARS);
+    const key = name.toLowerCase().replace(/\s*\(.*\)$/, "");
+    if (!name || seen.has(key)) continue;
+    if (kept.length >= MAX_NAMES || chars + name.length > MAX_NAMES_CHARS) break;
+    seen.add(key);
+    kept.push(name);
+    chars += name.length + 2;
+  }
+  return [
+    "## Names they use",
+    "",
+    "Speech recognition mishears names and writes a common word instead (\"text\" or \"Texas\" for Tex). Where the transcript has a word that sounds like one of these and the meaning fits, write the name as spelled here, in the summary and every list. Never add a name that was not said.",
+    "",
+    kept.join(", "),
+  ];
+}
+
+function meetingMessage(markdown, today, names) {
   const facts = meetingFacts(markdown);
   return [
     `Today: ${today}`,
@@ -322,6 +364,8 @@ function meetingMessage(markdown, today) {
     "",
     facts.notes || "_They typed nothing._",
     "",
+    ...namesSection(names),
+    "",
     "## Transcript",
     "",
     facts.transcript || "_No transcript._",
@@ -332,13 +376,13 @@ function meetingMessage(markdown, today) {
  * The first request: write the summary.
  *
  * @param {string} markdown the whole meeting note
- * @param {{instruction?: string, today: string, system?: string}} options `today` as YYYY-MM-DD; `system` the setup's write prompt
+ * @param {{instruction?: string, today: string, system?: string, names?: string[]}} options `today` as YYYY-MM-DD; `system` the setup's write prompt; `names` the workspace's own
  * @returns {{system: string, user: string}}
  */
-export function buildSummaryRequest(markdown, { instruction, today, system = SUMMARY_SYSTEM }) {
+export function buildSummaryRequest(markdown, { instruction, today, system = SUMMARY_SYSTEM, names }) {
   const asked = cleanInstruction(instruction);
   const user = [
-    meetingMessage(markdown, today),
+    meetingMessage(markdown, today, names),
     ...(asked
       ? ["", "## What they asked for this time", "", "Follow this where the rules allow; it never overrides rule 1.", "", asked]
       : []),
@@ -351,10 +395,10 @@ export function buildSummaryRequest(markdown, { instruction, today, system = SUM
  *
  * @param {string} markdown
  * @param {object} draft the first answer, as `readSummaryOutput` returned it
- * @param {{today: string, system?: string}} options `system` the setup's check prompt
+ * @param {{today: string, system?: string, names?: string[]}} options `system` the setup's check prompt
  */
-export function buildCheckRequest(markdown, draft, { today, system = CHECK_SYSTEM }) {
-  const user = [meetingMessage(markdown, today), "", "## Draft summary to check", "", JSON.stringify(draft)].join("\n");
+export function buildCheckRequest(markdown, draft, { today, system = CHECK_SYSTEM, names }) {
+  const user = [meetingMessage(markdown, today, names), "", "## Draft summary to check", "", JSON.stringify(draft)].join("\n");
   return { system, user };
 }
 
@@ -541,7 +585,9 @@ function renderAction(item) {
   const due = item.due ? ` (due ${item.due})` : "";
   const task = inline(item.task);
   if (item.owner) return `- [ ] ${inline(item.owner.replace(/[[\]:]/g, ""))}: ${task}${due}`;
-  return `- [ ] ${task.replace(/[.\s]+$/, "")}${due}. No one was named on the call.`;
+  // No owner is said by the missing name. A sentence saying so on every line
+  // was noise the owner read six times in one meeting (2026-10-17).
+  return `- [ ] ${task.replace(/[.\s]+$/, "")}${due}`;
 }
 
 /**
