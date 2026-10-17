@@ -7,6 +7,7 @@
 import { callToolForSession } from "../tools/session.js";
 import { EMAIL_TOOL } from "../tools/email.js";
 import { CALENDAR_TOOL } from "../tools/calendarWrite.js";
+import { REPORT_TOOL } from "../tools/reportProblem.js";
 import { armForText, disarmRecords, listPending, replayAsAsked, settlePending, withdrawPending } from "../tools/approvals.js";
 
 /** A text that is nothing but yes, or nothing but no; anything else goes to the model. */
@@ -26,6 +27,9 @@ export function askLine(asked) {
   const emails = asked.filter((record) => record.tool === EMAIL_TOOL && typeof record.detail === "string");
   if (asked.length === 1 && asked[0].tool === CALENDAR_TOOL && typeof asked[0].detail === "string") {
     return `Here's the change I'd make:\n\n${clean(asked[0].detail)}\n\nReply YES to make it now, or NO to drop it.`;
+  }
+  if (asked.length === 1 && asked[0].tool === REPORT_TOOL && typeof asked[0].detail === "string") {
+    return `Here's the bug report I'd send to the Context team:\n\n${clean(asked[0].detail)}\n\nReply YES to send it, or NO to drop it.`;
   }
   if (emails.length > 0 && emails.length === asked.length) {
     const copies = emails.map((record) => clean(record.detail)).join("\n\n---\n\n");
@@ -88,9 +92,9 @@ function clean(text) {
   return text.replace(/[\u0000-\u0008\u000b-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, "");
 }
 
-/** An email or a calendar change goes only on the word it asked for: "ok" or "sure" is not a yes. */
+/** An email, a calendar change or a bug report goes only on the word it asked for: "ok" or "sure" is not a yes. */
 const EMAIL_YES = /^\s*yes\s*[.!]*\s*$/i;
-const YES_ONLY = new Set([EMAIL_TOOL, CALENDAR_TOOL]);
+const YES_ONLY = new Set([EMAIL_TOOL, CALENDAR_TOOL, REPORT_TOOL]);
 
 /**
  * Settle what this thread's latest ask put to the person, as their text said.

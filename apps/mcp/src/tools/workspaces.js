@@ -77,7 +77,11 @@ export async function toolConnectGoogle(store, args) {
   const what = args.kind === "gmail" ? "Gmail" : "Google Calendar";
   return toolText(
     `Link to connect ${what}: ${answer.url}\n` +
-      `Send it to them: they open it signed in to Context, press Connect under Google, choose ${what}, and sign ` +
-      "in to Google. Only they can finish that sign-in; it takes them a minute."
+      `Send it to them: they open it, press Connect under Google, choose ${what}, and sign in to Google. ` +
+      // Someone set up by text has never signed in to the app: the page asks for
+      // their phone (a texted code) and, for an account a phone made, their email once.
+      "If they aren't signed in to Context in that browser, it first asks for their phone number and texts them a " +
+      "code, and the first time it asks for their email too (it emails a code). Say so in one line, so it doesn't " +
+      "surprise them. Only they can finish that sign-in; it takes them a couple of minutes."
   );
 }

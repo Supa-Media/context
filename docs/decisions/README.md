@@ -683,6 +683,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Who may text the line is Linq's list, managed from the console](./texting-assistant/allowlist.md)
 - [Letting someone in off the waitlist puts their phone on the list](./texting-assistant/allowlist.md)
 - [A phone let in off the waitlist is set up by text, handle first (2026-10-17)](./texting-assistant/onboarding.md)
+- [A bug filed by text goes to the team only on the person's YES, texts included (2026-10-17)](./texting-assistant/bug-reports.md)
 - Staging has a texts simulator, and nothing else does
 - An answer reads like a text, and the typing bubble shows while it works
 - Every agent turn is logged by name and duration, never by text
@@ -693,7 +694,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A vault holds secrets too: named fields, most with a value for dev, staging and prod](./texting-assistant/vault.md)
 - [An AI uses a key without seeing it; a vault entry is a Markdown note under `.context/vault/`](./texting-assistant/vault.md)
 - [Tex signs in itself; handing its browser over is the rare case](./texting-assistant/vault.md)
-- The built-in model is for Premium, capped, and metered like Jev
+- The built-in model is free, capped at 100 a day, and metered like Jev
 - Claude models are reached through one AI gateway, plan credit first
 - Other providers' models and routes go through the same gateway, Unified Billing only
 - The agent opens only addresses it was given

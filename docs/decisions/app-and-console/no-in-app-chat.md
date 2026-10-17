@@ -14,7 +14,7 @@ and phone, together with the client-side engine behind it
 The model-key setting it depended on was removed from Settings the same day (#1465),
 and the saved keys themselves were deleted after it, with `ConsoleData.modelConnected`
 and the `listProviders` query that fed it (see
-[texting-assistant](../texting-assistant.md#the-built-in-model-is-for-premium-capped-and-metered-like-jev)).
+[texting-assistant](../texting-assistant.md#the-built-in-model-is-free-capped-at-100-a-day-and-metered-like-jev)).
 
 What is left in the right panel is what happens *beside* a note and is not a
 conversation: Meetings, which it now opens on, and Approvals.

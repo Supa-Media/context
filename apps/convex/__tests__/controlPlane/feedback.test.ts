@@ -126,4 +126,42 @@ describe("/gateway/feedback", () => {
       }),
     ).rejects.toThrow();
   });
+  test("a texted bug report carries the person's texts, from the texting grant alone", async () => {
+    const { t, grantA } = await twoConnectedTenants();
+    const texts = "Them: find my avocado note\n\nTex: I couldn't find it.";
+    // Any other AI's grant: refused whole, so no conversation reaches the team through it.
+    expect(await report(t, { accessToken: ACCESS_A, message: "search missed a note", texts })).toEqual({
+      report: null,
+      refused: "invalid",
+    });
+    expect(sent).toHaveLength(0);
+
+    // Tex's own client and grant, as `textLinks.ts` makes them.
+    await t.run(async (ctx) => {
+      await ctx.db.insert("oauthClients", {
+        clientId: "context_texts",
+        clientName: "Tex",
+        redirectUris: [],
+        hashedClientSecret: null,
+        tokenEndpointAuthMethod: "none",
+        grantTypes: [],
+        responseTypes: [],
+        createdAt: Date.now(),
+      });
+      await ctx.db.patch(grantA, { clientId: "context_texts" });
+    });
+    expect(await report(t, { accessToken: ACCESS_A, message: "search missed a note", texts: "x".repeat(16_001) })).toEqual({
+      report: null,
+      refused: "invalid",
+    });
+    expect((await report(t, { accessToken: ACCESS_A, message: "search missed a note", texts })).report).not.toBeNull();
+    expect(sent).toHaveLength(1);
+    const envelope = text(sent[0]);
+    expect(envelope).toContain('"filename":"texts.txt"');
+    expect(envelope).toContain("Them: find my avocado note");
+
+    // Without texts, the texting grant's report is the message alone.
+    await report(t, { accessToken: ACCESS_A, message: "a link did not open" });
+    expect(text(sent[1])).not.toContain("texts.txt");
+  });
 });
