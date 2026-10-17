@@ -1,7 +1,7 @@
 import { createContext, useContext, useMemo, useState } from "react";
 import type { ChaosSource } from "./useChaosScore";
 
-/** Where the panel is drawn: a sheet, from a folder page's line or the phone's Home. */
+/** Where the panel is drawn: a sheet, from a folder page's line or the phone's @name menu. */
 export type ChaosPanelPlace = "sheet";
 
 /** The chaos score as every surface reads it: the numbers, the panel, and where a press goes. */
@@ -16,7 +16,7 @@ export interface ChaosView extends ChaosSource {
 /**
  * The chaos score, handed down from the console layout.
  *
- * A context because the surfaces are scattered — a folder page's head, the phone's Home — and each treats absence as "draw nothing", so the demo
+ * A context because the surfaces are scattered — a folder page's head, the phone's @name menu — and each treats absence as "draw nothing", so the demo
  * console, the homepage and every render harness keep the screen they had.
  */
 const ChaosContext = createContext<ChaosView | undefined>(undefined);

@@ -222,6 +222,17 @@ export function ensureStyles(colors: Colors): void {
     which is the same sentence in the same two colours.
   */
   .cm-lp-root { --lp-content: ${colors.text}; }
+  /*
+    Headings in the interface face on a phone, as boards 2 and 3 of the phone
+    Inbox review draw them (Dev2, 2026-10-17: EXACTLY like the mockups); the
+    prose under them stays in the reading face. The phone's own web view is
+    already all system sans, so the two phone surfaces now agree.
+  */
+  .cm-lp-root .cm-lp-h1, .cm-lp-root .cm-lp-h2, .cm-lp-root .cm-lp-h3,
+  .cm-lp-root .cm-lp-h4, .cm-lp-root .cm-lp-h5, .cm-lp-root .cm-lp-h6 {
+    font-family: ${fonts.body};
+  }
+  .cm-lp-root .cm-lp-h1 { font-weight: 700; letter-spacing: -0.01em; }
 }
 /*
   The line under a note's title (titleLine.ts): the Text "error" variant's

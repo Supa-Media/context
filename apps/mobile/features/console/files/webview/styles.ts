@@ -131,6 +131,8 @@ html, body {
 
 #root .cm-editor { height: 100%; background: transparent; }
 #root .cm-editor.cm-focused { outline: none; }
+/* The title as the phone Inbox boards draw it (2026-10-17): bold, slightly tight. */
+#root .cm-lp-h1 { font-weight: 700; letter-spacing: -0.01em; }
 
 #root .cm-scroller {
   font-family: var(--lp-body);

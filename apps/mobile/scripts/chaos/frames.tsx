@@ -74,11 +74,14 @@ const openProjects = async ({ density, settle, press }: FrameCtx) => {
 };
 
 /** A phone opens on that note; back, and back again, is Home. */
-const openHome = async ({ settle, press }: FrameCtx) => {
-  for (let step = 0; step < 4 && byId("phone-home") === null; step += 1) {
+/** Back to Inbox, where the @name menu carries the Chaos line (board 2, 2026-10-17). */
+const openNameMenu = async ({ settle, press }: FrameCtx) => {
+  for (let step = 0; step < 4 && byId("phone-inbox-count") === null; step += 1) {
     press(byId("phone-back"));
     await settle();
   }
+  press(byId("account-menu"));
+  await settle();
 };
 
 export const FRAMES: readonly ChaosFrame[] = [
@@ -116,11 +119,10 @@ export const FRAMES: readonly ChaosFrame[] = [
     assert: ["Chaos 34 of 100", "Biggest wins", "Long notes", "How it’s scored"],
   },
   {
-    id: "05-phone-home",
-    title: "The phone's Home, at its foot",
+    id: "05-phone-menu",
+    title: "The phone's @name menu on Inbox",
     sizes: ["phone"],
-    scroll: true,
-    prepare: openHome,
+    prepare: openNameMenu,
     assert: ["Chaos 34 · crowded"],
   },
   {
@@ -128,8 +130,8 @@ export const FRAMES: readonly ChaosFrame[] = [
     title: "The panel as a sheet on a phone",
     sizes: ["phone"],
     prepare: async (ctx) => {
-      await openHome(ctx);
-      ctx.press(byId("phone-home-chaos"));
+      await openNameMenu(ctx);
+      ctx.press(byId("switcher-chaos"));
       await ctx.settle();
     },
     assert: ["Chaos 34 of 100"],

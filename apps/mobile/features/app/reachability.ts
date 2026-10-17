@@ -443,7 +443,8 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
       /*
         The Trash page is `?trash=1` on this page, in the document slot, as
         the map is (`trash/TrashRouteContext.tsx`): the tree's foot on a
-        pointer layout, and Home's last row on a phone.
+        pointer layout, and on a phone a row of the @name menu on Inbox,
+        since Folders left its Trash line off for board 2 (2026-10-17).
       */
       {
         surface: "the Trash page, from the Trash row at the foot of the tree",
@@ -461,10 +462,10 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
         densities: POINTER,
       },
       {
-        surface: "the Trash page, from the Trash row on a phone's Home",
+        surface: "the Trash page, from Trash in the @name menu on a phone's Inbox",
         control: {
-          file: "features/console/trash/TrashEntry.tsx",
-          contains: ['testID="phone-home-trash"', "onPress={route.openTrash}"],
+          file: "features/console/SwitcherMenu.tsx",
+          contains: ['trigger === "phone"', 'testID: "switcher-trash"', 'else if (id === "trash") trash?.openTrash();'],
         },
         navigation: [
           {
@@ -472,7 +473,7 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
             contains: ['router.setParams({ trash: "1", map: undefined, settings: undefined })'],
           },
         ],
-        region: "screen",
+        region: "account",
         densities: PHONE,
       },
       {

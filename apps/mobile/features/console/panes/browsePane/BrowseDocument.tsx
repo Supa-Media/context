@@ -1,6 +1,7 @@
 import { useCallback, useMemo, type ReactNode } from "react";
 import type { useConsoleNav } from "../../ConsoleNavContext";
-import { contextFootLine } from "../../files/contextFoot";
+import { contextFootLine, footNeedsSaying } from "../../files/contextFoot";
+import { atName } from "../../format";
 import type { FileBrowser } from "../../files/browser";
 import { ConflictResolver } from "../../files/ConflictResolver";
 import { FolderView } from "../../files/FolderView";
@@ -283,7 +284,13 @@ export function BrowseDocument({
       onHold={rowHold}
       iconOf={files.iconOf}
       onAddFolder={files.canEdit ? () => setFolderDialog({ kind: "addFolder" }) : undefined}
-      foot={contextFoot}
+      handle={current?.slug == null ? undefined : atName(current.slug)}
+      foot={
+        contextFoot !== undefined &&
+        footNeedsSaying({ storage: data.storage, fastSearch: data.fastSearch.status, noteLimit: data.noteLimit })
+          ? contextFoot
+          : undefined
+      }
       opening={holding ? files.selectedPath : null}
       onPreload={(folders) => preloadFronts(folderLists, folders)}
     />

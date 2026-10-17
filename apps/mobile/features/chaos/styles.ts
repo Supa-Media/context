@@ -38,17 +38,6 @@ export const makeChaosStyles = (colors: Colors, shadows: Shadows) =>
     tipText: { flexShrink: 1, color: colors.text },
     link: { color: colors.accent, fontWeight: "600" },
 
-    /* The phone Home's line, at the foot of the page. */
-    homeLine: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: space.x3,
-      minHeight: 44,
-      paddingVertical: space.x2,
-      paddingHorizontal: space.x3,
-      borderRadius: radii.lg,
-      backgroundColor: colors.cardSurface,
-    },
     pressed: { opacity: 0.6 },
 
     /* The sheet: `RecentSheet`'s, so a phone has one kind of sheet. */
