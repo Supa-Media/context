@@ -178,10 +178,18 @@ export const recordConfirmedPhone = internalMutation({
   returns: v.union(v.literal("confirmed"), v.literal("joined"), v.literal("taken"), v.literal("has_account")),
   handler: async (ctx, { userId, phone }) => {
     // Somebody let in by address has no phone on Tex's list until now.
+    // A changed phone frees the old number's slot, so a person holds one.
     const admitted = await admittedRowOf(ctx, userId);
+    const before = await ctx.db.get(userId);
+    const previous = before === null ? null : await currentPhoneOf(ctx, before);
     const recorded = await recordPhone(ctx, userId, phone);
     if (admitted !== null && (recorded === "confirmed" || recorded === "joined")) {
-      await ctx.scheduler.runAfter(0, internal.functions.waitlistTex.putOnLine, { waitlistId: admitted, phone });
+      await ctx.scheduler.runAfter(0, internal.functions.waitlistTex.putOnLine, {
+        waitlistId: admitted,
+        phone,
+        actorUserId: userId,
+        ...(previous !== null && previous !== phone ? { replaces: previous } : {}),
+      });
     }
     return recorded;
   },

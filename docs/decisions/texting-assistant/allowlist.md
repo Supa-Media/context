@@ -41,8 +41,12 @@ cannot text Tex at all.
 
 A full list, a line with no list, or Linq failing never fails the Let in. A
 refusal is logged and goes on the admin trail as `tex.allowlist_refused` under
-the staff member who let the row in, with the outcome and the last four
-digits; an addition is `tex.allowlist_added` with `via: "waitlist"`. Staff
+whoever acted (the staff member who let the row in, or the person confirming
+their own phone, `via: "phone_confirmed"`), with the outcome and the last four
+digits; an addition is `tex.allowlist_added`. A changed phone takes the old
+number off the list first (`tex.allowlist_removed`), so each person holds one
+slot and a full list never locks out the new number. Test: "changing the
+phone frees the old number's slot, so a person holds one". Staff
 then free a slot or add the number from Tex access, which reads Linq's list
 and shows the new number under its account.
 
