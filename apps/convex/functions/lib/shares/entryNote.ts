@@ -24,6 +24,7 @@ import type { Doc, Id } from "../../../_generated/dataModel";
 import type { DatabaseReader, MutationCtx } from "../../../_generated/server";
 import { ledgerOf, ledgerRows } from "../smallData/forwarding";
 import { forwardPath } from "../../../../mcp/src/forwarding.js";
+import { keyedWorkspace } from "../noteIds/keyedState";
 
 /** Rows one stamping pass reads. */
 export const STAMP_PAGE = 200;
@@ -63,6 +64,12 @@ export async function entryNoteIdAt(
  * a workspace whose rows are not keyed yet gives the moved note a new id, and
  * the ledger is what still follows it there; and whatever path is reached, the
  * read that follows decides visibility from the live rows at `team` scope.
+ *
+ * The id answers only in a keyed workspace, the one kind where an id is the
+ * note's for good. Before the flip a move re-ids the moved note and a later
+ * note written at the old path can take up the id its tombstone kept, so an id
+ * there could hand the link to a different note (`shareSurvivesMove.test.ts`,
+ * "a different note later created at the old path is not served").
  */
 export async function liveEntryOf(
   db: DatabaseReader,
@@ -70,6 +77,7 @@ export async function liveEntryOf(
 ): Promise<{ path: string; byId: boolean }> {
   const minted = { path: share.entryPath, byId: false };
   if (share.entryNoteId === undefined) return minted;
+  if (!(await keyedWorkspace(db, share.workspaceId))) return minted;
   const rows = await db
     .query("nodes")
     .withIndex("by_workspace_noteId", (q) =>
