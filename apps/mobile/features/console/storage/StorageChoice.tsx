@@ -4,6 +4,7 @@ import { Text } from "../../design/components/Text";
 import { leading, radii } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { EARLY_TESTER_PRICE_SHORT } from "../settings/panels/premium";
+import { FOUNDING_PRICE_LINE } from "../settings/panels/founding";
 import { ConnectForm } from "./ConnectForm";
 import type { ConnectFormValues } from "./connect";
 
@@ -24,7 +25,7 @@ export function StorageChoice({
   /** The no-card managed tier, when the control plane says this owner may start it. */
   free?: { cap: number; onChoose: () => void };
   /** Absent unless billing says this deployment can provision the storage. */
-  managed?: { price: string; stagingFreeStorage?: boolean; onChoose: () => void };
+  managed?: { price: string; founding?: boolean; stagingFreeStorage?: boolean; onChoose: () => void };
 }) {
   const styles = useThemedStyles(makeStyles);
   const [ownOpen, setOwnOpen] = useState(false);
@@ -66,9 +67,9 @@ export function StorageChoice({
           <ChoiceCard
             testID="choose-managed"
             title="Context-managed Premium storage"
-            sub={`Get 50 GB for this context. Context sets it up and keeps it running. ${managed.stagingFreeStorage ? "Free on staging; no payment required." : EARLY_TESTER_PRICE_SHORT}`}
-            badge={managed.price}
-            badgeTone="neutral"
+            sub={`Get 50 GB for this context. Context sets it up and keeps it running. ${managed.stagingFreeStorage ? "Free on staging; no payment required." : managed.founding === true ? FOUNDING_PRICE_LINE : EARLY_TESTER_PRICE_SHORT}`}
+            badge={managed.founding === true ? "Included" : managed.price}
+            badgeTone={managed.founding === true ? "ok" : "neutral"}
             selected={false}
             onPress={managed.onChoose}
           />

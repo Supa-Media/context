@@ -11,6 +11,7 @@ import {
   premiumStateOf,
   type PremiumStatus,
 } from "./premium";
+import { foundingAtNoCharge } from "./founding";
 
 export interface EntitlementRow {
   value: "managedStorage";
@@ -103,6 +104,13 @@ export function wouldEmptyRequiredSelection(
  * off, side by side, with nothing saying which is which. So the group says it.
  */
 export function entitlementsHint(status: PremiumStatus): string {
+  // A founder pays nothing and has no billing to manage, so neither is named.
+  if (foundingAtNoCharge(status)) {
+    const founding = "Premium is at no charge for founding members.";
+    return status.keepOneSelected === true && onlyOneSelected(status)
+      ? `${founding} Premium keeps at least one on.`
+      : founding;
+  }
   const price = `The price is ${formatPrice(status)} and does not change with what you choose.`;
   const chosenNotActive =
     !planIsPayingStatus(status.status) &&

@@ -37,6 +37,7 @@ import {
   type PremiumView,
 } from "./premium";
 import { PremiumIncludes } from "./PremiumIncludes";
+import { FOUNDING_BLURB, FOUNDING_PRICE_LINE, foundingAtNoCharge } from "./founding";
 import { PanelHead } from "./PanelHead";
 import { usePremium } from "./usePremium";
 import { useArming } from "../../useArming";
@@ -245,7 +246,13 @@ export function PremiumBody({
     state === "free" && status !== null ? `Premium · ${formatPrice(status)}` : copy.title;
   // Free is offered the short line. Once a subscription is held, the full
   // promise is what applies.
-  const earlyNote = state === "free" ? EARLY_TESTER_PRICE_SHORT : earlyTesterPriceNote(state);
+  // A founder pays nothing, so no price, no held-price promise and no
+  // "billed to" sentence: one line saying why, in place of all three.
+  const founding = foundingAtNoCharge(status);
+  const earlyNote = founding
+    ? null
+    : state === "free" ? EARLY_TESTER_PRICE_SHORT : earlyTesterPriceNote(state);
+  const blurb = founding ? FOUNDING_BLURB : copy.blurb;
 
   return (
     <View>
@@ -315,7 +322,7 @@ export function PremiumBody({
                 {returning?.working === true ? returning.title : headline}
               </Text>
               <Text variant="rowSub" style={styles.blurb}>
-                {returning?.working === true ? returning.body : copy.blurb}
+                {returning?.working === true ? returning.body : blurb}
               </Text>
             </View>
             {returning?.working === true ? (
@@ -331,7 +338,13 @@ export function PremiumBody({
           </View>
 
           {status.stagingFreeStorage ? <Notice tone="warn"><Text variant="rowSub">{STAGING_DATA_WARNING}</Text></Notice> : null}
-          {state === "free" ? null : (
+          {founding ? (
+            <Row divided style={styles.priceRow}>
+              <Text variant="rowSub" testID="premium-founding">
+                {FOUNDING_PRICE_LINE}
+              </Text>
+            </Row>
+          ) : state === "free" ? null : (
             <Row divided style={styles.priceRow}>
               <Text variant="rowSub">Price</Text>
               <Text variant="rowTitle" testID="premium-price">

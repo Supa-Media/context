@@ -530,6 +530,10 @@ checkout opens on an active plan — and a Stripe event can never lower a
 founding plan below active (`foundingStatus`), so a founder who was already
 paying keeps Premium after cancelling in the portal; we never cancel their
 subscription for them. Nothing here deletes anything or touches the exit.
+`billing.status` reports `founding`, so the console offers no upgrade on an
+active plan without a Stripe customer and, where it would name a price, says
+"Founding member: Premium at no charge." instead
+(`apps/mobile/__tests__/premiumFounding.test.ts`).
 
 **What a simplification would cost:** counting live accounts instead of grant
 rows lets a deletion promote account 101; checking an account flag inside each
