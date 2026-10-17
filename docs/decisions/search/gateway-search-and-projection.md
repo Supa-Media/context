@@ -382,3 +382,29 @@ reads the notes, as a context with no database does. A note a queued move is
 carrying somewhere the caller may not see is never asked for.
 
 **What fails if reversed:** `meaningSnippetsFromDatabase.test.mjs`.
+
+## The bucket keeps no search index beside a search database
+
+Decided by the owner, 2026-10-17 ("Yes, all of it"). Once nothing read or
+maintained the shard index for a context with a search database, two things
+still touched it. The control plane's copy fell back to a shard index pass
+for its census whenever the bucket's listing failed (`passCensus`), and the
+files themselves sat in the customer's bucket. Now:
+
+- the copy's census is the bucket's listing alone (`fileOps/projection.ts`);
+  a link whose listing fails copies nothing, and the next link lists again;
+- the daily check of a `ready` database (`filesFns/prunePass.ts`) deletes the
+  shard index's files, `v2/` and `search-v1.json` at `.context/search/` and
+  the legacy `.index/`, up to 500 per link with the chain carrying on
+  (`fileOps/retireShardIndex.ts`). The list of keys is an allow-list, and
+  anything under a `meaning/` segment is refused: search by meaning's
+  catch-up state lives beside it, and losing that re-embeds a whole context.
+
+Nothing is lost by deleting a derivative. A context whose database is turned
+off searches the bucket again, and its first searches rebuild the index from
+the notes. `SHARD_INDEX_RETIRE=off` in the deployment's environment stops the
+deletes without a deploy.
+
+**What fails if reversed:** `retireShardIndex.test.ts`, and in
+`searchDatabaseOnly.test.ts` "a copy whose listing fails runs no
+bucket-index pass in its place".

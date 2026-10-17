@@ -7,13 +7,11 @@
 
 import { effectiveVisibility, isPlumbing } from "../privacy";
 import { createSearchBudget } from "../../../../mcp/src/search/maintain.js";
-// The projection, on the same terms. `projectPass`, `loadCensus` and
+// The projection, on the same terms. `projectPass` and
 // `progressFrom` take a store, a census, a `visibilityOf` and a budget and
 // know nothing about a gateway request — which is what makes the control
 // plane's scheduled half the same import rather than a second copy.
 import {
-  censusFromManifest,
-  loadCensus,
   progressFrom,
   projectPass,
   worthReporting,
@@ -23,7 +21,7 @@ import { listNoteObjects } from "../../../../mcp/src/search/shards/listing.js";
 import type { FileStore } from "./store";
 import { loadPrivacyState } from "./privacyState";
 import type { IndexingPriorities } from "../indexingPriorities";
-import { runIndexPass, type ProjectionClient } from "./search";
+import type { ProjectionClient } from "./search";
 
 /* -------------------------------------------------------------------------- */
 /*                             the D1 projection                              */
@@ -32,28 +30,11 @@ import { runIndexPass, type ProjectionClient } from "./search";
 /**
  * Store operations one scheduled projection pass may spend.
  *
- * Larger than `INDEX_SYNC_BUDGET` because this pass does that pass's work
- * *and* the copy behind it: a listing, an etag diff, the notes that moved
- * re-read, the shards rewritten, and then a note read plus six statements per
- * note projected. Cloudflare's per-invocation subrequest cap is what bounds
+ * A listing of the bucket, the rows of notes that have gone asked for by
+ * name, and then a note read plus six statements per note projected. Cloudflare's per-invocation subrequest cap is what bounds
  * the gateway's equivalent; there is no such cap here, and nobody is waiting.
  */
 const PROJECTION_PASS_BUDGET = 1_200;
-
-/**
- * Ops one pass keeps back for the projection **before the R2 sync spends
- * anything**, as a share rather than a fixed number.
- *
- * A quarter, which is the gateway's own measured figure and is copied for the
- * reason it was measured: at a half, a small bucket's index could not build at
- * all — every pass spent its allowance on the listing and had nothing left to
- * read a note with. A reserve that starves the index it is riding is worse
- * than no reserve, and the census this pass walks *is* that index.
- *
- * A reserve taken out of what the previous stage happened to leave is not a
- * reserve, so it is settled before the sync is called.
- */
-const PROJECTION_RESERVE_SHARE = 4;
 
 /**
  * Notes one pass may copy.
@@ -113,67 +94,6 @@ export interface ProjectionPass {
 }
 
 /**
- * What this pass reads off the sync, named rather than inferred.
- *
- * `syncShardedIndex` is JSDoc-typed JavaScript with several return shapes,
- * and TypeScript narrows their union to the one that carries the fewest
- * fields — which drops `touched` and `removed`, the two the projection is
- * here for. Declaring what is read keeps the cast to one place and makes a
- * field that disappears upstream a compile error here rather than an
- * `undefined` the copy quietly walks past.
- */
-interface SyncedPass {
-  manifest: Parameters<typeof censusFromManifest>[0] | null;
-  pending: number;
-  listingTruncated: boolean;
-  committed: boolean;
-  touched: string[];
-  removed: string[];
-}
-
-/**
- * The R2 index pass a scheduled copy rides on, and the census it leaves.
- *
- * Shared by fast search's projection and search by meaning's catch-up pass,
- * which walk the same census for the same reason: it is the index's own
- * answer to "what notes are there", so neither copy can disagree with it.
- */
-export async function passCensus(
-  store: FileStore,
-  budget: ReturnType<typeof createSearchBudget>,
-  reserve: number,
-): Promise<{ census: Map<string, string> | null; indexPending: number; synced: SyncedPass | null }> {
-  let synced: SyncedPass | null = null;
-  try {
-    synced = (await runIndexPass(store, budget, reserve)) as unknown as SyncedPass;
-  } catch {
-    // A listing that failed after nothing was promised to anybody changes
-    // nothing here: the copy still gets its turn, because a failed listing is
-    // not a reason to stop copying the notes that are already indexed. The
-    // next link re-diffs from the manifest.
-  }
-
-  if (synced?.manifest) {
-    return {
-      census: censusFromManifest(synced.manifest),
-      indexPending: (synced.pending || 0) + (synced.listingTruncated ? 1 : 0),
-      synced,
-    };
-  }
-  // No manifest from this pass — the sync threw, or had no budget to read
-  // one. Two object reads rather than a second listing, which is what
-  // `loadCensus` is for.
-  const loaded = await loadCensus(store as unknown as Parameters<typeof loadCensus>[0], budget);
-  if (!loaded) return { census: null, indexPending: 0, synced };
-  const freshness = loaded.manifest.freshness;
-  return {
-    census: loaded.census,
-    indexPending: (freshness.pending || 0) + (freshness.truncated ? 1 : 0),
-    synced,
-  };
-}
-
-/**
  * Copy this context's notes into its own search database, a bounded piece at a
  * time. Nobody is waiting on this either.
  *
@@ -195,7 +115,8 @@ export async function passCensus(
  *    2026-10-08; see `listingCensus`). A context nobody has searched still
  *    fills, which was the case of the three contexts stuck at "Preparing",
  *    and a bucket whose index never converges no longer starves the copy.
- *    The R2 index pass runs only when the listing fails.
+ *    No R2 index pass runs at all (2026-10-17): a failed listing waits for
+ *    the next link.
  *  - **The tier a note is copied at is this runtime's `effectiveVisibility`**,
  *    injected as `visibilityOf` exactly as `isVisible` is injected into
  *    `searchIndexedNotes`, and proven identical to the gateway's by
@@ -217,29 +138,25 @@ export async function projectSearchIndex(
   options: { budget?: number; noteCap?: number; workspaceId?: string } = {},
 ): Promise<ProjectionPass> {
   const budget = createSearchBudget(options.budget ?? PROJECTION_PASS_BUDGET);
-  const reserve = Math.floor(budget.remaining / PROJECTION_RESERVE_SHARE);
 
-  // The bucket's own listing first, and the R2 index pass only when that
-  // fails. On @seyi (2026-10-08) the index pass never converged and took the
+  // The bucket's own listing, and nothing else: the R2 index pass that stood
+  // in when it failed is gone with the index (2026-10-17). On @seyi (2026-10-08) the index pass never converged and took the
   // pass with it: each link re-copied the notes it reported touching, the walk
   // in tier order never left its first window, and nothing was left over to
-  // remove the rows of notes that had moved. Searches still keep that index.
+  // remove the rows of notes that had moved.
   const listed = await listingCensus(store, budget);
-  const fallback = listed ? null : await passCensus(store, budget, reserve);
-  const census = listed?.census ?? fallback?.census ?? null;
-  const indexPending = listed ? (listed.truncated ? 1 : 0) : (fallback?.indexPending ?? 0);
-  const synced = fallback?.synced ?? null;
+  const census = listed?.census ?? null;
+  const indexPending = listed?.truncated ? 1 : 0;
   const budgetAfterCensus = budget.remaining;
 
-  const moved = Boolean(synced?.committed);
-  if (census === null) {
+  if (listed === null || census === null) {
     if (options.workspaceId) console.info("fast_search.projection_pass", {
       workspaceId: options.workspaceId, source: "none", budgetAfterCensus,
       budgetRemaining: budget.remaining, projected: 0, cursorAdvanced: false,
     });
-    // Nothing to walk. Not a failure — a bucket whose index this pass has just
-    // started building is the ordinary first link of a cold chain, and `moved`
-    // says whether it got anywhere.
+    // Nothing to walk: the listing failed. Not a failure to report, since the
+    // next link lists again; no shard index pass stands in for it (decided by
+    // the owner, 2026-10-17: the bucket keeps no search index of its own).
     return {
       projected: 0,
       deleted: 0,
@@ -247,7 +164,7 @@ export async function projectSearchIndex(
       notesPending: 0,
       ready: false,
       failure: null,
-      moved,
+      moved: false,
       report: false,
     };
   }
@@ -257,10 +174,7 @@ export async function projectSearchIndex(
   // parameters read as required from TypeScript — `reportProgress` defaults to
   // `null` in the body and is deliberately not passed. The fields below are
   // checked against their own declared types; only the omission is waived.
-  const removed = [
-    ...(synced?.removed ?? []),
-    ...(listed ? await goneFromBucket(store, client, budget, listed) : []),
-  ];
+  const removed = await goneFromBucket(store, client, budget, listed);
   const budgetBeforeCopy = budget.remaining;
   let projected = 0;
   let deleted = 0;
@@ -276,7 +190,7 @@ export async function projectSearchIndex(
     // again for each 300-path D1 version probe.
     const result = await projectPass(store, client, {
       census,
-      touched: window === 0 ? synced?.touched ?? [] : [],
+      touched: [],
       removed: window === 0 ? removed : [],
       visibilityOf: (path: string) =>
         effectiveVisibility(path, state.rules, state.overrides),
@@ -299,9 +213,9 @@ export async function projectSearchIndex(
   const failure: string | null = result.failure ?? null;
   if (options.workspaceId) console.info("fast_search.projection_pass", {
     workspaceId: options.workspaceId,
-    source: listed ? "bucket" : "index",
+    source: "bucket",
     censusSize: census.size,
-    listingTruncated: listed?.truncated ?? null,
+    listingTruncated: listed.truncated,
     budgetAfterCensus,
     budgetBeforeCopy,
     budgetRemaining: budget.remaining,
@@ -310,7 +224,6 @@ export async function projectSearchIndex(
     deleted,
     cursorAdvanced,
     sweepComplete: result.sweepComplete,
-    syncCommitted: moved,
     report: failure === null && (projected > 0 || deleted > 0 || worthReporting(result)),
     failure,
   });
@@ -326,7 +239,7 @@ export async function projectSearchIndex(
     // A window of already-current notes can still move the cursor closer to
     // missing notes. Keep the chain running through it instead of waiting for
     // the 15-minute stalled-backfill sweep after every such window.
-    moved: moved || projected > 0 || deleted > 0 || cursorAdvanced,
+    moved: projected > 0 || deleted > 0 || cursorAdvanced,
     report: failure === null && (projected > 0 || deleted > 0 || worthReporting(result)),
   };
 }
@@ -341,7 +254,7 @@ export async function projectSearchIndex(
  * finished. Search by meaning lists the bucket for the same reason
  * (`meaningProjection.ts`), and the two walk the same listing tokens the
  * docmap held, so rows already copied stay current. `null` when the listing
- * fails, and the pass falls back to the index's census rather than stopping.
+ * fails, and the pass copies nothing until the next link lists again.
  */
 export async function listingCensus(store: FileStore, budget: ReturnType<typeof createSearchBudget>) {
   try {
