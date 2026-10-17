@@ -25,9 +25,12 @@ what happens to the draft (`apps/mcp/src/tools/emailGate.js`):
 4. **The call is held as a pending approval carrying the whole email.** The
    copy is texted exactly as written, outside the reply's formatting (which
    drops links and lines), and an email too long for one text (2,500
-   characters) is never asked about by text. Only a literal YES within half
-   an hour sends it, settled before any model runs; "ok", "sure" or any other
-   text disarms it, so a changed draft is a new ask. An email that named no
+   characters) is never asked about by text. A texted turn asks about one
+   email at most, and an ask holding an email that would outgrow one text
+   (other asks beside it included) is withdrawn rather than cut. Only a
+   literal YES within half an hour sends it, settled before any model runs;
+   "ok", "sure" or any other text disarms it, even when that text settles
+   something else asked beside it, so a changed draft is a new ask. An email that named no
    sender is held with the mailbox it was shown from, and refused rather than
    sent from another if that mailbox is gone. Another AI's email is approved
    in the app, which shows the whole email above its buttons.

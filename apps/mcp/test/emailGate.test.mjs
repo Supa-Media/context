@@ -29,6 +29,12 @@
  *     yes` fails.
  *  8. No texted length cap. → `an email too long to show whole in one text is
  *     never asked about by text` fails.
+ *  9. `settleByText` not disarming an email it skipped. → `an "ok" that
+ *     settles another ask still disarms the email beside it` fails.
+ * 10. No one-email-per-text refusal in `emailGate`. → `a second email in one
+ *     texted turn is refused` fails.
+ * 11. `textedAsk` without its length cap. → `an ask holding an email that
+ *     outgrows one text is withdrawn, not cut` fails.
  */
 
 import { ask, call, request, textOf, createEgressWorld, TOKEN_CONSOLE, TOKEN_MCP, TOKEN_ROUTINE, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
@@ -36,6 +42,9 @@ import { emailCaller, DEFAULT_EMAIL_CALLERS } from "../src/tools/emailGate.js";
 import { helperCallersOf } from "../src/agent/production.js";
 import { conversationFor, readVerdict } from "../src/agent/mailChecker.js";
 import { readEmail } from "../src/tools/email.js";
+import { TEXTED_ASK_CAP, textedAsk } from "../src/agent/textedApprovals.js";
+import { createPending, listPending } from "../src/tools/approvals.js";
+import { createMemoryStore } from "./gmailSync/fixtures.mjs";
 
 const EMAIL = { to: ["jo@example.com"], subject: "Re: Thursday", body: "Hi Jo,\n\nThursday at 3 works for me.\n\nSeyi" };
 const verdict = (value, reason = "") => ({ text: JSON.stringify({ verdict: value, reason }) });
@@ -181,6 +190,40 @@ export async function runEmailGateChecks(check) {
     );
     for (const left of await approvals()) await request(env, TOKEN_CONSOLE, "/approvals", { id: left.id, action: "deny" });
 
+    model.install([
+      { toolCalls: [{ name: "read_note", args: { path: "2-areas/second.md" } }] },
+      { toolCalls: [{ name: "set_visibility", args: { path: "2-areas/second.md", visibility: "team" } }] },
+      { toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "Re: mixed" } }] },
+      verdict("yes"),
+      { text: "Drafted, and I'd share second with the team." },
+    ]);
+    const mixed = await ask(env, TOKEN_TEXTS, "share second with the team and email Jo it's fine");
+    before = sends().length;
+    await ask(env, TOKEN_TEXTS, "ok");
+    model.install([{ text: "Yes what?" }]);
+    await ask(env, TOKEN_TEXTS, "yes");
+    check(
+      'an "ok" that settles another ask still disarms the email beside it',
+      mixed.body?.asked === 2 && sends().length === before && (await approvals()).some((left) => left.tool === "send_email" && left.summary.includes("Re: mixed")),
+    );
+    for (const left of await approvals()) await request(env, TOKEN_CONSOLE, "/approvals", { id: left.id, action: "deny" });
+
+    model.install([
+      { toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "Re: one" } }] },
+      verdict("yes"),
+      { toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "Re: two" } }] },
+      { text: "Drafted the first." },
+    ]);
+    const two = await ask(env, TOKEN_TEXTS, "email Jo twice");
+    check(
+      "a second email in one texted turn is refused",
+      two.body?.asked === 1 &&
+        pending().length === 1 &&
+        !(two.body?.answer ?? "").includes("Re: two") &&
+        JSON.stringify(model.requests.at(-1)?.messages ?? []).includes("one email at a time by text"),
+    );
+    await ask(env, TOKEN_TEXTS, "no");
+
     /* ---------------- the Mail checker ---------------- */
 
     model.install([
@@ -264,6 +307,26 @@ export async function runEmailGateChecks(check) {
   }
 
   /* ---------------- the pure parts ---------------- */
+
+  const memory = createMemoryStore();
+  const actor = { userId: "u1", clientId: "context_texts" };
+  const hold = (detail, summary) =>
+    createPending(memory, { name: detail ? "send_email" : "set_visibility", args: { summary }, actor, widening: { summary }, detail, texting: true });
+  const short = [await hold("To: jo@example.com\n\nshort", "email jo")];
+  const fits = await textedAsk(memory, { actorUserId: "u1" }, short);
+  const long = [await hold("x".repeat(2_450), "email jo again"), ...(await Promise.all(Array.from({ length: 20 }, (_, i) => hold(undefined, `share note ${i} with the team`))))];
+  const outgrown = await textedAsk(memory, { actorUserId: "u1" }, long);
+  check(
+    "an ask holding an email that outgrows one text is withdrawn, not cut",
+    fits.verbatim.length === 1 &&
+      fits.verbatim[0] === fits.ask &&
+      outgrown.verbatim.length === 0 &&
+      !outgrown.ask.includes("xxxx") &&
+      outgrown.ask.length < TEXTED_ASK_CAP &&
+      long.length === 0 &&
+      (await listPending(memory, { userId: "u1" })).length === 1 &&
+      TEXTED_ASK_CAP < 3_000,
+  );
 
   check(
     "who asks: Tex or any other AI, and never a routine, a dream or the app",

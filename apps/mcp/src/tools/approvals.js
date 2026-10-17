@@ -172,7 +172,12 @@ export async function rearmForText(store, { key, record }, texting, now = Date.n
  * record that cannot be disarmed is dropped, which is the safe direction.
  */
 export async function disarmTexting(store, { userId, now = Date.now() }) {
-  for (const { key, etag, record } of await listPending(store, { userId, texting: true, now })) {
+  await disarmRecords(store, await listPending(store, { userId, texting: true, now }));
+}
+
+/** Disarm these listed records for texting, or drop one that cannot be disarmed. */
+export async function disarmRecords(store, entries) {
+  for (const { key, etag, record } of entries) {
     try {
       const put = await store.put(key, JSON.stringify({ ...record, texting: false }), etag ? { onlyIf: { etagMatches: etag } } : undefined);
       if (!put) await deleteWithLegacyFallback(store, key).catch(() => {});
