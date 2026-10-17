@@ -513,7 +513,7 @@ Tex's dreams, which need Premium and the built-in model.
 per grant, capped at `FOUNDING_PREMIUM_ACCOUNTS` (100,
 `apps/convex/functions/lib/billing/founding.ts`). Every new account schedules a
 walk that grants each account still owed one, oldest first, so accounts made
-before this shipped come ahead of new sign-ups (an operator can run the same
+before this shipped come ahead of new sign-ups (an hourly cron runs the same
 walk: `foundingPremium:catchUp`). Mutations are serializable, so the 101st
 grant cannot be written. The row is never deleted, not even with its account:
 the cap counts grants ever made, so a founder leaving frees no slot and no
