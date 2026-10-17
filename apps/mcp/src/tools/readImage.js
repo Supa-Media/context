@@ -135,8 +135,7 @@ export async function toolReadImage(store, scope, rules, overrides, args) {
 
     So the lookup runs the same way for everybody and the decision is taken
     once both answers are in. It is a metadata probe rather than a `get` for
-    the reason spelled out in `toolReadNote`: `S3Store.get` and
-    `DropboxStore.get` both buffer the whole object before any caller asks for
+    the reason spelled out in `toolReadNote`: `S3Store.get` buffers the whole object before any caller asks for
     its text, so resolving an invisible path with a real `get` would pull a
     private note's plaintext into the worker on behalf of somebody who may not
     read it. The body below is fetched only after both questions have passed.

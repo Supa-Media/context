@@ -15,7 +15,7 @@ import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, SECRET_C, SECRET_D, TOKEN_A, call
 
 export async function runTenancyAuditAndSecretChecks(check, harness) {
   const { env, controlPlane } = harness;
-  const { listA, listB, listC, tokenless, withRefresh, dropboxBound, garbage, downstream, unbound, smuggled, mismatch, challenge, prmBody, asmBody, exchanged } = harness;
+  const { listA, listB, listC, tokenless, withRefresh, retiredBound, garbage, downstream, unbound, smuggled, mismatch, challenge, prmBody, asmBody, exchanged } = harness;
 
   /* ------------------- 13. the credential is never cached -------------------- */
 
@@ -39,7 +39,7 @@ export async function runTenancyAuditAndSecretChecks(check, harness) {
     listC,
     tokenless.text,
     withRefresh.text,
-    dropboxBound.text,
+    retiredBound.text,
     garbage.text,
     downstream.text,
     unbound.text,

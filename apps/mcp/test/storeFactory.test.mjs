@@ -17,8 +17,8 @@
  * ships to reproduce them, because a switch that disables a credential check is
  * not something that belongs in a deployable artifact.
  *
- * 1. **`dropboxStore`'s explicit `accessToken` check deleted.** *Zero* checks
- *    failed — which is why that check is not in the file any more. `DropboxStore`
+ * 1. **A builder's explicit `accessToken` check deleted.** *Zero* checks
+ *    failed — which is why that check is not in the file any more. The store
  *    refuses a missing token in its own constructor, so the factory's copy of
  *    the rule could never be the thing that caught anything, and a guard nobody
  *    can break is a guard nobody has checked. What the factory genuinely adds is
@@ -34,7 +34,7 @@
  *    binding carrying a refresh token then builds a perfectly working store —
  *    exactly the outcome that lets the control-plane bug ship unnoticed.
  * 4. **`assertNoForeignCredential` deleted.** **4 checks fail**, including a
- *    Dropbox binding that happily carries somebody's S3 secret.
+ *    token-only binding that happily carries somebody's S3 secret.
  * 5. **`BUILDERS` as an object literal instead of a `Map`.** **3 checks fail**.
  *    This one is why the prototype checks assert the *reason* rather than that
  *    something was refused: with a literal, `provider: "constructor"` resolves
@@ -42,7 +42,7 @@
  *    refused a step later for the wrong reason — and a binding carrying no
  *    credential at all reaches `entry.build(…)` with `build` undefined and
  *    crashes. "Refused somehow" was true in both versions.
- * 6. **The factory drops `rootPrefix` on the way to `DropboxStore`.** 6 checks
+ * 6. **The factory drops `rootPrefix` on the way to the store.** 6 checks
  *    fail, four of them in the tenancy suite — the customer's folder is not a
  *    detail the store can lose.
  */
@@ -52,9 +52,9 @@ import { storeForBinding, StorageUnavailable, StorageUnsupported } from "../src/
 import { S3Store } from "../src/store/s3.js";
 import { R2Store } from "../src/store/r2.js";
 
-/** The copy a customer sees for a Dropbox binding. Pinned here so it cannot drift silently. */
-const DROPBOX_MESSAGE =
-  "This workspace's storage is Dropbox, which Context no longer supports. Move it to a bucket of your own or Context storage.";
+/** The copy a customer sees for a retired binding. Pinned here so it cannot drift silently. */
+const RETIRED_MESSAGE =
+  "This workspace's storage is no longer supported by Context. Move it to a bucket of your own or Context storage.";
 
 /** Obviously fake. This repository is public. */
 const S3_BINDING = {
@@ -76,7 +76,7 @@ const S3_BINDING = {
   status: "active",
 };
 
-const DROPBOX_BINDING = {
+const RETIRED_BINDING = {
   workspaceId: "ws_example",
   provider: "dropbox",
   accessToken: "sl.FAKE-not-a-real-token",
@@ -126,13 +126,13 @@ export function runStoreFactoryChecks(check) {
   /* ---------------------------- the happy paths ---------------------------- */
 
   {
-    // Dropbox was removed (notes-by-id, 2026-10-16). A workspace still bound to
+    // That store was removed (notes-by-id, 2026-10-16). A workspace still bound to
     // one is refused whatever it carries, with a typed error the customer can
     // act on, and nothing is built for it.
-    const { store, error } = attempt(DROPBOX_BINDING);
-    check("a dropbox binding builds no store at all", store === null);
+    const { store, error } = attempt(RETIRED_BINDING);
+    check("a retired binding builds no store at all", store === null);
     check("it is refused as STORAGE_UNSUPPORTED", error?.code === "STORAGE_UNSUPPORTED");
-    check("with the customer-facing message", error?.message === DROPBOX_MESSAGE);
+    check("with the customer-facing message", error?.message === RETIRED_MESSAGE);
     check(
       "as a StorageUnsupported, which is also a StorageUnavailable for every caller that catches that",
       error instanceof StorageUnsupported && error instanceof StorageUnavailable
@@ -289,31 +289,31 @@ export function runStoreFactoryChecks(check) {
   // Every one of these is refused by the *adapter*; what is asserted is that it
   // arrives as a typed `StorageUnavailable`, because `index.js` catches nothing
   // else and a raw throw is a 500 quoting somebody's configuration.
-  // A dropbox binding is refused as unsupported before its fields are looked at,
+  // A retired binding is refused as unsupported before its fields are looked at,
   // so no shape of it gets a store, a 401 loop, or a credential check.
   for (const [label, binding] of [
-    ["an access token", DROPBOX_BINDING],
-    ["no access token", { ...DROPBOX_BINDING, accessToken: undefined }],
-    ["an empty access token", { ...DROPBOX_BINDING, accessToken: "" }],
-    ["a traversing folder", { ...DROPBOX_BINDING, rootPrefix: "../somebody-elses-folder" }],
+    ["an access token", RETIRED_BINDING],
+    ["no access token", { ...RETIRED_BINDING, accessToken: undefined }],
+    ["an empty access token", { ...RETIRED_BINDING, accessToken: "" }],
+    ["a traversing folder", { ...RETIRED_BINDING, rootPrefix: "../somebody-elses-folder" }],
   ]) {
     check(
-      `a dropbox binding with ${label} is refused as STORAGE_UNSUPPORTED`,
+      `a retired binding with ${label} is refused as STORAGE_UNSUPPORTED`,
       attempt(binding).error?.code === "STORAGE_UNSUPPORTED"
     );
   }
 
   // The exact failure this factory exists to prevent: an S3-shaped binding
-  // wearing a dropbox provider used to fall through to the S3 branch, where
-  // every field it needs happens to be present, and a Dropbox-bound workspace
+  // wearing a retired provider used to fall through to the S3 branch, where
+  // every field it needs happens to be present, and a retired-bound workspace
   // would have been served out of an S3 bucket.
   check(
-    "an s3-shaped binding labelled dropbox is refused, not built as S3",
-    refused({ ...S3_BINDING, provider: "dropbox" })
+    "an s3-shaped binding labelled as a retired provider is refused, not built as S3",
+    refused({ ...S3_BINDING, provider: RETIRED_BINDING.provider })
   );
   check(
-    "a dropbox-shaped binding labelled s3 is refused",
-    refused({ ...DROPBOX_BINDING, provider: "s3" })
+    "a retired binding labelled s3 is refused",
+    refused({ ...RETIRED_BINDING, provider: "s3" })
   );
 
   // Unchanged behaviour, pinned: this is exactly how it failed before.
@@ -353,7 +353,7 @@ export function runStoreFactoryChecks(check) {
   }
   check(
     "no provider is ever silently treated as S3",
-    ["gcs", undefined, null, "", "dropbox ", "S3"].every((provider) =>
+    ["gcs", undefined, null, "", "s3 ", "S3"].every((provider) =>
       refused({ ...S3_BINDING, provider })
     )
   );
@@ -361,8 +361,8 @@ export function runStoreFactoryChecks(check) {
   /* --------------------- a credential nobody meant to send ------------------ */
 
   check(
-    "an s3 binding carrying a dropbox access token is refused",
-    refused({ ...S3_BINDING, accessToken: DROPBOX_BINDING.accessToken })
+    "an s3 binding carrying a foreign access token is refused",
+    refused({ ...S3_BINDING, accessToken: RETIRED_BINDING.accessToken })
   );
   check(
     "a native binding needs no credential and is refused for carrying one",
@@ -370,7 +370,7 @@ export function runStoreFactoryChecks(check) {
   );
   check(
     "a cross-provider credential says so, so the log names the real bug",
-    attempt({ ...S3_BINDING, accessToken: DROPBOX_BINDING.accessToken }).error?.reason ===
+    attempt({ ...S3_BINDING, accessToken: RETIRED_BINDING.accessToken }).error?.reason ===
       "cross-provider credential"
   );
   // A field explicitly absent is not a field carried. A control plane that
@@ -389,7 +389,7 @@ export function runStoreFactoryChecks(check) {
     "refreshToken",
     "refresh_token",
     "encryptedRefreshToken",
-    "dropboxRefreshToken",
+    "providerRefreshToken",
   ]) {
     check(
       `an s3 binding carrying ${field} is refused outright`,
@@ -406,7 +406,7 @@ export function runStoreFactoryChecks(check) {
     refused({ ...S3_BINDING, encryptedRefreshToken: "rt.FAKE-long-lived" })
   );
   check(
-    "so is a native one, so the rule is not a dropbox special case",
+    "so is a native one, so the rule is not special to one provider",
     refused({ ...NATIVE_BINDING, refreshToken: "rt.FAKE-long-lived" }, NATIVE_ENV)
   );
   // Checked before the provider is even resolved: a refresh token on a binding
@@ -420,10 +420,10 @@ export function runStoreFactoryChecks(check) {
   /* ------------------------- refusals stay uninformative -------------------- */
 
   const refusals = [
-    attempt({ ...DROPBOX_BINDING, accessToken: undefined }).error,
-    attempt({ ...S3_BINDING, provider: "dropbox" }).error,
+    attempt({ ...RETIRED_BINDING, accessToken: undefined }).error,
+    attempt({ ...S3_BINDING, provider: RETIRED_BINDING.provider }).error,
     attempt({ ...S3_BINDING, refreshToken: "rt.FAKE-long-lived" }).error,
-    attempt({ ...S3_BINDING, accessToken: DROPBOX_BINDING.accessToken }).error,
+    attempt({ ...S3_BINDING, accessToken: RETIRED_BINDING.accessToken }).error,
   ]
     .map((error) => `${error?.name}: ${error?.message} ${error?.reason}`)
     .join("\n");

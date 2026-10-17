@@ -206,7 +206,7 @@ export async function runCredentialShapeChecks(check) {
     property, so `JSON.stringify(store)` emitted a customer's bucket secret in
     full while the token beside it was carefully hidden. `S3Store`'s own
     constructor says of it: "never logged, never written to the bucket, never
-    placed in a URL." Dropbox's access token was the same.
+    placed in a URL." A provider's access token was the same.
 
     Nothing in the gateway stringifies or spreads a store today — `{ ...session }`
     in `meetings/` is a meeting record — so this was latent rather than leaking.

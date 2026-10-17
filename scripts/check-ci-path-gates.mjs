@@ -488,8 +488,6 @@ export function check(root = ROOT) {
   const convexFilter = changeFilter(ci, "convex");
   for (const path of [
     ...workspacePaths(["@context/mcp", "@context/convex"], root),
-    "apps/mobile/features/console/storage/dropbox.ts",
-    "apps/mobile/features/console/storage/dropbox.web.ts",
     ".github/workflows/deploy-convex.yml",
     ...INFRA_PATHS,
   ]) {

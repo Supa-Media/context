@@ -43,7 +43,7 @@ export const REFRESH_A = `crt_tenant_a_${"0".repeat(24)}`;
  * Two more tenants, each on its own bucket with the same rootPrefix and the
  * same key layout as the other. Nothing but the binding's bucket and key pair
  * tells them apart, and their identically-keyed notes are what says so. (They
- * were a Dropbox pair until 2026-10-16; Dropbox is no longer a store.)
+ * were on a store removed on 2026-10-16.)
  */
 export const TOKEN_C = token("tenant_c_owner");
 export const TOKEN_D = token("tenant_d_owner");

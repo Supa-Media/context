@@ -78,7 +78,7 @@ async function resolveForm(store, scope, rules, overrides, args) {
 
     On a metadata probe, and the distinction matters here as much as anywhere:
     resolving an invisible path with the real `get` below would buffer that
-    note's whole body on `S3Store` and `DropboxStore` before anything asked
+    note's whole body on `S3Store` before anything asked
     whether this caller may read it. The body is fetched only once both
     questions have passed.
   */

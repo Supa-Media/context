@@ -201,17 +201,17 @@ export function effectiveVisibility(key, rules, overrides) {
  * Every decision in this engine is keyed on an exact path: `isPlumbing` opens
  * with `key === PRIVACY_KEY`, and `effectiveVisibility` is an exact `Map.get`
  * against the exact-note overrides. That is sound on a keyspace where one
- * string is one object, which is what R2 and S3 are — and `DropboxStore` is
- * not. Its own header lists the difference: Dropbox "treats `Foo.md` and
- * `foo.md` as the same file and normalises Unicode", and it deliberately does
- * not re-case a caller's key, because a store that silently rewrote one would
- * be worse than one that returns what Dropbox actually has.
+ * string is one object, which is what R2 and S3 are — and a store that folds
+ * case is not. Such a store can treat `Foo.md` and `foo.md` as the same file and
+ * normalise Unicode, and it deliberately does not re-case a caller's key,
+ * because a store that silently rewrote one would be worse than one that
+ * returns what the backend actually has.
  *
  * That is the right call for the adapter and it leaves the question here. Every
  * note path in this gateway arrives from a connected AI client, so on a
- * Dropbox-backed context an attacker picks which of two strings to send and
+ * case-folding context an attacker picks which of two strings to send and
  * therefore which of two answers to be scored by: `Privacy.md` is not
- * `privacy.md`, so nothing reserved it, and Dropbox wrote the manifest anyway.
+ * `privacy.md`, so nothing reserved it, and the store wrote the manifest anyway.
  *
  * So the fold happens where the decision is made rather than where the bytes
  * are stored, and on **every** backend: a privacy answer that depends on which
@@ -348,7 +348,7 @@ export function overrideFor(overrides, key) {
   // owner did not name is the same failure that keeps folder rules unfolded,
   // and on a case-sensitive store — R2, S3, every context deployed today —
   // `a/Foo.md` really is a different file from the `a/foo.md` that was
-  // published. Two entries that fold together are one file on Dropbox and a
+  // published. Two entries that fold together are one file on a case-folding store and a
   // contradiction the owner never resolved; `private` is the answer that
   // cannot leak. `foldPath` runs only over private entries for the same
   // reason it runs at all.

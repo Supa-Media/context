@@ -256,16 +256,16 @@ export async function runTenancyCrossTenantIsolationChecks(check, harness) {
     withRefresh.status === 503 && !withRefresh.text.includes("gamma-secret")
   );
 
-  // A workspace still bound to Dropbox (removed 2026-10-16) is refused at the
+  // A workspace still bound to a store removed on 2026-10-16 is refused at the
   // wire as a 503, the same as any binding the gateway will not build, and
   // nothing is read from anywhere.
-  const restoreDropboxBound = withControlPlaneOverride((path) => {
+  const restoreRetiredBound = withControlPlaneOverride((path) => {
     if (path === "/gateway/binding") {
       return {
         binding: {
           workspaceId: "ws_c",
-          provider: "dropbox",
-          accessToken: "sl.FAKE-retired-dropbox-token",
+          provider: "retired-store",
+          accessToken: "sl.FAKE-retired-token",
           rootPrefix: "context/",
           capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
           status: "active",
@@ -274,11 +274,11 @@ export async function runTenancyCrossTenantIsolationChecks(check, harness) {
     }
     return null;
   }, controlPlane);
-  const dropboxBound = await listNotesOrThrow(TOKEN_C);
-  restoreDropboxBound();
+  const retiredBound = await listNotesOrThrow(TOKEN_C);
+  restoreRetiredBound();
   check(
-    "a workspace still bound to Dropbox is a 503 refusal, not a store",
-    dropboxBound.status === 503 && !dropboxBound.text.includes("gamma-secret")
+    "a workspace still bound to a retired store is a 503 refusal, not a store",
+    retiredBound.status === 503 && !retiredBound.text.includes("gamma-secret")
   );
 
   harness.listA = listA;
@@ -286,5 +286,5 @@ export async function runTenancyCrossTenantIsolationChecks(check, harness) {
   harness.listC = listC;
   harness.tokenless = tokenless;
   harness.withRefresh = withRefresh;
-  harness.dropboxBound = dropboxBound;
+  harness.retiredBound = retiredBound;
 }

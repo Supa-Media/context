@@ -3,7 +3,7 @@
  *
  * There are two backends now — a native R2 binding for self-hosters, and any
  * S3-compatible endpoint signed with the customer's own key — and there will
- * be more. A Dropbox binding was a third until 2026-10-16; it is refused by name
+ * be more. A binding for a store that has since been retired is refused by name
  * now (`StorageUnsupported`), see below. The obvious shape is a
  * `provider` check wherever a store gets built: once in `session.js` for a live
  * request, once in the control plane's provisioning path, once in its file
@@ -19,7 +19,7 @@
  * credentialed`, which made **S3 the fallback for everything else** — including
  * a provider this deployment has never heard of, and including a binding with
  * no `provider` at all. That was harmless while S3 was the only other backend
- * and is not any more: a Dropbox binding down that path is missing every field
+ * and is not any more: a retired binding down that path is missing every field
  * S3 needs, and a *future* provider down that path is a store built out of
  * whatever happened to be present.
  *
@@ -36,7 +36,7 @@
  * 1. **Every field the provider needs must be present**, or the binding is
  *    refused before a store exists. Never half-built: an `S3Store` with an
  *    empty `accessKeyId` signs a request that 403s on somebody else's bucket,
- *    and a `DropboxStore` with no token is a 401 loop that reads like an
+ *    and a store built with no token is a 401 loop that reads like an
  *    outage.
  *
  *    Both adapters already refuse that in their own constructors, so what this
@@ -46,11 +46,11 @@
  *    is an unhandled exception — a 500 carrying a message about somebody's
  *    bucket, where a 503 saying "reconnect your storage" belongs. *That* is the
  *    guard here, and it is the one worth sabotaging. A duplicate field check
- *    for Dropbox lived on this line briefly and was removed: it could not be
+ *    lived on this line briefly and was removed: it could not be
  *    made to fail on its own, because the adapter always refused first, and a
  *    guard nobody can break is a guard nobody has checked.
  * 2. **No credential the provider does not use may ride along.** An S3 binding
- *    carrying a Dropbox access token (or the reverse) means the control plane
+ *    carrying another provider's credential (or the reverse) means the control plane
  *    handed this Worker a credential it has no use for — extra blast radius for
  *    free — and it is also the signature of a binding row being spread into a
  *    payload wholesale after a rebind, instead of being assembled per provider.
@@ -66,12 +66,12 @@
  * field whose name mentions a refresh token fails the whole binding, loudly,
  * rather than being quietly ignored on the way to a store that works.
  *
- * ## A Dropbox binding is refused by name
+ * ## A retired binding is refused by name
  *
- * Dropbox is no longer a store (notes-by-id, 2026-10-15). A workspace still
+ * A retired store is no longer served (notes-by-id, 2026-10-15). A workspace still
  * bound to one is not a bucket error and not an unknown provider: it gets
  * `StorageUnsupported`, code `STORAGE_UNSUPPORTED`, whatever fields it carries.
- * That check runs before the table, so no Dropbox field is ever looked at.
+ * That check runs before the table, so no field of a retired binding is looked at.
  */
 
 import { R2Store } from "./r2.js";
@@ -101,7 +101,7 @@ export class StorageUnavailable extends Error {
 }
 
 /**
- * A binding for a store this gateway no longer serves: Dropbox, removed
+ * A binding for a store this gateway no longer serves, removed
  * 2026-10-16. Distinct from `StorageUnavailable` in its code and message, so the
  * customer is told what to do rather than to reconnect. It is still a
  * `StorageUnavailable`, so every caller that already catches that catches this.
@@ -112,7 +112,7 @@ export class StorageUnsupported extends StorageUnavailable {
     this.name = "StorageUnsupported";
     this.code = "STORAGE_UNSUPPORTED";
     this.message =
-      "This workspace's storage is Dropbox, which Context no longer supports. Move it to a bucket of your own or Context storage.";
+      "This workspace's storage is no longer supported by Context. Move it to a bucket of your own or Context storage.";
   }
 }
 
@@ -130,9 +130,9 @@ const CREDENTIAL_FIELDS = {
 
 /**
  * Every credential field any provider uses, so a foreign one is recognisable.
- * `accessToken` is the Dropbox credential, which no provider uses any more. It
- * stays on this list so a binding still carrying one is refused as a foreign
- * credential, not built: `legacy: stored rows only; no Dropbox store exists (notes-by-id)`.
+ * `accessToken` is a credential no provider uses any more. It stays on this
+ * list so a binding still carrying one is refused as a foreign credential, not
+ * built: `legacy: stored rows only; no store takes it (notes-by-id)`.
  */
 const ALL_CREDENTIAL_FIELDS = new Set([...Object.values(CREDENTIAL_FIELDS).flat(), "accessToken"]);
 
@@ -164,8 +164,8 @@ const BUILDERS = new Map([
 export function storeForBinding(binding, env, options = {}) {
   if (!binding || typeof binding !== "object") throw new StorageUnavailable("malformed binding");
 
-  // Before anything else: a Dropbox binding is refused whatever it carries.
-  if (binding.provider === "dropbox") throw new StorageUnsupported("dropbox removed");
+  // Before anything else: a retired binding is refused whatever it carries.
+  if (binding.provider === "dropbox") throw new StorageUnsupported("retired provider");
 
   assertNoRefreshToken(binding);
 
