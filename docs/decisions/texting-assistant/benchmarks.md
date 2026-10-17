@@ -614,7 +614,7 @@ the live skills over a setup's copy, and keeps a skill only a setup has",
 "the scores note heads with the live setup's score, so a list of results can
 show it".
 
-### The world's egress gate is the deployment's (2026-10-14)
+### The world's egress gate is the deployment's (2026-10-14; gone with the gate, 2026-10-17)
 
 The bench world left `EGRESS_APPROVALS` unset, so it held every write into a
 shared workspace for a YES that production, where the owner switched the gate
@@ -626,7 +626,9 @@ from wrangler.toml's top-level `[vars]` (`DEPLOYED_EGRESS_APPROVALS` in
 bench too. **What a simplification would cost:** hard-coding "off" would
 keep grading production's behaviour only until the owner turns the gate back
 on. Test (`bench/test/world.test.mjs`): "the world runs the egress gate the
-way the deployed gateway does".
+way the deployed gateway does". The owner removed the gate and its switch on
+2026-10-17 ([agent-egress](../privacy-and-sharing/agent-egress.md)), so the
+world and that test went with it.
 
 ### A failed round drafts its own next experiment, and a person runs it (2026-10-17)
 

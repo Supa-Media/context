@@ -106,7 +106,7 @@ import { NO_MEETING } from "../features/console/aside/tabs";
 import type { ApprovalsView } from "../features/approvals/useApprovals";
 
 /** A console that can answer approvals, with nothing waiting. */
-const APPROVALS: ApprovalsView = {
+const NOTHING_WAITING: ApprovalsView = {
   available: true,
   phase: "listed",
   loading: false,
@@ -116,6 +116,24 @@ const APPROVALS: ApprovalsView = {
   notice: null,
   refresh: () => {},
   decide: () => {},
+};
+
+/** The same console with one email waiting for the person's yes. */
+const APPROVALS: ApprovalsView = {
+  ...NOTHING_WAITING,
+  items: [
+    {
+      id: "a1",
+      summary: "send an email to sam@example.com",
+      tool: "send_email",
+      args: {},
+      audience: null,
+      client: "Claude",
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 30 * 60_000,
+      kind: null,
+    },
+  ],
 };
 
 /** A running meeting, in the shape `MeetingsSnapshot.live` carries. */
@@ -285,6 +303,12 @@ describe("the tabs", () => {
     expect(panel.find("aside-meetings")).toBeNull();
     panel.press("aside-tab-meetings");
     expect(panel.find("aside-meetings")).not.toBeNull();
+  });
+
+  test("with nothing waiting there is no Approvals tab", () => {
+    const panel = mount({ approvals: NOTHING_WAITING });
+    expect(panel.find("aside-tab-meetings")).not.toBeNull();
+    expect(panel.find("aside-tab-approvals")).toBeNull();
   });
 
   test("a console that cannot answer approvals shows Meetings alone", () => {

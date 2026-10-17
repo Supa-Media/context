@@ -24,7 +24,6 @@ import {
   TOKEN_MEMBER_CONSOLE,
   TOKEN_MEMBER_MCP,
 } from "./agentEgressFixtures.mjs";
-import { approving } from "./egressApproval.mjs";
 
 const translate = (name, args) =>
   translateV2Params({ name, arguments: args }, undefined, { schemaFor: advertisedSchema, coerce: coercedArguments });
@@ -472,29 +471,23 @@ describe("v2 calls through the worker", { concurrency: false }, () => {
     assert.doesNotMatch(textOf(viaManage), /https?:\/\//);
   });
 
-  test("manage visibility to team and share_link are held for approval exactly as the old names are", async () => {
+  test("manage visibility to team and share_link run exactly as the old names do", async () => {
     const before = world.pending().length;
     const viaManage = await tool(TOKEN_MCP, "manage", {
       action: "visibility",
       args: { path: "2-areas/fourth.md", visibility: "team" },
     });
     const viaNamed = await tool(TOKEN_MCP, "set_visibility", { path: "2-areas/fourth.md", visibility: "team" });
-    assert.equal(viaManage.held, true, "held, not run");
-    assert.equal(textOf(viaManage), textOf(viaNamed));
-    assert.equal(world.pending().length, before + 1, "one approval waiting, not two");
-    assert.equal(world.teamVisible("2-areas/fourth.md"), false);
+    assert.equal(viaManage.held, undefined, "never held for a yes");
+    assert.equal(textOf(viaManage), textOf(viaNamed), "the tool's own confirmation answers both the same");
 
     const linkManage = await tool(TOKEN_MCP, "manage", { action: "share_link", args: { path: "1-projects/plan.md" } });
     const linkNamed = await tool(TOKEN_MCP, "create_link", { path: "1-projects/plan.md" });
-    assert.equal(linkManage.held, true);
-    assert.equal(textOf(linkManage), textOf(linkNamed));
-    assert.doesNotMatch(textOf(linkManage), /https?:\/\//);
-
-    const listed = await request(world.env, TOKEN_CONSOLE, "/approvals", undefined, "GET");
-    const tools = listed.body.approvals.map((row) => row.tool);
-    assert.ok(tools.includes("set_visibility"), "the approval names the tool it will run, not the v2 name");
-    assert.ok(tools.includes("create_link"));
-    assert.ok(!tools.includes("manage"));
+    assert.equal(linkManage.isError, undefined, textOf(linkManage));
+    assert.equal(linkNamed.isError, undefined, textOf(linkNamed));
+    assert.match(textOf(linkManage), /link: https/);
+    assert.match(textOf(linkNamed), /link: https/);
+    assert.equal(world.pending().length, before, "nothing waits for approval");
   });
 
   test("manage with an action that names no row never reaches a tool it would run", async () => {
@@ -510,34 +503,22 @@ describe("v2 calls through the worker", { concurrency: false }, () => {
   });
 
   test("write into another context lands there when the caller is an editor there", async () => {
-    // TOKEN_MCP owns ws_egress and edits ws_egress_team: the gate holds the
-    // write into the other workspace until the person says yes, then it lands.
-    const held = await tool(TOKEN_MCP, "write", { path: "notes/v2-other.md", content: "# Other\n", context: "@egress-team" });
-    assert.equal(held.held, true, "held until the person approves");
-    const released = await approving(
-      () => tool(TOKEN_MCP, "write", { path: "notes/v2-other.md", content: "# Other\n", context: "@egress-team" }),
-      { env: world.env, consoleToken: TOKEN_CONSOLE },
-    );
-    assert.equal(released.isError, undefined, textOf(released));
+    // TOKEN_MCP owns ws_egress and edits ws_egress_team.
+    const written = await tool(TOKEN_MCP, "write", { path: "notes/v2-other.md", content: "# Other\n", context: "@egress-team" });
+    assert.equal(written.isError, undefined, textOf(written));
     assert.match(world.team.get("notes/v2-other.md")?.body ?? "", /# Other/);
     assert.equal(world.bucket.get("notes/v2-other.md"), undefined, "not in the caller's own context");
   });
 
   test("write into another context is refused when the caller is only a member there", async () => {
-    // TOKEN_MEMBER_MCP is a member of @egress-team: no write there, held or not.
+    // TOKEN_MEMBER_MCP is a member of @egress-team: no write there.
     const refusal = await tool(TOKEN_MEMBER_MCP, "write", { path: "notes/v2-member.md", content: "# x\n", context: "@egress-team" });
     assert.equal(refusal.isError, true);
-    assert.equal(refusal.held, undefined, "refused outright, not held for a yes");
     assert.match(textOf(refusal), /^permission denied: /);
     assert.equal(world.team.get("notes/v2-member.md"), undefined);
-    // Editor in @egress-editor, and so allowed to write there once approved.
-    const held = await tool(TOKEN_MEMBER_MCP, "write", { path: "1-projects/v2-editor.md", content: "# y\n", context: "@egress-editor" });
-    assert.equal(held.held, true);
-    const released = await approving(
-      () => tool(TOKEN_MEMBER_MCP, "write", { path: "1-projects/v2-editor.md", content: "# y\n", context: "@egress-editor" }),
-      { env: world.env, consoleToken: TOKEN_MEMBER_CONSOLE },
-    );
-    assert.equal(released.isError, undefined, textOf(released));
+    // Editor in @egress-editor, and so allowed to write there.
+    const written = await tool(TOKEN_MEMBER_MCP, "write", { path: "1-projects/v2-editor.md", content: "# y\n", context: "@egress-editor" });
+    assert.equal(written.isError, undefined, textOf(written));
   });
 
   test("a v2 call into another context is refused by the same gates as the old name", async () => {

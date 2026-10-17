@@ -35,10 +35,9 @@ What it never lifts, because they are not capability limits:
 - `context.lc/vault` pages stay off limits to the browser (`offLimits`);
 - private, IP, internal, non-https, port and credential addresses are refused
   by the gateway (`onOpenWeb`) and by `infra/site-shots` (`publicHttpsUrl`);
-- a turn that read a page is still marked untrusted, so a tool call that would
-  widen who sees a *note* still waits for a yes where agent-egress approvals
-  are on ([agent-egress](../privacy-and-sharing/agent-egress.md)). That is
-  about notes, not the browser, and does not stop a browser job.
+- a turn that read a page is still marked untrusted, which keeps Tex from
+  vouching for a delegated message ([agent-egress](../privacy-and-sharing/agent-egress.md)).
+  It no longer holds a widening: the owner removed that gate on 2026-10-17.
 
 Reining it back is deleting the `open_web` line from the setup note, with no
 deploy.

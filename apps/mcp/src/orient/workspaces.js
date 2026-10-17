@@ -5,11 +5,8 @@
  * page always was (`frontPageOf` before this section existed) — never the
  * caller's rules.
  *
- * Two readings matter. A workspace shows what its clearance there shows, so a
- * private note in it is never named to a caller who cannot see it. And every
- * workspace whose note text or folder names went into the answer is reported
- * as read (`reached`), because the egress ledger weighs it: an unreported read
- * is a widening nobody is asked about (`privacy/egress.js`).
+ * A workspace shows what its clearance there shows, so a private note in it is
+ * never named to a caller who cannot see it.
  */
 
 import { accessSentence } from "./access.js";
@@ -119,10 +116,7 @@ async function siblingOf(entry, openContext) {
     const opened = await openContext(entry.name);
     const privacy = await loadPrivacyState(opened.store);
     if (privacy.error) {
-      return {
-        section: `${head}\nIts privacy manifest could not be read, so nothing there is readable until its owner repairs it.`,
-        reached: null,
-      };
+      return { section: `${head}\nIts privacy manifest could not be read, so nothing there is readable until its owner repairs it.` };
     }
     const scope = opened.session.scope;
     const text = await readFrontPage(opened.store, scope, privacy.rules, privacy.overrides, ORIENT_SIBLING_INDEX_CHAR_CAP);
@@ -131,27 +125,18 @@ async function siblingOf(entry, openContext) {
     const survey = await surveyOf(servedListingStore(opened.store), opened.store, scope, privacy.rules, privacy.overrides).catch(
       () => unreadableSurvey()
     );
-    const shown = page !== "" || (!survey.loading && (survey.folders.length > 0 || survey.rootNotes.length > 0));
-    const workspaceId = opened.session?.workspaceId;
-    return {
-      section: `${head}\n${bodyOf({ page: page || null, survey })}`,
-      reached: shown && typeof workspaceId === "string" && workspaceId !== "" ? { workspaceId, scope } : null,
-    };
+    return { section: `${head}\n${bodyOf({ page: page || null, survey })}` };
   } catch {
     // Named, and honest about why it is thin. Dropping the row would make
     // a workspace that exists look like one that does not.
-    return { section: `${head}\nCould not be opened just now; its storage may be disconnected.`, reached: null };
+    return { section: `${head}\nCould not be opened just now; its storage may be disconnected.` };
   }
 }
 
-/**
- * The other workspaces' blocks, and `reached`: every workspace whose text this
- * one call put in front of the model, for the egress ledger. Exported for the
- * tests that hold that reporting in place.
- */
+/** The other workspaces' blocks, as one section. */
 export async function surveyOtherContexts(store, openContext) {
   const others = (store.contexts || []).filter((entry) => !entry.current);
-  if (!others.length) return { section: null, reached: [] };
+  if (!others.length) return { section: null };
 
   // Past the cap, every name is still given: a name is free, a map is not.
   const readable = typeof openContext === "function" ? others.slice(0, ORIENT_SIBLING_LIMIT) : [];
@@ -162,11 +147,9 @@ export async function surveyOtherContexts(store, openContext) {
       async (entry) =>
         (await within(siblingOf(entry, openContext), ORIENT_OTHER_WORKSPACE_WAIT_MS)) ?? {
           // `siblingOf` answers every failure itself, so null here is only ever late.
-          // Late is nothing read, so it reports no reach.
           section:
             `### ${entry.name} — ${accessSentence(entry)}\n` +
             `Map not loaded in time. Call orient with context: "${entry.name}" to see it.`,
-          reached: null,
         }
     )
   );
@@ -180,10 +163,5 @@ export async function surveyOtherContexts(store, openContext) {
       ". Orient with one of those names to see it."
     : "";
 
-  return {
-    section: body + tail,
-    reached: blocks
-      .map(({ reached }) => reached)
-      .filter((reached) => typeof reached?.workspaceId === "string" && reached.workspaceId !== ""),
-  };
+  return { section: body + tail };
 }

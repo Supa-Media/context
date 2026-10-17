@@ -2,7 +2,66 @@
 
 _See `docs/decisions/README.md` for the index._
 
-### An AI client never widens who can see something without a person saying yes (decided by the owner, 2026-10-09)
+### The widening gate is removed (decided by the owner, 2026-10-17)
+
+"Is approvals still a working feature? No, I need to remove that. … I was
+getting paranoid about prompt injection, so I had done approval, but then
+everything needed approval" (Dev2, leadership weekly, 2026-10-17; confirmed
+in the thread: "yeah go ahead and remove it"). It had been switched off on our
+deployment since 2026-10-10, and is now gone from the code, so a self-hosted
+gateway no longer holds widenings either.
+
+**What runs at once now, from any AI client.** A share link, a website
+publish, an image fetched from an address the model chose, a note or folder
+made team-visible, people named on a note, a write or a move into another
+workspace. Each is still recorded in the audit trail under the client that
+made it, and each can be undone (narrow it, revoke the link, move it back).
+The tools' own `confirm_team_publish` still guards a publication, as it did
+before 2026-10-09: the model must pass it, and nothing passes it for the
+model.
+
+**What still waits for the person, and why it is not this gate.** Each is a
+single yes to something nobody can take back, asked for separately:
+
+- an email (`send_email`; [sending-email](../communications/sending-email.md));
+- a calendar change (`calendar_event`; [calendar-writes](../communications/calendar-writes.md));
+- claiming a workspace's @handle (`create_workspace` without `dry_run`;
+  [workspace setup](../gateway-protocol/workspace-setup.md)), held by
+  `handleClaimOf` in `apps/mcp/src/tools/session.js`;
+- an AI using a vault key for the first time
+  ([vault](../texting-assistant/vault.md)).
+
+They keep the machinery the gate built: the pending record under
+`.context/approvals/`, the texted YES or NO settled before any model runs
+(`agent/textedApprovals.js`), and the app's list at `/approvals`, which the
+console's right panel now shows only while something is waiting.
+
+**What is kept from the ledger.** A turn the gateway sees whole still records
+whether it took in anything from outside the workspace (`privacy/egress.js`):
+Tex vouches for a delegated message only from a clean turn (below), and the
+texting thread remembers answers written after an outside read. Which
+workspaces a turn read, and at what tier, is no longer recorded: only the
+gate weighed it. `mightWiden` stays because Tex's housekeeping refuses
+anything it says yes to.
+
+**What the removal costs, said plainly.** The section below names the attack
+it stopped: an instruction planted in a page, an email or a meeting title,
+written to look like a normal step of the task, can now make a link or a
+publish happen without a person in the loop. The owner accepted that risk
+for less friction ("prompt injection is something that everybody's just
+accepting"). Bringing a gate back means a new decision here, not reverting
+this one blindly: the old one held so much that nobody used it. Tests:
+`apps/mcp/test/agentEgress.test.mjs` ("a share link from an MCP client comes
+back at once", "a handle claim from an MCP client is held") and
+`agentEgressTexting.test.mjs` ("a texted share runs at once, even after a page
+read").
+
+### History: the gate as it was, 2026-10-09 to 2026-10-17
+
+Kept as the record of what was built and why; none of it holds now except
+where the section above says so.
+
+#### An AI client never widens who can see something without a person saying yes (decided by the owner, 2026-10-09)
 
 **Switched off on our deployment for now (decided by the owner, 2026-10-10).**
 "It's causing more friction than we need right now, and needs to be properly
@@ -190,7 +249,7 @@ push or email when an MCP client's call is held is a control-plane job for
 later; until then the app's approvals list and a text to the assistant are
 the two surfaces. The console's screen for the list is the follow-up PR.
 
-### Naming people on a note waits for the person, whoever is named (2026-10-17)
+### Naming people on a note (2026-10-17)
 
 An AI client can now add people to one note's list: `people: [{ who, role }]`
 on `set_visibility` (the `visibility` action of `manage`), where `who` is a
@@ -199,22 +258,12 @@ removes, owner only, through the control plane's `addGrantees` op
 (`lib/nodes/addGrantees.ts`), which resolves every name the way the console's
 `setGrantees` does and gives one refusal for any that does not resolve.
 
-Every such call is a widening, at the widest audience (`outside`): the gate
-cannot tell a member's handle from an outsider's without asking the control
-plane, and a group or a domain reaches people the caller never sees. A domain
-(`@acme.com`, `*@acme.com`) is held like a person and then refused by the tool,
-since a note's list names people, not domains. The ask names every person,
-group and domain, and both facets when the same call also publishes. Like
-every other widening, this follows `EGRESS_APPROVALS`: on our deployment the
-gate is switched off, so it runs at once until the owner turns it back on.
-
-What a simplification would cost: treating a member's handle as `team` lets a
-texted turn that read team notes name an outsider's handle without asking;
-classifying only emails lets a group or a domain through. Tests:
-`egress.test.mjs` ("naming people on a note always widens, whoever they are"),
-`agentEgress.test.mjs` ("an MCP client naming a member / a group / someone
-outside the workspace / a domain on a note is held for the person's yes",
-"the model's own confirmation does not release a name").
+It runs at once since the widening gate was removed (2026-10-17, above);
+until then it was held as a widening at the widest audience, whoever was
+named. A domain (`@acme.com`, `*@acme.com`) is refused by the tool, since a
+note's list names people, not domains. Tests: `agentEgress.test.mjs` ("naming
+people on a note is never held"), `egress.test.mjs` ("mightWiden counts naming
+people on a note", so housekeeping never does it).
 
 ### A delegated job's message leaves only for the agent's own site, and only from a clean turn (2026-10-17)
 

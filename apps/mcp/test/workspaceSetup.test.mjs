@@ -8,21 +8,13 @@
  * connection's own token and the workspace it was addressed to, and a
  * connection that may not write never reaches the control plane at all.
  *
- * `EGRESS_APPROVALS` is unset here, so the egress gate holds as it does on a
- * self-hosted gateway: the layout and connect calls addressed to another
- * workspace run because the three tools are classified as never widening
- * (`NEVER_WIDENS` in `privacy/egress.js`), not because the gate is off.
- *
  * A real create claims a handle that is never freed, so it waits for the
- * person's yes on every gateway, switch or no switch, and from a texted turn
- * too; a dry run never does (`permanent` in `privacy/egress.js`).
+ * person's yes on every gateway, and from a texted turn too; a dry run never
+ * does (`handleClaimOf` in `tools/session.js`).
  *
  * Sabotage (temporary local edits, reverted; failures measured):
  *   `workspaceSetup.layout` sent with a fixed workspace, not the addressed one  1
- *   `NEVER_WIDENS` emptied (the gate holds them as writes elsewhere)            2
- *   the `create_workspace` case removed from `classify` (a claim runs at once)  3
- *   the switch lets a permanent claim through (`egressOff` alone)              2
- *   `approvalRequired` ignoring `permanent` (a clean texted turn claims)       1
+ *   `handleClaimOf` answering null (a claim runs at once)                      3
  */
 
 import assert from "node:assert/strict";
@@ -181,48 +173,38 @@ test("create_workspace checks a handle, then claims it as the connection's own p
   assert.match(again.text, /taken/);
 });
 
-test("a dry run is never held, and a claim is held even with the widening gate switched off", async () => {
-  env.EGRESS_APPROVALS = "off";
-  try {
-    const before = setupCalls().length;
-    const check = await manage(OWNER, "create_workspace", { slug: "switched-off-co", dry_run: true });
-    assert.equal(check.isError, false, check.text);
-    assert.equal(setupCalls().length, before + 1);
+test("a dry run is never held, and a claim always is", async () => {
+  const before = setupCalls().length;
+  const check = await manage(OWNER, "create_workspace", { slug: "switched-off-co", dry_run: true });
+  assert.equal(check.isError, false, check.text);
+  assert.equal(setupCalls().length, before + 1);
 
-    const claim = await manage(OWNER, "create_workspace", { slug: "switched-off-co", name: "Switched Off" });
-    assert.equal(claim.isError, true, claim.text);
-    assert.match(claim.text, /claim the handle @switched-off-co/);
-    assert.equal(setupCalls().length, before + 1, "the claim did not reach the control plane");
-  } finally {
-    delete env.EGRESS_APPROVALS;
-  }
+  const claim = await manage(OWNER, "create_workspace", { slug: "switched-off-co", name: "Switched Off" });
+  assert.equal(claim.isError, true, claim.text);
+  assert.match(claim.text, /claim the handle @switched-off-co/);
+  assert.equal(setupCalls().length, before + 1, "the claim did not reach the control plane");
 });
 
 test("Tex asks by text before claiming a handle, and the texted YES claims it", async () => {
-  env.EGRESS_APPROVALS = "off";
-  try {
-    const claims = () => setupCalls().filter((entry) => entry.dryRun === false).length;
-    const before = claims();
-    model.install([
-      {
-        toolCalls: [
-          { name: "manage", args: { action: "create_workspace", args: { slug: "woodshop", name: "Woodshop" } } },
-        ],
-      },
-      { text: "I can set up @woodshop for you." },
-    ]);
-    const asked = await text("make me a workspace called Woodshop, @woodshop");
-    assert.match(asked, /I need your OK: claim the handle @woodshop/);
-    assert.match(asked, /Reply YES/);
-    assert.equal(claims(), before, "a turn that read nothing still waits: the handle is permanent");
+  const claims = () => setupCalls().filter((entry) => entry.dryRun === false).length;
+  const before = claims();
+  model.install([
+    {
+      toolCalls: [
+        { name: "manage", args: { action: "create_workspace", args: { slug: "woodshop", name: "Woodshop" } } },
+      ],
+    },
+    { text: "I can set up @woodshop for you." },
+  ]);
+  const asked = await text("make me a workspace called Woodshop, @woodshop");
+  assert.match(asked, /I need your OK: claim the handle @woodshop/);
+  assert.match(asked, /Reply YES/);
+  assert.equal(claims(), before, "a turn that read nothing still waits: the handle is permanent");
 
-    const yes = await text("YES");
-    assert.match(yes, /^Done: claim the handle @woodshop/);
-    assert.equal(claims(), before + 1);
-    assert.equal(setupCalls().at(-1).slug, "woodshop");
-  } finally {
-    delete env.EGRESS_APPROVALS;
-  }
+  const yes = await text("YES");
+  assert.match(yes, /^Done: claim the handle @woodshop/);
+  assert.equal(claims(), before + 1);
+  assert.equal(setupCalls().at(-1).slug, "woodshop");
 });
 
 test("a connection that cannot write never reaches the control plane", async () => {

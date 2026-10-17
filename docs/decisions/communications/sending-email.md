@@ -36,9 +36,10 @@ what happens to the draft (`apps/mcp/src/tools/emailGate.js`):
    sent from another if that mailbox is gone. Another AI's email is approved
    in the app, which shows the whole email above its buttons.
 
-The checker can stop an email and never send one. The deployment's
-`EGRESS_APPROVALS = "off"` switches off widening holds, not this gate: the gate
-runs before that switch.
+The checker can stop an email and never send one. This gate outlived the
+widening gate, which the owner removed on 2026-10-17
+([agent-egress](../privacy-and-sharing/agent-egress.md)): an email is a send
+nobody can take back, not a widening.
 
 **What a simplification would cost.** Letting the model send after "the
 person said so" puts the decision in the busiest context there is. Letting
