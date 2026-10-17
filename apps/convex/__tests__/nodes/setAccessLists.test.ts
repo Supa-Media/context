@@ -249,7 +249,11 @@ describe("a reset to inherit clears the owner's list, and team to private keeps 
     );
   }
 
-  test("a console reset of a note to its inherited tier clears the owner's list with it", async () => {
+  // Was "a console reset ... clears the owner's list with it". The share dialog (boards 1 to 4, 2026-10-16) puts
+  // the tier beside the list as "everyone else in the workspace": changing it keeps the people named on the note,
+  // so a tier on a listed note is written as the note's own base instead of resetting it to inherit. A note with
+  // no list still resets (`shareList.test.ts` covers the team case).
+  test("a console tier on a listed note keeps the owner's list, as the note's own base", async () => {
     const w = await world();
     await ownerGroupOn(w, "1-projects/plan.md");
     expect(await grantsOn(w.t, w.ws, "1-projects/plan.md")).toHaveLength(1);
@@ -262,8 +266,23 @@ describe("a reset to inherit clears the owner's list, and team to private keeps 
       tier: "private",
     });
     expect(answer).toMatchObject({ ok: true, exception: false });
-    expect((await rowAt(w.t, w.ws, "1-projects/plan.md"))?.access).toBeUndefined();
-    expect(await grantsOn(w.t, w.ws, "1-projects/plan.md")).toHaveLength(0);
+    expect((await rowAt(w.t, w.ws, "1-projects/plan.md"))?.access).toEqual({ base: "private" });
+    expect(await grantsOn(w.t, w.ws, "1-projects/plan.md")).toHaveLength(1);
+  });
+
+  test("a console tier on a note with no list still resets it to inherit", async () => {
+    const w = await world();
+    await w.t.run(async (ctx) =>
+      setAccessRow(ctx as MutationCtx, { workspaceId: w.ws, path: "1-projects/plan.md", base: "team", actor: owner(w) }),
+    );
+    await w.t.mutation(internal.functions.nodesAccess.consoleAccess, {
+      workspaceId: w.ws,
+      actorUserId: w.owner,
+      path: "1-projects/plan.md",
+      kind: "note",
+      tier: "private",
+    });
+    expect((await rowAt(w.t, w.ws, "1-projects/plan.md"))?.access ?? undefined).toBeUndefined();
   });
 
   test("a gateway reset to inherit clears the owner's list with it", async () => {

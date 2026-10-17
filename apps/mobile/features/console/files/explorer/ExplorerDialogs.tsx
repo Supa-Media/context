@@ -22,7 +22,7 @@ import {
 } from "../../home/folderTags";
 import { densityFor } from "../../../app/frame";
 import { useWindowDimensions } from "react-native";
-import { ShareDialog } from "../ShareDialog";
+import { LiveShareDialog } from "../shareDialog/LiveShareDialog";
 import type { AudienceContext } from "../../privacy/audience";
 import { consoleOrigin } from "../shareOrigin";
 import { sharesBreakingWarning, sharesBreakingWarningMany } from "../shares";
@@ -330,7 +330,8 @@ export function ExplorerDialogs({
       */
       const entryKind = findEntry(files.listings, dialog.path)?.kind ?? "file";
       return (
-        <ShareDialog
+        <LiveShareDialog
+          workspaceId={files.contextId}
           path={dialog.path}
           footExtra={
             files.contextId !== null && isWebsiteFolder(dialog.path) ? (
