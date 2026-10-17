@@ -57,6 +57,16 @@ export function premiumSettingsPath(slug: string): string {
 }
 
 /**
+ * `/console/@seyi?settings=integrations` — Connected apps, where the person
+ * connects Gmail or Calendar. Handed to an agent by the control plane
+ * (`gatewayRoutes/workspaces.ts`), so it lives here for the same reason the
+ * Premium path does: the control plane cannot import the console's `settingsHref`.
+ */
+export function integrationsSettingsPath(slug: string): string {
+  return `/console/${contextSegment(slug)}?settings=integrations`;
+}
+
+/**
  * Where a checkout that started in settings comes back to.
  *
  * The Premium section of the context that was being upgraded, carrying what

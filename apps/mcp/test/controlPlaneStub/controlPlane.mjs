@@ -29,6 +29,7 @@
 import { createEmailRoute } from "./email.mjs";
 import { createMailRoutes } from "./mail.mjs";
 import { createTreeRoutes } from "./tree.mjs";
+import { createWorkspaceRoutes } from "./workspaces.mjs";
 
 const encoder = new TextEncoder();
 
@@ -321,6 +322,8 @@ export function createControlPlaneStub(options = {}) {
   // Note mail mailboxes (`mail.mjs`).
   const mail = createMailRoutes(grantForAccessToken, coveredContexts);
   const email = createEmailRoute(clearedEditor, flags);
+  // Setting a workspace up (`workspaces.mjs`).
+  const workspaceSetup = createWorkspaceRoutes({ grantForAccessToken, coveredContexts, workspaces, grants });
 
   async function handle(url, init = {}) {
     gatewayCalls.total += 1;
@@ -743,10 +746,6 @@ export function createControlPlaneStub(options = {}) {
         return ok({ report: { eventId: "0".repeat(31) + feedback.length } });
       }
 
-      // EMAIL — `email.mjs`.
-      case "/gateway/email/send":
-        return ok(await email.send(body));
-
       case "/gateway/site": {
         // The site itself is the real control plane's; a test hands the stub
         // its answer as `options.site(cleared, body)`, and every call is kept.
@@ -917,7 +916,8 @@ export function createControlPlaneStub(options = {}) {
       }
 
       default: {
-        const answered = (await mail.handle(path, body)) ?? (await tree.handle(path, body));
+        const answered =
+          (await mail.handle(path, body)) ?? (await tree.handle(path, body)) ?? (await workspaceSetup.handle(path, body)) ?? (await email.handle(path, body));
         if (answered !== undefined) return ok(answered);
         return new Response(JSON.stringify({ error: "not_found" }), { status: 404 });
       }
@@ -987,6 +987,7 @@ export function createControlPlaneStub(options = {}) {
     siteCalls,
     vaultCalls,
     emailCalls: email.calls,
+    workspaceSetupCalls: workspaceSetup.calls,
     accessTokens,
     refreshTokens,
     gatewayJobs,

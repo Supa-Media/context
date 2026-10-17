@@ -10,7 +10,7 @@
 import { internal } from "../../../_generated/api";
 import type { ActionCtx } from "../../../_generated/server";
 import { hashToken } from "../crypto";
-import { APP_ORIGIN_ENV_VAR, json, randomOpaqueToken, stringField } from "../gatewayAuth";
+import { httpsAppOrigin, json, randomOpaqueToken, stringField } from "../gatewayAuth";
 
 /** The app page a vault link opens: `apps/mobile/app/vault/[token].tsx`. */
 export const VAULT_LINK_ROUTE = "/vault";
@@ -20,7 +20,7 @@ export async function gatewayVaultRequestHandler(ctx: ActionCtx, body: Record<st
   const expected = stringField(body, "expectedWorkspaceId");
   const kind = body.kind === "add" || body.kind === "share" || body.kind === "view" ? body.kind : null;
   if (accessToken === null || expected === null || kind === null) return json({ url: null });
-  const origin = appOrigin();
+  const origin = httpsAppOrigin();
   if (origin === null) return json({ url: null });
 
   const cleared = await ctx.runQuery(internal.functions.controlPlane.editorClearanceForGateway, {
@@ -44,15 +44,4 @@ export async function gatewayVaultRequestHandler(ctx: ActionCtx, body: Record<st
     })
     .catch(() => "refused" as const);
   return json({ url: status === "issued" ? `${origin}${VAULT_LINK_ROUTE}/${token}` : null });
-}
-
-function appOrigin(): string | null {
-  const raw = process.env[APP_ORIGIN_ENV_VAR];
-  if (typeof raw !== "string" || raw.length === 0) return null;
-  try {
-    const url = new URL(raw);
-    return url.protocol === "https:" ? url.origin : null;
-  } catch {
-    return null;
-  }
 }

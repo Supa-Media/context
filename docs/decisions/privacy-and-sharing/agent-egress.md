@@ -57,7 +57,11 @@ is asked is told all of them, and the gate supplies `confirm_team_publish`
 only when the call asked to publish. Reads, ordinary
 writes inside the workspace the call started in, and dry runs never widen
 and never ask; nor does `report_problem`, whose one destination is Context's
-own support intake rather than an address the model chose. `apps/mcp/src/privacy/egress.js`
+own support intake rather than an address the model chose. Nor do the
+workspace setup tools (`create_workspace`, `apply_layout`, `connect_google`;
+Dev2, 2026-10-17), wherever they are addressed: they show nobody anything new
+and carry nothing the model chose (`NEVER_WIDENS`; see
+[workspace setup](../gateway-protocol/workspace-setup.md)). `apps/mcp/src/privacy/egress.js`
 is the list.
 
 **When a widening waits for a person.** A turn this gateway sees whole — a

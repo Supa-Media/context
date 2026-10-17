@@ -80,6 +80,22 @@ export const AGENT_WORKER_SECRET_ENV_VAR = "AGENT_WORKER_SECRET";
 export const APP_ORIGIN_ENV_VAR = "APP_ORIGIN";
 
 /**
+ * That origin, for a link an agent hands a person to open signed in (a vault
+ * page, a settings page), or `null` where it is unset or not https: a route
+ * then answers with no link rather than an address the person cannot trust.
+ */
+export function httpsAppOrigin(): string | null {
+  const raw = process.env[APP_ORIGIN_ENV_VAR];
+  if (typeof raw !== "string" || raw.length === 0) return null;
+  try {
+    const url = new URL(raw);
+    return url.protocol === "https:" ? url.origin : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The most JSON a gateway request may carry.
  *
  * Every documented payload is a few hundred bytes. Small on purpose, and for

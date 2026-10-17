@@ -18,8 +18,9 @@ everyone with a linked phone who never had one, so nobody waits on a text.
 Each claim asks again whether the phone is still linked and not paused and
 whether the person still owns the personal workspace, mints a 15-minute grant
 for the `context_dreams` client (never the texting grant), and is audited as
-`dream.run`. It spends the built-in model like a text: Premium, counted
-against the same daily cap.
+`dream.run`. It spends the built-in model like a text: Premium (the first
+100 accounts have it free, [billing](../billing.md), "Founding Premium"),
+counted against the same daily cap.
 
 **What it does** (`apps/mcp/src/agent/dream.js`). It reads the transcripts
 written since the last dream (`tex/transcripts/`, at most six notes; a first

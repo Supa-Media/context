@@ -8,13 +8,13 @@
  */
 
 import { ConvexError } from "convex/values";
-import { requireAuthId } from "@supa-media/convex/auth";
 import type { Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
 import { claimName, checkAvailability, nameRejectionError } from "../nameClaims";
 import { seedIngestionSettings } from "../ingestionStore";
 import { consumeRateLimit } from "../rateLimit";
 import { isProductionTestAccount } from "../testAccount";
+import { applyFoundingPremium, foundingGrantOf } from "../billing/founding";
 import { normalizeDisplayName } from "./rename";
 import {
   MAX_WORKSPACES_PER_USER,
@@ -22,8 +22,16 @@ import {
   WORKSPACE_CREATE_WINDOW_MS,
 } from "./constants";
 
+/**
+ * `userId` is the person creating it, already authenticated by the caller:
+ * the app's mutation passes its signed-in user, and the gateway's route
+ * (`gatewayRoutes/workspaces.ts`) the person a live grant resolved to. One
+ * handler, so the cap, the rate limit and the name rules are the same however
+ * the request arrived.
+ */
 export async function createWorkspaceHandler(
   ctx: MutationCtx,
+  userId: Id<"users">,
   args: {
     slug: string;
     displayName: string;
@@ -31,7 +39,6 @@ export async function createWorkspaceHandler(
     structureTemplate?: "para" | "custom";
   },
 ): Promise<{ workspaceId: Id<"workspaces">; slug: string }> {
-  const userId = (await requireAuthId(ctx)) as Id<"users">;
   const user = await ctx.db.get(userId);
   const isTestAccount = isProductionTestAccount(user);
 
@@ -107,6 +114,11 @@ export async function createWorkspaceHandler(
   // is the feature, and `seedIngestionSettings` throws if called anyway.
   if (args.kind === "personal") {
     await seedIngestionSettings(ctx, { workspaceId, ownerUserId: userId, now });
+    // A founder's personal workspace is Premium from its first moment
+    // (`lib/billing/founding.ts`).
+    if ((await foundingGrantOf(ctx, userId)) !== null) {
+      await applyFoundingPremium(ctx, workspaceId, userId);
+    }
   }
 
   return { workspaceId, slug: availability.normalized };

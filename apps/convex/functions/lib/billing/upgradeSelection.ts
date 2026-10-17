@@ -1,3 +1,4 @@
+import { internal } from "../../../_generated/api";
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
 import { selectionAtUpgrade, type Entitlements } from "../premium";
@@ -41,4 +42,37 @@ export async function storeSelectionAtUpgrade(
     await ctx.db.patch(plan._id, { ...selected, updatedAt: now });
   }
   return { plan: { ...plan, ...selected }, selected };
+}
+
+/**
+ * Turn a context's plan on without Stripe: what the upgrade buys
+ * (`storeSelectionAtUpgrade`), `active`, and the
+ * managed bucket where one is chosen and not yet bound. Shared by the staging
+ * and CUJ test upgrade and by founding Premium (`founding.ts`), so the two
+ * cannot drift apart. `null` where the plan was already active. Callers
+ * decide who may, and audit it.
+ */
+export async function activateWithoutStripe(
+  ctx: MutationCtx,
+  workspaceId: Id<"workspaces">,
+  extra: { founding?: true } = {},
+): Promise<{ selected: Entitlements } | null> {
+  if ((await planFor(ctx, workspaceId))?.status === "active") return null;
+  const { plan, selected } = await storeSelectionAtUpgrade(ctx, workspaceId);
+  await ctx.db.patch(plan._id, { status: "active", ...extra, updatedAt: Date.now() });
+  if (selected.managedStorage) {
+    const binding = await ctx.db
+      .query("storageBindings")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+      .unique();
+    if (!bindingIsManaged(binding, workspaceId)) {
+      await ctx.db.patch(plan._id, { managedProvisioning: "running" });
+      await ctx.scheduler.runAfter(
+        0,
+        internal.functions.managedProvisioning.provisionManagedStorage,
+        { workspaceId },
+      );
+    }
+  }
+  return { selected };
 }

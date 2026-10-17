@@ -182,6 +182,9 @@ const MANAGE = [
   ["vault_add", "vault_add_link", { site: "example.com" }],
   ["vault_share", "vault_share_link", { entry: "e1" }],
   ["vault_view", "vault_view_link", { entry: "e1" }],
+  ["create_workspace", "create_workspace", { slug: "acme", name: "Acme", dry_run: true }],
+  ["layout", "apply_layout", { template: "business" }],
+  ["connect_google", "connect_google", { kind: "gmail" }],
 ];
 
 for (const [action, tool, args] of MANAGE) {

@@ -24,5 +24,10 @@ export function createEmailRoute(clearedEditor, flags) {
     return answer;
   }
 
-  return { calls, send };
+  /** The route's answer, or undefined for a path that is not this one. */
+  async function handle(path, body) {
+    return path === "/gateway/email/send" ? await send(body) : undefined;
+  }
+
+  return { calls, handle };
 }

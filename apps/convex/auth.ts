@@ -48,6 +48,9 @@ export const { auth, signIn, signOut, store, isAuthenticated } = createSupaAuth(
     await scheduleSignupAlert(ctx as never, { kind: "account", userId: userId as Id<"users"> });
     await scheduleXConversion(ctx as never, { kind: "account", userId: userId as Id<"users"> });
     await scheduleMetaConversion(ctx as never, { kind: "account", userId: userId as Id<"users"> });
+    // The first accounts are Premium at no charge (`functions/lib/billing/founding.ts`).
+    // Scheduled, not inline, so nothing in it can fail a sign-in.
+    await ctx.scheduler.runAfter(0, internal.functions.foundingPremium.catchUp, {});
   },
   // Signing in with a phone (Dev2, 2026-10-09). The app texts the code
   // (`functions/phoneSignIn.ts`), `checkCode` checks it, and `signInUser` names the
