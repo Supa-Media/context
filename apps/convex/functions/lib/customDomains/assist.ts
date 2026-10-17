@@ -24,8 +24,8 @@ import { requireWorkspaceRole } from "../workspaceAuth";
 import { customDomainsDeployment } from "./config";
 import { domainViewFor, workspacePaying } from "./handlers";
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-const HOUR_MS = 60 * 60 * 1000;
+const STEPS_WINDOW_MS = 24 * 60 * 60 * 1000;
+const LOOKUP_WINDOW_MS = 60 * 60 * 1000;
 
 /** Lookups one person may run in an hour: one per pause in typing is plenty. */
 export const LOOKUP_HOURLY_LIMIT = 60;
@@ -58,7 +58,7 @@ export async function admitLookupHandler(
   if (!(await workspacePaying(ctx, args.workspaceId))) {
     throw new ConvexError({ code: "PREMIUM_REQUIRED", message: "Custom domains are part of Premium." });
   }
-  await consumeRateLimit(ctx, { key: `domain.lookup:${userId}`, limit: LOOKUP_HOURLY_LIMIT, windowMs: HOUR_MS });
+  await consumeRateLimit(ctx, { key: `domain.lookup:${userId}`, limit: LOOKUP_HOURLY_LIMIT, windowMs: LOOKUP_WINDOW_MS });
   return { target: deployment.target };
 }
 
@@ -115,11 +115,11 @@ export async function emailStepsHandler(
   }
   const recipient = await hashToken(recipientLimitKey(to));
   try {
-    await consumeRateLimit(ctx, { key: `domain.steps:${row._id}`, limit: STEPS_MAIL_DAILY_LIMIT, windowMs: DAY_MS });
+    await consumeRateLimit(ctx, { key: `domain.steps:${row._id}`, limit: STEPS_MAIL_DAILY_LIMIT, windowMs: STEPS_WINDOW_MS });
     await consumeRateLimit(ctx, {
       key: `domain.steps.to:${recipient}`,
       limit: STEPS_MAIL_RECIPIENT_DAILY_LIMIT,
-      windowMs: DAY_MS,
+      windowMs: STEPS_WINDOW_MS,
     });
   } catch {
     throw new ConvexError({ code: "RATE_LIMITED", message: "That's enough emails for today. Try again tomorrow." });
