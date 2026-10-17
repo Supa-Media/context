@@ -136,6 +136,12 @@ export function runSummaryChecks(check) {
   check("no instruction, no instruction section", !buildSummaryRequest(note(), { today: "2026-10-09" }).user.includes("asked for this time"));
   check("an instruction is capped", buildSummaryRequest(note(), { today: "2026-10-09", instruction: "x".repeat(5000) }).user.length < request.user.length + 600);
   check("the rules forbid inventing names, amounts and dates", /Never invent a name, amount, date/.test(request.system));
+  check("the product's own names always go in", request.user.includes("## Names they use") && request.user.includes("Tex (the texting assistant)"));
+  check("the request says a misheard word is written as the name", /mishears names/.test(request.user) && /"text" or "Texas" for Tex/.test(request.user));
+  const named = buildSummaryRequest(note(), { today: "2026-10-09", names: ["public worship", "Togather", "togather", "context", "x\n## My notes"] });
+  check("the workspace's names follow the product's, once each whatever the case", named.user.includes("Context, Tex (the texting assistant), public worship, Togather, x ## My notes") && !named.user.includes("Togather, togather"));
+  check("names are capped", buildSummaryRequest(note(), { today: "2026-10-09", names: Array.from({ length: 500 }, (_, i) => `name${i}`) }).user.length < request.user.length + 1700);
+  check("the check pass is told the names too", buildCheckRequest(note(), readSummaryOutput(GOOD), { today: "2026-10-09", names: ["Togather"] }).user.includes("Togather"));
   check("the check pass carries the draft", buildCheckRequest(note(), readSummaryOutput(GOOD), { today: "2026-10-09" }).user.includes("Where about $60,000 would go"));
   check("the tool requires every field the renderer reads", SUMMARY_TOOL.inputSchema.required.join(",") === "summary,decisions,tables,chart,action_items,open_questions");
 
@@ -155,7 +161,10 @@ export function runSummaryChecks(check) {
   check("a table is an ordinary pipe table with amounts right-aligned", md.includes("| Expense | Working amount |\n| --- | ---: |"));
   check("a pipe inside a cell is escaped", md.includes("Love Thy Neighbor \\| events"));
   check("an owned task names its owner and date", md.includes("- [ ] Kenzie: Draft the full 2027 budget (due 2026-10-12)"));
-  check("a task nobody took says so", md.includes("- [ ] Contact past grantees. No one was named on the call."));
+  // Was "… No one was named on the call." on every such line; the owner read
+  // it six times in one meeting (2026-10-17). A missing name says it.
+  check("a task nobody took is just the task", md.includes("- [ ] Contact past grantees\n") || md.endsWith("- [ ] Contact past grantees"));
+  check("no line says nobody was named", !md.includes("No one was named"));
   check("the chart is one html-preview block", (md.match(/```html-preview/g) || []).length === 1);
   check("empty sections are left out", !md.includes("## Open questions"));
 
