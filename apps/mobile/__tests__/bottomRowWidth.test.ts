@@ -115,9 +115,7 @@ jest.mock("../features/agent/useConsoleGrant", () => ({
 jest.mock("convex/react", () => ({
   // ⌘K's Recent asks for the person's own list; unanswered here, so it falls back to the tab's.
   useQueries: () => ({}),
-  useAction: () => async () => {
-    throw new Error("not used in this test");
-  },
+  useAction: () => async () => { throw new Error("not used in this test"); },
 }));
 
 jest.mock("../features/console/useLiveConsoleData", () => ({
