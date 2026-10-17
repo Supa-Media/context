@@ -38,6 +38,7 @@ import { toolMoveNoteAcrossContexts } from "./moves/acrossContexts.js";
 import { NoteCapReached, asRelocation } from "../store/noteCap.js";
 import { NEVER_WIDENS, approvalRequired, mightWiden, reasonFor, recordRead, wideningOf } from "../privacy/egress.js";
 import { createPending, findPending, rearmForText, takeDone } from "./approvals.js";
+import { EMAIL_TOOL, emailGate } from "./emailGate.js";
 import { loadPrivacyState } from "../privacy/state.js";
 import { CHAOS_TOOLS, chaosLines, takeChaos, withChaosLines, within } from "../chaos/report.js";
 import { changeChaos } from "../chaos/change.js";
@@ -84,13 +85,11 @@ async function answeringNoteCap(run) {
  * the audience the widening is measured against.
  */
 async function egressGate(suppliedName, supplied, args, { store, session, target, targetStore, into }) {
-  /*
-    The gate reads a call by the name it is dispatched under, never by the
-    spelling the client used: `archive_chat` is `save_context` and would
-    otherwise be a tool the gate has never heard of. What is stored and
-    replayed stays the name as supplied, so a released call routes as asked.
-  */
+  // Read by the name it is dispatched under (`archive_chat` is `save_context`);
+  // stored and replayed as supplied, so a released call routes as asked.
   const name = canonicalToolName(suppliedName);
+  // An email always waits for a yes to its exact copy, whatever the switch below says.
+  if (name === EMAIL_TOOL) return await emailGate(supplied, { store, session, target });
   /*
     Any tool that changes something, addressed into a workspace the call did
     not start in, is a write into another workspace; the planning tools only

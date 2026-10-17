@@ -104,6 +104,7 @@ import * as jobs from "./functions/lib/gatewayRoutes/jobs";
 import * as oauth from "./functions/lib/gatewayRoutes/oauth";
 import * as links from "./functions/lib/gatewayRoutes/links";
 import * as vault from "./functions/lib/gatewayRoutes/vault";
+import * as personEmail from "./functions/lib/gatewayRoutes/personEmail";
 import * as site from "./functions/lib/gatewayRoutes/site";
 import * as workspaceRoutes from "./functions/lib/gatewayRoutes/workspaces";
 import * as feedback from "./functions/lib/gatewayRoutes/feedback";
@@ -834,6 +835,11 @@ http.route({ path: "/gateway/links/create", method: "POST", handler: gatewayLink
 export const gatewayVaultRequest = gatewayRoute(vault.gatewayVaultRequestHandler);
 
 http.route({ path: "/gateway/vault/request", method: "POST", handler: gatewayVaultRequest });
+
+// One email, as the token's person, after they said yes to its exact copy.
+export const gatewayPersonEmail = gatewayRoute(personEmail.gatewayPersonEmailHandler, 128_000);
+
+http.route({ path: "/gateway/email/send", method: "POST", handler: gatewayPersonEmail });
 
 export const gatewayFeedback = gatewayRoute(feedback.gatewayFeedbackHandler);
 

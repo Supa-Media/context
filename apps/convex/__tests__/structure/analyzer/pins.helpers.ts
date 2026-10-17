@@ -145,4 +145,18 @@ export const CREDENTIAL_HTTP_ROUTES = new Set([
   // alone opens nothing; with a live ticket, one page of one move already
   // under way.
   "http.gatewayMoverOpen",
+  // The person's own Gmail (`/gateway/email/send`, owner 2026-10-17:
+  // email goes out from the person's own mailbox, never from ours). The
+  // argument made again: the gateway secret, plus the person's live access
+  // token on a grant that may write, the same two proofs as
+  // `/gateway/binding`. The sender is resolved from that grant's person, never
+  // from the request: only their own personal workspace's Google connections,
+  // and only one whose consent granted `gmail.send`; a `from` naming anybody
+  // else's address matches nothing. The token is minted inside the route,
+  // spent on one request to Gmail, and never returned, logged or stored; the
+  // answer is the sender's address or a refusal word. A stolen gateway secret
+  // alone sends nothing; with a live token, mail as that one person, inside
+  // their hourly and daily limits, after the gateway's send-review gate.
+  // `__tests__/personEmail.test.ts` carries the behavioural half.
+  "http.gatewayPersonEmail",
 ]);

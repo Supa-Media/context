@@ -164,7 +164,19 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
     );
     if (answer.kind === "answer") {
       if (answer.pictures.length > 0) deps.onPictures?.(answer.pictures);
-      return answer.text ? textsFromAnswer(answer.text) : [];
+      if (!answer.text) return [];
+      // What the person is asked to approve goes out exactly as the gateway
+      // wrote it: formatting drops links and lines, and they may allow only
+      // what they read (`apps/mcp/src/tools/emailGate.js`).
+      let rest = answer.text;
+      const exact: string[] = [];
+      for (const part of answer.verbatim ?? []) {
+        const at = rest.indexOf(part);
+        if (at === -1) continue;
+        rest = `${rest.slice(0, at)}\n\n${rest.slice(at + part.length)}`;
+        exact.push(part.trim());
+      }
+      return [...(rest.trim() ? textsFromAnswer(rest) : []), ...exact];
     }
     if (answer.kind === "no_model") return COPY.noModel;
     if (answer.kind === "daily_limit") return COPY.dailyLimit;

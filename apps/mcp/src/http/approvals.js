@@ -10,7 +10,7 @@
  * have been raised for the same person. A texted YES is the other first-party
  * surface (`agent/route.js`).
  *
- *  - `GET /approvals` → `{ approvals: [{ id, summary, tool, args, client, created_at, expires_at }] }`
+ *  - `GET /approvals` → `{ approvals: [{ id, summary, detail?, tool, args, client, created_at, expires_at }] }`
  *    (`args` exactly as the client sent them: what would run, for the person
  *    to look at before saying yes)
  *  - `POST /approvals` with `{ id, action: "approve" | "deny" }` →
@@ -55,6 +55,7 @@ export async function handleApprovals(request, store, session) {
       approvals: waiting.map(({ record }) => ({
         id: record.id,
         summary: record.summary,
+        ...(typeof record.detail === "string" ? { detail: record.detail } : {}),
         tool: record.tool,
         args: record.args,
         audience: record.audience,
