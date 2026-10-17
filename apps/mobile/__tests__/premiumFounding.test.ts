@@ -20,6 +20,7 @@
  *   `premiumControl` without the active-with-no-customer rule             3
  *   `foundingAtNoCharge` ignoring `hasStripeCustomer`                      2
  *   the panel drawing the price row for a founder                         1
+ *   `foundingAtNoCharge` ignoring `subscriptionLive: false`                3
  *   `ManagedConfirm` keeping the payment copy for a founder               1
  */
 
@@ -43,6 +44,7 @@ import {
   FOUNDING_PRICE_LINE,
   foundingAtNoCharge,
 } from "../features/console/settings/panels/founding";
+import { renewalLine } from "../features/console/settings/panels/premium";
 import { entitlementsHint } from "../features/console/settings/panels/premiumEntitlements";
 import { ManagedConfirm } from "../features/onboarding/steps/ManagedConfirm";
 import { StorageChoice } from "../features/console/storage/StorageChoice";
@@ -116,6 +118,14 @@ describe("which control a founder is offered", () => {
     expect(premiumControl(view({ status: founder({ hasStripeCustomer: true }) }))).toBe("manage");
   });
 
+  test("a founder who cancelled in the portal has nothing left to manage", () => {
+    expect(
+      premiumControl(view({ status: founder({ hasStripeCustomer: true, subscriptionLive: false }) })),
+    ).toBe("none");
+    // An older control plane never says false: the portal stays reachable.
+    expect(premiumControl(view({ status: founder({ hasStripeCustomer: true }) }))).toBe("manage");
+  });
+
   test("a free plan is still offered the upgrade", () => {
     expect(premiumControl(view({ status: status() }))).toBe("upgrade");
   });
@@ -125,9 +135,30 @@ describe("what counts as no charge", () => {
   test("founding, active, and not paying through Stripe", () => {
     expect(foundingAtNoCharge(founder())).toBe(true);
     expect(foundingAtNoCharge(founder({ hasStripeCustomer: true }))).toBe(false);
+    expect(
+      foundingAtNoCharge(founder({ hasStripeCustomer: true, subscriptionLive: true })),
+    ).toBe(false);
+    expect(
+      foundingAtNoCharge(founder({ hasStripeCustomer: true, subscriptionLive: false })),
+    ).toBe(true);
     expect(foundingAtNoCharge(founder({ founding: false }))).toBe(false);
     expect(foundingAtNoCharge(status())).toBe(false);
     expect(foundingAtNoCharge(null)).toBe(false);
+  });
+
+  test("no billing period is named once nobody pays, and a founder's cancel keeps Premium", () => {
+    const past = Math.floor(Date.now() / 1000) - 86_400;
+    const ahead = Math.floor(Date.now() / 1000) + 86_400 * 10;
+    expect(
+      renewalLine(founder({ hasStripeCustomer: true, subscriptionLive: false, currentPeriodEnd: past })),
+    ).toBeNull();
+    const ending = renewalLine(
+      founder({ hasStripeCustomer: true, subscriptionLive: true, currentPeriodEnd: ahead, cancelAtPeriodEnd: true }),
+    );
+    expect(ending).toMatch(/^Billing stops on .+\. Premium stays: you are a founding member\.$/);
+    expect(
+      renewalLine(status({ status: "active", hasStripeCustomer: true, currentPeriodEnd: ahead, cancelAtPeriodEnd: true })),
+    ).toMatch(/^Premium ends on /);
   });
 
   test("the entitlements hint names no price and no billing", () => {
@@ -165,6 +196,21 @@ describe("Settings > Premium for a founder", () => {
     expect(screen.querySelector('[data-testid="premium-price"]')?.textContent).toBe("$5 a month");
     expect(screen.querySelector('[data-testid="premium-manage"]')).not.toBeNull();
     expect(screen.querySelector('[data-testid="premium-founding"]')).toBeNull();
+  });
+
+  test("a founder who cancelled reads as one: no price, no Manage billing", () => {
+    const screen = render(
+      createElement(PremiumBody, {
+        view: view({ status: founder({ hasStripeCustomer: true, subscriptionLive: false }) }),
+        section: "premium",
+      }),
+    );
+    expect(screen.querySelector('[data-testid="premium-manage"]')).toBeNull();
+    expect(screen.querySelector('[data-testid="premium-price"]')).toBeNull();
+    expect(screen.querySelector('[data-testid="premium-founding"]')?.textContent).toBe(
+      FOUNDING_PRICE_LINE,
+    );
+    expect(screen.textContent ?? "").not.toContain("Manage billing");
   });
 });
 

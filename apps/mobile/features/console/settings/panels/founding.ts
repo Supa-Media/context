@@ -23,16 +23,23 @@ export const FOUNDING_BLURB =
  *
  * A founder who was already subscribed keeps their Stripe customer and keeps
  * paying until they cancel in the portal, so they are shown the price and the
- * portal as before. `hasStripeCustomer` is owner-only; a member, who never
- * sees money facts, is told only that it is founding.
+ * portal as before. Once Stripe says that subscription ended
+ * (`subscriptionLive: false`), the customer id is history and they read as any
+ * other founder. A control plane older than that field never says false, so
+ * the founder keeps the portal rather than losing it by mistake.
+ * `hasStripeCustomer` is owner-only; a member, who never sees money facts, is
+ * told only that it is founding.
  */
 export function foundingAtNoCharge(
-  status: Pick<PremiumStatus, "founding" | "status" | "hasStripeCustomer"> | null,
+  status: Pick<
+    PremiumStatus,
+    "founding" | "status" | "hasStripeCustomer" | "subscriptionLive"
+  > | null,
 ): boolean {
   return (
     status !== null &&
     status.founding === true &&
     status.status === "active" &&
-    status.hasStripeCustomer !== true
+    (status.hasStripeCustomer !== true || status.subscriptionLive === false)
   );
 }

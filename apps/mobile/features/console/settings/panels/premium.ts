@@ -27,8 +27,10 @@
  */
 
 import { relativeTime } from "../../format";
+import { foundingAtNoCharge } from "./founding";
 import { managedFailureCopy } from "./managedFailure";
 export { managedFailureCopy } from "./managedFailure";
+export { renewalLine } from "./renewal";
 
 /** The five states this section can be in. */
 export const PREMIUM_STATES = [
@@ -60,6 +62,8 @@ export interface PremiumStatus {
   currentPeriodEnd?: number;
   cancelAtPeriodEnd?: boolean;
   hasStripeCustomer?: boolean;
+  /** Owner only: that customer's subscription has not ended. */
+  subscriptionLive?: boolean;
   /** Founding Premium: active because of the grant, not a payment. */
   founding?: boolean;
   /** Dedicated production CUJ account; never trusted by the server. */
@@ -479,7 +483,9 @@ export function premiumControl(view: PremiumView): PremiumControl {
   if (!status.canManage) return "none";
   if ((status.isTestAccount === true || status.stagingFreeStorage === true) && status.status === "active")
     return "none";
-  if (status.hasStripeCustomer === true) {
+  // A founder whose subscription ended keeps the customer id and has nothing
+  // left to manage: the founding line stands in for the portal.
+  if (status.hasStripeCustomer === true && !foundingAtNoCharge(status)) {
     return view.manageBilling === undefined ? "none" : "manage";
   }
   if (premiumStateOf(status.status) === "premium") return "none";
@@ -637,26 +643,9 @@ export function usageLine(status: PremiumStatus, now = Date.now()): string | nul
     status.notesCountedAt === undefined
       ? ""
       : `, counted ${relativeTime(status.notesCountedAt, now)}`;
-  return `${notes} in this context${when}. The ${formatBytes(status.ceilingBytes)} ceiling is on stored bytes, which are not metered yet.`;
-}
-
-/** When the current period ends, in a sentence, or `null`. */
-export function renewalLine(
-  status: PremiumStatus,
-  now = Date.now(),
-): string | null {
-  if (status.currentPeriodEnd === undefined) return null;
-  const at = new Date(status.currentPeriodEnd * 1000);
-  if (Number.isNaN(at.getTime())) return null;
-  const on = at.toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
-  if (status.cancelAtPeriodEnd === true) return `Premium ends on ${on}.`;
-  return status.currentPeriodEnd * 1000 < now
-    ? `The period that was paid for ended on ${on}.`
-    : `Renews on ${on}.`;
+  // The ceiling is named once, under "What Premium includes"; repeating it
+  // here as "not metered" was jargon beside a number that is a note count.
+  return `${notes} in this workspace${when}.`;
 }
 
 /**

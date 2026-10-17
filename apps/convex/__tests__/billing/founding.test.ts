@@ -16,6 +16,7 @@
  *   `foundingStatus` returning Stripe's status unchanged                 2
  *   `excludedFromFounding` ignoring the staff allowlist                  2
  *   `billing.status` reporting `founding: false` for every plan          1
+  `applyStripeEvent` not recording Stripe's own status                 1
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -199,6 +200,8 @@ describe("nobody is charged, and Stripe cannot take it away", () => {
     );
     await catchUp(t);
     expect(await plan(t, workspaceId)).toMatchObject({ status: "active", founding: true });
+    const before = await asUser(t, owner).query(api.functions.billing.status, { workspaceId });
+    expect(before).toMatchObject({ hasStripeCustomer: true, subscriptionLive: true });
     await t.mutation(internal.functions.billing.applyStripeEvent, {
       id: "evt_fake_deleted",
       type: "customer.subscription.deleted",
@@ -206,7 +209,10 @@ describe("nobody is charged, and Stripe cannot take it away", () => {
       subscriptionId: "sub_FAKE",
       rawStatus: "canceled",
     });
-    expect((await plan(t, workspaceId))?.status).toBe("active");
+    expect(await plan(t, workspaceId)).toMatchObject({ status: "active", stripeStatus: "canceled" });
+    // Nothing left to manage: the console draws the founding line, not the portal.
+    const after = await asUser(t, owner).query(api.functions.billing.status, { workspaceId });
+    expect(after).toMatchObject({ status: "active", founding: true, hasStripeCustomer: true, subscriptionLive: false });
   });
 
   test("a Stripe status never lowers a founding plan, and only a founding one", () => {

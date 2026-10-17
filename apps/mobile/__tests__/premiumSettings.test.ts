@@ -605,13 +605,12 @@ describe("the early-tester price, and who is actually promised it", () => {
 });
 
 describe("what this context is using", () => {
-  test("notes, and it says the ceiling is not metered", () => {
-    // Bytes are not measured anywhere yet. Drawing a bar against a denominator
-    // nobody measured would be a more confident lie than saying so.
+  test("notes in this workspace, and no byte figure nobody measured", () => {
+    // Bytes are not measured anywhere yet, so the line is a note count and
+    // never a bar against the ceiling; the ceiling is named once, in the
+    // includes card.
     const line = usageLine(status({ notes: 412 }));
-    expect(line).toContain("412 notes");
-    expect(line).toContain("50 GB");
-    expect(line).toMatch(/not metered yet/i);
+    expect(line).toBe("412 notes in this workspace.");
   });
 
   test("a truncated walk says so rather than reading as exact", () => {

@@ -11,6 +11,7 @@ import {
   activeEntitlements,
   noteCapFor,
   planIsPaying,
+  type PlanStatus,
 } from "../premium";
 import { stagingStorageIsFree } from "../managedStorage";
 import { isProductionTestAccount } from "../testAccount";
@@ -48,6 +49,12 @@ export const billingStatusReturns = v.object({
   currentPeriodEnd: v.optional(v.number()),
   cancelAtPeriodEnd: v.optional(v.boolean()),
   hasStripeCustomer: v.optional(v.boolean()),
+  /**
+   * Owner only. Whether that customer's subscription is still running, by
+   * Stripe's word rather than the plan's: a founder who cancelled keeps an
+   * active plan and a customer id, and has nothing left to manage.
+   */
+  subscriptionLive: v.optional(v.boolean()),
   /**
    * Owner only, and it is a note count rather than a byte figure because a
    * byte figure is not measured anywhere yet — see the panel's copy, which
@@ -177,6 +184,10 @@ export async function readBillingStatus(
     hasStripeCustomer: isOwner
       ? plan?.stripeCustomerId !== undefined
       : undefined,
+    subscriptionLive: isOwner
+      ? plan?.stripeCustomerId !== undefined &&
+        subscriptionIsLive(plan.stripeStatus ?? planStatus)
+      : undefined,
     notes: isOwner ? binding?.noteCount : undefined,
     notesTruncated: isOwner ? binding?.noteCountTruncated : undefined,
     notesCountedAt: isOwner ? binding?.noteCountedAt : undefined,
@@ -213,4 +224,9 @@ export async function readBillingStatus(
         (await hasLiveCheckout(ctx, args.workspaceId))
       : undefined,
   };
+}
+
+/** Stripe still has a subscription the owner could manage in the portal. */
+function subscriptionIsLive(stripeStatus: PlanStatus): boolean {
+  return stripeStatus !== "canceled" && stripeStatus !== "none";
 }

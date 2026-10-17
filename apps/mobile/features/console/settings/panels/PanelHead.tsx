@@ -57,9 +57,11 @@ export function PanelHead({
       >
         {settingsSectionLabel(section)}
       </Text>
-      <Text variant="paneSub" style={styles.sub}>
-        {children}
-      </Text>
+      {children === null ? null : (
+        <Text variant="paneSub" style={styles.sub}>
+          {children}
+        </Text>
+      )}
     </>
   );
 }
