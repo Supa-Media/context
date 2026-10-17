@@ -683,6 +683,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Who may text the line is Linq's list, managed from the console](./texting-assistant/allowlist.md)
 - [Letting someone in off the waitlist puts their phone on the list](./texting-assistant/allowlist.md)
 - [A phone let in off the waitlist is set up by text, handle first (2026-10-17)](./texting-assistant/onboarding.md)
+- [A bug filed by text goes to the team only on the person's YES, texts included (2026-10-17)](./texting-assistant/bug-reports.md)
 - Staging has a texts simulator, and nothing else does
 - An answer reads like a text, and the typing bubble shows while it works
 - Every agent turn is logged by name and duration, never by text

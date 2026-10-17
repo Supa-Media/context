@@ -117,6 +117,9 @@ export function buildFeedbackEnvelope(input: EnvelopeInput): Uint8Array<ArrayBuf
   if (report.activity !== undefined) {
     parts.push(...attachment("activity.txt", "text/plain", new TextEncoder().encode(report.activity)));
   }
+  if (report.texts !== undefined) {
+    parts.push(...attachment("texts.txt", "text/plain", new TextEncoder().encode(report.texts)));
+  }
   if (report.screenshot !== undefined) {
     const name = report.screenshot.contentType === "image/png" ? "screenshot.png" : "screenshot.jpg";
     parts.push(...attachment(name, report.screenshot.contentType, report.screenshot.data));
