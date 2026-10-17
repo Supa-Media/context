@@ -215,6 +215,18 @@ jobs:
         if: ${{ inputs.judge_run_id == '' }}
         run: pnpm ai pull "$BENCH_JOB"
 
+      # The loop's budget (bench/spend.mjs, decided by Dev2 on 2026-10-17): a
+      # round that would take the total in `ai/results/spend.md` past its
+      # cap_usd is refused before anything is spent. A person raises the cap
+      # by editing that note.
+      - name: Refuse a round over the spend cap
+        if: ${{ !inputs.fake && inputs.judge_run_id == '' && inputs.job != 'search' }}
+        run: |
+          set -euo pipefail
+          setups="$BENCH_SETUPS"
+          if [ "$setups" = "all" ]; then setups="$(ls "apps/mcp/bench/ai/setups/$BENCH_JOB" | sed -n 's/\.md$//p' | paste -sd, -)"; fi
+          pnpm --silent ai spend check "${BENCH_TEST:-$BENCH_JOB}" --setups "$setups" | tee -a "$GITHUB_STEP_SUMMARY"
+
       # A round whose judging died (a judge reply that was not JSON, a gateway
       # outage, the runner lost) has answers that cost real money and are
       # already an artifact. judge_run_id takes those artifacts, and the judging
@@ -337,6 +349,16 @@ jobs:
           RESULT: ${{ steps.name.outputs.result }}
         run: pnpm ai publish "$RESULT" --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
+      # What the round cost, beside the cap it was checked against. Recorded
+      # whenever the answers exist, a failed judging included: they were paid for.
+      - name: Record what the round spent
+        if: ${{ always() && !inputs.fake && !inputs.calibrate && inputs.judge_run_id == '' && inputs.job != 'search' && steps.name.outputs.result != '' }}
+        env:
+          RESULT: ${{ steps.name.outputs.result }}
+        run: |
+          [ -f "$RESULT" ] || exit 0
+          pnpm --silent ai spend record "$RESULT" --run "gh-${{ github.run_number }}" --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+
       # The loop's next step (bench/improve.mjs): one experiment drafted from
       # the failures of the setup the round measured (live, unless the round
       # left it out), written beside it in ai/setups/<job>/ where the AI tab
@@ -397,6 +419,7 @@ jobs:
           { echo ""; echo "## The draft against $BASE"; echo ""; pnpm --silent ai summary "$retest"; } >> "$GITHUB_STEP_SUMMARY"
           if [ -z "$BENCH_FAKE" ]; then
             pnpm ai publish "$retest" --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            pnpm --silent ai spend record "$retest" --run "gh-${{ github.run_number }} retest" --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           fi
 
       # The publish may have signed in again after the hour: keep that token too.

@@ -673,3 +673,7 @@ one experiment beside live, read by the gateway; live is untouched", "a
 setup that failed nothing and met every bar has nothing to improve, and
 spends nothing" (the early return sabotaged, it fails), "an improver's draft
 is written as a new setup beside live, and never over one already there".
+
+### The loop promotes on its own, through a gate, under a spend cap (2026-10-17)
+
+Moved to [auto-promotion](./auto-promotion.md).
