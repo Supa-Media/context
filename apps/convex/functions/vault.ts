@@ -44,19 +44,18 @@ import {
   MAX_NAME,
   MAX_SECRET,
   mayUse,
+  maySee,
   newEntryId,
   isEntryId,
-  listMeta,
   readMeta,
   readSecret,
   siteHost,
   writeEntry,
-  writeMeta,
 } from "../../mcp/src/vault/entries.js";
 import { entryType, fieldSummaries, normalizeFields } from "../../mcp/src/vault/fields.js";
 import { savedPin } from "../../mcp/src/vault/proxy.js";
-import { waitingAsks } from "../../mcp/src/vault/usage.js";
 import { deleteKey, editEntry } from "./lib/vaultEdit";
+import { allowClient, cutClients, giveKey, listFor, takeKey } from "./lib/vaultPeople";
 import {
   fieldSummaryValidator,
   fieldValuesValidator,
@@ -278,6 +277,7 @@ export const recordVaultAudit = internalMutation({
     action: v.union(
       v.literal("vault.saved"),
       v.literal("vault.shared"),
+      v.literal("vault.unshared"),
       v.literal("vault.viewed"),
       v.literal("vault.cut_off"),
       v.literal("vault.allowed"),
@@ -285,7 +285,7 @@ export const recordVaultAudit = internalMutation({
       v.literal("vault.deleted"),
     ),
     entryId: v.string(),
-    /** `vault.edited`: what changed, by name ("password", "website"). Never a value. */
+    /** `vault.edited`: what changed, by name ("password", "website"); `vault.shared`/`unshared`: to whom, by kind ("a group, use"). Never a value. */
     changed: v.optional(v.string()),
   },
   returns: v.null(),
@@ -358,6 +358,7 @@ export const runVaultOperation = internalAction({
         name: meta.name,
         sites: meta.sites ?? [],
         people: meta.people,
+        ...(Array.isArray(meta.shares) && meta.shares.length > 0 ? { shares: meta.shares } : {}),
         fields: Array.isArray(meta.fields) ? meta.fields : [],
         ...(meta.proxy ? { proxy: shownPin(meta.proxy) } : {}),
         createdBy: meta.createdBy,
@@ -366,47 +367,25 @@ export const runVaultOperation = internalAction({
     });
     const op = args.operation;
     if (op.kind === "list") {
-      const all = (await listMeta(store, keys, workspaceId)) as { id: string; meta: VaultMeta }[];
-      const mine = all.filter((entry) => mayUse(entry.meta, op.userId));
-      const asks = (await waitingAsks(store, op.userId)) as Map<string, number>;
-      const waiting: Record<string, number> = {};
-      for (const entry of mine) if (asks.has(entry.id)) waiting[entry.id] = asks.get(entry.id)!;
-      return { entries: mine.map((entry) => shown(entry.id, entry.meta)), waiting };
+      const listed = await listFor(store, keys, workspaceId, op);
+      return { entries: listed.entries.map((entry) => shown(entry.id, entry.meta)), waiting: listed.waiting };
     }
-    if (op.kind === "allow") {
-      const meta = (await readMeta(store, keys, workspaceId, op.entryId)) as VaultMeta | null;
-      if (meta === null || !mayUse(meta, op.userId)) return null;
-      const refusal = meta.proxy?.refused?.find((no) => no.id === op.clientId);
-      if (!meta.proxy || refusal === undefined) return shown(op.entryId, meta);
-      const clients = (meta.proxy.clients ?? []).filter((client) => client.id !== op.clientId);
-      meta.proxy = {
-        ...meta.proxy,
-        clients: [...clients, { id: op.clientId, name: refusal.name, at: Date.now() }],
-        refused: meta.proxy.refused!.filter((no) => no.id !== op.clientId),
-      };
-      meta.updatedAt = Date.now();
-      await writeMeta(store, keys, workspaceId, op.entryId, meta);
-      return shown(op.entryId, meta);
+    if (op.kind === "allow" || op.kind === "cut" || op.kind === "give" || op.kind === "take") {
+      const done =
+        op.kind === "allow"
+          ? await allowClient(store, keys, workspaceId, op)
+          : op.kind === "cut"
+            ? await cutClients(store, keys, workspaceId, op)
+            : op.kind === "give"
+              ? await giveKey(store, keys, workspaceId, op)
+              : await takeKey(store, keys, workspaceId, op);
+      if (done === "conflict") throw fail("VAULT_CHANGED", "This key changed just now. Try again.");
+      return done === "refused" ? null : shown(op.entryId, done.meta);
     }
     if (op.kind === "edit" || op.kind === "delete") {
       const edited = op.kind === "edit" ? await editEntry(store, keys, workspaceId, op) : await deleteKey(store, keys, workspaceId, op);
       if (edited === "conflict") throw fail("VAULT_CHANGED", "This key changed while you were editing it. Try again.");
       return edited === "refused" ? null : { ...shown(op.entryId, edited.meta), changed: edited.changed };
-    }
-    if (op.kind === "cut") {
-      const meta = (await readMeta(store, keys, workspaceId, op.entryId)) as VaultMeta | null;
-      if (meta === null || !mayUse(meta, op.userId)) return null;
-      if (meta.proxy) {
-        const keep = (id: string) => op.clientId !== undefined && id !== op.clientId;
-        meta.proxy = {
-          ...meta.proxy,
-          clients: (meta.proxy.clients ?? []).filter((client) => keep(client.id)),
-          once: (meta.proxy.once ?? []).filter((grant) => keep(grant.id)),
-        };
-        meta.updatedAt = Date.now();
-        await writeMeta(store, keys, workspaceId, op.entryId, meta);
-      }
-      return shown(op.entryId, meta);
     }
     if (op.kind === "meta") {
       const meta = (await readMeta(store, keys, workspaceId, op.entryId)) as VaultMeta | null;
@@ -436,27 +415,18 @@ export const runVaultOperation = internalAction({
       await writeEntry(store, keys, workspaceId, { id, meta, secret });
       return shown(id, meta);
     }
-    if (op.kind === "reveal") {
-      const meta = (await readMeta(store, keys, workspaceId, op.entryId)) as VaultMeta | null;
-      if (meta === null || !mayUse(meta, op.userId)) return null;
-      const secret = (await readSecret(store, keys, workspaceId, op.entryId)) as Partial<Revealed> | null;
-      return {
-        ...shown(op.entryId, meta),
-        revealed: {
-          username: typeof secret?.username === "string" ? secret.username : "",
-          password: typeof secret?.password === "string" ? secret.password : "",
-          fields: Array.isArray(secret?.fields) ? secret.fields : [],
-        },
-      };
-    }
+    // Only somebody who may see the key: one given for AIs only never opens.
     const meta = (await readMeta(store, keys, workspaceId, op.entryId)) as VaultMeta | null;
-    if (meta === null || !mayUse(meta, op.userId)) return null;
-    if (!meta.people.includes(op.granteeUserId)) {
-      meta.people = [...meta.people, op.granteeUserId];
-      meta.updatedAt = Date.now();
-      await writeMeta(store, keys, workspaceId, op.entryId, meta);
-    }
-    return shown(op.entryId, meta);
+    if (meta === null || !maySee(meta, op.userId, op.groups ?? [])) return null;
+    const secret = (await readSecret(store, keys, workspaceId, op.entryId)) as Partial<Revealed> | null;
+    return {
+      ...shown(op.entryId, meta),
+      revealed: {
+        username: typeof secret?.username === "string" ? secret.username : "",
+        password: typeof secret?.password === "string" ? secret.password : "",
+        fields: Array.isArray(secret?.fields) ? secret.fields : [],
+      },
+    };
   },
 });
 
@@ -544,7 +514,8 @@ export const describeVaultRequest = action({
         { kind: "meta", entryId: row.entryId ?? "" },
         "Your workspace's storage didn't answer. Reload this page to try again.",
       );
-      if (opened === null || !mayUse(opened.meta, userId)) throw dead();
+      const groups = await ctx.runQuery(internal.functions.vaultPeople.accessNames, { workspaceId: row.workspaceId, userId });
+      if (opened === null || !mayUse(opened.meta, userId, groups)) throw dead();
       entry = { type: opened.meta.type, name: opened.meta.name, sites: opened.meta.sites, fields: opened.meta.fields };
     }
     return { kind: row.kind, workspace: labels.workspace, grantee: labels.grantee, entry, expiresAt: row.expiresAt };
@@ -648,7 +619,12 @@ export const revealVaultEntry = action({
     const opened = await openVault(
       ctx,
       live.workspaceId,
-      { kind: "reveal", entryId: live.entryId, userId },
+      {
+        kind: "reveal",
+        entryId: live.entryId,
+        userId,
+        groups: await ctx.runQuery(internal.functions.vaultPeople.accessNames, { workspaceId: live.workspaceId, userId }),
+      },
       "Your workspace's storage didn't answer. Try again.",
     );
     if (opened === null || opened.revealed === undefined) throw dead();
@@ -662,7 +638,12 @@ export const revealVaultEntry = action({
   },
 });
 
-/** Give one login to the member the request names. The person's tap is the consent. */
+/**
+ * Give one login to the member an AI's link names, for their AIs to use
+ * (the default since the vault sharing boards; Settings › Vault changes it to
+ * "see"). The person's tap is the consent, and only somebody who may pass the
+ * key on can give it.
+ */
 export const confirmVaultShare = action({
   args: { token: v.string() },
   returns: v.object({ name: v.string(), grantee: v.union(v.null(), v.string()) }),
@@ -674,10 +655,19 @@ export const confirmVaultShare = action({
     const hashedToken = await hashToken(args.token);
     const live = await ctx.runMutation(internal.functions.vault.checkVaultRequest, { hashedToken, userId, kind: "share" });
     if (live.entryId === null || live.granteeUserId === null) throw dead();
+    const membership = await ctx.runQuery(internal.functions.contextPlugins.membershipFor, { workspaceId: live.workspaceId, userId });
     const shared = await openVault(
       ctx,
       live.workspaceId,
-      { kind: "share", entryId: live.entryId, userId, granteeUserId: live.granteeUserId },
+      {
+        kind: "give",
+        entryId: live.entryId,
+        userId,
+        groups: await ctx.runQuery(internal.functions.vaultPeople.accessNames, { workspaceId: live.workspaceId, userId }),
+        anyKey: membership !== null && membership.role !== "member",
+        to: String(live.granteeUserId),
+        level: "use",
+      },
       "That wasn't shared: your workspace's storage didn't take it.",
     );
     if (shared === null) throw dead();
@@ -687,6 +677,7 @@ export const confirmVaultShare = action({
       actorUserId: userId,
       action: "vault.shared",
       entryId: live.entryId,
+      changed: "a person, use",
     });
     const labels = await ctx.runQuery(internal.functions.vault.requestLabels, {
       workspaceId: live.workspaceId,

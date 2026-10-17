@@ -167,6 +167,7 @@ import type * as functions_treeChanges from "../functions/treeChanges.js";
 import type * as functions_treeSignals from "../functions/treeSignals.js";
 import type * as functions_vault from "../functions/vault.js";
 import type * as functions_vaultSettings from "../functions/vaultSettings.js";
+import type * as functions_vaultPeople from "../functions/vaultPeople.js";
 import type * as functions_featureSwitches from "../functions/featureSwitches.js";
 import type * as functions_waitlist from "../functions/waitlist.js";
 import type * as functions_waitlistText from "../functions/waitlistText.js";
@@ -348,6 +349,7 @@ declare const fullApi: ApiFromModules<{
   "functions/usage": typeof functions_usage;
   "functions/vault": typeof functions_vault;
   "functions/vaultSettings": typeof functions_vaultSettings;
+  "functions/vaultPeople": typeof functions_vaultPeople;
   "functions/featureSwitches": typeof functions_featureSwitches;
   "functions/waitlist": typeof functions_waitlist;
   "functions/waitlistText": typeof functions_waitlistText;

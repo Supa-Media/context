@@ -34,6 +34,8 @@ import { errorMessageOf } from "../../../vault/vaultLink";
 import {
   VAULT_FILTERS,
   inFilter,
+  mayManage,
+  whoseAI,
   vaultClientLine,
   vaultCountLine,
   vaultLastUsedLine,
@@ -45,18 +47,27 @@ import {
   vaultSavedLine,
   type VaultEntry,
   type VaultFilter,
+  type VaultLevel,
 } from "../../../vault/vaultSettings";
+import type { VaultShareChoices } from "../../../vault/vaultPeople";
 import type { VaultLinkCalls } from "../../../vault/useVaultLinkFlow";
 import { PanelHead } from "./PanelHead";
 import { VaultInline } from "./VaultInline";
+import { CutButton, VaultPeople } from "./VaultPeople";
 
 export type VaultActions = {
   list: () => Promise<VaultEntry[]>;
-  cutOff: (entryId: string, clientId?: string) => Promise<VaultEntry>;
+  /** `by`: whose AI, for somebody who manages the key; without it, the reader's own (or all, for a manager). */
+  cutOff: (entryId: string, clientId?: string, by?: string) => Promise<VaultEntry>;
   allow: (entryId: string, clientId: string) => Promise<VaultEntry>;
   /** A fresh vault link's token, opened in place through `calls`. */
   link: (kind: "add" | "view", entryId?: string) => Promise<string>;
   calls: VaultLinkCalls;
+  /** Who a key can be given to here. */
+  choices?: () => Promise<VaultShareChoices | null>;
+  give?: (entryId: string, to: string, level: VaultLevel) => Promise<VaultEntry>;
+  /** Take a key back; null when the reader handed it back and no longer has it. */
+  takeBack?: (entryId: string, to: string) => Promise<VaultEntry | null>;
 };
 
 type Opened = { mode: "add" } | { mode: "view"; entryId: string };
@@ -89,12 +100,17 @@ function LiveVault({ workspaceId }: { workspaceId: string }) {
   const id = workspaceId as Id<"workspaces">;
   const actions: VaultActions = {
     list: () => client.action(api.functions.vaultSettings.listVaultEntries, { workspaceId: id }),
-    cutOff: (entryId, clientId) =>
+    cutOff: (entryId, clientId, by) =>
       client.action(api.functions.vaultSettings.cutOffVaultAI, {
         workspaceId: id,
         entryId,
         ...(clientId === undefined ? {} : { clientId }),
+        ...(by === undefined ? {} : { by }),
       }),
+    // Async, so a client without queries (the demo, render tests) rejects into the catch rather than throwing.
+    choices: async () => client.query(api.functions.vaultPeople.vaultShareChoices, { workspaceId: id }),
+    give: (entryId, to, level) => client.action(api.functions.vaultSettings.giveVaultKey, { workspaceId: id, entryId, to, level }),
+    takeBack: (entryId, to) => client.action(api.functions.vaultSettings.takeBackVaultKey, { workspaceId: id, entryId, to }),
     allow: (entryId, clientId) => client.action(api.functions.vaultSettings.allowVaultAI, { workspaceId: id, entryId, clientId }),
     link: async (kind, entryId) => {
       const { token } = await client.action(api.functions.vaultSettings.startVaultLink, {
@@ -136,6 +152,7 @@ export function VaultList({
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [width, setWidth] = useState(layoutWidth ?? 0);
+  const [choices, setChoices] = useState<VaultShareChoices | null>(null);
   const { list } = actions;
   const wide = width >= SIDE_BY_SIDE;
 
@@ -144,6 +161,11 @@ export function VaultList({
     list().then(
       (next) => live && setEntries(next),
       (error: unknown) => live && setProblem(errorMessageOf(error) ?? "Your keys couldn't be read. Try again."),
+    );
+    // Who a key can be given to is only needed to give one; a failure leaves Give out.
+    actions.choices?.().then(
+      (next) => live && setChoices(next),
+      () => undefined,
     );
     return () => {
       live = false;
@@ -213,7 +235,26 @@ export function VaultList({
           : entry,
       ),
     );
-  const cutOff = (entryId: string, clientId?: string) => void run(async () => replace(await actions.cutOff(entryId, clientId)));
+  const cutOff = (entryId: string, clientId?: string, by?: string) => void run(async () => replace(await actions.cutOff(entryId, clientId, by)));
+  const give = async (entryId: string, to: string, level: VaultLevel) => {
+    let done = false;
+    await run(async () => {
+      if (actions.give === undefined) return;
+      replace(await actions.give(entryId, to, level));
+      done = true;
+    });
+    return done;
+  };
+  const takeBack = (entryId: string, to: string) =>
+    void run(async () => {
+      if (actions.takeBack === undefined) return;
+      const next = await actions.takeBack(entryId, to);
+      if (next !== null) return replace(next);
+      // Handed back: it is no longer the reader's to list.
+      setPicked(null);
+      setEntries((now) => (now ?? []).filter((entry) => entry.entryId !== entryId));
+      setNotice("Handed back. Your AIs can't use it now.");
+    });
   const allow = (entryId: string, clientId: string) => void run(async () => replace(await actions.allow(entryId, clientId)));
 
   const shownEntries = (entries ?? []).filter((entry) => inFilter(entry, filter, now));
@@ -223,7 +264,8 @@ export function VaultList({
   // A picked key opens its values at once (username shown, password as dots
   // until Show), once per pick: a failure is said, not retried in a loop.
   const autoOpened = useRef<string | null>(null);
-  const chosenId = chosen?.entryId ?? null;
+  // A key given for AIs only has nothing to show its reader: no link is made.
+  const chosenId = chosen !== null && chosen.level !== "use" ? chosen.entryId : null;
   const addingNow = opened?.what.mode === "add";
   useEffect(() => {
     if (chosenId === null || addingNow) {
@@ -236,6 +278,9 @@ export function VaultList({
     // `open` is rebuilt each render; the pick is what matters.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chosenId, addingNow, opened === null]);
+  // Handing back names the reader, whose id only the share choices carry.
+  const me = choices?.people.find((person) => person.isMe)?.userId ?? null;
+  const handBack = chosen?.givenToYou && actions.takeBack !== undefined ? me : null;
   const detail =
     chosen === null ? null : (
       <VaultDetail
@@ -244,6 +289,20 @@ export function VaultList({
         now={now}
         onCutOff={cutOff}
         onAllow={allow}
+        people={
+          mayManage(chosen) && actions.give !== undefined ? (
+            <VaultPeople
+              entry={chosen}
+              choices={choices}
+              busy={busy}
+              now={now}
+              onGive={(to, level) => give(chosen.entryId, to, level)}
+              onTakeBack={(to) => takeBack(chosen.entryId, to)}
+              onCutOff={(clientId, by) => cutOff(chosen.entryId, clientId, by)}
+            />
+          ) : null
+        }
+        onHandBack={handBack === null ? undefined : () => takeBack(chosen.entryId, handBack)}
         editing={editing}
         onEdit={() => setEditing(true)}
         keyView={
@@ -385,23 +444,31 @@ function VaultDetail({
   editing,
   onEdit,
   keyView,
+  people,
+  onHandBack,
   onBack,
 }: {
   entry: VaultEntry;
   busy: boolean;
   now?: Date;
-  onCutOff: (entryId: string, clientId?: string) => void;
+  onCutOff: (entryId: string, clientId?: string, by?: string) => void;
   onAllow: (entryId: string, clientId: string) => void;
   /** Edit is open: the pane is the key's form, and nothing else. */
   editing: boolean;
   onEdit: () => void;
   /** The key's values, opened in place and editable. */
   keyView: ReactNode;
+  /** The People section, for somebody who may manage the key. */
+  people: ReactNode;
+  /** Hand back a key given to the reader by name. */
+  onHandBack?: () => void;
   /** Narrow screens only: back to the list. */
   onBack?: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const [handingBack, setHandingBack] = useState(false);
   const proxy = entry.proxy;
+  const manage = mayManage(entry);
   const lastUsed = vaultLastUsedLine(entry, now);
   const refused = (proxy?.refused ?? []).filter((no) => !proxy?.clients.some((client) => client.id === no.id));
   // The values keep one place among these children, so opening Edit never
@@ -425,7 +492,7 @@ function VaultDetail({
           </Text>
           <Text variant="rowSub">{vaultSavedLine(entry, now)}</Text>
         </View>
-        {editing ? null : <Button label="Edit" variant="dialog" disabled={busy} onPress={onEdit} testID="vault-edit" />}
+        {editing || !manage ? null : <Button label="Edit" variant="dialog" disabled={busy} onPress={onEdit} testID="vault-edit" />}
       </View>
       {editing ? null : proxy !== null ? (
         <View key="site" style={styles.section}>
@@ -454,13 +521,19 @@ function VaultDetail({
           Not given to AIs. You copy it yourself from here.
         </Text>
       )}
+      {entry.level === "use" && !editing ? (
+        <Text key="use-only" variant="hint" testID="vault-use-only">
+          Your AIs can use it through Context. You can't see the value; ask {entry.givenBy ?? "whoever saved it"} if you need to.
+        </Text>
+      ) : null}
       {values}
-      {editing || proxy === null ? null : (
+      {editing || people === null ? null : <View key="people">{people}</View>}
+      {editing || proxy === null || (people !== null && refused.length === 0) ? null : (
         <View key="ais" style={styles.section}>
-          <Text variant="eyebrow">AIs that can use it</Text>
-          {proxy.clients.length === 0 && refused.length === 0 ? <Text variant="hint">{vaultNoClientsLine(proxy)}</Text> : null}
-          {proxy.clients.map((client) => (
-            <View key={client.id} style={styles.ai}>
+          <Text variant="eyebrow">{people !== null ? "AIs told no" : "AIs that can use it"}</Text>
+          {people === null && proxy.clients.length === 0 && refused.length === 0 ? <Text variant="hint">{vaultNoClientsLine(proxy)}</Text> : null}
+          {(people !== null ? [] : proxy.clients).map((client) => (
+            <View key={`${client.by ?? ""}-${client.id}`} style={styles.ai}>
               <AgentFace name={client.name ?? "AI"} size={26} />
               <View style={styles.flex}>
                 <Text variant="rowTitle">{client.name ?? "An AI"}</Text>
@@ -470,17 +543,19 @@ function VaultDetail({
             </View>
           ))}
           {refused.map((no) => (
-            <View key={no.id} style={styles.ai}>
+            <View key={`${no.by ?? ""}-${no.id}`} style={styles.ai}>
               <View style={styles.dim}>
                 <AgentFace name={no.name ?? "AI"} size={26} />
               </View>
               <View style={styles.flex}>
                 <Text variant="rowTitle" style={styles.mutedText}>
-                  {no.name ?? "An AI"}
+                  {whoseAI(no)}
                 </Text>
                 <Text variant="rowSub">{vaultRefusedLine(no, now)}</Text>
               </View>
-              <Button label="Allow" variant="dialog" disabled={busy} testID={`vault-allow-${no.id}`} onPress={() => onAllow(entry.entryId, no.id)} />
+              {no.mine === false ? null : (
+                <Button label="Allow" variant="dialog" disabled={busy} testID={`vault-allow-${no.id}`} onPress={() => onAllow(entry.entryId, no.id)} />
+              )}
             </View>
           ))}
         </View>
@@ -496,33 +571,29 @@ function VaultDetail({
       {!editing && proxy !== null && proxy.clients.length > 0 ? (
         <View key="cut" style={styles.actions}>
           <CutButton
-            label="Cut off every AI"
+            label={manage ? "Cut off every AI" : "Cut off all your AIs"}
             disabled={busy}
             testID={`vault-cut-all-${entry.entryId}`}
             onPress={() => onCutOff(entry.entryId)}
           />
         </View>
       ) : null}
+      {editing || onHandBack === undefined ? null : handingBack ? (
+        <View key="hand-back" style={styles.section}>
+          <Text variant="rowTitle" style={styles.oneWay}>
+            You and your AIs lose the key now. Only {entry.givenBy ?? "whoever saved it"} can give it to you again.
+          </Text>
+          <View style={styles.actions}>
+            <Button label="Give it back" variant="dialogDanger" disabled={busy} testID="vault-hand-back-yes" onPress={onHandBack} />
+            <Button label="Keep" variant="dialog" disabled={busy} onPress={() => setHandingBack(false)} />
+          </View>
+        </View>
+      ) : (
+        <View key="hand-back" style={styles.actions}>
+          <CutButton label="Give it back" disabled={busy} testID="vault-hand-back" onPress={() => setHandingBack(true)} />
+        </View>
+      )}
     </View>
-  );
-}
-
-/** The board's Cut off: red words in a red outline, quieter than a filled button beside each AI. */
-function CutButton({ label, disabled, testID, onPress }: { label: string; disabled: boolean; testID: string; onPress: () => void }) {
-  const styles = useThemedStyles(makeStyles);
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ disabled }}
-      disabled={disabled}
-      onPress={onPress}
-      style={({ pressed }) => [styles.cut, pressed && styles.cutPressed, disabled && styles.cutDisabled]}
-      testID={testID}
-    >
-      <Text variant="mini" style={styles.cutText}>
-        {label}
-      </Text>
-    </Pressable>
   );
 }
 
@@ -593,15 +664,6 @@ const makeStyles = (colors: Colors) =>
     mutedText: { color: colors.muted },
     sentence: { color: colors.text },
     actions: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 6 },
-    cut: {
-      paddingVertical: 6,
-      paddingHorizontal: 12,
-      borderRadius: radii.md,
-      borderWidth: 1,
-      borderColor: colors.critBorder,
-    },
-    cutPressed: { backgroundColor: colors.critWash },
-    cutDisabled: { opacity: 0.5 },
-    cutText: { color: colors.critText, fontWeight: "600" },
+    oneWay: { color: colors.critText, fontWeight: "700" },
     flex: { flex: 1 },
   });

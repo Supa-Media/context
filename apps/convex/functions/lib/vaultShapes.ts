@@ -14,12 +14,19 @@ export type EntryKind = "login" | "secret";
 /** `meta.proxy`: the one website Context adds this key for (`apps/mcp/src/vault/proxy.js`). */
 export type ProxyPin = { host: string; style: "bearer" | "header" | "query"; name?: string; prefix?: string; ask: boolean };
 /** The AIs a person said "Yes, from now on" to (`apps/mcp/src/vault/asks.js`). */
-export type ProxyClient = { id: string; name: string | null; at: number };
+/** `by`: the person whose yes, use or no it is; absent on records from before sharing, which are the saver's. */
+export type ProxyClient = { id: string; name: string | null; at: number; by?: string };
 /** Each AI's count and last call, and the AIs the person said no to (`apps/mcp/src/vault/usage.js`). */
-export type ProxyUse = { id: string; name: string | null; count: number; at: number; method: string; path: string };
-export type ProxyRefusal = { id: string; name: string | null; at: number };
+export type ProxyUse = { id: string; name: string | null; count: number; at: number; method: string; path: string; by?: string };
+export type ProxyRefusal = { id: string; name: string | null; at: number; by?: string };
 type PinHistory = { clients?: ProxyClient[]; uses?: ProxyUse[]; refused?: ProxyRefusal[] };
-export type StoredPin = ProxyPin & PinHistory & { once?: { id: string; until: number }[] };
+export type StoredPin = ProxyPin & PinHistory & { once?: { id: string; until: number; by?: string }[] };
+/**
+ * Who a key was given to (`apps/mcp/src/vault/access.js`): `to` is a user id,
+ * a group as `@name`, or `*` for every member of the workspace.
+ */
+export type ShareLevel = "use" | "see";
+export type Share = { to: string; level: ShareLevel; by: string; at: number };
 
 export type VaultMeta = {
   type?: EntryKind;
@@ -27,6 +34,7 @@ export type VaultMeta = {
   name: string;
   sites: string[];
   people: string[];
+  shares?: Share[];
   proxy?: StoredPin;
   createdBy: string;
   createdAt: number;
@@ -43,6 +51,7 @@ export type ShownMeta = {
   name: string;
   sites: string[];
   people: string[];
+  shares?: Share[];
   fields: FieldSummary[];
   proxy?: ProxyPin & PinHistory;
   createdBy: string;
@@ -75,6 +84,11 @@ export const proxyPinValidator = v.object({
   ask: v.boolean(),
 });
 
+export const shareLevelValidator = v.union(v.literal("use"), v.literal("see"));
+export const shareValidator = v.object({ to: v.string(), level: shareLevelValidator, by: v.string(), at: v.number() });
+/** The `@names` the person reaches in the workspace (`grantedNamesFor`), for keys given to a group. */
+const groupsArg = v.optional(v.array(v.string()));
+
 export const operationValidator = v.union(
   v.object({ kind: v.literal("meta"), entryId: v.string() }),
   v.object({
@@ -89,19 +103,52 @@ export const operationValidator = v.union(
     fields: v.array(fieldValuesValidator),
     proxy: v.optional(proxyPinValidator),
   }),
-  v.object({ kind: v.literal("share"), entryId: v.string(), userId: v.string(), granteeUserId: v.string() }),
-  v.object({ kind: v.literal("reveal"), entryId: v.string(), userId: v.string() }),
-  v.object({ kind: v.literal("list"), userId: v.string() }),
-  // Cut one AI off a key, or every AI when `clientId` is absent.
-  v.object({ kind: v.literal("cut"), entryId: v.string(), userId: v.string(), clientId: v.optional(v.string()) }),
+  v.object({ kind: v.literal("reveal"), entryId: v.string(), userId: v.string(), groups: groupsArg }),
+  v.object({ kind: v.literal("list"), userId: v.string(), groups: groupsArg }),
+  // Cut one AI off a key, or every AI when `clientId` is absent. `by` names
+  // whose AI; `anyKey` (an owner or editor who sees the key, or its saver)
+  // may cut anybody's, everyone else only their own.
+  v.object({
+    kind: v.literal("cut"),
+    entryId: v.string(),
+    userId: v.string(),
+    groups: groupsArg,
+    anyKey: v.optional(v.boolean()),
+    clientId: v.optional(v.string()),
+    by: v.optional(v.string()),
+  }),
   // "Allow" on an AI the person said no to: it joins the AIs that may use the key.
-  v.object({ kind: v.literal("allow"), entryId: v.string(), userId: v.string(), clientId: v.string() }),
+  v.object({ kind: v.literal("allow"), entryId: v.string(), userId: v.string(), groups: groupsArg, clientId: v.string() }),
+  // Give a key to a person (user id), a group (`@name`) or the whole
+  // workspace (`*`), or change how much of it they get.
+  v.object({
+    kind: v.literal("give"),
+    entryId: v.string(),
+    userId: v.string(),
+    groups: groupsArg,
+    anyKey: v.boolean(),
+    to: v.string(),
+    level: shareLevelValidator,
+  }),
+  // Take a key back from `to`, or hand it back (`to` is the person). `still`
+  // is every member's `@names`, so whoever no longer has the key loses their
+  // AIs' yeses with it.
+  v.object({
+    kind: v.literal("take"),
+    entryId: v.string(),
+    userId: v.string(),
+    groups: groupsArg,
+    anyKey: v.boolean(),
+    to: v.string(),
+    still: v.record(v.string(), v.array(v.string())),
+  }),
   // A key's values changed in place in Settings › Vault. `anyKey`: an owner or
   // editor, who may change any key given to them; anyone else only their own.
   v.object({
     kind: v.literal("edit"),
     entryId: v.string(),
     userId: v.string(),
+    groups: groupsArg,
     anyKey: v.boolean(),
     username: v.optional(v.string()),
     password: v.optional(v.string()),
@@ -113,10 +160,15 @@ export const operationValidator = v.union(
     proxy: v.optional(v.union(proxyPinValidator, v.null())),
   }),
   // Delete a key, with the same say as `edit`.
-  v.object({ kind: v.literal("delete"), entryId: v.string(), userId: v.string(), anyKey: v.boolean() }),
+  v.object({ kind: v.literal("delete"), entryId: v.string(), userId: v.string(), groups: groupsArg, anyKey: v.boolean() }),
 );
 
-export const proxyClientValidator = v.object({ id: v.string(), name: v.union(v.string(), v.null()), at: v.number() });
+export const proxyClientValidator = v.object({
+  id: v.string(),
+  name: v.union(v.string(), v.null()),
+  at: v.number(),
+  by: v.optional(v.string()),
+});
 export const proxyUseValidator = v.object({
   id: v.string(),
   name: v.union(v.string(), v.null()),
@@ -124,6 +176,7 @@ export const proxyUseValidator = v.object({
   at: v.number(),
   method: v.string(),
   path: v.string(),
+  by: v.optional(v.string()),
 });
 export const shownPinValidator = v.object({
   host: v.string(),
@@ -140,6 +193,7 @@ export const metaValidator = v.object({
   name: v.string(),
   sites: v.array(v.string()),
   people: v.array(v.string()),
+  shares: v.optional(v.array(shareValidator)),
   fields: v.array(fieldSummaryValidator),
   proxy: v.optional(shownPinValidator),
   createdBy: v.string(),
@@ -162,7 +216,16 @@ export function shownPin(pin: StoredPin): ProxyPin & PinHistory {
     ...(pin.name === undefined ? {} : { name: pin.name }),
     ...(pin.prefix === undefined ? {} : { prefix: pin.prefix }),
     ask: pin.ask,
-    ...(pin.clients && pin.clients.length > 0 ? { clients: pin.clients } : {}),
+    ...(pin.clients && pin.clients.length > 0
+      ? {
+          clients: pin.clients.map((client) => ({
+            id: client.id,
+            name: typeof client.name === "string" ? client.name : null,
+            at: client.at,
+            ...(typeof client.by === "string" ? { by: client.by } : {}),
+          })),
+        }
+      : {}),
     ...(uses.length > 0
       ? {
           uses: uses.map((use) => ({
@@ -172,11 +235,19 @@ export function shownPin(pin: StoredPin): ProxyPin & PinHistory {
             at: use.at,
             method: typeof use.method === "string" ? use.method : "GET",
             path: typeof use.path === "string" ? use.path : "/",
+            ...(typeof use.by === "string" ? { by: use.by } : {}),
           })),
         }
       : {}),
     ...(refused.length > 0
-      ? { refused: refused.map((no) => ({ id: no.id, name: typeof no.name === "string" ? no.name : null, at: no.at })) }
+      ? {
+          refused: refused.map((no) => ({
+            id: no.id,
+            name: typeof no.name === "string" ? no.name : null,
+            at: no.at,
+            ...(typeof no.by === "string" ? { by: no.by } : {}),
+          })),
+        }
       : {}),
   };
 }

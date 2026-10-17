@@ -184,7 +184,7 @@ test("a yes from someone no longer given the key adds nothing", async () => {
   const [waiting] = (await app(store, "GET")).body.approvals;
   const meta = await readMeta(store, KEYS, "ws_1", id);
   const { writeMeta } = await import("../src/vault/entries.js");
-  await writeMeta(store, KEYS, "ws_1", id, { ...meta, people: ["user_z"] });
+  await writeMeta(store, KEYS, "ws_1", id, { ...meta, people: ["user_z"], createdBy: "user_z" });
   const answer = await app(store, "POST", { id: waiting.id, action: "approve_always" });
   assert.equal(answer.body.ok, false);
   assert.equal((await readMeta(store, KEYS, "ws_1", id)).proxy.clients, undefined);

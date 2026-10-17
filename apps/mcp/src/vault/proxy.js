@@ -287,7 +287,7 @@ export async function proxyFetch(store, request, { allowed, fetchImpl = fetch })
   const userId = store?.actor?.userId;
   if (!keys || typeof workspaceId !== "string") throw new ProxyRefused("no_key", "This workspace has no vault yet.");
   const meta = await readMeta(store, keys, workspaceId, request?.entry);
-  if (meta === null || !mayUse(meta, userId)) throw new ProxyRefused("not_found", "There is no such entry in vault_list.");
+  if (meta === null || !mayUse(meta, userId, store.actor?.groups)) throw new ProxyRefused("not_found", "There is no such entry in vault_list.");
   const pin = proxyPin(meta);
   if (pin === null) {
     throw new ProxyRefused("not_pinned", "This entry was not saved for use through Context. The person can turn that on when they save a key.");
