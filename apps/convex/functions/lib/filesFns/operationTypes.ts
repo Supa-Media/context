@@ -249,13 +249,7 @@ export type FileOperation =
     }
   | { kind: "resetPrivacy" }
   | { kind: "migrateStorage"; cleanup: boolean }
-  | { kind: "readStorageLayout" }
-  | {
-      kind: "organizer";
-      action: "gather" | "record" | "read" | "resolve" | "clear" | "autopilot" | "undo";
-      input: string;
-      autopilot?: boolean;
-    };
+  | { kind: "readStorageLayout" };
 
 /**
  * What a file operation hands back to the console.
@@ -479,8 +473,7 @@ export type OperationResult =
   | { kind: "image"; bytes: ArrayBuffer }
   | { kind: "emojiImage"; bytes: ArrayBuffer; contentType: string }
   | { kind: "emojiStored"; name: string; leaf: string }
-  | { kind: "emojiRemoved" }
-  | { kind: "organizerResult"; output: string };
+  | { kind: "emojiRemoved" };
 
 /**
  * One page of what changed since a device's last sync (`treeChanges.ts`).

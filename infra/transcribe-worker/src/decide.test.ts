@@ -5,7 +5,7 @@ import { CALLER, SECRET, envWith, fakeAi } from "./worker/fixtures";
 
 /**
  * `POST /decide`: one piece of text and a handful of typed questions in,
- * typed answers out, nothing kept. The auto-organize sweep's only way to reach
+ * typed answers out, nothing kept. The control plane's only way to reach
  * Clef — see docs/decisions/storage-and-credentials/inference.md.
  */
 
@@ -154,6 +154,20 @@ describe("POST /decide", () => {
       envWith(fakeAi(ANSWER).binding),
     );
     expect(unknown.status).toBe(404);
+  });
+
+  it("has no /extract: the writing route went with What changed (the owner, 2026-10-17)", async () => {
+    const ai = fakeAi(ANSWER);
+    const extract = await handleRequest(
+      new Request("https://worker.test/extract", {
+        method: "POST",
+        headers: { authorization: `Bearer ${SECRET}`, "content-type": "application/json", "x-caller-hash": CALLER },
+        body: JSON.stringify({ instructions: "What changed?", text: "Dana left.", schema: { type: "object" } }),
+      }),
+      envWith(ai.binding),
+    );
+    expect(extract.status).toBe(404);
+    expect(ai.calls).toEqual([]);
   });
 });
 

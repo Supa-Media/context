@@ -98,7 +98,7 @@ describe("the roster's AI spend is staff-only", () => {
     process.env[ADMIN_EMAILS_ENV_VAR] = ADMIN;
     const stranger = await seedUser(t, "stranger@example.test");
     const theirs = await seedWorkspace(t, stranger, "theirs");
-    await spend(t, theirs, "organizer", 420_000);
+    await spend(t, theirs, "ownerSuggest", 420_000);
 
     await expect(t.query(api.functions.admin.censusReport, {})).rejects.toThrow();
     await expect(
@@ -121,12 +121,12 @@ describe("the roster's AI spend", () => {
     const aliceTwo = await seedWorkspace(t, alice, "alice-two");
     const bobs = await seedWorkspace(t, bob, "bobs", [alice]);
 
-    await spend(t, aliceOne, "organizer", 300_000);
+    await spend(t, aliceOne, "ownerSuggest", 300_000);
     await spend(t, aliceOne, "ownerSuggest", 20_000, 1);
-    await spend(t, aliceTwo, "whatChanged", 100_000, 29);
+    await spend(t, aliceTwo, "iconSuggest", 100_000, 29);
     // Outside a 30-day window: the 31st day back.
-    await spend(t, aliceTwo, "organizer", 5_000_000, 30);
-    await spend(t, bobs, "organizer", 7_000);
+    await spend(t, aliceTwo, "ownerSuggest", 5_000_000, 30);
+    await spend(t, bobs, "ownerSuggest", 7_000);
 
     const report = await t
       .withIdentity({ subject: staffId })
@@ -151,9 +151,9 @@ describe("the roster's AI spend", () => {
     const owner = await seedUser(t, "heavy@example.test");
     const first = await seedWorkspace(t, owner, "first");
     const second = await seedWorkspace(t, owner, "second");
-    await spend(t, first, "organizer", 1_000);
-    await spend(t, first, "whatChanged", 2_000);
-    await spend(t, second, "organizer", 4_000);
+    await spend(t, first, "ownerSuggest", 1_000);
+    await spend(t, first, "iconSuggest", 2_000);
+    await spend(t, second, "ownerSuggest", 4_000);
     const since = utcDay(Date.now() - 10 * DAY);
 
     // Maps and Sets do not cross `t.run`, so flatten inside it.

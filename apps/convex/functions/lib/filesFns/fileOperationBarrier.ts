@@ -29,7 +29,7 @@ import { clearanceOf } from "../clearance";
 import { messageFor } from "../d1";
 import { type FileStore, loadPrivacyState, type ProjectionClient } from "../fileOps";
 import type { FormNotifyMaterial } from "../formOps";
-import { recordTreeChange, recordWrites } from "../treeAnnounce";
+import { recordWrites } from "../treeAnnounce";
 import { indexChangeOf, treeChangeOf, treeChangeOfResult } from "./access";
 import { markWebsiteAfterOperation } from "../websites/routeChangeAt";
 import { routinePathsTouched } from "../routines/changes";
@@ -493,11 +493,8 @@ export async function runFileOperationHandler(
     Read before the operation because afterwards the answer is gone: a note
     made private is, by then, private. See `announceTreeChange`.
   */
-  // The organizer decides its paths inside itself, so they are read off the store as it writes.
-  const organizerChange = args.operation.kind === "organizer" ? recordTreeChange(store) : null;
   const treeChange = treeChangeOf(args.operation as FileOperation);
-  const privacyBefore =
-    treeChange?.narrows === true || organizerChange !== null ? await loadPrivacyState(store).catch(() => null) : null;
+  const privacyBefore = treeChange?.narrows === true ? await loadPrivacyState(store).catch(() => null) : null;
   // A move inside this context adds no note, so it runs in the cap's
   // relocation window (`store/noteCap.js`). Copying, duplicating, restoring
   // from the trash and a move in from another context all add one, and stay
@@ -582,7 +579,7 @@ export async function runFileOperationHandler(
   }
 
   const indexChange = indexChangeOf(args.operation as FileOperation, result);
-  const landedChange = organizerChange?.() ?? treeChange ?? treeChangeOfResult(args.operation as FileOperation, result);
+  const landedChange = treeChange ?? treeChangeOfResult(args.operation as FileOperation, result);
   await announceTreeChange(ctx, store, args, landedChange, result, privacyBefore, indexChange?.written);
   if (landedChange?.every === true) await requestNodesSweep(ctx, args.workspaceId); // e.g. clear vault: no path to name
   await followPlaces();

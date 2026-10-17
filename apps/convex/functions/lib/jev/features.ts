@@ -32,15 +32,6 @@ export interface JevFeature {
 }
 
 export const JEV_FEATURES = {
-  /** Auto-organize: mark done, archive, file the inbox. `functions/organizer.ts`. */
-  organizer: {
-    label: "Auto-organize",
-    // On with Premium, switched off per owner (decided by the owner, 2026-09-26).
-    onByDefault: true,
-    // One sweep a day asks at most MAX_SWEEP_PROJECTS + MAX_SWEEP_INBOX (100).
-    dailyCallsPerWorkspace: 250,
-    plan: "premium",
-  },
   /** The "Suggested" row of an owner picker: who the note names. `functions/owners.ts`. */
   ownerSuggest: {
     label: "Owner suggestion",
@@ -48,21 +39,6 @@ export const JEV_FEATURES = {
     onByDefault: true,
     // One request per picker opened on a note; a busy editor opens a few dozen.
     dailyCallsPerWorkspace: 300,
-    plan: "premium",
-  },
-  /**
-   * "What changed": reads what arrived in the inbox (meetings, mail, saved AI
-   * chats) and proposes the changes it implies. The only feature that uses the
-   * writing model. `functions/lib/organizer/changes.ts`.
-   */
-  whatChanged: {
-    label: "What changed",
-    // Off until it is properly tested (Dev2, 2026-10-09: the page kept coming
-    // back after being closed). Off, no arrival is read and the app draws no
-    // page; an admin switch row turns it back on without a deploy.
-    onByDefault: false,
-    // One sweep reads at most MAX_CHANGE_SOURCES (40) arrivals; room for Sort now.
-    dailyCallsPerWorkspace: 100,
     plan: "premium",
   },
   /**
@@ -115,6 +91,22 @@ export type JevFeatureName = keyof typeof JEV_FEATURES;
 export function isJevFeature(name: string): name is JevFeatureName {
   return Object.prototype.hasOwnProperty.call(JEV_FEATURES, name);
 }
+
+/**
+ * Features that were removed, by the name their usage rows still carry.
+ * `jevUsage` and `aiModelUsage` keep rows under these names until they age out
+ * of every report window; the AI costs report still counts them, under these
+ * labels, so its totals add up. Nothing may call Jev under them: they are not
+ * in `JEV_FEATURES`, so the gate and the switches refuse them.
+ *
+ * Auto-organize and What changed were removed by the owner, 2026-10-17:
+ * "remove auto organize and whats changed, all of those should be deleted and
+ * thrown away, no way to access it in the app and not in use".
+ */
+export const RETIRED_JEV_FEATURE_LABELS: Readonly<Record<string, string>> = {
+  organizer: "Auto-organize (removed)",
+  whatChanged: "What changed (removed)",
+};
 
 /** Every switch name an admin may set: each feature, and "*" for all of them. */
 export const ALL_JEV_FEATURES = "*";
