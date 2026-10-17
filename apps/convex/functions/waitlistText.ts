@@ -9,6 +9,12 @@
  * transaction, so each row is texted at most once and nobody outside can make
  * Context text a number. Joining the list still texts nothing.
  *
+ * Somebody let in by address gets it too, once their phone is on Tex's line
+ * (at Let in when their account already has one, else when they confirm
+ * one): Tex cannot text first (Dev2, 2026-10-17: "we have to have people
+ * texting Tex first, so using twilio we should ask people to text this
+ * number"), so this text is how everyone let in learns where Tex is.
+ *
  * It goes through the same Messaging Service as sign-in codes. Twilio Verify
  * can only send codes, so with no Messaging Service set the text is skipped
  * and the log says why; the number never appears in the log.
@@ -17,10 +23,11 @@
 import { sendTwilioSms } from "@supa-media/convex/auth";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import { internalAction, internalQuery } from "../_generated/server";
+import type { ActionCtx } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
+import { internalAction, internalMutation, internalQuery } from "../_generated/server";
 import { validAppOrigin } from "./lib/invitationEmail";
 import { smsKeys } from "./phoneCodes";
-import { greetByTex } from "./texGreeting";
 import { putOnTexLine } from "./waitlistTex";
 
 /**
@@ -55,14 +62,6 @@ export const sendAdmitted = internalAction({
       console.log(JSON.stringify({ event: `waitlist_text_${event}`, waitlistId: args.waitlistId, ...extra }));
     // On Tex's list before the text names Tex, whether or not a text goes.
     const texLine = await putOnTexLine(ctx, args.waitlistId);
-    // Tex texting first says "you're in" itself, from the line they answer.
-    if (texLine !== null) {
-      const facts = await ctx.runQuery(internal.functions.waitlistText.textFacts, { waitlistId: args.waitlistId });
-      if (facts !== null && (await greetByTex(ctx, args.waitlistId, facts.phone, texLine))) {
-        log("skipped", { reason: "tex_greeted" });
-        return null;
-      }
-    }
     const origin = validAppOrigin();
     if (origin === null) {
       log("skipped", { reason: "app_origin_unset" });
@@ -80,3 +79,46 @@ export const sendAdmitted = internalAction({
     return null;
   },
 });
+
+/**
+ * Claim the one "You're in" text for a row whose phone came from its account
+ * rather than the row: `false` when the row is no longer let in, or was texted.
+ */
+export const claimText = internalMutation({
+  args: { waitlistId: v.id("waitlist") },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.waitlistId);
+    if (row === null || row.status !== "admitted" || row.admittedTextAt !== undefined) return false;
+    await ctx.db.patch(args.waitlistId, { admittedTextAt: Date.now() });
+    return true;
+  },
+});
+
+/**
+ * "Text Tex at …" to `phone`, now on Tex's line as `texLine`, at most once
+ * per row. For a row let in by address; a phone row is texted by
+ * `sendAdmitted`. Never throws.
+ */
+export async function textTexNumber(
+  ctx: ActionCtx,
+  waitlistId: Id<"waitlist">,
+  phone: string,
+  texLine: string,
+): Promise<void> {
+  const log = (event: string, extra: Record<string, unknown> = {}) =>
+    console.log(JSON.stringify({ event: `waitlist_text_${event}`, waitlistId, ...extra }));
+  try {
+    const origin = validAppOrigin();
+    const sms = await smsKeys(ctx);
+    if (origin === null || sms === null) {
+      log("skipped", { reason: origin === null ? "app_origin_unset" : "no_messaging_service" });
+      return;
+    }
+    if (!(await ctx.runMutation(internal.functions.waitlistText.claimText, { waitlistId }))) return;
+    const result = await sendTwilioSms(sms, phone, admittedText(new URL("/login", origin).toString(), texLine));
+    log(result.ok ? "sent" : "failed", result.ok ? {} : { reason: result.reason });
+  } catch {
+    log("failed", { reason: "unexpected" });
+  }
+}

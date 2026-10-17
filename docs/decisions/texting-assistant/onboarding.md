@@ -31,33 +31,23 @@ instead of the link (`functions/textSetup.ts`, `apps/agent/src/setup.ts`):
    bucket and only when the probe saw it empty, as the app does after "Start
    fresh". The next text is an ordinary linked session.
 
-### Let in means Tex texts first (2026-10-17)
+### Tex never texts first; everyone let in is told its number (2026-10-17)
 
-Decided by the owner (Dev2), 2026-10-17: "when someone signs up for the
-waitlist, and I let them in, I want them to get immediate tex access so that
-tex can guide them through creating their workspaces, connecting their emails
-and their ai agents". Being told to text Tex was not enough: somebody who
-never texted never met Tex.
+Decided by the owner (Dev2), 2026-10-17: "we have to have people texting
+Tex first, so using twilio we should ask people to 'text this number'". Tex
+does not open a chat. Instead, the "You're in! Text Tex at …" SMS
+(`waitlistText.ts`, through the Twilio Messaging Service) reaches everybody
+let in whose phone is on Tex's line, not only rows joined with a phone: a row
+let in by address gets it at Let in when its account already has a proven
+phone, else when the person confirms one in the app (`waitlistTex.putOnLine`
+calls `textTexNumber`). `admittedTextAt` is claimed before the send, so each
+row is texted at most once whichever path reaches it. The "You're in" mail
+says Tex's number follows by text once they add a phone.
 
-So once a let-in row's phone is on Tex's line, Tex opens the chat itself from
-that line (`functions/texGreeting.ts`, Linq Partner API v3 `POST /v3/chats`)
-with step 1's question, and writes step 1's `asked` row in the same
-transaction that claims the greeting (`waitlist.texGreetedAt`). The person's
-first reply is therefore read as their handle, and setup carries on as
-below; Gmail and their AI follow in the linked session (the onboarding
-skill). That text replaces the "You're in" SMS for a phone row.
-
-- **Only who setup would take**: `whoMaySetUp` decides, the same rule as step
-  1, so an account already set up, paused or linked is never greeted.
-- **Once per row**, and only from staff letting the row in or that person
-  confirming their own phone, so nobody outside can make Tex text a number.
-- **A failed send undoes both claims**, so a later "hi" is asked for a handle
-  rather than taken as one, and the "You're in" SMS goes instead.
-- Somebody let in by address alone has no phone to text; they are greeted when
-  they confirm one in the app.
-
-Tests: `apps/convex/__tests__/texGreeting.test.ts`; sabotage runs (dropping
-the release, dropping the `whoMaySetUp` check) each fail one named test.
+Tests: `apps/convex/__tests__/waitlistTex.test.ts` ("adds the proven phone of
+the account that address signs in to", "with no phone yet, the phone is added
+when the person confirms one"); dropping the claim's `admittedTextAt` check
+fails both the re-admit and the address test.
 
 **It is a state machine, not a model with tools.** The person has no grant
 until the link exists, and a model given account-making tools before there

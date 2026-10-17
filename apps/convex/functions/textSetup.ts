@@ -81,10 +81,10 @@ export const setupAnswerValidator = v.union(
 );
 export type SetupAnswer = typeof setupAnswerValidator.type;
 
-export type Who = { kind: "new" } | { kind: "held"; userId: Id<"users"> };
+type Who = { kind: "new" } | { kind: "held"; userId: Id<"users"> };
 
 /** Whether `phone` may be set up by text, and as whom; `null` when it may not. */
-export async function whoMaySetUp(ctx: MutationCtx, phone: string): Promise<Who | null> {
+async function whoMaySetUp(ctx: MutationCtx, phone: string): Promise<Who | null> {
   if (!isPhoneNumber(phone) || phone === APP_REVIEW_PHONE) return null;
   // Linked already (the session said otherwise only because it is paused).
   const link = await ctx.db
@@ -107,7 +107,7 @@ export async function whoMaySetUp(ctx: MutationCtx, phone: string): Promise<Who 
   return { kind: "held", userId: holder };
 }
 
-export async function askedRow(ctx: MutationCtx, phone: string) {
+async function askedRow(ctx: MutationCtx, phone: string) {
   return await ctx.db
     .query("textSetups")
     .withIndex("by_phone", (q) => q.eq("phone", phone))
