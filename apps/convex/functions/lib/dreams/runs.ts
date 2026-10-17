@@ -8,12 +8,11 @@
  * texting grant, which the next text replaces.
  */
 
-import type { Doc, Id } from "../../../_generated/dataModel";
+import type { Doc } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
 import { recordAudit } from "../audit";
 import { SCOPE_PRIVATE, SCOPE_READ, SCOPE_WRITE, clampScopes, hasOperationScope } from "../consentScopes";
-import { phoneSignInPaused } from "../emailProof";
-import { getMembership } from "../workspaceAuth";
+import { applyTexJobGrant, endTexJobGrant, ensureTexJobClient, texJobWorkspace, type MintedToken } from "../texJobs";
 import { personalWorkspaceOf } from "../../textLinks";
 import { accountTimeZone } from "../routines/access";
 import { effectiveTimeZone } from "../routines/model";
@@ -32,27 +31,13 @@ import {
 
 const DREAM_SCOPES = [SCOPE_READ, SCOPE_WRITE, SCOPE_PRIVATE];
 
-/** A token pair minted by the calling action: hashes only, never the plaintext. */
-export type MintedToken = { hashedAccessToken: string; hashedRefreshToken: string };
+export type { MintedToken } from "../texJobs";
 
 /** One claimed dream. `token` indexes the calling action's plaintext list. `since` is null for a first dream. */
 export type ClaimedDream = { runId: string; token: number; timeZone: string; since: number | null };
 
 function leaseIsLive(row: Doc<"texDreams">, now: number): boolean {
   return row.claimedAt !== undefined && row.claimedAt + DREAM_LEASE_MS > now;
-}
-
-/** The personal workspace the person still owns and texts from, or null. */
-async function dreamingWorkspace(ctx: MutationCtx, row: Doc<"texDreams">): Promise<Id<"workspaces"> | null> {
-  const link = await ctx.db
-    .query("phoneLinks")
-    .withIndex("by_user", (q) => q.eq("userId", row.userId))
-    .first();
-  if (link === null || (await phoneSignInPaused(ctx, row.userId))) return null;
-  const workspace = await ctx.db.get(row.workspaceId);
-  if (workspace === null || workspace.kind !== "personal" || workspace.createdBy !== row.userId) return null;
-  const membership = await getMembership(ctx, row.workspaceId, row.userId);
-  return membership?.role === "owner" ? row.workspaceId : null;
 }
 
 /**
@@ -79,7 +64,7 @@ export async function claimDueDreamsHandler(
   for (const row of candidates) {
     if (dreams.length >= limit) break;
     if (leaseIsLive(row, now)) continue;
-    const workspaceId = await dreamingWorkspace(ctx, row);
+    const workspaceId = await texJobWorkspace(ctx, row.userId, row.workspaceId);
     if (workspaceId === null) {
       // Unlinked, paused or gone: no dream until a text arms one again.
       await ctx.db.patch(row._id, { nextDreamAt: null, updatedAt: now });
@@ -88,11 +73,19 @@ export async function claimDueDreamsHandler(
     const scopes = clampScopes(DREAM_SCOPES, "owner");
     if (!hasOperationScope(scopes)) continue;
     if (!clientEnsured) {
-      await ensureDreamsClient(ctx);
+      await ensureTexJobClient(ctx, DREAMS_CLIENT_ID, DREAMS_CLIENT_NAME);
       clientEnsured = true;
     }
     const token = dreams.length;
-    await applyDreamGrant(ctx, row.userId, workspaceId, scopes, args.tokens[token]!, now);
+    await applyTexJobGrant(ctx, {
+      clientId: DREAMS_CLIENT_ID,
+      userId: row.userId,
+      workspaceId,
+      scopes,
+      token: args.tokens[token]!,
+      expiresAt: now + DREAM_GRANT_TTL_MS,
+      now,
+    });
     const runId = args.runIds[token]!;
     await ctx.db.patch(row._id, { claimedAt: now, runId, nextDreamAt: null, updatedAt: now });
     await recordAudit(ctx, {
@@ -110,58 +103,6 @@ export async function claimDueDreamsHandler(
     });
   }
   return dreams;
-}
-
-/** The person's dreams grant on their personal workspace, holding this token. */
-async function applyDreamGrant(
-  ctx: MutationCtx,
-  userId: Id<"users">,
-  workspaceId: Id<"workspaces">,
-  scopes: string[],
-  token: MintedToken,
-  now: number,
-): Promise<void> {
-  const grants = await ctx.db
-    .query("oauthGrants")
-    .withIndex("by_workspace_user", (q) => q.eq("workspaceId", workspaceId).eq("userId", userId))
-    .collect();
-  const reusable = grants.find((grant) => grant.clientId === DREAMS_CLIENT_ID && grant.status === "active");
-  const fields = {
-    scopes,
-    hashedAccessToken: token.hashedAccessToken,
-    hashedRefreshToken: token.hashedRefreshToken,
-    accessTokenExpiresAt: now + DREAM_GRANT_TTL_MS,
-  };
-  if (reusable === undefined) {
-    await ctx.db.insert("oauthGrants", {
-      workspaceId,
-      userId,
-      clientId: DREAMS_CLIENT_ID,
-      ...fields,
-      status: "active",
-      createdAt: now,
-    });
-  } else {
-    await ctx.db.patch(reusable._id, fields);
-  }
-}
-
-async function ensureDreamsClient(ctx: MutationCtx): Promise<void> {
-  const existing = await ctx.db
-    .query("oauthClients")
-    .withIndex("by_clientId", (q) => q.eq("clientId", DREAMS_CLIENT_ID))
-    .unique();
-  if (existing !== null) return;
-  await ctx.db.insert("oauthClients", {
-    clientId: DREAMS_CLIENT_ID,
-    clientName: DREAMS_CLIENT_NAME,
-    redirectUris: [],
-    hashedClientSecret: null,
-    tokenEndpointAuthMethod: "none",
-    grantTypes: [],
-    responseTypes: [],
-    createdAt: Date.now(),
-  });
 }
 
 /**
@@ -193,14 +134,7 @@ export async function recordDreamResultHandler(
     nextDreamAt: row.nextDreamAt ?? (RETRIED_OUTCOMES.has(args.outcome) ? nextDreamAfter(zone, now) : null),
     updatedAt: now,
   });
-  const grants = await ctx.db
-    .query("oauthGrants")
-    .withIndex("by_workspace_user", (q) => q.eq("workspaceId", row.workspaceId).eq("userId", row.userId))
-    .collect();
-  for (const grant of grants) {
-    if (grant.clientId !== DREAMS_CLIENT_ID || grant.status !== "active") continue;
-    if ((grant.accessTokenExpiresAt ?? 0) > now) await ctx.db.patch(grant._id, { accessTokenExpiresAt: now });
-  }
+  await endTexJobGrant(ctx, { clientId: DREAMS_CLIENT_ID, userId: row.userId, workspaceId: row.workspaceId, now });
   return "recorded";
 }
 

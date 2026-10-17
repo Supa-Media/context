@@ -40,6 +40,7 @@ import { deferredWork } from "../mcp/usage.js";
 import { enforceOrigin, isTransportPath } from "../origin.js";
 import { handleAgent } from "../agent/route.js";
 import { DREAMS_CLIENT_ID, handleDream } from "../agent/dream.js";
+import { HEARTBEAT_CLIENT_ID, handleHeartbeat } from "../agent/heartbeat.js";
 import { HOUSEKEEPING_CLIENT_ID, handleHousekeeping } from "../agent/housekeeping.js";
 import { streamTurn, wantsProgress } from "../agent/progress.js";
 import { handleApprovals } from "./approvals.js";
@@ -637,6 +638,8 @@ export async function route(request, env, ctx) {
         if (session.actorClientId === HOUSEKEEPING_CLIENT_ID) return await held(() => handleHousekeeping(request, env, store, session, controlPlane));
         // Tex's nightly dream has its own client and its own turn, and does nothing else (`agent/dream.js`).
         if (session.actorClientId === DREAMS_CLIENT_ID) return await held(() => handleDream(request, env, store, session, controlPlane));
+        // So has its daytime check-in, which only reads (`agent/heartbeat.js`).
+        if (session.actorClientId === HEARTBEAT_CLIENT_ID) return await held(() => handleHeartbeat(request, env, store, session, controlPlane));
         // The texting Worker asks for a long task as a stream of progress
         // lines (`agent/progress.js`); everyone else gets the whole turn.
         if (!wantsProgress(request)) return await held(() => handleAgent(request, env, store, session, controlPlane));

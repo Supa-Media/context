@@ -10,6 +10,8 @@
  *
  *   dream                  Tex's nightly dream, through the real `/agent` in
  *                          a throwaway world (`jobs/dream.mjs`)
+ *   heartbeat              Tex's daytime check-in, through the real `/agent`:
+ *                          the text it would send, or SKIP (`jobs/heartbeat.mjs`)
  *   meeting-summaries      a meeting note's summary, the gateway's own
  *                          write-and-check path (`jobs/meetingSummaries.mjs`)
  *   meeting-transcription  a spoken sentence through Whisper (`jobs/transcription.mjs`)
@@ -42,6 +44,7 @@ import { basename, join } from "node:path";
 import { benchFolder } from "./folder.mjs";
 import { readBenchFolder, runnableQuestions } from "./load.mjs";
 import { dreamJob } from "./jobs/dream.mjs";
+import { heartbeatJob } from "./jobs/heartbeat.mjs";
 import { meetingSummariesJob } from "./jobs/meetingSummaries.mjs";
 import { transcriptionJob } from "./jobs/transcription.mjs";
 import { connectedAisJob } from "./jobs/connectedAis.mjs";
@@ -49,6 +52,7 @@ import { connectedAisJob } from "./jobs/connectedAis.mjs";
 /** Every job `check` runs, by its name in the AI tab (`aiCatalog.ts`). */
 export const CHECK_JOBS = Object.freeze({
   dream: dreamJob,
+  heartbeat: heartbeatJob,
   "meeting-summaries": meetingSummariesJob,
   "meeting-transcription": transcriptionJob,
   "connected-ais": connectedAisJob,

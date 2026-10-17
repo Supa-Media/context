@@ -245,6 +245,7 @@ Tex's own jobs, each with its record:
   thinking and tool calls, daily in their own `tex/transcripts/`.
 - [Dreams](./texting-assistant/dreams.md): nightly, brings `tex/about-me.md`
   up to date from the day's transcripts, logged in `tex/dreams/`.
+- [Heartbeat](./texting-assistant/heartbeat.md): three looks a day, one text at most.
 - [Housekeeping](./texting-assistant/housekeeping.md): archives finished
   projects, merges duplicate contacts, folds thin folders and lowers the chaos
   score, logging each change in `tex/housekeeping/` with how to undo it.

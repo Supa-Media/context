@@ -42,6 +42,7 @@ import { meaningTables } from "./functions/lib/schema/meaning";
 import { noteMailTables } from "./functions/lib/schema/noteMail";
 import { routineTables } from "./functions/lib/schema/routines";
 import { dreamTables } from "./functions/lib/schema/dreams";
+import { heartbeatTables } from "./functions/lib/schema/heartbeats";
 import { nodeTables } from "./functions/lib/schema/nodes";
 import { nodeAccessTables } from "./functions/lib/schema/nodeAccess";
 import { smallDataTables } from "./functions/lib/schema/smallData";
@@ -124,6 +125,7 @@ const schema = defineSchema({
   ...meaningTables,
   ...routineTables,
   ...dreamTables,
+  ...heartbeatTables,
   ...nodeTables,
   ...nodeAccessTables,
   ...smallDataTables,

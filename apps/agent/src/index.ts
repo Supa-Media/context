@@ -8,8 +8,9 @@
  *                     gateway /agent: answer with that grant
  *                     Linq: send the reply
  *
- * And once a minute, a Cron Trigger runs whatever routines are due
- * (routines.ts): the control plane names the runs, the gateway runs each with
+ * And once a minute, a Cron Trigger runs whatever routines, nightly dreams and
+ * daytime check-ins are due (routines.ts, dreams.ts, heartbeats.ts). For a
+ * routine or a check-in: the control plane names the runs, the gateway runs each with
  * its own grant, and the answer is texted through each phone's SenderInbox to
  * the chat that phone last texted from. The control plane hears only an
  * outcome and a count.
@@ -25,6 +26,7 @@ import { accept, drain, type InboxDeps } from "./inbox";
 import type { Message } from "./reply";
 import { runDueRoutines, textRoutine, type PhoneTexted } from "./routines";
 import { runDueDreams } from "./dreams";
+import { runDueHeartbeats } from "./heartbeats";
 import { verifyLinqSignature } from "./signature";
 import { handleSimulator, SIMULATOR_PATH, simulatorEnabled, simulatorInbox } from "./simulator";
 import { SIMULATOR_PAGE } from "./simulatorPage";
@@ -122,6 +124,17 @@ export default {
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(
       runDueRoutines({
+        fetch: (input, init) => fetch(input, init),
+        controlPlaneOrigin: env.CONTROL_PLANE_ORIGIN,
+        workerSecret: env.AGENT_WORKER_SECRET,
+        gatewayOrigin: env.GATEWAY_ORIGIN,
+        textPhone: (phone, text, idempotencyKey) => textPhone(env, phone, text, idempotencyKey),
+        log: (entry) => console.log(JSON.stringify(entry)),
+      }),
+    );
+    // Tex's daytime check-in (`heartbeats.ts`): looks at what changed, and texts only the person's own phone, only when worth it.
+    ctx.waitUntil(
+      runDueHeartbeats({
         fetch: (input, init) => fetch(input, init),
         controlPlaneOrigin: env.CONTROL_PLANE_ORIGIN,
         workerSecret: env.AGENT_WORKER_SECRET,

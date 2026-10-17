@@ -25,6 +25,7 @@ import { parseTest } from "../load.mjs";
 import { liveScoreRow, scoresNote } from "../context.mjs";
 import { WHISPER_INPUT, WHISPER_MODEL } from "../jobs/transcription.mjs";
 import { DREAM_INSTRUCTIONS } from "../../src/agent/dream.js";
+import { HEARTBEAT_INSTRUCTIONS } from "../../src/agent/heartbeat.js";
 import { CHECK_SYSTEM, SUMMARY_SYSTEM } from "../../../../packages/meetings/src/summary.js";
 
 const TEST = [
@@ -103,6 +104,7 @@ test("every job's test in the repository runs end to end on a scripted model", a
     await cp(new URL("../ai/", import.meta.url), dir, { recursive: true });
     const setups = {
       dream: `---\njob: dream\nmodels:\n  main: anthropic/claude-haiku-5-5\n---\n\n${DREAM_INSTRUCTIONS}\n`,
+      heartbeat: `---\njob: heartbeat\nmodels:\n  main: anthropic/claude-haiku-5-5\n---\n\n${HEARTBEAT_INSTRUCTIONS}\n`,
       "meeting-summaries": `---\njob: meeting-summaries\nmodels:\n  main: anthropic/claude-haiku-5-5\n---\n\n## Write\n\n${SUMMARY_SYSTEM}\n\n## Check\n\n${CHECK_SYSTEM}\n`,
     };
     for (const [job, raw] of Object.entries(setups)) {
@@ -112,7 +114,7 @@ test("every job's test in the repository runs end to end on a scripted model", a
     const write = process.stderr.write;
     process.stderr.write = () => true;
     try {
-      for (const job of ["dream", "meeting-summaries", "meeting-transcription", "connected-ais"]) {
+      for (const job of ["dream", "heartbeat", "meeting-summaries", "meeting-transcription", "connected-ais"]) {
         const out = join(dir, "results", `${job}.md`);
         await checkCommand({ job, dir, fake: true, out });
         const raw = await readFile(out, "utf8");

@@ -154,6 +154,7 @@ import type * as functions_textLinks from "../functions/textLinks.js";
 import type * as functions_routines from "../functions/routines.js";
 import type * as functions_retiredTables from "../functions/retiredTables.js";
 import type * as functions_dreams from "../functions/dreams.js";
+import type * as functions_heartbeats from "../functions/heartbeats.js";
 import type * as functions_builtinModel from "../functions/builtinModel.js";
 import type * as functions_meetingSummary from "../functions/meetingSummary.js";
 import type * as functions_agentTurns from "../functions/agentTurns.js";
@@ -330,6 +331,7 @@ declare const fullApi: ApiFromModules<{
   "functions/routines": typeof functions_routines;
   "functions/retiredTables": typeof functions_retiredTables;
   "functions/dreams": typeof functions_dreams;
+  "functions/heartbeats": typeof functions_heartbeats;
   "functions/builtinModel": typeof functions_builtinModel;
   "functions/meetingSummary": typeof functions_meetingSummary;
   "functions/agentTurns": typeof functions_agentTurns;
