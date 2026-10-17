@@ -6,8 +6,23 @@
 
 import { styleWords, type ProxyStyle } from "./vaultProxy";
 
-export type VaultClient = { id: string; name: string | null; at: number };
-export type VaultUse = { id: string; name: string | null; count: number; at: number; method: string; path: string };
+/** Whose AI a record is (`by`), their name ("You" for the reader), and whether it is the reader's. */
+type Whose = { by?: string; byName?: string; mine?: boolean };
+export type VaultClient = { id: string; name: string | null; at: number } & Whose;
+export type VaultUse = { id: string; name: string | null; count: number; at: number; method: string; path: string } & Whose;
+export type VaultLevel = "use" | "see";
+/** One person, group or the whole workspace a key is given to; the saver first. */
+export type VaultShareRow = {
+  to: string;
+  kind: "person" | "group" | "everyone";
+  name: string;
+  handle: string | null;
+  /** How many people a group or the workspace reaches; null for a person. */
+  count: number | null;
+  level: VaultLevel;
+  at: number;
+  isYou: boolean;
+};
 export type VaultEntry = {
   entryId: string;
   type: "login" | "secret";
@@ -32,12 +47,30 @@ export type VaultEntry = {
   } | null;
   savedAt: number;
   savedByYou: boolean;
+  /** Who saved it ("You" for the reader). */
+  savedBy?: string;
+  /** How much of it the reader has: their AIs use it, or they see it too. */
+  level?: VaultLevel;
+  /** Whether the reader may give it, take it back, and cut anybody's AI off. */
+  manage?: boolean;
+  /** Who gave it to the reader, or null for the saver. */
+  givenBy?: string | null;
+  /** Given to the reader by name, so they can hand it back. */
+  givenToYou?: boolean;
+  /** Who has it; only for somebody who may manage it. */
+  people?: VaultShareRow[];
 };
 
-export type VaultFilter = "all" | "ai" | "logins" | "stale";
+/** Whether the reader may give the key and see everybody's AIs; older lists: whoever saved it. */
+export function mayManage(entry: VaultEntry): boolean {
+  return entry.manage ?? entry.savedByYou;
+}
+
+export type VaultFilter = "all" | "ai" | "given" | "logins" | "stale";
 export const VAULT_FILTERS: { key: VaultFilter; label: string }[] = [
   { key: "all", label: "All" },
   { key: "ai", label: "Used by AIs" },
+  { key: "given", label: "Given to others" },
   { key: "logins", label: "Logins" },
   { key: "stale", label: "Not used in 90 days" },
 ];
@@ -91,6 +124,7 @@ export function lastUse(entry: VaultEntry): VaultUse | null {
 /** Whether a key is shown under a filter chip. */
 export function inFilter(entry: VaultEntry, filter: VaultFilter, now: Date = new Date()): boolean {
   if (filter === "ai") return entry.proxy !== null;
+  if (filter === "given") return entry.shared;
   if (filter === "logins") return entry.type === "login";
   if (filter === "stale") {
     const last = lastUse(entry)?.at ?? entry.savedAt;
@@ -121,7 +155,15 @@ export function vaultRowPill(entry: VaultEntry, now: Date = new Date()): { text:
 
 /** The detail's line under the name. */
 export function vaultSavedLine(entry: VaultEntry, now: Date = new Date()): string {
-  return `Saved ${entry.savedByYou ? "by you " : ""}on ${vaultDay(entry.savedAt, now)}`;
+  if (entry.savedByYou || entry.savedBy === undefined) return `Saved ${entry.savedByYou ? "by you " : ""}on ${vaultDay(entry.savedAt, now)}`;
+  if (entry.givenBy) return `Given to you by ${entry.givenBy}${entry.level === "use" ? " · for your AIs" : ""}`;
+  return `Saved by ${entry.savedBy} on ${vaultDay(entry.savedAt, now)}`;
+}
+
+/** An AI's name as somebody else reads it: "Sayo's Claude Code". */
+export function whoseAI(record: { name: string | null } & Whose): string {
+  const name = record.name ?? "An AI";
+  return record.mine === false && record.byName ? `${record.byName}'s ${name}` : name;
 }
 
 /** The detail's first sentence for a key AIs may use: how it is sent. */
@@ -132,14 +174,14 @@ export function vaultPinLine(proxy: NonNullable<VaultEntry["proxy"]>): string {
 
 /** An AI's line under "AIs that can use it": the day of the yes and how often it used the key. */
 export function vaultClientLine(client: VaultClient, uses: VaultUse[] = [], now: Date = new Date()): string {
-  const count = uses.find((use) => use.id === client.id)?.count ?? 0;
+  const count = uses.find((use) => use.id === client.id && use.by === client.by)?.count ?? 0;
   const used = count === 0 ? "" : count === 1 ? " · used once" : ` · used ${count} times`;
-  return `You said yes ${vaultDay(client.at, now)}${used}`;
+  return `${client.mine === false && client.byName ? client.byName : "You"} said yes ${vaultDay(client.at, now)}${used}`;
 }
 
 /** An AI the person said no to. */
 export function vaultRefusedLine(refusal: VaultClient, now: Date = new Date()): string {
-  return `You said no ${vaultDay(refusal.at, now)}`;
+  return `${refusal.mine === false && refusal.byName ? refusal.byName : "You"} said no ${vaultDay(refusal.at, now)}`;
 }
 
 /** What the AIs list says when nobody is on it. */
@@ -176,7 +218,7 @@ function decodeURIComponentSafe(part: string): string {
 export function vaultLastUsedLine(entry: VaultEntry, now: Date = new Date()): string | null {
   const last = lastUse(entry);
   if (last === null || entry.proxy === null) return null;
-  const who = last.name ?? "An AI";
+  const who = whoseAI(last);
   const subject = subjectOf(last.path);
   const verb = last.method === "GET" || last.method === "HEAD" ? "read" : last.method === "DELETE" ? "deleted from" : "wrote to";
   const what = subject === null ? entry.proxy.host : `your ${subject}`;

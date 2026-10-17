@@ -16,6 +16,7 @@
 import { listAllKeysWithLegacy } from "../notes/storage.js";
 import { getWithLegacyFallback } from "../storageLayout.js";
 import { PENDING_PREFIX } from "../tools/approvalKeys.js";
+import { belongsTo } from "./access.js";
 import { changeMeta } from "./entries.js";
 
 /** How many AIs one key remembers uses and refusals for. */
@@ -39,19 +40,22 @@ export async function noteUse(store, entryId, { method, path, now = Date.now() }
   const clientId = clientOf(store?.actor);
   const keys = store?.encryptionKey;
   if (clientId === null || !keys || store?.capabilities?.conditionalWrite === false) return false;
+  const userId = store.actor.userId;
   const written = await changeMeta(store, keys, store.actor.workspaceId, entryId, (meta) => {
     if (!meta?.proxy) return null;
     const uses = Array.isArray(meta.proxy.uses) ? meta.proxy.uses : [];
-    const earlier = uses.find((use) => use?.id === clientId);
+    const mine = (use) => use?.id === clientId && belongsTo(use, userId, meta);
+    const earlier = uses.find(mine);
     const use = {
       id: clientId,
+      ...(typeof userId === "string" && userId.length > 0 ? { by: userId } : {}),
       name: nameOf(store.actor.client) ?? earlier?.name ?? null,
       count: (Number.isFinite(earlier?.count) ? earlier.count : 0) + 1,
       at: now,
       method: typeof method === "string" ? method.toUpperCase().slice(0, 8) : "GET",
       path: keptPath(path),
     };
-    const rest = uses.filter((other) => other?.id !== clientId);
+    const rest = uses.filter((other) => !mine(other));
     return { ...meta, proxy: { ...meta.proxy, uses: [...rest, use].slice(-MAX_TRACKED) } };
   });
   return written.meta != null;
@@ -68,10 +72,13 @@ export async function noteRefusal(store, record, { now = Date.now() } = {}) {
   const workspaceId = store?.actor?.workspaceId;
   if (clientId === null || typeof entryId !== "string" || !keys || typeof workspaceId !== "string") return false;
   if (store?.capabilities?.conditionalWrite === false) return false;
+  const userId = record?.actor?.userId;
   const written = await changeMeta(store, keys, workspaceId, entryId, (meta) => {
     if (!meta?.proxy) return null;
-    const refused = (Array.isArray(meta.proxy.refused) ? meta.proxy.refused : []).filter((no) => no?.id !== clientId);
-    const entry = { id: clientId, name: nameOf(record.actor.client), at: now };
+    const refused = (Array.isArray(meta.proxy.refused) ? meta.proxy.refused : []).filter(
+      (no) => !(no?.id === clientId && belongsTo(no, userId, meta)),
+    );
+    const entry = { id: clientId, name: nameOf(record.actor.client), at: now, ...(typeof userId === "string" ? { by: userId } : {}) };
     return { ...meta, proxy: { ...meta.proxy, refused: [...refused, entry].slice(-MAX_TRACKED) } };
   });
   return written.meta != null;

@@ -41,7 +41,7 @@ export async function openForFill(store, _scope, { entryId, origin, field, env }
   if (meta === null) throw new VaultRefused("not_found");
   // One answer for "not yours" and "not there" would hide nothing here: the
   // caller is the fill step, which already holds an id from vault_list.
-  if (!mayUse(meta, userId)) throw new VaultRefused("not_yours");
+  if (!mayUse(meta, userId, store.actor?.groups)) throw new VaultRefused("not_yours");
   if (!siteMatches(meta.sites, origin)) throw new VaultRefused("wrong_site");
   if (field === undefined && entryType(meta) !== "login") throw new VaultRefused("no_field");
   let secret;

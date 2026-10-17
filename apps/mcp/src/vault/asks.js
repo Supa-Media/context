@@ -21,6 +21,7 @@
 
 import { createPending, findPending } from "../tools/approvals.js";
 import { recordChange } from "../activity/record.js";
+import { belongsTo } from "./access.js";
 import { changeMeta, mayUse, readMeta, writeMeta } from "./entries.js";
 
 export const VAULT_USE = "vault_use";
@@ -51,9 +52,12 @@ export async function firstUseAllowed(store, { entryId, meta, pin, now = Date.no
   if (clientId === null) {
     return { allowed: false, code: "needs_yes", message: "This connection can't be asked about, so Context will not add the key for it." };
   }
+  // A yes is the yes of the person who gave it: the same app of somebody
+  // else the key was given to is asked afresh, by that person.
+  const userId = actor.userId;
   const clients = Array.isArray(meta.proxy.clients) ? meta.proxy.clients : [];
-  if (clients.some((client) => client?.id === clientId)) return { allowed: true };
-  if (onceGrant(meta, clientId, now) && (await spendOnce(store, { entryId, clientId, now }))) return { allowed: true };
+  if (clients.some((client) => client?.id === clientId && belongsTo(client, userId, meta))) return { allowed: true };
+  if (onceGrant(meta, clientId, userId, now) && (await spendOnce(store, { entryId, clientId, userId, now }))) return { allowed: true };
   const args = askArgs(entryId, clientId);
   const waiting = await findPending(store, { name: "vault_list", args, userId: actor.userId, now });
   if (!waiting) {
@@ -79,9 +83,9 @@ export async function firstUseAllowed(store, { entryId, meta, pin, now = Date.no
   return { allowed: false, code: "needs_yes", message: WAITING("the person") };
 }
 
-function onceGrant(meta, clientId, now) {
+function onceGrant(meta, clientId, userId, now) {
   const once = Array.isArray(meta?.proxy?.once) ? meta.proxy.once : [];
-  return once.find((grant) => grant?.id === clientId && Number(grant?.until) > now) ?? null;
+  return once.find((grant) => grant?.id === clientId && belongsTo(grant, userId, meta) && Number(grant?.until) > now) ?? null;
 }
 
 /** Whether the storage can promise a "just this once" is spent once. */
@@ -94,10 +98,10 @@ function spendsSafely(store) {
  * that nobody spent it first: of two requests racing on one grant, the one
  * whose write lands goes, and the other finds the grant gone and asks again.
  */
-async function spendOnce(store, { entryId, clientId, now }) {
+async function spendOnce(store, { entryId, clientId, userId, now }) {
   if (!spendsSafely(store)) return false;
   const spent = await changeMeta(store, store.encryptionKey, store.actor.workspaceId, entryId, (fresh) => {
-    const mine = onceGrant(fresh, clientId, now);
+    const mine = onceGrant(fresh, clientId, userId, now);
     if (!mine) return null;
     const rest = fresh.proxy.once.filter((grant) => grant !== mine && Number(grant?.until) > now);
     return { ...fresh, proxy: { ...fresh.proxy, once: rest } };
@@ -120,7 +124,8 @@ export async function grantUse(store, record, choice, { userId, now = Date.now()
     return { ok: false, text: "That key could not be opened." };
   }
   const meta = await readMeta(store, keys, workspaceId, entryId);
-  if (meta === null || !mayUse(meta, userId) || !meta.proxy) return { ok: false, text: "That key is gone, or no longer yours to use." };
+  const groups = store.actor?.userId === userId ? store.actor?.groups : [];
+  if (meta === null || !mayUse(meta, userId, groups) || !meta.proxy) return { ok: false, text: "That key is gone, or no longer yours to use." };
   if (choice === "once" && !spendsSafely(store)) {
     return {
       ok: false,
@@ -128,13 +133,16 @@ export async function grantUse(store, record, choice, { userId, now = Date.now()
     };
   }
   const proxy = { ...meta.proxy };
+  // Only this person's own record for this AI is replaced; another person's
+  // yes for the same app stays theirs.
+  const theirs = (record) => record?.id === clientId && belongsTo(record, userId, meta);
   if (choice === "always") {
-    const clients = (Array.isArray(proxy.clients) ? proxy.clients : []).filter((client) => client?.id !== clientId);
-    proxy.clients = [...clients, { id: clientId, name: record.actor.client ?? null, at: now }].slice(-MAX_CLIENTS);
-    if (Array.isArray(proxy.refused)) proxy.refused = proxy.refused.filter((no) => no?.id !== clientId);
+    const clients = (Array.isArray(proxy.clients) ? proxy.clients : []).filter((client) => !theirs(client));
+    proxy.clients = [...clients, { id: clientId, name: record.actor.client ?? null, at: now, by: userId }].slice(-MAX_CLIENTS);
+    if (Array.isArray(proxy.refused)) proxy.refused = proxy.refused.filter((no) => !theirs(no));
   } else {
-    const once = (Array.isArray(proxy.once) ? proxy.once : []).filter((grant) => grant?.id !== clientId && Number(grant?.until) > now);
-    proxy.once = [...once, { id: clientId, until: now + ONCE_TTL_MS }];
+    const once = (Array.isArray(proxy.once) ? proxy.once : []).filter((grant) => !theirs(grant) && Number(grant?.until) > now);
+    proxy.once = [...once, { id: clientId, until: now + ONCE_TTL_MS, by: userId }];
   }
   await writeMeta(store, keys, workspaceId, entryId, { ...meta, proxy, updatedAt: now });
   await recordChange(store, "vault_use_allowed", "private", [], {

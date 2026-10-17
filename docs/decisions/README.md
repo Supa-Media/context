@@ -690,6 +690,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The autofill vault lives sealed in the person's bucket
 - [A login is sealed in the workspace's own bucket, and only the fill step opens it](./texting-assistant/vault.md)
 - [Personal logins stay personal; a shared workspace's vault is shared login by login](./texting-assistant/vault.md)
+- [A key is given to a person, a group or everyone, to use or to see](./texting-assistant/vault.md)
 - [Saving and sharing are a person's action on a signed-in page; an agent only asks](./texting-assistant/vault.md)
 - [A vault holds secrets too: named fields, most with a value for dev, staging and prod](./texting-assistant/vault.md)
 - [An AI uses a key without seeing it; a vault entry is a Markdown note under `.context/vault/`](./texting-assistant/vault.md)
