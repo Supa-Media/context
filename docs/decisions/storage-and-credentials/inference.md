@@ -7,6 +7,20 @@ text to Jev (TypeSafe's decision model, `typesafe/jev` on Cloudflare Workers
 AI) to ask typed questions about it, and the feature is on by default for
 Premium.
 
+**Auto-organize and What changed removed by the owner, 2026-10-17:** "remove
+'app assistant' that doesnt exist right now, remove auto organize and whats
+changed, all of those should be deleted and thrown away, no way to access it
+in the app and not in use". Their sweeps, cards, team routing ("For your
+teams"), screens, cron, Jev features (`organizer`, `whatChanged`) and the
+Worker's `/extract` route are gone. What stays of this decision is the seam
+itself, which the features below still use: owner suggestions and the icon
+picker's suggested emoji ask Clef through `/decide`. The `organizerSettings`
+table keeps its definition only until it is emptied
+(`functions/retiredTables.ts`); the old `.context/organizer/state.json` in
+customer buckets is the customer's and is left where it is. Usage rows under
+the two feature names still read in the AI costs report, labelled as removed
+(`RETIRED_JEV_FEATURE_LABELS`).
+
 **Model changed by the owner, 2026-10-05:** from Jev to Clef, Cloudflare's own
 decision model (`@cf/cloudflare/clef`). Same typed questions and answers, a
 64K-token window, and Cloudflare states it does not read, store or train on
@@ -17,7 +31,7 @@ usage rows and switches are keyed by it.
 
 What happens to the text, in order:
 
-1. A sweep reads notes inside the one credential barrier
+1. A feature reads a note inside the one credential barrier
    (`files.runFileOperation`), the same way every console read does.
 2. The control plane posts one note's text and a few questions to the
    inference Worker's `/decide` route (`infra/transcribe-worker`). The
@@ -27,9 +41,10 @@ What happens to the text, in order:
 3. The Worker logs counts only. Workers AI retains nothing for this model
    (zero data retention: checked for Jev on 2026-09-26, and for Clef in
    Cloudflare's announcement on 2026-10-05).
-4. What the feature concludes, which names notes, is written to the customer's
-   own bucket (`.context/organizer/state.json`). The control plane keeps
-   switches and counters, never a path or a title.
+4. Anything a feature keeps that names notes is written to the customer's
+   own bucket under `.context/`. The control plane keeps switches and
+   counters, never a path or a title. (Owner and icon suggestions keep
+   nothing: the answer is shown and dropped.)
 
 **Why this is not a fourth entry in non-negotiable #2.** That list names what
 *holds* customer data in an account of ours. Meeting transcription already
@@ -58,9 +73,9 @@ is sent with the names the picker would offer anyway, and Jev picks one or
 "none of these". Nothing of it is stored; the answer is shown, and written
 only if the editor picks it ([folder lists](../folder-lists.md)).
 
-Encrypted notes never reach it. The control plane holds no key, and a sweep
-skips anything it reads as ciphertext. A note with `organize: off` in its
-frontmatter is skipped too.
+Encrypted notes never reach it. The control plane holds no key, and anything
+read as ciphertext is skipped. A note with `organize: off` in its frontmatter
+is skipped too.
 
 ## Every use of Jev goes through Jev smarts
 
@@ -86,56 +101,29 @@ goes through it, and it can collect usage and cost and be switched off.
 - **The daily cap** is enforced from the meter, so a bug in a feature cannot
   become a bill.
 
-A feature ships with `onByDefault: false` until its screens are live.
-Auto-organize shipped off in the registry until its app screens merged, then on. While a
-feature is off it does not exist: `organizerAvailable` reads the switch, so
-there is no notice, no sweep and no write.
+A feature ships with `onByDefault: false` until its screens are live. While a
+feature is off it does not exist: no screen offers it and nothing is read.
 
-## "What changed" uses a writing model, and nothing it writes is trusted
+A removed feature's name leaves `JEV_FEATURES` for `RETIRED_JEV_FEATURE_LABELS`
+(`lib/jev/features.ts`): the gate and the switches refuse it, and the AI costs
+report still lists its old usage rows so the features add up to the total
+(`apps/convex/__tests__/aiCostsReport.test.ts`, "a removed feature's old rows
+still count"; `jev.test.ts`, "auto-organize and What changed are gone from the
+registry").
 
-**Decided by the owner, 2026-10-05:** organizing should follow what arrives
-in the inbox (meetings, mail and chat days, saved AI chats) and work out what
-changed: somebody left, the focus moved, a project finished. Clef cannot say
-that; it only picks from options it is given. So "What changed" uses a
-generative model, the cheapest capable one the owner asked for, chosen by
-score rather than by name: GLM-4.7 Flash on Workers AI
-(`@cf/zai-org/glm-4.7-flash`, $0.06 per million tokens in and $0.40 out, a
-131K window; Cloudflare's price list, checked 2026-10-05). On the live What
-changed score it answered every arrival and scored 100%; Gemma 4 26B ($0.10 /
-$0.30), the first pick on price, returned unreadable answers for half of them
-and scored 33%. Both run on Cloudflare's own GPUs from open weights, so no
-third party sees the text, and Cloudflare states it does not train on or keep
-Workers AI requests (its data-usage page, checked 2026-10-05). A model only
-becomes the default by clearing the live score's bar.
+## "What changed" used a writing model (removed 2026-10-17)
 
-What is the same as for Clef: the text goes through the inference Worker
-(its `/extract` route), in flight, logged as counts only, never echoed in an
-error, and every call goes through `withJev` (feature `whatChanged`: off
-until its cards ship, 100 calls per workspace per day, priced from the model's
-own token counts). What the feature concludes is written to the customer's
-own bucket (`.context/organizer/state.json`), never to the control plane.
-
-What is new, because a model that writes can write anything:
-
-- **The model's answer is re-checked field by field**
-  (`mcp/src/organizer/changes.js`, `readChanges`). A step may only name a note
-  the map listed, only archive or set `owner`, `priority` or `status`, and only
-  to a value from the lists the model was shown. A step that changes nothing
-  is dropped.
-- **Every change quotes the arrival, word for word, or it is dropped.** The
-  quote is what a person reads before pressing Apply.
-- **A change card is only ever a proposal.** The "without asking" switches
-  never apply one. Mail is written by strangers, and the arrival is marked as
-  data the model must not take orders from, but the guarantee is the press,
-  not the prompt.
-- **Each arrival is read once.** A mark in the state file moves past an
-  arrival only when it and everything before it was answered.
-
-**What a simplification would cost:** trusting a step's path or value would
-let a sentence in an email archive or reassign any project; letting a card be
-applied without a press would make that automatic. The tests that fail are in
-`apps/convex/__tests__/organizerChanges.test.ts`; the score against the real
-models is `organizerChanges.live.test.ts`, run by "Organizer Eval (live)".
+Decided by the owner, 2026-10-05, and removed by the owner with the rest of
+auto-organize on 2026-10-17 (quoted at the top of this file). It read what
+arrived in the inbox with a generative model (GLM-4.7 Flash on Workers AI,
+through the Worker's `/extract` route) and proposed changes as cards. The
+route, the writing half of `withJev` and the feature are deleted; the Worker
+answers `/extract` with a 404 (`infra/transcribe-worker/src/decide.test.ts`,
+"has no /extract"). The rules it was held to stand for any feature that
+brings a writing model back, and that is a new decision: re-check the model's
+answer field by field, keep only changes that quote their source word for
+word, never apply one without a person's press, and treat text from mail as
+data, never as orders.
 
 ## Meaning fingerprints for the icon picker (`/embed`)
 
