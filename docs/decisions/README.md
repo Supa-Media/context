@@ -73,6 +73,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Storage we run is offered wherever a context is made, personal or shared
 - What is deliberately not built
 - The free managed tier
+- Founding Premium: the first 100 accounts
 
 ## [Identity, grants, invitations, and ingestion](./identity-and-access.md)
 

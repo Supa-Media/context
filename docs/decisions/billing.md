@@ -502,3 +502,38 @@ paid bucket where it can only sell one, and only a bucket of their own where it
 can do neither. A bucket somebody brought gets a dry-run report before the vault
 question, and it says what the probe did: one temporary object written under
 `.context/probes/` and removed — never "nothing was written".
+
+## Founding Premium: the first 100 accounts (2026-10-17)
+
+Decided by the owner (Dev2): "Our first 100 people are going to be considered
+premium … because they're using the app and we need the data." That includes
+Tex's dreams, which need Premium and the built-in model.
+
+**Granted to the account, once, in creation order.** A `foundingPremium` row
+per grant, capped at `FOUNDING_PREMIUM_ACCOUNTS` (100,
+`apps/convex/functions/lib/billing/founding.ts`). Every new account schedules a
+walk that grants each account still owed one, oldest first, so accounts made
+before this shipped come ahead of new sign-ups (an operator can run the same
+walk: `foundingPremium:catchUp`). Mutations are serializable, so the 101st
+grant cannot be written. The row is never deleted, not even with its account:
+the cap counts grants ever made, so a founder leaving frees no slot and no
+other account's standing moves. Staff (`ADMIN_EMAILS`), the production CUJ
+account, the directory reviewer and the staging personas take no slot.
+
+**What it gives is an active plan on the personal workspace**, through the
+same activation the staging upgrade uses, marked `founding: true`. Every
+Premium gate already reads exactly that (the built-in model, dreams, usage,
+websites, domains), so there is no second notion of Premium
+for a new gate to forget. A plan still belongs to a workspace: a shared
+workspace the founder makes later pays as any other. Nothing is charged — no
+checkout opens on an active plan — and a Stripe event can never lower a
+founding plan below active (`foundingStatus`), so a founder who was already
+paying keeps Premium after cancelling in the portal; we never cancel their
+subscription for them. Nothing here deletes anything or touches the exit.
+
+**What a simplification would cost:** counting live accounts instead of grant
+rows lets a deletion promote account 101; checking an account flag inside each
+gate instead of the plan leaves the next gate free-for-founders by omission;
+granting without the oldest-first walk hands slots to whoever signs up next
+rather than to the people already using it. Tests:
+`apps/convex/__tests__/billing/founding.test.ts`.
