@@ -108,6 +108,7 @@ import { FilterTokens, type PaletteFilters } from "./PaletteFilterTokens";
 
 import { PaletteMatchRow, isRich, richListHeight, rowHeight, rowTop } from "./PaletteResultRow";
 import { PaletteFoot, PaletteSplit, previewPane } from "./PaletteFoot";
+import { PaletteHeading } from "./PaletteHeading";
 
 export { POINTER_ROW_HEIGHT, TOUCH_ROW_HEIGHT, highlightRuns, secondLine } from "./PaletteRow";
 
@@ -637,19 +638,7 @@ export function Palette({
   );
 
   const heading =
-    emptyHeading && notes && query.trim() === "" && found > 0 ? (
-      <View style={styles.headingRow}>
-        <Text variant="eyebrow" style={styles.heading} testID="palette-heading">
-          {emptyHeading}
-        </Text>
-        {emptyNote === undefined ? null : (
-          <Text variant="rowSub" numberOfLines={1} style={styles.headingNote} testID="palette-heading-note">
-            {emptyNote}
-          </Text>
-        )}
-      </View>
-    ) : null;
-
+    emptyHeading && notes && query.trim() === "" && found > 0 ? <PaletteHeading heading={emptyHeading} note={emptyNote} /> : null;
 
   /* ------------------------------ the sheet ------------------------------ */
 
