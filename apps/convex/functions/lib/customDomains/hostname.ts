@@ -126,13 +126,16 @@ export function describeHostnameRejection(reason: HostnameRejection): string {
  *
  * Most providers want `docs` for `docs.acme.com` and `@` for the apex; showing
  * the full name makes some of them create `docs.acme.com.acme.com`. We cannot
- * know where the customer's zone starts (`acme.co.uk`), so this assumes the
- * registrable domain is the last two labels, and the screen shows the full name
- * beside it for the cases where that is wrong.
+ * always know where the customer's zone starts (`acme.co.uk`): `zone` is the
+ * one public DNS reported (`survey.ts`), and without it this assumes the last
+ * two labels, and the screen shows the full name beside it for the cases where
+ * that is wrong.
  */
-export function relativeRecordName(fullName: string, hostname: string): string {
-  const labels = hostname.split(".");
-  const zone = labels.slice(-2).join(".");
+export function relativeRecordName(fullName: string, hostname: string, knownZone?: string | null): string {
+  const zone =
+    typeof knownZone === "string" && (hostname === knownZone || hostname.endsWith(`.${knownZone}`))
+      ? knownZone
+      : hostname.split(".").slice(-2).join(".");
   if (fullName === zone) return "@";
   if (fullName.endsWith(`.${zone}`)) return fullName.slice(0, -(zone.length + 1));
   return fullName;

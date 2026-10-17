@@ -49,7 +49,30 @@ export interface DomainView {
   oneClick: OneClick | null;
   /** A root domain's `www.`, which sends visitors to the root once it is live. */
   www: WwwView | null;
+  /** Where the domain's zone starts, when public DNS said. */
+  zone: string | null;
+  /** The company that runs the domain's DNS, from its name servers. */
+  dnsHost: DnsHost | null;
+  /** Owner only, while pending: what is in the way. */
+  hints: DomainHint[];
+  /** Owner only, for `www.<root>` connected on its own: the root's forwarding. */
+  forwarding: { root: string; forwards: boolean | null } | null;
+  /** Owner only: the steps were emailed to this address. */
+  stepsSent: { to: string; at: number } | null;
 }
+
+export interface DnsHost {
+  key: string;
+  name: string;
+}
+
+/** What public DNS says is in the way. See `survey.ts` in the control plane. */
+export type DomainHint =
+  | { code: "DOUBLED_OWNERSHIP"; name: string }
+  | { code: "DOUBLED_ROUTING"; name: string }
+  | { code: "PROXIED" }
+  | { code: "CAA_BLOCKS"; name: string }
+  | { code: "POINTS_ELSEWHERE"; site: string | null; value: string | null };
 
 /**
  * A root domain's `www.`. It has its own certificate, so it can still be on
@@ -330,7 +353,12 @@ export function describeDomainFailure(error: unknown): { field?: string; form?: 
     case "PREMIUM_REQUIRED":
     case "NOT_CONFIGURED":
     case "LINK_NOT_FOUND":
+    case "NOTHING_TO_SEND":
+    case "RATE_LIMITED":
       return { form: message ?? "That didn't go through." };
+    case "INVALID_EMAIL":
+    case "INVALID_NOTE":
+      return { field: message ?? "Check that and try again." };
     default:
       return { form: "That did not go through. Check your connection and try again." };
   }

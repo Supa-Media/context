@@ -35,6 +35,11 @@ const base: DomainView = {
   records: [],
   oneClick: null,
   www: null,
+  zone: null,
+  dnsHost: null,
+  hints: [],
+  forwarding: null,
+  stepsSent: null,
 };
 
 describe("what somebody types", () => {

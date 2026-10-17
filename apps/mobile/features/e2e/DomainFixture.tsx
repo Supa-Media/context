@@ -11,7 +11,22 @@ import type { DomainActions, DomainPanelView } from "../console/domain/useDomain
  * reviewing the design in a browser. `?screen=domain&at=<state>` (`oneclick` is a provider with our template).
  */
 const noop = async () => {};
-const ACTIONS: DomainActions = { connect: noop, checkNow: noop, setHomepage: noop, remove: noop };
+/** What looking a domain up answers here: `acme-sq.com` has a Squarespace site on www, anything else is at GoDaddy. */
+const lookup: DomainActions["lookup"] = async (hostname) => {
+  const squarespace = hostname.includes("acme-sq");
+  const zone = hostname.split(".").slice(-2).join(".");
+  return {
+    ok: true,
+    hostname,
+    zone,
+    apex: hostname === zone,
+    dnsHost: squarespace ? { key: "squarespace", name: "Squarespace" } : { key: "godaddy", name: "GoDaddy" },
+    rootCanPoint: false,
+    current: squarespace ? { kind: "empty" } : { kind: "parked" },
+    wwwCurrent: squarespace ? { kind: "site", site: "Squarespace" } : { kind: "parked" },
+  };
+};
+const ACTIONS: DomainActions = { connect: noop, checkNow: noop, setHomepage: noop, remove: noop, lookup, emailSteps: noop };
 
 const RECORDS = (host: string, apex: boolean, found: { routing: boolean; ownership: boolean }) => [
   {
@@ -63,6 +78,11 @@ function domain(over: Partial<DomainView> = {}): DomainView {
     records: RECORDS(hostname, apex, { routing: false, ownership: false }),
     oneClick: null,
     www: null,
+    zone: null,
+    dnsHost: null,
+    hints: [],
+    forwarding: null,
+    stepsSent: null,
     ...over,
   };
 }
@@ -131,6 +151,41 @@ function viewFor(at: string | undefined): DomainPanelView {
             routingVerified: true,
             httpsReady: true,
             homeSlug: "intake",
+          }),
+        },
+      };
+    case "company":
+      return {
+        ...base,
+        settings: {
+          ...settings,
+          domain: domain({
+            hostname: "www.mayaokafor.com",
+            zone: "mayaokafor.com",
+            dnsHost: { key: "godaddy", name: "GoDaddy" },
+            forwarding: { root: "mayaokafor.com", forwards: null },
+            records: RECORDS("www.mayaokafor.com", false, { routing: false, ownership: false }).map((record) =>
+              record.purpose === "ownership" ? { ...record, host: "_context.www" } : record,
+            ),
+          }),
+        },
+      };
+    case "hints":
+      return {
+        ...base,
+        settings: {
+          ...settings,
+          domain: domain({
+            hostname: "blog.danielle.studio",
+            zone: "danielle.studio",
+            dnsHost: { key: "cloudflare", name: "Cloudflare" },
+            stepsSent: { to: "ade@adeolu.design", at: Date.now() - 3_600_000 },
+            records: RECORDS("blog.danielle.studio", false, { routing: false, ownership: false }),
+            hints: [
+              { code: "DOUBLED_OWNERSHIP", name: "_context.blog.danielle.studio.danielle.studio" },
+              { code: "PROXIED" },
+              { code: "CAA_BLOCKS", name: "danielle.studio" },
+            ],
           }),
         },
       };

@@ -25,6 +25,8 @@ import {
 } from "../../domain/domain";
 import type { DomainActions, DomainPanelView, HomepageChoice } from "../../domain/useDomain";
 import { useDomain } from "../../domain/useDomain";
+import { ForwardingStep } from "./DomainHelp";
+import { chosenHostname, initialChoice, LookupResult, useDomainLookup } from "./DomainLookup";
 import { CheckLine, DomainSetup } from "./DomainSetup";
 import { PanelHead } from "./PanelHead";
 import { LiveWebsiteCard, WebsiteCard, WebsiteViewOverride } from "./WebsiteCard";
@@ -64,6 +66,11 @@ const DEMO_DOMAIN_VIEW: DomainPanelView = {
       records: [],
       oneClick: null,
       www: null,
+      zone: null,
+      dnsHost: null,
+      hints: [],
+      forwarding: null,
+      stepsSent: null,
     },
   },
 };
@@ -236,10 +243,17 @@ function ConnectForm({ actions }: { actions: DomainActions }) {
   const [fieldError, setFieldError] = useState<string | undefined>();
   const [formError, setFormError] = useState<string | undefined>();
   const cleaned = cleanDomainInput(value);
+  const found = useDomainLookup(actions, cleaned);
+  // Which address to connect, once the lookup has answered for this spelling.
+  const [picked, setPicked] = useState<{ for: string; value: string } | null>(null);
+  const [part, setPart] = useState("");
+  const choice =
+    found === null ? null : picked !== null && picked.for === found.hostname ? picked.value : initialChoice(found);
+  const target = chosenHostname(found, cleaned, choice, part);
 
   async function connect() {
-    if (busy || cleaned === "") return;
-    const shape = domainShapeProblem(cleaned);
+    if (busy || target === "") return;
+    const shape = domainShapeProblem(target);
     if (shape !== null) {
       setFieldError(shape);
       return;
@@ -247,7 +261,7 @@ function ConnectForm({ actions }: { actions: DomainActions }) {
     setBusy(true);
     setFormError(undefined);
     try {
-      await actions.connect(cleaned);
+      await actions.connect(target);
     } catch (error) {
       const failure = describeDomainFailure(error);
       setFieldError(failure.field);
@@ -276,13 +290,27 @@ function ConnectForm({ actions }: { actions: DomainActions }) {
         returnKeyType="go"
         onSubmitEditing={() => void connect()}
         error={fieldError}
-        hint={fieldError === undefined ? "A domain you own. A subdomain like docs.acme.com is simplest." : undefined}
+        hint={
+          fieldError === undefined && found === null
+            ? "A domain you own, like mayaokafor.com. We look it up as you type."
+            : undefined
+        }
         testID="domain-input"
       />
+      {found !== null ? (
+        <LookupResult
+          found={found}
+          choice={choice}
+          onChoose={(next) => setPicked({ for: found.hostname, value: next })}
+          part={part}
+          onPart={setPart}
+          chosen={target}
+        />
+      ) : null}
       <Button
-        label={busy ? "Connecting…" : "Connect"}
+        label={busy ? "Connecting…" : target !== "" && target !== cleaned ? `Connect ${target}` : "Connect"}
         variant="accent"
-        disabled={busy || cleaned === ""}
+        disabled={busy || target === ""}
         style={styles.connect}
         onPress={() => void connect()}
         testID="domain-connect-button"
@@ -344,6 +372,7 @@ function DomainCard({
               <WwwPill www={domain.www} />
             </Row>
           ) : null}
+          {owner ? <ForwardingStep domain={domain} /> : null}
           {/* Live is not the end of checking: a `www.` can still be on its
               way, and a live domain can lose its records. */}
           {owner ? <CheckLine domain={domain} actions={actions} /> : null}

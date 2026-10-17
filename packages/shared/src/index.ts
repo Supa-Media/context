@@ -298,3 +298,4 @@ export {
 
 /** Website designs: layouts, stylesheets and the sanitizers they are drawn through. */
 export * from "./siteDesign";
+export { dnsHostSteps, rootRecordType, type DnsHostSteps } from "./dnsHosts";

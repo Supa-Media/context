@@ -32,6 +32,11 @@ export interface FakeRegistration {
 export function stubWorld() {
   const registrations = new Map<string, FakeRegistration>();
   const txt = new Map<string, string[]>();
+  /**
+   * Typed answers, `"<name>|<TYPE>"` → records, for the survey's questions
+   * (SOA, NS, A, CNAME, CAA). Checked before `txt`; anything else is empty.
+   */
+  const dns = new Map<string, { name?: string; type: number; data: string }[]>();
   const calls: { method: string; url: string }[] = [];
   let nextId = 1;
   const failures = { deleteFails: false, providerDown: false };
@@ -50,7 +55,16 @@ export function stubWorld() {
     calls.push({ method, url });
     if (url.startsWith("https://cloudflare-dns.com/dns-query")) {
       const name = new URL(url).searchParams.get("name") ?? "";
-      const values = txt.get(name) ?? [];
+      const type = new URL(url).searchParams.get("type") ?? "";
+      const typed = dns.get(`${name}|${type}`);
+      if (typed !== undefined) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ Status: 0, Answer: typed.map((record) => ({ name: record.name ?? name, ...record })) }),
+        };
+      }
+      const values = type === "TXT" || type === "" ? (txt.get(name) ?? []) : [];
       return {
         ok: true,
         status: 200,
@@ -106,6 +120,7 @@ export function stubWorld() {
   return {
     registrations,
     txt,
+    dns,
     calls,
     failures,
     hosts,
