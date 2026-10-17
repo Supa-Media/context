@@ -14,9 +14,8 @@ import {
 } from "./homeModel";
 import type { HomeSource } from "./useHomeSource";
 import { useHomeTag } from "./homeTag";
-import { AddFolderLine, Card, FolderLine, NoteRow, PinnedNote, Section, type HoldPoint } from "./homeRows";
-import { ChaosHomeLine } from "../../chaos/ChaosHomeLine";
-import { TrashHomeLine } from "../trash/TrashEntry";
+import { Card, FolderLine, NoteRow, PinnedNote, Section, type HoldPoint } from "./homeRows";
+import { INBOX_FOLDER } from "./homeView";
 
 const whenOf = (at: number | undefined, now: number) => (at === undefined ? "" : whenLabel(at, now));
 
@@ -24,15 +23,21 @@ const whenOf = (at: number | undefined, now: number) => (at === undefined ? "" :
  * The phone's Folders page: what Home was, opened from Inbox's All.
  *
  * Approved by the owner on 2026-09-30 (the mobile Home artboards, board 01),
- * and slimmed on 2026-10-17 when the phone started opening in Inbox
- * (`PhoneInbox.tsx`; board 2 of `meeting-2026-10-17/phone-inbox/`). Top to
- * bottom: "Folders" and the workspace's size with a New folder button,
- * **Pinned** as rows, **All folders** with what each holds, then the
- * **Notes** outside every folder. You open most became the order of Inbox's
- * folder dots, and Recent left with it — Inbox's Filed today is where a note
- * you just wrote is found again. Notes outside every folder: Folders is the only page
- * that lists those, so without it they would be out of reach. Search and a new note are the bottom bar's (`ConsoleBottomBar`),
- * on every screen, so this page has neither.
+ * and slimmed on 2026-10-17 to board 2 of `meeting-2026-10-17/phone-inbox/`
+ * when the phone started opening in Inbox (`PhoneInbox.tsx`). Top to bottom:
+ * "Folders", `@name · N notes` and one Add a folder button, **Pinned** as
+ * rows, then **All folders** with what each holds. Inbox is not among them:
+ * it is the page ‹ goes back to. You open most became the order of Inbox's
+ * folder dots, and Recent left with it — Filed today is where a note you just
+ * wrote is found again. Search and a new note are the bottom bar's
+ * (`ConsoleBottomBar`), on every screen, so this page has neither.
+ *
+ * What the board left out went where it can still be reached (Dev2, "EXACTLY
+ * like the mockups", 2026-10-17): notes outside every folder are rows at the
+ * end of All folders, since nothing else lists them; Trash and the Chaos line
+ * are in the @name menu on Inbox (`SwitcherMenu`); the storage line is drawn
+ * only while it has news (`footNeedsSaying`), and Settings › Storage names
+ * the bucket otherwise.
  *
  * What goes in each section is `homeModel.ts`'s, from the device's copy of the
  * workspace and the person's own places; this file only draws it. The tag
@@ -55,6 +60,7 @@ export function PhoneHome({
   onHold,
   iconOf,
   onAddFolder,
+  handle,
   foot,
   opening = null,
   onPreload,
@@ -80,9 +86,11 @@ export function PhoneHome({
   onHold?: (path: string, at: HoldPoint) => void;
   /** A folder's own emoji, from "Set icon…"; absent draws every folder with the plain icon. */
   iconOf?: (path: string) => string | null;
-  /** "Add a folder", the last line of All folders. Absent for who may not make one. */
+  /** The Add a folder sheet, behind the head's button. Absent for who may not make one. */
   onAddFolder?: () => void;
-  /** The workspace's storage line, as the root listing had it. */
+  /** The workspace as `@name`, under the title. */
+  handle?: string;
+  /** The storage and index line, only while it says something (`footNeedsSaying`). */
   foot?: string;
   /** The page being read while Home stays on screen: its row says so. */
   opening?: string | null;
@@ -107,6 +115,8 @@ export function PhoneHome({
     return built.tagged?.count === 0 ? buildHome({ ...source, pins, opened, recents, tag: null, now }) : built;
   }, [source, pins, opened, recents, tag, now]);
   const activeTag = home.tagged?.tag ?? null;
+  // Inbox is the page ‹ goes back to, not a folder in the list; a visitor has no Inbox page.
+  const folders = visitor ? home.folders : home.folders.filter((folder) => folder.path !== INBOX_FOLDER);
   // Every folder Home names, read ahead so the one pressed arrives whole.
   const named = useMemo(
     () =>
@@ -133,14 +143,14 @@ export function PhoneHome({
           <Text style={styles.sub} testID="phone-home-totals">
             {visitor
               ? countLabel(home.totals.notes, home.totals.folders)
-              : `${title} · ${home.totals.notes} note${home.totals.notes === 1 ? "" : "s"}`}
+              : `${handle ?? title} · ${home.totals.notes} note${home.totals.notes === 1 ? "" : "s"}`}
           </Text>
         </View>
-        {onNewFolder === undefined ? null : (
+        {(onAddFolder ?? onNewFolder) === undefined ? null : (
           <Pressable
-            onPress={onNewFolder}
+            onPress={onAddFolder ?? onNewFolder}
             accessibilityRole="button"
-            accessibilityLabel="New folder"
+            accessibilityLabel="Add a folder"
             style={({ pressed }) => [styles.roundButton, pressed ? styles.pressed : null]}
             testID="phone-home-new-folder"
           >
@@ -208,14 +218,13 @@ export function PhoneHome({
       )}
 
       <Section label="All folders">
-        {/* Under a tag, the list is a filter, so making a folder is not offered there. */}
-        {(onAddFolder === undefined || activeTag !== null) && home.folders.length === 0 ? (
+        {folders.length === 0 && home.notes.length === 0 ? (
           <Text variant="meta" style={styles.empty}>
             {activeTag === null ? "No folders yet." : `No folders hold a note tagged ${activeTag}.`}
           </Text>
         ) : (
           <Card>
-            {home.folders.map((folder) => (
+            {folders.map((folder) => (
               <FolderLine
                 key={folder.path}
                 folder={folder}
@@ -225,14 +234,6 @@ export function PhoneHome({
                 opening={opening === folder.path}
               />
             ))}
-            {onAddFolder === undefined || activeTag !== null ? null : <AddFolderLine onPress={onAddFolder} />}
-          </Card>
-        )}
-      </Section>
-
-      {home.notes.length === 0 ? null : (
-        <Section label="Notes">
-          <Card>
             {home.notes.map((note) => (
               <NoteRow
                 key={note.path}
@@ -244,14 +245,8 @@ export function PhoneHome({
               />
             ))}
           </Card>
-        </Section>
-      )}
-
-      {/* The trash, a row of its own (board A4); nothing outside the console layout. */}
-      {activeTag === null ? <TrashHomeLine /> : null}
-
-      {/* How organized the workspace is, quietly, last (`features/chaos`); nothing until it is scored. */}
-      <ChaosHomeLine />
+        )}
+      </Section>
 
       {foot === undefined ? null : (
         <Text variant="treeMeta" style={styles.foot} testID="context-foot">

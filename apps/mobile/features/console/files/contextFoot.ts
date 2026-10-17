@@ -35,7 +35,7 @@
  *    statement about a tree nobody has expanded and an empty string is not.
  */
 
-import { describeIndexProgress, type FastSearchStatus } from "../search/fastSearch";
+import { describeIndexProgress, indexProgress, type FastSearchStatus } from "../search/fastSearch";
 import { footLabel } from "../activity/activity";
 import { storagePillLabel } from "../storage/pill";
 import { noteLimitLabel, type NoteLimit } from "../noteLimit";
@@ -135,4 +135,29 @@ export function contextFootLine({
   return [unseen, binding, limit, describeIndexProgress(fastSearch)?.label, loadedCounts(listings)]
     .filter((part): part is string => part !== undefined && part !== "")
     .join(" · ");
+}
+
+/**
+ * Whether the phone's Folders page should draw the line at all.
+ *
+ * Board 2 of `meeting-2026-10-17/phone-inbox/` has no foot (Dev2, "EXACTLY
+ * like the mockups"), and a settled workspace has nothing in it worth a line:
+ * Settings › Storage names the bucket. What it keeps is the reason the line
+ * came to the phone — a backfill nobody could see moving — so it is drawn
+ * while the index is filling, stuck or failed, while there is no bucket, and
+ * while the free plan is near its cap.
+ */
+export function footNeedsSaying({
+  storage,
+  fastSearch,
+  noteLimit,
+}: {
+  storage: ConsoleStorage | null | undefined;
+  fastSearch: FastSearchStatus | null;
+  noteLimit?: NoteLimit | null;
+}): boolean {
+  if (storage === null || (noteLimit !== undefined && noteLimit !== null)) return true;
+  if (fastSearch?.state === "failed") return true;
+  const progress = indexProgress(fastSearch);
+  return progress !== null && (progress.kind === "none" || progress.kind === "counting" || progress.kind === "partial");
 }

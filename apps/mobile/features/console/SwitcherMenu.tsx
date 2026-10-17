@@ -8,6 +8,8 @@ import { Text } from "../design/components/Text";
 import { useColors, useScheme, useThemedStyles, type Colors } from "../design/theme";
 import { setAppearance } from "../design/appearance";
 import { fonts, layout, radii, space, touchType } from "../design/tokens";
+import { useChaosView } from "../chaos/ChaosContext";
+import { chaosWord, scoreShown, shownScore } from "../chaos/chaosModel";
 import { openFeedback } from "../feedback/request";
 import { useCanSendFeedback } from "../feedback/transport";
 import { offerOwnContext } from "../onboarding/route";
@@ -21,6 +23,7 @@ import {
 import type { MenuItem } from "./files/menuItem";
 import { atName } from "./format";
 import { isOwnWorkspace, railGroup } from "./rail";
+import { useTrashRoute } from "./trash/TrashRouteContext";
 import { selectedContext, type ConsoleData } from "./types";
 import { useWorkspaceIcons } from "./useWorkspaceIcons";
 import { WorkspaceMark } from "./WorkspaceMark";
@@ -86,7 +89,9 @@ export type SwitcherMenuId =
   | "signup"
   | "app"
   | "whatsnew"
-  | "shared";
+  | "shared"
+  | "trash"
+  | "chaos";
 
 export function SwitcherMenu({
   data,
@@ -169,6 +174,8 @@ export function SwitcherMenu({
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const scheme = useScheme();
+  const trash = useTrashRoute();
+  const chaosView = useChaosView();
   const triggerRef = useRef<View>(null);
   const [anchor, setAnchor] = useState<AccountCardAnchor | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -268,10 +275,27 @@ export function SwitcherMenu({
       : []),
   ];
 
+  const chaosResult = chaosView !== undefined && scoreShown(chaosView.result) ? chaosView.result : null;
+  const chaos =
+    phoneNamed && chaosResult !== null
+      ? `Chaos ${shownScore(chaosResult.score)} · ${chaosResult.word ?? chaosWord(chaosResult.score)}`
+      : null;
+
   const places: AccountCardRow[] = [
     ...(onOpenMeetings
       ? [{ id: "meetings", label: "Meetings", leading: <Icon name="calendar" size={14} />, testID: "switcher-meetings" }]
       : []),
+    /*
+      The phone's Folders page lost its Trash and Chaos lines to board 2 of
+      meeting-2026-10-17/phone-inbox (Dev2: "EXACTLY like the mockups"), so
+      they are here, behind the @name line they open from on Inbox.
+    */
+    ...(phoneNamed && trash !== undefined
+      ? [{ id: "trash", label: "Trash", leading: <Icon name="trash" size={14} />, testID: "switcher-trash" }]
+      : []),
+    ...(chaos === null
+      ? []
+      : [{ id: "chaos", label: chaos, leading: <Icon name="sparkle" size={14} />, testID: "switcher-chaos" }]),
     ...(onOpenSettings
       ? [{ id: "settings", label: "Settings", leading: <Icon name="gear" size={14} />, testID: "switcher-settings" }]
       : []),
@@ -363,6 +387,8 @@ export function SwitcherMenu({
     else if (id === "claim") onClaimContext?.();
     else if (id === "new") onNewWorkspace?.();
     else if (id === "settings") onOpenSettings?.();
+    else if (id === "trash") trash?.openTrash();
+    else if (id === "chaos") chaosView?.openPanel("sheet");
     else if (id === "invite") onInviteFriends?.();
     else if (id === "community") onOpenCommunity?.();
     else if (id === "leave") onLeaveContext?.();
