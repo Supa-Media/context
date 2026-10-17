@@ -550,7 +550,9 @@ export const applyStripeEvent = internalMutation({
       return { applied: false, reason: "not_paid" };
     }
     // A founding plan is Premium whatever Stripe says: a founder who once
-    // subscribed, and cancels, keeps it (`lib/billing/founding.ts`).
+    // subscribed, and cancels, keeps it (`lib/billing/founding.ts`). What
+    // Stripe said is kept beside it, so the console knows the portal is done.
+    const stripeStatus = status;
     status = foundingStatus(plan, status);
 
     /*
@@ -580,6 +582,7 @@ export const applyStripeEvent = internalMutation({
 
     await ctx.db.patch(plan._id, {
       status,
+      stripeStatus,
       managedStorage: restored?.managedStorage ?? plan.managedStorage,
       fastSearch: restored?.fastSearch ?? plan.fastSearch,
       stripeCustomerId: args.customerId ?? plan.stripeCustomerId,

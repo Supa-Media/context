@@ -533,7 +533,11 @@ subscription for them. Nothing here deletes anything or touches the exit.
 `billing.status` reports `founding`, so the console offers no upgrade on an
 active plan without a Stripe customer and, where it would name a price, says
 "Founding member: Premium at no charge." instead
-(`apps/mobile/__tests__/premiumFounding.test.ts`).
+(`apps/mobile/__tests__/premiumFounding.test.ts`). The plan keeps Stripe's own
+word beside the floor (`stripeStatus`), and `billing.status` reports
+`subscriptionLive` from it, so a founder whose subscription ended reads as any
+other founder: no "Manage billing", no price, no paid-period date. A founder
+who cancels at period end is told billing stops and Premium stays.
 
 **What a simplification would cost:** counting live accounts instead of grant
 rows lets a deletion promote account 101; checking an account flag inside each

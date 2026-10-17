@@ -162,6 +162,22 @@ export const billingTables = {
      */
     stripeCustomerId: v.optional(v.string()),
     stripeSubscriptionId: v.optional(v.string()),
+    /**
+     * What Stripe last said about the subscription, before a founding plan's
+     * floor (`foundingStatus`) lifts `status` to active. The two differ only on
+     * a founding plan whose subscription ended, and that difference is what
+     * tells the console a founder has nothing left to manage in the portal.
+     * Absent on rows no event has touched since it was added.
+     */
+    stripeStatus: v.optional(
+      v.union(
+        v.literal("none"),
+        v.literal("active"),
+        v.literal("past_due"),
+        v.literal("canceled"),
+        v.literal("unknown"),
+      ),
+    ),
     /** Seconds, from Stripe. The end of the period already paid for. */
     currentPeriodEnd: v.optional(v.number()),
     /** True where Stripe says the subscription stops at the period end. */
