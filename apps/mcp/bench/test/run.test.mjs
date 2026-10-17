@@ -124,6 +124,37 @@ test("the played person answers YES when the gateway held a call for their OK, a
   assert.equal(personAnswers({ answer: "an older gateway with no asked field" }), null);
 });
 
+test("a housekeeping test runs Tex's housekeeping once and records where each named note ended up", async () => {
+  const dir = await benchFolder();
+  try {
+    await writeFile(
+      join(dir, "workspaces/people.md"),
+      "| Person | Workspace | Role |\n|---|---|---|\n| Ana | ana (personal) | owner |\n",
+    );
+    await mkdir(join(dir, "workspaces/ana/1-projects/kitchen"), { recursive: true });
+    await writeFile(join(dir, "workspaces/ana/1-projects/kitchen/overview.md"), "---\nstatus: finished\n---\n\n# Kitchen\n\nDone.\n");
+    await writeFile(
+      join(dir, "tests/housekeeping.md"),
+      "---\nmode: housekeeping\nrun_as: Ana\nruns: 1\n---\n\n## 1. Leaves notes it is unsure of\n\n- kind: task\n" +
+        "- must file: ana/health/dentist.md under ana/health/dentist.md\n- must file: ana/1-projects/kitchen/overview.md under ana/1-projects/\n",
+    );
+    const out = join(dir, "result.md");
+    await execFileAsync(process.execPath, [RUN, "run", "texting-assistant", "--dir", dir, "--fake", "--no-fluff", "--test", "housekeeping", "--out", out], { timeout: 120000 });
+    const note = await readFile(out, "utf8");
+    const filed = JSON.parse(note.split("\n").find((line) => line.startsWith("Filed: ")).slice("Filed: ".length));
+    assert.equal(filed["ana/health/dentist.md"].at, "ana/health/dentist.md", note);
+    assert.equal(filed["ana/1-projects/kitchen/overview.md"].at, "ana/1-projects/kitchen/overview.md");
+    assert.equal(filed["ana/1-projects/kitchen/overview.md"].front.status, "finished", "the front matter rides along for `with` checks");
+    const { parseResult } = await import("../resultNote.mjs");
+    const [answer] = parseResult(note).answers;
+    assert.deepEqual(answer.where, filed, "the Filed line reads back as the run recorded it");
+    assert.ok(note.includes("# Tex kept house,"), "the answer carries the log the run wrote");
+    assert.ok(!note.includes("Error:"), note.slice(0, 800));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 /** A world whose turns are scripted: each is `{answer, progress?, tools?, browser?}`. */
 function scriptedWorld(turns) {
   const events = [];
