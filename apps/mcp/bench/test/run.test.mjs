@@ -215,3 +215,21 @@ test("each progress line the turn texted counts as one of the assistant's texts,
   );
   assert.equal(result.texts, 2);
 });
+
+test("a brief with more if-asked lines than four texts allow gets room for every one of them", async () => {
+  const { converse, personTextLimit } = await import("../run.mjs");
+  const domain = {
+    ...STREAMLY,
+    ifAsked: [
+      ...STREAMLY.ifAsked,
+      { when: "to confirm the domain and price", say: "Yes, buy mayaruns.com for $11.08" },
+      { when: "whether Tex may add the DNS records itself", say: "Yes, go ahead" },
+    ],
+  };
+  assert.equal(personTextLimit({ ifAsked: [] }), 4, "a short brief keeps the old limit");
+  assert.equal(personTextLimit(domain), 6);
+  // Every turn holds a write for her OK, so she answers each one: only the limit stops her.
+  const world = scriptedWorld([{ answer: "Can I go ahead?", asked: 1 }]);
+  const result = await converse(world, domain, { fake: true });
+  assert.equal(result.conversation.filter((turn) => turn.from === "person").length, 6);
+});
