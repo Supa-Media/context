@@ -39,8 +39,8 @@
  * @property {string} key
  * @property {number} size
  * @property {Date} uploaded
- * @property {string} [etag]  R2 and S3 report one per listed object; Dropbox
- *   does not. The search index's staleness diff reads it where it exists and
+ * @property {string} [etag]  R2 and S3 report one per listed object; a listing
+ *   may not. The search index's staleness diff reads it where it exists and
  *   falls back to `uploaded`/`size` where it does not — see
  *   `search/maintain.js`.
  *
@@ -687,9 +687,9 @@ async function cleanUpProbe(store, key, result) {
  * was never anything else. Every path in this codebase that moves, archives,
  * trashes or deletes a folder is built on that, and on R2 and S3 it holds.
  *
- * **Dropbox has real directories.** The files go and the folder stays, the
+ * **A backend with real directories keeps them.** The files go and the folder stays, the
  * listing goes on reporting it, and a folder move therefore reads as a *copy*
- * on that backend and on no other — the notes at the new name, the old folder
+ * on that kind of backend and on no other — the notes at the new name, the old folder
  * still sitting beside them. That is the bug this exists to close, and it is
  * closed at the adapter boundary rather than by teaching every caller which
  * backend it is on.

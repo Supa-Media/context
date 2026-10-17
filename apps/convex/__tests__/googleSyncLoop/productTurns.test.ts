@@ -166,12 +166,6 @@ describe("the failures the catch-all used to hide", () => {
 });
 
 describe("the catch-all says what it caught, without a note's name", () => {
-  test("a Dropbox refusal names the call, the status and Dropbox's tag", () => {
-    const { code, message } = classifyForwardSyncError(new Error("dropbox upload failed: 409 (path/conflict/file)"));
-    expect(code).toBe("STORAGE_PROVIDER_FAILED");
-    expect(message).toContain("upload (409 path/conflict/file)");
-  });
-
   test("a path or a quoted name in an unknown error never reaches the message", () => {
     const { code, message } = classifyForwardSyncError(
       new TypeError('Cannot write "Secret plans" at 0-inbox/calendar/2026-10-15.md today'),

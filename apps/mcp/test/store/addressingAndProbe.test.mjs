@@ -2,7 +2,7 @@
  * S3 addressing-style selection, If-Match header shape, hostile XML/oversize
  * response handling, and the conditional-write capability probe.
  *
- * Split out of store.test.mjs; see fixtures.mjs for the shared S3/R2/Dropbox stubs.
+ * Split out of store.test.mjs; see fixtures.mjs for the shared S3/R2 stubs.
  */
 
 import { S3Store, R2Store, FAKE_CONFIG, s3, listXml, memoryBucket, parseListObjectsV2, probeStore, PROBE_PREFIX } from "./fixtures.mjs";

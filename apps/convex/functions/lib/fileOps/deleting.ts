@@ -469,7 +469,7 @@ export interface DeleteResult {
  * history is the customer's own object versioning, at their provider, and this
  * product actively tells them to turn it on. Where they did, the noncurrent
  * version survives this delete: we hold no `DeleteObjectVersion` capability we
- * can rely on across R2, S3, B2, Wasabi and Dropbox, and on several of them we
+ * can rely on across R2, S3, B2 and Wasabi, and on several of them we
  * would need permissions the binding does not ask for. That is not a gap to
  * paper over — it is the customer's copy, in the customer's bucket, under the
  * customer's control, which is the arrangement this product is for. It does

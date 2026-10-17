@@ -218,8 +218,8 @@ this product chose:
 - **"Can I share a private note with a group?"** has the answer **yes** — a
   note override may name one — and nothing on screen suggested it.
 
-So the console moves to the words this audience already holds, from Drive and
-Dropbox: `private` → **Restricted**, `team` → **Everyone in @supa**, a `@name`
+So the console moves to the words this audience already holds, from Drive:
+`private` → **Restricted**, `team` → **Everyone in @supa**, a `@name`
 rule → **the name**, a link → **Anyone with the link**, unchanged because it was
 already honest.
 

@@ -12,7 +12,7 @@ import type { Id } from "../../../_generated/dataModel";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { grantedScopesFor } from "../googleOAuth";
 
-/** How long a started connect stays answerable. Same ten minutes as Dropbox's. */
+/** How long a started connect stays answerable. Ten minutes, as every connect flow. */
 export const ATTEMPT_TTL_MS = 10 * 60 * 1000;
 
 /** Bytes of state. The same width as every other opaque token here. */
@@ -107,7 +107,7 @@ export function requireGoogleClientId(): string {
   return id;
 }
 
-/** Optional, like Dropbox's app secret — see `googleOAuth.ts` for why PKCE covers the flow either way. */
+/** Optional — see `googleOAuth.ts` for why PKCE covers the flow either way. */
 export function readGoogleClientSecret(): string | undefined {
   const secret = process.env[GOOGLE_CLIENT_SECRET_ENV_VAR];
   return typeof secret === "string" && secret.length > 0 ? secret : undefined;

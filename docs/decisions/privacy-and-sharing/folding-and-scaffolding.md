@@ -5,12 +5,10 @@
 Every decision in both privacy engines is keyed on an exact path — `isPlumbing`
 opens `key === PRIVACY_KEY`, `effectiveVisibility` is a `Map` lookup on the
 note's own path. That is sound where one string is one object, which R2 and S3
-are and **Dropbox is not**: `DropboxStore`'s header records that Dropbox "treats
-`Foo.md` and `foo.md` as the same file and normalises Unicode", and that it
-deliberately does not re-case a caller's key, because a store that silently
-rewrote one would be worse than one that returns what Dropbox actually has.
+are. Some stores are not: one that treats `Foo.md` and `foo.md` as the same
+file, or normalises Unicode, would make the exact match a guess about which
+object a path names.
 
-That is the right call for the adapter, and it left the question one layer up.
 Paths reach both engines from outside — a connected AI client's tool call, a
 console request, and the bucket's own listing, where the file's real name may
 differ in case from the manifest line that governs it. So the answer could be
@@ -18,7 +16,7 @@ chosen by whoever picked the string. Two were reachable: `Privacy.md` was not
 `privacy.md`, so nothing reserved it and `write_note` rewrote the access map
 through the one path that answers "that path is reserved"; and a note re-cased
 inside a `team` folder missed its narrowing override while the folder rule still
-matched, so it scored `team` and Dropbox returned the private file. `scopes.yml`
+matched, so it scored `team` and the store returned the private file. `scopes.yml`
 is not dot-prefixed either and rested on the same equality.
 
 **The fold only ever narrows, and that is the whole safety argument.** A
@@ -30,8 +28,8 @@ override published notes nobody had named. It is the same argument that keeps
 folder rules unfolded — re-casing a folder makes every prefix miss and the
 `private` default takes over, while folding them would let a `team` rule match
 folders its author never named — and the mistake was failing to apply it to
-overrides. Two entries that fold together are one file on Dropbox and a
-contradiction the owner never resolved; `private` wins, rather than whichever
+overrides. Two entries that fold together would be one file on a case-insensitive store,
+and a contradiction the owner never resolved; `private` wins, rather than whichever
 line came first.
 
 **A fold reads across case; it never writes across it.** Deleting an override
@@ -111,7 +109,7 @@ rule about how a helper may be used, which no test can state for it:
 - **No override is read by name without the helpers**, and that is enforced by
   reading the files rather than by discipline. Reverting all five `fileOps.ts`
   call sites to raw `Map` access passes 1430 behavioural checks and 167 fileOps
-  checks — the twin only differs on a Dropbox-backed context, which no suite
+  checks — the twin only differs on a case-insensitive backend, which no suite
   stands up — so `__tests__/privacyAccessors.test.ts` is structural, strips
   comments before matching, and carries its own self-test. It is line-, name-
   and dot-scoped, and that reach is stated in its own header rather than

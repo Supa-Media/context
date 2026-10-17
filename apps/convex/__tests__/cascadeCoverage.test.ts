@@ -1,3 +1,4 @@
+import { LEGACY_ATTEMPT_TABLE } from "../functions/dropboxRemoval";
 /**
  * Every workspace-scoped table that holds sealed credential material is
  * either swept by `deleteWorkspaceCascade` or named here as a deliberate
@@ -272,7 +273,7 @@ describe("every sealed, workspace-scoped table is swept or explained", () => {
     // addition — and so this file cannot pass by finding nothing.
     expect(credentialBearingWorkspaceTables()).toEqual([
       "cloudflareProvisioning",
-      "dropboxConnectAttempts",
+      LEGACY_ATTEMPT_TABLE,
       "googleConnectAttempts",
       "googleConnections",
       "managedStorageMigrations",

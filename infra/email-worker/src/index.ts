@@ -236,8 +236,8 @@ interface ContextStore {
  * switch.
  *
  * A hand-rolled subset of the factory lived here until 2026-08-28, knowing
- * only `r2-binding` and S3-shaped credentials; a Dropbox binding fell through
- * to the S3 field check and every message to that context bounced as
+ * only `r2-binding` and S3-shaped credentials; a binding for a retired store fell
+ * through to the S3 field check and every message to that context bounced as
  * `storage_unavailable`. The factory's header explains why no second provider
  * switch may exist — this Worker is the case study. Its `r2-binding` path
  * applies the same two locks the local branch did: the `NATIVE_BINDINGS`

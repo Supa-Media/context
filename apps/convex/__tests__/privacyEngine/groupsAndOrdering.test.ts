@@ -90,7 +90,7 @@ describe("a group override narrows by fold, the way `private` always has", () =>
    * The case the fold exists for, with a group in place of `private`: a `team`
    * folder, one note held back, and a caller who sends the other casing.
    * Before groups this was `private` and travelled; a group that did not
-   * travel would be a leak on Dropbox, where the two strings are one file.
+   * travel would be a leak on a store that folds case, where the two strings are one file.
    */
   const text = manifest(
     block([

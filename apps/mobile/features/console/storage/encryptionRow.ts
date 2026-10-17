@@ -11,7 +11,7 @@
  *  - **Never "end-to-end".** Context can still read these notes, which is how
  *    search and AI tools work, and the encrypted copy says so.
  *  - **A bucket the customer owns gets one honest sentence**: Context adds no
- *    encryption of its own there. Dropbox is neither, and gets no row.
+ *    encryption of its own there.
  */
 
 import type { ConsoleStorage } from "../types";
@@ -44,7 +44,6 @@ export function encryptionRowCopy(
   compact = false,
 ): EncryptionRowCopy | null {
   if (storage.managed !== true) {
-    if (storage.provider === "dropbox") return null;
     return { lock: false, body: OWN_BUCKET_BODY, state: "own-bucket" };
   }
   const encryption = storage.encryption;

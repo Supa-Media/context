@@ -55,11 +55,6 @@ export const applyBindingArgs = {
    * move that pauses with `SOURCE_CHANGED` (`docs/design/own-storage-moves`).
    */
   cutover: v.optional(v.boolean()),
-  /**
-   * Leave a Dropbox grant standing past the swap: a move's catch-up passes
-   * still read Dropbox, and revoke the grant themselves when they finish.
-   */
-  deferDropboxRevoke: v.optional(v.boolean()),
 };
 
 export const applyBindingReturns = v.object({ bindingId: v.id("storageBindings"), status: v.string() });
@@ -95,10 +90,6 @@ export const reverifyStorageReturns = v.object({
   status: v.string(),
 });
 
-// Two shapes, not one shape with holes. The gateway's factory refuses a
-// binding carrying a credential its provider does not use, so a union here
-// is what makes that refusal unreachable by accident: there is no way to
-// return a Dropbox binding with an `accessKeyId` on it.
 export const getBindingForGatewayReturns = v.union(
   v.null(),
   v.object({
@@ -115,13 +106,6 @@ export const getBindingForGatewayReturns = v.union(
     accessKeyId: v.string(),
     secretAccessKey: v.string(),
     forcePathStyle: v.optional(v.boolean()),
-    capabilities: capabilitiesValidator,
-    status: v.string(),
-  }),
-  v.object({
-    provider: v.literal("dropbox"),
-    accessToken: v.string(),
-    rootPrefix: v.optional(v.string()),
     capabilities: capabilitiesValidator,
     status: v.string(),
   }),

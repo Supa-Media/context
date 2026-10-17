@@ -40,9 +40,10 @@ export const REKEY_BATCH_SIZE = 50;
 /**
  * Every field on a binding that holds an encrypted envelope.
  *
- * **A binding no longer has exactly one secret.** An S3 binding has the bucket
- * secret; a Dropbox binding has a refresh token and a cached access token, and
- * no bucket secret at all. Rotation walks this list rather than one hardcoded
+ * An S3 binding has the bucket secret. The two token columns belong to a
+ * removed provider and stay in the schema until its purge has run; the schema guard
+ * requires every `encrypted*` column to appear here, so they stay listed.
+ * Rotation walks this list rather than one hardcoded
  * field, because a rotation that silently skipped a field would leave those
  * envelopes readable only by a key the operator is about to delete — the
  * failure would not appear until the customer's next read, long after the
@@ -94,11 +95,10 @@ export const ROTATED_ENVELOPE_COLUMNS = [
  *    fails that one attempt, which the owner retries. There is nothing here to
  *    carry forward: by design the row is gone before a pass would reach it.
  *
- *  - `dropboxConnectAttempts.encryptedVerifier` and
- *    `googleConnectAttempts.encryptedVerifier` — one in-flight OAuth
+ *  - `googleConnectAttempts.encryptedVerifier` — one in-flight OAuth
  *    authorization each. The PKCE verifier is replayed to the provider at the
  *    exchange minutes later and the row is spent there; an unreadable one
- *    costs the person a second press of Connect. Two tables, one column name,
+ *    costs the person a second press of Connect. One column name,
  *    one exemption — the guard below matches by name, and both rows carry
  *    the identical ten-minute-lived shape this paragraph argues for.
  */

@@ -1,105 +1,34 @@
 import { useState } from "react";
-import { ActivityIndicator, Platform, Pressable, StyleSheet, View } from "react-native";
-import { FormError } from "../../design/components/Input";
+import { Platform, Pressable, StyleSheet, View } from "react-native";
 import { Text } from "../../design/components/Text";
 import { leading, radii } from "../../design/tokens";
-import { useColors, useThemedStyles, type Colors } from "../../design/theme";
+import { useThemedStyles, type Colors } from "../../design/theme";
 import { EARLY_TESTER_PRICE_SHORT } from "../settings/panels/premium";
 import { ConnectForm } from "./ConnectForm";
-import { DROPBOX_REDIRECT_ORIGINS } from "./dropbox";
-import { useDropboxStart } from "./useDropboxStart";
 import type { ConnectFormValues } from "./connect";
 
 /**
  * Storage starts with the decision a person is actually making: run it
  * themselves or let Context run it. Provider details stay behind the first
  * path.
- *
- * ## Dropbox is offered only to a context already on it
- *
- * New Dropbox connections are no longer offered (owner, 2026-09-24): the only
- * caller that passes `allowDropbox` is Settings reconnecting a context whose
- * binding is already Dropbox. That one stays because non-negotiable #2 says
- * an existing workspace must keep connecting and working unchanged — a
- * Dropbox context whose token lapsed must be able to consent again without
- * being forced to migrate.
  */
 export function StorageChoice({
-  workspaceId,
   connect,
   onCancel,
-  allowDropbox = false,
-  dropboxNote,
-  dropboxResumeTo,
   free,
   managed,
 }: {
-  /** The context being connected. `null` disables the Dropbox card only. */
-  workspaceId: string | null;
   connect: (values: ConnectFormValues) => Promise<{ status: string }>;
   /** Present when this is replacing a binding rather than making the first one. */
   onCancel?: () => void;
-  /** Only for reconnecting a context that is already on Dropbox. */
-  allowDropbox?: boolean;
-  /** One line about what leaving for Dropbox does to the screen this is on. */
-  dropboxNote?: string;
-  /** Set from first-run, so the callback can hand the person back to it. */
-  dropboxResumeTo?: "onboarding";
   /** The no-card managed tier, when the control plane says this owner may start it. */
   free?: { cap: number; onChoose: () => void };
   /** Absent unless billing says this deployment can provision the storage. */
   managed?: { price: string; stagingFreeStorage?: boolean; onChoose: () => void };
 }) {
-  const dropbox = useDropboxStart(workspaceId, { resumeTo: dropboxResumeTo });
-  return (
-    <StorageChoiceBody
-      allowDropbox={allowDropbox}
-      dropboxReady={workspaceId !== null}
-      redirectUri={dropbox.redirectUri}
-      dropboxState={dropbox.state}
-      startDropbox={dropbox.start}
-      connect={connect}
-      onCancel={onCancel}
-      dropboxNote={dropboxNote}
-      free={free}
-      managed={managed}
-    />
-  );
-}
-
-/**
- * The screen itself, hooks already resolved — what the suite drives directly,
- * exactly as `DropboxCallbackBody` is.
- */
-export function StorageChoiceBody({
-  allowDropbox = false,
-  dropboxReady,
-  redirectUri,
-  dropboxState,
-  startDropbox,
-  connect,
-  onCancel,
-  dropboxNote,
-  free,
-  managed,
-}: {
-  allowDropbox?: boolean;
-  dropboxReady: boolean;
-  redirectUri: string | null;
-  dropboxState: import("./dropbox").DropboxStartState;
-  startDropbox: () => void;
-  connect: (values: ConnectFormValues) => Promise<{ status: string }>;
-  onCancel?: () => void;
-  dropboxNote?: string;
-  free?: { cap: number; onChoose: () => void };
-  managed?: { price: string; stagingFreeStorage?: boolean; onChoose: () => void };
-}) {
   const styles = useThemedStyles(makeStyles);
   const [ownOpen, setOwnOpen] = useState(false);
   const [bucketOpen, setBucketOpen] = useState(false);
-  const [dropboxBlocked, setDropboxBlocked] = useState(false);
-
-  const starting = dropboxState.kind === "starting";
 
   return (
     <View style={styles.stack}>
@@ -107,11 +36,7 @@ export function StorageChoiceBody({
         <ChoiceCard
           testID="choose-own-storage"
           title="Bring your own storage"
-          sub={
-            allowDropbox
-              ? "Use storage you control through an S3-compatible provider, or reconnect this context's Dropbox."
-              : "Use storage you control through an S3-compatible provider."
-          }
+          sub="Use storage you control through an S3-compatible provider."
           selected={ownOpen}
           onPress={() => {
             setOwnOpen((open) => !open);
@@ -161,43 +86,8 @@ export function StorageChoiceBody({
               selected={bucketOpen}
               onPress={() => setBucketOpen((open) => !open)}
             />
-            {allowDropbox ? (
-              <ChoiceCard
-                testID="choose-dropbox"
-                title="Reconnect Dropbox"
-                sub="Approve Context again for this context's own Dropbox folder."
-                selected={false}
-                busy={starting}
-                disabled={!dropboxReady || starting}
-                onPress={() => {
-                  if (redirectUri === null) {
-                    setDropboxBlocked(true);
-                    return;
-                  }
-                  startDropbox();
-                }}
-              />
-            ) : null}
           </View>
         </View>
-      ) : null}
-
-      {dropboxBlocked && redirectUri === null ? (
-        <Text variant="foot" role="status" style={styles.note} testID="dropbox-unavailable">
-          Connecting Dropbox happens in a browser at {DROPBOX_REDIRECT_ORIGINS.join(" or ")}. Open one of those and this
-          card works. A bucket connects from anywhere, including here.
-        </Text>
-      ) : null}
-      {dropboxNote && !dropboxBlocked ? (
-        <Text variant="foot" style={styles.note}>
-          {dropboxNote}
-        </Text>
-      ) : null}
-      {dropboxState.kind === "failed" ? (
-        <FormError
-          headline={dropboxState.failure.headline}
-          next={[dropboxState.failure.next, dropboxState.failure.detail].filter(Boolean).join(" ")}
-        />
       ) : null}
 
       {ownOpen && bucketOpen ? <ConnectForm connect={connect} onCancel={onCancel} /> : null}
@@ -218,8 +108,6 @@ function ChoiceCard({
   badge,
   badgeTone = "ok",
   selected,
-  busy,
-  disabled,
   onPress,
   testID,
 }: {
@@ -229,29 +117,20 @@ function ChoiceCard({
   /** `ok` for a positive status, `neutral` for a price. */
   badgeTone?: "ok" | "neutral";
   selected: boolean;
-  busy?: boolean;
-  disabled?: boolean;
   onPress: () => void;
   testID: string;
 }) {
-  const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   return (
     <Pressable
       testID={testID}
       accessibilityRole="button"
-      accessibilityState={{
-        selected,
-        disabled: Boolean(disabled),
-        busy: Boolean(busy),
-      }}
-      disabled={disabled}
+      accessibilityState={{ selected }}
       onPress={onPress}
       style={({ pressed }) => [
         styles.choice,
         selected && styles.choiceSelected,
         pressed && styles.choicePressed,
-        disabled && styles.choiceDisabled,
       ]}
     >
       {badge ? (
@@ -263,7 +142,6 @@ function ChoiceCard({
       <Text variant="rowSub" style={styles.sub}>
         {sub}
       </Text>
-      {busy ? <ActivityIndicator size="small" color={colors.text2} style={styles.busy} /> : null}
     </Pressable>
   );
 }
@@ -294,10 +172,7 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.surface3,
     },
     choicePressed: { backgroundColor: colors.surface3 },
-    choiceDisabled: { opacity: 0.55 },
     badge: { color: colors.okText },
     badgePrice: { color: colors.text2 },
     sub: { lineHeight: leading(13, 1.55) },
-    busy: { position: "absolute", top: 14, right: 14 },
-    note: { lineHeight: leading(12.5, 1.7) },
   });

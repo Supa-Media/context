@@ -287,26 +287,12 @@ export function classifyForwardSyncError(error: unknown): { code: string; messag
       message: "Gmail or storage took too long. The next scheduled pass resumes from the same place.",
     };
   }
-  const dropbox = error instanceof Error ? DROPBOX_FAILURE.exec(error.message) : null;
-  if (dropbox !== null) {
-    const [, action, status, tag] = dropbox;
-    return {
-      code: "STORAGE_PROVIDER_FAILED",
-      message: `Dropbox did not complete a ${action} (${status}${tag ? ` ${tag}` : ""}). The next scheduled pass will try again.`,
-    };
-  }
   const detail = safeErrorDetail(error);
   return {
     code: "GOOGLE_SYNC_FAILED",
     message: `This service did not sync${detail === undefined ? "" : ` (${detail})`}. The next scheduled pass resumes from the same place.`,
   };
 }
-
-/**
- * `DropboxStore._fail`'s shape: an action, a status, and Dropbox's own tag,
- * never the path (`apps/mcp/src/store/dropbox.js`), so all three can be shown.
- */
-const DROPBOX_FAILURE = /^dropbox ([a-z_/]+) failed: (\d{3})(?: \(([a-z_/]+)\))?$/;
 
 /**
  * Something to tell the catch-all's failures apart by, without a note's name.

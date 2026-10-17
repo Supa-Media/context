@@ -1,7 +1,7 @@
 /**
  * The Google connect flow's security controls.
  *
- * Same shape as `dropboxConnect.test.ts`, and the same reason: every control
+ * Same shape as the other connect tests, and the same reason: every control
  * here — the flag, the personal-context-only rule, the owner check, the
  * redirect pin, single-use attempt consumption, the workspace-and-actor
  * coming from the attempt rather than the caller, and revocation on

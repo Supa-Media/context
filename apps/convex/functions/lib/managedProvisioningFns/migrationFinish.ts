@@ -11,11 +11,10 @@ import type { MutationCtx } from "../../../_generated/server";
 import { recordAudit } from "../audit";
 import { managedBucketName } from "../managedStorage";
 import { managedBucketBound } from "../managedEncryptionFns/rollout";
-import type { StorageCapabilities } from "../storage/shapes";
+import { isServedProvider, type StorageCapabilities } from "../storage/shapes";
 import {
   CATCH_UP_CLOCK_MARGIN_MS,
   CATCH_UP_PASS_DELAYS_MS,
-  DROPBOX_REVOKE_BACKSTOP_MS,
   MANAGED_RETENTION_AFTER_HANDOFF_MS,
 } from "./constants";
 import { directionOf, intoOwnersBucket } from "./direction";
@@ -87,8 +86,6 @@ export async function finishManagedStorageMigrationHandler(
     encryptedSecretAccessKey: migration.encryptedTargetSecretAccessKey,
     forcePathStyle: migration.targetForcePathStyle,
     cutover: true,
-    // The catch-up passes below still read Dropbox, and revoke it after.
-    deferDropboxRevoke: current.provider === "dropbox",
   });
   if (args.capabilities !== undefined) {
     // Connected now, not after the verification `applyBinding` queued. The
@@ -166,36 +163,11 @@ export async function finishManagedStorageMigrationHandler(
     );
   }
   // The old bucket's key, still sealed, for the passes that bring across what
-  // landed there after the last check (`lib/moveCatchUp.ts`). A Dropbox source
-  // sends its sealed refresh token instead: its grant was kept standing above
-  // for exactly these passes, which revoke it when they end. The revoke after
-  // the last pass would have run is the backstop for passes that never do.
-  if (current.provider === "dropbox" && current.encryptedRefreshToken !== undefined) {
-    await ctx.scheduler.runAt(
-      cutoverAt + CATCH_UP_PASS_DELAYS_MS[0],
-      internal.functions.moveCatchUp.runMoveCatchUp,
-      {
-        workspaceId: args.workspaceId,
-        targetBindingId: applied.bindingId,
-        since: (migration.passStartedAt ?? migration.createdAt) - CATCH_UP_CLOCK_MARGIN_MS,
-        cutoverAt,
-        direction: directionOf(migration),
-        pass: 0,
-        source: {
-          provider: "dropbox" as const,
-          rootPrefix: current.rootPrefix,
-          encryptedRefreshToken: current.encryptedRefreshToken,
-        },
-      },
-    );
-    await ctx.scheduler.runAt(
-      cutoverAt + DROPBOX_REVOKE_BACKSTOP_MS,
-      internal.functions.dropboxConnect.revokeDropboxGrant,
-      { workspaceId: args.workspaceId, encryptedRefreshToken: current.encryptedRefreshToken },
-    );
-  }
+  // landed there after the last check (`lib/moveCatchUp.ts`). A binding from a
+  // removed provider has no such key and no passes to run: its files stay where
+  // they are, in the person's own storage.
   if (
-    current.provider !== "dropbox" &&
+    isServedProvider(current.provider) &&
     current.accessKeyId !== undefined &&
     current.encryptedSecretAccessKey !== undefined &&
     current.endpoint !== undefined &&

@@ -2,7 +2,7 @@
  * A FOLDER LINK, AND THE SUBTREE IT REACHES.
  *
  * Asked for by the owner (2026-09-17) on an explicit comparison: Google Drive
- * and Dropbox both give a folder link the *whole subtree* — recipients browse
+ * and one other store both give a folder link the *whole subtree* — recipients browse
  * into subfolders and open anything inside — and the ask was to mirror that.
  *
  * **This widens non-negotiable #5**, which said "one note at a time, by an

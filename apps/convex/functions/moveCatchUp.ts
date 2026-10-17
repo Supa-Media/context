@@ -8,8 +8,8 @@
  *
  * What bounds that:
  *
- *  - The envelope travels in the scheduled arguments, sealed, the way the
- *    Dropbox funeral carries its grant, and exists only for the passes: the
+ *  - The envelope travels in the scheduled arguments, sealed, and exists only
+ *    for the passes: the
  *    last one is thirty minutes after the switch, and nothing reschedules it.
  *    No table holds it, so no row outlives the work.
  *  - The old bucket is only ever read. Every write goes to the workspace's
@@ -22,8 +22,7 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalAction, internalQuery } from "../_generated/server";
-import { decryptSecret, encryptSecret, requireKeyset } from "./lib/crypto";
-import { refreshDropboxToken } from "./lib/dropboxOAuth";
+import { decryptSecret, requireKeyset } from "./lib/crypto";
 import { storeForBinding } from "../../mcp/src/store/factory.js";
 import { catchUpPage, type CatchUpStore } from "./lib/moveCatchUp";
 import { keptManagedBucketOption, managedEncryptionOption } from "./lib/managedEncryptionFns/storeOption";
@@ -37,31 +36,16 @@ import {
 import { providerValidator } from "./lib/storage/shapes";
 
 /** The old binding as it stood at the switch, its secret still sealed. */
-const sourceSnapshotValidator = v.union(
-  v.object({
-    provider: providerValidator,
-    endpoint: v.string(),
-    region: v.string(),
-    bucket: v.string(),
-    rootPrefix: v.optional(v.string()),
-    accessKeyId: v.string(),
-    encryptedSecretAccessKey: v.string(),
-    forcePathStyle: v.optional(v.boolean()),
-  }),
-  /*
-    A Dropbox source (`to_managed`, or `to_own` from Dropbox). Its grant was
-    left standing at the switch for these passes alone: each pass mints a
-    short-lived access token from the sealed refresh token, and the passes
-    revoke the grant themselves when they finish or stop. A revoke is also
-    scheduled at the switch for after the last pass would have run, so the
-    grant is revoked even if a pass never runs.
-  */
-  v.object({
-    provider: v.literal("dropbox"),
-    rootPrefix: v.optional(v.string()),
-    encryptedRefreshToken: v.string(),
-  }),
-);
+const sourceSnapshotValidator = v.object({
+  provider: providerValidator,
+  endpoint: v.string(),
+  region: v.string(),
+  bucket: v.string(),
+  rootPrefix: v.optional(v.string()),
+  accessKeyId: v.string(),
+  encryptedSecretAccessKey: v.string(),
+  forcePathStyle: v.optional(v.boolean()),
+});
 
 const catchUpArgs = {
   workspaceId: v.id("workspaces"),
@@ -99,19 +83,9 @@ export const runMoveCatchUp = internalAction({
       internal.functions.moveCatchUp.currentBindingId,
       { workspaceId: args.workspaceId },
     );
-    // A Dropbox grant kept for these passes ends with them, and its refresh
-    // token may have rotated during them, so it is the latest one revoked.
-    let source = args.source;
-    const revokeDropbox = async () => {
-      if (source.provider !== "dropbox") return;
-      await ctx.scheduler.runAfter(0, internal.functions.dropboxConnect.revokeDropboxGrant, {
-        workspaceId: args.workspaceId,
-        encryptedRefreshToken: source.encryptedRefreshToken,
-      });
-    };
+    const source = args.source;
     if (current !== args.targetBindingId) {
       log("stopped", { reason: "binding_changed" });
-      await revokeDropbox();
       return null;
     }
 
@@ -119,7 +93,6 @@ export const runMoveCatchUp = internalAction({
       const pass = args.pass + 1;
       if (pass >= CATCH_UP_PASS_DELAYS_MS.length) {
         log("finished");
-        await revokeDropbox();
         return;
       }
       // Hoisted: the structure test reads a scheduled call's slots by position.
@@ -144,58 +117,27 @@ export const runMoveCatchUp = internalAction({
         await nextPass();
         return null;
       }
-      let oldStore: CatchUpStore;
-      if (source.provider === "dropbox") {
-        // A fresh access token from the sealed refresh token, inline here for
-        // the reachability analyzer (it reads a registered function's own
-        // body), and the refresh token resealed when Dropbox rotated it so the
-        // next pass and the final revoke spend the live one.
-        const keyset = requireKeyset();
-        const context = { workspaceId: args.workspaceId };
-        const clientId = process.env.DROPBOX_APP_KEY;
-        if (typeof clientId !== "string" || clientId.length === 0) throw new Error("DROPBOX_NOT_CONFIGURED");
-        const fresh = await refreshDropboxToken({
-          clientId,
-          clientSecret: process.env.DROPBOX_APP_SECRET || undefined,
-          refreshToken: await decryptSecret(source.encryptedRefreshToken, keyset, context),
-        });
-        if (fresh.refreshToken) {
-          source = { ...source, encryptedRefreshToken: await encryptSecret(fresh.refreshToken, keyset, context) };
-        }
-        oldStore = storeForBinding(
-          {
-            provider: "dropbox",
-            accessToken: fresh.accessToken,
-            rootPrefix: source.rootPrefix,
-            capabilities: { conditionalWrite: true },
-            status: "connected" as const,
-          },
-          undefined,
-          { rawObjects: true },
-        ) as unknown as CatchUpStore;
-      } else {
-        const { encryptedSecretAccessKey, ...sourceFields } = source;
-        const secretAccessKey = await decryptSecret(encryptedSecretAccessKey, requireKeyset(), {
-          workspaceId: args.workspaceId,
-        });
-        oldStore = storeForBinding(
-          {
-            ...sourceFields,
-            secretAccessKey,
-            capabilities: { conditionalWrite: true },
-            status: "connected" as const,
-          },
-          undefined,
-          {
-            rawObjects: true,
-            // The managed bucket a workspace just left may hold sealed files.
-            // Its mode comes from the encryption row, not the binding (which is
-            // the customer's now), so late files arrive plain, never sealed.
-            managedEncryption:
-              args.direction === "to_customer" ? await keptManagedBucketOption(ctx, args.workspaceId) : null,
-          },
-        ) as unknown as CatchUpStore;
-      }
+      const { encryptedSecretAccessKey, ...sourceFields } = source;
+      const secretAccessKey = await decryptSecret(encryptedSecretAccessKey, requireKeyset(), {
+        workspaceId: args.workspaceId,
+      });
+      const oldStore = storeForBinding(
+        {
+          ...sourceFields,
+          secretAccessKey,
+          capabilities: { conditionalWrite: true },
+          status: "connected" as const,
+        },
+        undefined,
+        {
+          rawObjects: true,
+          // The managed bucket a workspace just left may hold sealed files.
+          // Its mode comes from the encryption row, not the binding (which is
+          // the customer's now), so late files arrive plain, never sealed.
+          managedEncryption:
+            args.direction === "to_customer" ? await keptManagedBucketOption(ctx, args.workspaceId) : null,
+        },
+      ) as unknown as CatchUpStore;
       const target = storeForBinding(targetCredential, undefined, {
         rawObjects: true,
         // Moving back in, the destination is the managed bucket, which may

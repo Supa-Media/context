@@ -442,18 +442,6 @@ interface S3IngestionBinding {
   status: string;
 }
 
-/** Mail landing in a Dropbox-backed context: a token and a folder, nothing else. */
-interface DropboxIngestionBinding {
-  workspaceId: Id<"workspaces">;
-  provider: "dropbox";
-  accessToken: string;
-  rootPrefix?: string;
-  capabilities: StorageCapabilities;
-  status: string;
-}
-
-type IngestionBinding = S3IngestionBinding | DropboxIngestionBinding;
-
 /**
  * THE CREDENTIAL PATH FOR INBOUND MAIL.
  *
@@ -486,20 +474,12 @@ export const openIngestionBinding = internalAction({
       capabilities: capabilitiesValidator,
       status: v.string(),
     }),
-    v.object({
-      workspaceId: v.id("workspaces"),
-      provider: v.literal("dropbox"),
-      accessToken: v.string(),
-      rootPrefix: v.optional(v.string()),
-      capabilities: capabilitiesValidator,
-      status: v.string(),
-    }),
   ),
   // Annotated, not inferred: this handler references its own module through
   // `internal.functions.ingestionGateway.…`, which is an inference cycle. Left
   // to infer, TypeScript gives up here and — worse — the degradation shows up
   // as unrelated `implicitly any` errors in files that merely touch `api`.
-  handler: async (ctx, args): Promise<IngestionBinding | null> => {
+  handler: async (ctx, args): Promise<S3IngestionBinding | null> => {
     const workspaceId: Id<"workspaces"> | null = await ctx.runMutation(
       internal.functions.ingestionGateway.spendIngestionTicket,
       { hashedTicket: args.hashedTicket },
@@ -521,18 +501,6 @@ export const openIngestionBinding = internalAction({
     }
     if (credential === null) return null;
     if (credential.status !== "connected") return null;
-
-    // Per provider, never spread — same reasoning as `openStorageBinding`.
-    if (credential.provider === "dropbox") {
-      return {
-        workspaceId,
-        provider: credential.provider,
-        accessToken: credential.accessToken,
-        rootPrefix: credential.rootPrefix,
-        capabilities: credential.capabilities,
-        status: "active",
-      };
-    }
 
     return {
       workspaceId,

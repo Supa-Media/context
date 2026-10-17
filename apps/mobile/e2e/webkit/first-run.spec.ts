@@ -40,12 +40,9 @@ test("the first decision is control versus convenience", async ({ page }) => {
   await expect(page.getByTestId("choose-managed")).toContainText("50 GB");
   await expect(page.getByText("Recommended")).toHaveCount(0);
   await expect(page.getByTestId("choose-bucket")).toHaveCount(0);
-  await expect(page.getByTestId("choose-dropbox")).toHaveCount(0);
 
   await page.getByTestId("choose-own-storage").tap();
   await expect(page.getByTestId("choose-bucket")).toBeVisible();
-  // New Dropbox connections are not offered (owner, 2026-09-24).
-  await expect(page.getByTestId("choose-dropbox")).toHaveCount(0);
 });
 
 test("the paid card does not draw over the rest of the step", async ({ page }) => {

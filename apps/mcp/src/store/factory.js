@@ -1,9 +1,10 @@
 /**
  * The one place a control-plane binding becomes a `ContextStore`.
  *
- * There are three backends now — a native R2 binding for self-hosters, any
- * S3-compatible endpoint signed with the customer's own key, and a folder in
- * somebody's Dropbox — and there will be more. The obvious shape is a
+ * There are two backends now — a native R2 binding for self-hosters, and any
+ * S3-compatible endpoint signed with the customer's own key — and there will
+ * be more. A binding for a store that has since been retired is refused by name
+ * now (`StorageUnsupported`), see below. The obvious shape is a
  * `provider` check wherever a store gets built: once in `session.js` for a live
  * request, once in the control plane's provisioning path, once in its file
  * path. Three switches over one union is three places to forget the fourth
@@ -18,7 +19,7 @@
  * credentialed`, which made **S3 the fallback for everything else** — including
  * a provider this deployment has never heard of, and including a binding with
  * no `provider` at all. That was harmless while S3 was the only other backend
- * and is not any more: a Dropbox binding down that path is missing every field
+ * and is not any more: a retired binding down that path is missing every field
  * S3 needs, and a *future* provider down that path is a store built out of
  * whatever happened to be present.
  *
@@ -35,7 +36,7 @@
  * 1. **Every field the provider needs must be present**, or the binding is
  *    refused before a store exists. Never half-built: an `S3Store` with an
  *    empty `accessKeyId` signs a request that 403s on somebody else's bucket,
- *    and a `DropboxStore` with no token is a 401 loop that reads like an
+ *    and a store built with no token is a 401 loop that reads like an
  *    outage.
  *
  *    Both adapters already refuse that in their own constructors, so what this
@@ -45,37 +46,36 @@
  *    is an unhandled exception — a 500 carrying a message about somebody's
  *    bucket, where a 503 saying "reconnect your storage" belongs. *That* is the
  *    guard here, and it is the one worth sabotaging. A duplicate field check
- *    for Dropbox lived on this line briefly and was removed: it could not be
+ *    lived on this line briefly and was removed: it could not be
  *    made to fail on its own, because the adapter always refused first, and a
  *    guard nobody can break is a guard nobody has checked.
- * 2. **No credential the provider does not use may ride along.** A Dropbox
- *    binding carrying `secretAccessKey` means the control plane handed this
- *    Worker a customer's S3 secret it has no use for — extra blast radius for
+ * 2. **No credential the provider does not use may ride along.** An S3 binding
+ *    carrying another provider's credential (or the reverse) means the control plane
+ *    handed this Worker a credential it has no use for — extra blast radius for
  *    free — and it is also the signature of a binding row being spread into a
  *    payload wholesale after a rebind, instead of being assembled per provider.
  *    Whoever builds `getBindingForGateway` should select the fields for the
  *    provider rather than spreading the row; this is what says so out loud.
  *
- * ## The refresh token must never arrive here
+ * ## A refresh token must never arrive here
  *
- * Dropbox's long-lived credential is the refresh token: it mints access tokens
- * for as long as the customer leaves the connection in place. The control plane
- * refreshes and hands the gateway a **short-lived access token only**, for the
- * same reason no decrypted credential is cached across requests — a gateway
- * compromise then yields minutes of one workspace's storage rather than the
- * ability to mint tokens for it forever.
+ * A long-lived refresh token mints access tokens for as long as the customer
+ * leaves a connection in place. The control plane must never hand one to the
+ * gateway. That is a property of the control plane, so this file cannot enforce
+ * it. What it can do is refuse to be the place the mistake goes unnoticed: any
+ * field whose name mentions a refresh token fails the whole binding, loudly,
+ * rather than being quietly ignored on the way to a store that works.
  *
- * That is a property of the control plane, so this file cannot enforce it. What
- * it can do is refuse to be the place the mistake goes unnoticed: any field
- * whose name mentions a refresh token fails the whole binding, loudly, rather
- * than being quietly ignored on the way to a store that works. A binding that
- * works while carrying a credential nobody meant to send is how that bug
- * survives to production.
+ * ## A retired binding is refused by name
+ *
+ * A retired store is no longer served (notes-by-id, 2026-10-15). A workspace still
+ * bound to one is not a bucket error and not an unknown provider: it gets
+ * `StorageUnsupported`, code `STORAGE_UNSUPPORTED`, whatever fields it carries.
+ * That check runs before the table, so no field of a retired binding is looked at.
  */
 
 import { R2Store } from "./r2.js";
 import { S3Store } from "./s3.js";
-import { DropboxStore } from "./dropbox.js";
 import { withLogicalDelete } from "./logicalDelete.js";
 import { withIdLayout } from "./idLayout.js";
 import { withNoteCap } from "./noteCap.js";
@@ -101,6 +101,22 @@ export class StorageUnavailable extends Error {
 }
 
 /**
+ * A binding for a store this gateway no longer serves, removed
+ * 2026-10-16. Distinct from `StorageUnavailable` in its code and message, so the
+ * customer is told what to do rather than to reconnect. It is still a
+ * `StorageUnavailable`, so every caller that already catches that catches this.
+ */
+export class StorageUnsupported extends StorageUnavailable {
+  constructor(reason) {
+    super(reason);
+    this.name = "StorageUnsupported";
+    this.code = "STORAGE_UNSUPPORTED";
+    this.message =
+      "This workspace's storage is no longer supported by Context. Move it to a bucket of your own or Context storage.";
+  }
+}
+
+/**
  * Credential fields, by the provider that consumes them.
  *
  * A native R2 binding is deliberately empty: it names a bucket the operator
@@ -109,12 +125,16 @@ export class StorageUnavailable extends Error {
  */
 const CREDENTIAL_FIELDS = {
   "r2-binding": [],
-  dropbox: ["accessToken"],
   credentialed: ["accessKeyId", "secretAccessKey"],
 };
 
-/** Every credential field any provider uses, so a foreign one is recognisable. */
-const ALL_CREDENTIAL_FIELDS = new Set(Object.values(CREDENTIAL_FIELDS).flat());
+/**
+ * Every credential field any provider uses, so a foreign one is recognisable.
+ * `accessToken` is a credential no provider uses any more. It stays on this
+ * list so a binding still carrying one is refused as a foreign credential, not
+ * built: `legacy: stored rows only; no store takes it (notes-by-id)`.
+ */
+const ALL_CREDENTIAL_FIELDS = new Set([...Object.values(CREDENTIAL_FIELDS).flat(), "accessToken"]);
 
 /**
  * A `Map` rather than an object literal, so `provider: "constructor"` resolves
@@ -122,7 +142,6 @@ const ALL_CREDENTIAL_FIELDS = new Set(Object.values(CREDENTIAL_FIELDS).flat());
  */
 const BUILDERS = new Map([
   ["r2-binding", { kind: "r2-binding", build: nativeStore }],
-  ["dropbox", { kind: "dropbox", build: dropboxStore }],
   ["s3", { kind: "credentialed", build: credentialedStore }],
   ["r2", { kind: "credentialed", build: credentialedStore }],
   ["b2", { kind: "credentialed", build: credentialedStore }],
@@ -144,6 +163,9 @@ const BUILDERS = new Map([
  */
 export function storeForBinding(binding, env, options = {}) {
   if (!binding || typeof binding !== "object") throw new StorageUnavailable("malformed binding");
+
+  // Before anything else: a retired binding is refused whatever it carries.
+  if (binding.provider === "dropbox") throw new StorageUnsupported("retired provider");
 
   assertNoRefreshToken(binding);
 
@@ -367,35 +389,6 @@ function credentialedStore(binding, _env, options = {}) {
     // The adapter's own validation (ambiguous addressing style, unsafe root
     // prefix, bad bucket name) failed. Its message can quote configuration, so
     // it is dropped rather than relayed.
-    throw new StorageUnavailable("malformed binding");
-  }
-}
-
-/**
- * A folder in the customer's Dropbox — the one-click tier.
- *
- * There is no endpoint, no region, no bucket and no key pair: a Dropbox binding
- * is an access token and the folder the customer chose, and that folder is the
- * `rootPrefix` every other backend already has rather than a second field
- * meaning the same thing.
- *
- * The token is short-lived by construction and arrives already refreshed. This
- * adapter has no way to renew one and deliberately does not get given the means
- * to — see the header.
- */
-function dropboxStore(binding, _env, options = {}) {
-  try {
-    return new DropboxStore({
-      accessToken: binding.accessToken,
-      rootPrefix: binding.rootPrefix,
-      ...(options.fetchImpl ? { fetch: options.fetchImpl } : {}),
-    });
-  } catch {
-    // The adapter refuses a missing or non-string token, and
-    // `normalizeRootPrefix` refuses a traversing folder name. Both messages can
-    // quote configuration, so both are dropped and become the one typed refusal
-    // `index.js` answers with a 503 — never relayed, and never an unhandled
-    // throw. Same treatment as the S3 path.
     throw new StorageUnavailable("malformed binding");
   }
 }

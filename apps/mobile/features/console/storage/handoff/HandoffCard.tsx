@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Platform, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { Button } from "../../../design/components/Button";
 import { Card, Row } from "../../../design/components/Card";
 import { FormError } from "../../../design/components/Input";
@@ -8,7 +8,6 @@ import { useThemedStyles, type Colors } from "../../../design/theme";
 import { Confirm } from "../../files/Dialogs";
 import type { ConsoleStorage } from "../../types";
 import {
-  DROPBOX_ENDING,
   MOVED,
   OWN_MOVE,
   STILL_LIVE,
@@ -29,10 +28,9 @@ import { ExistingFilesChoice, type ExistingFilesAnswer } from "./ExistingFilesCh
  * Moving a workspace's files, in Settings › Storage.
  *
  * On Context's storage this is the way out of it. On storage the owner holds
- * (a bucket, or Dropbox) it is the move to another bucket of theirs (`to_own`,
+ * (a bucket) it is the move to another bucket of theirs (`to_own`,
  * `docs/design/own-storage-moves`), drawn with the same steps, stop and
- * failure states, and for Dropbox the standing note that its support is
- * ending. Below, "managed" describes the first case.
+ * failure states. Below, "managed" describes the first case.
  *
  * One card with one job per state: offer the move and the download while the
  * workspace is on Context's storage; show the five steps while it moves, with
@@ -51,7 +49,6 @@ export function HandoffCard({
   onDownload,
   onSwitchBack,
   onChooseExisting,
-  onOpenPremium,
   now = Date.now(),
 }: {
   storage: ConsoleStorage;
@@ -63,8 +60,6 @@ export function HandoffCard({
   onSwitchBack?: () => void;
   /** Answers a bucket that already has files: merge, or start fresh. */
   onChooseExisting?: (answer: ExistingFilesAnswer) => Promise<unknown>;
-  /** Settings › Premium, where an upgrade moves the files into Context storage. */
-  onOpenPremium?: () => void;
   now?: number;
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -218,15 +213,9 @@ export function HandoffCard({
   }
 
   if (ownStorage) {
-    const dropbox = storage.provider === "dropbox";
     return (
       <Card testID="storage-own-move-offer" style={styles.card}>
-        <Text variant="rowTitle">{dropbox ? DROPBOX_ENDING.toBucket : OWN_MOVE.title}</Text>
-        {dropbox ? (
-          <Text variant="rowSub" style={styles.line} testID="storage-dropbox-ending">
-            {DROPBOX_ENDING.line}
-          </Text>
-        ) : null}
+        <Text variant="rowTitle">{OWN_MOVE.title}</Text>
         {storage.handoffStatus === "failed" ? (
           <Text variant="rowSub" style={styles.line} role="status" testID="storage-handoff-stopped">
             {stoppedLine(storage.handoffBucket)}
@@ -236,18 +225,7 @@ export function HandoffCard({
           {OWN_MOVE.body}
         </Text>
         <Row style={styles.actions}>
-          <Button
-            label={dropbox ? DROPBOX_ENDING.toBucket : OWN_MOVE.move}
-            onPress={onMove}
-            testID="storage-own-move"
-          />
-          {Platform.OS === "web" && dropbox && onOpenPremium !== undefined ? (
-            <Button
-              label={DROPBOX_ENDING.toContext}
-              onPress={onOpenPremium}
-              testID="storage-dropbox-to-context"
-            />
-          ) : null}
+          <Button label={OWN_MOVE.move} onPress={onMove} testID="storage-own-move" />
         </Row>
       </Card>
     );

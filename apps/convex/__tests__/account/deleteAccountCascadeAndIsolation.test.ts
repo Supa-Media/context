@@ -1,3 +1,4 @@
+import { LEGACY_PROVIDER } from "../../functions/dropboxRemoval";
 import { describe, expect, test, vi } from "vitest";
 import { api } from "../../_generated/api";
 import {
@@ -18,16 +19,15 @@ import {
 } from "./fixtures.helpers";
 
 describe("deleteAccount", () => {
-  test("deleting a Dropbox-backed account schedules the grant revocation", async () => {
+  test("deleting an account with a legacy non-served binding row removes the row and its envelope, and schedules no revoke", async () => {
     const { t, owner } = await onboardedAccount();
 
-    // Reshape the fixture's bucket binding into a Dropbox one. Direct db
-    // writes, exactly as storage.test.ts does for `disconnectStorage`: what is
-    // under test is the deletion, not the connect flow.
+    // A row from a removed provider, written directly: what is under test is
+    // the deletion, not a connect flow that no longer exists.
     await t.run(async (ctx) => {
       const row = await ctx.db.query("storageBindings").unique();
       await ctx.db.patch(row!._id, {
-        provider: "dropbox",
+        provider: LEGACY_PROVIDER,
         encryptedRefreshToken: "v2:current:FAKE:ENVELOPE",
         endpoint: undefined,
         region: undefined,
@@ -39,21 +39,12 @@ describe("deleteAccount", () => {
 
     await asUser(t, owner).mutation(api.functions.account.deleteAccount, {});
 
-    // The row is gone AND the revoke is on the schedule, carrying the envelope
-    // it can no longer read from the row. Without this, we forget our copy of
-    // the credential while the grant lives on in the person's Dropbox — the
-    // same trap `disconnectStorage` closes, and an account deletion must not
-    // reopen it.
     const rows = await t.run((ctx) => ctx.db.query("storageBindings").collect());
     expect(rows).toHaveLength(0);
     const scheduled = await t.run((ctx) =>
       ctx.db.system.query("_scheduled_functions").collect(),
     );
-    const revokes = scheduled.filter((job) =>
-      job.name.includes("revokeDropboxGrant"),
-    );
-    expect(revokes).toHaveLength(1);
-    expect(JSON.stringify(revokes[0].args)).toContain("v2:current:FAKE:ENVELOPE");
+    expect(JSON.stringify(scheduled)).not.toContain("v2:current:FAKE:ENVELOPE");
   });
 
   test("deleting a Google-backed account schedules a revoke per live connection, and none for a disconnected one", async () => {
@@ -351,15 +342,6 @@ describe("deleteAccount", () => {
     await seedGrant(t, workspaceB, ownerB, "client-claude", "fake-hash-b");
 
     await t.run(async (ctx) => {
-      await ctx.db.insert("dropboxConnectAttempts", {
-        hashedState: "fake-hashed-state-b",
-        encryptedVerifier: "v2:current:FAKE:VERIFIER-B",
-        workspaceId: workspaceB,
-        startedBy: ownerB,
-        redirectUri: "https://console.example/callback",
-        expiresAt: Date.now() + 600_000,
-        createdAt: Date.now(),
-      });
       await ctx.db.insert("googleConnectAttempts", {
         hashedState: "fake-hashed-google-state-b",
         encryptedVerifier: "v2:current:FAKE:GOOGLE-VERIFIER-B",
@@ -400,12 +382,6 @@ describe("deleteAccount", () => {
         await ctx.db
           .query("googleConnections")
           .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceB))
-          .collect(),
-      ).toHaveLength(1);
-      expect(
-        await ctx.db
-          .query("dropboxConnectAttempts")
-          .filter((q) => q.eq(q.field("workspaceId"), workspaceB))
           .collect(),
       ).toHaveLength(1);
       expect(

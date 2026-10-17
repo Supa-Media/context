@@ -66,8 +66,7 @@ async function allKeys(source, prefix = "") {
 }
 
 /**
- * A backend's object map (S3: `key → { body, etag, lastModified? }`; Dropbox:
- * `/path → { body, rev }`) as a store, with the binding's root prefix (`strip`)
+ * A backend's object map (S3: `key → { body, etag, lastModified? }`) as a store, with the binding's root prefix (`strip`)
  * taken off every key the way the gateway's adapter takes it off.
  */
 function mapSource(objects, strip = "") {
@@ -115,8 +114,6 @@ export function createTreeRoutes(grantForAccessToken, bindings, gatewayJobs = ne
 
   /** S3 backends (`s3Backend.mjs`) whose buckets every S3-bound workspace's tree is copied from. */
   const backends = [];
-  /** The Dropbox backend (`dropboxBackend.mjs`) Dropbox-bound workspaces' trees are copied from. */
-  let dropbox = null;
 
   function boundSource(workspaceId) {
     const binding = bindings.get(workspaceId);
@@ -129,9 +126,6 @@ export function createTreeRoutes(grantForAccessToken, bindings, gatewayJobs = ne
     if (binding?.provider === "s3") {
       const backend = backends.find((candidate) => binding.endpoint === candidate.endpoint);
       if (backend) return mapSource(backend.bucketFor(binding.bucket), binding.rootPrefix ?? "");
-    }
-    if (binding?.provider === "dropbox" && dropbox) {
-      return mapSource(dropbox.accountFor(binding.accessToken), `/${binding.rootPrefix ?? ""}`);
     }
     return null;
   }
@@ -265,15 +259,13 @@ export function createTreeRoutes(grantForAccessToken, bindings, gatewayJobs = ne
       sources.set(workspaceId, source);
     },
     /**
-     * Every workspace bound to one of `env`'s R2 bindings, to a bucket of
-     * the S3 backend `s3`, or to a folder of the Dropbox backend, has its tree
-     * copied from it. Read straight from
+     * Every workspace bound to one of `env`'s R2 bindings, or to a bucket of
+     * the S3 backend `s3`, has its tree copied from it. Read straight from
      * the backend's map, so the bucket's own request counters do not move.
      */
-    serveTreesFrom(env, { s3, dropbox: folders } = {}) {
+    serveTreesFrom(env, { s3 } = {}) {
       if (env) envs.push(env);
       if (s3) backends.push(s3);
-      if (folders) dropbox = folders;
     },
     /** The workspace answers `served: false`, as one whose first copy has not finished. */
     stopServing(workspaceId) {

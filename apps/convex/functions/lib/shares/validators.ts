@@ -163,7 +163,7 @@ export const readSharedNoteReturns = v.object({
    * What is directly inside, when `path` is a folder. Empty for a note.
    *
    * **One level, not the whole subtree flattened.** The reader navigates in,
-   * which is what Drive and Dropbox do and what keeps a large folder from
+   * which is what Drive does and what keeps a large folder from
    * becoming one enormous response. The *reach* is still the whole subtree —
    * any path under the root opens — and that is decided by the bound, not by
    * what a listing happens to contain.

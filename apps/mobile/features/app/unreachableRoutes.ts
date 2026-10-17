@@ -53,17 +53,6 @@ export const DELIBERATELY_UNREACHABLE: readonly RouteReachability[] = [
     marker: "Only the `Editor in WebKit` CI job",
   },
   {
-    route: "/connect/dropbox",
-    file: "app/connect/dropbox.tsx",
-    reachable: false,
-    reason:
-      "The URL Dropbox redirects back to, registered with Dropbox and matched " +
-      "exactly. The app sends people out to Dropbox and Dropbox sends them here " +
-      "with a code and a state that exist for about a minute; opening it from " +
-      "inside the app would land on a callback with nothing to hand back.",
-    marker: "the URL Dropbox redirects back to",
-  },
-  {
     route: "/not-me",
     file: "app/not-me.tsx",
     reachable: false,

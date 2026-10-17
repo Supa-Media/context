@@ -106,7 +106,7 @@ export function dedupeCapped(values, limit) {
  * confirmed through? Compared at WHOLE-SECOND resolution, with a strict `<`,
  * because that is the resolution the timestamp actually carries.
  *
- * **S3's `ListObjectsV2` and Dropbox's `server_modified` report whole
+ * **S3's `ListObjectsV2` reports whole
  * seconds.** A note that lands behind the cursor at 12.900s is reported as
  * 12.000s, and a boundary of 12.750s compared exactly would call it older
  * than the last sweep and never look at it again. Measured on a

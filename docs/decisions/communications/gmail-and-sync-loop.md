@@ -7,8 +7,8 @@ deployment including this project's own, until Google's verification lands —
 see the section above). The pieces:
 
 **`googleConnections`, keyed by `workspaceId`, never `userId`** — same rule
-as `storageBindings`, same reason. `functions/googleConnect.ts` mirrors
-`dropboxConnect.ts`'s PKCE-attempt-then-scheduled-exchange shape exactly,
+as `storageBindings`, same reason. `functions/googleConnect.ts` mirrors the
+PKCE-attempt-then-scheduled-exchange shape of the connect flows exactly,
 including the security argument for why the callback needs no session: the
 workspace and the actor come from the parked attempt, never from the caller,
 so an interceptor of the callback URL can complete or burn the victim's own

@@ -111,7 +111,7 @@ async function checkPath(
   const exact = await store.list({ prefix: path, limit: 1 });
   const first = exact.objects?.[0];
   let exactRow = first !== undefined && (first as { key?: unknown }).key === path ? rowFromObject(first) : null;
-  // A store whose prefix listing cannot find a file (Dropbox, whose tree is
+  // A store whose prefix listing cannot find a file (one that ignores key order, whose tree is
   // filled by token since it ignores key order) is asked for the key by name.
   if (exactRow === null && (store as { prefixFindsFiles?: boolean }).prefixFindsFiles === false) {
     const object = await store.get(path);

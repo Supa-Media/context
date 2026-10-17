@@ -35,7 +35,7 @@ moves many notes, so the cost was paid constantly.
 - Leaving is **Download as folders**: a decrypted zip with real names, free
   on every plan and after cancelling. Import runs the same copy pass as the
   migration.
-- There is no gateway mode without a control plane, and no Dropbox store.
+- There is no gateway mode without a control plane.
 
 **The migration** (owner, 2026-10-15). Every row gets its `noteId`. The
 mover copies each object to its id key, and the row records the version of the

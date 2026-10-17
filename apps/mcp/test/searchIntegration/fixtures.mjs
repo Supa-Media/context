@@ -76,7 +76,7 @@ export function createBucket() {
     objects,
     counts,
     failGetKeys,
-    /** Off for the Dropbox-shaped backend, whose listings carry no etag. */
+    /** Off for a backend whose listings carry no etag. */
     listEtags: true,
     setBeforePut(hook) {
       onBeforePut = hook;

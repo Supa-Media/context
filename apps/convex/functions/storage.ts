@@ -15,8 +15,8 @@
  *   gateway → `getBindingForGateway` (INTERNAL action) envelope → plaintext
  *
  * There is deliberately no public path from the row back to the plaintext.
- * `getStorageBinding` returns status, a masked access key id, and — for
- * Dropbox — the account id it is connected to, and nothing else. If you are
+ * `getStorageBinding` returns status, a masked access key id, and nothing else
+ * that is a credential. If you are
  * adding a function that returns `encryptedSecretAccessKey`
  * to a client, you are building a credential-disclosure endpoint even though
  * the value looks opaque — an offline attack on a leaked key beats a value
@@ -65,6 +65,7 @@ import { recordAudit } from "./lib/audit";
 import { requireWorkspaceRole } from "./lib/workspaceAuth";
 import {
   initialCapabilities,
+  isServedProvider,
   type BindingResult,
 } from "./lib/storage/shapes";
 import {
@@ -89,7 +90,6 @@ export {
   capabilitiesValidator,
   type BindingResult,
   type DataKeyRekeyCandidates,
-  type DropboxGatewayCredential,
   type GatewayCredential,
   type ManagedMigrationRekeyCandidates,
   type PlatformSecretRekeyCandidates,
@@ -277,8 +277,8 @@ export const startManagedStorageHandoff = action({
 });
 
 /**
- * Copy a workspace from storage its owner holds (a bucket, or Dropbox) into
- * another bucket they hold, then swap bindings. The `to_own` move: the same
+ * Copy a workspace from a bucket its owner holds into another bucket they
+ * hold, then swap bindings. The `to_own` move: the same
  * engine and the same verification as the move out of managed storage, and
  * the old storage is never touched (`docs/design/own-storage-moves`).
  */
@@ -374,68 +374,9 @@ export const applyBinding = internalMutation({
       // answer about a different bucket, and an answer nobody gave needs no
       // qualifying.
       storageLayoutCheckedVersion: undefined,
-      // And the Dropbox grant, which is the one with a life of its own.
-      //
-      // `applyDropboxBinding` clears every S3 field on the way in and says why:
-      // "what is true of the old storage is not true of the new." The reverse
-      // direction was never written, so a customer moving off Dropbox onto
-      // their own bucket left us holding a live refresh token for their
-      // Dropbox — invisible in the console, which shows an S3 binding and no
-      // Dropbox field at all, and kept alive indefinitely because key rotation
-      // walks `ENVELOPE_FIELDS` on every pass.
-      //
-      // That is the direct inverse of "a customer can revoke our storage
-      // credential without asking us first, and keep a complete, usable
-      // context": they did the thing that should end the relationship, the
-      // product agreed, and the credential stayed. It is also the shape the
-      // Cloudflare decision rules out for that credential — "there is no
-      // steady state in which the control plane holds an account-level cloud
-      // credential."
-      encryptedRefreshToken: undefined,
-      encryptedAccessToken: undefined,
-      accessTokenExpiresAt: undefined,
-      dropboxAccountId: undefined,
       boundBy: args.actorUserId,
       updatedAt: now,
     };
-
-    // Rebinding away from Dropbox is a disconnect, and gets the same funeral.
-    //
-    // Clearing the four fields above stops us holding the credential, which
-    // was the whole of the earlier fix — and it is only half. `disconnect`
-    // schedules this and states the other half: without it "we forget our copy
-    // of the credential while the authorization lives on in the person's
-    // account, and their next connect silently auto-approves instead of
-    // asking". A customer moving their context to their own bucket has ended
-    // the Dropbox relationship exactly as definitively as one clicking
-    // Disconnect; they should not have to go to Dropbox to finish the job.
-    //
-    // Scheduled, never called, so this mutation cannot reach the decrypt — and
-    // the envelope travels in the args because `fields` is about to erase it.
-    // No check that the new provider is not Dropbox: this mutation's own
-    // validator cannot express one — `applyBinding` writes the S3 family and
-    // nothing else, and a Dropbox binding is written by `applyDropboxBinding`.
-    // `tsc` said so when the redundant clause was there.
-    // The `provider` half is defence, not a live guard: no product path writes
-    // a refresh token onto a non-Dropbox row (`applyDropboxBinding` sets both
-    // together, this mutation only ever clears the field, and rotation
-    // re-encrypts a field into itself without touching `provider`). Removing
-    // it changes no test, which is the honest signal — and a reader meeting it
-    // cannot tell that without running the sabotage, so it is written here.
-    if (
-      existing?.provider === "dropbox" &&
-      existing.encryptedRefreshToken !== undefined &&
-      args.deferDropboxRevoke !== true
-    ) {
-      await ctx.scheduler.runAfter(
-        0,
-        internal.functions.dropboxConnect.revokeDropboxGrant,
-        {
-          workspaceId: args.workspaceId,
-          encryptedRefreshToken: existing.encryptedRefreshToken,
-        },
-      );
-    }
 
     /*
       And the projection of the notes, when the notes have moved.
@@ -457,7 +398,10 @@ export const applyBinding = internalMutation({
     }
 
     let bindingId: Id<"storageBindings">;
-    if (existing === null) {
+    if (existing === null || !isServedProvider(existing.provider)) {
+      // A legacy row from a removed provider is replaced, not patched, so no
+      // field of its old shape survives the rebind.
+      if (existing !== null) await ctx.db.delete(existing._id);
       bindingId = await ctx.db.insert("storageBindings", {
         ...fields,
         createdAt: now,
@@ -554,15 +498,8 @@ export const getBindingRow = internalQuery({
  */
 export const getBindingForGateway = internalAction({
   args: { workspaceId: v.id("workspaces") },
-  // Two shapes, not one shape with holes: see `getBindingForGatewayReturns`.
   returns: validators.getBindingForGatewayReturns,
   handler: credentialOpening.getBindingForGatewayHandler,
-});
-
-export const recordDropboxRefresh = internalMutation({
-  args: gatewayBinding.recordDropboxRefreshArgs,
-  returns: gatewayBinding.recordDropboxRefreshReturns,
-  handler: gatewayBinding.recordDropboxRefreshHandler,
 });
 
 export const listRekeyCandidates = internalQuery({

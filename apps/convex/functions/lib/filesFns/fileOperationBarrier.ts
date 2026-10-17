@@ -410,7 +410,7 @@ export async function runFileOperationHandler(
     // the gateway uses, so the console reads and writes exactly what an AI
     // client does. A second switch here would be the second place to forget
     // a new backend, and the direction that forgetting fails is "built an
-    // S3 store out of a Dropbox binding".
+    // S3 store out of a binding of another provider".
     //
     // `timeoutFetch` is forwarded because a console request has somebody
     // waiting on it; the gateway does not need one.

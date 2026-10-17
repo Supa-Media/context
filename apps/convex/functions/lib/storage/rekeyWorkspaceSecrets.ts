@@ -45,7 +45,7 @@ export async function listRekeyCandidatesHandler(
   for (const binding of bindings) {
     for (const field of ENVELOPE_FIELDS) {
       const envelope = binding[field];
-      // Absent is normal now, not a defect: a Dropbox binding has no bucket
+      // Absent is normal now, not a defect: a legacy row has no bucket
       // secret and an S3 one has no tokens. Only a *present* envelope that
       // cannot be read is unreadable.
       if (typeof envelope !== "string" || envelope.length === 0) continue;
@@ -91,7 +91,7 @@ export async function applyRekeyHandler(
 ) {
   const binding = await ctx.db.get(args.bindingId);
   if (binding === null) return false;
-  // Still conditional, and now per field: a Dropbox binding whose access
+  // Still conditional, and now per field: a legacy row whose access
   // token was refreshed mid-pass must not have the stale one restored.
   if (binding[args.field] !== args.expectedEnvelope) return false;
 

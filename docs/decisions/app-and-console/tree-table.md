@@ -42,7 +42,7 @@ never overwrites a newer one, a key seen gone leaves a tombstone a slower
 listing cannot undo, and a finished sweep removes whatever nobody observed
 while it ran. A change too big to re-check marks the table dirty, and the next
 read starts a sweep. A table is swept again when read an hour after its last
-sweep. A store that cannot resume a listing in key order (Dropbox) is never
+sweep. A store that cannot resume a listing in key order is never
 served from the table.
 
 **What starts a sweep.** Any first page of any tree walk, whether it can read

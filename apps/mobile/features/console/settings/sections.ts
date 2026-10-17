@@ -380,7 +380,7 @@ export const SETTINGS_SECTIONS = [
       here or it lands nowhere.
     */
     keywords:
-      "bucket r2 s3 dropbox key credentials connect disconnect where files kept backup search find index fast lookup rebuild encryption keys export folder moves",
+      "bucket r2 s3 key credentials connect disconnect where files kept backup search find index fast lookup rebuild encryption keys export folder moves",
     scope: "context",
     label: "Storage",
     group: null,

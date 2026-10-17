@@ -1,7 +1,7 @@
 /**
  * SigV4 request signing, get, conditional writes and list.
  *
- * Split out of store.test.mjs; see fixtures.mjs for the shared S3/R2/Dropbox stubs.
+ * Split out of store.test.mjs; see fixtures.mjs for the shared S3/R2 stubs.
  */
 
 import { parseListObjectsV2, deriveSigningKey, normalizeEtag, FAKE_CONFIG, s3, listXml } from "./fixtures.mjs";

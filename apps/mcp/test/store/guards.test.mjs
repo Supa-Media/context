@@ -2,7 +2,7 @@
  * Runaway-pagination guards against the worker, R2/S3 onlyIf validation parity,
  * and folder paths that keep their trailing slash through the tool layer.
  *
- * Split out of store.test.mjs; see fixtures.mjs for the shared S3/R2/Dropbox stubs.
+ * Split out of store.test.mjs; see fixtures.mjs for the shared S3/R2 stubs.
  *
  * @param {(label: string, ok: boolean) => void} check
  * @param {{ env: object, ownerToken: string }} gateway a live control-plane-backed

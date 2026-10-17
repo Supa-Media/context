@@ -164,7 +164,7 @@ describe("the route table", () => {
       "/console/@public-worship?settings=integrations",
     );
     // The old path stays a context route, because it is in the wild — the
-    // Dropbox failure notice and the search nudge both link to it — and
+    // The search nudge rows link to it — and
     // `app/(app)/console/[slug]/settings.tsx` redirects it to the parameter.
     expect(routeForPath("/console/@public-worship/settings")).toEqual({
       kind: "context",

@@ -49,7 +49,7 @@ describe("observability privacy boundary", () => {
     const clean = cleanPostHogProperties(
       {
         token: "stale-or-tampered",
-        provider: "dropbox",
+        provider: "s3",
         nested: { token: "customer-secret" },
         $snapshot_data: snapshot,
       },
@@ -57,7 +57,7 @@ describe("observability privacy boundary", () => {
     );
 
     expect(clean).toEqual({
-      provider: "dropbox",
+      provider: "s3",
       nested: { token: "[redacted]" },
       token: "public-project-key",
       $snapshot_data: snapshot,
