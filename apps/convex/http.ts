@@ -116,6 +116,7 @@ import * as searchTiming from "./functions/lib/gatewayRoutes/searchTiming";
 import * as routines from "./functions/lib/gatewayRoutes/routines";
 import * as dreams from "./functions/lib/gatewayRoutes/dreams";
 import * as heartbeats from "./functions/lib/gatewayRoutes/heartbeats";
+import * as housekeeping from "./functions/lib/gatewayRoutes/housekeeping";
 import { serverError } from "./functions/lib/gatewayRoutes/responses";
 import * as sharePreviews from "./functions/lib/publicRoutes/sharePreviews";
 import * as shortLinkCards from "./functions/lib/publicRoutes/shortLinkCards";
@@ -888,5 +889,8 @@ http.route({ path: "/agent-texts/dreams/result", method: "POST", handler: agentW
 /* Tex's check-ins (`functions/heartbeats.ts`): the same shape as dreams, plus the person's own phones to text. */
 http.route({ path: "/agent-texts/heartbeats/due", method: "POST", handler: agentWorkerRoute(heartbeats.agentHeartbeatsDueHandler) });
 http.route({ path: "/agent-texts/heartbeats/result", method: "POST", handler: agentWorkerRoute(heartbeats.agentHeartbeatsResultHandler) });
+/* Tex's housekeeping (`functions/housekeeping.ts`): the same shape as dreams; it texts nobody. */
+http.route({ path: "/agent-texts/housekeeping/due", method: "POST", handler: agentWorkerRoute(housekeeping.agentHousekeepingDueHandler) });
+http.route({ path: "/agent-texts/housekeeping/result", method: "POST", handler: agentWorkerRoute(housekeeping.agentHousekeepingResultHandler) });
 
 export default http;

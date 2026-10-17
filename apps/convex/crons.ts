@@ -90,6 +90,9 @@ crons.interval("arm Tex's first dreams", { hours: 24 }, internal.functions.dream
  */
 crons.interval("arm Tex's first check-ins", { hours: 24 }, internal.functions.heartbeats.armLinkedHeartbeats, {});
 
+/** And for Tex's daily housekeeping (`functions/housekeeping.ts`). */
+crons.interval("arm Tex's first housekeeping", { hours: 24 }, internal.functions.housekeeping.armLinkedHousekeeping, {});
+
 /**
  * Grant founding Premium to accounts still owed it (`lib/billing/founding.ts`),
  * so accounts made before it shipped do not wait for the next sign-up. Once
