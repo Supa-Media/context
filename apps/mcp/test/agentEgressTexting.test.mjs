@@ -39,7 +39,7 @@
 
 import { ask, request, toolReplies, createEgressWorld } from "./agentEgressFixtures.mjs";
 import { TOKEN_CONSOLE, TOKEN_TEXTS, TOKEN_ROUTINE } from "./agentEgressFixtures.mjs";
-import { approvalVerdict } from "../src/agent/route.js";
+import { approvalVerdict } from "../src/agent/textedApprovals.js";
 
 export async function runAgentEgressTextingChecks(check) {
   const world = await createEgressWorld();

@@ -54,11 +54,14 @@ import {
   finishOnce,
 } from "./routine.js";
 import { textingAwareCallTool, textingWriteTools } from "./textingWrites.js";
+import { delegateSession, withDelegate } from "./delegate.js";
+import { NO_MODEL, deliverSupervision, prepareSupervision, withMailAgent } from "./supervise.js";
 import { LONG_MAX_ROUNDS, LONG_TOOL_BUDGET_MS, progressChannel } from "./progress.js";
 import { markUntrusted, newLedger } from "../privacy/egress.js";
 import { transcriptionForwarder } from "../ingestion/transcription.js";
 import { outgoingPictures, sentPicturesLine } from "./outgoingPictures.js";
-import { disarmTexting, listPending, replayAsAsked, settlePending, withdrawPending } from "../tools/approvals.js";
+import { disarmTexting, withdrawPending } from "../tools/approvals.js";
+import { approvalVerdict, askLine, settleByText } from "./textedApprovals.js";
 
 /**
  * What a turn that may not run says. Nothing in the app can change this any
@@ -141,6 +144,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   const dispatch = (name, args) => callToolForSession({ name, arguments: args }, store, session);
   let routine = null;
   let runs = [];
+  // A delegated job's supervisor (`supervise.js`): what this run is for, decided before any model.
+  let supervision = null;
   let question = typeof body.question === "string" ? body.question.trim() : "";
   if (runner) {
     try {
@@ -156,6 +161,16 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       timeZone: routineTimeZone(routine.settings, body.routine.timeZone),
       lastRun: runs.findLast((run) => run.outcome === "answered" || run.outcome === "finished"),
     });
+    // A job going well, done or gone costs no model call (`supervise.js`); done or gone stops its supervisor.
+    supervision = await prepareSupervision(dispatch, routine, { runs, handle: store.contexts.find((c) => c.current)?.name });
+    if (supervision?.skip) {
+      const { skip: outcome, answer = "" } = supervision;
+      await keepRun(store, routine, runs, outcome, answer || NO_MODEL);
+      if (outcome === "finished") await stopRoutine(dispatch, routine.path);
+      if (supervision.task) await deliverSupervision(store, dispatch, supervision, { outcome, text: answer }, (work) => deferred(store, work));
+      return json({ outcome, answer, skipped: answer === "", send: routine.settings.send, to: routine.settings.to });
+    }
+    if (supervision !== null) question = supervision.question;
   }
   // What came with the question (`attachments.js`). A routine's run has none.
   const { attachments: sent, refusal } = turnAttachments(body.attachments, runner);
@@ -304,6 +319,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     the body either, which keeps `watch.md` from reading as a hostname.
   */
   const vouched = runner ? routine?.body ?? "" : question;
+  // Another agent's mail is someone else's words, like a page (`supervise.js`).
+  if (supervision !== null) markUntrusted(ledger);
   const opened =
     computer === null && search === null
       ? null
@@ -354,6 +371,18 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   const skills = skillSession(production?.skills ?? [], (path) => readProductionSkill(store, session, path), {
     onRead: (body) => opened?.vouch(body),
   });
+  // A text that can write may hand a sub-project to another agent (`delegate.js`), as the person.
+  const home = store.contexts.find((entry) => entry.current)?.name ?? null;
+  const delegation =
+    session.actorClientId === TEXTS_CLIENT_ID && textingWriting.length > 0 && home !== null
+      ? delegateSession(dispatch, {
+          handle: home,
+          home,
+          vouch: (url, message) => opened?.delegated(url, message),
+          trusted: () => ledger.untrusted !== true,
+          browser: opened?.browser != null,
+        })
+      : null;
   // The setup's trusted sites (`trustedSites.js`), openable without an address given.
   // With `open_web: yes`, any public https address (owner, 2026-10-11).
   opened?.trust(production?.trustedSites ?? [], { openWeb: production?.openWeb === true });
@@ -464,11 +493,18 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
         ...agentTools(offered).filter((tool) => textingWriting.length === 0 || tool.name !== "propose_note"),
         ...textingWriting,
         ...(skills?.tools ?? []),
+        ...(delegation?.tools ?? []),
+        ...(supervision?.mail.tools ?? []),
       ],
       // THE ONE DISPATCHER, AND IT IS THE CLIENT'S (`callToolForSession`): its routing and every
       // per-call scope refusal. An agent that reached past it would be a second, untested authority.
       onModel: (model) => void (store.usageModel = model),
-      callTool: outgoing.wrap(withAttachmentImages(attachments, withSkills(skills, textingAwareCallTool(dispatch, textingWriting)))),
+      callTool: outgoing.wrap(
+        withAttachmentImages(
+          attachments,
+          withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withSkills(skills, textingAwareCallTool(dispatch, textingWriting)))),
+        ),
+      ),
       pictures: session.actorClientId === TEXTS_CLIENT_ID,
       attachments,
       env,
@@ -523,6 +559,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
         await stopRoutine(dispatch, routine.path);
       }
       // A one-off has run: it stays where it is, marked done (`finishOnce`).
+      if (supervision !== null) await deliverSupervision(store, dispatch, supervision, ran, afterAnswer);
       if (routine.cadence.unit === "once" && ran.outcome !== "failed") {
         await finishOnce(dispatch, routine.path, {
           now: Date.now(),
@@ -637,61 +674,4 @@ async function keepRun(store, routine, runs, outcome, text) {
   } catch {
     // See above.
   }
-}
-
-/** A text that is nothing but yes, or nothing but no; anything else goes to the model. */
-const YES = /^\s*(?:yes|yes please|yep|yeah|yup|ok|okay|sure|do it|go ahead|go for it|confirm|confirmed|approve|approved|allow|y)\s*[.!]*\s*$/i;
-const NO = /^\s*(?:no|nope|no thanks|don'?t|cancel|stop|deny|denied|never ?mind|forget it|drop it|n)\s*[.!]*\s*$/i;
-
-export function approvalVerdict(text) {
-  if (typeof text !== "string") return null;
-  if (YES.test(text)) return "approve";
-  if (NO.test(text)) return "deny";
-  return null;
-}
-
-/** The line a texted answer ends with when the turn held something for the person. */
-export function askLine(asked) {
-  const what = asked.map((record) => record.summary).join("; ");
-  return `Before I ${asked.length === 1 ? "do that" : "do those"}, I need your OK: ${what}. Reply YES to go ahead, or NO to drop it.`;
-}
-
-/**
- * Settle what this thread's latest ask put to the person, as their text said.
- * Returns the reply, or null when nothing was waiting — in which case the text
- * is an ordinary one and the model answers it.
- */
-async function settleByText(store, session, verdict) {
-  // Only what this thread asked about, lately, and not since moved on from: a
-  // yes here never releases a call some other client raised that the person was
-  // not told of. Every record left armed was asked in the thread's latest ask,
-  // and the ask line named all of them, so one yes answers all of them.
-  const waiting = await listPending(store, { userId: session.actorUserId, texting: true });
-  if (waiting.length === 0) return null;
-  const replies = [];
-  for (const { record } of [...waiting].reverse()) {
-    const settled = await settlePending(store, record.id, {
-      userId: session.actorUserId,
-      action: verdict,
-      actorScope: session.scope,
-      run: (held) =>
-        replayAsAsked(store, session, held, (approver) =>
-          callToolForSession({ name: held.tool, arguments: held.args }, store, approver),
-        ),
-    });
-    if (settled.status === "denied") {
-      replies.push(`OK, dropped: ${record.summary}.`);
-      continue;
-    }
-    if (settled.status !== "approved") continue;
-    const text = settled.result?.content?.[0]?.text;
-    const said = typeof text === "string" && text.trim() ? text.trim() : "done.";
-    // A tool's own text is for a model: an etag, a visibility line. The person
-    // texted yes to a one-line summary and gets that summary back (the first
-    // Action round, 2026-10-10: "Done: write projects/x.md into @woodshop.
-    // written: projects/x.md (etag c2.doc-…) visibility: team" failed every
-    // voice line the judge has). What went wrong still says what the tool said.
-    replies.push(settled.result?.isError === true ? `I tried to ${record.summary}, but: ${said}` : `Done: ${record.summary}.`);
-  }
-  return replies.length === 0 ? null : replies.join("\n");
 }

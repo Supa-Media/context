@@ -177,6 +177,8 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
   const theirWords = new Set(wordsOf(addresses));
   // Exact values a skill read this question vouched for (`vouch` below).
   const vouchedValues = new Set();
+  // Exact messages `delegate` wrote, each typable only on its agent's own site (`delegateValue` below).
+  const delegatedValues = new Map();
   const theirSites = [...new Set(addressesIn(addresses).map((url) => siteOf(new URL(url).hostname)))];
   let session = null;
   let origin = null;
@@ -272,7 +274,10 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
           if (typeof step.text !== "string") return textResult("A type step needs text.", true);
           let onlyOn = null;
           // Open web: anything on any page, and no host re-check at the keys.
-          if (!openWeb && !onlyTheirWords(step.text, theirWords) && !vouchedValues.has(step.text.trim().toLowerCase())) {
+          const delegatedTo = delegatedValues.get(step.text.trim());
+          if (!openWeb && delegatedTo !== undefined) {
+            onlyOn = [delegatedTo];
+          } else if (!openWeb && !onlyTheirWords(step.text, theirWords) && !vouchedValues.has(step.text.trim().toLowerCase())) {
             if (theirSites.length === 0) {
               return textResult(
                 "You can only type the person's own words here, or a value a skill you read this question gives (fetch skill:). To type anything else, the person has to name the site in their message.",
@@ -348,6 +353,17 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
      */
     vouch(text) {
       for (const match of String(text ?? "").matchAll(SKILL_VALUE)) vouchedValues.add(match[1].trim().toLowerCase());
+    },
+
+    /**
+     * A message `delegate` wrote for another agent (`delegate.js`) may be
+     * typed, exactly as written, on that agent's own site and nowhere else:
+     * the browser re-checks the host at the keys, as it does for a site the
+     * person named. Its words are the model's, so it must never reach a page
+     * that asked for them.
+     */
+    delegateValue(host, value) {
+      if (typeof host === "string" && host && typeof value === "string" && value.trim()) delegatedValues.set(value.trim(), siteOf(host));
     },
 
     /** The origin of the page the browser is on, or null before it opens one. */
