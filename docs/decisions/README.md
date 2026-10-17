@@ -333,6 +333,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Search by meaning is on for every workspace, free and Premium, and an owner can turn it off
 - Notes reach the index two ways, and a map in the bucket says which are in
 - Both indexes fill in tier order: T0 everything else, T1 the Inbox, T2 the Archive
+- A note's passages are filed under its note id, and a move only re-points them
 
 ## [The mobile app and the console](./app-and-console.md)
 

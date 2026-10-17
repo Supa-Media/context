@@ -27,6 +27,7 @@
 import { effectiveVisibility, isPlumbing } from "../privacy";
 import { createSearchBudget } from "../../../../mcp/src/search/maintain.js";
 import { meaningPass } from "../../../../mcp/src/search/meaning/catchup.js";
+import { meaningKeyOf } from "../../../../mcp/src/search/meaning/project.js";
 import { listNoteObjects } from "../../../../mcp/src/search/shards/listing.js";
 import { loadPrivacyState } from "./privacyState";
 import type { FileStore } from "./store";
@@ -43,10 +44,13 @@ export interface MeaningPassClient {
   upsert(vectors: unknown[]): Promise<number>;
   deleteByIds(ids: string[]): Promise<number>;
   existingIds(ids: string[]): Promise<Set<string>>;
+  getByIds(ids: string[]): Promise<{ id: string; values: number[]; metadata: Record<string, unknown> }[]>;
 }
 
 export interface MeaningPassResult {
   embedded: number;
+  /** Notes moved or renamed, pointed at their new path with no model call. */
+  repathed?: number;
   deleted: number;
   notesIndexed: number;
   notesPending: number;
@@ -79,7 +83,11 @@ export async function projectMeaningIndex(
   options: { budget?: number; noteCap?: number } = {},
 ): Promise<MeaningPassResult> {
   const budget = createSearchBudget(options.budget ?? MEANING_LISTING_BUDGET);
-  let listing: { entries: Map<string, { version: string; size?: number | null }>; regionComplete: (path: string) => boolean; truncated: boolean };
+  let listing: {
+    entries: Map<string, { version: string; size?: number | null; noteId?: string }>;
+    regionComplete: (path: string) => boolean;
+    truncated: boolean;
+  };
   try {
     listing = await listNoteObjects(store, budget, 0, (key: string) => key.endsWith(".md") && !isPlumbing(key));
   } catch {
@@ -96,22 +104,32 @@ export async function projectMeaningIndex(
       failureCause: "listing",
     };
   }
+  // Keyed by note id where the row has one (`meaningKeyOf`), so a moved or
+  // renamed note is the same entry at a new path and is re-pathed, not
+  // embedded again. Two rows naming one id (which the shared-id repair
+  // exists for) keep the first, in path order; the other is embedded under
+  // its path until it has an id of its own.
   const census = new Map<string, string>();
+  const pathOfKey = new Map<string, string>();
   const sizes = new Map<string, number | null>();
-  for (const [path, entry] of listing.entries) {
-    census.set(path, entry.version);
-    sizes.set(path, entry.size ?? null);
+  for (const [path, entry] of [...listing.entries].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+    let key = meaningKeyOf(path, entry.noteId);
+    if (census.has(key)) key = path;
+    census.set(key, entry.version);
+    pathOfKey.set(key, path);
+    sizes.set(key, entry.size ?? null);
   }
   const state = await loadPrivacyState(store);
   const pass = await meaningPass(store as unknown as Parameters<typeof meaningPass>[0], {
     client: meaning.client,
     embed: meaning.embed,
     census,
+    pathOf: (key: string) => pathOfKey.get(key) ?? key,
     visibilityOf: (path: string) => effectiveVisibility(path, state.rules, state.overrides),
     generation: meaning.generation,
     indexPending: listing.truncated ? 1 : 0,
     regionComplete: listing.regionComplete,
-    sizeOf: (path: string) => sizes.get(path) ?? null,
+    sizeOf: (key: string) => sizes.get(key) ?? null,
     ...(options.noteCap === undefined ? {} : { noteCap: options.noteCap }),
   } as unknown as Parameters<typeof meaningPass>[1]);
   return pass;

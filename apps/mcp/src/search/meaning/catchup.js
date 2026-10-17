@@ -10,12 +10,27 @@
  *
  * ## The diff, and why it lives in the bucket
  *
- * The census is `[path, version]` for every note, from a listing of the
- * bucket (the control plane's `meaningProjection.ts`; never the R2 shard
- * index, which a large workspace can leave behind). This pass keeps a second map beside it,
- * at `MEANING_STATE_KEY`, of the version it last embedded for each path. A
- * note whose census version differs, or that the state has never seen, is
- * embedded; a path the state holds and the census does not is deleted.
+ * The census is `[key, version]` for every note, from a listing of the
+ * tree (the control plane's `meaningProjection.ts`; never the R2 shard
+ * index, which a large workspace can leave behind). A note's key is its note
+ * id where it has one, else its path (`meaningKeyOf`), and `pathOf` says
+ * where each key's note is now. This pass keeps a second map beside it, at
+ * `MEANING_STATE_KEY`, of the version it last embedded for each key, and the
+ * path each id's passages carry. A note whose census version differs, or
+ * that the state has never seen, is embedded; one at the same version under
+ * a new path (a move or a rename) is re-pathed from the vectors already held,
+ * with no model call (`repathPassages`); a key the state holds and the census
+ * does not is deleted.
+ *
+ * ## From path keys to note ids
+ *
+ * A map written before passages were filed by id holds paths. Each such note
+ * is now in the census under its id. Where the map's path holds the same
+ * version, its passages are copied under the id from the vectors already held
+ * (no model call), and the path's are deleted once the copy has landed; a
+ * note that changed meanwhile is embedded under the id the ordinary way, and
+ * its path's passages deleted on the pass after. Either way a search keeps
+ * finding the note under the old ids until the new ones are there.
  *
  * Fast search keeps its cursor in its own database. A Vectorize index has
  * nowhere to keep one, and the control plane holds metadata only, never a list
@@ -40,6 +55,7 @@
 import { SEARCH_PREFIX } from "../../../../../packages/shared/src/storageLayout.cjs";
 import { compareIndexingOrder, countByIndexingPriority } from "../../../../../packages/shared/src/folderRoles.cjs";
 import { MeaningError } from "./errors.js";
+import { isNoteId } from "../../store/noteIdKeys.js";
 import {
   MEANING_MAX_PASSAGES,
   MEANING_PASSAGE_CHARS,
@@ -47,6 +63,7 @@ import {
   deleteStaleTails,
   meaningChangeFor,
   removePassages,
+  repathPassages,
 } from "./project.js";
 
 export const MEANING_STATE_KEY = `${SEARCH_PREFIX}meaning/v1/state.json`;
@@ -83,9 +100,9 @@ export async function readMeaningState(store, generation) {
   return (await readState(store, generation)).notes;
 }
 
-/** The map and the passage cap it was written under. */
+/** The map, the path each id's passages carry, and the passage cap it was written under. */
 async function readState(store, generation) {
-  const none = { notes: new Map(), passages: MEANING_MAX_PASSAGES };
+  const none = { notes: new Map(), paths: new Map(), passages: MEANING_MAX_PASSAGES };
   try {
     const object = await store.get(MEANING_STATE_KEY);
     if (!object) return none;
@@ -101,11 +118,17 @@ async function readState(store, generation) {
       return none;
     }
     const notes = new Map();
-    for (const [path, version] of Object.entries(parsed.notes)) {
-      if (typeof version === "string") notes.set(path, version);
+    for (const [key, version] of Object.entries(parsed.notes)) {
+      if (typeof version === "string") notes.set(key, version);
+    }
+    // Only for ids the map holds: a path the map names for nothing is dropped.
+    const paths = new Map();
+    const recorded = parsed.paths && typeof parsed.paths === "object" && !Array.isArray(parsed.paths) ? parsed.paths : {};
+    for (const [key, path] of Object.entries(recorded)) {
+      if (notes.has(key) && isNoteId(key) && typeof path === "string" && path) paths.set(key, path);
     }
     const passages = Number.isInteger(parsed.passages) && parsed.passages > 0 ? parsed.passages : LEGACY_MAP_PASSAGES;
-    return { notes, passages };
+    return { notes, paths, passages };
   } catch {
     return none;
   }
@@ -122,34 +145,75 @@ export function bytesThatFit(passages) {
   return passages * (MEANING_PASSAGE_CHARS - MEANING_PASSAGE_OVERLAP);
 }
 
-async function writeMeaningState(store, generation, notes) {
-  const sorted = [...notes.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+const byKey = ([a], [b]) => (a < b ? -1 : a > b ? 1 : 0);
+
+async function writeMeaningState(store, generation, notes, paths) {
+  const sorted = [...notes.entries()].sort(byKey);
+  const held = [...paths.entries()].filter(([key]) => notes.has(key)).sort(byKey);
   await store.put(
     MEANING_STATE_KEY,
-    JSON.stringify({ v: STATE_VERSION, generation, passages: MEANING_MAX_PASSAGES, notes: Object.fromEntries(sorted) }),
+    JSON.stringify({
+      v: STATE_VERSION,
+      generation,
+      passages: MEANING_MAX_PASSAGES,
+      notes: Object.fromEntries(sorted),
+      ...(held.length > 0 ? { paths: Object.fromEntries(held) } : {}),
+    }),
   );
 }
 
 /**
- * What the census and the map disagree about: paths to embed (new or changed)
- * and paths to delete. Embeds go in indexing order (`compareIndexingOrder`):
+ * What the census and the map disagree about: keys to embed (new or changed),
+ * ids to re-path (the same version at a new path), ids to adopt (passages
+ * still filed under the path, at the census's version), and keys to delete. Embeds
+ * and re-paths go in indexing order (`compareIndexingOrder`, by path):
  * everything but the Inbox and Archive first, then the Inbox, then the
  * Archive (decided by the owner, 2026-10-08), by path within each, so a long
  * walk resumes where it stopped.
+ *
+ * A path key whose note the census now names by id is deleted only once the
+ * id holds that note's current version (see the header); until then both
+ * answer for it. An id the census lacks is deleted only from a listing that
+ * reached everything (`complete`): a moved note's new folder may be the part
+ * a cut-short listing never got to.
+ *
+ * @param {Map<string,string>} census key → version
+ * @param {Map<string,string>} notes key → version embedded
+ * @param {(path: string) => boolean} [regionComplete]
+ * @param {{pathOf?: (key: string) => string, paths?: Map<string,string>, complete?: boolean}} [options]
  */
-export function meaningDiff(census, notes, regionComplete = () => true) {
+export function meaningDiff(census, notes, regionComplete = () => true, { pathOf = (key) => key, paths = new Map(), complete = true } = {}) {
+  const byPath = (a, b) => compareIndexingOrder(pathOf(a), pathOf(b));
   const changed = [];
-  for (const [path, version] of census) {
-    if (notes.get(path) !== version) changed.push(path);
+  const repathed = [];
+  const adopted = [];
+  const idAt = new Map();
+  for (const [key, version] of census) {
+    if (!notes.has(key) && isNoteId(key) && notes.get(pathOf(key)) === version) adopted.push(key);
+    else if (notes.get(key) !== version) changed.push(key);
+    else if (isNoteId(key) && paths.get(key) !== pathOf(key)) repathed.push(key);
+    if (isNoteId(key)) idAt.set(pathOf(key), key);
   }
-  changed.sort(compareIndexingOrder);
+  changed.sort(byPath);
+  repathed.sort(byPath);
+  adopted.sort(byPath);
   const removed = [];
-  for (const path of notes.keys()) {
+  for (const key of notes.keys()) {
+    if (census.has(key)) continue;
+    if (isNoteId(key)) {
+      if (complete && regionComplete(paths.get(key) ?? "")) removed.push(key);
+      continue;
+    }
+    const id = idAt.get(key);
+    if (id !== undefined) {
+      if (notes.get(id) === census.get(id)) removed.push(key);
+      continue;
+    }
     // Absent from a listing that never reached its folder is not gone.
-    if (!census.has(path) && regionComplete(path)) removed.push(path);
+    if (regionComplete(key)) removed.push(key);
   }
   removed.sort();
-  return { changed, removed };
+  return { changed, repathed, adopted, removed };
 }
 
 /**
@@ -157,9 +221,11 @@ export function meaningDiff(census, notes, regionComplete = () => true) {
  *
  * @param {object} store the workspace's store (`get`, `put`)
  * @param {object} options
- * @param {{upsert: Function, deleteByIds: Function}} options.client this workspace's index
+ * @param {{upsert: Function, deleteByIds: Function, existingIds: Function, getByIds: Function}} options.client this workspace's index
  * @param {(texts: string[]) => Promise<number[][]>} options.embed
- * @param {Map<string,string>} options.census path → version, from the R2 index
+ * @param {Map<string,string>} options.census key → version, from the tree's listing
+ * @param {(key: string) => string} [options.pathOf] where a census key's note
+ *   is now; a key that is a path is its own (the default)
  * @param {(path: string) => string} options.visibilityOf `privacy.md`'s answer
  * @param {string} options.generation this life of the index
  * @param {number} [options.noteCap]
@@ -167,9 +233,9 @@ export function meaningDiff(census, notes, regionComplete = () => true) {
  * @param {(path: string) => boolean} [options.regionComplete] whether the
  *   listing behind the census reached the part of the bucket `path` is in;
  *   a path the census lacks is deleted only where it did
- * @param {(path: string) => number|null} [options.sizeOf] a census note's size
+ * @param {(key: string) => number|null} [options.sizeOf] a census note's size
  *   in bytes, from the same listing; `null` where it reported none
- * @returns {Promise<{embedded: number, deleted: number, notesIndexed: number,
+ * @returns {Promise<{embedded: number, repathed: number, deleted: number, notesIndexed: number,
  *   notesPending: number, priorities: Array<{priority: number, indexed: number,
  *   pending: number}>, ready: boolean, moved: boolean, failure: string|null,
  *   failureCause: string|null}>} counts only: no path, no title, no text.
@@ -180,6 +246,7 @@ export async function meaningPass(
     client,
     embed,
     census,
+    pathOf = (key) => key,
     visibilityOf,
     generation,
     noteCap = MEANING_PASS_NOTE_CAP,
@@ -188,14 +255,15 @@ export async function meaningPass(
     sizeOf = () => null,
   },
 ) {
-  const { notes, passages: mapPassages } = await readState(store, generation);
-  const result = { embedded: 0, deleted: 0, failure: null, failureCause: null, failureOperation: null, providerCodes: [], probeStatus: null, inputChars: null };
+  const { notes, paths, passages: mapPassages } = await readState(store, generation);
+  const diffOf = () => meaningDiff(census, notes, regionComplete, { pathOf, paths, complete: indexPending === 0 });
+  const result = { embedded: 0, repathed: 0, deleted: 0, failure: null, failureCause: null, failureOperation: null, providerCodes: [], probeStatus: null, inputChars: null };
   let dirty = false;
 
   const finish = async () => {
     if (dirty) {
       try {
-        await writeMeaningState(store, generation, notes);
+        await writeMeaningState(store, generation, notes, paths);
       } catch {
         // The vectors landed; the map did not. The next pass re-embeds what
         // this one did, which costs a model call and changes no answer.
@@ -205,25 +273,32 @@ export async function meaningPass(
         }
       }
     }
-    const left = meaningDiff(census, notes, regionComplete);
-    const notesPending = left.changed.length + left.removed.length;
+    const left = diffOf();
+    const notesPending = left.changed.length + left.repathed.length + left.adopted.length + left.removed.length;
     let notesIndexed = 0;
-    for (const path of census.keys()) if (notes.has(path)) notesIndexed += 1;
-    // Per priority: a census path is indexed when the map holds its current
-    // version, as `meaningDiff` decides; a delete still owed is pending.
+    for (const key of census.keys()) if (notes.has(key)) notesIndexed += 1;
+    // Per priority, by where each note is: a census note is indexed when the
+    // map holds its current version, as `meaningDiff` decides; a re-path or a
+    // delete still owed is pending.
+    const keyAt = new Map([...census.keys()].map((key) => [pathOf(key), key]));
+    const waiting = new Set([...left.repathed, ...left.adopted]);
     const priorities = countByIndexingPriority(
-      census.keys(),
-      (path) => notes.get(path) === census.get(path),
-      left.removed,
+      keyAt.keys(),
+      (path) => {
+        const key = keyAt.get(path);
+        return notes.get(key) === census.get(key) && !waiting.has(key);
+      },
+      left.removed.map((key) => (isNoteId(key) ? (paths.get(key) ?? key) : key)),
     );
     return {
       embedded: result.embedded,
+      repathed: result.repathed,
       deleted: result.deleted,
       notesIndexed,
       notesPending,
       priorities,
       ready: result.failure === null && notesPending === 0 && indexPending === 0,
-      moved: result.embedded > 0 || result.deleted > 0,
+      moved: result.embedded > 0 || result.repathed > 0 || result.deleted > 0,
       failure: result.failure,
       failureCause: result.failureCause,
       failureOperation: result.failureOperation,
@@ -234,6 +309,8 @@ export async function meaningPass(
   };
 
   let changed = [];
+  let repathed = [];
+  let adopted = [];
   let removed = [];
   try {
     // A map written under a smaller passage cap: the notes big enough to
@@ -244,32 +321,79 @@ export async function meaningPass(
     // the new cap. A size the listing did not report counts as big.
     if (mapPassages < MEANING_MAX_PASSAGES) {
       const fit = bytesThatFit(mapPassages);
-      for (const path of [...notes.keys()]) {
-        if (!census.has(path)) continue;
-        const size = sizeOf(path);
-        if (!Number.isFinite(size) || size >= fit) notes.delete(path);
+      for (const key of [...notes.keys()]) {
+        if (!census.has(key)) continue;
+        const size = sizeOf(key);
+        if (!Number.isFinite(size) || size >= fit) notes.delete(key);
       }
       dirty = true;
     }
-    ({ changed, removed } = meaningDiff(census, notes, regionComplete));
+    ({ changed, repathed, adopted, removed } = diffOf());
 
     // Deletes first: a passage of a note that is gone is the one wrong thing
     // this index can put in front of somebody, and deleting costs no model call.
     if (removed.length > 0) {
       await removePassages(client, removed);
-      for (const path of removed) notes.delete(path);
+      for (const key of removed) {
+        notes.delete(key);
+        paths.delete(key);
+      }
       result.deleted = removed.length;
       dirty = true;
     }
 
     const cap = Number.isFinite(noteCap) ? Math.max(0, Math.floor(noteCap)) : MEANING_PASS_NOTE_CAP;
+
+    // Then moves and renames, from the vectors already held. A note whose
+    // passages are not there to re-path (written before they were filed by
+    // id) joins the embeds below.
+    // Adopted notes are the same, read from the passages filed under their
+    // path, whose old ids go once the copy has landed.
+    const adopting = new Set(adopted.slice(0, cap));
+    const moving = [...repathed.slice(0, cap), ...adopting];
+    if (moving.length > 0) {
+      const missing = new Set(
+        await repathPassages(
+          client,
+          moving.map((key) => ({
+            noteId: key,
+            path: pathOf(key),
+            visibility: visibilityOf(pathOf(key)),
+            ...(adopting.has(key) ? { from: pathOf(key) } : {}),
+          })),
+        ),
+      );
+      const copied = [];
+      for (const key of moving) {
+        if (missing.has(key)) {
+          notes.delete(key);
+          changed.push(key);
+          continue;
+        }
+        if (adopting.has(key)) {
+          notes.set(key, census.get(key));
+          copied.push(pathOf(key));
+        }
+        paths.set(key, pathOf(key));
+        result.repathed += 1;
+      }
+      dirty = true;
+      if (copied.length > 0) {
+        await removePassages(client, copied);
+        for (const path of copied) notes.delete(path);
+        result.deleted += copied.length;
+      }
+    }
     let held = [];
     let heldTails = [];
     let heldPaths = [];
     const flush = async () => {
       if (held.length > 0) await client.upsert(held);
       await deleteStaleTails(client, heldTails);
-      for (const [path, version] of heldPaths) notes.set(path, version);
+      for (const [key, version] of heldPaths) {
+        notes.set(key, version);
+        if (isNoteId(key)) paths.set(key, pathOf(key));
+      }
       if (heldPaths.length > 0) dirty = true;
       result.embedded += heldPaths.length;
       held = [];
@@ -283,10 +407,12 @@ export async function meaningPass(
     // still recorded in order, and a refused call still ends the pass with
     // nothing of its group recorded, so the next pass redoes it.
     const todo = changed.slice(0, cap);
+    const noteIdOf = (key) => (isNoteId(key) ? key : null);
     for (let start = 0; start < todo.length; start += MEANING_PASS_CONCURRENCY) {
       const group = todo.slice(start, start + MEANING_PASS_CONCURRENCY);
       const changes = await Promise.all(
-        group.map(async (path) => {
+        group.map(async (key) => {
+          const path = pathOf(key);
           let object;
           try {
             object = await store.get(path);
@@ -301,7 +427,7 @@ export async function meaningPass(
           }
           return await meaningChangeFor(
             path,
-            { content: await object.text(), visibility: visibilityOf(path) },
+            { content: await object.text(), visibility: visibilityOf(path), noteId: noteIdOf(key) },
             embed,
           );
         }),

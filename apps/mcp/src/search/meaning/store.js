@@ -14,7 +14,7 @@
 
 import { createMeaningClient, readMeaningIndexBinding } from "./client.js";
 import { bindingEmbedder, createRestEmbedder } from "./embed.js";
-import { deleteStaleTails, meaningChangeFor, removePassages } from "./project.js";
+import { deleteStaleTails, meaningChangeFor, removePassages, repathPassages } from "./project.js";
 
 /**
  * Attach the meaning index's descriptor and the Workers AI binding to a store.
@@ -82,13 +82,17 @@ function reportFailure(store, event, error) {
  *
  * @returns {Promise<boolean>} whether it landed. Never rejects.
  */
-export async function writeMeaningNote(store, { path, content, visibility }, { fetchImpl, embed } = {}) {
+export async function writeMeaningNote(store, { path, content, visibility, noteId }, { fetchImpl, embed } = {}) {
   if (!meaningWritable(store) || typeof path !== "string" || !path) return false;
   try {
     const client = createMeaningClient(store.meaningIndex, { fetchImpl });
     const change = await meaningChangeFor(
       path,
-      { content: typeof content === "string" ? content : "", visibility },
+      {
+        content: typeof content === "string" ? content : "",
+        visibility,
+        noteId: noteId === undefined ? await noteIdOf(store, path) : noteId,
+      },
       embed ?? meaningEmbedderFor(store, { fetchImpl }),
     );
     if (change.vectors.length > 0) await client.upsert(change.vectors);
@@ -101,15 +105,68 @@ export async function writeMeaningNote(store, { path, content, visibility }, { f
 }
 
 /**
- * Take every passage of notes that are gone (a move's source, a delete, an
- * archive) out of the index. Ids are derived from the path, so this needs no
- * lookup and no text.
+ * The note id of the live row at `path`, or `null`: where there is none (no
+ * id layer, a store with no control plane, a note with no row) its passages
+ * are filed under the path, as before notes had ids. A lookup that fails is
+ * `null` too, which files them under the path for the catch-up pass to move.
+ */
+export async function noteIdOf(store, path) {
+  if (typeof store?.noteIdAt !== "function") return null;
+  try {
+    return (await store.noteIdAt(path)) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Point the passages of moved notes at where they are now, without asking the
+ * model again (`repathPassages`). `moves` are `{path, visibility}` at the
+ * destination; each note's id is asked of the store. A note with no id, or
+ * whose passages are not filed under it yet, comes back for the caller to
+ * embed the ordinary way.
+ *
+ * @returns {Promise<string[]>} the destination paths still to embed. Never rejects:
+ *   a failure hands every move back, so nothing moved is left unembedded by it.
+ */
+export async function moveMeaningNotes(store, moves, { fetchImpl } = {}) {
+  const wanted = (moves ?? []).filter((move) => move && typeof move.path === "string" && move.path);
+  if (!meaningWritable(store) || wanted.length === 0) return wanted.map((move) => move.path);
+  const byId = new Map();
+  const rest = [];
+  for (const move of wanted) {
+    const noteId = await noteIdOf(store, move.path);
+    if (noteId === null) rest.push(move.path);
+    else byId.set(noteId, move);
+  }
+  if (byId.size === 0) return rest;
+  try {
+    const client = createMeaningClient(store.meaningIndex, { fetchImpl });
+    const missing = await repathPassages(
+      client,
+      [...byId].map(([noteId, move]) => ({ noteId, path: move.path, visibility: move.visibility })),
+    );
+    return [...rest, ...missing.map((noteId) => byId.get(noteId).path)];
+  } catch (error) {
+    reportFailure(store, "meaning-move-behind-failed", error);
+    return wanted.map((move) => move.path);
+  }
+}
+
+/**
+ * Take every passage filed under `keys` out of the index: a path for passages
+ * filed before notes had ids, or a note id (`meaningKeyOf`). Ids are derived
+ * from the key, so this needs no text.
+ *
+ * A move's source is passed here by path: that clears what an older write
+ * filed under the path, and leaves the note's own passages, filed under its
+ * id, to `moveMeaningNotes`.
  *
  * @returns {Promise<boolean>} whether it landed. Never rejects.
  */
-export async function removeMeaningNotes(store, paths, { fetchImpl } = {}) {
+export async function removeMeaningNotes(store, keys, { fetchImpl } = {}) {
   if (!meaningWritable(store)) return false;
-  const wanted = [...new Set((paths ?? []).filter((path) => typeof path === "string" && path))];
+  const wanted = [...new Set((keys ?? []).filter((key) => typeof key === "string" && key))];
   if (wanted.length === 0) return false;
   try {
     const client = createMeaningClient(store.meaningIndex, { fetchImpl });
