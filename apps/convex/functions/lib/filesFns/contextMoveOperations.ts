@@ -77,13 +77,14 @@ export async function executeContextMoveOperation(
       return { kind: "contextMoveLanded", ...landed };
     }
     case "contextMoveDelete": {
-      const removed = await deleteMovedSources(store, { sources: operation.sources });
+      const removed = await deleteMovedSources(store, { sources: operation.sources, clearance });
       return { kind: "contextMoveRemoved", ...removed };
     }
     case "contextMoveFinish": {
       await clearMovedSourceRules(store, {
         from: operation.from,
         survivors: operation.survivors,
+        clearance,
       });
       return { kind: "contextMoveFinished" };
     }

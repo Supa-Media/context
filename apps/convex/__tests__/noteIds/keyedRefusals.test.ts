@@ -10,7 +10,7 @@
  *
  * Sabotage, each confirmed to fail a case here:
  *  - drop `refuseKeyedStore` from the vault clear: the keyed clear deletes the bucket;
- *  - drop the context-move refusal: the keyed move lists and reads by path;
+ *  - list the bucket in a keyed context move: it plans the frozen copies (`contextMoveKeyed.test.ts` runs the move);
  *  - drop the move's keyed check: the keyed move walks the old name and moves frozen copies.
  */
 import { describe, expect, test } from "vitest";
@@ -85,13 +85,20 @@ describe("the vault replacement's clear in a keyed workspace", () => {
 });
 
 describe("a context move out of a keyed workspace", () => {
-  test("is refused before the first list or read", async () => {
+  test("lists what moves from the tree's names, never the bucket's frozen paths", async () => {
     const store = keyed(memoryStore() as Store);
-    store.seed("1-projects/launch/brief.md", "# Brief\n");
+    store.seed("1-projects/launch/frozen.md", "# Frozen copy\n");
+    const tree = memoryStore() as Store;
+    tree.seed("1-projects/launch/brief.md", "# Brief\n");
+    Object.defineProperty(store, "treeListing", { value: { list: tree.list.bind(tree) }, enumerable: false, configurable: true });
     const listed = counted(store);
-    await expect(
-      planContextMoveBatch(store, { from: "1-projects/launch", to: "2-areas/launch", clearance: OWNER, maxObjectBytes: 1024 }),
-    ).rejects.toMatchObject({ code: "KEYED_WORKSPACE", message: KEYED_REFUSAL });
+    const planned = await planContextMoveBatch(store, {
+      from: "1-projects/launch",
+      to: "2-areas/launch",
+      clearance: OWNER,
+      maxObjectBytes: 1024,
+    });
+    expect(planned.objects.map((object) => object.source)).toEqual(["1-projects/launch/brief.md"]);
     expect(listed).toEqual([]);
   });
 });

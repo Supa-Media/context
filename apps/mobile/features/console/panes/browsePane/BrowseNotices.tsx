@@ -1,5 +1,6 @@
 import { View } from "react-native";
 import { Button } from "../../../design/components/Button";
+import { TextLink } from "../../../design/components/TextLink";
 import { Text } from "../../../design/components/Text";
 import { useThemedStyles } from "../../../design/theme";
 import type { FileBrowser } from "../../files/browser";
@@ -224,7 +225,7 @@ export function BrowseNotices({
       {moveNotices.map((move) => (
         <View
           key={move.id}
-          style={[styles.notice, move.tone === "warn" && styles.noticeWarn]}
+          style={[styles.noticeInline, move.tone === "warn" && styles.noticeWarn]}
           testID={`browse-context-move-${move.id}`}
         >
           <Text
@@ -233,28 +234,29 @@ export function BrowseNotices({
           >
             {move.text}
           </Text>
+          {/*
+            Links on the sentence's own line, not buttons stacked under it: a
+            move's notice is a status line, and two full buttons below a
+            paragraph made a one-line fact the tallest thing in the band.
+          */}
           {move.resumable ? (
-            <Button
-              label="Finish the move"
+            <TextLink
+              label="Try again"
               onPress={() => files.resumeContextMove(move.id)}
               disabled={files.busy}
-              style={styles.dismiss}
               testID={`browse-context-move-resume-${move.id}`}
             />
           ) : null}
           {move.dismissible ? (
-            <Button
+            <TextLink
               /*
-                "Not now" on a failure, because that is what the press does.
-                `dismissContextMove` takes a completed move only — a failed
-                one's notice carries the single control that can finish it
-                (see that mutation on why a fresh move cannot), so putting it
-                aside is for the session and it comes back. The other notice
-                in this band that can be taken up later says "Not now" for the
-                same reason; a "Dismiss" that undismisses itself overnight is
-                the complaint this whole change came from.
+                "Not now" on a failure partway, because that is what the press
+                does: its notice carries the single control that can finish
+                it, so putting it aside is for the session. A failure that
+                carried nothing, like a finished move, is answered for good
+                (`dismissContextMove`), so it says "Dismiss".
               */
-              label={move.resumable ? "Not now" : "Dismiss"}
+              label={move.dismissLabel}
               /*
                 Both halves, and neither is the other's fallback. The server
                 is where a durable answer lives — the row is listable for a
@@ -271,7 +273,6 @@ export function BrowseNotices({
                 setDismissedMoves((current) => new Set([...current, move.id]));
                 files.dismissContextMove(move.id);
               }}
-              style={styles.dismiss}
               testID={`browse-context-move-dismiss-${move.id}`}
             />
           ) : null}

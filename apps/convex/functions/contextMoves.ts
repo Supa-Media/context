@@ -79,6 +79,7 @@ import { carryHere } from "./lib/contextMoveBatches";
 import { CONTEXT_MOVE_RETRY_MS, type MoverPass, carryOnMover } from "./lib/contextMoveMover";
 import { storageMoverOrigin } from "./lib/storageMover";
 import { requireWorkspaceRole, workspaceNotFound } from "./lib/workspaceAuth";
+import { authorizeMove, messageOf, normalizeMovePath, TOO_MANY_PASSES } from "./lib/contextMoveAuthorize";
 
 /**
  * Batches one scheduled link may run before handing on to the next.
@@ -211,10 +212,12 @@ export const resumeContextMove = action({
  * that notice permanently hideable would mean one press leaves a folder split
  * across two contexts with the clean way to reunite it gone from the screen.
  *
- * So a failure can be put aside for the session — the pane's own state does
- * that, and the button says "Not now" rather than "Dismiss" — and it comes
- * back, because it is still true. Only `complete` is an outcome there is
- * nothing left to do about, and only `complete` can be answered for good.
+ * So a failure partway can be put aside for the session — the pane's own
+ * state does that, and the button says "Not now" rather than "Dismiss" — and
+ * it comes back, because it is still true. A failure that carried nothing has
+ * no half to reunite: Try again is a fresh start, and the line coming back on
+ * every launch was a banner nobody could clear (Dev2, 2026-10-17). So
+ * `complete`, and `failed` with nothing moved, can be answered for good.
  *
  * Idempotent: two devices can both be showing the line, and the second press
  * is a consequence of that rather than a race worth reporting.
@@ -230,7 +233,9 @@ export const dismissContextMove = mutation({
     // must not be two distinguishable answers.
     if (row === null) throw workspaceNotFound();
     await requireWorkspaceRole(ctx, row.sourceWorkspaceId, actorUserId, "owner");
-    if (row.status !== "complete") return { dismissed: false };
+    // A failure that carried nothing has no half anywhere to reunite, so it may be put aside for good too.
+    const answerable = row.status === "complete" || (row.status === "failed" && row.movedObjects === 0);
+    if (!answerable) return { dismissed: false };
     if (row.dismissedAt === undefined) {
       await ctx.db.patch(args.moveId, { dismissedAt: Date.now() });
     }
@@ -381,57 +386,6 @@ export const reopenMove = internalMutation({
     return true;
   },
 });
-
-async function authorizeMove(
-  ctx: Parameters<typeof requireWorkspaceRole>[0],
-  args: {
-    sourceWorkspaceId: Id<"workspaces">;
-    destinationWorkspaceId: Id<"workspaces">;
-    actorUserId: Id<"users">;
-    from: string;
-    to: string;
-  },
-): Promise<void> {
-  if (args.sourceWorkspaceId === args.destinationWorkspaceId) {
-    /*
-      Not a cross-context move at all, and refusing beats quietly doing the
-      slower thing. `files.moveEntry` is the operation for this: it rewrites
-      every link that pointed at what moved, which this one cannot do and does
-      not pretend to. Routing a same-context move through here would silently
-      break references for the one case where following them is possible.
-    */
-    throw new ConvexError({
-      code: "SAME_CONTEXT",
-      message: "That is a move within one context. Use the ordinary move, which also fixes links.",
-    });
-  }
-  const from = normalizeMovePath(args.from);
-  const to = normalizeMovePath(args.to);
-  if (from === "" || to === "") {
-    throw new ConvexError({
-      code: "PATH_INVALID",
-      message: "A move needs a note or folder to move and somewhere to put it.",
-    });
-  }
-
-  // Source first, so somebody who owns neither is refused by the context they
-  // are taking from rather than by the one they are giving to — which is also
-  // the only one of the two whose existence they have proven anything about.
-  await requireWorkspaceRole(ctx, args.sourceWorkspaceId, args.actorUserId, "owner");
-  await requireWorkspaceRole(ctx, args.destinationWorkspaceId, args.actorUserId, "editor");
-}
-
-/**
- * Trim the slashes a path picker can leave on either end.
- *
- * The engine's own `requirePath` rejects rather than repairs, which is right
- * for a key arriving from a tool call. This is the console's own dialog, and a
- * trailing slash on a folder somebody picked is not an error worth showing
- * them.
- */
-function normalizeMovePath(input: string): string {
-  return input.replace(/^\/+/, "").replace(/\/+$/, "").trim();
-}
 
 /* -------------------------------------------------------------------------- */
 /*                                 one pass                                   */
@@ -624,7 +578,14 @@ export const advanceContextMove = internalAction({
       batches below are the fallback, and what a self-hosted deployment runs.
     */
     const origin = storageMoverOrigin();
-    if (origin !== null) {
+    // The mover carries bucket keys, and a keyed workspace's note is not at its
+    // path: where either end is keyed, the batches below carry it through each
+    // end's id layer instead (`contextMoveKeyed.test.ts`).
+    const keyed =
+      origin !== null &&
+      ((await ctx.runQuery(internal.functions.nodeRowMoves.keyedNow, { workspaceId: row.sourceWorkspaceId })) ||
+        (await ctx.runQuery(internal.functions.nodeRowMoves.keyedNow, { workspaceId: row.destinationWorkspaceId })));
+    if (origin !== null && !keyed) {
       let pass: MoverPass;
       try {
         pass = await carryOnMover(ctx, {
@@ -712,18 +673,6 @@ export const advanceContextMove = internalAction({
     return await stop("complete");
   },
 });
-
-const UNEXPECTED = "The move could not be completed. Nothing further was moved.";
-const TOO_MANY_PASSES =
-  "This move is taking more passes than expected and has stopped. Everything already moved is in the new context; run it again to finish.";
-
-function messageOf(error: unknown): string {
-  if (error instanceof ConvexError) {
-    const data = error.data as { message?: unknown } | undefined;
-    if (typeof data?.message === "string") return data.message;
-  }
-  return error instanceof Error && error.message !== "" ? error.message : UNEXPECTED;
-}
 
 async function callerId(ctx: Parameters<typeof getAuthUserId>[0]): Promise<Id<"users">> {
   const userId = await getAuthUserId(ctx);

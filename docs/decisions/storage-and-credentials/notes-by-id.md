@@ -170,6 +170,39 @@ keying the heads by note id would remove the carry entirely. The rename gap in
 the section above is the other open item for a workspace with live
 collaborative notes.
 
+## A move into another workspace, when either end is keyed
+
+*Built 2026-10-17, after a move from @seyi into @supa failed with "this
+operation works on paths".* A keyed workspace used to refuse the cross-workspace
+move outright, which left no way to move a note between two keyed workspaces.
+It runs through the same batches (`functions/contextMoves.ts`), and each end
+does its keyed half through its own credential barrier:
+
+- **Out of a keyed workspace,** what moves is listed from the tree's rows
+  (`namesListing`), never the bucket, whose paths are frozen copies. Each note
+  is read at its key through the store's id layer, its accepted collaborative
+  text included. It leaves by the trash (`trashKeyedRows`, only if its row still
+  holds the version that was copied; an edit since is a conflict), so it stays
+  restorable there with its history, and its rules travel with the row. A moved
+  folder's emptied folders follow it into the trash at the end.
+- **Into a keyed workspace,** each note lands as a new note under a new id
+  (`keyedCreate`), never at its path; a name already taken stops the move.
+- **The gateway's mover is not used** when either end is keyed: it carries
+  bucket keys, and a keyed note is not at its path. Production runs rows mode,
+  which requires every workspace keyed, so moves there go through the batches.
+- **Access in rows mode.** A note that lands narrower than its new folder (a
+  private note into a team folder) is asked to be private before it is written,
+  and its row is born private (`lib/nodes/arrivalAccess.ts`, pending access). An
+  exception written to the rules file would be read by nobody in rows mode, and
+  the note would land readable by the destination's team. A full pending list
+  stops the move before anything lands.
+
+What a "simplification" would cost: listing the bucket in a keyed source plans
+the frozen copies, and narrowing through the rules file in rows mode publishes
+private notes to a shared workspace's members. `contextMoveKeyed.test.ts` fails
+for each (the folder case loops on frozen copies; the rows case lists the notes
+to a member).
+
 ## Emptying the trash
 
 Decided by the owner, 2026-10-17: "30 days, Trash page first". Something in a
