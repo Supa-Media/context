@@ -13,6 +13,7 @@ import { editorReducer, emptyEditor } from "../files/editor";
 import { NoteEditor } from "../files/NoteEditor";
 import { PersonFace } from "../faces/PersonFace";
 import { ReportLink } from "../../report/ReportLink";
+import type { GrantEditing } from "./useGrantEditor";
 import { itemTitle, sharedLinkHref, sharerFace, sharerLabel, shortWhen, type SharedItem } from "./sharedInbox";
 
 export type Loaded =
@@ -27,8 +28,9 @@ const nothing = () => {};
 /**
  * One shared note, open inside @shared (board A3): the path starts at Shared
  * with me and names whose it is, the pill says what you can do, once, and the
- * note is drawn by the real editor, read only — the same `NoteEditor` every
- * note in the app is, with `canEdit` false so nothing here can write.
+ * note is drawn by the real editor — the same `NoteEditor` every note in the
+ * app is, read only (`canEdit` false) unless a grant gives edit, when
+ * `SharedNoteShown` gets `editing` and saves through it.
  *
  * The text comes from `shares.readSharedNote` with the row's token, the one
  * read path a share has, so this page can reach exactly what the share's own
@@ -87,6 +89,7 @@ export function SharedNoteShown({
   onList,
   onGo,
   linkHref,
+  editing,
 }: {
   loaded: Loaded;
   /** The share's token, which its report names; `null` for a grant, which has none. */
@@ -98,9 +101,11 @@ export function SharedNoteShown({
   onGo: (href: string) => void;
   /** Where a link inside the note goes, for a grant (a share's links follow its own page). */
   linkHref?: (target: string) => string;
+  /** A grant you may edit: the note is drawn writable and saves through it. Absent, or `null`, it is read only. */
+  editing?: GrantEditing | null;
 }) {
   const styles = useThemedStyles(makeStyles);
-  const state = useMemo(
+  const readState = useMemo(
     () =>
       loaded.kind === "note"
         ? editorReducer(emptyEditor, {
@@ -119,6 +124,8 @@ export function SharedNoteShown({
         : null,
     [loaded],
   );
+  const canEdit = editing !== null && editing !== undefined && editing.state.path !== null;
+  const state = canEdit ? editing.state : readState;
 
   const title = item === null ? null : itemTitle(item);
   const who = item === null ? null : sharerLabel(item);
@@ -159,7 +166,7 @@ export function SharedNoteShown({
           )}
         </View>
       )}
-      <Pill>Can read</Pill>
+      <Pill>{canEdit ? "Can edit" : "Can read"}</Pill>
       {phone ? <View style={styles.backSpacer} /> : null}
     </View>
   );
@@ -194,17 +201,18 @@ export function SharedNoteShown({
           <View style={styles.editor}>
             <NoteEditor
               state={state}
-              canEdit={false}
-              reading
-              // Not your bucket, and nothing to save: the foot says nothing (`noteFoot`).
-              local
+              canEdit={canEdit}
+              reading={!canEdit}
+              // Not your bucket, and nothing to save: the foot says nothing (`noteFoot`). An editor's saves do reach
+              // the owner's bucket, so their foot says so.
+              local={!canEdit}
               pathBar={phone ? path : undefined}
               notices={phone ? byline : undefined}
-              onChange={nothing}
-              onSave={nothing}
-              onDiscard={nothing}
-              onUseTheirs={nothing}
-              onKeepMine={nothing}
+              onChange={canEdit ? editing.onChange : nothing}
+              onSave={canEdit ? editing.onSave : nothing}
+              onDiscard={canEdit ? editing.onDiscard : nothing}
+              onUseTheirs={canEdit ? editing.onUseTheirs : nothing}
+              onKeepMine={canEdit ? editing.onKeepMine : nothing}
               // A link in the note follows the share's own reach, on its own page.
               onOpenLink={(target) =>
                 onGo(linkHref ? linkHref(target) : `${sharedLinkHref(token ?? "")}?path=${encodeURIComponent(target)}`)
