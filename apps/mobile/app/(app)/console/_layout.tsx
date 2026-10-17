@@ -51,7 +51,7 @@ export default function ConsoleLayout() {
   const router = useRouter();
   const pathname = usePathname();
   const route = routeForPath(pathname);
-  const { quickParams, openSettingsSection, checkoutReturn, connectAgent, mapOpen } = useConsoleParams();
+  const { quickParams, openSettingsSection, checkoutReturn, connectAgent, mapOpen, trashOpen } = useConsoleParams();
   const handledQuickNote = useRef(false);
   /*
     What only a real console address has: which context the URL names, applied,
@@ -66,7 +66,7 @@ export default function ConsoleLayout() {
       data={data}
       route={route}
       router={router}
-      params={{ openSettingsSection, checkoutReturn, connectAgent, mapOpen }}
+      params={{ openSettingsSection, checkoutReturn, connectAgent, mapOpen, trashOpen }}
     >
       <Slot />
     </ConsoleFrame>

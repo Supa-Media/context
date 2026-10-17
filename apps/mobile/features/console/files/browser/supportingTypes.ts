@@ -138,6 +138,8 @@ export interface TrashedNote {
   byYou: boolean;
   /** "@ana", or `null` when the mover has no name to show. */
   byName: string | null;
+  /** When the trash erases it for good (`trash.ts`); absent until the server has said. */
+  eraseAt?: number | null;
   /**
    * Takes back a delete still waiting in this device's queue, and answers
    * whether it could: `false` once it is on its way. Only while it waits.

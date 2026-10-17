@@ -6,6 +6,7 @@ import {
   useOptionalLocalSearchParams,
 } from "../../app/useOptionalLocalSearchParams";
 import { resolveContextRoute, settingsFromQuery, type ConsoleRoute } from "../nav";
+import { trashFromQuery } from "../trash/TrashRouteContext";
 import { mapFromQuery } from "../map/live/route";
 import type { ConsoleData } from "../types";
 import type { ConsoleRouter } from "./types";
@@ -28,6 +29,7 @@ export function useConsoleParams() {
     checkout?: string | string[];
     connect?: string | string[];
     map?: string | string[];
+    trash?: string | string[];
   }>();
   const openSettingsSection = settingsFromQuery(settingsParams.settings);
   /*
@@ -44,7 +46,9 @@ export function useConsoleParams() {
   // The guided agent setup, over whatever is open — see `AgentSetupOverlay`.
   const connectAgent = agentFromQuery(settingsParams.connect);
   const mapOpen = mapFromQuery(settingsParams.map);
-  return { quickParams, openSettingsSection, checkoutReturn, connectAgent, mapOpen };
+  // The Trash page, drawn where a note would be — see `TrashPage`.
+  const trashOpen = trashFromQuery(settingsParams.trash);
+  return { quickParams, openSettingsSection, checkoutReturn, connectAgent, mapOpen, trashOpen };
 }
 
 /**

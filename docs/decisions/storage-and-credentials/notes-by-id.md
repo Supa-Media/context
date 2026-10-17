@@ -170,6 +170,53 @@ keying the heads by note id would remove the carry entirely. The rename gap in
 the section above is the other open item for a workspace with live
 collaborative notes.
 
+## Emptying the trash
+
+Decided by the owner, 2026-10-17: "30 days, Trash page first". Something in a
+keyed workspace's trash is erased for good 30 days after it was trashed. It was
+never automatic before; the 7 days elsewhere in this file are for old copies.
+
+- **Never silent.** The Trash page (`?trash=1`, design A in project file
+  `trash-page/`) lists what is in the trash, soonest erased first, with "Erased
+  this week" in bold red, and Restore on every row. An open trashed note says
+  "Erased for good on <day> unless you restore it." There is no Delete forever
+  (the owner, 2026-10-14). `trash.listTrash` shows each item only to someone who
+  could see it at its own name before it was trashed: with privacy on rows, a
+  row trash takes the note's own setting with its row, so the rules under the
+  stamp folder are put back at their names before judging
+  (`rulesAsTrashed`, `lib/trash/bin.ts`). `trashedNotes.trashedNote` judges the
+  same way; it used the live rules alone, which read a note private by its own
+  row as its folder's.
+- **One stamp folder is one trash.** Each trash takes its own
+  `.context/trash/<stamp>` folder, so its age is the stamp, and what was trashed
+  comes from the audit trail (`file.archive`, `trash: true`), or from its rows
+  when there is no trail.
+- **Rows first, in one transaction** (`trash.claimErasure`): it re-asks that the
+  workspace is keyed and the trash is past its date, deletes the rows and their
+  grants, drops links a trashed note left at a name nothing lives at now, writes
+  `file.delete` with `erasedFromTrash` to the audit, and records the notes' id
+  keys and trash names in `trashErasures`. From then nothing can restore a note
+  whose bytes are going.
+- **The bucket after** (`functions/trashEmptying.ts`, `lib/trash/erase.ts`):
+  the id keys, then each Markdown note's collaboration history
+  (`eraseDocument` in `packages/collaboration/src/erase.js`: document state,
+  revisions, journals and the head at the trash name; the old name's fence keeps
+  ids only). A failure keeps the erasure with a fixed label for the next day's
+  pass (`crons.ts`, "empty the trash"), so no bytes are left that nothing
+  remembers.
+- **Only keyed workspaces.** A trash made as bytes moved into `.context/trash/`
+  is never erased by this, and the page lists nothing there.
+
+What a "simplification" would cost: erasing bytes before rows lets a Restore
+bring back a note with no body; erasing without the date check takes a fresh
+trash; judging by the live rules shows a member a note that was private to its
+owner. `apps/convex/__tests__/trash/emptying.test.ts` and
+`packages/collaboration/test/erase.mjs` fail if any is reversed.
+
+**Open:** a trash made the old way (bytes in the bucket) is not listed or
+erased. A trashed note's rules at its old name, in file mode, stay after it is
+erased, as they did after a trash.
+
 ## The gateway refuses every request without a control plane
 
 *Decided by the owner, 2026-10-15.*

@@ -16,6 +16,7 @@ import type { HomeSource } from "./useHomeSource";
 import { useHomeTag } from "./homeTag";
 import { AddFolderLine, Card, FolderLine, NoteRow, Section, Tile, type HoldPoint } from "./homeRows";
 import { ChaosHomeLine } from "../../chaos/ChaosHomeLine";
+import { TrashHomeLine } from "../trash/TrashEntry";
 
 const whenOf = (at: number | undefined, now: number) => (at === undefined ? "" : whenLabel(at, now));
 
@@ -272,6 +273,9 @@ export function PhoneHome({
           </Card>
         </Section>
       )}
+
+      {/* The trash, a row of its own (board A4); nothing outside the console layout. */}
+      {activeTag === null ? <TrashHomeLine /> : null}
 
       {/* How organized the workspace is, quietly, last (`features/chaos`); nothing until it is scored. */}
       <ChaosHomeLine />

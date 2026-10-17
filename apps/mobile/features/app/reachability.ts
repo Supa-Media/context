@@ -434,11 +434,46 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
         navigation: [
           {
             file: "features/console/map/live/route.ts",
-            contains: ['router.setParams({ map: "1", settings: undefined })'],
+            contains: ['router.setParams({ map: "1", settings: undefined, trash: undefined })'],
           },
         ],
         region: "screen",
         densities: POINTER,
+      },
+      /*
+        The Trash page is `?trash=1` on this page, in the document slot, as
+        the map is (`trash/TrashRouteContext.tsx`): the tree's foot on a
+        pointer layout, and Home's last row on a phone.
+      */
+      {
+        surface: "the Trash page, from the Trash row at the foot of the tree",
+        control: {
+          file: "features/console/trash/TrashEntry.tsx",
+          contains: ['testID="explorer-trash"', "onPress={route.open ? route.closeTrash : route.openTrash}"],
+        },
+        navigation: [
+          {
+            file: "features/console/trash/TrashRouteContext.tsx",
+            contains: ['router.setParams({ trash: "1", map: undefined, settings: undefined })'],
+          },
+        ],
+        region: "screen",
+        densities: POINTER,
+      },
+      {
+        surface: "the Trash page, from the Trash row on a phone's Home",
+        control: {
+          file: "features/console/trash/TrashEntry.tsx",
+          contains: ['testID="phone-home-trash"', "onPress={route.openTrash}"],
+        },
+        navigation: [
+          {
+            file: "features/console/trash/TrashRouteContext.tsx",
+            contains: ['router.setParams({ trash: "1", map: undefined, settings: undefined })'],
+          },
+        ],
+        region: "screen",
+        densities: PHONE,
       },
       {
         /*

@@ -115,3 +115,10 @@ export function renameDocument(
   to: string,
   options?: { internalTrash?: boolean },
 ): Promise<RenameResult>;
+
+/**
+ * Erase the collaboration history of the note whose trash name is `path`, when
+ * the trash is emptied in a keyed workspace: its document state, revisions,
+ * journals and the head at `path`. Reads and writes no Markdown.
+ */
+export function eraseDocument(store: ContextStore, path: string): Promise<{ erased: boolean; documentId?: string }>;

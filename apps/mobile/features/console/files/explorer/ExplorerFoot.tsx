@@ -10,6 +10,7 @@ import { ActiveParts } from "../../agents/ActiveBar";
 import type { AgentActivityView } from "../../agents/agentActivity";
 import type { ActivityView } from "../../activity/activity";
 import { makeStyles } from "./styles";
+import { TrashTreeLine } from "../../trash/TrashEntry";
 
 /**
  * The foot of the column: the agents line when there are any, and the one
@@ -114,6 +115,9 @@ export function ExplorerFoot({
         </PressRow>
       ) : null}
       </Reveal>
+
+      {/* The trash's page (board A1), above the counts; nothing outside the console layout. */}
+      <TrashTreeLine />
 
       {activity !== undefined && activity.unseen > 0 ? (
         <PressRow

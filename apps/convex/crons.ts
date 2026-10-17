@@ -83,6 +83,21 @@ crons.interval("stamp share links with their note's id", { hours: 24 }, internal
 
 crons.interval("arm Tex's first dreams", { hours: 24 }, internal.functions.dreams.armLinkedDreams, {});
 
+/**
+ * Empty the trash: erase for good what has been in a keyed workspace's trash
+ * for 30 days (decided by the owner, 2026-10-17; `functions/trash.ts`).
+ *
+ * The fourth job that acts outside this database, so it owes the two
+ * paragraphs. It holds no decision: the 30 days were chosen by the owner, and
+ * every trashed note shows the date it goes, on the Trash page and on the note
+ * itself, from the day it was trashed. It re-asks at the moment it acts, in
+ * the one transaction that removes the rows (`claimErasure`): the workspace is
+ * still keyed, the trash is still there and not restored, and it is past its
+ * date. Only then does the bucket half remove the notes' id keys and history,
+ * and a bucket that fails keeps the erasure for the next day.
+ */
+crons.interval("empty the trash", { hours: 24 }, internal.functions.trash.emptyDue, {});
+
 crons.interval(
   "re-read routine folders",
   { hours: 6 },

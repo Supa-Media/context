@@ -38,7 +38,7 @@ export interface MapRoute {
  * opening it closes Settings; closing it clears only its own key.
  */
 export function routeMap(router: Pick<ConsoleRouter, "setParams" | "push">, open: boolean): MapRoute {
-  const openMap = () => router.setParams({ map: "1", settings: undefined });
+  const openMap = () => router.setParams({ map: "1", settings: undefined, trash: undefined });
   const closeMap = () => router.setParams({ map: undefined });
   return {
     open,
