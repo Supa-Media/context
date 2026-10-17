@@ -1,3 +1,4 @@
+import type { LineState } from "../lineState";
 import type { ScrollView } from "react-native";
 import type { useSurfacePadding } from "../../../app/Screen";
 import type { VoiceHost } from "../../../voice/VoiceHost";
@@ -42,6 +43,10 @@ export type NoteView = Omit<NoteEditorProps, "activityShared" | "activityEditabl
   addAsked: number;
   setAddAsked: (asked: number) => void;
   controls: { current: EditorControls | null };
+  /** The line under a new note's "Title" (`untitledTitle.ts`), or null. */
+  titleHint: string | null;
+  /** The caret line's style and list, which the Aa panel lights. */
+  setLineState: (state: LineState) => void;
   padding: ReturnType<typeof useSurfacePadding>;
   barUp: boolean;
   voice: VoiceHost | null;

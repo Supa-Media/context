@@ -51,6 +51,8 @@ import { emojiTyping } from "./emoji/emojiComplete";
 import { dictationExtension, insertDictated } from "./dictate";
 import type { EditorCommand } from "./webview/protocol";
 import { applyLink, cancelLink, requestLink } from "./linkSelection";
+import { lineStateOf, sameLineState, type LineState } from "./lineState";
+import { showTitleHint, untitledTitle } from "./untitledTitle";
 
 /**
  * "This text did not come from the person; it came from the app."
@@ -161,6 +163,8 @@ export function openingCaret(text: string): number {
 export interface EditorHandlers {
   onChange: (text: string) => void;
   onSave: () => void;
+  /** What the caret's line is, for the Aa panel to light (`lineState.ts`). Told on a change only. */
+  onLineState?: (state: LineState) => void;
 }
 
 /**
@@ -380,6 +384,11 @@ export function runCommand(
     view.contentDOM.blur();
     return;
   }
+  // Drawing, not editing: a reader sees it too, and it never takes focus.
+  if (command.name === "titleHint") {
+    showTitleHint(view, command.text);
+    return;
+  }
   if (view.state.readOnly) return;
   /*
     Dictation returns before the `view.focus()` below, and that is the one
@@ -427,6 +436,22 @@ export function runCommand(
       break;
   }
   view.focus();
+}
+
+/**
+ * The caret line's style and list, told to the host when either changes, so
+ * the Aa panel lights Title, Heading or Body and the list it is in (board 3).
+ */
+function lineStateReporter(handlers: HandlerRef) {
+  let last: LineState | null = null;
+  return EditorView.updateListener.of((update) => {
+    if (!update.selectionSet && !update.docChanged && last !== null) return;
+    const line = update.state.doc.lineAt(update.state.selection.main.head);
+    const next = lineStateOf(line.text);
+    if (last !== null && sameLineState(last, next)) return;
+    last = next;
+    handlers.current.onLineState?.(next);
+  });
 }
 
 /**
@@ -689,6 +714,9 @@ export function editorExtensions(options: {
     history(),
     EditorView.lineWrapping,
     placeholder(EDITOR_PLACEHOLDER),
+    // A new note's "Title" and the line under it (board 3). See `untitledTitle.ts`.
+    untitledTitle(),
+    lineStateReporter(options.handlers),
     /*
       P1 in the sweep. CodeMirror's own default is `spellcheck="false"` on the
       content DOM — right for a code editor and wrong here: this note was

@@ -270,8 +270,8 @@ const makeStyles = (colors: Colors) =>
     headText: { flex: 1, gap: space.x1 },
     title: {
       fontFamily: fonts.display,
-      fontSize: touchType.title,
-      lineHeight: 34,
+      fontSize: touchType.page,
+      lineHeight: 40,
       fontWeight: "700",
       letterSpacing: -0.7,
       color: colors.text,

@@ -16,6 +16,7 @@ export function bridgeControls(
     wrap: (before, after) => bridge.run({ name: "wrap", before, after }),
     toggleLinePrefix: (prefix) => bridge.run({ name: "toggleLinePrefix", prefix }),
     lineStyle: (prefix) => bridge.run({ name: "lineStyle", prefix }),
+    titleHint: (text) => bridge.run({ name: "titleHint", text }),
     /*
       The `ask` is held here rather than sent: a function cannot cross the
       bridge, so the guest is told only that there is one, and answers with a

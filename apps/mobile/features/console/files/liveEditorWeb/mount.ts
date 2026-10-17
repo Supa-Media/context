@@ -129,6 +129,7 @@ export function mountEditor({
         if (!mayPersist({ bound: bound.current, canWrite: presenceRef.current?.canWrite === true })) return;
         handlers.current.onSave();
       },
+      onLineState: (state) => handlers.current.onLineState?.(state),
     },
   };
 
@@ -308,6 +309,7 @@ export function mountEditor({
     wrap: (before, after) => runCommand(created, { name: "wrap", before, after }),
     toggleLinePrefix: (prefix) => runCommand(created, { name: "toggleLinePrefix", prefix }),
     lineStyle: (prefix) => runCommand(created, { name: "lineStyle", prefix }),
+    titleHint: (text) => runCommand(created, { name: "titleHint", text }),
     insertLink: (ask) => runCommand(created, { name: "insertLink" }, ask),
     applyLink: (link) => runCommand(created, { name: "applyLink", link }),
     cancelLink: () => runCommand(created, { name: "cancelLink" }),

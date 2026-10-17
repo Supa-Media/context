@@ -286,6 +286,7 @@ export function E2EFixtureScreen({
                   data={data}
                   label={current === null ? "Your context" : atName(current.slug)}
                   trigger="phone"
+                  phoneNamed={(data.files.selectedPath ?? "") === ""}
                   onOpenContext={openContext}
                   onOpenSettings={openSettings}
                 />

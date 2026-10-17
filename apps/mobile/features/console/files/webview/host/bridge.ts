@@ -4,6 +4,7 @@
  * `ready` resends the whole desired state rather than flushing a queue.
  */
 
+import { decodeLineState, type LineState } from "../../lineState";
 import {
   PROTOCOL_VERSION,
   acceptsChange,
@@ -56,6 +57,8 @@ export interface HostSink extends ExtrasSink {
   onHeight?: (height: number) => void;
   /** Where the caret is inside the document — see the `caret` message. */
   onCaret?: (caret: { top: number; bottom: number }) => void;
+  /** What the caret's line is — see the `line-state` message. */
+  onLineState?: (state: LineState) => void;
   /** The guest failed to start. A blank rectangle otherwise. */
   onFailed?: (message: string) => void;
   /**
@@ -477,6 +480,13 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
           if (!Number.isFinite(message.top) || !Number.isFinite(message.bottom)) return;
           sink.onCaret?.({ top: message.top, bottom: message.bottom });
           return;
+        case "line-state": {
+          // A layout fact like `caret`, so not gated on `editable`; refused
+          // when it is not one of the shapes `lineState.ts` can produce.
+          const state = decodeLineState(message);
+          if (state !== null) sink.onLineState?.(state);
+          return;
+        }
         case "failed":
           sink.onFailed?.(message.message);
           return;

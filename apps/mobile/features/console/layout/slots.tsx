@@ -86,9 +86,11 @@ export function consoleAccountSlot({
   view?: HomeView;
 }) {
   const account = <SwitcherMenu {...switcherProps} trigger="phone" />;
+  const named = <SwitcherMenu {...switcherProps} trigger="phone" phoneNamed={data.visitor === undefined} />;
   const mapOpen = map?.open === true;
   const levels = phone && browsing ? phoneBackLevels(data.files.selectedPath, mapOpen, view, data.visitor !== undefined) : [];
-  if (levels.length === 0) return account;
+  // Inbox and Folders: the mark with its @name and ⌄ (board 1).
+  if (levels.length === 0) return phone && browsing && (data.files.selectedPath ?? "") === "" ? named : account;
   return (
     <PhoneBack
       levels={levels}

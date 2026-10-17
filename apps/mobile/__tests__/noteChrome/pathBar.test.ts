@@ -116,12 +116,20 @@ describe("the phone's way up", () => {
     expect(app.find("phone-back")!.getAttribute("aria-label")).toBe("Back to d");
   });
 
-  test("Inbox has no back button: its top-left is the workspace's own mark", () => {
+  test("Inbox has no back button: its top-left is the workspace's mark, @name and ⌄", () => {
     const app = mountConsole(dataWith({ selectedPath: null } as never));
     expect(app.find("phone-back")).toBeNull();
     const account = app.find("account-menu");
     expect(account).not.toBeNull();
     expect(account!.getAttribute("aria-label")).toBe("@seyi — workspaces and account");
+    // Board 1 of `meeting-2026-10-17/phone-inbox/`: the line above "Inbox".
+    expect(app.find("account-menu-name")?.textContent).toBe("@seyi");
+  });
+
+  test("below the top pages the slot is ‹, and the name goes", () => {
+    const app = mountConsole(dataWith({}, { path: DEEP, name: "the-lean-startup.md" }));
+    expect(app.find("phone-back")).not.toBeNull();
+    expect(app.find("account-menu-name")).toBeNull();
   });
 
   test("the back button is a real 44pt target", () => {

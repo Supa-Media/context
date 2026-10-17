@@ -8,6 +8,7 @@ import { fonts, layout, radii, space, touchType } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors, type Shadows } from "../../design/theme";
 import { ACCESSORY_GAP } from "./accessory";
 import type { EditorControls } from "./LiveEditor";
+import { BODY_LINE, type LineState } from "./lineState";
 
 /**
  * The keyboard accessory bar: the row that rides above the soft keyboard while
@@ -173,12 +174,15 @@ export function NoteAccessory({
   controls,
   onAskLink,
   onDictate,
+  active = BODY_LINE,
 }: {
   controls: () => EditorControls | null;
   /** Show the Link sheet over these selected words. Absent: no sheet here. */
   onAskLink?: (words: string) => void;
   /** Start dictating at the caret (`VoiceButton`'s `startDictation`). Absent: no microphone key. */
   onDictate?: () => void;
+  /** What the caret's line is: the panel lights its style and its list (board 3). */
+  active?: LineState;
 }): JSX.Element {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -187,9 +191,24 @@ export function NoteAccessory({
     const api = controls();
     if (api !== null) key.run(api, onAskLink);
   };
-  const keys = (row: readonly AccessoryKey[], style: object) =>
+  /** Which panel keys say what the caret's line already is. */
+  const lit = (id: string) =>
+    id === active.style ||
+    (id === "list" && active.list === "bullet") ||
+    (id === "number" && active.list === "number") ||
+    (id === "checklist" && active.list === "task");
+  const keys = (row: readonly AccessoryKey[], style: object, lights = false) =>
     row.map((key) => (
-      <AccessoryButton key={key.id} id={key.id} label={key.label} icon={key.icon} onPress={run(key)} style={style} />
+      <AccessoryButton
+        key={key.id}
+        id={key.id}
+        label={key.label}
+        icon={key.icon}
+        onPress={run(key)}
+        style={style}
+        on={lights && lit(key.id)}
+        fill={lights}
+      />
     ));
 
   return (
@@ -242,9 +261,9 @@ export function NoteAccessory({
 
       {formatting ? (
         <View style={styles.panel} role="toolbar" aria-label="Formatting" testID="note-accessory-panel" {...KEEP_CARET}>
-          <View style={styles.panelRow}>{keys(STYLE_KEYS, styles.panelKey)}</View>
+          <View style={styles.panelRow}>{keys(STYLE_KEYS, styles.panelKey, true)}</View>
           <View style={styles.panelRow}>{keys(MARK_KEYS, styles.panelKey)}</View>
-          <View style={styles.panelRow}>{keys(LIST_KEYS, styles.panelKey)}</View>
+          <View style={styles.panelRow}>{keys(LIST_KEYS, styles.panelKey, true)}</View>
         </View>
       ) : null}
     </KeyboardSticky>
@@ -258,6 +277,7 @@ function AccessoryButton({
   onPress,
   style,
   on = false,
+  fill = false,
 }: {
   id: string;
   label: string;
@@ -265,6 +285,8 @@ function AccessoryButton({
   onPress: () => void;
   style: object;
   on?: boolean;
+  /** A panel key that is lit fills the whole key; Aa fills a circle. */
+  fill?: boolean;
 }): JSX.Element {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -275,15 +297,15 @@ function AccessoryButton({
     <Pressable
       role="button"
       accessibilityLabel={label}
-      aria-pressed={id === "format" ? on : undefined}
+      aria-pressed={id === "format" || fill ? on : undefined}
       onPress={onPress}
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}
-      style={({ pressed }) => [style, pressed && !on && styles.targetPressed]}
+      style={({ pressed }) => [style, fill && on && styles.keyOn, pressed && !on && styles.targetPressed]}
       testID={`note-accessory-${id}`}
     >
       {/* Aa, while its panel is open, is a filled circle (board 3). */}
-      <View style={[styles.face, on && styles.keyOn]}>
+      <View style={[styles.face, on && !fill && styles.keyOn]}>
         {typeof icon === "string" ? (
           <Icon name={icon} size={20} color={ink} />
         ) : (

@@ -55,6 +55,7 @@
  */
 
 import { decodeLinkTarget, type LinkTarget } from "../linkMarkdown";
+import type { LineState } from "../lineState";
 
 export const PROTOCOL_VERSION = 1;
 
@@ -87,6 +88,12 @@ export type EditorCommand =
    * `## `, never `## # `.
    */
   | { name: "lineStyle"; prefix: string }
+  /**
+   * The line drawn under a new note's "Title" (`untitledTitle.ts`), or `null`
+   * for none: "Your agent will file it" in the Inbox. Drawing only — a reader
+   * gets it too, and it never takes focus.
+   */
+  | { name: "titleHint"; text: string | null }
   /**
    * `[[]]`, caret between the brackets, with the `[[` completion opened
    * immediately — A2 in the editor-polish sweep. See `docs/decisions/app-and-console.md`,
@@ -160,6 +167,11 @@ export function decodeCommand(value: unknown): EditorCommand | null {
     case "lineStyle":
       if (typeof command.prefix !== "string" || !/^(#{1,6} )?$/.test(command.prefix)) return null;
       return { name: "lineStyle", prefix: command.prefix };
+    case "titleHint": {
+      const text = (command as { text?: unknown }).text;
+      if (text !== null && (typeof text !== "string" || text.length > 200)) return null;
+      return { name: "titleHint", text };
+    }
     case "insertLink":
       return (command as { ask?: unknown }).ask === true ? { name: "insertLink", ask: true } : { name: "insertLink" };
     case "applyLink": {
@@ -184,8 +196,8 @@ export function decodeCommand(value: unknown): EditorCommand | null {
 
 /** Would running this change the document? */
 export function writesDocument(command: EditorCommand): boolean {
-  // `cancelLink` only puts a selection back.
-  return command.name !== "blur" && command.name !== "cancelLink";
+  // `cancelLink` only puts a selection back; `titleHint` only draws a line.
+  return command.name !== "blur" && command.name !== "cancelLink" && command.name !== "titleHint";
 }
 
 /**
@@ -473,6 +485,8 @@ export type ToHost =
    * on an edit — coalesced to one message a frame, like every other.
    */
   | { v: number; type: "caret"; top: number; bottom: number }
+  /** What the caret's line is (`lineState.ts`), when it changes: the Aa panel lights it. */
+  | { v: number; type: "line-state"; style: LineState["style"]; list: LineState["list"] }
   /** The guest failed to start. Surfaced rather than left as a blank rectangle. */
   | { v: number; type: "failed"; message: string }
   /**
@@ -646,6 +660,7 @@ export const TO_HOST_TYPES: ReadonlySet<ToHost["type"]> = new Set([
   "focus",
   "height",
   "caret",
+  "line-state",
   "failed",
   "open-link",
   "open-url",

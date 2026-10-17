@@ -13,6 +13,7 @@ import type { PresenceMember } from "../../presence/protocol";
 import type { DurableCollaboration } from "../../collaboration/durable";
 import type { NoteLinkOpen } from "../noteLinks";
 import type { FolderListSource } from "../listBlock/model";
+import type { LineState } from "../lineState";
 import type {
   FormOutcome,
   FormResponsesOutcome,
@@ -52,6 +53,8 @@ export interface EditorControls {
   toggleLinePrefix(prefix: string): void;
   /** Make the caret's line a title (`# `), a heading (`## `) or body (`""`). */
   lineStyle(prefix: string): void;
+  /** The line under a new note's "Title", or `null` for none (`untitledTitle.ts`). */
+  titleHint(text: string | null): void;
   /**
    * The link key. With nothing selected, `[[]]` with the `[[` completion
    * opened (A2). With words selected and `ask` given, the selection is saved
@@ -162,6 +165,8 @@ export interface LiveEditorProps {
    * file. A surface that never calls this reads as "not in the title".
    */
   onTitleCaret?: (inTitle: boolean) => void;
+  /** What the caret's line is, for the Aa panel to light (`lineState.ts`). Both surfaces. */
+  onLineState?: (state: LineState) => void;
   /** The line drawn under the title, or `null` for none. Web only. */
   titleNote?: { tone: "problem" | "held"; message: string } | null;
   /**
@@ -316,6 +321,7 @@ export interface EditorHandlers {
   controls: LiveEditorProps["controls"];
   onFocus: LiveEditorProps["onFocus"];
   onBlur: LiveEditorProps["onBlur"];
+  onLineState?: LiveEditorProps["onLineState"];
   onTitleCaret: LiveEditorProps["onTitleCaret"];
   onDictate: LiveEditorProps["onDictate"];
   commenter?: LiveEditorProps["commenter"];

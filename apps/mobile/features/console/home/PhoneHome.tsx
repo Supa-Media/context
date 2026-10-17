@@ -270,8 +270,8 @@ const makeStyles = (colors: Colors) =>
     // 34pt, as Inbox's title: the two top pages are one pair (board 2).
     title: {
       fontFamily: fonts.display,
-      fontSize: touchType.title,
-      lineHeight: leading(34, 1.12),
+      fontSize: touchType.page,
+      lineHeight: leading(touchType.page, 1.12),
       fontWeight: "700",
       letterSpacing: tracking(34, -0.02),
       color: colors.text,

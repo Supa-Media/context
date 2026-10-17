@@ -71,6 +71,7 @@ type MockControls = {
   wrap(before: string, after: string): void;
   toggleLinePrefix(prefix: string): void;
   lineStyle(prefix: string): void;
+  titleHint(text: string | null): void;
   insertLink(ask?: (text: string) => void): void;
   applyLink(link: unknown): void;
   cancelLink(): void;
@@ -86,6 +87,7 @@ interface MockEditorProps {
   controls?: (api: MockControls | null) => void;
   onFocus?: () => void;
   onBlur?: () => void;
+  onLineState?: (state: { style: "title" | "heading" | "body"; list: "bullet" | "number" | "task" | null }) => void;
 }
 
 /** The caret/selection the commands act on, in the *body*'s coordinates. */
@@ -94,6 +96,8 @@ const mockCalls = { undo: 0, redo: 0, blur: 0 };
 /** What the Link sheet told the editor: each pick, and each cancel. */
 const mockLink: { applied: unknown[]; cancelled: number } = { applied: [], cancelled: 0 };
 let mockProps: MockEditorProps | null = null;
+/** Each line the note asked to draw under a new note's title (`untitledTitle.ts`). */
+const mockHints: (string | null)[] = [];
 
 jest.mock("../features/console/files/LiveEditor", () => ({
   LiveEditor: (props: MockEditorProps) => {
@@ -125,6 +129,9 @@ jest.mock("../features/console/files/LiveEditor", () => ({
         const from = text.lastIndexOf("\n", mockSelection.start - 1) + 1;
         const marks = /^#{1,6} /.exec(text.slice(from))?.[0] ?? "";
         props.onChange(text.slice(0, from) + prefix + text.slice(from + marks.length));
+      },
+      titleHint(text: string | null) {
+        mockHints.push(text);
       },
       insertLink(ask?: (text: string) => void) {
         // The real command (`runCommand` in editorSetup.ts): with words
@@ -235,6 +242,7 @@ beforeEach(() => {
   mockCalls.blur = 0;
   mockLink.applied = [];
   mockLink.cancelled = 0;
+  mockHints.length = 0;
 });
 
 /**
@@ -598,6 +606,27 @@ describe("what the keys do", () => {
     expect(app.find("note-accessory-panel")).toBeNull();
   });
 
+  /**
+   * Board 3: the panel lights what the caret's line already is — its style
+   * and its list — as the editor reports it.
+   *
+   * SABOTAGE: dropping `active` from `NoteAccessory` fails this.
+   */
+  test("the panel lights the caret line's style and list", () => {
+    const app = mountEditor(390);
+    app.focus();
+    app.format();
+    const pressed = (id: string) => app.find(`note-accessory-${id}`)?.getAttribute("aria-pressed");
+    expect(pressed("body")).toBe("true");
+    expect(pressed("title")).toBe("false");
+
+    act(() => app.editor().onLineState?.({ style: "heading", list: "task" }));
+    expect(pressed("heading")).toBe("true");
+    expect(pressed("body")).toBe("false");
+    expect(pressed("checklist")).toBe("true");
+    expect(pressed("list")).toBe("false");
+  });
+
   /** The key the whole bar exists for. */
   test("dismiss releases the editing surface", () => {
     const app = mountEditor(390);
@@ -639,6 +668,17 @@ function rowTitles(): string[] {
     (row) => row.getAttribute("aria-label") ?? "",
   );
 }
+
+describe("a new note's title", () => {
+  /** Board 3: "Your agent will file it" under a note in the Inbox, and nothing elsewhere. */
+  test("a note in the Inbox asks for the line under its title, and one elsewhere does not", () => {
+    mountEditor(390, { state: stateFor({ path: "0-inbox/untitled-2026-10-17.md" }) });
+    expect(mockHints.at(-1)).toBe("Your agent will file it");
+
+    mountEditor(390, { state: stateFor({ path: "1-projects/untitled-2026-10-17.md" }) });
+    expect(mockHints.at(-1)).toBeNull();
+  });
+});
 
 describe("the link key over selected words", () => {
   function withWordsSelected(notePaths?: readonly string[]) {
