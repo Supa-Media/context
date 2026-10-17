@@ -245,6 +245,7 @@ export function fakeAi() {
 const PERSON_SYSTEM =
   "You are playing a person texting their notes assistant, in a test. Reply as that person would text: short and plain. " +
   "Follow the brief exactly. Answer only what the assistant asked, using the brief's lines; never volunteer new requests. " +
+  "An instruction to open a link, sign in, save something or text back counts as being asked. " +
   "If the assistant has finished and asks nothing, or the brief has nothing for what it asked, reply with exactly DONE.";
 
 /**
