@@ -13,15 +13,17 @@
  * being worth the extra branch:
  *
  *  - **`moving` is a report, not a request.** Nothing is expected of the
- *    person, and the one thing they need to know is that closing the console
- *    does not stop it.
+ *    person, so it carries no control at all.
  *  - **`complete` with something left behind is not a success.** "Moved" over a
  *    folder that still has three encrypted notes in it sends somebody to the
  *    other context looking for notes that are not there. The count is named,
  *    and so is the reason.
- *  - **`failed` is the only one with a button.** Everything already carried is
- *    carried, so the offer is "finish it", not "start again" — and saying that
- *    is what stops somebody re-running a move they think did nothing.
+ *  - **`failed` is the only one that offers to try again.** Everything already
+ *    carried stays carried, so the count leads — that is what stops somebody
+ *    thinking a move that stopped partway did nothing.
+ *
+ * Every line is short and names the item, not its path: it is drawn on one row
+ * with its controls beside it, and a paragraph there was the complaint.
  */
 
 import type { ContextMoveProgress } from "./browser";
@@ -53,16 +55,35 @@ function countOf(objects: number): string {
   return objects === 1 ? "1 note" : `${objects} notes`;
 }
 
+/**
+ * The moved item by its own name, not its path.
+ *
+ * The full `from → @dest/to` pair read as a log line, and the person already
+ * knows where they pressed: what they need is which thing, and where it went.
+ */
+function nameOf(path: string): string {
+  const segments = path.split("/").filter((segment) => segment.length > 0);
+  // A note without `.md`, the way the tree names it.
+  return (segments[segments.length - 1] ?? path).replace(/\.md$/i, "");
+}
+
+/** The server's reason as a second sentence, or nothing — never a stand-in. */
+function reasonOf(error: string | undefined): string {
+  const reason = (error ?? "").trim();
+  if (reason.length === 0) return "";
+  return ` ${/[.!?]$/.test(reason) ? reason : `${reason}.`}`;
+}
+
 export function describeContextMove(move: ContextMoveProgress): ContextMoveNotice {
-  const what = `${move.from} → ${move.destination}/${move.to}`;
+  const name = nameOf(move.from);
   if (move.status === "moving") {
     return {
       id: move.id,
       tone: "hint",
       text:
         move.objects === 0
-          ? `Moving ${what}. This keeps going if you close the console.`
-          : `Moving ${what} — ${countOf(move.objects)} so far. This keeps going if you close the console.`,
+          ? `Moving ${name} to ${move.destination}…`
+          : `Moving ${name} to ${move.destination}, ${countOf(move.objects)} so far…`,
       resumable: false,
       dismissible: false,
     };
@@ -71,40 +92,37 @@ export function describeContextMove(move: ContextMoveProgress): ContextMoveNotic
     return {
       id: move.id,
       tone: "warn",
-      // The count first, because "nothing happened" is the wrong thing to
-      // conclude and the most natural one: a move that stopped at batch forty
-      // really did move the first thirty-nine batches.
+      // A count when there is one, because a move that stopped at batch forty
+      // really did carry the first thirty-nine, and "didn't move" over that
+      // sends somebody looking in the wrong context.
       text:
-        `${countOf(move.objects)} moved to ${move.destination} before this stopped. ` +
-        (move.error ?? "The move could not be completed.").trim(),
+        (move.objects === 0
+          ? `${name} didn't move to ${move.destination}.`
+          : `${name} stopped partway: ${countOf(move.objects)} ${move.objects === 1 ? "is" : "are"} in ${move.destination}.`) +
+        reasonOf(move.error),
       resumable: true,
       dismissible: true,
     };
   }
-  if (move.skipped.length > 0) {
-    const encrypted = move.skipped.filter((entry) => entry.reason === "encrypted");
-    const large = move.skipped.filter((entry) => entry.reason === "too_large");
-    const lines = [`Moved ${countOf(move.objects)} to ${move.destination}.`];
-    if (encrypted.length > 0) {
-      lines.push(
-        `${encrypted.length === 1 ? "One note" : `${encrypted.length} notes`} stayed here ` +
-          "because they are encrypted to this context and could not be read anywhere else: " +
-          `${encrypted.map((entry) => entry.path).join(", ")}.`,
-      );
-    }
-    if (large.length > 0) {
-      lines.push(
-        `${large.length === 1 ? "One file" : `${large.length} files`} stayed here ` +
-          "because they are too large to move between workspaces yet; download and upload them there: " +
-          `${large.map((entry) => entry.path).join(", ")}.`,
-      );
-    }
-    return { id: move.id, tone: "warn", text: lines.join(" "), resumable: false, dismissible: true };
+  const lines = [`Moved ${name} to ${move.destination}.`];
+  const encrypted = move.skipped.filter((entry) => entry.reason === "encrypted");
+  const large = move.skipped.filter((entry) => entry.reason === "too_large");
+  if (encrypted.length > 0) {
+    lines.push(
+      `${encrypted.length === 1 ? "1 encrypted note" : `${encrypted.length} encrypted notes`} stayed here: ` +
+        `${encrypted.map((entry) => entry.path).join(", ")}.`,
+    );
+  }
+  if (large.length > 0) {
+    lines.push(
+      `${large.length === 1 ? "1 file" : `${large.length} files`} too large to move stayed here; ` +
+        `upload ${large.length === 1 ? "it" : "them"} there: ${large.map((entry) => entry.path).join(", ")}.`,
+    );
   }
   return {
     id: move.id,
-    tone: "hint",
-    text: `Moved ${countOf(move.objects)} to ${move.destination}.`,
+    tone: move.skipped.length > 0 ? "warn" : "hint",
+    text: lines.join(" "),
     resumable: false,
     dismissible: true,
   };
