@@ -146,3 +146,7 @@ Moved to [Calendar](./communications/calendar.md#calendar).
 ### No email leaves without the person's yes to that exact copy
 
 Moved to [No email leaves without the person's yes to that exact copy](./communications/sending-email.md#no-email-leaves-without-the-persons-yes-to-that-exact-copy).
+
+### No calendar change is made without the person's yes to that exact change
+
+Moved to [No calendar change is made without the person's yes to that exact change](./communications/calendar-writes.md#no-calendar-change-is-made-without-the-persons-yes-to-that-exact-change).

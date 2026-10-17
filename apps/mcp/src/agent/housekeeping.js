@@ -32,7 +32,8 @@
 import { DEFAULT_TIME_ZONE, readTimeZone } from "./localNow.js";
 import { eventLines } from "./transcript.js";
 import { AgentRefusal, openProvider, runTurn } from "./turn.js";
-import { BUILTIN_PROVIDER, builtinModel } from "./builtin.js";
+import { BUILTIN_PROVIDER, builtinModel, canRunBuiltin } from "./builtin.js";
+import { PRODUCTION_HOUSEKEEPING_PATH, readJobSetup } from "./production.js";
 import { aiGatewayConfig } from "./aiGateway.js";
 import { ProviderError } from "./providers.js";
 import { readAboutMe } from "./aboutMe.js";
@@ -42,7 +43,7 @@ import { grantedToolsFor } from "./sixTools.js";
 import { newLedger } from "../privacy/egress.js";
 import { json } from "../http/responses.js";
 import { appendLogEntry, builtinMeter, clock, dayOf, longDate } from "./jobLog.js";
-import { HOUSEKEEPING_GRANTS, MAX_HOUSEKEEPING_CHANGES, housekeepingCallTool, housekeepingTools, undoLine } from "./housekeepingGuard.js";
+import { HOUSEKEEPING_GRANTS, housekeepingCallTool, housekeepingTools, undoLine } from "./housekeepingGuard.js";
 
 export const HOUSEKEEPING_FOLDER = "tex/housekeeping";
 
@@ -56,7 +57,14 @@ export const HOUSEKEEPING_FOLDER = "tex/housekeeping";
  */
 export const HOUSEKEEPING_CLIENT_ID = "context_housekeeping";
 
-const HOUSEKEEPING_ROUNDS = 24;
+/**
+ * One run's bounds: no cap on what it changes, only on a turn that never ends.
+ * Both are lifted past a texted turn's (eight rounds, 70 s of tools), and the
+ * tools' budget sits inside the texting Worker's five-minute wait for the run
+ * (`apps/agent/src/housekeeping.ts`), leaving room for the last rounds.
+ */
+const HOUSEKEEPING_ROUNDS = 40;
+const HOUSEKEEPING_TOOL_BUDGET_MS = 180_000;
 const MAX_WHY_CHARS = 4_000;
 const MAX_LINE_CHARS = 280;
 
@@ -73,28 +81,40 @@ export function chaosFrom(health) {
   return match ? Number(match[1]) : null;
 }
 
-/** The Supa way, and the jobs in the order they pay off. */
-export function housekeepingQuestion({ health, today }) {
+/**
+ * The Supa way, and the jobs in the order they pay off: the built-in words,
+ * which the setup note's body (`ai/production/housekeeping.md`, the AI tab's
+ * Housekeeping) replaces when it has one.
+ */
+export const HOUSEKEEPING_INSTRUCTIONS = [
+  "This is your housekeeping run, not a text from a person. Nobody is waiting, and nothing you say is texted except your first sentence at the end.",
+  "Your job: make this workspace calmer and more current, the Supa way, and lower its chaos score. Be bold where you are sure and leave alone what you are not: a note left where it is costs little, a note filed wrong is lost.",
+  "The Supa way (PARA): the inbox takes everything that arrives, raw (contacts live there too). Projects are work that will end. Areas are responsibilities that never end. Resources are reference material. The archive keeps old things in the same structure they had, so nothing is gone. A business also has Clients, Teams and Products at the top. Use the folders this workspace already has (orient names which plays which role); never invent a new top-level folder.",
+  [
+    "The jobs, most valuable first. Do as many as you can do well:",
+    "1. Finished projects. A project whose status says it is done, finished, shipped, cancelled or dropped, or whose own notes say it ended, moves into the archive keeping its path (a folder `1-projects/x/` moves to `<archive>/1-projects/x/` with move_folder, or, where move_folder is not available, its notes with move_many to the same paths; a single note with archive). If its status is stale (the notes say it ended but status still says in progress), first set status to the word the project already uses for done.",
+    "2. Project statuses. Where the inbox or a project's own notes show its status changed (started, blocked, finished), update the `status:` front matter to match, using words the workspace already uses.",
+    "3. Contacts. Two contact pages that share an email address, phone number or handle are one person: merge them into the fuller page (keep every identifier and every activity link, and anything the person typed), then archive the other. Two pages that only share a name are never merged: add `review: Possible duplicate of <path>?` to the front matter of the newer one instead.",
+    "4. Thin folders. A folder holding one note (besides about.md) should not be a folder: move the note up into the folder above. A folder holding only its about.md goes to the archive. Two notes that are one topic can share a folder with a third.",
+    "5. Crowded folders. More than 10 items is chaos: group them into 2 to 5 subfolders by clear themes (dated or numbered runs together), with move_many, up to 100 moves a call. Only where the themes are obvious from the names.",
+    "6. The inbox keeps about three months. Inbox notes older than that move to the archive under the same folder names they had in the inbox.",
+  ].join("\n"),
+  "Rules: read before you rewrite, and pass the etag. A rewrite changes front matter or merges duplicates and never cuts text. Never touch tex/, routines/, website/ or the notes at the top of the workspace. Never change who can see anything. If a move is refused by a rule, don't retry it another way; if a tool is simply not available here, use the one that is. Stop when there is nothing you are sure of left.",
+].join("\n\n");
+
+/**
+ * What a run is asked to do: the setup's words (`instructions`) or the
+ * built-in ones, then this run's facts, then the answer the gateway reads.
+ */
+export function housekeepingQuestion({ health, today, instructions = null }) {
+  const words = typeof instructions === "string" && instructions.trim() !== "" ? instructions.trim() : HOUSEKEEPING_INSTRUCTIONS;
   return [
-    "This is your housekeeping run, not a text from a person. Nobody is waiting, and nothing you say is texted except your first sentence at the end.",
-    `Today is ${today}. Your job: make this workspace calmer and more current, the Supa way, and lower its chaos score. Be bold where you are sure and leave alone what you are not: a note left where it is costs little, a note filed wrong is lost.`,
-    "The Supa way (PARA): the inbox takes everything that arrives, raw (contacts live there too). Projects are work that will end. Areas are responsibilities that never end. Resources are reference material. The archive keeps old things in the same structure they had, so nothing is gone. A business also has Clients, Teams and Products at the top. Use the folders this workspace already has (orient names which plays which role); never invent a new top-level folder.",
+    words,
+    "## This run",
+    `Today is ${today}.`,
     health ? `The workspace's health right now:\n\n${health}` : "This workspace has no chaos score yet; judge by the folder map (call orient).",
-    [
-      "The jobs, most valuable first. Do as many as you can do well:",
-      "1. Finished projects. A project whose status says it is done, finished, shipped, cancelled or dropped, or whose own notes say it ended, moves into the archive keeping its path (a folder `1-projects/x/` moves to `<archive>/1-projects/x/` with move_folder, or, where move_folder is not available, its notes with move_many to the same paths; a single note with archive). If its status is stale (the notes say it ended but status still says in progress), first set status to the word the project already uses for done.",
-      "2. Project statuses. Where the inbox or a project's own notes show its status changed (started, blocked, finished), update the `status:` front matter to match, using words the workspace already uses.",
-      "3. Contacts. Two contact pages that share an email address, phone number or handle are one person: merge them into the fuller page (keep every identifier and every activity link, and anything the person typed), then archive the other. Two pages that only share a name are never merged: add `review: Possible duplicate of <path>?` to the front matter of the newer one instead.",
-      "4. Thin folders. A folder holding one note (besides about.md) should not be a folder: move the note up into the folder above. A folder holding only its about.md goes to the archive. Two notes that are one topic can share a folder with a third.",
-      "5. Crowded folders. More than 10 items is chaos: group them into 2 to 5 subfolders by clear themes (dated or numbered runs together), with move_many, up to 100 moves a call. Only where the themes are obvious from the names.",
-      "6. The inbox keeps about three months. Inbox notes older than that move to the archive under the same folder names they had in the inbox.",
-    ].join("\n"),
-    "Rules: read before you rewrite, and pass the etag. A rewrite changes front matter or merges duplicates and never cuts text. Never touch tex/, routines/, website/ or the notes at the top of the workspace. Never change who can see anything. If a move is refused by a rule, don't retry it another way; if a tool is simply not available here, use the one that is. Stop when there is nothing you are sure of left, or when you are told it's enough.",
-    `At most ${MAX_HOUSEKEEPING_CHANGES} notes change in one run, so start with what calms the most.`,
     "Then answer with two or three plain sentences for the log: what you changed and why, or why nothing needed changing. Make the first sentence one they would be glad to get as a text, under 25 words, like \"I archived 3 finished projects and merged 2 duplicate contacts.\"",
-  ]
-    .filter(Boolean)
-    .join("\n\n");
+  ].join("\n\n");
 }
 
 function heading(now, timeZone) {
@@ -192,27 +212,39 @@ export async function handleHousekeeping(request, env, store, session, controlPl
 
   const events = [];
   const guard = housekeepingCallTool(dispatch);
-  const model = builtinModel(env);
+  // Housekeeping's setup note (`ai/production/housekeeping.md`): its words, and its
+  // model when this deployment can call it. Missing or invalid is the built-in ones.
+  const setup = await readJobSetup(store, session, PRODUCTION_HOUSEKEEPING_PATH);
+  const chosen = setup !== null && canRunBuiltin(setup.model, env) ? setup.model : null;
+  const model = chosen ?? builtinModel(env);
   const meter = builtinMeter(controlPlane, session, model, started);
 
   let turn = null;
   try {
     const aboutMe = await readAboutMe(dispatch);
     turn = await runTurn({
-      question: housekeepingQuestion({ health, today: dayOf(started, timeZone) }),
+      question: housekeepingQuestion({ health, today: dayOf(started, timeZone), instructions: setup?.prompt ?? null }),
       tools: housekeepingTools(offered),
       grants: HOUSEKEEPING_GRANTS,
       callTool: guard.callTool,
       env,
+      builtinModelOverride: chosen,
       providerOptions: {
         ai: env.AI,
         gateway: aiGatewayConfig(env),
-        metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "housekeeping" },
+        metadata: {
+          feature: "assistant",
+          workspace: String(session.workspaceId),
+          client: "housekeeping",
+          ...(setup !== null ? { setup: setup.version } : {}),
+        },
       },
       aboutMe,
       localNow: { now: started, timeZone },
       observe: (event) => events.push(event),
       maxRounds: HOUSEKEEPING_ROUNDS,
+      roundCap: HOUSEKEEPING_ROUNDS,
+      toolBudgetMs: HOUSEKEEPING_TOOL_BUDGET_MS,
     });
   } catch (error) {
     await meter(null, true, error instanceof ProviderError ? error.model : model);

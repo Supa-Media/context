@@ -43,6 +43,7 @@ import { TEXTS_CLIENT_ID } from "./textLinks";
 import { ROUTINES_CLIENT_ID } from "./lib/routines/model";
 import { DREAMS_CLIENT_ID } from "./lib/dreams/model";
 import { HEARTBEAT_CLIENT_ID } from "./lib/heartbeats/model";
+import { HOUSEKEEPING_CLIENT_ID } from "./lib/housekeeping/model";
 import { PINNED_CONTEXT_SLUG } from "@context/shared";
 import { CONSOLE_CLIENT_ID } from "./agentGrant";
 import { resolveGrantByAccessTokenHandler } from "./lib/controlPlane/session";
@@ -53,6 +54,7 @@ const BUILTIN_CLIENTS: ReadonlySet<string> = new Set([
   ROUTINES_CLIENT_ID,
   DREAMS_CLIENT_ID,
   HEARTBEAT_CLIENT_ID,
+  HOUSEKEEPING_CLIENT_ID,
 ]);
 
 /** The meter's name for this feature. Permanent: usage and switches are keyed by it. */

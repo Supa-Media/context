@@ -230,6 +230,15 @@ test("send email is send_email with its args as they are", () => {
   });
 });
 
+test("send calendar is calendar_event with its args as they are", () => {
+  const args = { action: "cancel", title: "Dentist", start: "2026-10-20" };
+  assert.deepEqual(translated("send", { action: "calendar", args }), {
+    name: "calendar_event",
+    arguments: args,
+    v2: { tool: "send", action: "calendar" },
+  });
+});
+
 test("send api wraps its args as the fetch of vault_list", () => {
   assert.deepEqual(translated("send", { action: "api", args: { entry: "e1", field: "API_KEY", url: "https://api.example.com/v1" } }), {
     name: "vault_list",
@@ -356,7 +365,7 @@ test("every row of ACTIONS names a tool, and every row is covered above", () => 
   const covered = new Set([
     ...["write.save", "write.comment", "write.mail", "write.upload", "write.remember", "write.propose", "write.answer", "write.update_answer", "write.retract_answer", "write.vote", "write.save_session", "write.report_problem"],
     ...MANAGE.map(([action]) => `manage.${action}`),
-    ...["manage.website", "send.api", "send.email"],
+    ...["manage.website", "send.api", "send.email", "send.calendar"],
   ]);
   assert.deepEqual(rows.filter((row) => !covered.has(row)), []);
   assert.deepEqual([...covered].filter((row) => !rows.includes(row)), []);

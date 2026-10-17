@@ -5,7 +5,8 @@
  * rewrites what it is sure of, and logs every change with the line that puts
  * it back in `tex/housekeeping/<day>.md`. It never widens who sees anything,
  * never leaves the workspace, never touches Tex's own folder, the website, the
- * routines or a root note, never cuts a note down, and stops at its cap. Only
+ * routines or a root note, and never cuts a note down. Nothing caps how much
+ * it changes (owner, 2026-10-17: "remove limit"). Only
  * a first-party client that looks on its own may ask for one.
  *
  * ## Sabotage record
@@ -18,24 +19,26 @@
  *     → "housekeeping leaves Tex's folder, routines, the website and root notes alone" fails.
  *  3. `MIN_KEPT_SHARE` check removed from write_note.
  *     → "a rewrite that drops most of a note is refused" fails.
- *  4. The call cap never counted.
- *     → "a run stops at its cap" fails.
+ *  4. `housekeepingQuestion` ignoring its `instructions` (the setup note's words).
+ *     → "the setup note's words replace the built-in ones; the run's facts stay" fails.
  *  5. `http/route.js` sending the texting client to housekeeping, and
  *     `handleHousekeeping` not checking the client itself.
  *     → "only housekeeping's own client keeps house" fails.
  *  7. The `@name/` path refusal removed.
  *     → "housekeeping refuses everything that widens, leaves, sends or creates" fails.
- *  8. move_folder weighed as one note.
- *     → "a folder counts every note in it toward the cap" fails.
+ *  8. A cap put back (150 notes, 30 calls).
+ *     → "no cap: a big folder and every change after it go through" fails.
  *  9. The landing-folder check removed.
  *     → "housekeeping refuses everything that widens, leaves, sends or creates" fails.
+ * 10. `roundCap` not passed to `runTurn` (a texted turn's eight rounds).
+ *     → "a run gets more rounds than a texted turn's eight" fails.
  *  6. The whole-top-level-folder refusal removed.
  *     → "a move that touches a protected path at either end, or a whole
  *       top-level folder, is refused" fails.
  */
 
 import worker from "../src/index.js";
-import { housekeepingPath, chaosFrom, summaryLine } from "../src/agent/housekeeping.js";
+import { HOUSEKEEPING_INSTRUCTIONS, housekeepingPath, housekeepingQuestion, chaosFrom, summaryLine } from "../src/agent/housekeeping.js";
 import { housekeepingCallTool, protectedReason, undoLine } from "../src/agent/housekeepingGuard.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
@@ -124,6 +127,14 @@ async function whereIs(env, path) {
 }
 
 function unitChecks(check) {
+  const theirs = housekeepingQuestion({ health: "Chaos 42 of 100 (messy).", today: "2026-10-17", instructions: "Only archive finished projects." });
+  const built = housekeepingQuestion({ health: null, today: "2026-10-17" });
+  check(
+    "the setup note's words replace the built-in ones; the run's facts stay",
+    theirs.startsWith("Only archive finished projects.") && !theirs.includes("The Supa way") &&
+      theirs.includes("Today is 2026-10-17.") && theirs.includes("Chaos 42 of 100") && /first sentence/.test(theirs) &&
+      built.startsWith(HOUSEKEEPING_INSTRUCTIONS) && /first sentence/.test(built),
+  );
   check("the day's log is dated in their zone", housekeepingPath(Date.UTC(2026, 9, 17, 3, 0), "America/New_York") === "tex/housekeeping/2026-10-16.md");
   check("the score is read from the health answer", chaosFrom("## Chaos score\n\nChaos 42 of 100 (messy).") === 42 && chaosFrom("No score for this workspace yet.") === null);
   check(
@@ -168,7 +179,7 @@ async function toolRefusals(check) {
     return { content: [{ type: "text", text: name === "archive_note" ? `archived: ${args.path} → 4-archive/2026-10-17-x.md` : "ok" }] };
   };
   const changing = () => calls.filter((call) => !["read_note", "list_notes"].includes(call.name));
-  const guard = housekeepingCallTool(dispatch, { maxCalls: 3 });
+  const guard = housekeepingCallTool(dispatch);
   const refusals = await Promise.all([
     guard.callTool("set_visibility", { path: "1-projects/x/overview.md", visibility: "team" }),
     guard.callTool("create_link", { path: "1-projects/x/overview.md" }),
@@ -201,10 +212,6 @@ async function toolRefusals(check) {
   const cut = await guard.callTool("write_note", { path: "1-projects/x/overview.md", content: "# X\n", expected_etag: "e1" });
   check("a rewrite that drops most of a note is refused", cut.isError === true && !calls.some((call) => call.name === "write_note"));
 
-  const big = housekeepingCallTool(dispatch, { maxChanges: 30 });
-  const tooBig = await big.callTool("move_folder", { source: "1-projects/big", destination: "4-archive/1-projects/big" });
-  check("a folder counts every note in it toward the cap", tooBig.isError === true && /30 notes/.test(tooBig.content[0].text) && big.changes.length === 0);
-
   const status = await guard.callTool("write_note", {
     path: "1-projects/x/overview.md",
     content: "---\nstatus: finished\n---\n\n# X\n\nA long enough body of text to keep.\n",
@@ -212,7 +219,6 @@ async function toolRefusals(check) {
   });
   const archived = await guard.callTool("archive_note", { path: "1-projects/x/notes.md" });
   const moved = await guard.callTool("move_note", { source: "2-areas/thin/only.md", destination: "2-areas/only.md" });
-  const over = await guard.callTool("move_note", { source: "2-areas/a.md", destination: "2-areas/b/a.md" });
   check(
     "allowed changes go through and are logged, archives with where they went",
     status.isError !== true && archived.isError !== true && moved.isError !== true &&
@@ -223,7 +229,12 @@ async function toolRefusals(check) {
           { do: "moved", from: "2-areas/thin/only.md", to: "2-areas/only.md" },
         ]),
   );
-  check("a run stops at its cap", over.isError === true && /enough/.test(over.content[0].text) && guard.changes.length === 3);
+  const over = await guard.callTool("move_note", { source: "2-areas/a.md", destination: "2-areas/b/a.md" });
+  const big = await guard.callTool("move_folder", { source: "1-projects/big", destination: "4-archive/1-projects/big" });
+  check(
+    "no cap: a big folder and every change after it go through",
+    over.isError !== true && big.isError !== true && guard.changes.length === 5,
+  );
 }
 
 export async function runAgentHousekeepingChecks(check) {
@@ -342,6 +353,17 @@ export async function runAgentHousekeepingChecks(check) {
       "a run that changes nothing says so, in the same day's log, and texts nothing",
       calm.status === 200 && calm.body?.outcome === "unchanged" && calm.body?.line === "" && log().includes("_Nothing changed._") &&
         (log().match(/^## /gm) ?? []).length === 2,
+    );
+
+    /* ---------------- a long run is not cut at a texted turn's rounds ---------------- */
+
+    const reading = Array.from({ length: 12 }, () => ({ toolCalls: [{ name: "list_notes", args: { prefix: "2-areas/" } }] }));
+    model.install([...reading, { text: "I looked through everything and it is already in order." }]);
+    const sent = model.requests.length;
+    const long = await ask(env, TOKEN_HOUSE, run);
+    check(
+      "a run gets more rounds than a texted turn's eight",
+      long.status === 200 && long.body?.outcome === "unchanged" && model.requests.length - sent === 13 && log().includes("already in order"),
     );
 
     /* ---------------- the client does nothing else ---------------- */

@@ -105,6 +105,11 @@ export const ACTIONS = {
       summary: "Send one email as the person through their Gmail, once they say yes to that exact email.",
       take: plain,
     },
+    calendar: {
+      tool: "calendar_event",
+      summary: "Add, move or cancel one event on the person's Google Calendar, once they say yes to that exact change.",
+      take: plain,
+    },
   },
 };
 

@@ -5,6 +5,8 @@
  */
 
 import { callToolForSession } from "../tools/session.js";
+import { EMAIL_TOOL } from "../tools/email.js";
+import { CALENDAR_TOOL } from "../tools/calendarWrite.js";
 import { armForText, disarmRecords, listPending, replayAsAsked, settlePending, withdrawPending } from "../tools/approvals.js";
 
 /** A text that is nothing but yes, or nothing but no; anything else goes to the model. */
@@ -21,7 +23,10 @@ export function approvalVerdict(text) {
 /** The line a texted answer ends with when the turn held something for the person. */
 export function askLine(asked) {
   // An email is shown whole: the person can allow only the copy they read (`emailGate.js`).
-  const emails = asked.filter((record) => typeof record.detail === "string");
+  const emails = asked.filter((record) => record.tool === EMAIL_TOOL && typeof record.detail === "string");
+  if (asked.length === 1 && asked[0].tool === CALENDAR_TOOL && typeof asked[0].detail === "string") {
+    return `Here's the change I'd make:\n\n${clean(asked[0].detail)}\n\nReply YES to make it now, or NO to drop it.`;
+  }
   if (emails.length > 0 && emails.length === asked.length) {
     const copies = emails.map((record) => clean(record.detail)).join("\n\n---\n\n");
     return `Here ${emails.length === 1 ? "is the email" : "are the emails"} I'd send:\n\n${copies}\n\nReply YES to send ${emails.length === 1 ? "it" : "them"} now, or NO to drop ${emails.length === 1 ? "it" : "them"}.`;
@@ -83,9 +88,9 @@ function clean(text) {
   return text.replace(/[\u0000-\u0008\u000b-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, "");
 }
 
-/** An email is sent only on the word it asked for: "ok" or "sure" to an email is not a yes. */
+/** An email or a calendar change goes only on the word it asked for: "ok" or "sure" is not a yes. */
 const EMAIL_YES = /^\s*yes\s*[.!]*\s*$/i;
-const EMAIL_TOOL = "send_email";
+const YES_ONLY = new Set([EMAIL_TOOL, CALENDAR_TOOL]);
 
 /**
  * Settle what this thread's latest ask put to the person, as their text said.
@@ -103,7 +108,7 @@ export async function settleByText(store, session, verdict, texted = "") {
   const notYes = [];
   for (const entry of [...waiting].reverse()) {
     const { record } = entry;
-    if (verdict === "approve" && record.tool === EMAIL_TOOL && !EMAIL_YES.test(texted)) {
+    if (verdict === "approve" && YES_ONLY.has(record.tool) && !EMAIL_YES.test(texted)) {
       notYes.push(entry);
       continue;
     }
@@ -130,10 +135,10 @@ export async function settleByText(store, session, verdict, texted = "") {
     // voice line the judge has). What went wrong still says what the tool said.
     replies.push(settled.result?.isError === true ? `I tried to ${record.summary}, but: ${said}` : `Done: ${record.summary}.`);
   }
-  // An email the text did not say YES to is disarmed now: when the text settled
+  // An email or calendar change the text did not say YES to is disarmed now: when the text settled
   // something else, no model turn follows to disarm it, and a later bare yes must not reach it.
   if ((await disarmRecords(store, notYes)) > 0) {
-    replies.push("I couldn't set aside the email I showed you, so it is still waiting: reply NO to drop it.");
+    replies.push("I couldn't set aside what I showed you, so it is still waiting: reply NO to drop it.");
   }
   return replies.length === 0 ? null : replies.join("\n");
 }

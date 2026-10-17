@@ -43,9 +43,6 @@ export function isHousekeepingOutcome(value: unknown): value is HousekeepingOutc
   return typeof value === "string" && (HOUSEKEEPING_OUTCOMES as readonly string[]).includes(value);
 }
 
-/** No model here (not Premium): runs stop until their next text, which may come with one. */
-export const WAIT_FOR_TEXT_OUTCOMES: ReadonlySet<string> = new Set(["no_provider"]);
-
 /** The next run in `timeZone` after `afterMs`. */
 export function nextHousekeepingAfter(timeZone: string, afterMs: number): number | null {
   return nextRunFor({ cadence: { unit: "day", every: 1 }, at: HOUSEKEEPING_AT, paused: false }, timeZone, afterMs);

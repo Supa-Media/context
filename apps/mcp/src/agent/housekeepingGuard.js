@@ -24,7 +24,8 @@
  *     lands in a built-in folder or a top-level folder that already has notes.
  *   - No path may name a workspace (`@name/…`): the session routes those to
  *     that workspace, so one would carry a change out of this one.
- *   - A cap on how much one run changes, so a bad run is a small one.
+ *   - No cap on how much one run changes (owner, 2026-10-17: "remove
+ *     limit"): every change is still one of the above, logged with its undo.
  */
 
 import { mightWiden } from "../privacy/egress.js";
@@ -37,10 +38,6 @@ export const HOUSEKEEPING_CHANGES = new Set(["write_note", "move_note", "move_no
 /** The six-tool actions a run is shown (`sixTools.js`). */
 export const HOUSEKEEPING_GRANTS = { write: ["save"], manage: ["move", "move_many", "move_folder", "archive"] };
 
-/** The most notes one run may move, archive or rewrite. */
-export const MAX_HOUSEKEEPING_CHANGES = 150;
-/** The most changing calls one run may make, whatever each one carries. */
-export const MAX_HOUSEKEEPING_CALLS = 30;
 /** A rewrite keeps at least this share of the note's text. */
 export const MIN_KEPT_SHARE = 0.6;
 
@@ -111,16 +108,6 @@ function destinationsOf(name, args) {
   return [];
 }
 
-/** How many notes a changing call changes, for the cap: a folder counts every note in it. */
-async function weightOf(dispatch, name, args) {
-  if (name === "move_notes") return Array.isArray(args.moves) ? args.moves.length : 0;
-  if (name === "move_folder") {
-    const prefix = `${plain(args.source).replace(/\/+$/, "")}/`;
-    return Math.max(1, listedNotes(await dispatch("list_notes", { prefix })));
-  }
-  return 1;
-}
-
 /** The top-level folder a path lands in, or null for a note at the top. */
 function topFolder(path) {
   const p = plain(path);
@@ -158,8 +145,8 @@ function archivedTo(result) {
  * @param {(name: string, args: object) => Promise<object>} dispatch
  * @returns {{ callTool: (name: string, args: object) => Promise<object>, changes: object[], refusals: number }}
  */
-export function housekeepingCallTool(dispatch, { maxChanges = MAX_HOUSEKEEPING_CHANGES, maxCalls = MAX_HOUSEKEEPING_CALLS } = {}) {
-  const ledger = { changes: [], refusals: 0, calls: 0, weight: 0 };
+export function housekeepingCallTool(dispatch) {
+  const ledger = { changes: [], refusals: 0 };
   const refuse = (text) => {
     ledger.refusals += 1;
     return refused(text);
@@ -197,14 +184,6 @@ export function housekeepingCallTool(dispatch, { maxChanges = MAX_HOUSEKEEPING_C
       }
     }
     const dryRun = given.dry_run === true;
-    let weight = 0;
-    if (!dryRun) {
-      if (ledger.calls >= maxCalls) return refuse("That's enough for one run: stop changing things and write your summary.");
-      weight = await weightOf(dispatch, name, given);
-      if (ledger.weight + weight > maxChanges) {
-        return refuse(`That's more than one run may change (${maxChanges} notes): stop and write your summary.`);
-      }
-    }
 
     if (name === "write_note") {
       if (typeof given.content !== "string") return refuse("Write the whole note as content.");
@@ -223,8 +202,6 @@ export function housekeepingCallTool(dispatch, { maxChanges = MAX_HOUSEKEEPING_C
 
     const result = await dispatch(name, given);
     if (!dryRun && result?.isError !== true) {
-      ledger.calls += 1;
-      ledger.weight += weight;
       for (const change of changesOf(name, given)) {
         if (change.do === "archived") {
           const to = archivedTo(result);

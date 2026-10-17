@@ -534,6 +534,11 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - No email leaves without the person's yes to that exact copy (owner, 2026-10-17)
 - Rate limits live in the control plane, and are all-or-none
 - Mail goes out through the person's own Gmail, and waits for Google (owner, 2026-10-17)
+- A hold is armed for a texted yes only once its ask goes out whole
+- No calendar change is made without the person's yes to that exact change (owner, 2026-10-17)
+- A move or a cancel names the event by its title and start, and must match one
+- Never an event with guests
+- Testers only until Google's review (owner, 2026-10-17)
 
 ## [The desktop shell](./desktop.md)
 
