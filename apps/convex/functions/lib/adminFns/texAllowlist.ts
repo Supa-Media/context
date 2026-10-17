@@ -203,19 +203,34 @@ export async function addToLinqLine(
   typed: string,
   fetchImpl: Fetch = globalThis.fetch,
 ): Promise<LinqChange> {
+  return (await addToLinqLineAt(env, typed, fetchImpl)).change;
+}
+
+/**
+ * `addToLinqLine`, also saying the line's own number when Linq gave one, so
+ * the "You're in" text can tell somebody just added which number to text.
+ */
+export async function addToLinqLineAt(
+  env: LinqEnv,
+  typed: string,
+  fetchImpl: Fetch = globalThis.fetch,
+): Promise<{ change: LinqChange; line: string | null; unlimited?: true }> {
   const phone = normalizePhone(typed);
-  if (phone === null) return { status: "invalid" };
+  if (phone === null) return { change: { status: "invalid" }, line: null };
   const line = await readLinqLine(env, fetchImpl);
   const refused = notShared(line);
-  if (refused !== null || line.state !== "shared") return refused!;
-  if (line.contacts.some((contact) => contact.phone === phone)) return { status: "already", phone };
-  if (line.contacts.length >= SHARED_LINE_CAP) return { status: "full", cap: SHARED_LINE_CAP };
+  // A line with no list refuses the add, but anybody can text it.
+  if (line.state === "unlimited") return { change: refused!, line: line.line, unlimited: true };
+  if (refused !== null || line.state !== "shared") return { change: refused!, line: null };
+  const at = (change: LinqChange) => ({ change, line: line.line });
+  if (line.contacts.some((contact) => contact.phone === phone)) return at({ status: "already", phone });
+  if (line.contacts.length >= SHARED_LINE_CAP) return at({ status: "full", cap: SHARED_LINE_CAP });
   try {
     await call(env.LINQ_API_KEY!.trim(), fetchImpl, "/cli/contacts/add", { orgId: line.orgId, contactPhone: phone });
   } catch (error) {
-    return { status: "error", error: error instanceof LinqFailure ? error.message : "Linq could not be reached." };
+    return at({ status: "error", error: error instanceof LinqFailure ? error.message : "Linq could not be reached." });
   }
-  return { status: "added", phone };
+  return at({ status: "added", phone });
 }
 
 /** Take `typed` off the list, which frees its slot. */

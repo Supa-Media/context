@@ -27,6 +27,7 @@ export const ADMIN_ACTIONS = [
   "texts.sender_set",
   "tex.allowlist_added",
   "tex.allowlist_removed",
+  "tex.allowlist_refused",
   "rows.source_set",
   "feature.switched",
 ] as const;
