@@ -382,7 +382,7 @@ export function describePremium(
   switch (state) {
     case "premium":
       return {
-        title: "This context is on Premium",
+        title: "This workspace is on Premium",
         blurb:
           "Billed to this workspace rather than to you, so a work workspace " +
           "can go on a work card while a personal one stays personal.",
