@@ -31,6 +31,24 @@ instead of the link (`functions/textSetup.ts`, `apps/agent/src/setup.ts`):
    bucket and only when the probe saw it empty, as the app does after "Start
    fresh". The next text is an ordinary linked session.
 
+### Tex never texts first; everyone let in is told its number (2026-10-17)
+
+Decided by the owner (Dev2), 2026-10-17: "we have to have people texting
+Tex first, so using twilio we should ask people to 'text this number'". Tex
+does not open a chat. Instead, the "You're in! Text Tex at …" SMS
+(`waitlistText.ts`, through the Twilio Messaging Service) reaches everybody
+let in whose phone is on Tex's line, not only rows joined with a phone: a row
+let in by address gets it at Let in when its account already has a proven
+phone, else when the person confirms one in the app (`waitlistTex.putOnLine`
+calls `textTexNumber`). `admittedTextAt` is claimed before the send, so each
+row is texted at most once whichever path reaches it. The "You're in" mail
+says Tex's number follows by text once they add a phone.
+
+Tests: `apps/convex/__tests__/waitlistTex.test.ts` ("adds the proven phone of
+the account that address signs in to", "with no phone yet, the phone is added
+when the person confirms one"); dropping the claim's `admittedTextAt` check
+fails both the re-admit and the address test.
+
 **It is a state machine, not a model with tools.** The person has no grant
 until the link exists, and a model given account-making tools before there
 is a grant would be the one thing in the product deciding identity from what

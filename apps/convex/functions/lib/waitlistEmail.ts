@@ -29,6 +29,7 @@ export function renderWaitlistEmail(kind: WaitlistMail, signInUrl: string): Rend
         ]
       : [
           "Your Context.LC access is ready. Sign in with this email address and we'll send you a code.",
+          "Tex, your Context assistant, can set you up by text. Add your phone number after you sign in and we'll text you Tex's number.",
         ];
   const text = [
     ...lines.flatMap((line) => [line, ""]),

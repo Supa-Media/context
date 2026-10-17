@@ -31,6 +31,7 @@ import {
 import { addToLinqLineAt, removeFromLinqLine } from "./lib/adminFns/texAllowlist";
 import { recordAdminAudit } from "./lib/adminFns/audit";
 import { confirmedEmailsOf, currentPhoneOf } from "./lib/emailProof";
+import { textTexNumber } from "./waitlistText";
 
 export const texFacts = internalQuery({
   args: { waitlistId: v.id("waitlist") },
@@ -155,7 +156,11 @@ export async function admittedRowOf(ctx: QueryCtx, userId: Id<"users">): Promise
   return null;
 }
 
-/** For a row the "You're in" text does not cover: an address, or a row told already. */
+/**
+ * For a row the "You're in" text at Let in does not cover: an address, or a
+ * row told already. Once the phone is on the line, a row never texted is sent
+ * "Text Tex at …" (`waitlistText.textTexNumber`).
+ */
 export const putOnLine = internalAction({
   args: {
     waitlistId: v.id("waitlist"),
@@ -166,7 +171,12 @@ export const putOnLine = internalAction({
   returns: v.null(),
   handler: async (ctx, args) => {
     const { actorUserId, replaces } = args;
-    await putOnTexLine(ctx, args.waitlistId, args.phone, { actorUserId, replaces });
+    const line = await putOnTexLine(ctx, args.waitlistId, args.phone, { actorUserId, replaces });
+    if (line === null) return null;
+    // Tex cannot text first, so the person is told where Tex is (once per row).
+    const phone =
+      args.phone ?? (await ctx.runQuery(internal.functions.waitlistTex.texFacts, { waitlistId: args.waitlistId }))?.phone;
+    if (phone) await textTexNumber(ctx, args.waitlistId, phone, line);
     return null;
   },
 });

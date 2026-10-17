@@ -206,10 +206,17 @@ describe("Let in on an address", () => {
     await t.run((ctx) =>
       ctx.db.insert("users", { email: "jon@studio.test", emailVerificationTime: 1, phone: PHONE, phoneVerificationTime: 1 } as never),
     );
-    await as.mutation(api.functions.admin.admitWaitlist, { ids: [await row(t, { email: "jon@studio.test" })] });
+    const id = await row(t, { email: "jon@studio.test" });
+    await as.mutation(api.functions.admin.admitWaitlist, { ids: [id] });
     await drainScheduled(t);
     expect(listed).toEqual([PHONE]);
-    expect(texts()).toHaveLength(0);
+    // Tex cannot text first, so that phone is told where Tex is, once.
+    expect(texts().map(textBody)).toEqual([admittedText(`${ORIGIN}/login`, TEX)]);
+    expect(new URLSearchParams(texts()[0]!.body).get("To")).toBe(PHONE);
+    await as.mutation(api.functions.admin.removeFromWaitlist, { ids: [id] });
+    await as.mutation(api.functions.admin.admitWaitlist, { ids: [id] });
+    await drainScheduled(t);
+    expect(texts()).toHaveLength(1);
   });
 
   test("an account that never proved the address, or a phone never proved, adds nothing", async () => {
@@ -240,6 +247,7 @@ describe("Let in on an address", () => {
     );
     await drainScheduled(t);
     expect(listed).toEqual([PHONE]);
+    expect(texts().map(textBody)).toEqual([admittedText(`${ORIGIN}/login`, TEX)]);
     // The person confirmed the phone, so the trail names them, not staff.
     expect(await trail(t)).toEqual([
       ["tex.allowlist_added", "jon@studio.test", { phone: "0142", via: "phone_confirmed", outcome: "added" }],
