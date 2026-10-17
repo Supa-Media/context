@@ -11,6 +11,7 @@
 import { atName } from "../format";
 import { baseName, displayName } from "../files/paths";
 import { SHARE_PATH_PREFIX } from "../files/shares";
+import type { ReportPerson, ReportTarget } from "../../report/model";
 import { grantItemKey, grantQuery } from "./sharedGrant";
 
 /** A share sent to you: one row of `shares.listSharedWithMe` with `kind: "share"` (or no kind, from before grants). */
@@ -75,7 +76,23 @@ export function sharedItemHref(item: SharedItem): string {
   })}`;
 }
 
-/** The share token a row carries, for the parts of the page that only a share can use (its report, its link). */
+/**
+ * What a row's Report names: a share by its token, a grant by its workspace and stable note id. Never a path,
+ * which is the owner's words; the server re-derives either from what the caller can still reach.
+ */
+export function reportTargetOf(item: SharedItem): ReportTarget {
+  return item.kind === "grant"
+    ? { kind: "grant", workspaceId: item.workspaceId, noteId: item.noteId }
+    : { kind: "share", token: item.token };
+}
+
+/** Who a row's Report offers to block: the person who shared it, or nobody when the grant records no granter. */
+export function reportPersonOf(item: SharedItem): ReportPerson | null {
+  if (item.kind === "grant" && item.sharedBy === null) return null;
+  return { handle: item.sharedByHandle, name: item.sharedByName };
+}
+
+/** The share token a row carries, for the parts of the page that only a share can use (its link). */
 export function shareTokenOf(item: SharedItem): string | null {
   return item.kind === "grant" ? null : item.token;
 }
