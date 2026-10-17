@@ -102,8 +102,7 @@ async function egressGate(suppliedName, supplied, args, { store, session, target
     into !== "" &&
     isKnownTool(name) &&
     toolIsWriting(name) &&
-    !ROUTING_PLANNING_TOOLS.has(name) &&
-    !NEVER_WIDENS.has(name) &&
+    !ROUTING_PLANNING_TOOLS.has(name) && !NEVER_WIDENS.has(name) &&
     // A tool masked from this tier is an invented name to it, byte for byte;
     // holding it would be the one answer that tells the two apart.
     !toolExistenceMasked(name, target.scope);
