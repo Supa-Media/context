@@ -25,8 +25,10 @@ import {
   giveSuggestions,
   initialsOf,
   levelLabel,
+  moveLine,
   shareRowLine,
   takeBackLine,
+  type VaultMoveTarget,
   type VaultShareChoices,
 } from "../../../vault/vaultPeople";
 import { vaultClientLine, type VaultClient, type VaultEntry, type VaultLevel, type VaultShareRow } from "../../../vault/vaultSettings";
@@ -39,6 +41,8 @@ export function VaultPeople({
   onGive,
   onTakeBack,
   onCutOff,
+  moveTargets = [],
+  onMove,
 }: {
   entry: VaultEntry;
   /** Who the key can be given to; null while it is read. */
@@ -48,6 +52,9 @@ export function VaultPeople({
   onGive: (to: string, level: VaultLevel) => Promise<boolean>;
   onTakeBack: (to: string) => void;
   onCutOff: (clientId: string, by?: string) => void;
+  /** Shared workspaces a personal key can move to (vault sharing board 5). */
+  moveTargets?: VaultMoveTarget[];
+  onMove?: (target: VaultMoveTarget) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const rows = entry.people ?? [];
@@ -56,6 +63,7 @@ export function VaultPeople({
   const [typed, setTyped] = useState("");
   const [picked, setPicked] = useState<{ to: string; title: string } | null>(null);
   const [level, setLevel] = useState<VaultLevel>("use");
+  const [moving, setMoving] = useState<VaultMoveTarget | null>(null);
   const shared = choices?.workspace.kind === "shared";
   const suggestions = choices !== null && picked === null && typed.trim() !== "" ? giveSuggestions(choices, typed, entry) : [];
 
@@ -138,9 +146,46 @@ export function VaultPeople({
         </View>
       ))}
       {choices === null ? null : !shared ? (
-        <Text variant="hint" testID="vault-give-personal">
-          Keys in your personal workspace stay yours. To give this one to people, save it in a shared workspace.
-        </Text>
+        <View style={styles.give} testID="vault-give-personal">
+          <Text variant="hint">
+            {onMove !== undefined && moveTargets.length > 0
+              ? "Only you. To give it to teammates, move it to a shared workspace."
+              : "Keys in your personal workspace stay yours. To give this one to people, save it in a shared workspace you own or edit."}
+          </Text>
+          {moving !== null ? (
+            <View style={styles.confirm0}>
+              <Text variant="rowTitle" style={styles.oneWay}>
+                {moveLine(moving.handle)}
+              </Text>
+              <View style={styles.confirmButtons}>
+                <Button
+                  label={`Move to @${moving.handle}`}
+                  variant="dialogDanger"
+                  disabled={busy}
+                  testID="vault-move-yes"
+                  onPress={() => {
+                    setMoving(null);
+                    onMove?.(moving);
+                  }}
+                />
+                <Button label="Keep it here" variant="dialog" disabled={busy} onPress={() => setMoving(null)} testID="vault-move-keep" />
+              </View>
+            </View>
+          ) : onMove !== undefined ? (
+            <View style={styles.levels}>
+              {moveTargets.map((target) => (
+                <Button
+                  key={target.workspaceId}
+                  label={`Move to @${target.handle}`}
+                  variant="dialog"
+                  disabled={busy}
+                  onPress={() => setMoving(target)}
+                  testID={`vault-move-${target.handle}`}
+                />
+              ))}
+            </View>
+          ) : null}
+        </View>
       ) : (
         <View style={styles.give}>
           <Segmented label="How much they get" options={LEVEL_OPTIONS} value={level} onChange={setLevel} disabled={busy} testID="vault-give-level" />
@@ -270,6 +315,7 @@ const makeStyles = (colors: Colors) =>
     nested: { paddingLeft: 46, gap: 2 },
     ai: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 4 },
     confirm: { gap: 8, paddingLeft: 46 },
+    confirm0: { gap: 8 },
     confirmButtons: { flexDirection: "row", gap: 8 },
     oneWay: { color: colors.critText, fontWeight: "700" },
     levels: { flexDirection: "row", gap: 6, flexWrap: "wrap" },

@@ -174,3 +174,10 @@ export const workspaceKind = internalQuery({
   returns: v.union(v.literal("personal"), v.literal("shared"), v.null()),
   handler: async (ctx, args) => (await ctx.db.get(args.workspaceId))?.kind ?? null,
 });
+
+/** A workspace's handle, without the `@`, for the move's audit lines. */
+export const workspaceHandle = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.union(v.string(), v.null()),
+  handler: async (ctx, args) => (await ctx.db.get(args.workspaceId))?.slug ?? null,
+});

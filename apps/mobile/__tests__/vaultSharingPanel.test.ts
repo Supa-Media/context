@@ -9,7 +9,7 @@ import { createRoot, type Root } from "react-dom/client";
 jest.mock("convex/react", () => ({ useConvex: () => undefined }));
 
 import { VaultList, type VaultActions } from "../features/console/settings/panels/VaultPanel";
-import { aisByPerson, giveSuggestions, initialsOf, shareRowLine, takeBackLine, type VaultShareChoices } from "../features/vault/vaultPeople";
+import { aisByPerson, giveSuggestions, initialsOf, moveLine, shareRowLine, takeBackLine, type VaultShareChoices } from "../features/vault/vaultPeople";
 import { inFilter, vaultClientLine, vaultLastUsedLine, vaultSavedLine, type VaultEntry, type VaultLevel } from "../features/vault/vaultSettings";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -113,6 +113,7 @@ describe("the words", () => {
     expect(takeBackLine(leads)).toBe("Everyone in Leads who has it no other way, and their AIs, lose it now.");
     expect(initialsOf("Sayo Adeyemi")).toBe("SA");
     expect(initialsOf("@supa")).toBe("SU");
+    expect(moveLine("supa")).toBe("It leaves your personal workspace for @supa. Only you have it there until you give it to someone, and your AIs ask again the first time they use it.");
   });
 
   test("every AI sits under its person; somebody with it through a group gets a row of their own", () => {
@@ -202,6 +203,12 @@ function fakes(listed: VaultEntry[], shareChoices: VaultShareChoices = choices) 
       const row = { to, kind: "person" as const, name: "Olumide Salami With A Very Long Family Name", handle: "olumide", count: null, level, at: GIVEN, isYou: false };
       return keep({ ...entry, people: [...(entry.people ?? []).filter((p) => p.to !== to), row] });
     },
+    moveTargets: async () => [{ workspaceId: "ws_team", handle: "supa", name: "Supa" }],
+    move: async (entryId, toWorkspaceId) => {
+      calls.push(["move", entryId, toWorkspaceId]);
+      entries.splice(entries.findIndex((e) => e.entryId === entryId), 1);
+      return { handle: "supa" };
+    },
     takeBack: async (entryId, to) => {
       calls.push(["take", entryId, to]);
       const entry = entries.find((e) => e.entryId === entryId)!;
@@ -266,12 +273,22 @@ describe("the People section", () => {
     expect(calls).toContainEqual(["cut", owned.entryId, "client-codex", "user_zay"]);
   });
 
-  test("a personal workspace's key says it can't be given, and offers no field", async () => {
-    const { actions } = fakes([owned], { ...choices, workspace: { handle: "seyi", kind: "personal" } });
+  test("a personal workspace's key offers no field, and moves to a shared workspace after saying so once", async () => {
+    const { actions, calls } = fakes([owned], { ...choices, workspace: { handle: "seyi", kind: "personal" } });
     act(() => root.render(createElement(VaultList, { actions, now: NOW, layoutWidth: 1100 })));
     await flush();
-    expect(find("vault-give-personal")).not.toBeNull();
+    expect(find("vault-give-personal")!.textContent).toContain("Only you. To give it to teammates, move it to a shared workspace.");
     expect(find("vault-give-input")).toBeNull();
+    press("vault-move-supa");
+    expect(calls.some((call) => call[0] === "move")).toBe(false);
+    expect(container.textContent).toContain("It leaves your personal workspace for @supa.");
+    press("vault-move-keep");
+    press("vault-move-supa");
+    press("vault-move-yes");
+    await flush();
+    expect(calls).toContainEqual(["move", owned.entryId, "ws_team"]);
+    expect(find(`vault-row-${owned.entryId}`)).toBeNull();
+    expect(find("vault-notice")!.textContent).toBe("Moved to @supa. Open @supa's Settings › Vault to give it to people.");
   });
 });
 

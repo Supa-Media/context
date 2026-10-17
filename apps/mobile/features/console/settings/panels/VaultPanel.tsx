@@ -19,8 +19,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Pressable, StyleSheet, View, type LayoutChangeEvent } from "react-native";
 import { useConvex } from "convex/react";
-import { api } from "@context/convex/_generated/api";
-import type { Id } from "@context/convex/_generated/dataModel";
 
 import { Button } from "../../../design/components/Button";
 import { Card } from "../../../design/components/Card";
@@ -49,10 +47,11 @@ import {
   type VaultFilter,
   type VaultLevel,
 } from "../../../vault/vaultSettings";
-import type { VaultShareChoices } from "../../../vault/vaultPeople";
+import type { VaultMoveTarget, VaultShareChoices } from "../../../vault/vaultPeople";
 import type { VaultLinkCalls } from "../../../vault/useVaultLinkFlow";
 import { PanelHead } from "./PanelHead";
 import { VaultInline } from "./VaultInline";
+import { liveVaultActions } from "./liveVaultActions";
 import { CutButton, VaultPeople } from "./VaultPeople";
 
 export type VaultActions = {
@@ -68,6 +67,9 @@ export type VaultActions = {
   give?: (entryId: string, to: string, level: VaultLevel) => Promise<VaultEntry>;
   /** Take a key back; null when the reader handed it back and no longer has it. */
   takeBack?: (entryId: string, to: string) => Promise<VaultEntry | null>;
+  /** Shared workspaces a personal key can move to, and the move itself (board 5). */
+  moveTargets?: () => Promise<VaultMoveTarget[]>;
+  move?: (entryId: string, toWorkspaceId: string) => Promise<{ handle: string }>;
 };
 
 type Opened = { mode: "add" } | { mode: "view"; entryId: string };
@@ -97,37 +99,7 @@ export function VaultPanel({ sectioned, workspaceId }: { sectioned: boolean; wor
 
 function LiveVault({ workspaceId }: { workspaceId: string }) {
   const client = useConvex();
-  const id = workspaceId as Id<"workspaces">;
-  const actions: VaultActions = {
-    list: () => client.action(api.functions.vaultSettings.listVaultEntries, { workspaceId: id }),
-    cutOff: (entryId, clientId, by) =>
-      client.action(api.functions.vaultSettings.cutOffVaultAI, {
-        workspaceId: id,
-        entryId,
-        ...(clientId === undefined ? {} : { clientId }),
-        ...(by === undefined ? {} : { by }),
-      }),
-    // Async, so a client without queries (the demo, render tests) rejects into the catch rather than throwing.
-    choices: async () => client.query(api.functions.vaultPeople.vaultShareChoices, { workspaceId: id }),
-    give: (entryId, to, level) => client.action(api.functions.vaultSettings.giveVaultKey, { workspaceId: id, entryId, to, level }),
-    takeBack: (entryId, to) => client.action(api.functions.vaultSettings.takeBackVaultKey, { workspaceId: id, entryId, to }),
-    allow: (entryId, clientId) => client.action(api.functions.vaultSettings.allowVaultAI, { workspaceId: id, entryId, clientId }),
-    link: async (kind, entryId) => {
-      const { token } = await client.action(api.functions.vaultSettings.startVaultLink, {
-        workspaceId: id,
-        kind,
-        ...(entryId === undefined ? {} : { entryId }),
-      });
-      return token;
-    },
-    calls: {
-      describe: (token) => client.action(api.functions.vault.describeVaultRequest, { token }),
-      save: (token, draft) => client.action(api.functions.vault.saveVaultLogin, { token, ...draft }),
-      reveal: (token) => client.action(api.functions.vault.revealVaultEntry, { token }),
-      edit: (token, edit) => client.action(api.functions.vaultSettings.editVaultEntry, { token, ...edit }),
-      remove: (token) => client.action(api.functions.vaultSettings.deleteVaultEntry, { token }),
-    },
-  };
+  const actions = liveVaultActions(client, workspaceId);
   return <VaultList key={workspaceId} actions={actions} />;
 }
 
@@ -153,6 +125,7 @@ export function VaultList({
   const [busy, setBusy] = useState(false);
   const [width, setWidth] = useState(layoutWidth ?? 0);
   const [choices, setChoices] = useState<VaultShareChoices | null>(null);
+  const [moveTargets, setMoveTargets] = useState<VaultMoveTarget[]>([]);
   const { list } = actions;
   const wide = width >= SIDE_BY_SIDE;
 
@@ -165,6 +138,10 @@ export function VaultList({
     // Who a key can be given to is only needed to give one; a failure leaves Give out.
     actions.choices?.().then(
       (next) => live && setChoices(next),
+      () => undefined,
+    );
+    actions.moveTargets?.().then(
+      (next) => live && setMoveTargets(next),
       () => undefined,
     );
     return () => {
@@ -245,6 +222,14 @@ export function VaultList({
     });
     return done;
   };
+  const move = (entryId: string, target: VaultMoveTarget) =>
+    void run(async () => {
+      if (actions.move === undefined) return;
+      const moved = await actions.move(entryId, target.workspaceId);
+      setPicked(null);
+      setEntries((now) => (now ?? []).filter((entry) => entry.entryId !== entryId));
+      setNotice(`Moved to @${moved.handle}. Open @${moved.handle}'s Settings › Vault to give it to people.`);
+    });
   const takeBack = (entryId: string, to: string) =>
     void run(async () => {
       if (actions.takeBack === undefined) return;
@@ -299,6 +284,8 @@ export function VaultList({
               onGive={(to, level) => give(chosen.entryId, to, level)}
               onTakeBack={(to) => takeBack(chosen.entryId, to)}
               onCutOff={(clientId, by) => cutOff(chosen.entryId, clientId, by)}
+              moveTargets={moveTargets}
+              onMove={actions.move === undefined ? undefined : (target) => move(chosen.entryId, target)}
             />
           ) : null
         }

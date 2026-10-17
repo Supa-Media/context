@@ -283,6 +283,7 @@ export const recordVaultAudit = internalMutation({
       v.literal("vault.allowed"),
       v.literal("vault.edited"),
       v.literal("vault.deleted"),
+      v.literal("vault.moved"),
     ),
     entryId: v.string(),
     /** `vault.edited`: what changed, by name ("password", "website"); `vault.shared`/`unshared`: to whom, by kind ("a group, use"). Never a value. */

@@ -21,7 +21,7 @@ import { MAX_NAME, MAX_SECRET, isEntryId, siteHost } from "../../mcp/src/vault/e
 import { savedPin } from "../../mcp/src/vault/proxy.js";
 import { normalizeFields } from "../../mcp/src/vault/fields.js";
 import { EVERYONE, accessOf, belongsTo, ownerOf } from "../../mcp/src/vault/access.js";
-import { mayManage } from "./lib/vaultPeople";
+import { mayManage, newlyReached } from "./lib/vaultPeople";
 import {
   fieldValuesValidator,
   proxyPinValidator,
@@ -311,6 +311,7 @@ export const giveVaultKey = action({
     if (target === null) throw fail("INVALID_ARGUMENT", "Only people and groups in this workspace can be given a key.");
     if (target === "group" && caller.role !== "owner") throw fail("FORBIDDEN", "Only an owner can give a key to a group.");
     if (args.to === String(caller.userId)) throw fail("INVALID_ARGUMENT", "You already have this key.");
+    const startedAt = Date.now();
     const given = (await runVault(
       ctx,
       args.workspaceId,
@@ -333,6 +334,19 @@ export const giveVaultKey = action({
       entryId: args.entryId,
       changed: `${kindOf(args.to)}, ${args.level}`,
     });
+    // A share made just now (not a level changed on an old one) is told to whoever it newly reaches.
+    if ((given.meta.shares ?? []).some((share) => share.to === args.to && share.at >= startedAt)) {
+      const names = await ctx.runQuery(internal.functions.vaultPeople.everyonesAccessNames, { workspaceId: args.workspaceId });
+      const recipients = newlyReached(given.meta as never, args.to, names, [String(caller.userId), given.meta.createdBy]);
+      if (recipients.length > 0) {
+        await ctx.scheduler.runAfter(0, internal.functions.vaultNotify.sendGivenMail, {
+          workspaceId: args.workspaceId,
+          giverId: caller.userId,
+          recipients,
+          level: args.level as ShareLevel,
+        });
+      }
+    }
     return (await shownEntries(ctx, args.workspaceId, caller, [given]))[0];
   },
 });

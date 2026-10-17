@@ -89,8 +89,13 @@ const given: VaultEntry = {
   people: [],
 };
 
-function actions(entries: VaultEntry[]): VaultActions {
+function actions(entries: VaultEntry[], kind: "personal" | "shared" = "shared"): VaultActions {
   return {
+    moveTargets: async () => [
+      { workspaceId: "ws_supa", handle: "supa", name: "Supa" },
+      { workspaceId: "ws_long", handle: "riverside-editorial-collective", name: "Riverside" },
+    ],
+    move: async () => ({ handle: "supa" }),
     list: async () => entries,
     cutOff: async () => entries[0],
     allow: async () => entries[0],
@@ -103,7 +108,7 @@ function actions(entries: VaultEntry[]): VaultActions {
       remove: async () => ({ name: "" }),
     },
     choices: async () => ({
-      workspace: { handle: "supa", kind: "shared" },
+      workspace: { handle: kind === "shared" ? "supa" : "seyi", kind },
       people: [
         { userId: "user_me", name: "Seyi", handle: "seyi", role: "owner", isMe: true },
         { userId: "user_sayo", name: "Sayo Adeyemi", handle: "sayo", role: "editor", isMe: false },
@@ -141,7 +146,7 @@ async function type(id: string, text: string) {
 }
 const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
 
-async function shot(name: string, entries: VaultEntry[], width: number, steps: () => Promise<void>) {
+async function shot(name: string, entries: VaultEntry[], width: number, steps: () => Promise<void>, kind: "personal" | "shared" = "shared") {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -150,7 +155,7 @@ async function shot(name: string, entries: VaultEntry[], width: number, steps: (
     root!.render(
       createElement(ThemeProvider, {
         scheme: "light",
-        children: createElement(VaultList, { actions: actions(entries), layoutWidth: width > 500 ? 1100 : 358 }),
+        children: createElement(VaultList, { actions: actions(entries, kind), layoutWidth: width > 500 ? 1100 : 358 }),
       }),
     );
   });
@@ -185,6 +190,12 @@ test("vault sharing shots", async () => {
     await settle();
     await type("vault-give-input", "olu");
   });
+  const personal: VaultEntry = { ...owned, shared: false, people: owned.people!.slice(0, 1), proxy: { ...owned.proxy!, clients: [owned.proxy!.clients[0]], uses: [owned.proxy!.uses[0]] } };
+  await shot("6-move-desktop", [personal], 1440, async () => press("vault-move-supa"), "personal");
+  await shot("7-move-phone", [personal], 390, async () => {
+    await press(`vault-row-${personal.entryId}`);
+    await settle();
+  }, "personal");
   await shot("5-given-to-you-phone", [given, owned], 390, async () => {
     await press(`vault-row-${given.entryId}`);
     await settle();

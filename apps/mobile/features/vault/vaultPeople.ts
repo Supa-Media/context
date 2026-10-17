@@ -14,6 +14,14 @@ export type VaultShareChoices = {
   members: number;
 };
 
+/** A shared workspace a personal key can move to (`vaultMoveTargets`). */
+export type VaultMoveTarget = { workspaceId: string; handle: string; name: string };
+
+/** What moving a personal key says, once, before it happens. */
+export function moveLine(handle: string): string {
+  return `It leaves your personal workspace for @${handle}. Only you have it there until you give it to someone, and your AIs ask again the first time they use it.`;
+}
+
 export type GiveSuggestion = { to: string; kind: VaultShareRow["kind"]; title: string; sub: string };
 
 export const LEVEL_OPTIONS: ReadonlyArray<{ value: VaultLevel; label: string }> = [

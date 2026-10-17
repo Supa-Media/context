@@ -171,3 +171,20 @@ export async function takeKey(store: unknown, keys: unknown, workspaceId: string
   const now = (await readMeta(store, keys, workspaceId, op.entryId)) as VaultMeta | null;
   return now === null ? "refused" : { meta: now };
 }
+
+/**
+ * Who has a key now that did not before `to` was given it: every member the
+ * key reaches with the share and not without it, leaving out `except` (the
+ * giver and the saver). `names` is each member's `@names`. For the mail that
+ * tells them (`../vaultNotify.ts`).
+ */
+export function newlyReached(meta: VaultMeta, to: string, names: Record<string, string[]>, except: string[]): string[] {
+  const without: VaultMeta = {
+    ...meta,
+    people: meta.people.filter((person) => person !== to),
+    shares: (meta.shares ?? []).filter((share) => share.to !== to),
+  };
+  return Object.keys(names).filter(
+    (userId) => !except.includes(userId) && accessOf(meta, userId, names[userId]) !== null && accessOf(without, userId, names[userId]) === null,
+  );
+}

@@ -90,6 +90,16 @@ the gateway and the control plane alike.
   giving it again starts them afresh. A person may hand back a key given to
   them by name; nobody can take it from whoever saved it.
 - Audited as `vault.shared` / `vault.unshared` with the kind and level only.
+- **Whoever newly has it is told by email** (`functions/vaultNotify.ts`):
+  who gave it, in which workspace, use or see, and a link to Settings ›
+  Vault; never the key's name, site or value. Scheduled, never awaited, so
+  Give says nothing about anybody's mailbox; at most 50 people per Give and
+  10 such mails per person a day. A level change on an existing share sends
+  nothing.
+- **A personal key is moved, not given** (`functions/vaultMove.ts`): only
+  its saver, only into a shared workspace they own or edit, as the barrier's
+  own reveal, add and delete. Its AIs' yeses stay behind, so they ask again
+  there. Audited `vault.moved` in both workspaces.
 
 **What it costs:** a key's meta can now name up to 200 shares, and a
 non-manager sees only their own AIs on a shared key. Reversing per-person
