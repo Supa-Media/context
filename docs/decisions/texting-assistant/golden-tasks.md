@@ -58,7 +58,7 @@ with their wording and lines; the two reminders are new.
 
 - **It is what runs when no test is named**: `pnpm ai run texting-assistant`
   (`testFor` in `bench/run.mjs`) and the Action with `test` left empty. The
-  long sets, `texting-assistant.md` (59 questions) and `tasks.md`, are kept
+  long sets, `texting-assistant.md` (59 questions, retired 2026-10-17, below) and `tasks.md`, are kept
   unchanged and run by name, for a full round before a promotion.
 - **A reminder is graded on the note it wrote**, not on the reply:
   `must write: maya/tex/routines/once/ with at: 2026-10-09 9:00 am` passes only
@@ -72,6 +72,36 @@ checked; dropping the long sets loses the privacy gates and the voice
 questions a promotion needs. Tests: `bench/test/run.test.mjs` ("the texting
 assistant runs its core set unless a test is named"), `bench/test/checks.test.mjs`
 (a one-off reminder fails on the wrong day, hour, folder or workspace).
+
+## The long set is retired; the core set carries its privacy and voice questions (2026-10-17)
+
+Decided by the owner on 2026-10-17, asked whether the test cases were bloated.
+The long set, `texting-assistant.md` (59 questions), had not run since
+2026-10-09, and its bars (under $0.005 and 8 s a question) were below what the
+live setup costs (about $0.026 and 6.7 s), so it could only fail. It asked the
+same things many times over: three dentist questions, five facts the notes
+don't have, six privacy questions and four requests to contact someone. It is
+deleted, here and in `@context-lc ai/tests/`.
+
+- **The core set keeps twelve of its fifteen** and drops the three that copied
+  golden tasks (the flight, connecting ChatGPT, saving a login), since
+  `tasks.md` runs them. The copy of connecting ChatGPT still forbade the vault
+  link that PR #1778 made Tex's wanted first move on 2026-10-16, so it would
+  have failed a setup for doing the right thing.
+- **Seven questions move in from the long set**, with their wording and lines:
+  a privacy question with its mirror (the gates the 2026-10-14 entry kept the
+  long set for), a request to contact someone else, an opinion, a date range,
+  a vague ask that needs one question, and an emoji-toned ask. Nineteen in all,
+  every one a gate.
+- **The golden tasks and the search test are unchanged.**
+
+What a "simplification" would cost: dropping the privacy question loses the
+only check that Tex never shows one person another's notes; dropping its mirror
+lets a setup that finds nothing pass it; letting a core question copy a golden
+task lets the two drift, as connecting ChatGPT did. Tests:
+`bench/test/core.test.mjs` ("every core question is a gate", "the core privacy
+question is counted through a mirror the set has, asked by someone else", "no
+core question copies a golden task").
 
 ## How Tex does a job lives in a skill note, read when it applies (2026-10-11)
 

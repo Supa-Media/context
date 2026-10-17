@@ -143,6 +143,9 @@ async function load(store, path) {
     assertTextSize(replacement.text);
     return recreateGeneration(store, path, replacement, head, noteId);
   }
+  if (head?.status === "active" && noteId !== null && head.noteId === undefined) {
+    return adoptUnstampedHead(store, path, head, noteId);
+  }
   if (head?.status === "sealed") {
     const sealed = await readObject(store, path);
     if (!sealed) throw fail("DOCUMENT_MISSING", "sealed Markdown note is missing");
@@ -187,6 +190,34 @@ async function load(store, path) {
   const initialized = await initialize(store, path, note, head, noteId);
   if (initialized) return initialized;
   return load(store, path);
+}
+
+/**
+ * An active head made before heads recorded their note id, at a name whose row
+ * now has one. It may be this note's, or one a trashed or moved note left at
+ * the name when its carry failed. It is this note's when what it last accepted
+ * is the note's Markdown now (or, before any state, the text it was seeded
+ * from): then it takes the row's id, and loads as before. Anything else is not
+ * proven to be this note's history, and loading it would write that history's
+ * text over the note (`finalizePending`), so the note starts a document of its
+ * own over its Markdown, as a head made for another id does. The old document's
+ * state is left as it is.
+ */
+async function adoptUnstampedHead(store, path, head, noteId) {
+  const note = await readObject(store, path);
+  if (!note) throw fail("DOCUMENT_MISSING", "collaboration requires an existing Markdown note");
+  const stored = await readState(store, head);
+  const accepted = stored ? [stored.value?.text, stored.value?.pending?.text] : [head.initialText];
+  if (accepted.includes(note.text)) {
+    const { etag, ...fields } = head;
+    const written = await put(store, await headKey(path), JSON.stringify({ ...fields, noteId }), { etagMatches: etag });
+    // A head that changed meanwhile is read again; one refused while unchanged would be refused forever.
+    if (!written && (await readHead(store, path))?.etag === etag) throw fail("CORRUPT_STATE", "collaboration path head could not record its note id");
+    return load(store, path);
+  }
+  assertEligible(path, note.text);
+  assertTextSize(note.text);
+  return recreateGeneration(store, path, note, head, noteId);
 }
 
 async function reload(store, path) {
