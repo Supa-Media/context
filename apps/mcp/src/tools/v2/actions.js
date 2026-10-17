@@ -81,6 +81,11 @@ export const ACTIONS = {
       summary: "Call an API with a key from the vault; the key is added for you and never shown.",
       take: (call) => ({ fetch: call.args || {} }),
     },
+    email: {
+      tool: "send_email",
+      summary: "Send one email as the person through their Gmail, once they say yes to that exact email.",
+      take: plain,
+    },
   },
 };
 

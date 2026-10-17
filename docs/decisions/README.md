@@ -523,6 +523,9 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - What is deliberately not built
 - iMessage reads `chat.db` in place, through the one binary every Mac already has
 - The destination rule is shared, so the field can say something before Save
+- No email leaves without the person's yes to that exact copy (owner, 2026-10-17)
+- Rate limits live in the control plane, and are all-or-none
+- Mail goes out through the person's own Gmail, and waits for Google (owner, 2026-10-17)
 
 ## [The desktop shell](./desktop.md)
 

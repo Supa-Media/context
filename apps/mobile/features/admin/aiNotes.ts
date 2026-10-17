@@ -159,10 +159,10 @@ export const AI_HELPERS: readonly AiHelper[] = [
     label: "Mail checker",
     model: "Haiku 5.5",
     calledBy: "Tex, connected AIs",
-    canDo: "Check a draft, send one email",
+    canDo: "Check a draft against the person's texts",
     needsPerson: "every send",
-    tools: ["fetch", "send · email (not built)"],
-    state: "planned",
+    tools: ["send · email"],
+    state: "running",
     callers: ["texting-assistant", "connected-ais", "app-assistant", "improver"],
   },
   {

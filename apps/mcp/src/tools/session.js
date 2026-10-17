@@ -38,6 +38,7 @@ import { toolMoveNoteAcrossContexts } from "./moves/acrossContexts.js";
 import { NoteCapReached, asRelocation } from "../store/noteCap.js";
 import { approvalRequired, mightWiden, reasonFor, recordRead, wideningOf } from "../privacy/egress.js";
 import { createPending, findPending, rearmForText, takeDone } from "./approvals.js";
+import { EMAIL_TOOL, emailGate } from "./emailGate.js";
 import { loadPrivacyState } from "../privacy/state.js";
 import { CHAOS_TOOLS, chaosLines, takeChaos, withChaosLines, within } from "../chaos/report.js";
 import { changeChaos } from "../chaos/change.js";
@@ -91,6 +92,9 @@ async function egressGate(suppliedName, supplied, args, { store, session, target
     replayed stays the name as supplied, so a released call routes as asked.
   */
   const name = canonicalToolName(suppliedName);
+  // An email is held for the person's yes to its exact copy, always: the
+  // deployment switch below is about widenings, and this is not one of those.
+  if (name === EMAIL_TOOL) return await emailGate(supplied, { store, session, target });
   /*
     Any tool that changes something, addressed into a workspace the call did
     not start in, is a write into another workspace; the planning tools only

@@ -23,6 +23,7 @@ import { json } from "../http/responses.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
 import { BUILTIN_PROVIDER, builtinModel, canRunBuiltin } from "./builtin.js";
 import { aiGatewayConfig } from "./aiGateway.js";
+import { mailCheckerFor } from "./mailChecker.js";
 import { browserOwner } from "./browserProviders.js";
 import { texViewerUrl } from "../http/texComputer.js";
 import { computerFor, webSession } from "./computer.js";
@@ -260,6 +261,21 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       ? body.conversation
       : null;
   const history = conversation === null ? [] : await readConversation(store, conversation);
+
+  /*
+    The Mail checker reads this thread's texts and nothing else the turn read
+    (`mailChecker.js`), so it is made here, from the person's own words, before
+    the model runs. Only a texted turn has those words; any other client's
+    email waits for the person in the app with no checker in front of it.
+  */
+  if (session.actorClientId === TEXTS_CLIENT_ID) {
+    session.mailChecker = mailCheckerFor({
+      history,
+      question,
+      config: aiGatewayConfig(env),
+      metadata: { feature: "mail-checker", workspace: String(session.workspaceId) },
+    });
+  }
 
   /*
     The computer is the texting assistant's for now (the owner's decision is
@@ -652,8 +668,19 @@ export function approvalVerdict(text) {
 
 /** The line a texted answer ends with when the turn held something for the person. */
 export function askLine(asked) {
-  const what = asked.map((record) => record.summary).join("; ");
+  // An email is shown whole: the person can allow only the copy they read (`emailGate.js`).
+  const emails = asked.filter((record) => typeof record.detail === "string");
+  if (emails.length > 0 && emails.length === asked.length) {
+    const copies = emails.map((record) => clean(record.detail)).join("\n\n---\n\n");
+    return `Here ${emails.length === 1 ? "is the email" : "are the emails"} I'd send:\n\n${copies}\n\nReply YES to send ${emails.length === 1 ? "it" : "them"} now, or NO to drop ${emails.length === 1 ? "it" : "them"}.`;
+  }
+  const what = asked.map((record) => (typeof record.detail === "string" ? `${record.summary}:\n\n${clean(record.detail)}\n\n` : record.summary)).join("; ");
   return `Before I ${asked.length === 1 ? "do that" : "do those"}, I need your OK: ${what}. Reply YES to go ahead, or NO to drop it.`;
+}
+
+/** Control characters and bidi overrides out of words the model wrote, before a person reads them. */
+function clean(text) {
+  return text.replace(/[\u0000-\u0008\u000b-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, "");
 }
 
 /**

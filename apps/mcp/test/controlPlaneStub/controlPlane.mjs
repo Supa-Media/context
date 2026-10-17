@@ -26,6 +26,7 @@
  * Everything in here is obviously fake. This repository is public.
  */
 
+import { createEmailRoute } from "./email.mjs";
 import { createMailRoutes } from "./mail.mjs";
 import { createTreeRoutes } from "./tree.mjs";
 
@@ -93,6 +94,9 @@ export function createControlPlaneStub(options = {}) {
   const siteCalls = [];
   const vaultCalls = [];
   const flags = {
+    /** Who may send email, or a refusal for every send (`email.mjs`). */
+    emailSender: null,
+    emailRefusal: null,
     /** Answer `/gateway/feedback` with this refusal word instead of accepting. */
     feedbackRefusal: null,
     omitBindingWorkspaceId: false,
@@ -316,6 +320,7 @@ export function createControlPlaneStub(options = {}) {
 
   // Note mail mailboxes (`mail.mjs`).
   const mail = createMailRoutes(grantForAccessToken, coveredContexts);
+  const email = createEmailRoute(clearedEditor, flags);
 
   async function handle(url, init = {}) {
     gatewayCalls.total += 1;
@@ -738,6 +743,10 @@ export function createControlPlaneStub(options = {}) {
         return ok({ report: { eventId: "0".repeat(31) + feedback.length } });
       }
 
+      // EMAIL — `email.mjs`.
+      case "/gateway/email/send":
+        return ok(await email.send(body));
+
       case "/gateway/site": {
         // The site itself is the real control plane's; a test hands the stub
         // its answer as `options.site(cleared, body)`, and every call is kept.
@@ -977,6 +986,7 @@ export function createControlPlaneStub(options = {}) {
     feedback,
     siteCalls,
     vaultCalls,
+    emailCalls: email.calls,
     accessTokens,
     refreshTokens,
     gatewayJobs,

@@ -40,6 +40,14 @@ import { unlistedArgumentAdvice } from "./liveList.js";
  */
 export const TOOL_NEWS = Object.freeze([
   {
+    date: "2026-10-17",
+    newTool: true,
+    text:
+      "send `email` (send_email `{ to, cc?, subject, body, from? }`) sends one email as the person through their own Gmail. " +
+      "It never sends at once: the person is shown that exact email and must say yes, and a changed email is asked about again. " +
+      "Until their Gmail allows sending it says so, and you give them the draft instead.",
+  },
+  {
     date: "2026-10-16",
     newTool: true,
     text:
@@ -122,7 +130,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "87778c57";
+export const TOOL_SHAPE = "62f3e48b";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

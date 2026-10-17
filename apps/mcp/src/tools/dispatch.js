@@ -15,6 +15,7 @@ import {
 } from "./forms/tools.js";
 import { toolCreateLink, toolListLinks, toolRevokeLink } from "./links.js";
 import { toolReportProblem } from "./reportProblem.js";
+import { toolSendEmail } from "./email.js";
 import { toolVaultAddLink, toolVaultList, toolVaultShareLink, toolVaultViewLink } from "./vault.js";
 import { toolError, toolText } from "./results.js";
 import { toolExistenceMasked } from "./registry.js";
@@ -267,6 +268,8 @@ async function runTool(name, args, store, scope) {
       return toolVaultViewLink(store, args);
     case "report_problem":
       return toolReportProblem(store, args);
+    case "send_email":
+      return toolSendEmail(store, args);
     case "list_links":
       return toolListLinks(store, scope);
     case "revoke_link":

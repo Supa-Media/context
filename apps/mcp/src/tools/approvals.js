@@ -34,6 +34,8 @@ export { APPROVALS_PREFIX, DONE_PREFIX, PENDING_PREFIX };
 export const PENDING_TTL_MS = 24 * 60 * 60 * 1000;
 export const TEXTING_TTL_MS = 30 * 60 * 1000;
 export const DONE_TTL_MS = 60 * 60 * 1000;
+/** The longest `detail` a record keeps: an email's copy, headers and all. */
+export const DETAIL_CAP = 24_000;
 /** Most pending approvals one context holds; beyond it a new one is refused. */
 export const PENDING_CAP = 50;
 
@@ -112,7 +114,7 @@ export async function findPending(store, { name, args, userId, now = Date.now() 
  */
 export async function createPending(
   store,
-  { name, args, actor, tier, scopes, widening, workspaceId, texting, kind, entryId, ttlMs, now = Date.now() },
+  { name, args, actor, tier, scopes, widening, detail, workspaceId, texting, kind, entryId, ttlMs, now = Date.now() },
 ) {
   const all = await readAll(store, PENDING_PREFIX);
   if (all.filter(({ record }) => !expired(record, now)).length >= PENDING_CAP) return null;
@@ -124,6 +126,9 @@ export async function createPending(
     key: callKey(name, args),
     summary: String(widening?.summary ?? name).slice(0, 300),
     audience: widening?.audience ?? "team",
+    // What the person reads in full before saying yes, when a summary is not
+    // enough: an email's whole copy (`emailGate.js`).
+    ...(typeof detail === "string" && detail !== "" ? { detail: detail.slice(0, DETAIL_CAP) } : {}),
     workspace_id: workspaceId ?? null,
     actor: {
       userId: actor?.userId ?? null,

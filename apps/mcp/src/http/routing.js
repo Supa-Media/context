@@ -52,6 +52,17 @@ export function attachLinkCalls(store, session, controlPlane, env) {
     writable: false,
     configurable: true,
   });
+  // An email the person said yes to (`tools/email.js`), sent through their
+  // own Gmail. The control plane picks the sender off this token and holds the limits.
+  Object.defineProperty(store, "email", {
+    value: {
+      check: (email) => controlPlane.sendPersonEmail(session.accessToken, session.workspaceId, email, { check: true }),
+      send: (email) => controlPlane.sendPersonEmail(session.accessToken, session.workspaceId, email),
+    },
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
   // A website's status, check or publish (`write_note` `site`), for this context.
   Object.defineProperty(store, "site", {
     value: (request) => controlPlane.site(session.accessToken, session.workspaceId, request),
