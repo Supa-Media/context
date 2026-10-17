@@ -9,6 +9,9 @@
  * judged by the tree's own copy of the rules. A restore made since, of the
  * note or of a folder holding it, answers `null`: the note is back.
  *
+ * `eraseAt` is when the trash is emptied of it (`trash.ts`): shown on the note,
+ * so nothing is erased that its reader was not told about first.
+ *
  * `readTrashedNote` is the same answer with the note's text, for a note
  * opened by an address that outlived it (a reload on `?note=`).
  */
@@ -23,7 +26,9 @@ import type { OperationResult } from "./lib/filesFns/operationTypes";
 import { normalizePath } from "./lib/fileOps/paths";
 import { rulesForReaders } from "./lib/nodes/readerRules";
 import { trashEntryOf } from "./lib/nodes/trashTrail";
+import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { canSee } from "./lib/privacy";
+import { eraseAtOf, rulesAsTrashed, stampFolderOf, stampTimeOf } from "./lib/trash/bin";
 
 const answerValidator = v.union(
   v.null(),
@@ -35,10 +40,12 @@ const answerValidator = v.union(
     byYou: v.boolean(),
     /** "@ana", or `null` when the mover has no personal workspace. */
     byName: v.union(v.string(), v.null()),
+    /** When it is erased for good (`trash.ts`), or `null` for a trash this does not erase. */
+    eraseAt: v.union(v.number(), v.null()),
   }),
 );
 
-type Answer = { trash: string; at: number; byYou: boolean; byName: string | null } | null;
+type Answer = { trash: string; at: number; byYou: boolean; byName: string | null; eraseAt: number | null } | null;
 
 async function answerFor(ctx: QueryCtx, actorUserId: Id<"users">, workspaceId: Id<"workspaces">, path: string): Promise<Answer> {
   // A folder's trash answers for every path under it, so a path is matched only as it would be stored:
@@ -46,19 +53,24 @@ async function answerFor(ctx: QueryCtx, actorUserId: Id<"users">, workspaceId: I
   if (normalizePath(path) !== path) return null;
   const { scope, grantedNames } = await resolveFileAccess(ctx, { actorUserId, workspaceId, minimum: "member" });
   const clearance = clearanceOf(scope, grantedNames);
-  if (scope !== "private") {
-    // No rules (a missing or unparseable file) judge every path private, so the answer is the same as before.
-    const { rules, overrides } = await rulesForReaders(ctx, workspaceId);
-    if (!canSee(path, clearance.scope, rules, overrides, clearance.names)) return null;
-  }
   const entry = await trashEntryOf(ctx.db, workspaceId, path);
   if (entry === null) return null;
+  const folder = stampFolderOf(entry.trash);
+  if (scope !== "private") {
+    // No rules (a missing or unparseable file) judge every path private, so the answer is the same as before.
+    // Judged as it stood when trashed: a row trash took the note's own setting with its row (`rulesAsTrashed`).
+    const live = await rulesForReaders(ctx, workspaceId);
+    const { rules, overrides } = folder === null ? live : rulesAsTrashed(live, folder);
+    if (!canSee(path, clearance.scope, rules, overrides, clearance.names)) return null;
+  }
   const by = entry.actorUserId;
+  const stamp = folder === null ? null : stampTimeOf(folder.slice(folder.lastIndexOf("/") + 1));
   return {
     trash: entry.trash,
     at: entry.at,
     byYou: by === actorUserId,
     byName: by === undefined ? null : await personalNameFor(ctx, by),
+    eraseAt: stamp !== null && (await keyedWorkspace(ctx.db, workspaceId)) ? eraseAtOf(stamp) : null,
   };
 }
 

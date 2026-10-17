@@ -83,6 +83,7 @@ import { consolePalette } from "./layout/palette";
 import { ChaosProvider, useConsoleChaos } from "../chaos/ChaosContext";
 import { ChaosSheet } from "../chaos/ChaosPopover";
 import { MapRouteProvider, useConsoleMapRoute } from "./map/live/MapRouteContext";
+import { TrashRouteProvider, useConsoleTrashRoute } from "./trash/TrashRouteContext";
 
 
 /**
@@ -122,6 +123,8 @@ export function ConsoleFrame({
     connectAgent: SetupAgent | null;
     /** `?map=1`: the live map is open over Browse. */
     mapOpen?: boolean;
+    /** `?trash=1`: the Trash page is open over Browse. */
+    trashOpen?: boolean;
   };
   /** The pane: the route's `<Slot/>`, or the homepage's `BrowsePane`. */
   children: ReactNode;
@@ -294,6 +297,12 @@ export function ConsoleFrame({
     available: !data.demo && visitor === undefined,
     selectedPath: data.files.selectedPath,
   });
+  // The Trash page (`?trash=1`), in the same slot; leaves the same way.
+  const trashRoute = useConsoleTrashRoute(router, params.trashOpen === true, {
+    available: !data.demo && visitor === undefined,
+    workspaceId: data.selectedContextId,
+    selectedPath: data.files.selectedPath,
+  });
 
   const { selectedEntry } = noteTargetsFor({ data });
   const reading = useReadMode();
@@ -426,6 +435,7 @@ export function ConsoleFrame({
     <ConsoleDataProvider value={data}>
       <ChaosProvider value={chaos}>
       <MapRouteProvider value={mapRoute}>
+      <TrashRouteProvider value={trashRoute}>
       <ConsoleNavProvider value={nav}>
       <VoiceHostProvider value={voiceHost}>
       {/*
@@ -657,6 +667,7 @@ export function ConsoleFrame({
       </CustomEmojiProvider>
       </VoiceHostProvider>
       </ConsoleNavProvider>
+      </TrashRouteProvider>
       </MapRouteProvider>
       </ChaosProvider>
     </ConsoleDataProvider>

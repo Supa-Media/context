@@ -16,6 +16,7 @@ import type { classifyCommsPath } from "../../communications/paths";
 import { Empty } from "./Empty";
 import { LayingOutPage } from "./LayingOutFolders";
 import { UnreadableNote } from "./UnreadableNote";
+import { DocumentPage } from "./DocumentPage";
 import { NoteLoading } from "./NoteLoading";
 import { preloadFronts } from "../../files/folderPage/pageCache";
 import { noteNameEdit } from "./nameEdit";
@@ -37,6 +38,8 @@ import { usePeekEditing } from "./usePeekEditing";
 import { useMapRoute } from "../../map/live/MapRouteContext";
 import { useAnnounceOpenNote } from "../../map/live/announce";
 import { MapPage } from "../../map/live/ui/MapPage";
+import { TrashPage } from "../../trash/TrashPage";
+import { useTrashRoute } from "../../trash/TrashRouteContext";
 
 /**
  * Whatever is in front of somebody: the empty state or the phone's landing
@@ -228,6 +231,7 @@ export function BrowseDocument({
     layout keeps the listing: its tree is on the screen beside it.
   */
   const mapRoute = useMapRoute();
+  const trashRoute = useTrashRoute();
   // Every note and folder in this workspace, for Home and a folder page's counts: a phone only.
   const phoneHome = (
     <PhoneHome
@@ -307,7 +311,23 @@ export function BrowseDocument({
     files.editor.path === selected?.path && files.editor.draft !== files.editor.baseline,
   );
   const openDocument =
-    mapRoute?.open && current !== null && current !== undefined ? (
+    trashRoute?.open ? (
+      /*
+        The Trash page (`?trash=1`), where a note would be: the tree stays
+        beside it, and opening a trashed note shows it read-only with Restore.
+      */
+      <DocumentPage>
+        <TrashPage
+          workspaceId={trashRoute.workspaceId}
+          compact={compact}
+          onOpen={(path) => {
+            trashRoute.closeTrash();
+            files.select(path);
+          }}
+          onClose={trashRoute.closeTrash}
+        />
+      </DocumentPage>
+    ) : mapRoute?.open && current !== null && current !== undefined ? (
       /*
         The live map (`?map=1`), where a note would be, filling the slot: the
         tree stays beside it. A note in this workspace opens as the tree opens

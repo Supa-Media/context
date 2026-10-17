@@ -94,6 +94,21 @@ crons.interval("arm Tex's first check-ins", { hours: 24 }, internal.functions.he
 crons.interval("arm Tex's first housekeeping", { hours: 24 }, internal.functions.housekeeping.armLinkedHousekeeping, {});
 
 /**
+ * Empty the trash: erase for good what has been in a keyed workspace's trash
+ * for 30 days (decided by the owner, 2026-10-17; `functions/trash.ts`).
+ *
+ * The fourth job that acts outside this database, so it owes the two
+ * paragraphs. It holds no decision: the 30 days were chosen by the owner, and
+ * every trashed note shows the date it goes, on the Trash page and on the note
+ * itself, from the day it was trashed. It re-asks at the moment it acts, in
+ * the one transaction that removes the rows (`claimErasure`): the workspace is
+ * still keyed, the trash is still there and not restored, and it is past its
+ * date. Only then does the bucket half remove the notes' id keys and history,
+ * and a bucket that fails keeps the erasure for the next day.
+ */
+crons.interval("empty the trash", { hours: 24 }, internal.functions.trash.emptyDue, {});
+
+/**
  * Grant founding Premium to accounts still owed it (`lib/billing/founding.ts`),
  * so accounts made before it shipped do not wait for the next sign-up. Once
  * the hundred are granted it returns at its first read.
