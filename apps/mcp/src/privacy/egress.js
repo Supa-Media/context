@@ -26,6 +26,8 @@
  *  - fetching an image from an address the model chose (`images[].url`: the
  *    address itself is the channel, a note's text can ride in it);
  *  - making a note or a folder team-visible, or saving a conversation that way;
+ *  - naming people who may open a note (`people` on `set_visibility`): a
+ *    member, a group, an address outside the workspace, or a domain;
  *  - moving notes, when the move is asked to publish them (`confirm_team_publish`)
  *    into a folder more people can see or into another workspace;
  *  - writing into another workspace at all: any tool that is not read-only,
@@ -69,6 +71,7 @@
 import { classifyCaptureKind } from "../communications/paths.js";
 import { effectiveVisibility, visibilityOf } from "./engine.js";
 import { normalizePath } from "../notes/paths.js";
+import { describePeople, parsePeople } from "../tools/notePeople.js";
 
 /**
  * How far a label reaches. `outside` is an address that is not this product
@@ -326,10 +329,29 @@ async function classify(name, args, { into, privacy }) {
       return a.fetch && typeof a.fetch === "object"
         ? { audience: "outside", summary: `send a request to ${hostOf(a.fetch.url)} with a saved key` }
         : null;
-    case "set_visibility":
-      return a.visibility === "team" && (await nowReads(a.path)) !== "team"
-        ? { audience: "team", summary: `make ${a.path} visible to the team`, publishes: true }
-        : null;
+    /*
+      Naming people (`people`) always widens: a member, a group, an address
+      outside the workspace or a whole domain each reach somebody who could
+      not open the note before, and the gate cannot tell a member's handle
+      from an outsider's without asking the control plane, so every name is
+      read as the widest, an address outside the product. Both facets are
+      named when the call also publishes.
+    */
+    case "set_visibility": {
+      const facets = [];
+      if (a.visibility === "team" && (await nowReads(a.path)) !== "team") {
+        facets.push({ audience: "team", summary: `make ${a.path} visible to the team`, publishes: true });
+      }
+      const people = parsePeople(a.people);
+      if (people !== null) facets.push({ audience: "outside", summary: `let ${describePeople(people)} open ${a.path}` });
+      return facets.length === 0
+        ? null
+        : {
+            audience: widest(facets.map((facet) => facet.audience)),
+            summary: facets.map((facet) => facet.summary).join(", and "),
+            publishes: facets.some((facet) => facet.publishes === true),
+          };
+    }
     case "set_folder_visibility": {
       if (a.visibility !== "team" && a.visibility !== "inherit") return null;
       const { rules } = await privacy();
@@ -488,7 +510,7 @@ export function mightWiden(name, args, { into = null, writes } = {}) {
     case "vault_list":
       return Boolean(a.fetch && typeof a.fetch === "object");
     case "set_visibility":
-      return a.visibility === "team";
+      return a.visibility === "team" || (a.people !== undefined && a.people !== null);
     case "set_folder_visibility":
       return a.visibility === "team" || a.visibility === "inherit";
     case "save_context":

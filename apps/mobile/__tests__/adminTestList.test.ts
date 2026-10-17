@@ -60,6 +60,7 @@ describe("round trip", () => {
 
 describe("case counts", () => {
   test("core has 19 cases", () => {
+    // #1795 retired texting-assistant.md and moved four of its questions into core.
     expect(parseTestList(CORE).cases).toHaveLength(19);
   });
 
@@ -105,11 +106,13 @@ describe("case classification", () => {
     expect(c.replies[0].value).toBe(`"can you make sure my chatgpt is properly set up to use context"`);
     expect(c.replies[3]).toMatchObject({ value: `"Yes, go ahead"` });
     expect(c.rules.find((r) => r.key === "must call")?.value).toBe("read_skill");
+    // No list carries a "must not call" line since #1795, so the key is parsed from a case of its own.
+    const banned = caseByNumber(parseTestList("## 1. Save my login\n\n- kind: task\n- must not call: vault_add_link\n"), 1);
+    expect(banned.rules.find((r) => r.key === "must not call")?.value).toBe("vault_add_link");
   });
 
   test("a case with an as: line keeps it out of the rules", () => {
-    const list = parseTestList(CORE);
-    const c = caseByNumber(list, 7);
+    const c = caseByNumber(parseTestList(CORE), 7);
     expect(c.person).toMatchObject({ key: "as", value: "John" });
     expect(c.rules.some((r) => r.key === "as")).toBe(false);
   });

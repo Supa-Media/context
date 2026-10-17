@@ -260,16 +260,31 @@ export function noteWriteToolDefinitions() {
       name: "set_visibility",
       title: "Set note visibility",
       description:
-        "Personal connection only. Set enforced visibility for one existing note without moving it. Private notes may coexist beside team notes in either folder default. Publishing private to team requires confirm_team_publish=true.",
+        "Personal connection only. Set enforced visibility for one existing note without moving it. Private notes may coexist beside team notes in either folder default. Publishing private to team requires confirm_team_publish=true. " +
+        "people names who else may open this one note: a member's or a group's @handle, or anyone's email address, inside the workspace or not, each with view or edit. It adds to the people already named and removes nobody; the owner only. Naming anybody always waits for the person's yes in their Context app or by text before it runs, so tell them what you asked and that it is waiting.",
       inputSchema: {
         type: "object",
         properties: {
           path: { type: "string" },
           visibility: { type: "string", enum: ["private", "team"] },
+          people: {
+            type: "array",
+            maxItems: 100,
+            description: "People to add to who may open this note. Leave out visibility to change only this.",
+            items: {
+              type: "object",
+              properties: {
+                who: { type: "string", description: "@handle of a member or a group of this workspace, or an email address." },
+                role: { type: "string", enum: ["view", "edit"], description: "Defaults to view." },
+              },
+              required: ["who"],
+              additionalProperties: false,
+            },
+          },
           expected_etag: { type: "string", description: "Optional current note etag" },
           confirm_team_publish: { type: "boolean" },
         },
-        required: ["path", "visibility"],
+        required: ["path"],
         additionalProperties: false,
       },
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },

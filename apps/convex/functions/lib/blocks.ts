@@ -1,7 +1,7 @@
 /**
  * Blocking a person, for what reaches you only.
  *
- * A block is one row, `userBlocks`, read in exactly three places, each of
+ * A block is one row, `userBlocks`, read in exactly four places, each of
  * which already decides whether something addressed to a person reaches them:
  *
  *  - `shareStillStands` (`lib/shares/standing.ts`): a named share from a
@@ -11,6 +11,9 @@
  *    a blocked inviter leaves the blocker's list and cannot be accepted.
  *  - `claimInvitationEmail` (`functions/invitationEmail.ts`): an invitation
  *    from a blocked inviter is not mailed to the blocker.
+ *  - `guestViewOf` (`lib/grants/outsider.ts`): a note or folder a blocked
+ *    person named the blocker on, in a workspace the blocker is not in,
+ *    leaves @shared and refuses to open, unless someone else also named them.
  *
  * Each of those answers the blocker and nobody else, and each already returns
  * one uniform refusal, so a block adds a reason to an answer that was already
@@ -35,6 +38,15 @@ export const MAX_BLOCKS = 500;
 /** Block and unblock changes one account may make per hour. */
 const BLOCK_CHANGE_LIMIT = 30;
 const BLOCK_CHANGE_WINDOW_MS = 60 * 60 * 1000;
+
+/** Everyone `blockerId` has blocked, bounded by `MAX_BLOCKS`. One indexed read. */
+export async function blockedBy(ctx: QueryCtx, blockerId: Id<"users">): Promise<Set<Id<"users">>> {
+  const rows = await ctx.db
+    .query("userBlocks")
+    .withIndex("by_blocker", (q) => q.eq("blockerId", blockerId))
+    .take(MAX_BLOCKS);
+  return new Set(rows.map((row) => row.blockedId));
+}
 
 /** Whether `blockerId` has blocked `blockedId`. One indexed read. */
 export async function hasBlocked(

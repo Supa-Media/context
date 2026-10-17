@@ -12,7 +12,8 @@ import { createRoot } from "react-dom/client";
  *
  *  1. **It is listed and opened under its grant key**, and a share under its token,
  *     so a press on a grant names the grant and nothing else.
- *  2. **It carries no report control**: a report names a share token, and a grant has none.
+ *  2. **It carries a report control too**, named by its note id (2026-10-17). It
+ *     offers to block only when the grant records who wrote it.
  *  3. **A granted folder reads as a folder, and an unrecorded granter is "Someone".**
  *
  * ## Sabotage record
@@ -20,7 +21,7 @@ import { createRoot } from "react-dom/client";
  * Applied as local edits, suite re-run, failing tests counted.
  *
  *   row opens by token for a grant (undefined)                    1
- *   a grant row gets a report control                             1
+ *   a grant row gets no report control                            1
  *   the sidebar selects a grant by its token                      1
  */
 
@@ -153,7 +154,7 @@ describe("grant rows in the list", () => {
     expect(row).toContain("A long plan title that runs well past seventy characters");
   });
 
-  test("a grant row has no report control, since a report names a share token", () => {
+  test("a grant row has a report control; with no recorded granter it reports without offering a block", () => {
     const ui = mount(
       createElement(SharedList, {
         items: [share, plan],
@@ -165,8 +166,8 @@ describe("grant rows in the list", () => {
         onBack: () => {},
       }),
     );
-    expect(ui.find("shared-report-tok-chaos")).not.toBeNull();
-    expect(ui.find(`shared-report-${GRANT_KEY}`)).toBeNull();
+    expect(ui.find("shared-report-tok-chaos")?.textContent).toBe("Report or block");
+    expect(ui.find(`shared-report-${GRANT_KEY}`)?.textContent).toBe("Report");
   });
 
   test("a grant with no recorded granter shows Someone, and a granted folder opens as a row too", () => {
