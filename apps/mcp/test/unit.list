@@ -126,4 +126,5 @@ test/orientV2.test.mjs
 test/controlPlaneRequired.test.mjs
 test/cleanupPage.test.mjs
 test/searchHeldPasses.test.mjs
+bench/test/check.test.mjs
 bench/test/core.test.mjs

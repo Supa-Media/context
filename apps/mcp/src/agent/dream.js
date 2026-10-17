@@ -30,10 +30,11 @@ import { ABOUT_ME_PATH, readAboutMe } from "./aboutMe.js";
 import { DEFAULT_TIME_ZONE, readTimeZone } from "./localNow.js";
 import { TRANSCRIPTS_FOLDER, eventLines } from "./transcript.js";
 import { AgentRefusal, openProvider, runTurn } from "./turn.js";
-import { BUILTIN_PROVIDER, builtinModel } from "./builtin.js";
+import { BUILTIN_PROVIDER, builtinModel, canRunBuiltin } from "./builtin.js";
 import { aiGatewayConfig } from "./aiGateway.js";
 import { ProviderError } from "./providers.js";
 import { actorFor, contextsFor } from "../context/identity.js";
+import { PRODUCTION_DREAM_PATH, readJobSetup } from "./production.js";
 import { callToolForSession } from "../tools/session.js";
 import { grantedToolsFor } from "./sixTools.js";
 import { newLedger } from "../privacy/egress.js";
@@ -126,25 +127,38 @@ export function dreamTools(offered) {
   return offered.filter((tool) => DREAM_READS.has(tool.name) || tool.name === "write_note");
 }
 
-/** What the dream is asked to do. */
-export function dreamQuestion({ transcripts, first, since, timeZone }) {
+/**
+ * The dream's own words when `ai/production/dream.md` is missing or does not
+ * validate. The note's body replaces these (the owner, 2026-10-17: "move the
+ * prompt into a note for me"); what tonight is about (the days and the
+ * transcripts) is always added below them by `dreamQuestion`.
+ */
+export const DREAM_INSTRUCTIONS = [
+  "This is your nightly dream, not a text from a person. Nobody is waiting, and nothing you say is texted to anyone.",
+  `Your one job: bring ${ABOUT_ME_PATH} up to date with what you learned about them in the transcripts listed under Tonight.`,
+  "Keep what lasts: who they are, the people in their life and how they relate, what they're working on, preferences, how they like you to answer, corrections they gave you, places and routines. " +
+    "Leave out one-off requests, anything already done and finished, anything they asked you to forget, and every secret (passwords, codes, card or account numbers): never write those.",
+  "Write the whole note back once with write: fetch it first and pass its etag as expected_etag. Short headings, one short line per fact, duplicates merged, stale or contradicted lines dropped, never more than 500 lines. If nothing new is worth keeping, don't write it.",
+  "Then answer with two or three plain sentences for the dream log: what you changed and why, or why nothing changed.",
+].join("\n\n");
+
+/**
+ * What the dream is asked to do: the setup's words (`instructions`, the
+ * production note's body) or the built-in ones, then tonight's facts.
+ */
+export function dreamQuestion({ transcripts, first, since, timeZone, instructions = null }) {
   const when = first || typeof since !== "number" ? "lately" : `since ${dayOf(since, timeZone)}`;
-  return [
-    "This is your nightly dream, not a text from a person. Nobody is waiting, and nothing you say is texted to anyone.",
-    `Your one job: bring ${ABOUT_ME_PATH} up to date with what you learned about them ${when}.`,
+  const tonight = [
+    `Bring ${ABOUT_ME_PATH} up to date with what you learned about them ${when}.`,
     transcripts.length > 0
       ? `Read these transcripts of your texts with them (tool calls and thinking included, never what a tool returned):\n${transcripts.map((path) => `- ${path}`).join("\n")}`
       : "There are no transcripts of your texts with them yet.",
     first
       ? "This is your first dream about them: also read index.md, their front page, if it exists, and start the note from what it says about them."
       : "",
-    "Keep what lasts: who they are, the people in their life and how they relate, what they're working on, preferences, how they like you to answer, corrections they gave you, places and routines. " +
-      "Leave out one-off requests, anything already done and finished, anything they asked you to forget, and every secret (passwords, codes, card or account numbers): never write those.",
-    `Write the whole note back once with write: fetch it first and pass its etag as expected_etag. Short headings, one short line per fact, duplicates merged, stale or contradicted lines dropped, never more than 500 lines. If nothing new is worth keeping, don't write it.`,
-    "Then answer with two or three plain sentences for the dream log: what you changed and why, or why nothing changed.",
-  ]
-    .filter(Boolean)
-    .join("\n\n");
+  ].filter(Boolean);
+  const words = typeof instructions === "string" && instructions.trim() !== "" ? instructions.trim() : DREAM_INSTRUCTIONS;
+  return [words, "## Tonight", ...tonight].join("\n\n");
 }
 
 /** The lines added to and removed from the note, ignoring blank lines and order. */
@@ -289,7 +303,11 @@ export async function handleDream(request, env, store, session, controlPlane) {
 
   const events = [];
   const offered = await grantedToolsFor(session, store);
-  const model = builtinModel(env);
+  // The dream's setup note (`ai/production/dream.md`): its words, and its model
+  // when this deployment can call it. Missing or invalid is the built-in ones.
+  const setup = await readJobSetup(store, session, PRODUCTION_DREAM_PATH);
+  const chosen = setup !== null && canRunBuiltin(setup.model, env) ? setup.model : null;
+  const model = chosen ?? builtinModel(env);
   const meter = async (usage, failed, answering = model) => {
     try {
       await controlPlane.recordBuiltinUsage(session.accessToken, session.workspaceId, {
@@ -310,15 +328,16 @@ export async function handleDream(request, env, store, session, controlPlane) {
   let turn = null;
   try {
     turn = await runTurn({
-      question: dreamQuestion({ transcripts, first, since, timeZone }),
+      question: dreamQuestion({ transcripts, first, since, timeZone, instructions: setup?.prompt ?? null }),
       tools: dreamTools(offered),
       grants: { write: ["save"] }, // its one write is the note's own text (`dreamCallTool`)
       callTool: dreamCallTool(dispatch),
       env,
+      builtinModelOverride: chosen,
       providerOptions: {
         ai: env.AI,
         gateway: aiGatewayConfig(env),
-        metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "dreams" },
+        metadata: { feature: "assistant", workspace: String(session.workspaceId), client: "dreams", ...(setup !== null ? { setup: setup.version } : {}) },
       },
       aboutMe: before,
       localNow: { now: started, timeZone },
