@@ -11,10 +11,11 @@
  * Applied, suite run, named check observed failing, reverted (2026-10-17).
  *
  *  1. `heartbeatCallTool` passing every tool through.
- *     → "a check-in's dispatcher only reads, and only their own workspace" and
- *       "a check-in can't write, whatever it is told" fail.
+ *     → "a check-in's dispatcher only reads, and only their own workspace" fails.
+ *       (End to end the write is still refused: the turn's empty `grants` and
+ *       read-only tool list are a second guard, which is why both exist.)
  *  2. `changedSince` counting Tex's own `tex/heartbeat/` log as a change.
- *     → "its own log never wakes the next look" fails.
+ *     → "a look sees the notes changed since the last one…" fails.
  *  3. `handleHeartbeat` ignoring `paused: true`.
  *     → "paused in tex/heartbeat.md, it reads nothing and runs no model" fails.
  *  4. `http/route.js` sending the check-in client to the ordinary turn.
@@ -319,9 +320,9 @@ export async function runAgentHeartbeatChecks(check) {
     /* ---------------- nothing changed ---------------- */
 
     const before = model.requests.length;
-    const nothing = await ask(env, TOKEN_BEAT, beat(Date.now() - 1000));
+    const nothing = await ask(env, TOKEN_BEAT, beat(Date.now() - 10 * 60 * 1000));
     check(
-      "its own log never wakes the next look: nothing else changed is nothing_new, with no model turn",
+      "nothing changed since the last look is nothing_new, with no model turn",
       nothing.status === 200 && nothing.body?.outcome === "nothing_new" && model.requests.length === before,
     );
 
