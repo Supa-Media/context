@@ -1,8 +1,10 @@
 import { useState } from "react";
-import { StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
+import { Linking, Platform, StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
+import { getDesktopBridge } from "@context/desktop-bridge";
 import { Text } from "../../design/components/Text";
 import { TextLink } from "../../design/components/TextLink";
 import { useThemedStyles, type Colors } from "../../design/theme";
+import { MAC_APP_URL, browserName, onMac, onPhoneOrTablet } from "../capture";
 import { meetings } from "../controller";
 import { useMeetingsSnapshot } from "../useMeetings";
 
@@ -16,8 +18,23 @@ import { useMeetingsSnapshot } from "../useMeetings";
  * is a band on every live surface, and it carries the fix: a press that asks
  * for the call's audio again and mixes it in from that moment.
  *
- * The button is a fresh press, which is what the browser's picker needs; it
+ * The link is a fresh press, which is what the browser's picker needs; it
  * calls straight into the controller without awaiting anything first.
+ *
+ * Three shapes, one line each plus a muted fix (boards m3/m4, 2026-10-17):
+ *
+ *  - **Asked and given no sound**: the warning colour, then "Share call audio
+ *    and turn on Also share system audio". On a Mac in a browser that is not
+ *    Chrome (Arc, Brave, Edge) a second muted line: Mac browsers need System
+ *    Settings' permission and a restart after it changes, and some cannot hand
+ *    over sound at all yet — Dev2's Arc said "already checked" and still
+ *    failed.
+ *  - **Not asked, on purpose** (`callAudioNote`): this browser failed the last
+ *    few times, or the person chose to record the room. Muted, not red —
+ *    nothing was chosen wrong — with a link that asks after all.
+ *  - **A browser that can never share sound** (Safari, Firefox on a computer):
+ *    the warning colour once, and where to record calls instead. It was
+ *    silent before, so those meetings recorded one side with nothing said.
  */
 export function CallAudioWarning({
   testID = "meeting-call-audio-warning",
@@ -29,39 +46,95 @@ export function CallAudioWarning({
   const styles = useThemedStyles(makeStyles);
   const snapshot = useMeetingsSnapshot();
   const [asking, setAsking] = useState(false);
-  const warning = snapshot.callAudioWarning;
-  if (warning == null || snapshot.live == null) return null;
+  if (snapshot.live == null) return null;
 
   const share = () => {
     setAsking(true);
     void meetings.shareCallAudio().finally(() => setAsking(false));
   };
-
-  /*
-    One short line in the warning colour, and under it, only where asking again
-    can work (a browser's picker), the fix as one muted sentence that starts
-    with its own link. The desktop app's fix is a system setting, which its own
-    sentence names. This used to be a four-line paragraph over a full-size
-    button: the card's loudest thing by far, and too long to read mid-call.
-  */
-  return (
-    <View style={[styles.band, style]} testID={testID}>
-      <Text variant="rowSub" style={styles.text}>
-        {warning}
-      </Text>
-      {!snapshot.capture.systemAudioNeedsPicker ? null : (
-        <Text variant="rowSub" style={styles.hint}>
-          <TextLink
-            label={asking ? "Waiting for the browser…" : "Share call audio"}
-            onPress={share}
-            disabled={asking}
-            testID={`${testID}-share`}
-          />
-          {asking ? null : ", then allow audio in the picker."}
-        </Text>
-      )}
-    </View>
+  const shareLink = (label: string) => (
+    <TextLink
+      label={asking ? "Waiting for the browser…" : label}
+      onPress={share}
+      disabled={asking}
+      testID={`${testID}-share`}
+    />
   );
+  const macApp = (
+    <TextLink
+      label="Mac app"
+      onPress={() => void Linking.openURL(MAC_APP_URL).catch(() => {})}
+      testID={`${testID}-mac-app`}
+    />
+  );
+  const browser = browserName();
+  const picker = snapshot.capture?.systemAudioNeedsPicker === true;
+
+  const warning = snapshot.callAudioWarning;
+  if (warning != null) {
+    return (
+      <View style={[styles.band, style]} testID={testID}>
+        <Text variant="rowSub" style={styles.text}>
+          {warning}
+        </Text>
+        {!picker ? null : (
+          <Text variant="rowSub" style={styles.hint}>
+            {shareLink("Share call audio")}
+            {asking ? null : " and turn on Also share system audio."}
+          </Text>
+        )}
+        {!picker || !onMac() || browser === "Chrome" ? null : (
+          <Text variant="rowSub" style={styles.hint} testID={`${testID}-mac`}>
+            {`Already on? Quit and reopen ${browser === "This browser" ? "your browser" : browser}, or record in Chrome or the `}
+            {macApp}.
+          </Text>
+        )}
+      </View>
+    );
+  }
+
+  const note = snapshot.callAudioNote;
+  if (note != null) {
+    return (
+      <View style={[styles.band, style]} testID={`${testID}-note`}>
+        <Text variant="rowSub" style={styles.hint}>
+          {`${note.message} `}
+          {shareLink(note.kind === "room" ? "Add call audio" : "Try again")}
+        </Text>
+      </View>
+    );
+  }
+
+  if (snapshot.capture != null && cannotHearCalls(snapshot.capture)) {
+    return (
+      <View style={[styles.band, style]} testID={`${testID}-cannot`}>
+        <Text variant="rowSub" style={styles.text}>
+          {`${browser === "This browser" ? "This browser" : browser} can't hear the call, only your voice.`}
+        </Text>
+        <Text variant="rowSub" style={styles.hint}>
+          {"Record calls in Chrome or the "}
+          {macApp}.
+        </Text>
+      </View>
+    );
+  }
+
+  return null;
+}
+
+/**
+ * A browser on a computer that records the microphone and can never be asked
+ * for a call's sound (Safari, Firefox). Not the desktop shell, which says its
+ * own sentence; not a phone, where no browser can and the app is the answer.
+ */
+export function cannotHearCalls(capture: {
+  audio: boolean;
+  systemAudio: boolean;
+}): boolean {
+  if (Platform.OS !== "web") return false;
+  if (!capture.audio || capture.systemAudio) return false;
+  if (getDesktopBridge() !== null) return false;
+  return !onPhoneOrTablet();
 }
 
 const makeStyles = (colors: Colors) =>

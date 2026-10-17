@@ -150,6 +150,32 @@ carries three consequences that are the whole of this decision:
   would then be refused for a reason that has nothing to do with what anybody
   chose.
 
+**The picker is explained once, and a browser that keeps failing stops being
+asked (owner, 2026-10-17).** At the Supa Leadership Weekly the owner asked why
+every meeting "asks you to record your screen", and Arc on a Mac never shared
+sound though its permission was "already checked". So, per browser
+(`capture/callAudioMemory.ts`, in that browser's own storage, because whether a
+share carries sound is a fact about one browser on one machine):
+
+- until a share has carried sound there, Record first shows a short note in the
+  picker's own words, "Only the sound is used. Your screen is never recorded.",
+  and Continue is the press the picker rides;
+- after `STOP_ASKING_AFTER` (2) silent shares in a row, a meeting starts on the
+  microphone without the picker and says so in one muted line with Try again;
+  Settings › Meetings shows the same, and one share that works resets it;
+- "Nobody on a call? Record the room" on the note skips the picker for that one
+  meeting. It is not the removed switch: nothing is stored, and the next meeting
+  asks again.
+
+The default is unchanged: every meeting still asks for the call's audio
+wherever it can. Reverting this means the picker in front of every meeting
+again, with no word first, failing the same way each time —
+`meetingsCaptureWeb/callAudioMemory.test.ts` and `meetingsFlow.test.ts` fail.
+
+The console's live card draws two lines, You and Call, measured by one analyser
+per input, so a flat Call line is visible before any warning (board m3). The
+phone's transport keeps one mark: it answers "can it hear anything".
+
 **Three ways the ask comes back empty, and they are the ordinary case rather
 than the edge one.** The picker is cancelled; the source chosen carries no audio
 (system audio left off, a Mac older than macOS 14.2, anything at all on a
