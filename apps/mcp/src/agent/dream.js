@@ -38,7 +38,7 @@ import { callToolForSession } from "../tools/session.js";
 import { grantedToolsFor } from "./sixTools.js";
 import { newLedger } from "../privacy/egress.js";
 import { json } from "../http/responses.js";
-import { wallClock } from "../../../../packages/shared/src/routines.cjs";
+import { appendLogEntry, builtinMeter, clock, dayOf, longDate } from "./jobLog.js";
 
 /** The dream runner's first-party client (`apps/convex/functions/lib/dreams/model.ts`). Decided by the grant. */
 export const DREAMS_CLIENT_ID = "context_dreams";
@@ -56,18 +56,6 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** What the model may call. Reading their own notes, and writing one. */
 const DREAM_READS = new Set(["read_note", "list_notes"]);
 const DREAM_WRITE_ARGS = new Set(["path", "content", "expected_etag"]);
-
-const MONTHS = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December",
-];
-
-const pad = (value) => String(value).padStart(2, "0");
-
-function dayOf(now, timeZone) {
-  const w = wallClock(now, timeZone);
-  return `${w.year}-${pad(w.month)}-${pad(w.day)}`;
-}
 
 /** Tonight's log: `tex/dreams/2026-10-16.md`, dated the night it ran, in their zone. */
 export function dreamPath(now, timeZone) {
@@ -174,16 +162,9 @@ export function aboutMeChanges(before, after) {
   return { added, removed };
 }
 
-function clock(now, timeZone) {
-  const w = wallClock(now, timeZone);
-  const h = w.hour % 12 === 0 ? 12 : w.hour % 12;
-  return `${h}:${pad(w.minute)} ${w.hour < 12 ? "am" : "pm"}`;
-}
-
 function heading(now, timeZone) {
-  const w = wallClock(now, timeZone);
   return (
-    `# Tex dreamed, ${MONTHS[w.month - 1]} ${w.day}, ${w.year}\n\n` +
+    `# Tex dreamed, ${longDate(now, timeZone)}\n\n` +
     `What Tex's nightly dream read, thought and changed in \`${ABOUT_ME_PATH}\`.\n`
   );
 }
@@ -214,35 +195,9 @@ export function dreamEntry({ now, timeZone, transcripts, model, changes, why, ev
   return `${lines.join("\n")}\n`;
 }
 
-/** `{ etag, body }`, `{ missing: true }`, or null when the note could not be read. */
-async function readWithEtag(dispatch, path) {
-  try {
-    const result = await dispatch("read_note", { path });
-    const text = (Array.isArray(result?.content) ? result.content : []).map((part) => part?.text ?? "").join("\n");
-    if (result?.isError === true) return /^not found\b/i.test(text.trim()) ? { missing: true } : null;
-    const split = text.indexOf("\n\n");
-    if (split === -1) return null;
-    const etag = /^etag: (.+)$/m.exec(text.slice(0, split))?.[1]?.trim();
-    return etag ? { etag, body: text.slice(split + 2) } : null;
-  } catch {
-    return null;
-  }
-}
-
 /** Write tonight's entry after whatever the night's log already holds. Best effort. */
-async function writeLog(dispatch, path, entry, { now, timeZone }) {
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const current = await readWithEtag(dispatch, path);
-    if (current === null) return false; // a log that can't be read is never overwritten
-    const before = current.missing ? heading(now, timeZone) : current.body;
-    const written = await dispatch("write_note", {
-      path,
-      content: `${before.replace(/\n*$/, "\n\n")}${entry}`,
-      ...(current.missing ? {} : { expected_etag: current.etag }),
-    }).catch(() => null);
-    if (written && written.isError !== true) return true;
-  }
-  return false;
+function writeLog(dispatch, path, entry, { now, timeZone }) {
+  return appendLogEntry(dispatch, path, entry, heading(now, timeZone));
 }
 
 /**
@@ -290,22 +245,7 @@ export async function handleDream(request, env, store, session, controlPlane) {
   const events = [];
   const offered = await grantedToolsFor(session, store);
   const model = builtinModel(env);
-  const meter = async (usage, failed, answering = model) => {
-    try {
-      await controlPlane.recordBuiltinUsage(session.accessToken, session.workspaceId, {
-        input: usage?.input ?? 0,
-        output: usage?.output ?? 0,
-        cacheRead: usage?.cacheRead ?? 0,
-        cacheWrite: usage?.cacheWrite ?? 0,
-        model: typeof answering === "string" ? answering : model,
-        decision: 0,
-        failed,
-        ms: Date.now() - started,
-      });
-    } catch {
-      // A meter that could not be reached costs us a report, not the dream.
-    }
-  };
+  const meter = builtinMeter(controlPlane, session, model, started);
 
   let turn = null;
   try {

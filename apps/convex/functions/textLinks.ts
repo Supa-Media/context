@@ -26,6 +26,7 @@ import { getMembership } from "./lib/workspaceAuth";
 import { accountTimeZone } from "./lib/routines/access";
 import { effectiveTimeZone } from "./lib/routines/model";
 import { armDream } from "./lib/dreams/model";
+import { armHeartbeat } from "./lib/heartbeats/model";
 
 /**
  * Linking a phone to an account, so the person can text the Context assistant.
@@ -522,14 +523,11 @@ export const applyTextsGrant = internalMutation({
     } else {
       await ctx.db.patch(reusable._id, token);
     }
-    // Tonight's dream reads this text (`lib/dreams/`).
-    await armDream(ctx, {
-      userId: link.userId,
-      workspaceId,
-      timeZone: effectiveTimeZone(undefined, await accountTimeZone(ctx, link.userId)),
-      now: Date.now(),
-      texted: true,
-    });
+    // Tonight's dream reads this text (`lib/dreams/`), and a check-in that
+    // stopped for want of a model or a chat starts again (`lib/heartbeats/`).
+    const zone = effectiveTimeZone(undefined, await accountTimeZone(ctx, link.userId));
+    await armDream(ctx, { userId: link.userId, workspaceId, timeZone: zone, now: Date.now(), texted: true });
+    await armHeartbeat(ctx, { userId: link.userId, workspaceId, timeZone: zone, now: Date.now() });
     await recordAudit(ctx, {
       workspaceId,
       actorUserId: link.userId,
@@ -564,9 +562,9 @@ async function ensureTextsClient(ctx: MutationCtx): Promise<void> {
   });
 }
 
-/** Account deletion: links, pending codes and Tex's dream schedule go with the person. */
+/** Account deletion: links, pending codes and Tex's dream and check-in schedules go with the person. */
 export async function deleteTextLinksOf(ctx: MutationCtx, userId: Id<"users">): Promise<void> {
-  for (const table of ["phoneLinks", "phoneLinkCodes", "texDreams"] as const) {
+  for (const table of ["phoneLinks", "phoneLinkCodes", "texDreams", "texHeartbeats"] as const) {
     const rows = await ctx.db
       .query(table)
       .withIndex("by_user", (q) => q.eq("userId", userId))

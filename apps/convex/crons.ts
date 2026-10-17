@@ -79,6 +79,13 @@ crons.interval(
  */
 crons.interval("arm Tex's first dreams", { hours: 24 }, internal.functions.dreams.armLinkedDreams, {});
 
+/**
+ * The same for Tex's daytime check-in (`functions/heartbeats.ts`): a first one
+ * for everyone with a linked phone who has none. Only a schedule row; whether
+ * it runs, and as whom, is asked again when it is handed out.
+ */
+crons.interval("arm Tex's first check-ins", { hours: 24 }, internal.functions.heartbeats.armLinkedHeartbeats, {});
+
 crons.interval(
   "re-read routine folders",
   { hours: 6 },

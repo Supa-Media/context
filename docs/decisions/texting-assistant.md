@@ -247,6 +247,10 @@ Tex's nightly dream, which brings `tex/about-me.md` up to date from the
 day's transcripts and logs what it changed in `tex/dreams/`:
 [dreams](./texting-assistant/dreams.md).
 
+Tex's daytime check-in, which looks at what changed in the workspace three
+times a day and texts only when something is worth it, at most once a day:
+[heartbeat](./texting-assistant/heartbeat.md).
+
 Golden tasks (jobs Tex must always get right, gating a setup), the task
 skills it reads before doing one, and why a read skill may vouch for an
 address: [golden tasks](./texting-assistant/golden-tasks.md).
