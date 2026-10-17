@@ -18,7 +18,8 @@
  * Idempotent: a second run finds nothing and returns zeros. Bounded: each call
  * handles at most `limit` rows of each kind, and reports `more` when a call may
  * have left some behind. Run it from the Convex dashboard until `count` reports
- * zero, then remove the legacy schema lines in a follow-up.
+ * zero, then remove the legacy schema lines in a follow-up. `crons.ts` runs
+ * it hourly.
  */
 
 import { v } from "convex/values";
