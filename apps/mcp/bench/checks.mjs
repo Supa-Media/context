@@ -24,7 +24,10 @@
  *                                    where the note that was at that path is
  *                                    after the run (housekeeping moves notes,
  *                                    and a moved note's old name follows it):
- *                                    under a folder ending in `/`, or that path
+ *                                    under a folder ending in `/`, or that path;
+ *                                    optionally `with status: finished` (front
+ *                                    matter; `review: *` means any value) and
+ *                                    `containing <words>` (in its text)
  *
  * Each also takes `must not`. A verdict is a "must" or "must not" line like
  * the judge's, so a failed check fails its question, and on a task, the gate.
@@ -179,24 +182,43 @@ function wrote(value, changes) {
   });
 }
 
-/** A `file` check's two halves: `<workspace>/<path> under <workspace>/<place>`. */
+/**
+ * A `file` check: `<workspace>/<note>.md under <workspace>/<place>`, then
+ * optionally `with key: value, key: value` and `containing <words>`.
+ */
 export function fileTarget(value) {
-  const m = /^(\S+\/\S+\.md)\s+under\s+(\S+)$/.exec(value.trim());
-  if (!m) throw new Error(`file check: "${value}" is not "<workspace>/<note>.md under <workspace>/<folder>/"`);
-  return { note: m[1], place: m[2] };
+  const m = /^(\S+\/\S+\.md)\s+under\s+(\S+)(?:\s+with\s+(.+?))?(?:\s+containing\s+(.+))?$/.exec(value.trim());
+  if (!m) throw new Error(`file check: "${value}" is not "<workspace>/<note>.md under <workspace>/<folder>/ [with key: value] [containing words]"`);
+  const front = {};
+  for (const part of (m[3] ?? "").split(/,\s*(?=[A-Za-z][\w-]*:\s)/).filter((p) => p.trim())) {
+    const f = part.match(/^\s*([A-Za-z][\w-]*):\s*(.*?)\s*$/);
+    if (!f) throw new Error(`file check: "${part.trim()}" is not a front matter line (key: value)`);
+    front[f[1].toLowerCase()] = f[2];
+  }
+  return { note: m[1], place: m[2], front, containing: m[4]?.trim() ?? null };
 }
 
 /** The notes a question's `file` checks name, for the run to look up afterwards. */
 export function filedNotes(question) {
-  return (question.checks ?? []).filter((check) => check.what === "file").map((check) => fileTarget(check.value).note);
+  return [...new Set((question.checks ?? []).filter((check) => check.what === "file").map((check) => fileTarget(check.value).note))];
 }
 
-/** Whether the note named is at the place named, from the record's `where` (note → where it is now, or null). */
+/**
+ * Whether the note named is at the place named, and carries what the check
+ * asks, from the record's `where`: note → `{ at, front, text }` where it is
+ * now, or null when it is gone.
+ */
 function filed(value, where) {
-  const { note, place } = fileTarget(value);
+  const { note, place, front, containing } = fileTarget(value);
   const now = where[note];
-  if (typeof now !== "string") return false;
-  return place.endsWith("/") ? now.startsWith(place) : now === place;
+  if (!now || typeof now.at !== "string") return false;
+  const at = place.endsWith("/") ? now.at.startsWith(place) : now.at === place;
+  if (!at) return false;
+  for (const [key, want] of Object.entries(front)) {
+    const got = String(now.front?.[key] ?? "").trim();
+    if (want === "*" ? got === "" : got.toLowerCase() !== want.toLowerCase()) return false;
+  }
+  return containing === null || String(now.text ?? "").toLowerCase().includes(containing.toLowerCase());
 }
 
 /** The question's checks graded on one answer, as verdicts. */

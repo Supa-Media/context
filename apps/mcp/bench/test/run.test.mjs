@@ -141,7 +141,13 @@ test("a housekeeping test runs Tex's housekeeping once and records where each na
     const out = join(dir, "result.md");
     await execFileAsync(process.execPath, [RUN, "run", "texting-assistant", "--dir", dir, "--fake", "--no-fluff", "--test", "housekeeping", "--out", out], { timeout: 120000 });
     const note = await readFile(out, "utf8");
-    assert.ok(note.includes("Filed: ana/health/dentist.md → ana/health/dentist.md | ana/1-projects/kitchen/overview.md → ana/1-projects/kitchen/overview.md"), note);
+    const filed = JSON.parse(note.split("\n").find((line) => line.startsWith("Filed: ")).slice("Filed: ".length));
+    assert.equal(filed["ana/health/dentist.md"].at, "ana/health/dentist.md", note);
+    assert.equal(filed["ana/1-projects/kitchen/overview.md"].at, "ana/1-projects/kitchen/overview.md");
+    assert.equal(filed["ana/1-projects/kitchen/overview.md"].front.status, "finished", "the front matter rides along for `with` checks");
+    const { parseResult } = await import("../resultNote.mjs");
+    const [answer] = parseResult(note).answers;
+    assert.deepEqual(answer.where, filed, "the Filed line reads back as the run recorded it");
     assert.ok(note.includes("# Tex kept house,"), "the answer carries the log the run wrote");
     assert.ok(!note.includes("Error:"), note.slice(0, 800));
   } finally {

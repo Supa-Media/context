@@ -23,6 +23,12 @@
  *  5. `http/route.js` sending the texting client to housekeeping, and
  *     `handleHousekeeping` not checking the client itself.
  *     → "only housekeeping's own client keeps house" fails.
+ *  7. The `@name/` path refusal removed.
+ *     → "housekeeping refuses everything that widens, leaves, sends or creates" fails.
+ *  8. move_folder weighed as one note.
+ *     → "a folder counts every note in it toward the cap" fails.
+ *  9. The landing-folder check removed.
+ *     → "housekeeping refuses everything that widens, leaves, sends or creates" fails.
  *  6. The whole-top-level-folder refusal removed.
  *     → "a move that touches a protected path at either end, or a whole
  *       top-level folder, is refused" fails.
@@ -149,8 +155,19 @@ async function toolRefusals(check) {
         ? { isError: true, content: [{ type: "text", text: "not found" }] }
         : { content: [{ type: "text", text: `etag: e1\npath: ${args.path}\n\n${body}` }] };
     }
+    if (name === "list_notes") {
+      // Three top-level folders with notes in them; `1-projects/big/` holds 40.
+      const listing = {
+        "1-projects/": ["1-projects/x/overview.md"],
+        "2-areas/": ["2-areas/a.md"],
+        "4-archive/": ["4-archive/old.md"],
+        "1-projects/big/": Array.from({ length: 40 }, (_, i) => `1-projects/big/n${i}.md`),
+      }[args.prefix] ?? [];
+      return { content: [{ type: "text", text: listing.map((path) => `${path} (10 bytes)`).join("\n") }] };
+    }
     return { content: [{ type: "text", text: name === "archive_note" ? `archived: ${args.path} → 4-archive/2026-10-17-x.md` : "ok" }] };
   };
+  const changing = () => calls.filter((call) => !["read_note", "list_notes"].includes(call.name));
   const guard = housekeepingCallTool(dispatch, { maxCalls: 3 });
   const refusals = await Promise.all([
     guard.callTool("set_visibility", { path: "1-projects/x/overview.md", visibility: "team" }),
@@ -161,10 +178,15 @@ async function toolRefusals(check) {
     guard.callTool("move_note", { source: "1-projects/x/a.md", destination: "2-areas/a.md", confirm_team_publish: true }),
     guard.callTool("write_note", { path: "1-projects/new.md", content: "# New\n" }),
     guard.callTool("read_note", { path: "x.md", context: "@other" }),
+    guard.callTool("archive_note", { path: "@me/tex/routines/daily/x.md" }),
+    guard.callTool("write_note", { path: "@me/website/index.md", content: "x", expected_etag: "e1" }),
+    guard.callTool("move_note", { source: "2-areas/a.md", destination: "@team/2-areas/a.md" }),
+    guard.callTool("move_notes", { moves: [{ source: "2-areas/a.md", destination: "/@team/2-areas/a.md" }] }),
+    guard.callTool("move_note", { source: "2-areas/a.md", destination: "newfolder/a.md" }),
   ]);
   check(
     "housekeeping refuses everything that widens, leaves, sends or creates",
-    refusals.every((result) => result.isError === true) && calls.length === 0 && guard.changes.length === 0,
+    refusals.every((result) => result.isError === true) && changing().length === 0 && guard.changes.length === 0,
   );
   const protectedMoves = await Promise.all([
     guard.callTool("move_folder", { source: "tex", destination: "4-archive/tex" }),
@@ -174,10 +196,14 @@ async function toolRefusals(check) {
     guard.callTool("archive_note", { path: "todo.md" }),
     guard.callTool("move_notes", { moves: [{ source: "1-projects/x/a.md", destination: "2-areas/a.md" }, { source: "routines/daily/r.md", destination: "2-areas/r.md" }] }),
   ]);
-  check("a move that touches a protected path at either end, or a whole top-level folder, is refused", protectedMoves.every((result) => result.isError === true) && calls.length === 0);
+  check("a move that touches a protected path at either end, or a whole top-level folder, is refused", protectedMoves.every((result) => result.isError === true) && changing().length === 0);
 
   const cut = await guard.callTool("write_note", { path: "1-projects/x/overview.md", content: "# X\n", expected_etag: "e1" });
   check("a rewrite that drops most of a note is refused", cut.isError === true && !calls.some((call) => call.name === "write_note"));
+
+  const big = housekeepingCallTool(dispatch, { maxChanges: 30 });
+  const tooBig = await big.callTool("move_folder", { source: "1-projects/big", destination: "4-archive/1-projects/big" });
+  check("a folder counts every note in it toward the cap", tooBig.isError === true && /30 notes/.test(tooBig.content[0].text) && big.changes.length === 0);
 
   const status = await guard.callTool("write_note", {
     path: "1-projects/x/overview.md",

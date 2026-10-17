@@ -40,6 +40,19 @@ import { assertIsoDate, installClock, noonUtcMs, noteModifiedAt, realNow } from 
 const BRAVE_SEARCH = "https://api.search.brave.com/";
 
 export const S3_ENDPOINT = "https://s3.bench.invalid";
+/** How much of a filed note's text a record keeps, for `containing` checks. */
+const MAX_FILED_TEXT = 2000;
+
+/** A note's front matter as `key → value`, lower-cased keys, quotes dropped. */
+export function frontOf(text) {
+  const m = /^---\n([\s\S]*?)\n---(?:\n|$)/.exec(String(text ?? ""));
+  const out = {};
+  for (const line of (m?.[1] ?? "").split("\n")) {
+    const f = /^([A-Za-z][\w-]*):\s*(.*?)\s*$/.exec(line);
+    if (f) out[f[1].toLowerCase()] = f[2].replace(/^(["'])(.*)\1$/, "$2");
+  }
+  return out;
+}
 const PINNED = "context-lc";
 
 /**
@@ -413,7 +426,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       const body = await response.json().catch(() => null);
       await settle();
       const usage = controlPlane.builtinReports.at(-1) ?? {};
-      const log = typeof body?.log === "string" ? (await this.read(body.log))?.body ?? "" : "";
+      const log = typeof body?.log === "string" ? (await this.readThrough(body.log))?.body ?? "" : "";
       return {
         ok: response.status === 200 && typeof body?.outcome === "string",
         answer: [body?.line || `(${body?.outcome ?? "no outcome"}: nothing to text)`, log].filter(Boolean).join("\n\n"),
@@ -436,7 +449,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
      * `{ path, body }` where it is now (a moved note's old name follows it),
      * or null when there is none. `workspace` is another of theirs by name.
      */
-    async read(path, workspace = null) {
+    async readThrough(path, workspace = null) {
       const { ctx, settle } = createWorkerCtx();
       const context = workspace === null || workspace === own.workspace ? null : `@${workspace}`;
       const response = await worker.fetch(
@@ -461,14 +474,17 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       return { path: /^path: (.+)$/m.exec(text)?.[1] ?? path, body: split === -1 ? "" : text.slice(split + 2) };
     },
 
-    /** Where each `<workspace>/<path>` named is now, as `<workspace>/<path>`, or null. */
+    /**
+     * Where each `<workspace>/<path>` named is now: `{ at, front, text }`,
+     * `at` as `<workspace>/<path>`, or null when it is gone.
+     */
     async where(notes) {
       const out = {};
       for (const note of notes) {
-        const at = note.indexOf("/");
-        const workspace = note.slice(0, at);
-        const found = await this.read(note.slice(at + 1), workspace);
-        out[note] = found ? `${workspace}/${found.path}` : null;
+        const cut = note.indexOf("/");
+        const workspace = note.slice(0, cut);
+        const found = await this.readThrough(note.slice(cut + 1), workspace);
+        out[note] = found ? { at: `${workspace}/${found.path}`, front: frontOf(found.body), text: found.body.slice(0, MAX_FILED_TEXT) } : null;
       }
       return out;
     },

@@ -20,7 +20,10 @@
  *   - A rewrite that would drop most of a note is refused: housekeeping
  *     changes front matter and merges duplicates, it never cuts.
  *   - A whole top-level folder is never moved: archiving "all projects" is
- *     not housekeeping, it is a decision.
+ *     not housekeeping, it is a decision. Nor is a new one made: everything
+ *     lands in a built-in folder or a top-level folder that already has notes.
+ *   - No path may name a workspace (`@name/…`): the session routes those to
+ *     that workspace, so one would carry a change out of this one.
  *   - A cap on how much one run changes, so a bad run is a small one.
  */
 
@@ -43,6 +46,9 @@ export const MIN_KEPT_SHARE = 0.6;
 
 /** Run by other parts of the product: housekeeping never moves, archives or rewrites them. */
 const PROTECTED_PREFIXES = ["tex/", "routines/", "website/", ".context/"];
+
+/** The built-in folders a workspace may have, empty or not: PARA, and a business's three (numbered or not). */
+const BUILT_IN_FOLDER = /^(\d+-)?(inbox|projects|areas|resources|archive|clients|teams|products)$/i;
 
 /** The arguments each changing tool may carry; anything else is refused by name. */
 const ALLOWED_ARGS = {
@@ -92,11 +98,34 @@ function pathsOf(name, args) {
   }
 }
 
-/** How many notes a changing call changes, for the cap. A folder counts as one call's worth of the cap. */
-function weightOf(name, args) {
+/** The `path (N bytes)` lines of a listing: one per note. */
+function listedNotes(result) {
+  if (result?.isError === true) return 0;
+  return textOf(result).split("\n").filter((line) => /\S \(\d[\d,]* bytes\)\s*$/.test(line)).length;
+}
+
+/** Where a move puts things; nothing for a rewrite or an archive (which picks its own place). */
+function destinationsOf(name, args) {
+  if (name === "move_note" || name === "move_folder") return [args.destination];
+  if (name === "move_notes") return args.moves.map((move) => move?.destination);
+  return [];
+}
+
+/** How many notes a changing call changes, for the cap: a folder counts every note in it. */
+async function weightOf(dispatch, name, args) {
   if (name === "move_notes") return Array.isArray(args.moves) ? args.moves.length : 0;
-  if (name === "move_folder") return 10;
+  if (name === "move_folder") {
+    const prefix = `${plain(args.source).replace(/\/+$/, "")}/`;
+    return Math.max(1, listedNotes(await dispatch("list_notes", { prefix })));
+  }
   return 1;
+}
+
+/** The top-level folder a path lands in, or null for a note at the top. */
+function topFolder(path) {
+  const p = plain(path);
+  const cut = p.indexOf("/");
+  return cut <= 0 ? null : p.slice(0, cut);
 }
 
 /** What a successful change did, for the log and its undo line. */
@@ -151,6 +180,7 @@ export function housekeepingCallTool(dispatch, { maxChanges = MAX_HOUSEKEEPING_C
     if (paths.length === 0 || paths.some((path) => typeof path !== "string" || path.trim() === "")) {
       return refuse("Name every note or folder this changes.");
     }
+    if (paths.some((path) => plain(path).startsWith("@"))) return refuse("Housekeeping works in this workspace only: no path may name another.");
     for (const path of paths) {
       const why = protectedReason(path);
       if (why) return refuse(`Housekeeping leaves ${plain(path)} alone: ${why}.`);
@@ -159,10 +189,18 @@ export function housekeepingCallTool(dispatch, { maxChanges = MAX_HOUSEKEEPING_C
     if (name === "move_folder" && !plain(given.source).replace(/\/+$/, "").includes("/")) {
       return refuse(`Housekeeping moves what is inside ${plain(given.source)}, never the whole folder.`);
     }
+    // Where things land must already be a top-level folder with notes in it.
+    const landing = destinationsOf(name, given).map(topFolder);
+    for (const folder of new Set(landing)) {
+      if (folder === null || (!BUILT_IN_FOLDER.test(folder) && listedNotes(await dispatch("list_notes", { prefix: `${folder}/` })) === 0)) {
+        return refuse(`Housekeeping files into the folders this workspace already has; ${folder ?? "the top level"} isn't one.`);
+      }
+    }
     const dryRun = given.dry_run === true;
+    let weight = 0;
     if (!dryRun) {
       if (ledger.calls >= maxCalls) return refuse("That's enough for one run: stop changing things and write your summary.");
-      const weight = weightOf(name, given);
+      weight = await weightOf(dispatch, name, given);
       if (ledger.weight + weight > maxChanges) {
         return refuse(`That's more than one run may change (${maxChanges} notes): stop and write your summary.`);
       }
@@ -186,7 +224,7 @@ export function housekeepingCallTool(dispatch, { maxChanges = MAX_HOUSEKEEPING_C
     const result = await dispatch(name, given);
     if (!dryRun && result?.isError !== true) {
       ledger.calls += 1;
-      ledger.weight += weightOf(name, given);
+      ledger.weight += weight;
       for (const change of changesOf(name, given)) {
         if (change.do === "archived") {
           const to = archivedTo(result);

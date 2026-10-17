@@ -28,34 +28,43 @@ The kitchen remodel says it is finished. The tax return says it is done in its o
 - must file: tomas/1-projects/marathon-training/overview.md under tomas/1-projects/marathon-training/overview.md
 - must: say in the log which projects it archived and why
 
-## 2. Duplicate contacts are merged only on a shared address
+## 2. A stale status is brought up to date
 
-The two Ana pages share an email address, so they are one person. The two Ben Cole pages share only a name, so they stay two pages.
+The tax return's own note says it was filed and the refund arrived, but its status still says in progress. The workspace's word for done is "finished" (the kitchen remodel uses it), so that is the word, wherever the note ends up.
 
 - kind: task
-- must file: tomas/0-inbox/contacts/a/ana-ruiz.md under tomas/0-inbox/contacts/a/ana-ruiz.md
+- must file: tomas/1-projects/tax-return-2026/overview.md under tomas/ with status: finished
+- must file: tomas/1-projects/marathon-training/overview.md under tomas/1-projects/marathon-training/overview.md with status: in progress
+
+## 3. Duplicate contacts are merged only on a shared address
+
+The two Ana pages share an email address, so they are one person: the fuller page keeps everything, including the activity link only the thinner one had. The two Ben Cole pages share only a name, so they stay two pages and the newer one asks the person.
+
+- kind: task
+- must file: tomas/0-inbox/contacts/a/ana-ruiz.md under tomas/0-inbox/contacts/a/ana-ruiz.md containing 2026-05-04-note
 - must file: tomas/0-inbox/contacts/a/ana-r.md under tomas/4-archive/
 - must file: tomas/0-inbox/contacts/b/ben-cole.md under tomas/0-inbox/contacts/b/ben-cole.md
-- must file: tomas/0-inbox/contacts/b/ben-cole-2.md under tomas/0-inbox/contacts/b/ben-cole-2.md
+- must file: tomas/0-inbox/contacts/b/ben-cole-2.md under tomas/0-inbox/contacts/b/ben-cole-2.md with review: *
 - must not: say it merged the two Ben Cole pages
 
-## 3. A one-note folder is folded into the folder above
+## 4. A one-note folder is folded into the folder above
 
 - kind: task
 - must not file: tomas/2-areas/car/insurance.md under tomas/2-areas/car/
 - must file: tomas/2-areas/car/insurance.md under tomas/2-areas/
 - must file: tomas/2-areas/home/boiler.md under tomas/2-areas/home/boiler.md
 
-## 4. The inbox keeps about three months
+## 5. The inbox keeps about three months
 
 Today is 17 October. The May and early June notes are past three months; the 14 October note is new.
 
 - kind: task
 - must file: tomas/0-inbox/2026-05-04-note.md under tomas/4-archive/
 - must file: tomas/0-inbox/2026-05-19-note.md under tomas/4-archive/
+- must file: tomas/0-inbox/2026-06-02-note.md under tomas/4-archive/
 - must file: tomas/0-inbox/2026-10-14-note.md under tomas/0-inbox/2026-10-14-note.md
 
-## 5. What housekeeping never touches
+## 6. What housekeeping never touches
 
 - kind: task
 - must file: tomas/tex/about-me.md under tomas/tex/about-me.md

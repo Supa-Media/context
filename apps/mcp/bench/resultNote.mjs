@@ -236,12 +236,12 @@ export function parseJudgedSections(raw) {
   return sections;
 }
 
-/** A `Filed:` line read back: note → where it is now, or null where it was gone. */
+/** A `Filed:` line read back: note → `{ at, front, text }`, or null where it was gone. */
 function filedWhere(line) {
-  const out = {};
-  for (const part of line.split(" | ")) {
-    const [note, now] = part.split(" → ");
-    if (note && now !== undefined) out[note.trim()] = now.trim() === "gone" ? null : now.trim();
+  try {
+    const parsed = JSON.parse(line);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
   }
-  return out;
 }

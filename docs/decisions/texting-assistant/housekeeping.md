@@ -32,8 +32,11 @@ and `write_note` on a note that exists (an etag is required, and a rewrite
 that keeps less than 60% of the note's text is refused, because housekeeping
 changes front matter and merges, never cuts). Refused: anything that could
 widen who sees something (`mightWiden`), any other workspace, any other tool,
-and every path under `tex/`, `routines/`, `website/` or `.context/`, or at the
-top of the workspace. At most 30 changing calls and 150 notes a run.
+every path that names a workspace (`@name/…`, which the session would route
+there), every path under `tex/`, `routines/`, `website/` or `.context/`, or at
+the top of the workspace, a whole top-level folder, and a move into a
+top-level folder that is neither built in nor already holding notes. At most
+30 changing calls and 150 notes a run, a folder counting every note in it.
 
 **Reversible and logged.** Every change is a move, an archive or a versioned
 rewrite. `tex/housekeeping/YYYY-MM-DD.md` lists each one with the line that
