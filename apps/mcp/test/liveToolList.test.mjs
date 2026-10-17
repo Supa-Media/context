@@ -92,6 +92,8 @@ test("the full list stays compact", () => {
 const S3_ENDPOINT = "https://s3.example-live-tools.test";
 const token = (label) => `cat_live_${label.padEnd(12, "_")}${"0".repeat(24)}`;
 const STALE = token("stale");
+// Never asks tools/list, which stamps a grant current: "stale" does, earlier on.
+const STALE_UNLISTED = token("unlisted");
 const CURRENT = token("current");
 const READ_ONLY = token("readonly");
 const TEAM = token("team");
@@ -131,6 +133,7 @@ before(async () => {
   const longAgo = Date.parse(`${OLDEST.date}T00:00:00Z`) - 30 * DAY;
   const grant = (accessToken, extra) => controlPlane.addGrant({ workspaceId: "ws_live", accessToken, ...extra });
   await grant(STALE, { toolsListedAt: longAgo });
+  await grant(STALE_UNLISTED, { toolsListedAt: longAgo });
   await grant(CURRENT, { toolsListedAt: Date.now() + DAY });
   await grant(READ_ONLY, { toolsListedAt: longAgo, scopes: ["context:read"] });
   await grant(TEAM, { toolsListedAt: longAgo, scopes: ["context:read", "context:write"] });
@@ -268,7 +271,7 @@ test("each app is told its own way to load today's tools", () => {
 });
 
 test("most apps are told to pass unlisted arguments, with reconnecting as the way out", async () => {
-  const text = await orient(STALE);
+  const text = await orient(STALE_UNLISTED);
   const list = text.slice(text.indexOf(HEADING));
   assert.match(list, /Pass arguments exactly as listed here, even where your copy does not show them\./);
   assert.match(list, /refuses one or seems to ignore it, ask the person to reconnect\. .*Reconnect Context in your app/);
