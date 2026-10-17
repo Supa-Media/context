@@ -99,6 +99,10 @@ const OWNER = token("owner");
 const UNKNOWN = token("unknown");
 const ACROSS = token("across");
 const CODEX = token("codex");
+// Never sent tools/list, so it stays stale whichever tests ran first: the
+// listing test stamps STALE with today, and news dated before today then
+// drops out, so a check on STALE after it passed only on the news's own day.
+const NEVER_LISTED = token("neverlisted");
 const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET };
 const OLDEST = TOOL_NEWS[TOOL_NEWS.length - 1];
 
@@ -137,6 +141,7 @@ before(async () => {
   await grant(OWNER, { toolsListedAt: longAgo, scopes: ["context:read", "context:write", "context:private"] });
   await grant(UNKNOWN, { userId: "user_unknown" });
   await grant(CODEX, { toolsListedAt: longAgo, clientName: "Codex", userId: "user_codex" });
+  await grant(NEVER_LISTED, { toolsListedAt: longAgo, userId: "user_never_listed" });
   controlPlane.addWorkspace("ws_live_other", "liveother", {
     provider: "s3",
     endpoint: S3_ENDPOINT,
@@ -268,7 +273,7 @@ test("each app is told its own way to load today's tools", () => {
 });
 
 test("most apps are told to pass unlisted arguments, with reconnecting as the way out", async () => {
-  const text = await orient(STALE);
+  const text = await orient(NEVER_LISTED);
   const list = text.slice(text.indexOf(HEADING));
   assert.match(list, /Pass arguments exactly as listed here, even where your copy does not show them\./);
   assert.match(list, /refuses one or seems to ignore it, ask the person to reconnect\. .*Reconnect Context in your app/);
