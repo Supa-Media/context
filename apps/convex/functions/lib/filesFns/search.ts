@@ -108,8 +108,11 @@ export async function searchContextHandler(
   //
   // Nothing is scheduled for a converged index. A pass per search over a
   // bucket with no work in it is a full listing per search, billed to the
-  // customer, to discover there was nothing to do.
-  if (result.indexMissing || result.indexIncomplete) {
+  // customer, to discover there was nothing to do. Nor for an answer from a
+  // search database, filling or not: its own scheduled copy fills it, and a
+  // chain of bucket-index passes behind it was a dozen listings per search
+  // for an index nothing reads (decided by the owner, 2026-10-17).
+  if (result.indexMissing || (result.answeredBy === "index" && result.indexIncomplete)) {
     await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,

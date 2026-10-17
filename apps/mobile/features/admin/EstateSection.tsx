@@ -270,12 +270,6 @@ export function EstateSection({ days }: { days: number }) {
               openInbox: src.mailOpen > 0,
             },
             {
-              key: "dropbox",
-              label: "Dropbox as storage",
-              sub: "a folder rather than a bucket",
-              value: src.dropbox,
-            },
-            {
               key: "obsidian",
               label: "Obsidian plugins",
               sub: "contexts with a live plugin grant",

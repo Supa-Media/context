@@ -21,7 +21,6 @@ import { runSearchV2IntegrationChecks } from "./searchV2Integration.test.mjs";
 import { runSearchV2IntegrationShardChecks } from "./searchV2IntegrationShards.test.mjs";
 import { runStoreFactoryChecks } from "./storeFactory.test.mjs";
 import { runTenancyChecks } from "./tenancy.test.mjs";
-import { runDropboxFolderChecks } from "./dropboxFolders.test.mjs";
 import { runPluginChecks } from "./plugins.test.mjs";
 import { runContextPluginChecks } from "./contextPlugins.test.mjs";
 import { runPrivacyGroupChecks } from "./privacyGroups.test.mjs";
@@ -329,7 +328,6 @@ await suite("runCommentToolChecks", () => runCommentToolChecks(check, { call, co
 }
 
 await suite("runTenancyChecks", () => runTenancyChecks(check));
-await suite("runDropboxFolderChecks", () => runDropboxFolderChecks(check));
 await suite("runCrossContextChecks", () => runCrossContextChecks(check));
 // The two bulk-move suites (thousands of objects through the real S3 signing
 // path) run from test/bulkMoves.mjs, in their own process beside this one;

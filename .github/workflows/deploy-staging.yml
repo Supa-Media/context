@@ -119,8 +119,6 @@ jobs:
       # Optional: a custom push audience, and `off` as the brake.
       GOOGLE_PUSH_AUDIENCE: ${{ secrets.GOOGLE_PUSH_AUDIENCE }}
       GOOGLE_PUSH: ${{ secrets.GOOGLE_PUSH }}
-      DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
-      DROPBOX_APP_SECRET: ${{ secrets.DROPBOX_APP_SECRET }}
       PLUGIN_EGRESS_URL: ${{ secrets.PLUGIN_EGRESS_URL }}
       PLUGIN_EGRESS_SECRET: ${{ secrets.PLUGIN_EGRESS_SECRET }}
       STRIPE_PRICE_ID: ${{ secrets.STRIPE_PRICE_ID }}

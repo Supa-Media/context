@@ -159,3 +159,7 @@ Moved to [A note shared with a named person opens for them wherever it lives](./
 ### Blocking is per recipient, and a report is never an oracle
 
 Moved to [Blocking is per recipient, and a report is never an oracle](./privacy-and-sharing/reporting-and-blocking.md#blocking-is-per-recipient-and-a-report-is-never-an-oracle-2026-10-15).
+
+### The share dialog writes a list and its base together, and a domain is never a grantee
+
+Moved to [The share dialog writes a list and its base together](./privacy-and-sharing/share-dialog-lists.md#the-share-dialog-writes-a-list-and-its-base-together-and-a-domain-is-never-a-grantee-2026-10-17).

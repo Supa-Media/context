@@ -7,14 +7,14 @@
  * actually leaks. Tenants on different providers would pass an isolation suite
  * that a one-character bug defeats.
  *
- * Two more are stood up on Dropbox, where that arrangement gets tighter still:
- * no bucket name and no per-tenant endpoint, so **the same two URLs and the
- * same customer-chosen folder, separated by the access token alone.**
+ * Two more are stood up on their own buckets with the same rootPrefix and key
+ * layout (`tenant-c` / `tenant-d`), so **nothing but the bucket and the key
+ * pair tells them apart.** They were on a store removed on 2026-10-16, and a
+ * binding for that store now gets a refusal.
  *
  * Offline and dependency-free: the control plane is an in-memory server
- * speaking the documented HTTP contract, the object store is an in-memory S3
- * backend the real `S3Store` signs requests against, and the Dropbox tenants
- * run against an in-memory Dropbox the real `DropboxStore` calls.
+ * speaking the documented HTTP contract, and the object store is an in-memory S3
+ * backend the real `S3Store` signs requests against.
  *
  * ## Sabotage record
  *
@@ -32,16 +32,7 @@
  *    2 checks failed, including the `…/callback.evil` suffix attack.
  * 3. **PKCE not enforced** — `plain` accepted at the authorization endpoint and
  *    the verifier never compared. 2 checks failed.
- * 4. **The in-memory Dropbox ignores the bearer token** and serves every tenant
- *    out of one account — the shape of a gateway that built a store from the
- *    wrong binding. 2 checks failed, including the two tenants' identically
- *    pathed `1-projects/alpha.md` resolving to one file. Sabotaging the *stub*
- *    rather than the source is the point here: a backend that cannot tell its
- *    accounts apart would make every Dropbox isolation claim below vacuous.
- * 5. **The store factory drops `rootPrefix` for Dropbox.** 4 checks failed
- *    here, because a folder the customer chose is not something the adapter may
- *    lose track of. See `storeFactory.test.mjs` for the rest of that record.
- * 6. **The loopback exception's host and scheme comparisons**, one at a time.
+ * 4. **The loopback exception's host and scheme comparisons**, one at a time.
  *    Before the two checks added beside the port attack, each failed
  *    **nothing**; now each fails 1. The host half is the serious one: the
  *    branch is reached whenever the *registered* URI is loopback, which is
@@ -51,7 +42,7 @@
  *    this one is the exception carved out of it — the carve-out needed its own
  *    record, because "ignores the port and nothing else" was a claim about
  *    three fields with one of them asserted.
- * 7. **`normalizeClientName`, one filter at a time, then both, then the
+ * 5. **`normalizeClientName`, one filter at a time, then both, then the
  *    character class from both sides.** Dropping the hostile-character strip
  *    fails **2** and *not* the line-break check, because the whitespace
  *    collapse catches `\n` as well — two guards over one input, each of which
@@ -70,7 +61,7 @@
  *
  * This file used to hold every one of these checks directly, in one
  * 2,345-line function that built a single shared harness (a real S3 backend,
- * a real Dropbox backend, and a real control-plane stub) and ran every
+ * and a real control-plane stub) and ran every
  * section against it in order — nearly every section reads state a previous
  * one left behind (a listing's own text, a response object, an authorization
  * flow's client id and PKCE verifier), most sharply in §14's rollup, which

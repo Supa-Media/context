@@ -31,7 +31,7 @@
  * narrower list is not worth being wrong about.
  *
  * The list is derived rather than typed for the same reason a hand-written set
- * went stale in the Dropbox guards. A file qualifies if it reads the gateway's
+ * went stale in the storage guards. A file qualifies if it reads the gateway's
  * source directly or imports the helper that does.
  *
  * Usage:

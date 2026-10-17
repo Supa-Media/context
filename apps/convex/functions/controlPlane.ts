@@ -69,7 +69,6 @@ import * as gatewayJobs from "./lib/controlPlane/gatewayJobs";
 import * as validators from "./lib/controlPlane/validators";
 
 export type {
-  DropboxGatewayBinding,
   GatewayBinding,
   GatewayEncryptionKey,
   GatewayKeyRotation,
@@ -424,36 +423,6 @@ export const openStorageBinding = internalAction({
       return null;
     }
 
-    // Built per provider, never spread. A workspace rebound from a bucket to
-    // Dropbox can still have an `accessKeyId` sitting on its row; spread into
-    // this payload it would reach the gateway as a credential for storage this
-    // binding no longer points at — which the gateway's factory now refuses as
-    // a cross-provider credential, so the failure would be loud rather than
-    // silent, but the payload should never have carried it.
-    if (credential.provider === "dropbox") {
-      return {
-        binding: {
-          // The context this credential was opened for, which is the selected
-          // one and not the session's default. The gateway compares it against
-          // what *it* resolved and refuses a mismatch, so answering with the
-          // default here would make every cross-context call fail as a
-          // disagreement about which tenant it is — fail-closed, and completely.
-          workspaceId,
-          provider: credential.provider,
-          accessToken: credential.accessToken,
-          rootPrefix: credential.rootPrefix,
-          capabilities: credential.capabilities,
-          status: "active",
-        },
-        searchIndex,
-        meaningIndex,
-        encryptionKey,
-        rotation,
-        noteCap,
-        managedEncryption,
-      };
-    }
-
     return {
       binding: {
         workspaceId,
@@ -617,26 +586,6 @@ export const openGatewayJob = internalAction({
       return { retryAfterMs: 30_000 };
     }
 
-    if (credential.provider === "dropbox") {
-      return {
-        job: claimed,
-        binding: {
-          workspaceId: claimed.workspaceId,
-          provider: credential.provider,
-          accessToken: credential.accessToken,
-          rootPrefix: credential.rootPrefix,
-          capabilities: credential.capabilities,
-          status: "active",
-        },
-        searchIndex,
-        meaningIndex,
-        encryptionKey,
-        rotation,
-        managedEncryption,
-        privacy,
-        keyed,
-      };
-    }
     return {
       job: claimed,
       binding: {

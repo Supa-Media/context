@@ -112,7 +112,7 @@ export const termsContent: LegalPageContent = {
     {
       title: "Connected services",
       body: [
-        "You can connect services such as Google, Dropbox, S3-compatible storage, or other providers when the product supports them.",
+        "You can connect services such as Google, S3-compatible storage, or other providers when the product supports them.",
         "By connecting a provider, you authorize Context.lc to access and process the provider data needed to deliver the selected feature. You can disconnect providers through Context.lc settings or revoke access directly with the provider.",
       ],
     },

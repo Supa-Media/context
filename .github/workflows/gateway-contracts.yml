@@ -51,7 +51,7 @@
 # The suite itself now runs in ONE place: `ci / Test Convex Backend` (three
 # shards, under the required `ci / Test Summary`), whose change filter in
 # ci.yml was widened to every path this file watched — apps/mcp,
-# packages/collaboration, the Dropbox mirror and the lockfile among them. It
+# packages/collaboration and the lockfile among them. It
 # used to run here as well, the same 226 files twice on most pull requests
 # (about 85 runner-minutes in three hours, measured 2026-10-07). This file
 # keeps the part only it does: proving the cross-package contract still exists.
@@ -108,8 +108,6 @@ jobs:
             @context/mcp
             @context/convex
           paths: |
-            apps/mobile/features/console/storage/dropbox.ts
-            apps/mobile/features/console/storage/dropbox.web.ts
             .github/workflows/gateway-contracts.yml
 
       # The detector self-tests, and fails when it finds nothing. A scan that

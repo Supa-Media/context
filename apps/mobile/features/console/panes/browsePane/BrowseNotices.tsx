@@ -1,4 +1,3 @@
-import { Platform } from "react-native";
 import { View } from "react-native";
 import { Button } from "../../../design/components/Button";
 import { Text } from "../../../design/components/Text";
@@ -16,7 +15,6 @@ import { makeStyles } from "./styles";
 import type { BrowseNoticeState } from "./useBrowseNotices";
 import { sharedWelcome } from "../../sharedWelcome";
 import { SharedWelcomeCard } from "./SharedWelcomeCard";
-import { DROPBOX_ENDING } from "../../storage/handoff/copy";
 import { MainFoldersNotice } from "./MainFoldersNotice";
 import { NO_BUCKET_NOTICE, isNoBucketNotice } from "./noBucketNotice";
 
@@ -41,7 +39,6 @@ export function BrowseNotices({
   moveNotices,
   setDismissedMoves,
   storageMigration,
-  dropboxEnding,
   missingFolders,
 }: {
   data: ConsoleData;
@@ -60,7 +57,6 @@ export function BrowseNotices({
   moveNotices: BrowseNoticeState["moveNotices"];
   setDismissedMoves: BrowseNoticeState["setDismissedMoves"];
   storageMigration: BrowseNoticeState["storageMigration"];
-  dropboxEnding: BrowseNoticeState["dropboxEnding"];
   missingFolders: BrowseNoticeState["missingFolders"];
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -311,33 +307,6 @@ export function BrowseNotices({
         asked — and the dialog behind the first is the same one both entry
         points raise.
       */}
-      {/*
-        Dropbox support is ending: the two ways off it, and a way to be asked
-        again later. A hint, not a warning: nothing is broken yet.
-      */}
-      {dropboxEnding.visible ? (
-        <View style={styles.notice} testID="browse-dropbox-ending">
-          <Text variant="hint">{DROPBOX_ENDING.line}</Text>
-          <View style={styles.noticeActions}>
-            {onOpenSettings === undefined ? null : (
-              <>
-                <Button
-                  label={DROPBOX_ENDING.toBucket}
-                  onPress={() => onOpenSettings("storage")}
-                  testID="browse-dropbox-to-bucket"
-                />
-                {Platform.OS === "web" ? <Button
-                  label={DROPBOX_ENDING.toContext}
-                  onPress={() => onOpenSettings("premium")}
-                  testID="browse-dropbox-to-context"
-                /> : null}
-              </>
-            )}
-            <Button label="Not now" onPress={dropboxEnding.dismiss} testID="browse-dropbox-dismiss" />
-          </View>
-        </View>
-      ) : null}
-
       {missingFolders.visible ? <MainFoldersNotice files={files} dismiss={missingFolders.dismiss} /> : null}
 
       {storageMigration.visible && files.updateStorageLayout !== undefined ? (

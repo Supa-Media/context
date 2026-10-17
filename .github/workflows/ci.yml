@@ -115,8 +115,6 @@ jobs:
           - 'infra/**'
           - 'plugins/context/**'
           - 'docs/deferred/**'
-          - 'apps/mobile/features/console/storage/dropbox.ts'
-          - 'apps/mobile/features/console/storage/dropbox.web.ts'
           - 'apps/mobile/features/auth/**'
           - 'apps/mobile/features/workspace/presets.ts'
           - 'apps/mobile/features/design/tokens/colors.ts'

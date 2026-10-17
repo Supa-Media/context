@@ -20,7 +20,7 @@ export const MAX_NOTE_BYTES = 2_000_000;
 // Matched to the gateway's own `LIST_PAGE_CAP`. They disagreed at 20 vs 100,
 // which meant a folder `list_notes` walked happily was refused by the console —
 // and the page size is a *hint*: S3 may return fewer keys than `max-keys` and
-// Dropbox documents `limit` as approximate, so the object count this actually
+// some providers document `limit` as approximate, so the object count this actually
 // corresponds to is provider-dependent and can be far lower than the arithmetic
 // suggests. A cap that fires on an ordinary folder is an outage, and the answer
 // here is a refusal rather than a silent half-operation.

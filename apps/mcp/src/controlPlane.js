@@ -199,18 +199,8 @@
  *       "status":       "active"
  *   } }
  *
- * response 200, Dropbox binding (the one-click tier):
- *   { "binding": {
- *       "workspaceId":  "<the workspace THE GRANT names>",
- *       "provider":     "dropbox",
- *       "accessToken":  "<short-lived>",      // radioactive: use it, never log it
- *       "rootPrefix":   "context/",           // optional; the folder the customer chose
- *       "capabilities": { "conditionalWrite": true },
- *       "status":       "active"
- *   } }
- *
- * **A Dropbox binding has no endpoint, region, bucket, or key pair, and every
- * one of those fields is absent rather than empty.** The gateway builds a store
+ * **Each provider's binding carries only the fields that provider uses; every
+ * other field is absent rather than empty.** The gateway builds a store
  * from the fields its `provider` names and refuses a binding carrying a
  * credential that provider cannot use — so the control plane must *select* the
  * fields for the provider rather than spreading a storage row that may still
@@ -268,7 +258,7 @@
  * THE REFRESH TOKEN NEVER CROSSES THIS BOUNDARY
  * ----------------------------------------------------------------------------
  *
- * Dropbox's long-lived credential is its refresh token: it mints access tokens
+ * A provider's long-lived credential is its refresh token: it mints access tokens
  * for as long as the customer leaves the connection in place. **The control
  * plane keeps it and sends the gateway a short-lived access token only**,
  * refreshing when the stored one is within 60s of expiry and persisting the new

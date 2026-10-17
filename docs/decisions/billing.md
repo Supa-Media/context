@@ -377,7 +377,7 @@ workspace lives in component state behind `/workspace/new`, which would restart
 at step 1 with the name already claimed — the worst possible landing for
 somebody who has just paid. The workspace's own Premium section is a real page
 that already draws the settling wait, so the return goes there. It costs the
-two remaining steps of the flow, exactly as the Dropbox redirect does, and
+two remaining steps of the flow, and
 `WORKSPACE_AFTER_PAY` says so on the screen that takes the payment rather than
 afterwards — first run's "Stripe brings you back here" would be a promise this
 flow cannot keep.
@@ -502,8 +502,3 @@ paid bucket where it can only sell one, and only a bucket of their own where it
 can do neither. A bucket somebody brought gets a dry-run report before the vault
 question, and it says what the probe did: one temporary object written under
 `.context/probes/` and removed — never "nothing was written".
-
-**No new Dropbox connections.** Onboarding and new workspaces no longer offer
-Dropbox. A context already bound to Dropbox keeps working and can reconnect
-from Settings, because non-negotiable #2 says an existing workspace must keep
-working unchanged; removing the adapter would break exactly those.

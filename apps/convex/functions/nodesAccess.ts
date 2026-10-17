@@ -13,9 +13,10 @@
  */
 
 import { v } from "convex/values";
-import { internalMutation, internalQuery, mutation, type MutationCtx } from "../_generated/server";
+import { internalMutation, internalQuery, mutation, query, type MutationCtx } from "../_generated/server";
 import { addGranteesHandler } from "./lib/nodes/addGrantees";
 import { granteeRequestValidator, setGranteesAnswerValidator, setGranteesHandler } from "./lib/nodes/setGrantees";
+import { shareListHandler, shareListValidator } from "./lib/nodes/shareList";
 import { accessSourceOf, resolveHandle } from "./lib/nodes/accessBackfill";
 import { scanAccessRows } from "./lib/nodes/accessRows";
 import { livePending } from "./lib/nodes/pendingAccess";
@@ -188,7 +189,13 @@ export const consoleAccess = internalMutation({
     } else {
       const tier = args.tier ?? "private";
       visibility = tier;
-      base = args.kind === "note" && tier === inherited ? "inherit" : tier;
+      // Back to inheriting only for a note with no list of its own: `inherit` clears the list, and a person
+      // named on a note keeps it when the rest of the workspace is let in or shut out.
+      const listed = (await ctx.db
+        .query("nodeAccess")
+        .withIndex("by_node", (q) => q.eq("nodeId", exists._id))
+        .collect()).some((grant) => grant.source !== "share");
+      base = args.kind === "note" && tier === inherited && !listed ? "inherit" : tier;
     }
 
     const answer = await setAccessRow(ctx, { workspaceId: args.workspaceId, path: args.path, base, grantees, actor });
@@ -269,16 +276,28 @@ export const ensureFolderDefault = internalMutation({
 /**
  * The owner's list on one row, named by handles, group ids and emails (`lib/nodes/setGrantees.ts`). Owner only:
  * a member gets `FORBIDDEN`, a non-member the same `NOT_FOUND` as a path that does not exist. Replaces the list;
- * the row's base is kept.
+ * the row's base is kept unless `base` is given, which the share dialog sends with every list.
  */
 export const setGrantees = mutation({
   args: {
     workspaceId: v.id("workspaces"),
     path: v.string(),
     grantees: v.array(granteeRequestValidator),
+    base: v.optional(v.union(v.literal("private"), v.literal("team"), v.literal("inherit"))),
+    expectedVersion: v.optional(v.number()),
   },
   returns: setGranteesAnswerValidator,
   handler: async (ctx, args) => await setGranteesHandler(ctx, args),
+});
+
+/**
+ * Who one row is shared with, for its owner's share dialog (`lib/nodes/shareList.ts`): its own list, or the folder
+ * list it follows. `null` for anyone but an owner, outside rows mode, and for a path with no row.
+ */
+export const shareList = query({
+  args: { workspaceId: v.id("workspaces"), path: v.string() },
+  returns: shareListValidator,
+  handler: async (ctx, args) => await shareListHandler(ctx, args),
 });
 
 /**

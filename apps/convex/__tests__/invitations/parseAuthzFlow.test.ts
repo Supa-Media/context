@@ -78,8 +78,8 @@ describe("parsing an invitee", () => {
    * `supa-framework/.github/workflows/ci.yml`, not assumed — so a change to the
    * shared rule itself runs both suites.
    *
-   * The convex suite already reaches into the mobile app (see
-   * `dropboxConnect.test.ts`), so the import costs nothing new — and it has to
+   * The convex suite already reaches into the mobile app (see the
+   * Google connect tests), so the import costs nothing new — and it has to
    * be the mobile function rather than the shared one, or the test proves only
    * that `packages/shared` agrees with itself.
    *

@@ -9,6 +9,7 @@
 import { ConvexError } from "convex/values";
 import { decodeSegment } from "../../../../mcp/src/store/index.js";
 import { managedAccountId, refuseManagedEndpoint } from "../managedStorage";
+import { isServedProvider } from "./shapes";
 
 /**
  * Hostnames and literal addresses that are not somewhere on the public
@@ -229,8 +230,8 @@ export function ambiguousAddressingError(
  * So the question is narrower than "was this row rewritten": it is *"do the
  * notes live somewhere else now"*. Rotating an access key on the bucket
  * somebody already had is a repair and keeps its index. Pointing the workspace
- * at a different bucket, or at a different Dropbox account, is a move, and the
- * projection describes somewhere the person has left.
+ * at a different bucket is a move, and the projection describes somewhere the
+ * person has left.
  *
  * `rootPrefix` is part of the address for the same reason it is part of every
  * key: the same bucket under a different prefix is a different context's worth
@@ -247,16 +248,13 @@ export function storageAddress(
     endpoint?: string;
     bucket?: string;
     rootPrefix?: string;
-    dropboxAccountId?: string;
   } | null,
 ): string | null {
   if (binding === null || binding === undefined) return null;
   const prefix = binding.rootPrefix ?? "";
-  if (binding.provider === "dropbox") {
-    return binding.dropboxAccountId
-      ? `dropbox\u0000${binding.dropboxAccountId}\u0000${prefix}`
-      : null;
-  }
+  // A row from a provider this deployment no longer serves names no address
+  // this code can read.
+  if (binding.provider !== undefined && !isServedProvider(binding.provider)) return null;
   if (!binding.provider || !binding.bucket) return null;
   return `${binding.provider}\u0000${binding.endpoint ?? ""}\u0000${binding.bucket}\u0000${prefix}`;
 }
@@ -274,12 +272,9 @@ export function storageAddress(
  * attached to a binding for a different bucket; releasing it costs a rebuild
  * of a derivative that is disposable by construction.
  *
- * It is not a hypothetical shape. `recordConnectFailure` records a failed
- * Dropbox sign-in by patching `provider: "dropbox"` onto a row that is not
- * `connected` — with no account id, and with the S3 fields it is written over
- * left in place — so one expired sign-in on a workspace whose binding is in
- * `error` is enough to make the address unreadable while its projection is
- * still `ready`. The next rebind is then a move nothing could see.
+ * It is not a hypothetical shape: a row can carry an unreadable address while
+ * its projection is still `ready`, and the next rebind is then a move nothing
+ * could see. So an unreadable `before` counts as moved.
  */
 export function storageMoved(
   before: Parameters<typeof storageAddress>[0],

@@ -1,3 +1,4 @@
+import { LEGACY_PROVIDER } from "../../functions/dropboxRemoval";
 import { describe, expect, test } from "vitest";
 import { api, internal } from "../../_generated/api";
 import { storageMoved } from "../../functions/storage";
@@ -524,7 +525,6 @@ describe("storage going away takes the projection with it", () => {
     expect(storageMoved(here, { ...here })).toBe(false);
     expect(storageMoved(here, { ...here, bucket: "c" })).toBe(true);
     expect(storageMoved(here, { ...here, rootPrefix: "sub/" })).toBe(true);
-    expect(storageMoved(here, { provider: "dropbox", dropboxAccountId: "dbid:x" })).toBe(true);
     // A first connect has nothing to have moved from.
     expect(storageMoved(null, here)).toBe(false);
     /*
@@ -540,25 +540,21 @@ describe("storage going away takes the projection with it", () => {
       re-provision of a disposable derivative on a row that was already
       half-built.
 
-      It is reachable rather than hypothetical: `recordConnectFailure` writes
-      `provider: "dropbox"` over a non-connected row without an account id,
-      so a workspace whose S3 binding is in `error` and whose projection is
-      `ready` comes out of one failed Dropbox connect with an address nothing
-      can read. The integration test below walks exactly that.
+      It is reachable rather than hypothetical: a row from a removed provider
+      (which has no address this code can read) can sit over an S3 row's
+      leftover fields, so a workspace whose projection is `ready` can carry an
+      address nothing can read. The integration test
+      below walks exactly that.
 
       `null` — no row at all — stays `false`: a first connect has nothing to
       have moved from, and that is a different fact from a row that names
       nowhere.
     */
     expect(storageMoved({ provider: "s3" }, here)).toBe(true);
-    expect(storageMoved({ provider: "dropbox" }, here)).toBe(true);
-    // Dropbox is addressed by account, so the same account is the same place.
-    const dbx = { provider: "dropbox", dropboxAccountId: "dbid:one" };
-    expect(storageMoved(dbx, { ...dbx })).toBe(false);
-    expect(storageMoved(dbx, { ...dbx, dropboxAccountId: "dbid:two" })).toBe(true);
+    expect(storageMoved({ provider: LEGACY_PROVIDER }, here)).toBe(true);
   });
 
-  test("a failed Dropbox connect does not strand the old bucket's notes", async () => {
+  test("a legacy non-served provider row does not strand the old bucket's notes", async () => {
     /*
       THE DOOR THIS DESCRIBE BLOCK LEFT OPEN, WALKED END TO END.
 
@@ -566,11 +562,10 @@ describe("storage going away takes the projection with it", () => {
 
         1. S3 bucket, fast search on, the projection holds their notes.
         2. The binding goes to `error` — a rotated key, a provider hiccup.
-        3. They press Connect Dropbox and the sign-in takes too long.
-           `recordConnectFailure` patches `provider: "dropbox"` onto the row
-           and leaves the S3 fields where they are. There is no account id, so
-           `storageAddress` can no longer read the row.
-        4. They give up on Dropbox and connect a DIFFERENT bucket.
+        3. They try a second provider and the sign-in takes too long.
+           The attempt leaves the S3 fields where they are, and there is no
+           account id, so `storageAddress` can no longer read the row.
+        4. They give up and connect a DIFFERENT bucket.
 
       At step 4 the row names somewhere new and the projection still holds the
       old bucket's note text — titles, headings, body chunks — with `optedIn`
@@ -588,21 +583,22 @@ describe("storage going away takes the projection with it", () => {
       await ctx.db.patch(binding!._id, { status: "error" });
     });
 
-    await t.mutation(internal.functions.dropboxConnect.recordConnectFailure, {
-      workspaceId,
-      boundBy: owner,
-      errorCode: "DROPBOX_CODE_EXPIRED",
-    });
-
     // The shape that does it: a provider with no address, over a bucket that
-    // still has a projection.
+    // still has a projection. Written directly, as a removed provider's row
+    // would be.
     await t.run(async (ctx) => {
       const binding = await ctx.db
         .query("storageBindings")
         .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
         .unique();
-      expect(binding?.provider).toBe("dropbox");
-      expect(binding?.dropboxAccountId).toBeUndefined();
+      await ctx.db.patch(binding!._id, { provider: LEGACY_PROVIDER });
+    });
+    await t.run(async (ctx) => {
+      const binding = await ctx.db
+        .query("storageBindings")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique();
+      expect(binding?.provider).toBe(LEGACY_PROVIDER);
       expect(binding?.bucket).toBe("old-bucket");
     });
     expect((await bindingRow(t, workspaceId))?.status).toBe("ready");

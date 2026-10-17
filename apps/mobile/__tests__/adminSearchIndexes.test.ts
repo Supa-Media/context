@@ -130,7 +130,7 @@ describe("the Convex copy column", () => {
     expect(convexCell(migration({ stage: "skipped" }))).toMatchObject({
       health: "off",
       label: "Skipped",
-      problem: "This storage can't be listed in order (Dropbox)",
+      problem: "This storage can't be listed in order",
     });
     expect(convexCell(null).health).toBe("none");
   });

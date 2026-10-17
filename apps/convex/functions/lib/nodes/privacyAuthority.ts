@@ -116,7 +116,7 @@ export async function noticePrivacyListing(
   workspaceId: Id<"workspaces">,
   etag: string | undefined,
 ): Promise<void> {
-  // A store that lists no versions (Dropbox) cannot tell; its next change writes the file.
+  // A store that lists no versions (one that ignores key order) cannot tell; its next change writes the file.
   if (etag === undefined) return;
   // In rows mode the file is not the rules' export, so an edit to it is not a reason to write it back.
   if (await rowsOnNow(ctx)) return;

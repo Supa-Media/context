@@ -64,6 +64,7 @@ import {
 import { type ForwardSyncJob, timeoutFetch } from "./forwardSyncSupport";
 import {
   type FileOperation,
+  IDLE_INDEX_PASS,
   IDLE_PROJECTION,
   IDLE_PRUNE,
   type OperationResult,
@@ -120,9 +121,10 @@ export async function runFileOperationHandler(
    * `projectionTargetForWorkspace` is the same composed gate that decides
    * whether a D1 write credential may leave this deployment for the gateway,
    * and every reason to say no is the same `null`. `backfilling` and nothing
-   * else: a `ready` row is served by the gateway riding its own search's
-   * sync, and a chain that kept running against one would be a full bucket
-   * listing per link, forever, for a context with nothing left to copy.
+   * else: a `ready` row is kept current by writes and repaired by the daily
+   * check (`prunePass.ts`), and a chain that kept running against one would
+   * be a full bucket listing per link, forever, for a context with nothing
+   * left to copy.
    */
   let projection: ProjectionClient | null = null;
   let projectionLeaseToken: string | null = null;
@@ -190,10 +192,28 @@ export async function runFileOperationHandler(
   // (`search/d1/follow.js`). Silent on every no, as a search is.
   // So is a queued folder move when its copy lands, and the daily check of a
   // `ready` database removes rows for notes that are gone (`prunePass.ts`).
-  if (args.operation.kind === "indexNotes" || args.operation.kind === "nodesMoveWork" || args.operation.kind === "pruneIndex") {
+  //
+  // A context with a search database, ready or still filling, keeps no index
+  // in its bucket (decided by the owner, 2026-10-17): its database is the
+  // search, its own scheduled copy fills it, and a bucket-index pass was a
+  // listing and a read of every changed note for an index nothing reads. So
+  // `maintainIndex` stops here, before any credential, and `indexNotes`
+  // follows the change into the database alone.
+  let operation: FileOperation = args.operation as FileOperation;
+  if (args.operation.kind === "maintainIndex" || args.operation.kind === "indexNotes" || args.operation.kind === "nodesMoveWork" || args.operation.kind === "pruneIndex") {
     // Never fails the operation it rides on: a move's copy must not stop over a derivative.
-    const target = await projectionTarget("ready").catch(() => null);
-    if (target !== null) projection = await clientFor(target).catch(() => null);
+    const target = await ctx
+      .runQuery(internal.functions.fastSearch.projectionTargetForWorkspace, { workspaceId: args.workspaceId })
+      .catch(() => null);
+    // A database a search can actually open, on the same terms the search
+    // uses above: with no credential to reach it, the bucket's index is still
+    // what answers, so it is still kept.
+    const client = target !== null && (target.state === "ready" || target.state === "backfilling")
+      ? await clientFor(target).catch(() => null)
+      : null;
+    if (args.operation.kind === "maintainIndex" && client !== null) return IDLE_INDEX_PASS;
+    if (args.operation.kind === "indexNotes" && client !== null) operation = { ...args.operation, shardIndex: false };
+    if (target?.state === "ready") projection = client;
     if (args.operation.kind === "pruneIndex" && projection === null) return IDLE_PRUNE;
   }
 
@@ -390,7 +410,7 @@ export async function runFileOperationHandler(
     // the gateway uses, so the console reads and writes exactly what an AI
     // client does. A second switch here would be the second place to forget
     // a new backend, and the direction that forgetting fails is "built an
-    // S3 store out of a Dropbox binding".
+    // S3 store out of a binding of another provider".
     //
     // `timeoutFetch` is forwarded because a console request has somebody
     // waiting on it; the gateway does not need one.
@@ -508,7 +528,7 @@ export async function runFileOperationHandler(
   const operate = () => executeOperation(
     listing.store,
     clearanceOf(args.scope, args.grantedNames ?? []),
-    args.operation as FileOperation,
+    operation as FileOperation,
     Date.now(),
     projection,
     // A person acting in the console, for the activity file. `client` is

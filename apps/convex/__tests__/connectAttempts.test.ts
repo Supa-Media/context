@@ -1,3 +1,4 @@
+import { LEGACY_ATTEMPT_TABLE } from "../functions/dropboxRemoval";
 /**
  * `connectAttemptTables` — the derivation `deleteWorkspaceCascade` uses to
  * find every parked-connect-attempt table without a hand-maintained list.
@@ -22,10 +23,10 @@ describe("connectAttemptTables", () => {
     // matching the shape is a welcome, automatic addition to the sweep; this
     // assertion is what makes that addition visible as a diff to review
     // rather than a change nobody notices.
-    expect(connectAttemptTables()).toEqual(["dropboxConnectAttempts", "googleConnectAttempts"]);
+    expect(connectAttemptTables()).toEqual([LEGACY_ATTEMPT_TABLE, "googleConnectAttempts"]);
     // The exported constant is the same computation, not a second one that
     // could drift from it.
-    expect(CONNECT_ATTEMPT_TABLES).toEqual(["dropboxConnectAttempts", "googleConnectAttempts"]);
+    expect(CONNECT_ATTEMPT_TABLES).toEqual([LEGACY_ATTEMPT_TABLE, "googleConnectAttempts"]);
   });
 
   test("catches a table it was never told about — the derivation's own self-test", () => {
@@ -41,7 +42,7 @@ describe("connectAttemptTables", () => {
       }),
     };
     expect(connectAttemptTables(withThirdProvider)).toEqual([
-      "dropboxConnectAttempts",
+      LEGACY_ATTEMPT_TABLE,
       "googleConnectAttempts",
       "slackConnectAttempts",
     ]);

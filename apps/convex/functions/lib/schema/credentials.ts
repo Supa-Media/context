@@ -133,8 +133,8 @@ export const credentialTables = {
    * export.
    *
    * **Its own table rather than a column on `storageBindings`, and that is not
-   * tidiness.** A customer who rebinds storage — a new bucket, a new provider,
-   * a reconnected Dropbox — replaces their binding row. A key living on it
+   * tidiness.** A customer who rebinds storage — a new bucket, a new provider —
+   * replaces their binding row. A key living on it
    * would take every note they had already encrypted with it, silently, in the
    * one flow whose entire purpose is that the notes come with them. The key
    * that opens a context outlives the storage those notes happen to sit in.

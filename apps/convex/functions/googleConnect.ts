@@ -1,10 +1,10 @@
 /**
  * Connecting a Google account to a personal context, in two calls.
  *
- * Same shape as `dropboxConnect.ts` — PKCE, a parked server-side attempt keyed
- * by an opaque `state`, a callback that needs no session — and that module's
- * comment argues the "why" for all of it in full. This file restates only
- * what a Google connect adds on top.
+ * PKCE, a parked server-side attempt keyed
+ * by an opaque `state`, a callback that needs no session. The argument for
+ * that shape is on the `googleConnectAttempts` table in `lib/schema/google.ts`.
+ * This file restates only what a Google connect adds on top.
  *
  * **Generalized from a Gmail-only `mailConnect.ts` (2026-09-07)** to one
  * Google account connection carrying one OAuth grant and a `products` set —
@@ -42,7 +42,7 @@
  * exist. `requirePersonalOwner` below checks both that the caller owns the
  * context *and* that the context is `kind: "personal"` — refused with one
  * message either way, since a caller asking about their own workspace's kind
- * is not a cross-tenant oracle the way `dropboxConnect`'s attempt lookup is,
+ * is not a cross-tenant oracle,
  * but two failure sentences for one refusal invites a client to branch on
  * which.
  *
@@ -148,7 +148,7 @@ export const parkAttempt = internalMutation({
 
 /**
  * Begin a connect. Returns a URL to send the person to, and nothing else —
- * same shape and the same reason as `startDropboxConnect`: the PKCE verifier
+ * same shape and the same reason as the Gmail start: the PKCE verifier
  * never reaches the browser.
  *
  * Gmail-only today: `products` is always `["gmail"]` here, because Gmail is
@@ -198,7 +198,7 @@ export const startGmailConnect = action({
       knows it — including somebody who built it for a workspace they own and
       sent it to another person to consent. PKCE does not see that case: the
       attacker is the initiator, so the verifier really is theirs.
-      `dropboxConnect.ts` carries the argument in full.
+      the callback carries the argument in full.
     */
     const completionSecret = randomOpaqueToken(STATE_BYTES);
 
@@ -316,7 +316,7 @@ export const startGoogleConnect = action({
 /**
  * Finish a connect. **No session required, and that is still deliberate** —
  * a sign-in wall on a callback outlives a provider's single-use code, which
- * `dropboxConnect.ts` records from a live failure.
+ * the connect flow records from a live failure.
  *
  * What that file no longer says, and this one used to inherit by citing it, is
  * that PKCE makes the rest safe. It does not: PKCE binds the code to whoever
@@ -762,7 +762,7 @@ export const disconnectGoogleConnection = mutation({
     });
 
     // Best-effort, after the row is already gone from anything sync reads —
-    // same ordering `disconnectStorage` uses for the Dropbox grant, and the
+    // same ordering `disconnectGoogleConnection` uses, and the
     // same reason: the disconnect the person asked for has already happened
     // whether or not Google's revoke call succeeds.
     await ctx.scheduler.runAfter(0, internal.functions.googleConnect.revokeGoogleGrant, {
@@ -833,7 +833,7 @@ export const failGoogleGmailBackfillRun = internalMutation({
 /**
  * Disable the WHOLE grant at Google after a disconnect. INTERNAL ACTION —
  * decrypts. Best-effort and swallows every failure, exactly as
- * `revokeDropboxGrant` does and for the same reason: our copy of the
+ * the sibling revocation does, for the same reason: our copy of the
  * credential is already gone.
  */
 export const revokeGoogleGrant = internalAction({
@@ -845,8 +845,8 @@ export const revokeGoogleGrant = internalAction({
       const keyset = requireKeyset();
       const context = { workspaceId: args.workspaceId as string };
       const refreshToken = await decryptSecret(args.encryptedRefreshToken, keyset, context);
-      // Google's revoke endpoint accepts a refresh token directly; unlike
-      // Dropbox there is no need to mint a fresh access token first.
+      // Google's revoke endpoint accepts a refresh token directly, so
+      // no fresh access token is needed first.
       await revokeGoogleToken({ token: refreshToken });
       console.log(JSON.stringify({ event: "mail.grant_revoked", workspaceId: args.workspaceId }));
     } catch (error) {
@@ -866,7 +866,7 @@ export const revokeGoogleGrant = internalAction({
  * Mint a short-lived Google access token for the gateway's sync job — usable
  * for whichever product asks, since it is one grant. INTERNAL ACTION —
  * decrypts. The gateway is handed the access token and nothing else, exactly
- * the shape `storage.ts` already uses for Dropbox: a compromised gateway
+ * the shape the storage credentials use: a compromised gateway
  * yields minutes of one account's read access rather than the standing
  * refresh token. A disconnected connection refuses here too, so a sync job
  * cannot resurrect access to an account the owner revoked by simply holding
@@ -892,7 +892,7 @@ export const mintGoogleAccessToken = internalAction({
 
     // A cached access token good for at least another minute is reused rather
     // than refreshed on every call — same headroom `storage.ts` gives the
-    // Dropbox access token cache.
+    // storage access token cache.
     if (
       connection.encryptedAccessToken &&
       connection.accessTokenExpiresAt &&

@@ -65,18 +65,6 @@ export const IN_APP_MESSAGES = {
     store: "messageReads",
     variants: true,
   },
-  /**
-   * Dropbox support is ending: an owner of a Dropbox workspace is asked to
-   * move it to a bucket of theirs or to Context storage. It comes back two
-   * weeks after it is put away, because the ending does not go away.
-   */
-  "dropbox-ending": {
-    kind: "tip",
-    priority: 25,
-    scope: "workspace",
-    store: "messageReads",
-    askAgainAfterMs: 14 * DAY_MS,
-  },
   /** The one-time storage layout update. */
   "storage-layout-offer": { kind: "tip", priority: 20, scope: "workspace", store: "messageReads" },
   /** "Track these folders by status?" */

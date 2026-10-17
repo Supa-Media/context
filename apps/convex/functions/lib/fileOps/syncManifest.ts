@@ -121,7 +121,7 @@ function compareKeys(a: string, b: string): number {
  * size, `privacy.md` reaches only `private` scope, and Context's plumbing
  * (`.context/`, `.history/`, `.audit/`, `.obsidian/`) reaches nobody.
  *
- * **No note is read.** The etag is the listing's — S3's `ETag`, Dropbox's
+ * **No note is read.** The etag is the listing's — S3's `ETag`, another store's
  * `rev` — which is the value a read returns, so a sync can tell which notes
  * changed from one walk and fetch only those.
  *
@@ -135,7 +135,7 @@ function compareKeys(a: string, b: string): number {
  * for what comes after it (`startAfter`, ListObjectsV2's `start-after`).
  *
  * That only means something on a store that lists in key order and honours the
- * position, and not every store does: Dropbox's recursive `list_folder` does
+ * position, and not every store does: some stores' recursive listings do
  * neither. So both are checked rather than assumed. A listing seen out of
  * order gets no cursor, and a resumed walk that comes back with a key at or
  * before the cursor stops — in both cases `truncated`, because handing back
@@ -243,7 +243,7 @@ export async function syncManifest(
     if (jump !== null) {
       const first = objects[0]?.key;
       if (first !== undefined && compareKeys(first, jump.target) <= 0) {
-        // The store did not honour the position (Dropbox has none). Go back to
+        // The store did not honour the position (some stores have none). Go back to
         // the page the jump left, past what was already handled, and walk the
         // rest of the bucket one page at a time like any other store.
         canJump = false;

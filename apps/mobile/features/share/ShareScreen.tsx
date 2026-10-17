@@ -387,7 +387,7 @@ function Unavailable() {
  *
  * ## Why this is a list and not a rendered document
  *
- * A folder has no body. The page a reader wants is the one Drive and Dropbox
+ * A folder has no body. The page a reader wants is the one Drive and other file apps
  * give them — the names, each openable, subfolders enterable — and every entry
  * here has already been through the privacy engine at `team` scope on the
  * server, so what is drawn is exactly what may be read. There is no filtering

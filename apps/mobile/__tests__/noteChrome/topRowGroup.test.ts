@@ -246,7 +246,7 @@ describe("the top row ends in one group, and it is the note's", () => {
    * relaxation.** This asserted the opposite, on the ground that
    * `createLinkShare` was note-only and a third position would be a press that
    * always fails. A folder link exists: it reaches the folder's whole subtree,
-   * mirroring Drive and Dropbox, and it is stricter than either because every
+   * mirroring Drive and similar file apps, and it is stricter than either because every
    * path is still re-derived through the live `privacy.md` at `team` scope
    * rather than inherited from the folder.
    *

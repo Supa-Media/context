@@ -261,7 +261,6 @@ export function BrowsePane({
     setup,
     layingOut,
     storageMigration,
-    dropboxEnding,
     missingFolders,
     intro,
     introAnswer,
@@ -300,7 +299,6 @@ export function BrowsePane({
       moveNotices={moveNotices}
       setDismissedMoves={setDismissedMoves}
       storageMigration={storageMigration}
-      dropboxEnding={dropboxEnding}
       missingFolders={missingFolders}
     />
     )}

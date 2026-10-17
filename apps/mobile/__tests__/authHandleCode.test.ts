@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { shouldHandleAuthCode, shouldHandleCodeHere } from "../features/auth/handleCode";
 
 /**
- * The rule that keeps a Dropbox connect from signing its owner out.
+ * The rule that keeps a storage connect from signing its owner out.
  *
  * `ConvexAuthProvider` redeems any `?code=` it is not told to ignore, and a
  * failed redemption **stores** the resulting sign-out. `/connect/…` routes
@@ -14,7 +14,7 @@ import { shouldHandleAuthCode, shouldHandleCodeHere } from "../features/auth/han
  */
 describe("whose code is it", () => {
   test("a /connect/ route's code is never auth's", () => {
-    expect(shouldHandleAuthCode("/connect/dropbox")).toBe(false);
+    expect(shouldHandleAuthCode("/connect/google")).toBe(false);
     // The next provider under the prefix is protected before it exists.
     expect(shouldHandleAuthCode("/connect/google-drive")).toBe(false);
   });
@@ -35,7 +35,7 @@ describe("the zero-argument form the provider receives", () => {
   test("reads the live pathname", () => {
     const original = globalThis.window;
     (globalThis as { window?: unknown }).window = {
-      location: { pathname: "/connect/dropbox" },
+      location: { pathname: "/connect/google" },
     };
     try {
       expect(shouldHandleCodeHere()).toBe(false);

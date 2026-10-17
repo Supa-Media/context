@@ -320,12 +320,11 @@ export function resolveWelcomeRoute({
   /** True once `createWorkspace` has returned in this session. */
   claimed: boolean;
   /**
-   * True when the URL carries `resume=structure` — a Dropbox connect started
-   * inside this flow, left for the OAuth redirect, and came back. The person
-   * *does* own a context now, because step 1 ran before they left; bouncing
-   * them to the console is how the first live run lost its layout and agents
-   * steps. Not a way to re-run onboarding at large: it enters at the layout
-   * step, whose writes are owner-gated and refuse an unverified binding.
+   * True when the URL carries `resume=structure` — a link from a build that
+   * sent people out of this flow and back again. The person *does* own a
+   * context now, because step 1 ran before they left. Not a way to re-run
+   * onboarding at large: it enters at the layout step, whose writes are
+   * owner-gated and refuse an unverified binding.
    */
   resuming?: boolean;
 }): RouteDecision {

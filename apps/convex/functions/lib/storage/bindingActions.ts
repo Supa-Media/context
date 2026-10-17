@@ -347,46 +347,7 @@ export async function disconnectStorageHandler(
     });
   }
 
-  // A Dropbox disconnect also disables the grant at Dropbox — otherwise we
-  // forget our copy of the credential while the authorization lives on in
-  // the person's account, and their next connect silently auto-approves
-  // instead of asking. Scheduled, not called: this public mutation must not
-  // reach the decrypt. Best-effort, and the envelope travels in the args
-  // because the row is deleted on the next line.
-  if (
-    binding.provider === "dropbox" &&
-    binding.encryptedRefreshToken !== undefined
-  ) {
-    await ctx.scheduler.runAfter(
-      0,
-      internal.functions.dropboxConnect.revokeDropboxGrant,
-      {
-        workspaceId: args.workspaceId,
-        encryptedRefreshToken: binding.encryptedRefreshToken,
-      },
-    );
-  }
-
-  await ctx.db.delete(binding._id);
-
-  /*
-    AND THE PROJECTION OF THEIR NOTES GOES WITH THE CREDENTIAL.
-
-    A `searchIndexes` row with a `databaseId` names a real D1 database holding
-    this context's notes — titles, headings, tags, body chunks — on our
-    infrastructure. The header above says the point of the hard delete is that
-    *"revoke the key and we're gone"* has to mean the row is gone. It was only
-    ever true of the row: the derived copy stayed, searchable, with nothing
-    pointing at it, which is precisely the state `fastSearch`'s opt-out exists
-    to prevent and the account cascade already prevents.
-
-    Scheduled inside `releaseForStorage`, and the row is marked rather than
-    removed, so a failed delete stays visible to the sweep instead of becoming
-    a database nothing can find.
-  */
-  await ctx.runMutation(internal.functions.fastSearch.releaseForStorage, {
-    workspaceId: args.workspaceId,
-  });
+  await forgetBindingRow(ctx, binding);
 
   await recordAudit(ctx, {
     workspaceId: args.workspaceId,
@@ -395,4 +356,35 @@ export async function disconnectStorageHandler(
     details: { provider: binding.provider, bucket: binding.bucket ?? null },
   });
   return { disconnected: true };
+}
+
+/**
+ * Delete a storage binding row, and the derived search projection that
+ * describes the notes it held. The shared tail of `disconnectStorage` and
+ * the legacy-row purge: both forget a credential, and
+ * both must leave no projection pointing at storage nothing can reach.
+ *
+ * The caller owns every check that decides whether the row may go (owner,
+ * managed bucket, move in progress) and the audit event that records it.
+ *
+ * AND THE PROJECTION OF THEIR NOTES GOES WITH THE CREDENTIAL.
+ *
+ * A `searchIndexes` row with a `databaseId` names a real D1 database holding
+ * this context's notes — titles, headings, tags, body chunks — on our
+ * infrastructure. "Revoke the key and we're gone" has to mean the derived copy
+ * is gone too, not only the row, which is precisely the state `fastSearch`'s
+ * opt-out exists to prevent and the account cascade already prevents.
+ *
+ * Scheduled inside `releaseForStorage`, and the row is marked rather than
+ * removed, so a failed delete stays visible to the sweep instead of becoming
+ * a database nothing can find.
+ */
+export async function forgetBindingRow(
+  ctx: MutationCtx,
+  binding: { _id: Id<"storageBindings">; workspaceId: Id<"workspaces"> },
+): Promise<void> {
+  await ctx.db.delete(binding._id);
+  await ctx.runMutation(internal.functions.fastSearch.releaseForStorage, {
+    workspaceId: binding.workspaceId,
+  });
 }

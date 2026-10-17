@@ -614,7 +614,7 @@ export async function toolMaterializeMove(store, scope, idArg, batchSizeArg, opt
     job.deleted_objects = sources.length;
     await persistMoveJob(store, job);
     // The folder itself, where the backend has one. Same reason as the direct
-    // folder move — on Dropbox the sources go and the directory stays, so the
+    // folder move — on a store with real folders the sources go and the directory stays, so the
     // move reads as a copy until this runs.
     await pruneEmptyFolders(
       store,

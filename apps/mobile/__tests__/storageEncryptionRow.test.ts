@@ -15,7 +15,7 @@ import type { StorageBinding } from "../features/console/liveConsole/summaries";
  *  - no row until the rollout reaches a workspace (choice 1: hide it);
  *  - an owner never sees "failed": the server sends `paused`, and so do we;
  *  - never "end-to-end": the encrypted copy says Context can still read notes;
- *  - a customer's own bucket gets the one honest sentence, Dropbox no row;
+ *  - a customer's own bucket gets the one honest sentence;
  *  - leaving says the files arrive plain.
  */
 
@@ -92,8 +92,9 @@ describe("encryptionRowCopy", () => {
     );
   });
 
-  test("Dropbox is neither managed nor a bucket: no row", () => {
-    expect(encryptionRowCopy({ managed: false, provider: "dropbox" })).toBeNull();
+  test("an unmanaged binding with no encryption state still gets the own-bucket sentence, never a lock", () => {
+    const copy = encryptionRowCopy({ managed: false, provider: "retired-provider" });
+    expect(copy).toEqual({ lock: false, body: OWN_BUCKET_BODY, state: "own-bucket" });
   });
 
   test("no copy uses an em dash", () => {

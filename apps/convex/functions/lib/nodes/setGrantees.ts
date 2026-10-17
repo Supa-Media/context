@@ -28,9 +28,11 @@ import { accessSourceOf, resolveHandle, type Grant } from "./accessBackfill";
 import { setAccessRow, MAX_GRANTEES, type GranteeInput, type Role } from "./setAccess";
 import { getMembership, requireWorkspaceRole } from "../workspaceAuth";
 
-/** One entry the owner names. Exactly one of `handle`, `groupId` or `email`. */
+/** One entry the owner names. Exactly one of `handle`, `userId`, `groupId` or `email`. */
 export interface GranteeRequest {
   handle?: string;
+  /** A person by id: a member of this workspace, or someone a list here already names (`userHeldHere`). */
+  userId?: string;
   groupId?: string;
   email?: string;
   role: Role;
@@ -38,7 +40,7 @@ export interface GranteeRequest {
 
 export type SetGranteesAnswer =
   | { ok: true; version: number }
-  | { ok: false; code: "NOT_FOUND" | "FORBIDDEN" | "NOT_ROWS_MODE" | "GRANTEE_NOT_FOUND" | "INVALID" };
+  | { ok: false; code: "NOT_FOUND" | "FORBIDDEN" | "NOT_ROWS_MODE" | "GRANTEE_NOT_FOUND" | "INVALID" | "CONFLICT" };
 
 export const setGranteesAnswerValidator = v.union(
   v.object({ ok: v.literal(true), version: v.number() }),
@@ -50,12 +52,14 @@ export const setGranteesAnswerValidator = v.union(
       v.literal("NOT_ROWS_MODE"),
       v.literal("GRANTEE_NOT_FOUND"),
       v.literal("INVALID"),
+      v.literal("CONFLICT"),
     ),
   }),
 );
 
 export const granteeRequestValidator = v.object({
   handle: v.optional(v.string()),
+  userId: v.optional(v.string()),
   groupId: v.optional(v.string()),
   email: v.optional(v.string()),
   role: v.union(v.literal("view"), v.literal("edit")),
@@ -87,6 +91,16 @@ export async function resolveEntry(
     if ((await getMembership(ctx, workspaceId, grant.userId)) === null) return null;
     return { kind: "user", userId: grant.userId, role };
   }
+  if (entry.userId !== undefined) {
+    const userId = ctx.db.normalizeId("users", entry.userId);
+    if (userId === null || (await ctx.db.get(userId)) === null) return null;
+    // By id, only someone the owner already sees: a member, or a person some list in this workspace already
+    // names (the share dialog sends the lists it shows back by id). Anyone else is named by email.
+    if ((await getMembership(ctx, workspaceId, userId)) === null && !(await userHeldHere(ctx, workspaceId, userId))) {
+      return null;
+    }
+    return { kind: "user", userId, role };
+  }
   if (entry.groupId !== undefined) {
     const groupId = ctx.db.normalizeId("workspaceGroups", entry.groupId);
     if (groupId === null) return null;
@@ -99,9 +113,26 @@ export async function resolveEntry(
   return { kind: "email", email: parsed.invitee.value, role };
 }
 
+/** Whether some row of this workspace already lists this person by id (an owner's grant, not a share's). */
+async function userHeldHere(ctx: MutationCtx, workspaceId: Id<"workspaces">, userId: Id<"users">): Promise<boolean> {
+  const grants = await ctx.db
+    .query("nodeAccess")
+    .withIndex("by_workspace_user", (q) => q.eq("workspaceId", workspaceId).eq("granteeUserId", userId))
+    .take(5);
+  return grants.some((grant) => grant.source !== "share");
+}
+
 export async function setGranteesHandler(
   ctx: MutationCtx,
-  args: { workspaceId: Id<"workspaces">; path: string; grantees: GranteeRequest[] },
+  args: {
+    workspaceId: Id<"workspaces">;
+    path: string;
+    grantees: GranteeRequest[];
+    /** The row's base, set in the same write. Omitted keeps it; `inherit` takes the folder's and needs an empty list. */
+    base?: "private" | "team" | "inherit";
+    /** The access version the caller read (`shareList`); another is `CONFLICT`, and nothing is written. */
+    expectedVersion?: number;
+  },
 ): Promise<SetGranteesAnswer> {
   const userId = (await requireAuthId(ctx)) as Id<"users">;
   try {
@@ -122,9 +153,11 @@ export async function setGranteesHandler(
   if (row === null) return { ok: false, code: "NOT_FOUND" };
 
   if (args.grantees.length > MAX_GRANTEES) return { ok: false, code: "INVALID" };
+  // Taking the folder's setting takes its list too: a list left on an inheriting row would be a hidden grant.
+  if (args.base === "inherit" && args.grantees.length > 0) return { ok: false, code: "INVALID" };
   for (const entry of args.grantees) {
     // Exactly one way of naming a grantee. A shape error is a request error, and says nothing about who exists.
-    const named = [entry.handle, entry.groupId, entry.email].filter((field) => field !== undefined).length;
+    const named = [entry.handle, entry.userId, entry.groupId, entry.email].filter((field) => field !== undefined).length;
     if (named !== 1) return { ok: false, code: "INVALID" };
   }
 
@@ -137,16 +170,18 @@ export async function setGranteesHandler(
     grantees.push(resolved);
   }
 
-  // The row's base is kept: this writes the list alone.
+  // The row's base is kept unless one is given: a list and its base change together, in one write.
   const answer = await setAccessRow(ctx, {
     workspaceId: args.workspaceId,
     path: args.path,
-    base: row.access?.base ?? "inherit",
+    base: args.base ?? row.access?.base ?? "inherit",
+    expectedVersion: args.expectedVersion,
     grantees,
     actor: { userId, role: "owner" },
   });
   if (answer.ok) return answer;
   if (answer.code === "INVALID") return { ok: false, code: "INVALID" };
+  if (answer.code === "CONFLICT") return { ok: false, code: "CONFLICT" };
   // The row is there, so a NOT_FOUND from the rules is a grantee they do not accept.
   if (answer.code === "NOT_FOUND") return UNRESOLVED;
   throw new Error(`setAccessRow answered ${answer.code} for an owner on an existing row`);

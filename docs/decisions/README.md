@@ -36,8 +36,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The managed copy is kept a week after a move out
 - A move catches up after it switches over, and never overwrites to do it
 - A move between the owner's own buckets is a third direction, and never touches the old one
-- Dropbox is a source and never a destination, and its grant outlives the switch for the catch-up
-- Dropbox workspaces are told support is ending, without a date
+- Dropbox is not a storage option (decided by the owner, 2026-10-17)
 - The migration's outcome is recorded, because an offer nobody can answer is a nag
 - Names, folders and privacy live on tree rows; the bucket holds bodies by id
 - Deleting an account erases the storage we ran for it
@@ -134,6 +133,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - An AI client never widens who can see something without a person saying yes
 - A note shared with a named person opens for them wherever it lives
 - [Blocking is per recipient, and a report is never an oracle](./privacy-and-sharing/reporting-and-blocking.md) (2026-10-15)
+- [The share dialog writes a list and its base together, and a domain is never a grantee](./privacy-and-sharing/share-dialog-lists.md) (2026-10-17)
 - [A note shared by name through its access list is reported and blocked the same way](./privacy-and-sharing/reporting-and-blocking.md) (2026-10-17)
 - [Naming people on a note waits for the person, whoever is named](./privacy-and-sharing/agent-egress.md) (2026-10-17)
 

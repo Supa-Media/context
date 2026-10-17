@@ -245,7 +245,7 @@ export function convexCell(row: MigrationRow | null, paused = false): IndexCell 
     case "differs":
       return { ...base, health: "stuck", label: "Differs", problem: parityWords(row.parity) };
     case "skipped":
-      return { ...base, health: "off", label: "Skipped", problem: "This storage can't be listed in order (Dropbox)" };
+      return { ...base, health: "off", label: "Skipped", problem: "This storage can't be listed in order" };
     case "keyed":
       return { ...base, health: "ok", label: "Notes by id" };
   }

@@ -553,7 +553,7 @@ export async function readSession(store, id, tier) {
     not yours". Measured at 1 against 2 before this line.
 
     So the trip the miss would have spent is spent here. `objectExists` rather
-    than a second `get`: `S3Store.get` and `DropboxStore.get` both buffer the
+    than a second `get`: `S3Store.get` buffers the
     whole object before any caller asks for text, and this is a record the
     caller may not read. The residue is stated rather than hidden — the miss
     path's second trip is a `get` that 404s and this one is a HEAD, which are

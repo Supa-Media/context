@@ -286,6 +286,8 @@ export const ORIENT_SIBLING_INDEX_CHAR_CAP = 1_200;
  * nothing to report, and `search_notes` is where a real miss gets explained.
  */
 export async function reducedRecallNotesFor(store, isVisible) {
+  // A search database sheds nothing, and its context keeps no bucket index.
+  if (store.searchIndex) return [];
   try {
     const manifest = await loadIndexManifest(store, createSearchBudget(2), 0);
     if (!manifest) return [];

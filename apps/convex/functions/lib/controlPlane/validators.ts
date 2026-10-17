@@ -9,7 +9,6 @@
 
 import { v } from "convex/values";
 import {
-  dropboxBindingValidator,
   encryptionKeyValidator,
   keyRotationValidator,
   meaningIndexValidator,
@@ -54,7 +53,7 @@ export const heldPrivacyValidator = v.object({
 export const openStorageBindingReturns = v.union(
   v.null(),
   v.object({
-    binding: v.union(s3BindingValidator, dropboxBindingValidator),
+    binding: s3BindingValidator,
     searchIndex: v.optional(searchIndexValidator),
     meaningIndex: v.optional(meaningIndexValidator),
     encryptionKey: v.optional(encryptionKeyValidator),
@@ -80,7 +79,7 @@ export const openGatewayJobReturns = v.union(
       imageSha256: v.optional(v.string()),
       imageBytes: v.optional(v.number()),
     }),
-    binding: v.union(s3BindingValidator, dropboxBindingValidator),
+    binding: s3BindingValidator,
     searchIndex: v.optional(searchIndexValidator),
     meaningIndex: v.optional(meaningIndexValidator),
     encryptionKey: v.optional(encryptionKeyValidator),

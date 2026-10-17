@@ -33,7 +33,7 @@ import { DELIBERATELY_UNREACHABLE } from "./unreachableRoutes";
  *
  * This file's own first line said "every route inside the app" over an
  * enumerator that saw eight of seventeen route files. `/login`, `/invite`,
- * `/s/<token>`, `/note/…`, `/authorize`, `/connect/dropbox`, `+not-found` and
+ * `/s/<token>`, `/note/…`, `/authorize`, `/connect/google`, `+not-found` and
  * the root itself were outside the walk, so the completeness claim — the one
  * thing this guard has that the mounted tests do not — was false about more
  * than half of the app. It is the whole tree now, minus Expo Router's own

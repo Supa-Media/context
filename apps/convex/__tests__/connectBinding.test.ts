@@ -1,7 +1,8 @@
+import { LEGACY_ATTEMPT_TABLE } from "../functions/dropboxRemoval";
 /**
  * THE BINDING, ENUMERATED — so a fifth connect flow cannot arrive without it.
  *
- * `dropboxConnect.ts`, `googleConnect.ts`, `calendarConnect.ts` and
+ * `googleConnect.ts`, `calendarConnect.ts` and
  * `chatProduct.ts` each carry the same three lines: mint a value at start,
  * return it to the starting browser alone, require it back at completion. Each
  * has its own tests for that, and each got them by somebody remembering. The
@@ -90,7 +91,7 @@ const modules = import.meta.glob("../functions/*.ts", { eager: true }) as Record
 >;
 
 interface Found {
-  /** `dropboxConnect.completeDropboxConnect` — the name a failure has to name. */
+  /** `googleConnect.completeGoogleConnect` — the name a failure has to name. */
   where: string;
   args: Record<string, ArgSpec>;
 }
@@ -135,7 +136,6 @@ describe("every third-party connect carries the browser binding", () => {
     expect(callbackActions.map((f) => f.where)).toEqual([
       "calendarConnect.completeCalendarConnect",
       "chatProduct.completeChatConnect",
-      "dropboxConnect.completeDropboxConnect",
       "googleConnect.completeGmailConnect",
       "googleConnect.completeGoogleConnect",
     ]);
@@ -144,8 +144,6 @@ describe("every third-party connect carries the browser binding", () => {
       "calendarConnect.parkCalendarAttempt",
       "chatProduct.consumeChatAttemptAndExchange",
       "chatProduct.parkChatAttempt",
-      "dropboxConnect.consumeAttemptAndExchange",
-      "dropboxConnect.parkAttempt",
       "googleConnect.consumeAttemptAndExchange",
       "googleConnect.consumeGoogleAttemptAndExchange",
       "googleConnect.parkAttempt",
@@ -197,7 +195,7 @@ describe("every third-party connect carries the browser binding", () => {
     ][];
     const attemptTables = tables.filter(([, t]) => "hashedState" in (t.validator?.fields ?? {}));
     expect(attemptTables.map(([name]) => name).sort()).toEqual([
-      "dropboxConnectAttempts",
+      LEGACY_ATTEMPT_TABLE,
       "googleConnectAttempts",
     ]);
     for (const [name, table] of attemptTables) {
@@ -277,16 +275,6 @@ function enableGoogle() {
 }
 
 const FLOWS: Flow[] = [
-  {
-    name: "dropbox",
-    enable: () => vi.stubEnv("DROPBOX_APP_KEY", "test-app-key"),
-    start: (t, owner, workspaceId) =>
-      asUser(t, owner).action(api.functions.dropboxConnect.startDropboxConnect, {
-        workspaceId,
-        redirectUri: `${APP}/storage/dropbox/callback`,
-      }),
-    complete: (t, args) => t.action(api.functions.dropboxConnect.completeDropboxConnect, args),
-  },
   {
     name: "gmail",
     enable: enableGoogle,

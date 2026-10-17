@@ -12,7 +12,7 @@
  *
  * A store that can be listed neither in key order nor by a continuation
  * token (`unsupported`) has no tree, so it says so in its own words rather
- * than loading for ever; Dropbox, which ignores key order, is paged by its
+ * than loading for ever; a store that ignores key order is paged by its
  * token and has one (`sweep.ts`).
  */
 

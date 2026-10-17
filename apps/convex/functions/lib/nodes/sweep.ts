@@ -15,7 +15,7 @@
  * `startAfter`. That only works for a store that lists in byte order and
  * honours the position.
  *
- * **A store that does neither (Dropbox) is paged by its own continuation
+ * **A store that does neither (one that ignores key order) is paged by its own continuation
  * token instead** (step 3 of the convex-only plan, 2026-10-14). Until then
  * the first out-of-order key marked the tree `unsupported` and it was never
  * served, so once every reader of which notes exist moved to the tree such a

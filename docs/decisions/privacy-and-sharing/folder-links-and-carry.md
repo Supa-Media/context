@@ -3,7 +3,7 @@
 ### A folder link reaches a subtree, and narrows rather than widens
 
 Asked for by the owner (2026-09-17) on an explicit comparison they made
-themselves: Google Drive and Dropbox both give a folder link the whole subtree —
+themselves: Google Drive gives a folder link the whole subtree —
 recipients browse into subfolders and open anything inside — and the ask was to
 mirror that. **This edits non-negotiable #5**, which said "one note at a time …
 is the single exception". The sentence is rewritten in the same change rather

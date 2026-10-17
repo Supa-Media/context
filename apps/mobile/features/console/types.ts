@@ -186,37 +186,26 @@ export interface ConsoleStorage {
   /** `unverified` | `connected` | `error`, straight from the row. */
   status: string;
   /**
-   * `r2` | `s3` | `b2` | `s3-compatible` | `dropbox`, straight from the row.
+   * `r2` | `s3` | `b2` | `s3-compatible`, straight from the row.
    *
    * Read as a value, not matched against a closed union, for the same reason
    * `status` is: a deployment newer than this bundle can send a provider this
    * client has never heard of, and the honest response is to print it rather
-   * than to crash or to claim it is something else.
+   * than to crash or to claim it is something else. A provider this bundle no
+   * longer supports is shown as "not supported" — see `isSupportedProvider`.
    */
   provider: string;
   /**
-   * The four S3 fields, **all optional**, because a Dropbox binding has none
-   * of them: there is no bucket, no endpoint, no region, and no access key to
-   * mask. `getStorageBinding` returns them as absent, and absent has to stay
-   * absent all the way to the screen — a `""` here would draw an empty
-   * labelled well, which reads as a field somebody failed to fill in rather
-   * than one that does not exist for this backend.
+   * The S3 fields, **all optional**. `getStorageBinding` returns them as
+   * absent when the binding has none, and absent has to stay absent all the
+   * way to the screen — a `""` here would draw an empty labelled well, which
+   * reads as a field somebody failed to fill in.
    */
   bucket?: string;
   endpoint?: string;
   region?: string;
   rootPrefix?: string;
   accessKey?: string;
-  /**
-   * Whose Dropbox this is (`dbid:…`), so the settings card can say "Connected
-   * as …" and a reconnect onto a different account reads differently from a
-   * reconnect onto the same one. Absent for every other provider, and absent
-   * for a Dropbox binding nobody has finished connecting yet. This is a live
-   * subscription value, not something the client remembers between renders —
-   * a reconnect that lands on a different account shows up the moment the
-   * binding updates.
-   */
-  dropboxAccountId?: string;
   /**
    * What the verifier found in this bucket, straight from the row.
    *
