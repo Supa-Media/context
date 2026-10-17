@@ -5,7 +5,7 @@
  */
 
 import { callToolForSession } from "../tools/session.js";
-import { listPending, replayAsAsked, settlePending } from "../tools/approvals.js";
+import { disarmRecords, listPending, replayAsAsked, settlePending, withdrawPending } from "../tools/approvals.js";
 
 /** A text that is nothing but yes, or nothing but no; anything else goes to the model. */
 const YES = /^\s*(?:yes|yes please|yep|yeah|yup|ok|okay|sure|do it|go ahead|go for it|confirm|confirmed|approve|approved|allow|y)\s*[.!]*\s*$/i;
@@ -30,6 +30,25 @@ export function askLine(asked) {
   return `Before I ${asked.length === 1 ? "do that" : "do those"}, I need your OK: ${what}. Reply YES to go ahead, or NO to drop it.`;
 }
 
+/** The longest ask holding an email: one text, under the 3,000 a text keeps (`apps/agent/src/clients.ts`). */
+export const TEXTED_ASK_CAP = 2_900;
+
+/**
+ * What a turn's answer ends with, and the part of it texted exactly as
+ * written. The person may allow only what they read, so an ask holding an
+ * email that would not fit in one text is withdrawn (and `asked` emptied)
+ * rather than cut.
+ */
+export async function textedAsk(store, session, asked) {
+  if (asked.length === 0) return { ask: null, verbatim: [] };
+  const ask = askLine(asked);
+  if (!asked.some((record) => typeof record.detail === "string")) return { ask, verbatim: [] };
+  if (ask.length <= TEXTED_ASK_CAP) return { ask, verbatim: [ask] };
+  await withdrawPending(store, { userId: session.actorUserId, ids: asked.map((record) => record.id) });
+  asked.length = 0;
+  return { ask: "That was too long to show you whole in one text, so I've dropped it. Ask me for one email at a time.", verbatim: [] };
+}
+
 /** Control characters and bidi overrides out of words the model wrote, before a person reads them. */
 function clean(text) {
   return text.replace(/[\u0000-\u0008\u000b-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, "");
@@ -52,9 +71,13 @@ export async function settleByText(store, session, verdict, texted = "") {
   const waiting = await listPending(store, { userId: session.actorUserId, texting: true });
   if (waiting.length === 0) return null;
   const replies = [];
-  for (const { record } of [...waiting].reverse()) {
-    // Left unsettled, the email is disarmed with the rest when the text goes on to the model.
-    if (verdict === "approve" && record.tool === EMAIL_TOOL && !EMAIL_YES.test(texted)) continue;
+  const notYes = [];
+  for (const entry of [...waiting].reverse()) {
+    const { record } = entry;
+    if (verdict === "approve" && record.tool === EMAIL_TOOL && !EMAIL_YES.test(texted)) {
+      notYes.push(entry);
+      continue;
+    }
     const settled = await settlePending(store, record.id, {
       userId: session.actorUserId,
       action: verdict,
@@ -78,5 +101,8 @@ export async function settleByText(store, session, verdict, texted = "") {
     // voice line the judge has). What went wrong still says what the tool said.
     replies.push(settled.result?.isError === true ? `I tried to ${record.summary}, but: ${said}` : `Done: ${record.summary}.`);
   }
+  // An email the text did not say YES to is disarmed now: when the text settled
+  // something else, no model turn follows to disarm it, and a later bare yes must not reach it.
+  await disarmRecords(store, notYes);
   return replies.length === 0 ? null : replies.join("\n");
 }

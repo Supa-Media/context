@@ -27,7 +27,7 @@
  * through to `send_email` itself.
  */
 
-import { DETAIL_CAP, createPending, findPending, rearmForText, takeDone } from "./approvals.js";
+import { DETAIL_CAP, callKey, createPending, findPending, rearmForText, takeDone } from "./approvals.js";
 import { toolError } from "./results.js";
 import { EMAIL_TOOL, REFUSED, emailCopy, emailSummary, readEmail } from "./email.js";
 import { readHelperCallers } from "../agent/production.js";
@@ -108,6 +108,11 @@ export async function emailGate(supplied, { store, session, target }) {
   }
 
   const texting = session.egress?.texting === true;
+  // One email per texted ask: two copies in one text could outgrow it, and one YES would send both.
+  const ledger = session.egress?.ledger ?? null;
+  if (texting && ledger?.asked.some((asked) => asked.tool === EMAIL_TOOL && asked.key !== callKey(EMAIL_TOOL, args))) {
+    return toolError("Not sent: one email at a time by text. The person is already being shown another; ask about this one after they answer.");
+  }
   let checked = null;
   if (texting) {
     checked = typeof session.mailChecker === "function" ? await session.mailChecker(email) : null;
@@ -148,7 +153,6 @@ export async function emailGate(supplied, { store, session, target }) {
   if (record === null) {
     return toolError("Not sent: the person has too many things waiting for their OK. Ask them to clear some first.");
   }
-  const ledger = session.egress?.ledger ?? null;
   if (ledger && !ledger.asked.some((asked) => asked.id === record.id)) ledger.asked.push(record);
   return {
     ...toolError(

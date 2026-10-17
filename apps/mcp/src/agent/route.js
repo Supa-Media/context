@@ -62,7 +62,7 @@ import { markUntrusted, newLedger } from "../privacy/egress.js";
 import { transcriptionForwarder } from "../ingestion/transcription.js";
 import { outgoingPictures, sentPicturesLine } from "./outgoingPictures.js";
 import { disarmTexting, withdrawPending } from "../tools/approvals.js";
-import { approvalVerdict, askLine, settleByText } from "./textedApprovals.js";
+import { approvalVerdict, settleByText, textedAsk } from "./textedApprovals.js";
 
 /**
  * What a turn that may not run says. Nothing in the app can change this any
@@ -598,11 +598,9 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     // said: a person can allow only what they were told about, and the model
     // relaying it is a courtesy rather than the mechanism.
     const { answer: told, pictures } = outgoing.take(turn.answer);
-    const ask = ledger.asked.length === 0 ? null : askLine(ledger.asked);
+    // An email's ask is texted exactly as written (`apps/agent/src/reply.ts`), or withdrawn if it would not fit.
+    const { ask, verbatim } = await textedAsk(store, session, ledger.asked);
     const answer = ask === null ? told : `${told}\n\n${ask}`;
-    // An email's ask is texted exactly as written (`apps/agent/src/reply.ts`):
-    // the person may allow only the copy they read, links and lines included.
-    const verbatim = ask !== null && ledger.asked.some((record) => typeof record.detail === "string") ? [ask] : [];
     /*
       A browser handed to the person goes out as a link the gateway adds, so
       the model never holds it. The link is their own `/tex/<handle>` page,
