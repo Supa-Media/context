@@ -48,6 +48,9 @@ describe("the blended search, across contexts", () => {
     }
     expect(answer.sources.map((row) => row.state)).toEqual(["ok", "ok"]);
     expect(answer.searchableCount).toBe(2);
+    // Each row says when its note was last written, from the tree's row
+    // ("edited Sep 12" on the console's result rows, 2026-10-17).
+    for (const row of answer.results) expect(typeof row.edited).toBe("number");
   }, 15_000);
 
   test("a context the caller is not in is never searched and never named", async () => {
