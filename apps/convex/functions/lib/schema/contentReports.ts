@@ -17,7 +17,7 @@ export const contentReportTables = {
     reporterId: v.id("users"),
     /** The feedback event id: one row per sent report, however often it is retried. */
     eventId: v.string(),
-    kind: v.union(v.literal("share"), v.literal("invitation"), v.literal("workspace_note"), v.literal("public_page")),
+    kind: v.union(v.literal("share"), v.literal("grant"), v.literal("invitation"), v.literal("workspace_note"), v.literal("public_page")),
     reason: v.string(),
     details: v.optional(v.string()),
     resolved: v.boolean(),

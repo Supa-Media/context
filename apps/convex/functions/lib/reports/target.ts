@@ -7,6 +7,9 @@
  * whether that caller can reach it:
  *
  *  - a share: `shareStillStands`, the one predicate every share channel uses;
+ *  - a grant (a note or folder shared with the caller by name, from a
+ *    workspace they are not in): `outsiderGrantsFor`, the one @shared lists
+ *    them with, so a grant the list would not show does not resolve;
  *  - an invitation: `invitationForCaller`, the one `acceptInvitation` uses;
  *  - a workspace note: the caller's own membership;
  *  - a public page: a share link through `shareStillStands`, or a website by
@@ -22,6 +25,7 @@
 import { v, type Infer } from "convex/values";
 import type { QueryCtx } from "../../../_generated/server";
 import type { Id } from "../../../_generated/dataModel";
+import { outsiderGrantsFor } from "../grants/outsider";
 import { invitationForCaller } from "../invitations/forCaller";
 import { findName } from "../nameClaims";
 import { shareStillStands } from "../shares/standing";
@@ -34,6 +38,7 @@ import { getMembership } from "../workspaceAuth";
  */
 export const reportTargetValidator = v.union(
   v.object({ kind: v.literal("share"), token: v.string() }),
+  v.object({ kind: v.literal("grant"), workspaceId: v.string(), noteId: v.string() }),
   v.object({ kind: v.literal("invitation"), token: v.string() }),
   v.object({ kind: v.literal("workspace_note"), workspaceId: v.string(), path: v.string() }),
   v.object({
@@ -82,6 +87,20 @@ export async function resolveReportTarget(
         ids: { shareId: share._id, workspaceId: share.workspaceId, personId: share.createdBy },
         personId: share.createdBy,
       };
+    }
+    case "grant": {
+      if (target.noteId.length === 0 || target.noteId.length > MAX_TOKEN) return UNRESOLVED;
+      const workspaceId = ctx.db.normalizeId("workspaces", target.workspaceId);
+      if (workspaceId === null) return UNRESOLVED;
+      // Re-derived from the live rows, exactly as @shared lists it: a revoked grant, a member, a stranger and a
+      // note id from another workspace are all the one UNRESOLVED.
+      const grant = (await outsiderGrantsFor(ctx, userId)).find(
+        (candidate) => candidate.workspaceId === workspaceId && candidate.noteId === target.noteId,
+      );
+      if (grant === undefined) return UNRESOLVED;
+      const ids: Record<string, string> = { workspaceId, noteId: grant.noteId };
+      if (grant.grantedBy !== null) ids.personId = grant.grantedBy;
+      return { resolved: true, ids, personId: grant.grantedBy };
     }
     case "invitation": {
       if (target.token.length > MAX_TOKEN) return UNRESOLVED;

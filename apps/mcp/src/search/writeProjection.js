@@ -24,7 +24,7 @@ import { RETIRED_TREE_STATEMENTS } from "../tree/retired.js";
 import { indexableText } from "../encryption/format.js";
 import { createSearchBudget } from "./maintain.js";
 import { syncShardedIndex } from "./shards.js";
-import { meaningWritable, removeMeaningNotes, writeMeaningNote } from "./meaning/store.js";
+import { meaningWritable, moveMeaningNotes, removeMeaningNotes, writeMeaningNote } from "./meaning/store.js";
 import { FOLLOW_NOTE_CAP, followChange, followsNote } from "./d1/follow.js";
 import { effectiveVisibility } from "../privacy/engine.js";
 import { loadPrivacyState } from "../privacy/state.js";
@@ -89,9 +89,9 @@ async function afterResponse(store, work) {
  * below, called by the writers that have the note's text in hand.
  */
 export async function indexWrittenNotesAfterResponse(store, notes) {
-  // A removed path leaves the meaning index here too: its passage ids come
-  // from the path alone, so nothing has to be read. What a move or a restore
-  // ADDS reaches it through the catch-up pass, as it does fast search's.
+  // A removed path leaves the meaning index here too: what an older write
+  // filed under the path goes, and nothing has to be read. A moved note's own
+  // passages are filed under its id and are re-pathed by the follow below.
   const removed = meaningWritable(store)
     ? (notes ?? []).filter((note) => note?.removed).map((note) => note.path)
     : [];
@@ -177,11 +177,14 @@ export async function projectWrittenNoteAfterResponse(
  * followed into both searches behind the response (`d1/follow.js`).
  *
  * Fast search reads what it projects once, and search by meaning embeds that
- * same text, so a moved or written note is findable by its words and by its
- * meaning as soon as this lands rather than at the next sweep (fast search) or
- * the next daily catch-up (meaning). A moved folder is renamed in fast search
- * without reads; its passages reach meaning through the catch-up, since their
- * ids come from the path. Neither may fail the change.
+ * same text, so a written note is findable by its words and by its meaning as
+ * soon as this lands rather than at the next sweep (fast search) or the next
+ * daily catch-up (meaning). A moved note keeps its passages, which are filed
+ * under its note id: they are pointed at the new path from the vectors
+ * already held, with no model call (`moveMeaningNotes`), and only a note with
+ * no id, or not yet filed under it, is embedded again. A moved folder is
+ * renamed in fast search without reads; its notes' passages are re-pathed by
+ * the catch-up, which sees each id at a new path. Neither may fail the change.
  *
  * @param {{ written?: string[], gone?: string[], moved?: [string, string][] }} change
  */
@@ -220,9 +223,20 @@ export async function followChangeAfterResponse(store, change) {
     }
 
     if (!meaning) return;
+    const movedTo = (change.moved ?? [])
+      .filter((pair) => Array.isArray(pair) && followsNote(pair[0]) && followsNote(pair[1]))
+      .map((pair) => pair[1]);
+    const stillToEmbed = await moveMeaningNotes(
+      store,
+      [...new Set(movedTo)].slice(0, FOLLOW_NOTE_CAP).map((path) => ({ path, visibility: visibilityOf(path) })),
+    );
     const notes = [
       ...(change.written ?? []),
-      ...(change.moved ?? []).filter((pair) => Array.isArray(pair) && followsNote(pair[1])).map((pair) => pair[1]),
+      ...stillToEmbed,
+      // A destination whose source was not a note (a restore from plumbing).
+      ...(change.moved ?? [])
+        .filter((pair) => Array.isArray(pair) && !followsNote(pair[0]) && followsNote(pair[1]))
+        .map((pair) => pair[1]),
     ].filter(followsNote);
     for (const path of [...new Set(notes)].slice(0, FOLLOW_NOTE_CAP)) {
       let note = read.get(path);

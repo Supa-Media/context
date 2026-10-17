@@ -350,6 +350,7 @@ export type OperationResult =
   | {
       kind: "meaningProjected";
       embedded: number;
+      repathed?: number;
       deleted: number;
       notesIndexed: number;
       notesPending: number;

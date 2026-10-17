@@ -96,3 +96,42 @@ export async function setAccessOp(
   });
   return json(answer);
 }
+
+/** One entry of `addGrantees`, named as the owner names one: exactly one of a handle, a group id or an email. */
+function requestOf(raw: unknown): { handle?: string; groupId?: string; email?: string; role: Role } | null {
+  if (!raw || typeof raw !== "object") return null;
+  const entry = raw as Record<string, unknown>;
+  const role = roleOf(entry.role);
+  if (role === null) return null;
+  const named = (["handle", "groupId", "email"] as const).filter((field) => entry[field] !== undefined);
+  if (named.length !== 1) return null;
+  const value = entry[named[0]];
+  if (typeof value !== "string" || value.length === 0 || value.length > MAX_NAME) return null;
+  return { [named[0]]: value, role };
+}
+
+/**
+ * Answer one `addGrantees` op: people a connected AI client adds to one row's list, once the person said yes
+ * (the gateway's egress gate holds the call until then). Checked in `lib/nodes/addGrantees.ts`, owner only.
+ */
+export async function addGranteesOp(
+  ctx: ActionCtx,
+  body: Record<string, unknown>,
+  workspaceId: Id<"workspaces">,
+  actor: { userId: Id<"users">; role: "owner" | "editor" },
+): Promise<Response> {
+  const path = stringField(body, "path");
+  if (path === null || path.length > MAX_NAME) return json({ ok: false, code: "INVALID" });
+  if (!Array.isArray(body.entries) || body.entries.length === 0 || body.entries.length > MAX_GRANTEES) {
+    return json({ ok: false, code: "INVALID" });
+  }
+  const entries = body.entries.map(requestOf);
+  if (entries.some((entry) => entry === null)) return json({ ok: false, code: "INVALID" });
+  const answer = await ctx.runMutation(internal.functions.nodesAccess.addGrantees, {
+    workspaceId,
+    path,
+    entries: entries as { handle?: string; groupId?: string; email?: string; role: Role }[],
+    actor,
+  });
+  return json(answer);
+}

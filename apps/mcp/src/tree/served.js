@@ -188,6 +188,9 @@ function objectOf(entry) {
     ...(typeof entry.etag === "string" && entry.etag !== "" ? { etag: entry.etag } : {}),
     ...(Number.isFinite(entry.size) ? { size: entry.size } : {}),
     ...(Number.isFinite(entry.updatedAt) ? { uploaded: new Date(entry.updatedAt) } : {}),
+    // The row's note id: search by meaning files a note's passages under it,
+    // so a move or rename keeps them (`search/meaning/project.js`).
+    ...(typeof entry.noteId === "string" && entry.noteId !== "" ? { noteId: entry.noteId } : {}),
   };
 }
 

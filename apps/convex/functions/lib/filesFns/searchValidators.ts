@@ -203,6 +203,8 @@ export const indexProjectedValidator = v.object({
 export const meaningProjectedValidator = v.object({
   kind: v.literal("meaningProjected"),
   embedded: v.number(),
+  /** Notes pointed at a new path from their stored vectors, with no model call. */
+  repathed: v.optional(v.number()),
   deleted: v.number(),
   notesIndexed: v.number(),
   notesPending: v.number(),
