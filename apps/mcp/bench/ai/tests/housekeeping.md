@@ -1,5 +1,5 @@
 ---
-job: texting-assistant
+job: housekeeping
 mode: housekeeping
 run_as: Tomas
 today: 2026-10-17
