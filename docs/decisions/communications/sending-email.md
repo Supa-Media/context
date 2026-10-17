@@ -66,13 +66,28 @@ person.
 Decided by the owner on 2026-10-17 ("Wait for Gmail"): an email is sent from
 the person's own connected Gmail, never from a context.lc address, so replies
 land in their mailbox and their name is on it. Sending needs Gmail's
-`gmail.send` scope, which our production OAuth client does not ask for while
-the restricted-scope review is open (see
-[gmail-and-sync-loop](./gmail-and-sync-loop.md)). Until it does, every send
-refuses with `no_sender` and Tex hands over the draft to copy. Nothing in the
-gate changes when the scope arrives: a connection whose granted `scopes`
-include `gmail.send` becomes a sender, and the `from` an email names must be
-one of the person's own such connections.
+`gmail.send` scope, which our production OAuth client asks for only of
+testers while the restricted-scope review is open (see
+[gmail-and-sync-loop](./gmail-and-sync-loop.md)). Decided by the owner on
+2026-10-17: "it should work for testing accounts before we need it
+approved". A tester is a verified staff address (`ADMIN_EMAILS`) or the
+production test account (`isGoogleWriteTester`); Google lets an unverified
+app's listed test users grant restricted scopes. A tester reconnects Google
+once to grant it. Everyone else's sends refuse with `no_sender` and Tex hands
+over the draft to copy. Nothing in the gate changes when the review clears:
+a connection whose granted `scopes` include `gmail.send` becomes a sender,
+and the `from` an email names must be one of the person's own such
+connections.
+
+### A hold is armed for a texted yes only once its ask goes out whole
+
+Every hold is raised unarmed and `textedAsk` arms it only after the ask
+naming it is known to fit in one text. Withdrawing an ask that would not fit,
+and disarming one the person moved on from, both depend on storage writes
+that can fail; an armed record left behind by a failed delete would be
+released by the next bare "yes" (found by Codex re-reviewing #1826). A record
+that can be neither disarmed nor dropped is reported, and the person is told
+to reply NO. Tests: `emailGate.test.mjs` sabotages 13 to 15.
 
 ### What is deliberately not built
 

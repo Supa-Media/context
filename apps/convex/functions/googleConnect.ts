@@ -72,6 +72,7 @@ import { hashToken } from "./lib/crypto";
 import { encryptSecret, decryptSecret, requireKeyset } from "./lib/crypto";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
 import { recordAudit } from "./lib/audit";
+import { connectScopes } from "./lib/googleWriteTesters";
 import {
   createPkcePair,
   exchangeGoogleCode,
@@ -80,7 +81,6 @@ import {
   isGoogleReconnectRequired,
   refreshGoogleToken,
   revokeGoogleToken,
-  scopesForProducts,
   GoogleOAuthError,
   type GoogleProduct,
 } from "./lib/googleOAuth";
@@ -228,7 +228,7 @@ export const startGmailConnect = action({
         redirectUri: args.redirectUri,
         challenge,
         state,
-        scopes: scopesForProducts(["gmail"]),
+        scopes: await connectScopes(ctx, userId, ["gmail"]),
       }),
     };
   },
@@ -307,7 +307,7 @@ export const startGoogleConnect = action({
         redirectUri: args.redirectUri,
         challenge,
         state,
-        scopes: scopesForProducts(products),
+        scopes: await connectScopes(ctx, userId, products),
       }),
     };
   },

@@ -9,16 +9,15 @@
  *
  * Sent through the person's own connected Gmail, and only one whose consent
  * granted `gmail.send` (decided by the owner, 2026-10-17: "Wait for Gmail",
- * rather than sending from their Context address). Context does not ask
- * Google for that scope yet (`GMAIL_SCOPES` in `googleOAuth.ts`), because the
- * Google review in progress covers read scopes only, so until that changes no
- * connection has it and nothing is sent. Nothing of an email is kept here:
+ * rather than sending from their Context address). Until Google has reviewed
+ * that scope, Context asks for it only of testers (`TESTER_WRITE_SCOPES` in
+ * `googleOAuth.ts`), so only their connections send. Nothing of an email is kept here:
  * the limits count hashes of recipient addresses, never the addresses, the
  * subject or the body (non-negotiable #1, metadata only).
  */
 
 /** The Gmail permission a connection must have granted before it sends. */
-export const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
+export { GMAIL_SEND_SCOPE } from "./googleOAuth";
 
 /** Most emails one person's AIs may send in a day, and in an hour. */
 export const PERSON_EMAIL_DAILY_LIMIT = 20;

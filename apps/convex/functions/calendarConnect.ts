@@ -63,6 +63,7 @@ import { hashToken } from "./lib/crypto";
 import { encryptSecret, decryptSecret, requireKeyset } from "./lib/crypto";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
 import { recordAudit } from "./lib/audit";
+import { connectScopes } from "./lib/googleWriteTesters";
 import {
   createPkcePair,
   exchangeGoogleCode,
@@ -70,7 +71,6 @@ import {
   googleRedirectAllowed,
   grantedScopesFor,
   isGoogleReconnectRequired,
-  scopesForProducts,
   GoogleOAuthError,
   type GoogleProduct,
 } from "./lib/googleOAuth";
@@ -265,7 +265,7 @@ export const startCalendarConnect = action({
         redirectUri: args.redirectUri,
         challenge,
         state,
-        scopes: scopesForProducts(products),
+        scopes: await connectScopes(ctx, userId, products),
       }),
     };
   },
