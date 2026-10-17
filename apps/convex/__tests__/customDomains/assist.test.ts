@@ -336,7 +336,7 @@ describe("emailing the steps", () => {
     const { text } = stepsMail(
       {
         to: "helper@example.invalid",
-        senderName: "Maya‮ Okafor",
+        senderName: "Maya\u202e Okafor",
         hostname: "blog.acme-test.com",
         zone: "acme-test.com",
         dnsHost: null,
@@ -352,7 +352,7 @@ describe("emailing the steps", () => {
     expect(text).toContain("Name: blog");
     expect(text).toContain("Don't change or delete anything else, including mail settings.");
     // A bidi override in a name can't reorder the sentence it sits in.
-    expect(text).not.toContain("‮");
+    expect(text).not.toContain("\u202e");
   });
 });
 

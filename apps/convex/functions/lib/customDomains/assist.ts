@@ -110,7 +110,7 @@ export async function emailStepsHandler(
     throw new ConvexError({ code: "INVALID_EMAIL", message: "Enter one email address, like name@example.com." });
   }
   const note = (args.note ?? "").trim();
-  if (note.length > STEPS_NOTE_MAX || /[\u0000-\u0008\u000b-\u001f\u007f‪-‮⁦-⁩]/.test(note)) {
+  if (note.length > STEPS_NOTE_MAX || /[\u0000-\u0008\u000b-\u001f\u007f\u202a-\u202e\u2066-\u2069]/.test(note)) {
     throw new ConvexError({ code: "INVALID_NOTE", message: `Keep the note under ${STEPS_NOTE_MAX} characters.` });
   }
   const recipient = await hashToken(recipientLimitKey(to));
@@ -183,7 +183,7 @@ function senderLabel(user: Doc<"users"> | null): string {
 
 /** Strip anything that would let a name pretend to be more than a name. */
 function plainLine(value: string): string {
-  return value.replace(/[\u0000-\u001f\u007f‪-‮⁦-⁩]/g, " ").trim();
+  return value.replace(/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, " ").trim();
 }
 
 export function stepsMail(facts: StepsMailFacts, note: string | null): { subject: string; text: string } {
