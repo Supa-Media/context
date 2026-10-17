@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import { asUser, copyTree, drainScheduled } from "./fixtures.helpers";
-import { cancelPendingJobs, opted, queued } from "./searchBackfill.trigger.helpers";
+import { cancelPendingJobs, opted, project, queued } from "./searchBackfill.trigger.helpers";
 
 /**
  * A CONTEXT WITH A SEARCH DATABASE KEEPS NO INDEX IN ITS BUCKET.
@@ -56,6 +56,16 @@ describe("a context with a search database", () => {
     // Not even the index's manifest is asked for.
     expect(bucket.requests.slice(before).filter((request) => request.key.startsWith(".context/search/"))).toEqual([]);
     expect(shardWrites(bucket)).toEqual([]);
+  }, 30_000);
+
+  test("a copy whose listing fails runs no bucket-index pass in its place", async () => {
+    // No tree copied, so the census cannot be listed: the link copies nothing and waits for the next.
+    const { t, workspaceId, bucket, d1 } = await opted({ status: "backfilling", notes: 3 });
+    const before = bucket.requests.length;
+    await project(t, workspaceId);
+    expect(bucket.requests.slice(before).filter((request) => request.key.startsWith(".context/search/"))).toEqual([]);
+    expect(shardWrites(bucket)).toEqual([]);
+    expect(d1.paths()).toEqual([]);
   }, 30_000);
 
   test("a console search over a filling database schedules no bucket-index pass", async () => {
