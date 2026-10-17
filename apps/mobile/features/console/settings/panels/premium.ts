@@ -60,6 +60,8 @@ export interface PremiumStatus {
   currentPeriodEnd?: number;
   cancelAtPeriodEnd?: boolean;
   hasStripeCustomer?: boolean;
+  /** Founding Premium: active because of the grant, not a payment. */
+  founding?: boolean;
   /** Dedicated production CUJ account; never trusted by the server. */
   isTestAccount?: boolean;
   stagingFreeStorage?: boolean;
@@ -380,7 +382,7 @@ export function describePremium(
   switch (state) {
     case "premium":
       return {
-        title: "This context is on Premium",
+        title: "This workspace is on Premium",
         blurb:
           "Billed to this workspace rather than to you, so a work workspace " +
           "can go on a work card while a personal one stays personal.",
@@ -461,7 +463,10 @@ export function premiumPill(
  * - `choose` — an owner who has not picked either entitlement. The server
  *   refuses a checkout with nothing in it, so no button is drawn; the panel
  *   says what to tick instead, which is one tap away.
- * - `upgrade` — an owner with a selection and no Stripe customer yet.
+ * - `upgrade` — an owner with no Stripe customer whose plan is not active.
+ *   An active plan with no customer (founding Premium, a test or staging
+ *   activation) is offered nothing: `startCheckout` refuses every active
+ *   plan, so the button's only outcome would be an error.
  * - `manage` — an owner this context already has a customer for, whatever the
  *   status. Updating a card, cancelling and restarting all live in Stripe's
  *   portal, which is where the card and the invoices already are.
@@ -477,6 +482,7 @@ export function premiumControl(view: PremiumView): PremiumControl {
   if (status.hasStripeCustomer === true) {
     return view.manageBilling === undefined ? "none" : "manage";
   }
+  if (premiumStateOf(status.status) === "premium") return "none";
   // A status this build does not know is never sold over: with nothing to
   // tick first, the state is now the only thing between it and a checkout.
   if (!status.configured || premiumStateOf(status.status) === "unavailable") return "none";

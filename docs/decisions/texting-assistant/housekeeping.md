@@ -47,7 +47,17 @@ log }`, where `line` is one sentence it may text.
 **Who runs it.** Its own client, `context_housekeeping`, on a short-lived
 grant for the personal workspace; never the texting, dream or heartbeat
 check-in client, because those read or write one note and this changes many.
-When it runs is the workspace heartbeat's loop to decide.
+
+**When.** Once a day, at the first look after 9am in their own time zone:
+after the night's dream, before the day fills up. It rides the same minute
+loop as the dream and the check-in (the texting Worker's Cron asks
+`/agent-texts/housekeeping/due` and reports a code to `/result`), with its own
+row (`texHousekeeping`) and lease rather than sharing the check-in's, so a
+slow tidy never holds up a check-in. Everyone with a linked phone is armed by a
+daily sweep and by their texts; whether it runs, and as whom, is asked again
+at each claim (`lib/texJobs.ts`). No model (not Premium) stops it until their
+next text. It texts nobody: what it did is in its log, and `line` is kept for
+the check-in to mention if the person asks for that.
 
 **Measured.** `apps/mcp/bench/ai/tests/housekeeping.md` (`mode: housekeeping`)
 runs it on Tomas's deliberately messy workspace and grades where each note
@@ -57,4 +67,4 @@ ended up with `must file` checks (`bench/checks.mjs`), not with the judge.
 an MCP grant lets a conversation trigger unwatched bulk changes. Dropping the
 guard's protected paths lets a tidy move routines (which stop running) or the
 website (which unpublishes). Dropping the log loses the undo. Tests:
-`apps/mcp/test/agentHousekeeping.test.mjs`, with its sabotage record.
+`apps/mcp/test/agentHousekeeping.test.mjs` and `apps/convex/__tests__/housekeeping.test.ts`, each with its sabotage record; `apps/agent/src/housekeeping.test.ts` for the Worker.

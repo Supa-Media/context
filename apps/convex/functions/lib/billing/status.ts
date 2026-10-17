@@ -104,6 +104,13 @@ export const billingStatusReturns = v.object({
    * free context on a bucket we run, and not paying, has one.
    */
   noteCap: v.optional(v.number()),
+  /**
+   * Founding Premium (`docs/decisions/billing.md`): this plan is active
+   * because the account was one of the first 100, not because anybody pays.
+   * Not a money fact, so every member reads it: it is why the console offers
+   * no checkout and names no price on a plan with no Stripe customer.
+   */
+  founding: v.boolean(),
   /** Exact production CUJ account; owner only. */
   isTestAccount: v.optional(v.boolean()),
   stagingFreeStorage: v.optional(v.boolean()),
@@ -196,6 +203,7 @@ export async function readBillingStatus(
     freeManagedNoteCap: FREE_MANAGED_NOTE_CAP,
     freeManaged: plan?.freeManaged === true,
     noteCap: noteCap ?? undefined,
+    founding: plan?.founding === true,
     stagingFreeStorage: stagingStorageIsFree(),
     isTestAccount: isOwner ? isProductionTestAccount(user) : undefined,
     // The same predicate `setEntitlements` refuses on, read from the same

@@ -84,6 +84,16 @@ crons.interval("stamp share links with their note's id", { hours: 24 }, internal
 crons.interval("arm Tex's first dreams", { hours: 24 }, internal.functions.dreams.armLinkedDreams, {});
 
 /**
+ * The same for Tex's daytime check-in (`functions/heartbeats.ts`): a first one
+ * for everyone with a linked phone who has none. Only a schedule row; whether
+ * it runs, and as whom, is asked again when it is handed out.
+ */
+crons.interval("arm Tex's first check-ins", { hours: 24 }, internal.functions.heartbeats.armLinkedHeartbeats, {});
+
+/** And for Tex's daily housekeeping (`functions/housekeeping.ts`). */
+crons.interval("arm Tex's first housekeeping", { hours: 24 }, internal.functions.housekeeping.armLinkedHousekeeping, {});
+
+/**
  * Empty the trash: erase for good what has been in a keyed workspace's trash
  * for 30 days (decided by the owner, 2026-10-17; `functions/trash.ts`).
  *

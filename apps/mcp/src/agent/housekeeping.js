@@ -41,7 +41,7 @@ import { callToolForSession } from "../tools/session.js";
 import { grantedToolsFor } from "./sixTools.js";
 import { newLedger } from "../privacy/egress.js";
 import { json } from "../http/responses.js";
-import { wallClock } from "../../../../packages/shared/src/routines.cjs";
+import { appendLogEntry, builtinMeter, clock, dayOf, longDate } from "./jobLog.js";
 import { HOUSEKEEPING_GRANTS, MAX_HOUSEKEEPING_CHANGES, housekeepingCallTool, housekeepingTools, undoLine } from "./housekeepingGuard.js";
 
 export const HOUSEKEEPING_FOLDER = "tex/housekeeping";
@@ -59,18 +59,6 @@ export const HOUSEKEEPING_CLIENT_ID = "context_housekeeping";
 const HOUSEKEEPING_ROUNDS = 24;
 const MAX_WHY_CHARS = 4_000;
 const MAX_LINE_CHARS = 280;
-
-const MONTHS = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December",
-];
-
-const pad = (value) => String(value).padStart(2, "0");
-
-function dayOf(now, timeZone) {
-  const w = wallClock(now, timeZone);
-  return `${w.year}-${pad(w.month)}-${pad(w.day)}`;
-}
 
 /** Today's log: `tex/housekeeping/2026-10-17.md`, dated in their zone. */
 export function housekeepingPath(now, timeZone) {
@@ -109,16 +97,9 @@ export function housekeepingQuestion({ health, today }) {
     .join("\n\n");
 }
 
-function clock(now, timeZone) {
-  const w = wallClock(now, timeZone);
-  const h = w.hour % 12 === 0 ? 12 : w.hour % 12;
-  return `${h}:${pad(w.minute)} ${w.hour < 12 ? "am" : "pm"}`;
-}
-
 function heading(now, timeZone) {
-  const w = wallClock(now, timeZone);
   return (
-    `# Tex kept house, ${MONTHS[w.month - 1]} ${w.day}, ${w.year}\n\n` +
+    `# Tex kept house, ${longDate(now, timeZone)}\n\n` +
     "What Tex's housekeeping changed in this workspace, and how to put each change back.\n"
   );
 }
@@ -163,37 +144,6 @@ export function summaryLine(answer, changes) {
   if (changes.length === 0) return "";
   if (first && first.length <= MAX_LINE_CHARS) return first;
   return `I tidied ${changes.length} ${changes.length === 1 ? "thing" : "things"} in your notes.`;
-}
-
-/** `{ etag, body }`, `{ missing: true }`, or null when the note could not be read. */
-async function readWithEtag(dispatch, path) {
-  try {
-    const result = await dispatch("read_note", { path });
-    const text = textOf(result);
-    if (result?.isError === true) return /^not found\b/i.test(text.trim()) ? { missing: true } : null;
-    const split = text.indexOf("\n\n");
-    if (split === -1) return null;
-    const etag = /^etag: (.+)$/m.exec(text.slice(0, split))?.[1]?.trim();
-    return etag ? { etag, body: text.slice(split + 2) } : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Write this run's entry after whatever the day's log already holds. Best effort. */
-async function writeLog(dispatch, path, entry, { now, timeZone }) {
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const current = await readWithEtag(dispatch, path);
-    if (current === null) return false; // a log that can't be read is never overwritten
-    const before = current.missing ? heading(now, timeZone) : current.body;
-    const written = await dispatch("write_note", {
-      path,
-      content: `${before.replace(/\n*$/, "\n\n")}${entry}`,
-      ...(current.missing ? {} : { expected_etag: current.etag }),
-    }).catch(() => null);
-    if (written && written.isError !== true) return true;
-  }
-  return false;
 }
 
 async function healthOf(dispatch) {
@@ -243,22 +193,7 @@ export async function handleHousekeeping(request, env, store, session, controlPl
   const events = [];
   const guard = housekeepingCallTool(dispatch);
   const model = builtinModel(env);
-  const meter = async (usage, failed, answering = model) => {
-    try {
-      await controlPlane.recordBuiltinUsage(session.accessToken, session.workspaceId, {
-        input: usage?.input ?? 0,
-        output: usage?.output ?? 0,
-        cacheRead: usage?.cacheRead ?? 0,
-        cacheWrite: usage?.cacheWrite ?? 0,
-        model: typeof answering === "string" ? answering : model,
-        decision: 0,
-        failed,
-        ms: Date.now() - started,
-      });
-    } catch {
-      // A meter that could not be reached costs us a report, not the run.
-    }
-  };
+  const meter = builtinMeter(controlPlane, session, model, started);
 
   let turn = null;
   try {
@@ -299,7 +234,7 @@ export async function handleHousekeeping(request, env, store, session, controlPl
   const outcome = changes.length > 0 ? "tidied" : turn === null ? "failed" : "unchanged";
   const now = Date.now();
   const entry = housekeepingEntry({ now, timeZone, model: turn?.model ?? null, changes, before, after, why: turn?.answer ?? "", events });
-  const logged = await writeLog(dispatch, housekeepingPath(now, timeZone), entry, { now, timeZone });
+  const logged = await appendLogEntry(dispatch, housekeepingPath(now, timeZone), entry, heading(now, timeZone));
   console.log(
     JSON.stringify({
       event: "housekeeping",

@@ -6,6 +6,7 @@ import { Text } from "../../design/components/Text";
 import { TextLink } from "../../design/components/TextLink";
 import { leading, pointerType as t, radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
+import { FOUNDING_PRICE_LINE } from "../../console/settings/panels/founding";
 
 /**
  * What "Start fresh" can offer, decided by the control plane — never assumed.
@@ -15,7 +16,10 @@ import { useThemedStyles, type Colors } from "../../design/theme";
  * do neither (a self-hoster, or production while the free tier is switched
  * off), in which case the only card is bringing what you have.
  */
-export type ForkOffer = { kind: "free"; cap: number } | { kind: "paid"; price: string } | null;
+export type ForkOffer =
+  | { kind: "free"; cap: number }
+  | { kind: "paid"; price: string; founding?: boolean }
+  | null;
 
 /**
  * A-04 — "Where should we start you?"
@@ -72,7 +76,9 @@ export function ForkStep({
             <Text variant="rowSub" style={styles.cardBody}>
               {offer.kind === "free"
                 ? `Five folders to get you going, on our free bucket · ${offer.cap.toLocaleString("en-US")} notes. No countdown.`
-                : `Five folders to get you going, on a bucket we run for you · ${offer.price}. You see what it covers before anything is charged.`}
+                : offer.founding === true
+                  ? `Five folders to get you going, on a bucket we run for you. ${FOUNDING_PRICE_LINE}`
+                  : `Five folders to get you going, on a bucket we run for you · ${offer.price}. You see what it covers before anything is charged.`}
             </Text>
             <Text style={styles.cardNote}>
               Setting up for a team? Do this first — you can add a shared workspace from the

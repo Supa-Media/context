@@ -71,6 +71,7 @@ export const AI_JOBS: readonly AiJob[] = [
   { key: "texting-assistant", label: "Tex, by text", group: "people", where: "Everyone with Tex", benchable: true, home: "note" },
   { key: "connected-ais", label: "Connected AIs", group: "people", where: "Claude, ChatGPT and others on the MCP", benchable: true, home: "theirs", model: "their own models" },
   { key: "dream", label: "Nightly dream", group: "background", where: "Tex's about-me, every night", benchable: true, home: "note" },
+  { key: "heartbeat", label: "Check-in", group: "background", where: "Tex texting on its own, a few times a day", benchable: true, home: "note" },
   { key: "meeting-transcription", label: "Meeting transcription", group: "other", where: "Recorded meetings", benchable: true, home: "none", model: "Whisper" },
   { key: "meeting-summaries", label: "Meeting summaries", group: "other", where: "Recorded meetings", benchable: true, home: "note" },
   // Search has no prompt: bge-m3 embeds, and its settings are tuned by `ai/setups/search/` (`bench/search.mjs`).

@@ -15,6 +15,7 @@
  *   the walk not applying a grant to an existing personal workspace      2
  *   `foundingStatus` returning Stripe's status unchanged                 2
  *   `excludedFromFounding` ignoring the staff allowlist                  2
+ *   `billing.status` reporting `founding: false` for every plan          1
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -162,6 +163,21 @@ describe("nobody is charged, and Stripe cannot take it away", () => {
     ).rejects.toMatchObject({ data: expect.objectContaining({ code: "ALREADY_PREMIUM" }) });
     expect(await t.run((ctx) => ctx.db.query("billingSessions").collect())).toEqual([]);
     expect((await plan(t, workspaceId))?.stripeCustomerId).toBeUndefined();
+  });
+
+  test("the status says the plan is founding, so the console can say why nothing is charged", async () => {
+    const t = setupTest();
+    const owner = await createUser(t, "first-reader@example.invalid");
+    await catchUp(t);
+    const workspaceId = await createWorkspace(t, owner, "first-reader", { kind: "personal" });
+    const status = await asUser(t, owner).query(api.functions.billing.status, { workspaceId });
+    expect(status).toMatchObject({ status: "active", founding: true, hasStripeCustomer: false });
+
+    const late = await createUser(t, "not-founding@example.invalid");
+    const other = await createWorkspace(t, late, "not-founding", { kind: "shared" });
+    expect(
+      (await asUser(t, late).query(api.functions.billing.status, { workspaceId: other })).founding,
+    ).toBe(false);
   });
 
   test("a founder who was already paying is marked, and their cancellation keeps Premium", async () => {

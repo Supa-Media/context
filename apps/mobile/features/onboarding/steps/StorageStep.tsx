@@ -151,7 +151,7 @@ export function StorageStepBody({
           managed={
             managed === null || !managed.available
               ? undefined
-              : { price: managed.price, stagingFreeStorage: managed.status?.stagingFreeStorage, onChoose: managed.choose }
+              : { price: managed.price, founding: managed.founding, stagingFreeStorage: managed.status?.stagingFreeStorage, onChoose: managed.choose }
           }
         />
       )}

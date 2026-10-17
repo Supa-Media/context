@@ -183,8 +183,10 @@ describe("worker", () => {
           });
         }
         if (path === "/agent") return Response.json({ outcome: "answered", answer: "hi", send: "text" });
-        // The same tick asks for dreams too (`dreams.ts`); none are due here.
+        // The same tick asks for dreams, check-ins and housekeeping too (`dreams.ts`, `heartbeats.ts`, `housekeeping.ts`); none are due here.
         if (path === "/agent-texts/dreams/due") return Response.json({ dreams: [] });
+        if (path === "/agent-texts/heartbeats/due") return Response.json({ heartbeats: [] });
+        if (path === "/agent-texts/housekeeping/due") return Response.json({ runs: [] });
         reported.push(JSON.parse(String(init.body)));
         return Response.json({ ok: true });
       });
@@ -194,6 +196,41 @@ describe("worker", () => {
         { name: "+15555550100", url: "https://inbox/routine-text", body: { text: "hi", idempotencyKey: "routine:r1:+15555550100" } },
       ]);
       expect(reported).toEqual([{ runId: "r1", outcome: "answered", texted: 1 }]);
+    });
+
+    it("texts a check-in to the person's own phone through its inbox", async () => {
+      const inboxCalls: { name: string; url: string; body: unknown }[] = [];
+      const reported: unknown[] = [];
+      const { env: e } = env();
+      e.SENDER_INBOX = {
+        idFromName: (name: string) => ({ name }),
+        get: (id: { name: string }) => ({
+          fetch: async (url: string, init: RequestInit) => {
+            inboxCalls.push({ name: id.name, url, body: JSON.parse(String(init.body)) });
+            return Response.json({ status: "texted" });
+          },
+        }),
+      } as unknown as DurableObjectNamespace;
+      vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+        const path = new URL(url).pathname;
+        if (path === "/agent-texts/routines/due") return Response.json({ runs: [] });
+        if (path === "/agent-texts/dreams/due") return Response.json({ dreams: [] });
+        if (path === "/agent-texts/heartbeats/due") {
+          return Response.json({
+            heartbeats: [{ runId: "b1", accessToken: "g", timeZone: "UTC", since: null, phones: ["+15555550100"] }],
+          });
+        }
+        if (path === "/agent-texts/housekeeping/due") return Response.json({ runs: [] });
+        if (path === "/agent") return Response.json({ outcome: "speak", answer: "Found it." });
+        reported.push(JSON.parse(String(init.body)));
+        return Response.json({ status: "recorded" });
+      });
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      await tick(e);
+      expect(inboxCalls).toEqual([
+        { name: "+15555550100", url: "https://inbox/routine-text", body: { text: "Found it.", idempotencyKey: "heartbeat:b1:+15555550100" } },
+      ]);
+      expect(reported).toEqual([{ runId: "b1", outcome: "texted" }]);
     });
   });
 });

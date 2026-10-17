@@ -353,7 +353,7 @@ export function useOnboarding(
     managed.free !== null
       ? { kind: "free", cap: managed.free.cap }
       : managed.available
-        ? { kind: "paid", price: managed.price }
+        ? { kind: "paid", price: managed.price, founding: managed.founding }
         : null;
 
   const pickManaged = useCallback(() => {

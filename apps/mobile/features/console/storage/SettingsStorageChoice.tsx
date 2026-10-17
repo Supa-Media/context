@@ -102,6 +102,7 @@ function SettingsStorageChoiceLive({
       }}
       managed={!managed.available ? undefined : {
         price: managed.price,
+        founding: managed.founding,
         onChoose: () => {
           if (managed.paid) {
             if (managed.status?.selected.managedStorage) onOpenPremium?.();

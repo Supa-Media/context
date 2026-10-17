@@ -16,7 +16,8 @@
  * Only a grant for the texting client or the routine runner may start one: a
  * routine is the same assistant answering on a schedule instead of a text, and
  * is counted against the same cap on the workspace it runs in, and so is Tex's
- * nightly dream (`lib/dreams/`), one turn a night. The app's own
+ * nightly dream (`lib/dreams/`), one turn a night, and its daytime check-in
+ * (`lib/heartbeats/`), at most three looks a day. The app's own
  * agent panel is refused here, so since 2026-10-10 it has no model at all;
  * widening this set to it is a product decision, not a line here.
  *
@@ -41,12 +42,18 @@ import { GLM_MODEL } from "./lib/jev/models";
 import { TEXTS_CLIENT_ID } from "./textLinks";
 import { ROUTINES_CLIENT_ID } from "./lib/routines/model";
 import { DREAMS_CLIENT_ID } from "./lib/dreams/model";
+import { HEARTBEAT_CLIENT_ID } from "./lib/heartbeats/model";
 import { PINNED_CONTEXT_SLUG } from "@context/shared";
 import { CONSOLE_CLIENT_ID } from "./agentGrant";
 import { resolveGrantByAccessTokenHandler } from "./lib/controlPlane/session";
 
 /** The clients that may spend the built-in model. Nothing else, whatever its plan. */
-const BUILTIN_CLIENTS: ReadonlySet<string> = new Set([TEXTS_CLIENT_ID, ROUTINES_CLIENT_ID, DREAMS_CLIENT_ID]);
+const BUILTIN_CLIENTS: ReadonlySet<string> = new Set([
+  TEXTS_CLIENT_ID,
+  ROUTINES_CLIENT_ID,
+  DREAMS_CLIENT_ID,
+  HEARTBEAT_CLIENT_ID,
+]);
 
 /** The meter's name for this feature. Permanent: usage and switches are keyed by it. */
 export const BUILTIN_FEATURE = "assistant" as const;
