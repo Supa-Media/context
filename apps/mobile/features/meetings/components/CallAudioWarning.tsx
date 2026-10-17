@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
-import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
+import { TextLink } from "../../design/components/TextLink";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { meetings } from "../controller";
 import { useMeetingsSnapshot } from "../useMeetings";
@@ -37,23 +37,28 @@ export function CallAudioWarning({
     void meetings.shareCallAudio().finally(() => setAsking(false));
   };
 
+  /*
+    One short line in the warning colour, and under it, only where asking again
+    can work (a browser's picker), the fix as one muted sentence that starts
+    with its own link. The desktop app's fix is a system setting, which its own
+    sentence names. This used to be a four-line paragraph over a full-size
+    button: the card's loudest thing by far, and too long to read mid-call.
+  */
   return (
     <View style={[styles.band, style]} testID={testID}>
       <Text variant="rowSub" style={styles.text}>
         {warning}
       </Text>
-      {/*
-        Only where asking again can work: a browser's picker. The desktop app's
-        tap is a system permission, and its sentence says where that is.
-      */}
       {!snapshot.capture.systemAudioNeedsPicker ? null : (
-        <Button
-          label={asking ? "Waiting for the browser…" : "Share call audio"}
-          variant="dialogPrimary"
-          onPress={share}
-          disabled={asking}
-          testID={`${testID}-share`}
-        />
+        <Text variant="rowSub" style={styles.hint}>
+          <TextLink
+            label={asking ? "Waiting for the browser…" : "Share call audio"}
+            onPress={share}
+            disabled={asking}
+            testID={`${testID}-share`}
+          />
+          {asking ? null : ", then allow audio in the picker."}
+        </Text>
       )}
     </View>
   );
@@ -61,8 +66,7 @@ export function CallAudioWarning({
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    band: {
-      gap: 10,
-    },
-    text: { color: colors.critText, fontWeight: "600" },
+    band: { gap: 2 },
+    text: { color: colors.critText },
+    hint: { color: colors.muted },
   });

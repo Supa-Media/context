@@ -47,7 +47,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { CallAudioWarning } from "../features/meetings/components/CallAudioWarning";
 
-const MISSING = "Only your side of this call is being recorded.";
+const MISSING = "Only your voice is being recorded.";
 const roots: (() => void)[] = [];
 
 afterEach(() => {

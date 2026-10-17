@@ -226,7 +226,7 @@ describe("the whole call, where a browser can ask for it", () => {
     expect(recorder.state).toBe("recording");
     expect(errors).toHaveLength(1);
     expect(errors[0].recoverable).toBe(true);
-    expect(errors[0].message).toMatch(/only your side of this call/i);
+    expect(errors[0].message).toMatch(/only your voice is being recorded/i);
     expect(CAPTURE_MESSAGES).toContain(errors[0].message);
     await recorder.stop();
   });
@@ -261,7 +261,7 @@ describe("the whole call, where a browser can ask for it", () => {
 
     expect(recordedStream()).toBe("microphone");
     expect(errors.map((error) => error.message)).toEqual([
-      expect.stringMatching(/only your side of this call/i),
+      expect.stringMatching(/only your voice is being recorded/i),
     ]);
     expect(webState.displayTracks.every((track) => track.stopped)).toBe(true);
     await recorder.stop();
@@ -295,7 +295,7 @@ describe("the whole call, where a browser can ask for it", () => {
     expect(recorder.state).toBe("recording");
     expect(errors).toHaveLength(1);
     expect(errors[0].recoverable).toBe(true);
-    expect(errors[0].message).toMatch(/sharing stopped/i);
+    expect(errors[0].message).toMatch(/call audio stopped/i);
     expect(CAPTURE_MESSAGES).toContain(errors[0].message);
     // The video track is the one that actually ends the share, and nothing else
     // will release it now that `releaseStream` has lost its handle on it.

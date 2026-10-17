@@ -253,7 +253,7 @@ describe("what a caller who says nothing gets", () => {
  * ONE SIDE OF A CALL IS A WARNING WITH A FIX, NOT A LINE IN A CHIP.
  */
 describe("when the call's audio is missing", () => {
-  const MISSING = "Only your side of this call is being recorded.";
+  const MISSING = "Only your voice is being recorded.";
 
   test("the recorder's report becomes a warning that holds", async () => {
     const recorder = fakeRecorder({ systemAudio: true, systemAudioNeedsPicker: true });
