@@ -105,6 +105,7 @@ import * as oauth from "./functions/lib/gatewayRoutes/oauth";
 import * as links from "./functions/lib/gatewayRoutes/links";
 import * as vault from "./functions/lib/gatewayRoutes/vault";
 import * as site from "./functions/lib/gatewayRoutes/site";
+import * as workspaceRoutes from "./functions/lib/gatewayRoutes/workspaces";
 import * as feedback from "./functions/lib/gatewayRoutes/feedback";
 import * as agentTexts from "./functions/lib/gatewayRoutes/agentTexts";
 import * as builtinModel from "./functions/lib/gatewayRoutes/builtinModel";
@@ -845,6 +846,14 @@ http.route({ path: "/gateway/links/list", method: "POST", handler: gatewayLinksL
 export const gatewayLinksRevoke = gatewayRoute(links.gatewayLinksRevokeHandler);
 
 http.route({ path: "/gateway/links/revoke", method: "POST", handler: gatewayLinksRevoke });
+
+/* Setting a workspace up through an agent: create, lay out, connect Google. */
+export const gatewayWorkspacesCreate = gatewayRoute(workspaceRoutes.gatewayWorkspacesCreateHandler);
+export const gatewayWorkspacesLayout = gatewayRoute(workspaceRoutes.gatewayWorkspacesLayoutHandler);
+export const gatewayWorkspacesConnectGoogle = gatewayRoute(workspaceRoutes.gatewayWorkspacesConnectGoogleHandler);
+http.route({ path: "/gateway/workspaces/create", method: "POST", handler: gatewayWorkspacesCreate });
+http.route({ path: "/gateway/workspaces/layout", method: "POST", handler: gatewayWorkspacesLayout });
+http.route({ path: "/gateway/workspaces/connect-google", method: "POST", handler: gatewayWorkspacesConnectGoogle });
 
 /* A website's status or a publish, for an owner's or editor's agent. */
 export const gatewaySite = gatewayRoute(site.gatewaySiteHandler);

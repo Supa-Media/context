@@ -89,7 +89,7 @@ export const finishSetup = mutation({
     }
     await ctx.db.patch(userId, { name });
     const slug = await availableSlug(ctx, name);
-    const created = await createWorkspaceHandler(ctx, { slug, displayName: name, kind: "personal" });
+    const created = await createWorkspaceHandler(ctx, userId, { slug, displayName: name, kind: "personal" });
     return { slug: created.slug };
   },
 });
