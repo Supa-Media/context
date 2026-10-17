@@ -71,7 +71,11 @@ export function noteFoot({
       : local && state.status !== "empty" && state.status !== "error" && state.status !== "conflict"
       ? LOCAL_ONLY
       : presence?.collaboration?.message ??
-    (collaborationStatus === "local"
+    // "local" is also a note just opened from this device's copy with nothing of
+    // its own to send: that is a read, not a save waiting to sync.
+    (collaborationStatus === "local" && (presence?.collaboration?.pending ?? 0) === 0
+      ? "Read from this device"
+      : collaborationStatus === "local"
       ? "Saved on this device; syncing soon."
       : collaborationStatus === "syncing"
         ? "Syncing to your bucket…"
