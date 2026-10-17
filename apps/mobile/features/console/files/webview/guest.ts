@@ -669,6 +669,7 @@ export function mountGuest(
       carets.request();
     },
     onSave: () => bridge.post({ v: PROTOCOL_VERSION, type: "save" }),
+    onLineState: (state) => bridge.post({ v: PROTOCOL_VERSION, type: "line-state", style: state.style, list: state.list }),
   };
 
   const apply = (message: ToGuest): void => {

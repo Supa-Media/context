@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Icon } from "../../design/components/Icon";
-import { layout, radii, space } from "../../design/tokens";
+import { Text } from "../../design/components/Text";
+import { fonts, layout, radii, space, touchType } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors, type Shadows } from "../../design/theme";
 import type { PhoneBackTarget } from "./phoneBack";
 
@@ -16,6 +17,11 @@ import type { PhoneBackTarget } from "./phoneBack";
  * there is no menu of levels to choose from (that was 2026-10-13's board C).
  * Holding it goes straight Home (2026-10-16), as does a swipe in from the
  * left edge (`EdgeSwipeHome`).
+ *
+ * Going back to one of the two top pages, it says which beside the ‹ — "‹
+ * Inbox" on Folders, "‹ Folders" on a folder at the top (board 2 of
+ * `meeting-2026-10-17/phone-inbox/`). Deeper, a folder's name can be any
+ * length, so the ‹ stays on its own there.
  *
  * `after` is anything that has to stay beside it: a signed-out visitor's Sign
  * in, which is the one call to action the top bar carries and has nowhere else
@@ -39,16 +45,23 @@ export function PhoneBack({
     <View style={styles.row}>
       <Pressable
         onPress={() => onGo(nearest)}
-        // Held: straight Home, however deep (owner, 2026-10-16). One level
-        // below Home it is the same place a press goes.
+        // Held: straight to Inbox, the phone's first page, however deep (owner,
+        // 2026-10-16). One level below it is the same place a press goes.
         onLongPress={() => onGo(home)}
         accessibilityRole="button"
         accessibilityLabel={`Back to ${nearest.label}`}
-        accessibilityHint={home === nearest ? undefined : "Hold to go Home"}
-        style={({ pressed }) => [styles.key, pressed ? styles.pressed : null]}
+        accessibilityHint={home === nearest ? undefined : "Hold to go to Inbox"}
+        style={({ pressed }) => [styles.press, pressed ? styles.pressed : null]}
         testID="phone-back"
       >
-        <Icon name="chevronLeft" size={20} color={colors.accent} />
+        <View style={styles.key}>
+          <Icon name="chevronLeft" size={20} color={colors.accent} />
+        </View>
+        {nearest.view === undefined ? null : (
+          <Text style={styles.label} numberOfLines={1}>
+            {nearest.label}
+          </Text>
+        )}
       </Pressable>
       {after}
     </View>
@@ -58,6 +71,7 @@ export function PhoneBack({
 const makeStyles = (colors: Colors, shadows: Shadows) =>
   StyleSheet.create({
     row: { flexDirection: "row", alignItems: "center", gap: space.x2, minWidth: 0, flexShrink: 1 },
+    press: { flexDirection: "row", alignItems: "center", gap: space.x2, minHeight: layout.minTouchTarget },
     key: {
       alignItems: "center",
       justifyContent: "center",
@@ -68,5 +82,6 @@ const makeStyles = (colors: Colors, shadows: Shadows) =>
       backgroundColor: colors.chrome,
       boxShadow: shadows.floating,
     },
+    label: { fontFamily: fonts.body, fontSize: touchType.lede, color: colors.accentText },
     pressed: { opacity: 0.7 },
   });

@@ -1,10 +1,10 @@
-import { Fragment, type ReactNode } from "react";
+import { Children, Fragment, type ReactNode } from "react";
 import { Pressable, StyleSheet, View, type GestureResponderEvent } from "react-native";
 import { RowOpeningBar } from "../files/RowOpening";
 import { Icon, type IconName } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
 import { EmojiGlyph } from "../emoji/EmojiGlyph";
-import { fonts, radii, space, touchType } from "../../design/tokens";
+import { fonts, pointerType, radii, space, touchType } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { countLabel, type HomeFolder, type HomeNoteTile } from "./homeModel";
 
@@ -39,12 +39,15 @@ export function Section({ label, children }: { label: string; children: ReactNod
   );
 }
 
-export function Card({ children }: { children: ReactNode[] }) {
+export function Card({ children }: { children: ReactNode }) {
   const styles = useThemedStyles(makeStyles);
+  // Flattened, so a list of rows and a last line after it are ruled alike.
+  const rows = Children.toArray(children);
   return (
     <View style={styles.card}>
-      {children.map((child, index) => (
+      {rows.map((child, index) => (
         <Fragment key={index}>
+          {/* Edge to edge, as the boards draw every list on the phone's top pages. */}
           {index === 0 ? null : <View style={styles.rule} />}
           {child}
         </Fragment>
@@ -147,6 +150,48 @@ export function NoteRow({
   );
 }
 
+/**
+ * A pinned note on Folders (board 2): its name, then when it changed and the
+ * folder it is in, with no icon — the same row Inbox draws a loose note as.
+ */
+export function PinnedNote({
+  title,
+  when,
+  place,
+  onPress,
+  onLongPress,
+  opening = false,
+}: {
+  title: string;
+  when: string;
+  place: string;
+  onPress: () => void;
+  onLongPress?: (at: HoldPoint) => void;
+  opening?: boolean;
+}) {
+  const styles = useThemedStyles(makeStyles);
+  return (
+    <Pressable
+      onPress={onPress}
+      onLongPress={held(onLongPress)}
+      accessibilityRole="button"
+      accessibilityLabel={[title, when, place].filter(Boolean).join(", ")}
+      style={({ pressed }) => [styles.lineRow, pressed || opening ? styles.rowPressed : null]}
+      testID="phone-home-pinned"
+    >
+      <Text style={styles.lineTitle} numberOfLines={1}>
+        {title}
+      </Text>
+      <Text style={styles.lineSub} numberOfLines={1}>
+        {when === "" ? null : <Text style={styles.lineWhen}>{when}</Text>}
+        {when === "" || place === "" ? "" : "\u2002 "}
+        {place}
+      </Text>
+      {opening ? <RowOpeningBar /> : null}
+    </Pressable>
+  );
+}
+
 export function FolderLine({
   folder,
   icon = null,
@@ -165,6 +210,8 @@ export function FolderLine({
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const counts = countLabel(folder.notes, folder.folders);
+  // Board 2 draws the number alone: "48 ›". The words stay for a screen reader.
+  const count = folder.notes === 0 && folder.folders === 0 ? "Empty" : String(folder.notes);
   return (
     <Pressable
       onPress={onPress}
@@ -186,13 +233,13 @@ export function FolderLine({
         />
       )}
       <View style={styles.folderName}>
-        <Text style={styles.rowTitle} numberOfLines={1}>
+        <Text style={[styles.rowTitle, styles.folderTitle]} numberOfLines={1}>
           {folder.title}
         </Text>
-        {folder.shared ? <Icon name="people" size={14} color={colors.markTeam} /> : null}
       </View>
-      <Text variant="meta" numberOfLines={1} style={styles.counts}>
-        {counts}
+      {folder.shared ? <Icon name="people" size={15} color={colors.markTeam} /> : null}
+      <Text numberOfLines={1} style={styles.counts}>
+        {count}
       </Text>
       <Icon name="chevronRight" size={16} color={colors.muted} />
       {opening ? <RowOpeningBar /> : null}
@@ -247,7 +294,7 @@ const makeStyles = (colors: Colors) =>
       flexShrink: 1,
     },
     card: { backgroundColor: colors.cardSurface, borderRadius: radii.sheet, overflow: "hidden" },
-    rule: { height: 1, marginLeft: space.x4 + 20 + space.x3, backgroundColor: colors.line },
+    rule: { height: 1, backgroundColor: colors.line },
     row: {
       flexDirection: "row",
       alignItems: "center",
@@ -266,5 +313,10 @@ const makeStyles = (colors: Colors) =>
     /** Where the 20pt folder icon sits, so a row with an emoji lines up with one without. */
     addLabel: { color: colors.muted, fontFamily: fonts.body, fontSize: touchType.ui, lineHeight: 22 },
     folderEmoji: { width: 20, textAlign: "center", fontSize: touchType.h3, lineHeight: 24 },
-    counts: { flexShrink: 0 },
+    counts: { flexShrink: 0, fontFamily: fonts.body, fontSize: pointerType.lede, color: colors.muted },
+    folderTitle: { fontSize: touchType.body, fontWeight: "600" },
+    lineRow: { paddingHorizontal: space.x4, paddingVertical: space.x3, gap: 2, minHeight: 60, justifyContent: "center" },
+    lineTitle: { fontFamily: fonts.body, fontSize: touchType.body, fontWeight: "600", color: colors.text },
+    lineSub: { fontFamily: fonts.body, fontSize: pointerType.lede, color: colors.muted },
+    lineWhen: { fontWeight: "600", color: colors.text },
   });

@@ -5,6 +5,8 @@ type EditorIconName =
   | "redo"
   | "brackets"
   | "bulletList"
+  | "numberList"
+  | "checkCircle"
   | "heading"
   | "bold"
   | "italic"
@@ -132,6 +134,31 @@ export const editorIcons: Record<EditorIconName, DrawFn> = {
     bar("l2", u, w, c, { cx: 0.6, cy: 0.5, length: 0.56 }),
     dot("d3", u, c, { cx: 0.18, cy: 0.74, r: 0.055 }),
     bar("l3", u, w, c, { cx: 0.6, cy: 0.74, length: 0.56 }),
+  ],
+
+  // The keyboard bar's numbered list, beside `bulletList`: the same three
+  // rules, with 1 2 3 where the dots were.
+  numberList: (u, w, c) => [
+    glyph("g", u, w, c, {
+      paths: [
+        "M0.42 0.26 L0.86 0.26",
+        "M0.42 0.5 L0.86 0.5",
+        "M0.42 0.74 L0.86 0.74",
+        "M0.14 0.2 L0.2 0.16 L0.2 0.33",
+        "M0.12 0.44 L0.18 0.4 L0.24 0.41 L0.26 0.46 L0.12 0.57 L0.27 0.57",
+        "M0.12 0.66 L0.26 0.66 L0.18 0.73 L0.25 0.75 L0.26 0.8 L0.2 0.84 L0.12 0.82",
+      ],
+    }),
+  ],
+
+  // The keyboard bar's checklist key (phone writing board, 2026-10-17): a
+  // ticked round box, as Apple Notes draws its checklist, and the circle a
+  // checklist line is drawn with in the note.
+  checkCircle: (u, w, c) => [
+    glyph("g", u, w, c, {
+      paths: ["M0.34 0.52 L0.45 0.63 L0.66 0.4"],
+      circles: [{ cx: 0.5, cy: 0.5, r: 0.36 }],
+    }),
   ],
 
   heading: (u, w, c) => [

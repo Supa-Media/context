@@ -72,7 +72,7 @@ export const fonts = {
  * is not a scale, it is a ramp with every rung on it, and it is the single
  * largest reason two panels built by two different hands never looked related.
  *
- * Nine sizes, integers only. Half-points were never a design decision; they
+ * Ten sizes, integers only (nine until the phone's page title, 2026-10-17). Half-points were never a design decision; they
  * are what happens when somebody nudges a number until one screen looks right,
  * and they blur on any display that is not 2x.
  *
@@ -102,6 +102,14 @@ export const pointerType = {
   h2: 23,
   /** A note title. */
   title: 30,
+  /**
+   * The large title of the phone's two top pages, Inbox and Folders: Apple's
+   * 34pt large title (board 1 of `meeting-2026-10-17/phone-inbox/`, approved
+   * by Dev2 on 2026-10-17 as "EXACTLY like the mockups"). The tenth role, and
+   * the one deliberate addition: a page's name, not a note's, which is why it
+   * does not shrink on a phone the way `title` does.
+   */
+  page: 34,
   /** Marketing and first-run only; nothing in the console is this size. */
   display: 40,
 } as const;
@@ -169,6 +177,7 @@ export const touchType: TypeScale = {
   h3: 20,
   h2: 22,
   title: 28,
+  page: 34,
   display: 46,
 };
 

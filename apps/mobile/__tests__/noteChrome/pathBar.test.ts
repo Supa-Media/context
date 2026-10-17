@@ -2,8 +2,12 @@
  * @jest-environment jsdom
  */
 
-import { describe, expect, test } from "@jest/globals";
+import { afterEach, describe, expect, test } from "@jest/globals";
+import { setHomeView } from "../../features/console/home/homeView";
 import { dataWith, emptyEditor, layout, mountConsole, SHORT_FILE } from "./fixtures";
+
+// A press of ‹ can leave the phone on Folders; each test starts where a launch does.
+afterEach(() => setHomeView("inbox"));
 
 /**
  * **The phone's path bar**, which is the reversal of a stated decision.
@@ -83,7 +87,7 @@ describe("the phone's way up", () => {
     expect(chosen).toEqual(["3-resources"]);
   });
 
-  test("the top of the workspace goes back to Home, and no path is drawn", () => {
+  test("the top of the workspace goes back to Folders, and no path is drawn", () => {
     let home = 0;
     const app = mountConsole(
       dataWith(
@@ -97,7 +101,7 @@ describe("the phone's way up", () => {
         { path: "index.md", name: "index.md" },
       ),
     );
-    expect(app.find("phone-back")!.getAttribute("aria-label")).toBe("Back to Home");
+    expect(app.find("phone-back")!.getAttribute("aria-label")).toBe("Back to Folders");
     app.press(app.find("phone-back"));
     expect(home).toBe(1);
     // None of the old row: no workspace pill, no path, no leaf.
@@ -112,12 +116,20 @@ describe("the phone's way up", () => {
     expect(app.find("phone-back")!.getAttribute("aria-label")).toBe("Back to d");
   });
 
-  test("Home has no back button: its top-left is the workspace's own mark", () => {
+  test("Inbox has no back button: its top-left is the workspace's mark, @name and ⌄", () => {
     const app = mountConsole(dataWith({ selectedPath: null } as never));
     expect(app.find("phone-back")).toBeNull();
     const account = app.find("account-menu");
     expect(account).not.toBeNull();
     expect(account!.getAttribute("aria-label")).toBe("@seyi — workspaces and account");
+    // Board 1 of `meeting-2026-10-17/phone-inbox/`: the line above "Inbox".
+    expect(app.find("account-menu-name")?.textContent).toBe("@seyi");
+  });
+
+  test("below the top pages the slot is ‹, and the name goes", () => {
+    const app = mountConsole(dataWith({}, { path: DEEP, name: "the-lean-startup.md" }));
+    expect(app.find("phone-back")).not.toBeNull();
+    expect(app.find("account-menu-name")).toBeNull();
   });
 
   test("the back button is a real 44pt target", () => {

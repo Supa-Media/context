@@ -65,6 +65,8 @@ export function noteDocument(view: NoteView) {
     collaborativeVersionedChange,
     onSave,
     controls,
+    titleHint,
+    setLineState,
     moving,
     settledAt,
     setFocused,
@@ -397,7 +399,9 @@ export function noteDocument(view: NoteView) {
           onSave={onSave}
           controls={(api) => {
             controls.current = api;
+            api?.titleHint(titleHint);
           }}
+          onLineState={setLineState}
           /*
             A press takes the caret; a swipe hands it straight back.
 

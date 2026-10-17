@@ -33,6 +33,8 @@ import {
   subscribePageCache,
 } from "../files/folderPage/pageCache";
 import { NoteIntentContext } from "../files/noteIntent";
+import { FOLDERS_PAGE, useHomeView } from "../home/homeView";
+import { goToLevel, HOME_LABEL } from "../home/phoneBack";
 import { useMapRoute } from "../map/live/MapRouteContext";
 import { useChaosView } from "../../chaos/ChaosContext";
 import {
@@ -340,6 +342,8 @@ export function BrowsePane({
   const commsRoute = selected === null ? null : classifyCommsPath(selected.path);
   // The live map draws where the document would, filling the slot (`?map=1`).
   const mapPage = useMapRoute()?.open === true && current != null;
+  // Inbox or Folders, when nothing is open on a phone (`home/homeView.ts`).
+  const homeView = useHomeView();
 
   const openDocument = (
     <BrowseDocument
@@ -492,7 +496,8 @@ export function BrowsePane({
         notices={notices}
         pathBar={pathBar}
         fill={mapPage}
-        onSwipeHome={selected !== null ? () => void files.deselect() : undefined}
+        topPage={homeView === "folders" ? FOLDERS_PAGE : ""}
+        onSwipeHome={selected !== null || homeView === "folders" ? () => goToLevel({ folder: null, label: HOME_LABEL, view: "inbox" }, files) : undefined}
       />
 
       {/*

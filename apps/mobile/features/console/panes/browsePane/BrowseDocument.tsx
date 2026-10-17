@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from "react";
+import { useCallback, useMemo, type ReactNode } from "react";
 import type { useConsoleNav } from "../../ConsoleNavContext";
 import { contextFootLine } from "../../files/contextFoot";
 import type { FileBrowser } from "../../files/browser";
@@ -40,6 +40,15 @@ import { useAnnounceOpenNote } from "../../map/live/announce";
 import { MapPage } from "../../map/live/ui/MapPage";
 import { TrashPage } from "../../trash/TrashPage";
 import { useTrashRoute } from "../../trash/TrashRouteContext";
+import { PhoneInbox } from "../../home/PhoneInbox";
+import type { HoldPoint } from "../../home/homeRows";
+import type { InboxActivity } from "../../home/inboxModel";
+
+import { setHomeView, useHomeView } from "../../home/homeView";
+import { ownPersonalContext } from "../../identity";
+
+/** Filed today before `activity.md` has answered: nothing, one array so Inbox does not redraw. */
+const NO_ENTRIES: readonly InboxActivity[] = [];
 
 /**
  * Whatever is in front of somebody: the empty state or the phone's landing
@@ -232,8 +241,36 @@ export function BrowseDocument({
   */
   const mapRoute = useMapRoute();
   const trashRoute = useTrashRoute();
+  // The phone's first page is Inbox, and All opens Folders (`home/homeView.ts`).
+  const homeView = useHomeView();
+  const ownSlug = ownPersonalContext(data.contexts)?.slug ?? null;
+  const isMe = useCallback((by: string) => ownSlug !== null && by === `@${ownSlug}`, [ownSlug]);
+  const rowHold =
+    data.visitor === undefined
+      ? (path: string, at: HoldPoint) => {
+          // The row's own menu, as a hold on a folder page's row opens it. A row whose
+          // folder this device has not listed yet has no entry to build one from.
+          const entry = findEntry(files.listings, path);
+          if (entry != null) folderMenuFor(parentPath(path)).onRow(entry, at);
+        }
+      : undefined;
+  const phoneInbox = (
+    <PhoneInbox
+      source={homeSource}
+      opened={places.opened}
+      entries={data.activity?.entries ?? NO_ENTRIES}
+      isMe={isMe}
+      onOpen={files.select}
+      onAll={() => setHomeView("folders")}
+      onActions={(at) => void openFolderActions("", at)}
+      onHold={rowHold}
+      iconOf={files.iconOf}
+      opening={holding ? files.selectedPath : null}
+      onPreload={(folders) => preloadFronts(folderLists, folders)}
+    />
+  );
   // Every note and folder in this workspace, for Home and a folder page's counts: a phone only.
-  const phoneHome = (
+  const phoneFolders = (
     <PhoneHome
       title={current?.displayName ?? contextLabel}
       source={homeSource}
@@ -243,17 +280,7 @@ export function BrowseDocument({
       onShown={places.refresh}
       onOpen={files.select}
       onNewFolder={files.canEdit ? () => setFolderDialog({ kind: "newFolder", folder: "" }) : undefined}
-      onActions={data.visitor === undefined ? (at) => void openFolderActions("", at) : undefined}
-      onHold={
-        data.visitor === undefined
-          ? (path, at) => {
-              // The row's own menu, as a hold on a folder page's row opens it. A row whose
-              // folder this device has not listed yet has no entry to build one from.
-              const entry = findEntry(files.listings, path);
-              if (entry != null) folderMenuFor(parentPath(path)).onRow(entry, at);
-            }
-          : undefined
-      }
+      onHold={rowHold}
       iconOf={files.iconOf}
       onAddFolder={files.canEdit ? () => setFolderDialog({ kind: "addFolder" }) : undefined}
       foot={contextFoot}
@@ -261,6 +288,8 @@ export function BrowseDocument({
       onPreload={(folders) => preloadFronts(folderLists, folders)}
     />
   );
+  // A visitor on the homepage has no Inbox: their page is the workspace's own.
+  const phoneHome = data.visitor === undefined && homeView === "inbox" ? phoneInbox : phoneFolders;
   // What a phone's folder rows say beside their names: counts, dates, first lines, pins.
   const phoneRowsFor = useMemo(
     () =>

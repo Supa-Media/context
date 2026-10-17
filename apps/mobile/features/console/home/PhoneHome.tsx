@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
-import { fonts, layout, leading, radii, space, touchType, tracking } from "../../design/tokens";
-import { useColors, useThemedStyles, type Colors, type Shadows } from "../../design/theme";
+import { fonts, layout, leading, pointerType, radii, space, touchType, tracking } from "../../design/tokens";
+import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import {
   buildHome,
   countLabel,
-  recentLabel,
   whenLabel,
   type HomeOpened,
   type HomePin,
@@ -15,19 +14,23 @@ import {
 } from "./homeModel";
 import type { HomeSource } from "./useHomeSource";
 import { useHomeTag } from "./homeTag";
-import { AddFolderLine, Card, FolderLine, NoteRow, Section, Tile, type HoldPoint } from "./homeRows";
+import { AddFolderLine, Card, FolderLine, NoteRow, PinnedNote, Section, type HoldPoint } from "./homeRows";
 import { ChaosHomeLine } from "../../chaos/ChaosHomeLine";
 import { TrashHomeLine } from "../trash/TrashEntry";
 
 const whenOf = (at: number | undefined, now: number) => (at === undefined ? "" : whenLabel(at, now));
 
 /**
- * The phone's Home: the workspace's own page, Apple Notes style.
+ * The phone's Folders page: what Home was, opened from Inbox's All.
  *
- * Approved by the owner on 2026-09-30 (the mobile Home artboards, board 01).
- * Top to bottom: the workspace's name and size with a New folder button,
- * **Pinned** tiles, a **You open most** rail, the three most **Recent**
- * notes, **All folders** with what each holds, then the **Notes** outside every folder — Home is the only page
+ * Approved by the owner on 2026-09-30 (the mobile Home artboards, board 01),
+ * and slimmed on 2026-10-17 when the phone started opening in Inbox
+ * (`PhoneInbox.tsx`; board 2 of `meeting-2026-10-17/phone-inbox/`). Top to
+ * bottom: "Folders" and the workspace's size with a New folder button,
+ * **Pinned** as rows, **All folders** with what each holds, then the
+ * **Notes** outside every folder. You open most became the order of Inbox's
+ * folder dots, and Recent left with it — Inbox's Filed today is where a note
+ * you just wrote is found again. Notes outside every folder: Folders is the only page
  * that lists those, so without it they would be out of reach. Search and a new note are the bottom bar's (`ConsoleBottomBar`),
  * on every screen, so this page has neither.
  *
@@ -88,6 +91,8 @@ export function PhoneHome({
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
+  // The homepage's visitor has no Inbox: their page is still the workspace's own.
+  const visitor = recents === null;
   // A tag pressed in search or a folder's tags lands here (`homeTag.ts`).
   const [tag, setTag] = useHomeTag();
   const [now] = useState(() => Date.now());
@@ -107,7 +112,6 @@ export function PhoneHome({
     () =>
       [
         ...home.pinned.filter((tile) => tile.kind === "folder").map((tile) => tile.path),
-        ...home.openMost.map((folder) => folder.path),
         ...home.folders.map((folder) => folder.path),
       ].join("\n"),
     [home],
@@ -124,10 +128,12 @@ export function PhoneHome({
       <View style={styles.head}>
         <View style={styles.headText}>
           <Text style={styles.title} numberOfLines={2} accessibilityRole="header">
-            {title}
+            {visitor ? title : "Folders"}
           </Text>
-          <Text variant="meta" style={styles.sub} testID="phone-home-totals">
-            {countLabel(home.totals.notes, home.totals.folders)}
+          <Text style={styles.sub} testID="phone-home-totals">
+            {visitor
+              ? countLabel(home.totals.notes, home.totals.folders)
+              : `${title} · ${home.totals.notes} note${home.totals.notes === 1 ? "" : "s"}`}
           </Text>
         </View>
         {onNewFolder === undefined ? null : (
@@ -174,69 +180,30 @@ export function PhoneHome({
 
       {home.pinned.length === 0 ? null : (
         <Section label="Pinned">
-          <View style={styles.grid}>
-            {home.pinned.map((tile) => (
-              <Tile
-                key={tile.path}
-                icon={tile.kind === "folder" ? "folder" : "file"}
-                title={tile.title}
-                shared={tile.kind === "folder" && tile.shared}
-                lines={[
-                  tile.kind === "folder"
-                    ? countLabel(tile.notes, tile.folders)
-                    : tile.updatedAt === undefined
-                      ? tile.place
-                      : `Edited ${whenLabel(tile.updatedAt, now)}`,
-                ]}
-                onPress={() => onOpen(tile.path)}
-                onLongPress={hold(tile.path)}
-                opening={opening === tile.path}
-                style={styles.gridTile}
-              />
-            ))}
-          </View>
-        </Section>
-      )}
-
-      {home.openMost.length === 0 ? null : (
-        <Section label="You open most">
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.rail}>
-            {home.openMost.map((folder) => (
-              <Tile
-                key={folder.path}
-                icon="folder"
-                title={folder.title}
-                shared={folder.shared}
-                lines={[countLabel(folder.notes, 0), folder.label]}
-                onPress={() => onOpen(folder.path)}
-                onLongPress={hold(folder.path)}
-                opening={opening === folder.path}
-                style={styles.railTile}
-              />
-            ))}
-          </ScrollView>
-        </Section>
-      )}
-
-      {home.recent.length === 0 ? null : (
-        <Section label="Recent">
           <Card>
-            {home.recent.map((note) => (
-              <NoteRow
-                key={note.path}
-                note={note}
-                when={note.seenAt === undefined ? whenOf(note.updatedAt, now) : recentLabel(note.seenKind, note.seenAt, now)}
-                onPress={() => onOpen(note.path)}
-                onLongPress={hold(note.path)}
-                opening={opening === note.path}
-              />
-            ))}
+            {home.pinned.map((tile) =>
+              tile.kind === "folder" ? (
+                <FolderLine
+                  key={tile.path}
+                  folder={tile}
+                  icon={iconOf?.(tile.path) ?? null}
+                  onPress={() => onOpen(tile.path)}
+                  onLongPress={hold(tile.path)}
+                  opening={opening === tile.path}
+                />
+              ) : (
+                <PinnedNote
+                  key={tile.path}
+                  title={tile.title}
+                  when={whenOf(tile.updatedAt, now)}
+                  place={tile.place}
+                  onPress={() => onOpen(tile.path)}
+                  onLongPress={hold(tile.path)}
+                  opening={opening === tile.path}
+                />
+              ),
+            )}
           </Card>
-          {recents === null ? null : (
-            <Text variant="treeMeta" style={[styles.foot, styles.recentRule]}>
-              Notes you opened or typed in, on any device.
-            </Text>
-          )}
         </Section>
       )}
 
@@ -295,20 +262,21 @@ export function PhoneHome({
   );
 }
 
-const makeStyles = (colors: Colors, shadows: Shadows) =>
+const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     page: { paddingHorizontal: layout.readingMargin, paddingBottom: space.x6, gap: space.x5 },
     head: { flexDirection: "row", alignItems: "flex-start", gap: space.x3, paddingTop: space.x2 },
     headText: { flex: 1, gap: space.x1 },
+    // 34pt, as Inbox's title: the two top pages are one pair (board 2).
     title: {
       fontFamily: fonts.display,
-      fontSize: touchType.title,
-      lineHeight: leading(touchType.title, 1.15),
+      fontSize: touchType.page,
+      lineHeight: leading(touchType.page, 1.12),
       fontWeight: "700",
-      letterSpacing: tracking(touchType.title, -0.02),
+      letterSpacing: tracking(34, -0.02),
       color: colors.text,
     },
-    sub: { color: colors.muted },
+    sub: { fontFamily: fonts.body, fontSize: pointerType.lede, color: colors.muted },
     roundButton: {
       width: 44,
       height: 44,
@@ -316,7 +284,6 @@ const makeStyles = (colors: Colors, shadows: Shadows) =>
       alignItems: "center",
       justifyContent: "center",
       backgroundColor: colors.cardSurface,
-      boxShadow: shadows.floating,
     },
     pressed: { opacity: 0.6 },
     tagged: {
@@ -331,11 +298,6 @@ const makeStyles = (colors: Colors, shadows: Shadows) =>
     taggedText: { flex: 1, fontFamily: fonts.body, fontSize: touchType.ui, color: colors.accentText },
     taggedClear: { minHeight: 44, justifyContent: "center", paddingHorizontal: space.x4 },
     taggedClearText: { fontFamily: fonts.body, fontSize: touchType.ui, fontWeight: "600", color: colors.accentText },
-    grid: { flexDirection: "row", flexWrap: "wrap", gap: space.x3 },
-    gridTile: { flexBasis: "46%", flexGrow: 1 },
-    rail: { gap: space.x3, paddingRight: space.x4 },
-    railTile: { width: 148 },
     empty: { paddingHorizontal: space.x1 },
     foot: { color: colors.muted },
-    recentRule: { paddingHorizontal: space.x1, paddingTop: space.x1 },
   });

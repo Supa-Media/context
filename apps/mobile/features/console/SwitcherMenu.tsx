@@ -7,7 +7,7 @@ import { Menu } from "../design/components/Menu";
 import { Text } from "../design/components/Text";
 import { useColors, useScheme, useThemedStyles, type Colors } from "../design/theme";
 import { setAppearance } from "../design/appearance";
-import { layout, radii, space } from "../design/tokens";
+import { fonts, layout, radii, space, touchType } from "../design/tokens";
 import { openFeedback } from "../feedback/request";
 import { useCanSendFeedback } from "../feedback/transport";
 import { offerOwnContext } from "../onboarding/route";
@@ -107,6 +107,7 @@ export function SwitcherMenu({
   whatsNew,
   shared,
   trigger = "row",
+  phoneNamed = false,
 }: {
   data: ConsoleData;
   /** The workspace you are in, as `@name` — the button's second line. */
@@ -158,6 +159,12 @@ export function SwitcherMenu({
    * header. A visitor who is not signed in sees a "Sign in" pill there.
    */
   trigger?: "row" | "avatar" | "phone";
+  /**
+   * On the phone's two top pages, Inbox and Folders: the mark with the
+   * workspace's @name and a ⌄ beside it, the line above the page's title
+   * (board 1 of `meeting-2026-10-17/phone-inbox/`). Below them the slot is ‹.
+   */
+  phoneNamed?: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -377,6 +384,7 @@ export function SwitcherMenu({
       rule that the top bar has no call to action of its own (websites.md).
     */
     const signedOut = onSignIn !== undefined;
+    const named = phoneNamed && current !== undefined;
     return (
       <>
         <PressRow
@@ -389,7 +397,7 @@ export function SwitcherMenu({
           }
           onPress={() => setSheetOpen(true)}
           radius={radii.pill}
-          style={signedOut ? styles.signInTarget : styles.phoneTarget}
+          style={signedOut ? styles.signInTarget : named ? styles.phoneNamedTarget : styles.phoneTarget}
           hoverStyle={styles.hover}
           ariaHasPopup="menu"
           ariaExpanded={sheetOpen}
@@ -413,7 +421,7 @@ export function SwitcherMenu({
                   label={atName(current.slug)}
                   tone={current.status}
                   icon={iconFor(current)}
-                  size={PHONE_MARK}
+                  size={named ? 24 : PHONE_MARK}
                 />
               ) : (
                 <Avatar initial={data.viewer.initial} />
@@ -423,6 +431,14 @@ export function SwitcherMenu({
               ) : null}
             </View>
           )}
+          {!signedOut && named ? (
+            <>
+              <Text style={styles.phoneName} numberOfLines={1} testID="account-menu-name">
+                {atName(current!.slug)}
+              </Text>
+              <Icon name="chevronDown" size={14} color={colors.muted} />
+            </>
+          ) : null}
         </PressRow>
         {sheetOpen ? (
           <Menu<string>
@@ -557,6 +573,16 @@ const makeStyles = (colors: Colors) =>
       alignItems: "center",
       justifyContent: "center",
     },
+    /** Inbox and Folders: the mark, the @name and ⌄, one 44pt-tall target. */
+    phoneNamedTarget: {
+      minHeight: layout.minTouchTarget,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: space.x2,
+      paddingRight: space.x2,
+      maxWidth: 260,
+    },
+    phoneName: { flexShrink: 1, fontFamily: fonts.body, fontSize: touchType.body, fontWeight: "600", color: colors.text2 },
     /** The visitor's pill, in the same slot, at the same touch height. */
     signInTarget: {
       minHeight: layout.minTouchTarget,

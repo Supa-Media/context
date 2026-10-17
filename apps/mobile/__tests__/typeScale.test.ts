@@ -15,14 +15,16 @@ import { pointerType, touchType, typeFor } from "../features/design/tokens";
  * time, each nudge individually defensible.
  */
 
-const ROLES = ["label", "meta", "ui", "lede", "body", "h3", "h2", "title", "display"] as const;
+const ROLES = ["label", "meta", "ui", "lede", "body", "h3", "h2", "title", "page", "display"] as const;
 
 describe("the type scale", () => {
   test("both densities declare exactly the same roles", () => {
     expect(Object.keys(pointerType).sort()).toEqual(Object.keys(touchType).sort());
   });
 
-  test("the roles are the nine that were designed, and no more", () => {
+  test("the roles are the ten that were designed, and no more", () => {
+    // Nine until 2026-10-17, when `page` (the phone's 34pt large title on
+    // Inbox and Folders) was added on purpose, from an approved board.
     // The guard against drifting back: a tenth role is how 9 becomes 26, and
     // it always arrives as one reasonable-looking addition.
     expect(Object.keys(pointerType).sort()).toEqual([...ROLES].sort());

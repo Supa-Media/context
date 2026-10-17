@@ -349,6 +349,11 @@ afterEach(() => {
 });
 
 function mountConsole(width: number) {
+  // The context foot is on the phone's Folders page; it opens on Inbox
+  // (`homeView.ts`), which has no foot.
+  (require("../features/console/home/homeView") as typeof import("../features/console/home/homeView")).setHomeView(
+    "folders",
+  );
   // react-native-web measures `document.documentElement.clientWidth`, which
   // jsdom reports as 0 — see `appFrameRender.test.ts` for the full trap.
   Object.defineProperty(document.documentElement, "clientWidth", {

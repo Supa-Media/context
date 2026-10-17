@@ -35,8 +35,8 @@ export async function settledBox(target: Locator): Promise<{ x: number; y: numbe
 }
 
 /**
- * Back to Home the way a person on a phone gets there: the top-left ‹, once
- * per level, until Home is on screen.
+ * Back to the phone's first page (Inbox) the way a person gets there: the
+ * top-left ‹, once per level, until there is no ‹ left.
  */
 export async function goHome(page: Page): Promise<void> {
   // ‹ goes up one level per press (owner, 2026-10-15): press until Home.
@@ -62,8 +62,16 @@ export async function waitForNote(page: Page, heading: string): Promise<void> {
   await page.locator(".cm-content").filter({ hasText: heading }).first().waitFor();
 }
 
-/** Tap one of Home's folder lines by the folder's name, whatever it holds. */
+/**
+ * Tap one of Folders' folder lines by the folder's name, whatever it holds.
+ * The phone opens on Inbox (2026-10-17), whose last dot, All, opens Folders.
+ */
 export async function tapFolderOnHome(page: Page, name: string): Promise<void> {
+  const all = page.getByTestId("phone-inbox-all");
+  if ((await all.count()) > 0) {
+    const box = await all.first().boundingBox();
+    if (box !== null) await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+  }
   const line = page.getByTestId("phone-home-folder").filter({ has: page.getByText(name, { exact: true }) });
   await line.first().waitFor();
   const box = await line.first().boundingBox();
