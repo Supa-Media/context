@@ -38,7 +38,7 @@ import { toolMoveNoteAcrossContexts } from "./moves/acrossContexts.js";
 import { NoteCapReached, asRelocation } from "../store/noteCap.js";
 import { NEVER_WIDENS, approvalRequired, mightWiden, reasonFor, recordRead, wideningOf } from "../privacy/egress.js";
 import { createPending, findPending, takeDone } from "./approvals.js";
-import { EMAIL_TOOL, emailGate } from "./emailGate.js";
+import { HELD_GATES } from "./heldGates.js";
 import { loadPrivacyState } from "../privacy/state.js";
 import { CHAOS_TOOLS, chaosLines, takeChaos, withChaosLines, within } from "../chaos/report.js";
 import { changeChaos } from "../chaos/change.js";
@@ -88,8 +88,8 @@ async function egressGate(suppliedName, supplied, args, { store, session, target
   // Read by the name it is dispatched under (`archive_chat` is `save_context`);
   // stored and replayed as supplied, so a released call routes as asked.
   const name = canonicalToolName(suppliedName);
-  // An email always waits for a yes to its exact copy, whatever the switch below says.
-  if (name === EMAIL_TOOL) return await emailGate(supplied, { store, session, target });
+  // An email or a calendar change always waits for a yes to its exact copy, whatever the switch below says.
+  if (Object.hasOwn(HELD_GATES, name)) return await HELD_GATES[name](supplied, { store, session, target });
   /*
     Any tool that changes something, addressed into a workspace the call did
     not start in, is a write into another workspace; the planning tools only

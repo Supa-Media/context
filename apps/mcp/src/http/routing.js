@@ -63,6 +63,16 @@ export function attachLinkCalls(store, session, controlPlane, env) {
     writable: false,
     configurable: true,
   });
+  // A calendar change the person said yes to (`tools/calendarWrite.js`).
+  Object.defineProperty(store, "calendar", {
+    value: {
+      check: (change) => controlPlane.changePersonCalendar(session.accessToken, session.workspaceId, change, { check: true }),
+      change: (change) => controlPlane.changePersonCalendar(session.accessToken, session.workspaceId, change),
+    },
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
   // Setting a workspace up (`tools/workspaces.js`): created as this person,
   // laid out or connected in this context. The control plane clears each.
   Object.defineProperty(store, "workspaceSetup", {

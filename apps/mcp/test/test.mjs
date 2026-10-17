@@ -75,6 +75,7 @@ import { runAgentHousekeepingChecks } from "./agentHousekeeping.test.mjs";
 import { runAgentEgressChecks } from "./agentEgress.test.mjs";
 import { runAgentEgressTextingChecks } from "./agentEgressTexting.test.mjs";
 import { runEmailGateChecks } from "./emailGate.test.mjs";
+import { runCalendarGateChecks } from "./calendarGate.test.mjs";
 import { runAgentSearchChecks } from "./agentSearch.test.mjs";
 import { runEncryptionChecks } from "./encryption.test.mjs";
 import { runEncryptionGatewayChecks } from "./encryptionGateway.test.mjs";
@@ -176,6 +177,8 @@ await suite("runAgentEgressChecks", () => runAgentEgressChecks(check));
 await suite("runAgentEgressTextingChecks", () => runAgentEgressTextingChecks(check));
 // The send-review gate: every email waits for the person's yes to its exact copy.
 await suite("runEmailGateChecks", () => runEmailGateChecks(check));
+// The calendar gate: every change waits for the person's yes to it.
+await suite("runCalendarGateChecks", () => runCalendarGateChecks(check));
 await suite("runAgentSearchChecks", () => runAgentSearchChecks(check));
 
 // A privacy rule that names a group: what the tools do when they meet one.

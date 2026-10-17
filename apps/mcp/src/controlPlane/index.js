@@ -12,6 +12,7 @@ import { createNoteIdMethods } from "./noteIds.js";
 import { createPrivacyMethods } from "./privacy.js";
 import { createMailMethods } from "./mail.js";
 import { createEmailMethods } from "./email.js";
+import { createCalendarMethods } from "./calendar.js";
 import { createWorkspaceMethods } from "./workspaces.js";
 import { createDreamMethods } from "./dreams.js";
 
@@ -42,6 +43,7 @@ export function createControlPlane(env, options = {}) {
     ...createPrivacyMethods({ post }),
     ...createMailMethods({ post }),
     ...createEmailMethods({ post }),
+    ...createCalendarMethods({ post }),
     ...createWorkspaceMethods({ post, required }),
     ...createDreamMethods({ post }),
   };
