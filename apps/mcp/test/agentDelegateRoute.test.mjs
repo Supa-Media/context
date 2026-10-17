@@ -17,6 +17,8 @@
  *     → "the result reaches the texting conversation, marked as read from outside" fails.
  *  3. `delegation` built for any client, not only texts.
  *     → "only a text is offered delegate" fails.
+ *  4. `prepareSupervision` sending a done job to the model.
+ *     → "a done job is texted once, as finished, with no model call" fails.
  */
 
 import worker from "../src/index.js";
@@ -217,11 +219,11 @@ export async function runAgentDelegateRouteChecks(check) {
       expected_etag: etag,
       content: body.replace("status: in progress", "status: done").replace("Not yet.", "https://github.com/example/app/pull/7"),
     });
-    model.install([{ text: "DONE: The sign-in loop is fixed.\n\nhttps://github.com/example/app/pull/7" }]);
+    before = model.requests.length;
     const done = await post(env, TOKEN_RUNNER, "/agent", { routine: { path: SUPERVISOR } });
     check(
-      "a done job is texted once, as finished",
-      done.body?.outcome === "finished" && /pull\/7/.test(done.body?.answer ?? ""),
+      "a done job is texted once, as finished, with no model call",
+      done.body?.outcome === "finished" && /pull\/7/.test(done.body?.answer ?? "") && model.requests.length === before,
     );
     const conversation = JSON.parse(bucket.get(".context/agent/conversations/texts.json")?.body ?? "{}");
     const last = conversation.turns?.at(-1);

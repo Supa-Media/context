@@ -55,7 +55,7 @@ import {
 } from "./routine.js";
 import { textingAwareCallTool, textingWriteTools } from "./textingWrites.js";
 import { delegateSession, withDelegate } from "./delegate.js";
-import { deliverSupervision, prepareSupervision, withMailAgent } from "./supervise.js";
+import { NO_MODEL, deliverSupervision, prepareSupervision, withMailAgent } from "./supervise.js";
 import { LONG_MAX_ROUNDS, LONG_TOOL_BUDGET_MS, progressChannel } from "./progress.js";
 import { markUntrusted, newLedger } from "../privacy/egress.js";
 import { transcriptionForwarder } from "../ingestion/transcription.js";
@@ -161,12 +161,14 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       timeZone: routineTimeZone(routine.settings, body.routine.timeZone),
       lastRun: runs.findLast((run) => run.outcome === "answered" || run.outcome === "finished"),
     });
-    // A job going well, or one whose note is gone, costs no model call; a gone note stops its supervisor.
+    // A job going well, done or gone costs no model call (`supervise.js`); done or gone stops its supervisor.
     supervision = await prepareSupervision(dispatch, routine, { runs, handle: store.contexts.find((c) => c.current)?.name });
     if (supervision?.skip) {
-      await keepRun(store, routine, runs, supervision.skip, "");
-      if (supervision.skip === "finished") await stopRoutine(dispatch, routine.path);
-      return json({ outcome: supervision.skip, answer: "", skipped: true, send: routine.settings.send, to: routine.settings.to });
+      const { skip: outcome, answer = "" } = supervision;
+      await keepRun(store, routine, runs, outcome, answer || NO_MODEL);
+      if (outcome === "finished") await stopRoutine(dispatch, routine.path);
+      if (supervision.task) await deliverSupervision(store, dispatch, supervision, { outcome, text: answer }, (work) => deferred(store, work));
+      return json({ outcome, answer, skipped: answer === "", send: routine.settings.send, to: routine.settings.to });
     }
     if (supervision !== null) question = supervision.question;
   }
@@ -377,6 +379,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
           handle: home,
           home,
           vouch: (url, message) => opened?.delegated(url, message),
+          trusted: () => ledger.untrusted !== true,
           browser: opened?.browser != null,
         })
       : null;
@@ -543,9 +546,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     await afterAnswer(logTurn(turn.exhausted ? "exhausted" : "answered", turn.model, turn.timing, turn.usage));
 
     if (runner) {
-      let ran = turn.exhausted ? { outcome: "failed", text: "" } : runOutcome(turn.answer);
-      // A job whose note says done is delivered once, whether or not the answer said DONE:.
-      if (supervision?.kind === "finished" && ran.outcome === "answered") ran = { ...ran, outcome: "finished" };
+      const ran = turn.exhausted ? { outcome: "failed", text: "" } : runOutcome(turn.answer);
       await afterAnswer(transcript.finish({ answer: ran.text, outcome: ran.outcome }));
       await keepRun(store, routine, runs, ran.outcome, ran.text);
       /*

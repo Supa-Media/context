@@ -221,7 +221,7 @@ const section = (body, heading) => {
  *   `handle` names the person (`@maya`), `home` is the workspace a call with no context reaches,
  *   `vouch` lets the turn's browser open the start address and type the message, `browser` says whether there is one
  */
-export function delegateSession(callTool, { handle, home, now = Date.now, vouch = null, browser = true }) {
+export function delegateSession(callTool, { handle, home, now = Date.now, vouch = null, browser = true, trusted = () => true }) {
   const definition = {
     name: DELEGATE_TOOL,
     description:
@@ -249,9 +249,17 @@ export function delegateSession(callTool, { handle, home, now = Date.now, vouch 
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
   };
 
-  function startLine(agent, message) {
+  /*
+    The message is the model's words. It is vouched for (typable on the
+    agent's own site without open web) only when this call wrote it, in a turn
+    that has read nothing from outside, so no page or other agent's mail can
+    have chosen them (`docs/decisions/privacy-and-sharing/agent-egress.md`).
+    `again` rebuilds a message from a note anyone with write access may have
+    edited, so it never vouches.
+  */
+  function startLine(agent, message, { fresh = false } = {}) {
     const how = AGENTS[agent].how ? ` ${AGENTS[agent].how}` : "";
-    if (typeof vouch === "function") vouch(AGENTS[agent].start, message);
+    if (fresh && typeof vouch === "function" && trusted() === true) vouch(AGENTS[agent].start, message);
     if (!browser) {
       return `You have no browser on this deployment, so text them the address ${AGENTS[agent].start} and the message below to paste and send themselves.\n\n${message}`;
     }
@@ -339,7 +347,7 @@ export function delegateSession(callTool, { handle, home, now = Date.now, vouch 
       [
         `Handed off in Context: the task note is ${ref} (in progress, owner ${owner}), with a mail channel on it, ` +
           `and a supervisor (${supervisor}) checks on it every 10 minutes and texts them the result.`,
-        startLine(agent, message),
+        startLine(agent, message, { fresh: true }),
       ].join("\n\n"),
     );
   }

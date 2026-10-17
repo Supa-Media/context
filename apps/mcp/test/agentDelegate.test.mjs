@@ -18,6 +18,10 @@
  *     → "a silent agent is chased twice, spaced out, then the person is told once" fails.
  *  4. `mail_agent` taking a `path` from the model.
  *     → "mail_agent mails the watched note and nothing else" fails.
+ *  7. `startLine` vouching without asking `trusted()`.
+ *     → "a turn that read something from outside never vouches" fails.
+ *  6. The model spacing check removed from `superviseRun`.
+ *     → "a chatty agent gets at most one model run per spacing" fails.
  *  5. `delegateValue` storing the value without its site.
  *     → "a delegated message is typed only on its agent's own site" fails.
  */
@@ -32,6 +36,8 @@ import { browserSession } from "../src/agent/browse.js";
 import { OpenableAddresses } from "../src/agent/trustedSites.js";
 import {
   MAX_CHASES,
+  MODEL_SPACING_MS,
+  NO_MODEL,
   QUIET_AFTER_MS,
   closeJob,
   mailAgentSession,
@@ -170,7 +176,9 @@ test("again gives the same message for a job already handed off, writing nothing
   const again = await delegate(store, { again: "@maya/1-projects/launch/write-the-launch-post.md" }, { vouch: (u, m) => vouched.push(m) });
   assert.equal(again.isError, undefined, again.content[0].text);
   assert.equal(store.calls.filter((c) => c.name === "write_note").length, writes);
-  assert.equal(vouched[1], vouched[0]);
+  // Same message, but never vouched again: the note's brief may have been edited since.
+  assert.ok(again.content[0].text.includes(vouched[0]));
+  assert.equal(vouched.length, 1);
   store.put("@maya/1-projects/launch/other.md", "---\nowner: @maya\n---\n# Other\n");
   assert.equal((await delegate(store, { again: "@maya/1-projects/launch/other.md" })).isError, true);
 });
@@ -236,11 +244,12 @@ test("new mail is reviewed, framed as the agent's words", async () => {
 test("a task note that says done is delivered", async () => {
   const { store, task, key } = await handedOff(30);
   const note = store.notes.get(key);
-  note.body = withStatus(note.body, "done").replace("Not yet.", "PR: https://github.com/Supa-Media/context/pull/1");
-  const run = await superviseRun(store.call, task, { now: NOW, handle: "@maya" });
+  note.body = withStatus(note.body, "done").replace("Not yet.", "- [The fix](https://github.com/Supa-Media/context/pull/1), **merged**");
+  // Even right after a model run: done never waits, and needs no model.
+  const run = await superviseRun(store.call, task, { now: NOW, handle: "@maya", runs: [{ at: NOW - MIN, outcome: "skipped", text: "" }] });
   assert.equal(run.kind, "finished");
-  assert.match(run.question, /Start your answer with DONE:/);
-  assert.match(run.question, /pull\/1/);
+  assert.equal(run.question, undefined);
+  assert.equal(run.answer, 'Claude Code finished "Fix the sign-in loop".\n\nThe fix\nhttps://github.com/Supa-Media/context/pull/1, merged');
 });
 
 test("a silent agent is chased twice, spaced out, then the person is told once", async () => {
@@ -318,4 +327,30 @@ test("a delegated message is typed only on its agent's own site", async () => {
   const typed = planned.find((step) => step.do === "type");
   assert.deepEqual(typed.onlyOn, ["claude.ai"]);
   assert.equal(typed.text, message);
+});
+
+test("a chatty agent gets at most one model run per spacing, and its mail waits unread", async () => {
+  const { store, task, say } = await handedOff(60);
+  say("claude-code", "Step 1 done.", 5);
+  const runs = [{ at: NOW - 10 * MIN, outcome: "skipped", text: "" }];
+  assert.equal((await superviseRun(store.call, task, { now: NOW, runs })).kind, "quiet");
+  assert.equal(store.calls.some((c) => c.args.mail === "new"), false);
+  // Runs that opened no model don't count.
+  const quietRuns = [{ at: NOW - 10 * MIN, outcome: "skipped", text: NO_MODEL }];
+  const run = await superviseRun(store.call, task, { now: NOW, runs: quietRuns });
+  assert.equal(run.kind, "review");
+  assert.match(run.question, /Step 1 done\./);
+  assert.ok(MODEL_SPACING_MS >= 30 * MIN);
+});
+
+test("a turn that read something from outside never vouches for the message", async () => {
+  const store = fakeDispatch();
+  const vouched = [];
+  const result = await delegate(
+    store,
+    { agent: "claude", title: "Write the post", brief: BRIEF, folder: "1-projects/launch" },
+    { vouch: (u, m) => vouched.push(m), trusted: () => false },
+  );
+  assert.equal(result.isError, undefined);
+  assert.equal(vouched.length, 0);
 });

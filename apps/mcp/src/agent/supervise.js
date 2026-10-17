@@ -44,6 +44,14 @@ export const MAIL_AGENT_TOOL = "mail_agent";
 export const QUIET_AFTER_MS = 45 * 60 * 1000;
 /** Chases sent into a silence before the person is told instead. */
 export const MAX_CHASES = 2;
+/**
+ * The least time between two model runs for one job, so a chatty agent costs
+ * at most 48 a day (and the account's daily limit caps them all). Mail that
+ * waits is read on the next run allowed; a done note never waits.
+ */
+export const MODEL_SPACING_MS = 30 * 60 * 1000;
+/** The text a run that opened no model is kept with, so the spacing can tell the two apart. */
+export const NO_MODEL = "(no model: nothing to do)";
 
 const DONE_STATUSES = new Set(["done", "finished", "complete", "completed", "cancelled", "canceled", "dropped"]);
 const MAX_NOTE_CHARS = 6000;
@@ -86,10 +94,28 @@ export function withStatus(note, status) {
   return `---\nstatus: ${status}\n---\n${note}`;
 }
 
+const MAX_RESULT_CHARS = 700;
+
+/**
+ * A done job's text, in the gateway's words: who finished what, then the
+ * note's Result section as plain lines (Markdown links become their address,
+ * on its own line), so it needs no model and can't be talked out of.
+ */
+export function doneText(task, title, body) {
+  const result = /^## Result\n+([\s\S]*?)(?=\n## |\n```mail|$)/m.exec(body)?.[1]?.trim() ?? "";
+  const plain = result
+    .replace(/\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, "$1\n$2")
+    .replace(/^\s*(?:[-*+]|\d+\.)\s+/gm, "")
+    .replace(/[*_`#>]/g, "")
+    .trim();
+  const lead = `${task.label} finished "${title}".`;
+  return plain && plain !== "Not yet." ? `${lead}\n\n${clip(plain, MAX_RESULT_CHARS)}` : `${lead} It's in ${task.ref}.`;
+}
+
 /**
  * What this run should do, worked out before any model is opened.
  *
- * @returns {Promise<{kind: "gone"} | {kind: "quiet"} | {kind: "finished"|"review"|"chase"|"tell", question: string, mailbox: string|null, title: string}>}
+ * @returns {Promise<{kind: "gone"} | {kind: "quiet"} | {kind: "finished", title: string, answer: string} | {kind: "review"|"chase"|"tell", question: string, mailbox: string|null, title: string}>}
  */
 export async function superviseRun(callTool, task, { now = Date.now(), runs = [], handle = "them" } = {}) {
   const where = { path: task.path, context: task.context };
@@ -102,6 +128,11 @@ export async function superviseRun(callTool, task, { now = Date.now(), runs = []
   // Joining again is free: the same grant gets the same mailbox back.
   const joined = await callTool("write_note", { ...where, mail: { join: SUPERVISOR_NAME } });
   const mailbox = /mailbox: (\S+)/.exec(joined?.content?.[0]?.text ?? "")?.[1] ?? null;
+
+  const done = DONE_STATUSES.has(status);
+  const lastModel = Math.max(-Infinity, ...runs.filter((run) => run.text !== NO_MODEL).map((run) => run.at));
+  // Too soon after the last model run: the mail stays unread for the next one.
+  if (!done && now - lastModel < MODEL_SPACING_MS) return { kind: "quiet" };
 
   let fresh = "";
   if (mailbox !== null) {
@@ -123,8 +154,8 @@ export async function superviseRun(callTool, task, { now = Date.now(), runs = []
   const toldSince = runs.some((run) => run.outcome === "answered" && run.at > since);
 
   let kind;
-  if (DONE_STATUSES.has(status)) kind = "finished";
-  else if (fresh !== "") kind = "review";
+  if (done) return { kind: "finished", title, answer: doneText(task, title, note.body) };
+  if (fresh !== "") kind = "review";
   else if (Number.isFinite(waitedFrom) && now - waitedFrom >= QUIET_AFTER_MS && !toldSince) kind = chases >= MAX_CHASES ? "tell" : "chase";
   else return { kind: "quiet" };
 
@@ -142,9 +173,6 @@ export async function superviseRun(callTool, task, { now = Date.now(), runs = []
     );
   }
   const steps = {
-    finished:
-      `The note says it is done. Start your answer with DONE: and then give ${handle} the result in two or three short texts: ` +
-      "what was made, and the links from the Result section on their own lines. No Markdown.",
     review:
       `Read the new mail. If ${task.label} asks something the task note or their notes answer, answer it with ${MAIL_AGENT_TOOL}. ` +
       `If it is drifting from the brief, mail it back on track in one or two lines. If it needs something only ${handle} can give ` +
@@ -240,6 +268,8 @@ export async function prepareSupervision(callTool, routine, { runs = [], handle 
   const run = await superviseRun(callTool, task, { now, runs, handle: handle ?? "them" });
   if (run.kind === "quiet") return { skip: "skipped" };
   if (run.kind === "gone") return { skip: "finished" };
+  // Done is delivered in the gateway's words, once, with no model: nothing can make it run again.
+  if (run.kind === "finished") return { skip: "finished", answer: run.answer, task, title: run.title };
   return { task, ...run, mail: mailAgentSession(callTool, task, run.mailbox) };
 }
 

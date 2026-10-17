@@ -29,10 +29,11 @@ loop".
   note through its own Context connector, join the note's mail, report there
   and write its result into the note. Tex starts the agent in its browser and
   then the browser can close.
-- **The message is typed only on the agent's own site.** Its words are the
-  model's, so without open web the browser may type it exactly as written on
-  that agent's host and nowhere else (`browse.js` `delegateValue`, host
-  re-checked at the keys), and may open the start address.
+- **The message is typed only on the agent's own site, from a clean turn.**
+  Its words are the model's, so without open web the browser may type it
+  exactly as written on that agent's host and nowhere else, and only when
+  this call wrote it in a turn that has read nothing from outside; `again`
+  never vouches ([agent egress](../privacy-and-sharing/agent-egress.md)).
 - **The supervisor is a routine, so it is not the person's thread.** Each run
   (`apps/mcp/src/agent/supervise.js`) joins the note's mail as `tex` and
   reads what is new, then decides *before any model runs*: the note says
@@ -40,6 +41,13 @@ loop".
   last word or Tex's last chase → chase, twice, then tell the person once;
   otherwise skip with **no model call**, which is what nearly every run of a
   job going well is. A gone note stops its supervisor.
+- **Done costs no model and can't loop.** A done note is texted in the
+  gateway's own words (who finished what, then the Result section as plain
+  lines) and the supervisor stops in the same run, so a SKIP, an empty answer
+  or a model failure can never leave it running.
+- **Model runs are spaced 30 minutes apart per job** (`MODEL_SPACING_MS`), so
+  a chatty agent costs at most 48 a day, and the account's daily limit caps
+  them all. Mail that waits is read on the next run allowed.
 - **The supervisor holds one write: `mail_agent`**, mail to the watched note
   and no other; a routine's run is otherwise offered no note writes. The mail
   is another agent's words, so the turn is marked untrusted and the question
