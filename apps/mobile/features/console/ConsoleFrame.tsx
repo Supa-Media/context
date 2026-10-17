@@ -80,15 +80,9 @@ import {
 import { consoleBarDialogs } from "./layout/barDialogs";
 import { consoleCreateButton } from "./layout/createButton";
 import { consolePalette } from "./layout/palette";
-import { OrganizerProvider } from "../organizer/OrganizerContext";
 import { ChaosProvider, useConsoleChaos } from "../chaos/ChaosContext";
 import { ChaosSheet } from "../chaos/ChaosPopover";
-import { useLeavePageOnOpen } from "../organizer/useLeavePageOnOpen";
 import { MapRouteProvider, useConsoleMapRoute } from "./map/live/MapRouteContext";
-import {
-  consoleToasts,
-  useConsoleOrganizer,
-} from "../organizer/consoleOrganizer";
 
 
 /**
@@ -126,8 +120,6 @@ export function ConsoleFrame({
     openSettingsSection: ReturnType<typeof settingsFromQuery>;
     checkoutReturn: CheckoutOutcome | null;
     connectAgent: SetupAgent | null;
-    /** `?changes=1`: the What changed page. Absent on the homepage. */
-    changesOpen?: boolean;
     /** `?map=1`: the live map is open over Browse. */
     mapOpen?: boolean;
   };
@@ -295,10 +287,6 @@ export function ConsoleFrame({
   */
   const contextLabel =
     visitor !== undefined && current?.displayName ? current.displayName : atName(current?.slug ?? "your context");
-  // Auto-organize, for the surfaces that draw it; absent-as-nothing everywhere else.
-  const organizer = useConsoleOrganizer(data.organizer, router, params.changesOpen === true);
-  // Opening a note or folder from the tree leaves the page for it.
-  useLeavePageOnOpen(organizer, data.files.selectedPath);
   // The chaos score, for the surfaces that draw it; absent-as-nothing everywhere else.
   const chaos = useConsoleChaos(data.chaos, data.files.select);
   // The live map (`?map=1`), over Browse in the same slot; leaves the same way.
@@ -436,7 +424,6 @@ export function ConsoleFrame({
 
   return (
     <ConsoleDataProvider value={data}>
-      <OrganizerProvider value={organizer}>
       <ChaosProvider value={chaos}>
       <MapRouteProvider value={mapRoute}>
       <ConsoleNavProvider value={nav}>
@@ -638,7 +625,7 @@ export function ConsoleFrame({
           editor region, which already ends where the toolbar begins, and the
           toolbar already owns the safe area. See `ToastHost`.
         */}
-        <ToastHost {...consoleToasts(data.files, organizer)} />
+        <ToastHost toasts={data.files.toasts} onDismiss={data.files.dismissToast} />
 
 
         {consoleCreateButton({
@@ -672,7 +659,6 @@ export function ConsoleFrame({
       </ConsoleNavProvider>
       </MapRouteProvider>
       </ChaosProvider>
-      </OrganizerProvider>
     </ConsoleDataProvider>
   );
 }

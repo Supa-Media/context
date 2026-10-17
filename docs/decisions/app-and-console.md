@@ -548,7 +548,7 @@ make sure we are not bombarding users". So:
 - **Answered on the account.** `messageReads` keeps the answer (labels and
   times only, a closed list of names, capped per person, swept with the
   account and the workspace); messages whose answer already had a home keep
-  it (`setupRetiredAt`, `organizerSettings`). The device keeps a copy, which
+  it (`setupRetiredAt`). The device keeps a copy, which
   is carried up once and decides alone only when the backend cannot answer.
 
 Reversing it means a message that shows per browser again, or two that stack.

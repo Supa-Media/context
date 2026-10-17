@@ -587,8 +587,7 @@ words say what Context is").
 
 Decided by the owner, 2026-10-08: the assistant's model and its prompt come
 from one plain Markdown note per job in the pinned `@context-lc` workspace,
-`ai/production/texting-assistant.md` for texted turns and
-`ai/production/app-assistant.md` for questions asked in the app, so promoting a
+`ai/production/texting-assistant.md` for texted turns, so promoting a
 setup is editing that file and the gateway does not ship
 (`apps/mcp/src/agent/production.js`). The rest of `ai/` is the benchmark that
 decides what goes there (README, invented people and workspaces, tests,
@@ -609,6 +608,13 @@ invented data.
   (Until 2026-10-10 a person's own connected key kept its own model; those keys
   are gone.) The gateway call is filed under the file's version, and the meter
   reports the model that answered.
+- A turn that is not texted has no production note and uses the built-in
+  words. The app assistant's note, `ai/production/app-assistant.md`, and its
+  row in the AI tab were removed by the owner, 2026-10-17: "remove 'app
+  assistant' that doesnt exist right now, … all of those should be deleted and
+  thrown away, no way to access it in the app and not in use". A stale copy in
+  `@context-lc` is never read (`agentInstructions.test.mjs`, "an app turn gets
+  the built-in words").
 
 **What a simplification would cost:** using the setup's model without checking the deployment can call it turns every texted answer into an
 error on a self-hosted or gateway-less deployment; reading it with the gateway's

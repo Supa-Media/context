@@ -1,49 +1,34 @@
 import { defineTable } from "convex/server";
 import { v } from "convex/values";
 
-/** `SweepWhy` in `lib/organizer/ask.ts`. */
-export const sweepWhyValidator = v.union(
-  v.literal("disabled"),
-  v.literal("switched_off"),
-  v.literal("not_premium"),
-  v.literal("daily_cap"),
-  v.literal("unconfigured"),
-  v.literal("no_answers"),
-  v.literal("error"),
-);
-
 /**
- * Auto-organize: one row per workspace, holding switches and counters only.
+ * RETIRED 2026-10-17. Auto-organize was removed by the owner: "remove auto
+ * organize and whats changed, all of those should be deleted and thrown away,
+ * no way to access it in the app and not in use". No code reads or writes this
+ * table.
  *
- * The suggestions themselves name notes and say things about them, so they
- * live in the customer's bucket (`.context/organizer/state.json`, see
- * `mcp/src/organizer/state.js`), never here. What is here is what a schedule
- * and a settings screen need: whether it is on, when it may first run, how
- * the last sweep went in numbers, and how many suggestions are waiting.
+ * The definition stays only because a deployment may still hold rows in it,
+ * and a schema push that drops a table which still has documents is refused,
+ * which would break the deploy. Empty it with
+ * `npx convex run functions/retiredTables:drainOrganizerSettings`, then delete
+ * this file and its line in `schema.ts`. The shape is unchanged so the rows
+ * already there still validate.
  *
- * Premium includes auto-organize and it is **on unless switched off**
- * (decided by the owner, 2026-09-26; see
- * docs/decisions/storage-and-credentials/inference.md). A missing row on a
- * paying workspace therefore means "on, but this owner has not been told yet":
- * the one-time notice is owed before the first sweep, which is what `startsAt`
- * gates.
+ * The rows hold switches and counters only, never a path or a title. The old
+ * suggestions file in customer buckets (`.context/organizer/state.json`) is the
+ * customer's and is left where it is.
  */
 export const organizerTables = {
   organizerSettings: defineTable({
     workspaceId: v.id("workspaces"),
-    /** Switched off by the owner. Absent or false is on. */
     off: v.optional(v.boolean()),
-    /** When the owner was told it is on: at checkout, or the one-time notice. */
     noticeAt: v.optional(v.number()),
-    /** The first sweep may not start before this. */
     startsAt: v.optional(v.number()),
-    /** "Without asking", per kind of suggestion. */
     autopilot: v.object({
       done: v.boolean(),
       archive: v.boolean(),
       file: v.boolean(),
     }),
-    /** The latest sweep, in numbers. Never a path, never a title. */
     sweep: v.optional(
       v.object({
         state: v.union(v.literal("running"), v.literal("done"), v.literal("failed")),
@@ -52,13 +37,20 @@ export const organizerTables = {
         read: v.number(),
         total: v.number(),
         found: v.object({ done: v.number(), archive: v.number(), file: v.number() }),
-        /** Why a failed sweep got no answers (`lib/organizer/ask.ts`). */
-        why: v.optional(sweepWhyValidator),
+        why: v.optional(
+          v.union(
+            v.literal("disabled"),
+            v.literal("switched_off"),
+            v.literal("not_premium"),
+            v.literal("daily_cap"),
+            v.literal("unconfigured"),
+            v.literal("no_answers"),
+            v.literal("error"),
+          ),
+        ),
       }),
     ),
-    /** Suggestions waiting, as last counted. Drives "11 suggestions". */
     pending: v.number(),
-    /** The What changed cards among them. Absent on rows from before it. */
     changes: v.optional(v.number()),
     updatedAt: v.number(),
   })

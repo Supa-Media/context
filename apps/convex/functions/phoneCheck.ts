@@ -15,6 +15,7 @@ import { tryConsumeRateLimit } from "./lib/rateLimit";
 import { attachedEmailsOf } from "./lib/signInEmails";
 import { joinOnPhone, phoneJoinFor } from "./lib/account/phoneJoin";
 import { currentPhoneOf, requireEmailProof } from "./lib/emailProof";
+import { admittedRowOf } from "./waitlistTex";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 
 /**
@@ -176,21 +177,35 @@ export const recordConfirmedPhone = internalMutation({
   args: { userId: v.id("users"), phone: v.string() },
   returns: v.union(v.literal("confirmed"), v.literal("joined"), v.literal("taken"), v.literal("has_account")),
   handler: async (ctx, { userId, phone }) => {
-    const user = await ctx.db.get(userId);
-    const current = user === null ? null : await currentPhoneOf(ctx, user);
-    if (current !== null && current !== phone) return await changePhone(ctx, userId, phone);
-    const join = await phoneJoinFor(ctx, userId, phone);
-    if (join.kind === "blocked") return "taken";
-    if (join.kind === "guarded") return "has_account";
-    if (join.kind !== "free") {
-      await joinOnPhone(ctx, userId, phone, join);
-      return join.kind === "into" ? "joined" : "confirmed";
+    // Somebody let in by address has no phone on Tex's list until now.
+    const admitted = await admittedRowOf(ctx, userId);
+    const recorded = await recordPhone(ctx, userId, phone);
+    if (admitted !== null && (recorded === "confirmed" || recorded === "joined")) {
+      await ctx.scheduler.runAfter(0, internal.functions.waitlistTex.putOnLine, { waitlistId: admitted, phone });
     }
-    if (await phoneHeldByAnother(ctx, phone, userId)) return "taken";
-    await ctx.db.patch(userId, { phone, phoneVerificationTime: Date.now() });
-    return "confirmed";
+    return recorded;
   },
 });
+
+async function recordPhone(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  phone: string,
+): Promise<"confirmed" | "joined" | "taken" | "has_account"> {
+  const user = await ctx.db.get(userId);
+  const current = user === null ? null : await currentPhoneOf(ctx, user);
+  if (current !== null && current !== phone) return await changePhone(ctx, userId, phone);
+  const join = await phoneJoinFor(ctx, userId, phone);
+  if (join.kind === "blocked") return "taken";
+  if (join.kind === "guarded") return "has_account";
+  if (join.kind !== "free") {
+    await joinOnPhone(ctx, userId, phone, join);
+    return join.kind === "into" ? "joined" : "confirmed";
+  }
+  if (await phoneHeldByAnother(ctx, phone, userId)) return "taken";
+  await ctx.db.patch(userId, { phone, phoneVerificationTime: Date.now() });
+  return "confirmed";
+}
 
 /** Confirm the code texted to `phone`. */
 export const confirmPhoneCode = action({

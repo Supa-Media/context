@@ -1,6 +1,6 @@
 /**
- * The file tree, from the console's side: which store an organizer pass or a
- * website Publish walks, and re-checking what a console change touched
+ * The file tree, from the console's side: which store a website Publish
+ * walks, and re-checking what a console change touched
  * before its audiences are told.
  *
  * Every read of which notes exist (a folder, a whole-tree walk, the map, link
@@ -21,16 +21,11 @@ import { type FileStore, loadPrivacyState, type PrivacyState } from "../fileOps"
 import { audiencesForChange, type TreeChange, trimTrailingSlashes } from "../treeAnnounce";
 import { treeAudiences } from "../treeAudiences";
 import { PRIVACY_KEY } from "../privacy";
-import { servedNodesStore } from "../nodes/manifestStore";
 import { scheduleNodesTouch, startNodesSweepIfDue, touchNodesNow } from "../nodes/run";
 import type { OperationResult } from "./operationTypes";
 
-/** Organizer actions that only read: `gather` (the sweep's work list) and `outline`. */
-const ORGANIZER_READS = new Set(["gather", "outline"]);
-
 /**
- * The store an operation inside the barrier walks. The organizer's read-only
- * passes read the Convex tree where it serves. Every walk of which notes
+ * The store an operation inside the barrier walks. Every walk of which notes
  * exist, a website scan's included (`docs/decisions/websites.md`), is answered
  * from the tree before the barrier opens the bucket (`lib/nodes/treeReads.ts`)
  * and never reaches here; what is left here is the bucket's own listing.
@@ -40,16 +35,10 @@ export async function manifestSource(
   args: {
     workspaceId: Id<"workspaces">;
     scope: "private" | "team";
-    operation: { kind: string; source?: string; cursor?: string; action?: unknown };
+    operation: { kind: string; source?: string; cursor?: string };
   },
   store: FileStore,
 ): Promise<{ store: FileStore; source: "bucket" | "nodes"; since?: number; privacy?: string | null }> {
-  // The organizer's read-only passes list every note: from the tree where it
-  // serves (phase 5). Its writes keep the bucket's listing and rules.
-  if (args.operation.kind === "organizer" && typeof args.operation.action === "string" && ORGANIZER_READS.has(args.operation.action)) {
-    const served = await servedNodesStore(ctx, args.workspaceId, store).catch(() => null);
-    return served === null ? { store, source: "bucket" } : { store: served, source: "nodes" };
-  }
   // The Convex tree's copy starts on the first page of a walk (`lib/nodes/run.ts`).
   if (args.operation.kind === "manifest" && args.operation.cursor === undefined) {
     await startNodesSweepIfDue(ctx, args.workspaceId);

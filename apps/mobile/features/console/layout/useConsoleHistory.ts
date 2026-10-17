@@ -147,7 +147,7 @@ export function useConsoleHistory({
           if (route.kind !== "context" && contextSlug !== null) {
             router.replace(hrefFor({ kind: "context", slug: contextSlug, view: "browse" }));
           }
-          router.setParams({ map: "1", changes: undefined, settings: undefined });
+          router.setParams({ map: "1", settings: undefined });
           return next;
         }
 

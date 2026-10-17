@@ -425,6 +425,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A pasted image is a width in the note and a file in the bucket, and nothing else
 - [A remote image is drawn through our proxy, never by the reader's browser](./app-and-console/remote-images.md)
 - [The console has no chat; people ask the AI they connect](./app-and-console/no-in-app-chat.md)
+- [Auto-organize, What changed and the app assistant are deleted, not switched off](./app-and-console/removed-features.md) (2026-10-17)
 - [Custom emoji are pictures in the bucket, written as `:name:` in the note](./app-and-console/custom-emoji.md)
 - [A folder icon is any emoji, a workspace's own included](./app-and-console/custom-emoji.md)
 - [One folder per built-in role is locked, and a name may not twin its sibling](./app-and-console/folder-name-twins.md) (2026-10-14)
@@ -669,6 +670,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The Worker holds message text only while it is answering it
 - Messages pass through Linq
 - [Who may text the line is Linq's list, managed from the console](./texting-assistant/allowlist.md)
+- [Letting someone in off the waitlist puts their phone on the list](./texting-assistant/allowlist.md)
 - Staging has a texts simulator, and nothing else does
 - An answer reads like a text, and the typing bubble shows while it works
 - Every agent turn is logged by name and duration, never by text

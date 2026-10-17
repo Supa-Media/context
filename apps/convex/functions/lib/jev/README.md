@@ -28,7 +28,9 @@ million input tokens.
    `myFeature: { label, onByDefault: false, dailyCallsPerWorkspace, plan: "premium" }`.
    `plan: "everyone"` lets a free workspace in too, capped at `dailyCallsFree`
    instead (`meetingSummary` is the example). The name is permanent, because
-   usage and switches are keyed by it.
+   usage and switches are keyed by it: a feature that is removed leaves its
+   name in `RETIRED_JEV_FEATURE_LABELS`, so its old usage rows still read
+   (auto-organize and What changed, removed by the owner on 2026-10-17).
 2. Ask from an action, never from anywhere else:
 
    ```ts
@@ -49,7 +51,7 @@ million input tokens.
    or note text in Convex. Anything that names a note goes in the customer's
    bucket under `.context/`.
 4. Keep the pure parts (building questions, reading answers) in plain modules
-   with tests. `apps/mcp/src/organizer/` is the worked example.
+   with tests. `packages/shared/src/iconSuggest.ts` is the worked example.
 5. Flip `onByDefault` to `true` in the PR that ships the feature's screens.
 
 Do not call `fetch` on `/decide`, and do not name the model outside this
@@ -73,15 +75,14 @@ folder and the Worker. `__tests__/jev.test.ts` fails if you do.
 
 ## Turning it off
 
-- One feature: `admin.setJevSwitch({ feature: "organizer", off: true })`.
+- One feature: `admin.setJevSwitch({ feature: "ownerSuggest", off: true })`.
 - Everything: `admin.setJevSwitch({ feature: "*", off: true })`.
 - Back to the registry default: `off: null`.
-- Without the database: set `JEV_DISABLED` to `all` (or `organizer,other`) in
-  the Convex environment.
+- Without the database: set `JEV_DISABLED` to `all` (or `ownerSuggest,other`)
+  in the Convex environment.
 
 A switch takes effect on the next `withJev`. A feature whose switch is off
-should behave as if it does not exist, as `organizer`'s
-`organizerAvailable` does.
+should behave as if it does not exist.
 
 ## The one feature that is not asked from an action
 

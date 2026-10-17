@@ -9,7 +9,7 @@
  * reading its two likeliest groups. Nothing is asserted about the picks;
  * a person reads the table in the job log.
  *
- * Runs only when the "Organizer Eval (live)" workflow is dispatched with
+ * Runs only when the "Icon Suggest (live)" workflow is dispatched with
  * `models` ticked, which sets the account and token below. Only invented
  * names are sent.
  */

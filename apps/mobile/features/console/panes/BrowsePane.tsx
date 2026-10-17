@@ -33,8 +33,14 @@ import {
   subscribePageCache,
 } from "../files/folderPage/pageCache";
 import { NoteIntentContext } from "../files/noteIntent";
-import { useOrganizerView } from "../../organizer/OrganizerContext";
 import { useMapRoute } from "../map/live/MapRouteContext";
+import { useChaosView } from "../../chaos/ChaosContext";
+import {
+  cachedFolderLine,
+  folderLinesVersion,
+  preloadFolderLine,
+  subscribeFolderLines,
+} from "../../chaos/folderLineCache";
 
 /**
  * Browse — the note, and nothing between you and it.
@@ -212,16 +218,22 @@ export function BrowsePane({
     folder has already started them. Re-rendered as each one lands.
   */
   useSyncExternalStore(subscribePageCache, pageCacheVersion, pageCacheVersion);
+  // The chaos line under a folder's title is part of the page too (`folderLineCache`).
+  const askChaos = useChaosView()?.folderScore;
+  useSyncExternalStore(subscribeFolderLines, folderLinesVersion, folderLinesVersion);
   const folderPending =
     compact &&
     target !== null &&
     target.kind === "folder" &&
     classifyCommsPath(target.path) === null &&
-    !folderPageReady(folderLists, target.path);
+    (!folderPageReady(folderLists, target.path) ||
+      (askChaos !== undefined && cachedFolderLine(askChaos, target.path) === undefined));
   const pendingFolder = folderPending && target !== null ? target.path : null;
   useEffect(() => {
-    if (pendingFolder !== null) preloadFolderPage(folderLists, pendingFolder);
-  }, [pendingFolder, folderLists]);
+    if (pendingFolder === null) return;
+    preloadFolderPage(folderLists, pendingFolder);
+    preloadFolderLine(askChaos, pendingFolder);
+  }, [pendingFolder, folderLists, askChaos]);
   // The page already on screen, until the one being opened is ready to swap
   // in. See `useShownEntry`.
   const { entry: selected, holding } = useShownEntry({
@@ -326,9 +338,7 @@ export function BrowsePane({
    * each other by construction.
    */
   const commsRoute = selected === null ? null : classifyCommsPath(selected.path);
-  // What changed draws where the document would (`BrowseDocument`).
-  const organizerPage = useOrganizerView()?.pageOpen === true;
-  // And so does the live map, filling the slot (`?map=1`).
+  // The live map draws where the document would, filling the slot (`?map=1`).
   const mapPage = useMapRoute()?.open === true && current != null;
 
   const openDocument = (
@@ -481,7 +491,6 @@ export function BrowsePane({
         openDocument={openDocument}
         notices={notices}
         pathBar={pathBar}
-        page={organizerPage}
         fill={mapPage}
         onSwipeHome={selected !== null ? () => void files.deselect() : undefined}
       />

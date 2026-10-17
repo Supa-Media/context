@@ -61,7 +61,8 @@ Decided by the owner on 2026-09-28, once the free tier gave every new workspace
 a managed bucket. The upgrade screen used to ask for managed storage, fast
 search or both before its button did anything; free already had the first, and
 the boxes never named the other things a payment unlocks (a custom domain,
-auto-organize). Premium is now **one $5 plan**: the screen lists what it buys
+and then auto-organize, which the owner removed on 2026-10-17). Premium is now
+**one $5 plan**: the screen lists what it buys
 and has one Upgrade button.
 
 The two stored fields stay, because they still mean different things, but the

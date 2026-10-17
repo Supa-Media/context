@@ -1,7 +1,7 @@
 /**
  * `withJev`: the only way a feature asks Jev anything.
  *
- *     await withJev(ctx, { feature: "organizer", workspaceId }, async (jev) => {
+ *     await withJev(ctx, { feature: "iconSuggest", workspaceId }, async (jev) => {
  *       if (!jev) return;                 // switched off, not Premium, over the cap, or no Worker
  *       const answers = await jev.decide({ state, questions });
  *       if (!answers) return;             // failed or refused: treat as "no opinion"
@@ -17,28 +17,15 @@ import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import type { JevFeatureName } from "./features";
-import { type JevRefusal, type UsageDelta, costMicroUsd, estimateTokens, writingCostMicroUsd } from "./meter";
-import { CLEF_MODEL, GEMMA_MODEL, GLM_MODEL } from "./models";
-import {
-  type JevAnswers,
-  type JevRequest,
-  type JevTransport,
-  type JevWriteRequest,
-  type JevWritten,
-  workerTransport,
-} from "./worker";
+import { type JevRefusal, type UsageDelta, costMicroUsd, estimateTokens } from "./meter";
+import { CLEF_MODEL } from "./models";
+import { type JevAnswers, type JevRequest, type JevTransport, workerTransport } from "./worker";
 
-export type { JevAnswers, JevRequest, JevWriteRequest, JevWritten } from "./worker";
+export type { JevAnswers, JevRequest } from "./worker";
 
 export interface JevSession {
   /** Ask once. `null` means no answer: failed, refused, or the cap was reached mid-run. */
   decide(request: JevRequest): Promise<JevAnswers | null>;
-  /**
-   * Have the writing model answer in the given JSON shape. Counted against the
-   * same cap as `decide`, and priced from the model's own token counts.
-   * `null` is no answer, as above; the caller re-checks every field.
-   */
-  write(request: JevWriteRequest): Promise<JevWritten | null>;
   /** Requests left today before the cap, as of now. */
   readonly remaining: number;
 }
@@ -82,7 +69,7 @@ export async function withJev<T>(
   work: (jev: JevSession | null, refusal: JevRefusal | "unconfigured" | null) => Promise<T>,
 ): Promise<T> {
   const { feature, workspaceId } = options;
-  const delta: Required<UsageDelta> = { calls: 0, failed: 0, refused: 0, questions: 0, tokens: 0, ms: 0, writtenMicroUsd: 0, writtenTokens: 0 };
+  const delta: Required<Omit<UsageDelta, "writtenMicroUsd" | "writtenTokens">> = { calls: 0, failed: 0, refused: 0, questions: 0, tokens: 0, ms: 0 };
   /** The same answered requests as `delta`, split by model. Failed and refused requests add nothing here. */
   const models = new Map<string, ModelTotals>();
   const flush = async () => {
@@ -131,35 +118,6 @@ export async function withJev<T>(
       // Cost is set at flush, over the total; see there.
       addToModel(models, CLEF_MODEL, { calls: 1, input: tokens, output: 0, cacheRead: 0, cacheWrite: 0, costMicroUsd: 0 });
       return answers;
-    },
-    async write(request) {
-      if (remaining <= 0 || !transport.write) {
-        delta.refused += 1;
-        return null;
-      }
-      remaining -= 1;
-      const started = Date.now();
-      const written = await transport.write(request);
-      delta.ms += Date.now() - started;
-      if (written === null) {
-        delta.failed += 1;
-        return null;
-      }
-      delta.calls += 1;
-      const spent = written.usage.input + written.usage.output;
-      const cost = writingCostMicroUsd(written.usage);
-      delta.tokens += spent;
-      delta.writtenTokens += spent;
-      delta.writtenMicroUsd += cost;
-      addToModel(models, request.model === "gemma" ? GEMMA_MODEL : GLM_MODEL, {
-        calls: 1,
-        input: written.usage.input,
-        output: written.usage.output,
-        cacheRead: 0,
-        cacheWrite: 0,
-        costMicroUsd: cost,
-      });
-      return written;
     },
   };
   try {

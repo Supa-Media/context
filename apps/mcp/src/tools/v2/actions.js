@@ -35,6 +35,17 @@ function nested(key) {
   };
 }
 
+/**
+ * `manage website`: write_note's `site`, whose path is required but names no
+ * page (every site action is about the whole website). manage takes no path
+ * of its own, so one given in `args` moves beside `site`, and none means the
+ * website's home page.
+ */
+function website(call) {
+  const { path, ...site } = call.args || {};
+  return { path: path ?? "website/index.md", site };
+}
+
 /** The action's `args`, as the tool's own arguments. */
 const plain = (call) => ({ ...(call.args || {}) });
 
@@ -68,7 +79,7 @@ export const ACTIONS = {
     encrypt: { tool: "set_encryption", summary: "Encrypt or decrypt one note.", take: plain },
     review_proposal: { tool: "review_proposal", summary: "Approve or reject a proposed note.", take: plain },
     suggest_destination: { tool: "suggest_destination", summary: "Rank which workspace a note belongs in.", take: plain },
-    website: { tool: "write_note", summary: "Check, publish, screenshot or roll back the website, or set its domain.", take: nested("site") },
+    website: { tool: "write_note", summary: "Check, publish, screenshot or roll back the website, or set its domain.", take: website },
     share_link: { tool: "create_link", summary: "Make a link to a note or folder (owners only).", take: plain },
     revoke_link: { tool: "revoke_link", summary: "Turn a link off.", take: plain },
     vault_add: { tool: "vault_add_link", summary: "Get a link where the person saves a login or secret.", take: plain },

@@ -12,7 +12,6 @@ import { entryAt, findEntry } from "../../files/tree";
 import { canEditActivity, capabilitiesForRole } from "../../capabilities";
 import type { ConsoleData, selectedContext } from "../../types";
 import { ChannelDayView } from "../../communications/ChannelDayView";
-import { DocumentPage } from "./DocumentPage";
 import type { classifyCommsPath } from "../../communications/paths";
 import { Empty } from "./Empty";
 import { LayingOutPage } from "./LayingOutFolders";
@@ -35,8 +34,6 @@ import { showTagOnHome } from "../../home/homeTag";
 import type { HomeSource } from "../../home/useHomeSource";
 import { useRecordOpen, useRecordRecent } from "../../home/useHomePlaces";
 import { usePeekEditing } from "./usePeekEditing";
-import { useOrganizerView } from "../../../organizer/OrganizerContext";
-import { WhatChangedPage } from "../../../organizer/WhatChangedPage";
 import { useMapRoute } from "../../map/live/MapRouteContext";
 import { useAnnounceOpenNote } from "../../map/live/announce";
 import { MapPage } from "../../map/live/ui/MapPage";
@@ -303,7 +300,6 @@ export function BrowseDocument({
 
   // In storage but can't be opened: drawn with no editor, so nothing saves over it.
   const unreadable = files.unreadable ?? null;
-  const organizer = useOrganizerView();
   // Tell the people and tools on the map which note this person has open.
   useAnnounceOpenNote(
     current?.id,
@@ -330,22 +326,6 @@ export function BrowseDocument({
           if (slug !== undefined) mapRoute.openNoteIn(slug, path);
         }}
       />
-    ) : organizer?.pageOpen ? (
-      /*
-        What changed (`?changes=1`), where a note would be: the tree stays
-        beside it, and opening one of its sources is opening that note.
-      */
-      <DocumentPage>
-        <WhatChangedPage
-          organizer={organizer}
-          compact={compact}
-          now={Date.now()}
-          onOpenSource={(path) => {
-            organizer.closePage();
-            files.select(path);
-          }}
-        />
-      </DocumentPage>
     ) : unreadable !== null && unreadable === files.selectedPath ? (
       <UnreadableNote
         onRetry={() => files.select(unreadable)}

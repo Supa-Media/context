@@ -429,21 +429,6 @@ crons.interval(
 );
 
 /**
- * Auto-organize sweeps. A job of the "acts outside this database" kind, so it
- * owes the two paragraphs.
- *
- * It holds no decision: whether a workspace is swept is the owner's switch,
- * their plan, and the one-time notice, all of which this only reads.
- * Suggestions it leaves are suggestions; nothing moves unless the owner
- * pressed Accept or chose "without asking" for that kind of change.
- *
- * It re-asks at the moment it acts: `runSweep` claims the sweep through
- * `beginSweep`, which re-reads the plan, the switch, `startsAt` and whether a
- * sweep is already running, and every trip through the barrier re-resolves
- * the owner's clearance from live membership. Hourly, with at most one sweep a
- * day per workspace (`SWEEP_EVERY_MS`).
- */
-/**
  * Queued folder moves whose chain of passes stopped (a deployment, a lost
  * schedule) are picked up again once their lease lapses
  * (`functions/nodeMoves.ts`). Moves normally chain on their own; this is the
@@ -453,13 +438,6 @@ crons.interval(
   "resume queued moves",
   { minutes: 5 },
   internal.functions.nodeMoves.resume,
-  {},
-);
-
-crons.interval(
-  "auto-organize sweeps",
-  { hours: 1 },
-  internal.functions.organizer.scheduleDueSweeps,
   {},
 );
 

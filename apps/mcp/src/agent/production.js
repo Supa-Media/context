@@ -3,9 +3,11 @@
  *
  * Decided by the owner, 2026-10-08: the assistant's model and its prompt come
  * from one plain Markdown note per job in the pinned `@context-lc` workspace,
- * `ai/production/texting-assistant.md` for texted turns and
- * `ai/production/app-assistant.md` for questions asked in the app. Promoting a
- * new setup is editing that file; the gateway does not ship. The rest of `ai/`
+ * `ai/production/texting-assistant.md` for texted turns. A turn that is not
+ * texted has no production setup and uses the built-in words in `prompt.js`
+ * (the app assistant's note was removed by the owner, 2026-10-17: "remove 'app
+ * assistant' that doesnt exist right now"). Promoting a new setup is editing
+ * that file; the gateway does not ship. The rest of `ai/`
  * is the benchmark that decides what goes in it, and is never read here.
  *
  * A file is read the way `orient`'s global note is (`orient/globalNote.js`):
@@ -72,7 +74,6 @@ import { readHistoryTurns } from "./conversation.js";
 import { EFFORTS } from "./aiGateway.js";
 
 export const PRODUCTION_TEXTING_PATH = "ai/production/texting-assistant.md";
-export const PRODUCTION_APP_PATH = "ai/production/app-assistant.md";
 
 const MAX_BODY_LINES = 1_000;
 const MAX_BODY_CHARS = 40_000;
@@ -283,18 +284,18 @@ async function pinnedReach(store, session) {
 }
 
 /**
- * The parsed setup for this turn's job, or `null` — absent, held back,
- * unreadable, invalid, or no pinned workspace. Never throws.
+ * The parsed setup for this turn's job, or `null` — not a texted turn, absent,
+ * held back, unreadable, invalid, or no pinned workspace. Never throws.
  *
  * @param {object} store the session's store, carrying `contexts` and
  *   `openPinnedContext` as `http/route.js` attaches them
  * @param {object} session the caller's session
- * @param {{texting: boolean}} options a texted turn reads the texting job's file
+ * @param {{texting: boolean}} options only a texted turn has a setup to read
  */
 export async function readProductionSetup(store, session, { texting }) {
+  if (!texting) return null;
   try {
-    const path = texting ? PRODUCTION_TEXTING_PATH : PRODUCTION_APP_PATH;
-    return await readPinnedNote(await pinnedReach(store, session), path, parseSetup);
+    return await readPinnedNote(await pinnedReach(store, session), PRODUCTION_TEXTING_PATH, parseSetup);
   } catch {
     return null;
   }

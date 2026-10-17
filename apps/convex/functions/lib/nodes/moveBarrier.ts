@@ -11,7 +11,7 @@
  *    there before it is read or written, and opening one at its old name moves
  *    it on first, so the read follows the forwarding entry like any moved note.
  *  - `attachQueueMove` lets `movePath` queue a folder move (the console's move
- *    and archive, and the organizer, which moves through `movePath` too), and
+ *    and archive), and
  *    lets `trashPath` queue a trash and `restoreTrashedPath` turn a queued one
  *    around (`trashStart.ts`).
  */
@@ -86,7 +86,7 @@ async function runMoveBatch(
 }
 
 /** The operations that may queue a folder move: everything else moves in one go. */
-const QUEUEING = new Set(["move", "archive", "organizer"]);
+const QUEUEING = new Set(["move", "archive"]);
 
 /** The moves a request reads through. Started early, beside the barrier's other lookups. */
 export function pendingMovesLookup(ctx: ActionCtx, workspaceId: Id<"workspaces">): Promise<PendingMove[]> {

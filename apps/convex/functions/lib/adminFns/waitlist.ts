@@ -7,7 +7,8 @@
  *
  * Letting somebody in claims their "you're in" mail, or their text when they
  * joined with a phone, in the same transaction, so pressing Let in twice, or
- * on a whole selection that overlaps, tells each person once.
+ * on a whole selection that overlaps, tells each person once. It also puts
+ * their phone, when one is known, on Tex's list (`functions/waitlistTex.ts`).
  */
 
 import { v } from "convex/values";
@@ -140,8 +141,12 @@ async function admitRow(ctx: MutationCtx, row: Doc<"waitlist">, actor: AdminActo
       kind: "admitted",
     });
   }
+  // Their phone goes on Tex's list too; the text does that first, so its
+  // "text Tex" is never sent to a number the line would not answer.
   if (text) {
     await ctx.scheduler.runAfter(0, internal.functions.waitlistText.sendAdmitted, { waitlistId: row._id });
+  } else {
+    await ctx.scheduler.runAfter(0, internal.functions.waitlistTex.putOnLine, { waitlistId: row._id });
   }
   return true;
 }

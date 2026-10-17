@@ -105,12 +105,12 @@ afterEach(() => {
 
 const byTestId = (id: string) => container.querySelector<HTMLElement>(`[data-testid="${id}"]`);
 
-async function render() {
+async function render(list: FolderNote[] = notes) {
   await act(async () => {
     root.render(
       createElement(AiJobsHome, {
         workspaceId: "ws" as never,
-        catalog: buildCatalog(notes),
+        catalog: buildCatalog(list),
         reads,
         go: mockGo,
         reload: () => {},
@@ -135,10 +135,10 @@ describe("the jobs home", () => {
   });
 
   test("a job with no setup says so in its live column and offers its first test", async () => {
-    await render();
-    const app = byTestId("admin-ai-job-app-assistant")!;
-    expect(app.textContent).toContain("no note");
-    expect(app.textContent).toContain("Write its first test");
+    await render(notes.filter((note) => note.path !== "ai/production/texting-assistant.md" && note.path !== "ai/tests/core.md"));
+    const tex = byTestId("admin-ai-job-texting-assistant")!;
+    expect(tex.textContent).toContain("no note");
+    expect(tex.textContent).toContain("Write its first test");
   });
 
   test("a row opens the job's overview", async () => {

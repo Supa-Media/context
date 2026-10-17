@@ -107,12 +107,12 @@ describe("the map's address", () => {
     for (const value of [undefined, "", "0", "true", "yes"]) expect(mapFromQuery(value)).toBe(false);
   });
 
-  test("opening it closes What changed and Settings; closing clears only its own key", () => {
+  test("opening it closes Settings; closing clears only its own key", () => {
     const { calls, router } = recorder();
     routeMap(router, false).openMap();
     routeMap(router, true).closeMap();
     expect(calls).toEqual([
-      ["setParams", { map: "1", changes: undefined, settings: undefined }],
+      ["setParams", { map: "1", settings: undefined }],
       ["setParams", { map: undefined }],
     ]);
   });
@@ -122,7 +122,7 @@ describe("the map's address", () => {
     routeMap(router, false).toggle();
     routeMap(router, true).toggle();
     expect(calls).toEqual([
-      ["setParams", { map: "1", changes: undefined, settings: undefined }],
+      ["setParams", { map: "1", settings: undefined }],
       ["setParams", { map: undefined }],
     ]);
   });

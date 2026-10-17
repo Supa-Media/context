@@ -430,7 +430,7 @@ says rather than keeping a second copy.
   `_ - /`, not all digits; headings (`# `), links, web addresses, code and
   comments never hold one. `lists/inlineTags.js` reads them and every place
   that counts tags (list conditions and columns, search's tags field, cards,
-  Home's tag filter, the organizer) takes them with the front matter's. They
+  Home's tag filter) takes them with the front matter's. They
   are kept **beside** `properties`, never inside it (`inlineTags` on a list
   note and a props row): `noteProperties` is also what a `tags:` edit starts
   from and reads back, so merged there, the first edit of a note's tags would
