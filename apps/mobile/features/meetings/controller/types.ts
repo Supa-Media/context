@@ -108,6 +108,15 @@ export interface MeetingsSnapshot {
    */
   callAudioWarning: string | null;
   /**
+   * A quiet line about the call's audio that is not a fault, or `null`.
+   *
+   * `skipped`: this browser shared no sound the last few times, so this
+   * meeting did not ask. `room`: the person chose to record the room. Drawn
+   * muted with a link that asks for the call's audio after all; cleared, like
+   * the warning, once a share succeeds.
+   */
+  callAudioNote: { kind: "skipped" | "room"; message: string } | null;
+  /**
    * Audio kept on this device that has not been turned into words yet, per
    * meeting id. Absent means none.
    *
@@ -283,6 +292,7 @@ export const UNCONFIGURED: MeetingsSnapshot = Object.freeze({
   captureError: null,
   backgroundCaptureWarning: null,
   callAudioWarning: null,
+  callAudioNote: null,
   audio: Object.freeze({}),
   offline: false,
   canContinue: false,

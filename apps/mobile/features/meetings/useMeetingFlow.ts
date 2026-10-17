@@ -8,7 +8,9 @@ import {
 } from "react";
 import { useRouter } from "expo-router";
 
+import { CallAudioPrimer } from "./components/CallAudioPrimer";
 import { MeetingRefusal } from "./components/MeetingRefusal";
+import { callAudioGivenUp, readCallAudioMemory } from "./capture";
 import { MeetingsController, meetings } from "./controller";
 import { automaticDestination, type DestinationContext, type MeetingDestination } from "./destination";
 import { meetingHref } from "./route";
@@ -120,6 +122,11 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
 
   const [refusal, setRefusal] = useState<string | null>(null);
   const [claim, setClaim] = useState(false);
+  /*
+    The first-time note before a browser's screen picker (`CallAudioPrimer`),
+    holding the destination the press resolved so Continue records into it.
+  */
+  const [primer, setPrimer] = useState<MeetingDestination | null>(null);
 
   /*
     Subscribed rather than read once: the controller is configured by an effect
@@ -153,9 +160,48 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
     [onStarted, router],
   );
 
+  const begin = useCallback(
+    (into: MeetingDestination, systemAudio?: boolean) => {
+      if (starting.current) return;
+      starting.current = true;
+
+      void (async () => {
+        try {
+          /*
+            No `systemAudio` unless the person chose to record the room: the
+            controller takes the machine's own audio wherever this build can,
+            always (Dev2, 2026-10-01 — there is no setting for it any more).
+          */
+          const id = await controller.start({
+            title,
+            destination: into,
+            ...(systemAudio === undefined ? {} : { systemAudio }),
+          });
+          show(id);
+        } catch {
+          /*
+            A start that rejects used to be an unhandled rejection with nothing
+            on screen: the press did nothing, twice over. `RecordingBar`'s End
+            makes the same argument about the other end of a meeting — *"I don't
+            know if it succeeded, if it failed. Just nothing at all."* — and the
+            answer is the same, a sentence rather than a silence. What went wrong
+            is not quoted: `controller.start` throws for a device that is not
+            configured and for a recorder that would not open, and neither has a
+            message written to be read by the person holding the machine.
+          */
+          setRefusal(START_FAILED);
+        } finally {
+          starting.current = false;
+        }
+      })();
+    },
+    [controller, show, title],
+  );
+
   const startMeetingFlow = useCallback(() => {
     setRefusal(null);
     setClaim(false);
+    setPrimer(null);
 
     /*
       Already recording: show the one that is running rather than starting a
@@ -182,46 +228,40 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
       return;
     }
 
-    if (starting.current) return;
-    starting.current = true;
+    /*
+      A browser that has never handed over a call's sound here is told what
+      its picker is about to ask, first. Once a share has worked, or once this
+      browser has stopped being asked (`callAudioMemory`), Record records.
+    */
+    const memory = readCallAudioMemory();
+    if (snapshot.capture.systemAudioNeedsPicker && !memory.worked && !callAudioGivenUp(memory)) {
+      setPrimer(answer.destination);
+      return;
+    }
 
-    void (async () => {
-      try {
-        /*
-          No `systemAudio`: the controller takes the machine's own audio
-          wherever this build can, always (Dev2, 2026-10-01 — there is no
-          setting for it any more).
-        */
-        const id = await controller.start({
-          title,
-          destination: answer.destination,
-        });
-        show(id);
-      } catch {
-        /*
-          A start that rejects used to be an unhandled rejection with nothing
-          on screen: the press did nothing, twice over. `RecordingBar`'s End
-          makes the same argument about the other end of a meeting — *"I don't
-          know if it succeeded, if it failed. Just nothing at all."* — and the
-          answer is the same, a sentence rather than a silence. What went wrong
-          is not quoted: `controller.start` throws for a device that is not
-          configured and for a recorder that would not open, and neither has a
-          message written to be read by the person holding the machine.
-        */
-        setRefusal(START_FAILED);
-      } finally {
-        starting.current = false;
-      }
-    })();
-  }, [contexts, controller, destination, live, show, snapshot.status, title]);
+    begin(answer.destination);
+  }, [begin, contexts, destination, live, show, snapshot.capture.systemAudioNeedsPicker, snapshot.status]);
 
   const dismiss = useCallback(() => {
     setRefusal(null);
     setClaim(false);
+    setPrimer(null);
   }, []);
 
   const sheet =
-    claim || refusal !== null
+    primer !== null
+      ? createElement(CallAudioPrimer, {
+          onContinue: () => {
+            setPrimer(null);
+            begin(primer);
+          },
+          onRoom: () => {
+            setPrimer(null);
+            begin(primer, false);
+          },
+          onClose: dismiss,
+        })
+      : claim || refusal !== null
       ? createElement(MeetingRefusal, {
           reason: claim ? NO_WORKSPACE_REFUSAL : (refusal ?? NOT_READY_REFUSAL),
           onClaimName:
