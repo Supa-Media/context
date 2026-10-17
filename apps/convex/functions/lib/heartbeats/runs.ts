@@ -29,18 +29,29 @@ import {
   isHeartbeatOutcome,
   nextBeatAfter,
 } from "./model";
+import { MAX_DELIVERY_TRIES, RETRY_AFTER_MS } from "../attention/model";
 
 /** Write is for the gateway's own log of the look (`tex/heartbeat/`); the model is read-only there. */
 const HEARTBEAT_SCOPES = [SCOPE_READ, SCOPE_WRITE, SCOPE_PRIVATE];
 
-/** One claimed check-in. `token` indexes the calling action's plaintext list. `since` is null for a first one. */
+/**
+ * One claimed check-in. `token` indexes the calling action's plaintext list.
+ * `since` is null for a first one. `attention` is a claim for the person's
+ * waiting attention pings (`lib/attention/`) instead of a look: the gateway
+ * texts what waits in `tex/attention/` and runs no model.
+ */
 export type ClaimedHeartbeat = {
   runId: string;
   token: number;
   timeZone: string;
   since: number | null;
   phones: string[];
+  attention: boolean;
 };
+
+function attentionIsDue(row: Doc<"texHeartbeats">, now: number): boolean {
+  return typeof row.attentionDueAt === "number" && row.attentionDueAt <= now;
+}
 
 function leaseIsLive(row: Doc<"texHeartbeats">, now: number): boolean {
   return row.claimedAt !== undefined && row.claimedAt + HEARTBEAT_LEASE_MS > now;
@@ -66,6 +77,10 @@ async function ownPhones(ctx: MutationCtx, userId: Id<"users">): Promise<string[
  * moves `nextBeatAt` on to the next slot straight away, so a check-in whose
  * result never comes back is simply followed by the next one; the result, when
  * it comes, may push it further (after a text, to tomorrow).
+ *
+ * A row whose attention pings are due is handed out for those first, and its
+ * check-in, if also due, waits for the next tick: the pings are what an agent
+ * asked for, and they never move the check-in's slot.
  */
 export async function claimDueHeartbeatsHandler(
   ctx: MutationCtx,
@@ -78,16 +93,22 @@ export async function claimDueHeartbeatsHandler(
     .query("texHeartbeats")
     .withIndex("by_nextBeatAt", (q) => q.gte("nextBeatAt", 0).lte("nextBeatAt", now))
     .take(limit * 5);
+  const pinged = await ctx.db
+    .query("texHeartbeats")
+    .withIndex("by_attentionDueAt", (q) => q.gte("attentionDueAt", 0).lte("attentionDueAt", now))
+    .take(limit * 5);
+  const seen = new Set(pinged.map((row) => row._id));
+  const rows = [...pinged, ...candidates.filter((row) => !seen.has(row._id))];
 
   const beats: ClaimedHeartbeat[] = [];
   let clientEnsured = false;
-  for (const row of candidates) {
+  for (const row of rows) {
     if (beats.length >= limit) break;
     if (leaseIsLive(row, now)) continue;
     const workspaceId = await texJobWorkspace(ctx, row.userId, row.workspaceId);
     if (workspaceId === null) {
-      // Unlinked, paused or gone: no check-in until a text arms one again.
-      await ctx.db.patch(row._id, { nextBeatAt: null, updatedAt: now });
+      // Unlinked, paused or gone: no check-in until a text arms one again, and no waiting ping is ever sent.
+      await ctx.db.patch(row._id, { nextBeatAt: null, attentionDueAt: null, updatedAt: now });
       continue;
     }
     const phones = await ownPhones(ctx, row.userId);
@@ -109,15 +130,21 @@ export async function claimDueHeartbeatsHandler(
     });
     const runId = args.runIds[token]!;
     const timeZone = await zoneOf(ctx, row.userId);
-    await ctx.db.patch(row._id, { claimedAt: now, runId, nextBeatAt: nextBeatAfter(timeZone, now), updatedAt: now });
+    const attention = attentionIsDue(row, now);
+    await ctx.db.patch(
+      row._id,
+      attention
+        ? { claimedAt: now, runId, runKind: "attention", attentionDueAt: null, updatedAt: now }
+        : { claimedAt: now, runId, runKind: undefined, nextBeatAt: nextBeatAfter(timeZone, now), updatedAt: now },
+    );
     await recordAudit(ctx, {
       workspaceId,
       actorUserId: row.userId,
       actorClientId: HEARTBEAT_CLIENT_ID,
-      action: "heartbeat.run",
+      action: attention ? "attention.run" : "heartbeat.run",
       details: {},
     });
-    beats.push({ runId, token, timeZone, since: row.lastBeatAt ?? null, phones });
+    beats.push({ runId, token, timeZone, since: row.lastBeatAt ?? null, phones, attention });
   }
   return beats;
 }
@@ -139,6 +166,10 @@ export async function recordHeartbeatResultHandler(
     .unique();
   if (row === null) return "unknown";
   const now = Date.now();
+  if (row.runKind === "attention") {
+    await recordAttentionResult(ctx, row, args.outcome, now);
+    return "recorded";
+  }
   const zone = await zoneOf(ctx, row.userId);
   const texted = args.outcome === "texted";
   const nextBeatAt = WAIT_FOR_TEXT_OUTCOMES.has(args.outcome)
@@ -158,6 +189,30 @@ export async function recordHeartbeatResultHandler(
   });
   await endTexJobGrant(ctx, { clientId: HEARTBEAT_CLIENT_ID, userId: row.userId, workspaceId: row.workspaceId, now });
   return "recorded";
+}
+
+/**
+ * How a delivery of attention pings went. The check-in's slot, its last
+ * outcome and what it has seen are left alone. A ping asked for while this
+ * one was out keeps its own due time. A failed delivery is tried again a few
+ * times; the gateway marks what it texted in `tex/attention/`, so a retry
+ * never sends a ping twice.
+ */
+async function recordAttentionResult(ctx: MutationCtx, row: Doc<"texHeartbeats">, outcome: string, now: number) {
+  const waiting = typeof row.attentionDueAt === "number" ? row.attentionDueAt : null;
+  const tries = (row.attentionTries ?? 0) + 1;
+  const retry = outcome === "failed" && tries < MAX_DELIVERY_TRIES;
+  const retryAt = now + RETRY_AFTER_MS;
+  await ctx.db.patch(row._id, {
+    claimedAt: undefined,
+    runId: undefined,
+    runKind: undefined,
+    attentionDueAt: retry ? Math.min(waiting ?? retryAt, retryAt) : waiting,
+    attentionTries: outcome === "failed" ? tries : 0,
+    ...(outcome === "texted" ? { attentionTextedAt: now } : {}),
+    updatedAt: now,
+  });
+  await endTexJobGrant(ctx, { clientId: HEARTBEAT_CLIENT_ID, userId: row.userId, workspaceId: row.workspaceId, now });
 }
 
 /**

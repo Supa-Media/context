@@ -69,7 +69,8 @@ export function v2ToolDefinitions() {
       title: "Send",
       description:
         "Do something outside Context that cannot be taken back: api calls a site with a key saved in the " +
-        "vault, which you never see; email sends one email as the person, and calendar adds, moves or cancels one event on their calendar, once they say yes to it. Ask the person first. orient lists every action and its args.",
+        "vault, which you never see; email sends one email as the person, and calendar adds, moves or cancels one event on their calendar, once they say yes to it. Ask the person first. " +
+        "notify is the exception: it has Tex text the person themselves, only when they asked to be told or it cannot wait. orient lists every action and its args.",
       inputSchema: {
         type: "object",
         properties: {

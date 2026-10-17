@@ -19,6 +19,7 @@ import { toolSendEmail } from "./email.js";
 import { toolCalendarEvent } from "./calendarWrite.js";
 import { toolApplyLayout, toolConnectGoogle, toolCreateWorkspace } from "./workspaces.js";
 import { toolDreamNow } from "./dreamNow.js";
+import { toolNotifyMe } from "./attention.js";
 import { toolVaultAddLink, toolVaultList, toolVaultShareLink, toolVaultViewLink } from "./vault.js";
 import { toolError, toolText } from "./results.js";
 import { toolExistenceMasked } from "./registry.js";
@@ -283,6 +284,8 @@ async function runTool(name, args, store, scope) {
       return toolConnectGoogle(store, args);
     case "dream_now":
       return toolDreamNow(store, scope);
+    case "notify_me":
+      return toolNotifyMe(store, scope, rules, overrides, args);
     case "list_links":
       return toolListLinks(store, scope);
     case "revoke_link":

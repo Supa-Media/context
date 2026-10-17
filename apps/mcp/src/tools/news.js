@@ -41,6 +41,13 @@ import { unlistedArgumentAdvice } from "./liveList.js";
 export const TOOL_NEWS = Object.freeze([
   {
     date: "2026-10-17",
+    text:
+      "send action notify `{ message, urgency: \"emergency\" | \"asked\" | \"fyi\", why? }` has Tex text the person now: when they asked " +
+      "to be told (\"text me when it ships\") or something is broken and cannot wait. Their own settings (tex/attention.md, strict by default) " +
+      "may hold it, ordinary pings never go at night, and there is a daily limit, so send it once. Their own personal workspace only.",
+  },
+  {
+    date: "2026-10-17",
     newTool: true,
     text:
       "send `calendar` (calendar_event `{ action: create | move | cancel, title, start, end?, new_start?, new_end?, location?, notes? }`) " +
@@ -162,7 +169,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "868dbd1b";
+export const TOOL_SHAPE = "d4e8505d";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

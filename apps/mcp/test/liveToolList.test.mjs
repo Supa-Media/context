@@ -81,8 +81,10 @@ test("the list is generated from the definitions: every tool and every argument,
 test("the full list stays compact", () => {
   // Measured at 9.7 KB for all 49 definitions on 2026-10-15. A jump past this
   // is a description or schema change that made orient heavier for every
-  // stale client; look at it before raising the bound.
-  assert.ok(liveToolListSection(toolDefinitions()).length < 12_000);
+  // stale client; look at it before raising the bound. Raised to 12,500 on
+  // 2026-10-17 for `notify_me`: the list stood at 11,976 with 54 tools, and
+  // one more tool's line is about 220 characters however short its summary.
+  assert.ok(liveToolListSection(toolDefinitions()).length < 12_500);
 });
 
 /* -------------------------------------------------------------------------- */
