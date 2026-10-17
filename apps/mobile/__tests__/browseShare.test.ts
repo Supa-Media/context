@@ -58,11 +58,8 @@ jest.mock("../features/agent/useConsoleGrant", () => ({
   useConsoleGrant: () => async () => { throw new Error("No fixture gateway session"); },
 }));
 
-jest.mock("convex/react", () => ({
-  useQueries: () => ({}), useConvex: () => ({ query: async () => undefined }), // an owner picker, which nothing here opens
-  // The share dialog's list (`useShareGrants`): none here, so it draws as it did before lists existed.
-  useQuery: () => undefined,
-  useMutation: () => async () => ({ ok: true, version: 1 }),
+jest.mock("convex/react", () => ({ // useConvex feeds an owner picker, which nothing here opens
+  useQueries: () => ({}), useConvex: () => ({ query: async () => undefined }), useQuery: () => undefined, useMutation: () => async () => ({ ok: true }), // no share list here, so the old dialog
   useAction: () => async () => Promise.reject(new Error("not used in this test")),
 }));
 
