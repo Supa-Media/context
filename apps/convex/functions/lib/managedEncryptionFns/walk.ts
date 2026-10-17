@@ -385,7 +385,18 @@ export async function runWalkHandler(
   }
   const more: boolean = await ctx.runMutation(internal.functions.managedEncryption.recordPage, result);
   if (more) await ctx.scheduler.runAfter(0, internal.functions.managedEncryption.runWalk, args);
-  // The walk rewrote objects without naming them, so their versions reach the
-  // Convex tree by one sweep once it ends rather than a sweep per page.
-  else await ctx.runMutation(internal.functions.nodes.requestSweep, { workspaceId: args.workspaceId }).catch(() => {});
+  else await afterWalk(ctx, args.workspaceId);
+}
+
+/**
+ * The walk rewrote objects without naming them, so their versions reach the
+ * Convex tree once it ends rather than page by page: path rows by one sweep,
+ * and id keys by the id copy's diagnosis. A keyed workspace's sweep adopts
+ * nothing (`observe.ts`), so without the diagnosis every keyed row would keep
+ * the version from before the walk, and an offline delete or a trash made
+ * against what a reader was just handed would be refused as changed.
+ */
+async function afterWalk(ctx: ActionCtx, workspaceId: Id<"workspaces">): Promise<void> {
+  await ctx.runMutation(internal.functions.nodes.requestSweep, { workspaceId }).catch(() => {});
+  await ctx.runMutation(internal.functions.noteIdsCopy.checkAfterRewrite, { workspaceId }).catch(() => {});
 }
