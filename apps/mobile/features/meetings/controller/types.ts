@@ -148,6 +148,16 @@ export interface ConfigureInput {
   gateway: MeetingsGateway;
   recorder: MeetingRecorder;
   device: MeetingDevice;
+  /**
+   * The name of the person holding this device, read when a meeting starts.
+   *
+   * It goes on the session as their own attendee row (`self: true`), and that
+   * row is how a two-sided call's transcript names the microphone's lines
+   * (`speakerLabeller` in `@context/meetings`, board m5). A getter, because
+   * the name arrives with the workspace list, after `configure` has run.
+   * Absent or `null`: no row, and the microphone's lines say `Speaker`.
+   */
+  selfName?: () => string | null;
   now?: () => number;
   randomBytes?: RandomBytes;
   /** Trailing debounce before a record is written down. */

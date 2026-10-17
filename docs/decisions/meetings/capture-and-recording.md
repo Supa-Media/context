@@ -383,3 +383,43 @@ to put and no non-negotiable that would survive putting it there.
 What a "simplification" of this costs: drop the channel break and the far side
 of every call goes back inside a block attributed to whoever spoke first, which
 is worse than no attribution because it reads like evidence.
+
+### Route 1 is taken: the microphone gets your name and the call is "On the call", only on a session that had two sides (owner, 2026-10-17)
+
+The owner saw the You and Call meters (board m3) and asked for the same split
+in the transcript (board m5): *"we should even show that in the transcript to
+distinguish speakers"*. That is route 1 above, and it is built.
+
+- **Where the side comes from.** The desktop shell already records the
+  microphone and the machine's sound as two files, so its segments arrive
+  stamped `mic` or `system`. A browser records one mixed file, so the engine
+  answers `mixed`. The web recorder now keeps the meter readings it draws, ten a
+  second, for five minutes against the session clock
+  (`capture/talkTimeline.ts`), and re-stamps each segment with the side that
+  was clearly louder while it was said: one side must be over a voice floor, a
+  margin louder than the other (so a call bleeding into the microphone on
+  speakers is still the call), and hold 70% of the segment's voiced readings.
+  Anything closer is `mixed`. With no call reading in the window (a room
+  meeting, or a browser with no analyser) the segment keeps the engine's answer.
+- **What the evidence of two sides is.** At least one segment on `system`. A
+  room meeting, a share that carried no sound, and the phone (which never hears
+  a call) have none, so every line there stays `Speaker`. That is the guard
+  against the false attribution this section refused.
+- **What the lines are called** (`speakerLabeller` in `@context/meetings`):
+  - `mic` is the name on the session's own attendee row (`self: true`). The app
+    adds that row when a meeting starts, from the person's personal workspace
+    name, so the note reads right to anyone it is shared with. No name means
+    `Speaker`, never "You".
+  - `system` is `On the call`, because one file of call audio cannot tell two
+    callers apart.
+  - `mixed` is `Speaker`.
+  - A label an engine really produced still wins.
+- **The attendee count ignores the self row alone**, so a meeting nobody else
+  is known in still shows its source ("In person", "Zoom") and not "1 person".
+
+What a "simplification" costs:
+- Labelling `mic` without the two-sided check names the microphone in a room.
+  The check is `a meeting where the call said nothing never names the
+  microphone`.
+- Dropping the margin turns near-ties and speaker bleed into confident names.
+  The check is `two sides at nearly the same level name nobody`.

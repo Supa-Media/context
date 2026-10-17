@@ -251,8 +251,7 @@ export function speakersIn(segments) {
  * "the far end hears one file and cannot know". Merging across it published a
  * block of text attributed to one speaker, half of which the other side said.
  * Splitting is the honest floor: what a turn is labelled is a separate
- * question, and an open one (see `docs/decisions/meetings.md`, *The channel is
- * the only speaker signal this product has*).
+ * question, answered by `speakerLabeller` below.
  *
  * @param {TranscriptSegment[]} segments
  * @param {{maxGapMs?: number}} [options]
@@ -289,6 +288,50 @@ export function groupIntoTurns(segments, options = {}) {
     });
   }
   return turns;
+}
+
+/** What a turn heard on the call's own audio is labelled, on a two-sided session. */
+export const CALL_SPEAKER = "On the call";
+
+/**
+ * What each turn is called, decided once for the whole session.
+ *
+ * The open question the entry above left (*what a turn is called*) has an
+ * answer now, the first of its three routes: channel labels, conditioned on a
+ * session that really had two sides (owner, 2026-10-17, board m5).
+ *
+ * **Two-sided means the call's own audio said something**: at least one
+ * segment on `system`. A room meeting has none, a share that carried no sound
+ * has none, and the phone never records a call's audio at all, so all three
+ * keep `Speaker` on every line. Labelling the microphone "you" in a room is the
+ * false attribution the entry above refused, and this is the guard against it.
+ *
+ * On a two-sided session:
+ *  - `mic` is the person holding the device, by the name on their own attendee
+ *    row (`self: true`), so the note reads right to anyone it is shared with.
+ *    No name, no guess: `Speaker`.
+ *  - `system` is `On the call`. One file of call audio cannot tell two callers
+ *    apart, so it never names one.
+ *  - `mixed` — both talking at once, or too little to go on — stays `Speaker`.
+ *
+ * A label an engine really produced (`speaker` set) always wins.
+ *
+ * @param {TranscriptSegment[]} segments
+ * @param {Array<{name?: string, self?: boolean}>} [attendees]
+ * @returns {(turn: TranscriptTurn) => string}
+ */
+export function speakerLabeller(segments, attendees) {
+  const twoSided = (segments ?? []).some((segment) => segment?.channel === "system");
+  const self = (attendees ?? []).find((attendee) => attendee?.self === true);
+  const selfName =
+    typeof self?.name === "string" ? self.name.replace(/\s+/g, " ").trim().slice(0, MAX_SPEAKER_CHARS) : "";
+  return (turn) => {
+    if (turn.speaker) return turn.speaker;
+    if (!twoSided) return UNKNOWN_SPEAKER;
+    if (turn.channel === "system") return CALL_SPEAKER;
+    if (turn.channel === "mic" && selfName) return selfName;
+    return UNKNOWN_SPEAKER;
+  };
 }
 
 /**

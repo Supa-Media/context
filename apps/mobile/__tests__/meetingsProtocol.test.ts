@@ -389,6 +389,8 @@ describe("what a row says", () => {
   test("the count includes the person holding the device", () => {
     // "2 people" is what somebody reading a row about a two-person call expects.
     expect(attendeeCount([{ name: "Me", self: true }, { name: "Them" }])).toBe(2);
+    // The recorder's own row alone is nobody else known, not "1 person".
+    expect(attendeeCount([{ name: "Me", self: true }])).toBe(0);
   });
 
   test("every source the protocol names has a label of its own", () => {
