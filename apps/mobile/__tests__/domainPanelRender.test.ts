@@ -55,6 +55,8 @@ const actions = (): DomainActions => ({
   checkNow: jest.fn(async () => {}) as DomainActions["checkNow"],
   setHomepage: jest.fn(async () => {}) as DomainActions["setHomepage"],
   remove: jest.fn(async () => {}) as DomainActions["remove"],
+  lookup: jest.fn(async () => ({ ok: false as const, message: "" })) as DomainActions["lookup"],
+  emailSteps: jest.fn(async () => {}) as DomainActions["emailSteps"],
 });
 
 const pending = (over: Partial<DomainView> = {}): DomainView => ({
@@ -72,6 +74,11 @@ const pending = (over: Partial<DomainView> = {}): DomainView => ({
   checkingSince: Date.now() - 60_000,
   oneClick: null,
   www: null,
+  zone: null,
+  dnsHost: null,
+  hints: [],
+  forwarding: null,
+  stepsSent: null,
   records: [
     { purpose: "routing", type: "CNAME", name: "docs.acme.com", host: "docs", value: "customers.context.lc", done: false },
     {
