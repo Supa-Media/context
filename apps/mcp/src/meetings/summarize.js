@@ -22,7 +22,9 @@
  * The model is Haiku through the deployment's AI gateway, asked twice: once to
  * write and once to check the draft against the transcript. A check that fails
  * keeps the draft; a write that fails leaves a line saying so, which the next
- * open retries.
+ * open retries. The model and both prompts come from
+ * `@context-lc ai/production/meeting-summaries.md` when it validates
+ * (`summaryPrompts`), and the built-in words otherwise.
  */
 
 import {
@@ -43,7 +45,8 @@ import {
   waitingSummary,
 } from "../../../../packages/meetings/src/summary.js";
 import { DEFAULT_GATEWAY_MODEL } from "../agent/builtin.js";
-import { aiGatewayConfig, gatewayMetadata, requestViaGateway } from "../agent/aiGateway.js";
+import { aiGatewayConfig, gatewayMetadata, isGatewayModel, requestViaGateway } from "../agent/aiGateway.js";
+import { promptSections } from "../agent/production.js";
 import { loadPrivacyState } from "../privacy/state.js";
 import { toolReadNote } from "../tools/notes/read.js";
 import { toolWriteNote } from "../tools/notes/write.js";
@@ -131,11 +134,31 @@ function addUsage(total, usage) {
   total.cacheWrite += usage?.cacheWrite ?? 0;
 }
 
+/**
+ * The model and the two prompts a summary runs with: the setup note's
+ * `## Write` and `## Check` sections and its `models.main` when that is a
+ * gateway model, each falling back on its own to the built-in one, so a note
+ * missing a section changes only the other.
+ *
+ * @param {object|null} setup a parsed setup (`agent/production.js`), or null
+ * @returns {{model: string, write: string|undefined, check: string|undefined, version: string|null}}
+ */
+export function summaryPrompts(setup) {
+  if (!setup) return { model: DEFAULT_GATEWAY_MODEL, write: undefined, check: undefined, version: null };
+  const sections = promptSections(setup.prompt);
+  return {
+    model: isGatewayModel(setup.model) ? setup.model : DEFAULT_GATEWAY_MODEL,
+    write: sections.write,
+    check: sections.check,
+    version: setup.version ?? null,
+  };
+}
+
 /** One forced tool call; the tool's arguments as the renderer reads them, or `null`. */
-async function askModel(request, config, { metadata, fetchImpl, now }, usage) {
+async function askModel(request, config, { metadata, fetchImpl, now, model = DEFAULT_GATEWAY_MODEL }, usage) {
   const answer = await requestViaGateway(
     {
-      model: DEFAULT_GATEWAY_MODEL,
+      model,
       system: request.system,
       messages: [{ role: "user", text: request.user }],
       tools: [SUMMARY_TOOL],
@@ -153,13 +176,15 @@ async function askModel(request, config, { metadata, fetchImpl, now }, usage) {
 /**
  * Write and check. `null` when no usable summary came back; a failed check
  * keeps the draft, since a summary that was not double-checked is still better
- * than none.
+ * than none. `prompts` is `summaryPrompts`' answer. Exported for the AI
+ * benchmark (`bench/jobs/meetingSummaries.mjs`), which runs this exact path.
  */
-async function draftSummary(markdown, { instruction, today }, config, options, usage) {
-  const draft = await askModel(buildSummaryRequest(markdown, { instruction, today }), config, options, usage);
+export async function draftSummary(markdown, { instruction, today }, config, options, usage, prompts = summaryPrompts(null)) {
+  const asked = { ...options, model: prompts.model };
+  const draft = await askModel(buildSummaryRequest(markdown, { instruction, today, system: prompts.write }), config, asked, usage);
   if (!draft) return null;
   try {
-    return (await askModel(buildCheckRequest(markdown, draft, { today }), config, options, usage)) ?? draft;
+    return (await askModel(buildCheckRequest(markdown, draft, { today, system: prompts.check }), config, asked, usage)) ?? draft;
   } catch {
     return draft;
   }
@@ -171,7 +196,7 @@ async function draftSummary(markdown, { instruction, today }, config, options, u
  * @param {object} store the request's store, actor attached
  * @param {object} session the resolved session
  * @param {{path: string, instruction?: string, force?: boolean}} request
- * @param {{controlPlane: object, env: object, fetchImpl?: Function, now?: () => number}} deps
+ * @param {{controlPlane: object, env: object, fetchImpl?: Function, now?: () => number, readSetup?: () => Promise<object|null>}} deps
  * @returns {Promise<"written"|"skipped"|"recording"|"waiting"|"too_short"|"unavailable"|"failed"|"conflict">}
  */
 export async function summarizeMeetingNote(store, session, request, deps) {
@@ -212,6 +237,8 @@ export async function summarizeMeetingNote(store, session, request, deps) {
     return "waiting";
   }
 
+  // The setup note, read only once the model call is going to happen.
+  const prompts = summaryPrompts(typeof deps.readSetup === "function" ? await deps.readSetup().catch(() => null) : null);
   const started = now();
   const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
   const options = {
@@ -227,6 +254,7 @@ export async function summarizeMeetingNote(store, session, request, deps) {
       config,
       options,
       usage,
+      prompts,
     );
   } catch {
     output = null;
@@ -236,7 +264,7 @@ export async function summarizeMeetingNote(store, session, request, deps) {
     deps.controlPlane
       .recordMeetingSummaryUsage(session.accessToken, session.workspaceId, {
         ...usage,
-        model: DEFAULT_GATEWAY_MODEL,
+        model: prompts.model,
         failed: output === null,
         ms: Math.max(0, now() - started),
       })
