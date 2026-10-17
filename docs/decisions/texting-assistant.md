@@ -247,6 +247,11 @@ Tex's nightly dream, which brings `tex/about-me.md` up to date from the
 day's transcripts and logs what it changed in `tex/dreams/`:
 [dreams](./texting-assistant/dreams.md).
 
+Tex handing a whole sub-project to Claude Code, Codex, Claude, Claude Design
+or ChatGPT, with the task note's mail as the channel and a supervisor routine
+that keeps the agent on track and delivers its result:
+[delegation](./texting-assistant/delegation.md).
+
 Golden tasks (jobs Tex must always get right, gating a setup), the task
 skills it reads before doing one, and why a read skill may vouch for an
 address: [golden tasks](./texting-assistant/golden-tasks.md).

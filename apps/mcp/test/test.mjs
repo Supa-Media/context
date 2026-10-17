@@ -69,6 +69,7 @@ import { runAgentComputerChecks } from "./agentComputer.test.mjs";
 import { runAgentBrowseChecks } from "./agentBrowse.test.mjs";
 import { runAgentRoutineChecks } from "./agentRoutine.test.mjs";
 import { runAgentRoutineTexChecks } from "./agentRoutineTex.test.mjs";
+import { runAgentDelegateRouteChecks } from "./agentDelegateRoute.test.mjs";
 import { runAgentTranscriptChecks } from "./agentTranscriptRoute.test.mjs";
 import { runAgentDreamChecks } from "./agentDream.test.mjs";
 import { runAgentEgressChecks } from "./agentEgress.test.mjs";
@@ -161,6 +162,8 @@ await suite("runAgentComputerChecks", () => runAgentComputerChecks(check));
 await suite("runAgentBrowseChecks", () => runAgentBrowseChecks(check));
 await suite("runAgentRoutineChecks", () => runAgentRoutineChecks(check));
 await suite("runAgentRoutineTexChecks", () => runAgentRoutineTexChecks(check));
+// Tex hands a job to another agent, and its supervisor routine keeps it on track.
+await suite("runAgentDelegateRouteChecks", () => runAgentDelegateRouteChecks(check));
 // Tex's daily transcript in tex/transcripts/, written as a text is answered.
 await suite("runAgentTranscriptChecks", () => runAgentTranscriptChecks(check));
 await suite("runAgentDreamChecks", () => runAgentDreamChecks(check));

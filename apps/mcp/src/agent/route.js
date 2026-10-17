@@ -54,6 +54,8 @@ import {
   finishOnce,
 } from "./routine.js";
 import { textingAwareCallTool, textingWriteTools } from "./textingWrites.js";
+import { delegateSession, withDelegate } from "./delegate.js";
+import { closeJob, mailAgentSession, superviseRun, supervisedTask, updateLine, withMailAgent } from "./supervise.js";
 import { LONG_MAX_ROUNDS, LONG_TOOL_BUDGET_MS, progressChannel } from "./progress.js";
 import { markUntrusted, newLedger } from "../privacy/egress.js";
 import { transcriptionForwarder } from "../ingestion/transcription.js";
@@ -141,6 +143,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   const dispatch = (name, args) => callToolForSession({ name, arguments: args }, store, session);
   let routine = null;
   let runs = [];
+  // A delegated job's supervisor (`supervise.js`): what this run is for, decided before any model.
+  let supervision = null;
   let question = typeof body.question === "string" ? body.question.trim() : "";
   if (runner) {
     try {
@@ -156,6 +160,24 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       timeZone: routineTimeZone(routine.settings, body.routine.timeZone),
       lastRun: runs.findLast((run) => run.outcome === "answered" || run.outcome === "finished"),
     });
+    const task = supervisedTask(routine.fields);
+    if (task !== null) {
+      const handle = contextsFor(session).find((entry) => entry.current)?.name ?? "them";
+      const run = await superviseRun(dispatch, task, { now: Date.now(), runs, handle });
+      /*
+        A job going well, or one whose note is gone, costs no model call: the
+        run is recorded and nothing is texted. A gone note stops its
+        supervisor, recoverably, like an `until:` that came true.
+      */
+      if (run.kind === "quiet" || run.kind === "gone") {
+        const outcome = run.kind === "gone" ? "finished" : "skipped";
+        await keepRun(store, routine, runs, outcome, "");
+        if (run.kind === "gone") await stopRoutine(dispatch, routine.path);
+        return json({ outcome, answer: "", skipped: true, send: routine.settings.send, to: routine.settings.to });
+      }
+      supervision = { task, ...run, mail: mailAgentSession(dispatch, task, run.mailbox) };
+      question = run.question;
+    }
   }
   // What came with the question (`attachments.js`). A routine's run has none.
   const { attachments: sent, refusal } = turnAttachments(body.attachments, runner);
@@ -304,6 +326,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     the body either, which keeps `watch.md` from reading as a hostname.
   */
   const vouched = runner ? routine?.body ?? "" : question;
+  // Another agent's mail is someone else's words, like a page (`supervise.js`).
+  if (supervision !== null) markUntrusted(ledger);
   const opened =
     computer === null && search === null
       ? null
@@ -354,6 +378,21 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   const skills = skillSession(production?.skills ?? [], (path) => readProductionSkill(store, session, path), {
     onRead: (body) => opened?.vouch(body),
   });
+  /*
+    A text may hand a whole sub-project to another agent (`delegate.js`), as
+    the person: only their own texted turn, and only one that can write. Its
+    start address may be opened, and its message typed there and only there.
+  */
+  const home = contextsFor(session).find((entry) => entry.current)?.name ?? null;
+  const delegation =
+    session.actorClientId === TEXTS_CLIENT_ID && textingWriting.length > 0 && home !== null
+      ? delegateSession(dispatch, {
+          handle: home,
+          home,
+          vouch: (url, message) => opened?.delegated(url, message),
+          browser: opened?.browser != null,
+        })
+      : null;
   // The setup's trusted sites (`trustedSites.js`), openable without an address given.
   // With `open_web: yes`, any public https address (owner, 2026-10-11).
   opened?.trust(production?.trustedSites ?? [], { openWeb: production?.openWeb === true });
@@ -464,11 +503,18 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
         ...agentTools(offered).filter((tool) => textingWriting.length === 0 || tool.name !== "propose_note"),
         ...textingWriting,
         ...(skills?.tools ?? []),
+        ...(delegation?.tools ?? []),
+        ...(supervision?.mail.tools ?? []),
       ],
       // THE ONE DISPATCHER, AND IT IS THE CLIENT'S (`callToolForSession`): its routing and every
       // per-call scope refusal. An agent that reached past it would be a second, untested authority.
       onModel: (model) => void (store.usageModel = model),
-      callTool: outgoing.wrap(withAttachmentImages(attachments, withSkills(skills, textingAwareCallTool(dispatch, textingWriting)))),
+      callTool: outgoing.wrap(
+        withAttachmentImages(
+          attachments,
+          withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withSkills(skills, textingAwareCallTool(dispatch, textingWriting)))),
+        ),
+      ),
       pictures: session.actorClientId === TEXTS_CLIENT_ID,
       attachments,
       env,
@@ -510,7 +556,9 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     await afterAnswer(logTurn(turn.exhausted ? "exhausted" : "answered", turn.model, turn.timing, turn.usage));
 
     if (runner) {
-      const ran = turn.exhausted ? { outcome: "failed", text: "" } : runOutcome(turn.answer);
+      let ran = turn.exhausted ? { outcome: "failed", text: "" } : runOutcome(turn.answer);
+      // A job whose note says done is delivered once, whether or not the answer said DONE:.
+      if (supervision?.kind === "finished" && ran.outcome === "answered") ran = { ...ran, outcome: "finished" };
       await afterAnswer(transcript.finish({ answer: ran.text, outcome: ran.outcome }));
       await keepRun(store, routine, runs, ran.outcome, ran.text);
       /*
@@ -523,6 +571,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
         await stopRoutine(dispatch, routine.path);
       }
       // A one-off has run: it stays where it is, marked done (`finishOnce`).
+      if (supervision !== null) await deliverSupervision(store, session, dispatch, supervision, ran, afterAnswer);
       if (routine.cadence.unit === "once" && ran.outcome !== "failed") {
         await finishOnce(dispatch, routine.path, {
           now: Date.now(),
@@ -624,6 +673,25 @@ async function deferred(store, work) {
   } catch {
     await work;
   }
+}
+
+/**
+ * What a supervisor texted reaches the main loop: it goes in the texting
+ * conversation of the person's own workspace, so their next text to Tex
+ * carries it, marked as read from outside. A finished job is tidied. Best
+ * effort: the text is still owed.
+ */
+async function deliverSupervision(store, session, dispatch, supervision, ran, afterAnswer) {
+  const personal = contextsFor(session).find((entry) => entry.current)?.kind === "personal";
+  if (ran.text && personal) {
+    try {
+      const history = await readConversation(store, "texts");
+      await appendConversation(store, "texts", history, updateLine(supervision.task, supervision.title), ran.text, { tainted: true });
+    } catch {
+      // See above.
+    }
+  }
+  if (ran.outcome === "finished") await afterAnswer(closeJob(dispatch, supervision.task));
 }
 
 /**
