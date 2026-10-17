@@ -1,11 +1,13 @@
 import { useMemo } from "react";
 import { useDeviceSearch, useMirrorPaths } from "../../offline/useDeviceSearch";
 import { recentPaths, type HistoryState } from "../files/history";
-import { itemsFromListings, itemsFromPaths, recentItems, type NoteNaming } from "../files/palette";
+import { accountRecentItems, itemsFromListings, itemsFromPaths, recentItems, type NoteNaming } from "../files/palette";
 import { useContextSearch } from "../files/useContextSearch";
 import type { ConsoleContext, ConsoleData } from "../types";
 import { scopePrefix } from "./SearchScope";
 import { useHomeSource } from "../home/useHomeSource";
+import { useAccountRecents } from "../home/useHomePlaces";
+import { recentLabel } from "../home/homeModel";
 
 /**
  * What the ⌘K palette searches and lists: the whole context through the
@@ -119,14 +121,23 @@ export function usePaletteSearch({
       ? all
       : all.filter((item) => item.kind === "command" || item.id.startsWith(scopePrefix(scope)));
   }, [paletteOpen, mirrorPaths, listings, naming, scope]);
-  /* An untyped search lists the notes somebody was just in. */
-  const recent = useMemo(
-    () =>
-      paletteOpen && history !== undefined && insideContext
-        ? recentItems(recentPaths(history), paletteItems, naming)
-        : [],
-    [paletteOpen, history, insideContext, paletteItems, naming],
-  );
+  /*
+    An untyped search lists the notes somebody was just in: for a signed-in
+    person their own Recent, the list phone Home draws, so every tab and
+    device agrees and an agent clicking around a tab adds nothing to it
+    (owner, 2026-10-17). A visitor, or a Recent not answered yet, gets where
+    this tab has been.
+  */
+  const signedIn = data.visitor === undefined && current?.role !== undefined;
+  const accountRecents = useAccountRecents(current?.id, insideContext && signedIn);
+  const recent = useMemo(() => {
+    if (!paletteOpen || !insideContext) return [];
+    if (accountRecents !== null) {
+      const now = Date.now();
+      return accountRecentItems(accountRecents, paletteItems, (row) => recentLabel(row.kind, row.at, now), naming);
+    }
+    return history === undefined ? [] : recentItems(recentPaths(history), paletteItems, naming);
+  }, [paletteOpen, history, insideContext, paletteItems, naming, accountRecents]);
   /*
     Every folder and tag in this workspace, for a phone's search: this
     device's copy, read only while search is open on a phone.
@@ -136,7 +147,9 @@ export function usePaletteSearch({
     current?.role,
     listings,
   );
-  return { search, paletteItems, recent, places };
+  /** Whether `recent` is the person's own Recent, so the palette may say so. */
+  const recentYours = paletteOpen && insideContext && accountRecents !== null;
+  return { search, paletteItems, recent, recentYours, places };
 }
 
 export type PaletteSearch = ReturnType<typeof usePaletteSearch>;

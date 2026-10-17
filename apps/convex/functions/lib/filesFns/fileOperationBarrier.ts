@@ -45,6 +45,7 @@ import { attachPlacesFollower } from "../nodes/followPlaces";
 import { attachLandedTouch } from "../nodes/landedTouch";
 import { attachTreeListing } from "../nodes/treeNames";
 import { attachWorkspaceKeyed } from "../noteIds/keyedStore";
+import { attachArrivalAccess } from "../nodes/arrivalAccess";
 import { servedNoteCount } from "../nodes/servedCount";
 import { attachMeaningIndex } from "../../../../mcp/src/search/meaning/store.js";
 import {
@@ -523,6 +524,7 @@ export async function runFileOperationHandler(
   attachQueueMove(ctx, args, listing.store, bucket, undefined, projection);
   attachTreeListing(ctx, args.workspaceId, listing.store);
   attachWorkspaceKeyed(ctx, args.workspaceId, listing.store);
+  await attachArrivalAccess(ctx, args, listing.store);
   const followPlaces = attachPlacesFollower(ctx, args.workspaceId, listing.store);
   if (args.operation.kind === "move") attachLandedTouch(ctx, args.workspaceId, listing.store, store);
   const operate = () => executeOperation(

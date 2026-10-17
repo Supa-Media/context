@@ -116,9 +116,9 @@ export function attachLinkCalls(store, session, controlPlane, env) {
   }
   // `report_problem`: filed as this connection's person, resolved from its own
   // token by the control plane. Not tied to a workspace, so the same call on
-  // every store a request touches.
+  // every store a request touches. `texts` only from `tools/reportGate.js`.
   Object.defineProperty(store, "reportProblem", {
-    value: (message) => controlPlane.reportProblem(session.accessToken, message),
+    value: (message, texts) => controlPlane.reportProblem(session.accessToken, message, texts),
     enumerable: false,
     writable: false,
     configurable: true,

@@ -122,9 +122,23 @@ export function meetingLanding(record: MeetingRecord): MeetingLanding | null {
   return {
     kind: "pending",
     title: "Not in your bucket yet",
-    detail: "It is kept on this device and sent as soon as your context answers.",
+    // The shell's own sentence when it is the one holding it: "queued on this
+    // machine" says where the meeting is, which "this device" only implies.
+    detail:
+      record.handedOver === true && record.lastError !== undefined
+        ? record.lastError
+        : "It is kept on this device and sent as soon as your context answers.",
     retry: null,
   };
+}
+
+/**
+ * One problem, as a string a dismissal can be compared against. Two landings
+ * with the same key are the same thing to tell somebody, so closing the bar
+ * for one closes it for the other; a new reason is a new key and a new bar.
+ */
+export function landingKey(landing: MeetingLanding): string {
+  return `${landing.kind}\n${landing.title}\n${landing.detail ?? ""}`;
 }
 
 /**
@@ -215,4 +229,18 @@ export function meetingNeedsAttention(record: MeetingRecord): boolean {
  */
 export function strandedMeetings(records: readonly MeetingRecord[]): MeetingRecord[] {
   return records.filter(meetingNeedsAttention);
+}
+
+/**
+ * The stranded meetings the bar should still name: every one except those
+ * whose current problem somebody already closed the bar for. The meetings
+ * list and the meeting's own page keep using `strandedMeetings`, so a closed
+ * notice never hides the recording itself.
+ */
+export function unacknowledgedStranded(records: readonly MeetingRecord[]): MeetingRecord[] {
+  return strandedMeetings(records).filter((record) => {
+    if (record.noticeDismissed === undefined) return true;
+    const landing = meetingLanding(record);
+    return landing === null || landingKey(landing) !== record.noticeDismissed;
+  });
 }

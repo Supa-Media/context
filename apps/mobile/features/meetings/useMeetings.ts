@@ -308,6 +308,7 @@ export function useMeetingsSetup(
         gateway,
         recorder,
         device: { platform: platformFor(), appVersion: undefined },
+        selfName: () => ownName(directory.current),
       });
     })();
     return () => {
@@ -357,4 +358,19 @@ export function useMeetingsSetup(
     if (snapshot.status !== "ready") return;
     meetings.requestSync();
   }, [reachability, snapshot.status, snapshot.records]);
+}
+
+/**
+ * The person's own name: their personal workspace's, which account setup
+ * names after them. What a two-sided call's transcript calls the
+ * microphone's lines (board m5). `null` before the list arrives.
+ */
+export function ownName(workspaces: ReadonlyArray<unknown>): string | null {
+  for (const one of workspaces as ReadonlyArray<{ kind?: unknown; role?: unknown; displayName?: unknown }>) {
+    if (one.kind === "personal" && one.role === "owner" && typeof one.displayName === "string") {
+      const name = one.displayName.trim();
+      return name === "" ? null : name;
+    }
+  }
+  return null;
 }

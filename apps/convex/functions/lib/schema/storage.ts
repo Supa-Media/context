@@ -36,8 +36,6 @@ export const storageTables = {
       v.literal("s3"),
       v.literal("b2"),
       v.literal("s3-compatible"),
-      // Legacy: Dropbox was removed on 2026-10-17. Kept only so existing rows still validate; removed once internal.functions.dropboxRemoval.purge has run in production.
-      v.literal("dropbox"),
     ),
     /**
      * ## Two shapes in one table, and why the S3 fields became optional
@@ -65,11 +63,6 @@ export const storageTables = {
     rootPrefix: v.optional(v.string()),
     accessKeyId: v.optional(v.string()),
     encryptedSecretAccessKey: v.optional(v.string()),
-    // Legacy: Dropbox was removed on 2026-10-17. Kept only so existing rows still validate; removed once internal.functions.dropboxRemoval.purge has run in production.
-    encryptedRefreshToken: v.optional(v.string()),
-    encryptedAccessToken: v.optional(v.string()),
-    accessTokenExpiresAt: v.optional(v.number()),
-    dropboxAccountId: v.optional(v.string()),
     /**
      * How the bucket is addressed in a request URL: as a path segment
      * (`https://endpoint/my-context/note.md`) or as the first host label

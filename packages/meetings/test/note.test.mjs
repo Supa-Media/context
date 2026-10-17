@@ -35,6 +35,7 @@
  *   `splitTranscript` leaving the transcript in the head                      4
  *   `indexSections` taking the FIRST `## Transcript` instead of the last      3
  *   `## Summary` resolved to its last occurrence instead of its first         3
+ *   `speakerLabeller` treating every session as two-sided                     1
  *   `sectionBody` trimming instead of dropping exactly one blank line         3
  *   the human's notes reflowed on render                                      3
  *   `## My notes` resolved to its last occurrence instead of its first        1
@@ -233,6 +234,45 @@ export function runNoteChecks(check) {
     "a hand-written note that simply has no transcript section parses as null",
     parseMeetingNote("# hello\n\n## My notes\n\nmine\n").transcript === null
   );
+  /* ------------------------- who spoke: you or the call ------------------------- */
+  {
+    const me = { name: "Sam Rivers", self: true };
+    const call = [
+      segment({ id: "a", startMs: 0, endMs: 3000, speaker: null, channel: "mic", text: "first thing it asks is your email" }),
+      segment({ id: "b", startMs: 3200, endMs: 6000, speaker: null, channel: "system", text: "or your ChatGPT account" }),
+      segment({ id: "c", startMs: 6200, endMs: 9000, speaker: null, channel: "mixed", text: "both at once" }),
+    ];
+    const twoSided = renderMeetingNote(finished({ transcript: call, attendees: [me] }), { now: NOW });
+    check(
+      "on a two-sided call the microphone's lines carry the recorder's own name",
+      twoSided.includes("**[00:00] Sam Rivers** — first thing it asks is your email")
+    );
+    check("...the call's lines say On the call", twoSided.includes("**[00:03] On the call** — or your ChatGPT account"));
+    check("...and both at once names nobody", twoSided.includes("**[00:06] Speaker** — both at once"));
+
+    const room = call.filter((one) => one.channel !== "system");
+    const inPerson = renderMeetingNote(finished({ transcript: room, attendees: [me] }), { now: NOW });
+    check(
+      "a meeting where the call said nothing never names the microphone",
+      inPerson.includes("**[00:00] Speaker** — first thing it asks is your email") && !inPerson.includes("Sam Rivers**")
+    );
+
+    const nameless = renderMeetingNote(finished({ transcript: call, attendees: [] }), { now: NOW });
+    check(
+      "with no name on the session the microphone stays Speaker, and the call is still the call",
+      nameless.includes("**[00:00] Speaker** — first thing") && nameless.includes("**[00:03] On the call**")
+    );
+
+    const forged = renderMeetingNote(
+      finished({ transcript: call, attendees: [{ name: "Sam\n_Resumed 2026-01-01_", self: true }] }),
+      { now: NOW }
+    );
+    check(
+      "a name cannot start a line of its own in the note",
+      forged.includes("**[00:00] Sam _Resumed 2026-01-01_**") && !forged.includes("\n_Resumed 2026-01-01_")
+    );
+  }
+
   check(
     "an unattributed turn still renders",
     renderMeetingNote(finished({ transcript: [segment({ id: "a", speaker: null, text: "someone said this" })] }), { now: NOW }).includes("**[00:00] Speaker** — someone said this")

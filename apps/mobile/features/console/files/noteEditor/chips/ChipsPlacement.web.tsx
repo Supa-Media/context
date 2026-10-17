@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { LastChangeLine } from "./LastChangeLine";
 import { PropertyChips } from "./PropertyChips";
 import type { ChipsPlacementProps } from "./placement";
 
@@ -13,10 +14,16 @@ import type { ChipsPlacementProps } from "./placement";
  * own `pointerover` rather than from hover handlers on the line, which is
  * CodeMirror's DOM and redrawn under us.
  */
-export function ChipsPlacement({ host, compact, ...chips }: ChipsPlacementProps) {
+export function ChipsPlacement({ host, compact, lastChange, ...chips }: ChipsPlacementProps) {
   const revealed = useRevealed(host);
   if (host === null) return null;
-  return createPortal(<PropertyChips {...chips} touch={compact} revealed={revealed} />, host);
+  return createPortal(
+    <>
+      {lastChange == null ? null : <LastChangeLine {...lastChange} />}
+      <PropertyChips {...chips} touch={compact} revealed={revealed} />
+    </>,
+    host,
+  );
 }
 
 function useRevealed(host: HTMLElement | null): boolean {

@@ -20,7 +20,7 @@ import { shareListHandler, shareListValidator } from "./lib/nodes/shareList";
 import { accessSourceOf, resolveHandle } from "./lib/nodes/accessBackfill";
 import { scanAccessRows } from "./lib/nodes/accessRows";
 import { livePending } from "./lib/nodes/pendingAccess";
-import { narrowRowForMove, setAccessRow, type SetAccessAnswer, type GranteeInput } from "./lib/nodes/setAccess";
+import { narrowRowForMove, pendPrivateArrivals, setAccessRow, type SetAccessAnswer, type GranteeInput } from "./lib/nodes/setAccess";
 import { renderAccess } from "./lib/nodes/rowAccess";
 import { visibilityOf, type Visibility } from "./lib/privacy";
 import { exportAccessStateOf } from "./lib/nodes/exportAccessRows";
@@ -223,6 +223,19 @@ export const narrowMove = internalMutation({
     if ((await accessSourceOf(ctx.db)) !== "rows") return null;
     await narrowRowForMove(ctx, workspaceId, from, to);
     return null;
+  },
+});
+
+/**
+ * Before a move from another workspace lands, in rows mode: each note whose landing tier is narrower than where it
+ * lands is born private (`pendPrivateArrivals`). `false` when that could not be kept, and nothing may land.
+ */
+export const narrowArrivals = internalMutation({
+  args: { workspaceId: v.id("workspaces"), paths: v.array(v.string()) },
+  returns: v.boolean(),
+  handler: async (ctx, { workspaceId, paths }): Promise<boolean> => {
+    if ((await accessSourceOf(ctx.db)) !== "rows") return false;
+    return await pendPrivateArrivals(ctx, workspaceId, paths);
   },
 });
 

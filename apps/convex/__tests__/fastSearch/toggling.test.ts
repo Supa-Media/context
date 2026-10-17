@@ -1,4 +1,3 @@
-import { LEGACY_PROVIDER } from "../../functions/dropboxRemoval";
 import { describe, expect, test } from "vitest";
 import { api, internal } from "../../_generated/api";
 import { storageMoved } from "../../functions/storage";
@@ -551,73 +550,6 @@ describe("storage going away takes the projection with it", () => {
       nowhere.
     */
     expect(storageMoved({ provider: "s3" }, here)).toBe(true);
-    expect(storageMoved({ provider: LEGACY_PROVIDER }, here)).toBe(true);
-  });
-
-  test("a legacy non-served provider row does not strand the old bucket's notes", async () => {
-    /*
-      THE DOOR THIS DESCRIBE BLOCK LEFT OPEN, WALKED END TO END.
-
-      Every step is an ordinary thing a person does:
-
-        1. S3 bucket, fast search on, the projection holds their notes.
-        2. The binding goes to `error` — a rotated key, a provider hiccup.
-        3. They try a second provider and the sign-in takes too long.
-           The attempt leaves the S3 fields where they are, and there is no
-           account id, so `storageAddress` can no longer read the row.
-        4. They give up and connect a DIFFERENT bucket.
-
-      At step 4 the row names somewhere new and the projection still holds the
-      old bucket's note text — titles, headings, body chunks — with `optedIn`
-      and `ready` untouched, so the gateway goes on answering searches out of
-      it. The customer has revoked our key on the bucket those notes came from.
-    */
-    const t = setupTest();
-    const { owner, workspaceId } = await bound(t, "rebind-unreadable", "old-bucket");
-
-    await t.run(async (ctx) => {
-      const binding = await ctx.db
-        .query("storageBindings")
-        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-        .unique();
-      await ctx.db.patch(binding!._id, { status: "error" });
-    });
-
-    // The shape that does it: a provider with no address, over a bucket that
-    // still has a projection. Written directly, as a removed provider's row
-    // would be.
-    await t.run(async (ctx) => {
-      const binding = await ctx.db
-        .query("storageBindings")
-        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-        .unique();
-      await ctx.db.patch(binding!._id, { provider: LEGACY_PROVIDER });
-    });
-    await t.run(async (ctx) => {
-      const binding = await ctx.db
-        .query("storageBindings")
-        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-        .unique();
-      expect(binding?.provider).toBe(LEGACY_PROVIDER);
-      expect(binding?.bucket).toBe("old-bucket");
-    });
-    expect((await bindingRow(t, workspaceId))?.status).toBe("ready");
-
-    await t.mutation(internal.functions.storage.applyBinding, {
-      actorUserId: owner,
-      workspaceId,
-      provider: "s3",
-      endpoint: "https://s3.example.invalid",
-      region: "auto",
-      bucket: "a-different-bucket",
-      accessKeyId: "AKIAEXAMPLEEXAMPLE01",
-      encryptedSecretAccessKey: "not-a-real-envelope",
-      forcePathStyle: true,
-    });
-
-    const row = await bindingRow(t, workspaceId);
-    expect(row?.optedIn).toBe(false);
-    expect(row?.status).toBe("releasing");
   });
 
   test("disconnecting a context with no index is an ordinary disconnect", async () => {

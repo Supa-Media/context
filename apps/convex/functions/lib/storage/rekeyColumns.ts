@@ -40,24 +40,18 @@ export const REKEY_BATCH_SIZE = 50;
 /**
  * Every field on a binding that holds an encrypted envelope.
  *
- * An S3 binding has the bucket secret. The two token columns belong to a
- * removed provider and stay in the schema until its purge has run; the schema guard
- * requires every `encrypted*` column to appear here, so they stay listed.
- * Rotation walks this list rather than one hardcoded
- * field, because a rotation that silently skipped a field would leave those
- * envelopes readable only by a key the operator is about to delete — the
- * failure would not appear until the customer's next read, long after the
- * pass reported success.
+ * An S3 binding has the bucket secret, and that is the only one. Rotation
+ * walks this list rather than one hardcoded field, because a rotation that
+ * silently skipped a field would leave those envelopes readable only by a key
+ * the operator is about to delete — the failure would not appear until the
+ * customer's next read, long after the pass reported success.
  *
- * Adding a fourth encrypted field means adding it here. There is a test that
- * fails if a schema field matching `encrypted*` is missing from this list, so
- * the coupling is enforced rather than remembered.
+ * Adding a second encrypted field to a binding means adding it here. There is
+ * a test that fails if a schema field matching `encrypted*` is missing from
+ * the rotated or exempt lists, so the coupling is enforced rather than
+ * remembered.
  */
-export const ENVELOPE_FIELDS = [
-  "encryptedSecretAccessKey",
-  "encryptedRefreshToken",
-  "encryptedAccessToken",
-] as const;
+export const ENVELOPE_FIELDS = ["encryptedSecretAccessKey"] as const;
 
 export type EnvelopeField = (typeof ENVELOPE_FIELDS)[number];
 
@@ -70,10 +64,14 @@ export type EnvelopeField = (typeof ENVELOPE_FIELDS)[number];
  * therefore invisible to it — the same blindness that guard's own rationale
  * warns about one level down, where a hand-maintained list does not know about
  * the field nobody has thought about yet. `workspaceDataKeys.encryptedDataKey`
- * was exactly that field.
+ * was exactly that field. The two Google token columns live on
+ * `googleConnections` (see `googleConnectionEnvelopeField` below), and are
+ * listed here by name for the same guard.
  */
 export const ROTATED_ENVELOPE_COLUMNS = [
   ...ENVELOPE_FIELDS,
+  "encryptedRefreshToken",
+  "encryptedAccessToken",
   "encryptedDataKey",
   "encryptedValue",
   "encryptedTargetSecretAccessKey",
@@ -109,8 +107,6 @@ export const ROTATION_EXEMPT_ENVELOPE_COLUMNS = [
 
 export const envelopeFieldValidator = v.union(
   v.literal("encryptedSecretAccessKey"),
-  v.literal("encryptedRefreshToken"),
-  v.literal("encryptedAccessToken"),
 );
 
 /**

@@ -15,6 +15,7 @@ import { isSynced, reopenFinalize, retrySync } from "../record";
 import { checkFinalizeTimeout } from "../recovery";
 import { acceptsTranscript, hasNothingCaptured, isLive } from "../session";
 import { drainMeetings } from "../sync";
+import { landingKey, meetingLanding } from "../landing";
 import { SYNC_THROTTLE_MS, INTERRUPTED_EMPTY_REASON } from "./types";
 
 function sameCounts(
@@ -172,6 +173,13 @@ export class FinalizeRecoveryMixin {
         doing exactly what it should.
       */
       if (this.audioHeld(record.session.id)) continue;
+      /*
+        Nor is one the desktop shell is holding. Its outbox sends the finalize
+        on its own timer and every drain here asks it again, so the path
+        arrives when the note lands. Failing it would draw "Not saved" over a
+        meeting that is on its way, and a failed session is never asked again.
+      */
+      if (record.handedOver === true) continue;
       const outcome = checkFinalizeTimeout(record.session, at, { retriedAt: record.retriedAt ?? null });
       if (outcome.action === "none") continue;
 
@@ -223,6 +231,20 @@ export class FinalizeRecoveryMixin {
     await forgetMeeting(config.store, config.workspaceId, meetingId);
     const records = this.snapshot.records.filter((record) => record.session.id !== meetingId);
     this.set({ ...this.snapshot, records, live: records.find((r) => isLive(r.session.state)) ?? null });
+  }
+
+  /**
+   * Close the stranded-meeting bar for this meeting's current problem.
+   *
+   * Hides the notice and nothing else: the meeting stays on the device, in the
+   * list and on its own page, and a different problem brings the bar back.
+   */
+  dismissNotice(this: MeetingsControllerShape, meetingId: string): void {
+    const record = this.find(meetingId);
+    if (record === undefined) return;
+    const landing = meetingLanding(record);
+    if (landing === null) return;
+    this.put({ ...record, noticeDismissed: landingKey(landing) }, { immediate: true });
   }
 
   /** Put a parked meeting back in the queue, at the person's request. */
@@ -362,7 +384,7 @@ export class FinalizeRecoveryMixin {
         note is written" is the test that caught it.
       */
       for (const drained of records) {
-        const current = this.find(drained.session.id) ?? drained;
+        const { handedOver: _wasHeld, ...current } = this.find(drained.session.id) ?? drained;
         this.put(
           {
             ...current,
@@ -373,6 +395,7 @@ export class FinalizeRecoveryMixin {
             // Sync bookkeeping like the four above it: the gateway's answer
             // about the request this drain just made, not about the session.
             ...(drained.folderRejected === true ? { folderRejected: true as const } : {}),
+            ...(drained.handedOver === true ? { handedOver: true as const } : {}),
           },
           { immediate: true },
         );

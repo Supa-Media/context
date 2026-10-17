@@ -136,4 +136,4 @@ Moved to [Deleting an account erases the storage we ran for it](./storage-and-cr
 
 ## Dropbox is not a storage option (decided by the owner, 2026-10-17)
 
-Dropbox support is removed entirely. A storage binding row still marked `dropbox` is refused as unsupported, and `internal.functions.dropboxRemoval.purge` cleans those rows up. A customer's notes in their own Dropbox are never touched by Context: not read, moved or deleted. Own storage is an S3-compatible bucket (R2, S3, B2 or `s3-compatible`).
+Dropbox support is removed entirely. The legacy `dropbox` binding rows and parked Dropbox connect attempts were purged, and the schema is narrowed: the `dropbox` provider literal, its token fields and its connect-attempt table are gone. A customer's notes in their own Dropbox are never touched by Context: not read, moved or deleted. Own storage is an S3-compatible bucket (R2, S3, B2 or `s3-compatible`).

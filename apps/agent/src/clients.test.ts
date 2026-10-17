@@ -126,6 +126,8 @@ describe("askAgent", () => {
     expect(await askAgent(fake(503, {}), "g", "t", "q")).toEqual({ kind: "unavailable" });
     // The gateway's own 503 means the turn never started, so the text can be asked again.
     expect(await askAgent(fake(503, { error: "model_unavailable" }), "g", "t", "q")).toEqual({ kind: "not_started" });
+    // A workspace whose bucket is not there yet (a new one still starting) is told so, not "something went wrong".
+    expect(await askAgent(fake(503, { error: "storage_unavailable" }), "g", "t", "q")).toEqual({ kind: "no_storage" });
     expect(await askAgent(throwing, "g", "t", "q")).toEqual({ kind: "unavailable" });
   });
 });

@@ -42,6 +42,12 @@ export const TOOL_NEWS = Object.freeze([
   {
     date: "2026-10-17",
     text:
+      "write action report_problem takes `share_texts: true` by text with Tex only: the person is shown the exact report and must reply YES, " +
+      "and only then do your last few texts with them go to the Context team with it. Every report by text waits for that YES.",
+  },
+  {
+    date: "2026-10-17",
+    text:
       "send action notify `{ message, urgency: \"emergency\" | \"asked\" | \"fyi\", why? }` has Tex text the person now: when they asked " +
       "to be told (\"text me when it ships\") or something is broken and cannot wait. Their own settings (tex/attention.md, strict by default) " +
       "may hold it, ordinary pings never go at night, and there is a daily limit, so send it once. Their own personal workspace only.",
@@ -168,7 +174,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "d4e8505d";
+export const TOOL_SHAPE = "b57b0151";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

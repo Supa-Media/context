@@ -225,7 +225,8 @@ describe("the other features keep their plan", () => {
     const t = setupTest();
     const { workspaceId } = await owner(t, { paying: false });
     expect(await t.query(internal.functions.jev.gate, { feature: "ownerSuggest", workspaceId })).toEqual({ allowed: false, reason: "not_premium" });
-    expect(await t.query(internal.functions.jev.gate, { feature: "assistant", workspaceId })).toEqual({ allowed: false, reason: "not_premium" });
+    // The assistant is free since 2026-10-17, so a free workspace gets its 100 a day.
+    expect(await t.query(internal.functions.jev.gate, { feature: "assistant", workspaceId })).toEqual({ allowed: true, remaining: 100 });
   });
 
   test("the meeting feature gives a free workspace its free cap, not not_premium", async () => {

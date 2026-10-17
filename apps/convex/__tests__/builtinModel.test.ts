@@ -76,12 +76,26 @@ describe("who may use it", () => {
     expect((await usage(t, workspaceId))?.calls).toBe(1);
   });
 
-  test("a free texter is refused, and the refusal is counted", async () => {
+  test("a free texter may too, under the same 100 a day (Tex is free, decided 2026-10-17)", async () => {
     const t = setupTest();
     const { workspaceId, accessToken } = await texter(t, { paying: false });
-    expect(await ask(t, accessToken)).toEqual({ allowed: false, reason: "not_premium" });
+    expect(JEV_FEATURES.assistant.dailyCallsFree).toBe(100);
+    expect(await ask(t, accessToken)).toEqual({ allowed: true, remaining: 99 });
+    expect((await usage(t, workspaceId))?.calls).toBe(1);
+  });
+
+  test("a free texter's 101st turn of the day is refused as the daily cap, and counted", async () => {
+    const t = setupTest();
+    const { workspaceId, accessToken } = await texter(t, { paying: false });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("jevUsage", {
+        day: utcDay(Date.now()), feature: BUILTIN_FEATURE, workspaceId,
+        calls: 99, failed: 0, refused: 0, questions: 0, tokens: 0, costMicroUsd: 0, ms: 0, updatedAt: Date.now(),
+      });
+    });
+    expect(await ask(t, accessToken)).toEqual({ allowed: true, remaining: 0 });
+    expect(await ask(t, accessToken)).toEqual({ allowed: false, reason: "daily_cap" });
     expect((await usage(t, workspaceId))?.refused).toBe(1);
-    expect((await usage(t, workspaceId))?.calls).toBe(0);
   });
 
   test("a grant for any other client is refused, whatever its plan", async () => {

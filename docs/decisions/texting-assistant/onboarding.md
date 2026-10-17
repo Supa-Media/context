@@ -42,7 +42,7 @@ let in by address gets it at Let in when its account already has a proven
 phone, else when the person confirms one in the app (`waitlistTex.putOnLine`
 calls `textTexNumber`). `admittedTextAt` is claimed before the send, so each
 row is texted at most once whichever path reaches it. The "You're in" mail
-says Tex's number follows by text once they add a phone.
+says Tex's number follows by text once they add a phone. When Tex's number is known the SMS asks only that they text Tex, with no sign-in link: the link started a different setup, and the first onboarding test found it confusing (2026-10-17).
 
 Tests: `apps/convex/__tests__/waitlistTex.test.ts` ("adds the proven phone of
 the account that address signs in to", "with no phone yet, the phone is added
@@ -105,6 +105,29 @@ their last four digits.
 An account made by a phone now also schedules the founding Premium walk, as
 an account made by email always did (`onUserCreated`): without it, a texted
 setup among the first hundred would have been told Tex needs Premium.
+
+**A new account's founding grant is made inside setup, not left to the walk**
+(2026-10-17, for the first onboarding test). Scheduled, the walk ran after
+the bucket had already started as a free one, and its activation then started
+a second provisioning beside it. Setup now runs the same walk in its own
+transaction before making the workspace, so `createWorkspaceHandler` makes it
+Premium from its first moment and the bucket starts once, as a founder's.
+Past the first hundred nothing changes: the free bucket. Test: "past the first
+hundred, a new phone starts the free bucket", and the storage test's founding
+plan.
+
+**The first texts after setup are told when the bucket isn't there yet.** It
+takes a minute or two to answer; the setup text says so and asks for
+"ready", which is what the onboarding skill picks up from. A text in that
+window gets the gateway's 503 `storage_unavailable`, which the Worker now
+answers with "Your notes aren't ready for me yet…" (`COPY.noStorage`) rather
+than "Something went wrong on my side".
+
+**Someone set up by text has never signed in to the app.** Every link Tex
+sends them (the console, Gmail's connect page) asks for their phone number
+first (a texted code) and, for an account a phone made, their email once
+(`EmailCheckScreen`). `connect_google` tells the model so, and the onboarding
+skill says it in the same text as the link.
 
 Tests: `apps/convex/__tests__/textSetup.test.ts` ("an account that already
 owns a personal workspace is never set up or linked by a text", "sets up that

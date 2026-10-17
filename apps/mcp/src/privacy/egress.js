@@ -12,8 +12,8 @@
  *    vouches for a delegated message only from a clean turn
  *    (`agent/delegate.js`), the texting thread remembers which answers were
  *    written after an outside read, and `ledger.asked` carries the asks this
- *    turn raised (an email, a calendar change, a handle claim) so the reply
- *    can text them.
+ *    turn raised (an email, a calendar change, a texted bug report, a handle
+ *    claim) so the reply can text them.
  *  - `mightWiden`, which Tex's housekeeping uses to refuse anything that could
  *    let more people see something.
  *  - `oneLine`, which keeps an ask's summary to one plain line.

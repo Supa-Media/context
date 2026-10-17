@@ -21,6 +21,8 @@
  *   the route asking for read instead of write                                9
  *   `summarizeMeetingNote` skipping the control plane                         5
  *   `summaryPrompts` ignoring the setup note (2026-10-17)                     1
+ *   `workspaceNames` skipping the visibility test (2026-10-17)                1
+ *   the request leaving out the names section (2026-10-17)                    2
  */
 
 import worker from "../src/index.js";
@@ -33,6 +35,7 @@ const S3_ENDPOINT = "https://s3.example-meeting-summary.test";
 const TOKEN = `cat_summary_owner_${"0".repeat(22)}`;
 const TOKEN_READER = `cat_summary_reader_${"0".repeat(21)}`;
 const TOKEN_MEMBER = `cat_summary_member_${"0".repeat(21)}`;
+const TOKEN_TEAM = `cat_summary_teamonly_${"0".repeat(19)}`;
 const SETUP_NOTE =
   "---\njob: meeting-summaries\nmodels:\n  main: anthropic/claude-sonnet-5-5\n---\n\n" +
   "What this note is for, never sent.\n\n## Write\n\nWRITE-WORDS from the note.\n\n## Check\n\nCHECK-WORDS from the note.\n";
@@ -333,6 +336,58 @@ export async function runMeetingSummaryChecks(check) {
         writeCall.body.model === "claude-sonnet-5-5" &&
         controlPlane.meetingSummaryReports.at(-1)?.model === "anthropic/claude-sonnet-5-5",
     );
+
+    /* ---------------- the names it is told ---------------- */
+
+    // Speech recognition wrote "Text" for Tex all through one meeting and the
+    // summary copied it (2026-10-17). Both requests now carry the product's
+    // names and the folder names this caller can see, and never one it cannot.
+    bucket().set("privacy.md", {
+      body:
+        "---\nrole: privacy-manifest\n---\n\n<!-- BEGIN BRAIN PRIVACY RULES -->\n\n```yaml\ndefault_visibility: private\n\n" +
+        "folder_defaults:\n  2-areas: team\n  1-projects/togather-launch: team\n\nnote_overrides:\n  # none\n```\n\n<!-- END BRAIN PRIVACY RULES -->\n",
+      etag: "pv1",
+    });
+    controlPlane.serveTree("ws_summary", {
+      async list({ prefix = "" } = {}) {
+        const keys = [...bucket().keys()].filter((key) => key.startsWith(prefix)).sort();
+        return { objects: keys.map((key) => ({ key, etag: bucket().get(key).etag })), truncated: false };
+      },
+      async get(key) {
+        const object = bucket().get(key);
+        return object ? { text: async () => object.body, etag: object.etag } : null;
+      },
+    });
+    bucket().set("1-projects/togather-launch/plan.md", { body: "# Launch\n", etag: "f1" });
+    bucket().set("1-projects/quiet-acquisition/terms.md", { body: "# Terms\n", etag: "f2" });
+    await controlPlane.addGrant({
+      accessToken: TOKEN_TEAM,
+      workspaceId: "ws_summary",
+      scopes: ["context:read", "context:write"],
+      userId: "user_team",
+    });
+    const named = (calls) => calls.map((call) => JSON.stringify(call.body.messages));
+    put(meeting(), "nm1");
+    gatewayReplies = [toolAnswer(DRAFT), toolAnswer(CHECKED)];
+    const ownerNamed = await summarize(env, TOKEN, { path: PATH, force: true });
+    const ownerCalls = named(gatewayCalls.slice(-2));
+    check(
+      "the write and the check are both told the product's names and the workspace's folder names",
+      ownerNamed.body?.status === "written" &&
+        ownerCalls.every((text) => text.includes("## Names they use") && text.includes("Tex (the texting assistant)") && text.includes("togather launch")),
+    );
+    check("a generic folder is not offered as a name", ownerCalls.every((text) => !/Names they use[^#]*\bprojects\b/.test(text)));
+    put(meeting(), "nm2");
+    gatewayReplies = [toolAnswer(DRAFT), toolAnswer(CHECKED)];
+    const teamNamed = await summarize(env, TOKEN_TEAM, { path: PATH, force: true });
+    const teamCalls = named(gatewayCalls.slice(-2));
+    check(
+      "a team member's summary never learns the name of a folder the owner keeps private",
+      teamNamed.body?.status === "written" &&
+        teamCalls.every((text) => text.includes("togather launch") && !text.includes("quiet acquisition")) &&
+        ownerCalls.every((text) => text.includes("quiet acquisition")),
+    );
+    bucket().delete("privacy.md");
 
     /* ---------------- tenancy ---------------- */
 

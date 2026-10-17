@@ -549,6 +549,30 @@ export function recentItems(
 }
 
 /**
+ * What an untyped search lists for a signed-in person: their own Recent, the
+ * one phone Home draws, each row saying what they did ("You edited 9:12").
+ * Drawn as `recentItems` draws a path, with the saying in `snippet`.
+ */
+export function accountRecentItems(
+  rows: readonly { path: string; at: number; kind?: "opened" | "edited" }[],
+  items: readonly PaletteItem[],
+  label: (row: { at: number; kind?: "opened" | "edited" }) => string,
+  naming: NoteNaming = {},
+  limit: number = RECENT_LIMIT,
+): PaletteItem[] {
+  const said = new Map(rows.map((row) => [row.path, label(row)]));
+  return recentItems(
+    rows.map((row) => row.path),
+    items,
+    naming,
+    limit,
+  ).map((item) => {
+    const saying = said.get(item.id);
+    return saying === undefined || saying === "" ? item : { ...item, snippet: saying };
+  });
+}
+
+/**
  * Folder destinations for "Move to…".
  *
  * The root is a real destination, labelled `/` — notes do live there, and a

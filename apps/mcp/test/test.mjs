@@ -76,6 +76,7 @@ import { runAgentEgressChecks } from "./agentEgress.test.mjs";
 import { runAgentEgressTextingChecks } from "./agentEgressTexting.test.mjs";
 import { runEmailGateChecks } from "./emailGate.test.mjs";
 import { runCalendarGateChecks } from "./calendarGate.test.mjs";
+import { runReportGateChecks } from "./reportGate.test.mjs";
 import { runAgentSearchChecks } from "./agentSearch.test.mjs";
 import { runEncryptionChecks } from "./encryption.test.mjs";
 import { runEncryptionGatewayChecks } from "./encryptionGateway.test.mjs";
@@ -179,6 +180,8 @@ await suite("runAgentEgressTextingChecks", () => runAgentEgressTextingChecks(che
 await suite("runEmailGateChecks", () => runEmailGateChecks(check));
 // The calendar gate: every change waits for the person's yes to it.
 await suite("runCalendarGateChecks", () => runCalendarGateChecks(check));
+// The bug-report gate: a report filed by text waits for the person's YES, and only then carries their texts.
+await suite("runReportGateChecks", () => runReportGateChecks(check));
 await suite("runAgentSearchChecks", () => runAgentSearchChecks(check));
 
 // A privacy rule that names a group: what the tools do when they meet one.

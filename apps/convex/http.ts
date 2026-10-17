@@ -100,6 +100,7 @@ import { gatewayNoteIdsAdoptHandler, gatewayNoteIdsLookupHandler, gatewayNoteIds
 import { ingestNoteIdsAdoptHandler, ingestNoteIdsLookupHandler, ingestNoteIdsWroteHandler } from "./functions/lib/noteIds/ingestHttp";
 import { servedNoteCount } from "./functions/lib/nodes/servedCount";
 import * as moveRoutes from "./functions/lib/gatewayRoutes/moves";
+import { gatewayMoveAcrossHandler } from "./functions/lib/gatewayRoutes/moveAcross";
 import * as jobs from "./functions/lib/gatewayRoutes/jobs";
 import * as oauth from "./functions/lib/gatewayRoutes/oauth";
 import * as links from "./functions/lib/gatewayRoutes/links";
@@ -790,6 +791,7 @@ http.route({ path: "/gateway/activity", method: "POST", handler: gatewayActivity
 http.route({ path: "/gateway/moves", method: "POST", handler: gatewayMoves });
 http.route({ path: "/gateway/moves/start", method: "POST", handler: gatewayMoveStart });
 http.route({ path: "/gateway/moves/batch", method: "POST", handler: gatewayRoute(moveRoutes.gatewayMoveBatchHandler) });
+http.route({ path: "/gateway/moves/across", method: "POST", handler: gatewayRoute(gatewayMoveAcrossHandler) });
 http.route({ path: "/gateway/tree", method: "POST", handler: gatewayTree });
 http.route({ path: "/gateway/tree/touch", method: "POST", handler: gatewayTreeTouch });
 http.route({ path: "/gateway/tree/manifest", method: "POST", handler: gatewayTreeManifest });

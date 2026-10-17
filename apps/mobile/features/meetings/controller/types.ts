@@ -108,6 +108,15 @@ export interface MeetingsSnapshot {
    */
   callAudioWarning: string | null;
   /**
+   * A quiet line about the call's audio that is not a fault, or `null`.
+   *
+   * `skipped`: this browser shared no sound the last few times, so this
+   * meeting did not ask. `room`: the person chose to record the room. Drawn
+   * muted with a link that asks for the call's audio after all; cleared, like
+   * the warning, once a share succeeds.
+   */
+  callAudioNote: { kind: "skipped" | "room"; message: string } | null;
+  /**
    * Audio kept on this device that has not been turned into words yet, per
    * meeting id. Absent means none.
    *
@@ -139,6 +148,16 @@ export interface ConfigureInput {
   gateway: MeetingsGateway;
   recorder: MeetingRecorder;
   device: MeetingDevice;
+  /**
+   * The name of the person holding this device, read when a meeting starts.
+   *
+   * It goes on the session as their own attendee row (`self: true`), and that
+   * row is how a two-sided call's transcript names the microphone's lines
+   * (`speakerLabeller` in `@context/meetings`, board m5). A getter, because
+   * the name arrives with the workspace list, after `configure` has run.
+   * Absent or `null`: no row, and the microphone's lines say `Speaker`.
+   */
+  selfName?: () => string | null;
   now?: () => number;
   randomBytes?: RandomBytes;
   /** Trailing debounce before a record is written down. */
@@ -283,6 +302,7 @@ export const UNCONFIGURED: MeetingsSnapshot = Object.freeze({
   captureError: null,
   backgroundCaptureWarning: null,
   callAudioWarning: null,
+  callAudioNote: null,
   audio: Object.freeze({}),
   offline: false,
   canContinue: false,
