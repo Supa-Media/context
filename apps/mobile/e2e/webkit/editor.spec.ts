@@ -131,17 +131,20 @@ test("a list marker does not reveal under the caret", async ({ page }) => {
   await expect(page.getByText("- Keep this list", { exact: false })).toHaveCount(0);
 });
 
-test("back goes to the note's folder, then Home closes it", async ({ page }) => {
+test("back goes to the note's folder, then Folders, then Inbox", async ({ page }) => {
   // One press, one level (owner, 2026-10-15).
   await tap(page, "Back to areas");
   // One level up: the note's own folder, with the note in it and nothing open.
   await expect(page.getByTestId("note-scroll")).toHaveCount(0);
   await expect(page.getByLabel("weekly-review", { exact: true })).toBeVisible();
 
-  await tap(page, "Back to Home");
+  await tap(page, "Back to Folders");
   // `deselect` — the fixture's stand-in for the real navigation's
   // `router.replace(browseHref(...))`, see `E2EFixtureScreen.tsx` — lands on
-  // the workspace's own root, which on a phone is Home.
+  // the workspace's own root, which on a phone is Folders one step in from Inbox.
   await expect(page.getByTestId("phone-home")).toBeVisible();
+  await expect(page.getByTestId("phone-home-totals")).toBeVisible();
+  await tap(page, "Back to Inbox");
+  await expect(page.getByTestId("phone-inbox-count")).toBeVisible();
   await expect(page.getByTestId("phone-back")).toHaveCount(0);
 });

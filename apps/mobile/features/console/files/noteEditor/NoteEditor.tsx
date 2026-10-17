@@ -486,7 +486,15 @@ export function NoteEditor({
         `LiveEditor.tsx` for why this bar is the only way out of the keyboard
         rather than one of two.
       */}
-      {barUp ? <NoteAccessory controls={() => controls.current} onAskLink={setLinkWords} /> : null}
+      {barUp ? (
+        <NoteAccessory
+          controls={() => controls.current}
+          onAskLink={setLinkWords}
+          // The microphone lives in the bar now (board 3): a press asks the
+          // note's `VoiceButton` to start, as the right-click menu's Dictate does.
+          onDictate={voice === null ? undefined : () => setDictateAsked((asked) => (asked ?? 0) + 1)}
+        />
+      ) : null}
       {compact && trashed !== undefined ? <TrashedRestoreBar trashed={trashed} /> : null}
 
       {/*

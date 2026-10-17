@@ -84,6 +84,7 @@ import { ChaosProvider, useConsoleChaos } from "../chaos/ChaosContext";
 import { ChaosSheet } from "../chaos/ChaosPopover";
 import { MapRouteProvider, useConsoleMapRoute } from "./map/live/MapRouteContext";
 import { TrashRouteProvider, useConsoleTrashRoute } from "./trash/TrashRouteContext";
+import { useHomeView } from "./home/homeView";
 
 
 /**
@@ -298,6 +299,8 @@ export function ConsoleFrame({
     selectedPath: data.files.selectedPath,
   });
   // The Trash page (`?trash=1`), in the same slot; leaves the same way.
+  // Inbox or Folders, for the ‹ on Folders (`home/homeView.ts`).
+  const homeView = useHomeView();
   const trashRoute = useConsoleTrashRoute(router, params.trashOpen === true, {
     available: !data.demo && visitor === undefined,
     workspaceId: data.selectedContextId,
@@ -518,7 +521,7 @@ export function ConsoleFrame({
           switching, and neither could say the other's rows). On any page below
           Home it is ‹ back instead, naming where it goes (owner, 2026-10-01).
         */
-        accountSlot={consoleAccountSlot({ phone, browsing, data, switcherProps, map: mapRoute })}
+        accountSlot={consoleAccountSlot({ phone, browsing, data, switcherProps, map: mapRoute, view: homeView })}
         /*
           `browsing`, not `insideContext`.
 

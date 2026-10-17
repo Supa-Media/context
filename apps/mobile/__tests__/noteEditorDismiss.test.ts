@@ -44,6 +44,7 @@ jest.mock("../features/console/files/LiveEditor", () => ({
     props.controls?.({
       wrap: () => {},
       toggleLinePrefix: () => {},
+      lineStyle: () => {},
       insertLink: () => {},
       applyLink: () => {},
       cancelLink: () => {},

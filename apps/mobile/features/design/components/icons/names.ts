@@ -127,6 +127,10 @@ export const ICON_NAMES = [
    * so drawing them at one length is what tells the two marks apart at 20pt.
    */
   "bulletList",
+  /** The keyboard bar's numbered list, in its Aa panel (phone writing board, 2026-10-17). */
+  "numberList",
+  /** The keyboard bar's checklist key, a ticked circle (phone writing board, 2026-10-17). */
+  "checkCircle",
   /**
    * The accessory bar's link key, A2 in the editor-polish sweep, and the
    * Link sheet it opens over a selection. Two closed links on the rising

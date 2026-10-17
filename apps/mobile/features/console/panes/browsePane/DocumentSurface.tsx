@@ -28,6 +28,7 @@ export function DocumentSurface({
   pathBar,
   fill = false,
   onSwipeHome,
+  topPage = "",
 }: {
   selected: ReturnType<typeof entryAt>;
   compact: boolean;
@@ -45,6 +46,8 @@ export function DocumentSurface({
   fill?: boolean;
   /** A phone's swipe in from the left edge: straight Home. Absent on Home. */
   onSwipeHome?: () => void;
+  /** The page key when nothing is selected: Inbox (`""`) or Folders (`FOLDERS_PAGE`). */
+  topPage?: string;
 }) {
   const styles = useThemedStyles(makeStyles);
   /**
@@ -91,7 +94,7 @@ export function DocumentSurface({
     selected !== null &&
     (commsRoute === null ? selected.kind === "file" : commsRoute.kind === "channel-day");
 
-  const pageKey = selected?.path ?? "";
+  const pageKey = selected?.path ?? topPage;
   const restoredOffset = usePageScroll(pageKey);
   // One object per offset: a fresh one each render could set the offset again under a scrolling thumb.
   const startAt = useMemo(() => ({ x: 0, y: restoredOffset }), [restoredOffset]);

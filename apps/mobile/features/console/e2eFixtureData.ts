@@ -77,6 +77,34 @@ export function useE2EFixtureConsoleData(): ConsoleData {
           via: "Claude",
           note: "screenshots of the editor bugs from the call",
         },
+        /*
+          Two notes an agent filed out of the Inbox today, so the phone's
+          Inbox draws its Filed today rows (board 2 of the 2026-10-17 phone
+          boards). Destinations the demo tree has; a row whose note is gone is
+          not drawn.
+        */
+        {
+          at: new Date(Date.now() - 20 * 60_000).toISOString(),
+          kind: "moved",
+          paths: ["2-areas/weekly-review.md"],
+          n: 1,
+          vis: "team",
+          by: "@seyi",
+          via: "Tex",
+          note: null,
+          moves: [["0-inbox/weekly-review.md", "2-areas/weekly-review.md"]],
+        },
+        {
+          at: new Date(Date.now() - 35 * 60_000).toISOString(),
+          kind: "moved",
+          paths: ["1-projects/dc-chapter.md"],
+          n: 1,
+          vis: "team",
+          by: "@seyi",
+          via: "Claude",
+          note: null,
+          moves: [["0-inbox/dc-chapter.md", "1-projects/dc-chapter.md"]],
+        },
         {
           at: new Date(Date.now() - 26 * 60 * 60_000).toISOString(),
           kind: "meeting",

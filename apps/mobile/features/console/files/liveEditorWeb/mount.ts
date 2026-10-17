@@ -307,6 +307,7 @@ export function mountEditor({
   const api: EditorControls = {
     wrap: (before, after) => runCommand(created, { name: "wrap", before, after }),
     toggleLinePrefix: (prefix) => runCommand(created, { name: "toggleLinePrefix", prefix }),
+    lineStyle: (prefix) => runCommand(created, { name: "lineStyle", prefix }),
     insertLink: (ask) => runCommand(created, { name: "insertLink" }, ask),
     applyLink: (link) => runCommand(created, { name: "applyLink", link }),
     cancelLink: () => runCommand(created, { name: "cancelLink" }),

@@ -43,6 +43,8 @@ export interface ActivityEntry {
   by: string | null;
   via: string | null;
   note: string | null;
+  /** A move's `[from, to]` pairs, as `activity.cjs` records them; absent for anything else. */
+  moves?: [string, string][];
 }
 
 /**

@@ -50,6 +50,8 @@ export interface EditorControls {
   wrap(before: string, after: string): void;
   /** Put `prefix` at the start of the caret's line, or remove it if already there. */
   toggleLinePrefix(prefix: string): void;
+  /** Make the caret's line a title (`# `), a heading (`## `) or body (`""`). */
+  lineStyle(prefix: string): void;
   /**
    * The link key. With nothing selected, `[[]]` with the `[[` completion
    * opened (A2). With words selected and `ask` given, the selection is saved

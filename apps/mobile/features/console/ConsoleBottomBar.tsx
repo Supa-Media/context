@@ -115,7 +115,7 @@ export function ConsoleBottomBar({
   // Rows picked on a folder page: their actions take the bar until the page leaves select mode (board 16).
   const picking = useSelectBar();
   const folder = quickNoteFolder(data);
-  // On a folder's page the field reads "Search in Clients" (board 07b); on Home, "Search".
+  // On a folder's page the field reads "Search in Clients" (board 07b); on Inbox and Folders, "Search everything".
   const inside = targetFolder(data.files.listings, data.files.selectedPath);
   const scope = inside === "" ? null : inside;
   const search = () => onSearch(scope);
@@ -146,7 +146,7 @@ export function ConsoleBottomBar({
           >
             <Icon name="search" size={18} color={colors.muted} />
             <Text style={styles.placeholder} numberOfLines={1}>
-              {scope === null ? "Search" : `Search in ${scopeLabel(scope)}`}
+              {scope === null ? "Search everything" : `Search in ${scopeLabel(scope)}`}
             </Text>
           </Pressable>
         </View>

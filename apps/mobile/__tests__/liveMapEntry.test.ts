@@ -214,9 +214,9 @@ describe("the map on a phone", () => {
     expect(byId("phone-home")?.textContent).not.toContain("Who is working");
   });
 
-  test("goes back to Home, whatever is selected under it", () => {
-    expect(phoneBackLevels(null, true)).toEqual([{ folder: null, label: HOME_LABEL }]);
-    expect(phoneBackLevels("1-projects/launch/plan.md", true)).toEqual([{ folder: null, label: HOME_LABEL }]);
+  test("goes back to Inbox, whatever is selected under it", () => {
+    expect(phoneBackLevels(null, true)).toEqual([{ folder: null, label: HOME_LABEL, view: "inbox" }]);
+    expect(phoneBackLevels("1-projects/launch/plan.md", true)).toEqual([{ folder: null, label: HOME_LABEL, view: "inbox" }]);
     // And with the map closed, back is what it always was.
     expect(phoneBackLevels(null, false)).toEqual([]);
   });

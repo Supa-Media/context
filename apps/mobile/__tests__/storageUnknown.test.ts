@@ -30,7 +30,7 @@
  * who really has no bucket would have no way to connect one.
  */
 
-import { describe, expect, jest, test } from "@jest/globals";
+import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
 
 /*
   The notch, as a number. `Screen.tsx` reads `useSafeAreaInsets`, which throws
@@ -73,6 +73,7 @@ import { storagePillLabel } from "../features/console/storage/pill";
 import type { ConsoleData, ConsoleStorage } from "../features/console/types";
 import type { FileBrowser } from "../features/console/files/browser";
 import { emptyEditor } from "../features/console/files/editor";
+import { setHomeView } from "../features/console/home/homeView";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -234,6 +235,9 @@ describe("the pill's label answers for both absences and neither is a claim", ()
  * with them the same mutant fails the first of them and only it.
  */
 describe("the phone's context foot is held to the same rule", () => {
+  // The foot is on the phone's Folders page; Inbox, where it opens, has none.
+  beforeEach(() => setHomeView("folders"));
+  afterEach(() => setHomeView("inbox"));
   test("a binding still in flight puts nothing about storage on the line", () => {
     const text = render(dataWith(undefined, { atRoot: true }));
     expect(text).toContain("Nothing read yet");

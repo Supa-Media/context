@@ -81,6 +81,13 @@ export type EditorCommand =
   /** Put `prefix` at the start of the caret's line, or take it off again. */
   | { name: "toggleLinePrefix"; prefix: string }
   /**
+   * Make the caret's line a title (`# `), a heading (`## `) or body text
+   * (`""`), whatever it was: the Aa panel's three styles (phone writing
+   * board, 2026-10-17). A set rather than a toggle, so Title then Heading is
+   * `## `, never `## # `.
+   */
+  | { name: "lineStyle"; prefix: string }
+  /**
    * `[[]]`, caret between the brackets, with the `[[` completion opened
    * immediately — A2 in the editor-polish sweep. See `docs/decisions/app-and-console.md`,
    * "A link key on the accessory bar", for why this key exists at all: it
@@ -150,6 +157,9 @@ export function decodeCommand(value: unknown): EditorCommand | null {
     case "toggleLinePrefix":
       if (typeof command.prefix !== "string") return null;
       return { name: "toggleLinePrefix", prefix: command.prefix };
+    case "lineStyle":
+      if (typeof command.prefix !== "string" || !/^(#{1,6} )?$/.test(command.prefix)) return null;
+      return { name: "lineStyle", prefix: command.prefix };
     case "insertLink":
       return (command as { ask?: unknown }).ask === true ? { name: "insertLink", ask: true } : { name: "insertLink" };
     case "applyLink": {

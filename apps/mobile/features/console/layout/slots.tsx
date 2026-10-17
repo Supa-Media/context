@@ -11,7 +11,8 @@ import { saveChip } from "../files/status";
 import { SyncPill } from "../files/SyncSheet";
 import type { useTabs } from "../files/useTabs";
 import { PhoneBack } from "../home/PhoneBack";
-import { phoneBackLevels } from "../home/phoneBack";
+import { goToLevel, phoneBackLevels } from "../home/phoneBack";
+import type { HomeView } from "../home/homeView";
 import type { MapRoute } from "../map/live/route";
 import { SwitcherMenu } from "../SwitcherMenu";
 import { selectedContext, type ConsoleData } from "../types";
@@ -73,6 +74,7 @@ export function consoleAccountSlot({
   data,
   switcherProps,
   map,
+  view = "inbox",
 }: {
   phone: boolean;
   browsing: boolean;
@@ -80,18 +82,19 @@ export function consoleAccountSlot({
   switcherProps: ComponentProps<typeof SwitcherMenu>;
   /** The live map's route, when the console has one: ‹ Home closes it. */
   map?: MapRoute;
+  /** Inbox or Folders, when nothing is open (`useHomeView`). */
+  view?: HomeView;
 }) {
   const account = <SwitcherMenu {...switcherProps} trigger="phone" />;
   const mapOpen = map?.open === true;
-  const levels = phone && browsing ? phoneBackLevels(data.files.selectedPath, mapOpen) : [];
+  const levels = phone && browsing ? phoneBackLevels(data.files.selectedPath, mapOpen, view, data.visitor !== undefined) : [];
   if (levels.length === 0) return account;
   return (
     <PhoneBack
       levels={levels}
       onGo={(target) => {
         if (mapOpen) map?.closeMap();
-        if (target.folder === null) data.files.deselect();
-        else data.files.select(target.folder);
+        goToLevel(target, data.files);
       }}
       after={switcherProps.onSignIn !== undefined ? account : undefined}
     />

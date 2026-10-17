@@ -70,6 +70,7 @@ import { createRoot } from "react-dom/client";
 type MockControls = {
   wrap(before: string, after: string): void;
   toggleLinePrefix(prefix: string): void;
+  lineStyle(prefix: string): void;
   insertLink(ask?: (text: string) => void): void;
   applyLink(link: unknown): void;
   cancelLink(): void;
@@ -117,6 +118,13 @@ jest.mock("../features/console/files/LiveEditor", () => ({
             ? text.slice(0, from) + text.slice(from + prefix.length)
             : text.slice(0, from) + prefix + text.slice(from),
         );
+      },
+      lineStyle(prefix: string) {
+        // The real command: whatever heading marks the line has, swapped for these.
+        const text = props.value;
+        const from = text.lastIndexOf("\n", mockSelection.start - 1) + 1;
+        const marks = /^#{1,6} /.exec(text.slice(from))?.[0] ?? "";
+        props.onChange(text.slice(0, from) + prefix + text.slice(from + marks.length));
       },
       insertLink(ask?: (text: string) => void) {
         // The real command (`runCommand` in editorSetup.ts): with words
@@ -186,15 +194,26 @@ const FILE = `${FRONTMATTER}\n${BODY}`;
  * and the component says so where the row is defined.
  */
 const KEYS: [id: string, label: string][] = [
-  ["undo", "Undo"],
-  ["redo", "Redo"],
-  ["task", "Task checkbox"],
+  ["task", "Checklist"],
   ["bullet", "Bulleted list"],
-  ["link", "Insert link"],
+  ["format", "Formatting"],
+  ["dismiss", "Done"],
+];
+
+/** Behind Aa, row by row (board 3 of `meeting-2026-10-17/phone-inbox/`). */
+const PANEL_KEYS: [id: string, label: string][] = [
+  ["title", "Title"],
   ["heading", "Heading"],
+  ["body", "Body"],
   ["bold", "Bold"],
   ["italic", "Italic"],
-  ["dismiss", "Hide the keyboard"],
+  ["strike", "Strikethrough"],
+  ["link", "Insert link"],
+  ["list", "Bulleted list"],
+  ["number", "Numbered list"],
+  ["checklist", "Checklist"],
+  ["undo", "Undo"],
+  ["redo", "Redo"],
 ];
 
 function stateFor(over: Partial<EditorState> = {}): EditorState {
@@ -278,6 +297,14 @@ function mountEditor(
 
   const find = (testId: string) =>
     container.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
+  const press = (node: HTMLElement | null) => {
+    if (node === null) throw new Error("nothing to press");
+    act(() => {
+      node.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      node.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      node.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+  };
 
   return {
     container,
@@ -304,14 +331,9 @@ function mountEditor(
         scroller.dispatchEvent(new Event("scroll"));
       });
     },
-    press: (node: HTMLElement | null) => {
-      if (node === null) throw new Error("nothing to press");
-      act(() => {
-        node.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-        node.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
-        node.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      });
-    },
+    press,
+    /** Aa: the panel the rest of the keys live in. */
+    format: () => press(find("note-accessory-format")),
   };
 }
 
@@ -424,6 +446,7 @@ describe("what the keys do", () => {
     app.focus();
     mockSelection.start = FILE.indexOf("first");
     mockSelection.end = mockSelection.start + "first".length;
+    app.format();
     app.press(app.find("note-accessory-bold"));
     expect(changes).toEqual([FILE.replace("first", "**first**")]);
     app.editor().onVersionedChange?.(FILE, "opaque-yjs-snapshot");
@@ -451,6 +474,7 @@ describe("what the keys do", () => {
     mockSelection.start = start;
     mockSelection.end = start + "first".length;
 
+    app.format();
     app.press(app.find("note-accessory-bold"));
 
     expect(app.changes).toHaveLength(1);
@@ -472,6 +496,7 @@ describe("what the keys do", () => {
     mockSelection.start = start;
     mockSelection.end = start + "first".length;
 
+    app.format();
     app.press(app.find("note-accessory-italic"));
     expect(app.changes[0]).toBe(
       frontmatter + body.slice(0, start) + "*first*" + body.slice(start + "first".length),
@@ -483,12 +508,16 @@ describe("what the keys do", () => {
    * is what makes a bar with one key per prefix usable at all.
    */
   test.each([
-    ["heading", "# "],
-    ["task", "- [ ] "],
-    ["bullet", "- "],
-  ])("%s toggles its prefix on the caret's line", (id, prefix) => {
+    ["task", "- [ ] ", false],
+    ["bullet", "- ", false],
+    ["number", "1. ", true],
+    ["checklist", "- [ ] ", true],
+    ["title", "# ", true],
+    ["heading", "## ", true],
+  ])("%s puts its prefix on the caret's line", (id, prefix, behindAa) => {
     const app = mountEditor(390);
     app.focus();
+    if (behindAa) app.format();
 
     const { frontmatter, body } = splitNote(FILE);
     const line = body.indexOf("The first paragraph");
@@ -516,6 +545,7 @@ describe("what the keys do", () => {
     mockSelection.start = start;
     mockSelection.end = start;
 
+    app.format();
     app.press(app.find("note-accessory-link"));
 
     expect(app.changes[0]).toBe(frontmatter + body.slice(0, start) + "[[]]" + body.slice(start));
@@ -528,6 +558,7 @@ describe("what the keys do", () => {
     const app = mountEditor(390);
     app.focus();
 
+    app.format();
     app.press(app.find("note-accessory-undo"));
     app.press(app.find("note-accessory-redo"));
 
@@ -535,6 +566,36 @@ describe("what the keys do", () => {
     // Nothing was written: undo is the editor's own history on both platforms,
     // and a bar that emitted text of its own would be a second one.
     expect(app.changes).toEqual([]);
+  });
+
+  /** Body is a line style too: it takes a heading's marks off and nothing else. */
+  test("title then heading then body swaps the line's marks rather than stacking them", () => {
+    const app = mountEditor(390);
+    app.focus();
+    app.format();
+    const { body } = splitNote(FILE);
+    mockSelection.start = body.indexOf("Notes");
+    mockSelection.end = mockSelection.start;
+
+    app.press(app.find("note-accessory-heading"));
+    expect(app.changes.at(-1)).toContain("\n## Notes\n");
+    app.press(app.find("note-accessory-body"));
+    expect(app.changes.at(-1)).toContain("\nNotes\n");
+    expect(app.changes.at(-1)!.startsWith(FRONTMATTER)).toBe(true);
+  });
+
+  test("Aa opens the panel and closes it again, and Done closes it too", () => {
+    const app = mountEditor(390);
+    app.focus();
+    expect(app.find("note-accessory-panel")).toBeNull();
+    app.format();
+    expect(app.find("note-accessory-panel")).not.toBeNull();
+    expect(app.find("note-accessory-format")?.getAttribute("aria-label")).toBe("Hide formatting");
+    app.format();
+    expect(app.find("note-accessory-panel")).toBeNull();
+    app.format();
+    app.press(app.find("note-accessory-dismiss"));
+    expect(app.find("note-accessory-panel")).toBeNull();
   });
 
   /** The key the whole bar exists for. */
@@ -587,6 +648,7 @@ describe("the link key over selected words", () => {
     const start = body.indexOf("first paragraph");
     mockSelection.start = start;
     mockSelection.end = start + "first paragraph".length;
+    app.format();
     app.press(app.find("note-accessory-link"));
     return app;
   }
@@ -672,6 +734,13 @@ describe("every key says what it is", () => {
   test.each(KEYS)("%s is announced as %s", (id, label) => {
     const app = mountEditor(390);
     app.focus();
+    expect(app.find(`note-accessory-${id}`)?.getAttribute("aria-label")).toBe(label);
+  });
+
+  test.each(PANEL_KEYS)("behind Aa, %s is announced as %s", (id, label) => {
+    const app = mountEditor(390);
+    app.focus();
+    app.format();
     expect(app.find(`note-accessory-${id}`)?.getAttribute("aria-label")).toBe(label);
   });
 

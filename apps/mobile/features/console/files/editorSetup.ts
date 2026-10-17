@@ -285,6 +285,21 @@ function toggleLinePrefix(view: EditorView, prefix: string): void {
 }
 
 /**
+ * The Aa panel's Title, Heading and Body: the caret's line with whatever
+ * heading marks it had replaced by `prefix` (`# `, `## ` or nothing).
+ */
+function setLineStyle(view: EditorView, prefix: string): void {
+  const line = view.state.doc.lineAt(view.state.selection.main.head);
+  const had = /^#{1,6} /.exec(line.text)?.[0] ?? "";
+  if (had === prefix) return;
+  view.dispatch({
+    changes: { from: line.from, to: line.from + had.length, insert: prefix },
+    scrollIntoView: true,
+    userEvent: "input",
+  });
+}
+
+/**
  * `[[]]`, caret between the brackets, completion opened immediately — A2 in
  * the editor-polish sweep (`docs/decisions/app-and-console.md`).
  *
@@ -388,6 +403,9 @@ export function runCommand(
       break;
     case "toggleLinePrefix":
       toggleLinePrefix(view, command.prefix);
+      break;
+    case "lineStyle":
+      setLineStyle(view, command.prefix);
       break;
     case "insertLink":
       // The sheet takes the keyboard from here; focusing first would only

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { setHomeView } from "./homeView";
 
 /**
  * "Open this tag on Home", from a phone's search (board 04 of the phone Home
@@ -15,6 +16,8 @@ let pending: string | null = null;
 const listeners = new Set<(tag: string) => void>();
 
 export function showTagOnHome(tag: string): void {
+  // A tag narrows Folders, which is what Home was (`homeView.ts`).
+  setHomeView("folders");
   pending = tag;
   for (const listener of listeners) listener(tag);
 }

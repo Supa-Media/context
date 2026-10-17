@@ -1,9 +1,10 @@
 import { useState, type JSX } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Platform, Pressable, StyleSheet, View, type ViewProps } from "react-native";
 import { FocusRing } from "../../design/components/FocusRing";
+import { Text } from "../../design/components/Text";
 import { Icon, type IconName } from "../../design/components/Icon";
 import { KeyboardSticky, dismissKeyboard } from "../../design/keyboardSticky";
-import { layout, radii, space } from "../../design/tokens";
+import { fonts, layout, radii, space, touchType } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors, type Shadows } from "../../design/theme";
 import { ACCESSORY_GAP } from "./accessory";
 import type { EditorControls } from "./LiveEditor";
@@ -97,50 +98,70 @@ interface AccessoryKey {
    * for a bar with even less room for a caption.
    */
   label: string;
-  icon: IconName;
+  icon: IconName | { text: string; style: "bold" | "italic" | "strike" | "plain" };
   run: (controls: EditorControls, askLink: ((words: string) => void) | undefined) => void;
 }
 
-/**
- * The editing keys, in the reference's order, minus the two the product cannot
- * back (see the file comment).
- *
- * A module-level list rather than JSX built inline: it is the answer to "what
- * does this bar do", and it reads as one.
- */
-const KEYS: readonly AccessoryKey[] = [
-  { id: "undo", label: "Undo", icon: "undo", run: (c) => c.undo() },
-  { id: "redo", label: "Redo", icon: "redo", run: (c) => c.redo() },
-  {
-    id: "task",
-    label: "Task checkbox",
-    icon: "brackets",
-    run: (c) => c.toggleLinePrefix("- [ ] "),
-  },
-  /*
-    A1 in the sweep: the bar could make a `- [ ] ` and not a `- `, which is
-    the more common of the two by a distance. Placed beside the checkbox
-    rather than beside heading — both are list markers, and `heading` is the
-    lone non-list prefix on this side of the bar.
-  */
+/*
+  FOUR KEYS AND DONE, AND ONE Aa FOR THE REST (phone writing board,
+  2026-10-17, approved by Dev2: "LETS DO IT, make sure the app looks EXACTLY
+  like the mockups").
+
+  The bar was nine equal keys in Obsidian's order — undo, redo, `[ ]`, list,
+  link, H, B, I, then hide-the-keyboard — and the leadership weekly said
+  writing on the phone was still tough. A phone note is mostly lines, lists
+  and checklists, so the bar keeps what a thumb reaches for in a hurry: a
+  checklist, a list, Aa, the microphone, and Done. Everything else folds
+  behind Aa, the way Apple Notes does it: Title / Heading / Body, B I S and
+  link, the two lists and the checklist, undo and redo. Nothing the bar
+  could do before is gone; it is one press further.
+*/
+
+/** The bar itself: what a thumb reaches for while writing. */
+const BAR_KEYS: readonly AccessoryKey[] = [
+  { id: "task", label: "Checklist", icon: "checkCircle", run: (c) => c.toggleLinePrefix("- [ ] ") },
   { id: "bullet", label: "Bulleted list", icon: "bulletList", run: (c) => c.toggleLinePrefix("- ") },
-  /*
-    A2 in the sweep, reversing the decision this file's own header used to
-    argue for — see `docs/decisions/app-and-console.md`, "A link key on the
-    accessory bar". Placed beside `bullet` and `task`: the sweep's own words
-    for that pair, "the thing a person writing notes in a hurry actually
-    reaches for", apply to a link to another note at least as much.
-  */
+];
+
+/** The Aa panel, row by row, as board 3 draws it. */
+const STYLE_KEYS: readonly AccessoryKey[] = [
+  { id: "title", label: "Title", icon: { text: "Title", style: "bold" }, run: (c) => c.lineStyle("# ") },
+  { id: "heading", label: "Heading", icon: { text: "Heading", style: "plain" }, run: (c) => c.lineStyle("## ") },
+  { id: "body", label: "Body", icon: { text: "Body", style: "plain" }, run: (c) => c.lineStyle("") },
+];
+const MARK_KEYS: readonly AccessoryKey[] = [
+  { id: "bold", label: "Bold", icon: { text: "B", style: "bold" }, run: (c) => c.wrap("**", "**") },
+  { id: "italic", label: "Italic", icon: { text: "I", style: "italic" }, run: (c) => c.wrap("*", "*") },
+  { id: "strike", label: "Strikethrough", icon: { text: "S", style: "strike" }, run: (c) => c.wrap("~~", "~~") },
   /*
     With words selected, the editor saves them and calls `askLink`, and the
     Link sheet takes it from there (`LinkSheet.tsx`); with nothing selected it
     is still `[[]]` with completion. See "A link key on the accessory bar".
   */
   { id: "link", label: "Insert link", icon: "link", run: (c, askLink) => c.insertLink(askLink) },
-  { id: "heading", label: "Heading", icon: "heading", run: (c) => c.toggleLinePrefix("# ") },
-  { id: "bold", label: "Bold", icon: "bold", run: (c) => c.wrap("**", "**") },
-  { id: "italic", label: "Italic", icon: "italic", run: (c) => c.wrap("*", "*") },
 ];
+const LIST_KEYS: readonly AccessoryKey[] = [
+  { id: "list", label: "Bulleted list", icon: "bulletList", run: (c) => c.toggleLinePrefix("- ") },
+  { id: "number", label: "Numbered list", icon: "numberList", run: (c) => c.toggleLinePrefix("1. ") },
+  { id: "checklist", label: "Checklist", icon: "checkCircle", run: (c) => c.toggleLinePrefix("- [ ] ") },
+  { id: "undo", label: "Undo", icon: "undo", run: (c) => c.undo() },
+  { id: "redo", label: "Redo", icon: "redo", run: (c) => c.redo() },
+];
+
+/**
+ * A press on the bar leaves the caret in the note.
+ *
+ * On web a key is a focusable button, so the mousedown under a press moves
+ * focus onto it: the note reports a blur, the bar (which only shows while the
+ * note has focus) goes away under the finger, and Aa — the one key that sends
+ * no command to bring the caret back — could never open its panel. Refusing
+ * the mousedown's default keeps focus where it was; the press still lands.
+ * React Native Web forwards `onMouseDown` from a `View` (see `TabStrip.tsx`).
+ */
+const KEEP_CARET: ViewProps =
+  Platform.OS === "web"
+    ? ({ onMouseDown: (event: { preventDefault?: () => void }) => event.preventDefault?.() } as unknown as ViewProps)
+    : {};
 
 export function NoteAccessory({
   /**
@@ -151,35 +172,48 @@ export function NoteAccessory({
    */
   controls,
   onAskLink,
+  onDictate,
 }: {
   controls: () => EditorControls | null;
   /** Show the Link sheet over these selected words. Absent: no sheet here. */
   onAskLink?: (words: string) => void;
+  /** Start dictating at the caret (`VoiceButton`'s `startDictation`). Absent: no microphone key. */
+  onDictate?: () => void;
 }): JSX.Element {
   const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
+  const [formatting, setFormatting] = useState(false);
+  const run = (key: AccessoryKey) => () => {
+    const api = controls();
+    if (api !== null) key.run(api, onAskLink);
+  };
+  const keys = (row: readonly AccessoryKey[], style: object) =>
+    row.map((key) => (
+      <AccessoryButton key={key.id} id={key.id} label={key.label} icon={key.icon} onPress={run(key)} style={style} />
+    ));
 
   return (
     <KeyboardSticky style={styles.sticky}>
-      <View style={styles.row} testID="note-accessory">
-        <View style={styles.pill} role="toolbar" aria-label="Formatting">
-          {KEYS.map((key) => (
-            <AccessoryButton
-              key={key.id}
-              id={key.id}
-              label={key.label}
-              icon={key.icon}
-              onPress={() => {
-                const api = controls();
-                if (api !== null) key.run(api, onAskLink);
-              }}
-            />
-          ))}
+      <View style={styles.row} testID="note-accessory" {...KEEP_CARET}>
+        <View style={styles.pill} role="toolbar" aria-label="Writing">
+          {keys(BAR_KEYS, styles.target)}
+          <AccessoryButton
+            id="format"
+            label={formatting ? "Hide formatting" : "Formatting"}
+            icon={{ text: "Aa", style: "plain" }}
+            onPress={() => setFormatting((open) => !open)}
+            style={styles.target}
+            on={formatting}
+          />
+          {onDictate === undefined ? null : (
+            <AccessoryButton id="mic" label="Dictate" icon="mic" onPress={onDictate} style={styles.target} />
+          )}
         </View>
 
         {/*
-          Its own object, after a gap. See the file comment: this is the only
-          key here that acts on the keyboard rather than on the note, and the
-          reference separates it for that reason.
+          Done: its own object, after a gap, and the one filled key. See the
+          file comment: this is the only key here that acts on the keyboard
+          rather than on the note, and it is the way out of the keyboard.
 
           Both halves, in this order. `blur()` releases the editing surface —
           which is what actually dismisses the keyboard on web, where there is
@@ -190,18 +224,29 @@ export function NoteAccessory({
           dismissing alone leaves the caret in the note, so the next tap
           anywhere brings the keyboard straight back.
         */}
-        <View style={styles.dismiss}>
-          <AccessoryButton
-            id="dismiss"
-            label="Hide the keyboard"
-            icon="keyboardHide"
-            onPress={() => {
-              controls()?.blur();
-              dismissKeyboard();
-            }}
-          />
-        </View>
+        <Pressable
+          role="button"
+          accessibilityLabel="Done"
+          accessibilityHint="Hides the keyboard"
+          onPress={() => {
+            setFormatting(false);
+            controls()?.blur();
+            dismissKeyboard();
+          }}
+          style={({ pressed }) => [styles.done, pressed && styles.donePressed]}
+          testID="note-accessory-dismiss"
+        >
+          <Text style={[styles.doneLabel, { color: colors.ink }]}>Done</Text>
+        </Pressable>
       </View>
+
+      {formatting ? (
+        <View style={styles.panel} role="toolbar" aria-label="Formatting" testID="note-accessory-panel" {...KEEP_CARET}>
+          <View style={styles.panelRow}>{keys(STYLE_KEYS, styles.panelKey)}</View>
+          <View style={styles.panelRow}>{keys(MARK_KEYS, styles.panelKey)}</View>
+          <View style={styles.panelRow}>{keys(LIST_KEYS, styles.panelKey)}</View>
+        </View>
+      ) : null}
     </KeyboardSticky>
   );
 }
@@ -211,27 +256,40 @@ function AccessoryButton({
   label,
   icon,
   onPress,
+  style,
+  on = false,
 }: {
   id: string;
   label: string;
-  icon: IconName;
+  icon: AccessoryKey["icon"];
   onPress: () => void;
+  style: object;
+  on?: boolean;
 }): JSX.Element {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const [focused, setFocused] = useState(false);
+  const ink = on ? colors.ink : colors.text;
 
   return (
     <Pressable
       role="button"
       accessibilityLabel={label}
+      aria-pressed={id === "format" ? on : undefined}
       onPress={onPress}
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}
-      style={({ pressed }) => [styles.target, pressed && styles.targetPressed]}
+      style={({ pressed }) => [style, pressed && !on && styles.targetPressed]}
       testID={`note-accessory-${id}`}
     >
-      <Icon name={icon} size={20} color={colors.text2} />
+      {/* Aa, while its panel is open, is a filled circle (board 3). */}
+      <View style={[styles.face, on && styles.keyOn]}>
+        {typeof icon === "string" ? (
+          <Icon name={icon} size={20} color={ink} />
+        ) : (
+          <Text style={[styles.keyText, styles[icon.style], { color: ink }]}>{icon.text}</Text>
+        )}
+      </View>
       {/* Web is a first-class surface: this bar is reachable by Tab there. */}
       <FocusRing visible={focused} radius={radii.control} />
     </Pressable>
@@ -285,28 +343,59 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     height: layout.minTouchTarget,
     paddingHorizontal: space.x2,
     borderRadius: radii.pill,
-    backgroundColor: colors.chrome,
+    // The phone's raised grey, as board 3 draws the bar (`cardSurface`).
+    backgroundColor: colors.cardSurface,
     boxShadow: shadows.floating,
   },
 
   /**
-   * The dismiss key's own object: a rounded square rather than a capsule,
-   * which is what `radii.control` is for on a phone.
+   * Done: a filled accent capsule, the one filled key (board 3).
    *
    * `flexShrink: 0` so a narrow screen squeezes the editing keys rather than
    * this one. This is the only route out of the keyboard on this surface — see
    * the file comment — so it is the one control that must not be the one that
    * gets clipped.
    */
-  dismiss: {
+  done: {
     flexGrow: 0,
     flexShrink: 0,
-    width: layout.chromeButton,
+    minWidth: 76,
     height: layout.minTouchTarget,
-    borderRadius: radii.control,
-    backgroundColor: colors.chrome,
+    paddingHorizontal: space.x4,
+    borderRadius: radii.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.accent,
     boxShadow: shadows.floating,
   },
+  donePressed: { opacity: 0.8 },
+  doneLabel: { fontFamily: fonts.body, fontSize: touchType.ui, fontWeight: "700" },
+
+  /** Aa's panel, under the bar and over the keyboard: three rows of keys on the bar's own fill. */
+  panel: {
+    marginTop: space.x2,
+    padding: space.x3,
+    gap: space.x2,
+    borderRadius: radii.sheet,
+    backgroundColor: colors.cardSurface,
+    boxShadow: shadows.floating,
+  },
+  panelRow: { flexDirection: "row", gap: space.x2 },
+  panelKey: {
+    flex: 1,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 12,
+    backgroundColor: colors.pageSurface,
+  },
+  face: { minWidth: 40, height: 40, paddingHorizontal: space.x1, alignItems: "center", justifyContent: "center", borderRadius: radii.pill },
+  keyOn: { backgroundColor: colors.accent },
+  keyText: { fontFamily: fonts.body, fontSize: touchType.lede, fontWeight: "600" },
+  plain: {},
+  bold: { fontWeight: "700" },
+  italic: { fontStyle: "italic", fontFamily: "Georgia" },
+  strike: { textDecorationLine: "line-through" },
 
   /**
    * One key.
