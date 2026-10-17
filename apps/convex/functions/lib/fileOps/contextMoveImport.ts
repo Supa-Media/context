@@ -23,6 +23,8 @@ import { loadPrivacyState } from "./privacyState";
 import { folderVisibleAtScope } from "./listing";
 import { assertWritablePath } from "./writing";
 import { isFolder } from "./walk";
+import { isKeyedStore } from "../noteIds/keyedStore";
+import { trashKeyedRows } from "./deleting";
 import { assertDestinationsVisible } from "./moveRules";
 import {
   type ContextMoveObject,
@@ -149,7 +151,13 @@ export async function prepareContextMoveLanding<T extends { destination: string;
     return { entry, standing, target: narrowerVisibility(entry.visibility, standing) ?? entry.visibility };
   });
   const narrowed = landing.filter(({ standing, target }) => target !== standing);
-  if (narrowed.length > 0) {
+  // In rows mode the rows are the truth and the rules file is not read: each arrival is born private on its row
+  // instead (`lib/nodes/arrivalAccess.ts`). A landing the target is wider than (a stale tighter rule) is left be.
+  const onRows = (store as { narrowArrivals?: (paths: string[]) => Promise<void> }).narrowArrivals;
+  if (narrowed.length > 0 && onRows !== undefined) {
+    const closing = narrowed.filter(({ target }) => target === "private").map(({ entry }) => entry.destination);
+    if (closing.length > 0) await onRows(closing);
+  } else if (narrowed.length > 0) {
     await mutateManifest(store, (current) => {
       let overrides = current.overrides;
       for (const { entry, target } of narrowed) {
@@ -314,10 +322,39 @@ async function retireMovedSource(
 
 export async function deleteMovedSources(
   store: FileStore,
-  options: { sources: readonly { path: string; etag: string; collaborationEtag?: string }[] },
+  options: { sources: readonly { path: string; etag: string; collaborationEtag?: string }[]; clearance?: Clearance },
 ): Promise<{ deleted: string[]; conflicts: string[] }> {
   const deleted: string[] = [];
   const conflicts: string[] = [];
+  if (await isKeyedStore(store)) {
+    const clearance = options.clearance;
+    if (clearance === undefined) throw new FileOpError("KEYED_WORKSPACE", "A keyed note is moved out by the trash, which needs the caller's clearance.");
+    /*
+      A KEYED NOTE LEAVES BY THE TRASH, NEVER BY A DELETE.
+
+      Its bytes are at its key and a delete of it is refused (only emptying the
+      trash retires a key). So the note's row goes to this workspace's trash,
+      only if it still holds the version that was copied: an edit made since
+      is a conflict, exactly as the conditional retire below makes it. The
+      note stays restorable here, as the unkeyed path's trash copy does, and
+      its rules travel with the row, so there is nothing to forget.
+    */
+    for (const source of options.sources) {
+      try {
+        await trashKeyedRows(store, {
+          path: source.path,
+          clearance,
+          now: Date.now(),
+          expectedEtag: source.etag,
+        });
+        deleted.push(source.path);
+      } catch (error) {
+        if (!(error instanceof FileOpError)) throw error;
+        conflicts.push(source.path);
+      }
+    }
+    return { deleted, conflicts };
+  }
   for (const source of options.sources) {
     if (source.collaborationEtag !== undefined) {
       try {
@@ -372,10 +409,22 @@ export async function forgetMovedSources(
  */
 export async function clearMovedSourceRules(
   store: FileStore,
-  options: { from: string; survivors?: readonly string[] },
+  options: { from: string; survivors?: readonly string[]; clearance?: Clearance },
 ): Promise<void> {
   const from = requirePath(options.from);
   const survivors = options.survivors ?? [];
+  if (await isKeyedStore(store)) {
+    // Rules are on the rows and went to the trash with each note. What is left
+    // of a moved folder is its empty folders: they follow it into the trash,
+    // unless something stayed behind in it.
+    if (survivors.length === 0 && options.clearance !== undefined) {
+      // A moved note is already in the trash, and a folder's row may be too: neither is left to take.
+      await trashKeyedRows(store, { path: from, clearance: options.clearance, now: Date.now() }).catch((error) => {
+        if (!(error instanceof FileOpError) || error.code !== "FILE_NOT_FOUND") throw error;
+      });
+    }
+    return;
+  }
   const state = await loadPrivacyState(store);
   if (state.text === null || state.invalid) return;
 

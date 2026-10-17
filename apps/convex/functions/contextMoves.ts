@@ -624,7 +624,14 @@ export const advanceContextMove = internalAction({
       batches below are the fallback, and what a self-hosted deployment runs.
     */
     const origin = storageMoverOrigin();
-    if (origin !== null) {
+    // The mover carries bucket keys, and a keyed workspace's note is not at its
+    // path: where either end is keyed, the batches below carry it through each
+    // end's id layer instead (`contextMoveKeyed.test.ts`).
+    const keyed =
+      origin !== null &&
+      ((await ctx.runQuery(internal.functions.nodeRowMoves.keyedNow, { workspaceId: row.sourceWorkspaceId })) ||
+        (await ctx.runQuery(internal.functions.nodeRowMoves.keyedNow, { workspaceId: row.destinationWorkspaceId })));
+    if (origin !== null && !keyed) {
       let pass: MoverPass;
       try {
         pass = await carryOnMover(ctx, {
