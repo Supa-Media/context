@@ -1,0 +1,104 @@
+/**
+ * THE BUG-REPORT GATE: a bug report filed by text goes to the Context team
+ * only on the person's YES to that exact report, and their texts go with it
+ * only then (decided by the owner, 2026-10-17;
+ * `docs/decisions/texting-assistant/bug-reports.md`).
+ *
+ * "Maybe we have Tex summarize it and say, can I send this to the team, and
+ * then with their explicit yes we're able to send it." The texts are theirs,
+ * in their own bucket (`agent/conversation.js`); nobody on the team reads them
+ * unless the person hands them over. So, held in `egressGate` before the
+ * deployment's `EGRESS_APPROVALS = "off"` like an email:
+ *
+ *   1. From another AI, `report_problem` runs as it always has: the message
+ *      alone, no texts, and `share_texts` is refused.
+ *   2. By text, the call is held as a pending approval whose record carries
+ *      the whole report and says whether their texts go with it. Only a
+ *      literal YES releases it (`agent/textedApprovals.js`); any other text
+ *      disarms it.
+ *   3. The approved replay sends it. Only that replay reads the texts, off
+ *      the person's own conversation file, never from anything the model
+ *      wrote: the model can say whether they go, never what they say.
+ */
+
+import { readConversation, shownHistory } from "../agent/conversation.js";
+import { callKey, createPending, findPending } from "./approvals.js";
+import { REPORT_TOOL, reportMessage, sendReport } from "./reportProblem.js";
+import { toolError } from "./results.js";
+
+export { REPORT_TOOL };
+
+/** How many messages between them go with a report, newest last: the ask and their answer included. */
+export const REPORT_TEXTS_TURNS = 12;
+/** The longest report shown by text: with the line about texts, one text under `TEXTED_ASK_CAP`. */
+export const TEXTED_REPORT_CAP = 2_000;
+/** The texts attached, in characters. Kept equal to `MAX_REPORT_TEXTS_CHARS` in the control plane. */
+export const MAX_REPORT_TEXTS_CHARS = 16_000;
+
+/** What the person reads before their YES: the report, and whether their texts go with it. */
+export function reportCopy(message, shareTexts) {
+  const texts = shareTexts
+    ? `Up to the last ${REPORT_TEXTS_TURNS} messages between us go with it, so they can see what happened.`
+    : "None of our texts go with it.";
+  return `${message}\n\n${texts}`;
+}
+
+/** The person's recent texts with Tex, as plain lines, or undefined when there are none. */
+export async function recentTexts(store) {
+  const turns = shownHistory(await readConversation(store, "texts"), REPORT_TEXTS_TURNS);
+  if (turns.length === 0) return undefined;
+  const lines = turns.map((turn) => `${turn.role === "user" ? "Them" : "Tex"}: ${turn.text.trim()}`).join("\n\n");
+  return lines.length > MAX_REPORT_TEXTS_CHARS ? lines.slice(lines.length - MAX_REPORT_TEXTS_CHARS) : lines;
+}
+
+/**
+ * `null` to let another AI's report through to `report_problem` as it always
+ * went, or the answer to give instead: a refusal, the sent report, or a hold.
+ */
+export async function reportGate(supplied, { store, session }) {
+  const shareTexts = supplied?.share_texts === true;
+  if (session.egress?.approved === true) {
+    return await sendReport(store, reportMessage(supplied), shareTexts ? await recentTexts(store) : undefined);
+  }
+  const texting = session.egress?.texting === true;
+  if (!texting) {
+    return shareTexts ? toolError("Not sent: share_texts is only for a report the person files by text with Tex. Send the message alone.") : null;
+  }
+  const message = reportMessage(supplied);
+  if (message === null) return await sendReport(store, null);
+  if ([...message].length > TEXTED_REPORT_CAP) {
+    return toolError(`Not sent: a bug report by text is at most ${TEXTED_REPORT_CAP.toLocaleString("en-US")} characters, so the person can read it whole. Shorten it.`);
+  }
+
+  const ledger = session.egress?.ledger ?? null;
+  if (ledger?.asked.some((asked) => asked.tool === REPORT_TOOL && asked.key !== callKey(REPORT_TOOL, supplied))) {
+    return toolError("Not sent: one bug report at a time by text. Ask about this one after the person answers.");
+  }
+  const userId = session.actorUserId;
+  const existing = await findPending(store, { name: REPORT_TOOL, args: supplied, userId });
+  const record =
+    existing?.record ??
+    (await createPending(store, {
+      name: REPORT_TOOL,
+      args: supplied,
+      actor: store.actor,
+      tier: session.scope,
+      scopes: session.scopes,
+      widening: { summary: "send a bug report to the Context team", audience: "outside" },
+      detail: reportCopy(message, shareTexts),
+      workspaceId: session.workspaceId,
+      texting,
+      armed: false, // armed by `textedAsk` once the ask goes out whole
+    }));
+  if (record === null) {
+    return toolError("Not sent: the person has too many things waiting for their OK. Ask them to clear some first.");
+  }
+  if (ledger && !ledger.asked.some((asked) => asked.id === record.id)) ledger.asked.push(record);
+  return {
+    ...toolError(
+      "Not sent yet: the person will be shown this exact report and asked to reply YES to send it. " +
+        "Say in a line that you wrote it up, without repeating it. Don't call this again in this turn.",
+    ),
+    held: true,
+  };
+}

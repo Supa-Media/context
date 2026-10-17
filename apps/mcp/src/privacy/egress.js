@@ -35,11 +35,13 @@
  *    A move into another workspace counts with or without the publish flag.
  *
  * Reads, and ordinary writes inside the workspace the call started in, are
- * never a widening and never ask. Nor is `report_problem`: its one
- * destination is Context's own support intake, not an address the model
- * chooses, and a channel to the people who run the product is not the leak
- * this gate exists for. A dry run (`dry_run: true`) changes nothing and is
- * never held.
+ * never a widening and never ask. Nor is `report_problem` from an AI client:
+ * its one destination is Context's own support intake, not an address the
+ * model chooses, and a channel to the people who run the product is not the
+ * leak this gate exists for. By text it is a bug report the person files, and
+ * it waits for their YES like an email (`tools/reportGate.js`), because it can
+ * carry their texts. A dry run (`dry_run: true`) changes nothing and is never
+ * held.
  *
  * One call is held that widens nothing: claiming a workspace's @handle
  * (`create_workspace` without `dry_run`). A handle is never freed, so the
