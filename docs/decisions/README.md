@@ -720,6 +720,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A text has every MCP tool
 - [A setup may route each text to a cheap or a smart model (2026-10-09)](./texting-assistant/benchmarks.md)
 - [The loop promotes on its own, through a gate, under a spend cap (2026-10-17)](./texting-assistant/auto-promotion.md)
+- [Opus plans, Haiku drives: a routed turn may change model after its first rounds (2026-10-17)](./texting-assistant/model-plan.md)
 - [The assistant texts like a capable friend, and the benchmark grades the voice (2026-10-09)](./texting-assistant/benchmarks.md)
 - [A busy provider is retried, a failed one is replaced, and both are counted (2026-10-09)](./texting-assistant/benchmarks.md)
 - [A round runs the live setup, the live skills and the tests edited in Context (2026-10-16)](./texting-assistant/benchmarks.md)

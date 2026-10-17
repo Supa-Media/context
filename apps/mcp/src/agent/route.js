@@ -30,6 +30,7 @@ import { computerFor, webSession } from "./computer.js";
 import { searcherFor } from "./search.js";
 import { decisionEngine } from "./decide.js";
 import { ProviderError } from "./providers.js";
+import { meterEach } from "./modelPlan.js";
 import { attachmentsLine, hearVoiceMessages, turnAttachments, withAttachmentImages } from "./attachments.js";
 import { grantedToolsFor } from "./sixTools.js";
 import {
@@ -412,7 +413,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   // decision model and the thinking model; otherwise every text runs on `main`.
   const router =
     productionModel !== null && production.router !== null && canRunBuiltin(production.router.think, env)
-      ? { decide: decisionEngine(env.AI), think: production.router.think, routeAt: production.router.routeAt }
+      ? { decide: decisionEngine(env.AI), think: production.router.think, routeAt: production.router.routeAt, thinkRounds: production.router.thinkRounds }
       : null;
   // The setup's fallback model (`production.js`), when this deployment can call it.
   const fallback =
@@ -424,18 +425,18 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     Counts only, best effort: a meter that could not be reached costs us a
     report, not the person their answer.
   */
-  const meter = async (usage, failed, model = builtinUsed) => {
+  const meter = async (usage, failed, model = builtinUsed, whole = true) => {
     try {
       await controlPlane.recordBuiltinUsage(session.accessToken, session.workspaceId, {
         input: usage?.input ?? 0,
         output: usage?.output ?? 0,
         cacheRead: usage?.cacheRead ?? 0,
         cacheWrite: usage?.cacheWrite ?? 0,
-        // The model that answered: the router may have sent this text to `think`.
+        // The model that spent this: a planned turn reports each (`modelPlan.js`), its own counts on one.
         model: typeof model === "string" ? model : builtinUsed,
-        decision: (web?.usage.decision ?? 0) + (usage?.decision ?? 0),
+        decision: whole ? (web?.usage.decision ?? 0) + (usage?.decision ?? 0) : 0,
         failed,
-        ms: Date.now() - started,
+        ms: whole ? Date.now() - started : 0,
       });
     } catch {
       // See above.
@@ -561,7 +562,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     });
     // The question's browser, if it opened one, is not left running.
     if (opened !== null) await afterAnswer(opened.close());
-    await afterAnswer(meter(turn.usage, false, turn.model));
+    await afterAnswer(meterEach(turn, meter)); // one report per model it ran on, at its own price (`modelPlan.js`)
     await afterAnswer(logTurn(turn.exhausted ? "exhausted" : "answered", turn.model, turn.timing, turn.usage));
 
     if (runner) {

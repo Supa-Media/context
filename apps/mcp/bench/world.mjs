@@ -362,6 +362,30 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
 
   const routerSaid = (entry) =>
     typeof entry.confidence !== "number" ? "" : entry.tier === "think" ? ` (${entry.confidence.toFixed(2)})` : ` (think ${entry.confidence.toFixed(2)})`;
+  /**
+   * What one turn spent, from the meter reports it made: one per model it ran
+   * on, the answering model last (`src/agent/modelPlan.js` `meterParts`).
+   * `usage` is the sum, `usageByModel` the split, `model` the answering one.
+   */
+  const spentSince = (from) => {
+    const reports = controlPlane.builtinReports.slice(from);
+    const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+    const usageByModel = {};
+    for (const report of reports) {
+      const spent = { input: report.inputTokens ?? 0, output: report.outputTokens ?? 0, cacheRead: report.cacheReadTokens ?? 0, cacheWrite: report.cacheWriteTokens ?? 0 };
+      for (const key of Object.keys(usage)) usage[key] += spent[key];
+      if (typeof report.model !== "string") continue;
+      const into = (usageByModel[report.model] ??= { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+      for (const key of Object.keys(into)) into[key] += spent[key];
+    }
+    return { usage, usageByModel, model: reports.at(-1)?.model ?? null };
+  };
+  /** How many model rounds each model ran, from the turn log's trace (`turn.js` records it per round). */
+  const roundsOf = (trace) => {
+    const rounds = {};
+    for (const entry of trace ?? []) if (entry.kind === "model" && entry.ok !== false && typeof entry.model === "string") rounds[entry.model] = (rounds[entry.model] ?? 0) + 1;
+    return rounds;
+  };
   /** The status the failed round got, from the turn log's trace; null when none. */
   const failedStatus = (trace) => {
     const failed = (trace ?? []).find((entry) => entry.kind === "model" && entry.ok === false);
@@ -376,6 +400,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       const { ctx, settle } = createWorkerCtx();
       // The real clock, not the world's: a turn's recorded time is how long it took.
       const started = realNow();
+      const reportsBefore = controlPlane.builtinReports.length;
       // Asked for as a stream, as the texting Worker asks (`apps/agent/src/clients.ts`):
       // a streamed turn is the long one, with the setup's max_steps, and a
       // plain JSON ask would measure the quick turn's 8 rounds instead.
@@ -392,7 +417,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
       const ms = realNow() - started;
       await settle();
       const turn = controlPlane.turnReports.at(-1) ?? {};
-      const usage = controlPlane.builtinReports.at(-1) ?? {};
+      const spent = spentSince(reportsBefore);
       return {
         ok: response.status === 200 && typeof body?.answer === "string",
         answer: body?.answer ?? "",
@@ -408,7 +433,7 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
             ? null
             : `${String(body?.error ?? `status ${response.status}`)}${failedStatus(turn.trace) === null ? "" : ` (status ${failedStatus(turn.trace)})`}`,
         ms,
-        model: usage.model ?? body?.model ?? null,
+        model: spent.model ?? body?.model ?? null,
         // Each call with whether it succeeded: a result note that hides failed calls
         // reads like a model that could not find anything.
         // The router's pick first, when the setup has one (`src/agent/router.js`):
@@ -434,12 +459,10 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
                       { tool: `${entry.tool} (held for OK)`, ok: true }
                     : { tool: entry.tool, ok: entry.ok !== false },
           ),
-        usage: {
-          input: usage.inputTokens ?? 0,
-          output: usage.outputTokens ?? 0,
-          cacheRead: usage.cacheReadTokens ?? 0,
-          cacheWrite: usage.cacheWriteTokens ?? 0,
-        },
+        usage: spent.usage,
+        // What each model spent and how many rounds it ran: a planned turn is priced model by model.
+        usageByModel: spent.usageByModel,
+        rounds: roundsOf(turn.trace),
       };
     },
 

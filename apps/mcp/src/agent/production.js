@@ -27,6 +27,11 @@
  *   models.route_at optional, with the router: the confidence (0 to 1) a
  *                  `think` pick needs before the text goes to `models.think`;
  *                  `router.js`'s default when absent. Lower routes more.
+ *   models.think_rounds optional, with the router: 1-9, how many model rounds
+ *                  of a `think` text run on `think` before `main` drives the
+ *                  rest; a round after a failed call goes back to `think` once
+ *                  (`modelPlan.js`, the owner, 2026-10-17). Absent: the whole
+ *                  turn on `think`.
  *   models.effort  optional low|medium|high|xhigh|max: how hard `main` thinks
  *                  (Claude's `output_config.effort`; the model's own default,
  *                  medium, when absent)
@@ -79,6 +84,7 @@ const MAX_BODY_LINES = 1_000;
 const MAX_BODY_CHARS = 40_000;
 const MAX_STEPS = 40;
 const TOOL = /^[a-z][a-z0-9_]{0,63}$/;
+const THINK_ROUNDS = /^[1-9]$/;
 const ROUTE_AT = /^(?:0(?:\.\d{1,3})?|1(?:\.0{1,3})?)$/;
 const FRONT_MATTER = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
 const TOP_KEY = /^([a-z][a-z0-9_]*):(?: +(.*))?$/;
@@ -130,8 +136,14 @@ async function parse(raw) {
       if (typeof models.route_at !== "string" || !ROUTE_AT.test(models.route_at)) return null;
       routeAt = Number(models.route_at);
     }
-    router = { model: models.router, think: models.think, routeAt };
-  } else if (models.route_at !== undefined) return null;
+    // Opus plans, Haiku drives (`modelPlan.js`): absent, a routed turn stays on `think`.
+    let thinkRounds = null;
+    if (models.think_rounds !== undefined) {
+      if (typeof models.think_rounds !== "string" || !THINK_ROUNDS.test(models.think_rounds)) return null;
+      thinkRounds = Number(models.think_rounds);
+    }
+    router = { model: models.router, think: models.think, routeAt, ...(thinkRounds === null ? {} : { thinkRounds }) };
+  } else if (models.route_at !== undefined || models.think_rounds !== undefined) return null;
   // How hard each model thinks, by model name, so the turn looks it up for
   // whichever model the router picked. A word that isn't one refuses the file.
   const efforts = {};

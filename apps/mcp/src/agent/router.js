@@ -18,7 +18,9 @@
  * note) or `think` (several notes, a judgement, a plan, something that goes
  * wrong when answered carelessly). `lookup` and `change` run on `main`;
  * `think` runs on `think`. The whole turn stays on the model picked, so the
- * tool rounds are coherent.
+ * tool rounds are coherent, unless the setup names `models.think_rounds`:
+ * then `think` plans the first rounds and `main` drives the rest
+ * (`modelPlan.js`, the owner, 2026-10-17).
  *
  * Why Clef and not the cheap model deciding for itself: a model asked "do you
  * need help?" almost never says yes, and asking costs a whole round. Clef
