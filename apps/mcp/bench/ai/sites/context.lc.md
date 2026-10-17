@@ -7,7 +7,7 @@ search: context
 # context.lc
 
 Context's own sign-in and the consent screen an AI app's OAuth lands on.
-Signing in takes an emailed code, so the person does it, through a handoff.
+Signing in takes a texted code (phone first, as the real page has since 2026-10-09, `PhoneSignInForm.tsx`) or an emailed one, so the person does it, through a handoff.
 
 ## https://context.lc/
 title: Context
@@ -15,6 +15,13 @@ text: One memory for every AI you use.
 - link: Sign in -> https://context.lc/login
 
 ## https://context.lc/login
+title: Sign in | Context
+text: Invite only for now. Sign in to Context with your phone number and we'll text you a code.
+- textbox: Phone number
+- button: Text me a code
+- link: Use email instead -> https://context.lc/login/email
+
+## https://context.lc/login/email
 title: Sign in | Context
 text: Sign in to Context. Enter your email and we'll send you a 6-digit code.
 - textbox: Email

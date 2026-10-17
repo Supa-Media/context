@@ -57,7 +57,7 @@ export function workspaceToolDefinitions() {
       title: "Link to connect Google",
       description:
         "Get the link where the person connects Gmail or Google Calendar to their personal workspace " +
-        "themselves: they open it signed in to Context, press Connect, and sign in to Google. You cannot " +
+        "themselves: they open it, sign in to Context if asked, press Connect, and sign in to Google. You cannot " +
         "finish a Google sign-in for them, and the link is the page, not Google's own address.",
       inputSchema: {
         type: "object",
