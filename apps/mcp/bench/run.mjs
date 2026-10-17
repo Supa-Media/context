@@ -157,7 +157,7 @@ export function handOffAnswer(turn, question, events) {
 export async function converse(world, question, person, mode = null) {
   if (mode === "housekeeping") return await keepHouse(world, question);
   const conversation = [];
-  const totals = { ms: 0, personMs: 0, tools: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, model: null, error: null };
+  const totals = { ms: 0, personMs: 0, tools: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, usageByModel: {}, rounds: {}, model: null, error: null };
   let message = question.personStarts ?? question.text;
   const limit = personTextLimit(question);
   for (let texts = 0; message !== null && texts < limit; texts += 1) {
@@ -167,6 +167,12 @@ export async function converse(world, question, person, mode = null) {
     totals.ms += turn.ms;
     totals.tools.push(...turn.tools);
     for (const key of Object.keys(totals.usage)) totals.usage[key] += turn.usage[key];
+    // What each model spent and how many rounds it ran (`src/agent/modelPlan.js`): priced model by model.
+    for (const [model, spent] of Object.entries(turn.usageByModel ?? {})) {
+      const into = (totals.usageByModel[model] ??= { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+      for (const key of Object.keys(into)) into[key] += spent[key] ?? 0;
+    }
+    for (const [model, count] of Object.entries(turn.rounds ?? {})) totals.rounds[model] = (totals.rounds[model] ?? 0) + count;
     totals.model = turn.model ?? totals.model;
     if (!turn.ok) {
       totals.error = turn.error;

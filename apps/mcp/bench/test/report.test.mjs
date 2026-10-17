@@ -1,7 +1,9 @@
 // Tests for bench/report.mjs. All names and values are invented fixtures.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { assignIds, keyMarkdown, priceUsd, resultMarkdown } from "../report.mjs";
+import { assignIds, keyMarkdown, priceUsd, resultMarkdown, runPriceUsd } from "../report.mjs";
+import { parseResult } from "../resultNote.mjs";
+import { summaryMarkdown } from "../summary.mjs";
 import { WORDS } from "../words.mjs";
 
 const fixture = {
@@ -509,6 +511,48 @@ test("the routed line names every routed question, and the think picks under the
   const md = resultMarkdown(routed);
   assert.ok(md.includes("sent 3 of 7 answers to anthropic/claude-opus-5-5 ($0.0040 each): questions 5, 16 and 27; the rest ran on"), md);
   assert.ok(md.includes("Said think but stayed on anthropic/claude-haiku-5-5, under the cutoff 0.3: questions 11 (0.20, 0.25), 19 (0.10)."), md);
+});
+
+test("a planned setup is priced model by model, and the summary says the think model's share of rounds and spend", () => {
+  const OPUS = "anthropic/claude-opus-5-5";
+  const HAIKU = "anthropic/claude-haiku-5-5";
+  const planned = {
+    ...fixture,
+    setups: [{ name: "plan-drive", version: "abc123abc123", model: HAIKU, router: { model: "@cf/cloudflare/clef", think: OPUS, routeAt: 0.5, thinkRounds: 1 } }],
+    runs: [
+      // Routed: one Opus round that planned, four Haiku rounds that drove.
+      {
+        setup: "plan-drive", question: 1, run: 1, model: HAIKU, tools: [{ tool: "router: think (0.90)", ok: true }], ms: 1000, texts: 1, conversation: [],
+        usage: { input: 1_100_000, output: 0 },
+        usageByModel: { [OPUS]: { input: 100_000, output: 0 }, [HAIKU]: { input: 1_000_000, output: 0 } },
+        rounds: { [OPUS]: 1, [HAIKU]: 4 },
+      },
+      // Not routed: all Haiku.
+      {
+        setup: "plan-drive", question: 2, run: 1, model: HAIKU, tools: [{ tool: "router: main", ok: true }], ms: 1000, texts: 1, conversation: [],
+        usage: { input: 1_000_000, output: 0 }, usageByModel: { [HAIKU]: { input: 1_000_000, output: 0 } }, rounds: { [HAIKU]: 5 },
+      },
+    ],
+  };
+  // Opus 0.1M at $4 + Haiku 1M at $0.1 = $0.50, not 1.1M at Haiku's $0.11.
+  assert.ok(Math.abs(runPriceUsd(planned.runs[0]) - 0.5) < 1e-12, String(runPriceUsd(planned.runs[0])));
+  const md = resultMarkdown(planned);
+  assert.ok(md.includes("Routed: plan-drive sent 1 of 2 answers to anthropic/claude-opus-5-5 ($0.5000 each)"), md);
+  assert.ok(md.includes("Think share: plan-drive ran 1 of 10 model rounds (10%) and $0.4000 of $0.6000 model spend (67%) on anthropic/claude-opus-5-5, planning 1 round a routed answer; the target is about 20%."), md);
+  // The summary a person reads first carries it, and the note still parses.
+  assert.ok(summaryMarkdown(md).includes("Think share: plan-drive"), "the summary keeps the line");
+  assert.equal(parseResult(md).answers.length, 2);
+});
+
+test("a result recorded before per-model usage gets no think share line and is priced as before", () => {
+  const routed = {
+    ...fixture,
+    setups: [{ name: "router-opus", version: "abc123abc123", model: "anthropic/claude-haiku-5-5", router: { model: "@cf/cloudflare/clef", think: "anthropic/claude-opus-5-5" } }],
+    runs: [{ setup: "router-opus", question: 1, run: 1, model: "anthropic/claude-opus-5-5", tools: [{ tool: "router: think", ok: true }], usage: { input: 1000000, output: 0 }, ms: 1000, texts: 1, conversation: [] }],
+  };
+  const md = resultMarkdown(routed);
+  assert.ok(!md.includes("Think share:"), md);
+  assert.equal(runPriceUsd(routed.runs[0]), 4);
 });
 
 test("a setup with a fallback gets a line saying how often it was used, and a retried round is counted", () => {

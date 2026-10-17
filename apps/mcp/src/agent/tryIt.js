@@ -39,6 +39,7 @@ import { PINNED_CONTEXT_NAME } from "../orient/globalNote.js";
 import { BUILTIN_PROVIDER, canRunBuiltin, hasBuiltinModel } from "./builtin.js";
 import { aiGatewayConfig } from "./aiGateway.js";
 import { decisionEngine } from "./decide.js";
+import { meterParts } from "./modelPlan.js";
 import { readProductionSkill, readSetupAt } from "./production.js";
 import { skillSession, withSkills } from "./skills.js";
 import { trimHistory } from "./conversation.js";
@@ -203,7 +204,7 @@ export async function handleTryIt(request, env, store, session, controlPlane) {
   const model = canRunBuiltin(setup.model, env) ? setup.model : undefined;
   const router =
     model !== undefined && setup.router !== null && canRunBuiltin(setup.router.think, env)
-      ? { decide: decisionEngine(env.AI), think: setup.router.think, routeAt: setup.router.routeAt }
+      ? { decide: decisionEngine(env.AI), think: setup.router.think, routeAt: setup.router.routeAt, thinkRounds: setup.router.thinkRounds }
       : null;
   const fallback = model !== undefined && setup.fallback !== null && canRunBuiltin(setup.fallback, env) ? setup.fallback : null;
   const providerOptions = (client) => ({
@@ -211,7 +212,7 @@ export async function handleTryIt(request, env, store, session, controlPlane) {
     gateway: aiGatewayConfig(env),
     metadata: { feature: "assistant", workspace: String(session.workspaceId), client, setup: setup.version },
   });
-  const meter = async (usage, failed, used, started) => {
+  const meter = async (usage, failed, used, started, whole = true) => {
     try {
       await controlPlane.recordBuiltinUsage(session.accessToken, session.workspaceId, {
         input: usage?.input ?? 0,
@@ -219,9 +220,9 @@ export async function handleTryIt(request, env, store, session, controlPlane) {
         cacheRead: usage?.cacheRead ?? 0,
         cacheWrite: usage?.cacheWrite ?? 0,
         model: typeof used === "string" ? used : model,
-        decision: usage?.decision ?? 0,
+        decision: whole ? usage?.decision ?? 0 : 0,
         failed,
-        ms: Date.now() - started,
+        ms: whole ? Date.now() - started : 0,
         tryIt: true,
       });
     } catch {
@@ -253,7 +254,8 @@ export async function handleTryIt(request, env, store, session, controlPlane) {
     await meter(null, true, model, started);
     return json({ error: "model_unavailable" }, 503);
   }
-  await meter(turn.usage, false, turn.model, started);
+  // One report per model the turn ran on, the answering model last (`modelPlan.js`).
+  for (const part of meterParts(turn)) await meter(part, false, part.model, started, part.whole);
 
   const rules = tryRules(body.rules);
   let checks = [];

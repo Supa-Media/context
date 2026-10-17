@@ -139,6 +139,10 @@ thinking model, and the meter says so", "a low-confidence think, a word the
 router does not know, or a failed router all stay on main", "a routed setup records the tier first on the tools line and
 reports the model that answered".
 
+A `think` pick may also plan on the thinking model and drive on `main`
+(`models.think_rounds`, 2026-10-17): see
+[texting-assistant/model-plan.md](./model-plan.md).
+
 ### The benchmark world searches by meaning, and search has a benchmark of its own (2026-10-10)
 
 **Decided by the owner (2026-10-10):** "we need to build a testing pipeline

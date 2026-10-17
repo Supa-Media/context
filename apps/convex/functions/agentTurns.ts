@@ -90,7 +90,9 @@ export const recordAgentTurn = internalMutation({
         trace.push({ kind: "fallback" as const, model: entry.model, ok: entry.ok, ms, ...STATUS(entry.status) });
       } else {
         if (entry.tool !== undefined) return false;
-        trace.push({ kind: "model" as const, ok: entry.ok, ms, ...(entry.retried ? { retried: true } : {}), ...(entry.cut ? { cut: true } : {}), ...STATUS(entry.status) });
+        // Which model ran the round, when the gateway says: a planned turn runs on two.
+        if (entry.model !== undefined && !MODEL.test(entry.model)) return false;
+        trace.push({ kind: "model" as const, ok: entry.ok, ms, ...(entry.model === undefined ? {} : { model: entry.model }), ...(entry.retried ? { retried: true } : {}), ...(entry.cut ? { cut: true } : {}), ...STATUS(entry.status) });
       }
     }
 

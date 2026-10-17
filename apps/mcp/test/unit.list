@@ -28,6 +28,7 @@ test/agentProgress.test.mjs
 test/agentRouterWebJobs.test.mjs
 test/agentSkills.test.mjs
 test/agentThinking.test.mjs
+test/agentThinkRounds.test.mjs
 test/agentSixTools.test.mjs
 test/agentTranscript.test.mjs
 test/agentTrustedSites.test.mjs

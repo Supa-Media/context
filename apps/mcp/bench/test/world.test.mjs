@@ -337,6 +337,31 @@ test("a routed setup records the tier first on the tools line and reports the mo
   }
 });
 
+test("a planned setup's turn records each model's rounds and spend, and the answering model", async () => {
+  const { fakeAi } = await import("../models.mjs");
+  const seen = [];
+  const gatewayFetch = async (url, init) => {
+    seen.push(JSON.parse(init.body).model);
+    return readsOnce({ path: "health/dentist.md" })(url, init);
+  };
+  const planned = ROUTED_SETUP.replace("think: anthropic/claude-opus-5-5", "think: anthropic/claude-opus-5-5\n  think_rounds: 1");
+  const world = await createWorld(bench, "Maya", planned, { gatewayFetch, ai: fakeAi() });
+  try {
+    const turn = await world.text("Should I move the trip, given the dentist clash?");
+    assert.ok(turn.ok, turn.error);
+    assert.deepEqual(seen, ["claude-opus-5-5", "claude-haiku-5-5"], "Opus plans the read, Haiku writes the answer");
+    assert.deepEqual(turn.rounds, { "anthropic/claude-opus-5-5": 1, "anthropic/claude-haiku-5-5": 1 });
+    assert.deepEqual(turn.usageByModel, {
+      "anthropic/claude-opus-5-5": { input: 10, output: 5, cacheRead: 0, cacheWrite: 0 },
+      "anthropic/claude-haiku-5-5": { input: 10, output: 5, cacheRead: 0, cacheWrite: 0 },
+    });
+    assert.deepEqual(turn.usage, { input: 20, output: 10, cacheRead: 0, cacheWrite: 0 }, "the sum of both reports");
+    assert.equal(turn.model, "anthropic/claude-haiku-5-5", "the model that wrote the answer");
+  } finally {
+    world.close();
+  }
+});
+
 /* ---------------- a fallback and a retry are on the tools line, and an error keeps its status ---------------- */
 
 const SPARE_SETUP =
