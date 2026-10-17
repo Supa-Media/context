@@ -125,6 +125,39 @@ describe("rebinding over a legacy row", () => {
 });
 
 describe("dropboxRemoval.purge", () => {
+  test("skips a workspace whose move is copying, keeps its binding, and reports more on a full page", async () => {
+    const t = setupTest();
+    const { owner, workspaceId } = await legacyDropboxWorkspace(t, "purge-moving");
+    await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("storageBindings")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique();
+      await ctx.db.insert("managedStorageMigrations", {
+        workspaceId,
+        sourceBindingId: row!._id,
+        targetEndpoint: "https://managed.example.invalid",
+        targetBucket: "fake-target",
+        targetAccessKeyId: "target-key",
+        encryptedTargetSecretAccessKey: "sealed-target",
+        status: "copying",
+        phase: "count",
+        objectsCopied: 0,
+        objectsProcessedInPhase: 0,
+        changesInPass: 0,
+        readyToCutover: false,
+        startedBy: owner,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+
+    const result = await t.mutation(internal.functions.dropboxRemoval.purge, { limit: 1 });
+
+    expect(result).toEqual({ bindingsRemoved: 0, bindingsSkipped: 1, attemptsRemoved: 0, more: true });
+    expect(await t.run((ctx) => ctx.db.query("storageBindings").collect())).toHaveLength(1);
+  });
+
   test("deletes Dropbox bindings with their envelopes, and every Dropbox connect attempt", async () => {
     const t = setupTest();
     const { owner, workspaceId } = await legacyDropboxWorkspace(t, "purge-binding");

@@ -97,9 +97,8 @@ export const purge = internalMutation({
       bindingsRemoved,
       bindingsSkipped,
       attemptsRemoved: attempts.length,
-      more:
-        (attempts.length === limit || bindings.length === limit) &&
-        (attempts.length > 0 || bindingsRemoved > 0),
+      // A full page may have left rows behind, skipped ones included.
+      more: attempts.length === limit || bindings.length === limit,
     };
   },
 });
