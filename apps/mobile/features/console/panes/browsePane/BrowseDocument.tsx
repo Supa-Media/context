@@ -16,6 +16,7 @@ import type { classifyCommsPath } from "../../communications/paths";
 import { Empty } from "./Empty";
 import { LayingOutPage } from "./LayingOutFolders";
 import { UnreadableNote } from "./UnreadableNote";
+import { DocumentPage } from "./DocumentPage";
 import { NoteLoading } from "./NoteLoading";
 import { preloadFronts } from "../../files/folderPage/pageCache";
 import { noteNameEdit } from "./nameEdit";

@@ -7,6 +7,7 @@
  *  - round days down and "Erased in 3 days" reads "2" the morning it has 2.4 left;
  *  - drop `trash: undefined` from the map's open and the two pages are open at once.
  */
+import { describe, expect, jest, test } from "@jest/globals";
 import { routeMap } from "../features/console/map/live/route";
 import { routeTrash, trashFromQuery, trashHref } from "../features/console/trash/TrashRouteContext";
 import {
