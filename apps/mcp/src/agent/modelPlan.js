@@ -33,7 +33,9 @@
   drove six browse calls blind, four failed, and Tex gave up on a form the
   production setup filled. So the planner is told to put the plan in words,
   which do survive the switch (they are never texted: progress goes through
-  `send`), and the driver is told those words are its plan.
+  `send`), and the driver is told those words are its plan. gh-65 then showed
+  Haiku reading a lingering sign-in page after "Done, I'm signed in" and
+  asking her to sign in again three times, where Opus reopens the page.
 */
 export const PLANNER_PROMPT =
   "\n\nYou plan this turn and a faster model carries it out. It cannot read your thinking, only your words and tool calls, " +
@@ -42,7 +44,8 @@ export const PLANNER_PROMPT =
 
 export const DRIVER_PROMPT =
   "\n\nA planning model started this turn; its plan is in its words above. Carry it out step by step without redoing what it " +
-  "found or contradicting what it established. When a step fails, try the next sensible way once, then say plainly what is blocked.";
+  "found or contradicting what it established. When the person says they signed in, open the page you need again before deciding it " +
+  "didn't work: a sign-in page can linger. When a step fails, try the next sensible way once, then say plainly what is blocked.";
 
 /**
  * The plan for one routed turn, or null when the whole turn stays on one model.
