@@ -108,6 +108,39 @@ describe("a durable note while its snapshot loads", () => {
     expect(guest.view.state.doc.toString()).toBe("shared words");
   });
 
+  /*
+    Dev2, 2026-10-18: kings-20 opened as "Title" and nothing else, again. The
+    editor is kept between notes, so a note opened a second time asked for the
+    same preview it had sent before; the reset that unbound the last snapshot
+    had emptied the guest, and the bridge skipped the preview as already sent.
+  */
+  test("a note opened again after a reset draws its words, though they are the same as last time", () => {
+    const { host, mount } = harness();
+    host.setEditable(true);
+    host.setCrdtMode(true);
+    const guest = mount();
+    host.setCrdtPreview("kings-20 words");
+    host.setCrdtSnapshot({ documentId: "doc-20", update: seeded("kings-20 words") });
+    // Away and back: the snapshot is unbound while the next one loads.
+    host.setCrdtSnapshot(null);
+    host.setCrdtPreview("kings-20 words");
+    expect(guest.view.state.doc.toString()).toBe("kings-20 words");
+    expect(guest.view.state.readOnly).toBe(true);
+  });
+
+  test("leaving legacy mode for a durable note draws the preview, even one sent before", () => {
+    const { host, mount } = harness();
+    host.setCrdtMode(true);
+    const guest = mount();
+    host.setCrdtPreview("durable words");
+    host.setCrdtMode(false);
+    host.setDoc("legacy words");
+    host.setCrdtMode(true);
+    host.setCrdtSnapshot(null);
+    host.setCrdtPreview("durable words");
+    expect(guest.view.state.doc.toString()).toBe("durable words");
+  });
+
   test("a legacy (non-durable) note is not touched by a preview", () => {
     const { host, mount } = harness();
     host.setDoc("legacy words");

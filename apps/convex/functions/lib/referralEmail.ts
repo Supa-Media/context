@@ -40,7 +40,7 @@ export function renderReferralEmail(
     '<div style="max-width:520px;margin:0 auto;background:#FFFDF9;border-radius:12px;padding:28px 26px;">',
     `<h1 style="margin:0 0 14px;font:600 22px/1.3 ${font};color:#1A1714;">${escapeHtml(subject)}</h1>`,
     ...lines.map((line) => `<p style="margin:0 0 14px;font:15px/1.5 ${font};color:#4A443C;">${escapeHtml(line)}</p>`),
-    `<p style="margin:6px 0 18px;"><a href="${escapeHtml(joinUrl)}" style="display:inline-block;background:#0E6C69;color:#FFFDF9;text-decoration:none;font:600 15px ${font};padding:11px 18px;border-radius:8px;">Accept invite</a></p>`,
+    `<p style="margin:6px 0 18px;"><a href="${escapeHtml(joinUrl)}" style="display:inline-block;background:#2A45CF;color:#FFFDF9;text-decoration:none;font:600 15px ${font};padding:11px 18px;border-radius:8px;">Accept invite</a></p>`,
     `<p style="margin:0;font:13px/1.5 ${font};color:#6B6358;">${escapeHtml(footer)}</p>`,
     "</div></body></html>",
   ].join("");

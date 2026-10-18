@@ -552,7 +552,7 @@ export function renderChart(chart) {
     const shown = item.high !== null ? `${amount(item.value)}–${amount(item.high)}` : amount(item.value);
     return [
       `<text x="0" y="${y + 19}" class="l">${escapeHtml(item.label.length > 30 ? `${item.label.slice(0, 29).trimEnd()}…` : item.label)}</text>`,
-      `<rect x="${label + gap}" y="${y + 8}" width="${solid.toFixed(1)}" height="14" rx="2" fill="#0E6C69"/>`,
+      `<rect x="${label + gap}" y="${y + 8}" width="${solid.toFixed(1)}" height="14" rx="2" fill="#2A45CF"/>`,
       range > 0 ? `<rect x="${(label + gap + solid).toFixed(1)}" y="${y + 8}" width="${range.toFixed(1)}" height="14" fill="url(#range)"/>` : "",
       `<text x="${width}" y="${y + 19}" class="v">${escapeHtml(shown)}</text>`,
     ].filter(Boolean).join("");
@@ -567,7 +567,7 @@ export function renderChart(chart) {
     `<text x="0" y="18" class="t">${escapeHtml(chart.title)}</text>`,
     chart.note ? `<text x="0" y="38" class="n">${escapeHtml(chart.note)}</text>` : "",
     ...bars,
-    `<rect x="0" y="${legendY - 9}" width="10" height="10" rx="2" fill="#0E6C69"/><text x="16" y="${legendY}" class="k">Amount</text>`,
+    `<rect x="0" y="${legendY - 9}" width="10" height="10" rx="2" fill="#2A45CF"/><text x="16" y="${legendY}" class="k">Amount</text>`,
     hasRange ? `<rect x="90" y="${legendY - 9}" width="10" height="10" fill="url(#range)"/><text x="106" y="${legendY}" class="k">Upper end of a range</text>` : "",
     "</svg>",
     "```",

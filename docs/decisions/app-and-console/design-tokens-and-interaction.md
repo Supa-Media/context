@@ -72,13 +72,16 @@ Both palettes are warm neutrals now, Graphite and Paper, and hue is spent only
 where it carries meaning. Five families, each with one job, placed far enough
 apart that no two can be confused at a glance:
 
-- **petrol** (`accent`, `hint*`, `codeKey`) — here, active, yours. It is the
-  only hue the interface spends on *itself*, and it is never a status.
+- **brand blue** (`accent`, `hint*`, `codeKey`) — here, active, yours. It is
+  the only hue the interface spends on *itself*, and it is never a status. It
+  is the logo's own blue, `#2A45CF` on paper and `#8A9BF2` on graphite: the
+  owner, 2026-10-18, on the teal it replaced, "that blue isn't even like the
+  context blue anymore. We need to stick to the brand colors."
 - **sage** (`ok*`) — synced, saved, bound.
 - **amber** (`warn*`, `warm`) — degraded but working.
 - **rust** (`crit*`) — conflict, revoked, failed.
-- **iris** (`shared*`, `graphColors.shared`) — somebody else's context. The one
-  cool hue in the budget, deliberately: a context that is not yours should not
+- **iris** (`shared*`, `graphColors.shared`) — somebody else's context. Violet
+  rather than the accent's blue, deliberately: a context that is not yours should not
   sit in the same family as the paper it is drawn on.
 
 `private` — the resting state of very nearly everything in this product — wears

@@ -54,7 +54,7 @@ const LINE_STRONG = "rgba(237,232,224,0.14)";
 const TEXT = "#EDE8E0";
 const TEXT_2 = "#C3BCB2";
 const HERO_DIM = "#7A736A";
-const ACCENT = "#6BC8C1";
+const ACCENT = "#8A9BF2";
 
 /**
  * What kind of thing the link opens, as the chip in the corner.

@@ -37,14 +37,23 @@ export function BrowsePathBar({
     selection can move ahead of it.
   */
   if (presence === undefined || selected?.kind !== "file" || files.editor.path !== selected.path) return null;
+  /*
+    A row of no height, the pile hung above it in the band the floating top
+    bar leaves: faces arriving, or "Reconnecting" while the room connects,
+    never push the note's properties and words down a line after the page is
+    drawn (owner's phone recording, 2026-10-18).
+  */
   return (
     <View style={styles.row} testID="phone-presence-row">
-      <PresencePile presence={presence} compact />
+      <View style={styles.pile}>
+        <PresencePile presence={presence} compact />
+      </View>
     </View>
   );
 }
 
 const makeStyles = () =>
   StyleSheet.create({
-    row: { flexDirection: "row", justifyContent: "flex-end", paddingHorizontal: layout.readingMargin },
+    row: { height: 0, overflow: "visible", zIndex: 1 },
+    pile: { position: "absolute", right: layout.readingMargin, bottom: 0, flexDirection: "row" },
   });

@@ -56,8 +56,8 @@ export function guestStyles(): string {
   --lp-link: #2a5db0;
   --lp-code-bg: rgba(0,0,0,0.06);
   --lp-mark: rgba(255,229,0,0.42);
-  --lp-tag: #0A5350;
-  --lp-tag-wash: rgba(14,108,105,0.10);
+  --lp-tag: #22389F;
+  --lp-tag-wash: rgba(42,69,207,0.10);
   --lp-line: rgba(0,0,0,0.09);
   --lp-line-strong: rgba(0,0,0,0.18);
   --lp-raised: rgba(0,0,0,0.03);

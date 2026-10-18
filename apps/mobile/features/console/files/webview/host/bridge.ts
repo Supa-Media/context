@@ -216,7 +216,15 @@ function sameList(a: readonly string[] | undefined, b: readonly string[] | undef
   return a.length === b.length && a.every((value, index) => value === b[index]);
 }
 
-export function createHostBridge(send: (raw: string) => void, sink: HostSink): HostBridge {
+/** The messages after which the guest no longer draws a preview it was sent. */
+const REPLACES_DRAWING = /"type":"(doc|crdtSnapshot|crdtReset)"/;
+
+export function createHostBridge(sendRaw: (raw: string) => void, sink: HostSink): HostBridge {
+  // Every message that replaces what the guest draws un-draws the preview (`previewDrawn`).
+  const send = (raw: string) => {
+    if (REPLACES_DRAWING.test(raw)) previewDrawn = false;
+    sendRaw(raw);
+  };
   let ready = false;
   let doc = "";
   let editable = false;
@@ -236,6 +244,12 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
   let crdtSnapshot: { documentId: string; update: string } | null = null;
   let crdtMode = false;
   let preview = "";
+  /*
+    Whether the guest is drawing `preview` now. A reset, a legacy document or a
+    bound snapshot replaces what it draws, so the same words asked for again
+    after one of those are sent again rather than skipped as already there.
+  */
+  let previewDrawn = false;
   let linkPath: string | null = null;
   let linkPaths: readonly string[] | undefined;
   /**
@@ -307,9 +321,12 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
       post({ v: PROTOCOL_VERSION, type: "editable", editable });
     },
     setCrdtPreview: (text) => {
-      if (text === preview) return;
+      if (text === preview && previewDrawn) return;
       preview = text;
-      if (ready && crdtMode && crdtSnapshot === null) send(encode({ v: PROTOCOL_VERSION, type: "preview", text }));
+      if (ready && crdtMode && crdtSnapshot === null) {
+        send(encode({ v: PROTOCOL_VERSION, type: "preview", text }));
+        previewDrawn = true;
+      }
     },
     setCrdtMode: (enabled) => {
       const wasCrdt = crdtMode;
@@ -420,6 +437,7 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
             // Durable, snapshot still loading: the note's words, read-only,
             // rather than an empty page under its name.
             send(encode({ v: PROTOCOL_VERSION, type: "preview", text: preview }));
+            previewDrawn = true;
           }
           return;
         case "change":
