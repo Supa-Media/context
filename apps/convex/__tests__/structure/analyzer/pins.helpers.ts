@@ -170,4 +170,18 @@ export const CREDENTIAL_HTTP_ROUTES = new Set([
   // inside their limits, never an event with guests.
   // `__tests__/calendarWrite.test.ts` carries the behavioural half.
   "http.gatewayCalendarWrite",
+  // The person's own Gmail, read (`/gateway/email/search` and
+  // `/gateway/email/read`, owner 2026-10-18: mail the sync does not hold is
+  // read from the connection). Gateway secret plus the person's live access
+  // token on a grant holding `context:private`, addressed to a personal
+  // workspace that grant's person created and owns; an editor or member of
+  // it is refused, and a shared workspace has no mail. The mailbox is
+  // resolved from that workspace's own Google connections, never from the
+  // request; an address naming anybody else's matches nothing. The token is
+  // minted inside the route, spent on Gmail reads and never returned, logged
+  // or stored, and nothing read is kept. A stolen gateway secret alone reads
+  // nothing; with a live private token, that one person's mail, 120 reads an
+  // hour. `__tests__/personMail.test.ts` carries the behavioural half.
+  "http.gatewayPersonMailSearch",
+  "http.gatewayPersonMailRead",
 ]);
