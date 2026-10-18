@@ -22,7 +22,7 @@ const CHATGPT = /chatgpt|openai/i;
 const ECHO_CAP = 40;
 
 /** Named on the call, never inside `args`: routing reads only the top level. */
-const ADDRESSING = ["context", "mailbox"];
+const ADDRESSING = ["context", "mailbox", "person_said"];
 
 function isChatGpt(app) {
   return typeof app?.client === "string" && CHATGPT.test(app.client);

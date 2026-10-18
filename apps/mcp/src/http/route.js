@@ -68,6 +68,7 @@ import { handleTryIt } from "../agent/tryIt.js";
 import { withSearchPassesHeld } from "../search/heldPasses.js";
 import { MOVER_PAGE_PATH, handleMoverPage } from "../moves/mover.js";
 import { IMAGE_UPLOAD_PATH, attachImageUploads, handleImageUpload } from "../notes/imageUploads.js";
+import { judgeFor } from "../privacy/judge.js";
 
 export async function route(request, env, ctx) {
     const url = new URL(request.url);
@@ -238,6 +239,14 @@ export async function route(request, env, ctx) {
         return error.status === 403
           ? forbiddenResponse(origin, null, error)
           : unauthorizedResponse(origin, slug, error);
+      }
+
+      // The sharing judge (the owner, 2026-10-18): a call that lets more people
+      // see something runs when the person's own words ask for it, read by a
+      // small model (`privacy/judge.js`). Off unless set; nothing without a model.
+      if (env.SHARING_JUDGE === "on") {
+        const judge = judgeFor(env);
+        if (judge) session.sharingJudge = judge;
       }
 
       // A meeting write is a write, and it is checked here — before a store

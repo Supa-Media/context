@@ -56,6 +56,55 @@ back at once", "a handle claim from an MCP client is held") and
 `agentEgressTexting.test.mjs` ("a texted share runs at once, even after a page
 read").
 
+### Sharing runs when the person's own words ask for it, read by a judge (decided by the owner, 2026-10-18)
+
+"I want people to just be able to type yes or yeah, go do it … you probably
+need a sub agent to give the okay … with very, very minimal context, … see
+what the user said and what you want to perform and decide whether you can go
+ahead" (Dev2, 2026-10-17), then "Yes, ship the judge for sharing approvals and
+turn it on in production" (2026-10-18). Approvals stay removed: nobody taps
+anything and nothing is held.
+
+`SHARING_JUDGE = "on"` (`apps/mcp/wrangler.toml`, production and staging)
+puts a second, small model (the gateway's default Haiku) in front of every
+call that would let more people see something, as `privacy/widening.js` names
+it: a link, a website publish, an image fetched from an address the model
+chose, a visibility change where the manifest reads narrower now, people named
+on a note, a move asked to publish. The judge
+(`privacy/judge.js`) is shown two things only: the gateway's own one-line
+summary of the call, and the person's words, fenced as data it must never
+follow. It answers with a boolean. Yes runs the call (writing
+`confirm_team_publish` for a publication, since their words were the yes) and
+leaves a `judge_allow` audit row; anything else (no, an error, a non-boolean,
+no words) is "not done", and the model is told to ask in the chat and call
+again. `judgedGate` in `apps/mcp/src/tools/session.js`.
+
+**Where the words come from.** A turn this gateway runs itself (`/agent`: the
+texting thread, the app's panel, a routine) has the person's real message,
+after the last thing they were told, so a bare "yeah" reads as the answer to
+the question it answers; a routine's words are its own note, and a turn of
+ours with no person behind it has none. For those turns a model's
+`person_said` is never read. An MCP client's chat is never seen here, so every
+tool takes `person_said`, the client's report of what the person wrote,
+stripped before any tool runs.
+
+**What it costs, said plainly.** That report is the weak point: a model steered
+by a planted instruction can also invent the person's words, and the judge
+cannot tell a faithful quote from an invented one. It still stops the common
+failures (a widening nobody asked for, words about something else, a share
+with one person stretched into a public link), and every judged yes is in the
+audit trail. One small-model call per widening; none on reads or ordinary
+writes.
+
+**Not judged:** an ordinary write into another workspace the caller belongs to
+(`elsewhereOnly`), which names no link, no publication and nobody new, and was
+the friction approvals were removed for; nor, for now, a move of a note into
+another workspace, which takes its own path (`moves/acrossContexts.js`) and
+carries the note's visibility with it. Without `SHARING_JUDGE`, or without an
+AI gateway to ask, nothing is judged and such calls run at once as before.
+Tests: `apps/mcp/test/agentEgressJudge.test.mjs`, sabotage record in its
+header.
+
 ### History: the gate as it was, 2026-10-09 to 2026-10-17
 
 Kept as the record of what was built and why; none of it holds now except
@@ -258,7 +307,9 @@ removes, owner only, through the control plane's `addGrantees` op
 (`lib/nodes/addGrantees.ts`), which resolves every name the way the console's
 `setGrantees` does and gives one refusal for any that does not resolve.
 
-It runs at once since the widening gate was removed (2026-10-17, above);
+With the sharing judge on (2026-10-18, above) it runs when the person's words
+ask for it; without it, it runs at once, as since the widening gate was removed
+(2026-10-17, above);
 until then it was held as a widening at the widest audience, whoever was
 named. A domain (`@acme.com`, `*@acme.com`) is refused by the tool, since a
 note's list names people, not domains. Tests: `agentEgress.test.mjs` ("naming

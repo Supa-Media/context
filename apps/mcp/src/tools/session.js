@@ -16,6 +16,7 @@ import {
   isUsableContextName,
   ROUTING_PLANNING_TOOLS,
   toolIsWriting,
+  toolDefinitions,
 } from "./registry.js";
 import {
   hasScope,
@@ -37,6 +38,10 @@ import { NoteCapReached, asRelocation } from "../store/noteCap.js";
 import { oneLine, recordRead } from "../privacy/egress.js";
 import { createPending, findPending, takeDone } from "./approvals.js";
 import { HELD_GATES } from "./heldGates.js";
+import { wideningOf } from "../privacy/widening.js";
+import { loadPrivacyState } from "../privacy/state.js";
+import { PrivacyOverrides } from "../privacy/engine.js";
+import { recordChange } from "../activity/record.js";
 import { CHAOS_TOOLS, chaosLines, takeChaos, withChaosLines, within } from "../chaos/report.js";
 import { changeChaos } from "../chaos/change.js";
 
@@ -84,12 +89,16 @@ async function answeringNoteCap(run) {
  * what is stored and what is replayed, so an approved call routes exactly as
  * the asked one did.
  */
-async function egressGate(suppliedName, supplied, args, { store, session, target }) {
+async function egressGate(suppliedName, supplied, args, { store, session, target, targetStore, into, personSaid }) {
   // Read by the name it is dispatched under (`archive_chat` is `save_context`);
   // stored and replayed as supplied, so a released call routes as asked.
   const name = canonicalToolName(suppliedName);
   // An email or a calendar change always waits for a yes to its exact copy.
   if (Object.hasOwn(HELD_GATES, name)) return await HELD_GATES[name](supplied, { store, session, target });
+  if (typeof session.sharingJudge === "function" && session.egress?.approved !== true) {
+    const refused = await judgedGate(name, suppliedName, args, { store, session, target, targetStore, into, personSaid });
+    if (refused) return refused;
+  }
   const claim = handleClaimOf(name, args);
   if (claim === null || session.egress?.approved === true) return null;
   const userId = session.actorUserId;
@@ -140,6 +149,71 @@ async function egressGate(suppliedName, supplied, args, { store, session, target
     ),
     held: true,
   };
+}
+
+/**
+ * THE SHARING JUDGE (`SHARING_JUDGE = "on"`; the owner, 2026-10-17 and
+ * 2026-10-18: "ship the judge for sharing approvals and turn it on in
+ * production").
+ *
+ * A call that would let more people see something (`privacy/widening.js`)
+ * runs when the person's own words ask for it, as a small model with almost
+ * no context reads them (`privacy/judge.js`); otherwise the model is told to
+ * ask them in the chat and call again. Nothing is held, nobody taps anything.
+ *
+ * The words are the person's message when this gateway ran the turn itself
+ * (`session.egress.words`, set by `/agent`), and only then: a model's
+ * `person_said` is never read for such a turn, and a turn of ours with no
+ * person behind it (a dream, a try-it run) has no words. An MCP client's chat
+ * is never seen here, so its `person_said` is the client's report of them.
+ *
+ * An ordinary write into another workspace the caller belongs to
+ * (`elsewhereOnly`) is not judged: it names no link, no publication and
+ * nobody new, and it was the friction approvals were removed for.
+ */
+async function judgedGate(name, suppliedName, args, { store, session, target, targetStore, into, personSaid }) {
+  const writes =
+    typeof into === "string" && into !== "" && toolIsWriting(name) && !ROUTING_PLANNING_TOOLS.has(name);
+  const widening = await wideningOf(name, args, {
+    into,
+    writes,
+    // The exact-note overrides are the owner's alone, so a team-tier caller is
+    // measured without them, as `scope_info` shows that tier the folder rules.
+    privacy: async () => {
+      const privacy = await loadPrivacyState(targetStore);
+      return { rules: privacy.rules, overrides: target.scope === "private" ? privacy.overrides : new PrivacyOverrides() };
+    },
+  });
+  if (widening === null || widening.elsewhereOnly === true) return null;
+  const ours = session.egress?.complete === true;
+  const own = typeof session.egress?.words === "string" ? session.egress.words : ours ? "" : null;
+  const words = own ?? (typeof personSaid === "string" ? personSaid : "");
+  const verdict = await session.sharingJudge({
+    words,
+    action: widening.summary,
+    workspace: typeof target.workspaceSlug === "string" ? `@${target.workspaceSlug}` : undefined,
+  });
+  if (verdict.allow === true) {
+    // Their yes, found in their words, is what the tools' own publish flag asks for.
+    if (widening.publishes === true && advertisesTeamConfirmation(name)) args.confirm_team_publish = true;
+    await recordChange(store, "judge_allow", session.scope, [], { tool: suppliedName, summary: widening.summary });
+    return null;
+  }
+  const why = verdict.reason ? ` (${verdict.reason.replace(/\.$/, "")})` : "";
+  return toolError(
+    own !== null
+      ? `Not done yet: this would ${widening.summary}, and the person's message doesn't ask for that${why}. ` +
+          "Ask them plainly whether they want it; if they say yes, call it again then."
+      : `Not done: this would ${widening.summary}, and Context runs that only when the person has asked for it${why}. ` +
+          "Ask them in this chat. When they say so, call again with the same arguments and person_said set to " +
+          "their words exactly as they wrote them, with your question first if they were answering it.",
+  );
+}
+
+/** Whether the advertised schema for `name` takes `confirm_team_publish`. */
+function advertisesTeamConfirmation(name) {
+  const tool = toolDefinitions().find((entry) => entry.name === name);
+  return Boolean(tool?.inputSchema?.properties?.confirm_team_publish);
 }
 
 /**
@@ -275,6 +349,9 @@ async function routeToolCall(params, store, session, routed) {
   if (crossed) return toolError(crossed);
   const requested = args.context;
   delete args.context;
+  // The person's words, for the sharing judge only (`judgedGate`); never a tool's input.
+  const personSaid = args.person_said;
+  delete args.person_said;
 
   let target = session;
   let targetStore = store;
@@ -501,7 +578,14 @@ async function routeToolCall(params, store, session, routed) {
   // After every refusal above, so a call that would not have run anyway is
   // never held for a person to look at; before dispatch, which is the point.
   {
-    const held = await egressGate(params?.name, supplied, args, { store, session, target });
+    const held = await egressGate(params?.name, supplied, args, {
+      store,
+      session,
+      target,
+      targetStore,
+      into: target.workspaceId === session.workspaceId ? null : `@${target.workspaceSlug}`,
+      personSaid,
+    });
     if (held) return held;
   }
 

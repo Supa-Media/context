@@ -279,6 +279,17 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       ? body.conversation
       : null;
   const history = conversation === null ? [] : await readConversation(store, conversation);
+  /*
+    The person's own words, for the egress judge (`privacy/judge.js`): what
+    they sent this turn, after the last thing they were told, so a bare
+    "yeah do it" reads as the answer to the question it answers. A routine's
+    are its own note, never the last run's answer, for the reason `vouched`
+    below gives.
+  */
+  const lastAnswer = [...history].reverse().find((turn) => turn.role === "assistant")?.text ?? "";
+  session.egress.words = runner
+    ? routine?.body ?? ""
+    : `${lastAnswer ? `Assistant: ${lastAnswer.slice(-1_000)}\nPerson: ` : ""}${question}`;
 
   /*
     The Mail checker reads this thread's texts and nothing else the turn read

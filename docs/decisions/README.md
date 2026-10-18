@@ -136,6 +136,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Blocking is per recipient, and a report is never an oracle](./privacy-and-sharing/reporting-and-blocking.md) (2026-10-15)
 - [The share dialog writes a list and its base together, and a domain is never a grantee](./privacy-and-sharing/share-dialog-lists.md) (2026-10-17)
 - [A note shared by name through its access list is reported and blocked the same way](./privacy-and-sharing/reporting-and-blocking.md) (2026-10-17)
+- [Sharing runs when the person's own words ask for it, read by a judge](./privacy-and-sharing/agent-egress.md) (2026-10-18)
 - [Naming people on a note](./privacy-and-sharing/agent-egress.md) (2026-10-17)
 
 ## [Per-note encryption](./encryption.md)

@@ -40,6 +40,13 @@ import { unlistedArgumentAdvice } from "./liveList.js";
  */
 export const TOOL_NEWS = Object.freeze([
   {
+    date: "2026-10-18",
+    text:
+      "Every tool takes `person_said`: before anything that lets more people see something (a link, publishing, naming people, " +
+      "a visibility change), pass the person's own words asking for it, exactly as they wrote them, with your question first " +
+      "if they were answering it. Without words that ask for it, the call is not done and says so; nobody approves anything in an app.",
+  },
+  {
     date: "2026-10-17",
     text:
       "write action report_problem takes `share_texts: true` by text with Tex only: the person is shown the exact report and must reply YES, " +
@@ -174,7 +181,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "b57b0151";
+export const TOOL_SHAPE = "9475f8ca";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

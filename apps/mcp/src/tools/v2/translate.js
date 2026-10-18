@@ -81,13 +81,13 @@ function translateAction(tool, args) {
 }
 
 /**
- * `context` and `mailbox` belong to the call, not the action: carried to the
+ * `context`, `mailbox` and `person_said` belong to the call, not the action: carried to the
  * top of the translated arguments, where routing reads them. One written
  * inside `args` counts too, but a call that names two different contexts is
  * refused rather than guessed at.
  */
 function addressing(args, out) {
-  for (const key of ["context", "mailbox"]) {
+  for (const key of ["context", "mailbox", "person_said"]) {
     const outer = args[key];
     const inner = out[key];
     if (outer !== undefined && inner !== undefined && outer !== inner) {
