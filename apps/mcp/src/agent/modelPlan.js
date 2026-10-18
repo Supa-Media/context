@@ -25,6 +25,25 @@
  * either.
  */
 
+/*
+  THE PLAN IS WRITTEN DOWN. A switch drops the planner's thinking (`turn.js`:
+  it is the other model's, and outside a recorded turn it comes back empty
+  anyway), so a plan that lived only in thinking never reached the driver.
+  Golden tasks gh-63 (2026-10-18) showed it: after "I'm signed in", Haiku
+  drove six browse calls blind, four failed, and Tex gave up on a form the
+  production setup filled. So the planner is told to put the plan in words,
+  which do survive the switch (they are never texted: progress goes through
+  `send`), and the driver is told those words are its plan.
+*/
+export const PLANNER_PROMPT =
+  "\n\nYou plan this turn and a faster model carries it out. It cannot read your thinking, only your words and tool calls, " +
+  "so before your first tool call write the plan in a few short lines: each step, the exact pages or addresses, what is already " +
+  "true (signed in, which account, what is connected) and what done looks like. These lines are not texted to the person.";
+
+export const DRIVER_PROMPT =
+  "\n\nA planning model started this turn; its plan is in its words above. Carry it out step by step without redoing what it " +
+  "found or contradicting what it established. When a step fails, try the next sensible way once, then say plainly what is blocked.";
+
 /**
  * The plan for one routed turn, or null when the whole turn stays on one model.
  *
