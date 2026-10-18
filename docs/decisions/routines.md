@@ -174,7 +174,7 @@ time and outcome code. It never keeps the body, the `until:` sentence, or the
 problem sentences, because each of those is the note's own words, and the
 outcome is a code from a closed list (`answered`, `skipped`, `finished`,
 `failed`, `paused`, `routine_gone`, `not_a_routine`, `daily_limit`,
-`no_provider`, `no_chat`, plus its own `writer_gone`): the result route refuses
+`no_provider`, `no_chat`, plus its own `writer_gone` and `writer_unknown`): the result route refuses
 anything else and ignores every other field. The rows are a derivative: a scan
 of `tex/routines/` and `routines/` (on a gateway signal, `POST /gateway/routines`, on a console
 write through the barrier, debounced per workspace, and every six hours as a
@@ -185,12 +185,25 @@ code is kept, and never any text".
 
 **The writer** is whoever last wrote the file, kept only while they are an
 owner or editor of that workspace (a signal naming a member or a stranger names
-nobody). A file found with no known writer runs as the workspace's owner
-(`writerSource: "fallback"`), and then its `to:` is ignored and only the owner
-is texted, because anyone who put the file there without a signal could have
-named themselves and had the owner's private reach texted to them; the first
-signal from someone who can write makes it theirs again (test: "a routine
-nobody was seen writing texts only the owner, whatever its `to:` says"). A
+nobody). Where the owner is the only person who can write there, a file found
+with no known writer runs as its owner (`writerSource: "fallback"`), and then
+its `to:` is ignored and only the owner is texted, because anyone who put the
+file there without a signal could have named themselves and had the owner's
+private reach texted to them (test: "a personal routine nobody was seen
+writing still texts its owner, whatever its `to:` says"). A personal workspace
+is usually that, but it is the same row as a shared one with more membership,
+so an editor invited into a personal context is a second writer and it waits
+there too (test: "a personal workspace shared with an editor does not fall
+back to its owner either"). In a workspace with more than one writer it does
+not run at all: the row waits (`writer_unknown`, "Save it once so it runs as
+you" in the app) until someone who can write saves it. Falling back to the owner there texted
+one person what another had asked for (reported 2026-10-18: someone's Tex
+texted them updates on another person's work, from a routine they never
+wrote). Asked again when a run is handed out, so a row written
+under the old rule stops too (tests: "a shared routine nobody was seen
+writing texts nobody, and runs once someone who can write saves it", "a
+shared routine left running as its owner by an earlier rule is stopped when it
+comes due"). The first signal from someone who can write makes it theirs. A
 writer who loses write access is **not** replaced by the owner: the row stops
 (`writer_gone`) until someone who can write saves the file, because handing an
 editor's words to the owner would run them with the owner's private reach.

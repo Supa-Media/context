@@ -23,11 +23,12 @@ import {
   ROUTINE_GRANT_TTL_MS,
   ROUTINE_LEASE_MS,
   WRITER_GONE,
+  WRITER_UNKNOWN,
   effectiveTimeZone,
   isRoutineOutcome,
   nextRunFor,
 } from "./model";
-import { scheduleReconcile } from "./sync";
+import { fallsBackToOwner, scheduleReconcile } from "./sync";
 
 const ROUTINE_SCOPES = [SCOPE_READ, SCOPE_WRITE, SCOPE_PRIVATE];
 
@@ -86,6 +87,15 @@ export async function claimDueRoutinesHandler(
       // member, or deleted their account no longer runs anything here.
       await ctx.db.patch(row._id, { nextRunAt: null, lastOutcome: WRITER_GONE, updatedAt: now });
       continue;
+    }
+    if (row.writerSource === "fallback") {
+      // Asked now too, so a row written before this rule never runs as the
+      // owner of a shared workspace: nobody was seen writing it there.
+      const workspace = await ctx.db.get(row.workspaceId);
+      if (workspace === null || !(await fallsBackToOwner(ctx.db, workspace))) {
+        await ctx.db.patch(row._id, { nextRunAt: null, lastOutcome: WRITER_UNKNOWN, updatedAt: now });
+        continue;
+      }
     }
     const scopes = clampScopes(ROUTINE_SCOPES, role);
     if (!hasOperationScope(scopes)) continue;

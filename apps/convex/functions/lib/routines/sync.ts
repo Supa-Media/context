@@ -11,6 +11,7 @@
 
 import { internal } from "../../../_generated/api";
 import type { Doc, Id } from "../../../_generated/dataModel";
+import type { DatabaseReader } from "../../../_generated/server";
 import type { ActionCtx, MutationCtx } from "../../../_generated/server";
 import {
   MAX_PATH_LENGTH,
@@ -20,6 +21,7 @@ import {
   RECONCILE_STALE_MS,
   ROUTINE_SCAN_ROOTS,
   WRITER_GONE,
+  WRITER_UNKNOWN,
   asTexPath,
   effectiveTimeZone,
   isUnderRoutines,
@@ -230,7 +232,8 @@ export async function scanRoutines(
  * last run, and picks the writer: the signal's if they can still write, else
  * the row's if they can still write, else — only for a routine with no row
  * yet — the workspace's owner, marked `fallback` so its `to:` is ignored
- * and only the owner is texted. A row whose writer has gone is left not
+ * and only the owner is texted. A fallback runs only in a personal workspace;
+ * in a shared one it waits (`writer_unknown`) for someone who can write. A row whose writer has gone is left not
  * running (`writer_gone`) until someone who can write saves it: handing it to
  * the owner would run an editor's words with the owner's private reach.
  */
@@ -243,7 +246,8 @@ export async function commitRoutinesHandler(
     writers: Writer[];
   },
 ): Promise<{ upserted: number; deleted: number }> {
-  if ((await ctx.db.get(args.workspaceId)) === null) return { upserted: 0, deleted: 0 };
+  const workspace = await ctx.db.get(args.workspaceId);
+  if (workspace === null) return { upserted: 0, deleted: 0 };
   const now = Date.now();
   const existing = await ctx.db
     .query("routines")
@@ -279,8 +283,17 @@ export async function commitRoutinesHandler(
       upserted += 1;
       continue;
     }
+    // In a shared workspace the owner is not the person a routine nobody was
+    // seen writing belongs to: running it as them texted one person what
+    // another asked for. It waits until someone who can write saves it.
+    const waits = writerSource === "fallback" && !(await fallsBackToOwner(ctx.db, workspace));
     const zone = effectiveTimeZone(schedule.timeZone, await accountTimeZone(ctx, writer));
-    const nextRunAt = nextRunFor(schedule, zone, now);
+    const nextRunAt = waits ? null : nextRunFor(schedule, zone, now);
+    const outcome = waits
+      ? { lastOutcome: WRITER_UNKNOWN }
+      : row !== undefined && (row.lastOutcome === WRITER_GONE || row.lastOutcome === WRITER_UNKNOWN)
+        ? { lastOutcome: undefined }
+        : {};
     if (row === undefined) {
       await ctx.db.insert("routines", {
         workspaceId: args.workspaceId,
@@ -288,6 +301,7 @@ export async function commitRoutinesHandler(
         writerUserId: writer,
         writerSource,
         nextRunAt,
+        ...outcome,
         updatedAt: now,
       });
     } else {
@@ -296,7 +310,7 @@ export async function commitRoutinesHandler(
         writerUserId: writer,
         writerSource,
         nextRunAt,
-        ...(row.lastOutcome === WRITER_GONE ? { lastOutcome: undefined } : {}),
+        ...outcome,
         updatedAt: now,
       });
     }
@@ -313,6 +327,28 @@ export async function commitRoutinesHandler(
   }
   return { upserted, deleted };
 }
+
+/**
+ * Whether a routine nobody was seen writing may run as the workspace's owner:
+ * only where the owner is the only person who could have written it. A
+ * personal workspace is usually that, but it is the same row as a shared one
+ * with more membership (`functions/invitations.ts`), so an editor invited into
+ * a personal context is a second writer and the question is the same there as
+ * in a shared workspace: the fallback would run their words with the owner's
+ * private reach, and text the owner the answer.
+ */
+export async function fallsBackToOwner(db: DatabaseReader, workspace: Doc<"workspaces">): Promise<boolean> {
+  if (workspace.kind !== "personal") return false;
+  const members = await db
+    .query("workspaceMembers")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
+    .take(WRITERS_READ);
+  // Ownership is a membership row, so "only the owner writes here" is one writer, whoever they are.
+  return members.filter((member) => member.role === "owner" || member.role === "editor").length <= 1;
+}
+
+/** Members read to answer "is the owner the only writer": more than any personal context has. */
+const WRITERS_READ = 200;
 
 /**
  * The writer a signal named for this path: the path itself, else the nearest

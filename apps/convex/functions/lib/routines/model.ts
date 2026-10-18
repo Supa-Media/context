@@ -84,6 +84,13 @@ export type RoutineOutcome = (typeof ROUTINE_OUTCOMES)[number];
 /** Set by the control plane itself when the writer can no longer write here. */
 export const WRITER_GONE = "writer_gone";
 
+/**
+ * Set by the control plane itself on a shared workspace's routine that nobody
+ * was seen writing: it waits, not running, until someone who can write saves
+ * it. Only a personal workspace falls back to its owner.
+ */
+export const WRITER_UNKNOWN = "writer_unknown";
+
 /** Outcomes that mean the row no longer describes the file: re-read the folder. */
 export const RECONCILE_OUTCOMES: ReadonlySet<string> = new Set([
   "routine_gone",
