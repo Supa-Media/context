@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Fetch } from "./clients";
 import { accept, CARD_KEY, cardOfferedKey, cardSentKey, CHAT_KEY, drain, NEW_LINE_TEXT, type InboxDeps } from "./inbox";
 import { CARD_VERSION } from "./card";
@@ -17,6 +17,8 @@ import {
   sendblueKeys,
   sendSendblueText,
   verifySendblueSecret,
+  markSendblueRead,
+  startSendblueTyping,
 } from "./sendblue";
 
 const LINE = "+15555550199";
@@ -485,5 +487,26 @@ describe("sendblue sending", () => {
       { number: PHONE, from_number: LINE, content: READY_COPY.ready },
       { number: PHONE, from_number: LINE, content: "https://app.example/s/abc" },
     ]);
+  });
+});
+
+describe("sendblue bubble and receipt", () => {
+  it("logs a refused typing bubble or read receipt by status, never the number", async () => {
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((line: string) => void lines.push(line));
+    try {
+      const refusing = (async () => new Response("{}", { status: 400 })) as unknown as Fetch;
+      await startSendblueTyping(refusing, KEYS, sendblueChatId(LINE, PHONE));
+      await markSendblueRead(refusing, KEYS, sendblueChatId(LINE, PHONE));
+      const fine = (async () => new Response("{}", { status: 200 })) as unknown as Fetch;
+      await startSendblueTyping(fine, KEYS, sendblueChatId(LINE, PHONE));
+    } finally {
+      spy.mockRestore();
+    }
+    expect(lines.map((line) => JSON.parse(line))).toEqual([
+      { event: "sendblue_typing", outcome: "refused", status: 400 },
+      { event: "sendblue_read", outcome: "refused", status: 400 },
+    ]);
+    expect(lines.join("")).not.toContain(PHONE);
   });
 });

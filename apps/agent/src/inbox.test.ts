@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accept, CARD_EVERY_MS, drain, MAX_ANSWER_ATTEMPTS, MAX_PENDING, MAX_SEND_ATTEMPTS, SEEN_FOR_MS, TEXT_WAIT_MS, type InboxDeps } from "./inbox";
+import { accept, CARD_EVERY_MS, drain, MAX_ANSWER_ATTEMPTS, MAX_PENDING, MAX_SEND_ATTEMPTS, SEEN_FOR_MS, TEXT_WAIT_MS, TYPING_AGAIN_MS, type InboxDeps } from "./inbox";
 import { COPY, type Message } from "./reply";
 import type { Fetch } from "./clients";
 import { MemoryStorage } from "./memoryStorage.testing";
@@ -31,6 +31,7 @@ function deps(opts: {
   agentStatus?: () => number;
   sessionStatus?: () => number;
   setup?: unknown;
+  agentMs?: number;
 }): InboxDeps {
   const fetcher = (async (url: string, init: RequestInit) => {
     const path = new URL(url).pathname;
@@ -62,6 +63,7 @@ function deps(opts: {
     }
     if (path === "/agent") {
       opts.asks?.push(body.question);
+      if (opts.agentMs) await new Promise((resolve) => setTimeout(resolve, opts.agentMs));
       const status = opts.agentStatus?.() ?? 200;
       if (status !== 200) return Response.json({ error: "model_unavailable" }, { status });
       if (opts.progress) {
@@ -227,6 +229,14 @@ describe("inbox", () => {
     const events: string[] = [];
     await drain(storage, deps({ events }));
     expect(events).toEqual(["read", "typing", "send"]);
+  });
+
+  it("asks for the bubble again just after the read receipt, while a slower answer is worked out", async () => {
+    const storage = new MemoryStorage();
+    await accept(storage, msg("e1"), 1_000);
+    const events: string[] = [];
+    await drain(storage, deps({ events, agentMs: TYPING_AGAIN_MS + 300 }));
+    expect(events).toEqual(["read", "typing", "typing", "send"]);
   });
 
   it("answers anyway when the typing bubble is refused", async () => {
