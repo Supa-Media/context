@@ -59,6 +59,10 @@ export const TEX_CSS = `
 @keyframes tp-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 .tp-from-me .tp-b{background:var(--blue);color:#fff;border-bottom-right-radius:6px}
 .tp-from-tex .tp-b{background:var(--bubble);color:var(--ink);border-bottom-left-radius:6px}
+.tp-linkb{padding:0!important;overflow:hidden;min-width:62%}
+.tp-card{display:flex;flex-direction:column;gap:2px;padding:9px 13px 10px;border-left:3px solid var(--blue)}
+.tp-card-t{font-weight:600;color:var(--ink)}
+.tp-card-w{font-size:12.5px;color:var(--ink2)}
 .tp-f{font-weight:600;white-space:nowrap}
 .tp-u{text-decoration:underline;text-underline-offset:.15em;text-decoration-color:rgba(255,255,255,.6)}
 .tp-voice{display:flex;align-items:center;gap:8px}
@@ -70,6 +74,7 @@ export const TEX_CSS = `
 .tp-typing i{width:7px;height:7px;border-radius:50%;background:var(--dots);animation:tp-dot 1s infinite}
 .tp-typing i:nth-child(2){animation-delay:.15s}.tp-typing i:nth-child(3){animation-delay:.3s}
 @keyframes tp-dot{0%,60%,100%{opacity:.35}30%{opacity:1}}
+.tp-from-tex .tp-linkb{background:#fff;border:1px solid var(--rule);border-bottom-left-radius:6px}
 @media (prefers-reduced-motion:reduce){.tp-live .tp-msg{animation:none}.tp-typing i{animation:none}}
 
 .tp-foot{width:100%;max-width:560px;margin:0 auto;padding:0 20px 28px;display:flex;flex-wrap:wrap;gap:8px 22px;font-size:14px;color:var(--ink2)}

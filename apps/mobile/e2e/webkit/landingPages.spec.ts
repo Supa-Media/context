@@ -22,8 +22,8 @@ test("/ is page a: Tex, Dev's line, a conversation with Tex, and a sign-up with 
   await expect(page.locator("[data-landing=a] canvas")).toHaveCount(0);
   const chat = page.getByRole("region", { name: "An example conversation with Tex" });
   await expect(chat).toBeVisible();
-  await expect(chat.locator(".tp-live .tp-b")).toHaveCount(8, { timeout: 20_000 });
-  await expect(chat).toContainText("Braised short ribs");
+  await expect(chat.locator(".tp-live .tp-b")).toHaveCount(9, { timeout: 20_000 });
+  await expect(chat).toContainText("The short ribs you saved");
   // The sign-up is open from the start, +1 already there, and its button says what it does.
   await expect(page.getByLabel("Join the waitlist")).toBeVisible();
   await expect(page.locator(".tp-cc")).toContainText("+1");
@@ -35,7 +35,7 @@ test("a visitor who asks for less motion sees the whole conversation at once", a
   const page = await context.newPage();
   await page.goto("/");
   await expect(page.locator("[data-landing=a]")).toBeVisible({ timeout: 15_000 });
-  await expect(page.locator(".tp-live .tp-b")).toHaveCount(8);
+  await expect(page.locator(".tp-live .tp-b")).toHaveCount(9);
   await context.close();
 });
 

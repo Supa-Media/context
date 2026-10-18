@@ -14,22 +14,44 @@ import { Tex } from "../chaos/Tex";
  * the end; a visitor who asks for less motion sees the end at once.
  */
 
-type Bubble = { from: "me" | "tex"; label?: string; body: ReactNode };
+type Bubble = {
+  from: "me" | "tex";
+  label?: string;
+  body: ReactNode;
+  /** A second bubble of the same reply: it lands just after, with no typing. */
+  follows?: boolean;
+  /** Drawn as a link preview rather than a bubble of text. */
+  card?: boolean;
+};
 
 const Folder = ({ children }: { children: ReactNode }) => <b className="tp-f">{children}</b>;
+
+/** The note a reply links to, as a phone draws a link: its title and where it is. */
+function NoteCard({ title, where }: { title: string; where: string }) {
+  return (
+    <span className="tp-card">
+      <span className="tp-card-t">{title}</span>
+      <span className="tp-card-w">{where} · context.lc</span>
+    </span>
+  );
+}
 
 export const CHAT: readonly Bubble[] = [
   { from: "me", body: "supper club idea: everyone brings a dish from where they grew up" },
   { from: "tex", body: <>Started a note in <Folder>Projects › Supper club</Folder>.</> },
   { from: "me", body: <span className="tp-u">example.com/short-ribs</span> },
-  { from: "tex", body: <>Saved to <Folder>Resources › Recipes</Folder>.</> },
-  { from: "me", label: "A voice memo, 9 seconds", body: <Voice /> },
-  { from: "tex", body: "Added to Supper club: “ask Sam to bring bread.”" },
-  { from: "me", body: "what am I making for supper club?" },
+  { from: "tex", body: "Saved the recipe:" },
   {
     from: "tex",
-    body: <>Braised short ribs. The recipe's in <Folder>Resources › Recipes</Folder>, and Sam's bringing bread.</>,
+    follows: true,
+    card: true,
+    label: "A link to the note Braised short ribs, in Resources › Recipes",
+    body: <NoteCard title="Braised short ribs" where="Resources › Recipes" />,
   },
+  { from: "me", body: "make supper club the first Friday of every month" },
+  { from: "tex", body: "Done. Supper club is now monthly." },
+  { from: "me", body: "what am I making for supper club?" },
+  { from: "tex", body: "The short ribs you saved. Serves six." },
 ];
 
 /** How long Tex "types" before a reply, and the pause after each bubble. */
@@ -37,6 +59,7 @@ const TYPING_MS = 900;
 const AFTER_ME_MS = 700;
 const AFTER_TEX_MS = 1400;
 const START_MS = 600;
+const FOLLOW_MS = 450;
 
 const WAVE = [6, 10, 7, 14, 9, 16, 8, 12, 15, 7, 11, 16, 9, 13, 6, 10];
 
@@ -87,11 +110,19 @@ export function useChatPlayback(total: number) {
   useEffect(() => {
     if (!started || shown >= total) return;
     const next = CHAT[shown];
-    if (next?.from === "tex" && !typing) {
+    if (next?.from === "tex" && next.follows !== true && !typing) {
       const t = setTimeout(() => setTyping(true), shown === 0 ? START_MS : 0);
       return () => clearTimeout(t);
     }
-    const wait = typing ? TYPING_MS : shown === 0 ? START_MS : CHAT[shown - 1]?.from === "tex" ? AFTER_TEX_MS : AFTER_ME_MS;
+    const wait = typing
+      ? TYPING_MS
+      : next?.follows === true
+        ? FOLLOW_MS
+        : shown === 0
+          ? START_MS
+          : CHAT[shown - 1]?.from === "tex"
+            ? AFTER_TEX_MS
+            : AFTER_ME_MS;
     const t = setTimeout(() => {
       setTyping(false);
       setShown((n) => n + 1);
@@ -105,7 +136,7 @@ export function useChatPlayback(total: number) {
 function Row({ bubble, children }: { bubble: Bubble; children?: ReactNode }) {
   return (
     <div className={`tp-msg tp-from-${bubble.from}`}>
-      <p className="tp-b" aria-label={bubble.label}>
+      <p className={bubble.card === true ? "tp-b tp-linkb" : "tp-b"} aria-label={bubble.label}>
         {children ?? bubble.body}
       </p>
     </div>
