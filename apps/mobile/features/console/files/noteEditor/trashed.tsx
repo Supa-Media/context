@@ -9,6 +9,7 @@ import { radii, touchType } from "../../../design/tokens";
 import { PersonFace } from "../../faces/PersonFace";
 import { relativeTime } from "../../format";
 import type { FileBrowser } from "../browser";
+import { eraseSentence } from "../../trash/trashCopy";
 
 /**
  * The open note, in the trash and still on screen (design A, Dev2 2026-10-14,
@@ -22,6 +23,8 @@ export interface TrashedView {
   /** "@ana", or `null` when the mover has no name to show. */
   byName: string | null;
   at: number;
+  /** When the trash erases it for good, said in bold red under the byline (design A, 2026-10-17). */
+  eraseAt?: number | null;
   /** Put it back. Absent while there is nothing to restore from yet. */
   onRestore?: () => void;
   restoring?: boolean;
@@ -35,6 +38,7 @@ export function trashedViewOf(files: Pick<FileBrowser, "editor" | "trashed" | "r
     byYou: trashed.byYou,
     byName: trashed.byName,
     at: trashed.at,
+    eraseAt: trashed.eraseAt ?? null,
     // A delete still in this device's queue is taken back out of it (`useTrashedNote`).
     onRestore: trashed.trash === null && trashed.undoQueued === undefined ? undefined : files.restoreTrashed,
     restoring: files.restoringTrashed === true,
@@ -75,12 +79,20 @@ export function TrashedByline({ trashed, viewer, style }: { trashed: TrashedView
   const { who, rest } = trashedLine(trashed, now);
   const face = trashed.byYou ? viewer : trashed.byName;
   return (
-    <View style={[styles.byline, style]} testID="trashed-byline">
-      <PersonFace name={face ?? null} size={18} />
-      <Text variant="meta" style={styles.bylineText} numberOfLines={1}>
-        <Text variant="meta" style={styles.who}>{who}</Text>
-        {rest}
-      </Text>
+    <View style={[styles.bylineBlock, style]}>
+      <View style={styles.byline} testID="trashed-byline">
+        <PersonFace name={face ?? null} size={18} />
+        <Text variant="meta" style={styles.bylineText} numberOfLines={1}>
+          <Text variant="meta" style={styles.who}>{who}</Text>
+          {rest}
+        </Text>
+      </View>
+      {/* A one-way door, said inline in bold red, never in a box. */}
+      {trashed.eraseAt == null ? null : (
+        <Text variant="meta" style={styles.erase} testID="trashed-erase">
+          {eraseSentence(trashed.eraseAt)}
+        </Text>
+      )}
     </View>
   );
 }
@@ -142,7 +154,9 @@ export const RESTORE_BAR_ROOM = 88;
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
+    bylineBlock: { gap: 6, minWidth: 0 },
     byline: { flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 },
+    erase: { color: colors.critText, fontWeight: "700" },
     bylineText: { flexShrink: 1 },
     who: { color: colors.text, fontWeight: "600" },
     restore: {

@@ -8,9 +8,11 @@
  * whose chart it shares: its own window, a workspace filter, a tile per view
  * that also picks what the rest of the tab shows.
  *
- * Two views (the owner, 2026-10-08, from the approved mockup): Indexes, is
- * every workspace indexed (`./IndexesView`), and Speed, how fast searches are
- * (this file). Indexes is the default and carries a count of the workspaces
+ * Three views: Indexes, is every workspace indexed (`./IndexesView`); Notes by
+ * id, how far each workspace's notes are copied to their id keys
+ * (`./NoteIdsView`); and Speed, how fast searches are (this file). The owner
+ * approved the first two from the mockup on 2026-10-08; Notes by id was added
+ * after, as its own tab next to Indexes. Indexes is the default and carries a count of the workspaces
  * that need attention, so Speed still says when something is wrong. The view
  * is a prop so the console's router can keep it in the address.
  *
@@ -28,6 +30,8 @@ import { EmptyNote, NoticeLine, Panel, Skeleton, TwoUp, useCompact } from "./Adm
 import { ListRow, RowValue, TableHead, TableRow, type Column } from "./AdminTable";
 import { AgentChart } from "./AgentChart";
 import { IndexesView, useIndexesAttention } from "./IndexesView";
+import { NoteIdsView } from "./NoteIdsView";
+import { PrivacyRowsView } from "./PrivacyRowsView";
 import { whenLabel } from "./agent";
 import { Segments } from "./Segments";
 import {
@@ -45,10 +49,12 @@ import {
 } from "./search";
 import { formatCount } from "./report";
 
-export type SearchSubview = "indexes" | "speed";
+export type SearchSubview = "indexes" | "notes" | "rows" | "speed";
 
 export const SEARCH_SUBVIEWS: readonly { key: SearchSubview; label: string }[] = [
   { key: "indexes", label: "Indexes" },
+  { key: "notes", label: "Notes by id" },
+  { key: "rows", label: "Privacy on rows" },
   { key: "speed", label: "Speed" },
 ];
 
@@ -71,7 +77,15 @@ export function SearchSection({ view, onView }: { view?: SearchSubview; onView?:
         label="Search"
         testID="admin-search-subview"
       />
-      {shown === "indexes" ? <IndexesView /> : <SpeedView />}
+      {shown === "indexes" ? (
+        <IndexesView />
+      ) : shown === "notes" ? (
+        <NoteIdsView />
+      ) : shown === "rows" ? (
+        <PrivacyRowsView />
+      ) : (
+        <SpeedView />
+      )}
     </View>
   );
 }

@@ -16,6 +16,8 @@ export const searchResultsValidator = v.object({
       snippets: v.array(v.string()),
       /** Found by meaning alone: the app marks it "Same topic, different words". */
       meaningOnly: v.optional(v.boolean()),
+      /** Has some of the words typed, not all of them (the relaxed any-word pass). */
+      loose: v.optional(v.boolean()),
     }),
   ),
   matchCount: v.number(),
@@ -50,6 +52,8 @@ export const searchResultsValidator = v.object({
 export const notePathsValidator = v.object({
   kind: v.literal("notePaths"),
   paths: v.union(v.array(v.string()), v.null()),
+  /** Every path, in chunks, when there are too many for `paths`. See `notePathsAnswer`. */
+  pathChunks: v.optional(v.array(v.array(v.string()))),
 });
 
 /**
@@ -105,6 +109,10 @@ export const blendedResultsValidator = v.object({
       snippet: v.string(),
       /** Found by meaning alone: shown as "Same topic, different words". */
       meaningOnly: v.optional(v.boolean()),
+      /** Has some of the words typed, not all of them: the row says how many. */
+      loose: v.optional(v.boolean()),
+      /** When the note was last written (ms), from the tree; absent where the tree has no row. */
+      edited: v.optional(v.number()),
     }),
   ),
   /** Visible matches across every context asked. A floor when any source's is. */
@@ -201,6 +209,8 @@ export const indexProjectedValidator = v.object({
 export const meaningProjectedValidator = v.object({
   kind: v.literal("meaningProjected"),
   embedded: v.number(),
+  /** Notes pointed at a new path from their stored vectors, with no model call. */
+  repathed: v.optional(v.number()),
   deleted: v.number(),
   notesIndexed: v.number(),
   notesPending: v.number(),

@@ -16,6 +16,10 @@
  * one; so is a picture over 8000 pixels on a side (a long scrolling
  * screenshot), which the API refuses too. Without the binding, the model is
  * told it was a photo it couldn't open.
+ *
+ * A voice message (iMessage sends a `.caf`) goes on as audio, and the gateway
+ * turns it into words with the transcription service meetings use, so Tex
+ * answers what was said.
  */
 
 import type { Fetch } from "./clients";
@@ -38,6 +42,7 @@ export const MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024;
 export const MAX_IMAGE_BYTES = 5_000_000;
 export const MAX_PDF_BYTES = 10 * 1024 * 1024;
 export const MAX_TEXT_CHARS = 100_000;
+export const MAX_AUDIO_BYTES = 8 * 1024 * 1024;
 export const MAX_TOTAL_BYTES = 20 * 1024 * 1024;
 const DOWNLOAD_TIMEOUT_MS = 20_000;
 /** A converted photo's longest side: plenty to read a receipt, small enough to send. */
@@ -45,6 +50,18 @@ const CONVERTED_EDGE = 2048;
 
 const TEXT_EXTENSIONS = new Set(["txt", "md", "markdown", "csv", "tsv", "json", "vcf", "ics", "xml", "html", "htm", "log", "yaml", "yml"]);
 const TEXT_TYPES = new Set(["application/json", "application/xml", "application/x-yaml", "application/yaml"]);
+/** A voice message's type when Linq's label is not an audio one. The transcriber reads the bytes; this only says "audio". */
+const AUDIO_EXTENSIONS: Record<string, string> = {
+  caf: "audio/x-caf",
+  m4a: "audio/mp4",
+  aac: "audio/aac",
+  mp3: "audio/mpeg",
+  amr: "audio/amr",
+  wav: "audio/wav",
+  ogg: "audio/ogg",
+  opus: "audio/ogg",
+  webm: "audio/webm",
+};
 const OFFICE: Record<string, OfficeKind> = {
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
   "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
@@ -68,6 +85,17 @@ export function sniff(bytes: Uint8Array): string | null {
   if (at(0, 0x47, 0x49, 0x46, 0x38)) return "image/gif";
   if (at(0, 0x52, 0x49, 0x46, 0x46) && at(8, 0x57, 0x45, 0x42, 0x50)) return "image/webp";
   if (at(0, 0x25, 0x50, 0x44, 0x46, 0x2d)) return "application/pdf";
+  return null;
+}
+
+/**
+ * A voice message by its bytes, for a line that names no type (Sendblue sends
+ * only an address): Apple's CAF, or an M4A. Never a video's MP4.
+ */
+export function sniffAudio(bytes: Uint8Array): string | null {
+  const ascii = (from: number, to: number) => String.fromCharCode(...bytes.subarray(from, to));
+  if (ascii(0, 4) === "caff") return "audio/x-caf";
+  if (ascii(4, 8) === "ftyp" && ascii(8, 12) === "M4A ") return "audio/mp4";
   return null;
 }
 
@@ -194,10 +222,7 @@ async function prepareOne(item: InboundAttachment, index: number, deps: Attachme
   const type = item.mimeType || "";
   const unread = (why: string): GatewayAttachment => ({ name, mediaType: type, unread: why });
 
-  if (type.startsWith("audio/") || ["caf", "m4a", "mp3", "amr", "wav"].includes(ext)) {
-    return unread("It is a voice message or recording, and Tex can't listen to audio yet. Ask them to type it.");
-  }
-  if (type.startsWith("video/") || ["mov", "mp4", "m4v"].includes(ext)) {
+  if (type.startsWith("video/") || (!type.startsWith("audio/") && ["mov", "mp4", "m4v"].includes(ext))) {
     return unread("It is a video, and Tex can't watch videos yet. A screenshot of the part that matters would work.");
   }
   if (item.size !== null && item.size > MAX_DOWNLOAD_BYTES) {
@@ -206,6 +231,12 @@ async function prepareOne(item: InboundAttachment, index: number, deps: Attachme
   const bytes = await download(deps.fetch, item.url);
   if (bytes === "too_big") return unread(`It is over the ${megabytes(MAX_DOWNLOAD_BYTES)} Tex can open.`);
   if (bytes === null) return unread("The download failed. Ask them to send it again.");
+
+  const audio = type.startsWith("audio/") ? type : (AUDIO_EXTENSIONS[ext] ?? (type === "" ? sniffAudio(bytes) : null));
+  if (audio) {
+    if (bytes.length > MAX_AUDIO_BYTES) return unread(`It is a ${megabytes(bytes.length)} recording, over the ${megabytes(MAX_AUDIO_BYTES)} Tex can listen to. Ask them to send a shorter one.`);
+    return { name, mediaType: audio, data: toBase64(bytes) };
+  }
 
   const sniffed = sniff(bytes);
   if (sniffed === "application/pdf") {

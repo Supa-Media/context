@@ -46,6 +46,10 @@ export function expiryLine(expiresAt: number, now: number): string {
 /** The notice after a decision. `ok` is the gateway's word that the call ran. */
 export function decisionNotice(decision: Decision): { tone: "ok" | "warn"; text: string } {
   if (decision.status === "denied") return { tone: "ok", text: "Denied. Nothing ran." };
+  if (decision.vaultUse && decision.ok) {
+    const said = oneLine(decision.result);
+    return { tone: "ok", text: `${said.length > 0 ? `${said} ` : ""}The AI can try again now.` };
+  }
   if (decision.ok) return { tone: "ok", text: "Approved. It ran as asked." };
   const reason = oneLine(decision.result);
   return {

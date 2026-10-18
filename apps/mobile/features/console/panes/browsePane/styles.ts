@@ -101,6 +101,12 @@ export const makeStyles = (colors: Colors) => StyleSheet.create({
    */
   scroll: { flex: 1, minHeight: 0, backgroundColor: colors.chromeSurface },
   /**
+   * The phone's status-bar band above that scroller, in the scroller's own
+   * colour. Unpainted, it showed the frame's ground: a white forehead over a
+   * cream page on every iPhone (owner, 2026-10-15).
+   */
+  statusBand: { backgroundColor: colors.chromeSurface },
+  /**
    * No padding, and no `flex: 1`.
    *
    * The document runs to the edges of the glass and what padding there is
@@ -126,6 +132,18 @@ export const makeStyles = (colors: Colors) => StyleSheet.create({
    * is wider than a 390pt phone's notice at its own padding.
    */
   noticeActions: { flexDirection: "row", flexWrap: "wrap", gap: space.x2 },
+  /**
+   * A move's line: the sentence and its controls on one row, wrapping under it
+   * on a phone. A move notice is a status line, not a card, so its controls
+   * are links beside the text rather than buttons stacked below it.
+   */
+  noticeInline: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "baseline",
+    columnGap: space.x3,
+    rowGap: space.x1,
+  },
 
   empty: { padding: space.x6, gap: space.x2, maxWidth: 520 },
   emptyLine: { marginTop: 2 },

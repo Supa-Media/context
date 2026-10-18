@@ -133,12 +133,25 @@ test("every turn is told which model answers it, and the ground rules, even with
   const system = ai.calls[0].input.messages.find((message) => message.role === "system").content;
   assert.match(system, new RegExp(`AI model ${MODEL.replace(/[/.]/g, "\\$&")}`));
   assert.match(system, /Never fill a gap with a guess/);
-  assert.match(system, /scope_info with workspaces set to true/);
+  assert.match(system, /To list the workspaces they can reach, call orient\./);
 
   const app = systemPrompt(null, { model: "claude-sonnet-5-5" });
   assert.match(app, /AI model claude-sonnet-5-5/);
   assert.match(app, /Never fill a gap with a guess/);
   assert.doesNotMatch(systemPrompt(null), /AI model/, "no model, no line");
+});
+
+test("the turn names its model before any tool call, for the usage breakdown", async () => {
+  const ai = scripted([chat("", ["search_notes"]), chat("done")]);
+  const seen = [];
+  await turn(ai, {
+    onModel: (model) => seen.push(["model", model]),
+    callTool: async () => {
+      seen.push(["tool"]);
+      return { content: [{ type: "text", text: "nothing" }] };
+    },
+  });
+  assert.deepEqual(seen, [["model", MODEL], ["tool"]]);
 });
 
 test("a call the egress gate held is traced as held, not as a failure", async () => {

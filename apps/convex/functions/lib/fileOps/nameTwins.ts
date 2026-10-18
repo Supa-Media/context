@@ -17,7 +17,21 @@
  * protected, which is the safe direction.
  */
 
-import { ROLE_LABEL, isMainFolder, isProtectedFolder, siblingTwin, topLevelRole, twinMessage } from "@context/shared/src/folderRoles.cjs";
+import {
+  JOB_LABEL,
+  MAIN_ROLES,
+  type RowRole,
+  WEBSITE_FOLDER,
+  isMainFolder,
+  isProtectedFolder,
+  jobOfName,
+  siblingTwin,
+  topLevelRole,
+  twinMessage,
+} from "@context/shared/src/folderRoles.cjs";
+import { INBOX_PART_LABEL, isInboxPart, type InboxPart } from "@context/shared/src/folderJobInfo.cjs";
+import { isKeyedStore } from "../noteIds/keyedStore";
+import { treeJobs } from "./treeChecks";
 import { canSee, isPlumbing } from "../privacy";
 import { type Clearance } from "../clearance";
 import { LIST_PAGE_CAP, type FileStore } from "./store";
@@ -68,21 +82,99 @@ async function visibleNames(
 }
 
 /**
- * Refuse to rename, move, archive or delete the folder that plays a main role.
- * A path that is not top-level, or names no main role, costs nothing; only a
- * role-shaped name lists the root to see whether it is the role's one folder.
+ * The job the folder at `path` does, for a guard: the job written on its row
+ * (`folderJobs.ts`), else, for a top-level name, the main role it plays among
+ * the root folders this caller can see. A role-mate the caller cannot see is
+ * left out, which only ever keeps a folder protected: the safe side.
  */
-export async function assertNotProtectedFolder(store: FileStore, path: string, clearance: Clearance): Promise<void> {
-  if (!isMainFolder(path)) return;
+async function guardedJob(store: FileStore, path: string, clearance: Clearance): Promise<string | null> {
+  const tree = await treeJobs(store);
+  const claim = tree?.claimed.find((entry) => entry.path === path);
+  if (claim !== undefined) return claim.role;
+  if (path === WEBSITE_FOLDER) return "website";
+  if (!isMainFolder(path)) return null;
   const root = await visibleNames(store, "", clearance, await loadPrivacyState(store));
   const folders = root.filter((entry) => entry.kind === "folder").map((entry) => entry.name);
-  if (!isProtectedFolder(path, folders)) return;
-  const role = topLevelRole(path);
-  const label = role === null ? path : ROLE_LABEL[role];
+  return isProtectedFolder(path, folders) ? topLevelRole(path) : null;
+}
+
+/**
+ * Refuse what a built-in folder may not do (owner, 2026-10-18,
+ * `docs/decisions/app-and-console/folder-jobs.md`):
+ *
+ *  - `remove` (archive, trash, delete): never for the five main folders;
+ *  - `move` (rename, move, nest): allowed in a workspace whose notes are kept
+ *    by id, where the job goes with the row. Elsewhere the five stay put, as
+ *    every writer there still names them by path. The website folder keeps
+ *    its name everywhere: its pages are published from it by name.
+ *
+ * What is inside them is always the person's to move. A path naming no job
+ * costs one tree read and no listing.
+ *
+ * The Inbox's own folders (`INBOX_PARTS`: Email, Meetings, ...) are not
+ * renamed or moved either: Context files into them by name. They can still
+ * be trashed, and a person adds notes and folders beside them (owner,
+ * 2026-10-18).
+ */
+export async function assertNotProtectedFolder(
+  store: FileStore,
+  path: string,
+  clearance: Clearance,
+  intent: "move" | "remove",
+): Promise<void> {
+  if (intent === "move") await assertNotInboxPart(store, path, clearance);
+  const job = await guardedJob(store, path, clearance);
+  if (job === null) return;
+  const label = JOB_LABEL[job as RowRole] ?? path;
+  if (job === "website") {
+    if (intent === "remove") return;
+    throw new FileOpError("PATH_INVALID", "Website keeps its name and place, because your site is published from it. What's inside it can move.");
+  }
+  if (!(MAIN_ROLES as readonly string[]).includes(job)) return;
+  if (intent === "move") {
+    if (await isKeyedStore(store)) return;
+    throw new FileOpError(
+      "PATH_INVALID",
+      `${label} is a built-in folder, so it can't be renamed or moved here yet. What's inside it can be.`,
+    );
+  }
   throw new FileOpError(
     "PATH_INVALID",
-    `${label} is a built-in folder, so it can't be renamed, moved or deleted. What's inside it can be.`,
+    `${label} is a built-in folder, so it can't be archived or deleted. Rename it or move what's inside it instead.`,
   );
+}
+
+/** Refuse renaming or moving one of the Inbox's own folders the caller can see. */
+async function assertNotInboxPart(store: FileStore, path: string, clearance: Clearance): Promise<void> {
+  const inbox = (await treeJobs(store))?.jobs.inbox ?? null;
+  if (!isInboxPart(path, inbox)) return;
+  const state = await loadPrivacyState(store);
+  if (!folderVisibleAtScope(path, clearance, state.rules, state.overrides)) return;
+  const label = INBOX_PART_LABEL[baseName(path) as InboxPart];
+  throw new FileOpError(
+    "PATH_INVALID",
+    `${label} is one of the Inbox's own folders: Context files into it, so it stays where it is. You can add your own notes and folders beside it.`,
+  );
+}
+
+/**
+ * The folder doing the job `name` names, when its row says so and it is not
+ * at `name` itself (nor the folder being renamed), and the caller can see it;
+ * else null. A home the caller cannot see is not named.
+ */
+async function jobHomeElsewhere(
+  store: FileStore,
+  name: string,
+  clearance: Clearance,
+  state: PrivacyState,
+  ignore: string | undefined,
+): Promise<string | null> {
+  const job = jobOfName(name);
+  if (job === null) return null;
+  const tree = await treeJobs(store);
+  const claim = tree?.claimed.find((entry) => entry.role === job);
+  if (claim === undefined || claim.path === name || claim.path === ignore) return null;
+  return folderVisibleAtScope(claim.path, clearance, state.rules, state.overrides) ? claim.path : null;
 }
 
 /** Is there a folder at `folder` this caller can see? Lists that folder's own level only. */
@@ -122,6 +214,15 @@ export async function assertNoNameTwin(
         .filter((name) => (parent === "" ? name : `${parent}/${name}`) !== ignore);
       const name = segments[index];
       if (last && siblings.includes(name)) break;
+      const topFolder = index === 0 && (!last || kind === "folder");
+      // A new root folder under a job's name, while a renamed or moved folder does that job: that folder is the twin.
+      const home = topFolder ? await jobHomeElsewhere(store, name, clearance, state, ignore) : null;
+      if (home !== null) {
+        const job = jobOfName(name) as RowRole;
+        const instead = [home, ...segments.slice(1)].join("/");
+        refusal = `${home} is already this workspace's ${JOB_LABEL[job]} folder, so use ${instead} instead of making ${name}.`;
+        break;
+      }
       const twin = siblingTwin(name, siblings, { topLevelFolder: index === 0 && (!last || kind === "folder") });
       if (twin !== null) {
         const instead = [...segments.slice(0, index), twin, ...segments.slice(index + 1)].join("/");

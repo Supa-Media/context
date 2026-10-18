@@ -23,6 +23,13 @@ import { RecentRunsAside } from "../../routines/RecentRuns";
 import { TrashedRestoreBar } from "./trashed";
 import type { NoteEditorProps } from "./props";
 import type { NoteView } from "./view";
+import { BODY_LINE, type LineState } from "../lineState";
+import { parentPath } from "../paths";
+import { onAddPropertyAsked } from "./chips/addPropertyAsk";
+import { inboxFolderNow } from "../../home/homeView";
+
+/** Under a new note's "Title" in the Inbox (board 3 of `meeting-2026-10-17/phone-inbox/`). */
+export const INBOX_TITLE_HINT = "Your agent will file it";
 
 /**
  * The note itself: markdown, drawn as the document it is.
@@ -253,7 +260,19 @@ export function NoteEditor({
   /** "Other property…" under the chips' More: the Properties card opens on its Add row. */
   const [addAsked, setAddAsked] = useState(0);
   useEffect(() => setAddAsked(0), [state.path]);
+  // And ••• → Add property, where a loose note on a phone has no chip for it (`addPropertyAsk.ts`).
+  useEffect(() => onAddPropertyAsked(() => setAddAsked((asked) => asked + 1)), []);
   const controls = useRef<EditorControls | null>(null);
+  /*
+    Board 3's new note: the line under its "Title". In the Inbox the next
+    thing that happens to a note is an agent filing it, so that is what it
+    says; anywhere else a note is where it was put, and nothing is said.
+  */
+  const titleHint = state.path !== null && parentPath(state.path) === inboxFolderNow() ? INBOX_TITLE_HINT : null;
+  useEffect(() => controls.current?.titleHint(titleHint), [titleHint]);
+  /** What the caret's line is, for the Aa panel; Body until the editor says. */
+  const [lineState, setLineState] = useState<LineState>(BODY_LINE);
+  useEffect(() => setLineState(BODY_LINE), [state.path]);
   /** The selected words the Link sheet is open over, or `null` when it is shut. */
   const [linkWords, setLinkWords] = useState<string | null>(null);
   // A different note is a different editor, which holds no saved selection.
@@ -425,7 +444,7 @@ export function NoteEditor({
     // Derived above, in the order the hooks require.
     styles, editable, passphraseLocked, drawing, activityList, openedAt, button, compact,
     bodyOnly, collaborativeChange, collaborativeVersionedChange, setFocused, dictateAsked,
-    setDictateAsked, docWidth, setDocWidth, chipHost, addAsked, setAddAsked, controls, padding, barUp, voice, moving, settledAt,
+    setDictateAsked, docWidth, setDocWidth, chipHost, addAsked, setAddAsked, controls, titleHint, setLineState, padding, barUp, voice, moving, settledAt,
     scroller, offset, frontmatter, body, titled, durability, canDiscard, explains, manualSave,
   };
 
@@ -486,7 +505,16 @@ export function NoteEditor({
         `LiveEditor.tsx` for why this bar is the only way out of the keyboard
         rather than one of two.
       */}
-      {barUp ? <NoteAccessory controls={() => controls.current} onAskLink={setLinkWords} /> : null}
+      {barUp ? (
+        <NoteAccessory
+          controls={() => controls.current}
+          onAskLink={setLinkWords}
+          active={lineState}
+          // The microphone lives in the bar now (board 3): a press asks the
+          // note's `VoiceButton` to start, as the right-click menu's Dictate does.
+          onDictate={voice === null ? undefined : () => setDictateAsked((asked) => (asked ?? 0) + 1)}
+        />
+      ) : null}
       {compact && trashed !== undefined ? <TrashedRestoreBar trashed={trashed} /> : null}
 
       {/*

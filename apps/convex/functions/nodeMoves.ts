@@ -14,7 +14,8 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery, type MutationCtx } from "../_generated/server";
-import { readMirror, treeServesNow } from "./lib/nodes/listing";
+import { treeServesNow } from "./lib/nodes/listing";
+import { privacyEtagOf, readerMirror } from "./lib/nodes/readerRules";
 import { migrationPaused } from "./lib/nodes/pause";
 import { MOVES_PER_WORKSPACE, pendingMoves } from "./lib/nodes/moveOverlay";
 import { MOVE_LEASE_MS, moveRetryDelay, movesOverlap } from "./lib/nodes/moveRules";
@@ -186,9 +187,10 @@ export const activate = internalMutation({
   handler: async (ctx, args) => {
     const row = await ctx.db.get(args.id);
     if (row === null || row.state !== "preparing") return false;
-    const mirror = await readMirror(ctx.db, row.workspaceId);
+    // The version the mover was handed (`privacyEtagNow`), taken the same way here: the rows' in rows mode.
     // A trash writes no rules: its names are hidden plumbing nobody is shown.
-    const rulesCurrent = row.trash === true || (mirror?.etag ?? null) === args.privacyEtag;
+    const rulesCurrent = row.trash === true || (await privacyEtagOf(ctx, row.workspaceId)) === args.privacyEtag;
+    const mirror = await readerMirror(ctx, row.workspaceId);
     if (!rulesCurrent || !(await treeServesNow(ctx.db, row.workspaceId))) {
       await ctx.db.delete(args.id);
       return false;

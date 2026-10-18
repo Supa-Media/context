@@ -4,6 +4,8 @@ import { layout } from "../../../design/tokens";
 import { Reveal } from "../../../design/components/Reveal";
 import { DrawingEditor } from "../DrawingEditor";
 import { ActivityPage } from "../../activity/ActivityPage";
+import { ACTIVITY_PATH } from "../../activity/activity";
+import { lastChangeOf } from "../../activity/lastChange";
 import { LockedNoteView } from "../../encryption/LockedNoteView";
 import { LiveEditor } from "../LiveEditor";
 import { Properties } from "./Properties";
@@ -14,6 +16,8 @@ import { RecentRunsSection } from "../../routines/RecentRuns";
 import { editChangesTitle } from "../linkedTitle";
 import { ChipsPlacement } from "./chips/ChipsPlacement";
 import { chipsFit } from "./chips/chipModel";
+import { inProjectsNow } from "../jobIcons/jobFoldersNow";
+import { parentPath } from "../paths";
 import type { NoteView } from "./view";
 
 /**
@@ -63,6 +67,8 @@ export function noteDocument(view: NoteView) {
     collaborativeVersionedChange,
     onSave,
     controls,
+    titleHint,
+    setLineState,
     moving,
     settledAt,
     setFocused,
@@ -127,7 +133,9 @@ export function noteDocument(view: NoteView) {
     The common properties as chips under the note's name (`chips/`), on every
     note somebody writes in — a new one with no front matter included — and
     not on a website page or `privacy.md` (`chipsFit`), a drawing, the
-    activity list, or a locked or encrypted note.
+    activity list, or a locked or encrypted note. Status, Owner, Priority and
+    Due date are offered only in the Projects folder (`tracks`); elsewhere only
+    a value the note already has shows.
   */
   const chipsOn =
     state.path !== null &&
@@ -137,6 +145,16 @@ export function noteDocument(view: NoteView) {
     !activityList &&
     chipsFit(state.path);
   const adding = addAsked > 0 && wholeEdit !== undefined;
+  /*
+    Who changed this note last, when it was not the reader's own hand (board 3,
+    option A, owner 2026-10-17): Recent lists only what they did, so their
+    agents' work is said here, where the note is.
+  */
+  const changed = activity === undefined ? null : lastChangeOf(activity.entries, state.path, activity.me ?? null, Date.now());
+  const lastChange =
+    changed === null
+      ? null
+      : { text: changed.text, onOpen: onOpenNote === undefined ? undefined : () => onOpenNote(ACTIVITY_PATH) };
   // Where the note's own first character is — see the Properties call below.
   const gutter = compact ? layout.readingMargin : noteGutterFor(docWidth);
   const localTitleEdit = (text: string) => {
@@ -322,7 +340,9 @@ export function noteDocument(view: NoteView) {
             now={openedAt}
             edit={wholeEdit}
             source={folderLists}
+            tracks={inProjectsNow(parentPath(state.path!))}
             onOther={wholeEdit === undefined ? undefined : () => setAddAsked(addAsked + 1)}
+            lastChange={lastChange}
           />
         ) : null}
         <LiveEditor
@@ -384,7 +404,9 @@ export function noteDocument(view: NoteView) {
           onSave={onSave}
           controls={(api) => {
             controls.current = api;
+            api?.titleHint(titleHint);
           }}
+          onLineState={setLineState}
           /*
             A press takes the caret; a swipe hands it straight back.
 

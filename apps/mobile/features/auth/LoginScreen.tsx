@@ -18,6 +18,7 @@ import { CodeBoxes, OTP_LENGTH } from "./CodeBoxes";
 import { SignInPreview } from "./SignInPreview";
 import { PhoneSignInForm } from "./PhoneSignInForm";
 import { EMAIL_STILL_NEEDS_PHONE } from "./phoneSignIn";
+import { SHARED_NOTE_FOOT, SHARED_NOTE_INTRO, isSharedNoteNext } from "./sharedNoteNext";
 import { usePhoneSignIn } from "./usePhoneSignIn";
 
 /**
@@ -64,7 +65,10 @@ export function LoginScreen({ join }: { join?: JoinVariant }) {
   // `landAfterSignIn` for the URL that hop was measured losing.
   const onSignedIn = () => landAfterSignIn(next, (href) => router.replace(href));
   const flow = useEmailSignIn({ source: "login", onSignedIn });
-  const [mode, setMode] = useState<"phone" | "email">(join ? "email" : "phone");
+  // A link to a note in a workspace open to somebody's email domain: email
+  // first, and the copy says what happens next (`sharedNoteNext.ts`).
+  const sharedNote = join === undefined && isSharedNoteNext(next);
+  const [mode, setMode] = useState<"phone" | "email">(join || sharedNote ? "email" : "phone");
   const phoneFlow = usePhoneSignIn({ onSignedIn, onUnavailable: () => setMode("email") });
   const { step, email, code, submitting, error, resent, canSubmit } = flow;
   const view = signInView(join, step);
@@ -99,6 +103,15 @@ export function LoginScreen({ join }: { join?: JoinVariant }) {
         <>
           {join ? (
             <JoinHeading variant={join} />
+          ) : sharedNote ? (
+            <>
+              <Text role="heading" aria-level={1} style={styles.pitch}>
+                Someone shared a note with you
+              </Text>
+              <Text variant="rowSub" style={styles.sent}>
+                {SHARED_NOTE_INTRO}
+              </Text>
+            </>
           ) : (
             <>
               <Text variant="eyebrow" style={styles.eyebrow}>
@@ -237,7 +250,9 @@ export function LoginScreen({ join }: { join?: JoinVariant }) {
                 ? "Next: pick the name your notes live under."
                 : join?.kind === "invite"
                   ? JOIN_HELPER
-                  : "Context is invite only for now. Already in? We'll email you a code. Not yet? We'll add you to the waitlist."}
+                  : sharedNote
+                    ? SHARED_NOTE_FOOT
+                    : "Context is invite only for now. Already in? We'll email you a code. Not yet? We'll add you to the waitlist."}
             </Text>
           ) : null}
           {asking ? (
@@ -248,7 +263,7 @@ export function LoginScreen({ join }: { join?: JoinVariant }) {
 
           {join === undefined && view === "request" ? (
             <Text variant="foot" role="link" style={styles.link} onPress={() => setMode("phone")} testID="login-use-phone">
-              Sign in with your phone instead
+              {sharedNote ? "Use my phone instead" : "Sign in with your phone instead"}
             </Text>
           ) : null}
         </>

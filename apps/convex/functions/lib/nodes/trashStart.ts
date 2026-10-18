@@ -16,6 +16,9 @@
  * Restore while the move is still queued turns it around (`restoreQueued`),
  * and the tree draws the note back at once.
  *
+ * In a keyed workspace the trash is a row move instead (`rowTrash.ts`), to the
+ * same destination, and Restore moves the rows back at once; nothing is queued.
+ *
  * Anything this cannot do at once answers `null`, and the caller trashes the
  * old way: a store that cannot move a note safely, a name another move still
  * holds, a folder with notes the caller cannot see, rules that do not parse.
@@ -31,7 +34,9 @@ import { timestampSlug } from "../fileOps/paths";
 import { loadPrivacyState } from "../fileOps/privacyState";
 import { TRASH_ROOT, type FileStore } from "../fileOps/store";
 import { canSee } from "../privacy";
+import type { ProjectionClient } from "../fileOps/search";
 import { inventory, storeCanQueue } from "./moveStart";
+import { restoreRowTrash, startRowTrash } from "./rowTrash";
 
 /** How long Restore waits for a pass that holds the trash to let go. */
 const RESTORE_WAIT_MS = 20_000;
@@ -51,9 +56,25 @@ export async function startQueuedTrash(
     path: string;
     clearance: Clearance;
     now: number;
+    projection?: ProjectionClient | null;
+    /** An offline delete's version: a keyed trash checks it; a byte trash never takes one here. */
+    expectedEtag?: string;
   },
 ): Promise<MoveResult | null> {
   const { workspaceId, store, path, clearance, now } = args;
+  // A keyed workspace's notes live at their keys, so the trash is a row change there (`rowTrash.ts`): a byte
+  // trash would move frozen path copies and leave the note in place.
+  if (await ctx.runQuery(internal.functions.nodeRowMoves.keyedNow, { workspaceId })) {
+    return await startRowTrash(ctx, {
+      workspaceId,
+      store,
+      path,
+      clearance,
+      now,
+      projection: args.projection ?? null,
+      ...(args.expectedEtag === undefined ? {} : { expectedEtag: args.expectedEtag }),
+    });
+  }
   // Only where one object can move without losing an edit, and where the trash
   // can be restored again: `restoreTrashedPath` needs a guarded delete.
   if (!storeCanQueue(store) || store.capabilities?.conditionalDelete !== true) return null;
@@ -107,8 +128,13 @@ export async function startQueuedTrash(
  */
 export async function restoreQueuedTrash(
   ctx: ActionCtx,
-  args: { workspaceId: Id<"workspaces">; trash: string; path: string; wait?: (ms: number) => Promise<void> },
+  args: { workspaceId: Id<"workspaces">; store: FileStore; trash: string; path: string; wait?: (ms: number) => Promise<void> },
 ): Promise<"undone" | "none" | "landed"> {
+  // A keyed trash is a row move, which is moved back at once and never queued: nothing to wait for.
+  if (await ctx.runQuery(internal.functions.nodeRowMoves.keyedNow, { workspaceId: args.workspaceId })) {
+    await restoreRowTrash(ctx, { workspaceId: args.workspaceId, store: args.store, trash: args.trash, path: args.path, now: Date.now() });
+    return "undone";
+  }
   const wait = args.wait ?? sleep;
   const until = Date.now() + RESTORE_WAIT_MS;
   let waited = false;

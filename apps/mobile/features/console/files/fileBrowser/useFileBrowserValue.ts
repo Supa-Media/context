@@ -15,6 +15,7 @@ import { canResetPrivacy, canSetVisibility } from "../../capabilities";
 import { describeOp } from "../pendingMarks";
 import type { FileBrowserOptions } from "./types";
 import type { FolderIconsValues } from "./useFolderIcons";
+import type { FolderJobsValues } from "./useFolderJobs";
 import type { BuiltInFoldersValues } from "./useBuiltInFolders";
 import type { BatchValues } from "./useBatch";
 import type { BrowserStateValues } from "./useBrowserState";
@@ -132,7 +133,8 @@ type FileBrowserValueDeps =
   & Pick<ShareScopeValues, "setScope" | "setSharePreviewTitle" | "shareWithGroup">
   & Pick<PendingOpsValues, "answerOp" | "pending">
   & Pick<FolderIconsValues, "iconOf" | "setIcon" | "suggestIcon">
-  & Pick<BuiltInFoldersValues, "addBuiltInFolder">
+  & Pick<FolderJobsValues, "moveFolder" | "placeFolder">
+  & Pick<BuiltInFoldersValues, "addBuiltInFolder" | "folderJobs" | "setFolderJob">
   & Pick<OpenNoteValues, "prefetch">
   & Pick<TrashedNoteValues, "trashed" | "restoreTrashed" | "restoringTrashed" | "keptOpen">;
 
@@ -152,7 +154,8 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
     setShareCollecting, setSharePreviewTitle,
     setShareSlug, setVisibility, share, shareWithGroup, shares, storeImage, submitForm, toasts,
     toggleFolder, updateFormResponse, updateStorageLayout, useTheirs, voteForm, iconOf, setIcon, suggestIcon,
-    addBuiltInFolder, prefetch, trashed, restoreTrashed, restoringTrashed, keptOpen,
+    addBuiltInFolder, folderJobs, setFolderJob, prefetch, trashed, restoreTrashed, restoringTrashed, keptOpen, moveFolder,
+    placeFolder,
   } = deps;
 
   return useMemo(
@@ -162,6 +165,10 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
       setIcon,
       suggestIcon,
       addBuiltInFolder,
+      folderJobs,
+      setFolderJob,
+      moveFolder,
+      placeFolder,
       submitForm,
       loadImage,
       storeImage,
@@ -409,6 +416,10 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
       setIcon,
       suggestIcon,
       addBuiltInFolder,
+      folderJobs,
+      setFolderJob,
+      moveFolder,
+      placeFolder,
     ],
   );
 }

@@ -103,20 +103,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { AsidePanel } from "../features/console/aside/AsidePanel";
 import { NO_MEETING } from "../features/console/aside/tabs";
-import type { ApprovalsView } from "../features/approvals/useApprovals";
-
-/** A console that can answer approvals, with nothing waiting. */
-const APPROVALS: ApprovalsView = {
-  available: true,
-  phase: "listed",
-  loading: false,
-  items: [],
-  error: null,
-  busyId: null,
-  notice: null,
-  refresh: () => {},
-  decide: () => {},
-};
+import { APPROVALS, NOTHING_WAITING } from "./approvalsFixture";
 
 /** A running meeting, in the shape `MeetingsSnapshot.live` carries. */
 function recording(state: "recording" | "paused" = "recording") {
@@ -285,6 +272,12 @@ describe("the tabs", () => {
     expect(panel.find("aside-meetings")).toBeNull();
     panel.press("aside-tab-meetings");
     expect(panel.find("aside-meetings")).not.toBeNull();
+  });
+
+  test("with nothing waiting there is no Approvals tab", () => {
+    const panel = mount({ approvals: NOTHING_WAITING });
+    expect(panel.find("aside-tab-meetings")).not.toBeNull();
+    expect(panel.find("aside-tab-approvals")).toBeNull();
   });
 
   test("a console that cannot answer approvals shows Meetings alone", () => {

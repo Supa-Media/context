@@ -1,4 +1,6 @@
-import { check, rpc, call, succeeded, contextStore, objects, controlPlane, modernFetch } from "./harness.mjs";
+import { check, rpc, call, succeeded, contextStore, objects, controlPlane, modernFetch, env, accessTokenFor } from "./harness.mjs";
+import { fullToolList } from "./fullToolList.mjs";
+
 import {
   PNG_BYTES,
   PNG_BASE64,
@@ -15,8 +17,8 @@ export async function runAttachmentsCoreChecks() {
 
   // -- images: resolve-by-reference over an opaque, unlistable store
   //
-  // The calendar cron checks above replace globalThis.fetch to serve an ICS feed;
-  // these checks authenticate for real, so the control plane goes back first.
+  // Earlier checks may have replaced globalThis.fetch; these authenticate for
+  // real, so the control plane goes back first.
   controlPlane.install();
   //
   // The premise of the whole feature. `.context/assets/images/` is plumbing, so it is invisible
@@ -61,14 +63,14 @@ export async function runAttachmentsCoreChecks() {
   );
   await contextStore.put("1-projects/portable/no-image.md", "# team note with no image at all\n");
 
-  const imageTools = await rpc("priv-token", "tools/list");
+  const imageTools = await fullToolList(env, accessTokenFor("priv-token"), contextStore);
   check(
     "read_image is discoverable and read-only",
-    imageTools.result?.tools.find((tool) => tool.name === "read_image")?.annotations?.readOnlyHint === true
+    imageTools.find((tool) => tool.name === "read_image")?.annotations?.readOnlyHint === true
   );
   check(
     "a read-only grant may still resolve images",
-    (await modernFetch({ method: "tools/list", token: "readonly-token" })).body.result?.tools.some(
+    (await fullToolList(env, accessTokenFor("readonly-token"), contextStore)).some(
       (tool) => tool.name === "read_image"
     )
   );
@@ -255,28 +257,25 @@ export async function runAttachmentsCoreChecks() {
    * `effectiveVisibility` is `overrides?.get(key) || visibilityOf(key, rules)`,
    * an exact `Map.get`; `isPlumbing` opens with `key === PRIVACY_KEY`. Both are
    * sound on a keyspace where one string is one object, which is what R2 and S3
-   * are — and `DropboxStore` is not. Its own header says so, in the list of
-   * things that make Dropbox not a keyspace:
-   *
-   *   > **Case-insensitive, Unicode-folding paths.** Dropbox treats `Foo.md` and
-   *   > `foo.md` as the same file and normalises Unicode. Nothing here tries to
-   *   > paper over that: the keys this product writes are already normalised …
+   * are — and a store that folds case is not. Such a store treats `Foo.md` and
+   * `foo.md` as the same file and normalises Unicode. Nothing here tries to paper
+   * over that: the keys this product writes are already normalised.
    *
    * The keys *this product* writes are. The keys a **caller** supplies are not,
    * and `write_note`, `read_note`, `move_note` and `propose_note` all take a
-   * path straight from the connected AI client. So on a Dropbox-backed context
+   * path straight from the connected AI client. So on a case-folding context
    * two different strings name one file while the privacy engine scores them as
    * two different notes, and the score that matters is the one the attacker
    * picks:
    *
    *  - `Privacy.md` is not `privacy.md`, so `isPlumbing` does not reserve it —
-   *    and Dropbox writes it to the manifest anyway. That is `write_note`
+   *    and the store writes it to the manifest anyway. That is `write_note`
    *    rewriting the file that decides what every team connection may read,
    *    through the one path the tool answers "that path is reserved" for.
    *  - `1-projects/portable/Override-Image.md` misses the override Map, but the
    *    FOLDER rule `1-projects: team` still matches — folder matching is a
    *    prefix compare that the re-casing above leaves untouched. So the note
-   *    scores `team`, and Dropbox hands back the private file.
+   *    scores `team`, and a case-folding store hands back the private file.
    *
    * The direction is what makes this a hole rather than a wobble. Re-casing a
    * *folder* makes every rule miss and `visibilityOf` falls back to `private`,
@@ -284,13 +283,13 @@ export async function runAttachmentsCoreChecks() {
    * drops only the narrowing override, which fails open — the exception
    * mechanism, again, and the same one the fixture above exists for.
    *
-   * These assertions are about the DECISION, not about Dropbox: this suite's
+   * These assertions are about the DECISION, not about any one store: this suite's
    * store stub is case-sensitive, so the twin below is a genuinely different
    * object here and refusing it is the fail-closed cost of the fix rather than
    * the vulnerability itself. That cost is the point. A privacy answer that
    * depends on which backend is underneath is an answer nobody can check, so the
    * engine gives the restrictive one everywhere and the adapter is left alone —
-   * which is also what `DropboxStore` asks for when it says a store that
+   * which is also what the adapters ask for when they say a store that
    * silently re-cased a caller's key would be worse than one that does not.
    */
   const recasedManifest = await call("priv-token", "write_note", {

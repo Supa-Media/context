@@ -58,3 +58,29 @@ export const listServed = internalQuery({
     return { kind: "listing" as const, ...listing };
   },
 });
+
+/** The most paths one `editedAt` call reads: more than a search page ever holds. */
+const EDITED_AT_CAP = 100;
+
+/**
+ * When each of these notes was last written, for search's rows ("edited Sep
+ * 12"), from the tree rows' `uploaded`. `null` where the tree has no live row.
+ *
+ * INTERNAL, and only ever asked for paths a search has already passed through
+ * the caller's `canSee`: a time is a fact about a note somebody may see, and
+ * this never decides who that is. Capped, because a page is a few dozen rows.
+ */
+export const editedAt = internalQuery({
+  args: { workspaceId: v.id("workspaces"), paths: v.array(v.string()) },
+  returns: v.array(v.union(v.number(), v.null())),
+  handler: async (ctx, { workspaceId, paths }) =>
+    await Promise.all(
+      paths.slice(0, EDITED_AT_CAP).map(async (path) => {
+        const row = await ctx.db
+          .query("nodes")
+          .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
+          .first();
+        return row === null || row.goneAt !== undefined || row.kind !== "file" ? null : (row.uploaded ?? null);
+      }),
+    ),
+});

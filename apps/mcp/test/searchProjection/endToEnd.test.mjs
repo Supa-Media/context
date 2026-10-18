@@ -25,6 +25,7 @@ import {
   s3Binding,
   worker,
 } from "./fixtures.mjs";
+import { fillSearchDatabase } from "./fill.mjs";
 
 const TOKEN = `cat_projection_${"0".repeat(24)}`;
 const WS = "ws_projection";
@@ -103,10 +104,13 @@ export async function runEndToEndChecks(check) {
   // run that asserted nothing.
   const logs = [];
   const realLog = console.log;
-  console.log = (...args) => {
+  const realError = console.error;
+  const record = (real) => (...args) => {
     logs.push(args.map((value) => String(value)).join(" "));
-    realLog(...args);
+    real(...args);
   };
+  console.log = record(realLog);
+  console.error = record(realError);
 
   async function search(query, budget) {
     const harness = createWorkerCtx();
@@ -204,8 +208,9 @@ export async function runEndToEndChecks(check) {
     // A context with a search database answers from it alone (decided by the
     // owner, 2026-10-13: only opening or editing a note reads storage), so a
     // database refusing every read leaves a search that answers, says it is
-    // still catching up, and quotes nothing out of the bucket. The passes
-    // behind it still run, which is what reports the failure below.
+    // still catching up, and quotes nothing out of the bucket. Nothing runs
+    // behind it: filling and repairing the database is the control plane's
+    // (decided by the owner, 2026-10-17), and so is reporting its failures.
     let degraded = null;
     for (let round = 0; round < 3; round += 1) {
       if (round === 1) seed("1-projects/gamma.md", "# Gamma\n\nA later quokka note.\n", "g0");
@@ -221,10 +226,7 @@ export async function runEndToEndChecks(check) {
         !JSON.stringify(degraded.body).includes("1-projects/"),
     );
     check("and nothing was copied", projectedCount() === 0);
-    const failures = progressReports()
-      .map((call) => call.body.errorCode)
-      .filter(Boolean);
-    check("the failure is reported rather than swallowed", failures.includes("UNAUTHORIZED"));
+    check("and a search reports no copy progress of its own", progressReports().length === 0);
     check(
       "as our code, never the provider's sentence",
       !JSON.stringify(controlPlane.calls).includes("not authorized") &&
@@ -232,31 +234,38 @@ export async function runEndToEndChecks(check) {
     );
     d1.state.fail = null;
 
-    // -- and then it converges ---------------------------------------------
-    // -- one search, on a paid-plan budget, converges the whole backfill ----
+    // -- a search never fills the database ---------------------------------
     //
-    // The point of the chain. A pass copies `D1_PASS_NOTE_CAP` notes at most,
-    // so without it this single search would leave twenty-odd notes behind and
-    // the owner would watch a counter creep one search at a time. The R2 index
-    // is already converged here, so there is no sync in front of this: the
-    // projection buys its own census and keeps going on its own.
+    // It used to: every search on a filling database copied a few notes behind
+    // its answer, on the search's own budget, and a Tex turn that searched four
+    // workspaces spent hundreds of calls doing it (2026-10-16). Now a search on
+    // a paid-plan budget writes nothing, and the database is filled the way the
+    // control plane fills it.
     controlPlane.calls.length = 0;
     const projectionRequestsBefore = d1.requests.length;
     await search("quokka", 600);
     check(
-      "one search converges a backfill no single pass could",
-      d1.rows("SELECT COUNT(*) AS n FROM notes")[0].n === SEEDED_NOTES + 1,
+      "a search on a filling database copies nothing into it",
+      projectedCount() === 0 &&
+        d1.requests
+          .slice(projectionRequestsBefore)
+          .every((request) => !/^\s*(INSERT|DELETE|UPDATE|REPLACE)/i.test(request.sql)),
     );
+    check("and reports nothing about the copy", progressReports().length === 0);
+    const seeded = [...bucket.entries()]
+      .filter(([path]) => path.endsWith(".md") && path !== "privacy.md")
+      .map(([path, object]) => ({
+        path,
+        content: object.body,
+        visibility: path.startsWith("1-projects/") ? "team" : "private",
+        version: object.etag,
+      }));
+    fillSearchDatabase(d1.dbFor(DATABASE_ID), seeded);
     check(
-      "which took more than one pass, chained inside the one invocation",
-      d1.requests.length - projectionRequestsBefore > 0 &&
-        SEEDED_NOTES + 1 > 20,
+      "the control plane's copy holds the whole context",
+      projectedCount() === SEEDED_NOTES + 1,
     );
-    check(
-      "and reported once at the end rather than once per link",
-      progressReports().length === 1,
-    );
-    const reportsFromConvergence = progressReports().slice();
+
 
     // The control plane does its half: the row is `ready`, so the next binding
     // says so. That is what stops the projection re-asserting a fact nobody
@@ -287,8 +296,9 @@ export async function runEndToEndChecks(check) {
      *
      * So it is split in two. The backfill really must go quiet once the row is
      * ready, and that is the first half. The second is that a search now
-     * *asks*: a personal connection reads both tiers, so four searches make
-     * eight reads and not one write.
+     * *asks*: a personal connection reads both tiers, in one batched request
+     * (decided by the owner, 2026-10-17), so four searches make four reads
+     * and not one write.
      */
     check(
       "and the backfill stops writing entirely",
@@ -296,7 +306,7 @@ export async function runEndToEndChecks(check) {
     );
     check(
       "while a search now actually asks the projection it filled",
-      reads(settledRequests).length === 8,
+      reads(settledRequests).length === 4,
     );
     check(
       "and asks it nothing else — no census, no cursor, no listing",
@@ -330,7 +340,7 @@ export async function runEndToEndChecks(check) {
 
     const projected = d1.rows("SELECT path, visibility FROM notes ORDER BY path");
     check(
-      "repeated searches copy the whole context into its own database",
+      "the whole context is in its own database",
       projected.length === SEEDED_NOTES + 2,
     );
     check(
@@ -379,16 +389,17 @@ export async function runEndToEndChecks(check) {
         .length > 0,
     );
 
-    const reports = reportsFromConvergence.concat(progressReports());
-    check("progress reaches the control plane", reports.length > 0);
-    const last = reports[reports.length - 1].body;
+    // A write to a ready database still tells the control plane the count,
+    // so the row stays honest without a search having to.
+    const lastReport = progressReports().at(-1)?.body;
     check(
-      "with counts that match the rows in the database",
-      last.notesIndexed === projectedCount(),
+      "a write reports the count the database holds",
+      lastReport?.notesIndexed === projectedCount() && lastReport?.state === "ready",
     );
-    check("against the workspace the search ran in", last.workspaceId === WS);
-    check("and it ends by saying the projection is ready", last.state === "ready");
-    check("with nothing pending", last.notesPending === 0);
+    check(
+      "a progress report carries counts, never a path or a query",
+      !JSON.stringify(progressReports().map((call) => call.body)).match(/vitals|quokka|echidna|1-projects/),
+    );
 
     const collaborativeWrite = await collaborate(
       "1-projects/p00.md",
@@ -401,16 +412,6 @@ export async function runEndToEndChecks(check) {
         collaborativeWrite.body.text.includes("axolotl") &&
         JSON.stringify(collaborativeSearch.body).includes("1-projects/p00.md"),
     );
-    const bodies = JSON.stringify(reports.map((call) => call.body));
-    check(
-      "a progress report carries counts, never a path or a query",
-      !bodies.includes("vitals") && !bodies.includes("quokka") && !bodies.includes("diagnosis"),
-    );
-    check(
-      "and never a credential",
-      !bodies.includes(API_TOKEN) && !bodies.includes(ACCOUNT_ID),
-    );
-
     // D1 is a disposable derivative. Even three consecutive provider
     // refusals must not turn a successful canonical bucket write into a
     // failed write, and retrying must not leak provider details to the caller.
@@ -484,6 +485,7 @@ export async function runEndToEndChecks(check) {
     );
   } finally {
     console.log = realLog;
+    console.error = realError;
     restoreControlPlane();
     restoreD1();
     restoreS3();

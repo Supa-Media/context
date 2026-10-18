@@ -131,6 +131,30 @@ Moved to [The Gmail connection: control plane, sync algorithm, and what phase 1 
 
 Moved to [The forward sync loop: a pull, on a floor of five minutes](./communications/gmail-and-sync-loop.md#the-forward-sync-loop-a-pull-on-a-floor-of-five-minutes).
 
+### A first connect reads the last fifty messages, and that is not a backfill
+
+In [A first connect reads the last fifty messages, and that is not a backfill](./communications/gmail-and-sync-loop.md#a-first-connect-reads-the-last-fifty-messages-and-that-is-not-a-backfill).
+
+### Push makes a pass due sooner; the loop still does everything
+
+Moved to [Push makes a pass due sooner; the loop still does everything](./communications/google-push.md#push-makes-a-pass-due-sooner-the-loop-still-does-everything).
+
 ## Calendar
 
 Moved to [Calendar](./communications/calendar.md#calendar).
+
+### No email leaves without the person's yes to that exact copy
+
+Moved to [No email leaves without the person's yes to that exact copy](./communications/sending-email.md#no-email-leaves-without-the-persons-yes-to-that-exact-copy).
+
+### No calendar change is made without the person's yes to that exact change
+
+Moved to [No calendar change is made without the person's yes to that exact change](./communications/calendar-writes.md#no-calendar-change-is-made-without-the-persons-yes-to-that-exact-change).
+
+### Synced mail first, then Gmail for what the sync does not hold
+
+Moved to [Synced mail first, then Gmail for what the sync does not hold](./communications/reading-mail.md#synced-mail-first-then-gmail-for-what-the-sync-does-not-hold).
+
+### A pass fetches only the mail it has not seen
+
+Moved to [A pass fetches only the mail it has not seen](./communications/gmail-and-sync-loop.md#a-pass-fetches-only-the-mail-it-has-not-seen).

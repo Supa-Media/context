@@ -59,6 +59,24 @@ const TOOL_NAME_ALIASES = new Map([["archive_chat", "save_context"]]);
 const UNLISTED_TOOLS = new Set(["create_form"]);
 
 /**
+ * The six tools an MCP client is offered since v2 (decided 2026-10-16,
+ * docs/decisions/gateway-protocol/six-tools.md). Every other tool is still
+ * defined, still validated and still answered by name, for a client holding
+ * a copy of the list from before; it is simply no longer offered. The texting
+ * assistant's guards are written against the full list (`shape: "v1"`), and
+ * it is shown the six over whatever those guards leave (`agent/sixTools.js`).
+ */
+export const V2_TOOLS = new Set(["orient", "search", "fetch", "write", "manage", "send"]);
+
+/** The v2-only names, which the full (v1) list does not show. */
+const V2_ONLY_TOOLS = new Set(["write", "manage", "send"]);
+
+/** The advertised schema for a name, for `v2/translate.js`. */
+export function advertisedSchema(name) {
+  return advertisedSchemaFor(name);
+}
+
+/**
  * The name a tool is known by in the dispatch table: an alias resolved, any
  * other name unchanged. The egress gate classifies a call by this, never by
  * the spelling the client used, because a gate that reads the old name of
@@ -83,6 +101,62 @@ function advertisedSchemaFor(name) {
     advertisedSchemas = new Map(toolDefinitions().map((tool) => [tool.name, tool.inputSchema]));
   }
   return advertisedSchemas.get(TOOL_NAME_ALIASES.get(name) ?? name) ?? null;
+}
+
+/**
+ * The arguments with each top-level value a stale client sent as text read
+ * as the type the advertised schema gives it, or `args` itself when nothing
+ * needs reading.
+ *
+ * A client builds a call from its own copy of a tool. A property that copy
+ * does not show has no type there, so a client such as Claude Code sends
+ * what the model wrote as a string: `orient { tools: true }` arrived as
+ * `tools: "true"` on 2026-10-15 and was refused. Every non-string argument
+ * added after a client connected would be refused the same way, which
+ * defeats `orient`'s live tool list (`tools/liveList.js`).
+ *
+ * Narrow on purpose. Only a top-level string, only where the schema's type
+ * has no `string` in it (so a path or a note body is never reinterpreted),
+ * and only text that is exactly that type: `true`/`false`, a whole number
+ * for an integer, a finite number, or JSON that parses to an object or an
+ * array. Anything else is left as sent, and `toolArgumentRefusal` refuses it
+ * exactly as before; the result is validated in full either way.
+ */
+export function coercedArguments(name, args) {
+  if (!args || typeof args !== "object" || Array.isArray(args)) return args;
+  const properties = advertisedSchemaFor(name)?.properties;
+  if (!properties) return args;
+  let out = args;
+  for (const [key, value] of Object.entries(args)) {
+    if (typeof value !== "string" || !Object.hasOwn(properties, key)) continue;
+    const read = readAs(properties[key]?.type, value);
+    if (read === undefined) continue;
+    if (out === args) out = { ...args };
+    out[key] = read;
+  }
+  return out;
+}
+
+/** `text` as one of `type`'s non-string types, or `undefined` when it is not one. */
+function readAs(type, text) {
+  const types = Array.isArray(type) ? type : [type];
+  if (types.includes("string") || types.includes(undefined)) return undefined;
+  for (const each of types) {
+    if (each === "boolean" && (text === "true" || text === "false")) return text === "true";
+    if (each === "integer" && /^-?\d{1,15}$/.test(text)) return Number(text);
+    if (each === "number" && /^-?\d+(\.\d+)?$/.test(text)) return Number(text);
+    if (each === "object" || each === "array") {
+      let parsed;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        continue;
+      }
+      const isArray = Array.isArray(parsed);
+      if (each === "array" ? isArray : parsed !== null && typeof parsed === "object" && !isArray) return parsed;
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -115,7 +189,7 @@ export function toolArgumentRefusal(name, args, scope) {
  * decided, so adding a protocol revision can never quietly add a second, laxer
  * copy of either.
  */
-export async function toolsForSession(session, store) {
+export async function toolsForSession(session, store, { shape = "v2" } = {}) {
   const offered = writesAnywhere(session)
     ? toolDefinitions()
     : toolDefinitions().filter((tool) => tool.annotations?.readOnlyHint === true);
@@ -144,5 +218,8 @@ export async function toolsForSession(session, store) {
   // Last, so that everything above still reasons about the whole surface: an
   // unlisted tool is one this server stopped *recommending*, not one it
   // stopped answering. See `UNLISTED_TOOLS`.
-  return enabled.filter((tool) => !UNLISTED_TOOLS.has(tool.name));
+  const listed = enabled.filter((tool) => !UNLISTED_TOOLS.has(tool.name));
+  return shape === "v1"
+    ? listed.filter((tool) => !V2_ONLY_TOOLS.has(tool.name))
+    : listed.filter((tool) => V2_TOOLS.has(tool.name));
 }

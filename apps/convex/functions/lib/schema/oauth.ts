@@ -2,8 +2,7 @@ import { defineTable } from "convex/server";
 import { v } from "convex/values";
 
 /**
- * MCP OAuth clients, parked authorizations, per-client grants, and Dropbox's
- * connect round trip.
+ * MCP OAuth clients, parked authorizations, and per-client grants.
  *
  * One slice of the control-plane schema, spread into `defineSchema` by
  * `apps/convex/schema.ts` in declaration order. Metadata only — see that
@@ -178,83 +177,6 @@ export const oauthTables = {
    * revocable. Revoking ChatGPT must not log Claude out, which is why the
    * grant, not the user session, is the unit of authority.
    */
-  /**
-   * A Dropbox connect that has been started and not yet answered.
-   *
-   * ## Why this table exists at all
-   *
-   * The OAuth redirect comes back through the customer's browser, which means
-   * the only thing tying the returned code to the flow that started it is a
-   * value we minted and can recognise. Without one, an attacker completes
-   * *their own* Dropbox authorization, hands the victim the resulting callback
-   * URL, and the victim's context is bound to storage the attacker controls —
-   * silently, and permanently. Every note the victim writes then lands
-   * somewhere else. That is worse than a leaked token, and it is the reason
-   * this is a row rather than a query parameter.
-   *
-   * ## What is stored, and in what form
-   *
-   * `hashedState` is a digest, not the value: the raw `state` travels in a URL
-   * and lands in browser history, a referrer header, and possibly a proxy log,
-   * so the copy at rest is the one that must not be usable if this table
-   * leaks. Same reasoning as `oauthGrants.hashedRefreshToken`.
-   *
-   * `encryptedVerifier` is encrypted rather than hashed, because unlike a
-   * token it has to be *replayed* to Dropbox at the exchange. It is the whole
-   * proof of PKCE and it **never goes to the browser** — the client asks for a
-   * URL and gets only a URL.
-   *
-   * `workspaceId` and `startedBy` are what make the callback verifiable as the
-   * same person's flow, not merely a well-formed one.
-   */
-  dropboxConnectAttempts: defineTable({
-    /** SHA-256 of the state value. The raw value exists only in the URL. */
-    hashedState: v.string(),
-    /**
-     * SHA-256 of a second value that **never travels through Dropbox**.
-     *
-     * `state` goes out in the authorize URL and comes back in the callback, so
-     * whoever built the URL knows it — including somebody who built it for
-     * their own workspace and sent it to another person. This is the value
-     * that separates those two: minted at start, returned to the starting
-     * browser alone, kept there, and required back at completion. It is what
-     * makes `state` browser-bound in the sense RFC 6749 §10.12 means, without
-     * a session — `#76` removed the session gate on the callback for a real
-     * reason and this must not reintroduce one.
-     *
-     * Optional only because attempts parked before it existed have none, and
-     * those are refused rather than trusted.
-     */
-    hashedCompletion: v.optional(v.string()),
-    /** The PKCE verifier, sealed with the workspace id as AAD. */
-    encryptedVerifier: v.string(),
-    workspaceId: v.id("workspaces"),
-    startedBy: v.id("users"),
-    /** The redirect the flow was started for; the exchange must reuse it. */
-    redirectUri: v.string(),
-    /** The folder the person chose, carried across the redirect. */
-    rootPrefix: v.optional(v.string()),
-    /**
-     * Where the person was when they left, carried across the redirect.
-     *
-     * The redirect destroys the page that started it, and the redirect URI
-     * cannot carry this — Dropbox matches it exactly. Without it, connecting
-     * Dropbox during first-run navigated away mid-flow and the welcome gate
-     * then routed the returning owner to the console: the layout and agents
-     * steps simply never happened. Seen on the first live run.
-     */
-    resumeTo: v.optional(v.literal("onboarding")),
-    /**
-     * Short. An authorization that has not come back within a few minutes is a
-     * tab somebody abandoned, and a parked verifier is a live half-credential
-     * — there is no reason to keep one for a day.
-     */
-    expiresAt: v.number(),
-    createdAt: v.number(),
-  })
-    .index("by_hashed_state", ["hashedState"])
-    .index("by_expiresAt", ["expiresAt"]),
-
   oauthGrants: defineTable({
     /** Ephemeral first-party browser instance; never an authorization credential. */
     consoleInstanceId: v.optional(v.string()),
@@ -310,6 +232,17 @@ export const oauthTables = {
     previousHashedRefreshToken: v.optional(v.string()),
     status: v.union(v.literal("active"), v.literal("revoked")),
     lastUsedAt: v.optional(v.number()),
+    /**
+     * Epoch ms of the last `tools/list` this grant's client asked for.
+     *
+     * A client caches our tool list and re-fetches on its own schedule, so a
+     * connection can go on describing our tools as they were the day it
+     * connected. `orient` names what changed since this moment (or since
+     * `createdAt` for a client that has not listed since the field existed),
+     * which is the only way to reach a client that never refreshes. A time,
+     * nothing about what was listed.
+     */
+    toolsListedAt: v.optional(v.number()),
     createdAt: v.number(),
     revokedAt: v.optional(v.number()),
   })

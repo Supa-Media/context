@@ -1,12 +1,12 @@
 /**
  * Google's OAuth mechanics, as pure functions over a stubbed socket. Same
- * shape and the same four things that have to hold as `dropboxOAuth.test.ts`
- * — see that file's header for the full argument — restated here for a
- * different provider and a different id-token trust boundary:
+ * shape and the same four things that have to hold for every connect flow,
+ * restated here for a different provider and a different id-token trust
+ * boundary:
  *
- *  1. PKCE is reused from `dropboxOAuth.ts` rather than reimplemented, so its
- *     own test already pins the RFC 7636 vector; this file proves the reuse
- *     actually happened.
+ *  1. PKCE is reused from `pkce.ts` rather than reimplemented, so its own test
+ *     already pins the RFC 7636 vector; this file proves the reuse actually
+ *     happened.
  *  2. No code, verifier, or token reaches an error.
  *  3. `invalid_grant` is not a transient failure.
  *  4. Nothing secret is in a URL — and specifically here, the account
@@ -25,6 +25,7 @@
  */
 
 import { describe, expect, test } from "vitest";
+import { validateLoginHint } from "../functions/lib/googleConnect/loginHint";
 import {
   CALENDAR_SCOPES,
   CHAT_SCOPES,
@@ -203,6 +204,29 @@ describe("the authorize URL", () => {
       }),
     );
     expect(url.searchParams.get("include_granted_scopes")).toBe("true");
+  });
+
+  test("a reconnect names the account to Google as login_hint, and a new connect names none", () => {
+    const base = {
+      clientId: FAKE_CLIENT_ID,
+      redirectUri: FAKE_REDIRECT_URI,
+      challenge: RFC7636_CHALLENGE,
+      state: FAKE_STATE,
+      scopes: GMAIL_REQUEST_SCOPES,
+    };
+    const reconnect = new URL(googleAuthorizeUrl({ ...base, loginHint: "person@example.invalid" }));
+    expect(reconnect.searchParams.get("login_hint")).toBe("person@example.invalid");
+    // Still forced consent: a hint must not turn a reconnect into a silent re-approval.
+    expect(reconnect.searchParams.get("prompt")).toBe("consent");
+    expect(new URL(googleAuthorizeUrl(base)).searchParams.has("login_hint")).toBe(false);
+  });
+
+  test("a login hint is an address or refused, never free text copied into the URL", () => {
+    expect(validateLoginHint(undefined)).toBeUndefined();
+    expect(validateLoginHint(" person@example.invalid ")).toBe("person@example.invalid");
+    for (const bad of ["", "not an address", "a@b c", "x".repeat(321) + "@e.invalid"]) {
+      expect(() => validateLoginHint(bad)).toThrow();
+    }
   });
 
   test("refuses a URL with no state — an optional CSRF token is one that gets omitted", () => {

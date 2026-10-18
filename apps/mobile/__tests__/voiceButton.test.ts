@@ -143,6 +143,8 @@ function fakeControls() {
   const controls = {
     wrap: () => {},
     toggleLinePrefix: () => {},
+    lineStyle: () => {},
+    titleHint: () => {},
     insertLink: () => {},
     applyLink: () => {},
     cancelLink: () => {},

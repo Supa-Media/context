@@ -32,8 +32,8 @@ import {
   keysIn,
   meetingRequest,
   segment,
-  toolDefinition,
 } from "./fixtures.mjs";
+import { fullToolList } from "../fullToolList.mjs";
 
 /** @param {(label: string, ok: boolean) => void} check */
 export async function runMeetingFolderChecks(check, harness) {
@@ -603,7 +603,9 @@ export async function runMeetingFolderChecks(check, harness) {
     folder it names, that it is not everything, and where to go instead — so
     the sentence may be rewritten but not quietly re-broadened.
   */
-  const listDefinition = await toolDefinition(env, TOKEN_OWNER, "list_meetings");
+  // The full list (`fullToolList.mjs`): list_meetings is an older name, which
+  // `tools/list` answers only through the six v2 tools now.
+  const listDefinition = (await fullToolList(env, TOKEN_OWNER)).find((tool) => tool.name === "list_meetings");
   const listedDescription = listDefinition?.description || "";
   check("the tool's own description names the folder it reads", listedDescription.includes("0-inbox/meetings"));
   check(

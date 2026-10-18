@@ -12,7 +12,7 @@ import type { Doc, Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
 import { recordAudit } from "../audit";
 import { SCOPE_PRIVATE, SCOPE_READ, SCOPE_WRITE, clampScopes, hasOperationScope } from "../consentScopes";
-import { accountTimeZone, routineRecipients, writingRole } from "./access";
+import { accountTimeZone, routineRecipients, runsRoutines, writingRole } from "./access";
 import {
   MAX_DUE_RUNS,
   ONE_OFF_RETRY_EVERY_MS,
@@ -23,11 +23,12 @@ import {
   ROUTINE_GRANT_TTL_MS,
   ROUTINE_LEASE_MS,
   WRITER_GONE,
+  WRITER_UNKNOWN,
   effectiveTimeZone,
   isRoutineOutcome,
   nextRunFor,
 } from "./model";
-import { scheduleReconcile } from "./sync";
+import { fallsBackToOwner, scheduleReconcile } from "./sync";
 
 const ROUTINE_SCOPES = [SCOPE_READ, SCOPE_WRITE, SCOPE_PRIVATE];
 
@@ -80,12 +81,27 @@ export async function claimDueRoutinesHandler(
     if (runs.length >= limit) break;
     if (leaseIsLive(row, now)) continue;
 
+    const workspace = await ctx.db.get(row.workspaceId);
+    if (workspace === null || !runsRoutines(workspace)) {
+      // Asked when a run is handed out, so a shared workspace's row left from
+      // before routines were personal-only goes now, not at the next scan.
+      await ctx.db.delete(row._id);
+      continue;
+    }
     const role = await writingRole(ctx, row.workspaceId, row.writerUserId);
     if (role === null) {
       // Asked now, not when the row was written: a writer who left, was made a
       // member, or deleted their account no longer runs anything here.
       await ctx.db.patch(row._id, { nextRunAt: null, lastOutcome: WRITER_GONE, updatedAt: now });
       continue;
+    }
+    if (row.writerSource === "fallback") {
+      // Asked now too, so a row written before this rule never runs as the
+      // owner of a shared workspace: nobody was seen writing it there.
+      if (!(await fallsBackToOwner(ctx.db, workspace))) {
+        await ctx.db.patch(row._id, { nextRunAt: null, lastOutcome: WRITER_UNKNOWN, updatedAt: now });
+        continue;
+      }
     }
     const scopes = clampScopes(ROUTINE_SCOPES, role);
     if (!hasOperationScope(scopes)) continue;
@@ -126,10 +142,8 @@ export async function claimDueRoutinesHandler(
       path: row.path,
       timeZone: zone,
       send: row.send,
-      // A routine nobody was seen writing runs as the owner, so it texts only
-      // the owner: its `to:` could have been written by anyone who reached
-      // the folder without a signal, naming themselves.
-      phones: await routineRecipients(ctx, { ...row, to: row.writerSource === "signal" ? row.to : [] }),
+      // The writer's own phone and nobody else's.
+      phones: await routineRecipients(ctx, row),
     });
   }
   return runs;

@@ -32,6 +32,14 @@
  *     `nothing is said about a meeting that captured nothing`.
  *  3. Retry wired to `meetings.retry` for every kind, ignoring `landing.retry`.
  *     → **1 fails**: `a failed finalize is retried as a finalize`.
+ *  4. `unacknowledgedStranded` swapped back for `strandedMeetings`.
+ *     → **1 fails**: `a closed notice stays closed for the same problem`.
+ *
+ * ## Closable, since 2026-10-17
+ *
+ * The first version had no dismiss, and on the desktop it sat over the note
+ * list for days ("it's blocking everything"). It now closes per problem: the
+ * meeting stays in the list and on its page, and a new problem reopens it.
  */
 
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
@@ -68,7 +76,15 @@ jest.mock("../features/meetings/controller", () => {
     mockCalls.push({ name, args });
     return Promise.resolve();
   };
-  return { meetings: { retry: record("retry"), retryFinalize: record("retryFinalize") } };
+  return {
+    meetings: {
+      retry: record("retry"),
+      retryFinalize: record("retryFinalize"),
+      dismissNotice: (...args: unknown[]) => {
+        mockCalls.push({ name: "dismissNotice", args });
+      },
+    },
+  };
 });
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -77,6 +93,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { StrandedBar } from "../features/meetings/components/StrandedBar";
 import { ERRORS } from "../features/meetings/protocol";
+import { landingKey, meetingLanding } from "../features/meetings/landing";
 
 /* -------------------------------------------------------------------------- */
 
@@ -176,7 +193,7 @@ describe("when it is up", () => {
     const bar = mount();
     expect(bar.find("stranded-bar")).not.toBeNull();
     expect(bar.text()).toContain("Jhon / Seyi");
-    expect(bar.text()).toContain("Not saved");
+    expect(bar.text()).toContain("not saved");
   });
 
   test("and so does a refusal", () => {
@@ -252,14 +269,31 @@ describe("what it offers", () => {
     expect(node.getAttribute("aria-label")).toContain("not saved");
   });
 
-  test("there is no way to dismiss it — it goes when the meeting is filed", () => {
-    /*
-      The whole difference between this and a toast. A meeting that did not
-      save is still not saved eight seconds later.
-    */
-    mockRecords = [meeting()];
+  test("it can be closed, which closes every meeting it names", () => {
+    mockRecords = [meeting(), meeting({}, { id: "m1", title: "Board sync" })];
     const bar = mount();
-    expect(bar.find("stranded-bar-dismiss")).toBeNull();
-    expect(bar.find("stranded-bar-close")).toBeNull();
+    bar.press("stranded-bar-dismiss");
+    expect(mockCalls).toEqual([
+      { name: "dismissNotice", args: ["m0"] },
+      { name: "dismissNotice", args: ["m1"] },
+    ]);
+  });
+
+  test("a closed notice stays closed for the same problem", () => {
+    const landing = meetingLanding(meeting() as never)!;
+    mockRecords = [meeting({ noticeDismissed: landingKey(landing) })];
+    expect(mount().find("stranded-bar")).toBeNull();
+  });
+
+  test("and comes back for a different one", () => {
+    mockRecords = [meeting({ noticeDismissed: "failed\nan older reason\n" })];
+    expect(mount().find("stranded-bar")).not.toBeNull();
+  });
+
+  test("no Retry is offered where retrying cannot help", () => {
+    // A refusal with no retry does not reach the bar at all today, so this
+    // pins the rendering rule rather than a state: the button follows `retry`.
+    mockRecords = [meeting()];
+    expect(mount().find("stranded-bar-retry")).not.toBeNull();
   });
 });

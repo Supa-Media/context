@@ -1,5 +1,7 @@
 import { FrameIconButton } from "../../app/AppFrame";
 import { openFeedback } from "../../feedback/request";
+import { setAppearance } from "../../design/appearance";
+import { useScheme } from "../../design/theme";
 import { StagingPill } from "../../app/StagingNotice";
 import { ConsoleLiveMeeting } from "../ConsoleLiveMeeting";
 import { TierChip } from "../ConsoleShell";
@@ -126,7 +128,8 @@ export function consoleTopTrailing({
           2026-09-29). Signed-in people only: the homepage draws this same
           shell for visitors, and a visitor's report has nobody to answer.
           Absent on a phone, whose bar has room for two buttons — there it is
-          the account sheet's "Send feedback" row.
+          the account sheet's "Send feedback" row, which a pointer layout's
+          card no longer carries (Dev2, 2026-10-18).
         */}
         {data.visitor === undefined && canReport ? (
           <FrameIconButton
@@ -136,6 +139,7 @@ export function consoleTopTrailing({
             testID="frame-feedback"
           />
         ) : null}
+        <AppearanceButton />
         {/*
           A meeting that is running while the panel it lives in is folded
           away. It draws nothing when the panel is open — the card is
@@ -202,5 +206,25 @@ export function consoleTopTrailing({
         <StagingPill />
       </>
     )
+  );
+}
+
+/**
+ * Light or dark in one press, beside Report a problem (Dev2, 2026-10-18): the
+ * account card's "Light mode" row moved here on a pointer layout, so it is one
+ * press rather than two. Visitors get it too, as they had the row. It names
+ * the mode it switches to; Settings › Profile still has "follow the device".
+ * A component, not inline, because the label needs `useScheme`.
+ */
+function AppearanceButton() {
+  const scheme = useScheme();
+  const next = scheme === "dark" ? "light" : "dark";
+  return (
+    <FrameIconButton
+      label={next === "light" ? "Switch to light mode" : "Switch to dark mode"}
+      icon="sun"
+      onPress={() => void setAppearance(next)}
+      testID="frame-appearance"
+    />
   );
 }

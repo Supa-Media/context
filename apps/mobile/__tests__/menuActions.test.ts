@@ -342,9 +342,9 @@ describe("visibility", () => {
 describe("restore reads the original path back out of the archive", () => {
   test("an archived note goes back where it came from", () => {
     const h = harness();
-    h.run("restore", onRow(note("4-archive/2026-09-16T00-00-00/1-projects/plan.md")));
+    h.run("restore", onRow(note("4-archive/2026-09-16T00-00-00-000Z/1-projects/plan.md")));
     expect(h.calls).toEqual([{ name: "move", args: [
-      "4-archive/2026-09-16T00-00-00/1-projects/plan.md",
+      "4-archive/2026-09-16T00-00-00-000Z/1-projects/plan.md",
       "1-projects",
     ] }]);
   });

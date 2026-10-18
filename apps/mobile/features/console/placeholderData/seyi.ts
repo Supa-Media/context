@@ -71,6 +71,14 @@ export const SEYI_TREE: DemoContextTree = {
       existed; `scripts/ux-audit-shots.ts`'s "deep-path" shot is what
       photographs it now.
     */
+    // A project put away keeps its place: Archive's own Projects folder, drawn as Projects in grey.
+    "4-archive": listing("4-archive", "private", [{ ...folder("4-archive/1-projects", "private"), archiveOf: "projects" }]),
+    "4-archive/1-projects": listing("4-archive/1-projects", "private", [
+      folder("4-archive/1-projects/summer-revival-2025", "private"),
+    ]),
+    "4-archive/1-projects/summer-revival-2025": listing("4-archive/1-projects/summer-revival-2025", "private", [
+      file("4-archive/1-projects/summer-revival-2025/recap.md"),
+    ]),
     "3-resources/books": listing("3-resources/books", "private", [
       folder("3-resources/books/reading-notes", "private"),
     ]),
@@ -158,6 +166,13 @@ export const SEYI_TREE: DemoContextTree = {
       "Tenancy is bucket-level, never prefix-level. No key namespacing inside a customer bucket, so an existing workspace connects with zero migration and Obsidian Remotely Save keeps working.",
       "",
       "A shared context is just a workspace with more than one member — so a storage binding hangs off a workspaceId, never a userId.",
+      "",
+    ].join("\n"),
+    "4-archive/1-projects/summer-revival-2025/recap.md": [
+      "# Summer revival 2025, recap",
+      "",
+      "Four nights at the bandshell, about 1,800 people across the run. The",
+      "permit came through two days late; next time apply in March.",
       "",
     ].join("\n"),
     "1-projects/dc-chapter.md": [

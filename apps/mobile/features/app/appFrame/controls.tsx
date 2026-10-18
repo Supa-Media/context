@@ -28,6 +28,10 @@ import { makeStyles } from "./styles";
  * which is the one search surface.
  *
  * Native keeps the word and drops the keycap, having no shortcut to show.
+ *
+ * Since the leadership weekly (2026-10-17) it is the only search: the file
+ * tree's magnifier and filter field went, so the words name both of its jobs
+ * — the notes' words, and their names — and the label says the same.
  */
 export function SearchTrigger({ onPress }: { onPress: () => void }) {
   const colors = useColors();
@@ -39,13 +43,13 @@ export function SearchTrigger({ onPress }: { onPress: () => void }) {
       onHoverIn={() => setHovered(true)}
       onHoverOut={() => setHovered(false)}
       role="button"
-      accessibilityLabel="Search"
+      accessibilityLabel="Search notes and names"
       testID="frame-search"
       style={[styles.search, hovered && styles.searchHover]}
     >
       <Icon name="search" size={13} color={colors.chromeMuted} />
       <Text variant="rowSub" numberOfLines={1} style={styles.searchWord}>
-        Search
+        Search notes and names
       </Text>
       {Platform.OS === "web" ? (
         <Text variant="treeMeta" style={styles.kbd}>

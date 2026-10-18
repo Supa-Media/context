@@ -11,3 +11,5 @@ export { CollaborationError, supported } from "./storage.js";
 export { readDocument, commitUpdate } from "./commit.js";
 export { replaceText } from "./replace.js";
 export { sealDocument, moveDocument, tombstoneDocument, restoreDocument } from "./lifecycle.js";
+export { renameDocument } from "./rename.js";
+export { eraseDocument } from "./erase.js";

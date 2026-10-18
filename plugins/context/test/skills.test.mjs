@@ -27,7 +27,7 @@ const SKILLS = new URL("../skills/", import.meta.url);
 const GATEWAY = new URL("../../../apps/mcp/src/", import.meta.url);
 
 /** The tools the skills tell an agent to call, by name. */
-const TOOLS_NAMED = ["orient", "search_notes", "read_note", "write_note", "save_context", "report_problem", "remember"];
+const TOOLS_NAMED = ["orient", "search", "fetch", "write", "report_problem"];
 
 function frontmatter(text) {
   const match = /^---\n([\s\S]*?)\n---\n/.exec(text);
@@ -66,6 +66,9 @@ const allSkills = Object.values(texts).join("\n");
 for (const tool of TOOLS_NAMED) {
   check(`the skills name \`${tool}\``, allSkills.includes(`\`${tool}\``));
   check(`...and the gateway still defines \`${tool}\``, gateway.includes(`name: "${tool}",`));
+}
+for (const action of ["remember", "save_session"]) {
+  check(`the skills name the \`write\` action \`${action}\``, allSkills.includes(`\`${action}\``));
 }
 check(
   "every skill gives a person without the tools a terminal command that works",

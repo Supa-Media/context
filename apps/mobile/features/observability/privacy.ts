@@ -13,7 +13,7 @@ import { ROUTE_SEGMENTS } from "@context/shared";
 const SECRET_QUERY_VALUE = /([?&](?:code|token|secret|key|note|access_token|refresh_token|id_token)=)[^&#\s]*/gi;
 const AUTH_HEADER = /(authorization["']?\s*[:=]\s*["']?)(?:bearer\s+)?[^\s,"'}]+/gi;
 const AWS_ACCESS_KEY = /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g;
-const CALLBACK_SECRET = /(\/(?:invite|join|s|texts|vault)\/)[^/?#\s]+/gi;
+const CALLBACK_SECRET = /(\/(?:invite|join|s|signin|texts|vault)\/)[^/?#\s]+/gi;
 /*
   A query value that carries a whole path of its own.
 
@@ -110,7 +110,7 @@ export function telemetryRoute(pathname: string): string {
     named[1] = ":context";
   }
   if (named[0] === "tex" && named.length >= 2) named[1] = ":context";
-  if ((named[0] === "invite" || named[0] === "join" || named[0] === "s" || named[0] === "texts" || named[0] === "vault") && named.length >= 2) {
+  if ((named[0] === "invite" || named[0] === "join" || named[0] === "s" || named[0] === "signin" || named[0] === "texts" || named[0] === "vault") && named.length >= 2) {
     named[1] = ":token";
   }
   const safe = named.map((part, index) =>

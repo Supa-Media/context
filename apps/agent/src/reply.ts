@@ -5,11 +5,22 @@
  * Four outcomes for any text:
  * - `link ABC123` links this phone to the account that the code was shown to.
  * - `unlink` disconnects this phone from whichever account it answers from.
- * - From a phone nobody linked, the reply is a sign-in link that shows the
- *   code to text back, and nothing about whether any account exists. The link
- *   goes out as a text of its own, because iMessage draws a link card only for
- *   a message that is nothing but the link.
+ * - From a phone nobody linked that the control plane may set up (let in off
+ *   the waitlist, or confirmed on an account with no workspace yet), Tex sets
+ *   it up by text, handle first (`setup.ts`), and links it.
+ * - From any other phone nobody linked, the reply is a sign-in link that shows
+ *   the code to text back, and nothing about whether any account exists. The
+ *   link goes out as a text of its own, because iMessage draws a link card
+ *   only for a message that is nothing but the link.
  * - From a linked phone, the gateway answers with that person's own grant.
+ *
+ * An SMS (`sms`) is answered too, because a first text to Tex's new number
+ * often goes out green, and silence then reads as broken. But anyone can send
+ * an SMS that shows somebody else's number, so its words decide nothing: no
+ * LINK or UNLINK, no handle, no model. An unlinked phone gets setup's first
+ * step or the sign-in link, a linked one is asked to send it again. Either
+ * answer goes to the number itself, never to whoever faked it, and goes as
+ * iMessage, so that person's next text is one Tex reads.
  *
  * The assistant introduces itself as Tex (the owner, 2026-10-10): Context is
  * the product and the notes, Tex the assistant people text.
@@ -25,7 +36,9 @@ import {
   type Fetch,
 } from "./clients";
 import { prepareAttachments, type ImagesLike } from "./attachments";
+import { handleCandidate, setupReply, textSetup } from "./setup";
 import { textsFromAnswer } from "./format";
+import type { OutgoingPicture } from "./outgoing";
 import type { Inbound } from "./inbound";
 
 /**
@@ -47,7 +60,26 @@ export type ReplyDeps = {
   onProgress?: (text: string) => Promise<void>;
   /** Converts a photo the model cannot read (`attachments.ts`); absent, it is described instead. */
   images?: ImagesLike;
+  /** Told when setup started a bucket, so the ready text is owed (`ready.ts`); absent, none is. */
+  onSetUp?: () => Promise<void>;
+  /** Handed the pictures an answer texts back (`outgoing.ts`); absent, they are not sent. */
+  onPictures?: (pictures: OutgoingPicture[]) => void;
+  /**
+   * Not the last try (`inbox.ts`): a text that could not be started (the
+   * control plane unreachable, or the gateway answering 503 before the turn
+   * ran, as during a deploy) throws `TryLater` instead of saying something
+   * went wrong. Never for a turn that started: its tools may have run.
+   */
+  retry?: boolean;
 };
+
+/** Thrown, with `retry`, when nothing ran and the text can be answered again later. */
+export class TryLater extends Error {
+  constructor() {
+    super("try this text again later");
+    this.name = "TryLater";
+  }
+}
 
 /**
  * The code the app shows is 8 characters from an unambiguous alphabet, but the
@@ -73,10 +105,19 @@ export const COPY = {
   working: "On it. This one takes a few steps, so I'll text you when it's done.",
   unlinkNothing: "This phone isn't connected to any account.",
   noModel:
-    "I can't answer here yet. Texting me comes with Premium: turn it on for your workspace in Context, then text me again.",
+    "I can't answer right now. Please text me again in a little while.",
   dailyLimit:
     "That's all the questions I can answer for you today. Text me again tomorrow.",
   unavailable: "Something went wrong on my side. Please try again in a minute.",
+  /** A linked phone's SMS: never answered from the notes, since its sender can be faked. */
+  sms: "Hi, it's Tex. That text came through as SMS, and I only open your notes over iMessage, since anyone can send an SMS that looks like it's from your number. Send it again here and I'll answer.",
+  /**
+   * No bucket yet: right after setup by text, a new one takes a minute or two
+   * to answer (`setup.ts` says so), and a text in that window used to get
+   * `unavailable`, which reads as broken on the first try.
+   */
+  noStorage:
+    "Your notes aren't ready for me yet. If you just signed up, they're still being set up, and I'll text you as soon as they're ready. Otherwise, reconnect your storage in Context.",
 };
 
 export function linkCode(text: string): string | null {
@@ -95,7 +136,7 @@ export async function replyTo(message: Message, deps: ReplyDeps): Promise<string
 
 async function answer(message: Message, deps: ReplyDeps): Promise<string | string[]> {
   try {
-    const code = linkCode(message.text);
+    const code = message.sms ? null : linkCode(message.text);
     if (code) {
       const linked = await linkPhone(
         deps.fetch,
@@ -107,7 +148,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       return linked.status === "linked" ? COPY.linked(linked.handle) : COPY.linkRefused;
     }
 
-    if (UNLINK_COMMAND.test(message.text)) {
+    if (!message.sms && UNLINK_COMMAND.test(message.text)) {
       const result = await unlinkPhone(deps.fetch, deps.controlPlaneOrigin, deps.workerSecret, message.from);
       return result === "unlinked" ? COPY.unlinkDone : COPY.unlinkNothing;
     }
@@ -117,8 +158,20 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       deps.controlPlaneOrigin,
       deps.workerSecret,
       message.from,
-    );
+    ).catch((error) => {
+      throw deps.retry && error instanceof ServiceError ? new TryLater() : error;
+    });
     if (session.status === "unlinked") {
+      // Nothing but one word of the text goes, and no model runs before a link.
+      const setup = await textSetup(
+        deps.fetch,
+        deps.controlPlaneOrigin,
+        deps.workerSecret,
+        message.from,
+        message.sms ? undefined : handleCandidate(message.text),
+      );
+      if (setup.status === "set_up" && setup.storage === "on_the_way") await deps.onSetUp?.();
+      if (setup.status !== "not_eligible") return setupReply(setup);
       const invite = await requestLinkInvite(
         deps.fetch,
         deps.controlPlaneOrigin,
@@ -127,6 +180,8 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       );
       return invite.status === "issued" ? COPY.unlinked(invite.url) : COPY.unlinkedNoLink;
     }
+
+    if (message.sms) return COPY.sms;
 
     // Files are fetched only for a linked phone, and only now: an unlinked
     // stranger's photo is never downloaded.
@@ -141,10 +196,29 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       deps.onProgress,
       session.timeZone,
       attachments,
+      // Somebody else's words, kept apart from the person's (`apps/mcp/src/agent/quoted.js`).
+      message.quoted,
     );
-    if (answer.kind === "answer") return textsFromAnswer(answer.text);
+    if (answer.kind === "answer") {
+      if (answer.pictures.length > 0) deps.onPictures?.(answer.pictures);
+      if (!answer.text) return [];
+      // What the person is asked to approve goes out exactly as the gateway
+      // wrote it: formatting drops links and lines, and they may allow only
+      // what they read (`apps/mcp/src/tools/emailGate.js`).
+      let rest = answer.text;
+      const exact: string[] = [];
+      for (const part of answer.verbatim ?? []) {
+        const at = rest.indexOf(part);
+        if (at === -1) continue;
+        rest = `${rest.slice(0, at)}\n\n${rest.slice(at + part.length)}`;
+        exact.push(part.trim());
+      }
+      return [...(rest.trim() ? textsFromAnswer(rest) : []), ...exact];
+    }
     if (answer.kind === "no_model") return COPY.noModel;
     if (answer.kind === "daily_limit") return COPY.dailyLimit;
+    if (answer.kind === "no_storage") return COPY.noStorage;
+    if (answer.kind === "not_started" && deps.retry) throw new TryLater();
     return COPY.unavailable;
   } catch (error) {
     if (error instanceof ServiceError) return COPY.unavailable;

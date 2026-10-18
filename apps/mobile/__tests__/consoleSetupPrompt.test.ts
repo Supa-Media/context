@@ -53,7 +53,7 @@ jest.mock("convex/react", () => ({
 
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { SetupPromptBody, offersKinds } from "../features/console/setup/SetupPrompt";
+import { SetupPromptBody, offersKinds, startsOnItsOwn } from "../features/console/setup/SetupPrompt";
 import { presetRows, type WorkspacePresetKey } from "../features/workspace/presets";
 import { PARA_FOLDERS } from "@context/convex/functions/lib/scaffold";
 import type { ContextSetup } from "../features/console/setup";
@@ -225,5 +225,17 @@ describe("a shared workspace is asked what kind it is", () => {
     });
     const folders = screen.find("console-setup-folders")?.textContent ?? "";
     for (const folder of PARA_FOLDERS) expect(folders).toContain(folder);
+  });
+});
+
+describe("a personal workspace is not asked which folders it wants", () => {
+  test("an empty one is laid out without a press", () => {
+    expect(startsOnItsOwn({ kind: "empty" }, false, true)).toBe(true);
+  });
+
+  test("never for a shared workspace, a half-written layout, or a view that may not write", () => {
+    expect(startsOnItsOwn({ kind: "empty" }, true, true)).toBe(false);
+    expect(startsOnItsOwn({ kind: "unfinished" }, false, true)).toBe(false);
+    expect(startsOnItsOwn({ kind: "empty" }, false, false)).toBe(false);
   });
 });

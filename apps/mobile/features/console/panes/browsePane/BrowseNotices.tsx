@@ -1,5 +1,6 @@
 import { View } from "react-native";
 import { Button } from "../../../design/components/Button";
+import { TextLink } from "../../../design/components/TextLink";
 import { Text } from "../../../design/components/Text";
 import { useThemedStyles } from "../../../design/theme";
 import type { FileBrowser } from "../../files/browser";
@@ -12,11 +13,9 @@ import { setupPromptVisible } from "../../setup";
 import { SetupPrompt } from "../../setup/SetupPrompt";
 import type { BrowsePaneProps } from "./props";
 import { makeStyles } from "./styles";
-import { organizerPlace, type BrowseNoticeState } from "./useBrowseNotices";
-import { OrganizerNotices } from "../../../organizer/Notices";
+import type { BrowseNoticeState } from "./useBrowseNotices";
 import { sharedWelcome } from "../../sharedWelcome";
 import { SharedWelcomeCard } from "./SharedWelcomeCard";
-import { DROPBOX_ENDING } from "../../storage/handoff/copy";
 import { MainFoldersNotice } from "./MainFoldersNotice";
 import { NO_BUCKET_NOTICE, isNoBucketNotice } from "./noBucketNotice";
 
@@ -41,7 +40,6 @@ export function BrowseNotices({
   moveNotices,
   setDismissedMoves,
   storageMigration,
-  dropboxEnding,
   missingFolders,
 }: {
   data: ConsoleData;
@@ -60,7 +58,6 @@ export function BrowseNotices({
   moveNotices: BrowseNoticeState["moveNotices"];
   setDismissedMoves: BrowseNoticeState["setDismissedMoves"];
   storageMigration: BrowseNoticeState["storageMigration"];
-  dropboxEnding: BrowseNoticeState["dropboxEnding"];
   missingFolders: BrowseNoticeState["missingFolders"];
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -76,8 +73,6 @@ export function BrowseNotices({
     : null;
   return (
     <View style={[styles.notices, compact && styles.noticesCompact]}>
-      {/* Auto-organize's one-time notice, and the phone's "N suggestions to look over". */}
-      <OrganizerNotices {...organizerPlace(files, compact)} />
       {/*
         First in the band, and above the privacy warning it is the answer to.
 
@@ -96,6 +91,7 @@ export function BrowseNotices({
           setup={setup}
           workspaceId={current.id}
           shared={current.kind === "shared"}
+          autoStart={data.visitor === undefined && data.demo !== true}
           /*
             The importer is Settings → Storage's and is not rebuilt here. A
             lambda with the section it means, for `browse-connect-storage`'s
@@ -229,7 +225,7 @@ export function BrowseNotices({
       {moveNotices.map((move) => (
         <View
           key={move.id}
-          style={[styles.notice, move.tone === "warn" && styles.noticeWarn]}
+          style={[styles.noticeInline, move.tone === "warn" && styles.noticeWarn]}
           testID={`browse-context-move-${move.id}`}
         >
           <Text
@@ -238,28 +234,29 @@ export function BrowseNotices({
           >
             {move.text}
           </Text>
+          {/*
+            Links on the sentence's own line, not buttons stacked under it: a
+            move's notice is a status line, and two full buttons below a
+            paragraph made a one-line fact the tallest thing in the band.
+          */}
           {move.resumable ? (
-            <Button
-              label="Finish the move"
+            <TextLink
+              label="Try again"
               onPress={() => files.resumeContextMove(move.id)}
               disabled={files.busy}
-              style={styles.dismiss}
               testID={`browse-context-move-resume-${move.id}`}
             />
           ) : null}
           {move.dismissible ? (
-            <Button
+            <TextLink
               /*
-                "Not now" on a failure, because that is what the press does.
-                `dismissContextMove` takes a completed move only — a failed
-                one's notice carries the single control that can finish it
-                (see that mutation on why a fresh move cannot), so putting it
-                aside is for the session and it comes back. The other notice
-                in this band that can be taken up later says "Not now" for the
-                same reason; a "Dismiss" that undismisses itself overnight is
-                the complaint this whole change came from.
+                "Not now" on a failure partway, because that is what the press
+                does: its notice carries the single control that can finish
+                it, so putting it aside is for the session. A failure that
+                carried nothing, like a finished move, is answered for good
+                (`dismissContextMove`), so it says "Dismiss".
               */
-              label={move.resumable ? "Not now" : "Dismiss"}
+              label={move.dismissLabel}
               /*
                 Both halves, and neither is the other's fallback. The server
                 is where a durable answer lives — the row is listable for a
@@ -276,7 +273,6 @@ export function BrowseNotices({
                 setDismissedMoves((current) => new Set([...current, move.id]));
                 files.dismissContextMove(move.id);
               }}
-              style={styles.dismiss}
               testID={`browse-context-move-dismiss-${move.id}`}
             />
           ) : null}
@@ -312,34 +308,11 @@ export function BrowseNotices({
         asked — and the dialog behind the first is the same one both entry
         points raise.
       */}
-      {/*
-        Dropbox support is ending: the two ways off it, and a way to be asked
-        again later. A hint, not a warning: nothing is broken yet.
-      */}
-      {dropboxEnding.visible ? (
-        <View style={styles.notice} testID="browse-dropbox-ending">
-          <Text variant="hint">{DROPBOX_ENDING.line}</Text>
-          <View style={styles.noticeActions}>
-            {onOpenSettings === undefined ? null : (
-              <>
-                <Button
-                  label={DROPBOX_ENDING.toBucket}
-                  onPress={() => onOpenSettings("storage")}
-                  testID="browse-dropbox-to-bucket"
-                />
-                <Button
-                  label={DROPBOX_ENDING.toContext}
-                  onPress={() => onOpenSettings("premium")}
-                  testID="browse-dropbox-to-context"
-                />
-              </>
-            )}
-            <Button label="Not now" onPress={dropboxEnding.dismiss} testID="browse-dropbox-dismiss" />
-          </View>
-        </View>
-      ) : null}
-
-      {missingFolders.visible ? <MainFoldersNotice files={files} dismiss={missingFolders.dismiss} /> : null}
+      {missingFolders.visible ? <MainFoldersNotice
+          files={files}
+          dismiss={missingFolders.dismiss}
+          onChoose={onOpenSettings === undefined ? undefined : () => onOpenSettings("folders")}
+        /> : null}
 
       {storageMigration.visible && files.updateStorageLayout !== undefined ? (
         <View style={styles.notice} testID="browse-storage-migration">

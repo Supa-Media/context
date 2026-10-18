@@ -10,9 +10,6 @@ import { ActiveParts } from "../../agents/ActiveBar";
 import type { AgentActivityView } from "../../agents/agentActivity";
 import type { ActivityView } from "../../activity/activity";
 import { makeStyles } from "./styles";
-import { useOrganizerView } from "../../../organizer/OrganizerContext";
-import { changesCount } from "../../../organizer/rules";
-import { WhatChangedLine } from "../../../organizer/WhatChangedPage";
 
 /**
  * The foot of the column: the agents line when there are any, and the one
@@ -42,13 +39,6 @@ export function ExplorerFoot({
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
-  /*
-    Auto-organize's one line, "What changed" with the cards waiting. It
-    once had a second count for tidy-up suggestions; Tidy up is gone (owner,
-    2026-10-10), and so is that count.
-  */
-  const organizer = useOrganizerView();
-  const changes = changesCount(organizer?.status ?? null);
   return (
     <>
       {/*
@@ -124,19 +114,6 @@ export function ExplorerFoot({
         </PressRow>
       ) : null}
       </Reveal>
-
-      {organizer !== undefined && changes !== null ? (
-        <WhatChangedLine
-          count={changes}
-          open={organizer.pageOpen}
-          onPress={() => {
-            setActivityOpen(null);
-            setAgentsOpen(null);
-            if (organizer.pageOpen) organizer.closePage();
-            else organizer.openPage();
-          }}
-        />
-      ) : null}
 
       {activity !== undefined && activity.unseen > 0 ? (
         <PressRow

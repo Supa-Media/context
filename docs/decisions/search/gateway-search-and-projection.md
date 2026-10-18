@@ -284,9 +284,8 @@ That replaces "off is a working state" for a context that has a database: a
 refused or slow database now costs a search its answer for as long as it
 lasts, rather than costing it seconds of bucket reads. The bucket's own index
 and the scan remain only for a gateway with no search database (self-hosted,
-or a deployment with no Cloudflare credential), and the passes that keep the
-shard index current still run behind the response until the projection is fed
-without it.
+or a deployment with no Cloudflare credential). Nothing keeps a shard index
+for a context with a database any more; see the next section but one.
 
 **What fails if reversed:** `searchProjection/serve.test.mjs` ("a search
 during the backfill opens no note and no index file in the bucket", "the
@@ -295,3 +294,117 @@ bucket's index does not answer instead"), `searchProjection/endToEnd.test.mjs`
 `consoleSearch.test.ts` ("a refused projection leaves a working search that
 says it is behind") and `searchBackfill.test.ts` ("a search reads the
 projection while it fills").
+
+### An assistant's turn holds its index passes until it ends
+
+Found on production, 2026-10-16, when Dev2 saw Tex's searches take over ten
+seconds. Every call of an assistant's turn (its model rounds, its searches,
+its reads) runs in one Worker invocation, which has six connections, and each
+search started an index pass behind it of up to `SEARCH_SUBREQUEST_BUDGET`
+calls in every workspace it reached. One turn issued about 2,000 subrequests
+whose median wait was a second, while D1, Vectorize and the embedding each
+answered in well under one.
+
+So `/agent` (and Try it, and the dream) runs its turn inside
+`withSearchPassesHeld` (`search/heldPasses.js`): a pass a search starts is
+kept, one per workspace, and started behind the response once the turn has
+answered. A search across workspaces holds its own the same way until every
+workspace has answered, and asks them all at once rather than its own
+workspace first. Nothing is skipped; the passes run later in the same
+invocation. A host that cannot defer still runs them inline and capped.
+
+**What fails if reversed:** `test/searchHeldPasses.test.mjs` ("a Tex turn's
+searches start no index pass until the model has answered", "a held pass
+starts on release, once per workspace").
+
+
+## The index records the version its listing reports
+
+A pass that reads a note records the version the *listing* gave it, never the
+read's own etag. The two agreed while the listing was the bucket's; the
+listing is the Convex tree now, and a row's etag need not be the stored
+object's. Recording the read's etag made every such note look stale to the
+next listing, so every pass read it again, three calls a note in a by-id
+workspace, and the search database re-copied it: on production, 2026-10-16, a
+search's pass spent its whole budget on the same notes, all day. The cost of
+the rule is one extra read of a note that changed between a listing and its
+read, after which the two agree. `test/searchKeyed/census.test.mjs` ("settles")
+fails if it is reversed.
+
+## Nothing runs behind a search on a context with a search database
+
+Decided by the owner, 2026-10-17, after a Tex turn spent about 2,000 calls
+("ideally, it's just one call, max two to three"). A search over a context
+with a search database, ready or still filling, starts no index pass, reads no
+manifest and copies nothing into the database behind its answer. Its cost is
+the database query (and the meaning query beside it) and nothing else.
+
+The database is kept current elsewhere, once per change rather than once per
+search: a write follows itself into a `ready` database
+(`search/writeProjection.js`, `search/d1/follow.js`), the control plane's
+scheduled copy fills one still filling (`fileOps/projection.ts`), and the
+daily check removes rows for notes that are gone (`prunePass.ts`). The
+bucket's shard index under `.context/search/` is not maintained for such a
+context at all: a write does not re-index into it, the console's search
+schedules no pass over it, and a `maintainIndex` pass ends before opening the
+bucket. The shard index and the passes behind a search remain for a gateway
+with no search database.
+
+The cost is stated: a note written into the bucket by anything but the app
+is found only once the control plane's pass reaches it, which the owner
+accepted on 2026-10-15 (nothing outside the app writing into the bucket is
+picked up).
+
+**What fails if reversed:** `searchProjection/endToEnd.test.mjs` ("a search
+on a filling database copies nothing into it", "and a search reports no copy
+progress of its own"), `searchProjection/serve.test.mjs` ("or behind that
+same response"), and in the control plane `searchDatabaseOnly.test.ts`.
+
+## A search reads no note to answer
+
+Decided by the owner, 2026-10-17, the same evening. On a context with a search
+database, the snippet beside a note found only by meaning comes out of the
+database's own chunks, in one statement for every such note
+(`search/d1/passages.js`), rather than a read of each note out of the bucket:
+up to six reads per workspace per search, each a tree lookup, a HEAD and a GET
+on a keyed workspace. Both tables of a personal context are asked in one
+batched request (`queryAll` in `search/d1/client.js`), and a rows-mode
+workspace's rules are rendered without asking the bucket for a `privacy.md`
+that no longer exists (`store/privacyAuthority.js`). A search on such a
+context is then the session, the binding, and per workspace one database
+request for the words, one meaning query and one database request for the
+snippets.
+
+A note the database holds no row for is dropped when the database is ready
+(deleted since it was embedded, as before) and read from the bucket when it is
+still filling, since it may simply not be copied yet. A statement that fails
+reads the notes, as a context with no database does. A note a queued move is
+carrying somewhere the caller may not see is never asked for.
+
+**What fails if reversed:** `meaningSnippetsFromDatabase.test.mjs`.
+
+## The bucket keeps no search index beside a search database
+
+Decided by the owner, 2026-10-17 ("Yes, all of it"). Once nothing read or
+maintained the shard index for a context with a search database, two things
+still touched it. The control plane's copy fell back to a shard index pass
+for its census whenever the bucket's listing failed (`passCensus`), and the
+files themselves sat in the customer's bucket. Now:
+
+- the copy's census is the bucket's listing alone (`fileOps/projection.ts`);
+  a link whose listing fails copies nothing, and the next link lists again;
+- the daily check of a `ready` database (`filesFns/prunePass.ts`) deletes the
+  shard index's files, `v2/` and `search-v1.json` at `.context/search/` and
+  the legacy `.index/`, up to 500 per link with the chain carrying on
+  (`fileOps/retireShardIndex.ts`). The list of keys is an allow-list, and
+  anything under a `meaning/` segment is refused: search by meaning's
+  catch-up state lives beside it, and losing that re-embeds a whole context.
+
+Nothing is lost by deleting a derivative. A context whose database is turned
+off searches the bucket again, and its first searches rebuild the index from
+the notes. `SHARD_INDEX_RETIRE=off` in the deployment's environment stops the
+deletes without a deploy.
+
+**What fails if reversed:** `retireShardIndex.test.ts`, and in
+`searchDatabaseOnly.test.ts` "a copy whose listing fails runs no
+bucket-index pass in its place".

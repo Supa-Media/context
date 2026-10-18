@@ -243,7 +243,7 @@ export async function runFormTargetingAndConcurrencyChecks(check, harness) {
    * never the submission itself. Untested until now, and it sits directly
    * under the change that could turn it into a refusal.
    */
-  const dropBox = await call(env, OWNER_TOKEN, "write_note", {
+  const responsesFile = await call(env, OWNER_TOKEN, "write_note", {
     path: "3-resources/survey.md",
     content: aimedAt("survey", "2-areas/survey.responses.md"),
     visibility: "team",
@@ -251,13 +251,13 @@ export async function runFormTargetingAndConcurrencyChecks(check, harness) {
   });
   check(
     "an owner may point a form at a response file only they can read",
-    /response file created: 2-areas\/survey\.responses\.md/.test(dropBox.text)
+    /response file created: 2-areas\/survey\.responses\.md/.test(responsesFile.text)
   );
-  const intoDropBox = await call(env, MEMBER_TOKEN, "submit_form", {
+  const intoResponsesFile = await call(env, MEMBER_TOKEN, "submit_form", {
     path: "3-resources/survey.md",
     values: pairs({ x: "anonymous" }),
   });
-  check("...and a member who cannot read it can still submit into it", !intoDropBox.isError);
+  check("...and a member who cannot read it can still submit into it", !intoResponsesFile.isError);
   check(
     "...with the answer really in the file",
     (bucket.text("2-areas/survey.responses.md") || "").includes("anonymous")

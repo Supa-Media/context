@@ -11,7 +11,7 @@
  *
  * This Worker pulls; nothing calls it, so it needs no new secret. The answer
  * goes from the gateway to the phone through here and nowhere else: the
- * control plane hears an outcome code and a count. Linq's line reaches only
+ * control plane hears an outcome code and a count. Tex reaches only
  * people who texted it first, so a phone with no remembered chat is not
  * texted, and a run that needed a text and reached nobody is `no_chat`.
  *
@@ -23,13 +23,13 @@ import {
   fetchDueRoutines,
   reportRoutineResult,
   runRoutine,
-  sendLinqText,
   type DueRoutine,
   type Fetch,
   type RoutineOutcome,
 } from "./clients";
 import { textsFromAnswer } from "./format";
 import { CHAT_KEY, type InboxStorage, type RememberedChat } from "./inbox";
+import { lineFor, type LineDeps } from "./line";
 import { record } from "./simulator";
 
 /** Runs worked on at once in one tick. */
@@ -135,9 +135,7 @@ function statusOf(error: unknown): number | null {
 
 // ── The Durable Object's side ─────────────────────────────────────────────
 
-export type RoutineTextDeps = {
-  fetch: Fetch;
-  linqApiKey: string;
+export type RoutineTextDeps = LineDeps & {
   now: () => number;
   /** Whether the staging simulator is on; a simulated chat is texted only then. */
   simulator: boolean;
@@ -164,9 +162,7 @@ export async function textRoutine(
   let sent = 0;
   try {
     for (const [index, text] of texts.entries()) {
-      await sendLinqText(
-        deps.fetch,
-        deps.linqApiKey,
+      await lineFor(deps, chat.chatId).sendText(
         chat.chatId,
         text,
         index === 0 ? body.idempotencyKey : `${body.idempotencyKey}:${index}`,

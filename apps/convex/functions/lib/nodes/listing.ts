@@ -17,9 +17,15 @@ import type { Clearance } from "../clearance";
 import { listFolder, type FolderListing } from "../fileOps/listing";
 import { requireFolderPath } from "../fileOps/paths";
 import type { FileStore } from "../fileOps/store";
-import { mirrorFile } from "./privacyMirror";
-import { childrenThroughMoves, pendingMoves } from "./moveOverlay";
+import { mirrorFile, readMirror } from "./privacyMirror";
+import { readerMirror, rulesForReaders } from "./readerRules";
+import { childrenThroughMoves } from "./moveOverlay";
+import { drawnMoves } from "./rowMoveChunks";
 import { NODE_PRIVACY_KEY, type PrivacyMirror } from "./table";
+import { folderJobsOf } from "./folderJobs";
+import { compareListingEntries, isRowRole, jobAt } from "@context/shared/src/folderRoles.cjs";
+
+export { readMirror };
 
 /**
  * Rows of one folder a listing reads before calling itself short. A folder
@@ -31,7 +37,7 @@ export const NODE_LISTING_ROWS = 5_000;
 /**
  * Where a workspace's tree is, for a reader: `served` once its first copy has
  * finished, `loading` before that, `unsupported` for a store that cannot be
- * listed in key order (Dropbox), which no sweep can copy.
+ * listed in key order (one that ignores key order), which no sweep can copy.
  *
  * Decided by the owner, 2026-10-13 ("the only thing that should be reading
  * from storage directly should be actually opening and editing a note"):
@@ -131,21 +137,6 @@ export function folderRowsStore(
   } as unknown as FileStore;
 }
 
-/** The workspace's privacy mirror as a store renders it, or `null` when the tree holds none. */
-export async function readMirror(db: QueryCtx["db"], workspaceId: Id<"workspaces">): Promise<PrivacyMirror | null> {
-  const row = await db
-    .query("nodePrivacy")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-    .unique();
-  if (row === null) return null;
-  return {
-    ...(row.etag === undefined ? {} : { etag: row.etag }),
-    invalid: row.invalid,
-    folders: row.folders,
-    notes: row.notes,
-  };
-}
-
 /** Where this workspace's tree is now, read in the caller's transaction. */
 export async function treeReadinessNow(db: QueryCtx["db"], workspaceId: Id<"workspaces">): Promise<TreeReadiness> {
   const tree = await db
@@ -170,10 +161,49 @@ export async function listFolderFromNodes(
   // The same refusal the bucket listing gives a malformed path, before any read.
   const folder = requireFolderPath(path);
   // Moves the tree shows already, folded in before privacy is judged (`moveOverlay.ts`).
-  const moves = await pendingMoves(ctx.db, workspaceId);
+  const moves = await drawnMoves(ctx.db, workspaceId);
   const { rows, more } = moves.length === 0
     ? await childrenOf(ctx, workspaceId, folder)
     : await childrenThroughMoves(folder, moves, (source) => childrenOf(ctx, workspaceId, source), (key) => rowAt(ctx, workspaceId, key));
-  const mirror = await readMirror(ctx.db, workspaceId);
-  return await listFolder(folderRowsStore(folder, rows, more, mirror), { path: folder, clearance });
+  // The rules readers judge by (`readerRules.ts`): the mirror's own, or the access rows' once they are the source.
+  const mirror = await readerMirror(ctx, workspaceId);
+  const judged = await rulesForReaders(ctx, workspaceId);
+  const manifestUsable = mirror !== null && mirror.etag !== undefined && !mirror.invalid;
+  const listing = await listFolder(folderRowsStore(folder, rows, more, mirror), {
+    path: folder,
+    clearance,
+    judged: { ...judged, manifestUsable },
+  });
+  return await withFolderJobs(ctx, workspaceId, folder, rows, listing);
+}
+
+/**
+ * Each folder entry with its job and its order from its row (`folderJobs.ts`),
+ * drawn in that order (`compareListingEntries`). At the root a folder whose
+ * row has no job yet takes the one its name gives it, so a renamed and an
+ * unrenamed Inbox list alike.
+ */
+async function withFolderJobs(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+  folder: string,
+  rows: readonly Doc<"nodes">[],
+  listing: FolderListing,
+): Promise<FolderListing> {
+  if (!listing.entries.some((entry) => entry.kind === "folder")) return listing;
+  const byPath = new Map(rows.filter((row) => row.kind === "folder").map((row) => [row.path, row]));
+  const jobs = folder === "" ? await folderJobsOf(ctx.db, workspaceId) : null;
+  const entries = listing.entries.map((entry) => {
+    if (entry.kind !== "folder") return entry;
+    const row = byPath.get(entry.path);
+    const role = isRowRole(row?.role) ? row.role : jobs === null ? null : jobAt(jobs, entry.path);
+    return {
+      ...entry,
+      ...(role === null ? {} : { role }),
+      ...(typeof row?.order === "number" ? { order: row.order } : {}),
+      ...(isRowRole(row?.archiveOf) ? { archiveOf: row.archiveOf } : {}),
+    };
+  });
+  entries.sort((a, b) => compareListingEntries(folder, a, b));
+  return { ...listing, entries };
 }

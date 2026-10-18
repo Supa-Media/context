@@ -13,6 +13,7 @@ import { probeWithLegacyFallback } from "../../notes/storage.js";
 import { splitMessageAnchor } from "../../search/commsIndex.js";
 import { toolError, toolText } from "../results.js";
 import comments from "../../../../../packages/shared/src/comments.cjs";
+import mail from "../../../../../packages/shared/src/mail.cjs";
 
 export async function toolListNotes(store, scope, rules, overrides, prefixArg) {
   const prefix = prefixArg ? normalizePath(prefixArg) : "";
@@ -174,7 +175,7 @@ export async function toolReadNote(store, scope, rules, overrides, pathArg) {
       // stale address is holding one somewhere, and the next write must use
       // the path it is being given rather than the one it asked for.
       `${path === requested ? "" : `\nmoved_from: ${requested}`}` +
-      `${drawingEmbedLine(actualText)}${commentsLine(actualText)}\n\n${actualText}`
+      `${drawingEmbedLine(actualText)}${commentsLine(actualText)}${mailLine(actualText)}\n\n${actualText}`
   );
 }
 
@@ -186,5 +187,22 @@ export async function toolReadNote(store, scope, rules, overrides, pathArg) {
  */
 function commentsLine(text) {
   const described = comments.describeComments(text);
-  return described ? `\ncomments: ${described}; answer with write_note comment: { action: "reply" | "resolve", thread }` : "";
+  return described ? `\ncomments: ${described}; answer with write { action: "comment", args: { action: "reply" | "resolve", thread } }` : "";
+}
+
+/**
+ * One header line when agents have sent each other mail on this note
+ * (`tools/notes/mail.js`), so an agent opening it knows the conversation is
+ * there and how to join it. The messages are in the note's `mail` block below.
+ */
+function mailLine(text) {
+  const { events } = mail.parseMail(text);
+  const sent = events.filter((event) => event.kind === "mail");
+  if (!events.length) return "";
+  const joined = [...new Set(events.filter((event) => event.kind === "joined").map((event) => event.from))];
+  return (
+    `\nmail: ${sent.length} message${sent.length === 1 ? "" : "s"}` +
+    `${joined.length ? ` between ${joined.join(", ")}` : ""}; ` +
+    'read only the mail with fetch { args: { mail: true } }, join with write { action: "mail", args: { join: "name" } }'
+  );
 }

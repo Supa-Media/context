@@ -162,7 +162,7 @@ const SEARCH_WEB_DEFINITION = {
     "news, prices, opening hours, facts, anything recent. Write a short query the way you would type " +
     "it into a search engine. A business, place or product from the person's notes is fine to search for; " +
     "never put private details in a query (people's names, amounts, health, account numbers, anything secret). " +
-    `Returns titles, addresses and snippets; open_page reads a result in full. At most ${MAX_SEARCHES_PER_TURN} searches a question.`,
+    `Returns titles, addresses and snippets; send action open_page reads a result in full. At most ${MAX_SEARCHES_PER_TURN} searches a question.`,
   inputSchema: {
     type: "object",
     properties: {
@@ -178,24 +178,24 @@ export function webPrompt(webNames) {
   const lines = [];
   if (webNames.has(SEARCH_WEB_TOOL)) {
     lines.push(
-      "You can search the web with search_web. Do it without asking whenever the answer depends on the world rather than the person's notes, and answer from what you find. Never put private details from the person's notes in a query: people's names, amounts, health, account numbers, anything secret.",
+      "You can search the web with send action search_web. Do it without asking whenever the answer depends on the world rather than the person's notes, and answer from what you find. Never put private details from the person's notes in a query: people's names, amounts, health, account numbers, anything secret.",
     );
   }
   if (webNames.has(OPEN_PAGE_TOOL)) {
     lines.push(
       webNames.has(SEARCH_WEB_TOOL)
-        ? "You can open search results and web pages the person gives you with open_page, and follow links on them."
-        : "You can open web pages the person gives you with open_page, and follow links on them.",
+        ? "You can open search results and web pages the person gives you with send action open_page, and follow links on them."
+        : "You can open web pages the person gives you with send action open_page, and follow links on them.",
     );
   }
   if (webNames.has(BROWSE_TOOL)) {
     lines.push(
-      "When the person wants something done on a website (search a site, fill in a form, check availability, add to a cart), use browse and do it rather than telling them how. Do several steps per call. Never buy, book, send or delete anything without the person's yes in this conversation.",
+      "When the person wants something done on a website (search a site, fill in a form, check availability, add to a cart), use send action browse and do it rather than telling them how. Do several steps per call. Never buy, book, send or delete anything without the person's yes in this conversation.",
     );
   }
   if (webNames.has(FILL_LOGIN_TOOL)) {
     lines.push(
-      "When a site needs signing in, check vault_list and use fill_login with a saved login. With none saved, hand the browser to the person (a browse handoff step) so they sign in themselves, then carry on when they text you; offer vault_add_link afterwards so next time you can sign in yourself. Never ask for a password, and never say you can't use a site just because no login is saved.",
+      "When a site needs signing in, sign in yourself: check fetch vault: and use send action fill_login with a saved login (a Google login signs in on any site's Continue with Google button). With none saved, ask whether they sign in with Gmail or another email, send manage action vault_add's link for that login, and sign in yourself once they say it's saved. Hand the browser over (a browse handoff step) only for what truly needs them, a code, a captcha or a payment, or when they say they'd rather sign in themselves. Never ask for a password, and never say you can't use a site just because no login is saved.",
     );
   }
   if (lines.length === 0) return "";
@@ -297,6 +297,16 @@ export function webSession(computer, question, { decide = null, search = null, a
     vouch(text) {
       for (const url of addressesIn(text)) allowed.add(url);
       browser?.vouch(text);
+    },
+    /**
+     * `delegate` handed a job off (`delegate.js`): its start address may be
+     * opened, and its message typed there and only there.
+     */
+    delegated(url, message) {
+      const start = canonicalUrl(url);
+      if (start === null) return;
+      allowed.add(start);
+      browser?.delegateValue(new URL(start).hostname, message);
     },
     /**
      * The setup's trusted sites (`trustedSites.js`): any page of theirs with

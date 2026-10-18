@@ -195,3 +195,14 @@ export async function appendConversation(store, name, history, question, answer,
   ]);
   await store.put(path, JSON.stringify({ version: 1, turns }));
 }
+
+/**
+ * The person's own words this turn, for the sharing judge (`privacy/judge.js`):
+ * what they sent, after the last thing they were told, so a bare "yeah do it"
+ * reads as the answer to the question it answers. A routine's words are its
+ * own note instead, never the last run's answer (`route.js`).
+ */
+export function wordsOfTurn(history, question) {
+  const lastAnswer = [...history].reverse().find((turn) => turn.role === "assistant")?.text ?? "";
+  return `${lastAnswer ? `Assistant: ${lastAnswer.slice(-1_000)}\nPerson: ` : ""}${question}`;
+}

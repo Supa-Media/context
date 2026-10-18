@@ -113,7 +113,7 @@ describe("askAgent", () => {
   it("asks the gateway with the person's grant and names the texts conversation", async () => {
     const calls: Call[] = [];
     const answer = await askAgent(fake(200, { answer: " Sure. " }, calls), "https://gw.example", "tok", "hi");
-    expect(answer).toEqual({ kind: "answer", text: "Sure." });
+    expect(answer).toEqual({ kind: "answer", text: "Sure.", pictures: [] });
     expect(calls[0].url).toBe("https://gw.example/agent");
     expect(new Headers(calls[0].init.headers).get("authorization")).toBe("Bearer tok");
     expect(JSON.parse(String(calls[0].init.body))).toEqual({ question: "hi", conversation: "texts" });
@@ -124,6 +124,10 @@ describe("askAgent", () => {
     expect(await askAgent(fake(429, { error: "daily_limit" }), "g", "t", "q")).toEqual({ kind: "daily_limit" });
     expect(await askAgent(fake(200, { answer: "  " }), "g", "t", "q")).toEqual({ kind: "unavailable" });
     expect(await askAgent(fake(503, {}), "g", "t", "q")).toEqual({ kind: "unavailable" });
+    // The gateway's own 503 means the turn never started, so the text can be asked again.
+    expect(await askAgent(fake(503, { error: "model_unavailable" }), "g", "t", "q")).toEqual({ kind: "not_started" });
+    // A workspace whose bucket is not there yet (a new one still starting) is told so, not "something went wrong".
+    expect(await askAgent(fake(503, { error: "storage_unavailable" }), "g", "t", "q")).toEqual({ kind: "no_storage" });
     expect(await askAgent(throwing, "g", "t", "q")).toEqual({ kind: "unavailable" });
   });
 });
@@ -149,7 +153,7 @@ describe("askAgent, streamed", () => {
       },
     );
     expect(said).toEqual(["Opening ChatGPT now.", "Signed in."]);
-    expect(answer).toEqual({ kind: "answer", text: "Done." });
+    expect(answer).toEqual({ kind: "answer", text: "Done.", pictures: [] });
     expect(new Headers(calls[0].init.headers).get("accept")).toBe("application/x-ndjson");
   });
 
@@ -169,7 +173,7 @@ describe("askAgent, streamed", () => {
     const answer = await askAgent(fake(200, { answer: "Sure." }), "g", "t", "q", async (text) => {
       said.push(text);
     });
-    expect(answer).toEqual({ kind: "answer", text: "Sure." });
+    expect(answer).toEqual({ kind: "answer", text: "Sure.", pictures: [] });
     expect(said).toEqual([]);
   });
 });

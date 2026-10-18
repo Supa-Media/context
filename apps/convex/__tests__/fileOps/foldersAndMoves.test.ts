@@ -473,14 +473,14 @@ describe("archiving is the recoverable one", () => {
     expect(canSee(archived.paths[0]!, "team", manifest.rules, manifest.overrides)).toBe(false);
   });
 
-  test("the note moves into 9-archive with its original path preserved", async () => {
+  test("the note moves into 9-archive at its own path, beside everything archived from its folder", async () => {
     const store = bucket();
     const result = await archivePath(store, {
       path: "1-projects/context-lc.md",
       clearance: clearanceOf("private"),
       now: NOW,
     });
-    expect(result.to).toMatch(/^9-archive\/[\dTZ-]+\/1-projects\/context-lc\.md$/);
+    expect(result.to).toBe("9-archive/1-projects/context-lc.md");
     expect(store.snapshot()[result.to]).toContain("# Context.LC");
     expect(store.snapshot()["1-projects/context-lc.md"]).toBeUndefined();
   });
@@ -521,8 +521,25 @@ describe("archiving is the recoverable one", () => {
       now: NOW + 60_000,
     });
     expect(second.to).not.toBe(first.to);
+    // Archived twice from one folder: the second arrives numbered, never on top of the first.
+    expect(second.to).toBe("9-archive/1-projects/context-lc (2).md");
     expect(store.snapshot()[first.to]).toBeTruthy();
     expect(store.snapshot()[second.to]).toBeTruthy();
+  });
+
+  test("archiving a folder whose name is already in the archive merges into it, a taken note numbered", async () => {
+    const store = bucket();
+    store.seed("1-projects/launch/notes.md", "# Newer notes\n");
+    store.seed("1-projects/launch/plan.md", "# Plan\n");
+    store.seed("9-archive/1-projects/launch/notes.md", "# Older notes\n");
+    const result = await archivePath(store, { path: "1-projects/launch", clearance: clearanceOf("private"), now: NOW });
+    const snapshot = store.snapshot();
+    expect(snapshot["9-archive/1-projects/launch/notes.md"]).toBe("# Older notes\n");
+    expect(snapshot["9-archive/1-projects/launch/notes (2).md"]).toBe("# Newer notes\n");
+    expect(snapshot["9-archive/1-projects/launch/plan.md"]).toBe("# Plan\n");
+    expect(Object.keys(snapshot).some((key) => key.startsWith("1-projects/launch/"))).toBe(false);
+    expect(result.from).toBe("1-projects/launch");
+    expect(result.to).toBe("9-archive/1-projects/launch");
   });
 
   test("something already in the archive is not archived again", async () => {
@@ -555,7 +572,7 @@ describe("archiving is the recoverable one", () => {
       now: NOW,
     });
 
-    expect(result.to).toMatch(/^5-archive\/[\dTZ-]+\/1-projects\/pitch\.md$/);
+    expect(result.to).toBe("5-archive/1-projects/pitch.md");
     expect(
       Object.keys(store.snapshot()).some((key) => key.startsWith("4-archive/")),
       "it invented a second archive beside the real one",

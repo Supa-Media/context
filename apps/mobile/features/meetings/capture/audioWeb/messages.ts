@@ -94,12 +94,21 @@ export const NO_SPEECH =
   It is the *claim* that would have been wrong, not the recording, which is the
   same reason `desktop.ts` reports `micOnly` rather than failing the start.
 */
-export const SYSTEM_AUDIO_UNSHARED =
-  "Only your side of this call is being recorded: the call's audio wasn't shared. Press Share call audio, choose Entire screen, and turn on Also share system audio.";
+export const SYSTEM_AUDIO_UNSHARED = "Only your voice is being recorded.";
+
+/** Said, quietly, when the person chose to record the room with no call. */
+export const CALL_AUDIO_ROOM = "Recording the room.";
+
+/**
+ * Said, quietly, when this browser was not asked for the call's audio because
+ * it shared none the last two times. Not a warning: nothing was chosen wrong.
+ */
+export function callAudioSkipped(browser: string): string {
+  return `Recording your voice only. ${browser} didn't share call audio the last two times.`;
+}
 
 /** The share was stopped from the browser's own bar, mid-meeting. */
-export const SYSTEM_AUDIO_ENDED =
-  "Sharing stopped, so only your side of this call is being recorded now. Press Share call audio to bring the other side back.";
+export const SYSTEM_AUDIO_ENDED = "Call audio stopped. Only your voice is being recorded.";
 
 /** `navigator.onLine === false`, the one direction of it that is reliable. */
 export function browserOffline(): boolean {
@@ -128,6 +137,7 @@ export const CAPTURE_MESSAGES: readonly string[] = Object.freeze([
   NO_SESSION_ID,
   SYSTEM_AUDIO_UNSHARED,
   SYSTEM_AUDIO_ENDED,
+  CALL_AUDIO_ROOM,
   ALREADY_RECORDING,
 ]);
 

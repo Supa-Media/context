@@ -102,7 +102,7 @@ function parseImages(value: unknown): Record<string, string> {
  */
 const NOT_PAGES = new Set([
   "admin", "authorize", "connect", "console", "e2e-fixture", "invite", "join", "login", "meetings",
-  "not-me", "note", "preview", "privacy", "s", "stop-new-email", "terms", "tex", "texts", "vault", "welcome", "workspace", "_expo", "api", "og",
+  "not-me", "note", "preview", "privacy", "s", "signin", "stop-new-email", "support", "terms", "tex", "texts", "vault", "welcome", "workspace", "_expo", "api", "og",
 ]);
 
 /**

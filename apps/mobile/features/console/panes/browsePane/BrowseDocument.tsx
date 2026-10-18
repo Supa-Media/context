@@ -1,6 +1,7 @@
-import { useMemo, type ReactNode } from "react";
+import { useCallback, useMemo, type ReactNode } from "react";
 import type { useConsoleNav } from "../../ConsoleNavContext";
-import { contextFootLine } from "../../files/contextFoot";
+import { contextFootLine, footNeedsSaying } from "../../files/contextFoot";
+import { atName } from "../../format";
 import type { FileBrowser } from "../../files/browser";
 import { ConflictResolver } from "../../files/ConflictResolver";
 import { FolderView } from "../../files/FolderView";
@@ -8,18 +9,19 @@ import { NoteEditor } from "../../files/NoteEditor";
 import { trashedViewOf } from "../../files/noteEditor/trashed";
 import { RoutineProvider } from "../../routines/RoutineHost";
 import { commenterFor } from "../../files/comments/model";
-import { entryAt } from "../../files/tree";
+import { entryAt, findEntry } from "../../files/tree";
 import { canEditActivity, capabilitiesForRole } from "../../capabilities";
 import type { ConsoleData, selectedContext } from "../../types";
 import { ChannelDayView } from "../../communications/ChannelDayView";
-import { DocumentPage } from "./DocumentPage";
 import type { classifyCommsPath } from "../../communications/paths";
 import { Empty } from "./Empty";
 import { LayingOutPage } from "./LayingOutFolders";
 import { UnreadableNote } from "./UnreadableNote";
+import { DocumentPage } from "./DocumentPage";
 import { NoteLoading } from "./NoteLoading";
+import { preloadFronts } from "../../files/folderPage/pageCache";
 import { noteNameEdit } from "./nameEdit";
-import { isMarkdown } from "../../files/paths";
+import { isMarkdown, parentPath } from "../../files/paths";
 import type { BrowsePaneProps } from "./props";
 import type { BrowseEncryption } from "./useBrowseEncryption";
 import type { BrowseNoticeState } from "./useBrowseNotices";
@@ -34,11 +36,23 @@ import { showTagOnHome } from "../../home/homeTag";
 import type { HomeSource } from "../../home/useHomeSource";
 import { useRecordOpen, useRecordRecent } from "../../home/useHomePlaces";
 import { usePeekEditing } from "./usePeekEditing";
-import { useOrganizerView } from "../../../organizer/OrganizerContext";
-import { WhatChangedPage } from "../../../organizer/WhatChangedPage";
 import { useMapRoute } from "../../map/live/MapRouteContext";
 import { useAnnounceOpenNote } from "../../map/live/announce";
 import { MapPage } from "../../map/live/ui/MapPage";
+import { TrashPage } from "../../trash/TrashPage";
+import { useTrashRoute } from "../../trash/TrashRouteContext";
+import { PhoneInbox } from "../../home/PhoneInbox";
+import { useDownloadRows, useSteadyDownloadRow } from "../../files/Downloads";
+import { requestSyncSheet } from "../../files/syncSheetRequest";
+import { downloadedLine } from "../../../offline/downloadSummary";
+import type { HoldPoint } from "../../home/homeRows";
+import type { InboxActivity } from "../../home/inboxModel";
+
+import { useHomeView } from "../../home/homeView";
+import { ownPersonalContext } from "../../identity";
+
+/** Filed today before `activity.md` has answered: nothing, one array so Inbox does not redraw. */
+const NO_ENTRIES: readonly InboxActivity[] = [];
 
 /**
  * Whatever is in front of somebody: the empty state or the phone's landing
@@ -73,6 +87,7 @@ export function BrowseDocument({
   notices,
   pathBar,
   layingOut,
+  holding = false,
 }: {
   data: ConsoleData;
   files: FileBrowser;
@@ -108,6 +123,12 @@ export function BrowseDocument({
   pathBar: ReactNode;
   /** The folders after "Start fresh": being written, or just written. */
   layingOut: BrowseNoticeState["layingOut"];
+  /**
+   * The page drawn is the one already on screen, kept while the selection is
+   * read (`useShownEntry`). With nothing selected that is a phone's Home, which
+   * stays rather than giving way to the loading bars.
+   */
+  holding?: boolean;
 }) {
   // Where a folder list in the open note reads its notes: this device's copy.
   // The homepage brings its own (the visitor's copy of the site), and asks nothing of a device or the server.
@@ -223,8 +244,47 @@ export function BrowseDocument({
     layout keeps the listing: its tree is on the screen beside it.
   */
   const mapRoute = useMapRoute();
+  const trashRoute = useTrashRoute();
+  // The phone's first page is Inbox, and All opens Folders (`home/homeView.ts`).
+  const homeView = useHomeView();
+  const ownSlug = ownPersonalContext(data.contexts)?.slug ?? null;
+  const isMe = useCallback((by: string) => ownSlug !== null && by === `@${ownSlug}`, [ownSlug]);
+  const rowHold =
+    data.visitor === undefined
+      ? (path: string, at: HoldPoint) => {
+          // The row's own menu, as a hold on a folder page's row opens it. A row whose
+          // folder this device has not listed yet has no entry to build one from.
+          const entry = findEntry(files.listings, path);
+          if (entry != null) folderMenuFor(parentPath(path)).onRow(entry, at);
+        }
+      : undefined;
+  // How much of this workspace is on the device, under the Notes title (2026-10-18).
+  const downloadRows = useDownloadRows(data.contexts);
+  const downloadRow = useSteadyDownloadRow(downloadRows.find((row) => row.workspaceId === data.selectedContextId));
+  const phoneInbox = (
+    <PhoneInbox
+      downloaded={downloadedLine(downloadRow)}
+      downloading={downloadRow?.state === "downloading"}
+      ledeSource={folderLists}
+      onDownloads={requestSyncSheet}
+      source={homeSource}
+      pins={places.pins}
+      recents={places.recents}
+      opened={places.opened}
+      entries={data.activity?.entries ?? NO_ENTRIES}
+      isMe={isMe}
+      onOpen={files.select}
+      // Drawn at once on opening, from the phone's copy; grey rows until the edits are known.
+      ready={(data.activity?.loaded ?? true) && (homeSource.notes.length > 0 || landing !== null)}
+      onActions={(at) => void openFolderActions("", at)}
+      onHold={rowHold}
+      iconOf={files.iconOf}
+      opening={holding ? files.selectedPath : null}
+      onPreload={(folders) => preloadFronts(folderLists, folders)}
+    />
+  );
   // Every note and folder in this workspace, for Home and a folder page's counts: a phone only.
-  const phoneHome = (
+  const phoneFolders = (
     <PhoneHome
       title={current?.displayName ?? contextLabel}
       source={homeSource}
@@ -234,14 +294,23 @@ export function BrowseDocument({
       onShown={places.refresh}
       onOpen={files.select}
       onNewFolder={files.canEdit ? () => setFolderDialog({ kind: "newFolder", folder: "" }) : undefined}
-      onActions={data.visitor === undefined ? (at) => void openFolderActions("", at) : undefined}
-      onTogglePin={places.togglePin}
+      onHold={rowHold}
       iconOf={files.iconOf}
       onAddFolder={files.canEdit ? () => setFolderDialog({ kind: "addFolder" }) : undefined}
-      foot={contextFoot}
-      onOpenMap={mapRoute?.openMap}
+      handle={current?.slug == null ? undefined : atName(current.slug)}
+      foot={
+        contextFoot !== undefined &&
+        footNeedsSaying({ storage: data.storage, fastSearch: data.fastSearch.status, noteLimit: data.noteLimit })
+          ? contextFoot
+          : undefined
+      }
+      opening={holding ? files.selectedPath : null}
+      onPreload={(folders) => preloadFronts(folderLists, folders)}
     />
   );
+  // A visitor on the homepage has no Inbox: their page is the workspace's own.
+  const onNotes = data.visitor === undefined && homeView === "inbox";
+  const phoneHome = onNotes ? phoneInbox : phoneFolders;
   // What a phone's folder rows say beside their names: counts, dates, first lines, pins.
   const phoneRowsFor = useMemo(
     () =>
@@ -285,7 +354,6 @@ export function BrowseDocument({
 
   // In storage but can't be opened: drawn with no editor, so nothing saves over it.
   const unreadable = files.unreadable ?? null;
-  const organizer = useOrganizerView();
   // Tell the people and tools on the map which note this person has open.
   useAnnounceOpenNote(
     current?.id,
@@ -293,7 +361,23 @@ export function BrowseDocument({
     files.editor.path === selected?.path && files.editor.draft !== files.editor.baseline,
   );
   const openDocument =
-    mapRoute?.open && current !== null && current !== undefined ? (
+    trashRoute?.open ? (
+      /*
+        The Trash page (`?trash=1`), where a note would be: the tree stays
+        beside it, and opening a trashed note shows it read-only with Restore.
+      */
+      <DocumentPage>
+        <TrashPage
+          workspaceId={trashRoute.workspaceId}
+          compact={compact}
+          onOpen={(path) => {
+            trashRoute.closeTrash();
+            files.select(path);
+          }}
+          onClose={trashRoute.closeTrash}
+        />
+      </DocumentPage>
+    ) : mapRoute?.open && current !== null && current !== undefined ? (
       /*
         The live map (`?map=1`), where a note would be, filling the slot: the
         tree stays beside it. A note in this workspace opens as the tree opens
@@ -312,22 +396,6 @@ export function BrowseDocument({
           if (slug !== undefined) mapRoute.openNoteIn(slug, path);
         }}
       />
-    ) : organizer?.pageOpen ? (
-      /*
-        What changed (`?changes=1`), where a note would be: the tree stays
-        beside it, and opening one of its sources is opening that note.
-      */
-      <DocumentPage>
-        <WhatChangedPage
-          organizer={organizer}
-          compact={compact}
-          now={Date.now()}
-          onOpenSource={(path) => {
-            organizer.closePage();
-            files.select(path);
-          }}
-        />
-      </DocumentPage>
     ) : unreadable !== null && unreadable === files.selectedPath ? (
       <UnreadableNote
         onRetry={() => files.select(unreadable)}
@@ -356,7 +424,7 @@ export function BrowseDocument({
         clears on a failed read — so a note that genuinely will not open lands
         back here, under its notice, instead of on a blank page.
       */
-      pendingNote == null && files.opening === null ? (
+      (pendingNote == null && files.opening === null) || (holding && compact && landing !== null) ? (
         layingOut !== null ? (
           /*
             The folders "Start fresh" promised, being written — drawn here,
@@ -372,7 +440,10 @@ export function BrowseDocument({
           />
         ) : !compact ? (
           <Empty contextLabel={contextLabel} />
-        ) : landing === null ? null : (
+        ) : landing === null && !onNotes ? null : (
+          // Notes draws at once on opening, its header and grey rows standing in
+          // for what is still on its way (Dev2, 2026-10-18: "when I open the app,
+          // it's just a blank black screen").
           phoneHome
         )
       ) : isMarkdown(files.opening ?? pendingNote ?? "") ? (
@@ -407,6 +478,8 @@ export function BrowseDocument({
         // `FolderView`'s header.
         foot={contextFoot}
         onSelect={files.select}
+        // The row pressed shows it is opening while this page is kept for it (`useShownEntry`).
+        opening={holding ? files.selectedPath : files.opening}
         menu={folderMenuFor(selected.path)}
         drag={folderDrag}
         pendingStateFor={files.pending?.stateFor}
@@ -423,7 +496,7 @@ export function BrowseDocument({
         phoneRows={phoneRowsFor}
         iconOf={files.iconOf}
         nesting={folderNesting}
-        askSelect={selectAsked === selected.path}
+        askSelect={selectAsked?.folder === selected.path ? { ...(selectAsked.path === undefined ? {} : { path: selectAsked.path }) } : false}
         onAskTaken={takeSelect}
       />
     ) : files.opening === selected.path && files.editor.path !== selected.path ? (
@@ -592,7 +665,7 @@ export function BrowseDocument({
   */
   function routineNote(editor: ReactNode) {
     return data.routines === true ? (
-      <RoutineProvider workspaceId={current?.id} path={files.editor.path} canEdit={files.canEdit}>
+      <RoutineProvider workspaceId={current?.id} shared={current?.kind === "shared"} path={files.editor.path} canEdit={files.canEdit}>
         {editor}
       </RoutineProvider>
     ) : (

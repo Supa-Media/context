@@ -65,7 +65,11 @@ jobs:
         id: router
         with:
           packages: "@context/router"
-          paths: ".github/workflows/workers.yml"
+          # homeSite.test.ts reads the app's APP_SEGMENTS, so a new app route
+          # has to run the router's tests (#1866 reached staging without).
+          paths: |
+            .github/workflows/workers.yml
+            apps/mobile/features/home/homeSite.ts
 
       # Browser checks still report on every pull request, but their expensive
       # steps belong only to changes in the dependency graph they execute.

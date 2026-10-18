@@ -14,6 +14,8 @@ import type { ActionCtx } from "../../../_generated/server";
 import { hashToken } from "../crypto";
 import { APP_ORIGIN_ENV_VAR, badRequest, json, randomOpaqueToken, stringField } from "../gatewayAuth";
 import { TEXTS_GRANT_TTL_MS, TEXTS_LINK_ROUTE } from "../../textLinks";
+import type { SetupAnswer } from "../../textSetup";
+import { SIGN_IN_LINK_ROUTE } from "../../textSignIn";
 
 /**
  * `POST /agent-texts/link` — `{ phone, code }` → `{ status: "linked", handle }`
@@ -86,6 +88,63 @@ export async function agentTextsInviteHandler(
   return json(status === "issued" ? { status, url: `${origin}${TEXTS_LINK_ROUTE}/${token}` } : { status });
 }
 
+/**
+ * `POST /agent-texts/setup` — `{ phone, candidate? }` → one step of setting
+ * the phone up by text (`functions/textSetup.ts`). `candidate` is the one word
+ * the person texted, never the message. A finished setup carries the new
+ * workspace's console link. A creation that loses a race for the handle reads
+ * as `taken`; any other failure is `not_eligible`, so the Worker falls back to
+ * the sign-in link rather than saying the setup worked.
+ */
+export async function agentTextsSetupHandler(
+  ctx: ActionCtx,
+  body: Record<string, unknown>,
+): Promise<Response> {
+  const phone = stringField(body, "phone");
+  if (phone === null) return badRequest();
+  const raw = body.candidate;
+  if (raw !== undefined && (typeof raw !== "string" || raw.length === 0 || raw.length > 64)) return badRequest();
+  let answer: SetupAnswer;
+  try {
+    answer = await ctx.runMutation(internal.functions.textSetup.answerSetupText, {
+      phone,
+      ...(raw === undefined ? {} : { candidate: raw }),
+    });
+  } catch (error) {
+    const code = (error as { data?: { code?: unknown } }).data?.code;
+    if (code === "NAME_UNAVAILABLE") return json({ status: "rejected", reason: "taken" });
+    console.log(JSON.stringify({ event: "text_setup_failed", code: typeof code === "string" ? code : "unexpected" }));
+    return json({ status: "not_eligible" });
+  }
+  if (answer.status !== "set_up") return json(answer);
+  const origin = appOrigin();
+  return json(origin === null ? answer : { ...answer, url: `${origin}/console/${answer.handle}` });
+}
+
+/**
+ * `POST /agent-texts/ready` — `{ phone }` → `{ status: "ready", url }` once
+ * the notes of a phone set up by text are ready, with a link that signs it in
+ * and opens Google's connect card (`functions/textSignIn.ts`); else
+ * `{ status: "waiting" }`, or `{ status: "gone" }` to stop asking. The token is
+ * in the URL once and only its hash is stored.
+ */
+export async function agentTextsReadyHandler(
+  ctx: ActionCtx,
+  body: Record<string, unknown>,
+): Promise<Response> {
+  const phone = stringField(body, "phone");
+  if (phone === null) return badRequest();
+  const origin = appOrigin();
+  if (origin === null) return json({ status: "gone" });
+  const token = randomOpaqueToken(32);
+  const answer: { status: "waiting" | "gone" } | { status: "ready"; next: string } = await ctx.runMutation(
+    internal.functions.textSignIn.readyLink,
+    { phone, tokenHash: await hashToken(token) },
+  );
+  if (answer.status !== "ready") return json(answer);
+  return json({ status: "ready", url: `${origin}${SIGN_IN_LINK_ROUTE}/${token}` });
+}
+
 /** `POST /agent-texts/unlink` — `{ phone }` → `{ status: "unlinked" | "not_linked" }`. */
 export async function agentTextsUnlinkHandler(
   ctx: ActionCtx,
@@ -98,6 +157,16 @@ export async function agentTextsUnlinkHandler(
     { phone },
   );
   return json({ status });
+}
+
+/**
+ * `POST /agent-texts/phones` — `{}` → `{ phones }`, every phone Tex may have a
+ * chat with, for the new-number notice. The Worker still texts only a phone
+ * whose own chat is on the old line.
+ */
+export async function agentTextsPhonesHandler(ctx: ActionCtx): Promise<Response> {
+  const phones: string[] = await ctx.runQuery(internal.functions.textPhones.knownPhones, {});
+  return json({ phones });
 }
 
 function appOrigin(): string | null {

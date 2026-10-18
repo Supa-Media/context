@@ -24,6 +24,10 @@ import { baseToolDefinitions } from "./schemas.js";
  * neither.
  */
 export const PRIVATE_TIER_ONLY_TOOLS = new Set([
+  // The person's own mail, live from Gmail: as private as anything they own,
+  // and the control plane refuses anybody but the personal workspace's owner.
+  "search_email",
+  "read_email",
   "list_plugins",
   "rotate_encryption_keys",
   "materialize_move",
@@ -41,6 +45,12 @@ export const PRIVATE_TIER_ONLY_TOOLS = new Set([
   "create_link",
   "list_links",
   "revoke_link",
+  // Starting Tex's dream is the personal workspace's owner's, for the same
+  // reason: the control plane refuses anyone else (`lib/dreams/now.ts`).
+  "dream_now",
+  // Texting the person is theirs alone: the control plane refuses anyone
+  // but the owner of their own personal workspace (`lib/attention/ask.ts`).
+  "notify_me",
 ]);
 
 /**
@@ -145,6 +155,35 @@ const CONTEXT_ARGUMENT = {
 };
 
 /**
+ * The `mailbox` argument (`tools/notes/mail.js`), added to every tool for the
+ * reason `context` is: an agent that joined a note's mail passes it on every
+ * call, whatever the tool, and the answer ends with a line when mail is new
+ * for it. A tool that refused it would be the one call that went quiet.
+ */
+const MAILBOX_ARGUMENT = {
+  type: "string",
+  description:
+    "Optional. Your mailbox id, if you joined a note's mail (write action mail, args { join }). " +
+    "Pass it on every call; the answer then says when mail is new for you.",
+};
+
+/**
+ * The `person_said` argument, added to every tool for the reason `context` is.
+ *
+ * The egress judge (`privacy/judge.js`, the owner, 2026-10-17) lets a call that
+ * widens who can see something run when the person's own words ask for it, and
+ * this gateway never sees an MCP client's chat, so the client reports them here.
+ * Read by the gate only and stripped before any tool runs.
+ */
+const PERSON_SAID_ARGUMENT = {
+  type: "string",
+  description:
+    "Optional. Before anything that lets more people see something (a link, publishing, naming people, " +
+    "a visibility change), the person's own words asking for it, exactly as they wrote them, with your " +
+    "question first if they were answering it.",
+};
+
+/**
  * The same fact, in the one field every client renders.
  *
  * A property blurb is not nothing, but a client is free to summarise the schema,
@@ -161,16 +200,13 @@ const CONTEXT_ARGUMENT_SENTENCE =
   ' Works in another context too: pass context: "@name" for any workspace you reach ' +
   "(orient lists them and says what you may do in each).";
 
-/**
- * The two tools whose schema is somebody else's contract.
- *
- * `search` and `fetch` exist in OpenAI's deep-research shape so ordinary
- * ChatGPT chats can call something at all; those chats pass what that contract
- * defines and nothing else, so an extra property buys them nothing and risks
- * being read as a violation of it. Cross-context reach is available to them
- * through the ordinary tools when a client can see the ordinary tools.
- */
-const FOREIGN_CONTRACT_TOOLS = new Set(["search", "fetch"]);
+/*
+  `search` and `fetch` keep the names and the required `query` / `id` of
+  OpenAI's deep-research contract, so ordinary ChatGPT chats can still call
+  them, and since v2 (2026-10-16) also take the optional `args`, `context`
+  and `mailbox` every tool takes: they are two of the six tools every client
+  is offered, not a side door for one app.
+*/
 
 /**
  * Every tool, with the addressing argument folded in.
@@ -184,7 +220,6 @@ const FOREIGN_CONTRACT_TOOLS = new Set(["search", "fetch"]);
  */
 export function toolDefinitions() {
   return baseToolDefinitions().map((tool) => {
-    if (FOREIGN_CONTRACT_TOOLS.has(tool.name)) return tool;
     const schema = tool.inputSchema || { type: "object" };
     return {
       ...tool,
@@ -194,7 +229,10 @@ export function toolDefinitions() {
       description: `${tool.description || ""}${CONTEXT_ARGUMENT_SENTENCE}`.trim(),
       inputSchema: {
         ...schema,
-        properties: { ...(schema.properties || {}), context: CONTEXT_ARGUMENT },
+        properties: { ...(schema.properties || {}), context: CONTEXT_ARGUMENT,
+          mailbox: MAILBOX_ARGUMENT,
+          person_said: PERSON_SAID_ARGUMENT,
+        },
       },
     };
   });

@@ -6,8 +6,9 @@ import {
   useOptionalLocalSearchParams,
 } from "../../app/useOptionalLocalSearchParams";
 import { resolveContextRoute, settingsFromQuery, type ConsoleRoute } from "../nav";
-import { changesFromQuery } from "../../organizer/changesRoute";
+import { trashFromQuery } from "../trash/TrashRouteContext";
 import { mapFromQuery } from "../map/live/route";
+import { inboxFolder } from "../files/jobIcons/folderJobs";
 import type { ConsoleData } from "../types";
 import type { ConsoleRouter } from "./types";
 
@@ -28,8 +29,8 @@ export function useConsoleParams() {
     settings?: string | string[];
     checkout?: string | string[];
     connect?: string | string[];
-    changes?: string | string[];
     map?: string | string[];
+    trash?: string | string[];
   }>();
   const openSettingsSection = settingsFromQuery(settingsParams.settings);
   /*
@@ -45,10 +46,10 @@ export function useConsoleParams() {
   );
   // The guided agent setup, over whatever is open — see `AgentSetupOverlay`.
   const connectAgent = agentFromQuery(settingsParams.connect);
-  // What changed, drawn where a note would be — see `WhatChangedPage`.
-  const changesOpen = changesFromQuery(settingsParams.changes);
   const mapOpen = mapFromQuery(settingsParams.map);
-  return { quickParams, openSettingsSection, checkoutReturn, connectAgent, changesOpen, mapOpen };
+  // The Trash page, drawn where a note would be — see `TrashPage`.
+  const trashOpen = trashFromQuery(settingsParams.trash);
+  return { quickParams, openSettingsSection, checkoutReturn, connectAgent, mapOpen, trashOpen };
 }
 
 /**
@@ -131,7 +132,7 @@ export function useQuickNoteAction({
       and a modal asking what to call a note nobody has written yet is the
       opposite of that. `untitled.ts` has the name it gets and how it loses it.
     */
-    data.files.createUntitled("0-inbox", "note");
+    data.files.createUntitled(inboxFolder(data.files.listings), "note");
     // The list is the layout's, unchanged: `handledQuickNote` is its `useRef`,
     // stable by construction, which the rule cannot see through a parameter.
     // eslint-disable-next-line react-hooks/exhaustive-deps

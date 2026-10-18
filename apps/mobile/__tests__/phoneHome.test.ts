@@ -52,11 +52,13 @@ function input(overrides: Partial<HomeInput> = {}): HomeInput {
 describe("folders and counts", () => {
   test("every top-level folder, with counts that include everything inside", () => {
     const home = buildHome(input());
+    // The tree's order (`phoneFolderOrder.test.ts`): `clients` is a built-in
+    // extra, so it comes before an own folder like `brand`.
     expect(home.folders.map((f) => [f.path, f.notes, f.folders])).toEqual([
       ["0-inbox", 1, 0],
       ["1-projects", 2, 1],
-      ["brand", 0, 0],
       ["clients", 2, 1],
+      ["brand", 0, 0],
     ]);
     expect(home.totals).toEqual({ folders: 4, notes: 6 });
   });

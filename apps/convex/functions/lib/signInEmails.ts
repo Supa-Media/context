@@ -87,3 +87,17 @@ export async function confirmedEmailsOf(ctx: QueryCtx, userId: Id<"users">): Pro
   const main = me?.email !== undefined && me.emailVerificationTime !== undefined ? [normalizeEmail(me.email)] : [];
   return [...new Set([...main, ...(await attachedEmailsOf(ctx, userId))])];
 }
+
+/**
+ * The confirmed addresses that reach this account alone: `confirmedEmailsOf`, minus any address that
+ * `accountForEmail` gives to someone else or to nobody. An address two accounts hold is nobody's, so an
+ * email grant on it reaches neither (`lib/grantedNames.ts`). Bounded at one main address plus
+ * `MAX_EMAILS_PER_ACCOUNT` added ones, which is the most `confirmedEmailsOf` can return.
+ */
+export async function ownedConfirmedEmailsOf(ctx: QueryCtx, userId: Id<"users">): Promise<string[]> {
+  const owned: string[] = [];
+  for (const email of (await confirmedEmailsOf(ctx, userId)).slice(0, MAX_EMAILS_PER_ACCOUNT + 1)) {
+    if ((await accountForEmail(ctx, email)) === userId) owned.push(email);
+  }
+  return owned;
+}

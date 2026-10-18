@@ -256,6 +256,27 @@ reason to suspect the product does anything else. It is a callback rather than
 a `ConsoleRoute`: `/welcome` is not under `/console`, and putting it in that
 union would have `routeForPath` pretending to parse a URL it never sees.
 
+### Everybody starts with a personal workspace, and is not asked for folders
+
+Decided by the owner (Dev2, 2026-10-16), replacing "a context you were given is
+enough": every account, free or paid, starts with a personal workspace of its
+own, and every other workspace (one added for a side project, one somebody
+shared) sits beside it. So `needsOnboarding` renders only for somebody who
+**owns** a personal workspace. An invitee with nothing to open still answers
+the invitation first (`/invite`), so the referral is kept; once they can open
+something and still own nothing, the next stop is `/welcome`.
+`offerOwnContext` stays as the fallback entry.
+
+Nobody is asked which folders to create. "Start fresh" already wrote the five
+starting folders; an empty bucket somebody brought now gets the same five when
+they continue past the report (`laysOutAfterDryRun`, only on the verifier's
+`empty`, never on `existing-context` or an unread bucket), and an empty
+personal workspace found later in the console is laid out without a press
+(`SetupPrompt`'s `autoStart`, never for a visitor or the demo). A shared
+workspace is still asked what kind it is, since the kind picks its extra
+folders. Reversing this fails `onboardingRoute.test.ts`,
+`onboardingMount.test.ts` and `consoleSetupPrompt.test.ts`.
+
 ### Sign-in is invite-only, and the lock is on the server
 
 Decided by the owner (Dev2, 2026-09-28): Context is closed to early adopters.
@@ -285,3 +306,21 @@ unwired, and its sabotage record says by how much.
 Self-hosters get the same gate; their `ADMIN_EMAILS` are admitted, and
 `OPEN_SIGNUP=true`, set by hand, reopens sign-up. A deploy never sets it
 (`deployEnv.test.ts`).
+
+
+### The App Store review phone is an alias, never proof of phone ownership
+
+The owner requested the reserved fictional number `+12025550123` and code
+`000000` for App Store review on 2026-10-15. The existing dedicated reviewer
+account holds the sample workspace. Phone sign-in resolves only that account's
+verified primary email, never provisions an account, and refuses conflicting
+phone assignments. It is enabled only where the directory reviewer is already
+configured. The existing directory email code remains unchanged.
+
+The fixed code is checked only by the sign-in provider. Shared phone verification,
+linking and recovery still require their normal codes. Treating this alias as a
+verified customer phone would let another account attach it using public review
+credentials. No phone ownership row is written, and neither sends nor checks
+contact Twilio for this reserved number. Normal sign-in rate limits still apply.
+`phoneSignIn.test.ts` proves the wrong code, another phone, a conflicting holder,
+a missing reviewer and disabled configuration cannot obtain a review session.

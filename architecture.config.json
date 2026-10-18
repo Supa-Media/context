@@ -77,6 +77,7 @@
     "apps/convex/__tests__/structure/httpRoutes.test.ts": "The gateway's HTTP routes, plus the route-factory constants and helpers only these checks use.",
     "apps/convex/__tests__/structure/reachability.test.ts": "One guard: no public Convex function can reach the storage-secret decrypt path, checked over the shared analyzer's whole call graph.",
     "apps/convex/functions/admin.ts": "Every staff query and mutation in one module: each handler's requireAdmin call must stay inline in its own body, which __tests__/adminSurface.test.ts reads from this file's source, so the registrations cannot move into lib/adminFns without losing that check. Each one is a few lines that delegate to lib/adminFns.",
+    "apps/convex/functions/googleConnect.ts": "The Google connection's whole lifecycle for every product on one grant: connect, bind, destination, disconnect (which also forgets push watches), revoke and access-token minting; the barrier list in reachability.test.ts names these functions by this module.",
     "apps/convex/functions/files.ts": "Every registered file function's validators and registration (Convex names derive from this file and export), each delegating to a lib/filesFns handler; the bodies live there.",
     "apps/convex/functions/lib/filesFns/executeOperation.ts": "One function, executeOperation: a single switch over every file operation; splitting it means rewriting the dispatch rather than moving code.",
     "apps/convex/functions/managedProvisioning.ts": "provisionManagedStorage and deleteManagedTestResources keep full bodies inline, and two others keep their decryptSecret calls inline, because the credential-reachability analyzer only reads a registered function's own block.",
@@ -106,7 +107,9 @@
     "apps/mcp/test/privacyGroups.test.mjs": "One privacy-rule scenario: what each tool does with a group rule it meets, over one shared fixture; it grew only by the console grant and the approving call the egress gate's tests now need, so a held write can be released by the owner's app.",
     "apps/convex/__tests__/contextMove.test.ts": "One cross-context move scenario over two in-memory buckets, driven by a local copy of the loop `advanceContextMove` runs with the scheduler and the credential barrier taken out; every case shares that harness and the two manifests it reads, so splitting it would either duplicate the loop or separate each widening check from the move that produces it.",
     "apps/convex/__tests__/shareAnyone.test.ts": "One unlisted-link scenario over a shared fixture (minting, reading anonymously, revocation, encryption); it grew only by the tree copy and facts fill the mint's courtesy check now reads, and the check that a mint never opens the note.",
-    "apps/convex/__tests__/shortLink.test.ts": "One short-link scenario over a shared fixture whose every case mints a link first; it grew only by the tree copy the mint's courtesy check now reads, in the fixture and for the second context."
+    "apps/convex/__tests__/shortLink.test.ts": "One short-link scenario over a shared fixture whose every case mints a link first; it grew only by the tree copy the mint's courtesy check now reads, in the fixture and for the second context.",
+    "docs/decisions/README.md": "The index of every durable decision title, one line each, grouped by area; code and tests cite these titles, so one list to search beats splitting it across files.",
+    "apps/mobile/__tests__/noteAccessory.test.ts": "One stubbed editor: every case drives the same real EditorControls stub over NoteEditor's frontmatter path, and jest.mock factories cannot be shared across files, so splitting it would copy that stub per file."
   },
   "baseline": {}
 }

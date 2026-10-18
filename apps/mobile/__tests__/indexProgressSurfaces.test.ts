@@ -349,6 +349,11 @@ afterEach(() => {
 });
 
 function mountConsole(width: number) {
+  // The context foot is on the phone's Folders page; it opens on Inbox
+  // (`homeView.ts`), which has no foot.
+  (require("../features/console/home/homeView") as typeof import("../features/console/home/homeView")).setHomeView(
+    "folders",
+  );
   // react-native-web measures `document.documentElement.clientWidth`, which
   // jsdom reports as 0 — see `appFrameRender.test.ts` for the full trap.
   Object.defineProperty(document.documentElement, "clientWidth", {
@@ -499,11 +504,12 @@ describe("an owner sees the figure without opening settings", () => {
     }
   });
 
-  test("a finished index says 100% rather than falling silent", () => {
+  test("a finished index says 100% on a pointer, and the phone's Folders page goes quiet", () => {
+    // Board 2 of meeting-2026-10-17/phone-inbox has no foot: a settled index is
+    // not news on a phone, and Settings › Storage still says it.
     mockStatus = { state: "on", canChange: true, notesIndexed: 1284, notesPending: 0 };
-    for (const rendered of [pointerText(), phoneText()]) {
-      expect(rendered).toContain("100% indexed");
-    }
+    expect(pointerText()).toContain("100% indexed");
+    expect(phoneText()).not.toContain("indexed");
   });
 
   test("a failed backfill keeps the number it stopped at", () => {
@@ -549,18 +555,15 @@ describe("A MEMBER SEES NO PERCENTAGE ON ANY SURFACE", () => {
     }
   });
 
-  test("the phone's foot keeps the bucket and the counts, and gains nothing else", () => {
-    // The line is shared with the storage label and the tree counts, so "the
-    // member is told nothing" must not be satisfied by the whole line
-    // disappearing — that would be a different regression wearing this test's
-    // pass. The storage label and the counts are the phone's only route to
-    // either fact, and they travel with the figure rather than behind its gate.
+  test("the phone's Folders page draws no foot for them, so no figure either", () => {
+    // The phone's foot is drawn only while it has news (`footNeedsSaying`),
+    // and a figure withheld from a member is never news: the line stays off,
+    // as board 2 draws Folders. The bucket is Settings › Storage's.
     mockStatus = { state: "preparing", canChange: false };
     const app = mountConsole(390);
-    const detail = app.find("context-foot")?.textContent ?? "";
-    expect(detail).toBe("R2 · example-bucket · 1 note, 1 folder");
-    expect(detail).not.toMatch(/\d+\s*%/);
-    expect(detail).not.toMatch(/indexed/i);
+    expect(app.find("context-foot")).toBeNull();
+    expect(app.text()).not.toMatch(/\d+\s*%/);
+    expect(app.text()).not.toMatch(/indexed/i);
   });
 
   test("no placeholder stands in for the withheld figure", () => {

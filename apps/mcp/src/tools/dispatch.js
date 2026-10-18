@@ -15,6 +15,12 @@ import {
 } from "./forms/tools.js";
 import { toolCreateLink, toolListLinks, toolRevokeLink } from "./links.js";
 import { toolReportProblem } from "./reportProblem.js";
+import { toolSendEmail } from "./email.js";
+import { toolReadEmail, toolSearchEmail } from "./emailRead.js";
+import { toolCalendarEvent } from "./calendarWrite.js";
+import { toolApplyLayout, toolConnectGoogle, toolCreateWorkspace } from "./workspaces.js";
+import { toolDreamNow } from "./dreamNow.js";
+import { toolNotifyMe } from "./attention.js";
 import { toolVaultAddLink, toolVaultList, toolVaultShareLink, toolVaultViewLink } from "./vault.js";
 import { toolError, toolText } from "./results.js";
 import { toolExistenceMasked } from "./registry.js";
@@ -44,8 +50,10 @@ import { toolRotateEncryptionKeys } from "./encryption/rotate.js";
 import { toolSaveContext } from "./saveContext.js";
 import { toolSetFolderVisibility, toolSetVisibility } from "./visibility.js";
 import { toolWriteNote } from "./notes/write.js";
+import { toolImageUploadLinks } from "../notes/imageUploads.js";
 import { toolRemember } from "./notes/remember.js";
 import { toolCommentNote } from "./notes/comment.js";
+import { toolMailNote, toolReadMail } from "./notes/mail.js";
 import { toolSiteAction } from "./notes/site.js";
 import { toolEvaluateLists } from "./evaluateLists.js";
 import { moveFinished, moveJobActive, moveJobKey } from "../moves/jobs.js";
@@ -95,6 +103,18 @@ export async function callTool(name, args, store, scope) {
   }
 }
 
+/**
+ * `read_note` for the gateway's own use, with the caller's privacy, outside
+ * the argument-checked dispatch above: the mail footer (`mail/footer.js`)
+ * reads the note a mailbox belongs to. The path comes from the control plane,
+ * never from the caller.
+ */
+export async function readNoteForGateway(store, scope, path) {
+  const privacy = await loadPrivacyState(store);
+  if (privacy.error) return toolError("privacy manifest invalid");
+  return toolReadNote(store, scope, privacy.rules, privacy.overrides, path);
+}
+
 async function runTool(name, args, store, scope) {
   const privacy = await loadPrivacyState(store);
   if (privacy.error) {
@@ -105,12 +125,13 @@ async function runTool(name, args, store, scope) {
   const { rules, overrides } = privacy;
   switch (name) {
     case "orient":
-      return toolOrient(store, scope, rules, overrides);
+      return toolOrient(store, scope, rules, overrides, { about: args.about, tools: args.tools === true });
     case "scope_info":
       return toolScopeInfo(store, scope, rules, overrides, args.path, args.workspaces === true);
     case "list_notes":
       return toolListNotes(store, scope, rules, overrides, args.prefix);
     case "read_note":
+      if (args.mail !== undefined) return toolReadMail(store, scope, rules, overrides, args);
       return toolReadNote(store, scope, rules, overrides, args.path);
     case "evaluate_lists":
       return toolEvaluateLists(store, scope, rules, overrides, args.path);
@@ -135,7 +156,9 @@ async function runTool(name, args, store, scope) {
       return toolReadImage(store, scope, rules, overrides, args);
     case "write_note":
       if (args.site !== undefined) return toolSiteAction(store, args);
+      if (args.upload !== undefined) return toolImageUploadLinks(store, args);
       if (args.comment !== undefined) return toolCommentNote(store, scope, rules, overrides, args);
+      if (args.mail !== undefined) return toolMailNote(store, scope, rules, overrides, args);
       return toolWriteNote(store, scope, rules, overrides, args);
     case "remember":
       return toolRemember(store, scope, rules, overrides, args);
@@ -241,7 +264,7 @@ async function runTool(name, args, store, scope) {
     case "create_link":
       return toolCreateLink(store, scope, args);
     case "vault_list":
-      return toolVaultList(store);
+      return toolVaultList(store, args);
     case "vault_add_link":
       return toolVaultAddLink(store, args);
     case "vault_share_link":
@@ -250,6 +273,24 @@ async function runTool(name, args, store, scope) {
       return toolVaultViewLink(store, args);
     case "report_problem":
       return toolReportProblem(store, args);
+    case "send_email":
+      return toolSendEmail(store, args);
+    case "search_email":
+      return toolSearchEmail(store, scope, rules, overrides, args);
+    case "read_email":
+      return toolReadEmail(store, args);
+    case "calendar_event":
+      return toolCalendarEvent(store, args);
+    case "create_workspace":
+      return toolCreateWorkspace(store, args);
+    case "apply_layout":
+      return toolApplyLayout(store, args);
+    case "connect_google":
+      return toolConnectGoogle(store, args);
+    case "dream_now":
+      return toolDreamNow(store, scope);
+    case "notify_me":
+      return toolNotifyMe(store, scope, rules, overrides, args);
     case "list_links":
       return toolListLinks(store, scope);
     case "revoke_link":

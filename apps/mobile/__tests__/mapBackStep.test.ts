@@ -66,7 +66,7 @@ describe("back to the map", () => {
     await show({ selectedPath: "1-projects/launch.md", mapOpen: false });
 
     await act(async () => step!(-1));
-    expect(calls).toEqual([["setParams", { map: "1", changes: undefined, settings: undefined }]]);
+    expect(calls).toEqual([["setParams", { map: "1", settings: undefined }]]);
     expect(selected).toEqual([]);
 
     calls.length = 0;

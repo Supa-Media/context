@@ -33,7 +33,7 @@ import { DELIBERATELY_UNREACHABLE } from "./unreachableRoutes";
  *
  * This file's own first line said "every route inside the app" over an
  * enumerator that saw eight of seventeen route files. `/login`, `/invite`,
- * `/s/<token>`, `/note/…`, `/authorize`, `/connect/dropbox`, `+not-found` and
+ * `/s/<token>`, `/note/…`, `/authorize`, `/connect/google`, `+not-found` and
  * the root itself were outside the walk, so the completeness claim — the one
  * thing this guard has that the mounted tests do not — was false about more
  * than half of the app. It is the whole tree now, minus Expo Router's own
@@ -339,6 +339,37 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
       },
     ],
   },
+  {
+    route: "/support",
+    file: "app/support.tsx",
+    reachable: true,
+    from: [
+      {
+        surface: "the Support note in the homepage's Legal folder, which links to this page",
+        /*
+          The link is Markdown in the note (`legalMarkdown`), drawn and pressed
+          by the note renderer, and routed out of the shell because the path is
+          one of `APP_ROUTES`.
+        */
+        control: {
+          file: "features/share/NoteBody.tsx",
+          contains: ["siteLink?.(run.href)", "onPress"],
+        },
+        navigation: [
+          {
+            file: "features/home/homeSite.ts",
+            contains: ["legalMarkdown(supportContent, \"/support\")", "[its own page](${standalone})", '"/support"', "APP_ROUTES"],
+          },
+          {
+            file: "features/home/HomeShell.tsx",
+            contains: ['link.kind === "app"', "router.push(link.href"],
+          },
+        ],
+        region: "screen",
+        densities: EVERY_DENSITY,
+      },
+    ],
+  },
   ...DELIBERATELY_UNREACHABLE,
   {
     route: "/console",
@@ -390,8 +421,8 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     from: [
       /*
         The live map is not a route of its own: it is `?map=1` on this page, a
-        page in the document slot over Browse, the way What changed is
-        `?changes=1`. So its two ways in are claims about this route, and its
+        page in the document slot over Browse. So its two ways in are claims
+        about this route, and its
         navigation is `router.setParams` on the route it is already on.
       */
       {
@@ -403,25 +434,46 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
         navigation: [
           {
             file: "features/console/map/live/route.ts",
-            contains: ['router.setParams({ map: "1", changes: undefined, settings: undefined })'],
+            contains: ['router.setParams({ map: "1", settings: undefined, trash: undefined })'],
           },
         ],
         region: "screen",
         densities: POINTER,
       },
+      /*
+        The Trash page is `?trash=1` on this page, in the document slot, as
+        the map is (`trash/TrashRouteContext.tsx`): a row of the account card
+        on a pointer layout (the tree's foot until Dev2, 2026-10-18), and on a phone a row of the @name menu on Inbox,
+        since Folders left its Trash line off for board 2 (2026-10-17).
+      */
       {
-        surface: "the live map, from its place on the phone's Home",
+        surface: "the Trash page, from Trash in the account card",
         control: {
-          file: "features/console/home/homeRows.tsx",
-          contains: ['testID="phone-home-map"', "onPress={onPress}"],
+          file: "features/console/SwitcherMenu.tsx",
+          contains: ['(phoneNamed || !phone) && trash !== undefined', 'else if (id === "trash") trash?.openTrash();'],
         },
         navigation: [
           {
-            file: "features/console/map/live/route.ts",
-            contains: ['router.setParams({ map: "1", changes: undefined, settings: undefined })'],
+            file: "features/console/trash/TrashRouteContext.tsx",
+            contains: ['router.setParams({ trash: "1", map: undefined, settings: undefined })'],
           },
         ],
-        region: "screen",
+        region: "switcher",
+        densities: POINTER,
+      },
+      {
+        surface: "the Trash page, from Trash in the @name menu on a phone's Inbox",
+        control: {
+          file: "features/console/SwitcherMenu.tsx",
+          contains: ['trigger === "phone"', 'testID: "switcher-trash"', 'else if (id === "trash") trash?.openTrash();'],
+        },
+        navigation: [
+          {
+            file: "features/console/trash/TrashRouteContext.tsx",
+            contains: ['router.setParams({ trash: "1", map: undefined, settings: undefined })'],
+          },
+        ],
+        region: "account",
         densities: PHONE,
       },
       {
@@ -705,6 +757,16 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
       "share dialog copies the URL rather than opening it — a reader arrives " +
       "from outside, which is the entire point of a share.",
     marker: "the link an owner pasted into a chat",
+  },
+  {
+    route: "/signin/[token]",
+    file: "app/signin/[token].tsx",
+    reachable: false,
+    reason:
+      "The sign-in link Tex texts once the notes of somebody set up by text " +
+      "are ready. The token exists in that one text message and nowhere in " +
+      "the app, and it signs in only the phone it was texted to.",
+    marker: "the link Tex texts once a texted setup's notes are ready",
   },
   {
     route: "/texts/[token]",

@@ -2,12 +2,11 @@
 
 import { folderPrefix, isIndexableNote } from "./indexable.js";
 import { BUDGET_EXHAUSTED } from "./budget.js";
-import { canSee, effectiveVisibility } from "../privacy/engine.js";
+import { canSee } from "../privacy/engine.js";
 import { createSearchBudget } from "./maintain.js";
 import { createSearchTrace, logSearchTrace, reportSearchTiming } from "./trace.js";
 import { DEFERRED_SYNC_FLOOR, FAST_SEARCH_FLOOR } from "./pacing.js";
 import { fastSearchAnswer, scanVisibleNotes } from "./scan.js";
-import { indexIsBehind, loadIndexManifest } from "./shards.js";
 import { maintainIndexAfter } from "./maintenance.js";
 import { SEARCH_SUBREQUEST_BUDGET, searchIndexedNotes } from "./visible.js";
 
@@ -95,23 +94,6 @@ async function searchWithinBudget(store, scope, rules, overrides, query, prefix,
     is how it is queried.
   */
   const isIndexable = isIndexableNote;
-  /**
-   * Which of the two FTS tables a note's text may be copied into, for the
-   * workspaces that have opted into the D1 projection.
-   *
-   * The gateway's own privacy engine, bound to this context — injected into
-   * the projection for the same reason `isVisible` is injected into
-   * `searchIndexedNotes`: a second copy of `effectiveVisibility` would be a
-   * second place for a visibility bug, and this one is the tier split that
-   * keeps a private note's terms out of a team caller's corpus statistics.
-   *
-   * Note the asymmetry with `isVisible` above, which is deliberate. That one
-   * answers "may *this caller* see it"; this one answers "what is this note",
-   * which is a property of the note and not of who is asking — the projection
-   * is shared by every caller, and building it from one caller's view would
-   * make a team connection's search erase the private notes from it.
-   */
-  const projectVisibility = (path) => effectiveVisibility(path, rules, overrides);
   const trace = createSearchTrace();
   trace.set("workspace", store.actor?.workspaceId);
   trace.set("grant", store.actor?.grantId);
@@ -157,10 +139,10 @@ async function searchWithinBudget(store, scope, rules, overrides, query, prefix,
     trace.set("matches", fast?.matchCount ?? 0);
     trace.set("matchesIsFloor", !answered || Boolean(fast.matchCountIsFloor));
     trace.set("spent", budget.spent);
-    trace.set(
-      "maintain",
-      await maintainIndexAfter(store, budget, isIndexable, manifestFreshness(store, budget), projectVisibility)
-    );
+    // Nothing behind the answer either: no index pass, no manifest read. Writes
+    // keep the database current and Convex's sweeps repair it (decided by the
+    // owner, 2026-10-17). A pass here was hundreds of calls behind every search.
+    trace.set("maintain", "none");
     logSearchTrace(trace);
     reportSearchTiming(store, trace, "fast", (fast?.hits.length ?? 0) > 0);
     return {
@@ -215,7 +197,7 @@ async function searchWithinBudget(store, scope, rules, overrides, query, prefix,
     trace.set("spent", budget.spent);
     trace.set(
       "maintain",
-      await maintainIndexAfter(store, budget, isIndexable, found, projectVisibility)
+      await maintainIndexAfter(store, budget, isIndexable, found)
     );
     logSearchTrace(trace);
     reportSearchTiming(store, trace, "index", found.hits.length > 0);
@@ -262,7 +244,7 @@ async function searchWithinBudget(store, scope, rules, overrides, query, prefix,
   trace.set("spent", budget.spent);
   trace.set(
     "maintain",
-    await maintainIndexAfter(store, budget, isIndexable, null, projectVisibility)
+    await maintainIndexAfter(store, budget, isIndexable, null)
   );
   logSearchTrace(trace);
   reportSearchTiming(store, trace, "scan", scan.hits.length > 0);
@@ -279,19 +261,5 @@ async function searchWithinBudget(store, scope, rules, overrides, query, prefix,
     scannedCount: scan.scannedCount,
     totalCount: scan.totalCount,
     totalIsFloor: scan.totalIsFloor,
-  };
-}
-
-/**
- * The manifest is read BEHIND the response, not in front of it: the reconcile
- * clock needs it, and nothing the caller is waiting for does, so it is handed
- * over as a function `maintainIndexAfter` resolves inside the deferred work.
- */
-function manifestFreshness(store, budget) {
-  return async () => {
-    const manifest = await loadIndexManifest(store, budget, 0);
-    return manifest
-      ? { index: { listedAt: manifest.freshness.listedAt }, indexIncomplete: indexIsBehind(manifest.freshness) }
-      : null;
   };
 }

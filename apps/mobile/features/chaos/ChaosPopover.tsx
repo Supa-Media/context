@@ -8,7 +8,7 @@ import { scoreShown } from "./chaosModel";
 import { makeChaosStyles } from "./styles";
 
 /**
- * The chaos panel, from a folder page's line or the phone's Home. A bottom
+ * The chaos panel, from a folder page's line or the phone's @name menu. A bottom
  * sheet on a phone, as `RecentSheet` is; a floating card in the middle of a wider window, where a sheet from the bottom edge
  * would be a long way from the line that asked for it.
  */

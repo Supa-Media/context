@@ -6,6 +6,7 @@ import { ScreenScroll } from "../../app/Screen";
 import { siteType } from "../../design/tokens";
 import { UNDERLINE_CURRENT } from "../../share/siteLook";
 import { useThemedStyles, type Colors } from "../../design/theme";
+import { ReportPageLink, currentAddress } from "../../report/ReportLink";
 
 /** Below this the menu folds under one "Menu" button. */
 export const PHONE = 640;
@@ -39,6 +40,7 @@ export function SiteFrame({
   current,
   navigate,
   madeWith,
+  reportHandle,
   children,
 }: {
   name: string;
@@ -47,6 +49,8 @@ export function SiteFrame({
   navigate: (routePath: string) => void;
   /** Where "Made with Context" goes. */
   madeWith: string;
+  /** The site's handle, for the footer's "Report" link; absent draws none. */
+  reportHandle?: string;
   children: ReactNode;
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -134,11 +138,20 @@ export function SiteFrame({
               {`© ${name}`}
             </Text>
           )}
-          <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(madeWith).catch(() => undefined)}>
-            <Text variant="body" style={styles.foot}>
-              Made with Context
-            </Text>
-          </Pressable>
+          <View style={styles.footLinks}>
+            {reportHandle === undefined ? null : (
+              <ReportPageLink
+                target={{ kind: "public_page", handle: reportHandle, path: current ?? "/" }}
+                address={() => currentAddress(`${madeWith}/@${reportHandle}${current ?? ""}`)}
+                style={styles.foot}
+              />
+            )}
+            <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(madeWith).catch(() => undefined)}>
+              <Text variant="body" style={styles.foot}>
+                Made with Context
+              </Text>
+            </Pressable>
+          </View>
         </View>
       </ScreenScroll>
     </View>
@@ -223,4 +236,5 @@ const makeStyles = (colors: Colors) =>
     footerWide: { justifyContent: "space-between", alignItems: "baseline", paddingTop: 24, maxWidth: 1200 },
     footerDesktop: { paddingBottom: 40 },
     foot: { fontSize: siteType.foot, lineHeight: 18, color: colors.muted },
+    footLinks: { flexDirection: "row", gap: 20 },
   });

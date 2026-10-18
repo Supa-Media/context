@@ -14,8 +14,10 @@ import {
   lightGraphColors,
   lightShadows,
 } from "../features/design/tokens";
+import { darkPhoneColors, lightPhoneColors } from "../features/design/tokens/phoneColors";
 import {
   ThemeProvider,
+  paletteFor,
   resolveScheme,
   useColors,
   useScheme,
@@ -407,6 +409,15 @@ describe("resolveScheme", () => {
   });
 });
 
+/** The window's width as react-native-web reads it; jsdom's own is 0, a phone. */
+function setWidth(width: number): void {
+  Object.defineProperty(document.documentElement, "clientWidth", { value: width, configurable: true });
+  window.dispatchEvent(new Event("resize"));
+}
+
+// The palettes below are a pointer layout's; the phone's have their own block.
+setWidth(1280);
+
 function mount(node: ReactNode): () => void {
   const host = document.createElement("div");
   document.body.appendChild(host);
@@ -533,5 +544,83 @@ describe("the frame's surfaces", () => {
     // eye needs far less than text does. 1.04 is roughly the point at which a
     // large flat area stops looking like a rendering artefact.
     expect(contrast(palette.pageSurface, palette.chromeSurface)).toBeGreaterThan(1.04);
+  });
+});
+
+/**
+ * A phone screen is one shade edge to edge (the owner, 2026-10-16: "Can we get
+ * rid of the 2 toned backgrounds everywhere in the app?" — then "Desktop is
+ * fine, mobile isn't. Uh, phone only.").
+ *
+ * The note's top bar and bottom bar are `pageSurface`, its body is the
+ * editor's `surface`, and Home sits on `ground`: all one value on a phone.
+ * Cards and floating controls are `cardSurface`, which must still read
+ * against that ground; on a pointer layout `cardSurface` is `pageSurface`, so
+ * nothing there moves.
+ *
+ * SABOTAGE: the dark phone's `pageSurface` back at `#1C1C1E`, or the light
+ * phone's `chromeSurface`/`ground` back at `#F2F2F7`, fails the first test.
+ */
+describe("one shade per phone screen", () => {
+  test.each([
+    ["light phone", lightPhoneColors],
+    ["dark phone", darkPhoneColors],
+  ])("in %s, ground, chrome, page and note body are one value", (_name, palette) => {
+    expect(new Set([palette.ground, palette.surface, palette.chromeSurface, palette.pageSurface]).size).toBe(1);
+    expect(contrast(palette.cardSurface, palette.surface)).toBeGreaterThan(1.04);
+  });
+
+  test.each([
+    ["light", lightColors],
+    ["dark", darkColors],
+  ])("in %s (pointer), a card is the page, as before", (_name, palette) => {
+    expect(palette.cardSurface).toBe(palette.pageSurface);
+  });
+});
+
+/**
+ * A phone draws Apple Notes contrast (owner, 2026-10-15/16: "Phone only").
+ *
+ * SABOTAGE: `paletteFor` answering the scheme alone fails the first two;
+ * `phoneColors.ts` keeping the warm ink (#EDE8E0 on #191715) fails the floors.
+ */
+describe("the phone's palette", () => {
+  test("a phone-width window draws the phone palettes, a wider one does not", () => {
+    expect(paletteFor("dark", 390)).toBe("darkPhone");
+    expect(paletteFor("light", 390)).toBe("lightPhone");
+    expect(paletteFor("dark", 1280)).toBe("dark");
+    expect(paletteFor("light", 1280)).toBe("light");
+  });
+
+  test("useColors hands a phone the phone palette, and back when it widens", () => {
+    setWidth(390);
+    try {
+      expect(readHook("dark", useColors)).toBe(darkPhoneColors);
+      expect(readHook("light", useColors)).toBe(lightPhoneColors);
+    } finally {
+      setWidth(1280);
+    }
+    expect(readHook("dark", useColors)).toBe(darkColors);
+  });
+
+  test("has every token the palettes have", () => {
+    expect(Object.keys(darkPhoneColors).sort()).toEqual(Object.keys(darkColors).sort());
+    expect(Object.keys(lightPhoneColors).sort()).toEqual(Object.keys(lightColors).sort());
+  });
+
+  test("ink and gray text clear the outdoor floors on every surface a phone draws", () => {
+    for (const colors of [darkPhoneColors, lightPhoneColors]) {
+      for (const ground of [colors.chromeSurface, colors.pageSurface, colors.surface]) {
+        expect(contrast(colors.text, ground)).toBeGreaterThanOrEqual(17);
+        expect(contrast(colors.muted, ground)).toBeGreaterThanOrEqual(7);
+      }
+    }
+    // Stronger than the warm palettes on the note page, which is the point.
+    expect(contrast(darkPhoneColors.text, darkPhoneColors.chromeSurface)).toBeGreaterThan(
+      contrast(darkColors.text, darkColors.chromeSurface),
+    );
+    expect(contrast(lightPhoneColors.text, lightPhoneColors.pageSurface)).toBeGreaterThan(
+      contrast(lightColors.text, lightColors.pageSurface),
+    );
   });
 });

@@ -31,10 +31,11 @@ export function mirrorActionsFor({
         ...(cursor === undefined ? {} : { cursor }),
         ...(source === undefined ? {} : { source }),
       })) as unknown as ManifestPage & { source?: "tree" | "bucket" | "nodes" },
-    readNotes: async ({ workspaceId, paths }) =>
+    readNotes: async ({ workspaceId, paths, plain }) =>
       (await readNotesAction({
         workspaceId: workspaceId as Id<"workspaces">,
         paths,
+        ...(plain === true ? { plain: true } : {}),
       })) as unknown as { results: BatchRead[] },
     ...(syncTreeChangesAction === undefined
       ? {}

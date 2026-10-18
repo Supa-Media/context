@@ -67,8 +67,72 @@ export const nodeTables = {
      * score reads them by index instead of every row's props.
      */
     chaosNote: v.optional(v.boolean()),
+    /**
+     * The note's stable id (`lib/nodes/noteIds.ts`): assigned when the row is
+     * inserted, carried by a queued move to where the note lands, and
+     * backfilled for rows that predate it. Never a path, and never reused.
+     */
+    noteId: v.optional(v.string()),
+    /**
+     * The id-keyed copy of this file's bytes (phase "copy"): `key` is where
+     * the copy lives, and `etag` is the SOURCE row's etag it was made from.
+     * Fresh only while that equals `etag` above (`copyIsFresh`). Absent when
+     * no copy has been made, or one was cleared to be made again.
+     */
+    /** Passes in a row in which the bucket had moved past this row's etag under a copy (`copyRecord.ts`); cleared by a copy. */
+    idHeals: v.optional(v.number()),
+    idCopy: v.optional(
+      v.object({
+        key: v.string(),
+        etag: v.string(),
+        copiedAt: v.number(),
+        /** The id key's own etag when it was written: a later write landing out of order is told apart by it. */
+        keyEtag: v.optional(v.string()),
+      }),
+    ),
+    /**
+     * Set on a keyed row (`lib/nodes/table.ts`, `keyed`): the note's bytes live
+     * ONLY at this key, and `etag`/`size` are that key's. The path object the
+     * bucket still holds is a frozen old copy, never read or written again.
+     * Absent on every row of a workspace that is not keyed.
+     */
+    storageKey: v.optional(v.string()),
+    /**
+     * For a row keyed by the flip: the path etag and
+     * the key etag it had at that moment, so a client still holding the old
+     * path etag can save once. Absent on rows keyed by a write.
+     */
+    keyedFrom: v.optional(v.object({ pathEtag: v.string(), keyEtag: v.string() })),
+    /**
+     * This row's own access, when a privacy rule names it: a folder rule on
+     * a folder row, or a note override on a note row. Absent means inherit.
+     * Grants are `nodeAccess` rows. Derived from the rules by
+     * `lib/nodes/accessBackfill.ts`; a row carrying it is never pruned
+     * (`lib/nodes/observe.ts`).
+     */
+    access: v.optional(v.object({ base: v.union(v.literal("private"), v.literal("team")) })),
+    /**
+     * A built-in folder's job, under its original name (`inbox`, `projects`,
+     * `website`, `meetings`; `ROW_ROLES` in `folderRoles.cjs`). Set when the
+     * folder is made at the root under a job's name, or before its first move,
+     * and then carried by every rename and move, so the folder is found by its
+     * job whatever it is called (`lib/nodes/folderJobs.ts`, owner 2026-10-18).
+     */
+    role: v.optional(v.string()),
+    /** Where this folder is drawn among its siblings, once somebody has set it; else its job's rank, then its name. */
+    order: v.optional(v.number()),
+    /**
+     * On a folder inside Archive: the built-in folder it is the archive copy of, by the job's original name
+     * (`projects`), so Archive keeps the workspace's shape (`archiveMirror.cjs`, owner 2026-10-18). Written
+     * when something is archived into it (`lib/nodes/archiveTwins.ts`), kept by the row through every move.
+     */
+    archiveOf: v.optional(v.string()),
   })
     .index("by_workspace_path", ["workspaceId", "path"])
+    .index("by_workspace_role", ["workspaceId", "role"])
+    .index("by_workspace_noteId", ["workspaceId", "noteId"])
+    /** A key a row keys its bytes at: the old-copy cleanup's re-check and count look a key up here (`lib/cleanup/`). */
+    .index("by_workspace_storageKey", ["workspaceId", "storageKey"])
     .index("by_workspace_chaos", ["workspaceId", "chaosNote"])
     .index("by_parent_name", ["workspaceId", "parentId", "name"])
     .index("by_workspace_observed", ["workspaceId", "observedAt"]),
@@ -235,6 +299,39 @@ export const nodeTables = {
     .index("by_next", ["nextAt"]),
 
   /**
+   * A keyed folder move too big for one transaction (`lib/nodes/rowMoveChunks.ts`):
+   * its root has moved, and the rows beneath follow a page at a time. While
+   * it is `moving`, listings, the id layer's lookups and the access rows read
+   * through it, so a note is found once, at either name, and judged by the
+   * same rules at both. `moved` once the last row has; the starting request
+   * deletes it after the bucket-side steps. Paths and counts, never content.
+   */
+  rowMoves: defineTable({
+    workspaceId: v.id("workspaces"),
+    from: v.string(),
+    to: v.string(),
+    /** Into or out of `.context/trash` (`rowTrash.ts`): no rules are checked, no links or pins follow. */
+    trash: v.boolean(),
+    state: v.union(v.literal("moving"), v.literal("moved")),
+    /** The mover's clearance: a row it could not see is left behind, never moved unjudged. */
+    scope: v.union(v.literal("private"), v.literal("team")),
+    grantedNames: v.array(v.string()),
+    /** The rules' version the move was judged under, in file mode; a page waits for a re-carry when it moves. */
+    privacyEtag: v.union(v.string(), v.null()),
+    /** The last path under `from` a page reached, and which walk this is: a second walk from the start ends it. */
+    cursor: v.optional(v.string()),
+    pass: v.number(),
+    /** The moved folder's parent before the move: retired at the end if the move emptied it. */
+    oldParentId: v.optional(v.id("nodes")),
+    /** Rows moved, and rows left at the old name (taken, unkeyed or not the mover's to see). */
+    moved: v.number(),
+    left: v.number(),
+    now: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_workspace", ["workspaceId"]),
+
+  /**
    * Which note links to which (decided by the owner, 2026-10-13: the tree's
    * link table moves from the workspace's search database into Convex). A
    * note's links were read at its row's `parsed` version.
@@ -276,6 +373,10 @@ export const nodeTables = {
     retryKind: v.optional(v.string()),
     /** Passes in a row that read and still failed some, so a hiccup is told from a note that never reads. */
     retryPasses: v.optional(v.number()),
+    /** The props version (`PROPS_VERSION`) every row has been read at: an older one re-reads the rows predating it. */
+    propsVersion: v.optional(v.number()),
+    /** How far that re-read has walked, by path (`""` before the first). */
+    upgradeAfter: v.optional(v.string()),
   }).index("by_workspace", ["workspaceId"]),
 
   /**
@@ -292,6 +393,85 @@ export const nodeTables = {
   }).index("by_workspace_day", ["workspaceId", "day"]),
 
   /**
+   * One workspace's id-copy pass (phase "copy" of the move from path keys to
+   * id keys): how far it has got, what it found, and whether it is done.
+   * Counts, times and fixed labels only, never a path; `cursor` is the last
+   * path paged, read only by the pass. `runId` names one pass, so a page that
+   * was handed out before a restart records nothing.
+   */
+  noteIdCopies: defineTable({
+    workspaceId: v.id("workspaces"),
+    status: v.union(v.literal("idle"), v.literal("copying"), v.literal("done"), v.literal("failed")),
+    runId: v.number(),
+    cursor: v.optional(v.string()),
+    /** Live files the pass has scanned, and how many have a copy that is still true at the end. */
+    files: v.number(),
+    copied: v.number(),
+    failed: v.number(),
+    /** At most `FAILURES_MAX` path-free entries: the note's id and a fixed reason. */
+    failures: v.array(v.object({ noteId: v.string(), reason: v.string() })),
+    error: v.optional(v.string()),
+    /** The last check against the bucket: how many id copies were checked, and how many were missing or differed. */
+    diagnosis: v.optional(
+      v.object({ checkedAt: v.number(), checked: v.number(), missing: v.number(), differs: v.number() }),
+    ),
+    /** A page in flight holds the pass; another one waits. */
+    leaseAt: v.optional(v.number()),
+    /**
+     * The workspace's flip to keyed rows started at this time (`keys` mode).
+     * With the switch at `keys`, this makes the workspace keyed for good
+     * (`lib/noteIds/keyedState.ts`): no bucket listing adopts a row from it.
+     */
+    keyedAt: v.optional(v.number()),
+    /** The flip found no live file row left unkeyed: every row a copy covers is keyed. */
+    keyedDoneAt: v.optional(v.number()),
+    /** Rows the flip has keyed so far: a counter, so the admin report never reads a whole tree. */
+    flipped: v.optional(v.number()),
+    /**
+     * The old-copy cleanup (`lib/cleanup/`, `functions/noteIdsCleanup.ts`): a Count
+     * of the path copies a Delete would remove, and a Delete's progress. Counts,
+     * times and fixed labels only; `cursor` is the bucket listing's position.
+     * `runId` names the run, so a page of an earlier run records nothing.
+     */
+    cleanup: v.optional(
+      v.object({
+        runId: v.number(),
+        running: v.optional(v.union(v.literal("count"), v.literal("delete"))),
+        /** What the staff asked for, and when: written by the public function, read by the gate's record. */
+        mode: v.optional(v.union(v.literal("count"), v.literal("delete"))),
+        requestedAt: v.optional(v.number()),
+        countedAt: v.optional(v.number()),
+        /** Keys a Delete would remove, and how many of them no tree row's path or key ever named. */
+        toDelete: v.number(),
+        unclaimed: v.number(),
+        /** Live notes still read from a path rather than their id key. A Delete needs zero. */
+        readingPaths: v.number(),
+        startedAt: v.optional(v.number()),
+        finishedAt: v.optional(v.number()),
+        deleted: v.number(),
+        /** Keys a page could not delete, by fixed reason, with a count per reason. */
+        failed: v.array(v.object({ reason: v.string(), count: v.number() })),
+        cursor: v.optional(v.string()),
+        /** A fixed label when the run stopped on a failure it could not retry. */
+        error: v.optional(v.string()),
+      }),
+    ),
+    updatedAt: v.number(),
+  }).index("by_workspace", ["workspaceId"]),
+
+  /**
+   * The id copy's switch, a single row (absent means running and `paths`).
+   * `mode` says which keys reads use; nothing reads ids yet, so it stays
+   * `paths` until a later phase says otherwise.
+   */
+  noteIdLayout: defineTable({
+    paused: v.boolean(),
+    mode: v.union(v.literal("paths"), v.literal("ids"), v.literal("keys")),
+    updatedAt: v.number(),
+    updatedBy: v.optional(v.string()),
+  }),
+
+  /**
    * The migration's one switch, a single row (absent means running). Staff
    * pause it from admin › Search › Indexes; while paused nothing new starts,
    * changes only mark trees dirty, and a running sweep stops at its next pass.
@@ -304,6 +484,11 @@ export const nodeTables = {
      * the file is, and the rules follow it.
      */
     privacyAuthority: v.optional(v.boolean()),
+    /**
+     * Which store the tree's reads answer from (`nodeAccess`, PR 2 onward).
+     * Nothing reads it yet: absent or `file` is the only behaviour today.
+     */
+    accessSource: v.optional(v.union(v.literal("file"), v.literal("shadow"), v.literal("rows"))),
     updatedAt: v.number(),
     updatedBy: v.optional(v.id("users")),
   }),

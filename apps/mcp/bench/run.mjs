@@ -26,8 +26,8 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { basename, join, resolve } from "node:path";
 
-import { parseSetup } from "../src/agent/production.js";
-import { expandWorkspaces, readBenchFolder } from "./load.mjs";
+import { PRODUCTION_HOUSEKEEPING_PATH, parseSetup } from "../src/agent/production.js";
+import { expandWorkspaces, readBenchFolder, runnableQuestions } from "./load.mjs";
 import { anthropicGateway, cachedEmbeddings, claudeTransport, fakeAi, fakeGateway, playPerson, workersAi } from "./models.mjs";
 import { prepareRun } from "./warm.mjs";
 import { judgeCommand } from "./judge.mjs";
@@ -35,14 +35,27 @@ import { scoreCommand } from "./score.mjs";
 import { summaryCommand } from "./summary.mjs";
 import { calibrateCommand } from "./calibrate.mjs";
 import { searchCommand } from "./search.mjs";
-import { connectCommand, publishCommand, pullCommand, signInCommand } from "./context.mjs";
+import { checkCommand } from "./check.mjs";
+import { connectCommand, publishCommand, publishSetup, pullCommand, signIn, signInCommand } from "./context.mjs";
+import { improveCommand } from "./improve.mjs";
+import { promoteCommand } from "./promote.mjs";
+import { spendCommand } from "./spend.mjs";
 import { keyMarkdown, keyPathFor, resultMarkdown } from "./report.mjs";
 import { createWorld } from "./world.mjs";
+import { filedNotes } from "./checks.mjs";
 import { realNow } from "./clock.mjs";
 import { benchFolder } from "./folder.mjs";
 
-/** The most texts the played person may send in one conversation. */
+/**
+ * The fewest texts the played person may send in one conversation. A brief
+ * with more "if asked" lines gets room for each of them plus the opening text
+ * and one more: golden task 7 (buy a domain) takes five, and at four the round
+ * of 2026-10-17 cut it off before Tex was told it could add the DNS records.
+ */
 const MAX_PERSON_TEXTS = 4;
+
+/** How many texts the played person may send for this question. */
+export const personTextLimit = (question) => Math.max(MAX_PERSON_TEXTS, (question.ifAsked?.length ?? 0) + 2);
 
 function parseArgs(argv) {
   // `pnpm ai search --fake` names no job: a first word that is a flag is one.
@@ -52,7 +65,7 @@ function parseArgs(argv) {
   const options = { command, job };
   for (let i = 0; i < rest.length; i += 1) {
     const flag = rest[i];
-    if (flag === "--fake" || flag === "--verbose" || flag === "--no-fluff" || flag === "--cold") options[flag.slice(2)] = true;
+    if (flag === "--fake" || flag === "--verbose" || flag === "--no-fluff" || flag === "--cold" || flag === "--publish" || flag === "--revert") options[flag.slice(2)] = true;
     else if (flag.startsWith("--")) options[flag.slice(2)] = rest[++i];
   }
   return options;
@@ -114,36 +127,98 @@ export function personAnswers(turn) {
   return turn.asked > 0 ? "YES" : null;
 }
 
+const called = (turn, name) => (turn.tools ?? []).some((call) => call.ok !== false && (call.tool === name || call.tool.startsWith(`${name} `)));
+const briefLine = (question, when) => question.ifAsked.find((line) => when.test(line.when))?.say ?? null;
+
+/**
+ * What the person texts back, from the brief and without the model, when the
+ * turn left them something to do: a handoff of the browser (`sites.mjs`
+ * records it) is answered with the brief's "if asked to sign in, open a link,
+ * or take over the browser" line, and a link to save a login (`vault_add_link`)
+ * with its "sent a link to save her login" line. A played model read "text me
+ * when you're done" as nothing asked and ended the conversation (round of
+ * 2026-10-17), so the task never reached the page behind the sign-in. Null
+ * when the turn did neither, or the brief has no line for it.
+ *
+ * @param {{tools?: Array<{tool: string, ok?: boolean}>}} turn
+ * @param {{ifAsked: Array<{when: string, say: string}>}} question
+ * @param {string[]} events the browser's record for this turn alone
+ */
+export function handOffAnswer(turn, question, events) {
+  if (events.some((event) => event.startsWith("handoff "))) {
+    const line = briefLine(question, /take over the browser|open a link|\bsign in\b/);
+    if (line !== null) return line;
+  }
+  if (called(turn, "vault_add_link")) return briefLine(question, /sent a link to save/);
+  return null;
+}
+
 /** One conversation: the person's opening text, then as many turns as they take. */
-async function converse(world, question, person) {
+export async function converse(world, question, person, mode = null) {
+  if (mode === "housekeeping") return await keepHouse(world, question);
   const conversation = [];
-  const totals = { ms: 0, personMs: 0, tools: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, model: null, error: null };
+  const totals = { ms: 0, personMs: 0, tools: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, usageByModel: {}, rounds: {}, model: null, error: null };
   let message = question.personStarts ?? question.text;
-  for (let texts = 0; message !== null && texts < MAX_PERSON_TEXTS; texts += 1) {
+  const limit = personTextLimit(question);
+  for (let texts = 0; message !== null && texts < limit; texts += 1) {
     conversation.push({ from: "person", text: message });
+    const seen = world.browser().length;
     const turn = await world.text(message);
     totals.ms += turn.ms;
     totals.tools.push(...turn.tools);
     for (const key of Object.keys(totals.usage)) totals.usage[key] += turn.usage[key];
+    // What each model spent and how many rounds it ran (`src/agent/modelPlan.js`): priced model by model.
+    for (const [model, spent] of Object.entries(turn.usageByModel ?? {})) {
+      const into = (totals.usageByModel[model] ??= { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+      for (const key of Object.keys(into)) into[key] += spent[key] ?? 0;
+    }
+    for (const [model, count] of Object.entries(turn.rounds ?? {})) totals.rounds[model] = (totals.rounds[model] ?? 0) + count;
     totals.model = turn.model ?? totals.model;
     if (!turn.ok) {
       totals.error = turn.error;
       break;
     }
+    // Each progress line is a text the person got before the answer, as the
+    // texting Worker sends them (`apps/agent/src/inbox.ts`), so it counts as one.
+    for (const line of turn.progress ?? []) conversation.push({ from: "assistant", text: line });
     conversation.push({ from: "assistant", text: turn.answer });
     // Only a back-and-forth has a person who answers back. The time the played
     // person takes is the run's, not the setup's: it is kept apart from `ms`.
     const personStarted = realNow();
-    message = personAnswers(turn) ?? (question.personStarts !== null || question.ifAsked.length > 0 ? await playPerson(person, question.body, conversation) : null);
+    message =
+      personAnswers(turn) ??
+      handOffAnswer(turn, question, world.browser().slice(seen)) ??
+      (question.personStarts !== null || question.ifAsked.length > 0 ? await playPerson(person, question.body, conversation) : null);
     totals.personMs += realNow() - personStarted;
   }
   return { conversation, ...totals, texts: conversation.filter((turn) => turn.from === "assistant").length };
 }
 
 /**
+ * A housekeeping test (`mode: housekeeping`): nobody texts. Tex runs once over
+ * the person's own workspace, and the record says where each note a `file`
+ * check names ended up (`checks.mjs`).
+ */
+async function keepHouse(world, question) {
+  const turn = await world.keepHouse();
+  const where = await world.where(filedNotes(question));
+  return {
+    conversation: turn.ok ? [{ from: "assistant", text: turn.answer }] : [],
+    ms: turn.ms,
+    personMs: 0,
+    tools: turn.tools,
+    usage: turn.usage,
+    model: turn.model,
+    error: turn.error,
+    texts: turn.ok ? 1 : 0,
+    where,
+  };
+}
+
+/**
  * The test a job runs when none is named. The texting assistant's is its core
  * set, `tests/core.md` (decided by the owner, 2026-10-14: a short set of the
- * basics, run often; the long sets stay for rounds, by name). A folder
+ * basics, run often; the golden tasks run by name for a round). A folder
  * without the core set runs the job's own test, as before.
  */
 export const DEFAULT_TESTS = Object.freeze({ "texting-assistant": "core" });
@@ -152,6 +227,20 @@ export function testFor(options, tests) {
   if (options.test) return options.test;
   const core = DEFAULT_TESTS[options.job];
   return core && Object.hasOwn(tests, core) ? core : options.job;
+}
+
+/** A texting setup for a run that measures another job's, which texts nobody. */
+const PLAIN_TEXTING_SETUP = "---\njob: texting-assistant\nmodels:\n  main: anthropic/claude-haiku-5-5\n---\n\nYou are a test assistant.\n";
+
+/**
+ * Where a run's setup goes in its world: the texting assistant's where
+ * production reads it, housekeeping's at `ai/production/housekeeping.md`
+ * beside a plain texting one, as `housekeeping.js` reads it.
+ */
+export function setupInWorld(job, setup, models) {
+  if (job !== "housekeeping") return [setup.raw, models];
+  const pinnedNotes = [...(models.pinnedNotes ?? []), { path: PRODUCTION_HOUSEKEEPING_PATH, raw: setup.raw }];
+  return [PLAIN_TEXTING_SETUP, { ...models, pinnedNotes }];
 }
 
 /** What a run reads before it answers anything: the folder, the test, the setups, the questions. */
@@ -168,7 +257,7 @@ async function loadRun(options) {
   if (!test) throw new Error(`no tests/${testName}.md`);
   const setups = await readSetups(dir, options.job, list(options.setups));
   const only = list(options.questions)?.map(Number);
-  const questions = test.questions.filter((question) => !only || only.includes(question.n));
+  const questions = runnableQuestions(test.questions, only);
   const runs = Number(options.runs ?? test.front.runs);
   // Every conversation the run will have, in the order the result lists them.
   const jobs = [];
@@ -227,6 +316,7 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
   const records = [];
   try {
     for (const { setup, question, run: n } of jobs) {
+      const [worldSetup, worldModels] = setupInWorld(options.job, setup, models);
       const as = question.as ?? test.front.run_as;
       // An answer the model never gave is run once more in a fresh world
       // (decided 2026-10-09): the gateway has already retried the round and
@@ -235,15 +325,15 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
       // rerun is recorded, with the error it replaced, and counted.
       // The world pins `Date` while it exists, so wall time is read from the real clock.
       const wallStarted = realNow();
-      let world = await createWorld(bench, as, setup.raw, models, today, prepared);
+      let world = await createWorld(bench, as, worldSetup, worldModels, today, prepared);
       try {
-        let result = await converse(world, question, person);
+        let result = await converse(world, question, person, test.front.mode ?? null);
         let reran = null;
         if (result.error && !options.fake) {
           reran = result.error;
           world.close();
-          world = await createWorld(bench, as, setup.raw, models, today, prepared);
-          result = await converse(world, question, person);
+          world = await createWorld(bench, as, worldSetup, worldModels, today, prepared);
+          result = await converse(world, question, person, test.front.mode ?? null);
         }
         records.push({
           ...(reran === null ? {} : { reran }),
@@ -378,10 +468,15 @@ const USAGE = [
   "       pnpm ai summary <result file>",
   "       pnpm ai calibrate <judged result file> [--decision <model>] [--sample <n>] [--fake]",
   "       pnpm ai search [--dir <benchmarks folder>] [--setups a,b] [--questions 1,2] [--out <note>] [--fake]",
+  "       pnpm ai check <dream|heartbeat|meeting-summaries|meeting-transcription|connected-ais> [--dir <folder>] [--setups a,b] [--questions 1,2] [--out <note>] [--fake]",
   "       pnpm ai connect [--endpoint <url>]           once, by a person: the runner's grant on Context",
   "       pnpm ai signin [--show refresh-token]        the runner's sign-in, from BENCH_RUNNER_* in the environment",
   "       pnpm ai pull <job> [--dir <benchmarks folder>]   the job's setups from Context into setups/<job>/",
   "       pnpm ai publish <result file> [--run-url <url>]  the result's scores note into Context",
+  "       pnpm ai improve <result file> [--setup production] [--model <model>] [--max-usd 1] [--publish] [--fake]",
+  "                                                    draft one experiment from a scored round's failures",
+  "       pnpm ai promote <job> --setup <name> --results <a.md,b.md> [--run-url <url>] | --revert",
+  "       pnpm ai spend check <test> --setups <a,b> | spend record <result file> --run <n> [--run-url <url>]",
 ].join("\n");
 
 const COMMANDS = new Map([
@@ -392,10 +487,14 @@ const COMMANDS = new Map([
   ["summary", summaryCommand],
   ["calibrate", calibrateCommand],
   ["search", searchCommand],
+  ["check", checkCommand],
   ["connect", connectCommand],
   ["signin", signInCommand],
   ["pull", (options) => pullCommand(options, benchFolder(options))],
   ["publish", publishCommand],
+  ["promote", promoteCommand],
+  ["spend", (options) => spendCommand(options)],
+  ["improve", async (options) => improveCommand(options, { publish: async (draft) => publishSetup({ ...draft, connection: await signIn({ env: process.env }) }) })],
 ]);
 
 // The command line runs only when this file is the entry point; a test may

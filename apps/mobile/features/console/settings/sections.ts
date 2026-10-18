@@ -311,6 +311,23 @@ export const SETTINGS_SECTIONS = [
   },
   {
     /*
+      The keys a person's AIs may use without seeing them (vault boards 2 to
+      5, approved by the owner 2026-10-16: "put it in settings"). Its own row,
+      right after Connected apps, because the question it answers is the next
+      one: what may those apps use. Underneath, each key is sealed in the
+      workspace's own storage; this page never shows a value.
+    */
+    key: "vault",
+    keywords:
+      "vault key keys api secret secrets token tokens password passwords login logins env environment variables credential credentials stripe openai proxy cut off revoke ai agent",
+    scope: "context",
+    label: "Vault",
+    group: null,
+    icon: "lock",
+    personalOnly: false,
+  },
+  {
+    /*
       The audit trail, as sentences. It was a block under "Advanced" at the
       foot of the workspace page, drawn one raw event per row, and a tester
       called it "actually disgusting" (2026-09-29). Its own row because it is
@@ -363,7 +380,7 @@ export const SETTINGS_SECTIONS = [
       here or it lands nowhere.
     */
     keywords:
-      "bucket r2 s3 dropbox key credentials connect disconnect where files kept backup search find index fast lookup rebuild encryption keys export folder moves",
+      "bucket r2 s3 key credentials connect disconnect where files kept backup search find index fast lookup rebuild encryption keys export folder moves",
     scope: "context",
     label: "Storage",
     group: null,
@@ -407,6 +424,21 @@ export const SETTINGS_SECTIONS = [
     */
     group: null,
     icon: "mic",
+    personalOnly: false,
+    folded: true,
+  },
+  {
+    /*
+      Which folder does each built-in job (owner, 2026-10-18, "Built-in
+      folder jobs" board 2): Inbox, Projects, Tex and the rest, wherever the
+      person nested them. A context row: the jobs belong to the workspace.
+    */
+    key: "folders",
+    keywords: "built-in folders system folders inbox projects areas resources archive tex clients teams products job import obsidian",
+    scope: "context",
+    label: "Built-in folders",
+    group: null,
+    icon: "folder",
     personalOnly: false,
     folded: true,
   },
@@ -487,6 +519,17 @@ export const DEFAULT_SETTINGS_SECTION: SettingsSectionKey = "workspace";
  * bucket.
  */
 export const DEFAULT_ACCOUNT_SETTINGS_SECTION: SettingsSectionKey = "profile";
+
+/**
+ * Whether Settings was opened plainly rather than sent to one page.
+ *
+ * The gear and the account menu open at one of the two defaults; every other
+ * way in (the storage chip, an upsell, the beta notice) names its page. A
+ * phone opens the plain way on the list, like every phone's Settings.
+ */
+export function opensOnSettingsList(section: SettingsSectionKey): boolean {
+  return section === DEFAULT_SETTINGS_SECTION || section === DEFAULT_ACCOUNT_SETTINGS_SECTION;
+}
 
 /**
  * The sections this context actually has, for this person, right now.

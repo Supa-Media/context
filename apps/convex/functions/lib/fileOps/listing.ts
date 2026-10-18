@@ -19,7 +19,7 @@ import { type Clearance } from "../clearance";
 import { LIST_PAGE_CAP, type FileStore } from "./store";
 import { requireFolderPath, parentOf, baseName } from "./paths";
 import { compareListingEntries } from "@context/shared/src/folderRoles.cjs";
-import { loadPrivacyState } from "./privacyState";
+import { loadPrivacyState, manifestUsable as isManifestUsable } from "./privacyState";
 
 /* -------------------------------------------------------------------------- */
 /*                                  listing                                   */
@@ -43,6 +43,12 @@ export interface FileEntry {
   readOnly: boolean;
   size?: number;
   updatedAt?: number;
+  /** A folder's built-in job (`lib/nodes/folderJobs.ts`): written on its row, or at the root given by its name. */
+  role?: string;
+  /** A folder's place among its siblings, when somebody set one (`nodes.order`). */
+  order?: number;
+  /** On a folder in Archive: the built-in folder it is the archive copy of (`nodes.archiveOf`). */
+  archiveOf?: string;
 }
 
 export interface FolderListing {
@@ -122,10 +128,18 @@ export function describeFile(
 /** One folder's immediate children, as the tree renders them. */
 export async function listFolder(
   store: FileStore,
-  options: { path: string; clearance: Clearance },
+  options: {
+    path: string;
+    clearance: Clearance;
+    /**
+     * The rules to judge by, when the caller already holds them (`lib/nodes/readerRules.ts`); else
+     * `privacy.md` is read from the store. `manifestUsable` is the answer the file would give.
+     */
+    judged?: { rules: readonly PrivacyRule[]; overrides: ReadonlyMap<string, Visibility>; manifestUsable: boolean };
+  },
 ): Promise<FolderListing> {
   const folder = requireFolderPath(options.path);
-  const state = await loadPrivacyState(store);
+  const state = options.judged ?? (await loadPrivacyState(store));
 
   // **A folder the caller cannot see answers exactly as one that is not there,
   // and refusing is not how you do that.**
@@ -167,7 +181,7 @@ export async function listFolder(
   // collapsed and the clock came apart, which is the same oracle one layer
   // down.
   // ...and it is walked for exactly one page, because that is what an absent
-  // folder costs. `limit` is a hint — the store is the customer's, and Dropbox
+  // folder costs. `limit` is a hint — the store is the customer's, and some stores
   // documents its own as approximate — so a page of ten turns a sixty-object
   // private folder into six round trips against the absent folder's one, and
   // past `LIST_PAGE_CAP` pages the body comes apart too: `truncated: true`
@@ -284,7 +298,7 @@ export async function listFolder(
     // returned, and the store is theirs.
     entries: withheld ? [] : entries,
     truncated: withheld ? false : truncated,
-    manifestUsable: state.text !== null && !state.invalid,
+    manifestUsable: "manifestUsable" in state ? state.manifestUsable : isManifestUsable(state),
   };
 }
 

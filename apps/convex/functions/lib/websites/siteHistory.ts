@@ -16,14 +16,14 @@
  */
 
 import { DEFAULT_WEBSITE_ROOT } from "@context/shared";
+import { privateClearance } from "../clearance";
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
-import { isEncryptedNote } from "../noteEncryption";
-import { readBatches } from "./lists";
 import { PUBLICATION_CLEARANCE } from "./publication";
 import { READ_BATCH } from "./releases";
 import { scanWebsiteRoutes } from "./routes";
+import { treeRows, visibleTreePaths, type TreeRow } from "./treeFacts";
 
 /** Old words handed back in one answer; the rest are named, one `inspect` each. */
 export const HISTORY_TEXT_BUDGET = 200_000;
@@ -42,6 +42,31 @@ export interface SiteHistory {
     addedSince: string[];
   };
   message?: string;
+}
+
+/**
+ * The pages whose words may be handed back: each is published now (the tree
+ * holds it at the publication clearance, unsealed), or is gone from the tree
+ * altogether. A page the tree holds but publication does not is held back or
+ * encrypted, and a tree that cannot say hands back nothing.
+ */
+async function handablePages(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  pages: ReadonlyArray<{ path: string; pageId: string }>,
+): Promise<Array<{ path: string; pageId: string }>> {
+  const rows = await treeRows(ctx, workspaceId, pages.map((page) => page.path));
+  if (rows === null) return [];
+  const unpublished = pages
+    .map((page) => page.path)
+    .filter((path) => {
+      const row: TreeRow | undefined = rows.get(path);
+      return row === undefined || row.sealed;
+    });
+  // Private scope tells a page that is gone from one that is held back.
+  const present = await visibleTreePaths(ctx, workspaceId, privateClearance(), unpublished);
+  if (present === null) return [];
+  return pages.filter((page) => !present.has(page.path));
 }
 
 export async function siteHistoryFor(
@@ -75,15 +100,7 @@ export async function siteHistoryFor(
     };
   }
 
-  const paths = pages.map((page) => page.path);
-  const published = await readBatches(ctx, workspaceId, PUBLICATION_CLEARANCE.scope, paths);
-  const unpublished = paths.filter((path) => {
-    const note = published.get(path);
-    return note === undefined || isEncryptedNote(note.text);
-  });
-  // Private scope tells a page that is gone from one that is held back.
-  const inBucket = await readBatches(ctx, workspaceId, "private", unpublished);
-  const handable = pages.filter((page) => !inBucket.has(page.path));
+  const handable = await handablePages(ctx, workspaceId, pages);
 
   const copies = new Map<string, string>();
   for (let offset = 0; offset < handable.length; offset += READ_BATCH) {

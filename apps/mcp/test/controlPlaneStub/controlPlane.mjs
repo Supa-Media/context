@@ -26,7 +26,13 @@
  * Everything in here is obviously fake. This repository is public.
  */
 
+import { createEmailRoute } from "./email.mjs";
+import { createCalendarRoute } from "./calendar.mjs";
+import { createMailRoutes } from "./mail.mjs";
 import { createTreeRoutes } from "./tree.mjs";
+import { createWorkspaceRoutes } from "./workspaces.mjs";
+import { createDreamRoutes } from "./dreams.mjs";
+import { mintKeyMaterial, nextGeneration } from "./keys.mjs";
 
 const encoder = new TextEncoder();
 
@@ -55,6 +61,7 @@ export function createControlPlaneStub(options = {}) {
   const bindings = new Map();
   const builtinVerdicts = new Map();
   const builtinReports = [];
+  const builtinStarts = [];
   const meetingSummaryVerdicts = new Map();
   const meetingSummaryReports = [];
   /** Every `/gateway/agent-turn` report, as the turn log would receive it. */
@@ -69,19 +76,6 @@ export function createControlPlaneStub(options = {}) {
    */
   const rotations = new Map();
 
-  /** A fresh, real AES-256 key, base64. */
-  function mintKeyMaterial() {
-    let binary = "";
-    for (const byte of crypto.getRandomValues(new Uint8Array(32))) binary += String.fromCharCode(byte);
-    return btoa(binary);
-  }
-
-  /** `k1` -> `k2`, `k9` -> `k10` — the same scheme the real control plane uses. */
-  function nextGeneration(current) {
-    const match = /^([A-Za-z_-]*?)(\d+)$/.exec(current);
-    if (match === null) return `${current}-2`;
-    return `${match[1]}${Number(match[2]) + 1}`;
-  }
   /**
    * Knobs a test flips to model a control plane that is not this one — older
    * than a field, or misbehaving. Read at request time, never at setup.
@@ -91,6 +85,12 @@ export function createControlPlaneStub(options = {}) {
   const siteCalls = [];
   const vaultCalls = [];
   const flags = {
+    /** Who may send email, or a refusal for every send (`email.mjs`). */
+    emailSender: null,
+    emailRefusal: null,
+    /** Which calendar may be changed, or a refusal for every change (`calendar.mjs`). */
+    calendarAddress: null,
+    calendarRefusal: null,
     /** Answer `/gateway/feedback` with this refusal word instead of accepting. */
     feedbackRefusal: null,
     omitBindingWorkspaceId: false,
@@ -213,6 +213,7 @@ export function createControlPlaneStub(options = {}) {
     alsoMemberOf = [],
     grantedNamesByWorkspace = {},
     expiresAt,
+    toolsListedAt,
   }) {
     const grantId = `grant_${++grantCounter}`;
     grants.set(grantId, {
@@ -227,6 +228,7 @@ export function createControlPlaneStub(options = {}) {
       grantedNamesByWorkspace,
       status: "active",
       expiresAt: expiresAt ?? Date.now() + 3_600_000,
+      toolsListedAt,
     });
     accessTokens.set(await sha256Hex(accessToken), grantId);
     if (refreshToken) refreshTokens.set(await sha256Hex(refreshToken), grantId);
@@ -310,6 +312,14 @@ export function createControlPlaneStub(options = {}) {
   */
   const gatewayCalls = { total: 0, byPath: new Map() };
 
+  // Note mail mailboxes (`mail.mjs`).
+  const mail = createMailRoutes(grantForAccessToken, coveredContexts);
+  const email = createEmailRoute(clearedEditor, flags);
+  const calendar = createCalendarRoute(clearedEditor, flags);
+  // Setting a workspace up (`workspaces.mjs`).
+  const workspaceSetup = createWorkspaceRoutes({ grantForAccessToken, coveredContexts, workspaces, grants });
+  const dreams = createDreamRoutes(clearedOwner);
+
   async function handle(url, init = {}) {
     gatewayCalls.total += 1;
     const calledPath = new URL(url).pathname;
@@ -339,8 +349,15 @@ export function createControlPlaneStub(options = {}) {
             expiresAt: grant.expiresAt,
             defaultWorkspaceId: grant.workspaceId,
             workspaces: coveredContexts(grant),
+            ...(grant.toolsListedAt === undefined ? {} : { toolsListedAt: grant.toolsListedAt }),
           },
         });
+      }
+
+      case "/gateway/grants/tools-listed": {
+        const grant = await grantForAccessToken(body.accessToken);
+        if (grant) grant.toolsListedAt = Date.now();
+        return ok({ ok: true });
       }
 
       case "/gateway/sessions/by-grant": {
@@ -471,6 +488,7 @@ export function createControlPlaneStub(options = {}) {
           return ok({ recorded: Boolean(known) });
         }
         if (!known) return ok({ verdict: null });
+        builtinStarts.push({ workspaceId: grant.workspaceId, tryIt: body.tryIt === true });
         return ok({ verdict: builtinVerdicts.get(grant.workspaceId) ?? { allowed: false, reason: "not_premium" } });
       }
 
@@ -611,6 +629,27 @@ export function createControlPlaneStub(options = {}) {
       }
 
       case "/gateway/jobs/create": {
+        if (body.job?.kind === "image_upload") {
+          // The real route's writer clearance and bounds (`createImageUpload`).
+          const cleared = await clearedEditor(body);
+          const { sha256, bytes } = body.job;
+          if (!cleared || !/^[a-f0-9]{64}$/.test(sha256 ?? "") || !Number.isInteger(bytes) || bytes < 1 || bytes > 5_000_000) {
+            return ok({ ticket: null });
+          }
+          const grant = await grantForAccessToken(body.accessToken);
+          const ticket = (await sha256Hex(`upload-${gatewayJobs.size + 1}`)).slice(0, 64);
+          gatewayJobs.set(ticket, {
+            workspaceId: cleared.workspaceId,
+            actorUserId: grant.userId,
+            actorClientId: grant.clientId,
+            grantId: grant.grantId,
+            kind: "image_upload",
+            imageSha256: sha256,
+            imageBytes: bytes,
+            status: "queued",
+          });
+          return ok({ ticket });
+        }
         const grant = await grantForAccessToken(body.accessToken);
         if (!grant) return ok({ ticket: null });
         const covered = coveredContexts(grant);
@@ -638,6 +677,11 @@ export function createControlPlaneStub(options = {}) {
       case "/gateway/jobs/open": {
         const job = gatewayJobs.get(body.ticket);
         if (!job || job.status !== "queued") return ok({ job: null });
+        if (job.kind === "image_upload") {
+          // Only the declared bytes, only while the grant is live; a mismatch leaves it unspent.
+          if (body.contentSha256 !== job.imageSha256) return ok({ job: null });
+          if (grants.get(job.grantId)?.status !== "active") return ok({ job: null });
+        }
         job.status = "running";
         const binding = bindings.get(job.workspaceId);
         if (!binding) return ok({ job: null });
@@ -651,6 +695,7 @@ export function createControlPlaneStub(options = {}) {
               grantId: job.grantId,
               kind: job.kind,
               moveId: job.moveId,
+              ...(job.kind === "image_upload" ? { imageSha256: job.imageSha256, imageBytes: job.imageBytes } : {}),
             },
             binding: { workspaceId: job.workspaceId, ...storage, status: "active" },
             ...(searchIndex ? { searchIndex } : {}),
@@ -692,7 +737,7 @@ export function createControlPlaneStub(options = {}) {
       case "/gateway/feedback": {
         if (!(await grantForAccessToken(body.accessToken))) return ok({ report: null });
         if (flags.feedbackRefusal) return ok({ report: null, refused: flags.feedbackRefusal });
-        feedback.push({ accessToken: body.accessToken, message: body.message });
+        feedback.push({ accessToken: body.accessToken, message: body.message, texts: body.texts });
         return ok({ report: { eventId: "0".repeat(31) + feedback.length } });
       }
 
@@ -866,7 +911,9 @@ export function createControlPlaneStub(options = {}) {
       }
 
       default: {
-        const answered = await tree.handle(path, body);
+        const answered =
+          (await mail.handle(path, body)) ?? (await tree.handle(path, body)) ?? (await workspaceSetup.handle(path, body)) ?? (await email.handle(path, body)) ??
+          (await calendar.handle(path, body)) ?? (await dreams.handle(path, body));
         if (answered !== undefined) return ok(answered);
         return new Response(JSON.stringify({ error: "not_found" }), { status: 404 });
       }
@@ -919,9 +966,12 @@ export function createControlPlaneStub(options = {}) {
     addWorkspace,
     addGrant,
     revoke,
+    mailboxes: mail.mailboxes,
+    dreams,
     issueCode,
     setBuiltinVerdict,
     builtinReports,
+    builtinStarts,
     setMeetingSummaryVerdict,
     meetingSummaryReports,
     turnReports,
@@ -933,6 +983,10 @@ export function createControlPlaneStub(options = {}) {
     feedback,
     siteCalls,
     vaultCalls,
+    emailCalls: email.calls,
+    mailReadCalls: email.mailCalls,
+    calendarCalls: calendar.calls,
+    workspaceSetupCalls: workspaceSetup.calls,
     accessTokens,
     refreshTokens,
     gatewayJobs,

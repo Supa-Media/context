@@ -77,6 +77,10 @@ import { createRoot } from "react-dom/client";
  *     phone being typed into would carry no microphone anywhere on the glass —
  *     and the two tests either side of it pass, which is what makes this the
  *     one worth writing down.
+ *
+ *  Since 2026-10-17 the phone's half is `compact` alone *by design*: the
+ *  microphone moved onto the accessory bar, so the test above now asks for the
+ *  bar's key. Taking `onDictate` off `NoteAccessory` fails it.
  */
 
 /** The editor is stubbed, as in `noteAccessory.test.ts`; focus is what matters. */
@@ -212,7 +216,7 @@ describe("the phone", () => {
     expect(app.find("voice-button")).toBeNull();
   });
 
-  test("the keyboard takes the bottom row away, so the microphone comes back", () => {
+  test("the keyboard takes the bottom row away, so the microphone comes back, on the bar", () => {
     /*
       Dictation types at the caret, so the state in which somebody wants it is
       the state in which they are in the note with the keyboard up — which is
@@ -223,12 +227,16 @@ describe("the phone", () => {
     const app = mountNote(390);
     app.focus();
 
+    // One microphone: a key on the accessory bar since 2026-10-17 (board 3 of
+    // `meeting-2026-10-17/phone-inbox/`), and none floating in the corner.
     expect(app.accessory()).not.toBeNull();
-    expect(app.find("voice-button")).not.toBeNull();
+    expect(app.find("note-accessory-mic")).not.toBeNull();
+    expect(app.find("voice-button")).toBeNull();
 
-    // And put away again with the keyboard, rather than joining the key.
+    // And put away again with the keyboard.
     app.blur();
     expect(app.accessory()).toBeNull();
+    expect(app.find("note-accessory-mic")).toBeNull();
     expect(app.find("voice-button")).toBeNull();
   });
 });

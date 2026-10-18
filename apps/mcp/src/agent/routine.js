@@ -15,6 +15,7 @@
 
 import {
   describeSchedule,
+  frontMatter,
   routineFromPath,
   routineRunsKey,
   routineSettings,
@@ -90,7 +91,8 @@ export async function loadRoutine(callTool, path) {
   const note = split === -1 ? "" : text.slice(split + 2);
   const { cadence } = routineFromPath(path);
   const { settings, problems } = routineSettings(note, cadence);
-  return { path, cadence, settings, problems, body: routineBody(note) };
+  // `fields` is every front matter line, for the routines that read more than a schedule (`supervise.js`).
+  return { path, cadence, settings, problems, body: routineBody(note), fields: frontMatter(note) };
 }
 
 function isTimeZone(value) {

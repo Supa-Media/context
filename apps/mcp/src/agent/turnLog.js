@@ -24,6 +24,8 @@ export function wireTraceEntry(entry) {
   if (entry.kind === "fallback") return { ...base, model: entry.model, ...(typeof entry.status === "number" ? { status: entry.status } : {}) };
   return {
     ...base,
+    // Which model ran the round: a planned turn has two (`modelPlan.js`).
+    ...(typeof entry.model === "string" ? { model: entry.model } : {}),
     ...(entry.retried ? { retried: true } : {}),
     ...(entry.cut ? { cut: true } : {}),
     ...(typeof entry.status === "number" ? { status: entry.status } : {}),

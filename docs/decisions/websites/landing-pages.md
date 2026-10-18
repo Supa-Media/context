@@ -1,5 +1,7 @@
 # The front door is three landing pages under test
 
+_Page a was replaced by the Tex page on 2026-10-18; see its entry below._
+
 _Decided 2026-10-11, by the owner, replacing the five pages of 2026-10-09:
 "a more simple design for the landing page similar to thebrowser.company and
 instinct.com … root (/a) being the simple version, /b being the map variant
@@ -16,43 +18,41 @@ and a cast preview (`/#cast-preview=…`) and the cast studio's stage are
 recordings of it, so `landingFor` (`features/landing/route.ts`) answers null
 for all of them.
 
-- **a is a page of prose, in the references' own shape.** Dev sent phone
-  screenshots of instinct.com and thebrowser.company and, after two passes
-  that reinterpreted them (a big statement, then an animated headline), said
-  plainly "/a should be a simple design like these 2". So a is what they are:
-  a small hand-drawn mark, short paragraphs in one reading face at one size,
-  and the call to action as a line of text with a highlighter, "Join the
-  waitlist ›", which opens the sign-up beneath it. Off-white page, ink type,
-  no nav bar (`SimplePage.web.tsx`, `simpleCss.ts`). Dev then set what it
-  says: sell a feeling, less chaos, not a product, and show rather than tell.
-  The words are Dev's own, written in the shared note
-  `@supa/1-projects/premium/landing-a-copy.md`, built with typos fixed and
-  nothing else changed; Dev chose their own phrasing over the unslop rules
-  for this page. The headline says what it is: "Context is an app that gives
-  your brain that feeling you have when your room is clean."
-- **a's picture tells one story, and fits the first screen.** Settled with
-  Dev over eighteen rounds of a preview (2026-10-11), with Sayo's feedback.
-  Tex, the mascot (the app's chaos figure in brand blue, googly eyes always
-  on), stands where the mark was and untangles as the graph under the
-  headline gets sorted. The graph (`ChaosGraph.web.tsx`, story in
-  `chaosStory.ts`, drawn by `chaosDraw.ts` on one canvas) starts cluttered,
-  about sixty loose notes drawn as what they came in as (emails, texts,
-  invites, meetings, chats, docs), with new ones trickling in throughout. AI
-  helpers, drawn as collaborators' cursors with a name flag and nothing else
-  ("cursors look a lot better"), sort them into a **Personal workspace**
-  laid out as Inbox, Projects, Areas, Resources and Archive; Archive is a
-  closed box that never shows its notes. A side project grows in Personal
-  from "New app" into "Friend hangout app", and only when the first
-  co-founder joins does the graph split, Personal on the left and the new
-  **Hangg** shared workspace on the right, side by side on every screen. The
-  app's notes move over, and the co-founders' own assistants ("Maya's
-  Codex", "Jon's Claude") start working on the notes they bring. Each
-  workspace is a faint dotted outline, not a box. Only a note being moved
-  shows its title; there is no count. The page is light only, and Tex, the
-  headline, the graph and its Pause fit a laptop's first screen. It loops
-  while on screen and holds the sorted end state, Tex calm, when the
-  visitor asks for less motion. Adding a feature list, a hero image or a
-  second animation back is reversing this decision.
+- **a is the Tex page** (decided by the owner, 2026-10-18, replacing the
+  page of prose and its graph: "we need a new landing page, one that is more
+  Tex/Chat focused … Text your notes we'll organize it for you … right now
+  the page has the complex graph that confuses people, and also signing up
+  for the waitlist the button to click enter isn't clear"). Dev's line is the
+  headline, "Text your notes. We'll organize them.", then one sentence of what
+  Tex takes (a thought, a link, a photo, a voice memo or a PDF), the sign-up,
+  and beside it one conversation with Tex (`TexPage.web.tsx`, `TexChat.web.tsx`,
+  `texCss.ts`). It keeps the old a's sheet, Libron and light-only look, so it
+  is the same site.
+- **a's picture is one conversation, not a diagram.** Dev then asked for it
+  to show "something a bit more useful, like sending an email doing something
+  research, but it should all fit on a page", and for Tex to sound like a
+  person ("'Text YES to send' seems very robotic"). An idea becomes a note in
+  Projects; a search for a place finds three and adds them to that note,
+  whose link Tex texts; an email is shown as Tex would send it and goes on a
+  yes; Tex says it will send a reminder. Each is something Tex does
+  today: web search (`agent/search.js`), the note's link on a texted write
+  (`agent/noteLinks.js`), the email send-review gate, routines. The link is
+  drawn as the card a note's link really unfurls as, Context's own, never
+  with the note's name. The whole conversation is drawn at once and nothing
+  on the page animates (Dev, 2026-10-18: "just do the full convo no
+  animating"); Tex, the mark, is the settled #. On a computer the whole page
+  fits the window with no scrolling (on a short window the chat's header
+  folds to one row). A phone is sized for a phone, not shrunk from the
+  computer layout (Dev, 2026-10-18: "this looks so bad and zoomed in on
+  mobile"): a smaller headline, reading-size text, the button under the
+  field below 600px, and the sign-up before the conversation. Putting the
+  graph, a feature list or an animation back is reversing this decision.
+- **a's sign-up button says what it does.** A labelled phone field with +1
+  and a country drop-down, and beside it a solid "Join the waitlist" button
+  ("Sign in" on the code step), full width on a narrow phone. The bare › of
+  2026-10-12 was the thing nobody saw. The rules are still the sign-in page's
+  (`usePhoneSignIn`), and "Use email instead" still swaps in the `JoinCard`.
+  Rows recorded as `a` before 2026-10-18 saw the page of prose and its graph.
 - **b is the page `/` showed until 2026-10-11, unchanged** ("b/ should be the
   current default page"): tab.bot's shape in our colours, the live map behind
   "Less chaos", the real editor playing a demo, the prose, and the sign-up
@@ -95,12 +95,11 @@ for all of them.
 
 Test: `apps/mobile/__tests__/landingRoute.test.ts` and `landingPages.test.ts`
 (which address is which page, and how a campaign is read and cleaned),
-`landingEditorScene.test.ts` (b's editor scene), `landingChaosStory.test.ts`
-(a's story: Hangg is made only when a co-founder joins, no helper reads two
-notes at once, links stay inside a workspace), `chaosFigure.test.ts` (Tex), `adCampaign.test.ts`,
+`landingEditorScene.test.ts` (b's editor scene), `landingInlineSignUp.test.ts`
+(a's sign-up), `chaosFigure.test.ts` (Tex), `adCampaign.test.ts`,
 `loginScreen.test.ts` (a phone join fires both pixels),
 `adminWaitlistRender.test.ts`, the waitlist tests in
 `apps/convex/__tests__/waitlist.test.ts` and `phoneSignIn.test.ts`, and
-`e2e/webkit/landingPages.spec.ts` (a opens on Dev's line, Tex and the graph fit the first
-screen, the graph draws and can be paused, and its line opens the sign-up, b is the old page with its map and editor, c is the shell,
-retired letters go home).
+`e2e/webkit/landingPages.spec.ts` (a opens on Dev's line, the whole conversation shows at once
+with nothing animating, a phone from 375 to 430 wide gets the phone sizes with the button under the field, the sign-up and the conversation fit a laptop's first screen, the button says "Join the waitlist",
+b is the old page with its map and editor, c is the shell, retired letters go home).

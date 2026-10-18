@@ -8,13 +8,20 @@ export function feedbackToolDefinitions() {
         "Report a problem with Context itself to the people who build it: a tool that failed or returned something wrong, an error message, behaviour that contradicts what a tool's description promises. " +
         "Send it when you hit such a problem; you do not need to ask first. Describe what you called, what you expected, what happened instead, and any error text, in plain words. " +
         "Never include note contents, note or folder paths, names, email addresses or anything else from the person's workspace: say 'a note in a team folder', not its path or text. " +
-        "Not for problems with the person's own notes or requests for help; answer those yourself. Counts toward the person's limit of 10 reports a day.",
+        "Not for problems with the person's own notes or requests for help; answer those yourself. Counts toward the person's limit of 10 reports a day. " +
+        "By text, when the person wants to report a bug: write what went wrong in a few plain sentences as the message, and pass share_texts true so your recent texts with them go too. " +
+        "They are shown the exact report and must reply YES before anything is sent; nothing goes to the team without it.",
       inputSchema: {
         type: "object",
         properties: {
           message: {
             type: "string",
             description: "What went wrong, in plain words, up to 4,000 characters. No note contents, paths or personal details.",
+          },
+          share_texts: {
+            type: "boolean",
+            description:
+              "By text with Tex only: also send the last few messages between you and the person, once they reply YES to the report. Refused from any other AI.",
           },
         },
         required: ["message"],

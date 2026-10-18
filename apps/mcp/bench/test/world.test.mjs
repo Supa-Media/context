@@ -337,6 +337,31 @@ test("a routed setup records the tier first on the tools line and reports the mo
   }
 });
 
+test("a planned setup's turn records each model's rounds and spend, and the answering model", async () => {
+  const { fakeAi } = await import("../models.mjs");
+  const seen = [];
+  const gatewayFetch = async (url, init) => {
+    seen.push(JSON.parse(init.body).model);
+    return readsOnce({ path: "health/dentist.md" })(url, init);
+  };
+  const planned = ROUTED_SETUP.replace("think: anthropic/claude-opus-5-5", "think: anthropic/claude-opus-5-5\n  think_rounds: 1");
+  const world = await createWorld(bench, "Maya", planned, { gatewayFetch, ai: fakeAi() });
+  try {
+    const turn = await world.text("Should I move the trip, given the dentist clash?");
+    assert.ok(turn.ok, turn.error);
+    assert.deepEqual(seen, ["claude-opus-5-5", "claude-haiku-5-5"], "Opus plans the read, Haiku writes the answer");
+    assert.deepEqual(turn.rounds, { "anthropic/claude-opus-5-5": 1, "anthropic/claude-haiku-5-5": 1 });
+    assert.deepEqual(turn.usageByModel, {
+      "anthropic/claude-opus-5-5": { input: 10, output: 5, cacheRead: 0, cacheWrite: 0 },
+      "anthropic/claude-haiku-5-5": { input: 10, output: 5, cacheRead: 0, cacheWrite: 0 },
+    });
+    assert.deepEqual(turn.usage, { input: 20, output: 10, cacheRead: 0, cacheWrite: 0 }, "the sum of both reports");
+    assert.equal(turn.model, "anthropic/claude-haiku-5-5", "the model that wrote the answer");
+  } finally {
+    world.close();
+  }
+});
+
 /* ---------------- a fallback and a retry are on the tools line, and an error keeps its status ---------------- */
 
 const SPARE_SETUP =
@@ -368,13 +393,50 @@ test("a setup with no fallback records the error with the status the provider ga
   }
 });
 
-test("the world runs the egress gate the way the deployed gateway does", async () => {
-  const { DEPLOYED_EGRESS_APPROVALS, deployedVar } = await import("../world.mjs");
-  const { readFile } = await import("node:fs/promises");
-  const toml = await readFile(new URL("../../wrangler.toml", import.meta.url), "utf8");
-  // A held write in the bench and none in production made "tick off the to-do"
-  // fail on a YES round trip production never has (2026-10-14).
-  assert.equal(DEPLOYED_EGRESS_APPROVALS, /^\[vars\][\s\S]*?^EGRESS_APPROVALS = "off"$/m.test(toml) ? "off" : undefined);
-  assert.equal(deployedVar('[vars]\nEGRESS_APPROVALS = "off"\n[env.staging.vars]\nEGRESS_APPROVALS = "on"\n', "EGRESS_APPROVALS"), "off");
-  assert.equal(deployedVar('[vars]\nOTHER = "x"\n[env.staging.vars]\nEGRESS_APPROVALS = "off"\n', "EGRESS_APPROVALS"), undefined);
+/** A model that never stops calling tools, counting its rounds; a progress text first when `say` is given. */
+function neverDone(rounds, say = null) {
+  return async () => {
+    rounds.n += 1;
+    const first = rounds.n === 1 && say !== null;
+    const reply = {
+      content: [
+        first
+          ? { type: "tool_use", id: `toolu_${rounds.n}`, name: "send", input: { action: "progress", args: { text: say } } }
+          : { type: "tool_use", id: `toolu_${rounds.n}`, name: "read_note", input: { path: "health/dentist.md" } },
+      ],
+      stop_reason: "tool_use",
+    };
+    return new Response(JSON.stringify({ ...reply, usage: { input_tokens: 10, output_tokens: 5 } }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+}
+
+const withSteps = (n) => SETUP.replace("---\n\nYou", `max_steps: ${n}\n---\n\nYou`);
+
+test("a bench turn is asked for the way the texting Worker asks, so it gets the setup's max_steps", async () => {
+  // A plain JSON ask is a quick turn, capped at 8 rounds (`src/agent/turn.js`);
+  // the texting Worker streams (`apps/agent/src/clients.ts`) and gets the
+  // setup's own max_steps, up to the long cap. The bench must measure that.
+  const rounds = { n: 0 };
+  const world = await createWorld(bench, "Maya", withSteps(24), { gatewayFetch: neverDone(rounds) });
+  try {
+    await world.text("go");
+  } finally {
+    world.close();
+  }
+  assert.equal(rounds.n, 24);
+});
+
+test("a progress line texted on the way comes back with the turn, as a text the person got", async () => {
+  const rounds = { n: 0 };
+  const world = await createWorld(bench, "Maya", withSteps(2), { gatewayFetch: neverDone(rounds, "On it.") });
+  try {
+    const turn = await world.text("go");
+    assert.ok(turn.ok, turn.error ?? "");
+    assert.deepEqual(turn.progress, ["On it."]);
+  } finally {
+    world.close();
+  }
 });

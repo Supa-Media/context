@@ -29,6 +29,7 @@ export function renderWaitlistEmail(kind: WaitlistMail, signInUrl: string): Rend
         ]
       : [
           "Your Context.LC access is ready. Sign in with this email address and we'll send you a code.",
+          "Tex, your Context assistant, can set you up by text. Add your phone number after you sign in and we'll text you Tex's number.",
         ];
   const text = [
     ...lines.flatMap((line) => [line, ""]),
@@ -42,7 +43,7 @@ export function renderWaitlistEmail(kind: WaitlistMail, signInUrl: string): Rend
     .join("");
   const button =
     kind === "admitted"
-      ? `<p style="margin:6px 0 18px;"><a href="${escapeHtml(signInUrl)}" style="display:inline-block;background:#0E6C69;color:#FFFDF9;text-decoration:none;font:600 15px ${font};padding:11px 18px;border-radius:8px;">Sign in</a></p>`
+      ? `<p style="margin:6px 0 18px;"><a href="${escapeHtml(signInUrl)}" style="display:inline-block;background:#2A45CF;color:#FFFDF9;text-decoration:none;font:600 15px ${font};padding:11px 18px;border-radius:8px;">Sign in</a></p>`
       : "";
   const html = [
     "<!DOCTYPE html>",

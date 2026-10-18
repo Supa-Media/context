@@ -35,23 +35,13 @@ export interface WatchedBinding {
   status: string;
   lastError?: string;
   errorCode?: string;
-  /**
-   * Which backend this row is for, when the caller knows.
-   *
-   * Only ever used to pick the wording of a failure. A Dropbox binding
-   * described with the bucket copy tells somebody to paste an access key they
-   * have never had — see `DROPBOX_BY_CODE` in `../console/storage/errors.ts`.
-   * Absent gets the bucket wording, which is what every caller got before
-   * Dropbox existed.
-   */
+  /** Which backend this row is for, when the caller knows. */
   provider?: string;
   /**
    * How many notes the verification walk found, when it has run and the
    * caller may know (the count is owner-only — see `getStorageBinding`).
    * Zero is a measured emptiness; absent means "not counted", and the two
-   * must never be conflated — a rule the schema states and the Dropbox
-   * callback now leans on to decide whether a fresh store needs the
-   * structure walk-through.
+   * must never be conflated — a rule the schema states.
    */
   noteCount?: number;
 }
@@ -112,7 +102,7 @@ export function connectProgress({
   if (binding.status === "error") {
     return {
       kind: "failed",
-      failure: describeStorageFailure(binding.errorCode, binding.lastError, binding.provider),
+      failure: describeStorageFailure(binding.errorCode, binding.lastError),
     };
   }
 

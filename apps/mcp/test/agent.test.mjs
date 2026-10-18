@@ -71,8 +71,10 @@
  *     the damage: the note really is in the bucket.
  */
 
+import { shown } from "./sixToolsShown.mjs";
 import worker from "../src/index.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
+import { fullToolList } from "./fullToolList.mjs";
 import {
   createControlPlaneStub,
   createS3Backend,
@@ -171,21 +173,12 @@ async function ask(env, tokenValue, body) {
   return { status: response.status, body: parsed, text };
 }
 
-/** What the same connection's MCP client is offered, for comparison. */
+/**
+ * What the same connection's MCP client is offered, for comparison: the full
+ * list (`fullToolList.mjs`), since `tools/list` answers the six v2 tools now.
+ */
 async function clientToolNames(env, tokenValue) {
-  const { ctx, settle } = createWorkerCtx();
-  const response = await worker.fetch(
-    new Request("https://mcp.context.test/mcp", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${tokenValue}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
-    }),
-    env,
-    ctx,
-  );
-  const names = (JSON.parse(await response.text())?.result?.tools ?? []).map((tool) => tool.name);
-  await settle();
-  return names;
+  return (await fullToolList(env, tokenValue)).map((tool) => tool.name);
 }
 
 export async function runAgentChecks(check) {
@@ -217,6 +210,9 @@ export async function runAgentChecks(check) {
       forcePathStyle: true,
       capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
     });
+
+    // The census is the tree's names, never the bucket's listing (`search/shards/listing.js`).
+    controlPlane.serveTreesFrom(null, { s3 });
 
     await controlPlane.addGrant({
       accessToken: TOKEN_OWNER,
@@ -307,18 +303,20 @@ export async function runAgentChecks(check) {
 
     /* ---------------------- 3. the tools it is offered --------------------- */
 
-    const offeredNames = (model.requests[0]?.body?.tools ?? []).map((tool) => tool.name);
+    const offeredNames = [...shown(model.requests[0]?.body?.tools)];
     check(
       "a write tool is never offered, however wide the grant",
-      !offeredNames.includes("write_note") &&
-        !offeredNames.includes("move_note") &&
-        !offeredNames.includes("set_visibility"),
+      !offeredNames.includes("write.save") &&
+        !offeredNames.includes("manage.move") &&
+        !offeredNames.includes("manage.visibility") &&
+        !offeredNames.includes("manage"),
     );
     check(
-      "the agent is offered the proposal tool and no other write",
-      offeredNames.includes("propose_note"),
+      "the agent is offered the proposal action and no other write",
+      // report_problem goes to Context's builders, never into the notes.
+      offeredNames.filter((name) => name.startsWith("write.")).join() === "write.propose,write.report_problem",
     );
-    check("the read tools are offered", offeredNames.includes("read_note"));
+    check("the read tools are offered", offeredNames.includes("search") && offeredNames.includes("fetch"));
 
     /*
       THERE IS NO KEY EXPORT TO OFFER.
@@ -347,12 +345,10 @@ export async function runAgentChecks(check) {
     */
     model.install([{ text: "Nothing to suggest." }]);
     await ask(env, TOKEN_READONLY, { question: "anything?" });
-    const readonlyTools = (model.requests[model.requests.length - 1].body.tools ?? []).map(
-      (tool) => tool.name,
-    );
+    const readonlyTools = shown(model.requests[model.requests.length - 1].body.tools);
     check(
-      "a read-only connection's agent is not offered the proposal tool either",
-      !readonlyTools.includes("propose_note") && readonlyTools.includes("read_note"),
+      "a read-only connection's agent is not offered the proposal action either",
+      !readonlyTools.has("write.save") && !readonlyTools.has("write.propose") && readonlyTools.has("fetch"),
     );
 
     /* ---------------------- 4. the clamp is the connection's --------------- */
@@ -593,7 +589,7 @@ export async function runAgentChecks(check) {
     );
     check(
       "the system prompt tells the model it cannot edit",
-      systemPrompt(null).includes("propose_note"),
+      systemPrompt(null).includes("write with action propose"),
     );
     check(
       "the app's agent still cites note paths, and is not told it is texting",
@@ -603,7 +599,7 @@ export async function runAgentChecks(check) {
       "a texted answer is told to write without Markdown or note paths, and still cannot edit",
       systemPrompt(null, { texting: true }).includes("No Markdown") &&
         !systemPrompt(null, { texting: true }).includes("Cite the note path") &&
-        systemPrompt(null, { texting: true }).includes("propose_note"),
+        systemPrompt(null, { texting: true }).includes("write with action propose"),
     );
     check(
       "agentTools only ever narrows",

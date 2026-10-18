@@ -33,7 +33,7 @@ export function readFailureKind(error) {
     return shaped.detail === "plain object in encrypted workspace" ? "unsealed" : "sealed";
   }
   if (message.startsWith("unsafe storage key")) return "name";
-  if (/^S3 [A-Z]+ .* failed with \d{3}/.test(message) || /^Dropbox /i.test(message)) return "storage";
+  if (/^S3 [A-Z]+ .* failed with \d{3}/.test(message)) return "storage";
   return "other";
 }
 

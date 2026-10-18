@@ -366,10 +366,9 @@ describe("isolation: one context's mailbox slugs are invisible to another", () =
 
 describe("the browser that started a Google connect is the one that may finish it", () => {
   /**
-   * The same property `dropboxConnect.ts` now carries, and this file inherited
-   * the gap by citing that file's older argument — *"No session required — see
-   * `completeDropboxConnect` for the full argument… it applies here unchanged,
-   * PKCE pair and all."*
+   * The same property the connect flows carry, and this file inherited the gap
+   * by citing an older argument — *"No session required — see the callback for
+   * the full argument… it applies here unchanged, PKCE pair and all."*
    *
    * It did apply unchanged, and that was the problem. `state` travels in the
    * authorize URL and comes back in the callback, so whoever built the URL

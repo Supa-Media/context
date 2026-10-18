@@ -326,3 +326,16 @@ any app code runs — so it carries the two grounds as literals under a
 `__tests__/htmlShell.test.ts`. Which file that is, and why it moved, is the
 next section.
 
+
+### The native companion does not sell Premium
+
+The native plan panel reports the current plan and preserves free storage,
+storage settings, and downloading notes. Paid storage choices, prices, checkout,
+billing-portal links, and website purchase instructions stay in the web app.
+Handlers refuse paid actions on native as well as hiding their controls.
+`nativePurchases.test.ts` and `nativePurchaseHandlers.test.ts` cover both iOS
+and Android. Removing the native plan guard makes both rendering cases fail.
+
+Apple guideline 3.1.3(f) is the intended free-companion route; this is not an
+approval guarantee. The full audit and the separate notification-registration
+limits are in [App Store readiness](../../app-store-readiness.md).

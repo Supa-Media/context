@@ -36,6 +36,28 @@ import type { FileStore } from "./store";
 export interface TreeNames extends Pick<FileStore, "list"> {
   /** Which of `paths` a live file is drawn at, and which have something drawn under them. Unfiltered. */
   taken(paths: readonly string[]): Promise<{ files: string[]; folders: string[] }>;
+  /** Which folder does each built-in job, and the rows whose job is written on them (`folderJobs.ts`). Unfiltered. */
+  jobs?(): Promise<TreeJobs>;
+  /**
+   * The notes whose links name one of `sources` by path or one of `names` bare, and the notes changed since
+   * their links were read (`nodeFacts.candidates`); `null` where the facts are not whole. Unfiltered.
+   */
+  links?(ask: { sources: string[]; names: string[] }): Promise<{ pointing: string[]; unparsed: string[] } | null>;
+  /** Which of `paths` hold links of their own (`nodeLinkSources.linking`). Unfiltered. */
+  linking?(paths: string[]): Promise<string[]>;
+}
+
+/** `nodesGateway.folderJobs`'s answer. */
+export interface TreeJobs {
+  jobs: Record<string, string | null>;
+  roots: string[];
+  claimed: { path: string; role: string }[];
+}
+
+/** The tree's folder jobs, or null for a store with no tree attached (the unit tests' own store). */
+export async function treeJobs(store: FileStore): Promise<TreeJobs | null> {
+  const tree = (store as { treeListing?: TreeNames }).treeListing;
+  return tree !== undefined && typeof tree.jobs === "function" ? await tree.jobs() : null;
 }
 
 function attached(store: FileStore): TreeNames | null {

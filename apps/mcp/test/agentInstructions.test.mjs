@@ -1,9 +1,11 @@
 /**
  * The assistant's own words, kept where staff can edit them: one production
- * file per job in the pinned `@context-lc` workspace,
- * `ai/production/texting-assistant.md` for texts and
- * `ai/production/app-assistant.md` for the app (decided by the owner,
+ * file in the pinned `@context-lc` workspace,
+ * `ai/production/texting-assistant.md` for texts (decided by the owner,
  * 2026-10-08; this replaced `assistant/instructions.md` and `texting.md`).
+ * A turn that is not texted has no production file: the app assistant's,
+ * `ai/production/app-assistant.md`, was removed by the owner on 2026-10-17,
+ * and a stale copy of it is never read.
  *
  * Asserted on the wire — the system prompt the fake model was actually sent —
  * so a turn that read the note and then dropped it would still fail. Read
@@ -17,11 +19,14 @@ import assert from "node:assert/strict";
 import { after, before, beforeEach, test } from "node:test";
 
 import worker from "../src/index.js";
-import { PRODUCTION_APP_PATH, PRODUCTION_TEXTING_PATH } from "../src/agent/production.js";
+import { PRODUCTION_TEXTING_PATH } from "../src/agent/production.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED, systemText } from "./agentModelFixture.mjs";
 
+/** The retired app assistant's note, left in the bucket to prove nothing reads it. */
+const RETIRED_APP_PATH = "ai/production/app-assistant.md";
+const RETIRED_APP_MARK = "RETIRED-APP-ASSISTANT-MARK";
 const S3_ENDPOINT = "https://s3.example-assistant-notes.test";
 const TOKEN_TEXTS = `cat_assist_texts_${"0".repeat(23)}`;
 const TOKEN_APP = `cat_assist_appcl_${"0".repeat(23)}`;
@@ -146,7 +151,7 @@ after(() => {
 beforeEach(() => {
   pinnedBucket.set("privacy.md", { body: manifest(), etag: "p1" });
   pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: setupFile("texting-assistant", `${WHO}\n\n${STYLE}`), etag: "a0" });
-  pinnedBucket.set(PRODUCTION_APP_PATH, { body: setupFile("app-assistant", WHO), etag: "t0" });
+  pinnedBucket.set(RETIRED_APP_PATH, { body: setupFile("app-assistant", RETIRED_APP_MARK), etag: "t0" });
 });
 
 test("a texted turn is told the texting file's words, in place of the built-in ones", async () => {
@@ -159,10 +164,11 @@ test("a texted turn is told the texting file's words, in place of the built-in o
   assert.ok(system.includes("you change notes yourself when they ask"), "what the code decides is still said");
 });
 
-test("an app turn gets the app file, not the texting one", async () => {
+test("an app turn gets the built-in words: no texting file, and the retired app file is never read", async () => {
   const system = await systemFor(TOKEN_APP);
-  assert.ok(system.includes(WHO));
+  assert.ok(!system.includes(WHO));
   assert.ok(!system.includes(STYLE));
+  assert.ok(!system.includes(RETIRED_APP_MARK), "the retired app-assistant note is not read");
   assert.ok(system.includes("Cite the note path"));
 });
 
@@ -185,7 +191,7 @@ test("a missing file means the built-in words for that job only", async () => {
   assert.ok(!texted.includes(WHO));
   assert.ok(texted.includes("You are Tex, the assistant built into"), "built-in identity");
   assert.ok(texted.includes("No Markdown at all"), "built-in texting style");
-  assert.ok((await systemFor(TOKEN_APP)).includes(WHO), "the app job still reads its own file");
+  assert.ok(!(await systemFor(TOKEN_APP)).includes(RETIRED_APP_MARK), "an app turn reads no file at all");
 });
 
 test("the retired assistant/ notes are never read", async () => {
@@ -208,5 +214,8 @@ test("an overgrown file is refused, so it cannot crowd out the question", async 
   pinnedBucket.set(PRODUCTION_TEXTING_PATH, { body: setupFile("texting-assistant", `${WHO}\n${"x".repeat(40_001)}`), etag: "a1" });
   const system = await systemFor(TOKEN_TEXTS);
   assert.ok(!system.includes(WHO));
-  assert.ok(system.length < 5_000, `system was ${system.length} characters`);
+  // A bound on the built-in words alone, far under the 40,000 refused: raised
+  // from 5,000 when texted turns were told about their check-ins (heartbeat.js),
+  // and from 6,000 when they were told what a text about their pings means (checkIns.js).
+  assert.ok(system.length < 6_500, `system was ${system.length} characters`);
 });

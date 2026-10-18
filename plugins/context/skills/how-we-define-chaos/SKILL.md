@@ -7,8 +7,8 @@ description: How Context scores a workspace's chaos, and how to organize notes s
 
 Every Context workspace has a **chaos score** from 0 to 100. Lower is calmer.
 `orient` shows it under "Chaos score" with the folders that would calm it
-most, and every `write_note`, `move_note`, `move_notes`, `move_folder` and
-`archive_note` answer ends with the score before and after:
+most, and every `write` save and `manage` move or archive answer ends with the
+score before and after:
 
 ```
 chaos: 34 → 31 of 100 (calmer; lower is calmer)
@@ -69,7 +69,7 @@ either.
 
 1. Call `orient`, read the "Chaos score" section, and start with the first of
    "Biggest wins". That folder moves the score most.
-2. Read before you move. `search_notes` and `read_note` tell you what notes
+2. Read before you move. `search` and `fetch` tell you what notes
    are about; their names alone are not enough to split a folder well.
 3. **Crowded folder** (over 10 items): find two to five themes and make a
    subfolder for each, every one with an about note that says what belongs

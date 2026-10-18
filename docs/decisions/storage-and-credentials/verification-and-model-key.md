@@ -37,7 +37,7 @@ over as easily as under, and a floor would be a second false claim rather than
 a hedge.
 
 Two readers are legitimate and stay: onboarding's `structureStepFor` and the
-Dropbox callback both read the field within seconds of the walk that wrote it,
+bucket-connect callback both read the field within seconds of the walk that wrote it,
 standing in front of a bucket they have just watched being verified.
 `applyStructure`'s server-side guards read it too, but they are a pre-filter and
 not the safety boundary — `hasExistingContext` re-lists the bucket, and every
@@ -162,7 +162,7 @@ assistant uses only the built-in model.** `/gateway/provider`,
 gone, `CREDENTIAL_HTTP_ROUTES` is back to three, and `providerCredentials` is
 emptied by `functions/providers:deleteSavedKeys` and kept in the schema only
 until production has run it
-([texting-assistant](../texting-assistant.md#the-built-in-model-is-for-premium-capped-and-metered-like-jev)).
+([texting-assistant](../texting-assistant.md#the-built-in-model-is-free-capped-at-100-a-day-and-metered-like-jev)).
 What follows is the reasoning as it stood. It is kept because it is still the
 answer if a credential issued by somebody else's console ever needs to reach
 the gateway again: its own door with a two-field validator, not a sibling on

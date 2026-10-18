@@ -7,7 +7,7 @@
  */
 export async function sendAccountMail(
   event: string,
-  mail: { to: string; subject: string; text: string },
+  mail: { to: string; subject: string; text: string; from?: string },
 ): Promise<void> {
   const apiKey = process.env.RESEND_API_KEY;
   if (typeof apiKey !== "string" || apiKey.length === 0) {
@@ -19,7 +19,7 @@ export async function sendAccountMail(
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        from: process.env.AUTH_EMAIL_FROM ?? "auth@context.lc",
+        from: mail.from ?? process.env.AUTH_EMAIL_FROM ?? "auth@context.lc",
         to: mail.to,
         subject: mail.subject,
         text: mail.text,
@@ -31,7 +31,7 @@ export async function sendAccountMail(
   }
 }
 
-/** The app's address, for links in account mail (`APP_ORIGIN`, as billing and Dropbox read it). */
+/** The app's address, for links in account mail (`APP_ORIGIN`, as billing reads it). */
 export function appOrigin(): string {
   const origin = process.env.APP_ORIGIN ?? "https://context.lc";
   return origin.replace(/\/+$/, "");

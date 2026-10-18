@@ -123,7 +123,7 @@ const APP = join(MOBILE, "app");
  * seventeen, under a registry whose first line claimed every route in the app.
  * The completeness claim is the one thing this guard has that the mounted tests
  * do not, and it was false about `/login`, `/invite`, `/invite/<token>`,
- * `/s/<token>`, `/note/…`, `/authorize`, `/connect/dropbox`, `+not-found` and
+ * `/s/<token>`, `/note/…`, `/authorize`, `/connect/google`, `+not-found` and
  * the root.
  *
  * The two exclusions are Expo Router's own, not this file's opinion:
@@ -246,7 +246,7 @@ describe("the guard can see", () => {
     expect(routes).toContain("/invite");
     expect(routes).toContain("/invite/[token]");
     expect(routes).toContain("/authorize");
-    expect(routes).toContain("/connect/dropbox");
+    expect(routes).toContain("/connect/google");
     expect(routes).toContain("/note/[...address]");
     expect(routes).toContain("/s/[token]");
     expect(routes).toContain("/[handle]");
@@ -535,7 +535,6 @@ describe("every route is reachable, or says why not", () => {
       "/admin/[...section]",
       "/authorize",
       "/connect/cli",
-      "/connect/dropbox",
       "/connect/google",
       /*
         Connections, whose last door was "Manage sharing…" on a context's
@@ -578,6 +577,7 @@ describe("every route is reachable, or says why not", () => {
       "/preview/onboarding",
       "/preview/onboarding/[step]",
       "/s/[token]",
+      "/signin/[token]",
       "/stop-new-email",
       "/tex/[handle]",
       "/texts/[token]",

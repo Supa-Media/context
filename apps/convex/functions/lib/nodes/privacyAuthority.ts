@@ -96,6 +96,8 @@ export async function privacyRowOf(ctx: MutationCtx, workspaceId: Id<"workspaces
 
 /** Ask for the export to be written again: now when `delay` is 0, else after it. */
 export async function scheduleExport(ctx: MutationCtx, workspaceId: Id<"workspaces">, delay: number): Promise<void> {
+  // In rows mode the file is not written from the rules, so there is nothing to schedule (`rowsOnNow`).
+  if (await rowsOnNow(ctx)) return;
   await ctx.scheduler.runAfter(delay, internal.functions.files.runFileOperation, {
     workspaceId,
     scope: "private",
@@ -114,8 +116,10 @@ export async function noticePrivacyListing(
   workspaceId: Id<"workspaces">,
   etag: string | undefined,
 ): Promise<void> {
-  // A store that lists no versions (Dropbox) cannot tell; its next change writes the file.
+  // A store that lists no versions (one that ignores key order) cannot tell; its next change writes the file.
   if (etag === undefined) return;
+  // In rows mode the file is not the rules' export, so an edit to it is not a reason to write it back.
+  if (await rowsOnNow(ctx)) return;
   const row = await privacyRowOf(ctx, workspaceId);
   if (!isAuthority(row, await privacyAuthorityOn(ctx.db))) return;
   // Before the first export the file is the one the rules were read from, at their own version.
@@ -135,11 +139,20 @@ export async function noticePrivacyListing(
 
 /** Re-read `privacy.md` into the mirror: a touch naming it (`lib/nodes/touch.ts`). */
 async function scheduleMirrorRead(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<void> {
+  if (await rowsOnNow(ctx)) return;
   await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
     workspaceId,
     scope: "private",
     operation: { kind: "nodesTouch", paths: [], files: [PRIVACY_KEY] },
   });
+}
+
+/**
+ * Whether rows judge access (`nodeMigration.accessSource` = `rows`). Read here rather than through
+ * `accessSourceOf`, because `accessBackfill.ts` imports this module.
+ */
+async function rowsOnNow(ctx: { db: MutationCtx["db"] }): Promise<boolean> {
+  return (await ctx.db.query("nodeMigration").first())?.accessSource === "rows";
 }
 
 /** Whether a mirror refresh read from the file may be stored: never while the rules are the authority. */

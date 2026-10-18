@@ -105,6 +105,8 @@ export interface GatewayManifestEntry {
   etag?: string;
   size?: number;
   updatedAt?: number;
+  /** The note's id (`lib/nodes/noteIds.ts`), for a row that has one. A gateway search resolves its hits through it. */
+  noteId?: string;
 }
 
 export type GatewayManifestPage =
@@ -151,6 +153,7 @@ export async function gatewayManifestPage(
       ...(entry.etag === undefined ? {} : { etag: entry.etag }),
       ...(entry.size === undefined ? {} : { size: entry.size }),
       ...(entry.updatedAt === undefined ? {} : { updatedAt: entry.updatedAt }),
+      ...(entry.noteId === undefined ? {} : { noteId: entry.noteId }),
     })),
     cursor: manifest.cursor,
   };

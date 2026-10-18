@@ -1,7 +1,7 @@
 /**
  * The landing pages' sheet (`features/landing`): the Paper card's colours
  * (the link preview, PR #1237), a warm page with ink type and one blue square
- * for a full stop. The teal accent and the sign-up card stay the app's.
+ * for a full stop. The brand-blue accent and the sign-up card stay the app's.
  */
 export const lightLandingColors = {
   paper: "#EDE4D3",
@@ -37,12 +37,10 @@ export const texColors = {
 } as const;
 
 /**
- * Page a's off-white sheet (`SimplePage.web`), after the references: ink type
- * on off-white, a grey hairline under the examples and a warm highlighter.
- * Light only (Dev, 2026-10-11: the dark version read as a different page).
- * Tex, the mascot, draws in `texColors` (its blue is the sheet's); the four AI
- * helpers on the graph each have a cursor colour (Claude, ChatGPT, Maya's
- * Codex, Jon's Claude).
+ * Page a's off-white sheet (`TexPage.web`): ink type on off-white, a grey
+ * hairline and a card for the conversation with Tex. Light only (Dev,
+ * 2026-10-11: the dark version read as a different page). Your texts are in
+ * Tex's blue, Tex's replies in a warm grey.
  */
 export const simpleLandingColors = {
   paper: "#F1F0EA",
@@ -54,8 +52,7 @@ export const simpleLandingColors = {
   /** A sign-up problem: a number or code that did not work. */
   bad: "#9A2B1F",
   blue: texColors.light.ink,
-  agent1: "#C4572F",
-  agent2: "#167A5E",
-  agent3: "#6A45C2",
-  agent4: "#B23F78",
+  /** Tex's bubble and the line under the chat's header. */
+  bubble: "#E9E7E0",
+  rule: "#E7E4DB",
 } as const;

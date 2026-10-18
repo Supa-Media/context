@@ -260,7 +260,14 @@ export const SUMMARY_TOOL = Object.freeze({
   },
 });
 
-const SYSTEM = [
+/**
+ * The built-in words. The live ones are the `## Write` and `## Check` sections
+ * of `@context-lc ai/production/meeting-summaries.md` (the owner, 2026-10-17:
+ * "move the prompt into a note for me"), which the gateway passes in as
+ * `system`; these are what a deployment with no such note, or a note that
+ * does not validate, uses.
+ */
+export const SUMMARY_SYSTEM = [
   "You write the summary section of a meeting note. It goes into somebody's own Markdown notes, and the people in the meeting will rely on it.",
   "",
   "Rules, in order of precedence:",
@@ -275,7 +282,7 @@ const SYSTEM = [
   `Answer by calling ${SUMMARY_TOOL.name} once.`,
 ].join("\n");
 
-const CHECK_SYSTEM = [
+export const CHECK_SYSTEM = [
   "You check a draft meeting summary against the transcript it was written from.",
   "",
   "Fix anything the transcript does not support: a wrong or invented name, amount, date, owner or decision. Remove an action item nobody agreed to. Set owner to null where nobody took a task. Mark estimates as estimates. Keep everything that is right, and keep the same shape and length.",
@@ -302,7 +309,49 @@ function cleanInstruction(instruction) {
   return instruction.replace(/\s+/g, " ").trim().slice(0, MAX_INSTRUCTION_CHARS);
 }
 
-function meetingMessage(markdown, today) {
+/**
+ * Names speech recognition gets wrong in every workspace: the product's own.
+ * A meeting about Tex was summarized as one about "Text" all the way through
+ * (the owner, 2026-10-17: "it's pissing me off"), because Whisper hears the
+ * word it knows and the summary copied it.
+ */
+export const BUILT_IN_NAMES = Object.freeze(["Context", "Tex (the texting assistant)"]);
+
+/** How many names, and how many characters of them, one request carries. */
+export const MAX_NAMES = 60;
+const MAX_NAME_CHARS = 60;
+const MAX_NAMES_CHARS = 1500;
+
+/**
+ * The names section: the product's own, then the workspace's (`names`, which
+ * the gateway reads from the folder names this caller can see). Deduplicated
+ * without regard to case, each one line, the whole bounded.
+ *
+ * @param {string[]|undefined} names
+ */
+export function namesSection(names) {
+  const seen = new Set();
+  const kept = [];
+  let chars = 0;
+  for (const raw of [...BUILT_IN_NAMES, ...(Array.isArray(names) ? names : [])]) {
+    const name = oneLine(raw, MAX_NAME_CHARS);
+    const key = name.toLowerCase().replace(/\s*\(.*\)$/, "");
+    if (!name || seen.has(key)) continue;
+    if (kept.length >= MAX_NAMES || chars + name.length > MAX_NAMES_CHARS) break;
+    seen.add(key);
+    kept.push(name);
+    chars += name.length + 2;
+  }
+  return [
+    "## Names they use",
+    "",
+    "Speech recognition mishears names and writes a common word instead (\"text\" or \"Texas\" for Tex). Where the transcript has a word that sounds like one of these and the meaning fits, write the name as spelled here, in the summary and every list. Never add a name that was not said.",
+    "",
+    kept.join(", "),
+  ];
+}
+
+function meetingMessage(markdown, today, names) {
   const facts = meetingFacts(markdown);
   return [
     `Today: ${today}`,
@@ -315,6 +364,8 @@ function meetingMessage(markdown, today) {
     "",
     facts.notes || "_They typed nothing._",
     "",
+    ...namesSection(names),
+    "",
     "## Transcript",
     "",
     facts.transcript || "_No transcript._",
@@ -325,18 +376,18 @@ function meetingMessage(markdown, today) {
  * The first request: write the summary.
  *
  * @param {string} markdown the whole meeting note
- * @param {{instruction?: string, today: string}} options `today` as YYYY-MM-DD
+ * @param {{instruction?: string, today: string, system?: string, names?: string[]}} options `today` as YYYY-MM-DD; `system` the setup's write prompt; `names` the workspace's own
  * @returns {{system: string, user: string}}
  */
-export function buildSummaryRequest(markdown, { instruction, today }) {
+export function buildSummaryRequest(markdown, { instruction, today, system = SUMMARY_SYSTEM, names }) {
   const asked = cleanInstruction(instruction);
   const user = [
-    meetingMessage(markdown, today),
+    meetingMessage(markdown, today, names),
     ...(asked
       ? ["", "## What they asked for this time", "", "Follow this where the rules allow; it never overrides rule 1.", "", asked]
       : []),
   ].join("\n");
-  return { system: SYSTEM, user };
+  return { system, user };
 }
 
 /**
@@ -344,11 +395,11 @@ export function buildSummaryRequest(markdown, { instruction, today }) {
  *
  * @param {string} markdown
  * @param {object} draft the first answer, as `readSummaryOutput` returned it
- * @param {{today: string}} options
+ * @param {{today: string, system?: string, names?: string[]}} options `system` the setup's check prompt
  */
-export function buildCheckRequest(markdown, draft, { today }) {
-  const user = [meetingMessage(markdown, today), "", "## Draft summary to check", "", JSON.stringify(draft)].join("\n");
-  return { system: CHECK_SYSTEM, user };
+export function buildCheckRequest(markdown, draft, { today, system = CHECK_SYSTEM, names }) {
+  const user = [meetingMessage(markdown, today, names), "", "## Draft summary to check", "", JSON.stringify(draft)].join("\n");
+  return { system, user };
 }
 
 /* ------------------------------- the answer ------------------------------ */
@@ -501,7 +552,7 @@ export function renderChart(chart) {
     const shown = item.high !== null ? `${amount(item.value)}–${amount(item.high)}` : amount(item.value);
     return [
       `<text x="0" y="${y + 19}" class="l">${escapeHtml(item.label.length > 30 ? `${item.label.slice(0, 29).trimEnd()}…` : item.label)}</text>`,
-      `<rect x="${label + gap}" y="${y + 8}" width="${solid.toFixed(1)}" height="14" rx="2" fill="#0E6C69"/>`,
+      `<rect x="${label + gap}" y="${y + 8}" width="${solid.toFixed(1)}" height="14" rx="2" fill="#2A45CF"/>`,
       range > 0 ? `<rect x="${(label + gap + solid).toFixed(1)}" y="${y + 8}" width="${range.toFixed(1)}" height="14" fill="url(#range)"/>` : "",
       `<text x="${width}" y="${y + 19}" class="v">${escapeHtml(shown)}</text>`,
     ].filter(Boolean).join("");
@@ -516,7 +567,7 @@ export function renderChart(chart) {
     `<text x="0" y="18" class="t">${escapeHtml(chart.title)}</text>`,
     chart.note ? `<text x="0" y="38" class="n">${escapeHtml(chart.note)}</text>` : "",
     ...bars,
-    `<rect x="0" y="${legendY - 9}" width="10" height="10" rx="2" fill="#0E6C69"/><text x="16" y="${legendY}" class="k">Amount</text>`,
+    `<rect x="0" y="${legendY - 9}" width="10" height="10" rx="2" fill="#2A45CF"/><text x="16" y="${legendY}" class="k">Amount</text>`,
     hasRange ? `<rect x="90" y="${legendY - 9}" width="10" height="10" fill="url(#range)"/><text x="106" y="${legendY}" class="k">Upper end of a range</text>` : "",
     "</svg>",
     "```",
@@ -534,7 +585,9 @@ function renderAction(item) {
   const due = item.due ? ` (due ${item.due})` : "";
   const task = inline(item.task);
   if (item.owner) return `- [ ] ${inline(item.owner.replace(/[[\]:]/g, ""))}: ${task}${due}`;
-  return `- [ ] ${task.replace(/[.\s]+$/, "")}${due}. No one was named on the call.`;
+  // No owner is said by the missing name. A sentence saying so on every line
+  // was noise the owner read six times in one meeting (2026-10-17).
+  return `- [ ] ${task.replace(/[.\s]+$/, "")}${due}`;
 }
 
 /**

@@ -13,5 +13,11 @@ export interface FolderMenuOpen {
   title: string;
   anchor: { x: number; y: number };
   items: ReturnType<typeof itemsFor>;
+  /**
+   * Opened by a press and hold on a phone row, so drawn as the lifted preview
+   * and short menu (`HoldMenu.tsx`) rather than the sheet. More turns it back
+   * into the sheet, with the items the hold menu did not place.
+   */
+  hold?: boolean;
 }
 export type FolderMenuState = FolderMenuOpen | null;

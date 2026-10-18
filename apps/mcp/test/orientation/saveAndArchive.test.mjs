@@ -69,7 +69,7 @@ export async function runOrientationSaveAndArchiveChecks(check, harness) {
   );
   check(
     "the user's own procedure comes before the generic contract",
-    oriented.indexOf("## Before this session ends") < oriented.indexOf("## Working here")
+    oriented.indexOf("## Before this session ends") < oriented.indexOf("## How to work here")
   );
 
   // A path that does not survive normalization is a typo in a file the person

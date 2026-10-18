@@ -775,8 +775,8 @@ describe("rotating the encryption key", () => {
   /**
    * The guard that would have caught the miss above.
    *
-   * `dropboxBinding.test.ts` already couples `ENVELOPE_FIELDS` to the schema —
-   * but it reads only the `storageBindings` slice of it, so an encrypted column
+   * `ENVELOPE_FIELDS` is coupled to the schema by the same rationale, but it
+   * reads only the `storageBindings` slice of it, so an encrypted column
    * in a **new table** was invisible to it. That is the same blindness its own
    * rationale warns about one level down, and `encryptedDataKey` walked
    * straight through it.

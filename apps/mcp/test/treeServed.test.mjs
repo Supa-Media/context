@@ -256,7 +256,7 @@ test("a failed request says so, and lists nothing", async () => {
   assert.deepEqual(bucket.listings.filter((prefix) => !prefix.startsWith(".")), []);
 });
 
-test("a tool outside the six never lists from the tree; a new note asks it only for its name check", async () => {
+test("a tool outside the six never lists the bucket's keys; search's census is the tree's names; a new note asks the tree only for its name check", async () => {
   const bucket = bucketOf(NOTES);
   bucket.put = async (key, body) => {
     bucket.objects.set(key, { text: String(body), etag: "new", uploaded: Date.now() });
@@ -270,10 +270,11 @@ test("a tool outside the six never lists from the tree; a new note asks it only 
   assert.ok(tree.requests.length >= 1, "the name check asked the tree");
   tree.requests.length = 0;
   await callTool("read_note", { path: "1-projects/beta.md" }, served(bucket, tree), "private");
-  // Search lists the bucket when it has no index, and is not one of the six.
+  // Search is not one of the six, but its census (`search/shards/listing.js`) is the tree's names,
+  // never the bucket's: in a keyed workspace the bucket lists uuid keys, not the names.
   await callTool("search_notes", { query: "alpha" }, served(bucket, tree), "private");
-  assert.ok(bucket.listings.some((prefix) => !prefix.startsWith(".")), "search listed the bucket itself");
-  assert.equal(tree.requests.length, 0);
+  assert.ok(tree.requests.length >= 1, "search asked the tree for the names it indexes");
+  assert.deepEqual(bucket.listings.filter((prefix) => !prefix.startsWith(".")), [], "search never listed the bucket");
   for (const name of ["write_note", "move_note", "move_notes", "move_folder", "archive_note", "set_visibility"]) {
     assert.ok(!TREE_LISTING_TOOLS.has(name), `${name} lists the bucket it is about to change`);
   }

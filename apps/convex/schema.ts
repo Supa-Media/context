@@ -12,6 +12,7 @@ import { ingestionTables } from "./functions/lib/schema/ingestion";
 import { jobTables } from "./functions/lib/schema/jobs";
 import { rateLimitTables } from "./functions/lib/schema/rateLimits";
 import { phoneCodeTables } from "./functions/lib/schema/phoneCodes";
+import { textSignInTables } from "./functions/lib/schema/textSignIn";
 import { oauthTables } from "./functions/lib/schema/oauth";
 import { platformTables } from "./functions/lib/schema/platform";
 import { billingTables } from "./functions/lib/schema/billing";
@@ -21,6 +22,7 @@ import { jevTables } from "./functions/lib/schema/jev";
 import { faceTables } from "./functions/lib/schema/faces";
 import { waitlistTables } from "./functions/lib/schema/waitlist";
 import { managedEncryptionTables } from "./functions/lib/schema/managedEncryption";
+import { managedErasureTables } from "./functions/lib/schema/managedErasure";
 import { referralTables } from "./functions/lib/schema/referrals";
 import { devlogTables } from "./functions/lib/schema/devlog";
 import { sharedInboxTables } from "./functions/lib/schema/sharedInbox";
@@ -37,10 +39,18 @@ import { workspaceDomainTables } from "./functions/lib/schema/workspaceDomains";
 import { archivedAccountTables } from "./functions/lib/schema/archivedAccounts";
 import { agentTurnTables } from "./functions/lib/schema/agentTurns";
 import { searchTimingTables } from "./functions/lib/schema/searchTimings";
+import { trashTables } from "./functions/lib/schema/trash";
 import { meaningTables } from "./functions/lib/schema/meaning";
+import { noteMailTables } from "./functions/lib/schema/noteMail";
 import { routineTables } from "./functions/lib/schema/routines";
+import { dreamTables } from "./functions/lib/schema/dreams";
+import { heartbeatTables } from "./functions/lib/schema/heartbeats";
+import { housekeepingTables } from "./functions/lib/schema/housekeeping";
 import { nodeTables } from "./functions/lib/schema/nodes";
+import { nodeAccessTables } from "./functions/lib/schema/nodeAccess";
 import { smallDataTables } from "./functions/lib/schema/smallData";
+import { blockTables } from "./functions/lib/schema/blocks";
+import { contentReportTables } from "./functions/lib/schema/contentReports";
 
 /**
  * Control-plane schema for Context.
@@ -89,6 +99,7 @@ const schema = defineSchema({
   ...jobTables,
   ...rateLimitTables,
   ...phoneCodeTables,
+  ...textSignInTables,
   ...oauthTables,
   ...platformTables,
   ...billingTables,
@@ -98,6 +109,7 @@ const schema = defineSchema({
   ...faceTables,
   ...waitlistTables,
   ...managedEncryptionTables,
+  ...managedErasureTables,
   ...referralTables,
   ...devlogTables,
   ...sharedInboxTables,
@@ -114,10 +126,18 @@ const schema = defineSchema({
   ...archivedAccountTables,
   ...agentTurnTables,
   ...searchTimingTables,
+  ...trashTables,
   ...meaningTables,
   ...routineTables,
+  ...dreamTables,
+  ...heartbeatTables,
+  ...housekeepingTables,
   ...nodeTables,
+  ...nodeAccessTables,
   ...smallDataTables,
+  ...noteMailTables,
+  ...blockTables,
+  ...contentReportTables,
 });
 
 export default schema;

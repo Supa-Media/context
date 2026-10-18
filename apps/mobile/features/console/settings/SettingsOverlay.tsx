@@ -47,9 +47,17 @@ export function SettingsOverlay({
   onConnectAgent,
   onDismiss,
   returned = null,
+  startOnList = false,
 }: {
   data: ConsoleData;
   section: SettingsSectionKey;
+  /**
+   * On a phone, open on the list rather than on `section`. The console sets
+   * it when Settings was opened plainly (the gear, the account menu), and
+   * leaves it off when somebody was sent to one page (the storage chip, an
+   * upsell, the beta notice). A wide window draws both anyway and ignores it.
+   */
+  startOnList?: boolean;
   /**
    * What a return from Stripe said, carried from the route to the one panel
    * that reads it. Settings is addressed by query parameter, so the answer is
@@ -75,13 +83,18 @@ export function SettingsOverlay({
   const styles = useThemedStyles(makeStyles);
   const current = selectedContext(data);
   /*
-    A phone shows the list, then the section, rather than both at once. It
-    starts on the section because opening settings from the gear or the
-    storage chip is somebody asking for a *thing*, not for a menu — the list
-    is one press back from there.
+    A phone shows the list, then the section, rather than both at once.
+
+    Opened plainly (`startOnList`: the gear, the account menu) it starts on
+    the list, the way every phone's Settings does (Dev2, 2026-10-15: "why
+    does it open up in the general page first"). General is the default
+    section only because a wide window has to draw *something* beside the
+    list. Sent to a named page (the storage chip, Premium from an upsell,
+    Feedback from the beta notice) it opens that page, with the list one
+    press back.
   */
   const compact = useWindowDimensions().width < layout.narrowBreakpoint;
-  const [listing, setListing] = useState(false);
+  const [listing, setListing] = useState(compact && startOnList);
   const [query, setQuery] = useState("");
   /*
     Plugins is deprecated in the console and absent unless this context is

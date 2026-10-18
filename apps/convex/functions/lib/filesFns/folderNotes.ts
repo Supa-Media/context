@@ -32,8 +32,8 @@ export interface FolderNotesResult {
   kind: "folderNotes";
   /** False: the facts cannot answer yet; the List is drawn incomplete, never read from the bucket. */
   available: boolean;
-  /** Each visible note: `props` is `{ properties, heading, lede }` as JSON. */
-  notes: { path: string; updatedAt?: number; props: string }[];
+  /** Each visible note: `props` is `{ properties, heading, lede }` as JSON; `size` its bytes, when the tree knows it. */
+  notes: { path: string; updatedAt?: number; size?: number; props: string }[];
   /** Ask again after this path; null when this was the last page. */
   cursor: string | null;
   /** Visible notes that could not be read this time: a gap, not an absence. */
@@ -118,7 +118,7 @@ export async function folderNotesFromNodes(
     return unavailable(true);
   }
   const visible: PropRow[] = tree.map((object) => {
-    const meta = object as { key: string; etag?: unknown; uploaded?: Date };
+    const meta = object as { key: string; etag?: unknown; size?: unknown; uploaded?: Date };
     const etag = typeof meta.etag === "string" ? meta.etag : null;
     const uploaded = meta.uploaded;
     const row = props.get(object.key);
@@ -126,6 +126,7 @@ export async function folderNotesFromNodes(
       path: object.key,
       etag,
       uploaded: uploaded === undefined ? null : new Date(uploaded).getTime(),
+      size: typeof meta.size === "number" && Number.isFinite(meta.size) ? meta.size : null,
       stale: row === undefined || (etag !== null && etag !== row.version),
       encrypted: row?.encrypted === true,
       props: row?.props ?? null,
@@ -156,7 +157,12 @@ export function answerFromFacts(visible: readonly PropRow[], cursor: string | nu
       fill = true;
       continue;
     }
-    notes.push({ path: row.path, ...(row.uploaded === null ? {} : { updatedAt: row.uploaded }), props: row.props });
+    notes.push({
+      path: row.path,
+      ...(row.uploaded === null ? {} : { updatedAt: row.uploaded }),
+      ...(row.size === null || row.size === undefined ? {} : { size: row.size }),
+      props: row.props,
+    });
   }
   return { kind: "folderNotes", available: true, notes, cursor, missing, fill };
 }
@@ -166,6 +172,8 @@ interface PropRow {
   path: string;
   etag: string | null;
   uploaded: number | null;
+  /** The note's bytes, as the tree lists them; the AI tab draws a prompt's size from it. */
+  size?: number | null;
   stale: boolean;
   encrypted: boolean;
   props: string | null;

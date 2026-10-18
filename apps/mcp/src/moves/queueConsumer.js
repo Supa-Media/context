@@ -10,6 +10,7 @@ import { MOVE_AUTOMATIC_BATCH } from "./limits.js";
 import { moveErrorForControlPlane, moveFinished, moveProgressFromText } from "./jobs.js";
 import { searchBudgetFor } from "../search/budget.js";
 import { storeForOpenedBinding } from "../session.js";
+import { KEYED_PATH_REFUSAL } from "../store/idLayout.js";
 import { withPrivacyAuthority } from "../store/privacyAuthority.js";
 import { toolMaterializeMove } from "../tools/moves/materialize.js";
 
@@ -54,6 +55,13 @@ export async function handleGatewayJobMessage(message, env, { materialize = tool
       return;
     }
     const { job } = opened;
+    // A keyed workspace's queued move would copy and delete the frozen path
+    // copies, not the notes (`store/idLayout.js`). This store has no id layer,
+    // so the job is refused here, once, and reported failed rather than retried.
+    if (opened.keyed === true && job.kind === "materialize_move") {
+      await controlPlane.reportGatewayJob(ticket, { status: "failed", error: KEYED_PATH_REFUSAL });
+      return;
+    }
     // A move rewrites `privacy.md`'s rules, so it writes them through the
     // control plane's while those are the authority (`store/privacyAuthority.js`).
     const store = withPrivacyAuthority(

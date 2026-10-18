@@ -89,6 +89,10 @@ already holds. `folderIcons.test.ts` (Convex) and `folderIconRender.test.ts`
 
 ## Built-in folders have a default emoji, and notes can have one
 
+*Superseded for built-in folders on 2026-10-18*: they draw a hand-drawn icon
+that cannot be changed ([folder-jobs](./folder-jobs.md)). Own folders and
+notes keep what follows.
+
 Decided by the owner, 2026-10-13 ("can we make default emojis for these
 folders, also can we add emojis to plain notes like activity"), reversing the
 2026-10-08 "no folder gets a special icon" for the built-in folders only.
@@ -151,7 +155,7 @@ person picks one. Opening the picker shows two quick picks above the grid:
   answered "none of these" for names such as `once` and showed no
   suggestion. A name that says nothing (`untitled-…`, `New folder`) is not
   sent. Metered as the `iconSuggest` feature, every plan, editors only
-  (`folderIcons.suggest`); `iconSuggest.live.test.ts`, in the "Organizer Eval
+  (`folderIcons.suggest`); `iconSuggest.live.test.ts`, in the "Icon Suggest
   (live)" workflow, prints what the real model suggests for real names.
 
   **By meaning, first** (the owner, 2026-10-14, for speed: "do a meaning
@@ -169,7 +173,13 @@ person picks one. Opening the picker shows two quick picks above the grid:
   description names a new build (`emojiMeaningSet()`), which the first
   suggestion starts filling; Clef answers until it is ready, and whenever the
   model fails. `iconSuggest.meaning.live.test.ts` prints the closest three
-  for real names.
+  for real names. Asked again for speed the next day ("less than .5 seconds"):
+  the editor check, the feature's switch and the build's state are one read
+  (`prepareSuggest`) before the one embedding call, and the app asks as soon
+  as the pointer reaches an icon in the tree (or a finger goes down on it)
+  and keeps each name's answer for the session, so the picker usually opens
+  with it already there. Each answer logs which way it came and its time,
+  never the name.
 - **Random**: one from a shorter list of emoji that make a nice surprise,
   with Shuffle to roll again.
 

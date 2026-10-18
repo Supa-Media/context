@@ -188,22 +188,16 @@ describe("a console write asks the tree which names are taken", () => {
   });
 
   test("an archive lands beside a name only the tree holds, never on it", async () => {
-    // The archive's stamp is the clock's, so the clock is held still.
-    const now = Date.UTC(2026, 9, 14, 9, 30, 0, 123);
-    const stamped = `9-archive/2026-10-14T09-30-00-123Z/1-projects/plan.md`;
-    const f = await fixture({ seed: { [stamped]: "# Archived in the same millisecond\n" } });
-    onlyInTree(f, stamped);
-    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
-    try {
-      const moved = await asUser(f.t, f.owner).action(api.functions.files.archiveEntry, {
-        workspaceId: f.workspaceId,
-        path: "1-projects/plan.md",
-      });
-      expect(moved.to).toBe("9-archive/2026-10-14T09-30-00-123Z-2/1-projects/plan.md");
-      expect(f.backend.snapshot()[moved.to]).toBe("# Plan\n");
-    } finally {
-      clock.mockRestore();
-    }
+    // Archive keeps the workspace's shape (`archiveMirror.cjs`), so a second plan.md archived from 1-projects is numbered.
+    const archived = "9-archive/1-projects/plan.md";
+    const f = await fixture({ seed: { [archived]: "# Archived before\n" } });
+    onlyInTree(f, archived);
+    const moved = await asUser(f.t, f.owner).action(api.functions.files.archiveEntry, {
+      workspaceId: f.workspaceId,
+      path: "1-projects/plan.md",
+    });
+    expect(moved.to).toBe("9-archive/1-projects/plan (2).md");
+    expect(f.backend.snapshot()[moved.to]).toBe("# Plan\n");
   });
 
   test("on storage without conditional create, the tree is the whole answer, and it is still asked", async () => {

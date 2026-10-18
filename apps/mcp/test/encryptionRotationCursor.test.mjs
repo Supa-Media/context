@@ -14,8 +14,8 @@
  *     instead — after its own writes, to save re-reading them — left the note
  *     on the outgoing generation and retired the generation anyway. Measured:
  *     `generation=k1`, `rotation complete`.
- *  2. **Second-granularity `uploaded`.** S3's `ListObjectsV2` and Dropbox's
- *     `server_modified` report whole seconds. Comparing a millisecond
+ *  2. **Second-granularity `uploaded`.** S3's `ListObjectsV2` reports whole
+ *     seconds. Comparing a millisecond
  *     boundary against a truncated timestamp lost a note moved behind the
  *     cursor in four of eight runs, and retired the generation each time.
  *  3. **A progress file somebody else wrote.** A `cursor` sorting after every
@@ -210,7 +210,7 @@ export async function runRotationCursorAdversarialChecks(check) {
   {
     const f = await fixture("advsec");
     try {
-      // S3's `LastModified` and Dropbox's `server_modified` carry seconds.
+      // S3's `LastModified` carries seconds.
       const realPut = f.a.bucket.put.bind(f.a.bucket);
       f.a.bucket.put = async (key, value, options) => {
         const result = await realPut(key, value, options);

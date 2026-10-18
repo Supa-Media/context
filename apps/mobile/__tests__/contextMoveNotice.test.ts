@@ -15,8 +15,9 @@
  *  - **A failure that reads as "nothing happened".** A move that stopped at
  *    batch forty really did carry thirty-nine batches, and somebody who
  *    concludes otherwise looks for their notes in the context they left.
- *  - **A running move that reads as a finished one.** Or the reverse: a person
- *    who closes the console because they think it stopped, when it has not.
+ *  - **A running move that reads as a finished one.** Or the reverse.
+ *
+ * And every line is short: it shares one row with its controls.
  */
 
 import { describe, expect, test } from "@jest/globals";
@@ -40,22 +41,28 @@ function move(over: Partial<ContextMoveProgress> = {}): ContextMoveProgress {
 }
 
 describe("while it is running", () => {
-  test("it says so, and says that closing the console does not stop it", () => {
+  test("it says so, by the item's own name rather than its path", () => {
     const notice = describeContextMove(move());
     expect(notice.tone).toBe("hint");
-    expect(notice.text).toContain("Moving 1-projects/acme → @work/work/acme");
-    expect(notice.text).toContain("keeps going if you close the console");
+    expect(notice.text).toBe("Moving acme to @work…");
+    expect(notice.text).not.toContain("1-projects");
     // Nothing to act on and nothing to acknowledge.
     expect(notice.resumable).toBe(false);
     expect(notice.dismissible).toBe(false);
   });
 
   test("the count appears once there is one", () => {
-    expect(describeContextMove(move({ objects: 240 })).text).toContain("240 notes so far");
+    expect(describeContextMove(move({ objects: 240 })).text).toBe("Moving acme to @work, 240 notes so far…");
     expect(describeContextMove(move({ objects: 1 })).text).toContain("1 note so far");
     // Zero is left out rather than printed: "0 notes so far" reads as a move
     // that is stuck, and the first batch has simply not landed yet.
     expect(describeContextMove(move()).text).not.toContain("0 notes");
+  });
+
+  test("a note is named the way the tree names it, without .md", () => {
+    expect(describeContextMove(move({ from: "1-projects/plan.md" })).text).toBe(
+      "Moving plan to @work…",
+    );
   });
 
   test("it cannot be dismissed, because dismissing it would hide live work", () => {
@@ -68,7 +75,7 @@ describe("when it finishes", () => {
   test("a clean move is a plain report", () => {
     const notice = describeContextMove(move({ status: "complete", objects: 312 }));
     expect(notice.tone).toBe("hint");
-    expect(notice.text).toBe("Moved 312 notes to @work.");
+    expect(notice.text).toBe("Moved acme to @work.");
     expect(notice.dismissible).toBe(true);
   });
 
@@ -87,9 +94,8 @@ describe("when it finishes", () => {
     // A warning rather than a report: there is something in the other context
     // that is not there, and only this line says which.
     expect(notice.tone).toBe("warn");
-    expect(notice.text).toContain("Moved 9 notes to @work");
-    expect(notice.text).toContain("2 notes stayed here");
-    expect(notice.text).toContain("encrypted to this context");
+    expect(notice.text).toContain("Moved acme to @work.");
+    expect(notice.text).toContain("2 encrypted notes stayed here");
     expect(notice.text).toContain("1-projects/acme/secret.md");
     expect(notice.text).toContain("1-projects/acme/pay.md");
   });
@@ -106,8 +112,8 @@ describe("when it finishes", () => {
       }),
     );
     expect(notice.tone).toBe("warn");
-    expect(notice.text).toContain("One note stayed here because they are encrypted");
-    expect(notice.text).toContain("One file stayed here because they are too large to move between workspaces yet");
+    expect(notice.text).toContain("1 encrypted note stayed here: 1-projects/acme/secret.md.");
+    expect(notice.text).toContain("1 file too large to move stayed here; upload it there");
     expect(notice.text).toContain("1-projects/acme/talk.mp4");
     expect(notice.text).not.toMatch(/encrypted[^.]*talk\.mp4/);
   });
@@ -120,8 +126,7 @@ describe("when it finishes", () => {
         skipped: [{ path: "a.md", reason: "encrypted" }],
       }),
     );
-    expect(notice.text).toContain("One note stayed here");
-    expect(notice.text).toContain("Moved 1 note to @work");
+    expect(notice.text).toBe("Moved acme to @work. 1 encrypted note stayed here: a.md.");
   });
 
   test("a dismissed one stops being drawn", () => {
@@ -132,7 +137,7 @@ describe("when it finishes", () => {
 });
 
 describe("when it stops", () => {
-  test("it leads with what did move, and offers to finish rather than restart", () => {
+  test("it leads with what did move, then the reason, and offers to try again", () => {
     const notice = describeContextMove(
       move({
         status: "failed",
@@ -142,17 +147,29 @@ describe("when it stops", () => {
     );
 
     expect(notice.tone).toBe("warn");
-    expect(notice.text.startsWith("120 notes moved to @work before this stopped.")).toBe(true);
-    expect(notice.text).toContain("A note changed while it was being moved");
-    // "Finish the move" is what the button says, and this is what makes it
-    // truthful: everything carried stays carried, so resuming is not a re-run.
+    expect(notice.text).toBe(
+      "acme stopped partway: 120 notes are in @work. A note changed while it was being moved, so the move stopped.",
+    );
+    // Everything carried stays carried, so "Try again" picks up, not re-runs.
     expect(notice.resumable).toBe(true);
+    // Half a folder is in each place: put aside for the session only.
+    expect(notice.dismissLabel).toBe("Not now");
   });
 
-  test("a failure with nothing to say still says something", () => {
+  test("a failure that carried nothing says so in one sentence", () => {
     const notice = describeContextMove(move({ status: "failed", objects: 0 }));
-    expect(notice.text).toContain("0 notes moved");
-    expect(notice.text).toContain("could not be completed");
+    expect(notice.text).toBe("acme didn't move to @work.");
     expect(notice.resumable).toBe(true);
+    // Nothing to reunite, so the server keeps the answer and the word is "Dismiss".
+    expect(notice.dismissLabel).toBe("Dismiss");
+  });
+
+  test("one note carried is singular, and a reason gets its full stop", () => {
+    const notice = describeContextMove(
+      move({ status: "failed", objects: 1, error: "  Not available in a keyed workspace yet " }),
+    );
+    expect(notice.text).toBe(
+      "acme stopped partway: 1 note is in @work. Not available in a keyed workspace yet.",
+    );
   });
 });

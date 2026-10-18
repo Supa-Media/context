@@ -321,20 +321,71 @@ export async function gatewayUsageHandler(
     });
   }
 
-  if (events.length === 0) return json({ applied: 0 });
+  const hourly = hourlyEvents(body.hourly);
+  if (events.length === 0 && hourly.length === 0) return json({ applied: 0 });
 
   try {
-    const result = await ctx.runMutation(internal.functions.usage.record, {
-      events,
-      surface: "mcp",
-    });
-    return json(result);
+    let applied = 0;
+    if (events.length > 0) {
+      const result = await ctx.runMutation(internal.functions.usage.record, {
+        events,
+        surface: "mcp",
+      });
+      applied += result.applied;
+    }
+    if (hourly.length > 0) {
+      const result = await ctx.runMutation(internal.functions.usage.recordHourly, {
+        events: hourly,
+      });
+      applied += result.applied;
+    }
+    return json({ applied });
   } catch {
     // See the header: a counter must never be the reason a tool call is
     // retried. The gateway is not waiting on this and has nothing to do with
     // the answer.
     return json({ applied: 0 });
   }
+}
+
+/**
+ * The Premium breakdown riding on a usage report: `{metric, workspaceId,
+ * userId?, clientId, model?, method, count}`. Shape-checked here; names,
+ * methods, models and the Premium gate are `recordHourly`'s.
+ */
+function hourlyEvents(raw: unknown) {
+  const out: {
+    metric: string;
+    workspaceId: Id<"workspaces">;
+    userId?: Id<"users">;
+    clientId: string;
+    model?: string;
+    method: string;
+    count: number;
+  }[] = [];
+  if (!Array.isArray(raw)) return out;
+  for (const entry of raw) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const record = entry as Record<string, unknown>;
+    const metric = stringField(record, "metric");
+    const workspaceId = stringField(record, "workspaceId");
+    const clientId = stringField(record, "clientId");
+    const method = stringField(record, "method");
+    const userId = stringField(record, "userId");
+    const model = stringField(record, "model");
+    if (metric === null || workspaceId === null || clientId === null || method === null) continue;
+    if (typeof record.count !== "number") continue;
+    out.push({
+      metric,
+      workspaceId: workspaceId as Id<"workspaces">,
+      ...(userId === null ? {} : { userId: userId as Id<"users"> }),
+      clientId,
+      ...(model === null ? {} : { model }),
+      method,
+      count: record.count,
+    });
+  }
+  return out;
 }
 
 /**

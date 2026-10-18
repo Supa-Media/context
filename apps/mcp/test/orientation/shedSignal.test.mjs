@@ -78,7 +78,9 @@ export async function runOrientationShedSignalChecks(check, harness) {
   };
   await shedBucket.put(MANIFEST_KEY, serializeManifest(manifest));
 
-  const shedOwnerText = await orientText(shedEnv, SHED_OWNER);
+  // Search coverage is the health part of the manual: `orient about: "health"`.
+  const shedOwnerText = await orientText(shedEnv, SHED_OWNER, { about: "health" });
+  const shedOwnerOverview = await orientText(shedEnv, SHED_OWNER);
   check(
     "orient tells the owner which of their own notes lost recall, by path",
     shedOwnerText.includes("## Search coverage") &&
@@ -88,10 +90,10 @@ export async function runOrientationShedSignalChecks(check, harness) {
   check(
     "...scoped honestly: a reduced note still answers, mail is not reported as gone",
     shedOwnerText.includes("the note itself is unaffected") &&
-      shedOwnerText.includes("read_note always returns it whole")
+      shedOwnerText.includes("fetch always returns it whole")
   );
 
-  const shedTeamText = await orientText(shedEnv, SHED_TEAM);
+  const shedTeamText = await orientText(shedEnv, SHED_TEAM, { about: "health" });
   check(
     "...and a team caller learns about their own shed note but never the private one",
     shedTeamText.includes("## Search coverage") &&
@@ -121,18 +123,19 @@ export async function runOrientationShedSignalChecks(check, harness) {
   const flooded = await loadIndexManifest(shedBucket, createSearchBudget(10), 0);
   flooded.stats[0] = { ...flooded.stats[0], shed: floodPaths.length, shedPaths: floodPaths };
   await shedBucket.put(MANIFEST_KEY, serializeManifest(flooded));
-  const floodedText = await orientText(shedEnv, SHED_OWNER);
-  const coverage = floodedText
-    .slice(floodedText.indexOf("## Search coverage"))
+  const floodedHealth = await orientText(shedEnv, SHED_OWNER, { about: "health" });
+  const coverage = floodedHealth
+    .slice(floodedHealth.indexOf("## Search coverage"))
     .split("\n\n")[0];
+  const floodedText = await orientText(shedEnv, SHED_OWNER);
   check(
     "a context with hundreds of shed notes names some of them and counts the rest",
     coverage.includes("- (+390 more notes in the same state)") && coverage.split("\n").length < 20
   );
   check(
     "...so the page stays a page rather than a list of mail paths",
-    floodedText.length < shedOwnerText.length + 1_500 &&
-      floodedText.includes("## Front page") &&
-      floodedText.includes("## Structure")
+    floodedText.length < shedOwnerOverview.length + 1_500 &&
+      floodedText.includes("## How to work here") &&
+      !floodedText.includes("0-inbox/email/name-at-example-com/2026-")
   );
 }

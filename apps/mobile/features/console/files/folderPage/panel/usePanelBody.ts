@@ -6,8 +6,8 @@
  */
 
 import { useEffect, useState } from "react";
-import { isEncryptedNote } from "../../../encryption/envelope";
 import type { FolderListSource } from "../../listBlock/model";
+import { cachedBody, readAbout } from "../pageCache";
 
 export type PanelBody =
   | { readonly kind: "loading" }
@@ -32,25 +32,21 @@ export function usePanelBody(source: FolderListSource | undefined, path: string 
   }, [subscribe]);
 
   useEffect(() => {
-    if (path === null || readBody === undefined) return;
+    if (path === null || source === undefined || readBody === undefined) return;
     let current = true;
-    void readBody(path)
-      .then((found): PanelBody => {
-        if (found === null) return { kind: "missing" };
-        // Said by the source, or by the text itself: an envelope is never drawn as words.
-        if (found.encrypted || isEncryptedNote(found.text)) return { kind: "locked" };
-        return { kind: "text", text: found.text };
-      })
-      .catch((): PanelBody => ({ kind: "missing" }))
-      .then((body) => {
-        if (current) setRead({ path, body });
-      });
+    // Read again on every open and every change, behind whatever `pageCache` already holds;
+    // a first read that is already on its way (the row's preload) is shared.
+    const fresh = changes > 0 || cachedBody(source, path) !== undefined;
+    void readAbout(source, path, fresh).then((body) => {
+      if (current) setRead({ path, body });
+    });
     return () => {
       current = false;
     };
-  }, [path, readBody, changes]);
+  }, [path, source, readBody, changes]);
 
   if (path === null || readBody === undefined) return NONE;
-  // What was read for this note, kept while a change is read again rather than flashing empty.
-  return read?.path === path ? read.body : LOADING;
+  // What was read for this note, kept while a change is read again rather than flashing empty;
+  // else what was read for it before or ahead of opening (`pageCache`).
+  return read?.path === path ? read.body : (cachedBody(source, path) ?? LOADING);
 }

@@ -3,22 +3,22 @@ import { writeClipboard } from "../../../design/clipboard";
 import { isApplePlatform } from "../../../design/applePlatform";
 import type { useFrame } from "../../../app/AppFrame";
 import type { FileBrowser } from "../browser";
-import { canDrop as verdictFor, type DragSource } from "../dnd";
-import type { TreeDragHandlers } from "../FileTree";
-import { useListingOrder } from "../listingOrder";
+import { listingIsDescending, useListingOrder } from "../listingOrder";
 import { itemsFor, type MenuActionId, type MenuTarget } from "../menu";
 import { runMenuAction, type ActionContext, type Dialog } from "../actions";
 import { useRightClick } from "../rightClick";
-import { baseName, folderLabel, parentPath } from "../paths";
+import { baseName, folderLabel } from "../paths";
+import { onNarrowTree } from "../treeFilter";
 import { itemsFromListings, rank } from "../palette";
 import { NO_PICK, type TreePick } from "../selection";
-import { buildTreeRows, findEntry, targetFolder, type TreeRow } from "../tree";
+import { buildTreeRows, targetFolder, type TreeRow } from "../tree";
 import type { MenuState } from "./menuState";
 import type { ExplorerProps } from "./props";
 import { inheritedOf } from "./rowVisibility";
-import { rootFolderNames } from "../menuBuiltIn";
+import { folderMenuFacts } from "../menuBuiltIn";
 import { useActivityMarks } from "./useActivityMarks";
 import { useTreePick } from "./useTreePick";
+import { useTreeDrag } from "./useTreeDrag";
 
 /**
  * Everything `Explorer` holds and every command it can run: the filter, the
@@ -66,8 +66,6 @@ export function useExplorer({
   const [query, setQuery] = useState("");
   const [dialog, setDialog] = useState<Dialog>(null);
   const [menu, setMenu] = useState<MenuState>(null);
-  const [drag, setDrag] = useState<DragSource | null>(null);
-  const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
   const [ownPick, setOwnPick] = useState<TreePick>(NO_PICK);
   const picked = pickProp ?? ownPick;
@@ -108,7 +106,8 @@ export function useExplorer({
       menu         worse, because `duplicate`, `copy`, `cut`, `paste`, `restore`
                    and the three visibility actions fire straight from
                    `runAction` with no dialog in between — one click.
-      drag         worst: a pending drag dropped into the new context's tree is
+      drag         (held in `useTreeDrag`, which resets it on the same key)
+                   worst: a pending drag dropped into the new context's tree is
                    a `move`, which is destructive rather than a read grant. And
                    `onDragEnd` cannot save it — the source row is unmounted by
                    the re-render, so its listener is gone and `dragend` never
@@ -121,7 +120,7 @@ export function useExplorer({
     guard is the failure this file's neighbours keep recording. Filed rather
     than assumed away.
 
-    `setDropTarget(null)` alone fails nothing when removed, and that is stated
+    In `useTreeDrag`, `setDropTarget(null)` alone fails nothing when removed, and that is stated
     rather than left ambiguous: `dropTarget` is a row highlight, and `drag`
     being null already refuses the drop, so losing it costs a stale outline on
     a row in the new context and no more. It is kept because the pair is one
@@ -135,8 +134,6 @@ export function useExplorer({
   useEffect(() => {
     setDialog(null);
     setMenu(null);
-    setDrag(null);
-    setDropTarget(null);
     setRefusal(null);
     setPicked(NO_PICK);
   }, [contextLabel, setPicked]);
@@ -224,7 +221,8 @@ export function useExplorer({
         canShare: files.canShare,
         canDownload: files.canDownload,
         clipboard: files.clipboard,
-        topLevelFolders: rootFolderNames(files.listings),
+        // The root's names, each folder's job and its place among its siblings (`menuBuiltIn.ts`).
+        ...folderMenuFacts(files, listingIsDescending()),
         platform,
         // Read, never assumed. `menu.ts` defaults this to Apple, which prints
         // `⌘⇧M` on Windows beside a row whose chord is actually `Ctrl+Shift+M`.
@@ -345,90 +343,19 @@ export function useExplorer({
   /*                                 dragging                                 */
   /* ---------------------------------------------------------------------- */
 
-  const dragHandlers = useMemo<TreeDragHandlers | undefined>(() => {
-    if (!files.canEdit) return undefined;
-    return {
-      canDrag: (row) => !row.readOnly && row.kind !== "loading" && row.kind !== "empty",
-      canDrop: (row) => row.kind === "folder",
-      onDragStart: (path) => {
-        /*
-          Picking up one of several picked rows picks up all of them, the way
-          every file manager does; picking up any other row is a drag of that
-          row alone, and ends the pick for the same reason a right-click
-          outside it does.
-        */
-        const carried =
-          pickedRows.length > 1 && shown.paths.has(path)
-            ? pickedRows.map((row) => row.path)
-            : [path];
-        if (carried.length === 1 && shown.paths.size > 0) setPicked(NO_PICK);
-        setDrag({
-          paths: carried,
-          readOnly: carried.some((each) => findEntry(files.listings, each)?.readOnly ?? false),
-        });
-      },
-      onDragOver: (path) => setDropTarget(path),
-      onDragLeave: (path) => setDropTarget((current) => (current === path ? null : current)),
-      onDragEnd: () => {
-        setDrag(null);
-        setDropTarget(null);
-      },
-      onDrop: (path, modifiers) => {
-        const source = drag;
-        setDrag(null);
-        setDropTarget(null);
-        if (source === null) return;
-
-        /*
-          Picked rows already in the drop folder stay where they are rather
-          than refusing the whole drop as "already there" — dragging three
-          notes from two folders into one of those two is a move of the ones
-          that are elsewhere. A copy keeps them all: a copy into its own folder
-          is a duplicate, and legal. Dropping only rows that are already there
-          keeps the refusal, which is the answer a single row gets.
-        */
-        const elsewhere = source.paths.filter((each) => parentPath(each) !== path);
-        const moving =
-          modifiers.includes("copy") || elsewhere.length === 0
-            ? source
-            : { ...source, paths: elsewhere };
-        const verdict = verdictFor(moving, { kind: "folder", path }, modifiers, files.listings);
-        if (!verdict.ok) {
-          // The refusal is the product of `dnd.ts`, said in words rather than
-          // by the row simply springing back. A drop that fails silently
-          // teaches nothing.
-          setMenu(null);
-          setRefusal(verdict.reason);
-          return;
-        }
-        if (verdict.moves.length > 1) {
-          // One operation with one Undo, not a loop — see `moveMany` in
-          // `browser.ts`. The browser re-checks the same rules on the way in.
-          const from = verdict.moves.map((move) => move.from);
-          if (verdict.action === "copy") files.copyManyTo(from, path);
-          else files.moveMany(from, path);
-          setPicked(NO_PICK);
-          return;
-        }
-        for (const move of verdict.moves) {
-          const destination = parentPath(move.to);
-          if (verdict.action === "copy") {
-            // `copyTo`, not `copy` + `paste`. Those two are a state setter and
-            // a callback closing over that state, so back to back in one tick
-            // the paste reads the *previous* clipboard: with a cut pending it
-            // moved a file the user had never touched. `copyTo` takes the
-            // source as an argument and cannot be wrong about it.
-            files.copyTo(move.from, destination);
-          } else {
-            files.move(move.from, destination);
-          }
-        }
-        // A pick whose other rows were already in the drop folder came down
-        // to this one move, and it is spent all the same.
-        setPicked(NO_PICK);
-      },
-    };
-  }, [files, drag, pickedRows, setPicked, shown]);
+  const refuseDrop = useCallback((reason: string) => {
+    setMenu(null);
+    setRefusal(reason);
+  }, []);
+  const { dragHandlers, dropTarget } = useTreeDrag({
+    files,
+    descending,
+    contextLabel,
+    pickedRows,
+    shown,
+    setPicked,
+    refuse: refuseDrop,
+  });
 
   const { counts, activityLabel, markedPaths, agentMarks, agentsLabel, sheetLift } =
     useActivityMarks({ files, activity, agents, activityOpen });
@@ -443,6 +370,8 @@ export function useExplorer({
    * close, so the two cannot come to disagree about whether closing clears.
    */
   const closeFilter = useCallback(() => setQuery(""), []);
+  // ⌘K's Tab narrows this tree, the filter field's old job (`treeFilter.ts`).
+  useEffect(() => onNarrowTree(setQuery), []);
 
   return {
     descending,

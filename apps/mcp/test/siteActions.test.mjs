@@ -188,8 +188,10 @@ export async function runSiteActionChecks(check) {
       status.text.includes("website/about.md → /about") &&
       status.text.includes("website/layout.html.md") &&
       status.text.includes("publishing takes down (1): website/old.md → /old"));
-    check("...and the exact call that publishes this draft",
-      status.text.includes(`site: { action: "publish", draft: "${DRAFT}" }`));
+    // The six tools (2026-10-16) refuse write_note's `site`; manage website is
+    // the call every client can make.
+    check("...and the exact call that publishes this draft, as the six tools make it",
+      status.text.includes(`manage { action: "website", args: { action: "publish", draft: "${DRAFT}" } }`));
     check("the call carried this connection's token, its own context and the action, and no draft it was not given",
       sent()?.accessToken === EDITOR_TOKEN && sent()?.expectedWorkspaceId === "ws_site" &&
       sent()?.action === "status" && !("draft" in sent()));

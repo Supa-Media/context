@@ -29,6 +29,8 @@ export const startGoogleConnectArgs = {
   folders: v.optional(v.array(v.union(v.literal("inbox"), v.literal("sent")))),
   attachmentMode: v.optional(v.union(v.literal("metadata-only"), v.literal("store"))),
   attachmentRetentionDays: v.optional(v.union(v.number(), v.literal("forever"))),
+  /** Reconnect: the account's address, passed to Google as `login_hint`. */
+  loginHint: v.optional(v.string()),
 };
 
 export const startGoogleConnectReturns = v.object({ authorizeUrl: v.string(), completionSecret: v.string() });

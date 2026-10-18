@@ -44,6 +44,7 @@
  * `scripts/check-exit-is-ungated.mjs` scans alongside this file.
  */
 
+import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import {
   internalAction,
@@ -68,7 +69,6 @@ import * as gatewayJobs from "./lib/controlPlane/gatewayJobs";
 import * as validators from "./lib/controlPlane/validators";
 
 export type {
-  DropboxGatewayBinding,
   GatewayBinding,
   GatewayEncryptionKey,
   GatewayKeyRotation,
@@ -423,36 +423,6 @@ export const openStorageBinding = internalAction({
       return null;
     }
 
-    // Built per provider, never spread. A workspace rebound from a bucket to
-    // Dropbox can still have an `accessKeyId` sitting on its row; spread into
-    // this payload it would reach the gateway as a credential for storage this
-    // binding no longer points at — which the gateway's factory now refuses as
-    // a cross-provider credential, so the failure would be loud rather than
-    // silent, but the payload should never have carried it.
-    if (credential.provider === "dropbox") {
-      return {
-        binding: {
-          // The context this credential was opened for, which is the selected
-          // one and not the session's default. The gateway compares it against
-          // what *it* resolved and refuses a mismatch, so answering with the
-          // default here would make every cross-context call fail as a
-          // disagreement about which tenant it is — fail-closed, and completely.
-          workspaceId,
-          provider: credential.provider,
-          accessToken: credential.accessToken,
-          rootPrefix: credential.rootPrefix,
-          capabilities: credential.capabilities,
-          status: "active",
-        },
-        searchIndex,
-        meaningIndex,
-        encryptionKey,
-        rotation,
-        noteCap,
-        managedEncryption,
-      };
-    }
-
     return {
       binding: {
         workspaceId,
@@ -500,6 +470,7 @@ export const openGatewayJob = internalAction({
       internal.functions.controlPlane.claimGatewayJob,
       {
         hashedTicket: args.hashedTicket,
+        contentSha256: args.contentSha256,
       },
     );
     if (claimed === null) return null;
@@ -606,25 +577,15 @@ export const openGatewayJob = internalAction({
       .runQuery(internal.functions.nodesPrivacy.authority, { workspaceId: claimed.workspaceId })
       .then((held) => held ?? undefined);
 
-    if (credential.provider === "dropbox") {
-      return {
-        job: claimed,
-        binding: {
-          workspaceId: claimed.workspaceId,
-          provider: credential.provider,
-          accessToken: credential.accessToken,
-          rootPrefix: credential.rootPrefix,
-          capabilities: credential.capabilities,
-          status: "active",
-        },
-        searchIndex,
-        meaningIndex,
-        encryptionKey,
-        rotation,
-        managedEncryption,
-        privacy,
-      };
+    // Keyed (`lib/noteIds/keyedStore.ts`): a path-based job in a keyed workspace is refused by
+    // the gateway. Not knowing is not "unkeyed": the job waits for the next delivery instead.
+    let keyed: boolean;
+    try {
+      keyed = await ctx.runQuery(internal.functions.nodes.isKeyed, { workspaceId: claimed.workspaceId });
+    } catch {
+      return { retryAfterMs: 30_000 };
     }
+
     return {
       job: claimed,
       binding: {
@@ -646,6 +607,7 @@ export const openGatewayJob = internalAction({
       rotation,
       managedEncryption,
       privacy,
+      keyed,
     };
   },
 });
@@ -654,4 +616,11 @@ export const reportGatewayJob = internalMutation({
   args: gatewayJobs.reportGatewayJobArgs,
   returns: gatewayJobs.reportGatewayJobReturns,
   handler: gatewayJobs.reportGatewayJobHandler,
+});
+
+/** Image-upload tickets past their ten minutes (`gatewayJobs.sweepImageUploadsHandler`). */
+export const sweepImageUploads = internalMutation({
+  args: {},
+  returns: v.number(),
+  handler: gatewayJobs.sweepImageUploadsHandler,
 });

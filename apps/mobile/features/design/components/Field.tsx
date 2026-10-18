@@ -92,7 +92,7 @@ export function Check({ tone, children }: { tone: "ok" | "warn"; children: React
     <View style={styles.check}>
       <Text
         variant="check"
-        style={tone === "ok" ? styles.checkOk : styles.checkWarn}
+        style={[styles.checkGlyph, tone === "ok" ? styles.checkOk : styles.checkWarn]}
         aria-hidden
       >
         {tone === "ok" ? "✓" : "!"}
@@ -157,6 +157,11 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     alignItems: "flex-start",
     gap: 9,
   },
+  /*
+    "✓" and "!" have different advance widths, so the body text after them
+    started at different x positions. A fixed glyph column lines the text up.
+  */
+  checkGlyph: { width: 12, textAlign: "center" },
   checkOk: { color: colors.ok, fontWeight: "700" },
   checkWarn: { color: colors.warn, fontWeight: "700" },
   checkBody: { flex: 1, minWidth: 0 },

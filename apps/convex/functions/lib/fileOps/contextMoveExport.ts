@@ -19,7 +19,8 @@ import { requirePath } from "./paths";
 import { loadPrivacyState } from "./privacyState";
 import { folderVisibleAtScope } from "./listing";
 import { assertWritablePath } from "./writing";
-import { isFolder } from "./walk";
+import { isFolder, namesListing } from "./walk";
+import { isKeyedStore } from "../noteIds/keyedStore";
 
 /* -------------------------------------------------------------------------- */
 /*                       moving between two contexts                          */
@@ -263,6 +264,11 @@ async function listMoveCandidates(
   const to = requirePath(options.to);
   assertWritablePath(from);
   assertWritablePath(to);
+  // In a keyed workspace the bucket's paths are frozen copies: what moves is
+  // listed from the tree's rows, and each note is read at its key through the
+  // store's id layer (`lib/noteIds/keyedStore.ts`).
+  const keyed = await isKeyedStore(store);
+  const listed = keyed ? namesListing(store) : store;
   // Before the first read, not after the first copy: a move that discovered
   // this on the way to retiring a source would already have written the
   // destination, and the only way out of that is a duplicate.
@@ -293,7 +299,7 @@ async function listMoveCandidates(
     const seen = new Set<string>();
     let cursor: string | undefined;
     pages: for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
-      const listing = await store.list({ prefix, cursor, limit: 1_000 });
+      const listing = await listed.list({ prefix, cursor, limit: 1_000 });
       for (const object of listing.objects ?? []) {
         const key = object.key;
         if (isPlumbing(key)) continue;
@@ -327,7 +333,7 @@ async function listMoveCandidates(
     }
   }
 
-  return { from, to, state, sourceIsFolder, candidates, remaining };
+  return { from, to, state, sourceIsFolder, candidates, remaining, keyed };
 }
 
 /**
@@ -363,7 +369,7 @@ export async function exportContextMoveBatch(
     maxBytes?: number;
   },
 ): Promise<ContextMoveExport> {
-  const { from, to, state, sourceIsFolder, candidates, remaining } = await listMoveCandidates(store, options);
+  const { from, to, state, sourceIsFolder, candidates, remaining, keyed } = await listMoveCandidates(store, options);
   const maxBytes = options.maxBytes ?? CONTEXT_MOVE_BATCH_BYTES;
 
   const objects: ContextMoveObject[] = [];
@@ -408,7 +414,9 @@ export async function exportContextMoveBatch(
     let collaborationEtag: string | undefined;
     if (sourceText !== null && collaborationSupported(store) &&
         collaborationEligible(key, sourceText)) {
-      if (store.capabilities?.conditionalDelete !== true) {
+      // A keyed note leaves by the trash, history and all, so it needs no conditional delete and no tombstone:
+      // its accepted text is what is carried (`deleteMovedSources`).
+      if (!keyed && store.capabilities?.conditionalDelete !== true) {
         throw new FileOpError(
           "STORAGE_UNSAFE",
           "This storage cannot safely retire a collaboratively edited note. Nothing from this batch was removed.",
@@ -417,7 +425,7 @@ export async function exportContextMoveBatch(
       try {
         const base = await readCollaborationDocument(store, key);
         bytes = new TextEncoder().encode(base.text).buffer;
-        collaborationEtag = base.etag;
+        if (!keyed) collaborationEtag = base.etag;
       } catch {
         throw new FileOpError(
           "CONFLICT",

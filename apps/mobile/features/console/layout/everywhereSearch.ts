@@ -32,12 +32,36 @@ export { WHY_LABEL };
  */
 export function whyMatched(query: string, title: string, meaningOnly: boolean | undefined): WhyMatched {
   if (meaningOnly) return "meaning";
-  const words = query
-    .toLowerCase()
-    .split(/[^\p{L}\p{N}]+/u)
-    .filter((word) => word.length > 2);
+  const words = queryWords(query);
   const name = title.toLowerCase();
   return words.length > 0 && words.every((word) => name.includes(word)) ? "name" : "words";
+}
+
+/** The words a reason counts: lowercase, and none of one or two letters. */
+export function queryWords(query: string): string[] {
+  return [...new Set(query.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((word) => word.length > 2))];
+}
+
+/**
+ * The row's reason in words, which is the ranking made visible: a note with
+ * every word typed ranks above one with some of them, so the row says which
+ * ("Has all 3 words", "Has 2 of 3 words"). A strict hit has every word by
+ * definition; a `loose` one is counted in its title and snippet, never as
+ * none and never as all, since the index already said it was some.
+ */
+export function reasonFor(
+  query: string,
+  row: { title: string; snippet?: string; meaningOnly?: boolean; loose?: boolean },
+): string {
+  const why = whyMatched(query, row.title, row.meaningOnly);
+  if (why !== "words") return WHY_LABEL[why];
+  const words = queryWords(query);
+  if (words.length === 0) return WHY_LABEL.words;
+  if (words.length === 1) return "Has your word";
+  if (!row.loose) return `Has all ${words.length} words`;
+  const text = `${row.title} ${row.snippet ?? ""}`.toLowerCase();
+  const found = words.filter((word) => text.includes(word)).length;
+  return `Has ${Math.min(words.length - 1, Math.max(1, found))} of ${words.length} words`;
 }
 
 /**
@@ -62,8 +86,10 @@ export function itemsFromBlended(
       detail: folder === "" ? `@${row.slug}` : `@${row.slug} · ${folder}`,
       ...(row.snippet ? { snippet: row.snippet } : {}),
       ...(row.meaningOnly ? { meaningOnly: true } : {}),
-      workspace: { slug: row.slug, current },
+      ...(row.edited === undefined ? {} : { edited: row.edited }),
+      workspace: { slug: row.slug, current, id: row.workspaceId },
       why: whyMatched(query, row.title, row.meaningOnly),
+      reason: reasonFor(query, row),
       kind: "note" as const,
     };
   });

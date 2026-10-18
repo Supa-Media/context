@@ -16,7 +16,7 @@ import { loadPrivacyState } from "../privacy/state.js";
 import { folderPrefix } from "../search/indexable.js";
 import { splitMessageAnchor } from "../search/commsIndex.js";
 import { toolError, toolText } from "./results.js";
-import { withReadReach } from "../privacy/egress.js";
+import { holdSearchPasses } from "../search/heldPasses.js";
 
 /** Most hits a search across every workspace shows. */
 const EVERYWHERE_HITS = 12;
@@ -57,7 +57,7 @@ export function fuseEverywhere(lists, most = EVERYWHERE_HITS) {
 }
 
 /** Word search and search by meaning in one workspace, as `search_notes` has always asked. */
-function searchOne(store, scope, rules, overrides, query, prefix, embed) {
+export function searchOne(store, scope, rules, overrides, query, prefix, embed) {
   return searchBothWays(
     store,
     () => searchVisibleNotes(store, scope, rules, overrides, query, prefix),
@@ -75,10 +75,12 @@ function searchOne(store, scope, rules, overrides, query, prefix, embed) {
  */
 function sharedEmbedder(store) {
   if (!meaningSearchable(store)) return undefined;
+  // The promise, not the vector: every workspace asks at once, and the
+  // ones that ask while the first embedding is still out wait for it.
   let vector = null;
   return async (texts) => {
-    if (vector === null) [vector] = await meaningEmbedderFor(store)(texts);
-    return [vector];
+    vector ??= meaningEmbedderFor(store)(texts).then(([first]) => first);
+    return [await vector];
   };
 }
 
@@ -98,22 +100,24 @@ function sharedEmbedder(store) {
  * lists are fused by evidence (`fuseEverywhere`), and a hit from another
  * workspace carries its name in front of the path.
  */
-async function searchEverywhere(store, here, names, query, embed) {
-  const elsewhere = (
-    await Promise.all(
-      names.map(async (name) => {
-        try {
-          const { session: target, store: targetStore } = await store.openContext(name);
-          const privacy = await loadPrivacyState(targetStore);
-          if (privacy.error) return null;
-          const found = await searchOne(targetStore, target.scope, privacy.rules, privacy.overrides, query, "", embed);
-          return { name, found, workspaceId: target.workspaceId, scope: target.scope };
-        } catch {
-          return null;
-        }
-      }),
-    )
-  ).filter(Boolean);
+async function searchEverywhere(store, searchingHere, names, query, embed) {
+  // Every workspace at once, this one included: waiting for this one first
+  // put a whole search in front of the others.
+  const [here, ...answers] = await Promise.all([
+    searchingHere,
+    ...names.map(async (name) => {
+      try {
+        const { session: target, store: targetStore } = await store.openContext(name);
+        const privacy = await loadPrivacyState(targetStore);
+        if (privacy.error) return null;
+        const found = await searchOne(targetStore, target.scope, privacy.rules, privacy.overrides, query, "", embed);
+        return { name, found };
+      } catch {
+        return null;
+      }
+    }),
+  ]);
+  const elsewhere = answers.filter(Boolean);
   const annotated = (found, name = null) =>
     found.hits.map((hit) => ({ ...hit, ...(found.evidence?.[hit.key] ?? {}), key: name ? `${name}/${hit.key}` : hit.key }));
   const hits = fuseEverywhere([annotated(here), ...elsewhere.map(({ name, found }) => annotated(found, name))]);
@@ -123,28 +127,7 @@ async function searchEverywhere(store, here, names, query, embed) {
     matchCount: elsewhere.reduce((total, { found }) => total + found.matchCount, here.matchCount),
     matchCountIsFloor: here.matchCountIsFloor || elsewhere.some(({ found }) => found.matchCountIsFloor),
     crossWorkspace: hits.some((hit) => hit.key.startsWith("@")),
-    reached: reachOf(hits, elsewhere),
   };
-}
-
-/**
- * The workspaces whose notes actually reached the answer, for the egress
- * ledger (`privacy/egress.js`).
- *
- * The ones with a hit in the fused list, and no others: a workspace searched
- * and found nothing in handed the model nothing, and recording it would make
- * the gate ask about a read that never happened. A hit that lost its place to
- * `EVERYWHERE_HITS` is the same — it is not in the answer, so it was not
- * read. Keyed by the name each hit carries in front of its path, which is how
- * the fan-out labels them.
- */
-export function reachOf(hits, elsewhere) {
-  const shown = new Set(
-    hits.map((hit) => (typeof hit?.key === "string" ? hit.key.match(/^(@[^/]+)\//)?.[1] : null)).filter(Boolean),
-  );
-  return elsewhere
-    .filter(({ name, workspaceId }) => typeof workspaceId === "string" && shown.has(name))
-    .map(({ workspaceId, scope }) => ({ workspaceId, scope }));
 }
 
 export async function toolSearchNotes(store, scope, rules, overrides, query, prefixArg) {
@@ -157,8 +140,16 @@ export async function toolSearchNotes(store, scope, rules, overrides, query, pre
       ? (store.contexts ?? []).filter((entry) => !entry.current && typeof entry.name === "string").map((entry) => entry.name)
       : [];
   const embed = names.length > 0 ? sharedEmbedder(store) : undefined;
-  const here = await searchOne(store, scope, rules, overrides, query, prefix, embed);
-  const found = names.length > 0 ? await searchEverywhere(store, here, names, query, embed) : here;
+  // The index passes these searches start wait until every workspace has
+  // answered, so none of them queues behind another's (`search/heldPasses.js`).
+  const passes = names.length > 0 ? holdSearchPasses(store) : null;
+  let found;
+  try {
+    const here = searchOne(store, scope, rules, overrides, query, prefix, embed);
+    found = names.length > 0 ? await searchEverywhere(store, here, names, query, embed) : await here;
+  } finally {
+    passes?.release();
+  }
   const hits = found.hits.map(({ key, snippets, title, meaningOnly }) =>
     meaningOnly
       ? // Found by what it is about, not by the words typed: said so, so an
@@ -231,10 +222,7 @@ export async function toolSearchNotes(store, scope, rules, overrides, query, pre
     out +=
       '\n\nA path that starts with @name/ is in that workspace: pass context: "@name" with its path to read_note, or to any other tool, to reach it.';
   }
-  // The workspaces this one call read from, for the turn's egress ledger: a
-  // fan-out hands the model notes from several, and the ledger is told about
-  // the one the call was routed to by `callToolForSession` alone.
-  return withReadReach(toolText(out), found.reached ?? []);
+  return toolText(out);
 }
 
 /** The first heading if the note has one, else its filename. */

@@ -1,0 +1,5 @@
+# Lists every branch appends to. A union merge keeps both sides' new lines
+# instead of stopping parallel branches on a conflict (git merge only;
+# GitHub's own merge does not read this).
+apps/mcp/test/unit.list merge=union
+docs/decisions/README.md merge=union

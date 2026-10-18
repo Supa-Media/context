@@ -2,6 +2,8 @@ import { useRef } from "react";
 import { Pressable, StyleSheet, View, type GestureResponderEvent } from "react-native";
 import { Icon } from "../../design/components/Icon";
 import { EmojiGlyph } from "../emoji/EmojiGlyph";
+import { JobIcon } from "./jobIcons/JobIcon";
+import { jobOfIcon, twinJobOfIcon } from "./jobIcons/marker";
 import { pointerType, radii } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 
@@ -26,11 +28,16 @@ import { useColors, useThemedStyles, type Colors } from "../../design/theme";
  * icon, the way a folder draws the plain folder icon (the owner: "give notes a
  * plain icon by default ... so it can be clicked on and changed"). Clicking it
  * opens the same picker.
+ *
+ * A built-in folder draws its job's icon (`JobIcon`, boards 8 and 9 of the
+ * system folders set) at the box's full 16pt, and it is only drawn: a
+ * built-in folder cannot take another icon, so there is no picker to open.
  */
 export function TreeFolderGlyph({
   label,
   icon,
   onPress,
+  onIntent,
   note = false,
 }: {
   /** A note's glyph rather than a folder's: the plain note icon when it has no emoji. */
@@ -41,10 +48,17 @@ export function TreeFolderGlyph({
   icon: string | null;
   /** Open the picker at this window point. Absent where the icon cannot be changed: the glyph is then only drawn. */
   onPress?: (anchor: { x: number; y: number }) => void;
+  /** The pointer came over the icon or a finger went down on it: the picker is likely next, so start what it will ask for. */
+  onIntent?: () => void;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const ref = useRef<View>(null);
+  const job = jobOfIcon(icon);
+  if (job !== null) return <JobIcon job={job} size={16} testID="tree-folder-job" />;
+  // Archive's copy of a built-in folder: drawn, like the folder it mirrors, so no picker either.
+  const twin = twinJobOfIcon(icon);
+  if (twin !== null) return <JobIcon job={twin} size={16} archived testID="tree-folder-twin" />;
   const plain = <Icon name={note ? "file" : "folder"} size={14} color={colors.chromeMuted} />;
   const glyph =
     icon === null ? (
@@ -82,6 +96,8 @@ export function TreeFolderGlyph({
       accessibilityLabel={`Change ${label}’s icon`}
       tabIndex={-1}
       onPress={open}
+      onHoverIn={onIntent}
+      onPressIn={onIntent}
       hitSlop={{ top: 6, bottom: 6, left: 0, right: 0 }}
       style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [styles.button, hovered && styles.hover]}
       testID="tree-folder-icon-button"

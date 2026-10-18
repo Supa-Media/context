@@ -918,7 +918,7 @@ against the schema this server advertises *now*, never against the client's
 copy, so a client may pass an argument it has never seen advertised — it only
 has to be told the argument exists, which a tool description and `orient` can
 do on every call. `write_note` is in every client's list and has been from the
-beginning.
+beginning. (Mechanism superseded 2026-10-16: new capability is an action in one of [six tools that never change](./gateway-protocol/six-tools.md).)
 
 So capability that has to reach every client goes on an existing tool:
 

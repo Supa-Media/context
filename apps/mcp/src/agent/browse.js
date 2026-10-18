@@ -61,20 +61,37 @@ const MAX_TEXT_SHOWN = 8_000;
 
 const MODEL_STEPS = new Set(["goto", "click", "type", "select", "press", "back", "scroll", "read", "handoff"]);
 
+/** The steps that act on one element of the last reading, by its number. */
+const REF_STEPS = new Set(["click", "type", "select"]);
+
+/*
+  THE ELEMENT NUMBER, HOWEVER IT WAS WRITTEN. Golden tasks gh-66 (2026-10-18):
+  Haiku, driving after Opus planned, sent ChatGPT's form steps with the number
+  as text ("3", "[3]"), so every type, select and click was refused as "not a
+  box to type in" and Tex told the person its browser could not type. The
+  reading shows `[3]`, so that is what a model copies; the number is the same.
+*/
+function withRef(step) {
+  if (typeof step.ref !== "string") return step;
+  const m = /^\s*\[?\s*(\d{1,4})\s*\]?\s*$/.exec(step.ref);
+  return m ? { ...step, ref: Number(m[1]) } : step;
+}
+
 /** The gateway's line when a handoff was asked for and no link could be made. */
 export const NO_LINK_LINE = "I couldn't make a link to my browser this time, so that step is yours to do on the site.";
 
 /** What the description says about handing the browser over, when this browser can be. */
 const HANDOFF_SENTENCE =
-  "When the person has to do something themselves (sign in, a code, a captcha, a payment), add a handoff step: " +
-  "a link to this browser is added to your reply, so tell them to open it, finish, and text you; never ask for their password. ";
+  "When the person has to do something themselves (a code, a captcha, a payment, or a sign-in they said they'd rather do), add a handoff step: " +
+  "a link to this browser is added to your reply, so tell them to open it, finish, and text you; never ask for their password. " +
+  "Hand over rarely: a sign-in is yours to do with a login saved in the vault, so ask for one to be saved before handing over. ";
 /** And when it cannot: a model told a link is coming says so, and none comes. */
 const NO_HANDOFF_SENTENCE =
   "This browser can't be handed to the person, so when they must do something themselves (sign in, a code, a payment), say exactly what to do on the site; never promise them a link to it. ";
 
 /** The default description's two rules, and what it says instead when the setup opened the web. */
 const ADDRESS_RULE =
-  "goto follows the same rule as open_page: an address the person wrote, a search result, a link you saw, or a page on a trusted site your instructions name — its plain path, with nothing of your own written into it. ";
+  "goto follows the same rule as send action open_page: an address the person wrote, a search result, a link you saw, or a page on a trusted site your instructions name — its plain path, with nothing of your own written into it. ";
 const TYPING_RULE = "You can type the person's own words anywhere, and anything on a site they named in their message; nothing else. ";
 const OPEN_WEB_RULES = "goto can open any public https address. You can type anything on any page. ";
 
@@ -87,7 +104,7 @@ export const BROWSE_DEFINITION = {
     ADDRESS_RULE +
     TYPING_RULE +
     HANDOFF_SENTENCE +
-    "Use open_page instead when you only need to read.",
+    "Use send action open_page instead when you only need to read.",
   inputSchema: {
     type: "object",
     properties: {
@@ -176,6 +193,8 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
   const theirWords = new Set(wordsOf(addresses));
   // Exact values a skill read this question vouched for (`vouch` below).
   const vouchedValues = new Set();
+  // Exact messages `delegate` wrote, each typable only on its agent's own site (`delegateValue` below).
+  const delegatedValues = new Map();
   const theirSites = [...new Set(addressesIn(addresses).map((url) => siteOf(new URL(url).hostname)))];
   let session = null;
   let origin = null;
@@ -253,8 +272,12 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
       const planned = [];
       let gotos = 0;
       let handoff = false;
-      for (const step of asked) {
-        if (!MODEL_STEPS.has(step?.do)) return textResult(`There is no "${String(step?.do).slice(0, 20)}" step.`, true);
+      for (const raw of asked) {
+        if (!MODEL_STEPS.has(raw?.do)) return textResult(`There is no "${String(raw?.do).slice(0, 20)}" step.`, true);
+        const step = withRef(raw);
+        if (REF_STEPS.has(step.do) && !Number.isInteger(step.ref)) {
+          return textResult(`A ${step.do} step needs ref: the element's number from the last reading, like 3 for [3].`, true);
+        }
         if (step.do === "handoff") {
           if (computer.canHandOff?.() !== true) {
             return textResult("This browser can't be handed to the person. Tell them what to do on the site themselves.", true);
@@ -263,7 +286,7 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
         } else if (step.do === "goto") {
           const url = canonicalUrl(step.url);
           if (url === null || !allowed.has(url)) {
-            return textResult("You can only open an address the person wrote, a search result, a link you saw, one in a skill you read this question (read_skill), or a page on a trusted site — and there only its plain path: nothing of yours written into the address, in the path or the query. Otherwise ask them for the address.", true);
+            return textResult("You can only open an address the person wrote, a search result, a link you saw, one in a skill you read this question (fetch skill:), or a page on a trusted site — and there only its plain path: nothing of yours written into the address, in the path or the query. Otherwise ask them for the address.", true);
           }
           gotos += 1;
           planned.push({ do: "goto", url });
@@ -271,10 +294,13 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
           if (typeof step.text !== "string") return textResult("A type step needs text.", true);
           let onlyOn = null;
           // Open web: anything on any page, and no host re-check at the keys.
-          if (!openWeb && !onlyTheirWords(step.text, theirWords) && !vouchedValues.has(step.text.trim().toLowerCase())) {
+          const delegatedTo = delegatedValues.get(step.text.trim());
+          if (!openWeb && delegatedTo !== undefined) {
+            onlyOn = [delegatedTo];
+          } else if (!openWeb && !onlyTheirWords(step.text, theirWords) && !vouchedValues.has(step.text.trim().toLowerCase())) {
             if (theirSites.length === 0) {
               return textResult(
-                "You can only type the person's own words here, or a value a skill you read this question gives (read_skill). To type anything else, the person has to name the site in their message.",
+                "You can only type the person's own words here, or a value a skill you read this question gives (fetch skill:). To type anything else, the person has to name the site in their message.",
                 true,
               );
             }
@@ -347,6 +373,17 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
      */
     vouch(text) {
       for (const match of String(text ?? "").matchAll(SKILL_VALUE)) vouchedValues.add(match[1].trim().toLowerCase());
+    },
+
+    /**
+     * A message `delegate` wrote for another agent (`delegate.js`) may be
+     * typed, exactly as written, on that agent's own site and nowhere else:
+     * the browser re-checks the host at the keys, as it does for a site the
+     * person named. Its words are the model's, so it must never reach a page
+     * that asked for them.
+     */
+    delegateValue(host, value) {
+      if (typeof host === "string" && host && typeof value === "string" && value.trim()) delegatedValues.set(value.trim(), siteOf(host));
     },
 
     /** The origin of the page the browser is on, or null before it opens one. */

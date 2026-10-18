@@ -27,6 +27,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Platform credentials seal to a scope, customers' seal to a workspace
 - Anything needed before this table can be read cannot live in it
 - Usage is counted, never logged
+- [Token usage at the MCP boundary](./observability/token-usage.md) (2026-10-08)
 - Version history is the customer's object versioning, not a copy we keep
 - Managed storage: a bucket we run, in an account that holds nothing else
 - One managed account per deployment, never shared
@@ -35,9 +36,10 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The managed copy is kept a week after a move out
 - A move catches up after it switches over, and never overwrites to do it
 - A move between the owner's own buckets is a third direction, and never touches the old one
-- Dropbox is a source and never a destination, and its grant outlives the switch for the catch-up
-- Dropbox workspaces are told support is ending, without a date
+- Dropbox is not a storage option (decided by the owner, 2026-10-17)
 - The migration's outcome is recorded, because an offer nobody can answer is a nag
+- Names, folders and privacy live on tree rows; the bucket holds bodies by id
+- Deleting an account erases the storage we ran for it
 - Absent meant two things, and the bucket is asked which
 - A bucket born on the layout has nothing to migrate, and is not asked to
 - A move between two contexts is three calls, not one function holding two keys
@@ -71,6 +73,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Storage we run is offered wherever a context is made, personal or shared
 - What is deliberately not built
 - The free managed tier
+- Founding Premium: the first 100 accounts
 
 ## [Identity, grants, invitations, and ingestion](./identity-and-access.md)
 
@@ -90,6 +93,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The sign-in link's life is `SIGNIN_CODE_TTL_MS`, and never `magicLink.maxAge`
 - The two onboarding gates ask two different questions
 - …and a third question nobody was asking: how do you get one?
+- Everybody starts with a personal workspace, and is not asked for folders
 - Sign-in is invite-only, and the lock is on the server
 - The hook is a capture-only OAuth client, and that is the whole design
 - A workspace's name can be given back, and only its owner can give it
@@ -127,8 +131,13 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A root domain brings its `www.`, which only redirects
 - An incident note is metadata, never a summary of vendor text
 - A team gets a new note from someone's inbox, never the meeting or email itself
-- An AI client never widens who can see something without a person saying yes
+- [The widening gate is removed; only an email, a calendar change, a handle claim and a key's first use ask](./privacy-and-sharing/agent-egress.md) (2026-10-17)
 - A note shared with a named person opens for them wherever it lives
+- [Blocking is per recipient, and a report is never an oracle](./privacy-and-sharing/reporting-and-blocking.md) (2026-10-15)
+- [The share dialog writes a list and its base together, and a domain is never a grantee](./privacy-and-sharing/share-dialog-lists.md) (2026-10-17)
+- [A note shared by name through its access list is reported and blocked the same way](./privacy-and-sharing/reporting-and-blocking.md) (2026-10-17)
+- [Sharing runs when the person's own words ask for it, read by a judge](./privacy-and-sharing/agent-egress.md) (2026-10-18)
+- [Naming people on a note](./privacy-and-sharing/agent-egress.md) (2026-10-17)
 
 ## [Per-note encryption](./encryption.md)
 
@@ -167,11 +176,15 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Agent activity is announced from finished tool calls, never streamed
 - A drawing merges by element, and by Excalidraw's own rules
 - A new argument reaches a client that a new tool cannot
+- [Six tools that never change, and new capabilities are actions](./gateway-protocol/six-tools.md)
+- [An agent sets a workspace up, and only a third party's sign-in needs a browser](./gateway-protocol/workspace-setup.md)
 - [A CLI learns its workspaces from `scope_info`, as data; the metadata names the app](./gateway-protocol/cli-workspaces.md)
 - [An agent reports a problem through the bug button's intake](./gateway-protocol/report-problem.md)
 - [Agents remember facts with one tool, and the note stays clean](./gateway-protocol/remember.md)
 - [One note from Context.LC leads every orientation](./gateway-protocol/global-orient-note.md)
+- [Orient names the tool changes since a client last loaded our tools](./gateway-protocol/tool-news.md)
 - [An agent attaches an image through `write_note`, and the note embeds the workspace copy](./gateway-protocol/agent-images.md)
+- [An agent with a picture as a file sends it with a one-use upload link](./gateway-protocol/image-upload-links.md)
 - [The live map reads the activity feed, and every path in it is the caller's](./gateway-protocol/live-map-feed.md)
 - [What an AI client reads is kept, in the customer's bucket](./gateway-protocol/stored-reads.md)
 
@@ -252,6 +265,12 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - On a phone, a thread opens in a sheet
 - The iOS editor draws comments and lists
 
+## [Mail between agents on a note](./note-mail.md)
+
+- The mail is in the note, at its end
+- Mailboxes are per connection, in the control plane
+- The lead sets the rhythm
+
 ## [Bucket-backed websites](./websites.md)
 
 - `privacy.md` decides what a website publishes
@@ -319,6 +338,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Search by meaning is on for every workspace, free and Premium, and an owner can turn it off
 - Notes reach the index two ways, and a map in the bucket says which are in
 - Both indexes fill in tier order: T0 everything else, T1 the Inbox, T2 the Archive
+- A note's passages are filed under its note id, and a move only re-points them
+- Fast search renames a moved note's rows, and reads it only for a new name
 
 ## [The mobile app and the console](./app-and-console.md)
 
@@ -349,9 +370,14 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A workspace's tree and its privacy rules live in Convex, and the bucket keeps the files](./app-and-console/convex-tree.md) (2026-10-12)
 - [A write asks the Convex tree whether a name is taken](./app-and-console/convex-tree-writes.md) (2026-10-14)
 - [Moving to the trash is a queued move](./app-and-console/queued-trash.md) (2026-10-14)
+- [The staff console's AI tab is the `ai/` folder of `@context-lc`](./app-and-console/admin-ai.md) (2026-10-16)
+- [Built-in folders are found by their job, not their name](./app-and-console/folder-jobs.md) (2026-10-18)
+- [Archive keeps the workspace's shape](./app-and-console/folder-jobs.md#archive-keeps-the-workspaces-shape) (2026-10-18)
+- [Experiments, case groups and how sure a score is](./app-and-console/admin-ai.md#experiments-case-groups-and-how-sure-a-score-is-boards-17-22) (2026-10-16)
 - [Names, existence and front matter come only from the tree; a rename rewrites the heading inside the move](./app-and-console/one-name.md) (2026-10-14)
 - [The bucket catches up behind the tree on its own, within five hours](./app-and-console/storage-move-engine.md#the-bucket-catches-up-behind-the-tree-on-its-own-within-five-hours) (2026-10-14)
 - [Each note's links, front matter and chaos history live in Convex beside its row](./app-and-console/convex-facts.md) (2026-10-13)
+- [A public list block reads its rows from the facts, and the facts carry the website flags](./app-and-console/convex-facts.md) (2026-10-15)
 - [Folder icons, a workspace's emoji names and the forwarding ledger live in Convex, and the bucket keeps the files](./app-and-console/convex-small-data.md) (2026-10-14)
 - Links live beside the tree, and "who links here" is one query
 - On the web the app has to be able to start offline, which is a service worker
@@ -404,10 +430,12 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A pasted image is a width in the note and a file in the bucket, and nothing else
 - [A remote image is drawn through our proxy, never by the reader's browser](./app-and-console/remote-images.md)
 - [The console has no chat; people ask the AI they connect](./app-and-console/no-in-app-chat.md)
+- [Auto-organize, What changed and the app assistant are deleted, not switched off](./app-and-console/removed-features.md) (2026-10-17)
 - [Custom emoji are pictures in the bucket, written as `:name:` in the note](./app-and-console/custom-emoji.md)
 - [A folder icon is any emoji, a workspace's own included](./app-and-console/custom-emoji.md)
 - [One folder per built-in role is locked, and a name may not twin its sibling](./app-and-console/folder-name-twins.md) (2026-10-14)
 - [A note's common properties are chips under its name, a new note's included](./app-and-console/property-chips.md) (2026-10-14)
+- [Only a note in the Projects folder is offered the task chips](./app-and-console/property-chips.md) (2026-10-18)
 - [A scene's sounds are chosen in the note, and an uploaded one is stored like a pasted image](./app-and-console/scene-sounds.md)
 - [The script is edited on the studio's rail, and the note stays the only copy](./app-and-console/scene-sounds.md)
 - [A scene can be a chat with an assistant, and its workspace steps are real](./app-and-console/scene-sounds.md)
@@ -502,9 +530,21 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The Gmail restricted scope is Google's decision, so v1 runs on fixtures
 - The five open decisions, and who settles them
 - The forward sync loop: a pull, on a floor of five minutes
+- A first connect reads the last fifty messages, and that is not a backfill (owner, 2026-10-17)
+- Push makes a pass due sooner; the loop still does everything
 - What is deliberately not built
 - iMessage reads `chat.db` in place, through the one binary every Mac already has
 - The destination rule is shared, so the field can say something before Save
+- No email leaves without the person's yes to that exact copy (owner, 2026-10-17)
+- Rate limits live in the control plane, and are all-or-none
+- Mail goes out through the person's own Gmail, and waits for Google (owner, 2026-10-17)
+- A hold is armed for a texted yes only once its ask goes out whole
+- No calendar change is made without the person's yes to that exact change (owner, 2026-10-17)
+- A move or a cancel names the event by its title and start, and must match one
+- Never an event with guests
+- Testers only until Google's review (owner, 2026-10-17)
+- Synced mail first, then Gmail for what the sync does not hold (owner, 2026-10-18)
+- A pass fetches only the mail it has not seen
 
 ## [The desktop shell](./desktop.md)
 
@@ -624,6 +664,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - This repository is public and MIT licensed
 - Every package this org publishes is `@supa-media/*`, through the framework's pipeline
 - No handwritten file over 1,000 lines, and the allowance only shrinks
+- A list every branch adds to is one entry per line, merged by union
 
 ## [Routines](./routines.md)
 
@@ -634,6 +675,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Intervals count from a fixed epoch, never from when the file was saved
 - Nothing runs faster than every five minutes
 - A run's history is Context's plumbing in the customer's bucket
+- Routines run only in a personal workspace, and text only their writer
 - A routine's schedule is read from the tree's front matter, never the note
 
 ## [The texting assistant](./texting-assistant.md)
@@ -646,27 +688,40 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The Worker holds message text only while it is answering it
 - Messages pass through Linq
 - [Who may text the line is Linq's list, managed from the console](./texting-assistant/allowlist.md)
+- [Letting someone in off the waitlist puts their phone on the list](./texting-assistant/allowlist.md)
+- [A phone let in off the waitlist is set up by text, handle first (2026-10-17)](./texting-assistant/onboarding.md)
+- [A bug filed by text goes to the team only on the person's YES, texts included (2026-10-17)](./texting-assistant/bug-reports.md)
+- [A texted write answers with the note's link, and an ask sounds like a person (2026-10-18)](./texting-assistant/note-links.md)
 - Staging has a texts simulator, and nothing else does
 - An answer reads like a text, and the typing bubble shows while it works
 - Every agent turn is logged by name and duration, never by text
 - The autofill vault lives sealed in the person's bucket
 - [A login is sealed in the workspace's own bucket, and only the fill step opens it](./texting-assistant/vault.md)
 - [Personal logins stay personal; a shared workspace's vault is shared login by login](./texting-assistant/vault.md)
+- [A key is given to a person, a group or everyone, to use or to see](./texting-assistant/vault.md)
 - [Saving and sharing are a person's action on a signed-in page; an agent only asks](./texting-assistant/vault.md)
 - [A vault holds secrets too: named fields, most with a value for dev, staging and prod](./texting-assistant/vault.md)
-- The built-in model is for Premium, capped, and metered like Jev
+- [An AI uses a key without seeing it; a vault entry is a Markdown note under `.context/vault/`](./texting-assistant/vault.md)
+- [Tex signs in itself; handing its browser over is the rare case](./texting-assistant/vault.md)
+- The built-in model is free, capped at 100 a day, and metered like Jev
 - Claude models are reached through one AI gateway, plan credit first
 - Other providers' models and routes go through the same gateway, Unified Billing only
 - The agent opens only addresses it was given
 - [The person views and drives Tex's computer at context.lc/tex/<handle>](./texting-assistant/computer.md)
-- [A setup hands Tex a few tools and names the rest (2026-10-14)](./texting-assistant/tool-shelf.md)
+- [Tex holds the six tools, each listing only what it was granted (2026-10-16)](./texting-assistant/tool-shelf.md)
 - [The conversation is kept long and shown short (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Tex keeps what it knows about the person in `tex/about-me.md` (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Every turn knows the time where the person is (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Tex keeps a daily transcript in the person's own tex/ folder (2026-10-15)](./texting-assistant/transcripts.md)
+- [Tex dreams once a night, and keeps `tex/about-me.md` current (2026-10-15)](./texting-assistant/dreams.md)
+- [Tex checks in on its own, three times a day, and texts only when it is worth it (2026-10-17)](./texting-assistant/heartbeat.md)
+- [Any of the person's agents can ask Tex to get their attention; their own tolerance decides (2026-10-17)](./texting-assistant/attention.md)
+- [A first dream right away, asked for by the person's own agent (2026-10-17)](./texting-assistant/dreams.md)
+- [Tex keeps house: it organizes the workspace itself, and every change can be put back (2026-10-17)](./texting-assistant/housekeeping.md)
 - [Every turn knows which workspaces there are, and writes where the project is (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Tex keeps its thinking from one step to the next (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Tex's jobs are task notes on the project's board (2026-10-14)](./texting-assistant/tool-shelf.md)
+- [Tex hands a whole sub-project to another agent, and a supervisor loop keeps it on track (2026-10-17)](./texting-assistant/delegation.md)
 - [Open web lifts the browser's capability limits (2026-10-14)](./texting-assistant/open-web-browser.md)
 - The agent searches the web on its own
 - What the assistant is told lives in `@context-lc`, where staff can edit it
@@ -674,10 +729,16 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Setups are benchmarked in a throwaway world, on invented workspaces](./texting-assistant/benchmarks.md)
 - A text has every MCP tool
 - [A setup may route each text to a cheap or a smart model (2026-10-09)](./texting-assistant/benchmarks.md)
+- [The loop promotes on its own, through a gate, under a spend cap (2026-10-17)](./texting-assistant/auto-promotion.md)
+- [Opus plans, Haiku drives: a routed turn may change model after its first rounds (2026-10-17)](./texting-assistant/model-plan.md)
 - [The assistant texts like a capable friend, and the benchmark grades the voice (2026-10-09)](./texting-assistant/benchmarks.md)
 - [A busy provider is retried, a failed one is replaced, and both are counted (2026-10-09)](./texting-assistant/benchmarks.md)
+- [A round runs the live setup, the live skills and the tests edited in Context (2026-10-16)](./texting-assistant/benchmarks.md)
+- [A failed round drafts its own next experiment, and a person runs it (2026-10-17)](./texting-assistant/benchmarks.md)
+- [Every AI job's prompt is a note, and every job has a test (2026-10-17)](./texting-assistant/job-prompts.md)
 - [Some jobs Tex must always get right, and they gate a setup (2026-10-11)](./texting-assistant/golden-tasks.md)
 - [A short core set is the default run; the long sets stay for rounds (2026-10-14)](./texting-assistant/golden-tasks.md)
+- [The long set is retired; the core set carries its privacy and voice questions (2026-10-17)](./texting-assistant/golden-tasks.md)
 - [How Tex does a job lives in a skill note, read when it applies (2026-10-11)](./texting-assistant/golden-tasks.md)
 - [A skill Tex read vouches for its addresses and its marked values (2026-10-11)](./texting-assistant/golden-tasks.md)
 - [A handoff that made no link says so, in the gateway's words (2026-10-11)](./texting-assistant/golden-tasks.md)

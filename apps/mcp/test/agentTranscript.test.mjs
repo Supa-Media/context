@@ -21,6 +21,12 @@
  *     → "runTurn tells the observer its thinking, its words between tools and each call" fails.
  *  6. `writeOnce` not reading back after a successful write.
  *     → "a write merged with another turn's part is read back…" fails.
+ *  7. `sentItems` naming a picture instead of embedding it, or writing a voice message as its name.
+ *     → "a texted picture is stored once and shown, a voice message is quoted…" fails.
+ *  8. `writeOnce` keeping a refused picture.
+ *     → "a picture write_note refuses is named instead, and the turn is still written" fails.
+ *  9. `writeOnce` not marking the transcript dirty while pictures remain.
+ *     → "more pictures than one write takes all go up…" fails.
  *  5. `gatewayBody` sending `thinking` to every model.
  *     → "the thinking is asked for in words only from a model that thinks by default" fails.
  */
@@ -85,7 +91,7 @@ test("the day is the person's own, in their zone", () => {
 
 test("a turn is in the note before it is answered, then whole after", async () => {
   const store = fakeNotes();
-  const t = openTranscript(store.callTool, { now: NOW, timeZone: "UTC", question: "what's due today?", attachments: "Attached: photo.jpg" });
+  const t = openTranscript(store.callTool, { now: NOW, timeZone: "UTC", question: "what's due today?", attachments: [{ name: "report.pdf", mediaType: "application/pdf", data: "JVBERi0=" }] });
   t.record({ kind: "thinking", text: "They want today's tasks.\nCheck todo.md." });
   t.record({ kind: "say", text: "Looking." });
   t.record({ kind: "tool", name: "read_note", args: { path: "todo.md" }, ok: true, ms: 420 });
@@ -99,12 +105,80 @@ test("a turn is in the note before it is answered, then whole after", async () =
   const body = store.notes.get("tex/transcripts/2026-10-15.md").body;
   assert.match(body, /^# Tex, October 15, 2026/);
   assert.match(body, /## 3:30 am/);
-  assert.match(body, /_Attached: photo\.jpg_/);
+  assert.match(body, /_Sent report\.pdf\._/);
+  assert.doesNotMatch(body, /JVBERi0/);
   assert.match(body, /> 💭 They want today's tasks\.\n> Check todo\.md\./);
   assert.match(body, /\*\*Tex, while working:\*\* Looking\./);
   assert.match(body, /- `read_note` `\{"path":"todo\.md"\}` → ok, 0\.4 s/);
   assert.match(body, /\*\*Tex:\*\* Rent and the dentist\./);
   assert.doesNotMatch(body, /working_/);
+});
+
+// A 1×1 PNG.
+const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
+test("a texted picture is stored once and shown, a voice message is quoted, another file is named", async () => {
+  const store = fakeNotes();
+  const t = openTranscript(store.callTool, {
+    now: NOW,
+    timeZone: "UTC",
+    question: "",
+    attachments: [
+      { name: "IMG_1.png", mediaType: "image/png", data: PNG },
+      { name: "Audio Message.m4a", mediaType: "audio/mp4", text: "Buy milk on the way home.", heard: true },
+      { name: "odd.bin", mediaType: "application/octet-stream", unread: "Not a kind I can open." },
+    ],
+  });
+  t.record({ kind: "say", text: "Noted." });
+  await t.finish({ answer: "Will do." });
+  const body = store.notes.get("tex/transcripts/2026-10-15.md").body;
+  const writes = store.calls.filter(([name]) => name === "write_note").map(([, args]) => args);
+  const withImages = writes.filter((args) => args.images);
+  assert.equal(withImages.length, 1, "the picture goes up with one write, not every write");
+  assert.equal(withImages[0], writes[0]);
+  assert.match(withImages[0].images[0].name, /^upload-[0-9a-f]{16}\.png$/);
+  assert.equal(withImages[0].images[0].data, `data:image/png;base64,${PNG}`);
+  assert.ok(body.includes(`![[${withImages[0].images[0].name}|IMG_1.png]]`));
+  assert.match(body, /\*\*Them:\*\* _\(no words\)_/);
+  assert.match(body, /> 🎤 Voice message: "Buy milk on the way home\."/);
+  assert.match(body, /_Sent odd\.bin, which could not be opened\._/);
+  assert.doesNotMatch(body, new RegExp(PNG.slice(0, 20)));
+});
+
+test("more pictures than one write takes all go up, even with nothing else happening", async () => {
+  const store = fakeNotes();
+  const base = Buffer.from(PNG, "base64");
+  // Eleven different pictures: one write takes ten.
+  const attachments = Array.from({ length: 11 }, (_, i) => ({
+    name: `IMG_${i}.png`,
+    mediaType: "image/png",
+    data: Buffer.concat([base, Buffer.from([i])]).toString("base64"),
+  }));
+  const t = openTranscript(store.callTool, { now: NOW, timeZone: "UTC", question: "all of these", attachments });
+  await t.finish({ answer: "Got them." });
+  const uploaded = store.calls.filter(([name, args]) => name === "write_note" && args.images).flatMap(([, args]) => args.images);
+  assert.equal(new Set(uploaded.map((image) => image.name)).size, 11);
+  const body = store.notes.get("tex/transcripts/2026-10-15.md").body;
+  assert.equal(body.match(/!\[\[upload-/g)?.length, 11);
+});
+
+test("a picture write_note refuses is named instead, and the turn is still written", async () => {
+  const store = fakeNotes();
+  const callTool = async (name, args) =>
+    name === "write_note" && args.images
+      ? { content: [{ type: "text", text: "images[0]: refused" }], isError: true }
+      : store.callTool(name, args);
+  const t = openTranscript(callTool, {
+    now: NOW,
+    timeZone: "UTC",
+    question: "look",
+    attachments: [{ name: "IMG_2.png", mediaType: "image/png", data: PNG }],
+  });
+  await t.finish({ answer: "Nice." });
+  const body = store.notes.get("tex/transcripts/2026-10-15.md")?.body ?? "";
+  assert.match(body, /_Sent IMG_2\.png, a picture that could not be kept\._/);
+  assert.doesNotMatch(body, /!\[\[upload-/);
+  assert.match(body, /\*\*Tex:\*\* Nice\./);
 });
 
 test("the next turn goes after the last, and nothing earlier is lost", async () => {
@@ -224,7 +298,11 @@ test("runTurn tells the observer its thinking, its words between tools and each 
   assert.deepEqual(events[2].args, { path: "todo.md" });
   assert.equal(events[2].ok, true);
   assert.deepEqual(bodies[0].thinking, { type: "adaptive", display: "summarized" });
-  assert.match(bodies[0].system.map((block) => block.text).join(""), /tex\/transcripts\/ is your own record of these texts/);
+  // Asked "what is my Tex transcript folder called?", Tex once said it was not in their workspace (2026-10-16).
+  const system = bodies[0].system.map((block) => block.text).join("");
+  assert.match(system, /tex\/transcripts\/ in their personal workspace holds a transcript of these texts, one note a day/);
+  assert.match(system, /they can open it like any note/);
+  assert.doesNotMatch(system, /not their notes/);
 });
 
 test("the thinking is asked for in words only from a model that thinks by default", () => {

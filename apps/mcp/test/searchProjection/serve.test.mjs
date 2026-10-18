@@ -9,6 +9,7 @@
 import {
   API_TOKEN,
   CONTROL_PLANE_ORIGIN,
+  DATABASE_ID,
   DESCRIPTOR,
   GATEWAY_SECRET,
   MAX_RESULTS,
@@ -26,6 +27,7 @@ import {
   searchProjection,
   worker,
 } from "./fixtures.mjs";
+import { fillSearchDatabase } from "./fill.mjs";
 
 
 /* ========================================================================
@@ -170,6 +172,8 @@ export async function runServeChecks(check) {
   };
 
   controlPlane.addWorkspace(SERVE_WS, "serve", s3Binding("serve-bucket", DESCRIPTOR));
+  // The census is the tree's names, never the bucket's listing (`search/shards/listing.js`).
+  controlPlane.serveTreesFrom(null, { s3 });
   await controlPlane.addGrant({
     accessToken: SERVE_TOKEN_OWNER,
     workspaceId: SERVE_WS,
@@ -269,12 +273,27 @@ export async function runServeChecks(check) {
     };
   }
 
+  // A database filled from a bucket the way the control plane fills one, at
+  // this fixture's tiers: `1-projects/` is team, everything else private.
+  const fillFrom = (from, databaseId) =>
+    fillSearchDatabase(
+      d1.dbFor(databaseId),
+      [...from.entries()]
+        .filter(([path]) => path.endsWith(".md") && path !== "privacy.md")
+        .map(([path, object]) => ({
+          path,
+          content: object.body,
+          visibility: path.startsWith("1-projects/") ? "team" : "private",
+          version: object.etag,
+        })),
+    );
+
   const ready = (state) =>
     controlPlane.bindings.set(SERVE_WS, s3Binding("serve-bucket", { ...DESCRIPTOR, state }));
 
   try {
-    // Converge both indexes while the row still says `backfilling`, which is
-    // also the assertion that a filling projection is not served from.
+    // While the row still says `backfilling`, a search answers from what the
+    // database holds and copies nothing itself.
     const duringBackfill = await search("numbat");
     // A filling database answers from what it has copied, says so, and the
     // bucket's own index is not asked (decided by the owner, 2026-10-13).
@@ -286,7 +305,9 @@ export async function runServeChecks(check) {
       "and says the index is still catching up",
       /still catching up/.test(duringBackfill.text),
     );
-    for (let round = 0; round < 3; round += 1) await search("numbat");
+    // Filled the way the control plane fills it (decided by the owner,
+    // 2026-10-17: a search never copies notes into the database).
+    fillFrom(bucket, DATABASE_ID);
     check(
       "the whole context reaches the projection",
       d1.rows("SELECT COUNT(*) AS n FROM notes")[0].n === NUMBAT_NOTES + 3,
@@ -305,56 +326,21 @@ export async function runServeChecks(check) {
       "without reading a single note out of the customer's bucket",
       fast.answerReads === 0,
     );
-    /*
-     * And without reading the index either. The manifest is still needed — the
-     * reconcile clock reads `listedAt` off it, and without one
-     * `indexNeedsAPass` says "no index at all" and re-lists the whole bucket
-     * behind every fast search — but nothing the caller waits for needs it, so
-     * it is resolved inside the deferred maintenance. That is the last object
-     * GET on the critical path of a hit: what remains is `privacy.md`, which
-     * every request reads to build the privacy engine, and the D1 queries
-     * themselves.
-     */
+    // Nor the bucket's index, in front of the caller or behind: a context
+    // with a search database keeps none (decided by the owner, 2026-10-17).
     check(
       "and without reading the index in front of the caller either",
       fast.answerIndexReads === 0,
     );
-
-    /*
-     * -- and `reducedRecall: false` here is a claim, not a default ---------
-     *
-     * `searchVisibleNotes` hardcodes it on this branch and argues it from the
-     * projection's shape: `projectPass` reads each note's own object and
-     * writes a chunk row per message, so there is no shard byte cap for a
-     * mailbox to cross and nothing reaching D1 is ever reduced. The argument
-     * is sound and it was worth nothing untested — measured, claiming the
-     * opposite here reddened no check in this suite while the console's own
-     * twin of it in `consoleSearch.test.ts` was pinned. So: mark the R2
-     * manifest shed, which is exactly what makes the R2 path warn, and
-     * confirm an answer served out of the database still does not.
-     */
-    const manifestObject = bucket.get(".context/search/v2/manifest.json");
-    const shedManifest = JSON.parse(manifestObject.body);
-    shedManifest.stats[0] = {
-      ...shedManifest.stats[0],
-      shed: 1,
-      shedPaths: ["1-projects/roster.md"],
-    };
-    bucket.set(".context/search/v2/manifest.json", {
-      ...manifestObject,
-      body: JSON.stringify(shedManifest),
-    });
-    const overShed = await search("numbat");
     check(
-      "the fast path never claims reduced recall, even over a manifest marked shed",
-      !overShed.text.includes("more messages than the search index can keep in full"),
+      "or behind that same response",
+      fast.deferredIndexReads === 0,
     );
-    // Put it back: the checks below measure this fixture's index, and a
-    // manifest this one edited is not the one they were written against.
-    bucket.set(".context/search/v2/manifest.json", manifestObject);
+    // The D1 projection has a row per chunk and no shard byte cap for a
+    // mailbox to cross, so an answer served from it never warns of shedding.
     check(
-      "the manifest is still read, behind that same response",
-      fast.deferredIndexReads > 0,
+      "the fast path never claims reduced recall",
+      !fast.text.includes("more messages than the search index can keep in full"),
     );
     check(
       "and it really was the projection that was asked",
@@ -464,12 +450,8 @@ export async function runServeChecks(check) {
     // team caller has one hit they may read and one they may not, which is the
     // only arrangement in which a pre-filter count is observable at all.
     seed("1-projects/roundup.md", "# Roundup\n\nAnother quoll arrangement.\n", "s8");
-    ready("backfilling");
-    // Seeded straight into the bucket, as Obsidian or rclone would, so only a
-    // listing finds them: the manifest is dropped to ask for one.
-    bucket.delete(".context/search/v2/manifest.json");
-    for (let round = 0; round < 3; round += 1) await search("quoll");
-    ready("ready");
+    // Seeded straight into the bucket and copied by the control plane's pass.
+    fillFrom(bucket, DATABASE_ID);
     check(
       "a team note is projected into the team corpus",
       d1.rows(`SELECT path FROM notes_team_fts WHERE notes_team_fts MATCH ?`, ['"quoll"']).length >
@@ -813,7 +795,7 @@ export async function runServeChecks(check) {
       body: "# Field\n\nA quokka census for this quarter.\n",
       etag: "bs1",
     });
-    for (let round = 0; round < 3; round += 1) await search("quokka", SERVE_TOKEN_B);
+    fillFrom(bucketB, DATABASE_ID_B);
     controlPlane.bindings.set(SERVE_WS_B, s3Binding("serve-bucket-b", descriptorB("ready")));
 
     const beforeB = d1.requests.length;

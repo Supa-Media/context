@@ -8,6 +8,7 @@ import { findEntry, treeRowFor } from "../files/tree";
 import type { FileEntry } from "../files/types";
 import type { ConsoleData } from "../types";
 import { noteActionItems, type NoteActionId } from "./noteActions";
+import { askAddProperty } from "../files/noteEditor/chips/addPropertyAsk";
 
 /**
  * The ••• sheet over the open note — see `noteActions.ts` for which rows and
@@ -42,6 +43,7 @@ export function NoteActionsSheet({
   const run = (id: NoteActionId) => {
     onDismiss();
     if (id === "read") return setReadMode(!reading);
+    if (id === "addProperty") return askAddProperty();
     runNoteAction(id, { data, entry, contextLabel, setBarDialog });
   };
 
@@ -61,8 +63,8 @@ export function NoteActionsSheet({
  * the two cannot disagree about what Share or Move does.
  */
 export function runNoteAction(
-  /** Reading mode is the sheet's own row (`NoteActionsSheet`), not an operation on the note. */
-  id: Exclude<NoteActionId, "read">,
+  /** Reading mode and Add property are the sheet's own rows (`NoteActionsSheet`), not operations on the note. */
+  id: Exclude<NoteActionId, "read" | "addProperty">,
   {
     data,
     entry,

@@ -50,6 +50,7 @@ function unlinkedDeps(linqCalls: string[]): InboxDeps {
   const fetcher = (async (url: string) => {
     const path = new URL(url).pathname;
     if (path === "/agent-texts/session") return Response.json({ status: "unlinked" });
+    if (path === "/agent-texts/setup") return Response.json({ status: "not_eligible" });
     if (path === "/agent-texts/invite") return Response.json({ status: "issued", url: LINK });
     linqCalls.push(url);
     return new Response("{}", { status: 200 });

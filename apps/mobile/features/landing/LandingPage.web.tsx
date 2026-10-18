@@ -5,7 +5,7 @@ import { useColors, useScheme } from "../design/theme";
 import { LANDING_CSS } from "./landingCss";
 import { darkLandingColors as darkLanding, lightLandingColors as lightLanding } from "../design/tokens/landingColors";
 import { HomeShell } from "../home/HomeShell";
-import { SimplePage } from "./SimplePage.web";
+import { TexPage } from "./TexPage.web";
 import { PageB } from "./variants.web";
 
 /**
@@ -14,7 +14,7 @@ import { PageB } from "./variants.web";
  * counted on the waitlist by its letter (`waitlist.landing`) and by the ad
  * that sent the visit (`waitlist.campaign`).
  *
- * a is the simple one, a page of prose in the references' shape. b is the
+ * a is the Tex page, texting your notes beside one conversation with Tex. b is the
  * page `/` showed until today, unchanged, with the map at its centre. c is
  * the console's own shell in visitor mode, the homepage every other page of
  * the website still is, so "the landing page was the app shell" is that shell
@@ -25,7 +25,7 @@ export function LandingPage({ page }: { page: Letter }) {
     // The page a visit landed on is the one its waitlist row records.
     captureLandingPage(`/${page}`);
   }, [page]);
-  if (page === "a") return <SimplePage />;
+  if (page === "a") return <TexPage />;
   return page === "c" ? <HomeShell /> : <PaperPage />;
 }
 

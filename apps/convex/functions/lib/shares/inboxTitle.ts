@@ -32,7 +32,7 @@ import type { Id } from "../../../_generated/dataModel";
 import { canSee } from "../privacy";
 import { liveNode } from "../nodes/facts";
 import { mirrorRules } from "../nodes/log";
-import { readMirror } from "../nodes/listing";
+import { readerMirror } from "../nodes/readerRules";
 import type { Rules } from "../nodes/log";
 
 /** Long enough for any real title, short enough that a row cannot carry a paragraph. */
@@ -73,7 +73,7 @@ export async function shareableRules(
   ctx: QueryCtx,
   workspaceId: Id<"workspaces">,
 ): Promise<Rules | null> {
-  const mirror = await readMirror(ctx.db, workspaceId);
+  const mirror = await readerMirror(ctx, workspaceId);
   if (mirror?.invalid === true) return null;
   return await mirrorRules(mirror);
 }

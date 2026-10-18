@@ -130,7 +130,7 @@ describe("the Convex copy column", () => {
     expect(convexCell(migration({ stage: "skipped" }))).toMatchObject({
       health: "off",
       label: "Skipped",
-      problem: "This storage can't be listed in order (Dropbox)",
+      problem: "This storage can't be listed in order",
     });
     expect(convexCell(null).health).toBe("none");
   });
@@ -152,6 +152,12 @@ describe("the Convex copy column", () => {
       figure: "12",
     });
     expect(convexCell(migration({ stage: "matches" }), true)).toMatchObject({ health: "ok", label: "Matches" });
+    // A keyed workspace is done, whatever a check from before the flip found.
+    expect(convexCell(migration({ stage: "keyed", parity: { checkedAt: 1, mismatches: 70, privacyMatches: true } }))).toMatchObject({
+      health: "ok",
+      label: "Notes by id",
+      problem: null,
+    });
     expect(convexCell(migration({ stage: "stuck", error: "Listing failed" }), true)).toMatchObject({ health: "stuck" });
   });
 

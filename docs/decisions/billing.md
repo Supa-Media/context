@@ -61,7 +61,8 @@ Decided by the owner on 2026-09-28, once the free tier gave every new workspace
 a managed bucket. The upgrade screen used to ask for managed storage, fast
 search or both before its button did anything; free already had the first, and
 the boxes never named the other things a payment unlocks (a custom domain,
-auto-organize). Premium is now **one $5 plan**: the screen lists what it buys
+and then auto-organize, which the owner removed on 2026-10-17). Premium is now
+**one $5 plan**: the screen lists what it buys
 and has one Upgrade button.
 
 The two stored fields stay, because they still mean different things, but the
@@ -376,7 +377,7 @@ workspace lives in component state behind `/workspace/new`, which would restart
 at step 1 with the name already claimed — the worst possible landing for
 somebody who has just paid. The workspace's own Premium section is a real page
 that already draws the settling wait, so the return goes there. It costs the
-two remaining steps of the flow, exactly as the Dropbox redirect does, and
+two remaining steps of the flow, and
 `WORKSPACE_AFTER_PAY` says so on the screen that takes the payment rather than
 afterwards — first run's "Stripe brings you back here" would be a promise this
 flow cannot keep.
@@ -502,7 +503,56 @@ can do neither. A bucket somebody brought gets a dry-run report before the vault
 question, and it says what the probe did: one temporary object written under
 `.context/probes/` and removed — never "nothing was written".
 
-**No new Dropbox connections.** Onboarding and new workspaces no longer offer
-Dropbox. A context already bound to Dropbox keeps working and can reconnect
-from Settings, because non-negotiable #2 says an existing workspace must keep
-working unchanged; removing the adapter would break exactly those.
+## Founding Premium: the first 100 accounts (2026-10-17)
+
+Decided by the owner (Dev2): "Our first 100 people are going to be considered
+premium … because they're using the app and we need the data." That includes
+Tex's dreams, which need Premium and the built-in model.
+
+**Granted to the account, once, in creation order.** A `foundingPremium` row
+per grant, capped at `FOUNDING_PREMIUM_ACCOUNTS` (100,
+`apps/convex/functions/lib/billing/founding.ts`). Every new account schedules a
+walk that grants each account still owed one, oldest first, so accounts made
+before this shipped come ahead of new sign-ups (an hourly cron runs the same
+walk: `foundingPremium:catchUp`). Mutations are serializable, so the 101st
+grant cannot be written. The row is never deleted, not even with its account:
+the cap counts grants ever made, so a founder leaving frees no slot and no
+other account's standing moves. Staff (`ADMIN_EMAILS`), the production CUJ
+account, the directory reviewer and the staging personas take no slot.
+
+**What it gives is an active plan on the personal workspace**, through the
+same activation the staging upgrade uses, marked `founding: true`. Every
+Premium gate already reads exactly that (the built-in model, dreams, usage,
+websites, domains), so there is no second notion of Premium
+for a new gate to forget. A plan still belongs to a workspace: a shared
+workspace the founder makes later pays as any other. Nothing is charged — no
+checkout opens on an active plan — and a Stripe event can never lower a
+founding plan below active (`foundingStatus`), so a founder who was already
+paying keeps Premium after cancelling in the portal; we never cancel their
+subscription for them. Nothing here deletes anything or touches the exit.
+`billing.status` reports `founding`, so the console offers no upgrade on an
+active plan without a Stripe customer and, where it would name a price, says
+"Founding member: Premium at no charge." instead
+(`apps/mobile/__tests__/premiumFounding.test.ts`). The plan keeps Stripe's own
+word beside the floor (`stripeStatus`), and `billing.status` reports
+`subscriptionLive` from it, so a founder whose subscription ended reads as any
+other founder: no "Manage billing", no price, no paid-period date. A founder
+who cancels at period end is told billing stops and Premium stays.
+
+**The founders' deal is limited Premium, not paid Premium** (decided by the
+owner, 2026-10-17: "it shouldn't be the exact same as people paying ... it
+should still have a 1000 note restriction"). A founder at no charge
+(`foundingAtNoCharge`: founding, and no live Stripe subscription) keeps every
+Premium gate, but on storage we run the free tier's `FREE_MANAGED_NOTE_CAP`
+still applies (`noteCapFor`); their own bucket is never capped. To lift it a
+founder may buy full Premium: `startCheckout` refuses an active plan except a
+founder's at no charge, and once that subscription is live the cap is gone;
+if it ends, the founder is back on the capped deal, never below it. Tests:
+`apps/convex/__tests__/billing/foundingCap.test.ts`.
+
+**What a simplification would cost:** counting live accounts instead of grant
+rows lets a deletion promote account 101; checking an account flag inside each
+gate instead of the plan leaves the next gate free-for-founders by omission;
+granting without the oldest-first walk hands slots to whoever signs up next
+rather than to the people already using it. Tests:
+`apps/convex/__tests__/billing/founding.test.ts`.

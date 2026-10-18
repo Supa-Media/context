@@ -81,6 +81,7 @@ export {
   checkoutOutcomeFrom,
   checkoutReturnPath,
   contextSegment as checkoutContextSegment,
+  integrationsSettingsPath,
   portalReturnPath,
   premiumSettingsPath,
   type CheckoutOrigin,
@@ -274,6 +275,16 @@ export {
   type SystemFamily,
 } from "./feedbackReport";
 export {
+  REPORT_EMAIL,
+  REPORT_LIMITS,
+  REPORT_REASONS,
+  REPORT_REASON_LABELS,
+  REPORT_TARGET_KINDS,
+  reportMailto,
+  type ReportReason,
+  type ReportTargetKind,
+} from "./contentReport";
+export {
   IN_APP_MESSAGES,
   MESSAGE_VARIANT_PATTERN,
   STORED_MESSAGE_IDS,
@@ -287,3 +298,4 @@ export {
 
 /** Website designs: layouts, stylesheets and the sanitizers they are drawn through. */
 export * from "./siteDesign";
+export { dnsHostSteps, rootRecordType, type DnsHostSteps } from "./dnsHosts";

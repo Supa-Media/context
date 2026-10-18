@@ -21,6 +21,7 @@ import type { SyncMark } from "./pendingMarks";
 import { useRowInteractions } from "./rowInteractions";
 import { SyncMarkDot, withSyncMark } from "./SyncMarkDot";
 import { isGroupVisibility } from "./types";
+import { RowOpeningBar, useStillOpening } from "./RowOpening";
 import { isItem, RowExtraLead, RowExtraTrail, useRowExtra, useRowTrailShows } from "./folderPage/rowExtras";
 import type { FileEntry } from "./types";
 
@@ -49,8 +50,14 @@ export function FolderRow({
   depth = 0,
   expanded = false,
   onToggle,
+  opening = false,
 }: {
   row: FileEntry;
+  /**
+   * This note was tapped and is loading: the row goes lighter and a line runs
+   * along its foot until the note opens (`RowOpening.tsx`).
+   */
+  opening?: boolean;
   /** How many folders in from the page's own this row sits, opened in place (`NestedRows.tsx`). */
   depth?: number;
   /** Whether this folder is open in place, its rows drawn under it. */
@@ -71,9 +78,10 @@ export function FolderRow({
    */
   picked?: boolean;
   /**
-   * What a long press does instead of the row menu: on a phone, enter the
-   * select mode with this row picked. Absent everywhere else, where the long
-   * press (or right-click) is still the row's own menu.
+   * What a long press does instead of the row menu: in a phone's select mode,
+   * pick or unpick this row. Absent everywhere else, where the long press (or
+   * right-click) is the row's own menu — on a phone, the lifted hold menu
+   * (`HoldMenu.tsx`), whose Select enters the mode.
    */
   onHold?: (path: string) => void;
   /**
@@ -135,6 +143,7 @@ export function FolderRow({
   });
   const isDropTarget = drag !== undefined && drag.target === row.path;
   const intent = useNoteIntent();
+  const stillOpening = useStillOpening(opening);
   return (
     <View
       ref={interactions.ref as never}
@@ -144,14 +153,15 @@ export function FolderRow({
     <PressRow
       onPress={() => onSelect(row.path)}
       onIntent={intent !== undefined && row.kind === "file" && picked === undefined ? () => intent(row.path) : undefined}
-      style={[styles.row, card && styles.rowCard, home !== null && styles.rowHome, depth > 0 && { paddingLeft: depth * NEST_INDENT }]}
+      style={[styles.row, card && styles.rowCard, home !== null && styles.rowHome, depth > 0 && { paddingLeft: depth * NEST_INDENT }, opening && styles.rowHover]}
       hoverStyle={styles.rowHover}
       radius={card ? 0 : radii.md}
       hitSlop={{ top: ROW_SLOP, bottom: ROW_SLOP }}
       accessibilityLabel={
         withSyncMark(row.kind === "folder" ? `${label}, folder` : label, sync) +
         (home === null ? "" : homeDetail(home)) +
-        (picked === true ? ", selected" : "")
+        (picked === true ? ", selected" : "") +
+        (opening ? ", opening" : "")
       }
       testID="folder-row"
       // Unconditional: `useRowInteractions` returns nothing to spread when
@@ -317,7 +327,11 @@ export function FolderRow({
         claim and is why both exist. Outside the card there is no list edge for
         it to sit against and the leading one already carries the listing.
       */}
-      {home?.meta == null || extraShown ? null : (
+      {stillOpening ? (
+        <Text variant="meta" numberOfLines={1} style={styles.homeMeta} testID="folder-row-still-opening">
+          Still opening…
+        </Text>
+      ) : home?.meta == null || extraShown ? null : (
         <Text variant="meta" numberOfLines={1} style={styles.homeMeta} testID="folder-row-meta">
           {home.meta}
         </Text>
@@ -330,6 +344,7 @@ export function FolderRow({
         <Icon name="chevronRight" size={home === null ? 14 : 16} color={colors.chromeMuted} />
       ) : null}
     </PressRow>
+    {opening ? <RowOpeningBar /> : null}
     </View>
   );
 }

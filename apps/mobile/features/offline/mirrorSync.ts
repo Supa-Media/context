@@ -127,6 +127,13 @@ export interface MirrorSyncDeps {
   /** What changed since a cursor (`syncTreeChanges`). Absent: every run walks. Must reject rather than hang. */
   changes?: (workspaceId: string, cursor: { since: number; after: string; privacy: string }) => Promise<ChangesPage>;
   readNotes: (workspaceId: string, paths: string[]) => Promise<BatchRead[]>;
+  /**
+   * Whether this device keeps a note's body (`downloadChoice.ts`): `false`
+   * for Archive and for a workspace kept online only. Absent: every note.
+   * A note it does not keep is still listed, never fetched, and a body it
+   * already holds is dropped unless local work is based on it.
+   */
+  keepsBody?: (workspaceId: string, path: string) => boolean;
   /** Which versions local work is based on, asked before every write-back. */
   needed: (workspaceId: string) => Promise<Needed>;
   /** The session this run belongs to, as `epoch.ts` numbers it. */
@@ -138,6 +145,8 @@ export interface MirrorSyncDeps {
   onListed?: (workspaceId: string) => void;
   /** This run committed new note bodies, which `onListed` came before. */
   onFetched?: (workspaceId: string) => void;
+  /** A catch-up found nothing changed, so nothing was written: the copy is current as of now. */
+  onChecked?: (workspaceId: string) => void;
   /** Tests only. */
   batchSize?: number;
   concurrency?: number;
@@ -253,6 +262,7 @@ export async function refreshMetadata(
 ): Promise<boolean> {
   const listing = await listForSync(deps, target);
   if (listing === null || listing === "aborted" || listing.pagesListed === 0) return false;
+  if (listing.unchanged === true) return false;
   const committed = await commitListing(deps, listing);
   if (committed !== null && deps.mine()) deps.onListed?.(listing.workspaceId);
   return committed !== null;
@@ -321,9 +331,10 @@ async function fetchContext(
   /* ------------------------------- 2. compare ----------------------------- */
 
   const before = await readIndex(store, scope, workspaceId);
+  const kept = (path: string) => isNotePath(path) && (deps.keepsBody?.(workspaceId, path) ?? true);
   const toFetch: string[] = [];
   for (const entry of listed.values()) {
-    if (!isNotePath(entry.path)) continue;
+    if (!kept(entry.path)) continue;
     const local = before?.entries.get(entry.path);
     if (
       local === undefined ||
@@ -337,15 +348,38 @@ async function fetchContext(
 
   /* -------------------------------- 3. fetch ------------------------------ */
 
-  const queue = [...toFetch];
+  // Most recently edited first: what somebody is likeliest to open next is on
+  // the device soonest, rather than whatever sorts first by name.
+  const queue = [...toFetch].sort(
+    (a, b) => (listed.get(b)?.updatedAt ?? 0) - (listed.get(a)?.updatedAt ?? 0),
+  );
   const gone = new Set<string>();
   let failed = 0;
   let stopped = false;
   let sessionEnded = false;
   const batchSize = Math.min(deps.batchSize ?? MIRROR_BATCH, MIRROR_BATCH);
   let listedNotes = 0;
-  for (const path of listed.keys()) if (isNotePath(path)) listedNotes += 1;
-  const current = listedNotes - toFetch.length;
+  for (const path of listed.keys()) if (kept(path)) listedNotes += 1;
+  let current = listedNotes - toFetch.length;
+  /*
+    A catch-up lists only what changed, so its own count ("0 of 1") is not the
+    workspace's: the pill read "0 / 1", then "done" and vanished, then came
+    back at "2,828 / 2,831" when the run ended (Dev2, 2026-10-16: "the
+    download counter still randomly disappears"). Counted from the index the
+    listing was just committed into, the line stays the workspace's own.
+  */
+  if (listing.delta !== undefined && before !== null) {
+    const waiting = new Set(toFetch);
+    let notes = 0;
+    for (const [path, entry] of before.entries) {
+      if (!kept(path)) continue;
+      notes += 1;
+      if (!entry.body) waiting.add(path);
+    }
+    for (const path of listed.keys()) if (kept(path) && !before.entries.has(path)) notes += 1;
+    listedNotes = notes;
+    current = notes - waiting.size;
+  }
   const progress = () =>
     deps.onProgress?.(workspaceId, { total: listedNotes, done: current + run.fetched });
   // Said only when there is something to download: a sync that finds nothing
@@ -485,7 +519,7 @@ async function fetchContext(
       if (gone.has(entry.path)) continue;
       const local = index.entries.get(entry.path);
       if (superseded) {
-        if (isNotePath(entry.path) && (local === undefined || !local.body)) remaining += 1;
+        if (kept(entry.path) && (local === undefined || !local.body)) remaining += 1;
         continue;
       }
       if (!isNotePath(entry.path)) {
@@ -498,6 +532,8 @@ async function fetchContext(
         });
         continue;
       }
+      // Online only: listed so the tree is whole offline, never downloaded.
+      if (!kept(entry.path)) continue;
       if (local === undefined || !local.body) {
         remaining += 1;
         continue;
@@ -521,6 +557,21 @@ async function fetchContext(
       });
     }
 
+    /*
+      A body this device no longer keeps — Archive, or a workspace switched to
+      online only — goes, whether or not this run's listing named it (a
+      catch-up names only what changed). The entry stays, so the tree is whole
+      offline. Not while somebody's unsent work is based on it.
+    */
+    for (const [path, entry] of [...index.entries]) {
+      if (!entry.body || !isNotePath(path) || kept(path) || needed(path).size > 0) continue;
+      await store.removeBody(scope, workspaceId, "current", path);
+      await store.removeBody(scope, workspaceId, "base", path);
+      const { base: _base, rawEtag: _rawEtag, ...rest } = entry;
+      index.entries.set(path, { ...rest, etag: "", body: false });
+      run.pruned += 1;
+    }
+
     // An ancestor nobody's work is based on any more has done its job.
     for (const entry of index.entries.values()) {
       if (entry.base !== undefined && !needed(entry.path).has(entry.base)) {
@@ -529,9 +580,24 @@ async function fetchContext(
       }
     }
 
+    /*
+      A catch-up names only what changed, so what an earlier run could not
+      fetch is counted from the index — and a copy that was short before a
+      catch-up stays short until a walk says otherwise: a body left behind at
+      an older version is not something the index can see.
+    */
+    let carried: IncompleteReason | undefined;
+    if (listing.delta !== undefined) {
+      for (const [path, entry] of index.entries) {
+        if (listed.has(path) || gone.has(path)) continue;
+        if (isNotePath(path) && kept(path) && !entry.body) remaining += 1;
+      }
+      if (index.complete === false) carried = index.incomplete ?? "read-failed";
+    }
+
     run.remaining = remaining;
-    run.complete = complete && remaining === 0;
-    if (!run.complete) run.incomplete = incomplete ?? "read-failed";
+    run.complete = complete && remaining === 0 && carried === undefined;
+    if (!run.complete) run.incomplete = incomplete ?? carried ?? "read-failed";
     index.lastSyncedAt = now;
     index.complete = run.complete;
     index.remaining = remaining;
@@ -609,6 +675,11 @@ export async function syncAll(
     if (listing === "aborted") {
       runs.push(abortedRun(target));
       return runs;
+    }
+    // Nothing changed: no index to rewrite, no body to ask for.
+    if (listing.unchanged === true) {
+      deps.onChecked?.(listing.workspaceId);
+      continue;
     }
     const committed = listing.pagesListed > 0 ? await commitListing(deps, listing) : null;
     if (committed !== null) {

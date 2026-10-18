@@ -8,9 +8,10 @@
  * (`listChanges`) asks the tree table's change log what changed since the
  * last walk or catch-up — new and changed keys, keys that left, folders that
  * emptied — and prunes exactly what it names. A catch-up is only tried where
- * the last run left the copy complete, the server said where to resume, and
- * the last whole walk is recent; anything the server cannot answer that way
- * (`full`) is a walk.
+ * the last run left the copy complete (or short only of notes the server
+ * would not read, see `INCOMPLETE_WALK_MS`), the server said where to resume,
+ * and the last whole walk is recent; anything the server cannot answer that
+ * way (`full`) is a walk.
  */
 
 import type { CacheScope } from "./keys";
@@ -51,6 +52,11 @@ export interface ContextListing {
   delta?: { gone: Set<string>; goneFolders: Set<string> };
   /** Where the next catch-up resumes; `null` when it cannot, and the next run walks. */
   changes?: ChangeCursor | null;
+  /**
+   * A catch-up that heard of nothing: no key, no folder, and the cursor where
+   * it was. There is nothing to write, and `syncAll` writes nothing.
+   */
+  unchanged?: boolean;
 }
 
 /**
@@ -170,6 +176,18 @@ export function fullWalkAfter(cursor: ChangeCursor): number {
   return cursor.privacy.startsWith("nodes:") ? NODES_FULL_WALK_MS : FULL_WALK_MS;
 }
 
+/**
+ * How long a copy short only of notes the server would not read (`read-failed`)
+ * catches up before it is walked whole again, which is when those notes are
+ * asked for again. Without it such a copy was walked on every trigger — every
+ * head move in any workspace — and every walk rewrote the whole index on the
+ * JS thread: Dev2's phone stopped answering taps for a minute at a time
+ * (2026-10-16) with three notes that would not download. A copy a dropped
+ * connection left short (`interrupted`) is not held back: its next run walks
+ * and resumes the downloads.
+ */
+export const INCOMPLETE_WALK_MS = 10 * 60_000;
+
 /** Change-log pages one catch-up will follow before committing what it has. */
 export const MAX_CHANGE_PAGES = 20;
 
@@ -184,11 +202,12 @@ export async function listForSync(
   if (target.tier === "unknown" || deps.changes === undefined) return await listContext(deps, target);
   const index = await readIndex(deps.store, target.tier, target.workspaceId).catch(() => null);
   const cursor = index?.changes;
+  const age = cursor === undefined ? Infinity : deps.now() - cursor.walkedAt;
   const caughtUp =
     cursor !== undefined &&
-    index?.complete === true &&
-    index.listedComplete === true &&
-    deps.now() - cursor.walkedAt < fullWalkAfter(cursor);
+    index?.listedComplete === true &&
+    age < fullWalkAfter(cursor) &&
+    (index.complete === true || (index.incomplete === "read-failed" && age < INCOMPLETE_WALK_MS));
   if (!caughtUp) return await listContext(deps, target);
   const delta = await listChanges(deps, target, cursor);
   return delta === "walk" ? await listContext(deps, target) : delta;
@@ -261,5 +280,14 @@ export async function listChanges(
     pagesListed,
     delta: { gone, goneFolders },
     changes: { ...at, walkedAt: cursor.walkedAt },
+    ...(listed.size === 0 &&
+    gone.size === 0 &&
+    folders.size === 0 &&
+    goneFolders.size === 0 &&
+    at.since === cursor.since &&
+    at.after === cursor.after &&
+    at.privacy === cursor.privacy
+      ? { unchanged: true }
+      : {}),
   };
 }

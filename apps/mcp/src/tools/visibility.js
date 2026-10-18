@@ -1,4 +1,4 @@
-/** `set_visibility` and `set_folder_visibility` — the tools that write privacy.md. */
+/** `set_visibility` and `set_folder_visibility` — the tools that write privacy.md, and name people on a note. */
 
 import { eligible as collaborationEligible, supported as collaborationSupported, readDocument as readCollaborationDocument } from "@context/collaboration";
 import {
@@ -17,11 +17,24 @@ import {
   persistExactVisibility,
   UNWRITABLE_PATH_REFUSAL,
   writesOneRule,
+  PRIVACY_CONCURRENT_ERROR,
+  RowsWriteRefused,
+  setRowTier,
 } from "../privacy/state.js";
 import { normalizePath } from "../notes/paths.js";
 import { normalizeVisibility } from "../notes/format.js";
 import { recordChange } from "../activity/record.js";
-import { toolError, toolText } from "./results.js";
+import { toolError, toolText, writePermissionError } from "./results.js";
+import { addPeopleToNote } from "./notePeople.js";
+
+/** A rows-mode refusal as the tool answers it: FORBIDDEN is the permission error; a CONFLICT is the file's own words. */
+function rowsRefusal(error, operation) {
+  if (error instanceof RowsWriteRefused) {
+    return error.code === "FORBIDDEN" ? writePermissionError(operation) : toolError(error.message);
+  }
+  if (error instanceof Error && error.message === PRIVACY_CONCURRENT_ERROR) return toolError(error.message);
+  throw error;
+}
 
 export async function toolSetVisibility(store, scope, rules, overrides, args) {
   if (scope !== "private") {
@@ -31,9 +44,21 @@ export async function toolSetVisibility(store, scope, rules, overrides, args) {
   if (!path || !path.endsWith(".md") || isPlumbing(path)) {
     return toolError("invalid path (must be a non-reserved .md note)");
   }
+  // `people` alone names who else may open the note and leaves its visibility as it is.
+  if (args.visibility === undefined && args.people !== undefined) {
+    if (!(await getWithLegacyFallback(store, path))) return toolError("not found");
+    return await addPeopleToNote(store, path, args.people);
+  }
   const visibility = normalizeVisibility(args.visibility);
   if (!["private", "team"].includes(visibility)) {
     return toolError("visibility must be private or team");
+  }
+  if (args.people !== undefined) {
+    const changed = await toolSetVisibility(store, scope, rules, overrides, { ...args, people: undefined });
+    if (changed.isError === true) return changed;
+    const named = await addPeopleToNote(store, path, args.people);
+    return named.isError === true ? named : toolText(`${changed.content[0].text}
+${named.content[0].text}`);
   }
   if (!writesOneRule(path)) return toolError(UNWRITABLE_PATH_REFUSAL);
   const obj = await getWithLegacyFallback(store, path);
@@ -65,7 +90,11 @@ export async function toolSetVisibility(store, scope, rules, overrides, args) {
       );
     }
   }
-  await persistExactVisibility(store, path, visibility, rules);
+  try {
+    await persistExactVisibility(store, path, visibility, rules);
+  } catch (error) {
+    return rowsRefusal(error, "note");
+  }
   await recordChange(store, "set_visibility", scope, [path], {
     from: current,
     to: visibility,
@@ -122,7 +151,8 @@ export async function toolSetFolderVisibility(store, scope, args) {
   const noteObjects = listed.filter(({ key }) => key.endsWith(".md") && !isPlumbing(key));
   const nextOverrides = new Map(state.overrides);
   const compacted = [];
-  for (const [notePath, visibility] of nextOverrides) {
+  // Rows mode keeps no redundant file overrides to compact: a note's row answers for itself.
+  for (const [notePath, visibility] of store.rowAccess ? [] : nextOverrides) {
     // No `private` override is ever compacted away, however redundant it looks
     // for its own exact path. Since the fold, that one line is also the only
     // thing narrowing every path that folds onto it, and this loop cannot see
@@ -200,12 +230,24 @@ export async function toolSetFolderVisibility(store, scope, args) {
   }
   if (unchanged) return toolText(["unchanged", ...impact].join("\n"));
 
-  const next = replacePrivacyRulesBlock(state.text, nextRules, nextOverrides);
-  const put = await store.put(PRIVACY_KEY, next, {
-    onlyIf: { etagMatches: state.object.etag },
-  });
-  if (!put) {
-    return toolError("conflict: privacy.md changed while applying; run dry_run again");
+  let privacyEtag;
+  if (store.rowAccess) {
+    // Rows mode: the folder's own row takes the tier; the rules are not written.
+    try {
+      await setRowTier(store, path, requested, { folder: true });
+    } catch (error) {
+      return rowsRefusal(error, "folder");
+    }
+    privacyEtag = state.object.etag;
+  } else {
+    const next = replacePrivacyRulesBlock(state.text, nextRules, nextOverrides);
+    const put = await store.put(PRIVACY_KEY, next, {
+      onlyIf: { etagMatches: state.object.etag },
+    });
+    if (!put) {
+      return toolError("conflict: privacy.md changed while applying; run dry_run again");
+    }
+    privacyEtag = put.etag;
   }
   await recordChange(store, "set_folder_visibility", scope, [path], {
     from: beforeDefault,
@@ -214,8 +256,8 @@ export async function toolSetFolderVisibility(store, scope, args) {
     notes_scanned: noteObjects.length,
     newly_team_visible_notes: newlyTeamVisible.length,
     compacted_note_overrides: compacted.length,
-    privacy_etag: put.etag,
+    privacy_etag: privacyEtag,
     team_visible: false,
   });
-  return toolText(["folder visibility changed", ...impact, `new_privacy_etag: ${put.etag}`].join("\n"));
+  return toolText(["folder visibility changed", ...impact, `new_privacy_etag: ${privacyEtag}`].join("\n"));
 }

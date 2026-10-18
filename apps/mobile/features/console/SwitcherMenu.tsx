@@ -7,7 +7,9 @@ import { Menu } from "../design/components/Menu";
 import { Text } from "../design/components/Text";
 import { useColors, useScheme, useThemedStyles, type Colors } from "../design/theme";
 import { setAppearance } from "../design/appearance";
-import { layout, radii, space } from "../design/tokens";
+import { fonts, layout, radii, space, touchType } from "../design/tokens";
+import { useChaosView } from "../chaos/ChaosContext";
+import { chaosWord, scoreShown, shownScore } from "../chaos/chaosModel";
 import { openFeedback } from "../feedback/request";
 import { useCanSendFeedback } from "../feedback/transport";
 import { offerOwnContext } from "../onboarding/route";
@@ -21,6 +23,7 @@ import {
 import type { MenuItem } from "./files/menuItem";
 import { atName } from "./format";
 import { isOwnWorkspace, railGroup } from "./rail";
+import { useTrashRoute } from "./trash/TrashRouteContext";
 import { selectedContext, type ConsoleData } from "./types";
 import { useWorkspaceIcons } from "./useWorkspaceIcons";
 import { WorkspaceMark } from "./WorkspaceMark";
@@ -78,7 +81,6 @@ export type SwitcherMenuId =
   | "new"
   | "settings"
   | "invite"
-  | "community"
   | "leave"
   | "signout"
   | "feedback"
@@ -86,7 +88,9 @@ export type SwitcherMenuId =
   | "signup"
   | "app"
   | "whatsnew"
-  | "shared";
+  | "shared"
+  | "trash"
+  | "chaos";
 
 export function SwitcherMenu({
   data,
@@ -98,7 +102,6 @@ export function SwitcherMenu({
   onOpenSettings,
   onInviteFriends,
   inviteDetail,
-  onOpenCommunity,
   onLeaveContext,
   onSignOut,
   onSignIn,
@@ -107,6 +110,7 @@ export function SwitcherMenu({
   whatsNew,
   shared,
   trigger = "row",
+  phoneNamed = false,
 }: {
   data: ConsoleData;
   /** The workspace you are in, as `@name` — the button's second line. */
@@ -117,14 +121,14 @@ export function SwitcherMenu({
   onNewWorkspace?: () => void;
   onOpenSettings?: () => void;
   /**
-   * Invite friends past the waitlist, and the community's join link — both
-   * from the referrals artboard (2026-09-29). Offered only where the caller
+   * Invite friends past the waitlist, from the referrals artboard
+   * (2026-09-29). The community's join link was here too until Dev2 took it
+   * off the card (2026-10-18). Offered only where the caller
    * has somewhere to take them; `inviteDetail` is "2 left" when invites can
    * be sent, so the count is on the row before the dialog opens.
    */
   onInviteFriends?: () => void;
   inviteDetail?: string;
-  onOpenCommunity?: () => void;
   /**
    * Leave the context you are in. Omitted where there is nothing to leave —
    * `leaveWorkspace` refuses an owner (`OWNER_CANNOT_LEAVE`), so the caller
@@ -158,10 +162,18 @@ export function SwitcherMenu({
    * header. A visitor who is not signed in sees a "Sign in" pill there.
    */
   trigger?: "row" | "avatar" | "phone";
+  /**
+   * On the phone's two top pages, Inbox and Folders: the mark with the
+   * workspace's @name and a ⌄ beside it, the line above the page's title
+   * (board 1 of `meeting-2026-10-17/phone-inbox/`). Below them the slot is ‹.
+   */
+  phoneNamed?: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const scheme = useScheme();
+  const trash = useTrashRoute();
+  const chaosView = useChaosView();
   const triggerRef = useRef<View>(null);
   const [anchor, setAnchor] = useState<AccountCardAnchor | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -261,37 +273,63 @@ export function SwitcherMenu({
       : []),
   ];
 
+  const chaosResult = chaosView !== undefined && scoreShown(chaosView.result) ? chaosView.result : null;
+  const chaos =
+    phoneNamed && chaosResult !== null
+      ? `Chaos ${shownScore(chaosResult.score)} · ${chaosResult.word ?? chaosWord(chaosResult.score)}`
+      : null;
+
+  const phone = trigger === "phone";
   const places: AccountCardRow[] = [
-    ...(onOpenMeetings
-      ? [{ id: "meetings", label: "Meetings", leading: <Icon name="calendar" size={14} />, testID: "switcher-meetings" }]
-      : []),
+    /*
+      Settings heads the group (Dev2, 2026-10-18): it is the row people come
+      to this card for most.
+    */
     ...(onOpenSettings
       ? [{ id: "settings", label: "Settings", leading: <Icon name="gear" size={14} />, testID: "switcher-settings" }]
       : []),
+    ...(onOpenMeetings
+      ? [{ id: "meetings", label: "Meetings", leading: <Icon name="calendar" size={14} />, testID: "switcher-meetings" }]
+      : []),
+    /*
+      The phone's Folders page lost its Trash and Chaos lines to board 2 of
+      meeting-2026-10-17/phone-inbox (Dev2: "EXACTLY like the mockups"), so
+      they are here, behind the @name line they open from on Inbox. A
+      pointer layout's tree lost its Trash row too (Dev2, 2026-10-18), so the
+      card behind your name is where Trash is there as well.
+    */
+    ...((phoneNamed || !phone) && trash !== undefined
+      ? [{ id: "trash", label: "Trash", leading: <Icon name="trash" size={14} />, testID: "switcher-trash" }]
+      : []),
+    ...(chaos === null
+      ? []
+      : [{ id: "chaos", label: chaos, leading: <Icon name="sparkle" size={14} />, testID: "switcher-chaos" }]),
     /*
       The quick way between light and dark (Dev2, 2026-10-14), for everyone
       including the homepage's visitor: it names the one you would switch to.
-      Settings › Profile has the third choice, following the device.
+      Settings › Profile has the third choice, following the device. Phone
+      only: a pointer layout has it as the sun in the top bar (Dev2,
+      2026-10-18; `layout/topTrailing.tsx`), and one place is enough.
     */
-    {
-      id: "appearance",
-      label: scheme === "dark" ? "Light mode" : "Dark mode",
-      leading: <Icon name="sun" size={14} />,
-      testID: "switcher-appearance",
-    },
+    ...(phone
+      ? [{
+          id: "appearance",
+          label: scheme === "dark" ? "Light mode" : "Dark mode",
+          leading: <Icon name="sun" size={14} />,
+          testID: "switcher-appearance",
+        }]
+      : []),
     /*
       Signed in only — `onSignOut` is the card's own word for that — and only
-      where this build can send a report at all. The phone's way in, since its
-      top bar has no room for the bug button.
+      where this build can send a report at all. Phone only, since its top bar
+      has no room for the bug button; a pointer layout has that button beside
+      Search (Dev2, 2026-10-18).
     */
-    ...(onSignOut && canReport
+    ...(phone && onSignOut && canReport
       ? [{ id: "feedback", label: "Send feedback", leading: <Icon name="bug" size={14} />, testID: "switcher-feedback" }]
       : []),
     ...(onInviteFriends
       ? [{ id: "invite", label: "Invite friends", detail: inviteDetail, leading: <Icon name="mail" size={14} />, testID: "switcher-invite" }]
-      : []),
-    ...(onOpenCommunity
-      ? [{ id: "community", label: "Community", leading: <Icon name="chat" size={14} />, testID: "switcher-community" }]
       : []),
     ...(whatsNew
       ? [{
@@ -356,8 +394,9 @@ export function SwitcherMenu({
     else if (id === "claim") onClaimContext?.();
     else if (id === "new") onNewWorkspace?.();
     else if (id === "settings") onOpenSettings?.();
+    else if (id === "trash") trash?.openTrash();
+    else if (id === "chaos") chaosView?.openPanel("sheet");
     else if (id === "invite") onInviteFriends?.();
-    else if (id === "community") onOpenCommunity?.();
     else if (id === "leave") onLeaveContext?.();
     else if (id === "signout") onSignOut?.();
     else if (id === "feedback") openFeedback("menu");
@@ -377,6 +416,7 @@ export function SwitcherMenu({
       rule that the top bar has no call to action of its own (websites.md).
     */
     const signedOut = onSignIn !== undefined;
+    const named = phoneNamed && current !== undefined;
     return (
       <>
         <PressRow
@@ -389,7 +429,7 @@ export function SwitcherMenu({
           }
           onPress={() => setSheetOpen(true)}
           radius={radii.pill}
-          style={signedOut ? styles.signInTarget : styles.phoneTarget}
+          style={signedOut ? styles.signInTarget : named ? styles.phoneNamedTarget : styles.phoneTarget}
           hoverStyle={styles.hover}
           ariaHasPopup="menu"
           ariaExpanded={sheetOpen}
@@ -413,7 +453,7 @@ export function SwitcherMenu({
                   label={atName(current.slug)}
                   tone={current.status}
                   icon={iconFor(current)}
-                  size={PHONE_MARK}
+                  size={named ? 24 : PHONE_MARK}
                 />
               ) : (
                 <Avatar initial={data.viewer.initial} />
@@ -423,6 +463,14 @@ export function SwitcherMenu({
               ) : null}
             </View>
           )}
+          {!signedOut && named ? (
+            <>
+              <Text style={styles.phoneName} numberOfLines={1} testID="account-menu-name">
+                {atName(current!.slug)}
+              </Text>
+              <Icon name="chevronDown" size={14} color={colors.muted} />
+            </>
+          ) : null}
         </PressRow>
         {sheetOpen ? (
           <Menu<string>
@@ -557,6 +605,16 @@ const makeStyles = (colors: Colors) =>
       alignItems: "center",
       justifyContent: "center",
     },
+    /** Inbox and Folders: the mark, the @name and ⌄, one 44pt-tall target. */
+    phoneNamedTarget: {
+      minHeight: layout.minTouchTarget,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: space.x2,
+      paddingRight: space.x2,
+      maxWidth: 260,
+    },
+    phoneName: { flexShrink: 1, fontFamily: fonts.body, fontSize: touchType.body, fontWeight: "600", color: colors.text2 },
     /** The visitor's pill, in the same slot, at the same touch height. */
     signInTarget: {
       minHeight: layout.minTouchTarget,

@@ -23,7 +23,8 @@ test("a mobile change deploys the app and its staging assets Worker", () => {
 
 test("a shared package fans out to every consumer", () => {
   assert.deepEqual(on(plan("packages/shared/src/storageLayout.cjs")), ["app", "convex", "email", "mcp", "router"]);
-  assert.deepEqual(on(plan("packages/collaboration/src/index.js")), ["app", "convex", "mcp", "router"]);
+  // The app merges with Yjs directly; only Convex and the gateway bundle this.
+  assert.deepEqual(on(plan("packages/collaboration/src/index.js")), ["convex", "mcp"]);
 });
 
 test("a gateway file the app and Convex import by relative path deploys them too", () => {
@@ -44,6 +45,23 @@ test("the texting assistant deploys only itself, to staging and to production", 
   assert.deepEqual(on(plan("apps/agent/src/worker.test.ts")), []);
   assert.deepEqual(promote("apps/agent/src/index.ts"), ["agent"]);
   assert.deepEqual(promote(".github/workflows/deploy-agent-worker.yml"), ["agent"]);
+});
+
+test("a Convex-only change leaves the app alone: it reaches Convex only through what it imports", () => {
+  // PR #1889: a new Convex function and its generated types rebuilt the web
+  // export and published an OTA update the phone did not need.
+  const convexOnly = ["apps/convex/functions/textPhones.ts", "apps/convex/_generated/api.d.ts", "apps/convex/http.ts"];
+  assert.deepEqual(on(plan(...convexOnly)), ["convex"]);
+  assert.deepEqual(promote(...convexOnly), ["convex"]);
+  assert.ok(!graph.app.dirs.includes("apps/convex"), "Convex is not claimed whole");
+  assert.ok(!graph.app.dirs.includes("packages/collaboration"), "nor what only Convex declares");
+});
+
+test("a Convex file the app imports still deploys the app, to staging and to production", () => {
+  for (const file of ["apps/convex/_generated/api.js", "apps/convex/functions/lib/names.ts", "apps/convex/functions/lib/scaffold/run.ts"]) {
+    for (const name of ["app", "router"]) assert.ok(on(plan(file)).includes(name), `${file} deploys ${name}`);
+    for (const name of ["ota", "web", "router"]) assert.ok(promote(file).includes(name), `${file} promotes ${name}`);
+  }
 });
 
 test("tests and READMEs inside a package do not deploy it", () => {

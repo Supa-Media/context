@@ -18,7 +18,7 @@ import { requireAdmin } from "./lib/admin";
 import { toConvexError } from "./lib/adminFns/errors";
 import { CATCH_UP_TARGET_MS, etaMs, lateReason, workspaceEtaMs } from "./lib/nodes/moveLag";
 import { MOVE_LEASE_MS, STUCK_ATTEMPTS, movesOverlap } from "./lib/nodes/moveRules";
-import { readMirror } from "./lib/nodes/listing";
+import { readerMirror } from "./lib/nodes/readerRules";
 import { followMovesForMembers } from "./lib/placesFollow";
 import { markWebsiteMoved } from "./lib/websites/routeChangeAt";
 
@@ -196,7 +196,7 @@ export const undo = mutation({
       updatedAt: now,
     });
     // Pins and recents go back with the folder, for whoever may see its old name.
-    await followMovesForMembers(ctx, row.workspaceId, [{ from: row.to, to: row.from }], await readMirror(ctx.db, row.workspaceId));
+    await followMovesForMembers(ctx, row.workspaceId, [{ from: row.to, to: row.from }], await readerMirror(ctx, row.workspaceId));
     await markWebsiteMoved(ctx, row.workspaceId, { from: row.to, to: row.from });
     await schedulePass(ctx, row.workspaceId);
     return null;

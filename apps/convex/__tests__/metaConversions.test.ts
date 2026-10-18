@@ -15,6 +15,7 @@
  *   `scheduleMetaConversion` removed from `waitlist.enter`             3
  *   `scheduleMetaConversion` removed from `auth.ts`                    1
  *   token moved into the URL as `?access_token=`                       1
+ *   the `app: "native"` skip removed from `waitlist.enter`            1
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
@@ -156,6 +157,13 @@ describe("a new waitlist signup", () => {
     await t.mutation(api.functions.waitlist.enter, { email: "jon@studio.test" });
     await drainScheduled(t);
     expect(sent).toHaveLength(1);
+  });
+
+  test("a sign-up from the phone app is never reported to Meta", async () => {
+    const t = setupTest();
+    await t.mutation(api.functions.waitlist.enter, { email: "jon@studio.test", app: "native" });
+    await drainScheduled(t);
+    expect(sent).toHaveLength(0);
   });
 
   test("without a token or a pixel id nothing is sent", async () => {

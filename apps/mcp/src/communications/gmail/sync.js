@@ -2,6 +2,7 @@ import { gmailMessageToEvent, dateKeyOf } from "./parsing.js";
 import { buildDayQuery, listAllMessageIds, getMessageOrNull, listAllHistory, GmailHistoryExpiredError } from "./api.js";
 import { syncOneDay } from "./render.js";
 import { openContactLookup } from "../contactLookup.js";
+import { cachesDay, readDayCache, serializeDayCache, writeDayCache } from "./messageCache.js";
 
 /* -------------------------------------------------------------------------- */
 /* Orchestration: backfill and incremental sync                               */
@@ -28,22 +29,59 @@ export function dateRange(startDate, endDate) {
  */
 export async function syncDayFromGmail(options) {
   const query = buildDayQuery({ folders: options.folders, date: options.date });
-  const ids = await listAllMessageIds({ fetchImpl: options.fetchImpl, accessToken: options.accessToken, query });
+  const ids = await listAllMessageIds({
+    fetchImpl: options.fetchImpl,
+    accessToken: options.accessToken,
+    query,
+    ...(options.maxListPages === undefined ? {} : { maxPages: options.maxListPages }),
+  });
+  // `known` holds messages a caller has already fetched (the first-connect
+  // import's fifty, an incremental pass's new mail); `maxFetches` is the
+  // import's (`recent.js`): it has already fetched some of this day's messages, and it may not fetch more
+  // than its ceiling. A day over the ceiling is not written at all — never
+  // from part of its list, which is the one thing a day must not be.
+  const known = options.known ?? new Map();
+  // The events this day was last rendered from (`messageCache.js`): a message
+  // never changes once it exists, so only ids the cache lacks are fetched.
+  const caching = options.messageCache !== false && cachesDay(options.date, options.wallClockMs);
+  const cache = caching
+    ? await readDayCache(options.store, options.mailboxSlug, options.date)
+    : { events: new Map(), existed: false };
+  if (options.maxFetches !== undefined) {
+    const unknown = ids.filter((id) => !known.has(id) && !cache.events.has(id)).length;
+    if (unknown > options.maxFetches) {
+      return { bytesWritten: 0, partsWritten: 0, contactsWritten: 0, quotaExceeded: false, messageCount: 0, fetched: 0, skipped: true };
+    }
+  }
   const events = [];
+  let fetched = 0;
   for (const id of ids) {
+    const cached = cache.events.get(id);
+    if (cached !== undefined) {
+      events.push(cached);
+      continue;
+    }
     // A message listed a moment ago and gone by the time it is fetched is
     // ordinary in a live mailbox — the owner deleted it, or a filter moved it
     // to Trash, between the two calls. The day is regenerated from whatever
     // Gmail still has, which is exactly what "the day is always the complete,
     // current query result" means; it is not a reason to abandon the day.
-    const message = await getMessageOrNull({
-      fetchImpl: options.fetchImpl,
-      accessToken: options.accessToken,
-      id,
-    });
+    let message = known.get(id);
+    if (message === undefined) {
+      fetched += 1;
+      message = await getMessageOrNull({
+        fetchImpl: options.fetchImpl,
+        accessToken: options.accessToken,
+        id,
+      });
+    }
     if (message === null) continue;
-    events.push(gmailMessageToEvent(message, { mailboxSlug: options.mailboxSlug }));
+    // Through JSON, the same as a cached event, so a day renders the same
+    // bytes whether its events were fetched this pass or remembered.
+    events.push(JSON.parse(JSON.stringify(gmailMessageToEvent(message, { mailboxSlug: options.mailboxSlug }))));
   }
+  // Serialized before `syncOneDay`, which annotates attachments in place.
+  const cacheText = caching ? serializeDayCache(options.date, events) : null;
   const result = await syncOneDay({
     store: options.store,
     mailboxSlug: options.mailboxSlug,
@@ -61,7 +99,11 @@ export async function syncDayFromGmail(options) {
     attachmentRetentionDays: options.attachmentRetentionDays,
     contacts: options.contacts,
   });
-  return { ...result, messageCount: events.length };
+  // After the note, so a cache never runs ahead of the day it describes.
+  if (cacheText !== null && !result.quotaExceeded) {
+    await writeDayCache(options.store, options.mailboxSlug, options.date, cacheText, { existed: cache.existed });
+  }
+  return { ...result, messageCount: events.length, fetched, skipped: false };
 }
 
 /**
@@ -153,6 +195,7 @@ export async function runIncrementalSync(options) {
       fetchImpl: options.fetchImpl,
       accessToken: options.accessToken,
       startHistoryId: options.startHistoryId,
+      folders: options.folders,
       ...(options.maxHistoryPages === undefined ? {} : { maxPages: options.maxHistoryPages }),
     });
   } catch (error) {
@@ -185,6 +228,8 @@ export async function runIncrementalSync(options) {
   // afterwards, because a day's note must reflect everything on it, not only
   // the messages history happened to name.
   const affectedDates = new Set();
+  // Handed to each day's rebuild, so a new message is fetched once, not twice.
+  const known = new Map();
   for (const id of history.messageIds) {
     // Added and then deleted before this pass ran: history still names it, and
     // `messages.get` answers 404. Skipping it is right — there is no day to
@@ -195,6 +240,7 @@ export async function runIncrementalSync(options) {
       accessToken: options.accessToken,
       id,
     });
+    known.set(id, message);
     if (message === null) continue;
     affectedDates.add(dateKeyOf(gmailMessageToEvent(message, { mailboxSlug: options.mailboxSlug })));
   }
@@ -226,6 +272,7 @@ export async function runIncrementalSync(options) {
       attachmentMode: options.attachmentMode,
       attachmentRetentionDays: options.attachmentRetentionDays,
       contacts,
+      known,
     });
     daysTouched.push(date);
     bytesWritten += result.bytesWritten;

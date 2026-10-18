@@ -72,6 +72,65 @@ crons.interval(
  * bucket and writes nothing there, and decides nothing — whether a routine
  * runs, and as whom, is asked again when it is handed out.
  */
+/**
+ * Give everyone with a linked phone a first nightly dream if they have never
+ * had one (`functions/dreams.ts`). It writes only a schedule row; whether the
+ * dream runs, and as whom, is asked again when it is handed out.
+ */
+// A share follows its note by id (`lib/shares/entryNote.ts`). Fills the id on shares minted before it existed,
+// and on any a mint could not stamp because its note was not in the tree yet.
+crons.interval("stamp share links with their note's id", { hours: 24 }, internal.functions.shares.stampEntryNoteIds, {});
+
+crons.interval("arm Tex's first dreams", { hours: 24 }, internal.functions.dreams.armLinkedDreams, {});
+
+/**
+ * And a first look, now, for anyone Tex texts with who still has no
+ * `tex/about-me.md` (`functions/lib/dreams/firstLook.ts`): once each, and only
+ * a schedule row.
+ */
+crons.interval("give Tex's people a first look", { hours: 1 }, internal.functions.dreams.armFirstLooks, {});
+
+/**
+ * The same for Tex's daytime check-in (`functions/heartbeats.ts`): a first one
+ * for everyone with a linked phone who has none. Only a schedule row; whether
+ * it runs, and as whom, is asked again when it is handed out.
+ */
+crons.interval("arm Tex's first check-ins", { hours: 24 }, internal.functions.heartbeats.armLinkedHeartbeats, {});
+
+/** And for Tex's daily housekeeping (`functions/housekeeping.ts`). */
+crons.interval("arm Tex's first housekeeping", { hours: 24 }, internal.functions.housekeeping.armLinkedHousekeeping, {});
+
+/**
+ * Empty the trash: erase for good what has been in a keyed workspace's trash
+ * for 30 days (decided by the owner, 2026-10-17; `functions/trash.ts`).
+ *
+ * The fourth job that acts outside this database, so it owes the two
+ * paragraphs. It holds no decision: the 30 days were chosen by the owner, and
+ * every trashed note shows the date it goes, on the Trash page and on the note
+ * itself, from the day it was trashed. It re-asks at the moment it acts, in
+ * the one transaction that removes the rows (`claimErasure`): the workspace is
+ * still keyed, the trash is still there and not restored, and it is past its
+ * date. Only then does the bucket half remove the notes' id keys and history,
+ * and a bucket that fails keeps the erasure for the next day.
+ */
+crons.interval("empty the trash", { hours: 24 }, internal.functions.trash.emptyDue, {});
+
+/**
+ * Tidy Archive's old date folders into the places they match (`functions/archiveTidy.ts`, owner
+ * 2026-10-18). It moves notes inside the customer's own Archive, on a clock, so it re-asks at the moment
+ * it acts: what is in each date folder, where the built-in folders are now, and what is already in
+ * Archive are all read inside the move, at the owner's clearance, and nothing is overwritten or deleted.
+ * Once no date folder is left it reads one row per workspace and returns.
+ */
+crons.interval("tidy Archive's date folders", { hours: 1 }, internal.functions.archiveTidy.catchUp, {});
+
+/**
+ * Grant founding Premium to accounts still owed it (`lib/billing/founding.ts`),
+ * so accounts made before it shipped do not wait for the next sign-up. Once
+ * the hundred are granted it returns at its first read.
+ */
+crons.interval("grant founding Premium", { hours: 1 }, internal.functions.foundingPremium.catchUp, {});
+
 crons.interval(
   "re-read routine folders",
   { hours: 6 },
@@ -94,10 +153,32 @@ crons.interval(
   {},
 );
 
+/**
+ * Finish erasing managed buckets of deleted workspaces
+ * (`functions/managedErasure.ts`). The safety net under each job's own
+ * retries: a run that died holding its row, or a dropped scheduled function,
+ * is picked up here. It decides nothing: which bucket to erase was decided by
+ * the account deletion that queued it, and each run re-checks the bucket name
+ * and the token's name before it deletes anything.
+ */
+crons.interval(
+  "finish erasing deleted workspaces' managed storage",
+  { minutes: 15 },
+  internal.functions.managedErasure.sweepManagedErasures,
+  {},
+);
+
 crons.interval(
   "sweep agent turns past their retention",
   { hours: 1 },
   internal.functions.agentTurns.purgeOldAgentTurns,
+);
+
+crons.interval(
+  "sweep hourly usage past its retention",
+  { hours: 1 },
+  internal.functions.usage.pruneHourly,
+  {},
 );
 
 crons.interval(
@@ -110,6 +191,18 @@ crons.interval(
   "sweep expired texted sign-in links",
   { hours: 1 },
   internal.functions.textLinks.purgeExpiredPhoneLinkInvites,
+);
+
+crons.interval(
+  "sweep expired sign-in links Tex texted",
+  { hours: 1 },
+  internal.functions.textSignIn.purgeExpired,
+);
+
+crons.interval(
+  "sweep text setups nobody finished",
+  { hours: 1 },
+  internal.functions.textSetup.purgeTextSetups,
 );
 
 crons.interval(
@@ -270,6 +363,18 @@ crons.interval(
  */
 crons.interval("check storage keeps up with the file tree", { minutes: 15 }, internal.functions.storageLag.check, {});
 
+/**
+ * Keep the id copy current (`functions/noteIds.ts`): a finished pass starts
+ * again, so an edit is copied, and a pass whose chain stopped is resumed. A
+ * third bucket-reaching job, so it owes the two paragraphs: it holds no
+ * decision, since every page re-reads its rows and re-checks each file's etag
+ * before a copy is marked, and it only decides when to look. Staff pause it.
+ */
+crons.interval("keep the id copy of each file current", { minutes: 15 }, internal.functions.noteIds.keepCurrent, {});
+
+/** Delete image-upload tickets past their ten minutes (`apps/mcp/src/notes/imageUploads.js`); no bucket, no decision. */
+crons.interval("sweep spent image upload tickets", { hours: 1 }, internal.functions.controlPlane.sweepImageUploads, {});
+
 /** Rebuild the bucket-backed website derivative; each pass re-checks enabled state. */
 crons.interval(
   "reconcile website route indexes",
@@ -306,10 +411,12 @@ crons.interval(
  * the next message for that person brings the page back.
  *
  * It exists because nothing else ever looked. Connecting a mailbox recorded a
- * grant and a `historyId` and then nothing advanced it: no cron, no webhook —
- * Google's push path is deliberately not built (`docs/decisions/communications.md`)
- * — and the gateway's `scheduled()` handler has no trigger configured. A
- * person connected Gmail and their mail never arrived.
+ * grant and a `historyId` and then nothing advanced it: no cron, no webhook,
+ * and the gateway's `scheduled()` handler has no trigger configured. A person
+ * connected Gmail and their mail never arrived. Google's push notifications
+ * (`functions/googlePush.ts`) now bring a pass forward, but only by making a
+ * connection due sooner; this sweep is still what claims it, and what notices
+ * a notification that never came.
  *
  * **Five minutes because that is the floor**, not because every account is
  * polled that often. `syncIntervalMinutes` is per connection and defaults to
@@ -375,21 +482,6 @@ crons.interval(
 );
 
 /**
- * Auto-organize sweeps. A job of the "acts outside this database" kind, so it
- * owes the two paragraphs.
- *
- * It holds no decision: whether a workspace is swept is the owner's switch,
- * their plan, and the one-time notice, all of which this only reads.
- * Suggestions it leaves are suggestions; nothing moves unless the owner
- * pressed Accept or chose "without asking" for that kind of change.
- *
- * It re-asks at the moment it acts: `runSweep` claims the sweep through
- * `beginSweep`, which re-reads the plan, the switch, `startsAt` and whether a
- * sweep is already running, and every trip through the barrier re-resolves
- * the owner's clearance from live membership. Hourly, with at most one sweep a
- * day per workspace (`SWEEP_EVERY_MS`).
- */
-/**
  * Queued folder moves whose chain of passes stopped (a deployment, a lost
  * schedule) are picked up again once their lease lapses
  * (`functions/nodeMoves.ts`). Moves normally chain on their own; this is the
@@ -399,13 +491,6 @@ crons.interval(
   "resume queued moves",
   { minutes: 5 },
   internal.functions.nodeMoves.resume,
-  {},
-);
-
-crons.interval(
-  "auto-organize sweeps",
-  { hours: 1 },
-  internal.functions.organizer.scheduleDueSweeps,
   {},
 );
 

@@ -264,22 +264,22 @@ describe("frontmatter is description, the manifest is access control", () => {
  * ONE OBJECT, ONE ANSWER — WHERE TWO STRINGS NAME ONE OBJECT.
  *
  * Every decision in both engines is keyed on an exact path. That is sound on a
- * keyspace where one string is one object, which R2 and S3 are and Dropbox is
- * not: `DropboxStore`'s own header records that Dropbox "treats `Foo.md` and
- * `foo.md` as the same file and normalises Unicode", and that it deliberately
- * does not re-case a caller's key, because a store that silently rewrote one
- * would be worse than one that returns what Dropbox actually has.
+ * keyspace where one string is one object, which R2 and S3 are. A store that
+ * folds case or Unicode is not, and a store that folds would be the one whose
+ * answer a caller could choose between two spellings of one path.
+ * Such a store must not re-case a caller's key silently, because one that
+ * did would be worse than one that returns what the store actually has.
  *
  * That is right for the adapter and it left the question here. Note paths reach
  * both engines from outside — a connected AI client's tool call, a console
- * request — so on a Dropbox-backed context the caller picks which of two
+ * request — so on a store that folds, the caller picks which of two
  * strings to send, and therefore which of two answers to be scored by:
  *
- *  - `Privacy.md` is not `privacy.md`, so nothing reserved it, and Dropbox
+ *  - `Privacy.md` is not `privacy.md`, so nothing reserved it, and the store
  *    wrote the access map anyway.
  *  - a note re-cased inside a `team` folder misses its narrowing override while
  *    the FOLDER rule still matches, because folder matching is a prefix compare
- *    the re-casing leaves untouched. It scores `team`, and Dropbox returns the
+ *    the re-casing leaves untouched. It scores `team`, and the store returns the
  *    private file.
  *
  * The direction is what makes the second one a hole. Re-casing a *folder* makes
@@ -369,7 +369,7 @@ describe("a privacy decision does not change when a path is re-cased", () => {
   });
 
   test("two overrides that fold together resolve to private, whatever their order", () => {
-    // One file on Dropbox, two manifest lines, a contradiction the owner never
+    // One file on a store that folds case, two manifest lines, a contradiction the owner never
     // resolved. Resolving it by which line came first is arbitrary, and one of
     // the two orders fails open.
     const teamRules: PrivacyRule[] = [{ prefix: "a", vis: "team" }];
@@ -514,7 +514,7 @@ describe("a privacy decision does not change when a path is re-cased", () => {
   });
 
   test("Unicode composition is folded too, in both engines", () => {
-    // Dropbox normalises Unicode as well as case. NFD "é" is two code points
+    // A store that normalises Unicode as well as case folds it. NFD "é" is two code points
     // and NFC "é" is one; they are the same file there.
     const nfc = "1-projects/reévaluation.md";
     const nfd = "1-projects/reévaluation.md";

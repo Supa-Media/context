@@ -8,13 +8,13 @@
  */
 
 import { ConvexError } from "convex/values";
-import { requireAuthId } from "@supa-media/convex/auth";
 import type { Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
 import { claimName, checkAvailability, nameRejectionError } from "../nameClaims";
 import { seedIngestionSettings } from "../ingestionStore";
 import { consumeRateLimit } from "../rateLimit";
 import { isProductionTestAccount } from "../testAccount";
+import { applyFoundingPremium, foundingGrantOf } from "../billing/founding";
 import { normalizeDisplayName } from "./rename";
 import {
   MAX_WORKSPACES_PER_USER,
@@ -22,8 +22,16 @@ import {
   WORKSPACE_CREATE_WINDOW_MS,
 } from "./constants";
 
+/**
+ * `userId` is the person creating it, already authenticated by the caller:
+ * the app's mutation passes its signed-in user, and the gateway's route
+ * (`gatewayRoutes/workspaces.ts`) the person a live grant resolved to. One
+ * handler, so the cap, the rate limit and the name rules are the same however
+ * the request arrived.
+ */
 export async function createWorkspaceHandler(
   ctx: MutationCtx,
+  userId: Id<"users">,
   args: {
     slug: string;
     displayName: string;
@@ -31,7 +39,6 @@ export async function createWorkspaceHandler(
     structureTemplate?: "para" | "custom";
   },
 ): Promise<{ workspaceId: Id<"workspaces">; slug: string }> {
-  const userId = (await requireAuthId(ctx)) as Id<"users">;
   const user = await ctx.db.get(userId);
   const isTestAccount = isProductionTestAccount(user);
 
@@ -39,11 +46,17 @@ export async function createWorkspaceHandler(
 
   // How many contexts this account already owns. Read before the name is
   // even looked at: hitting the cap must not depend on what you asked for.
+  // The owner filter runs before the limit, never after it: memberships come
+  // back in the order they were made, so someone who joined many contexts
+  // before creating their own would otherwise have every owned row past the
+  // limit, counted as none, and never meet the cap. No index covers the role,
+  // so this scans the person's memberships until it has found enough owners.
   const owned = await ctx.db
     .query("workspaceMembers")
     .withIndex("by_user", (q) => q.eq("userId", userId))
-    .take(MAX_WORKSPACES_PER_USER + 1);
-  if (!isTestAccount && owned.filter((m) => m.role === "owner").length >= MAX_WORKSPACES_PER_USER) {
+    .filter((q) => q.eq(q.field("role"), "owner"))
+    .take(MAX_WORKSPACES_PER_USER);
+  if (!isTestAccount && owned.length >= MAX_WORKSPACES_PER_USER) {
     throw new ConvexError({
       code: "WORKSPACE_LIMIT_REACHED",
       message: `You can own at most ${MAX_WORKSPACES_PER_USER} contexts.`,
@@ -107,6 +120,11 @@ export async function createWorkspaceHandler(
   // is the feature, and `seedIngestionSettings` throws if called anyway.
   if (args.kind === "personal") {
     await seedIngestionSettings(ctx, { workspaceId, ownerUserId: userId, now });
+    // A founder's personal workspace is Premium from its first moment
+    // (`lib/billing/founding.ts`).
+    if ((await foundingGrantOf(ctx, userId)) !== null) {
+      await applyFoundingPremium(ctx, workspaceId, userId);
+    }
   }
 
   return { workspaceId, slug: availability.normalized };

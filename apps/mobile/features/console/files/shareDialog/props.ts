@@ -6,6 +6,7 @@ import type { Visibility } from "../types";
 import type { NoteScope } from "../scope";
 import type { AudienceContext } from "../../privacy/audience";
 import type { NoteShare } from "../shares";
+import type { ShareGrants } from "./useShareGrants";
 
 /** What `ShareDialog` is handed. See the component for how each is used. */
 export type ShareDialogProps = {
@@ -170,6 +171,11 @@ export type ShareDialogProps = {
   };
   /** Drawn first in the footer: the website folder's Publish. */
   footExtra?: ReactNode;
+  /**
+   * The note's own list of people, groups and emails, each with view or edit (`useShareGrants`). Present for an
+   * owner where rows are the truth; absent, the dialog draws what it drew before lists existed.
+   */
+  grants?: ShareGrants;
 };
 
 /** An item a caller adds to the header's menu. */

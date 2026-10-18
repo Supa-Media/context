@@ -249,9 +249,9 @@ describe("the storage migration control is not toolbar chrome", () => {
       explorer.container.querySelector('[data-testid="explorer-storage-migration"]'),
     ).toBeNull();
     // The positive control, in the same assertion: this *is* an owner's
-    // toolbar, drawn, with the three controls that belong in it. Without this
+    // toolbar, drawn, with the two controls that belong in it. Without this
     // the test above passes on an explorer that rendered nothing at all.
-    for (const control of ["filter-toggle", "new", "view"]) {
+    for (const control of ["new", "view"]) {
       expect(
         explorer.container.querySelector(`[data-testid="explorer-${control}"]`),
       ).not.toBeNull();

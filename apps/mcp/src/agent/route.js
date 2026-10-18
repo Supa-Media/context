@@ -23,14 +23,17 @@ import { json } from "../http/responses.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
 import { BUILTIN_PROVIDER, builtinModel, canRunBuiltin } from "./builtin.js";
 import { aiGatewayConfig } from "./aiGateway.js";
+import { mailCheckerFor } from "./mailChecker.js";
 import { browserOwner } from "./browserProviders.js";
 import { texViewerUrl } from "../http/texComputer.js";
+import { appOriginOf, withNoteLinks } from "./noteLinks.js";
 import { computerFor, webSession } from "./computer.js";
 import { searcherFor } from "./search.js";
 import { decisionEngine } from "./decide.js";
 import { ProviderError } from "./providers.js";
-import { attachmentsLine, turnAttachments, withAttachmentImages } from "./attachments.js";
-import { toolsForSession } from "../tools/advertised.js";
+import { meterEach } from "./modelPlan.js";
+import { attachmentsLine, hearVoiceMessages, turnAttachments, withAttachmentImages } from "./attachments.js";
+import { grantedToolsFor } from "./sixTools.js";
 import {
   SHOWN_HISTORY_TURNS,
   appendConversation,
@@ -54,9 +57,16 @@ import {
   finishOnce,
 } from "./routine.js";
 import { textingAwareCallTool, textingWriteTools } from "./textingWrites.js";
+import { delegateSession, withDelegate } from "./delegate.js";
+import { NO_MODEL, deliverSupervision, prepareSupervision, withMailAgent } from "./supervise.js";
 import { LONG_MAX_ROUNDS, LONG_TOOL_BUDGET_MS, progressChannel } from "./progress.js";
 import { markUntrusted, newLedger } from "../privacy/egress.js";
-import { disarmTexting, listPending, replayAsAsked, settlePending, withdrawPending } from "../tools/approvals.js";
+import { transcriptionForwarder } from "../ingestion/transcription.js";
+import { outgoingPictures, sentPicturesLine } from "./outgoingPictures.js";
+import { disarmTexting, withdrawPending } from "../tools/approvals.js";
+import { askedWith, quotedOf } from "./quoted.js";
+import { textedAsk } from "./textedApprovals.js";
+import { settleTextedText } from "./textedSettle.js";
 
 /**
  * What a turn that may not run says. Nothing in the app can change this any
@@ -134,14 +144,13 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   store.actor = actorFor(session);
   store.contexts = contextsFor(session);
 
-  /*
-    The routine is re-read now, before any model is opened, so a paused or
-    vanished one costs nobody a turn from their daily allowance.
-  */
+  // The routine is re-read now, before any model is opened: a paused or vanished one costs no turn.
   // A tool call through the client's own dispatcher, under this session.
   const dispatch = (name, args) => callToolForSession({ name, arguments: args }, store, session);
   let routine = null;
   let runs = [];
+  // A delegated job's supervisor (`supervise.js`): what this run is for, decided before any model.
+  let supervision = null;
   let question = typeof body.question === "string" ? body.question.trim() : "";
   if (runner) {
     try {
@@ -157,46 +166,46 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       timeZone: routineTimeZone(routine.settings, body.routine.timeZone),
       lastRun: runs.findLast((run) => run.outcome === "answered" || run.outcome === "finished"),
     });
+    // A job going well, done or gone costs no model call (`supervise.js`); done or gone stops its supervisor.
+    supervision = await prepareSupervision(dispatch, routine, { runs, handle: store.contexts.find((c) => c.current)?.name });
+    if (supervision?.skip) {
+      const { skip: outcome, answer = "" } = supervision;
+      await keepRun(store, routine, runs, outcome, answer || NO_MODEL);
+      if (outcome === "finished") await stopRoutine(dispatch, routine.path);
+      if (supervision.task) await deliverSupervision(store, dispatch, supervision, { outcome, text: answer }, (work) => deferred(store, work));
+      return json({ outcome, answer, skipped: answer === "", send: routine.settings.send, to: routine.settings.to });
+    }
+    if (supervision !== null) question = supervision.question;
   }
   // What came with the question (`attachments.js`). A routine's run has none.
-  const { attachments, refusal } = turnAttachments(body.attachments, runner);
+  const { attachments: sent, refusal } = turnAttachments(body.attachments, runner);
   if (refusal) return json({ error: "invalid_request", error_description: refusal }, 400);
-  if (question.length === 0 && attachments.length === 0) {
+  if (question.length === 0 && sent.length === 0) {
     return json({ error: "invalid_request", error_description: "Ask a question." }, 400);
   }
   if (question.length > MAX_QUESTION_LENGTH) {
     return json({ error: "invalid_request", error_description: `A question is at most ${MAX_QUESTION_LENGTH} characters.` }, 400);
   }
-
   /*
-    A TEXTED YES OR NO SETTLES A PENDING APPROVAL BEFORE ANY MODEL RUNS.
-
-    The egress gate (`privacy/egress.js`) held a widening call until the
-    person says so, and the person says so here: a text that is nothing but
-    yes or no, from the linked phone, is matched by this code and never shown
-    to a model. The call then runs through the same dispatcher under this
-    session, marked approved, and the result is the reply. Only the texting
-    client: a routine's run has no person on the line, and the app approves
-    through `/approvals`.
+    The words an inline reply answers (`quoted.js`). They are somebody else's
+    — the message picked may be one Tex sent, carrying whatever Tex read — so
+    they never join `question`, which is what the browser's addresses, the
+    outgoing pictures, the sharing judge and the Mail checker all vouch from.
+    Only `runTurn` sees the two together, and the quote is marked there.
   */
+  const quoted = session.actorClientId === TEXTS_CLIENT_ID ? quotedOf(body.quoted) : "";
+
+  // A texted yes or no settles a pending approval before any model runs (`textedSettle.js`).
   if (session.actorClientId === TEXTS_CLIENT_ID) {
-    const verdict = attachments.length > 0 ? null : approvalVerdict(question); // a yes with a photo is about the photo
-    if (verdict !== null) {
-      const settled = await settleByText(store, session, verdict);
-      if (settled !== null) {
-        // The yes and what it released go in today's transcript too (`transcript.js`), after the reply.
-        const noted = openTranscript(dispatch, { now: received, timeZone: readTimeZone(body.timeZone), question }).finish({ answer: settled });
-        await deferred(store, noted);
-        return json({ answer: settled, provider: "gateway", model: "none", steps: [] });
-      }
-    }
-    /*
-      A text that goes to the model is not the answer to an ask made before it:
-      the person has moved on, and a bare "yes" to the model's next question
-      must not release a call raised two texts ago. Disarmed here, before the
-      model runs, so an ask this turn raises is the only one a yes can reach.
-    */
-    await disarmTexting(store, { userId: session.actorUserId });
+    const settled = await settleTextedText(store, session, {
+      dispatch,
+      question,
+      hasAttachments: sent.length > 0,
+      now: received,
+      timeZone: readTimeZone(body.timeZone),
+      defer: (work) => deferred(store, work),
+    });
+    if (settled !== null) return json(settled);
   }
 
   try {
@@ -223,15 +232,16 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     // them nothing.
     return json({ error: "model_unavailable" }, 503);
   }
+  // Voice messages become their words only now, once the turn is allowed and counted.
+  const attachments = await hearVoiceMessages(sent, transcriptionForwarder(env), session.workspaceId);
 
-  const offered = await toolsForSession(session, store);
+  const offered = await grantedToolsFor(session, store);
 
   /*
     THE EGRESS LEDGER FOR THIS TURN. `/agent` sees a turn whole — the
     question is the person's own words and every tool call passes through
-    this gateway — so the gate can ask only when the turn read something the
-    new audience could not see (`privacy/egress.js`). An MCP client gets no
-    ledger and is always asked.
+    this gateway — so the ledger can say whether it took in anything from
+    outside the workspace, and carry the asks it raised (`privacy/egress.js`).
   */
   const ledger = newLedger();
   /*
@@ -259,6 +269,22 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       ? body.conversation
       : null;
   const history = conversation === null ? [] : await readConversation(store, conversation);
+  session.egress.turn = runner ? { note: routine?.body ?? "" } : { history, question }; // the sharing judge's
+
+  /*
+    The Mail checker reads this thread's texts and nothing else the turn read
+    (`mailChecker.js`), so it is made here, from the person's own words, before
+    the model runs. Only a texted turn has those words; any other client's
+    email waits for the person in the app with no checker in front of it.
+  */
+  if (session.actorClientId === TEXTS_CLIENT_ID) {
+    session.mailChecker = mailCheckerFor({
+      history,
+      question,
+      config: aiGatewayConfig(env),
+      metadata: { feature: "mail-checker", workspace: String(session.workspaceId) },
+    });
+  }
 
   /*
     The computer is the texting assistant's for now (the owner's decision is
@@ -269,6 +295,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   // answers go out as iMessages, and only they are written for one. A
   // routine's answer is a text too, when it says anything.
   const texting = session.actorClientId === TEXTS_CLIENT_ID || runner;
+  // A texted write answers with the note's link, so Tex can text it (`noteLinks.js`).
+  const noteLinking = { origin: session.actorClientId === TEXTS_CLIENT_ID ? appOriginOf(env) : null, contexts: store.contexts };
   // A text has the MCP's own write tools (`textingWrites.js`, the owner,
   // 2026-10-08); a routine's own run never may.
   const textingWriting = textingWriteTools(offered, { texting: session.actorClientId === TEXTS_CLIENT_ID });
@@ -303,6 +331,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     the body either, which keeps `watch.md` from reading as a hostname.
   */
   const vouched = runner ? routine?.body ?? "" : question;
+  // Another agent's mail is someone else's words, like a page (`supervise.js`).
+  if (supervision !== null) markUntrusted(ledger);
   const opened =
     computer === null && search === null
       ? null
@@ -331,7 +361,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
 
   /*
     THE PRODUCTION SETUP (`production.js`): the texting job's file on a texted
-    turn, the app job's otherwise. Its prompt replaces the built-in words, and
+    turn, none otherwise. Its prompt replaces the built-in words, and
     its model is used only when this deployment can call it: an uncallable one
     falls back.
   */
@@ -353,6 +383,18 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   const skills = skillSession(production?.skills ?? [], (path) => readProductionSkill(store, session, path), {
     onRead: (body) => opened?.vouch(body),
   });
+  // A text that can write may hand a sub-project to another agent (`delegate.js`), as the person.
+  const home = store.contexts.find((entry) => entry.current)?.name ?? null;
+  const delegation =
+    session.actorClientId === TEXTS_CLIENT_ID && textingWriting.length > 0 && home !== null
+      ? delegateSession(dispatch, {
+          handle: home,
+          home,
+          vouch: (url, message) => opened?.delegated(url, message),
+          trusted: () => ledger.untrusted !== true,
+          browser: opened?.browser != null,
+        })
+      : null;
   // The setup's trusted sites (`trustedSites.js`), openable without an address given.
   // With `open_web: yes`, any public https address (owner, 2026-10-11).
   opened?.trust(production?.trustedSites ?? [], { openWeb: production?.openWeb === true });
@@ -363,7 +405,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   // decision model and the thinking model; otherwise every text runs on `main`.
   const router =
     productionModel !== null && production.router !== null && canRunBuiltin(production.router.think, env)
-      ? { decide: decisionEngine(env.AI), think: production.router.think, routeAt: production.router.routeAt }
+      ? { decide: decisionEngine(env.AI), think: production.router.think, routeAt: production.router.routeAt, thinkRounds: production.router.thinkRounds }
       : null;
   // The setup's fallback model (`production.js`), when this deployment can call it.
   const fallback =
@@ -375,18 +417,18 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     Counts only, best effort: a meter that could not be reached costs us a
     report, not the person their answer.
   */
-  const meter = async (usage, failed, model = builtinUsed) => {
+  const meter = async (usage, failed, model = builtinUsed, whole = true) => {
     try {
       await controlPlane.recordBuiltinUsage(session.accessToken, session.workspaceId, {
         input: usage?.input ?? 0,
         output: usage?.output ?? 0,
         cacheRead: usage?.cacheRead ?? 0,
         cacheWrite: usage?.cacheWrite ?? 0,
-        // The model that answered: the router may have sent this text to `think`.
+        // The model that spent this: a planned turn reports each (`modelPlan.js`), its own counts on one.
         model: typeof model === "string" ? model : builtinUsed,
-        decision: (web?.usage.decision ?? 0) + (usage?.decision ?? 0),
+        decision: whole ? (web?.usage.decision ?? 0) + (usage?.decision ?? 0) : 0,
         failed,
-        ms: Date.now() - started,
+        ms: whole ? Date.now() - started : 0,
       });
     } catch {
       // See above.
@@ -446,14 +488,16 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
         now: received,
         timeZone,
         question,
-        attachments: attachmentsLine(attachments),
+        attachments,
         routine: runner ? routine.path : null,
       })
     : null;
 
+  // Pictures a texted answer sends back (`outgoingPictures.js`): a text from their phone only.
+  const outgoing = outgoingPictures({ enabled: session.actorClientId === TEXTS_CLIENT_ID, question });
   try {
     const turn = await runTurn({
-      question,
+      question: askedWith(question, quoted),
       place: body.place ?? null,
       // A turn that edits directly is not also handed proposals: they have no
       // screen on a phone, and two ways to change a note is one too many.
@@ -461,15 +505,19 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
         ...agentTools(offered).filter((tool) => textingWriting.length === 0 || tool.name !== "propose_note"),
         ...textingWriting,
         ...(skills?.tools ?? []),
+        ...(delegation?.tools ?? []),
+        ...(supervision?.mail.tools ?? []),
       ],
-      /*
-        THE ONE DISPATCHER, AND IT IS THE CLIENT'S. Not a copy, not a subset
-        assembled here — `callToolForSession` is what an MCP client's tool call
-        goes through, including the cross-context routing and every per-call
-        scope refusal. An agent that reached past it would be a second authority
-        decision with no tests behind it.
-      */
-      callTool: withAttachmentImages(attachments, withSkills(skills, textingAwareCallTool(dispatch, textingWriting))),
+      // THE ONE DISPATCHER, AND IT IS THE CLIENT'S (`callToolForSession`): its routing and every
+      // per-call scope refusal. An agent that reached past it would be a second, untested authority.
+      onModel: (model) => void (store.usageModel = model),
+      callTool: outgoing.wrap(
+        withAttachmentImages(
+          attachments,
+          withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withSkills(skills, withNoteLinks(textingAwareCallTool(dispatch, textingWriting), noteLinking)))),
+        ),
+      ),
+      pictures: session.actorClientId === TEXTS_CLIENT_ID,
       attachments,
       env,
       providerOptions: {
@@ -487,7 +535,6 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       web,
       history: shown,
       local: earlier,
-      coreTools: production?.coreTools ?? null,
       // What Tex keeps about them and its open jobs, in their own workspace (`aboutMe.js`, `jobs.js`), on a texted turn.
       ...(texting ? await readTexNotes(dispatch) : {}),
       localNow: { now: Date.now(), timeZone },
@@ -507,7 +554,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     });
     // The question's browser, if it opened one, is not left running.
     if (opened !== null) await afterAnswer(opened.close());
-    await afterAnswer(meter(turn.usage, false, turn.model));
+    await afterAnswer(meterEach(turn, meter)); // one report per model it ran on, at its own price (`modelPlan.js`)
     await afterAnswer(logTurn(turn.exhausted ? "exhausted" : "answered", turn.model, turn.timing, turn.usage));
 
     if (runner) {
@@ -524,6 +571,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
         await stopRoutine(dispatch, routine.path);
       }
       // A one-off has run: it stays where it is, marked done (`finishOnce`).
+      if (supervision !== null) await deliverSupervision(store, dispatch, supervision, ran, afterAnswer);
       if (routine.cadence.unit === "once" && ran.outcome !== "failed") {
         await finishOnce(dispatch, routine.path, {
           now: Date.now(),
@@ -545,7 +593,10 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     // The ask goes out in the gateway's own words, after whatever the model
     // said: a person can allow only what they were told about, and the model
     // relaying it is a courtesy rather than the mechanism.
-    const answer = ledger.asked.length === 0 ? turn.answer : `${turn.answer}\n\n${askLine(ledger.asked)}`;
+    const { answer: told, pictures } = outgoing.take(turn.answer);
+    // An email's ask is texted exactly as written (`apps/agent/src/reply.ts`), or withdrawn if it would not fit.
+    const { ask, verbatim } = await textedAsk(store, session, ledger.asked);
+    const answer = ask === null ? told : `${told}\n\n${ask}`;
     /*
       A browser handed to the person goes out as a link the gateway adds, so
       the model never holds it. The link is their own `/tex/<handle>` page,
@@ -560,7 +611,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     if (conversation !== null && !turn.exhausted) {
       try {
         const saved = [question, attachmentsLine(attachments)].filter(Boolean).join("\n"); // names only, never bytes
-        await appendConversation(store, conversation, history, saved, answer, {
+        await appendConversation(store, conversation, history, saved, [answer, sentPicturesLine(pictures)].filter(Boolean).join("\n"), {
           tainted: ledger.untrusted,
           tools: turn.steps.filter((step) => step.ok).map((step) => step.tool),
         });
@@ -575,6 +626,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       // How many held calls the answer's last line asks about, so a caller that
       // plays the person (the bench) knows a YES is awaited; zero on a clean turn.
       asked: ledger.asked.length,
+      ...(verbatim.length > 0 ? { verbatim } : {}),
+      ...(pictures.length > 0 ? { pictures } : {}),
       provider: turn.provider,
       model: turn.model,
       steps: turn.steps,
@@ -636,61 +689,4 @@ async function keepRun(store, routine, runs, outcome, text) {
   } catch {
     // See above.
   }
-}
-
-/** A text that is nothing but yes, or nothing but no; anything else goes to the model. */
-const YES = /^\s*(?:yes|yes please|yep|yeah|yup|ok|okay|sure|do it|go ahead|go for it|confirm|confirmed|approve|approved|allow|y)\s*[.!]*\s*$/i;
-const NO = /^\s*(?:no|nope|no thanks|don'?t|cancel|stop|deny|denied|never ?mind|forget it|drop it|n)\s*[.!]*\s*$/i;
-
-export function approvalVerdict(text) {
-  if (typeof text !== "string") return null;
-  if (YES.test(text)) return "approve";
-  if (NO.test(text)) return "deny";
-  return null;
-}
-
-/** The line a texted answer ends with when the turn held something for the person. */
-export function askLine(asked) {
-  const what = asked.map((record) => record.summary).join("; ");
-  return `Before I ${asked.length === 1 ? "do that" : "do those"}, I need your OK: ${what}. Reply YES to go ahead, or NO to drop it.`;
-}
-
-/**
- * Settle what this thread's latest ask put to the person, as their text said.
- * Returns the reply, or null when nothing was waiting — in which case the text
- * is an ordinary one and the model answers it.
- */
-async function settleByText(store, session, verdict) {
-  // Only what this thread asked about, lately, and not since moved on from: a
-  // yes here never releases a call some other client raised that the person was
-  // not told of. Every record left armed was asked in the thread's latest ask,
-  // and the ask line named all of them, so one yes answers all of them.
-  const waiting = await listPending(store, { userId: session.actorUserId, texting: true });
-  if (waiting.length === 0) return null;
-  const replies = [];
-  for (const { record } of [...waiting].reverse()) {
-    const settled = await settlePending(store, record.id, {
-      userId: session.actorUserId,
-      action: verdict,
-      actorScope: session.scope,
-      run: (held) =>
-        replayAsAsked(store, session, held, (approver) =>
-          callToolForSession({ name: held.tool, arguments: held.args }, store, approver),
-        ),
-    });
-    if (settled.status === "denied") {
-      replies.push(`OK, dropped: ${record.summary}.`);
-      continue;
-    }
-    if (settled.status !== "approved") continue;
-    const text = settled.result?.content?.[0]?.text;
-    const said = typeof text === "string" && text.trim() ? text.trim() : "done.";
-    // A tool's own text is for a model: an etag, a visibility line. The person
-    // texted yes to a one-line summary and gets that summary back (the first
-    // Action round, 2026-10-10: "Done: write projects/x.md into @woodshop.
-    // written: projects/x.md (etag c2.doc-…) visibility: team" failed every
-    // voice line the judge has). What went wrong still says what the tool said.
-    replies.push(settled.result?.isError === true ? `I tried to ${record.summary}, but: ${said}` : `Done: ${record.summary}.`);
-  }
-  return replies.length === 0 ? null : replies.join("\n");
 }

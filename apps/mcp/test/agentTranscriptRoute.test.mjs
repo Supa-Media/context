@@ -15,12 +15,15 @@
  *     → "a texted turn is written into today's transcript" fails.
  *  2. `route.js` opening it for every client.
  *     → "a turn from another client writes no transcript" fails.
+ *  4. `route.js` passing the transcript no attachments.
+ *     → "a texted picture is stored in the workspace's images and shown…" fails.
  *  3. The transcript dispatching under the turn's own egress ledger.
  *     → "reading today's transcript to append to it never makes a widening ask" fails.
  */
 
 import worker from "../src/index.js";
 import { transcriptPath } from "../src/agent/transcript.js";
+import { IMAGE_PREFIX } from "../../../packages/shared/src/storageLayout.cjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import {
   createControlPlaneStub,
@@ -181,6 +184,22 @@ export async function runAgentTranscriptChecks(check) {
     check(
       "reading today's transcript to append to it never makes a widening ask",
       share.status === 200 && share.body?.answer === "Shared." && share.body?.asked === 0,
+    );
+
+    /* ---------------- what they sent (after the share check: an earlier attachment makes a later widening ask, which that check is not about) ---------------- */
+
+    const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    model.install([{ text: "Cute." }]);
+    const pictured = await ask(env, TOKEN_TEXTS, {
+      question: "look at this",
+      conversation: "texts",
+      timeZone: "UTC",
+      attachments: [{ name: "IMG_7.png", mediaType: "image/png", data: PNG }],
+    });
+    const leaf = /!\[\[(upload-[0-9a-f]{16}\.png)\|IMG_7\.png\]\]/.exec(day())?.[1];
+    check(
+      "a texted picture is stored in the workspace's images and shown in the transcript",
+      pictured.status === 200 && leaf !== undefined && bucket.get(`${IMAGE_PREFIX}${leaf}`) !== undefined,
     );
 
     /* ---------------- another client ---------------- */

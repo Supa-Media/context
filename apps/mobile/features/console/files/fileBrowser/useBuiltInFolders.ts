@@ -14,18 +14,25 @@ import type { Id } from "@context/convex/_generated/dataModel";
 import { foldersToRefresh } from "../tree";
 import type { FileBrowserOptions } from "./types";
 import type { ListingsValues } from "./useListings";
+import type { FolderJobsAnswer } from "../folderJobsView";
 
 type BuiltInFoldersDeps = { options: FileBrowserOptions } & Pick<ListingsValues, "refresh">;
 
 export interface BuiltInFoldersValues {
   /** Add the folder for `role`. Resolves with its path; rejects with the server's refusal. */
   addBuiltInFolder: (role: string) => Promise<string>;
+  /** Which folder does each job, wherever it is nested (`builtInFolders.jobs`). */
+  folderJobs: () => Promise<FolderJobsAnswer>;
+  /** Give `job` to the folder at `path`, or take it away (`null`). Owner. Rejects with the server's sentence. */
+  setFolderJob: (job: string, path: string | null) => Promise<void>;
 }
 
 export function useBuiltInFolders(deps: BuiltInFoldersDeps): BuiltInFoldersValues {
   const { options, refresh } = deps;
   const workspaceId = options.workspaceId as Id<"workspaces"> | null;
   const addAction = useAction(api.functions.builtInFolders.add);
+  const jobsAction = useAction(api.functions.builtInFolders.jobs);
+  const setJobAction = useAction(api.functions.builtInFolders.setJob);
 
   const addBuiltInFolder = useCallback(
     async (role: string): Promise<string> => {
@@ -43,5 +50,24 @@ export function useBuiltInFolders(deps: BuiltInFoldersDeps): BuiltInFoldersValue
     [addAction, options.canEdit, refresh, workspaceId],
   );
 
-  return { addBuiltInFolder };
+  const folderJobs = useCallback(async (): Promise<FolderJobsAnswer> => {
+    if (workspaceId === null) throw new Error("No workspace is open.");
+    return await jobsAction({ workspaceId });
+  }, [jobsAction, workspaceId]);
+
+  const setFolderJob = useCallback(
+    async (job: string, path: string | null): Promise<void> => {
+      if (workspaceId === null) throw new Error("No workspace is open.");
+      await setJobAction({ workspaceId, job, path });
+      // Every listing draws a folder's job icon, so the folders on screen are read again.
+      try {
+        await refresh(foldersToRefresh(path === null ? [""] : [path, ""]));
+      } catch {
+        // The next listing read shows it.
+      }
+    },
+    [refresh, setJobAction, workspaceId],
+  );
+
+  return { addBuiltInFolder, folderJobs, setFolderJob };
 }

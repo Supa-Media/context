@@ -50,12 +50,15 @@ import { systemPrompt } from "./prompt.js";
 import { localNowPrompt } from "./localNow.js";
 import { workspacesPrompt } from "./workspaces.js";
 import { pickTier } from "./router.js";
+import { addModelUsage, DRIVER_PROMPT, failedCall, modelForRound, PLANNER_PROMPT, thinkRoundsFor } from "./modelPlan.js";
 import { PROGRESS_PROMPT, PROGRESS_TOOL } from "./progress.js";
 import { usedTools } from "./conversation.js";
-import { FIND_TOOLS, toolShelf } from "./toolShelf.js";
+import { SIX_TOOLS, sixToolsOver } from "./sixTools.js";
+import { resultInV2Names } from "../tools/v2/speak.js";
 import { aboutMePrompt } from "./aboutMe.js";
 import { jobsPrompt } from "./jobs.js";
 import { TRANSCRIPTS_PROMPT } from "./transcript.js";
+import { ATTENTION_PROMPT, CHECK_IN_PROMPT } from "./checkIns.js";
 
 export { describePlace, systemPrompt } from "./prompt.js";
 
@@ -205,8 +208,8 @@ function noModel() {
  * did not ask for: an older client that asked for "anthropic" learns it has
  * none, and its person is not billed against a cap they did not choose.
  *
- * The control plane says whether this grant may (a texting or routine grant on
- * a Premium workspace under the daily cap). That answer also counts the turn,
+ * The control plane says whether this grant may (a texting or routine grant
+ * under the daily cap). That answer also counts the turn,
  * so it is asked once, here, and never per round.
  */
 export async function openProvider(controlPlane, session, requested, env = {}) {
@@ -243,17 +246,23 @@ export async function openProvider(controlPlane, session, requested, env = {}) {
  *   instead of `builtinModel(env)`; `route.js` checks it can be called
  * @param {number} [options.maxRounds] the most model rounds this turn may take,
  *   clamped to 1..MAX_ROUNDS
- * @param {{decide: Function|null, think: string, routeAt?: number}} [options.router] the setup's
+ * @param {{decide: Function|null, think: string, routeAt?: number, thinkRounds?: number}} [options.router] the setup's
  *   model router (`router.js`): the decision engine that picks a tier for this
- *   text, and the model a `think` text runs on; `route.js` checks it can be called
+ *   text, and the model a `think` text runs on; `route.js` checks it can be called.
+ *   With `thinkRounds`, a `think` text plans on `think` and drives on `main` (`modelPlan.js`)
  * @param {() => number} [options.clock] milliseconds, for `timing`
- * @param {string[]|null} [options.coreTools] the setup's core tools: offer
- *   those and `find_tools`, the rest by name (`toolShelf.js`); null offers all
+ * @param {{write?: string[], manage?: string[], send?: string[]}|null} [options.grants]
+ *   the actions a surface allows by name, where it narrows further than the
+ *   tools it holds (`sixTools.js`); null allows every action they carry
  * @param {Array<{tool: object, call: Function}>} [options.local] tools this
  *   turn answers itself rather than through the MCP
  * @param {string|null} [options.aboutMe] `tex/about-me.md`'s text on a texted
  *   turn (`aboutMe.js`), `""` when it doesn't exist; null says nothing about it
- * @returns {Promise<{answer: string, provider: string, model: string, steps: Array}>}
+ * @returns {Promise<{answer: string, provider: string, model: string, steps: Array, usage: object, usageByModel: object}>}
+ *   `model` is the model that wrote the final answer (on an exhausted turn, the
+ *   last one that ran); `usage` is the whole turn's, `usageByModel` the same
+ *   counts split by the model that spent them, which is what a turn that
+ *   changed model mid-way is priced by (`modelPlan.js` `meterParts`)
  */
 export async function runTurn(options) {
   const {
@@ -265,6 +274,8 @@ export async function runTurn(options) {
     history = [],
     web = null,
     texting = false,
+    // Whether its answer can text pictures back (`outgoingPictures.js`): a text from their phone.
+    pictures = false,
     notes = null,
     builtinModelOverride = null,
     router = null,
@@ -276,7 +287,7 @@ export async function runTurn(options) {
     roundCap = MAX_ROUNDS,
     progress = null,
     toolTimeouts = {},
-    coreTools = null,
+    grants = null,
     local = [],
     aboutMe = null,
     // `tex/jobs.md`'s text on a texted turn (`jobs.js`); null says nothing about jobs.
@@ -319,11 +330,11 @@ export async function runTurn(options) {
   // Tools answered here rather than by the MCP (`route.js`'s earlier texts).
   const localCalls = new Map(local.map((entry) => [entry.tool.name, entry.call]));
   /*
-    THE SHELF (`toolShelf.js`): with the setup's core tools, the model is
-    offered those and `find_tools`, and the rest are named in the prompt and
-    loaded on request. Without them, everything, as before.
+    THE SIX (`sixTools.js`): the model is shown orient, search, fetch, write,
+    manage and send, each listing only what `tools` grants, and a call to one
+    is translated back into the granted tool before the allowlist below.
   */
-  const shelf = Array.isArray(coreTools) ? toolShelf(tools, coreTools) : null;
+  const six = sixToolsOver(tools, grants);
   // A tool that is slow by nature (a browser step) may name its own limit.
   const timeoutFor = (name) =>
     Number.isInteger(toolTimeouts?.[name]) && toolTimeouts[name] > 0 ? toolTimeouts[name] : toolTimeoutMs;
@@ -334,20 +345,30 @@ export async function runTurn(options) {
   // A streamed turn may raise the cap (`progress.js`); a setup only ever tightens it.
   const rounds = roundsFor(maxRounds, Number.isInteger(roundCap) && roundCap > 0 ? roundCap : MAX_ROUNDS);
   const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, decision: 0 };
+  // The same counts by the model that spent them: a turn can change model (`modelPlan.js`, the fallback).
+  const usageByModel = {};
+  // The setup's everyday model, which a planned turn drives on.
+  const mainModel = model;
+  // Which model runs each round when the router picked think and the setup names think_rounds.
+  let plan = null;
   const trace = [];
   /*
     THE ROUTER PICKS THE MODEL BEFORE THE FIRST ROUND (`router.js`).
 
     The whole turn runs on the model picked, so the tool rounds are
-    coherent. The pick, the router's own word and what it cost are recorded:
-    a benchmark prices the model that answered, and a person watching the
-    turn log sees which tier a slow or wrong answer came from.
+    coherent, unless the setup plans with `think` and drives with `main`
+    (`think_rounds`, `modelPlan.js`): then each round picks its model below,
+    and `usageByModel` says what each spent. The pick, the router's own word
+    and what it cost are recorded: a benchmark prices each model that ran,
+    and a person watching the turn log sees which tier a slow or wrong answer
+    came from.
   */
   if (router !== null) {
     const asked = clock();
     const routed = await pickTier({ decide: router.decide, text: [question, attachmentsLine(attachments)].filter(Boolean).join("\n"), history, routeAt: router.routeAt });
     usage.decision += routed.tokens;
     if (routed.tier === "think") model = router.think;
+    plan = thinkRoundsFor(router, routed.tier, mainModel);
     // How sure the router was that this text needs thinking, kept whether or
     // not it cleared the setup's cutoff: a benchmark tunes the cutoff from the
     // near misses. Absent when it picked another tier or did not answer.
@@ -358,6 +379,7 @@ export async function runTurn(options) {
   const systemFor = (answering) =>
     systemPrompt(place, {
       texting,
+      pictures,
       notes,
       model: answering,
       edits: tools.some((tool) => tool.name === "write_note"),
@@ -366,12 +388,14 @@ export async function runTurn(options) {
     }) +
     webPrompt(webNames) +
     (progress ? PROGRESS_PROMPT : "") +
-    (shelf ? shelf.prompt() : "") +
     (aboutMe === null ? "" : aboutMePrompt(aboutMe, { edits: tools.some((tool) => tool.name === "write_note") })) +
     (jobs === null ? "" : jobsPrompt(jobs, { edits: tools.some((tool) => tool.name === "write_note") })) +
-    (observe ? TRANSCRIPTS_PROMPT : "") +
+    (observe && texting ? TRANSCRIPTS_PROMPT : "") + // a dream (`dream.js`) is told to read them
+    (observe && texting ? CHECK_IN_PROMPT : "") + // what its own check-ins do (`heartbeat.js`)
+    (observe && texting ? ATTENTION_PROMPT : "") + // the pings other agents ask it to text (`attention.js`)
     (localNow === null ? "" : localNowPrompt(localNow.now, localNow.timeZone)) +
-    workspacesPrompt(workspaces);
+    workspacesPrompt(workspaces) +
+    (plan === null ? "" : answering === plan.think ? PLANNER_PROMPT : DRIVER_PROMPT); // `modelPlan.js`
   let system = systemFor(model);
   const messages = [
     ...history.map(({ role, text }) => ({ role, text })),
@@ -415,23 +439,35 @@ export async function runTurn(options) {
     exactly one place that decides what the agent may reach.
   */
   const offeredNames = new Set((tools ?? []).map((tool) => tool.name));
-  if (shelf) offeredNames.add(FIND_TOOLS);
+  const offered = six.tools;
 
-  let offeredBefore = null;
+  /*
+    CHANGING MODEL MID-TURN: the fallback, and a planned turn moving between
+    `think` and `main` (`modelPlan.js`). The prompt is the new model's (it is
+    told which model it is), and the earlier rounds' thinking blocks are
+    dropped, because they are the other model's; their words and tool calls
+    stay, so the new model reads what was done.
+  */
+  const switchTo = (next) => {
+    model = next;
+    system = systemFor(model);
+    for (const message of messages) if (message.content) delete message.content;
+  };
+  // The last round's tool calls included one that failed: the next one plans again.
+  let escalate = false;
+  // The fallback is taken once a turn: a turn that moved models must never loop back to it.
+  let fellBack = false;
+
   for (let round = 0; round < rounds; round += 1) {
-    const asked = clock();
-    const offered = shelf ? shelf.shown() : tools;
-    /*
-      A round's thinking is handed back to the next (`providers.js`), and the
-      API checks each block against the tools it was made with. When the shelf
-      has just loaded a tool, every earlier block is dropped at once, which the
-      API allows; dropping some would refuse the request.
-    */
-    const offeredNow = offered.map((tool) => tool.name).join(",");
-    if (offeredBefore !== null && offeredNow !== offeredBefore) {
-      for (const message of messages) if (message.content) delete message.content;
+    if (plan !== null) {
+      const next = modelForRound(plan, round, escalate);
+      if (next.model !== model) {
+        tell({ kind: "model", model: next.model, reason: next.reason === "escalated" ? "after a step failed" : next.reason === "drive" ? "to carry out the plan" : "to plan" });
+        switchTo(next.model);
+      }
     }
-    offeredBefore = offeredNow;
+    escalate = false;
+    const asked = clock();
     let answer;
     try {
       answer = await requestBuiltin(
@@ -448,15 +484,16 @@ export async function runTurn(options) {
         told the model that answered, and a benchmark counts how often it
         happened, because this is what production does too.
       */
-      if (error instanceof ProviderError && fallback !== null && model !== fallback) {
+      if (error instanceof ProviderError && fallback !== null && model !== fallback && !fellBack) {
+        fellBack = true;
         const ms = clock() - asked;
         timing.modelMs += ms;
         trace.push({ kind: "fallback", from: model, model: fallback, status: error.status ?? null, ok: true, ms });
         tell({ kind: "model", model: fallback, reason: `after ${model} failed` });
-        model = fallback;
-        system = systemFor(model);
+        // The rest of the turn stays on the fallback: a plan would send it back to what failed.
+        plan = null;
         // Another model reads none of this one's thinking, and the prompt changed with it.
-        for (const message of messages) if (message.content) delete message.content;
+        switchTo(fallback);
         round -= 1;
         continue;
       }
@@ -469,7 +506,7 @@ export async function runTurn(options) {
           rounds: timing.rounds + 1,
           modelMs: timing.modelMs + ms,
           toolMs: timing.toolMs,
-          trace: [...trace, { kind: "model", ok: false, ms, ...(error.status === null || error.status === undefined ? {} : { status: error.status }) }],
+          trace: [...trace, { kind: "model", model, ok: false, ms, ...(error.status === null || error.status === undefined ? {} : { status: error.status }) }],
         };
       }
       throw error;
@@ -479,6 +516,8 @@ export async function runTurn(options) {
     timing.modelMs += roundMs;
     trace.push({
       kind: "model",
+      // Which model ran this round: a planned or fallen-back turn has more than one.
+      model,
       ok: true,
       ms: roundMs,
       // Retried once by the gateway (`aiGateway.js`): noted, with what it was retried after.
@@ -492,6 +531,7 @@ export async function runTurn(options) {
       usage.output += answer.usage.output;
       usage.cacheRead += answer.usage.cacheRead ?? 0;
       usage.cacheWrite += answer.usage.cacheWrite ?? 0;
+      addModelUsage(usageByModel, model, answer.usage);
     }
 
     for (const block of Array.isArray(answer.content) ? answer.content : []) {
@@ -501,7 +541,7 @@ export async function runTurn(options) {
     }
 
     if (answer.toolCalls.length === 0) {
-      return { answer: answer.text, provider, model, steps, usage, timing: { ...timing, trace } };
+      return { answer: answer.text, provider, model, steps, usage, usageByModel, timing: { ...timing, trace } };
     }
 
     if (answer.text?.trim()) tell({ kind: "say", text: answer.text });
@@ -512,7 +552,17 @@ export async function runTurn(options) {
       ...(Array.isArray(answer.content) ? { content: answer.content } : {}),
     });
 
-    for (const call of answer.toolCalls) {
+    for (const made of answer.toolCalls) {
+      // One of the six, as the granted tool that carries it; an older name as itself.
+      const resolved = six.resolve(made.name, made.args);
+      if (resolved.error) {
+        messages.push({ role: "tool", id: made.id, name: made.name, text: resolved.error, isError: true });
+        escalate = true;
+        tell({ kind: "tool", name: made.name.slice(0, 64), args: made.args, ok: false, ms: 0, reason: "no such action" });
+        continue;
+      }
+      const call = { ...made, name: resolved.name, args: resolved.args };
+      const asSix = SIX_TOOLS.includes(made.name);
       if (!offeredNames.has(call.name)) {
         /*
           Answered in band rather than thrown, like every other refusal in this
@@ -524,10 +574,11 @@ export async function runTurn(options) {
         messages.push({
           role: "tool",
           id: call.id,
-          name: call.name,
-          text: "There is no such tool. Use only the tools you were given.",
+          name: made.name,
+          text: asSix ? "That is not something you were given. Use only the actions your tools list." : "There is no such tool. Use only the tools you were given.",
           isError: true,
         });
+        escalate = true;
         tell({ kind: "tool", name: call.name.slice(0, 64), args: call.args, ok: false, ms: 0, reason: "no such tool" });
         continue;
       }
@@ -535,19 +586,18 @@ export async function runTurn(options) {
         // Answered in band, like an unknown tool: the model's next round is
         // the answer, written from what the calls so far returned.
         trace.push({ kind: "tool", tool: call.name, ok: false, ms: 0 });
-        messages.push({ role: "tool", id: call.id, name: call.name, text: OUT_OF_TIME, isError: true });
+        messages.push({ role: "tool", id: call.id, name: made.name, text: OUT_OF_TIME, isError: true });
         tell({ kind: "tool", name: call.name, args: call.args, ok: false, ms: 0, reason: "out of time" });
         continue;
       }
       let result;
       const called = clock();
-      // Held but not loaded: the model knew its name from the prompt, so it is loaded and run.
-      if (shelf?.isShelved(call.name)) shelf.loadOne(call.name);
+      // Which model made this call, for the usage breakdown. Per call, because
+      // routing and fallback can change the model mid-turn.
+      options.onModel?.(model);
       try {
         result = await withinTime(
-          shelf && call.name === FIND_TOOLS
-            ? Promise.resolve(shelf.call(call.args))
-            : progress && call.name === PROGRESS_TOOL
+          progress && call.name === PROGRESS_TOOL
             ? progress.call(call.args)
             : localCalls.has(call.name)
             ? localCalls.get(call.name)(call.args)
@@ -570,6 +620,8 @@ export async function runTurn(options) {
           error instanceof ToolTimeout ? TOOL_TIMED_OUT : "That call failed. Don't guess what it would have said.";
         result = { content: [{ type: "text", text }], isError: true };
       }
+      // A refusal written in the older names, read by a model that holds the six (`speak.js`).
+      if (asSix) result = resultInV2Names(result);
       const toolMs = clock() - called;
       timing.toolMs += toolMs;
       // A call the egress gate held for the person's yes is not a failure: it
@@ -577,11 +629,13 @@ export async function runTurn(options) {
       // would read as a broken tool.
       trace.push({ kind: "tool", tool: call.name, ok: result?.isError !== true, ms: toolMs, ...(result?.held === true ? { held: true } : {}) });
       steps.push({ tool: call.name, ok: result?.isError !== true });
+      // A failed step sends the next round to the planner; one held for the person's yes does not.
+      if (failedCall(result)) escalate = true;
       tell({ kind: "tool", name: call.name, args: call.args, ok: result?.isError !== true, ms: toolMs, held: result?.held === true });
       messages.push({
         role: "tool",
         id: call.id,
-        name: call.name,
+        name: made.name,
         text: toolResultText(result) || "(no result)",
         isError: result?.isError === true,
       });
@@ -602,6 +656,7 @@ export async function runTurn(options) {
     model,
     steps,
     usage,
+    usageByModel,
     timing: { ...timing, trace },
     exhausted: true,
   };

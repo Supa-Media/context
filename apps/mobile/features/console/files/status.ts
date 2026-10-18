@@ -231,6 +231,10 @@ export function saveChip(facts: SaveFacts): StatusSegment | null {
         The word changes, the tone changes, and how old the copy is goes in the
         detail — `message` carries it, set by `opened`.
       */
+      if (editor.fromCache === true && editor.checking === true) {
+        // Shown while the bucket is asked, a moment at most: said, but not as a warning.
+        return { id: "save", text: "Checking…", tone: "quiet", detail: message };
+      }
       if (editor.fromCache === true) {
         return { id: "save", text: "Cached copy", tone: "warn", detail: message };
       }

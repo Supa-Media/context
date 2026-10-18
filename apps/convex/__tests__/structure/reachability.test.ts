@@ -175,13 +175,13 @@ describe("no public function can reach a storage secret", () => {
         // not have and does not want a Cloudflare account still has to be able
         // to own their notes, and somebody has to create the bucket.
         "functions.managedProvisioning.provisionManagedStorage",
-        // THE TEST ACCOUNT'S RESOURCE FUNERAL. Opens our managed-account token
-        // only after `deleteAccount` has proved the exact verified CUJ email,
-        // and refuses any bucket except the deterministic name for that
-        // workspace. It empties/deletes that one managed bucket and revokes
-        // its scoped token; ordinary customer-account deletion never reaches
-        // this edge and continues to leave customer storage untouched.
-        "functions.managedProvisioning.deleteManagedTestResources",
+        // A DELETED ACCOUNT'S MANAGED STORAGE, ERASED. Opens our managed-account
+        // token for one bounded run of a queued erasure (`managedErasures`),
+        // written by the workspace cascade only for the deterministic bucket of
+        // a workspace being deleted. Re-derives and compares that bucket name,
+        // and checks the token's name, before deleting anything; a customer's
+        // own bucket is never queued and never reached.
+        "functions.managedErasure.runManagedErasure",
         // THE CUSTOMER HANDOFF'S RESOURCE FUNERAL. Opens the same operator
         // token only after the verified raw-object copy has atomically moved
         // the live binding to the customer's bucket. The scheduled arguments
@@ -219,32 +219,26 @@ describe("no public function can reach a storage secret", () => {
         // the move switched to. Internal-only, reached by one schedule edge
         // from the switch-over and by its own reschedules.
         "functions.moveCatchUp.runMoveCatchUp",
-        // THE THIRD KIND, AND THE WEAKEST ONE.
-        //
-        // Opens the parked PKCE verifier so the authorization code can be
-        // exchanged for a Dropbox grant. What it holds is not a key to anybody's
-        // storage — a verifier is useless without the matching code, it is
-        // ten minutes old at most, and the row carrying it is deleted *before*
-        // this runs, so a replay finds nothing.
-        //
-        // It is here rather than inside `completeDropboxConnect` precisely
-        // because that one is public: reached only by a schedule edge, which is
-        // the same shape as `verifyStorageBinding`.
-        "functions.dropboxConnect.exchangeAndBind",
-        // THE CREDENTIAL'S FUNERAL. Opens a Dropbox refresh token one last
-        // time to disable the grant at Dropbox after `disconnectStorage`
-        // deleted the row — without it, "Disconnect" forgets our copy while
-        // the authorization lives on in the person's account, and their next
-        // connect silently auto-approves. The envelope arrives in the args
-        // (the row is already gone), it is spent on one refresh + one revoke,
-        // and every failure is swallowed: after this runs, successfully or
-        // not, the control plane holds nothing. internalAction, reached only
-        // by schedule edges — three of them now: `disconnectStorage`,
-        // `applyBinding` rebinding away from Dropbox, and
-        // `applyDropboxBinding` landing on a different account. A count in
-        // this list is the sort of thing that goes stale silently, so it is
-        // here to be checked rather than trusted.
-        "functions.dropboxConnect.revokeDropboxGrant",
+        // The id copy's two passes (`functions/noteIdsCopy.ts`, `lib/noteIds/`).
+        // Each internalAction copies or checks one page of a workspace's files,
+        // by the gateway's mover when one is set, or here through the bucket's
+        // own credential when it is not. Reached only by schedule edges from the
+        // staff surface, the cron and themselves; nothing returns a credential,
+        // and each page records ids, etags and counts, never a path or a byte.
+        "functions.noteIdsCopy.run",
+        "functions.noteIdsCopy.runCheck",
+        // The old-copy cleanup's two passes (`functions/noteIdsCleanupRun.ts`, `lib/cleanup/pass.ts`).
+        // Each internalAction lists one page of a workspace's bucket (a count) or lists and deletes one
+        // page of old path copies (a delete), through the gateway's mover when one is set, or here through
+        // the bucket's own credential when it is not. Reached only by schedule edges from the two staff
+        // mutations and from themselves; the pages record counts, times and fixed labels, never a key.
+        "functions.noteIdsCleanupRun.runCount",
+        "functions.noteIdsCleanupRun.runDelete",
+        // Emptying the trash's bucket half (`functions/trashEmptying.ts`, `lib/trash/erase.ts`). Scheduled
+        // only by `trash.emptyDue` (the daily cron) for a keyed workspace owed an erasure; it removes the
+        // id keys and history the control plane already erased in `trash.claimErasure`, and records
+        // fixed labels on failure, never a key or a byte.
+        "functions.trashEmptying.eraseWorkspace",
         // THE FILE EDITOR'S CREDENTIAL BARRIER. Builds one S3Store for one
         // file operation and hands it to lib/fileOps.ts, which never sees the
         // credential. internalAction, and the only member of
@@ -307,6 +301,17 @@ describe("no public function can reach a storage secret", () => {
         // inbound email has nobody behind it. Read the CREDENTIAL_HTTP_ROUTES
         // comment before adding another.
         "http.gatewayIngestBinding",
+        // THE PERSON'S OWN GMAIL. `/gateway/email/send` mints a Google access
+        // token for one send and spends it on one request to Gmail; the token
+        // is never returned. See its CREDENTIAL_HTTP_ROUTES entry.
+        "http.gatewayPersonEmail",
+        // THE PERSON'S OWN CALENDAR. `/gateway/calendar/event`, the same
+        // shape as the Gmail route; see its CREDENTIAL_HTTP_ROUTES entry.
+        "http.gatewayCalendarWrite",
+        // THE PERSON'S OWN GMAIL, READ. `/gateway/email/search` and
+        // `/gateway/email/read`; see their CREDENTIAL_HTTP_ROUTES entry.
+        "http.gatewayPersonMailSearch",
+        "http.gatewayPersonMailRead",
         // THE PLATFORM'S OWN CREDENTIALS, AND THE ONE FUNCTION THAT OPENS ONE.
         //
         // Not a customer's anything — see the `functions/admin.ts` entry in
@@ -395,15 +400,12 @@ describe("no public function can reach a storage secret", () => {
         // `__tests__/customDomains/domainConnect.test.ts` verifies the link
         // against the public half and that no failure writes anything else.
         "functions.customDomainsProvision.detectProvider",
-        // THE GOOGLE CONNECT FLOW'S FOUR, THE SAME SHAPE AS DROPBOX'S TWO PLUS
-        // product-specific and combined binders. See the `functions/googleConnect.ts`
+        // THE GOOGLE CONNECT FLOW'S. See the `functions/googleConnect.ts`
         // entry in `DECRYPT_IMPORTERS` for why OAuth-connect modules exist rather
-        // than folding into each other, and why minting an access token for the
-        // sync job has no Dropbox analogue at all: a Dropbox binding hands the
-        // gateway a cached access token straight off the row (`storage.ts`'s own
-        // `S3`/`Dropbox` credential path), while a Google connection is read-only
-        // *from the gateway's side* and refreshes through the control plane instead,
-        // so it needs a function of its own — reused for every product on the grant.
+        // than folding into each other. Minting an access token for the sync job
+        // needs a function of its own: a Google connection is read-only from the
+        // gateway's side and refreshes through the control plane instead, and the
+        // function is reused for every product on the grant.
         "functions.googleConnect.exchangeAndBind",
         "functions.googleConnect.exchangeAndBindGoogle",
         "functions.googleConnect.mintGoogleAccessToken",
@@ -571,7 +573,7 @@ describe("no public function can reach a storage secret", () => {
           "    provider: v.string(),",
           "    encryptedRefreshToken: v.optional(v.string()),",
           "    encryptedAccessToken: v.optional(v.string()),",
-          "    dropboxAccountId: v.optional(v.string()),",
+          "    accountId: v.optional(v.string()),",
           "  })",
         ].join("\n"),
       ),
@@ -589,7 +591,7 @@ describe("no public function can reach a storage secret", () => {
     expect(PUBLIC_FORBIDDEN_FIELDS).toContain("encryptedsecretaccesskey");
     expect(PUBLIC_FORBIDDEN_FIELDS).toContain("encryptedsetupcredential");
     expect(BARRIER_FORBIDDEN_FIELDS).toContain("encryptedsetupcredential");
-    // The Dropbox columns, which the hand-written list never knew about.
+    // The Google token columns, which the hand-written list never knew about.
     expect(PUBLIC_FORBIDDEN_FIELDS).toContain("encryptedrefreshtoken");
     expect(PUBLIC_FORBIDDEN_FIELDS).toContain("encryptedaccesstoken");
     expect(PUBLIC_FORBIDDEN_FIELDS).toContain("encryptedverifier");

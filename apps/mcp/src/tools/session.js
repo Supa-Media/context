@@ -1,22 +1,22 @@
 /**
- * `callToolForSession` — the one path from a client's tool call to a tool:
- * cross-context routing, the per-call scope refusals, argument validation,
- * and then `callTool`. Read off THIS FILE by toolArguments.test.mjs and
- * crossContext.test.mjs (see test/gatewaySource.mjs).
+ * `callToolForSession` — the one path from a client's tool call to a tool: cross-context routing,
+ * the per-call scope refusals, argument validation, and then `callTool`. Read off THIS FILE by
+ * toolArguments.test.mjs and crossContext.test.mjs (see test/gatewaySource.mjs).
  */
 
+import { withMailFooter } from "../mail/footer.js";
 import { AGENT_ACTIVITY_TOOLS, recordAgentActivity } from "../live/agentActivity.js";
 import { activityHintOf } from "../live/activityHint.js";
 import { recordAgentRead } from "../live/readLog.js";
 import { callTool } from "./dispatch.js";
+import { inWordsOf, translateV2Params } from "./v2/translate.js";
 import { disabledToolNames, disabledToolRefusal } from "../plugins/enablement.js";
 import {
   FORM_TOOLS,
   isUsableContextName,
   ROUTING_PLANNING_TOOLS,
-  toolDefinitions,
-  toolExistenceMasked,
   toolIsWriting,
+  toolDefinitions,
 } from "./registry.js";
 import {
   hasScope,
@@ -26,18 +26,23 @@ import {
   StorageUnavailable,
   writesAnywhere,
 } from "../session.js";
-import { isPlumbing, PrivacyOverrides } from "../privacy/engine.js";
+import { isPlumbing } from "../privacy/engine.js";
 import { normalizePath } from "../notes/paths.js";
 import { pluginForTool } from "../plugins/catalog.js";
-import { reportToolUsage } from "../mcp/usage.js";
+import { measuredCall, reportToolUsage } from "../mcp/usage.js";
 import { splitMessageAnchor } from "../search/commsIndex.js";
-import { canonicalToolName, toolArgumentRefusal } from "./advertised.js";
+import { canonicalToolName, coercedArguments, toolArgumentRefusal } from "./advertised.js";
 import { toolError } from "./results.js";
 import { toolMoveNoteAcrossContexts } from "./moves/acrossContexts.js";
 import { NoteCapReached, asRelocation } from "../store/noteCap.js";
-import { approvalRequired, mightWiden, reasonFor, recordRead, wideningOf } from "../privacy/egress.js";
-import { createPending, findPending, rearmForText, takeDone } from "./approvals.js";
+import { oneLine, recordRead } from "../privacy/egress.js";
+import { createPending, findPending, takeDone } from "./approvals.js";
+import { HELD_GATES } from "./heldGates.js";
+import { wordsOfTurn } from "../agent/conversation.js";
+import { wideningOf } from "../privacy/widening.js";
 import { loadPrivacyState } from "../privacy/state.js";
+import { PrivacyOverrides } from "../privacy/engine.js";
+import { recordChange } from "../activity/record.js";
 import { CHAOS_TOOLS, chaosLines, takeChaos, withChaosLines, within } from "../chaos/report.js";
 import { changeChaos } from "../chaos/change.js";
 
@@ -68,110 +73,35 @@ async function answeringNoteCap(run) {
 }
 
 /**
- * THE EGRESS GATE, at the one place every AI client's call passes.
+ * THE ASK-FIRST GATE, at the one place every AI client's call passes.
  *
- * A call that would widen who can see something (`privacy/egress.js`) runs
- * only when `approvalRequired` says the person need not be asked, or when a
- * person already released exactly this call. Otherwise it is held as a
- * pending approval in the connection's own context and the model is told,
- * in band, what it would have done and who can allow it. Never thrown, never
- * silent: a refusal the model cannot read is one it retries.
+ * Only the few calls nobody can take back wait for the person: an email and a
+ * calendar change (`HELD_GATES`, each with its exact copy), and claiming a
+ * workspace's @handle, which is never freed. Everything else runs at once.
+ * The widening holds that once sat here — a link, a publish, a visibility
+ * change, a write into another workspace, held for a yes as a guard against
+ * prompt injection — were removed by the owner on 2026-10-17 ("everything
+ * needed approval"; docs/decisions/privacy-and-sharing/agent-egress.md).
  *
- * `supplied` — the arguments as the client sent them, `context` included —
- * is what is stored and what is replayed, so an approved call routes exactly
- * as the asked one did. `target` is the context it was routed to, which is
- * the audience the widening is measured against.
+ * A held call is a pending approval in the connection's own context and the
+ * model is told, in band, what it would have done and who can allow it. Never
+ * thrown, never silent: a refusal the model cannot read is one it retries.
+ * `supplied` — the arguments as the client sent them, `context` included — is
+ * what is stored and what is replayed, so an approved call routes exactly as
+ * the asked one did.
  */
-async function egressGate(suppliedName, supplied, args, { store, session, target, targetStore, into }) {
-  /*
-    The gate reads a call by the name it is dispatched under, never by the
-    spelling the client used: `archive_chat` is `save_context` and would
-    otherwise be a tool the gate has never heard of. What is stored and
-    replayed stays the name as supplied, so a released call routes as asked.
-  */
+async function egressGate(suppliedName, supplied, args, { store, session, target, targetStore, into, personSaid }) {
+  // Read by the name it is dispatched under (`archive_chat` is `save_context`);
+  // stored and replayed as supplied, so a released call routes as asked.
   const name = canonicalToolName(suppliedName);
-  /*
-    Any tool that changes something, addressed into a workspace the call did
-    not start in, is a write into another workspace; the planning tools only
-    suggest. Derived from the tool definitions so a tool added next year, or a
-    tool absent from the classifier's switch, is held rather than let through.
-  */
-  const writes =
-    typeof into === "string" &&
-    into !== "" &&
-    isKnownTool(name) &&
-    toolIsWriting(name) &&
-    !ROUTING_PLANNING_TOOLS.has(name) &&
-    // A tool masked from this tier is an invented name to it, byte for byte;
-    // holding it would be the one answer that tells the two apart.
-    !toolExistenceMasked(name, target.scope);
-  const widening = await wideningOf(name, args, {
-    into,
-    writes,
-    // A move or a visibility change is measured against the manifest. The
-    // folder rules are what `scope_info` already shows every tier; the
-    // exact-note overrides are the owner's alone, so a team-tier caller is
-    // measured without them — else "held" against "not found" would tell such
-    // a caller which note in a team folder carries a private override, the
-    // oracle `crossContext` and the move tests cost-match to close.
-    privacy: async () => {
-      const privacy = await loadPrivacyState(targetStore);
-      return {
-        rules: privacy.rules,
-        overrides: target.scope === "private" ? privacy.overrides : new PrivacyOverrides(),
-      };
-    },
-  });
-  /*
-    The deployment switch, which is not a decision about this call: it says
-    this gateway is not asking anybody. So it lets the call through and
-    nothing else — in particular it does not stand in for a person below.
-  */
-  const switchedOff = session.egressOff === true;
-  if (switchedOff || !approvalRequired(session.egress, widening, target.workspaceId)) {
-    /*
-      A widening the gate lets through carries the person's yes into the
-      tool. `confirm_team_publish` was the tools' own earlier answer to "did
-      the person really say so", and a model can pass it as easily as not;
-      the gate is what decides now — a person approved this exact call, or
-      the turn was their own words with nothing read — so it says yes here on
-      their behalf. A call the gate holds never reaches a tool, so the flag a
-      model wrote is never the thing that lets one through.
-
-      **Never while the gate is switched off.** There the gate has no yes to
-      carry: nobody was asked and nobody will be. Writing the flag then would
-      not leave the gateway as it was before the gate — it would take the
-      *older* check away too, and a private note would go team-visible with no
-      approval anywhere in the chain, past a tool whose own refusal says "only
-      after explicit user approval". Switched off, a model must pass the flag
-      itself, exactly as it had to before any of this existed.
-    */
-    if (!switchedOff && widening?.publishes === true && advertisesTeamConfirmation(name)) {
-      args.confirm_team_publish = true;
-    }
-    /*
-      A call that no longer widens can still be one a person released. The
-      release ran the change, so the same call asked again is now a no-op
-      (the folder is team already, the note is team already) and `wideningOf`
-      says null; without this lookup the client would be told nothing about
-      the result it was promised and the tool would run again against a
-      stale etag. So the released result is handed back to an identical
-      re-call whether or not it still widens. A turn the gateway sees whole
-      never waits on an approval and is not consulted, and neither is a
-      replay that is itself the approved call.
-    */
-    const seenWhole = session.egress?.complete === true || session.egress?.approved === true;
-    if (widening === null && !seenWhole && mightWiden(name, args, { into, writes })) {
-      const released = await takeDone(store, {
-        name: suppliedName,
-        args: supplied,
-        userId: session.actorUserId,
-        clientId: session.actorClientId,
-      });
-      if (released) return released;
-    }
-    return null;
+  // An email or a calendar change always waits for a yes to its exact copy.
+  if (Object.hasOwn(HELD_GATES, name)) return await HELD_GATES[name](supplied, { store, session, target });
+  if (typeof session.sharingJudge === "function" && session.egress?.approved !== true) {
+    const refused = await judgedGate(name, suppliedName, args, { store, session, target, targetStore, into, personSaid });
+    if (refused) return refused;
   }
+  const claim = handleClaimOf(name, args);
+  if (claim === null || session.egress?.approved === true) return null;
   const userId = session.actorUserId;
   const released = await takeDone(store, {
     name: suppliedName,
@@ -184,7 +114,7 @@ async function egressGate(suppliedName, supplied, args, { store, session, target
   const texting = session.egress?.texting === true;
   const existing = await findPending(store, { name: suppliedName, args: supplied, userId });
   const record =
-    (existing ? await rearmForText(store, existing, texting) : null) ??
+    existing?.record ??
     (await createPending(store, {
       name: suppliedName,
       args: supplied,
@@ -193,27 +123,28 @@ async function egressGate(suppliedName, supplied, args, { store, session, target
       // replay runs as the person who approved (`replayAsAsked`).
       tier: session.scope,
       scopes: session.scopes,
-      widening,
+      widening: claim,
       workspaceId: target.workspaceId,
       texting,
+      armed: false, // armed by `textedAsk` once the ask goes out whole
     }));
   if (record === null) {
     return toolError(
-      `Not done: this would ${widening.summary}, and the person has too many approvals waiting already. ` +
+      `Not done: this would ${claim.summary}, and the person has too many approvals waiting already. ` +
         "Ask them to clear some first.",
     );
   }
   if (ledger && !ledger.asked.some((asked) => asked.id === record.id)) ledger.asked.push(record);
-  const because = reasonFor(session.egress);
+  const because = "a @handle, once claimed, is never given back";
   // `held` tells the turn (and so the turn log and the bench) that this call
   // was not refused but is waiting for the person; it runs when they say yes.
   return {
     ...toolError(
       texting
-        ? `Not done yet: this would ${widening.summary}. It needs the person's OK first, because ${because}. ` +
+        ? `Not done yet: this would ${claim.summary}. It needs the person's OK first, because ${because}. ` +
             "Tell them plainly what you want to do; they will be asked to reply YES to allow it, and it runs then. " +
             "Don't call this again in this turn."
-        : `Not done: this would ${widening.summary}. It needs the person's approval first, because ${because}. ` +
+        : `Not done: this would ${claim.summary}. It needs the person's approval first, because ${because}. ` +
             "They can approve it in the Context app. " +
             "Once they have, call this tool again with exactly the same arguments and it will run.",
     ),
@@ -221,17 +152,88 @@ async function egressGate(suppliedName, supplied, args, { store, session, target
   };
 }
 
-let knownTools = null;
-/** Whether `name` is a tool this gateway defines; an invented name is nobody's write. */
-function isKnownTool(name) {
-  knownTools ??= new Set(toolDefinitions().map((tool) => tool.name));
-  return knownTools.has(name);
+/**
+ * THE SHARING JUDGE (`SHARING_JUDGE = "on"`; the owner, 2026-10-17 and
+ * 2026-10-18: "ship the judge for sharing approvals and turn it on in
+ * production").
+ *
+ * A call that would let more people see something (`privacy/widening.js`)
+ * runs when the person's own words ask for it, as a small model with almost
+ * no context reads them (`privacy/judge.js`); otherwise the model is told to
+ * ask them in the chat and call again. Nothing is held, nobody taps anything.
+ *
+ * The words are the person's message when this gateway ran the turn itself
+ * (`session.egress.turn`, set by `/agent`; `wordsOfTurn`), and only then: a model's
+ * `person_said` is never read for such a turn, and a turn of ours with no
+ * person behind it (a dream, a try-it run) has no words. An MCP client's chat
+ * is never seen here, so its `person_said` is the client's report of them.
+ *
+ * An ordinary write into another workspace the caller belongs to
+ * (`elsewhereOnly`) is not judged: it names no link, no publication and
+ * nobody new, and it was the friction approvals were removed for.
+ */
+async function judgedGate(name, suppliedName, args, { store, session, target, targetStore, into, personSaid }) {
+  const writes =
+    typeof into === "string" && into !== "" && toolIsWriting(name) && !ROUTING_PLANNING_TOOLS.has(name);
+  const widening = await wideningOf(name, args, {
+    into,
+    writes,
+    // The exact-note overrides are the owner's alone, so a team-tier caller is
+    // measured without them, as `scope_info` shows that tier the folder rules.
+    privacy: async () => {
+      const privacy = await loadPrivacyState(targetStore);
+      return { rules: privacy.rules, overrides: target.scope === "private" ? privacy.overrides : new PrivacyOverrides() };
+    },
+  });
+  if (widening === null || widening.elsewhereOnly === true) return null;
+  const ours = session.egress?.complete === true;
+  const turn = session.egress?.turn;
+  const own = turn ? turn.note ?? wordsOfTurn(turn.history ?? [], turn.question ?? "") : ours ? "" : null;
+  const words = own ?? (typeof personSaid === "string" ? personSaid : "");
+  const verdict = await session.sharingJudge({
+    words,
+    action: widening.summary,
+    workspace: typeof target.workspaceSlug === "string" ? `@${target.workspaceSlug}` : undefined,
+  });
+  if (verdict.allow === true) {
+    // Their yes, found in their words, is what the tools' own publish flag asks for.
+    if (widening.publishes === true && advertisesTeamConfirmation(name)) args.confirm_team_publish = true;
+    await recordChange(store, "judge_allow", session.scope, [], { tool: suppliedName, summary: widening.summary });
+    return null;
+  }
+  const why = verdict.reason ? ` (${verdict.reason.replace(/\.$/, "")})` : "";
+  return toolError(
+    own !== null
+      ? `Not done yet: this would ${widening.summary}, and the person's message doesn't ask for that${why}. ` +
+          "Ask them plainly whether they want it; if they say yes, call it again then."
+      : `Not done: this would ${widening.summary}, and Context runs that only when the person has asked for it${why}. ` +
+          "Ask them in this chat. When they say so, call again with the same arguments and person_said set to " +
+          "their words exactly as they wrote them, with your question first if they were answering it.",
+  );
 }
 
 /** Whether the advertised schema for `name` takes `confirm_team_publish`. */
 function advertisesTeamConfirmation(name) {
   const tool = toolDefinitions().find((entry) => entry.name === name);
   return Boolean(tool?.inputSchema?.properties?.confirm_team_publish);
+}
+
+/**
+ * A real `create_workspace` claims a handle nobody can give back, so it waits
+ * for the person from every turn (Dev2, 2026-10-17;
+ * docs/decisions/gateway-protocol/workspace-setup.md). A dry run claims
+ * nothing and runs. Null for every other call.
+ */
+function handleClaimOf(name, args) {
+  if (name !== "create_workspace") return null;
+  const a = args && typeof args === "object" ? args : {};
+  if (a.dry_run === true) return null;
+  const slug = typeof a.slug === "string" ? a.slug.trim().replace(/^@/, "").toLowerCase() : "";
+  return {
+    audience: "private",
+    permanent: true,
+    summary: oneLine(`claim the handle @${slug} for a new shared workspace (handles are permanent)`),
+  };
 }
 
 /** Run one tool call for this session, enforcing scope. Shared by both eras. */
@@ -309,24 +311,30 @@ function addressByPath(tool, args) {
 }
 
 export async function callToolForSession(params, store, session) {
-  const supplied = params?.arguments;
-  const args =
-    supplied && typeof supplied === "object" && !Array.isArray(supplied) ? { ...supplied } : {};
+  const { error, params: call, v2 } = translateV2Params(params, store); // v2 → the existing call, before any gate
+  if (error) return toolError(error);
+  const result = await measuredCall(store, session, call, (routed) => routeToolCall(call, store, session, routed));
+  return inWordsOf(v2, result);
+}
+
+async function routeToolCall(params, store, session, routed) {
+  // Read as the advertised types: a stale client sends an argument its copy lacks as text (`advertised.js`).
+  const supplied = coercedArguments(params?.name, params?.arguments);
+  const args = supplied && typeof supplied === "object" && !Array.isArray(supplied) ? { ...supplied } : {};
 
   /**
    * The addressed context, if the call named one.
    *
-   * **Everything below this point runs against the addressed context, and
-   * nothing above it decided anything.** That is why the routing is here: this
-   * function and `toolsForSession` are the only two places authority is
-   * decided, and a call into somebody else's workspace has to be clamped by *their*
-   * membership rather than by the one the client happens to be connected to.
-   * Resolving a context anywhere else — in a tool, in a path parser — is a
-   * second authority decision, and the second one is the one that drifts.
+   * **Everything below this point runs against the addressed context, and nothing above it
+   * decided anything** (the v2 translation above only renames the call). This function and
+   * `toolsForSession` are the only two places authority is decided, and a call into somebody
+   * else's workspace is clamped by *their* membership, not the connected one's. Resolving a
+   * context anywhere else — in a tool, in a path parser — is a second authority decision, and
+   * the second one is the one that drifts.
    *
-   * `context` is dropped from the arguments before the tool sees them: it
-   * addresses the call, it is not an input to any tool, and a tool that ever
-   * grew an argument of that name would otherwise be handed a routing token.
+   * `context` is dropped from the arguments before the tool sees them: it addresses the call, it
+   * is not an input to any tool, and a tool that grew an argument of that name would otherwise be
+   * handed a routing token.
    */
   /*
     THE `@name/path` SUGAR, in the same one place. A path that opens with a
@@ -343,6 +351,9 @@ export async function callToolForSession(params, store, session) {
   if (crossed) return toolError(crossed);
   const requested = args.context;
   delete args.context;
+  // The person's words, for the sharing judge only (`judgedGate`); never a tool's input.
+  const personSaid = args.person_said;
+  delete args.person_said;
 
   let target = session;
   let targetStore = store;
@@ -366,6 +377,7 @@ export async function callToolForSession(params, store, session) {
     }
     try {
       ({ session: target, store: targetStore } = await store.openContext(requested));
+      routed.workspaceId = target.workspaceId;
     } catch (error) {
       // One answer for a name that is not covered, a name that is not a name,
       // and a name nobody has ever registered — the refusal `selectWorkspace`
@@ -421,6 +433,7 @@ export async function callToolForSession(params, store, session) {
     try {
       sourceTarget = await openNamedContext(args.source_context);
       destinationTarget = await openNamedContext(args.destination_context);
+      routed.workspaceId = destinationTarget.session.workspaceId;
     } catch (error) {
       if (error instanceof SessionRefusal) {
         return toolError("this connection has no access to that context");
@@ -461,22 +474,6 @@ export async function callToolForSession(params, store, session) {
       return toolError(
         "permission denied: moving a note into a private owner workspace from another workspace requires owner access to both contexts."
       );
-    }
-    {
-      const held = await egressGate(params?.name, supplied, crossArgs, {
-        store,
-        session,
-        target: destinationTarget.session,
-        targetStore: destinationTarget.store,
-        // Another workspace than the one the connection started in, or than
-        // the one the note leaves: either way the move lands somewhere new.
-        into:
-          sourceTarget.session.workspaceId === destinationTarget.session.workspaceId &&
-          destinationTarget.session.workspaceId === session.workspaceId
-            ? null
-            : `@${destinationTarget.session.workspaceSlug}`,
-      });
-      if (held) return held;
     }
     if (sourceTarget.session.workspaceId === destinationTarget.session.workspaceId) {
       // One context on both sides: a relocation, never refused by the cap.
@@ -589,6 +586,7 @@ export async function callToolForSession(params, store, session) {
       target,
       targetStore,
       into: target.workspaceId === session.workspaceId ? null : `@${target.workspaceSlug}`,
+      personSaid,
     });
     if (held) return held;
   }
@@ -599,18 +597,14 @@ export async function callToolForSession(params, store, session) {
   let result = await answeringNoteCap(() =>
     RELOCATING_TOOLS.has(params?.name) ? asRelocation(targetStore, dispatch) : dispatch()
   );
-  // What the model now holds, for the egress ledger of a turn seen whole.
+  // Whether the model now holds words from outside the workspace, for the turn's ledger.
   if (!toolIsWriting(params?.name)) {
-    recordRead(session.egress?.ledger, {
-      name: params?.name,
-      args,
-      scope: target.scope,
-      workspaceId: target.workspaceId,
-      result,
-    });
+    recordRead(session.egress?.ledger, { name: params?.name, args, result });
   }
   noteAgentActivity(targetStore, params?.name, args, result);
   result = await reportingChaos(targetStore, params?.name, args, target.scope, result);
+  // When the caller joined a note's mail, the news rides on every answer.
+  result = await withMailFooter(result, args, params?.name, { store, session, targetStore, target });
   // Counted after the call, against the context the call was *routed to* —
   // `target`, never `session`. A cross-context call is activity in the workspace it
   // reached, and attributing it to the connection's default context would

@@ -8,12 +8,13 @@
  * public function here is a path to the provider credential.
  */
 
-import { sitesSubdomainHandle } from "@context/shared";
+import { rootRecordType, sitesSubdomainHandle } from "@context/shared";
 import { ConvexError, v, type Infer } from "convex/values";
 import { internal } from "../../../_generated/api";
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../../_generated/server";
 import { recordAudit } from "../audit";
+import { dnsHostValidator, domainHintValidator } from "../schema/domains";
 import { planFor, requireUserId, statusOf } from "../billing/plan";
 import { planIsPaying } from "../premium";
 import { shortLinkSlugFrom } from "../shareSlug";
@@ -109,6 +110,19 @@ export const domainViewValidator = v.object({
     }),
     v.null(),
   ),
+  /** Where the domain's zone starts, when public DNS said. */
+  zone: v.union(v.string(), v.null()),
+  /** The company that runs the domain's DNS, from its name servers. */
+  dnsHost: v.union(dnsHostValidator, v.null()),
+  /** Owner only: what is in the way, named on the step it belongs to. */
+  hints: v.array(domainHintValidator),
+  /**
+   * Owner only, for `www.<root>` connected on its own: the root has to be
+   * forwarded to it at the DNS company, and whether it is yet.
+   */
+  forwarding: v.union(v.object({ root: v.string(), forwards: v.union(v.boolean(), v.null()) }), v.null()),
+  /** Owner only: the setup steps were emailed to this address. */
+  stepsSent: v.union(v.object({ to: v.string(), at: v.number() }), v.null()),
 });
 
 export const settingsValidator = v.object({
@@ -123,12 +137,15 @@ export type DomainSettings = Infer<typeof settingsValidator>;
 
 function recordsFor(row: Row, www: Row | null, target: string): Infer<typeof dnsRecordValidator>[] {
   const ownershipName = ownershipRecordName(row.hostname);
+  // Where the zone really starts, once public DNS has said (`survey.ts`).
+  const zone = row.survey?.zone ?? null;
+  const relative = (name: string) => relativeRecordName(name, row.hostname, zone);
   return [
     {
       purpose: "routing",
-      type: row.apex ? "ALIAS" : "CNAME",
+      type: row.apex ? rootRecordType(row.survey?.dnsHost?.key ?? null) : "CNAME",
       name: row.hostname,
-      host: relativeRecordName(row.hostname, row.hostname),
+      host: relative(row.hostname),
       value: target,
       done: row.routingVerified,
     },
@@ -141,7 +158,7 @@ function recordsFor(row: Row, www: Row | null, target: string): Infer<typeof dns
             purpose: "hostname" as const,
             type: "TXT",
             name: row.hostnameTxt.name,
-            host: relativeRecordName(row.hostnameTxt.name, row.hostname),
+            host: relative(row.hostnameTxt.name),
             value: row.hostnameTxt.value,
             done: row.routingVerified,
           },
@@ -151,7 +168,7 @@ function recordsFor(row: Row, www: Row | null, target: string): Infer<typeof dns
       purpose: "ownership",
       type: "TXT",
       name: ownershipName,
-      host: relativeRecordName(ownershipName, row.hostname),
+      host: relative(ownershipName),
       value: ownershipRecordValue(row.verifyToken),
       done: row.ownershipVerified,
     },
@@ -163,7 +180,7 @@ function recordsFor(row: Row, www: Row | null, target: string): Infer<typeof dns
             purpose: "www" as const,
             type: "CNAME",
             name: www.hostname,
-            host: relativeRecordName(www.hostname, row.hostname),
+            host: relative(www.hostname),
             value: target,
             done: www.routingVerified,
           },
@@ -236,6 +253,14 @@ export async function domainViewFor(
             stage: stageOf(www),
             problem: www.problem ?? null,
           },
+    zone: row.survey?.zone ?? null,
+    dnsHost: row.survey?.dnsHost ?? null,
+    hints: canManage && row.status === "pending" ? (row.survey?.hints ?? []) : [],
+    forwarding:
+      canManage && row.hostname.startsWith("www.") && (row.status === "pending" || row.status === "active")
+        ? { root: row.hostname.slice(4), forwards: row.survey?.forwards ?? null }
+        : null,
+    stepsSent: canManage ? (row.stepsSent ?? null) : null,
   };
 }
 
@@ -574,6 +599,11 @@ export async function recordCheckHandler(
       action: "domain.activated",
       details: { hostname: row.hostname },
     });
+    // Once per claim, for the domain itself: its `www.` is the same news.
+    if (row.wwwOf === undefined && row.liveMailSentAt === undefined) {
+      await ctx.db.patch(row._id, { liveMailSentAt: Date.now() });
+      await ctx.scheduler.runAfter(0, internal.functions.customDomainsMail.sendLive, { domainId: row._id });
+    }
   }
   if (outcome.checkAgainIn !== null) {
     await ctx.scheduler.runAfter(outcome.checkAgainIn, internal.functions.customDomainsProvision.check, {

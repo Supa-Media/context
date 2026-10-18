@@ -10,6 +10,7 @@
 
 import { describe, expect, test } from "@jest/globals";
 import {
+  archiveEntries,
   collectNotes,
   downloadNotice,
   pathsUnder,
@@ -137,6 +138,35 @@ describe("which notes a folder download is about", () => {
     const all = ["index.md", "1-projects/a.md", "2-areas/b.md"];
     expect(pathsUnder(all, "")).toEqual(all);
     expect(pathsUnder(all, "/")).toEqual(all);
+  });
+});
+
+describe("what goes in the archive in rows mode", () => {
+  const note = (path: string) => ({ path, bytes: new TextEncoder().encode(`body of ${path}`) });
+
+  test("file mode adds nothing: the archive is the notes, as it was before rows", () => {
+    const notes = [note("1-projects/a.md")];
+    expect(archiveEntries(notes, null)).toEqual(notes);
+  });
+
+  test("rows mode adds access.md at the top, and the notes beside it", () => {
+    const entries = archiveEntries([note("1-projects/a.md")], "# Access\n\n- 1-projects/ — team\n");
+    expect(entries.map((entry) => entry.path)).toEqual(["1-projects/a.md", "access.md"]);
+    expect(new TextDecoder().decode(entries[1].bytes)).toBe("# Access\n\n- 1-projects/ — team\n");
+  });
+
+  test("rows mode never carries privacy.md: a note list that names it is refused, not archived", () => {
+    // `notePaths` drops plumbing, so this is a second check on the one place the
+    // archive could pick the file up. Refused rather than written: the file
+    // holds the rules a member may not read.
+    expect(() => archiveEntries([note("privacy.md")], "# Access\n")).toThrow(/privacy\.md/);
+    expect(() => archiveEntries([note("1-projects/privacy.md")], "# Access\n")).not.toThrow();
+  });
+
+  test("a note already named access.md at the top is refused, not overwritten", () => {
+    // Two entries with one name would make an archive that unzips to whichever
+    // came last. Said plainly instead.
+    expect(() => archiveEntries([note("access.md")], "# Access\n")).toThrow(/access\.md/);
   });
 });
 

@@ -20,6 +20,12 @@ export { hashEmail };
  * The pixel (dataset) id from Meta Events Manager. Not a secret: the page
  * prints it. `null` sends nothing — the pixel in `public/index.html` carries
  * the same id, and a test pins the two together.
+ *
+ * Setting it also switches on the account conversion in `auth.ts`'s
+ * `onUserCreated`, which cannot tell an account made in the phone app from one
+ * made on the web. The privacy policy promises app sign-ups are never reported
+ * (Apple counts that as tracking), so carry the sign-in's origin through to
+ * `onUserCreated` and skip app accounts before setting this.
  */
 export const META_PIXEL: { id: string | null } = { id: null };
 export const META_CAPI_TOKEN_ENV_VAR = "META_CAPI_TOKEN";

@@ -426,21 +426,13 @@ Four things this cost, recorded so the next person does not pay them again:
   job's install line. The install is now `webkit chromium`, and the reason
   Chromium is there at all is one spec.
 
-### Two offline claims rest on stores no test in this repository has ever talked to
+### An offline claim rests on a store no test in this repository has ever talked to
 
-#693 gave the offline mirror its server half, and two of its behaviours are
+#693 gave the offline mirror its server half, and one of its behaviours is
 correct against the in-memory store stub and **unverified against the thing
-they are about**. Both are written here rather than left in a pull request,
+it is about**. It is written here rather than left in a pull request,
 because the gap is not closeable by anyone without credentials this repository
 deliberately does not hold.
-
-**A Dropbox context past one page reports `truncated`.** `DropboxStore.list`
-ignores `startAfter` — `list_folder` has no position, only its own cursor, and
-promises no key order — so `syncManifest` checks the order it got back and
-reports a short manifest rather than looping. The *detection* is proven:
-`offlineSync.test.ts`'s "a store that ignores the resume point is reported
-short, never replayed as the rest". What is unproven is the premise under it —
-that real Dropbox behaves the way the stub does when the position is ignored.
 
 **A bucket without proven `conditionalCreate` keeps read-then-compare.**
 `files.test.ts`'s "a create on a bucket that never proved create-only writes
@@ -453,12 +445,9 @@ hypothetical for this class of store: `S3Store` declares `conditionalWrite`
 exactly that by reading the binding's *probed* capability instead of the
 provider's claim.
 
-**What would falsify each**, so this is a standing task rather than a caveat:
+**What would falsify it**, so this is a standing task rather than a caveat:
 one real bucket per store, with a note count past a single list page, walked
-by `syncManifest` and then written to with no `expectedEtag`. If Dropbox
-returns its pages in a stable order the manifest could resume rather than
-truncate, and the conservative answer is costing a full re-walk per sync. If
-B2 or Wasabi pass the `conditionalCreate` probe and then overwrite anyway, the
+by `syncManifest` and then written to with no `expectedEtag`. If B2 or Wasabi pass the `conditionalCreate` probe and then overwrite anyway, the
 offline queue's create path is silently last-write-wins for a note typed on a
 train — which is the failure the whole feature exists to prevent.
 
@@ -467,8 +456,7 @@ repository's workflow is the property `gateway-health.yml` above is built
 around not having, and the same argument applies with more force to a
 credential that can write. The honest position is a manual check against a
 throwaway bucket, recorded in a pull request, not a CI job — and until somebody
-runs one, "offline sync works on Dropbox" and "a create is safe on B2" are
-claims about a stub.
+runs one, "a create is safe on B2" is a claim about a stub.
 
 ### An unauthenticated probe is not a health check for an authenticated endpoint
 

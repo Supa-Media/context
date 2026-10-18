@@ -43,7 +43,6 @@ control in that position is the account mark now, in the same 44pt band.
 | `invite-token.png` | `/invite/<token>` | |
 | `share-viewer.png` | `/s/<token>` | The worst case before this: no wrap at all, card flush to the top of the glass. |
 | `authorize.png` | `/authorize?request_id=…` | |
-| `connect-dropbox.png` | `/connect/dropbox?error=…` | |
 | `welcome-redirects-to-console.png` | `/welcome` | See below. |
 
 ## What is not photographed, and why
@@ -57,8 +56,8 @@ nothing, and creating one means creating a real account in production. The
 screen is covered by the guard instead — `safeArea.test.ts` mounts
 `WelcomeChrome`, which is the whole of what that route ever paints.
 
-Three routes are shown in a refusal state (`/invite/<token>`, `/s/<token>`,
-`/connect/dropbox`) because a live token for each exists for minutes and in one
+Two routes are shown in a refusal state (`/invite/<token>`, `/s/<token>`)
+because a live token for each exists for minutes and in one
 message. The edges are the same either way: what pads them is
 `CenteredScroll`, not the branch inside.
 

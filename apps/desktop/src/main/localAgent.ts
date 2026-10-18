@@ -139,6 +139,10 @@ export async function sweepAbandonedRuns(scratchRoot: string): Promise<void> {
 }
 
 export function createLocalAgent(deps: LocalAgentDeps): LocalAgentRunner {
+  // lean: held in memory, so the first question after each launch is labelled
+  // "unknown"; persist it in the app's settings if that gap matters.
+  let lastModel: string | null = null;
+
   function kind(): LocalAgentKind | null {
     return localAgentFor({ claudePath: deps.claudePath() });
   }
@@ -171,7 +175,7 @@ export function createLocalAgent(deps: LocalAgentDeps): LocalAgentRunner {
       const dir = await mkdtemp(join(deps.scratchRoot || tmpdir(), SCRATCH_PREFIX));
       const configPath = join(dir, "mcp.json");
       try {
-        await writeFile(configPath, JSON.stringify(mcpConfigFor(endpoint, token)), {
+        await writeFile(configPath, JSON.stringify(mcpConfigFor(endpoint, token, lastModel)), {
           // The grant, on disk, for the length of one question. Owner only —
           // the default would be readable by every account on the machine.
           mode: 0o600,
@@ -212,6 +216,7 @@ export function createLocalAgent(deps: LocalAgentDeps): LocalAgentRunner {
           inside the run — a CLI that was never signed in, most often.
         */
         const read = readLocalAnswer(true, stdout);
+        if (typeof read !== "string" && read.model !== null) lastModel = read.model;
         return typeof read === "string"
           ? { ok: false, message: read }
           : { ok: true, answer: read.answer, provider: read.provider, steps: read.steps };

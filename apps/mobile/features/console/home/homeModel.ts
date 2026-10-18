@@ -1,3 +1,4 @@
+import { compareListingEntries } from "@context/shared/src/folderRoles.cjs";
 import { baseName, displayName, folderLabel, isUnlistedFile, parentPath, restoreTargetFor } from "../files/paths";
 
 /**
@@ -56,6 +57,8 @@ export interface HomeOpened {
 export interface HomeRecent {
   path: string;
   at: number;
+  /** What they did last; absent on rows from before the row said. */
+  kind?: "opened" | "edited";
 }
 
 export interface HomeInput {
@@ -64,6 +67,13 @@ export interface HomeInput {
   folders: readonly string[];
   /** Folders whose default is `team`: drawn with the people mark. */
   shared: ReadonlySet<string>;
+  /**
+   * What the listings say about a folder's place: its job (`role`) and its
+   * saved `order`, so All folders draws in the tree's order
+   * (`compareListingEntries`). Absent for a folder no listing has named,
+   * which then sorts by what its name says.
+   */
+  folderFacts?: ReadonlyMap<string, FolderFacts>;
   pins: readonly HomePin[];
   opened: readonly HomeOpened[];
   /**
@@ -75,6 +85,11 @@ export interface HomeInput {
   /** The chosen tag chip; `null` is All. */
   tag: string | null;
   now: number;
+}
+
+export interface FolderFacts {
+  role?: string;
+  order?: number;
 }
 
 export interface HomeFolder {
@@ -93,6 +108,8 @@ export interface HomeNoteTile {
   updatedAt?: number;
   /** When this person last opened or edited it: set on Recent's tiles only. */
   seenAt?: number;
+  /** Which of the two it was, when the row says. */
+  seenKind?: "opened" | "edited";
   /** The folder it is in, drawn under a recent note: `projects`. */
   place: string;
   lede: string | null;
@@ -212,11 +229,21 @@ export function buildHome(input: HomeInput): Home {
           .sort((a, b) => b.at - a.at)
           .flatMap((row) => {
             const note = noteByPath.get(row.path);
-            return note === undefined || isArchived(note.path) ? [] : [{ ...noteTile(note), seenAt: row.at }];
+            if (note === undefined || isArchived(note.path)) return [];
+            return [{ ...noteTile(note), seenAt: row.at, ...(row.kind === undefined ? {} : { seenKind: row.kind }) }];
           })
           .slice(0, RECENT_COUNT);
 
-  const topLevel = folders.filter((folder) => !folder.includes("/"));
+  /*
+    The tree's order, not the alphabet: a saved `order` first (Move up, Move
+    down, dragging a folder in the sidebar), else the job's rank, else the
+    name. One comparator for every surface, so the phone and the sidebar
+    never disagree about which folder comes first (owner, 2026-10-18).
+  */
+  const asEntry = (path: string) => ({ kind: "folder", name: path, ...input.folderFacts?.get(path) });
+  const topLevel = folders
+    .filter((folder) => !folder.includes("/"))
+    .sort((a, b) => compareListingEntries("", asEntry(a), asEntry(b)));
   return {
     totals: { folders: topLevel.length, notes: notes.length },
     tagged: input.tag === null ? null : { tag: input.tag, count: tagged.length },
@@ -258,6 +285,18 @@ export function whenLabel(at: number, now: number): string {
   return then.getFullYear() === today.getFullYear()
     ? `${month} ${then.getDate()}`
     : `${month} ${then.getDate()}, ${then.getFullYear()}`;
+}
+
+/**
+ * A Recent row's time, saying what the person did (owner, 2026-10-17):
+ * "You edited 9:12", "You opened Mon". A row from before the row said
+ * which is the time alone.
+ */
+export function recentLabel(kind: "opened" | "edited" | undefined, at: number, now: number): string {
+  const when = whenLabel(at, now);
+  if (kind === "edited") return `You edited ${when}`;
+  if (kind === "opened") return `You opened ${when}`;
+  return when;
 }
 
 /** "14 notes · 3 folders", "1 note", "Empty". */

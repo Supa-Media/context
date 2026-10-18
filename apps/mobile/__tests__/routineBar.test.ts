@@ -12,13 +12,15 @@
  * SABOTAGE: make `routineBarView` ignore `settings.paused` for `canRun` and
  * "Run now is off while the file says paused" fails; make `pauseEdit` write
  * `paused: no` instead of removing the line and "Resume removes the line,
- * and only that line" fails.
+ * and only that line" fails; drop the `shared` check from `routineBarView`
+ * and "in a shared workspace it says routines run only in a personal one"
+ * fails.
  */
 
 import { describe, expect, test } from "@jest/globals";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { pauseEdit, routineBarView, runWhen, runWords, WRITER_GONE_WORDS, type RoutineRow } from "../features/console/routines/model";
+import { pauseEdit, routineBarView, runWhen, runWords, SHARED_WORKSPACE_WORDS, WRITER_GONE_WORDS, WRITER_UNKNOWN_WORDS, type RoutineRow } from "../features/console/routines/model";
 import { timeZoneToStore } from "../features/console/routines/TimeZoneSync";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -122,6 +124,18 @@ describe("the bar's words", () => {
     });
   });
 
+  test("a shared routine nobody was seen writing says it waits for a save, and cannot be run", () => {
+    expect(view(TEXT, row({ lastOutcome: "writer_unknown", nextRunAt: null }))).toMatchObject({
+      last: WRITER_UNKNOWN_WORDS,
+      mark: "failed",
+      canRun: false,
+    });
+    expect(runWords({ at: NOW, outcome: "writer_unknown", text: "" })).toEqual({
+      label: "Waiting",
+      detail: "Nobody was seen writing it. Save it once so it runs as you.",
+    });
+  });
+
   test("a line it can't read comes back as the shared module's sentence", () => {
     const bad = view("---\nat: half seven\n---\nGo.\n");
     expect(bad.kind === "bar" && bad.problems).toEqual([`"at: half seven" isn't a time. Write it like 7:30 am or 19:00.`]);
@@ -195,12 +209,31 @@ describe("the bar on screen", () => {
     loose.done();
   });
 
+  test("in a shared workspace it says routines run only in a personal one", () => {
+    // The owner, 2026-10-18: a shared workspace runs no routines, so its
+    // routine note gets one quiet line and nothing to press.
+    expect(routineBarView({ path: PATH, text: TEXT, row: null, now: NOW, shared: true })).toEqual({
+      kind: "unscheduled",
+      line: SHARED_WORKSPACE_WORDS,
+    });
+    const host = { path: PATH, row: null, runs: [], shared: true, canEdit: false, runNow: async () => null };
+    const bar = mount(
+      createElement(RoutineHostFixture, { value: host }, createElement(NoteRoutineBar, { text: TEXT, gutter: 0, onEdit: () => null })),
+    );
+    expect(bar.text("routine-quiet")).toBe(SHARED_WORKSPACE_WORDS);
+    expect(bar.el("routine-schedule")).toBeNull();
+    expect(bar.el("routine-run-now")).toBeNull();
+    expect(bar.el("routine-pause")).toBeNull();
+    bar.done();
+  });
+
   test("Pause goes through the editor's change path and writes paused: yes", () => {
     let note = TEXT;
     const host = {
       path: PATH,
       row: row(),
       runs: [],
+      shared: false,
       canEdit: true,
       runNow: async () => null,
     };

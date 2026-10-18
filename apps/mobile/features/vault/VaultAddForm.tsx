@@ -7,8 +7,12 @@ import { leading } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { DotenvPaste } from "./DotenvPaste";
 import { Segmented } from "./Segmented";
+import { SuggestionList } from "./SuggestionList";
+import { suggestSites } from "./apiHostSuggest";
 import { SecretInput } from "./SecretInput";
 import { VaultFieldsEditor } from "./VaultFieldsEditor";
+import { VaultProxyFields } from "./VaultProxyFields";
+import { PROXY_OFF, proxyDraft, proxyProblem, type ProxyFormState, type ProxyPinDraft } from "./vaultProxy";
 import {
   anyValue,
   fieldProblems,
@@ -29,6 +33,8 @@ export interface VaultDraft {
   username: string;
   password: string;
   fields: SubmitField[];
+  /** A secret the person lets their AIs use through Context; absent when the switch is off. */
+  proxy?: ProxyPinDraft;
 }
 
 /** Previews only: a form already typed into. */
@@ -75,6 +81,7 @@ export function VaultAddForm({
   const [site, setSite] = useState(initialDraft?.site ?? prefill.site);
   const [username, setUsername] = useState(initialDraft?.username ?? "");
   const [password, setPassword] = useState(initialDraft?.password ?? "");
+  const [proxy, setProxy] = useState<ProxyFormState>(PROXY_OFF);
   // One list per kind, so switching back and forth loses nothing typed.
   const [loginFields, setLoginFields] = useState<FieldDraft[]>(() =>
     initialDraft?.fields && (initialDraft.type ?? prefill.type) === "login"
@@ -96,10 +103,8 @@ export function VaultAddForm({
   const setFields = secret ? setSecretFields : setLoginFields;
   const problems = useMemo(() => fieldProblems(fields), [fields]);
 
-  const ready =
-    name.trim().length > 0 &&
-    !problems.any &&
-    (secret ? anyValue(fields) : site.trim().length > 0 && password.length > 0);
+  const blocker = saveBlocker({ secret, name, site, password, fieldsProblem: problems.any, anyValue: anyValue(fields), proxy: proxyProblem(proxy) });
+  const ready = blocker === null;
 
   const choose = (next: EntryType) => {
     setType(next);
@@ -116,6 +121,8 @@ export function VaultAddForm({
       password: secret ? "" : password,
       fields: submitFields(fields),
     };
+    const pin = secret ? proxyDraft(proxy) : undefined;
+    if (pin) draft.proxy = pin;
     void onSave(draft).then((ok) => {
       if (!ok) return;
       setPassword("");
@@ -165,6 +172,14 @@ export function VaultAddForm({
         editable={!busy}
         testID="vault-site"
       />
+      {secret ? (
+        <SuggestionList
+          items={suggestSites(site).map((one) => ({ value: one.site, name: one.name }))}
+          onPick={setSite}
+          disabled={busy}
+          testID="vault-site-suggestions"
+        />
+      ) : null}
       {secret ? null : (
         <>
           <TextField
@@ -219,8 +234,15 @@ export function VaultAddForm({
         />
       </View>
 
+      {secret ? <VaultProxyFields state={proxy} onChange={setProxy} entryName={name} entrySite={site} busy={busy} /> : null}
+
       {problem ? <FormError headline={problem.headline} next={problem.next} /> : null}
 
+      {blocker !== null && !busy ? (
+        <Text variant="hint" style={styles.why} testID="vault-save-why">
+          {blocker}
+        </Text>
+      ) : null}
       <Button
         label={busy ? "Saving…" : "Save"}
         variant="accent"
@@ -240,10 +262,36 @@ export function VaultAddForm({
   );
 }
 
+/**
+ * What still stands between the form and Save, in one sentence, or null when
+ * it can be saved: said above the button so a greyed-out Save never leaves a
+ * person guessing.
+ */
+export function saveBlocker(form: {
+  secret: boolean;
+  name: string;
+  site: string;
+  password: string;
+  fieldsProblem: boolean;
+  anyValue: boolean;
+  proxy: string | null;
+}): string | null {
+  if (form.name.trim().length === 0) return "To save, give it a name.";
+  if (form.fieldsProblem) return "To save, fix the field marked above.";
+  if (form.secret) {
+    if (!form.anyValue) return "To save, fill in at least one value.";
+    return form.proxy;
+  }
+  if (form.site.trim().length === 0) return "To save, enter the site.";
+  if (form.password.length === 0) return "To save, enter the password.";
+  return null;
+}
+
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     form: { marginTop: 26, gap: 16 },
     section: { gap: 10 },
+    why: { textAlign: "center", marginBottom: -8 },
     save: { alignSelf: "stretch", justifyContent: "center", marginTop: 4 },
     foot: { color: colors.muted, lineHeight: leading(12.5, 1.5), textAlign: "center" },
   });

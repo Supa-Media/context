@@ -35,7 +35,7 @@
  * them as statements, not buttons.
  */
 
-export type RecipientKind = "member" | "group" | "invite";
+export type RecipientKind = "member" | "group" | "invite" | "domain";
 
 export interface Recipient {
   kind: RecipientKind;
@@ -49,6 +49,8 @@ export interface Recipient {
   userId?: string;
   /** Set for `group` — the full name, without its `@`. */
   group?: string;
+  /** Set for `domain`: everyone who signs in with an address there. */
+  domain?: string;
   /**
    * This person or group **already reaches the note**, so the row is an answer
    * to the query rather than something to press. Absent on every offer, so a
@@ -56,6 +58,8 @@ export interface Recipient {
    * that forgets shows one extra honest row rather than granting anything.
    */
   reaches?: boolean;
+  /** Shown, but nothing can be done from here: the detail says why and where. */
+  blocked?: boolean;
 }
 
 export interface RecipientMember {
@@ -109,6 +113,10 @@ export function recipientsFor(
     reachingUserIds?: ReadonlySet<string>;
     /** The group named on the note, if its rule names one. */
     reachingGroups?: ReadonlySet<string>;
+    /** Addresses already on the note's list. */
+    reachingEmails?: ReadonlySet<string>;
+    /** The second line of the invite row, where the caller's invite means something else. */
+    inviteDetail?: string;
   } = {},
 ): Recipient[] {
   const needle = query.trim().toLowerCase();
@@ -187,18 +195,23 @@ export function recipientsFor(
     (member) =>
       member.email?.toLowerCase() === needle || member.name?.toLowerCase() === needle,
   );
-  if (looksLikeAddress(needle) && !addressIsOurs) {
+  const emailReaches = options.reachingEmails?.has(needle) === true;
+  if (looksLikeAddress(needle) && !addressIsOurs && !emailReaches) {
     offers.push({
       kind: "invite",
       key: needle,
       label: needle,
-      detail: "Not a member yet — inviting them also gives them this note",
+      detail: options.inviteDetail ?? "Not a member yet — inviting them also gives them this note",
     });
+  }
+  const answers = [...memberRows, ...groupRows].filter((row) => row.reaches === true);
+  if (looksLikeAddress(needle) && emailReaches) {
+    answers.push({ kind: "invite", key: needle, label: needle, detail: "Already has access — listed below", reaches: true });
   }
 
   // Offers first and the invite last among them; answers below, because they
   // are not things to press. See the header.
-  return [...offers, ...[...memberRows, ...groupRows].filter((row) => row.reaches === true)];
+  return [...offers, ...answers];
 }
 
 /**

@@ -7,14 +7,16 @@
  * phone on the list or takes it off. Linq keeps the list, so the roster reads
  * it once with `texAllowlist` and changes it with `changeTexAllowlist`
  * (`apps/convex/functions/lib/adminFns/texAllowlist.ts`); a number on the list
- * that is nobody's account is listed under the roster so its slot can be freed.
+ * that is nobody's account is listed under the roster so its slot can be freed,
+ * and a number with no account yet (a friend Dev2 hands Tex's contact to) can be
+ * typed in there, because a number off the list is never delivered to us at all.
  */
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
 import { useAction } from "convex/react";
 import { api } from "@context/convex/_generated/api";
-import { Button, Text, useThemedStyles, type Colors } from "../design";
+import { Button, Text, TextField, useThemedStyles, type Colors } from "../design";
 import { Switch } from "../design/components/Switch";
 import { pointerType } from "../design/tokens";
 import { messageFor } from "./SecretDialogs";
@@ -134,17 +136,26 @@ export function TexSwitch({ phone }: { phone: string | null }) {
 
 /**
  * Under the roster: what the last switch did, why the list could not be read,
- * and the numbers on it that are nobody's account (a friend added in Linq),
- * each with Remove so its slot can be freed.
+ * the numbers on it that are nobody's account (a friend added in Linq), each
+ * with Remove so its slot can be freed, and a field to add a number that has no
+ * account yet. Without it a friend could only be let in after signing up with
+ * that phone, and until then their texts to Tex vanish before reaching us.
  */
 export function TexFootnotes({ accountPhones }: { accountPhones: ReadonlySet<string> }) {
   const styles = useThemedStyles(makeStyles);
   const tex = useTex();
+  const [typed, setTyped] = useState("");
   const line = tex?.line;
   if (!tex || !line) return null;
-  const others = line.state === "shared" ? line.contacts.filter((c) => !accountPhones.has(c.phone)) : [];
+  const shared = line.state === "shared";
+  const others = shared ? line.contacts.filter((c) => !accountPhones.has(c.phone)) : [];
   const error = line.state === "error" ? line.error : null;
-  if (!tex.said && !error && others.length === 0) return null;
+  if (!shared && !tex.said && !error) return null;
+  const add = async () => {
+    if (typed.trim() === "") return;
+    await tex.set(typed.trim(), true);
+    setTyped("");
+  };
   return (
     <View style={styles.notes} testID="admin-roster-tex-notes">
       {error ? (
@@ -175,6 +186,29 @@ export function TexFootnotes({ accountPhones }: { accountPhones: ReadonlySet<str
             </View>
           ))}
         </>
+      ) : null}
+      {shared ? (
+        <View style={styles.other}>
+          <TextField
+            label="Let a number text Tex"
+            labelHidden
+            placeholder={tex.full ? "All slots used" : "Phone with country code, like +1 555 555 0100"}
+            value={typed}
+            onChangeText={setTyped}
+            onSubmitEditing={() => void add()}
+            editable={!tex.full && tex.busy === null}
+            keyboardType="phone-pad"
+            containerStyle={styles.grow}
+            testID="admin-roster-tex-add-phone"
+          />
+          <Button
+            label={tex.busy !== null && tex.busy === typed.trim() ? "Adding…" : "Add"}
+            variant="dialog"
+            disabled={tex.full || tex.busy !== null || typed.trim() === ""}
+            onPress={() => void add()}
+            testID="admin-roster-tex-add"
+          />
+        </View>
       ) : null}
     </View>
   );

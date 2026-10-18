@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { Button } from "../../../design/components/Button";
 import { Card, Grow, Row } from "../../../design/components/Card";
 import { TextField } from "../../../design/components/Input";
 import { Text } from "../../../design/components/Text";
 import { TextLink } from "../../../design/components/TextLink";
-import { space } from "../../../design/tokens";
+import { layout, space } from "../../../design/tokens";
 import { useThemedStyles } from "../../../design/theme";
 import { atName } from "../../format";
 import { WorkspaceNameField } from "./WorkspaceNameField";
@@ -38,6 +38,12 @@ export function OverviewPanel({
   onSelect?: (key: SettingsSectionKey) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
+  /*
+    A phone puts the name field on its own full-width line under the picture.
+    Three across, the field shrank to a few letters and "Change picture" hung
+    level with the field's label instead of with anything it changes.
+  */
+  const compact = useWindowDimensions().width < layout.narrowBreakpoint;
   const current = selectedContext(data);
   const shared = current?.kind === "shared";
   const [pickingIcon, setPickingIcon] = useState(false);
@@ -72,17 +78,36 @@ export function OverviewPanel({
     .filter((part) => part !== null)
     .join(" · ");
 
+  const pictureButton = canChooseIcon ? (
+    <Button
+      variant="mini"
+      label={pickingIcon ? "Done" : "Change picture"}
+      accessibilityLabel={
+        pickingIcon ? "Close the picture picker" : "Change this workspace’s picture"
+      }
+      onPress={() => setPickingIcon((open) => !open)}
+      testID="overview-icon-trigger"
+    />
+  ) : null;
+
   return (
     <View>
       <Card style={styles.card}>
-        <View style={styles.identity} testID="overview-identity">
-          {/*
-            A chosen picture, falling back to the first letter — reversed from
-            letters-only deliberately, by the owner: `@seyi` and `@supa` drew the
-            same S in the switcher whose job is telling them apart.
-          */}
-          <WorkspaceMonogram slug={current?.slug ?? "?"} icon={icon} style={styles.picture} />
-          <View style={styles.nameCell}>
+        <View
+          style={compact ? [styles.identity, styles.identityStacked] : styles.identity}
+          testID="overview-identity"
+        >
+          <View style={styles.pictureRow}>
+            {/*
+              A chosen picture, falling back to the first letter — reversed from
+              letters-only deliberately, by the owner: `@seyi` and `@supa` drew the
+              same S in the switcher whose job is telling them apart.
+            */}
+            <WorkspaceMonogram slug={current?.slug ?? "?"} icon={icon} style={styles.picture} />
+            {/* `Button` pins itself to the top of a row; this centres it on the picture. */}
+            {compact ? <View style={styles.centred}>{pictureButton}</View> : null}
+          </View>
+          <View style={compact ? styles.nameStacked : styles.nameCell}>
             {canRename ? (
               <WorkspaceNameField key={name} workspaceId={current.id} name={name} />
             ) : (
@@ -95,17 +120,7 @@ export function OverviewPanel({
               />
             )}
           </View>
-          {canChooseIcon ? (
-            <Button
-              variant="mini"
-              label={pickingIcon ? "Done" : "Change picture"}
-              accessibilityLabel={
-                pickingIcon ? "Close the picture picker" : "Change this workspace’s picture"
-              }
-              onPress={() => setPickingIcon((open) => !open)}
-              testID="overview-icon-trigger"
-            />
-          ) : null}
+          {compact ? null : pictureButton}
         </View>
 
         {canChooseIcon && pickingIcon ? (
@@ -120,7 +135,7 @@ export function OverviewPanel({
       </Card>
 
       <Card style={styles.facts} testID="overview-facts">
-        <Row>
+        <Row style={styles.firstFact}>
           <Grow>
             <Text variant="rowTitle">Address</Text>
             <Text variant="rowSub" style={styles.sub}>
@@ -145,6 +160,22 @@ export function OverviewPanel({
         )}
         <Row divided>
           <Grow>
+            <Text variant="rowTitle">Built-in folders</Text>
+            <Text variant="rowSub" style={styles.sub}>
+              Which folder is your Inbox, Projects, Archive and the rest
+            </Text>
+          </Grow>
+          {onSelect === undefined ? null : (
+            <TextLink
+              label="Manage"
+              accessibilityLabel="Manage which folder does each built-in job"
+              onPress={() => onSelect("folders")}
+              testID="overview-folders-manage"
+            />
+          )}
+        </Row>
+        <Row divided>
+          <Grow>
             <Text variant="rowTitle">Custom emoji</Text>
           </Grow>
           {onSelect === undefined ? null : (
@@ -163,13 +194,26 @@ export function OverviewPanel({
 
 const makeStyles = () =>
   StyleSheet.create({
-    card: { padding: 0, marginBottom: space.x4 },
+    /*
+      Longhands, not `padding: 0`: `Card` sets `paddingVertical` and
+      `paddingHorizontal`, and on the web a longhand beats the shorthand
+      whatever the order, so `padding: 0` left the card's own padding under
+      `identity`'s and the picture sat twice as far in as anything else.
+    */
+    card: { paddingVertical: 0, paddingHorizontal: 0, marginBottom: space.x4 },
     identity: {
       flexDirection: "row",
       alignItems: "center",
       gap: space.x3,
       padding: space.x4,
     },
+    identityStacked: { flexDirection: "column", alignItems: "stretch" },
+    pictureRow: { flexDirection: "row", alignItems: "center", gap: space.x3 },
+    nameStacked: { width: "100%" },
+    centred: { alignSelf: "center" },
+    // The facts' first row had no padding under it, so its second line sat on
+    // the divider below; the divided rows under it have 10 above and below.
+    firstFact: { paddingBottom: 10 },
     picture: { width: 56, height: 56, borderRadius: 12 },
     nameCell: { flex: 1, minWidth: 0 },
     picker: { paddingHorizontal: space.x4, paddingBottom: space.x4 },

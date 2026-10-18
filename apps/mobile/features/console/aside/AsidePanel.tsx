@@ -64,11 +64,11 @@ export function AsidePanel({
   /** Open a finished meeting's note in the console, by href and path. `null` on the demo console. */
   onOpenNote: ((href: string, path: string) => void) | null;
   /**
-   * What the egress gate is holding for this person, from `useApprovals`.
+   * What is waiting for this person's yes (an email, a calendar change, a handle, a key), from `useApprovals`.
    *
    * Optional, and absent means no Approvals tab: a host that cannot answer
    * approvals (the homepage, a test that does not mount the hook) draws the
-   * Meetings tab alone. The tab's count is read here, so it is visible from
+   * Meetings tab alone, and so does a console with nothing waiting. The tab's count is read here, so it is visible from
    * the Meetings tab without opening it.
    */
   approvals?: ApprovalsView;
@@ -76,11 +76,15 @@ export function AsidePanel({
   const styles = useThemedStyles(makeStyles);
   const [chosen, setChosen] = useState<AsideTab>(DEFAULT_ASIDE_TAB);
   const approvalsAvailable = approvals?.available === true;
-  const tabs = visibleAsideTabs({ approvals: approvalsAvailable });
+  const waiting = approvals?.items.length ?? 0;
   // The tab somebody chose, if this console still shows it; else Meetings, which every console shows.
   const wanted = asideTabFor(chosen);
+  const tabs = visibleAsideTabs({
+    approvals: approvalsAvailable,
+    waiting,
+    answered: wanted === "approvals" && approvals?.notice != null,
+  });
   const showing: AsideTab = tabs.includes(wanted) ? wanted : "meetings";
-  const waiting = approvals?.items.length ?? 0;
 
   /* Somebody asked for Meetings, from the + menu or the title bar. See `started`. */
   useEffect(() => {

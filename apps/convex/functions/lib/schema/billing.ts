@@ -47,6 +47,42 @@ export const billingTables = {
     .index("by_metric_day", ["metric", "day"]),
 
   /**
+   * Premium usage analytics: what crossed the MCP boundary, by hour, agent and
+   * model (`docs/decisions/observability/token-usage.md`).
+   *
+   * Still counters, still no content. The hour is the one thing finer than
+   * `usageDaily`'s day, and it is taken from this deployment's clock, never
+   * from the caller. The agent is the grant's own ids, which the control plane
+   * already holds; the model is a normalized string from `lib/usage.ts`.
+   *
+   * Written only for a workspace whose plan is paying, because this breakdown
+   * is a Premium feature: a free workspace keeps the daily counters above and
+   * nothing here.
+   */
+  usageHourly: defineTable({
+    day: v.string(),
+    /** 0 to 23, UTC. */
+    hour: v.number(),
+    workspaceId: v.id("workspaces"),
+    /** The person behind the grant, for the personal view. */
+    userId: v.optional(v.id("users")),
+    /** The OAuth client of the grant: which agent. */
+    clientId: v.string(),
+    /** `normalizeModel` output: a known shape, "unknown" or "other". */
+    model: v.string(),
+    /** A `HOURLY_METRICS` name from `lib/usage.ts`. */
+    metric: v.string(),
+    /** "exact" (o200k_base) or "estimated" (bytes / 4); "count" for non-token metrics. */
+    method: v.string(),
+    count: v.number(),
+  })
+    .index("by_key", ["workspaceId", "day", "hour", "metric", "clientId", "model", "method", "userId"])
+    .index("by_workspace_day", ["workspaceId", "day"])
+    .index("by_workspace_day_model", ["workspaceId", "day", "model"])
+    .index("by_user_day", ["userId", "day"])
+    .index("by_day", ["day"]),
+
+  /**
    * One row per workspace per day that did anything, so "active" is countable.
    *
    * Kept apart from `usageDaily` because an active-user count is a
@@ -126,6 +162,22 @@ export const billingTables = {
      */
     stripeCustomerId: v.optional(v.string()),
     stripeSubscriptionId: v.optional(v.string()),
+    /**
+     * What Stripe last said about the subscription, before a founding plan's
+     * floor (`foundingStatus`) lifts `status` to active. The two differ only on
+     * a founding plan whose subscription ended, and that difference is what
+     * tells the console a founder has nothing left to manage in the portal.
+     * Absent on rows no event has touched since it was added.
+     */
+    stripeStatus: v.optional(
+      v.union(
+        v.literal("none"),
+        v.literal("active"),
+        v.literal("past_due"),
+        v.literal("canceled"),
+        v.literal("unknown"),
+      ),
+    ),
     /** Seconds, from Stripe. The end of the period already paid for. */
     currentPeriodEnd: v.optional(v.number()),
     /** True where Stripe says the subscription stops at the period end. */
@@ -202,6 +254,13 @@ export const billingTables = {
      * Absent on every other row.
      */
     freeManaged: v.optional(v.boolean()),
+    /**
+     * Premium at no charge because its owner holds a founding grant
+     * (`foundingPremium` below). Set together with `status: "active"`, and
+     * what keeps a Stripe event from ever turning this plan off
+     * (`foundingStatus`). Absent on every other row.
+     */
+    founding: v.optional(v.boolean()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -303,4 +362,25 @@ export const billingTables = {
   })
     .index("by_workspace", ["workspaceId"])
     .index("by_expiresAt", ["expiresAt"]),
+
+  /**
+   * Founding Premium: the first `FOUNDING_PREMIUM_ACCOUNTS` accounts, in
+   * account creation order, are Premium at no charge (decided by the owner,
+   * Dev2, 2026-10-17; `lib/billing/founding.ts`).
+   *
+   * One row per grant, written once and never deleted, **not even with the
+   * account**: the cap counts grants ever made, so a founder deleting their
+   * account frees no slot and nobody's standing moves. The row holds an
+   * opaque id and two times, nothing about the person.
+   */
+  foundingPremium: defineTable({
+    userId: v.id("users"),
+    /** 1-based, in grant order. */
+    seq: v.number(),
+    /** The account's `_creationTime`: where the next catch-up resumes. */
+    accountCreatedAt: v.number(),
+    grantedAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_seq", ["seq"]),
 };

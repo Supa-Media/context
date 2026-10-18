@@ -63,25 +63,35 @@ Consequences that follow and are intended:
 - **The release fallback is not used while a restriction is pending.** An
   unreadable source cannot say the page is still meant to be published.
 
-## A scan while a folder move is queued reads the tree's names
+## A website scan lists the tree, never the bucket
 
-_Decided 2026-10-13, with phase 4 of
-[convex-tree](./app-and-console/convex-tree.md)._
+_Decided 2026-10-14 (a note's name and existence are tree rows), with
+[notes-by-id](./storage-and-credentials/notes-by-id.md), 2026-10-15._
 
-While a queued move is pending, a page can sit at its old key while every
-reader by name has it at its new one, and a read of the old key answers "not
-found". A scan that listed the bucket therefore dropped every page under a
-moving folder without a word: renaming `website/blog` and pressing Publish
-before the copy finished put the site up without its blog. So while moves are
-pending the scan lists the Convex tree, which draws them, and reads each page
-at the name it now has (the read moves the object there first, as opening the
-note would). Where the tree cannot draw them yet (its first copy is still
-running) the scan stops at the tree's own "still loading" (`TREE_LOADING`,
-since 2026-10-13: no reader of which notes exist lists the bucket instead).
-Where a move started or was undone under the scan, and the move reaches a
-folder the scan walked, the scan fails as incomplete and the person is told
-to try again (`lib/websites/movingScan.ts`). A partial listing is never
-evidence that a page is gone.
+A note's name and existence come from the Convex tree, and with notes stored
+by id a bucket listing names `notes/<id>.md`, not a page. So every website
+scan (a Publish, a rebuild, a site check, the status read) lists the tree with
+its moves drawn, through the same `source: "tree"` manifest every other reader
+of which notes exist uses (`lib/nodes/treeReads.ts`). Each page's bytes are
+still read through the credential barrier at the clearance the site serves,
+at the name the tree draws (the read moves the object there first, as opening
+the note would), so a page a queued move carries is never missing for being
+at its old key.
+
+Where the tree is not there yet (its first copy is still running) the scan
+stops at the tree's own "still loading" (`TREE_LOADING`) and nothing is
+published, so a Publish never reads as an empty site. Where a move started or
+was undone under the scan, and the move reaches a folder the scan walked, the
+scan fails as incomplete and the person is told to try again
+(`lib/websites/movingScan.ts`). A partial listing is never evidence that a
+page is gone.
+
+A file another tool writes straight into the bucket is not listed until the
+tree learns of it: at the next sweep, or at the product's own write touch
+(`websiteRouteIndex.test.ts` pins this). That is the owner's rule that nothing
+outside the app writing into the bucket is picked up, and it is why the
+five-minute bound on a served copy (see "Edits wait for Publish") is the only
+thing that limits such a page's visibility between sweeps.
 
 The serving side does **not** fall back to a moved page's old key. A page a
 queued move carries away is off its old address at once, as it is after a move

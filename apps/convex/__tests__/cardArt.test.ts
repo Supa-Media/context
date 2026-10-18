@@ -129,7 +129,7 @@ describe("the card wears the app's palette", () => {
     ["text", "#EDE8E0"],
     ["text2", "#C3BCB2"],
     ["heroDim", "#7A736A"],
-    ["accent", "#6BC8C1"],
+    ["accent", "#8A9BF2"],
     ["line", "rgba(237,232,224,0.07)"],
     ["lineStrong", "rgba(237,232,224,0.14)"],
   ])("%s matches the app's token", (name, drawn) => {
@@ -149,7 +149,7 @@ describe("the card wears the app's palette", () => {
       const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
       return Math.max(r, g, b) - Math.min(r, g, b) > 24;
     });
-    expect([...new Set(chromatic)]).toEqual(["#6BC8C1"]);
+    expect([...new Set(chromatic)]).toEqual(["#8A9BF2"]);
   });
 });
 

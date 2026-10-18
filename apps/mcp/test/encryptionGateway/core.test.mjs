@@ -340,8 +340,8 @@ export async function runEncryptionGatewayCoreChecks(check, harness) {
 
     const fetched = await call(OWNER_A, "fetch", { id: "1-projects/moved-secret.md" });
     check(
-      "the ChatGPT fetch dialect returns the plaintext for a caller that holds the key",
-      !fetched?.isError && JSON.parse(textOf(fetched)).text.includes("forty-two"),
+      "fetch returns the plaintext for a caller that holds the key",
+      !fetched?.isError && textOf(fetched).includes("forty-two"),
     );
     const fetchedStolen = await call(OWNER_B, "fetch", { id: "1-projects/stolen.md" });
     check(

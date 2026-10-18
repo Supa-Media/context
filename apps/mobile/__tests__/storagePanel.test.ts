@@ -152,7 +152,7 @@ describe("the binding is a list of what this binding is", () => {
   test("a backend without a field has no row for it", () => {
     const body = openDetails(
       storagePane({
-        provider: "dropbox",
+        provider: "s3-compatible",
         bucket: undefined,
         endpoint: undefined,
         accessKey: undefined,
@@ -263,7 +263,7 @@ describe("the line under the verdict", () => {
     // An S3-compatible endpoint could be anybody's; it is not guessed at.
     expect(storageLine(binding({ provider: "s3-compatible" }), now)).toBe("Your own storage");
     expect(storageLine(binding({ managed: true }), now)).toBe("Storage Context runs for you");
-    expect(storageCompany({ provider: "dropbox" })).toBe("Dropbox");
+    expect(storageCompany({ provider: "r2" })).toBe("Cloudflare");
   });
 
   test("Check again is an owner's; nobody else is offered it", () => {

@@ -13,12 +13,10 @@
  * `enqueueGatewayJob` already uses, and the reason it uses it: what a handler
  * may do is decided where the session is, not by a handler reaching for one.
  *
- * Absent where there is no control plane, which is the single-tenant
- * deployment and the test stub. `toolCreateLink` and its siblings refuse with
- * a sentence rather than throwing on `undefined`.
+ * Every session has a control plane (`src/index.js` refuses a deployment without
+ * one), so these are always attached.
  */
 export function attachLinkCalls(store, session, controlPlane, env) {
-  if (!controlPlane) return;
   Object.defineProperty(store, "links", {
     value: {
       create: (request) =>
@@ -36,6 +34,55 @@ export function attachLinkCalls(store, session, controlPlane, env) {
   Object.defineProperty(store, "vaultLinks", {
     value: {
       request: (request) => controlPlane.vaultRequest(session.accessToken, session.workspaceId, request),
+    },
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+  // Note mail mailboxes (`tools/notes/mail.js`): joined against this context,
+  // read back only by the grant that joined.
+  Object.defineProperty(store, "mail", {
+    value: {
+      workspaceId: session.workspaceId,
+      join: (path, name) => controlPlane.joinMailbox(session.accessToken, session.workspaceId, path, name),
+      get: (mailboxId) => controlPlane.getMailbox(session.accessToken, mailboxId),
+      read: (mailboxId, readThrough) => controlPlane.markMailRead(session.accessToken, mailboxId, readThrough),
+    },
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+  // An email the person said yes to (`tools/email.js`), sent through their
+  // own Gmail. The control plane picks the sender off this token and holds the limits.
+  Object.defineProperty(store, "email", {
+    value: {
+      check: (email) => controlPlane.sendPersonEmail(session.accessToken, session.workspaceId, email, { check: true }),
+      send: (email) => controlPlane.sendPersonEmail(session.accessToken, session.workspaceId, email),
+      // Their mail read live from Gmail (`tools/emailRead.js`), for what the notes do not hold.
+      search: (search) => controlPlane.personMailSearch(session.accessToken, session.workspaceId, search),
+      read: (address, id) => controlPlane.personMailRead(session.accessToken, session.workspaceId, address, id),
+    },
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+  // A calendar change the person said yes to (`tools/calendarWrite.js`).
+  Object.defineProperty(store, "calendar", {
+    value: {
+      check: (change) => controlPlane.changePersonCalendar(session.accessToken, session.workspaceId, change, { check: true }),
+      change: (change) => controlPlane.changePersonCalendar(session.accessToken, session.workspaceId, change),
+    },
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+  // Setting a workspace up (`tools/workspaces.js`): created as this person,
+  // laid out or connected in this context. The control plane clears each.
+  Object.defineProperty(store, "workspaceSetup", {
+    value: {
+      create: (request) => controlPlane.createWorkspace(session.accessToken, session.workspaceId, request),
+      layout: (request) => controlPlane.layoutWorkspace(session.accessToken, session.workspaceId, request),
+      connectGoogle: (kind) => controlPlane.connectGoogle(session.accessToken, session.workspaceId, kind),
     },
     enumerable: false,
     writable: false,
@@ -72,9 +119,25 @@ export function attachLinkCalls(store, session, controlPlane, env) {
   }
   // `report_problem`: filed as this connection's person, resolved from its own
   // token by the control plane. Not tied to a workspace, so the same call on
-  // every store a request touches.
+  // every store a request touches. `texts` only from `tools/reportGate.js`.
   Object.defineProperty(store, "reportProblem", {
-    value: (message) => controlPlane.reportProblem(session.accessToken, message),
+    value: (message, texts) => controlPlane.reportProblem(session.accessToken, message, texts),
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+  // `dream_now`: Tex's dream for this context, now. The control plane clears
+  // the owner of their personal workspace off this token and decides.
+  Object.defineProperty(store, "dreamNow", {
+    value: () => controlPlane.dreamNow(session.accessToken, session.workspaceId),
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+  // `notify_me`: a ping for this connection's person. The control plane
+  // clears the owner of their personal workspace off this token and decides.
+  Object.defineProperty(store, "requestAttention", {
+    value: (urgency, deliver) => controlPlane.requestAttention(session.accessToken, session.workspaceId, urgency, deliver),
     enumerable: false,
     writable: false,
     configurable: true,

@@ -1,5 +1,32 @@
 import { defineTable } from "convex/server";
+import { googlePushValidator } from "./googlePush";
 import { v } from "convex/values";
+
+/**
+ * Each product's own turn record, beside its `lastSyncedAt`.
+ *
+ * One pass syncs one product, and the loop picks the product whose turn is
+ * oldest (`nextProductToSync`). Measured by success alone, a product that
+ * fails on every pass never gets a success, stays "oldest" forever, and
+ * takes every turn from its siblings: a broken Calendar stopped Gmail and
+ * Chat on the same account. `lastAttemptAt` is when the product last had a
+ * turn that did not succeed, and `lastFailure` says why in words a person
+ * can act on, so the console names the product that is broken rather than
+ * the account.
+ */
+const productAttemptFields = {
+  lastAttemptAt: v.optional(v.number()),
+  lastFailureCode: v.optional(v.string()),
+  lastFailure: v.optional(v.string()),
+  /**
+   * A failure that is this product's alone (Google rate-limited it, or was
+   * briefly unavailable) backs off here rather than on the account: the
+   * product has no turn before `retryAt`, `failures` climbs the same ladder
+   * the account uses, and its siblings keep syncing. Cleared by a success.
+   */
+  retryAt: v.optional(v.number()),
+  failures: v.optional(v.number()),
+};
 
 /**
  * A connected Google account, its sync runs, and its consent round trips.
@@ -44,7 +71,7 @@ export const googleTables = {
    * the rotation walk hunt through per-product objects for a column that is
    * the same secret in each. The gateway is handed a short-lived access token
    * to talk to Google and the refresh token never leaves the control plane —
-   * same reasoning as the Dropbox grant one table over.
+   * same reasoning as the storage credential one table over.
    */
   googleConnections: defineTable({
     workspaceId: v.id("workspaces"),
@@ -66,7 +93,7 @@ export const googleTables = {
     /**
      * Whose Google account this is. Not a secret — it is what lets the console
      * show which account is connected and notice a reconnect landing on a
-     * *different* account, the same role `dropboxAccountId` plays.
+     * *different* account, the same role a provider account id plays.
      */
     googleAccountId: v.string(),
     /**
@@ -156,6 +183,24 @@ export const googleTables = {
          */
         historyId: v.optional(v.string()),
         lastSyncedAt: v.optional(v.number()),
+        /**
+         * The first-connect import of the fifty most recent messages (owner,
+         * 2026-10-17). `pending` is written only when Gmail first lands on
+         * this account's row, so a reconnect, a revived row and every row
+         * written before this field existed never import. `attempts` counts
+         * failed tries; at `RECENT_IMPORT_MAX_ATTEMPTS` the import is given up
+         * and the forward pass carries on alone. Counts only, never a subject
+         * or an address. See `docs/decisions/communications/gmail-and-sync-loop.md`.
+         */
+        recentImport: v.optional(
+          v.object({
+            status: v.union(v.literal("pending"), v.literal("done"), v.literal("abandoned")),
+            attempts: v.number(),
+            completedAt: v.optional(v.number()),
+            messages: v.optional(v.number()),
+          }),
+        ),
+        ...productAttemptFields,
       }),
     ),
     /**
@@ -172,6 +217,7 @@ export const googleTables = {
         /** Owner-local date of the last full horizon refresh. */
         lastFullSyncDate: v.optional(v.string()),
         lastSyncedAt: v.optional(v.number()),
+        ...productAttemptFields,
       }),
     ),
     /**
@@ -210,6 +256,7 @@ export const googleTables = {
         destinationFolder: v.optional(v.string()),
         nonceSeed: v.string(),
         lastSyncedAt: v.optional(v.number()),
+        ...productAttemptFields,
       }),
     ),
     health: v.union(
@@ -326,6 +373,15 @@ export const googleTables = {
     managedProvisioningError: v.optional(v.string()),
     /** When the last attempt ended, so a retry can be rate-limited by a human. */
     managedProvisioningAt: v.optional(v.number()),
+    /**
+     * Google's push notifications for this account, per product, and the
+     * pokes they have delivered (`docs/decisions/communications/google-push.md`).
+     *
+     * Push only ever makes a connection due sooner. Nothing here is mail, and
+     * nothing here is a credential: the Calendar channel's token is stored as
+     * its SHA-256, so a database read cannot forge a notification.
+     */
+    push: v.optional(googlePushValidator),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -346,7 +402,11 @@ export const googleTables = {
      * A row with no `nextSyncAt` sorts before every number, so a never-synced
      * connection is at the front of the queue rather than invisible to it.
      */
-    .index("by_sync_due", ["disconnectedAt", "nextSyncAt"]),
+    .index("by_sync_due", ["disconnectedAt", "nextSyncAt"])
+    /** Push receivers: whose mailbox, channel or subscription a notification names. */
+    .index("by_push_gmail_address", ["push.gmail.address"])
+    .index("by_push_calendar_channel", ["push.calendar.channelId"])
+    .index("by_push_chat_subscription", ["push.chat.subscriptionName"]),
 
   /**
    * User-visible Google sync work.
@@ -423,13 +483,13 @@ export const googleTables = {
 
   /**
    * ONE IN-FLIGHT GOOGLE OAUTH ATTEMPT. Same shape and the same reasoning as
-   * `dropboxConnectAttempts` — see that table's comment for the full argument;
+   * `googleConnectAttempts` — the argument is written there in full;
    * this restates only what differs.
    *
    * `backfillDays` and `folders` are Gmail's own connect-time choices and
    * travel here rather than being asked for on the callback screen, because
-   * the callback may carry no session (see `dropboxConnect.ts`'s
-   * `completeDropboxConnect` for why that is a security argument and not a
+   * the callback may carry no session (see the Google callback
+   * for why that is a security argument and not a
    * shortcut) — so the choice the person made *before* leaving for Google's
    * consent screen has to survive the round trip somewhere that is not the
    * browser. A future Calendar-or-Chat-only connect attempt carries no Gmail
@@ -440,7 +500,7 @@ export const googleTables = {
     /**
      * SHA-256 of the value that never travels through Google.
      *
-     * `dropboxConnectAttempts.hashedCompletion` carries the argument in full;
+     * `hashedCompletion` on the connect attempt carries the argument in full;
      * this flow was written from that one and needs the same binding. Optional
      * only because attempts parked before it existed have none, and those are
      * refused rather than trusted.

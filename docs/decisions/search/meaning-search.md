@@ -217,3 +217,59 @@ only, so the row keeps the last per-tier counts the control plane's own
 backfill sent. Tests: `apps/mcp/test/meaningCatchup.test.mjs`,
 `apps/mcp/test/searchProjection/priority.test.mjs`,
 `apps/convex/__tests__/meaningAdmin.test.ts`.
+
+### A note's passages are filed under its note id, and a move only re-points them
+
+Decided 2026-10-17 (plan section 3.6 of
+[notes by id](../storage-and-credentials/notes-by-id.md)). A passage's id is a
+hash of the note's **note id** plus the passage number (`meaningKeyOf`,
+`apps/mcp/src/search/meaning/project.js`); the path is the key only for a note
+with no id. The path and tier ride as metadata, as before, plus `noteId`.
+
+So a move or a rename never asks the model again. The gateway's follow of a
+`move_note` reads the moved note's passages back with `get_by_ids` and
+upserts them under the new path and tier (`repathPassages`); the catch-up
+pass, whose census is now keyed by note id from the tree's listing
+(`meaningProjection.ts`), sees the same id at a new path and does the same for
+moves made in the app and for every note of a moved folder. Before this, a
+moved note was deleted and embedded again, and a moved folder's notes waited
+for the catch-up to embed each one of them again.
+
+**The path is not resolved at query time.** The plan said it would be. That
+costs a `/gateway/note-ids/resolve` round trip on every search in every
+workspace, while the search-speed work is taking a search down to three calls,
+and the route answers only what the reader sees with no names, so a note
+reached through a group or a grant would drop out of meaning results. Moves
+are known when they happen, so the path is rewritten then. A re-path that did
+not land costs recall until the catch-up's next pass, never a wrong answer:
+a meaning-only hit is read at its path before it is shown, and one that is not
+there is dropped.
+
+**The switch-over has no gap and no new embeds.** A map written before this
+holds paths. Each such note whose version still matches is adopted: its
+path-keyed passages are copied under its id, and deleted only after the copy
+has landed, so a search finds it throughout. A note changed meanwhile is
+embedded under its id instead. An id
+missing from a listing that was cut short is not deleted, since a moved note's
+new folder may be the part the listing never reached. `meaningById.test.mjs`
+and the "census is keyed by note id" case in
+`apps/convex/__tests__/meaningPass.test.ts` fail if any of this is reversed.
+
+### Fast search renames a moved note's rows, and reads it only for a new name
+
+Decided 2026-10-17, the same plan section. A note moved to another folder under
+the same file name keeps its rows: `followChange`
+(`apps/mcp/src/search/d1/follow.js`) renames them in place, as it already did
+for a moved folder, and moves the chunks to the other tier's table with an
+`INSERT … SELECT` when the new folder changes the tier. Neither reads the note.
+Before this, every moved note was read and projected again, and a moved
+folder's notes whose tier changed were read one by one up to the read cap and
+dropped past it until the sweep came round.
+
+A note given a **new name** is still read and projected, because its title
+follows its name: a rename rewrites the heading (`followHeading.ts`, "a note's
+heading is its name"), and a note with no heading takes its title from the file
+name. So does a note the projection does not hold yet, and a drawing. Keying
+the rows by note id instead would not save that read: the title still has to
+change on a rename. `apps/mcp/test/searchFollow.test.mjs` fails if a same-name move reads,
+if a tier move drops the chunks, or if a rename stops reprojecting.

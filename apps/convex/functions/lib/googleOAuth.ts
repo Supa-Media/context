@@ -1,12 +1,12 @@
 /**
  * Google OAuth for a connected Google account, as pure functions.
  *
- * Same shape as `dropboxOAuth.ts` and the same reasons apply — everything
+ * The reasons behind this shape are the connect flows' own, and everything
  * here is a string transformation, a Web Crypto digest, or one `fetch`
  * against Google's token endpoint, nothing does I/O beyond that, and nothing
  * here is a Convex function, so it is testable against a stubbed socket
  * rather than against Google. This file restates only what differs from that
- * module; see it for the fuller argument behind PKCE, the optional client
+ * module; see `googleConnect.ts` for the fuller argument behind PKCE, the optional client
  * secret, and why a provider's free-text error is never passed through.
  *
  * **Generalized from a Gmail-only `gmailOAuth.ts` (2026-09-07)**: the
@@ -36,8 +36,8 @@
  *
  * ## PKCE, reused rather than reimplemented
  *
- * `createPkcePair` is RFC 7636 with no Dropbox-specific behaviour in it, so
- * this module imports it from `dropboxOAuth.ts` instead of carrying a second
+ * `createPkcePair` is RFC 7636 with no provider-specific behaviour in it, so
+ * this module imports it from `pkce.ts` instead of carrying a second
  * copy — the same reasoning `communications.md` gives for reusing
  * `normalizeRoot` rather than writing a third path validator: two
  * implementations of "hash this verifier correctly" is how one of them ends
@@ -64,7 +64,7 @@
  *  - https://support.google.com/cloud/answer/13464325 (restricted scopes list — confirms `chat.messages.readonly`)
  */
 
-import { createPkcePair, pkceChallengeFor, type PkcePair } from "./dropboxOAuth";
+import { createPkcePair, pkceChallengeFor, type PkcePair } from "./pkce";
 import { APP_ORIGIN_ENV_VAR, redirectUriIsAcceptable } from "./gatewayAuth";
 
 export type { PkcePair };
@@ -134,6 +134,31 @@ export function scopesForProducts(products: readonly GoogleProduct[]): string[] 
   return [...scopes];
 }
 
+/** Sending one email the person approved (`docs/decisions/communications/sending-email.md`). Sensitive. */
+export const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
+/** Adding, moving and cancelling events the person approved (`calendar-writes.md`). Sensitive. */
+export const CALENDAR_WRITE_SCOPE = "https://www.googleapis.com/auth/calendar.events";
+
+/**
+ * The write permissions, asked for only of testers (staff and the production
+ * test account, `lib/googleWriteTesters.ts`) until Google has reviewed them
+ * (decided by the owner, 2026-10-17: "it should work for testing accounts
+ * before we need it approved"). An unverified app may ask its test users for
+ * any scope; everyone else's consent screen stays the read-only one Google is
+ * reviewing. Every write still waits for the person's yes to the exact copy.
+ */
+export const TESTER_WRITE_SCOPES: Partial<Record<GoogleProduct, readonly string[]>> = {
+  gmail: [GMAIL_SEND_SCOPE],
+  calendar: [CALENDAR_WRITE_SCOPE],
+};
+
+/** `scopesForProducts`, plus the write scopes of those products for a tester. */
+export function scopesForConnect(products: readonly GoogleProduct[], tester: boolean): string[] {
+  const scopes = new Set(scopesForProducts(products));
+  if (tester) for (const product of products) for (const scope of TESTER_WRITE_SCOPES[product] ?? []) scopes.add(scope);
+  return [...scopes];
+}
+
 /**
  * Which of the granted scopes belong to one product — the per-product slice
  * `docs/decisions/communications.md` asks for, computed from the one
@@ -152,7 +177,7 @@ export function grantedScopesFor(product: GoogleProduct, grantedScopes: readonly
 /**
  * Is this a redirect URI we would ever send somebody to?
  *
- * Identical reasoning to `dropboxRedirectAllowed`: pinned to our own origin
+ * Same reasoning as the connect redirect check: pinned to our own origin
  * (or loopback, for local dev) so an attacker cannot start their own connect
  * with a `redirectUri` they control and hand the victim the resulting
  * authorize URL — see that function's comment for the full confused-deputy
@@ -191,6 +216,13 @@ export function googleAuthorizeUrl(options: {
   state: string;
   /** From `scopesForProducts`. Never a raw product-name array — this file does not know what a product is. */
   scopes: readonly string[];
+  /**
+   * The address of the account being reconnected. Google pre-selects it on
+   * its account chooser; it is a hint, never a constraint — the person can
+   * still pick another account, and the binding keys on whatever Google
+   * returns, not on this.
+   */
+  loginHint?: string;
 }): string {
   if (typeof options.state !== "string" || options.state.length === 0) {
     throw new Error("A Google authorize URL needs a state value");
@@ -244,6 +276,7 @@ export function googleAuthorizeUrl(options: {
   url.searchParams.set("include_granted_scopes", "true");
   url.searchParams.set("scope", options.scopes.join(" "));
   url.searchParams.set("state", options.state);
+  if (options.loginHint !== undefined) url.searchParams.set("login_hint", options.loginHint);
   return url.toString();
 }
 
@@ -252,7 +285,7 @@ export function googleAuthorizeUrl(options: {
 /* -------------------------------------------------------------------------- */
 
 /**
- * How a token call failed. Same taxonomy as `DropboxOAuthErrorCode`, renamed
+ * How a token call failed. The taxonomy the connect flows share, renamed
  * to Google's vocabulary:
  *
  *  - `GRANT_REVOKED`     — `invalid_grant`. The code was spent or expired, or
@@ -411,7 +444,7 @@ export interface GoogleTokenSet {
  * Spend an authorization code for a token set.
  *
  * A 200 missing any documented field is refused rather than partially
- * accepted — same reasoning as `exchangeDropboxCode`: a binding written from
+ * accepted — same reasoning as the token exchange: a binding written from
  * half a response has no answer to "how do we refresh?" or "whose account is
  * this?", forever, and the person retrying a connect is cheap by comparison.
  */

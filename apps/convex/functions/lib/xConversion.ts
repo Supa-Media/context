@@ -28,6 +28,9 @@ export const X_EVENT_IDS: Record<XConversionKind, string | null> = {
   // the same event with the same `conversion_id` (`features/auth/xPixel.ts`),
   // so X counts it once.
   waitlist: "tw-rgib5-rgic8",
+  // Before setting this: `onUserCreated` cannot yet tell an account made in
+  // the phone app from one made on the web, and the privacy policy promises
+  // app sign-ups are never reported (Apple counts that as tracking).
   account: null,
 };
 

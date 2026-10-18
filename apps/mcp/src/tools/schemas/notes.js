@@ -47,11 +47,16 @@ export function noteWriteToolDefinitions() {
         "\n\nTHIS TOOL ALSO UPLOADS IMAGES. Pass images: [{ name, data | url, alt? }] and embed each one in the content by its name, e.g. ![[chart.png]] or ![a chart](chart.png), or in a site's HTML and CSS as src=\"chart.png\" or url(chart.png). " +
         "data is the image's base64 (a data: URI works too); url is an https address the gateway fetches once. Either way the bytes are stored inside this workspace, the embed is rewritten to point at that copy, and the image follows the note's visibility. " +
         "PNG, JPEG, GIF, WebP and HEIC, up to 5 MB each and 10 per call; SVG is refused. An image the content does not embed is added at the end. " +
-        "A remote image link written straight into a note stays outside the workspace: the app draws it through a proxy, but it is not exported and breaks when its host removes it, and shared links and websites never load it — attach it here instead." +
+        "A remote image link written straight into a note stays outside the workspace: the app draws it through a proxy, but it is not exported and breaks when its host removes it, and shared links and websites never load it — attach it here instead. " +
+        "A picture you have as a FILE and a shell to run commands in (too big to send as base64): pass upload: [{ name, sha256, bytes }] with the file's SHA-256 and size, and no content; you get a curl command per file that sends it once, then write the note with images: [{ name, sha256 }]." +
         "\n\nTHIS TOOL ALSO COMMENTS, the way people comment in a shared document. read_note lists a note's open comment threads; " +
         "pass comment: { action: \"add\", quote, text } to highlight words and say something about them, or { action: \"reply\" | \"resolve\" | \"reopen\", thread, text? } to answer one. " +
         "Resolve a thread once you have acted on it: resolving keeps the whole thread in the note's history. " +
         "{ action: \"delete\", thread } takes back the latest comment this connection wrote in that thread (the whole thread, when that is the comment that started it); nobody else's comments can be deleted here. " +
+        "\n\nTHIS TOOL ALSO SENDS MAIL between agents working on one note. Agents cannot wake each other, so mail is checked, not pushed: " +
+        "join with mail: { join: \"builder\" } (a short name for your role) and you get a mailbox id; pass mailbox: \"<id>\" on EVERY Context call after that, " +
+        "and each answer ends with a line when mail is new for you. Send with mail: { text, to } (to \"everyone\" by default, or one name that joined); read with read_note mail: true. " +
+        "Whoever leads the work sends the first mail: who does what, and how often everyone checks (every 5 minutes by default) and the deadline when everyone stops checking, scoped to the task (25 checks, about 2 hours, by default). Every agent that joins first sets up a check timer that survives its session ending (Claude Code: a background sleep it restarts at each check plus an hourly scheduled task; Codex: an automation), never a loop kept only in the conversation. Mail is kept at the end of the note, append-only; never edit it by hand. " +
         "\n\nTHIS TOOL ALSO PUBLISHES THE WEBSITE, for the workspace's owners and editors. Saving a note under website/ publishes nothing. " +
         "Pass site: { action: \"status\" } (with path \"website/index.md\" and no content) to see the draft Publish would release, what changed since the last publish, the problems that would stop it and the site's addresses. " +
         "Pass site: { action: \"check\" } before publishing: it lists every address and its file, links that go nowhere (note and line), every picture with its size and users, what the HTML/CSS cleaner removes from your layouts and stylesheets and why, and pages that would draw nothing; add inspect: \"website/layout.html.md\" to see that note exactly as the site draws it. " +
@@ -96,6 +101,18 @@ export function noteWriteToolDefinitions() {
               },
             },
             required: ["action"],
+          },
+          mail: {
+            type: "object",
+            description:
+              "Mail on this note instead of rewriting it; pass this without content. " +
+              "{ join: \"name\" } joins under that name and returns your mailbox id; { text, to? } sends a message, signed with your mailbox's name when you pass mailbox.",
+            properties: {
+              join: { type: "string", description: "join: a short name for your role here, letters, digits and dashes, e.g. lead, builder, reviewer." },
+              text: { type: "string", description: "send: the message, up to 4000 characters." },
+              to: { type: "string", description: "send: \"everyone\" (the default) or the name of one agent that joined." },
+            },
+            additionalProperties: false,
           },
           comment: {
             type: "object",
@@ -148,8 +165,12 @@ export function noteWriteToolDefinitions() {
               type: "object",
               properties: {
                 name: { type: "string", description: "The file name the content embeds this image as, e.g. chart.png" },
-                data: { type: "string", description: "The image bytes as base64, or a data: URI. Pass this or url." },
-                url: { type: "string", description: "An https URL to fetch the image from once. Pass this or data." },
+                data: { type: "string", description: "The image bytes as base64, or a data: URI. Pass this, url or sha256." },
+                url: { type: "string", description: "An https URL to fetch the image from once. Pass this, data or sha256." },
+                sha256: {
+                  type: "string",
+                  description: "The SHA-256 of a picture already sent with an upload link (see upload). Pass this, data or url.",
+                },
                 alt: { type: "string", description: "Alt text, used when the image is appended rather than embedded by name" },
                 label: {
                   type: "string",
@@ -158,6 +179,22 @@ export function noteWriteToolDefinitions() {
                 },
               },
               required: ["name"],
+              additionalProperties: false,
+            },
+          },
+          upload: {
+            type: "array",
+            maxItems: 10,
+            description:
+              "Get upload links instead of writing: one curl command per picture file, each sending that exact file once within 10 minutes. Pass with the note's path and no content, then write the note with images: [{ name, sha256 }].",
+            items: {
+              type: "object",
+              properties: {
+                name: { type: "string", description: "The file's name, e.g. chart.png" },
+                sha256: { type: "string", description: "The file's SHA-256 in hex (sha256sum or shasum -a 256 prints it)" },
+                bytes: { type: "integer", description: "The file's size in bytes, at most 5,000,000" },
+              },
+              required: ["name", "sha256", "bytes"],
               additionalProperties: false,
             },
           },
@@ -223,16 +260,31 @@ export function noteWriteToolDefinitions() {
       name: "set_visibility",
       title: "Set note visibility",
       description:
-        "Personal connection only. Set enforced visibility for one existing note without moving it. Private notes may coexist beside team notes in either folder default. Publishing private to team requires confirm_team_publish=true.",
+        "Personal connection only. Set enforced visibility for one existing note without moving it. Private notes may coexist beside team notes in either folder default. Publishing private to team requires confirm_team_publish=true. " +
+        "people names who else may open this one note: a member's or a group's @handle, or anyone's email address, inside the workspace or not, each with view or edit. It adds to the people already named and removes nobody; the owner only. Naming anybody runs only when the person's own words ask for it: pass them as person_said.",
       inputSchema: {
         type: "object",
         properties: {
           path: { type: "string" },
           visibility: { type: "string", enum: ["private", "team"] },
+          people: {
+            type: "array",
+            maxItems: 100,
+            description: "People to add to who may open this note. Leave out visibility to change only this.",
+            items: {
+              type: "object",
+              properties: {
+                who: { type: "string", description: "@handle of a member or a group of this workspace, or an email address." },
+                role: { type: "string", enum: ["view", "edit"], description: "Defaults to view." },
+              },
+              required: ["who"],
+              additionalProperties: false,
+            },
+          },
           expected_etag: { type: "string", description: "Optional current note etag" },
           confirm_team_publish: { type: "boolean" },
         },
-        required: ["path", "visibility"],
+        required: ["path"],
         additionalProperties: false,
       },
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },

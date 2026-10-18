@@ -41,6 +41,7 @@ import { toBindStorageArgs, type ConnectFormValues, type Provider } from "../con
 import { describeCreateFailure, type CreateFailure } from "./errors";
 import {
   afterDryRun,
+  laysOutAfterDryRun,
   afterName,
   afterStorage,
   type FlowShape,
@@ -129,7 +130,7 @@ export function useOnboarding(
      *
      * `fork` is the sign-in gate's (`resume.ts`): a name, and no storage.
      * `storage` is a return from Stripe, which lands on the settling screen.
-     * `structure` is what an old Dropbox round trip still sends; the layout
+     * `structure` is what a link from an older build still carries; the layout
      * choice moved to the console, so it re-enters by finishing.
      */
     resume?: "structure" | "storage" | "fork";
@@ -293,8 +294,10 @@ export function useOnboarding(
     empty bucket, which the console already offers to lay out (`SetupPrompt`)
     — a failure here is never a reason to hold somebody out of their workspace.
 
-    Never for a bucket somebody brought. The report comes first, and the
-    console's own offer is the only thing that ever writes a layout into it.
+    A bucket somebody brought is reported on first, and gets the same five
+    folders only when the report found it empty — nobody is asked which
+    folders they want (decided by the owner, 2026-10-16). A bucket with notes
+    in it is never laid out: `finishDryRun` below.
   */
   const applyStructure = useMutation(api.functions.workspaces.applyStructure);
   // Once per run. A refusal goes to the console rather than round again:
@@ -350,7 +353,7 @@ export function useOnboarding(
     managed.free !== null
       ? { kind: "free", cap: managed.free.cap }
       : managed.available
-        ? { kind: "paid", price: managed.price }
+        ? { kind: "paid", price: managed.price, founding: managed.founding }
         : null;
 
   const pickManaged = useCallback(() => {
@@ -380,7 +383,10 @@ export function useOnboarding(
     () => (binding ? dryRunReport(binding as unknown as DryRunBinding) : null),
     [binding],
   );
-  const finishDryRun = useCallback(() => go(afterDryRun()), [go]);
+  const finishDryRun = useCallback(() => {
+    if (laysOutAfterDryRun(binding?.scaffoldReason)) void layOutFreshBucket();
+    else go(afterDryRun());
+  }, [binding?.scaffoldReason, go, layOutFreshBucket]);
 
   const leaveStorage = useCallback(
     (outcome: StorageOutcome) => go(afterStorage(outcome, route)),

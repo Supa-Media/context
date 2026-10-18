@@ -262,7 +262,7 @@ export async function runProposalsAndArchiveChecks() {
   check(
     "fetch forwards an old path after its source becomes a logical-delete marker",
     succeeded(staleFetchAfterRename) &&
-      JSON.parse(staleFetchAfterRename.content[0].text).text === "portable a"
+      staleFetchAfterRename.content[0].text.includes("portable a")
   );
   const moveConflict = await call("pub-token", "move_note", {
     source: "1-projects/portable/renamed.md",

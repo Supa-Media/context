@@ -38,6 +38,7 @@ export function WebsitePage({
   hrefFor = (path) => path,
   prefetch,
   signIn,
+  handle,
 }: {
   /** The workspace's display name, which is the site's name. */
   name: string;
@@ -54,6 +55,8 @@ export function WebsitePage({
   prefetch?: (routePath: string) => void;
   /** Follow the server's sign-in path. */
   signIn: (signInPath: string) => void;
+  /** The site's handle, for the footer's "Report" link. */
+  handle?: string;
 }) {
   useEffect(ensureSiteSerifLoaded, []);
   const title = view.kind === "page" ? view.title : view.kind === "authentication_required" ? "Members only" : "Nothing here";
@@ -68,7 +71,14 @@ export function WebsitePage({
   const navigation = view.kind === "page" ? view.navigation : view.kind === "off" ? [] : menu;
   const current = view.kind === "page" ? view.routePath : null;
   return (
-    <SiteFrame name={name} navigation={navigation} current={current} navigate={navigate} madeWith={PLATFORM_ORIGIN}>
+    <SiteFrame
+      name={name}
+      navigation={navigation}
+      current={current}
+      navigate={navigate}
+      madeWith={PLATFORM_ORIGIN}
+      reportHandle={handle}
+    >
       {view.kind === "page" ? (
         <Page
           title={view.title}

@@ -25,7 +25,8 @@
  */
 
 /** Approve runs the held call once; deny drops it. Nothing else. */
-export type DecisionAction = "approve" | "deny";
+/** `approve_always` answers a vault key's first-use ask only: "Yes, from now on". */
+export type DecisionAction = "approve" | "approve_always" | "deny";
 
 /** One held call, as the screen shows it. */
 export interface Approval {
@@ -36,6 +37,11 @@ export interface Approval {
   tool: string;
   /** The arguments exactly as the client sent them. Read-only on the screen. */
   args: unknown;
+  /**
+   * What the person must read in full before saying yes, when the summary is
+   * not enough: an email's whole copy. Shown open, never behind a toggle.
+   */
+  detail?: string;
   /** Who would be able to see it, as the gateway words it. `null` when not said. */
   audience: string | null;
   /** The asking client's display name, e.g. "Claude Desktop". `null` when unnamed. */
@@ -44,6 +50,11 @@ export interface Approval {
   createdAt: number;
   /** Epoch milliseconds. */
   expiresAt: number;
+  /**
+   * `vault_use`: an AI asking to use a saved key for the first time. Answered
+   * "Yes, from now on", "Just this once" or "No", and nothing is run.
+   */
+  kind: "vault_use" | null;
 }
 
 /** What a listing answers with: the held calls, or a sentence for why not. */
@@ -60,6 +71,8 @@ export type Decision =
       ok: boolean;
       /** The tool's own answer text, or `""` when none was text. */
       result: string;
+      /** The answer was to a vault key's first-use ask. */
+      vaultUse?: boolean;
     }
   | { status: "denied"; summary: string | null };
 
@@ -167,6 +180,8 @@ function approvalFrom(raw: unknown): Approval | null {
     client: typeof record.client === "string" ? record.client : null,
     createdAt,
     expiresAt,
+    kind: record.kind === "vault_use" ? "vault_use" : null,
+    ...(typeof record.detail === "string" && record.detail.length > 0 ? { detail: record.detail } : {}),
   };
 }
 
@@ -213,6 +228,7 @@ export function readDecision(status: number, body: unknown): DecisionRead {
         summary,
         ok: record.ok === true,
         result: typeof record.result === "string" ? record.result : "",
+        ...(record.kind === "vault_use" ? { vaultUse: true } : {}),
       },
     };
   }

@@ -115,7 +115,7 @@ const makeStyles = (colors: Colors, shadows: Shadows) =>
       borderRadius: radii.pill,
       borderWidth: 1.5,
       borderColor: colors.accent,
-      backgroundColor: colors.pageSurface,
+      backgroundColor: colors.cardSurface,
       boxShadow: shadows.floating,
     },
     close: {
@@ -124,7 +124,7 @@ const makeStyles = (colors: Colors, shadows: Shadows) =>
       borderRadius: radii.pill,
       alignItems: "center",
       justifyContent: "center",
-      backgroundColor: colors.pageSurface,
+      backgroundColor: colors.cardSurface,
       boxShadow: shadows.floating,
     },
     pressed: { opacity: 0.6 },

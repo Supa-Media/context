@@ -146,10 +146,19 @@ export async function readSharedNoteHandler(
     not see is the same `SHARE_UNAVAILABLE` as one that never existed. Any
     new caller has to re-argue that.
   */
-  const [entryPath, requested] = (await ctx.runQuery(internal.functions.smallData.forward, {
+  /*
+    A share stamped with its note's id (`entryNote.ts`) already knows where the
+    note is now, so its entry path is never forwarded: forwarding a live path
+    could hand the link to whatever moved away from it. A path the reader asks
+    for under a folder share is still forwarded, since it may be one they
+    bookmarked before a rename. An unstamped row forwards both, as before.
+  */
+  const [forwardedEntry, forwardedAsked] = (await ctx.runQuery(internal.functions.smallData.forward, {
     workspaceId: grant.workspaceId,
     paths: [grant.entryPath, asked],
   })) as [string, string];
+  const entryPath = grant.byId ? grant.entryPath : forwardedEntry;
+  const requested = grant.byId && args.path === undefined ? grant.entryPath : forwardedAsked;
   const shareGrant = { ...grant, entryPath };
 
   /*
@@ -400,21 +409,44 @@ async function readWithinSharedFolder(
  * bucket that is unreachable, a binding that is gone — is passed through. See
  * `readSharedNote` for why those two are not one answer.
  */
-async function readThroughShare(
+export async function readThroughShare(
   ctx: ActionCtx,
   workspaceId: Id<"workspaces">,
   path: string,
   actorUserId: Id<"users"> | null,
   openToAnyone: boolean,
   scope: "private" | "team" = "team",
-): Promise<{ text: string }> {
+  // An outsider's names (`lib/grants/outsider.ts`), read through the same barrier. Empty for every other share.
+  grantedNames: readonly string[] = [],
+  /**
+   * Keep the note's comments: only for an outsider who may edit it
+   * (`grantedRead.ts`), whose save writes the whole text back. Stripping them
+   * there would delete every thread on the first save.
+   */
+  options: { keepComments?: boolean } = {},
+): Promise<{ text: string; etag: string; editable: boolean }> {
   try {
+    /*
+      THE TREE DECIDES SEALED BEFORE THE BUCKET IS ASKED FOR THE BODY.
+
+      The tree records each note's sealed state when its facts are read
+      (`writeFacts`, from the same envelope the body check looks for), so it
+      can refuse a sealed note without opening the object. A body rewritten in
+      the bucket since then still reads as sealed here until the tree catches
+      up, and that is the point: the tree is the answer for names and front
+      matter, and this is front matter. When the tree does not answer, the
+      body check below decides alone, exactly as before.
+    */
+    if (openToAnyone && (await sealedInTree(ctx, workspaceId, path))) {
+      throw anonymousSafe(actorUserId, shareUnavailable());
+    }
     const result = await ctx.runAction(
       internal.functions.files.runFileOperation,
       {
         workspaceId,
         scope,
         operation: { kind: "read", path },
+        ...(grantedNames.length === 0 ? {} : { grantedNames: [...grantedNames] }),
       },
     );
     if (result.kind !== "file")
@@ -456,7 +488,11 @@ async function readThroughShare(
       here, before the text leaves the control plane, so a link holder never
       receives them rather than merely not seeing them drawn.
     */
-    return { text: stripComments(result.text) };
+    // `editable`: what the bucket says of this object, beside who is asking. An encrypted note, or one the
+    // gateway serves read-only, is not written through a grant either.
+    const editable = !result.readOnly && result.encrypted !== true;
+    const text = options.keepComments === true ? result.text : stripComments(result.text);
+    return { text, etag: result.etag, editable };
   } catch (error) {
     const code =
       error instanceof ConvexError
@@ -469,6 +505,25 @@ async function readThroughShare(
     // caller. See `anonymousSafe`.
     throw error;
   }
+}
+
+/**
+ * Whether the Convex tree holds this note as sealed. `false` when the tree does
+ * not answer (a copy still loading, a failed query): the body check then
+ * decides, and this never refuses on an absence it cannot read.
+ */
+async function sealedInTree(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  path: string,
+): Promise<boolean> {
+  const rows = await ctx
+    .runQuery(internal.functions.nodeFacts.publishedRows, {
+      workspaceId,
+      paths: [path],
+    })
+    .catch(() => null);
+  return rows?.some((row) => row.path === path && row.sealed) ?? false;
 }
 
 /**

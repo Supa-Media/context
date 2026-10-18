@@ -18,7 +18,7 @@
  * Five hues, each with exactly one job, placed far enough apart on the wheel
  * that no two can be confused at a glance:
  *
- *   - **petrol** (`accent`, `hint*`, `codeKey`) — here, active, yours. Never a
+ *   - **brand blue** (`accent`, `hint*`, `codeKey`) — here, active, yours. Never a
  *     status. It is the only hue the interface spends on itself.
  *   - **sage** (`ok*`) — synced, saved, bound.
  *   - **amber** (`warn*`, `warm`) — degraded but working.
@@ -110,7 +110,7 @@ export const darkColors = {
    */
   appSurface: "#201E1B",
   appInk: "#EDE8E0",
-  appAccent: "#6BC8C1",
+  appAccent: "#8A9BF2",
   appChip: "rgba(237,232,224,0.09)",
   appChipHover: "rgba(237,232,224,0.16)",
   appChrome: "#191715",
@@ -154,9 +154,9 @@ export const darkColors = {
   /** The second hero line, deliberately dimmer than `muted`. */
   heroDim: "#7A736A",
 
-  accent: "#6BC8C1",
-  accentDim: "rgba(107,200,193,0.13)",
-  accentText: "#A9DEDA",
+  accent: "#8A9BF2",
+  accentDim: "rgba(138,155,242,0.13)",
+  accentText: "#8A9BF2",
 
   ok: "#82C98E",
   okText: "#A6DBAE",
@@ -232,6 +232,15 @@ export const darkColors = {
   chromeSurface: "#191715",
   pageSurface: "#201E1B",
   /**
+   * The fill of a card or floating control lying on a screen: Home's tiles and
+   * lists, the folder card, the search capsule, the round buttons. On a pointer
+   * layout it is `pageSurface`, the page lighter than the chrome it lies on.
+   * On a phone the screen is one shade edge to edge (the owner, 2026-10-16),
+   * so `pageSurface` is that shade and a card needs a value of its own — see
+   * `phoneColors.ts`.
+   */
+  cardSurface: "#201E1B",
+  /**
    * The desk a cast's chat scene sets its two apps on: the chat app and
    * Context, each its own window, so neither reads as a panel of the other.
    */
@@ -248,13 +257,13 @@ export const darkColors = {
   /** Warm accent for the first floating tile's mark. */
   warm: "#DFAC52",
 
-  hintWash: "rgba(107,200,193,0.06)",
-  hintBorder: "rgba(107,200,193,0.16)",
-  hintText: "#A9DEDA",
-  hintStrong: "#CCEBE8",
+  hintWash: "rgba(138,155,242,0.06)",
+  hintBorder: "rgba(138,155,242,0.16)",
+  hintText: "#B9C3F7",
+  hintStrong: "#D6DCFA",
 
   /** Syntax tints in the note preview. */
-  codeKey: "#8FD3CE",
+  codeKey: "#A3B0F5",
 
   /* ------------------------------------------------------------------ *
    * Floating chrome.
@@ -382,7 +391,7 @@ export const lightColors: Colors = {
   /** Identical to the dark palette's, deliberately — see its note. */
   appSurface: "#201E1B",
   appInk: "#EDE8E0",
-  appAccent: "#6BC8C1",
+  appAccent: "#8A9BF2",
   appChip: "rgba(237,232,224,0.09)",
   appChipHover: "rgba(237,232,224,0.16)",
   appChrome: "#191715",
@@ -424,9 +433,9 @@ export const lightColors: Colors = {
   /** The second hero line, deliberately dimmer than `muted`. */
   heroDim: "#7A7264",
 
-  accent: "#0E6C69",
-  accentDim: "rgba(14,108,105,0.10)",
-  accentText: "#0A5350",
+  accent: "#2A45CF",
+  accentDim: "rgba(42,69,207,0.10)",
+  accentText: "#2A45CF",
 
   ok: "#3E7A4E",
   okText: "#2C5C39",
@@ -455,6 +464,7 @@ export const lightColors: Colors = {
   /** See `darkColors.chromeSurface`: the page stays lighter than its chrome. */
   chromeSurface: "#F4F1EA",
   pageSurface: "#FFFDF9",
+  cardSurface: "#FFFDF9",
   castDesk: "#DDD7CC",
   castSwitcher: "#2B2825",
 
@@ -471,13 +481,13 @@ export const lightColors: Colors = {
   /** Warm accent for the first floating tile's mark. */
   warm: "#B5761C",
 
-  hintWash: "rgba(14,108,105,0.06)",
-  hintBorder: "rgba(14,108,105,0.22)",
-  hintText: "#0E6C69",
-  hintStrong: "#0A4442",
+  hintWash: "rgba(42,69,207,0.06)",
+  hintBorder: "rgba(42,69,207,0.22)",
+  hintText: "#2A45CF",
+  hintStrong: "#18287A",
 
   /** Syntax tints in the note preview. */
-  codeKey: "#0A5350",
+  codeKey: "#22389F",
 
   /**
    * Floating chrome. A floating object in a light world is white and reads as
@@ -497,7 +507,7 @@ export const lightColors: Colors = {
 
 /** Edge/node colours in the constellation map, keyed by relationship. */
 export const darkGraphColors = {
-  own: "#6BC8C1",
+  own: "#8A9BF2",
   team: "#A79F95",
   shared: "#B9A3F2",
   client: "#82C98E",
@@ -515,7 +525,7 @@ export type GraphColors = Readonly<Record<GraphKind, string>>;
  * disc drawn in the ground's opposite — near-black here, near-white there.
  */
 export const lightGraphColors: GraphColors = {
-  own: "#0E6C69",
+  own: "#2A45CF",
   team: "#635C52",
   shared: "#6A46B8",
   client: "#3E7A4E",
@@ -523,11 +533,21 @@ export const lightGraphColors: GraphColors = {
 };
 
 /**
+ * Categorical chart series, in a fixed order: slot 1 is always the first
+ * series, never re-dealt when one drops out. Checked for colour-vision
+ * separation against each theme's surface (dataviz validator, 2026-10-10);
+ * the light set is under 3:1 against the surface for slots 3 to 5, so a chart
+ * using them also shows its numbers as text.
+ */
+export const lightSeriesColors = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4"] as const;
+export const darkSeriesColors = ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181"] as const;
+
+/**
  * The live workspace map's own shades (`features/console/map/live/engine`),
  * the ones the app palette has no word for: the paper of a workspace island,
  * a resting note, a link, a folder's bubble and its dashed rim, and `ink`,
  * the dark that reading is drawn in. Reading is deliberately ink and not a
- * hue: teal (`accent`) is spent only on live writing, a selected note and a
+ * hue: brand blue (`accent`) is spent only on live writing, a selected note and a
  * new one, so the eye can find what is changing. Taken from the approved
  * prototype; the rest of the map's colours come from `Colors`.
  *
@@ -551,7 +571,7 @@ export const lightMapColors = {
   agentClaude: "#d9712e",
   agentCodex: "#7d5fd6",
   agentChatgpt: "#5f9e3c",
-  agentContext: "#0E6C69",
+  agentContext: "#2A45CF",
   agentBlue: "#3573D1",
   agentPink: "#C2417F",
   agentAmber: "#8E5E1F",
@@ -573,7 +593,7 @@ export const darkMapColors: MapColors = {
   agentClaude: "#e8894a",
   agentCodex: "#a58be8",
   agentChatgpt: "#8fc46a",
-  agentContext: "#6BC8C1",
+  agentContext: "#8A9BF2",
   agentBlue: "#6FA3F2",
   agentPink: "#F27DB5",
   agentAmber: "#D9A25C",
@@ -622,7 +642,7 @@ export const castChatLooks = {
     field: "#FFFDF9",
     ok: "#3E7A4E",
     fail: "#B4362C",
-    landing: "rgba(14,108,105,0.12)",
+    landing: "rgba(42,69,207,0.12)",
   },
   plain: {
     ground: "#FFFDF9",
@@ -634,7 +654,7 @@ export const castChatLooks = {
     field: "#FFFDF9",
     ok: "#3E7A4E",
     fail: "#C0392B",
-    landing: "rgba(14,108,105,0.12)",
+    landing: "rgba(42,69,207,0.12)",
   },
   dark: {
     ground: "#1B1D22",
@@ -646,7 +666,7 @@ export const castChatLooks = {
     field: "#23262C",
     ok: "#82C98E",
     fail: "#F2A3A3",
-    landing: "rgba(107,200,193,0.16)",
+    landing: "rgba(138,155,242,0.16)",
   },
 } as const;
 export type CastChatLookColors = (typeof castChatLooks)[keyof typeof castChatLooks];

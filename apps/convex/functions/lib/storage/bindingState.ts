@@ -17,6 +17,7 @@ import {
 } from "../storageLayout";
 import { managedBucketName } from "../managedStorage";
 import { capabilitiesValidator } from "./shapes";
+import { layOutTextedWorkspace } from "../textSetup/layout";
 
 /**
  * How much provider failure text we keep.
@@ -52,20 +53,16 @@ export function scrubProviderError(
   binding: {
     accessKeyId?: string;
     encryptedSecretAccessKey?: string;
-    encryptedRefreshToken?: string;
-    encryptedAccessToken?: string;
   },
 ): string {
   let scrubbed = raw;
-  // Every credential-shaped value the binding holds, whichever provider it is.
-  // Listing them explicitly rather than iterating the row keeps a future
-  // non-secret field from being redacted out of an error by accident, and a
-  // future secret one from being missed — it has to be named here either way.
+  // Every credential-shaped value the binding holds. Listing them explicitly
+  // rather than iterating the row keeps a future non-secret field from being
+  // redacted out of an error by accident, and a future secret one from being
+  // missed — it has to be named here either way.
   for (const known of [
     binding.encryptedSecretAccessKey,
     binding.accessKeyId,
-    binding.encryptedRefreshToken,
-    binding.encryptedAccessToken,
   ]) {
     if (typeof known === "string" && known.length > 0) {
       scrubbed = scrubbed.split(known).join("[redacted]");
@@ -188,6 +185,11 @@ export async function recordVerificationHandler(
         managedProvisioningAt: now,
         updatedAt: now,
       });
+    }
+    // A workspace set up by text gets its starting folders now, with no
+    // screen waiting to ask for them (`lib/textSetup/layout.ts`).
+    if (args.ok) {
+      await layOutTextedWorkspace(ctx, args.workspaceId, args.scaffoldReason ?? binding.scaffoldReason);
     }
   }
 

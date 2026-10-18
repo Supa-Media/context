@@ -15,6 +15,7 @@
  *   the barrier not attaching the index to a search's store → "a console search through the barrier…" fails
  *   `meaningSearchDescriptor` recording NOT_CONFIGURED     → "a search with no credential searches words…" fails
  *   the listing's sizes not handed to the pass              → "re-embeds the notes the listing says are big…" fails
+ *   the census keyed by path instead of note id             → "a renamed note is re-pathed from its stored vectors…" fails
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -32,6 +33,7 @@ import {
   FAKE_D1,
   FAKE_STORAGE,
   createUser,
+  copyTree,
   createWorkspace,
   seedAppSecret,
   seedStorageBinding,
@@ -178,6 +180,7 @@ describe("the pass itself", () => {
       },
       deleteByIds: async (ids: string[]) => ids.length,
       existingIds: async () => new Set<string>(),
+      getByIds: async () => [],
     };
     const embed = async (texts: string[]) => texts.map(() => new Array(DIMENSIONS).fill(0.5));
 
@@ -199,6 +202,57 @@ describe("the pass itself", () => {
   });
 });
 
+describe("the census is keyed by note id", () => {
+  // A keyed workspace's rows keep their note id through a move or rename, and
+  // the tree's listing carries it, so the pass sees the same note at a new
+  // path and re-points its passages instead of embedding it again.
+  test("a renamed note is re-pathed from its stored vectors, not embedded again", async () => {
+    const store = memoryStore() as MemoryStore & FileStore;
+    store.seed("1-projects/plan.md", "# Plan\n\nWe are hiring two engineers.\n");
+    store.seed("2-areas/plan.md", "# Plan\n\nWe are hiring two engineers.\n");
+    const noteId = "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a51";
+    let at = "1-projects/plan.md";
+    Object.defineProperty(store, "treeListing", {
+      enumerable: false,
+      value: {
+        list: async () => ({ objects: [{ key: at, etag: "row-v1", size: 40, noteId }], delimitedPrefixes: [], truncated: false }),
+        taken: async () => ({}),
+      },
+    });
+    const held = new Map<string, { id: string; values: number[]; metadata: Record<string, unknown> }>();
+    let embedded = 0;
+    const client = {
+      upsert: async (vectors: unknown[]) => {
+        for (const vector of vectors as { id: string; values: number[]; metadata: Record<string, unknown> }[]) held.set(vector.id, vector);
+        return vectors.length;
+      },
+      deleteByIds: async (ids: string[]) => {
+        for (const id of ids) held.delete(id);
+        return ids.length;
+      },
+      existingIds: async (ids: string[]) => new Set(ids.filter((id) => held.has(id))),
+      getByIds: async (ids: string[]) => ids.filter((id) => held.has(id)).map((id) => held.get(id)!),
+    };
+    const embed = async (texts: string[]) => {
+      embedded += texts.length;
+      return texts.map(() => new Array(DIMENSIONS).fill(0.5));
+    };
+
+    const first = await projectMeaningIndex(store, { client, embed, generation: "g1" });
+    expect(first).toMatchObject({ embedded: 1, ready: true });
+    const embeddedOnce = embedded;
+    expect([...held.values()].map((vector) => vector.metadata)).toEqual([
+      { path: "1-projects/plan.md", noteId, chunk: 0, tier: expect.any(String) },
+    ]);
+
+    at = "2-areas/plan.md";
+    const second = await projectMeaningIndex(store, { client, embed, generation: "g1" });
+    expect(second).toMatchObject({ embedded: 0, repathed: 1, deleted: 0, ready: true });
+    expect(embedded).toBe(embeddedOnce);
+    expect([...held.values()].map((vector) => vector.metadata.path)).toEqual(["2-areas/plan.md"]);
+  });
+});
+
 describe("the census is a listing, not the bucket's search index", () => {
   // A large workspace's bucket index can fall behind or fail to build at all;
   // search by meaning must fill regardless, because it is what replaces it.
@@ -213,6 +267,7 @@ describe("the census is a listing, not the bucket's search index", () => {
       },
       deleteByIds: async (ids: string[]) => ids.length,
       existingIds: async () => new Set<string>(),
+      getByIds: async () => [],
     };
     const embed = async (texts: string[]) => texts.map(() => new Array(DIMENSIONS).fill(0.5));
 
@@ -239,7 +294,7 @@ describe("a larger passage cap", () => {
     store.seed("meetings/long.md", `# Long call\n\n${"We went over the plan again. ".repeat(1_500)}`);
     store.seed("notes/short.md", "# Short\n\nOne line.");
     const versions = new Map<string, string>();
-    const first = { upsert: async (vectors: unknown[]) => vectors.length, deleteByIds: async (ids: string[]) => ids.length, existingIds: async () => new Set<string>() };
+    const first = { upsert: async (vectors: unknown[]) => vectors.length, deleteByIds: async (ids: string[]) => ids.length, existingIds: async () => new Set<string>(), getByIds: async () => [] };
     const embed = async (texts: string[]) => texts.map(() => new Array(DIMENSIONS).fill(0.5));
     await projectMeaningIndex(store, { client: first, embed, generation: "g1" });
     const written = JSON.parse(store.snapshot()[MEANING_STATE_KEY]);
@@ -255,6 +310,7 @@ describe("a larger passage cap", () => {
       },
       deleteByIds: async (ids: string[]) => ids.length,
       existingIds: async () => new Set<string>(),
+      getByIds: async () => [],
     };
     const result = await projectMeaningIndex(store, { client, embed, generation: "g1" });
     expect(result.failure).toBeNull();
@@ -265,6 +321,8 @@ describe("a larger passage cap", () => {
 describe("through the barrier", () => {
   test("a pass fills the index and the row reaches ready", async () => {
     const { t, workspaceId, cf, bucket } = await workspace({ notes: 3 });
+    // The census is the tree's names, not the bucket's listing (`keyedCensus.test.ts`): the tree copies the notes first.
+    await copyTree(t, workspaceId);
     const result = await pass(t, workspaceId, 5);
     expect(result).toMatchObject({ kind: "meaningProjected", ready: true, notesIndexed: 5 });
     expect(new Set(cf.upserted.map((vector) => vector.metadata.path)).size).toBe(5);
@@ -275,7 +333,7 @@ describe("through the barrier", () => {
     expect(JSON.parse(bucket.snapshot()[MEANING_STATE_KEY]).generation).toBe("1700000000000");
     // A finished pass schedules no next link.
     expect(await queued(t, "runFileOperation")).toHaveLength(0);
-  });
+  }, 30_000); // the tree's first copy runs before the pass, which takes longer than the default five seconds
 
   test("a row turned off is handed nothing, and no bucket is opened", async () => {
     const { t, workspaceId, bucket } = await workspace({ enabled: false, status: "releasing" });
@@ -299,12 +357,14 @@ describe("through the barrier", () => {
 
   test("a blip is retried later and the row keeps waiting; a refusal lands on the row", async () => {
     const blip = await workspace();
+    await copyTree(blip.t, blip.workspaceId);
     blip.cf.fail = 503;
     await pass(blip.t, blip.workspaceId, 5);
     expect((await row(blip.t, blip.workspaceId))?.status).toBe("backfilling");
     expect(await queued(blip.t, "runFileOperation")).toHaveLength(1);
 
     const refused = await workspace();
+    await copyTree(refused.t, refused.workspaceId);
     refused.cf.fail = 403;
     await pass(refused.t, refused.workspaceId, 5);
     const after = await row(refused.t, refused.workspaceId);
@@ -422,6 +482,8 @@ describe("a console search", () => {
   test("a console search through the barrier merges what the index found", async () => {
     const { t, workspaceId, bucket, cf } = await workspace({ status: "ready", notes: 2 });
     bucket.seed("2-areas/garden.md", "# Garden\n\nTomatoes by the fence.\n");
+    // Written before the copy, which is what the tree hears of: the census is the tree's names (`keyedCensus.test.ts`).
+    await copyTree(t, workspaceId);
     await pass(t, workspaceId, 5);
     // The words half has its own index; the meaning pass no longer builds it.
     await t.action(internal.functions.files.runFileOperation, {

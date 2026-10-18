@@ -21,6 +21,7 @@ export function PaymentStep({
   ceiling,
   onLevelUp,
   onBringOwn,
+  founding = false,
 }: {
   used: number;
   cap: number;
@@ -31,6 +32,8 @@ export function PaymentStep({
   onLevelUp?: () => void;
   /** Absent where there is nowhere to connect a bucket from. */
   onBringOwn?: () => void;
+  /** Founding Premium at no charge: the cap is the founders' deal, not the free tier's. */
+  founding?: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
   const pct = Math.min(100, Math.round((used / cap) * 100));
@@ -38,8 +41,9 @@ export function PaymentStep({
   return (
     <View>
       <Text variant="rowSub" style={styles.lede}>
-        You're using the managed bucket we run for you. It has a soft cap so
-        the free tier stays free.
+        {founding
+          ? "Founding Premium includes the managed bucket we run for you, with a soft cap on notes."
+          : "You're using the managed bucket we run for you. It has a soft cap so the free tier stays free."}
       </Text>
 
       <View style={styles.panel}>
@@ -51,9 +55,7 @@ export function PaymentStep({
           <Text style={styles.metricDim}> / {cap.toLocaleString()} notes</Text>
         </Text>
         <Text variant="foot" style={styles.metricHint}>
-          You've reached the free-tier cap. Nothing has been deleted: reading,
-          editing, moving and downloading what you have all keep working. New
-          notes pause until you level up or bring a bucket of your own.
+          {`You've reached the ${founding ? "founding members'" : "free-tier"} cap. Nothing has been deleted: reading, editing, moving and downloading what you have all keep working. New notes pause until you level up or bring a bucket of your own.`}
         </Text>
       </View>
 
@@ -62,7 +64,7 @@ export function PaymentStep({
           <Text variant="eyebrow" style={styles.eyebrowOn}>
             Level up
           </Text>
-          <Text style={styles.cardTitle}>Managed bucket</Text>
+          <Text style={styles.cardTitle}>{founding ? "Full Premium" : "Managed bucket"}</Text>
           <Text variant="rowSub" style={styles.cardBody}>
             {`No note cap, up to ${ceiling}. Same bucket, same endpoint — everything you've written stays where it is.`}
           </Text>

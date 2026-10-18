@@ -26,11 +26,9 @@ and the cross-context move's and vault import's destination checks, not yet
 moved.
 
 **A store that ignores key order is paged by its own token** (2026-10-14).
-Dropbox lists recursively and ignores `startAfter`; the sweep sees a key out
-of order and pages by the continuation cursor instead, kept in the tree's row,
-restarting once if it expires. `unsupported` is left only for a store with
-neither, retried daily. Dropbox's prefix listing cannot find a file by its own
-path, so its touch reads that file by name (`prefixFindsFiles`).
+The sweep sees a key out of order and pages by the continuation cursor instead,
+kept in the tree's row, restarting once if it expires. `unsupported` is left
+only for a store with neither, retried daily.
 
 **`write_note` and the status list ask the tree too** (owner, 2026-10-14:
 "everything including file name and frontmatter should be going through the

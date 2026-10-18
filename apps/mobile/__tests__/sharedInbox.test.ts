@@ -46,7 +46,7 @@ const { SharedSidebar } =
   require("../features/console/shared/SharedSidebar") as typeof import("../features/console/shared/SharedSidebar");
 const { SwitcherMenu, sheetItems } =
   require("../features/console/SwitcherMenu") as typeof import("../features/console/SwitcherMenu");
-type SharedItem = import("../features/console/shared/sharedInbox").SharedItem;
+type SharedItem = import("../features/console/shared/sharedInbox").ShareItem;
 type ConsoleData = import("../features/console/types").ConsoleData;
 type ConsoleContext = import("../features/console/types").ConsoleContext;
 
@@ -123,14 +123,14 @@ describe("the groups", () => {
   test("by day, newest first, empty groups left out", () => {
     const groups = inbox.groupByDay([old, plan, chaos], NOW);
     expect(groups.map((group) => group.heading)).toEqual(["Today", "This week", "Earlier"]);
-    expect(groups.map((group) => group.items.map((i) => i.token))).toEqual([["tok-chaos"], ["tok-plan"], ["tok-old"]]);
+    expect(groups.map((group) => group.items.map((i) => inbox.sharedItemKey(i)))).toEqual([["tok-chaos"], ["tok-plan"], ["tok-old"]]);
     expect(inbox.groupByDay([chaos], NOW).map((group) => group.heading)).toEqual(["Today"]);
   });
 
   test("by person, most recent sharer first, two handle-less people kept apart", () => {
     const people = inbox.groupByPerson([old, plan, chaos]);
     expect(people.map((group) => group.label)).toEqual(["@ana", "@bo"]);
-    expect(people[0]!.items.map((i) => i.token)).toEqual(["tok-chaos", "tok-old"]);
+    expect(people[0]!.items.map((i) => inbox.sharedItemKey(i))).toEqual(["tok-chaos", "tok-old"]);
     const nameless = inbox.groupByPerson([
       item({ sharedBy: "u1", sharedByHandle: null }),
       item({ token: "t2", sharedBy: "u2", sharedByHandle: null }),

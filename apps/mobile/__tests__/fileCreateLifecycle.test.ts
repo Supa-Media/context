@@ -230,7 +230,8 @@ describe("create and root lifecycle regressions", () => {
     expect(browser.editor.path).toBeNull();
   });
 
-  test("navigation during an untitled destination fetch survives its create", async () => {
+  // A new note opens without waiting for the fetch, and one left empty is not saved (`unsentNotes.ts`).
+  test("navigation away from a new note made during a destination fetch leaves nothing behind", async () => {
     unmount = mount(); await settle();
     let release!: () => void;
     let first = true;
@@ -245,7 +246,7 @@ describe("create and root lifecycle regressions", () => {
     await act(async () => browser.createUntitled(FOLDER, "note")); await settle();
     await act(async () => browser.select("index.md")); await settle();
     await act(async () => release()); await settle();
-    expect([...files.keys()].some(path => path.startsWith(`${FOLDER}/untitled-`))).toBe(true);
+    expect([...files.keys()].some(path => path.startsWith(`${FOLDER}/untitled-`))).toBe(false);
     expect(browser.selectedPath).toBe("index.md");
     expect(browser.editor.path).toBe("index.md");
   });

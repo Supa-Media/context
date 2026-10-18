@@ -10,7 +10,7 @@ import { itemsFor, type MenuTarget } from "../../files/menu";
 import { ancestorsOf, baseName, folderLabel, parentPath } from "../../files/paths";
 import { canDrop as verdictFor, type DragSource } from "../../files/dnd";
 import type { FolderDrag, FolderMenu } from "../../files/FolderView";
-import { findEntry, treeRowFor } from "../../files/tree";
+import { findEntry, treeRowFor, type TreeRow } from "../../files/tree";
 import type { FileEntry } from "../../files/types";
 import type { ConsoleData, selectedContext } from "../../types";
 import type { FolderMenuState } from "./folderMenuState";
@@ -19,7 +19,14 @@ import { useHomePlaces } from "../../home/useHomePlaces";
 import { useHomeSource } from "../../home/useHomeSource";
 import { bulkTagTargets, folderTagTarget, listedIn } from "../../home/folderTags";
 import { useFolderLists } from "../../../offline/useFolderLists";
-import { rootFolderNames } from "../../files/menuBuiltIn";
+import { listingIsDescending } from "../../files/listingOrder";
+import { folderMenuFacts } from "../../files/menuBuiltIn";
+
+/** Select mode asked for on a folder page: from its •••, or from a row's hold with that row picked. */
+export interface SelectAsk {
+  folder: string;
+  path?: string;
+}
 
 /**
  * The folder listing's right-click menu, the dialogs it leads to, and dragging
@@ -124,7 +131,7 @@ export function useFolderListing({
    * "Select notes" from a folder page's ••• (board 16): which folder asked,
    * until its page has entered select mode and taken the ask.
    */
-  const [selectAsked, setSelectAsked] = useState<string | null>(null);
+  const [selectAsked, setSelectAsked] = useState<SelectAsk | null>(null);
   const takeSelect = useCallback(() => setSelectAsked(null), []);
   const togglePin = places.togglePin;
   const setPin = places.setPin;
@@ -175,9 +182,16 @@ export function useFolderListing({
           `onShare` rather than the listing's bare dialog.
         */
         canShare:
-          onShare !== undefined && pageOnPhone && files.canShare && target.row.path === files.selectedPath,
+          onShare !== undefined &&
+          files.canShare &&
+          ((pageOnPhone && target.row.path === files.selectedPath) ||
+            // A phone row's hold (the owner's board, 2026-10-16): Share opens
+            // the row first, so the sheet is about the selected path as it
+            // must be, and then the pane's full sheet over it.
+            (compact && target.kind === "row")),
         clipboard: files.clipboard,
-        topLevelFolders: rootFolderNames(files.listings),
+        // The root's names, each folder's job and its place among its siblings (`menuBuiltIn.ts`).
+        ...folderMenuFacts(files, listingIsDescending()),
         /*
           The `touch` arm's first real caller, and exactly what it was kept for.
 
@@ -208,10 +222,11 @@ export function useFolderListing({
     (target: MenuTarget, title: string, anchor: { x: number; y: number }) => {
       const items = itemsOf(target);
       if (items.length === 0) return false;
-      setFolderMenu({ target, title, anchor, items });
+      // A row's hold on a phone is Apple Notes' lifted preview (`HoldMenu.tsx`).
+      setFolderMenu({ target, title, anchor, items, ...(compact && target.kind === "row" ? { hold: true } : {}) });
       return true;
     },
-    [itemsOf],
+    [itemsOf, compact],
   );
 
   /**
@@ -227,8 +242,13 @@ export function useFolderListing({
       files,
       contextLabel,
       select: files.select,
-      setDialog: (dialog) =>
-        dialog?.kind === "share" && onShare !== undefined ? onShare(dialog.path) : setFolderDialog(dialog),
+      setDialog: (dialog) => {
+        if (dialog?.kind !== "share" || onShare === undefined) return setFolderDialog(dialog);
+        // The pane's sheet is about the selected path only, so a row shared
+        // from its hold menu is opened first.
+        if (dialog.path !== files.selectedPath) files.select(dialog.path);
+        onShare(dialog.path);
+      },
       writeClipboard: (text) => void writeClipboard(text),
       /**
        * Put the tree on a folder: open every ancestor, then select it.
@@ -249,7 +269,7 @@ export function useFolderListing({
       },
       inheritedOf: (path) => findEntry(files.listings, path)?.inherited ?? "private",
       ...(togglePin === null ? {} : { togglePin }),
-      startSelect: setSelectAsked,
+      startSelect: (folder) => setSelectAsked({ folder }),
     }),
     [files, contextLabel, togglePin, onShare],
   );
@@ -451,7 +471,34 @@ export function useFolderListing({
     };
   }, [files, folderDragSource, folderDropTarget]);
 
+  /**
+   * The hold menu's Select (the owner's board, 2026-10-16), or `undefined`
+   * where it would have nothing to pick among. A note picks itself on the
+   * folder page it was held on; a folder opens and starts picking its notes.
+   * Home is no folder page, so a note held there has no Select.
+   */
+  const holdSelect = useCallback(
+    (row: TreeRow): (() => void) | undefined => {
+      if (row.kind === "file") {
+        const folder = parentPath(row.path);
+        if (folder === "" || folder !== files.selectedPath) return undefined;
+        return () => setSelectAsked({ folder, path: row.path });
+      }
+      if (row.kind !== "folder") return undefined;
+      const prefix = `${row.path}/`;
+      const known = files.listings[row.path]?.entries.length;
+      const any = known === undefined ? homeNotes.some((note) => note.path.startsWith(prefix)) : known > 0;
+      if (!any) return undefined;
+      return () => {
+        files.select(row.path);
+        setSelectAsked({ folder: row.path });
+      };
+    },
+    [files, homeNotes],
+  );
+
   return {
+    holdSelect,
     folderMenu,
     setFolderMenu,
     folderDialog,

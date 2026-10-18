@@ -37,6 +37,7 @@ import {
   vaultClearResultValidator,
   vaultImportResultValidator,
   visibilityResultValidator,
+  activityRecordedValidator,
   visibilityValidator,
   writtenValidator,
 } from "./validators";
@@ -78,6 +79,15 @@ export const operationResultValidator = v.union(
     kind: v.literal("moveQueued"),
     queued: v.boolean(),
     count: v.optional(v.number()),
+    rowed: v.optional(v.boolean()),
+    moved: v.optional(v.array(v.object({ from: v.string(), to: v.string() }))),
+    error: v.optional(v.string()),
+    message: v.optional(v.string()),
+  }),
+  v.object({
+    kind: v.literal("moveBatch"),
+    ok: v.boolean(),
+    moves: v.optional(v.array(v.object({ from: v.string(), to: v.string() }))),
     error: v.optional(v.string()),
     message: v.optional(v.string()),
   }),
@@ -104,7 +114,6 @@ export const operationResultValidator = v.union(
     ),
   }),
   v.object({ kind: v.literal("websiteReleaseDeleted"), objects: v.number() }),
-  v.object({ kind: v.literal("organizerResult"), output: v.string() }),
   listingValidator,
   fileValidator,
   manifestValidator,
@@ -120,6 +129,7 @@ export const operationResultValidator = v.union(
   contextMovePlannedValidator,
   contextMoveSettledValidator,
   visibilityResultValidator,
+  activityRecordedValidator,
   folderCreatedValidator,
   privacyResetValidator,
   storageMigrationResultValidator,
@@ -270,7 +280,11 @@ export const operationValidator = v.union(
     left: v.optional(v.array(v.object({ path: v.string(), audiences: v.array(v.string()) }))),
   }),
   v.object({ kind: v.literal("nodesParity"), confirm: v.optional(v.boolean()) }),
-  v.object({ kind: v.literal("nodesMoveStart"), from: v.string(), to: v.string() }),
+  v.object({ kind: v.literal("nodesMoveStart"), from: v.string(), to: v.string(), expectedEtag: v.optional(v.string()) }),
+  v.object({
+    kind: v.literal("nodesMoveBatch"),
+    moves: v.array(v.object({ from: v.string(), to: v.string(), expectedEtag: v.optional(v.string()) })),
+  }),
   v.object({ kind: v.literal("nodesMoveWork") }),
   v.object({ kind: v.literal("nodesPrivacyExport") }),
   v.object({ kind: v.literal("nodesSmallData") }),
@@ -465,6 +479,7 @@ export const operationValidator = v.union(
   v.object({ kind: v.literal("contextMoveForget"), paths: v.array(v.string()) }),
   v.object({ kind: v.literal("duplicate"), path: v.string() }),
   v.object({ kind: v.literal("archive"), path: v.string(), expectedEtag: v.optional(v.string()) }),
+  v.object({ kind: v.literal("archiveTidy") }),
   v.object({ kind: v.literal("trash"), path: v.string(), expectedEtag: v.optional(v.string()) }),
   v.object({ kind: v.literal("restoreTrash"), from: v.string(), to: v.string() }),
   /** Sent only by `trashedNotes.readTrashedNote`, with the key the audit trail named. */
@@ -502,6 +517,13 @@ export const operationValidator = v.union(
      * nothing without the control plane.
      */
     group: v.string(),
+  }),
+  v.object({
+    kind: v.literal("visibilityLine"),
+    action: v.union(v.literal("visibility.note"), v.literal("visibility.folder")),
+    path: v.string(),
+    to: v.string(),
+    teamVisible: v.boolean(),
   }),
   v.object({
     kind: v.literal("setFolderVisibility"),
@@ -576,29 +598,4 @@ export const operationValidator = v.union(
   v.object({ kind: v.literal("readActivity") }),
   /** A routine's recent runs, read by the routine note's path. See `fileOps/routineRuns.ts`. */
   v.object({ kind: v.literal("routineRuns"), path: v.string() }),
-  /**
-   * Auto-organize's trips through the barrier. See `lib/organizer/sweepOps.ts`.
-   * JSON in and out: the suggestions are the engine's shape, and the engine
-   * checks them when it reads them back.
-   */
-  v.object({
-    kind: v.literal("organizer"),
-    action: v.union(
-      v.literal("gather"),
-      v.literal("record"),
-      v.literal("read"),
-      v.literal("resolve"),
-      v.literal("clear"),
-      v.literal("autopilot"),
-      v.literal("undo"),
-      // "For your teams" (`lib/organizer/routeOps.ts`): the owner's switches,
-      // and the three trips into a team's own workspace.
-      v.literal("routing"),
-      v.literal("outline"),
-      v.literal("deliver"),
-      v.literal("withdraw"),
-    ),
-    input: v.string(),
-    autopilot: v.optional(v.boolean()),
-  }),
 );

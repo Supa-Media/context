@@ -80,8 +80,8 @@ export interface StorageBinding {
   handoffExistingFiles?: "replace" | "merge";
   managedRetainedUntil?: number;
   /**
-   * Optional, because a Dropbox binding has none of them — see the validator
-   * on `getStorageBinding`. `maskedAccessKeyId` in particular is `undefined`
+   * Optional, because a binding may not have them — see the validator on
+   * `getStorageBinding`. `maskedAccessKeyId` in particular is `undefined`
    * rather than an empty string, so that the console renders nothing instead
    * of a masked credential that does not exist.
    */
@@ -91,8 +91,6 @@ export interface StorageBinding {
   rootPrefix?: string;
   maskedAccessKeyId?: string;
   forcePathStyle?: boolean;
-  /** `dbid:…` for a Dropbox binding, absent for every other provider. */
-  dropboxAccountId?: string;
   capabilities: { conditionalWrite: boolean };
   status: string;
   lastVerifiedAt?: number;

@@ -3,31 +3,30 @@
  * can add. One module, read by the gateway, the control plane, the app and
  * the router, so "which folder is the archive" has one answer.
  *
- * ## A folder's role lives in its name
+ * ## A folder's job lives on its row, and starts from its name
  *
- * `1-projects`, `projects` and `2-Projects` all play the projects role: the
- * word decides, the number in front only sorts. So nothing outside the bucket
- * records which folder is which, an older workspace whose archive is
- * `4-archive` is read correctly without renaming anything, and an AI client
- * that reads the bucket without reading our docs sees the same structure we
- * do. Only TOP-LEVEL folders have a role: `1-projects/clients` is a project
- * called clients.
+ * Each built-in folder's tree row carries its job in `role`, under the job's
+ * original name (`inbox`, `projects`, ... `website`, `meetings`), so the
+ * folder keeps its job when it is renamed or moved (decided by the owner,
+ * 2026-10-18; `docs/decisions/app-and-console/folder-jobs.md`). A row is given
+ * its job when it is made at the root under a job's name, or the first time a
+ * folder that plays one by name is moved. Until then the name decides:
+ * `1-projects`, `projects` and `2-Projects` all play the projects role, the
+ * number only sorts (`folderRole`). `folderJobs` reads both.
  *
- * ## The five main folders are protected; extras are not
+ * ## The five main folders cannot be removed; extras can
  *
- * Inbox, Projects, Areas, Resources and Archive are what every system prompt,
- * the organizer and `archive_note` rely on, so they cannot be renamed, moved
- * or deleted through the product (decided by the owner, 2026-10-08). What is
- * inside them is the person's to move. Extras (Clients, Teams, Products) are
- * offered, not required, and can be removed like any folder.
+ * Inbox, Projects, Areas, Resources and Archive are what every system prompt
+ * and `archive_note` rely on, so they cannot be archived, trashed or deleted.
+ * In a workspace whose notes are kept by id they can be renamed, moved and
+ * nested like any folder (owner, 2026-10-18, replacing the 2026-10-08 lock).
+ * Extras (Clients, Teams, Products) can be removed like any folder.
  *
  * ## Order
  *
- * Inbox, Projects, Areas, Resources, then extras, then the person's own
- * folders by name, and Archive last, whatever its number says. New workspaces
- * get names whose numbers already sort that way in any other app (`9-archive`,
- * extras at fixed numbers 4–6), so the app's order and Obsidian's agree there;
- * an older `4-archive` is still drawn last here.
+ * A folder's `order` on its row, when somebody has set one; otherwise Inbox,
+ * Projects, Areas, Resources, extras, Website, the person's own folders by
+ * name, and Archive last, whatever the numbers say.
  */
 
 const MAIN_ROLES = Object.freeze(["inbox", "projects", "areas", "resources", "archive"]);
@@ -99,6 +98,50 @@ const OWN_FOLDER_RANK = 8;
 const ROLE_PATTERN = /^(?:\d+-)?([a-z]+)$/i;
 
 /**
+ * The jobs a folder ROW can carry in `role`: the eight built-ins, the website
+ * folder, the meetings folder and Tex's folder, always under these original
+ * names.
+ */
+const ROW_ROLES = Object.freeze([...MAIN_ROLES, ...EXTRA_ROLES, "website", "meetings", "tex"]);
+
+/** The website folder's name when nothing has moved it (`DEFAULT_WEBSITE_ROOT`). */
+const WEBSITE_FOLDER = "website";
+
+/**
+ * Tex's folder's name when nothing has moved it: what Tex reads and writes
+ * (`tex/about-me.md`, `tex/routines/`), carried to wherever the folder doing
+ * the job is now by `jobPath` (owner, 2026-10-18).
+ */
+const TEX_FOLDER = "tex";
+
+/**
+ * What a row's `role` holds once a person took a job away from it, or gave it
+ * to another folder: a folder that does no job even though its name says one,
+ * so a root `clients` the person said is not their Clients folder stays theirs
+ * (owner, 2026-10-18, `docs/decisions/app-and-console/folder-jobs.md`).
+ */
+const NO_JOB = "none";
+
+const JOB_LABEL = Object.freeze({ ...ROLE_LABEL, website: "Website", meetings: "Meetings", tex: "Tex" });
+
+/** Where each job is drawn among its siblings when no `order` is set, in steps of ten. */
+const JOB_RANK = Object.freeze({ ...ROLE_RANK, website: 7, meetings: 7, tex: OWN_FOLDER_RANK });
+
+function isRowRole(value) {
+  return typeof value === "string" && ROW_ROLES.includes(value);
+}
+
+/**
+ * The job a top-level folder NAME plays: a built-in role (`folderRole`), or
+ * `website` and `tex` for those folders' own names.
+ */
+function jobOfName(name) {
+  if (name === WEBSITE_FOLDER) return "website";
+  if (name === TEX_FOLDER) return "tex";
+  return folderRole(name);
+}
+
+/**
  * The role a top-level folder name plays, or null. Takes a NAME, not a path:
  * pass the first segment. `Archive`, `archive`, `4-archive` and `9-archive`
  * are all `"archive"`; `old-archive` and `archive-2024` are nobody's.
@@ -134,8 +177,8 @@ function isExtraRole(role) {
 
 /** Where a top-level folder is drawn among its siblings. */
 function folderRank(name) {
-  const role = folderRole(name);
-  return role === null ? OWN_FOLDER_RANK : ROLE_RANK[role];
+  const job = jobOfName(name);
+  return job === null ? OWN_FOLDER_RANK : JOB_RANK[job];
 }
 
 /**
@@ -157,8 +200,23 @@ function compareTopLevelFolders(a, b) {
  */
 function compareListingEntries(parent, a, b) {
   if (a.kind !== b.kind) return a.kind === "folder" ? -1 : 1;
-  if (parent === "" && a.kind === "folder") return compareTopLevelFolders(a.name, b.name);
+  if (a.kind === "folder") {
+    const rank = listingRank(parent, a) - listingRank(parent, b);
+    if (rank !== 0 && !Number.isNaN(rank)) return rank;
+  }
   return a.name.localeCompare(b.name);
+}
+
+/**
+ * Where a folder entry is drawn: its row's `order` when set, else its job's
+ * rank (the row's `role`, or at the root its name's), else own folders at the
+ * root after the extras and below it by name alone.
+ */
+function listingRank(parent, entry) {
+  if (typeof entry.order === "number" && Number.isFinite(entry.order)) return entry.order;
+  const job = isRowRole(entry.role) ? entry.role : parent === "" ? jobOfName(entry.name) : null;
+  if (job !== null) return JOB_RANK[job] * 10;
+  return parent === "" ? OWN_FOLDER_RANK * 10 : Number.MAX_SAFE_INTEGER;
 }
 
 /**
@@ -181,7 +239,7 @@ function rolesIn(names) {
  * top-level folder names?
  *
  * One folder per main role is protected: the one `rolesIn` picks, which is
- * the one orient, the organizer and `archive_note` file into. A second folder
+ * the one orient and `archive_note` file into. A second folder
  * claiming the same role (an agent's `projects` beside `Projects`, a
  * `9-archive` beside `4-archive`) is an ordinary folder, so it can be emptied
  * into the real one and removed (decided by the owner, 2026-10-14).
@@ -258,6 +316,63 @@ function twinMessage(name, twin, instead, topLevel) {
   return `${twin} is already here, and names in one folder can't differ only by case. Use ${instead} instead.`;
 }
 
+/**
+ * Which folder does each job, from folder rows `{path, name, role?, top}`
+ * (`top`: the row sits at the root): `{jobs, roots}`, where `jobs[job]` is
+ * the path of the folder doing it, or null, and `roots` the root's folder
+ * names. A row's own `role` wins wherever the folder now is; a job no row
+ * claims falls to the root folder named for it (`rolesIn`, plus `website`).
+ * Two rows claiming one job (never written by us) resolve to the first path.
+ */
+function folderJobs(rows) {
+  const jobs = {};
+  for (const job of ROW_ROLES) jobs[job] = null;
+  const sorted = [...rows].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  for (const row of sorted) {
+    if (isRowRole(row.role) && jobs[row.role] === null) jobs[row.role] = row.path;
+  }
+  // A row that says it does no job (`NO_JOB`) is claimed too: its name gives it none.
+  const claimed = new Set(sorted.filter((row) => isRowRole(row.role) || row.role === NO_JOB).map((row) => row.path));
+  const unclaimedRoots = sorted.filter((row) => row.top && !claimed.has(row.path)).map((row) => row.name);
+  const byName = rolesIn(unclaimedRoots);
+  for (const role of Object.keys(byName)) {
+    if (jobs[role] === null && byName[role] !== null) jobs[role] = byName[role];
+  }
+  if (jobs.website === null && unclaimedRoots.includes(WEBSITE_FOLDER)) jobs.website = WEBSITE_FOLDER;
+  if (jobs.tex === null && unclaimedRoots.includes(TEX_FOLDER)) jobs.tex = TEX_FOLDER;
+  return { jobs, roots: sorted.filter((row) => row.top).map((row) => row.name) };
+}
+
+/** The job the folder at `path` does, given `folderJobs`'s answer, or null. */
+function jobAt(folderJobsAnswer, path) {
+  if (!folderJobsAnswer || typeof path !== "string") return null;
+  const clean = path.replace(/^\/+|\/+$/g, "");
+  for (const job of ROW_ROLES) if (folderJobsAnswer.jobs[job] === clean) return job;
+  return null;
+}
+
+/**
+ * A path written under a job's name, carried to the folder doing that job
+ * now: `0-inbox/memories/a.md` is `Capture/memories/a.md` once the Inbox is
+ * called Capture. Only the first segment is read, only when it names a job
+ * (`jobOfName`), and never when a root folder really has that name, so a
+ * folder somebody made wins over the rule. Everything else is returned as
+ * given. This is what keeps every writer that names a built-in folder by its
+ * default name (email, meetings, memories, sessions) and every AI client that
+ * guesses `0-inbox/` landing in the real folder after a rename.
+ */
+function jobPath(folderJobsAnswer, path) {
+  if (!folderJobsAnswer || typeof path !== "string" || path === "") return path;
+  const slash = path.indexOf("/");
+  const first = slash < 0 ? path : path.slice(0, slash);
+  const job = jobOfName(first);
+  if (job === null) return path;
+  if (folderJobsAnswer.roots.includes(first)) return path;
+  const home = folderJobsAnswer.jobs[job];
+  if (typeof home !== "string" || home === "" || home === first) return path;
+  return slash < 0 ? home : `${home}${path.slice(slash)}`;
+}
+
 /** The main roles a workspace's top-level folders do not cover yet. */
 function missingMainRoles(names) {
   const roles = rolesIn(names);
@@ -309,6 +424,16 @@ function countByIndexingPriority(paths, isIndexed, extraPending = []) {
 }
 
 module.exports = {
+  ROW_ROLES,
+  WEBSITE_FOLDER,
+  TEX_FOLDER,
+  NO_JOB,
+  JOB_LABEL,
+  isRowRole,
+  jobOfName,
+  folderJobs,
+  jobAt,
+  jobPath,
   MAIN_ROLES,
   EXTRA_ROLES,
   DEFAULT_FOLDER,

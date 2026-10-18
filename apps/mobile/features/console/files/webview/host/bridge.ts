@@ -4,6 +4,7 @@
  * `ready` resends the whole desired state rather than flushing a queue.
  */
 
+import { decodeLineState, type LineState } from "../../lineState";
 import {
   PROTOCOL_VERSION,
   acceptsChange,
@@ -56,6 +57,8 @@ export interface HostSink extends ExtrasSink {
   onHeight?: (height: number) => void;
   /** Where the caret is inside the document — see the `caret` message. */
   onCaret?: (caret: { top: number; bottom: number }) => void;
+  /** What the caret's line is — see the `line-state` message. */
+  onLineState?: (state: LineState) => void;
   /** The guest failed to start. A blank rectangle otherwise. */
   onFailed?: (message: string) => void;
   /**
@@ -140,6 +143,12 @@ export interface HostBridge extends Pick<HostExtras, "setCommenter" | "setLists"
   setCrdtSnapshot: (snapshot: { documentId: string; update: string } | null) => void;
   /** Hold the guest read-only while durable state is loading. */
   setCrdtMode: (enabled: boolean) => void;
+  /**
+   * The text to draw, read-only, while a durable note's snapshot is loading.
+   * Sent only in durable mode with no snapshot bound; see `preview` in
+   * `protocol.ts`.
+   */
+  setCrdtPreview: (text: string) => void;
   setEditable: (editable: boolean) => void;
   setTheme: (vars: Readonly<Record<string, string>>) => void;
   /** How many points of the editor something else is covering. */
@@ -207,7 +216,15 @@ function sameList(a: readonly string[] | undefined, b: readonly string[] | undef
   return a.length === b.length && a.every((value, index) => value === b[index]);
 }
 
-export function createHostBridge(send: (raw: string) => void, sink: HostSink): HostBridge {
+/** The messages after which the guest no longer draws a preview it was sent. */
+const REPLACES_DRAWING = /"type":"(doc|crdtSnapshot|crdtReset)"/;
+
+export function createHostBridge(sendRaw: (raw: string) => void, sink: HostSink): HostBridge {
+  // Every message that replaces what the guest draws un-draws the preview (`previewDrawn`).
+  const send = (raw: string) => {
+    if (REPLACES_DRAWING.test(raw)) previewDrawn = false;
+    sendRaw(raw);
+  };
   let ready = false;
   let doc = "";
   let editable = false;
@@ -226,6 +243,13 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
   let revision = "";
   let crdtSnapshot: { documentId: string; update: string } | null = null;
   let crdtMode = false;
+  let preview = "";
+  /*
+    Whether the guest is drawing `preview` now. A reset, a legacy document or a
+    bound snapshot replaces what it draws, so the same words asked for again
+    after one of those are sent again rather than skipped as already there.
+  */
+  let previewDrawn = false;
   let linkPath: string | null = null;
   let linkPaths: readonly string[] | undefined;
   /**
@@ -295,6 +319,14 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
       crdtMode = true;
       post({ v: PROTOCOL_VERSION, type: "crdtSnapshot", ...snapshot });
       post({ v: PROTOCOL_VERSION, type: "editable", editable });
+    },
+    setCrdtPreview: (text) => {
+      if (text === preview && previewDrawn) return;
+      preview = text;
+      if (ready && crdtMode && crdtSnapshot === null) {
+        send(encode({ v: PROTOCOL_VERSION, type: "preview", text }));
+        previewDrawn = true;
+      }
     },
     setCrdtMode: (enabled) => {
       const wasCrdt = crdtMode;
@@ -401,6 +433,11 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
             // its canonical state was loading. Release that gate only after
             // the snapshot has crossed the bridge.
             send(encode({ v: PROTOCOL_VERSION, type: "editable", editable }));
+          } else {
+            // Durable, snapshot still loading: the note's words, read-only,
+            // rather than an empty page under its name.
+            send(encode({ v: PROTOCOL_VERSION, type: "preview", text: preview }));
+            previewDrawn = true;
           }
           return;
         case "change":
@@ -461,6 +498,13 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
           if (!Number.isFinite(message.top) || !Number.isFinite(message.bottom)) return;
           sink.onCaret?.({ top: message.top, bottom: message.bottom });
           return;
+        case "line-state": {
+          // A layout fact like `caret`, so not gated on `editable`; refused
+          // when it is not one of the shapes `lineState.ts` can produce.
+          const state = decodeLineState(message);
+          if (state !== null) sink.onLineState?.(state);
+          return;
+        }
         case "failed":
           sink.onFailed?.(message.message);
           return;

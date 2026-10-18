@@ -2,7 +2,7 @@
  * Static checks against the worker source: no legacy single-tenant BRAIN
  * binding, no store built outside a session, no static env token.
  *
- * Split out of store.test.mjs; see fixtures.mjs for the shared S3/R2/Dropbox stubs.
+ * Split out of store.test.mjs; see fixtures.mjs for the shared S3/R2 stubs.
  */
 
 import { gatewaySourceFiles, soleSource } from "../gatewaySource.mjs";

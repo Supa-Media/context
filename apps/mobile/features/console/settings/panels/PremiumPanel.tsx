@@ -1,6 +1,7 @@
+import { NativePlan } from "./NativePlan";
 import { STAGING_DATA_WARNING } from "../../../app/StagingNotice";
-import { useEffect, useState, type ReactNode } from "react";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { useEffect, useState } from "react";
+import { ActivityIndicator, Platform, StyleSheet, View } from "react-native";
 import { useConvex } from "convex/react";
 import type { CheckoutOutcome } from "@context/shared";
 import type { Id } from "@context/convex/_generated/dataModel";
@@ -36,11 +37,11 @@ import {
   type PremiumView,
 } from "./premium";
 import { PremiumIncludes } from "./PremiumIncludes";
+import { FOUNDING_BLURB, FOUNDING_PRICE_LINE, foundingAtNoCharge } from "./founding";
 import { PanelHead } from "./PanelHead";
 import { usePremium } from "./usePremium";
-import { usePremiumOrganizerSlots } from "../../../organizer/PremiumParts";
 import { useArming } from "../../useArming";
-import { FreeTierNudge } from "./FreeTierNudge";
+import { FreeTierNudge, freeTierUsage } from "./FreeTierNudge";
 import type { SettingsSectionKey } from "../sections";
 
 
@@ -155,7 +156,6 @@ function PremiumLive({
   onDownload?: () => void;
 }) {
   const view = usePremium({ workspaceId: workspaceId as Id<"workspaces"> });
-  const autoOrganize = usePremiumOrganizerSlots(returned);
   return (
     <PremiumBody
       view={view}
@@ -163,7 +163,6 @@ function PremiumLive({
       returned={returned}
       onOpenStorage={onOpenStorage}
       onDownload={onDownload}
-      autoOrganize={autoOrganize}
     />
   );
 }
@@ -183,15 +182,8 @@ export function PremiumBody({
   slowAfter = CHECKOUT_SETTLING_SLOW_MS,
   onOpenStorage,
   onDownload,
-  autoOrganize,
 }: {
   view: PremiumView;
-  /**
-   * Auto-organize's places on this screen: the first-run card above the plan,
-   * the disclosure inside "What Premium includes", and the owner's switches
-   * after it. Absent everywhere but a live console — see `PremiumParts`.
-   */
-  autoOrganize?: { top?: ReactNode; included?: ReactNode; afterIncludes?: ReactNode };
   /** Opens Settings › Storage — the free tier's "bring your own" way out. */
   onOpenStorage?: () => void;
   /** Downloads every note as a .zip. Absent in the demo. */
@@ -237,6 +229,8 @@ export function PremiumBody({
       .finally(() => setWorking(false));
   };
 
+  if (Platform.OS !== "web") return <NativePlan view={view} onOpenStorage={onOpenStorage} onDownload={onDownload} />;
+
   const status = view.status;
   const state = premiumStateOf(status?.status);
   const copy = describePremium(state, status?.canManage ?? true);
@@ -252,7 +246,13 @@ export function PremiumBody({
     state === "free" && status !== null ? `Premium · ${formatPrice(status)}` : copy.title;
   // Free is offered the short line. Once a subscription is held, the full
   // promise is what applies.
-  const earlyNote = state === "free" ? EARLY_TESTER_PRICE_SHORT : earlyTesterPriceNote(state);
+  // A founder pays nothing, so no price, no held-price promise and no
+  // "billed to" sentence: one line saying why, in place of all three.
+  const founding = foundingAtNoCharge(status);
+  const earlyNote = founding
+    ? null
+    : state === "free" ? EARLY_TESTER_PRICE_SHORT : earlyTesterPriceNote(state);
+  const blurb = founding ? FOUNDING_BLURB : copy.blurb;
 
   return (
     <View>
@@ -299,8 +299,6 @@ export function PremiumBody({
         </Notice>
       )}
 
-      {autoOrganize?.top ?? null}
-
       {status === null ? (
         <Card>
           <View style={styles.loadingRow}>
@@ -324,7 +322,7 @@ export function PremiumBody({
                 {returning?.working === true ? returning.title : headline}
               </Text>
               <Text variant="rowSub" style={styles.blurb}>
-                {returning?.working === true ? returning.body : copy.blurb}
+                {returning?.working === true ? returning.body : blurb}
               </Text>
             </View>
             {returning?.working === true ? (
@@ -340,7 +338,13 @@ export function PremiumBody({
           </View>
 
           {status.stagingFreeStorage ? <Notice tone="warn"><Text variant="rowSub">{STAGING_DATA_WARNING}</Text></Notice> : null}
-          {state === "free" ? null : (
+          {founding ? (
+            <Row divided style={styles.priceRow}>
+              <Text variant="rowSub" testID="premium-founding">
+                {FOUNDING_PRICE_LINE}
+              </Text>
+            </Row>
+          ) : state === "free" ? null : (
             <Row divided style={styles.priceRow}>
               <Text variant="rowSub">Price</Text>
               <Text variant="rowTitle" testID="premium-price">
@@ -367,7 +371,8 @@ export function PremiumBody({
               <Text variant="rowSub">{renewalLine(status)}</Text>
             </Hint>
           )}
-          {usageLine(status) === null ? null : (
+          {/* A capped plan already reads "412 of 1,000 notes" above the card. */}
+          {usageLine(status) === null || freeTierUsage(status) !== null ? null : (
             <Notice style={styles.notice} testID="premium-usage">
               <Text variant="rowSub">{usageLine(status)}</Text>
             </Notice>
@@ -412,10 +417,8 @@ export function PremiumBody({
       )}
 
       {status === null ? null : (
-        <PremiumIncludes status={status} extra={autoOrganize?.included} />
+        <PremiumIncludes status={status} />
       )}
-
-      {autoOrganize?.afterIncludes ?? null}
 
       {failure === null ? (
         <></>
@@ -539,12 +542,13 @@ function planLede(
   status: PremiumView["status"],
   state: PremiumState,
   settling: boolean,
-): string {
+): string | null {
   if (settling) return "Setting up Premium for this workspace.";
   if (status === null) return "What this workspace pays for.";
   switch (state) {
     case "premium":
-      return "This workspace is on Premium.";
+      // The card's title and pill already say it; a third time read as noise.
+      return null;
     case "past_due":
       return "Premium for this workspace is paused.";
     case "canceled":
@@ -569,7 +573,7 @@ function TakeEverything({ onDownload }: { onDownload?: () => void }) {
   const [showHow, setShowHow] = useState(false);
   return (
     <Card style={styles.notice} testID="premium-export-promise">
-      <Row style={styles.actions}>
+      <Row style={styles.takeEverythingRow}>
         <View style={styles.testCleanupCopy}>
           <Text variant="rowTitle">Download everything</Text>
           <Text variant="rowSub">Free on every plan, even after you cancel</Text>
@@ -617,6 +621,9 @@ const makeStyles = (colors: Colors) =>
     returnText: { flex: 1, minWidth: 0 },
     actions: { marginTop: 12, gap: 8 },
     testCleanupCopy: { flex: 1, minWidth: 0, gap: 4 },
+    // No top margin: this is the card's first child, so the margin read as
+    // extra padding above "Download everything" and no other card has it.
+    takeEverythingRow: { gap: 8 },
     loadingRow: {
       flexDirection: "row",
       alignItems: "center",

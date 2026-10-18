@@ -34,7 +34,12 @@
  *   the next cursor and how many objects it sealed or opened;
  * - a batch of a move from one workspace into another (`contextMovePage.js`),
  *   the one page that holds two workspaces' keys (owner, 2026-10-14): what
- *   landed, what stayed behind and why, and edits that raced the move.
+ *   landed, what stayed behind and why, and edits that raced the move;
+ * - a batch of the move from path keys to id keys inside one bucket
+ *   (`idCopyPage.js`): `idCopy` copies each path to its id key, and `idCheck`
+ *   reports, per path, whether the id key already holds the same object;
+ * - a page of the old-copy cleanup (`cleanupPage.js`): `cleanupList` lists keys
+ *   from a cursor, and `cleanupDelete` deletes the keys the control plane approved.
  *
  * Failures answer a code only; a provider's text never leaves, since it can
  * name a key.
@@ -46,6 +51,8 @@ import { timingSafeEqual } from "../crypto/bytes.js";
 import { json } from "../http/responses.js";
 import { StorageUnavailable, storeForBinding } from "../store/factory.js";
 import { runContextMovePage } from "./contextMovePage.js";
+import { runIdCheckPage, runIdCopyPage } from "./idCopyPage.js";
+import { CLEANUP_DELETE_MAX, runCleanupDeletePage, runCleanupListPage, wellFormedKey } from "./cleanupPage.js";
 import { runMigrationPage } from "./migrationPage.js";
 import { WALK_PAGE_PHASES, runWalkPage } from "./walkPage.js";
 
@@ -178,6 +185,76 @@ async function runWalk(opened, deps) {
   }
 }
 
+/** Items one id-move page may name, as many as the control plane plans. */
+const ID_ITEMS_MAX = 500;
+/** A path-key move's destinations: a note body or an attachment, never anything else. */
+const ID_KEY = /^(notes|files)\//;
+
+/**
+ * An id-move page: one bucket, its workspace's own, and a list of paths with
+ * the id keys they go to. A key outside `notes/` or `files/` is refused, so a
+ * page cannot write anywhere but the two places the id layout owns.
+ */
+function readOpenedIdPage(opened) {
+  const { workspaceId, source, items, limits } = opened;
+  if (typeof workspaceId !== "string" || workspaceId === "") return null;
+  if (!source || typeof source !== "object" || source.workspaceId !== workspaceId) return null;
+  if (!Array.isArray(items) || items.length > ID_ITEMS_MAX) return null;
+  for (const item of items) {
+    if (!item || typeof item !== "object" || typeof item.path !== "string" || item.path === "" ||
+        typeof item.key !== "string" || !ID_KEY.test(item.key) || item.key.split("/").includes("..")) return null;
+  }
+  if (!limits || !positive(limits.lanes) || !positive(limits.byteBudget)) return null;
+  return opened;
+}
+
+async function runIdPage(opened, deps) {
+  const page = readOpenedIdPage(opened);
+  if (page === null) return json({ ok: false, error: "ID_COPY_FAILED" });
+  try {
+    const run = page.kind === "idCopy" ? runIdCopyPage : runIdCheckPage;
+    return json({ ok: true, ...(await run(page, deps)) });
+  } catch {
+    // The workspace and the kind only: never a path, never provider text.
+    console.error("mover.id_page_failed", { workspaceId: page.workspaceId, kind: page.kind });
+    return json({ ok: false, error: "ID_COPY_FAILED" });
+  }
+}
+
+/**
+ * A cleanup page (`cleanupPage.js`): a list from a cursor, or a delete of the
+ * keys the control plane approved for this page. Any other shape is refused
+ * before anything is listed or deleted.
+ */
+function readOpenedCleanup(opened) {
+  const { workspaceId, source } = opened;
+  if (typeof workspaceId !== "string" || workspaceId === "") return null;
+  if (!source || typeof source !== "object" || source.workspaceId !== workspaceId) return null;
+  if (opened.kind === "cleanupList") {
+    if (opened.cursor !== undefined && opened.cursor !== null && typeof opened.cursor !== "string") return null;
+    return opened;
+  }
+  const { keys } = opened;
+  if (!Array.isArray(keys) || keys.length > CLEANUP_DELETE_MAX) return null;
+  if (!keys.every(wellFormedKey)) return null;
+  return opened;
+}
+
+async function runCleanup(opened, deps) {
+  const page = readOpenedCleanup(opened);
+  if (page === null) return json({ ok: false, error: "CLEANUP_FAILED" });
+  try {
+    if (page.kind === "cleanupList") {
+      return json({ ok: true, ...(await runCleanupListPage(page, deps)) });
+    }
+    return json({ ok: true, ...(await runCleanupDeletePage(page, deps)) });
+  } catch {
+    // The workspace and the kind only: never a key, never provider text.
+    console.error("mover.cleanup_failed", { workspaceId: page.workspaceId, kind: page.kind });
+    return json({ ok: false, error: "CLEANUP_FAILED" });
+  }
+}
+
 function failureCode(error) {
   if (error instanceof StorageUnavailable) return "SOURCE_UNAVAILABLE";
   const message = error instanceof Error ? error.message : "";
@@ -204,6 +281,12 @@ export async function handleMoverPage(request, env, deps = {}) {
   if (opened === null) return json({ ok: false, error: "STALE" });
   if (opened && typeof opened === "object" && opened.kind === "walk") return await runWalk(opened, deps);
   if (opened && typeof opened === "object" && opened.kind === "contextMove") return await runContextMove(opened, deps);
+  if (opened && typeof opened === "object" && (opened.kind === "idCopy" || opened.kind === "idCheck")) {
+    return await runIdPage(opened, deps);
+  }
+  if (opened && typeof opened === "object" && (opened.kind === "cleanupList" || opened.kind === "cleanupDelete")) {
+    return await runCleanup(opened, deps);
+  }
   const page = readOpenedPage(opened);
   if (page === null) return json({ ok: false, error: "COPY_FAILED" });
   try {

@@ -1,7 +1,7 @@
 /** Which successful console operations touched a routine root, and where. */
 
 import type { FileOperation, OperationResult } from "../filesFns/operationTypes";
-import { isUnderRoutines } from "./model";
+import { asTexPath, isUnderRoutines } from "./model";
 
 /**
  * The paths under a routine root (`routines/`, `tex/routines/`, or the `tex`
@@ -10,7 +10,22 @@ import { isUnderRoutines } from "./model";
  * false negative leaves a routine on its old schedule until the six-hourly
  * sweep, so the moved shapes are read off the result as well as the request.
  */
-export function routinePathsTouched(operation: FileOperation, result: OperationResult): string[] {
+export function routinePathsTouched(operation: FileOperation, result: OperationResult, texPath: string | null = null): string[] {
+  const candidates = pathsTouched(operation, result).map((path) => asTexPath(path, texPath));
+  return [...new Set(candidates.filter(isUnderRoutines))];
+}
+
+/**
+ * Whether the operation touched a path with a `routines` folder below the
+ * top: a routine in a Tex folder nested somewhere else, so the caller should
+ * ask where Tex's folder is and call `routinePathsTouched` with it. Cheap and
+ * loose: a false positive costs one read.
+ */
+export function mayTouchNestedRoutines(operation: FileOperation, result: OperationResult): boolean {
+  return pathsTouched(operation, result).some((path) => path.toLowerCase().split("/").slice(1).includes("routines"));
+}
+
+function pathsTouched(operation: FileOperation, result: OperationResult): string[] {
   const candidates: string[] = [];
   if (result.kind === "moved") {
     const moved = result as { from?: unknown; to?: unknown };
@@ -47,5 +62,5 @@ export function routinePathsTouched(operation: FileOperation, result: OperationR
     default:
       break;
   }
-  return [...new Set(candidates.filter(isUnderRoutines))];
+  return candidates;
 }

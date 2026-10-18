@@ -11,14 +11,17 @@
  * service, a six-button schedule picker and its own Disconnect. Two accounts
  * meant six cards and eighteen interval buttons for two values.
  *
- * What this file pins is the shape that replaced it, and the two claims that
- * are easy to lose while simplifying:
+ * What this file pins is the shape that replaced it (the owner's pick, board 2,
+ * 2026-10-17), and the claims that are easy to lose while simplifying:
  *
- *  1. **An account is one row**, whatever it carries, with a mark per service.
+ *  1. **An account is one row**: the address, one sentence and a mark per
+ *     service with its own dot. Folders and times are behind its "…" menu.
  *  2. **The account's health is the account's** — a stale grant is on the row,
- *     not hidden under whichever of three headings somebody opened.
- *  3. **Disconnect is an account action** and says so before the second press.
- *  4. **The owner gate survived the rewrite**: no `actions`, no controls at
+ *     and so is a service that stopped, by name, rather than "Syncing."
+ *  3. **A broken account carries its own Reconnect** on the row, as well as in
+ *     the menu, which goes to Google with that address as the login hint.
+ *  4. **Disconnect is an account action** and says so before the second press.
+ *  5. **The owner gate survived the rewrite**: no `actions`, no controls at
  *     all, rather than controls that are disabled.
  */
 
@@ -26,6 +29,7 @@ import { describe, expect, jest, test } from "@jest/globals";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ThemeProvider } from "../features/design/theme";
 import {
   GoogleConnectionsCard,
@@ -98,13 +102,22 @@ function render(node: ReturnType<typeof createElement>) {
   document.body.appendChild(container);
   const root = createRoot(container, { onCaughtError: () => {}, onUncaughtError: () => {} });
   act(() => {
-    root.render(createElement(ThemeProvider, { scheme: "dark", children: node }));
+    root.render(
+      createElement(SafeAreaProvider, {
+        initialMetrics: {
+          frame: { x: 0, y: 0, width: 390, height: 844 },
+          insets: { top: 0, left: 0, right: 0, bottom: 0 },
+        },
+        children: createElement(ThemeProvider, { scheme: "dark", children: node }),
+      }),
+    );
   });
   return {
     container,
     text: () => container.textContent ?? "",
     click: async (testID: string) => {
-      const element = container.querySelector<HTMLElement>(`[data-testid="${testID}"]`);
+      // The "…" menu renders in a portal, outside the card's container.
+      const element = document.querySelector<HTMLElement>(`[data-testid="${testID}"]`);
       if (!element) throw new Error(`missing ${testID}`);
       await act(async () => {
         element.click();
@@ -118,63 +131,96 @@ function render(node: ReturnType<typeof createElement>) {
 }
 
 describe("an account is one row", () => {
-  test("the row is the address, and the card is drawn once however many services it carries", () => {
+  test("the row is the address, once, and the folders wait behind its menu", async () => {
     const screen = render(
       createElement(GoogleConnectionsCard, { connections: [connection()], actions }),
     );
-    const text = screen.text();
-    expect(text).toContain("person@example.invalid");
-    // Once. Three copies of the address is the page this rewrite replaced.
-    expect(text.match(/person@example\.invalid/g)).toHaveLength(1);
+    expect(screen.text().match(/person@example\.invalid/g)).toHaveLength(1);
+    expect(screen.text()).not.toContain("0-inbox/email/person-at-example-invalid");
+    await screen.click("google-account-google_1");
+    await screen.click("menu-folders-google_1");
+    expect(screen.text()).toContain("0-inbox/email/person-at-example-invalid");
     screen.unmount();
   });
 
-  test("the services are marks, one per granted product", () => {
-    const screen = render(
-      createElement(GoogleConnectionsCard, { connections: [connection()], actions }),
-    );
-    const marks = screen.container.querySelectorAll('[data-icon="mail"], [data-icon="calendar"], [data-icon="chat"]');
-    expect(marks).toHaveLength(3);
-    screen.unmount();
-  });
-
-  test("...and an account that granted two carries two", () => {
-    const screen = render(
-      createElement(GoogleConnectionsCard, {
-        connections: [connection({ syncServices: { gmail: true, calendar: true, chat: false } })],
-        actions,
-      }),
-    );
+  test("a mark per granted service, and none for the rest", () => {
+    const screen = render(createElement(GoogleConnectionsCard, {
+      connections: [connection({ syncServices: { gmail: true, calendar: true, chat: false } })],
+      actions,
+    }));
     expect(
       screen.container.querySelectorAll('[data-icon="mail"], [data-icon="calendar"], [data-icon="chat"]'),
     ).toHaveLength(2);
     screen.unmount();
   });
 
-  test("the marks are named in words for anybody who cannot see them", () => {
-    const screen = render(
-      createElement(GoogleConnectionsCard, { connections: [connection()], actions }),
+  test("each mark says its own health in words, for anybody who cannot see the dot", () => {
+    const screen = render(createElement(GoogleConnectionsCard, {
+      connections: [connection({
+        gmail: {
+          backfillDays: 0, folders: ["inbox"], destinationFolder: "0-inbox/email/person",
+          destinationPath: "x", historyCursorReady: true, lastSyncedAt: 1, lastFailure: "Google rate-limited this mailbox.",
+        },
+        calendar: { destinationFolder: "0-inbox/calendar", destinationPath: "x", syncCursorReady: true, lastSyncedAt: 1 },
+      })],
+      actions,
+    }));
+    expect(screen.container.innerHTML).toContain(
+      "Email paused, Calendar up to date, Chat waiting for its first sync",
     );
-    expect(screen.container.innerHTML).toContain("Syncing Email, Calendar and Chat");
+    screen.unmount();
+  });
+});
+
+describe("where connected data appears", () => {
+  test("each service says its own folder and its own delivery state", async () => {
+    const screen = render(createElement(GoogleConnectionsCard, {
+      connections: [connection({
+        calendar: {
+          destinationFolder: "0-inbox/calendar", destinationPath: "0-inbox/calendar/YYYY-MM-DD.md",
+          syncCursorReady: true, lastSyncedAt: Date.parse("2026-10-15T12:00:00Z"),
+        },
+        chat: { destinationFolder: "hidden-chat-folder", destinationPath: "x", cursorCount: 0 },
+        syncServices: { gmail: true, calendar: true, chat: false },
+      })], actions,
+    }));
+    await screen.click("google-account-google_1");
+    await screen.click("menu-folders-google_1");
+    expect(screen.text()).toContain("Up to date · ");
+    expect(screen.text()).toContain("Waiting for the first sync.");
+    expect(screen.text()).not.toContain("hidden-chat-folder");
+    screen.unmount();
+  });
+
+  test("a service's own failure is shown on its line, with when it last delivered", async () => {
+    const screen = render(createElement(GoogleConnectionsCard, {
+      connections: [connection({
+        gmail: {
+          backfillDays: 0, folders: ["inbox"], destinationFolder: "0-inbox/email/person",
+          destinationPath: "0-inbox/email/person/YYYY-MM-DD.md", historyCursorReady: true,
+          lastSyncedAt: Date.parse("2026-09-29T12:56:26Z"),
+          lastFailure: "Google rate-limited this mailbox. The next scheduled pass will try again.",
+        },
+      })], actions,
+    }));
+    await screen.click("google-account-google_1");
+    await screen.click("menu-folders-google_1");
+    expect(screen.text()).toContain("Last new mail");
+    expect(screen.text()).toContain("Google rate-limited this mailbox.");
     screen.unmount();
   });
 });
 
 describe("nothing on the row is a setting", () => {
-  test("no destination field, and no path to edit", () => {
+  test("no destination field, no schedule picker", async () => {
     const screen = render(
       createElement(GoogleConnectionsCard, { connections: [connection()], actions }),
     );
+    await screen.click("google-account-google_1");
+    await screen.click("menu-folders-google_1");
     expect(screen.text()).not.toContain("Where it lands");
-    expect(screen.container.querySelector('[data-testid^="edit-google-"]')).toBeNull();
-    screen.unmount();
-  });
-
-  test("no schedule picker — the interval is a fact the page states once, not a choice per account", () => {
-    const screen = render(
-      createElement(GoogleConnectionsCard, { connections: [connection()], actions }),
-    );
     expect(screen.text()).not.toContain("Sync schedule");
+    expect(screen.container.querySelector('[data-testid^="edit-google-"]')).toBeNull();
     expect(screen.container.querySelector('[data-testid^="google-sync-interval-"]')).toBeNull();
     screen.unmount();
   });
@@ -186,29 +232,43 @@ describe("nothing on the row is a setting", () => {
     expect(mockStartCalls[0]).toMatchObject({
       syncServices: { gmail: true, calendar: true, chat: true },
     });
+    expect(mockStartCalls[0]).not.toHaveProperty("loginHint");
     screen.unmount();
   });
 });
 
 describe("the account's health belongs to the account", () => {
   test("a healthy account says so in one line", () => {
-    expect(accountStatus(connection())).toEqual({ tone: "ok", text: "Syncing." });
+    expect(accountStatus(connection())).toEqual({ tone: "ok", text: "Up to date." });
   });
 
-  test("a grant that needs reconnecting is critical, and says what to do", () => {
-    const stale = connection({ syncStatus: "reconnect_required" });
-    expect(accountStatus(stale).tone).toBe("crit");
-    expect(accountStatus(stale).text).toContain("Reconnect");
-  });
-
-  test("...and the server's own sentence wins, because it names the reason", () => {
+  test("a grant that needs reconnecting is critical, and says it in one short line", () => {
     const stale = connection({
       syncStatus: "reconnect_required",
       lastError: "Google needs to be reconnected before this mailbox can sync.",
     });
-    expect(accountStatus(stale).text).toBe(
-      "Google needs to be reconnected before this mailbox can sync.",
-    );
+    expect(accountStatus(stale)).toEqual({ tone: "crit", text: "Google wants you to sign in again." });
+  });
+
+  test("...and any other failure keeps the server's own sentence, because it names the reason", () => {
+    const failed = connection({ syncStatus: "error", lastError: "Google refused this mailbox." });
+    expect(accountStatus(failed)).toEqual({ tone: "crit", text: "Google refused this mailbox." });
+  });
+
+  test("a service that stopped reaches the row by name, never as green 'Syncing'", () => {
+    const status = accountStatus(connection({
+      gmail: {
+        backfillDays: 0, folders: ["inbox"], destinationFolder: "0-inbox/email/person",
+        destinationPath: "0-inbox/email/person/YYYY-MM-DD.md", historyCursorReady: true,
+        lastFailure: "Google rate-limited this mailbox.",
+      },
+      calendar: { destinationFolder: "0-inbox/calendar", destinationPath: "x", syncCursorReady: true },
+      chat: { destinationFolder: "0-inbox/google-chat", destinationPath: "x", cursorCount: 1 },
+    }));
+    expect(status).toEqual({
+      tone: "warn",
+      text: "Email paused, retrying on its own.",
+    });
   });
 
   test("connected and never synced is a state of its own, not an error", () => {
@@ -226,39 +286,100 @@ describe("the account's health belongs to the account", () => {
         actions,
       }),
     );
-    expect(screen.text()).toContain("Reconnect this account");
+    expect(screen.text()).toContain("Google wants you to sign in again.");
+    screen.unmount();
+  });
+});
+
+describe("reconnect is on the broken row", () => {
+  test("it goes to Google for all three products with that account's address as the hint", async () => {
+    mockStartCalls.length = 0;
+    const screen = render(createElement(GoogleConnectionsCard, {
+      connections: [connection(), connection({
+        connectionId: "google_2", email: "stale@example.invalid", syncStatus: "reconnect_required",
+      })],
+      actions,
+    }));
+    await screen.click("reconnect-google-google_2");
+    await act(async () => {});
+    expect(mockStartCalls[0]).toMatchObject({
+      workspaceId: "ws_1",
+      syncServices: { gmail: true, calendar: true, chat: true },
+      loginHint: "stale@example.invalid",
+    });
+    screen.unmount();
+  });
+
+  test("...and the menu offers the same reconnect on any account", async () => {
+    mockStartCalls.length = 0;
+    const screen = render(
+      createElement(GoogleConnectionsCard, { connections: [connection()], actions }),
+    );
+    await screen.click("google-account-google_1");
+    await screen.click("menu-reconnect-google_1");
+    await act(async () => {});
+    expect(mockStartCalls[0]).toMatchObject({ loginHint: "person@example.invalid" });
+    screen.unmount();
+  });
+
+  test("a healthy account has no Reconnect on its row", () => {
+    const screen = render(
+      createElement(GoogleConnectionsCard, { connections: [connection()], actions }),
+    );
+    expect(screen.container.querySelector('[data-testid^="reconnect-google-"]')).toBeNull();
+    screen.unmount();
+  });
+
+  test("a rate-limited service is not a reason to put Reconnect on the row", () => {
+    const screen = render(createElement(GoogleConnectionsCard, {
+      connections: [connection({
+        gmail: {
+          backfillDays: 0, folders: ["inbox"], destinationFolder: "0-inbox/email/person",
+          destinationPath: "x", historyCursorReady: true, lastFailure: "Google rate-limited this mailbox.",
+        },
+      })],
+      actions,
+    }));
+    expect(screen.container.querySelector('[data-testid^="reconnect-google-"]')).toBeNull();
     screen.unmount();
   });
 });
 
 describe("disconnect is an account action", () => {
-  test("it arms before it acts", async () => {
+  test("it lives in the menu, and asks before it acts", async () => {
     disconnects.length = 0;
     const screen = render(
       createElement(GoogleConnectionsCard, { connections: [connection()], actions }),
     );
-    await screen.click("disconnect-google-google_1");
+    expect(screen.container.querySelector('[data-testid="disconnect-google-google_1"]')).toBeNull();
+    await screen.click("google-account-google_1");
+    await screen.click("menu-disconnect-google_1");
     expect(disconnects).toEqual([]);
-    expect(screen.text()).toContain("Press again");
-    screen.unmount();
-  });
-
-  test("...and says which services stop, between the two presses", async () => {
-    disconnects.length = 0;
-    const screen = render(
-      createElement(GoogleConnectionsCard, { connections: [connection()], actions }),
-    );
-    await screen.click("disconnect-google-google_1");
-    expect(screen.text()).toContain("Email, Calendar and Chat stop");
+    expect(screen.text()).toContain("Email, Calendar and Chat stop for person@example.invalid");
     await screen.click("disconnect-google-google_1");
     expect(disconnects).toEqual(["google_1"]);
     screen.unmount();
   });
 
-  test("the spoken label carries the same consequence the sighted reader gets", () => {
+  test("...and Keep it backs out without disconnecting", async () => {
+    disconnects.length = 0;
     const screen = render(
       createElement(GoogleConnectionsCard, { connections: [connection()], actions }),
     );
+    await screen.click("google-account-google_1");
+    await screen.click("menu-disconnect-google_1");
+    await screen.click("keep-google-google_1");
+    expect(disconnects).toEqual([]);
+    expect(screen.container.querySelector('[data-testid="disconnect-google-google_1"]')).toBeNull();
+    screen.unmount();
+  });
+
+  test("the spoken label carries the same consequence the sighted reader gets", async () => {
+    const screen = render(
+      createElement(GoogleConnectionsCard, { connections: [connection()], actions }),
+    );
+    await screen.click("google-account-google_1");
+    await screen.click("menu-disconnect-google_1");
     const button = screen.container.querySelector('[data-testid="disconnect-google-google_1"]');
     expect(button?.getAttribute("aria-label")).toContain("stops Email, Calendar and Chat");
     screen.unmount();
@@ -266,10 +387,15 @@ describe("disconnect is an account action", () => {
 });
 
 describe("the owner gate", () => {
-  test("no actions means no Add and no Disconnect at all, rather than disabled ones", () => {
-    const screen = render(createElement(GoogleConnectionsCard, { connections: [connection()] }));
-    expect(screen.container.querySelector('[data-testid="connect-google"]')).toBeNull();
-    expect(screen.container.querySelector('[data-testid="disconnect-google-google_1"]')).toBeNull();
+  test("no actions means no Add, Reconnect or Disconnect at all, rather than disabled ones", async () => {
+    const screen = render(createElement(GoogleConnectionsCard, {
+      connections: [connection({ syncStatus: "reconnect_required" })],
+    }));
+    await screen.click("google-account-google_1");
+    expect(document.querySelector('[data-testid="connect-google"]')).toBeNull();
+    expect(document.querySelector('[data-testid*="reconnect-google_1"], [data-testid^="reconnect-google-"]')).toBeNull();
+    expect(document.querySelector('[data-testid^="menu-disconnect-"]')).toBeNull();
+    expect(document.querySelector('[data-testid="menu-folders-google_1"]')).not.toBeNull();
     expect(screen.text()).toContain("Only an owner can connect or remove Google accounts");
     screen.unmount();
   });

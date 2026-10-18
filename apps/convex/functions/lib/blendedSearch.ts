@@ -141,7 +141,7 @@ export interface BlendSource {
   /** The workspace id. Opaque here; it is only ever compared, never parsed. */
   key: string;
   /** The ranked list this source returned, best first. */
-  hits: readonly { path: string; title: string; snippets: readonly string[]; meaningOnly?: boolean }[];
+  hits: readonly { path: string; title: string; snippets: readonly string[]; meaningOnly?: boolean; loose?: boolean }[];
   /**
    * How many of this source's hits earlier pages already delivered.
    *
@@ -164,6 +164,8 @@ export interface BlendedRow {
   snippet: string;
   /** Found by what the note is about, not by the words typed. */
   meaningOnly: boolean;
+  /** Has some of the words typed, not all of them. */
+  loose: boolean;
   /** Fusion score. Exposed for tests and ordering; never rendered. */
   score: number;
   /** Rank within its own context's list, from zero. */
@@ -202,6 +204,7 @@ export function fuse(sources: readonly BlendSource[]): BlendedRow[] {
         title: hit.title,
         snippet: hit.snippets[0] ?? "",
         meaningOnly: hit.meaningOnly === true,
+        loose: hit.loose === true,
         score: 1 / (RRF_K + index),
         rank: index,
       });

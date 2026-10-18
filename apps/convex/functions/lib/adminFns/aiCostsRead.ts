@@ -26,7 +26,7 @@ import type { QueryCtx } from "../../../_generated/server";
 import { planFor, statusOf } from "../billing/plan";
 import { priorWindow } from "../census";
 import { type PlanStatus } from "../premium";
-import { isJevFeature, JEV_FEATURES } from "../jev/features";
+import { isJevFeature, JEV_FEATURES, RETIRED_JEV_FEATURE_LABELS } from "../jev/features";
 import { dayKey, dayRange } from "../usage";
 import { AI_COSTS_READ_BUDGET, AI_COSTS_WINDOWS } from "./aiCostsShape";
 
@@ -181,7 +181,8 @@ export function planWording(status: PlanStatus): string {
 
 // -- labels --------------------------------------------------------------
 
-/** A feature's label, or its name when it is no longer registered. */
+/** A feature's label; a removed one's retired label; otherwise its name. */
 export function featureLabel(feature: string): string {
-  return isJevFeature(feature) ? JEV_FEATURES[feature].label : feature;
+  if (isJevFeature(feature)) return JEV_FEATURES[feature].label;
+  return Object.prototype.hasOwnProperty.call(RETIRED_JEV_FEATURE_LABELS, feature) ? RETIRED_JEV_FEATURE_LABELS[feature]! : feature;
 }

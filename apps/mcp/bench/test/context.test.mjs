@@ -7,11 +7,11 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdtemp, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { callTool, connect, notePaths, pullSetups, publishResult, runnerEnv, scoresNote, scoresPathFor, signIn, splitNote } from "../context.mjs";
+import { callTool, connect, liveScoreRow, notePaths, publishSetup, pullSetups, publishResult, runnerEnv, scoresNote, scoresPathFor, signIn, splitNote } from "../context.mjs";
 
 const ENDPOINT = "https://mcp.context.test/@context-lc/mcp";
 
@@ -152,7 +152,7 @@ test("pullSetups replaces setups/<job>/ with the notes in Context, skipping the 
   await pullSetups({ job: "search", dir, connection, fetchImpl });
   assert.deepEqual(await readdir(join(dir, "setups", "search")), ["everywhere.md"]);
 
-  await assert.rejects(pullSetups({ job: "nothing", dir, connection, fetchImpl }), /no setups in ai\/setups\/nothing\//);
+  await assert.rejects(pullSetups({ job: "nothing", dir, connection, fetchImpl }), /no setups in ai\/setups\/nothing\/ or ai\/production\/nothing\.md/);
   await assert.rejects(pullSetups({ job: "../x", dir, connection, fetchImpl }), /not a job name/);
 });
 
@@ -171,6 +171,63 @@ test("pullSetups brings the job's skills folder too, and nothing deeper", async 
   assert.deepEqual(pulled.skills, ["connect-chatgpt"]);
   assert.deepEqual(await readdir(join(dir, "setups", "texting-assistant", "skills")), ["connect-chatgpt.md"]);
   assert.equal(await readFile(join(dir, "setups", "texting-assistant", "skills", "connect-chatgpt.md"), "utf8"), "Open chatgpt.com/plugins.\n");
+});
+
+test("pullSetups runs the live setup as production, beside the setups being tried", async () => {
+  const notes = {
+    "ai/production/texting-assistant.md": "---\nmodels:\n  main: anthropic/claude-haiku-5-5\n---\n\nLive.\n",
+    "ai/production/other-job.md": "---\nmodels:\n  main: anthropic/claude-haiku-5-5\n---\n\nAnother job.\n",
+    "ai/setups/texting-assistant/guide.md": "---\njob: texting-assistant\n---\n\nGuide.\n",
+    "ai/setups/texting-assistant/production.md": "---\njob: texting-assistant\n---\n\nAn old copy someone named production.\n",
+  };
+  const { fetchImpl } = fakeGateway({ notes });
+  const dir = await mkdtemp(join(tmpdir(), "bench-pull-live-"));
+  const connection = { endpoint: ENDPOINT, accessToken: "cat_1" };
+  const pulled = await pullSetups({ job: "texting-assistant", dir, connection, fetchImpl });
+  assert.deepEqual(pulled.names, ["guide", "production"]);
+  assert.equal(await readFile(join(dir, "setups", "texting-assistant", "production.md"), "utf8"), notes["ai/production/texting-assistant.md"], "the live file wins over a setup of the same name");
+
+  // A job with only a live setup still runs; one with neither is refused.
+  delete notes["ai/setups/texting-assistant/guide.md"];
+  delete notes["ai/setups/texting-assistant/production.md"];
+  assert.deepEqual((await pullSetups({ job: "texting-assistant", dir, connection, fetchImpl })).names, ["production"]);
+});
+
+test("pullSetups takes the live skills over a setup's copy, and keeps a skill only a setup has", async () => {
+  const notes = {
+    "ai/production/texting-assistant.md": "---\nmodels:\n  main: anthropic/claude-haiku-5-5\n---\n\nLive.\n",
+    "ai/production/skills/about.md": "What skills are.\n",
+    "ai/production/skills/connect-chatgpt.md": "Live: open chatgpt.com/plugins.\n",
+    "ai/setups/texting-assistant/guide.md": "---\njob: texting-assistant\n---\n\nGuide.\n",
+    "ai/setups/texting-assistant/skills/connect-chatgpt.md": "Stale copy.\n",
+    "ai/setups/texting-assistant/skills/draft-only.md": "New skill being tried.\n",
+  };
+  const { fetchImpl } = fakeGateway({ notes });
+  const dir = await mkdtemp(join(tmpdir(), "bench-pull-live-skills-"));
+  const pulled = await pullSetups({ job: "texting-assistant", dir, connection: { endpoint: ENDPOINT, accessToken: "cat_1" }, fetchImpl });
+  assert.deepEqual(pulled.skills, ["connect-chatgpt", "draft-only"]);
+  const skills = join(dir, "setups", "texting-assistant", "skills");
+  assert.equal(await readFile(join(skills, "connect-chatgpt.md"), "utf8"), "Live: open chatgpt.com/plugins.\n");
+  assert.equal(await readFile(join(skills, "draft-only.md"), "utf8"), "New skill being tried.\n");
+});
+
+test("pullSetups puts the tests edited in Context over the repository's copies", async () => {
+  const notes = {
+    "ai/setups/search/one.md": "---\njob: search\n---\n\nOne.\n",
+    "ai/tests/about.md": "What tests are.\n",
+    "ai/tests/core.md": "---\njob: texting-assistant\n---\n\n# Core, edited in the app\n",
+    "ai/tests/old/retired.md": "Not a test list.\n",
+  };
+  const { fetchImpl } = fakeGateway({ notes });
+  const dir = await mkdtemp(join(tmpdir(), "bench-pull-tests-"));
+  await mkdir(join(dir, "tests"), { recursive: true });
+  await writeFile(join(dir, "tests", "core.md"), "the repository's copy\n");
+  await writeFile(join(dir, "tests", "search.md"), "only in the repository\n");
+  const pulled = await pullSetups({ job: "search", dir, connection: { endpoint: ENDPOINT, accessToken: "cat_1" }, fetchImpl });
+  assert.deepEqual(pulled.tests, ["core"]);
+  assert.equal(await readFile(join(dir, "tests", "core.md"), "utf8"), notes["ai/tests/core.md"]);
+  assert.equal(await readFile(join(dir, "tests", "search.md"), "utf8"), "only in the repository\n", "a test not in Context is left as it is");
+  assert.deepEqual((await readdir(join(dir, "tests"))).sort(), ["core.md", "search.md"]);
 });
 
 const SCORED = [
@@ -213,6 +270,46 @@ test("the scores note carries the summary, the scores and the run, never an answ
   assert.equal(scoresPathFor("/tmp/x/2026-10-10 texting-assistant gh-12.md"), "ai/results/2026-10-10 texting-assistant gh-12 scores.md");
 });
 
+test("the scores note heads with the live setup's score, so a list of results can show it", () => {
+  const raw = [
+    "---",
+    "job: texting-assistant",
+    "test: core",
+    "date: 2026-10-16",
+    "status: scored",
+    "---",
+    "",
+    "## Scored by claude-haiku-5-5, 2026-10-16",
+    "",
+    "| setup | score | gates | judge lines | price | speed | texts | errors | good enough |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    "| guide | 100.0% | passed | 9 of 9 (100.0%) | $0.0100 | 5.0 s | 1.0 | 0 | yes |",
+    "| production | 93.3% | failed (q5) | 8 of 9 (88.9%) | $0.0177 | 6.6 s | 1.2 | 0 | no |",
+    "",
+  ].join("\n");
+  const note = scoresNote(raw);
+  assert.match(note, /\ntest: core\n/);
+  assert.match(note, /\nsetup: production\nscore: 93\.3%\ngates: failed \(q5\)\ngood_enough: no\n---/);
+  // Without the live setup, the first row stands in; before scoring, nothing does.
+  assert.match(scoresNote(raw.replace("| production |", "| other |")), /\nsetup: guide\nscore: 100\.0%\ngates: passed\ngood_enough: yes\n/);
+  assert.doesNotMatch(scoresNote(SCORED.replace(/## Scored by[\s\S]*$/, "")), /\nscore:/);
+});
+
+test("the live row is read from the first table, so a case-by-case table below it is never a setup", () => {
+  const head = ["---", "job: texting-assistant", "date: 2026-10-16", "status: scored", "---", "", "## Scored by claude-haiku-5-5, 2026-10-16", ""];
+  const cases = ["### Case by case", "", "| case | guide | production |", "| --- | --- | --- |", "| 1. When's my dentist appointment? | 3 of 3 | 2 of 3 |", ""];
+  // An empty setup table: the case row must not stand in for it.
+  assert.equal(liveScoreRow([...head, "| setup | score | gates | judge lines | price | speed | texts | errors | good enough |", "| --- | --- | --- | --- | --- | --- | --- | --- | --- |", "", ...cases].join("\n")), null);
+  // With a setup table: its production row, and the case table's rows never read as setups.
+  const scored = [...head, "| setup | score | gates | judge lines | price | speed | texts | errors | good enough |", "| --- | --- | --- | --- | --- | --- | --- | --- | --- |", "| guide | 100.0% | passed | 9 of 9 (100.0%) | $0.0100 | 5.0 s | 1.0 | 0 | yes |", "| production | 66.7% | failed (q1) | 8 of 9 (88.9%) | $0.0177 | 6.6 s | 1.2 | 0 | no |", "", ...cases].join("\n");
+  assert.deepEqual(liveScoreRow(scored), { setup: "production", score: "66.7%", gates: "failed (q1)", goodEnough: "no" });
+  // The published note carries the whole section, case table included, and still heads with the live row.
+  const note = scoresNote(scored);
+  assert.match(note, /\nsetup: production\nscore: 66\.7%\n/);
+  assert.match(note, /### Case by case\n\n\| case \| guide \| production \|\n/);
+  assert.match(note, /\| 1\. When's my dentist appointment\? \| 3 of 3 \| 2 of 3 \|/);
+});
+
 test("a search result's scores note keeps its misses", () => {
   const search = ["---", "job: search", "date: 2026-10-10", "status: scored", "---", "", "## Summary", "", "| Setup | Found |", "| --- | --- |", "| everywhere | 100% |", "", "## Misses", "", "### everywhere: 1 missed", "", "- 7. who left", "", "## Answers", "", "### 1. q", "", "hit list", ""].join("\n");
   const note = scoresNote(search);
@@ -242,6 +339,17 @@ test("publishResult replaces a scores note already there, as a re-judged run doe
   assert.equal(await publishResult({ result, runUrl: null, connection: { endpoint: ENDPOINT, accessToken: "cat_1" }, fetchImpl }), path);
   assert.equal(state.written.length, 1);
   assert.equal(state.written[0].expected_etag, "e-1");
+});
+
+test("publishResult also writes the replies note score left beside the result", async () => {
+  const { fetchImpl, state } = fakeGateway();
+  const dir = await mkdtemp(join(tmpdir(), "bench-publish-"));
+  const result = join(dir, "2026-10-10 texting-assistant gh-3.md");
+  await writeFile(result, SCORED);
+  await writeFile(join(dir, "2026-10-10 texting-assistant gh-3 replies.md"), "---\nrole: benchmark-replies\n---\n\n## 1. q\n");
+  await publishResult({ result, runUrl: null, connection: { endpoint: ENDPOINT, accessToken: "cat_1" }, fetchImpl });
+  assert.deepEqual(state.written.map((item) => item.path), ["ai/results/2026-10-10 texting-assistant gh-3 scores.md", "ai/results/2026-10-10 texting-assistant gh-3 replies.md"]);
+  assert.match(state.written[1].content, /role: benchmark-replies/);
 });
 
 test("callTool throws on a transport failure and returns a refusal as isError", async () => {
@@ -277,4 +385,20 @@ test("connect registers a public client for the runner's scope, checks the state
 
   const wrongState = async () => ({ ...(await listen()), waitForCode: async () => ({ code: "code-2", state: "forged" }) });
   await assert.rejects(connect({ endpoint: ENDPOINT, fetchImpl, log: () => {}, listen: wrongState }), /another state/);
+});
+
+test("an improver's draft is written as a new setup beside live, and never over one already there", async () => {
+  const { fetchImpl, state } = fakeGateway({ notes: { "ai/setups/texting-assistant/taken.md": "---\n---\nmine\n" } });
+  const connection = { endpoint: ENDPOINT, accessToken: "cat_1" };
+  const dir = await mkdtemp(join(tmpdir(), "bench-draft-"));
+  const file = join(dir, "draft.md");
+  await writeFile(file, "---\njob: texting-assistant\n---\ndraft\n");
+  assert.equal(await publishSetup({ job: "texting-assistant", name: "give-the-place", file, connection, fetchImpl }), "ai/setups/texting-assistant/give-the-place.md");
+  assert.equal(state.written.length, 1);
+  assert.equal(state.written[0].expected_etag, undefined);
+  assert.match(state.written[0].content, /draft/);
+  await assert.rejects(publishSetup({ job: "texting-assistant", name: "taken", file, connection, fetchImpl }), /already in Context/);
+  await assert.rejects(publishSetup({ job: "texting-assistant", name: "production", file, connection, fetchImpl }), /not a setup to write/);
+  await assert.rejects(publishSetup({ job: "texting-assistant", name: "../production", file, connection, fetchImpl }), /not a setup to write/);
+  assert.equal(state.written.length, 1);
 });

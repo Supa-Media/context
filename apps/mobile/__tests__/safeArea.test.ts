@@ -169,8 +169,6 @@ function websitePage(): ReactElement {
   const page = { kind: "page", siteName: "Seyi", routePath: "/", audience: "public", title: "Home" } as const;
   return createElement(WebsitePage, { name: "Seyi", view: { ...page, description: null, markdown: "# Home\n\nHello.", navigation: [] }, navigate: () => {}, signIn: () => {} });
 }
-const { DropboxCallbackScreen } =
-  require("../features/console/storage/DropboxCallbackScreen") as typeof import("../features/console/storage/DropboxCallbackScreen");
 const { GoogleCallbackScreen } =
   require("../features/console/google/GoogleCallbackScreen") as typeof import("../features/console/google/GoogleCallbackScreen");
 const { CliConnectedScreen } =
@@ -229,7 +227,7 @@ const ROUTES: Record<string, Coverage> = {
   */
   "(home)/_layout.tsx": { kind: "framed" },
   "(home)/index.tsx": { kind: "gate", mount: () => createElement(requireRoute("(home)/index.tsx")) },
-  ...Object.fromEntries(["privacy.tsx", "terms.tsx", "not-me.tsx", "stop-new-email.tsx"].map((file) => [file, { kind: "screen" as const, mount: () => createElement(requireRoute(file)) }])),
+  ...Object.fromEntries(["privacy.tsx", "support.tsx", "terms.tsx", "not-me.tsx", "stop-new-email.tsx"].map((file) => [file, { kind: "screen" as const, mount: () => createElement(requireRoute(file)) }])),
   "authorize.tsx": { kind: "screen", mount: () => createElement(ConsentScreen) },
   "(auth)/login.tsx": { kind: "screen", mount: () => createElement(LoginScreen) },
   /*
@@ -286,12 +284,13 @@ const ROUTES: Record<string, Coverage> = {
   "invite/index.tsx": { kind: "screen", mount: () => createElement(InviteListScreen) },
   "invite/[token].tsx": { kind: "screen", mount: () => createElement(InviteScreen) },
   "s/[token].tsx": { kind: "screen", mount: () => createElement(ShareScreen) },
+  // No token is mocked, so the texted sign-in link is spent and paints a bare `Redirect`.
+  "signin/[token].tsx": { kind: "gate", mount: () => createElement(requireRoute("signin/[token].tsx")) },
   "texts/[token].tsx": { kind: "screen", mount: () => createElement(requireRoute("texts/[token].tsx")) },
   "vault/[token].tsx": { kind: "screen", mount: () => createElement(requireRoute("vault/[token].tsx")) },
   "tex/[handle].tsx": { kind: "screen", mount: () => createElement(requireRoute("tex/[handle].tsx")) },
   "[handle]/index.tsx": { kind: "screen", mount: () => websitePage() },
   "[handle]/[...path].tsx": { kind: "screen", mount: () => websitePage() },
-  "connect/dropbox.tsx": { kind: "screen", mount: () => createElement(DropboxCallbackScreen) },
   "connect/google.tsx": { kind: "screen", mount: () => createElement(GoogleCallbackScreen) },
   "connect/cli.tsx": { kind: "screen", mount: () => createElement(CliConnectedScreen) },
   /*
@@ -349,6 +348,7 @@ const ROUTES: Record<string, Coverage> = {
   "invite/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("invite/_layout.tsx")) },
   "(auth)/join/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("(auth)/join/_layout.tsx")) },
   "s/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("s/_layout.tsx")) },
+  "signin/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("signin/_layout.tsx")) },
   "texts/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("texts/_layout.tsx")) },
   "vault/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("vault/_layout.tsx")) },
   "tex/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("tex/_layout.tsx")) },

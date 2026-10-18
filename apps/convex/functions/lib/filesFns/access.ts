@@ -18,6 +18,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { grantedNamesFor } from "../grantedNames";
 import { reachesPinnedContext } from "../pinnedContext";
 import type { FileOperation } from "./operationTypes";
+import { type MemberWrite, memberMayWrite } from "./memberWrite";
 
 /**
  * A role's visibility clearance. See the module comment for why an `editor`
@@ -99,6 +100,11 @@ export function treeChangeOfResult(operation: FileOperation, result: unknown): T
   if (operation.kind === "addBuiltInFolder" && landed?.kind === "folderCreated" && typeof landed.path === "string") {
     return { paths: [landed.path], narrows: false };
   }
+  // The tidy moved things around inside Archive (`tidyArchive`), and its answer names the Archive.
+  const tidied = result as { kind?: unknown; from?: unknown; paths?: unknown } | null | undefined;
+  if (operation.kind === "archiveTidy" && tidied?.kind === "moved" && typeof tidied.from === "string" && tidied.from !== "") {
+    return Array.isArray(tidied.paths) && tidied.paths.length > 0 ? { paths: [tidied.from], narrows: true } : null;
+  }
   return null;
 }
 
@@ -113,6 +119,12 @@ export async function resolveFileAccess(
     actorUserId: Id<"users">;
     workspaceId: Id<"workspaces">;
     minimum: "member" | "editor" | "owner";
+    /**
+     * A body write that a `member` may make through an edit grant on the row
+     * that governs its path (`memberWrite.ts`). Only `editor` takes it: every
+     * other call still needs the role, and a member is refused as before.
+     */
+    memberWrite?: MemberWrite;
   },
 ): Promise<{
   role: WorkspaceRole;
@@ -120,6 +132,18 @@ export async function resolveFileAccess(
   grantedNames: string[];
   actorName: string | null;
 }> {
+  if (
+    args.minimum === "editor" &&
+    args.memberWrite !== undefined &&
+    (await memberMayWrite(ctx, args.workspaceId, args.actorUserId, args.memberWrite))
+  ) {
+    return {
+      role: "member",
+      scope: scopeForRole("member"),
+      grantedNames: await grantedNamesFor(ctx, args.workspaceId, args.actorUserId),
+      actorName: await personalNameFor(ctx, args.actorUserId),
+    };
+  }
   if (args.minimum === "member") {
     // Tried before the membership read rather than after a caught failure:
     // `requireWorkspaceAccess` throws the same error for "not a member" and

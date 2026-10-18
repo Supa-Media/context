@@ -30,11 +30,6 @@ export interface ToastSpec {
   message: string;
   tone?: "neutral" | "warn" | "crit";
   undo?: () => void;
-  /**
-   * One offered next step, drawn like Undo and before it — auto-organize's
-   * "Yes, automatically". Pressing it runs it and puts the toast away.
-   */
-  action?: { label: string; run: () => void };
 }
 
 /**
@@ -165,17 +160,6 @@ function Toast({
       <Text variant="rowSub" style={[styles.message, messageTones[tone]]}>
         {toast.message}
       </Text>
-      {toast.action ? (
-        <Button
-          label={toast.action.label}
-          variant="mini"
-          onPress={() => {
-            toast.action?.run();
-            onDismiss(toast.id);
-          }}
-          testID={`toast-action-${toast.id}`}
-        />
-      ) : null}
       {toast.undo ? (
         <Button
           label="Undo"

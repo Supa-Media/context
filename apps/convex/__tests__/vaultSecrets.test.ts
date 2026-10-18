@@ -133,3 +133,57 @@ describe("a secret with values per environment", () => {
     }
   });
 });
+
+describe("a secret saved for use through Context", () => {
+  async function saveWithPin(w: Awaited<ReturnType<typeof world>>, proxy: Record<string, unknown>, type: "secret" | "login" = "secret") {
+    const { token } = await issue(w.t, { workspaceId: w.team, userId: w.seyi, kind: "add" });
+    const args =
+      type === "secret"
+        ? { token, type, name: "Stripe", site: "", fields: [{ name: "STRIPE_SECRET_KEY", perEnv: true, values: { dev: DEV, prod: PROD } }] }
+        : { token, type, name: "Bank", site: "bank.example.test", username: "ada", password: "fake-password-1" };
+    return asUser(w.t, w.seyi).action(api.functions.vault.saveVaultLogin, { ...args, proxy } as never);
+  }
+  async function storedMeta(w: Awaited<ReturnType<typeof world>>) {
+    const key = [...w.backend.objects.keys()].find((k) => k.startsWith(".context/vault/"))!;
+    const entryId = /(v[0-9a-f]{24})\.json$/.exec(key)![1];
+    const shown = await w.t.action(internal.functions.vault.runVaultOperation, { workspaceId: w.team, operation: { kind: "meta", entryId } });
+    return (shown as { meta: { proxy?: unknown } }).meta;
+  }
+
+  test("keeps the one website, how it wants the key, and the ask, sealed with the entry", async () => {
+    const w = await world();
+    await saveWithPin(w, { host: "https://API.stripe.com/v1/", style: "bearer", ask: true });
+    expect((await storedMeta(w)).proxy).toEqual({ host: "api.stripe.com", style: "bearer", ask: true });
+    expect(JSON.stringify(w.backend.snapshot()).includes("api.stripe.com")).toBe(false);
+  });
+
+  test("a named header keeps its name, and the ask can be off", async () => {
+    const w = await world();
+    await saveWithPin(w, { host: "api.anthropic.com", style: "header", name: "x-api-key", ask: false });
+    expect((await storedMeta(w)).proxy).toEqual({ host: "api.anthropic.com", style: "header", name: "x-api-key", ask: false });
+  });
+
+  test("an entry saved without the switch has no pin", async () => {
+    const w = await world();
+    await saveStripe(w);
+    expect((await storedMeta(w)).proxy).toBeUndefined();
+  });
+
+  test.each([
+    [{ host: "webhook.site", style: "bearer", ask: true }, /Anyone can put a page/],
+    [{ host: "localhost", style: "bearer", ask: true }, /Enter the website/],
+    [{ host: "api.example.com", style: "header", name: "", ask: true }, /Name the header/],
+    [{ host: "api.example.com", style: "query", name: "a b", ask: true }, /Name the address part/],
+  ])("refuses %j and saves nothing", async (proxy, words) => {
+    const w = await world();
+    const error = await captureError(() => saveWithPin(w, proxy));
+    expect(errorCode(error)).toBe("INVALID_ARGUMENT");
+    expect(String((error as { data?: { message?: string } }).data?.message ?? error)).toMatch(words);
+    expect([...w.backend.objects.keys()].some((k) => k.startsWith(".context/vault/"))).toBe(false);
+  });
+
+  test("a login can't be pinned: only a key or secret is used this way", async () => {
+    const w = await world();
+    expect(errorCode(await captureError(() => saveWithPin(w, { host: "bank.example.test", style: "bearer", ask: true }, "login")))).toBe("INVALID_ARGUMENT");
+  });
+});

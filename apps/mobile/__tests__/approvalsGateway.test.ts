@@ -108,8 +108,21 @@ describe("what the listing shows", () => {
           client: "Claude Desktop",
           createdAt: 1_700_000_000_000,
           expiresAt: 1_700_000_900_000,
+          kind: null,
         },
       ],
+    });
+  });
+
+  test("a saved key's first-use ask is read as one, and its answer says so", () => {
+    const read = readListing(200, { approvals: [entry({ kind: "vault_use", tool: "vault_list" })] });
+    expect(read.kind === "listed" && read.approvals[0].kind).toBe("vault_use");
+    expect(readListing(200, { approvals: [entry({ kind: "something_else" })] })).toMatchObject({
+      approvals: [{ kind: null }],
+    });
+    expect(readDecision(200, { status: "approved", ok: true, result: "Allowed once.", kind: "vault_use" })).toEqual({
+      kind: "decided",
+      decision: { status: "approved", summary: null, ok: true, result: "Allowed once.", vaultUse: true },
     });
   });
 

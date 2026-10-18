@@ -139,6 +139,10 @@ thinking model, and the meter says so", "a low-confidence think, a word the
 router does not know, or a failed router all stay on main", "a routed setup records the tier first on the tools line and
 reports the model that answered".
 
+A `think` pick may also plan on the thinking model and drive on `main`
+(`models.think_rounds`, 2026-10-17): see
+[texting-assistant/model-plan.md](./model-plan.md).
+
 ### The benchmark world searches by meaning, and search has a benchmark of its own (2026-10-10)
 
 **Decided by the owner (2026-10-10):** "we need to build a testing pipeline
@@ -573,7 +577,44 @@ the runner's scope, checks the state, and prints the two values once";
 `folder.test.mjs` ("the setups are pulled from Context"); and
 `check-secrets-allowlist.mjs`, which names the live token as not synced.
 
-### The world's egress gate is the deployment's (2026-10-14)
+### A round runs the live setup, the live skills and the tests edited in Context (2026-10-16)
+
+**Decided by the owner (2026-10-16)**: tests must run "with the latest agents
+and the latest skills", and test lists are edited in the app's admin/AI page
+like any other note in `@context-lc ai/`. So `pnpm ai pull <job>` now brings
+three more things beside the setups being tried:
+
+- **`ai/production/<job>.md` as the setup `production`**, winning over a setup
+  someone named `production`. The Action runs only it unless `setups` names
+  others (`all` runs every setup too), so pressing Run measures what people
+  get today. Search has no live file and still runs every setup.
+- **`ai/production/skills/` as the round's skills.** A skill only in
+  `ai/setups/<job>/skills/` is added for a setup trying something new; a copy
+  there of a live skill is ignored. The setup copies had already drifted from
+  the live ones (build-a-website, 2,933 against 3,052 bytes on 2026-10-16), so
+  a round graded a stale skill as the live one.
+- **`ai/tests/*.md`, each over the repository's test of the same name.** This
+  narrows the 2026-10-10 rule that question lists are fixtures: the invented
+  workspaces still change with the code, and the repository keeps its test
+  copies for a run with no connection, but the copy a person edits in Context
+  is the one that runs. A test that names a note the workspaces don't have
+  fails loudly in the run, the same as before.
+
+The scores note now heads with `test`, and the live setup's `score`, `gates`
+and `good_enough` (the first row when the round did not run it), so a list of
+results reads them from front matter without opening each note.
+
+**What a simplification would cost:** grading only the setups being tried
+leaves nobody measuring production; pulling the setup copies of skills grades
+a stale skill; ignoring `ai/tests/` makes the app's test editor a page whose
+edits never run. Tests (`bench/test/context.test.mjs`): "pullSetups runs the
+live setup as production, beside the setups being tried", "pullSetups takes
+the live skills over a setup's copy, and keeps a skill only a setup has",
+"pullSetups puts the tests edited in Context over the repository's copies",
+"the scores note heads with the live setup's score, so a list of results can
+show it".
+
+### The world's egress gate is the deployment's (2026-10-14; gone with the gate, 2026-10-17)
 
 The bench world left `EGRESS_APPROVALS` unset, so it held every write into a
 shared workspace for a YES that production, where the owner switched the gate
@@ -585,4 +626,60 @@ from wrangler.toml's top-level `[vars]` (`DEPLOYED_EGRESS_APPROVALS` in
 bench too. **What a simplification would cost:** hard-coding "off" would
 keep grading production's behaviour only until the owner turns the gate back
 on. Test (`bench/test/world.test.mjs`): "the world runs the egress gate the
-way the deployed gateway does".
+way the deployed gateway does". The owner removed the gate and its switch on
+2026-10-17 ([agent-egress](../privacy-and-sharing/agent-egress.md)), so the
+world and that test went with it.
+
+### A failed round drafts its own next experiment, and a person runs it (2026-10-17)
+
+**Decided by the owner (2026-10-17)**: the benchmark should be a loop, not a
+report: golden tasks pass or fail with their cost and time, "and if not, we
+know how to improve it ... whether it's editing the prompt or changing the
+model". The rules of 2026-10-16 still bound it: the improver never promotes,
+and an AI starts a round only when a person asks.
+
+- **`pnpm ai improve <result>`** (`bench/improve.mjs`) reads a scored round
+  and shows one model (Opus 5.5 by default) the setup's whole file, its row
+  of scores against the test's bars, and every case it failed: the failed
+  lines with the judge's reason, the texts, the tools and the recorded
+  changes, two runs a case at most. It asks for ONE change as exact
+  find-and-replace edits on the file, the front matter included, so a model
+  change and a prompt change are the same kind of edit. The draft is written
+  beside the setups as an experiment in the AI tab's own shape (`title`,
+  `based_on`, `change`, `why`, `made_by: improver (...)`; live's `from`,
+  `live_since` and `promoted_by` dropped), and `--publish` writes it to
+  `@context-lc ai/setups/<job>/`, as a new note only.
+- **A draft that cannot be used is sent back with the reason**, up to three
+  times: an edit whose find is not in the file exactly once, no change, a
+  file `parseSetup` refuses, or a capitalised name the test uses mid-sentence
+  (a person, a place, a venue) that the setup never used. That last one is
+  the owner's 2026-10-10 rule held by code rather than by a prompt line: a
+  prompt that names the test's people was written for the test.
+- **It spends only when there is something to fix.** A setup that failed no
+  case and met every bar drafts nothing and makes no call; otherwise the
+  most three attempts could cost is printed first and refused over
+  `--max-usd` (default $1).
+- **The Action's `improve` input** is `no`, `draft` (draft and publish), or
+  `draft and test`: the person who pressed Run asked for a second round too,
+  so the draft runs against the setup it came from on the same test and
+  cases, is judged and scored the same way, and lands as its own
+  `… retest scores.md` beside the first. Its result and key upload as
+  `retest-result` and `retest-key`, outside the `benchmark-*` pattern that
+  `judge_run_id` downloads.
+
+**What a simplification would cost:** an improver that edits live, or
+promotes its own winner, ships a prompt nobody read; one that rewrites the
+whole prompt cannot be compared one change at a time and loses the prompt's
+voice; one that may name the test's people lifts the score and nothing
+else. Tests (`bench/test/improve.test.mjs`, `bench/test/context.test.mjs`):
+"a draft that names the test's people or places is refused", "the improver
+is asked again with the reason, and its usable draft is the one kept" (the
+`parseSetup` check sabotaged, it fails), "a scored round's failures become
+one experiment beside live, read by the gateway; live is untouched", "a
+setup that failed nothing and met every bar has nothing to improve, and
+spends nothing" (the early return sabotaged, it fails), "an improver's draft
+is written as a new setup beside live, and never over one already there".
+
+### The loop promotes on its own, through a gate, under a spend cap (2026-10-17)
+
+Moved to [auto-promotion](./auto-promotion.md).

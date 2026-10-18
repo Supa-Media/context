@@ -46,8 +46,7 @@ import {
   scaffoldContext,
 } from "./lib/scaffold";
 import { scaffoldStep } from "./lib/scaffold/step";
-import { countNotes } from "./lib/noteCount";
-import { servedNoteCount } from "./lib/nodes/servedCount";
+import { servedNoteCount, verifiedNoteCount } from "./lib/nodes/servedCount";
 import { readStorageLayoutState } from "../../mcp/src/storageLayout.js";
 import {
   type ProbeResult,
@@ -360,13 +359,7 @@ export const verifyStorageBinding = internalAction({
     // From here on a plaintext secret is in scope. It is used to construct one
     // store, and every string that leaves this function goes through
     // `redactSecrets` before it is recorded.
-    // Whatever this credential actually carries. A Dropbox one has an access
-    // token and no key pair; listing fields that do not exist would put
-    // `undefined` in the redaction set and quietly redact nothing.
-    const secrets =
-      credential.provider === "dropbox"
-        ? [credential.accessToken]
-        : [credential.secretAccessKey, credential.accessKeyId];
+    const secrets = [credential.secretAccessKey, credential.accessKeyId];
 
     let store: ScaffoldStore;
     try {
@@ -392,11 +385,7 @@ export const verifyStorageBinding = internalAction({
         scaffoldReason: "not-attempted",
         error: redactSecrets(errorMessage(error), secrets),
         // Ambiguous addressing is a question about a *bucket in a host name*.
-        // Dropbox has neither, so asking it there would classify every Dropbox
-        // configuration error as an S3 endpoint problem the owner cannot act
-        // on.
         errorCode:
-          credential.provider !== "dropbox" &&
           credential.forcePathStyle === undefined &&
           addressingIsAmbiguous(credential.endpoint, credential.bucket)
             ? "AMBIGUOUS_ADDRESSING"
@@ -422,15 +411,7 @@ export const verifyStorageBinding = internalAction({
       });
     }
 
-    // The bucket name only exists to name the thing in a message. A Dropbox
-    // binding has a folder instead, and saying "folder" is what stops the
-    // console telling somebody to check a bucket they never created.
-    const summary = summarizeProbe(probe, {
-      bucket:
-        credential.provider === "dropbox"
-          ? (credential.rootPrefix ?? "your Dropbox folder")
-          : credential.bucket,
-    });
+    const summary = summarizeProbe(probe, { bucket: credential.bucket });
 
     if (!summary.ok) {
       return await record(ctx, args, {
@@ -504,8 +485,9 @@ export const verifyStorageBinding = internalAction({
     // Deliberately after the scaffold as well as after the record: a bucket we
     // just laid a layout into is counted as it now stands, not as we found it.
     // `countNotes` returns `null` rather than throwing, so a bucket that stops
-    // answering costs the count and nothing else.
-    const counted = await countNotes(store);
+    // answering costs the count and nothing else. A keyed workspace is counted
+    // from its tree instead (`verifiedNoteCount`): its bucket holds frozen copies.
+    const counted = await verifiedNoteCount(ctx, args.workspaceId, store);
     if (counted !== null) {
       try {
         await ctx.runMutation(internal.functions.storage.recordNoteCount, {

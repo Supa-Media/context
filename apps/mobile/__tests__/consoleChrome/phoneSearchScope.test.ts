@@ -53,9 +53,9 @@ function recordSearches() {
 }
 
 describe("search on a phone follows the folder you are in", () => {
-  test("Home's field reads Search, and opens a search of the whole workspace", () => {
+  test("Inbox's field reads Search everything, and opens a search of the whole workspace", () => {
     const app = mountConsole(390);
-    expect(app.find("notes-bar-search")!.textContent).toBe("Search");
+    expect(app.find("notes-bar-search")!.textContent).toBe("Search everything");
     app.press(app.find("notes-bar-search"));
     expect(app.find("palette-input")).not.toBeNull();
     expect(app.find("search-scope")).toBeNull();

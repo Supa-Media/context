@@ -102,6 +102,9 @@ before(async () => {
     globalThis.fetch = inner;
   });
 
+  // Each workspace's tree is copied from its bucket, so orient can draw its map.
+  controlPlane.serveTreesFrom(undefined, { s3 });
+
   controlPlane.addWorkspace("ws_mine", "mine-many", binding("others-mine", "AA"));
   controlPlane.addWorkspace("ws_pinned", "context-lc", binding("others-pinned", "BB"), { kind: "shared" });
   controlPlane.addWorkspace("ws_alpha", "alpha-team", binding("others-alpha", "CC"), { kind: "shared" });
@@ -143,7 +146,7 @@ test("the normal case: every other workspace's front page, the global note, once
     assert.ok(text.includes(marker), `orient carries ${marker}`);
   }
   assert.ok(!/map not loaded/i.test(text), "nothing was late");
-  assert.ok(text.includes("## Other contexts you can reach, and their front pages"));
+  assert.ok(text.includes("## Workspaces"));
   // The global note and the pinned workspace's own front page share one open.
   assert.equal(opens.get("ws_pinned"), 1, "@context-lc is opened once per orient");
   assert.equal(opens.get("ws_alpha"), 1);
@@ -178,7 +181,7 @@ test("a workspace slower than the cap is named with a way in, and the call still
   try {
     const { text, isError, ms } = await orient();
     assert.equal(isError, false);
-    assert.ok(text.includes("# Orientation"));
+    assert.ok(text.includes("# Context"));
     assert.ok(text.includes("ALPHA-FRONT"), "the prompt ones are still read");
     assert.ok(!text.includes("BETA-FRONT"), "the late one is not waited for");
     assert.match(text, /### @beta-team — [^\n]+\nMap not loaded in time\. Call orient with context: "@beta-team" to see it\./);

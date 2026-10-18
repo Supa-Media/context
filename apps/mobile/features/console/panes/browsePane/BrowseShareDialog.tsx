@@ -1,6 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
 import { useEncryptionAction } from "../../encryption/useEncryptionAction";
-import { ShareDialog } from "../../files/ShareDialog";
+import { LiveShareDialog } from "../../files/shareDialog/LiveShareDialog";
 import type { FileBrowser } from "../../files/browser";
 import { consoleOrigin } from "../../files/shareOrigin";
 import { removalHandler } from "../../files/access";
@@ -111,7 +111,8 @@ export function BrowseShareDialog({
   });
 
   return (
-    <ShareDialog
+    <LiveShareDialog
+      workspaceId={files.contextId}
       path={sharing}
       footExtra={
         files.contextId !== null && isWebsiteFolder(sharing) ? (

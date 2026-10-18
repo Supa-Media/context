@@ -1,3 +1,4 @@
+import { Platform } from "react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useConvex, useQueries, type RequestForQueries } from "convex/react";
 import { api } from "@context/convex/_generated/api";
@@ -14,6 +15,7 @@ import {
 import {
   wouldEmptyRequiredSelection,
 } from "../console/settings/panels/premiumEntitlements";
+import { foundingAtNoCharge } from "../console/settings/panels/founding";
 import type { ManagedConfirmState } from "./steps/ManagedConfirm";
 
 /**
@@ -62,6 +64,11 @@ export interface ManagedOffer {
   available: boolean;
   /** `$5 a month`, from the same config the checkout charges. */
   price: string;
+  /**
+   * Founding Premium nobody pays for: every card that would show `price`
+   * says so instead. Optional so a fixture without it reads as "not founding".
+   */
+  founding?: boolean;
   /** The plan as the control plane reports it, or `null` before it answers. */
   status: PremiumStatus | null;
   /** Which of the three screens the storage step is drawing. */
@@ -162,6 +169,7 @@ export function useManagedOffer(options: {
   }, [mode, slowAfter]);
 
   const choose = useCallback(() => {
+    if (Platform.OS !== "web") return;
     setFailure(undefined);
     setMode("confirm");
     /*
@@ -190,7 +198,7 @@ export function useManagedOffer(options: {
 
   const toggle = useCallback(
     (value: string, next: boolean) => {
-      if (workspaceId === null || status === null) return;
+      if (Platform.OS !== "web" || workspaceId === null || status === null) return;
       // Mid-checkout the control plane refuses an empty selection; the last
       // box is drawn locked, and this covers a status a moment stale.
       if (wouldEmptyRequiredSelection(status, value, next)) return;
@@ -208,7 +216,15 @@ export function useManagedOffer(options: {
   );
 
   const proceed = useCallback(() => {
+    if (Platform.OS !== "web") return;
     if (workspaceId === null) return;
+    // Already Premium (a founding account): pressing the card chose managed
+    // storage, and that choice on a paying plan already started the bucket.
+    if (status?.status === "active") {
+      setFailure(undefined);
+      setMode("settling");
+      return;
+    }
     if (status?.stagingFreeStorage === true) {
       setOpening(true);
       setFailure(undefined);
@@ -234,7 +250,7 @@ export function useManagedOffer(options: {
         setFailure("That did not go through. Check your connection and try again."),
       )
       .finally(() => setOpening(false));
-  }, [convex, origin, session, status?.stagingFreeStorage, workspaceId]);
+  }, [convex, origin, session, status?.status, status?.stagingFreeStorage, workspaceId]);
 
   const retry = useCallback(() => {
     if (workspaceId === null) return;
@@ -267,8 +283,9 @@ export function useManagedOffer(options: {
           : "choosing";
 
   return {
-    available: status?.managedStorageAvailable === true,
+    available: Platform.OS === "web" && status?.managedStorageAvailable === true,
     price: status === null ? "" : formatPrice(status),
+    founding: foundingAtNoCharge(status),
     status,
     mode,
     session: sessionState,

@@ -596,15 +596,16 @@ export async function syncShardedIndex(
             */
             const full = indexableText(await object.text());
             // Record the token the *next* listing will report, or the diff
-            // never converges: where the listing carries a real etag that is
-            // this read's etag, and where it does not, the object's real etag
-            // would never equal the synthetic token and every note would look
-            // stale forever.
-            const version =
-              listed.fromEtag && typeof object.etag === "string" && object.etag
-                ? object.etag
-                : listed.version;
-            return { path, uploaded: listed.uploaded, full, version };
+            // never converges: that is the listed one, always. The read's own
+            // etag was recorded here while the listing was the bucket's, where
+            // the two agree. The listing is the tree now, whose row etag need
+            // not be the stored object's (a sealed or id-keyed note), and every
+            // such note then looked stale on every pass and was read again:
+            // on production, 2026-10-16, a search's pass spent its whole
+            // budget re-reading the same notes, three calls each. A note that
+            // changed between the listing and this read is read once more on
+            // the next pass, and then agrees.
+            return { path, uploaded: listed.uploaded, full, version: listed.version };
           })(entry)
         );
       }
@@ -859,11 +860,10 @@ export async function syncShardedIndex(
 /**
  * A writer's own account of what it changed, in the shape a listing returns.
  *
- * `fromEtag` is true only where the writer has the stored object's etag, so a
- * note written through a backend with no etag records whatever token its next
- * listing reports — once, and then converges — rather than one no listing will
- * ever match. `truncated` is carried from the manifest, since this pass did
- * not list and has nothing new to say about it.
+ * The version is the writer's etag where it has one. Where that is not the
+ * token the next listing reports, that listing reads the note once more and
+ * records its own, and then agrees. `truncated` is carried from the manifest,
+ * since this pass did not list and has nothing new to say about it.
  */
 function writtenEntries(only, isIndexable, manifest) {
   const entries = new Map();
@@ -873,7 +873,6 @@ function writtenEntries(only, isIndexable, manifest) {
     entries.set(path, {
       version,
       uploaded: typeof written.uploaded === "string" ? written.uploaded : null,
-      fromEtag: version.length > 0,
       size: Number.isFinite(written.size) ? written.size : null,
     });
   }

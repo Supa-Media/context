@@ -2,7 +2,115 @@
 
 _See `docs/decisions/README.md` for the index._
 
-### An AI client never widens who can see something without a person saying yes (decided by the owner, 2026-10-09)
+### The widening gate is removed (decided by the owner, 2026-10-17)
+
+"Is approvals still a working feature? No, I need to remove that. … I was
+getting paranoid about prompt injection, so I had done approval, but then
+everything needed approval" (Dev2, leadership weekly, 2026-10-17; confirmed
+in the thread: "yeah go ahead and remove it"). It had been switched off on our
+deployment since 2026-10-10, and is now gone from the code, so a self-hosted
+gateway no longer holds widenings either.
+
+**What runs at once now, from any AI client.** A share link, a website
+publish, an image fetched from an address the model chose, a note or folder
+made team-visible, people named on a note, a write or a move into another
+workspace. Each is still recorded in the audit trail under the client that
+made it, and each can be undone (narrow it, revoke the link, move it back).
+The tools' own `confirm_team_publish` still guards a publication, as it did
+before 2026-10-09: the model must pass it, and nothing passes it for the
+model.
+
+**What still waits for the person, and why it is not this gate.** Each is a
+single yes to something nobody can take back, asked for separately:
+
+- an email (`send_email`; [sending-email](../communications/sending-email.md));
+- a calendar change (`calendar_event`; [calendar-writes](../communications/calendar-writes.md));
+- claiming a workspace's @handle (`create_workspace` without `dry_run`;
+  [workspace setup](../gateway-protocol/workspace-setup.md)), held by
+  `handleClaimOf` in `apps/mcp/src/tools/session.js`;
+- an AI using a vault key for the first time
+  ([vault](../texting-assistant/vault.md)).
+
+They keep the machinery the gate built: the pending record under
+`.context/approvals/`, the texted YES or NO settled before any model runs
+(`agent/textedApprovals.js`), and the app's list at `/approvals`, which the
+console's right panel now shows only while something is waiting.
+
+**What is kept from the ledger.** A turn the gateway sees whole still records
+whether it took in anything from outside the workspace (`privacy/egress.js`):
+Tex vouches for a delegated message only from a clean turn (below), and the
+texting thread remembers answers written after an outside read. Which
+workspaces a turn read, and at what tier, is no longer recorded: only the
+gate weighed it. `mightWiden` stays because Tex's housekeeping refuses
+anything it says yes to.
+
+**What the removal costs, said plainly.** The section below names the attack
+it stopped: an instruction planted in a page, an email or a meeting title,
+written to look like a normal step of the task, can now make a link or a
+publish happen without a person in the loop. The owner accepted that risk
+for less friction ("prompt injection is something that everybody's just
+accepting"). Bringing a gate back means a new decision here, not reverting
+this one blindly: the old one held so much that nobody used it. Tests:
+`apps/mcp/test/agentEgress.test.mjs` ("a share link from an MCP client comes
+back at once", "a handle claim from an MCP client is held") and
+`agentEgressTexting.test.mjs` ("a texted share runs at once, even after a page
+read").
+
+### Sharing runs when the person's own words ask for it, read by a judge (decided by the owner, 2026-10-18)
+
+"I want people to just be able to type yes or yeah, go do it … you probably
+need a sub agent to give the okay … with very, very minimal context, … see
+what the user said and what you want to perform and decide whether you can go
+ahead" (Dev2, 2026-10-17), then "Yes, ship the judge for sharing approvals and
+turn it on in production" (2026-10-18). Approvals stay removed: nobody taps
+anything and nothing is held.
+
+`SHARING_JUDGE = "on"` (`apps/mcp/wrangler.toml`, production and staging)
+puts a second, small model (the gateway's default Haiku) in front of every
+call that would let more people see something, as `privacy/widening.js` names
+it: a link, a website publish, an image fetched from an address the model
+chose, a visibility change where the manifest reads narrower now, people named
+on a note, a move asked to publish. The judge
+(`privacy/judge.js`) is shown two things only: the gateway's own one-line
+summary of the call, and the person's words, fenced as data it must never
+follow. It answers with a boolean. Yes runs the call (writing
+`confirm_team_publish` for a publication, since their words were the yes) and
+leaves a `judge_allow` audit row; anything else (no, an error, a non-boolean,
+no words) is "not done", and the model is told to ask in the chat and call
+again. `judgedGate` in `apps/mcp/src/tools/session.js`.
+
+**Where the words come from.** A turn this gateway runs itself (`/agent`: the
+texting thread, the app's panel, a routine) has the person's real message,
+after the last thing they were told, so a bare "yeah" reads as the answer to
+the question it answers; a routine's words are its own note, and a turn of
+ours with no person behind it has none. For those turns a model's
+`person_said` is never read. An MCP client's chat is never seen here, so every
+tool takes `person_said`, the client's report of what the person wrote,
+stripped before any tool runs.
+
+**What it costs, said plainly.** That report is the weak point: a model steered
+by a planted instruction can also invent the person's words, and the judge
+cannot tell a faithful quote from an invented one. It still stops the common
+failures (a widening nobody asked for, words about something else, a share
+with one person stretched into a public link), and every judged yes is in the
+audit trail. One small-model call per widening; none on reads or ordinary
+writes.
+
+**Not judged:** an ordinary write into another workspace the caller belongs to
+(`elsewhereOnly`), which names no link, no publication and nobody new, and was
+the friction approvals were removed for; nor, for now, a move of a note into
+another workspace, which takes its own path (`moves/acrossContexts.js`) and
+carries the note's visibility with it. Without `SHARING_JUDGE`, or without an
+AI gateway to ask, nothing is judged and such calls run at once as before.
+Tests: `apps/mcp/test/agentEgressJudge.test.mjs`, sabotage record in its
+header.
+
+### History: the gate as it was, 2026-10-09 to 2026-10-17
+
+Kept as the record of what was built and why; none of it holds now except
+where the section above says so.
+
+#### An AI client never widens who can see something without a person saying yes (decided by the owner, 2026-10-09)
 
 **Switched off on our deployment for now (decided by the owner, 2026-10-10).**
 "It's causing more friction than we need right now, and needs to be properly
@@ -40,7 +148,8 @@ it now, or hands something to an address outside the workspace:
 `create_link` and `share` on `write_note`; publishing the website; an
 `images[].url` on `write_note` (the gateway fetches an address the model
 chose, so a note's text can ride in it); `set_visibility` and
-`set_folder_visibility` where the manifest reads narrower now, and
+`set_folder_visibility` where the manifest reads narrower now; naming people
+on a note (`people` on `set_visibility`, 2026-10-17), whoever is named;
 `write_note` or `save_context` publishing to the team; a move asked to
 publish (`confirm_team_publish`) into a folder more people can read or into
 another workspace — without that flag the move tools inside one workspace
@@ -56,8 +165,15 @@ is asked is told all of them, and the gate supplies `confirm_team_publish`
 only when the call asked to publish. Reads, ordinary
 writes inside the workspace the call started in, and dry runs never widen
 and never ask; nor does `report_problem`, whose one destination is Context's
-own support intake rather than an address the model chose. `apps/mcp/src/privacy/egress.js`
-is the list.
+own support intake rather than an address the model chose. Nor do the
+workspace setup tools (`create_workspace`, `apply_layout`, `connect_google`;
+Dev2, 2026-10-17), wherever they are addressed: they show nobody anything new
+and carry nothing the model chose (`NEVER_WIDENS`; see
+[workspace setup](../gateway-protocol/workspace-setup.md)). A real
+`create_workspace` is held anyway, for a different reason: it claims a handle
+that is never freed, so it is marked `permanent` and waits for the person from
+every turn, with the deployment switch off too (Dev2, 2026-10-17; same page).
+`apps/mcp/src/privacy/egress.js` is the list.
 
 **When a widening waits for a person.** A turn this gateway sees whole — a
 texted question, the app's agent panel — keeps a ledger: which workspaces the
@@ -129,6 +245,21 @@ bench) answers YES the way a person who asked for the change does. Test:
 says so"; `bench/test/run.test.mjs`, "the played person answers YES when the
 gateway held a call for their OK".
 
+**The ask goes out in a text of its own (2026-10-17).** Appended to the
+model's answer and left there, the ask line is the model's to lose: the reply
+worker keeps three texts and folds every later paragraph into the third
+(`apps/agent/src/format.ts`), then sends at most 3,000 characters of each
+(`apps/agent/src/clients.ts`), so a long enough answer cuts the ask off its
+own end — while the record stays armed for half an hour and a later bare
+"yes" releases what was never read. So `textedAsk` hands every ask back as a
+`verbatim` part, which the reply worker pulls out of the answer and texts
+whole and last, and an ask too long for one text is withdrawn rather than
+cut. This had been done for an ask holding an email and not for the rest; the
+rest is where the handle claim is, which is the one ask the deployment switch
+still makes and the one thing here nobody can undo. Test:
+`emailGate.test.mjs`, "an ask holding no email is texted whole too, or
+withdrawn rather than cut".
+
 **What it costs, measured rather than guessed.** Nothing on reads and
 ordinary writes: the gate is one classification per call and touches storage
 only for a widening. For the texting assistant, one extra text on a widening
@@ -166,3 +297,84 @@ here answers plain JSON and would need a server-to-client channel first. A
 push or email when an MCP client's call is held is a control-plane job for
 later; until then the app's approvals list and a text to the assistant are
 the two surfaces. The console's screen for the list is the follow-up PR.
+
+### Naming people on a note (2026-10-17)
+
+An AI client can now add people to one note's list: `people: [{ who, role }]`
+on `set_visibility` (the `visibility` action of `manage`), where `who` is a
+member's or a group's `@handle` or anyone's email address. It adds and never
+removes, owner only, through the control plane's `addGrantees` op
+(`lib/nodes/addGrantees.ts`), which resolves every name the way the console's
+`setGrantees` does and gives one refusal for any that does not resolve.
+
+With the sharing judge on (2026-10-18, above) it runs when the person's words
+ask for it; without it, it runs at once, as since the widening gate was removed
+(2026-10-17, above);
+until then it was held as a widening at the widest audience, whoever was
+named. A domain (`@acme.com`, `*@acme.com`) is refused by the tool, since a
+note's list names people, not domains. Tests: `agentEgress.test.mjs` ("naming
+people on a note is never held"), `egress.test.mjs` ("mightWiden counts naming
+people on a note", so housekeeping never does it).
+
+### A delegated job's message leaves only for the agent's own site, and only from a clean turn (2026-10-17)
+
+`delegate` ([delegation](../texting-assistant/delegation.md)) gives Tex a
+message of the model's own words to type into another agent's chat box
+(claude.ai, chatgpt.com). The words can carry anything the turn read, so the
+browser may type them without open web only under two conditions. First, the
+message was written by `delegate` in this call, in a turn whose egress ledger
+is still clean: nothing from a page, a search result, an attachment, another
+agent's mail or a tainted earlier answer has been read. Second, it is typed on
+that agent's own host and nowhere else, with the host re-checked at the keys
+(`browse.js` `delegateValue`). `again` rebuilds the message from the task
+note, which anyone who can write the note may have edited, so it never
+vouches. The note's brief is not the person's words.
+
+The reason: in a clean turn, nothing outside the person and their notes can
+have chosen the words or the destination. The site is the person's own
+account with an agent they picked, the same trust as a site they named. A
+host-wide allowance (another person's GPT on chatgpt.com, say) is accepted
+for that reason: no page has been read that could steer the model there.
+Under `open_web: yes` (our deployment) typing is unrestricted anyway, by the
+owner's decision of 2026-10-14. These conditions are what a self-hosted
+gateway without open web keeps.
+
+What a simplification would cost: vouching in any turn lets a page read
+earlier in the same text dictate a brief full of the person's notes, which is
+then typed onto that site. Vouching `again` lets a collaborator's edit to a
+task note do the same. Tests: `agentDelegate.test.mjs` ("a turn that read
+something from outside never vouches for the message", "again gives the same
+message … writing nothing", "a delegated message is typed only on its agent's
+own site").
+
+### An inline reply's quoted message is not the person's words (2026-10-18)
+
+Texting Tex, somebody can reply to one message in the thread, and Sendblue
+names the message they picked. Tex reads a bare "this one" better when it
+knows which message that is, so the words are fetched
+(`apps/agent/src/sendblue.ts`, `repliedToText`) and shown to the model.
+
+They are sent to `/agent` as their own field and never folded into
+`question`. Four guards read `question` as the person's own words: the
+openable addresses a browser may fetch (`vouched` in `agent/route.js`), the
+addresses a texted answer may send a picture from (`outgoingPictures.js`),
+the sharing judge's reading of what was asked (`privacy/judge.js`, through
+`session.egress.turn`), and the Mail checker's words (`agent/mailChecker.js`).
+A texted YES or NO is matched against it too, before any model runs.
+
+The message replied to may be one Tex sent, and a Tex answer carries whatever
+Tex read that turn: an email, a note a collaborator writes into, a page. So
+folding it in makes a previous answer vouch, which is the laundering
+`route.js` already refuses for a routine's last run — an address read on a
+page, repeated in an answer, becomes openable the moment somebody replies to
+that message. `agent/quoted.js` keeps the two apart: it scrubs the quote of
+the characters that would end its mark, and only `runTurn` is handed both,
+with the quote marked as vouching for nothing.
+
+What a simplification would cost: one string for both, and a stranger's words
+arrive on the person's line wearing the person's authority. Tests:
+`agentEgressJudge.test.mjs` ("a texted turn is judged on the person's own
+text, never the message they replied to", "the model still reads the quoted
+message, marked as quoted and vouching for nothing");
+`apps/agent/src/reply.test.ts` ("sends the message a reply answers apart from
+the person's own words").
