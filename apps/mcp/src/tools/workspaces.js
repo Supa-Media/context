@@ -9,6 +9,8 @@
  * runs the same handler the app runs; this file only says what came back.
  */
 
+import { JOB_LABEL } from "../../../../packages/shared/src/folderRoles.cjs";
+import { SHOWN_JOBS, jobNames } from "../../../../packages/shared/src/folderJobInfo.cjs";
 import { toolError, toolText } from "./results.js";
 
 const UNAVAILABLE = "setting workspaces up is not available on this deployment.";
@@ -54,6 +56,7 @@ export async function toolCreateWorkspace(store, args) {
 export async function toolApplyLayout(store, args) {
   const calls = store?.workspaceSetup;
   if (!calls) return toolError(UNAVAILABLE);
+  if (args.job !== undefined) return await folderJob(calls, args);
   const hasTemplate = args.template !== undefined;
   const hasFolder = args.folder !== undefined;
   if (hasTemplate === hasFolder) return toolError("pass one of template or folder.");
@@ -66,6 +69,43 @@ export async function toolApplyLayout(store, args) {
       ? `the ${args.template} layout is on its way: ${folders}. It lands in the bucket within a few seconds.`
       : `added ${folders}, with an about.md saying what belongs in it.`
   );
+}
+
+/**
+ * `manage folder_job`: which folder does a built-in job (owner, 2026-10-18;
+ * `docs/decisions/app-and-console/folder-jobs.md`). `path` gives the job to a
+ * folder that exists, wherever it is nested; `remove` takes an optional job
+ * away; neither makes the job's folder at the top under its usual name.
+ * Nothing moves. The control plane decides; refusals come back in words.
+ */
+async function folderJob(calls, args) {
+  if (args.template !== undefined || args.folder !== undefined) return toolError("pass job on its own, with path or remove.");
+  const job = typeof args.job === "string" ? args.job.trim().toLowerCase() : "";
+  if (!job) return toolError(`job is required: one of ${jobNames()}.`);
+  const path = typeof args.path === "string" ? args.path.trim().replace(/^\/+|\/+$/g, "") : undefined;
+  if (args.remove === true && path !== undefined) return toolError("pass path or remove, not both.");
+  if (path === undefined && args.remove !== true) {
+    if (job === "tex" || job === "website") {
+      return toolError(`${JOB_LABEL[job]}'s folder is made the first time it is used. To use one that exists, pass its path.`);
+    }
+    if (!SHOWN_JOBS.includes(job)) return toolError(`There is no "${job}" job. The jobs are ${jobNames()}. A folder of your own kind explains itself in its about.md.`);
+    return await toolApplyLayoutFolder(calls, job);
+  }
+  const answer = await calls.layout({ job, path: args.remove === true ? null : path });
+  if (answer === null || answer.ok !== true) return refused(answer);
+  const label = JOB_LABEL[job] ?? job;
+  return toolText(
+    args.remove === true
+      ? `there is no ${label} folder now. The folder that was keeps everything in it.`
+      : `${path} is the ${label} folder now. Nothing moved; Context files there from now on, and orient lists it.`
+  );
+}
+
+async function toolApplyLayoutFolder(calls, role) {
+  const answer = await calls.layout({ role });
+  if (answer === null || answer.ok !== true) return refused(answer);
+  const folders = Array.isArray(answer.folders) ? answer.folders.join(", ") : "";
+  return toolText(`added ${folders}, with an about.md saying what belongs in it.`);
 }
 
 export async function toolConnectGoogle(store, args) {

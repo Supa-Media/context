@@ -174,26 +174,43 @@ export const setJob = action({
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
     try {
-      const path = args.path === null ? null : requireFolderPath(args.path);
-      if (path === "") throw new FileOpError("PATH_INVALID", "Name a folder, not the whole workspace.");
+      const path = jobFolderPath(args.path);
       const actorUserId = await callerId(ctx);
       const access: Access = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
         actorUserId,
         workspaceId: args.workspaceId,
         minimum: "owner",
       });
-      if (path !== null) {
-        const visible = await visibleTo(ctx, args.workspaceId, clearanceOf(access.scope, access.grantedNames ?? []));
-        if (!visible(path)) throw notFound();
-      }
-      const refused: { code: string; message: string } | null = await ctx.runMutation(internal.functions.builtInFolders.writeJob, { workspaceId: args.workspaceId, job: args.job, path });
-      if (refused !== null) throw new FileOpError(refused.code as FileErrorCode, refused.message);
+      await giveJob(ctx, args.workspaceId, clearanceOf(access.scope, access.grantedNames ?? []), args.job, path);
       return null;
     } catch (error) {
       throw toConvexError(error);
     }
   },
 });
+
+/** A folder path for a job, or null to take the job away; never the workspace itself. */
+export function jobFolderPath(input: string | null): string | null {
+  if (input === null) return null;
+  const path = requireFolderPath(input);
+  if (path === "") throw new FileOpError("PATH_INVALID", "Name a folder, not the whole workspace.");
+  return path;
+}
+
+/**
+ * Give `job` to the folder at `path` (null: take it away) for a caller already
+ * cleared as the workspace's owner at `clearance`: the app's `setJob` and an
+ * AI client's `layout` with a job (`gatewayRoutes/workspaces.ts`). A folder the
+ * caller cannot see is not found. Refusals are `FileOpError`s in words.
+ */
+export async function giveJob(ctx: ActionCtx, workspaceId: Id<"workspaces">, clearance: Clearance, job: string, path: string | null): Promise<void> {
+  if (path !== null) {
+    const visible = await visibleTo(ctx, workspaceId, clearance);
+    if (!visible(path)) throw notFound();
+  }
+  const refused: { code: string; message: string } | null = await ctx.runMutation(internal.functions.builtInFolders.writeJob, { workspaceId, job, path });
+  if (refused !== null) throw new FileOpError(refused.code as FileErrorCode, refused.message);
+}
 
 /** Whether the caller can see the folder at a path (`folderVisibleAtScope`). */
 async function visibleTo(ctx: ActionCtx, workspaceId: Id<"workspaces">, clearance: Clearance): Promise<(path: string) => boolean> {

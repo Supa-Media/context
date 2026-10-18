@@ -183,6 +183,7 @@ const MANAGE = [
   ["vault_view", "vault_view_link", { entry: "e1" }],
   ["create_workspace", "create_workspace", { slug: "acme", name: "Acme", dry_run: true }],
   ["layout", "apply_layout", { template: "business" }],
+  ["folder_job", "apply_layout", { job: "tex", path: "Life/Assistant" }],
   ["connect_google", "connect_google", { kind: "gmail" }],
   ["dream_now", "dream_now", {}],
 ];
