@@ -1,3 +1,4 @@
+import { compareListingEntries } from "@context/shared/src/folderRoles.cjs";
 import { baseName, displayName, folderLabel, isUnlistedFile, parentPath, restoreTargetFor } from "../files/paths";
 
 /**
@@ -66,6 +67,13 @@ export interface HomeInput {
   folders: readonly string[];
   /** Folders whose default is `team`: drawn with the people mark. */
   shared: ReadonlySet<string>;
+  /**
+   * What the listings say about a folder's place: its job (`role`) and its
+   * saved `order`, so All folders draws in the tree's order
+   * (`compareListingEntries`). Absent for a folder no listing has named,
+   * which then sorts by what its name says.
+   */
+  folderFacts?: ReadonlyMap<string, FolderFacts>;
   pins: readonly HomePin[];
   opened: readonly HomeOpened[];
   /**
@@ -77,6 +85,11 @@ export interface HomeInput {
   /** The chosen tag chip; `null` is All. */
   tag: string | null;
   now: number;
+}
+
+export interface FolderFacts {
+  role?: string;
+  order?: number;
 }
 
 export interface HomeFolder {
@@ -221,7 +234,16 @@ export function buildHome(input: HomeInput): Home {
           })
           .slice(0, RECENT_COUNT);
 
-  const topLevel = folders.filter((folder) => !folder.includes("/"));
+  /*
+    The tree's order, not the alphabet: a saved `order` first (Move up, Move
+    down, dragging a folder in the sidebar), else the job's rank, else the
+    name. One comparator for every surface, so the phone and the sidebar
+    never disagree about which folder comes first (owner, 2026-10-18).
+  */
+  const asEntry = (path: string) => ({ kind: "folder", name: path, ...input.folderFacts?.get(path) });
+  const topLevel = folders
+    .filter((folder) => !folder.includes("/"))
+    .sort((a, b) => compareListingEntries("", asEntry(a), asEntry(b)));
   return {
     totals: { folders: topLevel.length, notes: notes.length },
     tagged: input.tag === null ? null : { tag: input.tag, count: tagged.length },
