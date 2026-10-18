@@ -25,6 +25,7 @@ import {
   topLevelRole,
   twinMessage,
 } from "../../../../packages/shared/src/folderRoles.cjs";
+import { INBOX_PARTS, INBOX_PART_LABEL } from "../../../../packages/shared/src/folderJobInfo.cjs";
 import { canSee, isPlumbing } from "../privacy/engine.js";
 import { listAllKeys } from "../notes/storage.js";
 import { servedListingStore } from "./served.js";
@@ -83,14 +84,23 @@ export async function nameTwinRefusal(store, scope, rules, overrides, path, { ki
   return null;
 }
 
-/** The refusal for moving or renaming the folder that plays a main role, or null. */
+/**
+ * The refusal for moving or renaming the folder that plays a main role, or one
+ * of the Inbox's own folders (`INBOX_PARTS`, owner 2026-10-18), or null.
+ */
 export async function protectedFolderRefusal(store, scope, rules, overrides, path) {
-  if (!isMainFolder(path)) return null;
+  const segments = path.split("/");
+  const inboxPart = segments.length === 2 && INBOX_PARTS.includes(segments[1]) && isMainFolder(segments[0]) && topLevelRole(segments[0]) === "inbox";
+  if (!isMainFolder(path) && !inboxPart) return null;
   let folders;
   try {
     folders = [...(await visibleChildren(servedListingStore(store), "", scope, rules, overrides)).folders];
   } catch {
     folders = [];
+  }
+  if (inboxPart) {
+    if (!isProtectedFolder(segments[0], folders)) return null;
+    return `${INBOX_PART_LABEL[segments[1]]} is one of the Inbox's own folders: Context files into it, so it stays where it is. You can add your own notes and folders beside it.`;
   }
   if (!isProtectedFolder(path, folders)) return null;
   return `${ROLE_LABEL[topLevelRole(path)]} is a built-in folder, so it can't be renamed or moved. Move what's inside it instead.`;

@@ -22,8 +22,11 @@ import { folderJobsOf } from "../../functions/lib/nodes/folderJobs";
 import { decideJobChange, isRefusal } from "../../functions/lib/nodes/folderJobSettings";
 import { folderJobs } from "@context/shared/src/folderRoles.cjs";
 import { guessFolderJobs } from "@context/shared/src/folderJobInfo.cjs";
-import { fixture, type Fixture } from "./moveFixture.helpers";
-import { rowOf } from "./keyedFixture.helpers";
+import { OWNER, fixture, type Fixture } from "./moveFixture.helpers";
+import type { FileStore } from "../../functions/lib/fileOps/store";
+import { assertNotProtectedFolder } from "../../functions/lib/fileOps/nameTwins";
+import { attachTreeListing } from "../../functions/lib/nodes/treeNames";
+import { keyedFixture, rowOf } from "./keyedFixture.helpers";
 
 /** A live folder row at `path`, its parent row already there. */
 async function addFolder(f: Fixture, path: string, role?: string): Promise<void> {
@@ -174,5 +177,26 @@ describe("builtInFolders.jobs and setJob", () => {
     expect(seen.jobs.every((job) => !job.canChange && !job.canRemove)).toBe(true);
     expect(seen.guesses).toEqual([]);
     expect(JSON.stringify(seen)).not.toContain("secret");
+  });
+});
+
+describe("the Inbox's own folders", () => {
+  test("stay where they are wherever the Inbox is, while folders of a person's own beside them move freely", async () => {
+    const f = await keyedFixture();
+    await addFolder(f, "Capture", "inbox");
+    await addFolder(f, "Capture/email");
+    await addFolder(f, "Capture/ideas");
+    // As the move barrier asks it: of the tree, on a store of its own.
+    const named = Object.create(f.store) as FileStore;
+    attachTreeListing(f.ctx, f.ws, named);
+    const guarded = (path: string, intent: "move" | "remove") =>
+      assertNotProtectedFolder(named, path, OWNER, intent).then(
+        () => "allowed",
+        (error: Error) => error.message,
+      );
+    expect(await guarded("Capture/email", "move")).toMatch(/Email is one of the Inbox's own folders/);
+    expect(await guarded("Capture/email", "remove")).toBe("allowed");
+    expect(await guarded("Capture/ideas", "move")).toBe("allowed");
+    expect(await guarded("Capture/email/2026", "move")).toBe("allowed");
   });
 });
