@@ -675,6 +675,15 @@ export interface FileBrowser extends BesideEditing, TrashedEditing {
    */
   moveFolder?: (path: string, direction: "up" | "down") => void;
   /**
+   * Put a dragged folder at a place (`treeDrop.ts`): `folders` is the level
+   * `parent` in the order wanted, server order, the folder named at the path
+   * it will have. In its own level that is a reorder, drawn at once like
+   * `moveFolder`; from another level it is `move` first, then the order. A
+   * refusal of either is said on the notice line and the server's order is put
+   * back. Editor only; absent where nothing can be written.
+   */
+  placeFolder?: (path: string, parent: string, folders: readonly string[]) => void;
+  /**
    * Re-home Context's reserved bucket objects under `.context/`.
    *
    * Optional because this is an owner maintenance control, not an editing

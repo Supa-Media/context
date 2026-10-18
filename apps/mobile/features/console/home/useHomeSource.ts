@@ -8,12 +8,14 @@ import { allTagsOf } from "../files/folderPage/taskProps";
 import { isMarkdown } from "../files/paths";
 import type { FolderListing } from "../files/types";
 import { visibilityTierForRole } from "../visibility";
-import { noteTitle, type HomeNote } from "./homeModel";
+import { noteTitle, type FolderFacts, type HomeNote } from "./homeModel";
 
 export interface HomeSource {
   notes: HomeNote[];
   folders: string[];
   shared: ReadonlySet<string>;
+  /** Each listed folder's job and saved order, for the order Home draws them in. */
+  folderFacts?: ReadonlyMap<string, FolderFacts>;
 }
 
 const EMPTY: HomeSource = { notes: [], folders: [], shared: new Set() };
@@ -129,5 +131,24 @@ export function useHomeSource(
     return notes.length === 0 && folders.size === 0 ? EMPTY : { notes, folders: [...folders], shared };
   }, [listings]);
 
-  return mirrored ?? listed;
+  /*
+    The device's copy has no jobs or order on its folders, so they always come
+    from the listings the console holds (the root's is the one Home draws).
+  */
+  const folderFacts = useMemo(() => {
+    const facts = new Map<string, FolderFacts>();
+    for (const listing of Object.values(listings)) {
+      for (const entry of listing?.entries ?? []) {
+        if (entry.kind !== "folder") continue;
+        facts.set(entry.path, {
+          ...(entry.role === undefined ? {} : { role: entry.role }),
+          ...(entry.order === undefined ? {} : { order: entry.order }),
+        });
+      }
+    }
+    return facts;
+  }, [listings]);
+
+  const source = mirrored ?? listed;
+  return useMemo(() => ({ ...source, folderFacts }), [source, folderFacts]);
 }

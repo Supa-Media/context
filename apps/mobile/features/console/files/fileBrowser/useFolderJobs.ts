@@ -16,6 +16,10 @@
  *    order of that level is worked out from the listing as it is drawn, drawn
  *    at once, and sent to `folderOrder.set`; the live listing then confirms
  *    it. A refusal puts the server's order back and says why.
+ *  - **`placeFolder` puts a dragged folder at a place** (`treeDrop.ts`): in
+ *    its own level the same reorder with the order the drop gave; from
+ *    another level, `move` first and the order once the move has landed, so
+ *    the order never names a folder the server has not got there yet.
  */
 import { useCallback, useMemo } from "react";
 import { useAction } from "convex/react";
@@ -36,15 +40,18 @@ interface FolderJobsDeps {
   drawLocally: (change: (current: Listings) => Listings) => void;
   refresh: (folders: readonly string[]) => Promise<unknown>;
   say: (message: string) => void;
+  /** Resolves `true` once the move has reached the server (`useCreateAndMove`). */
+  move: (path: string, destinationFolder: string) => Promise<boolean>;
 }
 
 export interface FolderJobsValues {
   iconOf: (path: string) => string | null;
   moveFolder: (path: string, direction: "up" | "down") => void;
+  placeFolder: (path: string, parent: string, folders: readonly string[]) => void;
 }
 
 export function useFolderJobs(deps: FolderJobsDeps): FolderJobsValues {
-  const { options, listings, iconOf: emojiOf, drawLocally, refresh, say } = deps;
+  const { options, listings, iconOf: emojiOf, drawLocally, refresh, say, move } = deps;
   const workspaceId = options.workspaceId as Id<"workspaces"> | null;
   const setOrder = useAction(api.functions.folderOrder.set);
 
@@ -66,6 +73,23 @@ export function useFolderJobs(deps: FolderJobsDeps): FolderJobsValues {
     [emojiOf, jobs],
   );
 
+  /** Draw `parent`'s folders in this order now, and send it; a refusal says why and puts the server's back. */
+  const order = useCallback(
+    (parent: string, folders: readonly string[]) => {
+      if (workspaceId === null) return;
+      drawLocally((current) => {
+        const listing = current[parent];
+        return listing === undefined ? current : { ...current, [parent]: withFolderOrder(parent, listing, folders) };
+      });
+      void setOrder({ workspaceId, parent, folders: [...folders] }).catch((error: unknown) => {
+        say(toFileError(error).message);
+        // The order drawn above was never written: show the one that was.
+        void refresh([parent]).catch(() => undefined);
+      });
+    },
+    [drawLocally, refresh, say, setOrder, workspaceId],
+  );
+
   const moveFolder = useCallback(
     (path: string, direction: "up" | "down") => {
       if (!options.canEdit || workspaceId === null) return;
@@ -75,19 +99,22 @@ export function useFolderJobs(deps: FolderJobsDeps): FolderJobsValues {
       const way = listingIsDescending() ? (direction === "up" ? "down" : "up") : direction;
       const folders = reorderedSiblings(siblings, path, way);
       if (folders === null) return;
-      const parent = parentPath(path);
-      drawLocally((current) => {
-        const listing = current[parent];
-        return listing === undefined ? current : { ...current, [parent]: withFolderOrder(parent, listing, folders) };
-      });
-      void setOrder({ workspaceId, parent, folders }).catch((error: unknown) => {
-        say(toFileError(error).message);
-        // The order drawn above was never written: show the one that was.
-        void refresh([parent]).catch(() => undefined);
-      });
+      order(parentPath(path), folders);
     },
-    [drawLocally, listings, options.canEdit, refresh, say, setOrder, workspaceId],
+    [listings, options.canEdit, order, workspaceId],
   );
 
-  return { iconOf, moveFolder };
+  const placeFolder = useCallback(
+    (path: string, parent: string, folders: readonly string[]) => {
+      if (!options.canEdit || workspaceId === null) return;
+      if (parentPath(path) === parent) return order(parent, folders);
+      // The move says its own refusal (the server's, for a built-in folder it keeps in place).
+      void move(path, parent).then((moved) => {
+        if (moved) order(parent, folders);
+      });
+    },
+    [move, options.canEdit, order, workspaceId],
+  );
+
+  return { iconOf, moveFolder, placeFolder };
 }
