@@ -108,6 +108,54 @@ describe("every context this account can reach is on the screen", () => {
   });
 });
 
+/**
+ * THE POINTER CARD DOES NOT REPEAT THE TOP BAR (Dev2, 2026-10-18).
+ *
+ * Send feedback and Light mode are buttons in a pointer layout's top bar, so
+ * the card behind your name drops them, and Community is gone from both
+ * layouts. A phone's top bar has no room for either, so its sheet keeps them.
+ * Settings heads the group it sits in, and Trash moved here off the tree's foot.
+ *
+ * SABOTAGE: drop the `phone` gate on the appearance row, and the pointer half
+ * fails; drop `<AppearanceButton />` from `topTrailing`, and `frame-appearance`
+ * is missing.
+ */
+describe("the account card and the top bar do not overlap", () => {
+  const order = () =>
+    Array.from(document.body.querySelectorAll('[data-testid^="switcher-"]')).map((node) =>
+      node.getAttribute("data-testid"),
+    );
+
+  test("a pointer card has no feedback, appearance or community row; the bar has the sun", () => {
+    const app = mountConsole(1440);
+    expect(app.find("frame-appearance")).not.toBeNull();
+
+    app.press(app.find("account-switcher"));
+    expect(app.find("switcher-settings")).not.toBeNull();
+    expect(app.find("switcher-appearance")).toBeNull();
+    expect(app.find("switcher-feedback")).toBeNull();
+    expect(app.find("switcher-community")).toBeNull();
+    // Trash left the tree's foot for the card.
+    expect(app.find("explorer-trash")).toBeNull();
+    const ids = order();
+    expect(ids.indexOf("switcher-meetings")).toBeGreaterThan(-1);
+    expect(ids.indexOf("switcher-settings")).toBeLessThan(ids.indexOf("switcher-meetings"));
+
+    app.unmount();
+  });
+
+  test("a phone sheet keeps the appearance row, with Settings first", () => {
+    const app = mountConsole(390);
+    expect(app.find("frame-appearance")).toBeNull();
+
+    app.press(app.find("account-menu"));
+    expect(app.find("switcher-appearance")).not.toBeNull();
+    expect(app.find("switcher-community")).toBeNull();
+
+    app.unmount();
+  });
+});
+
 describe("the panes that are not Browse carry the navigation too", () => {
   /*
     THE FIXTURE ABOVE DRAWS `NavBand` ITSELF, AND THAT IS THE RIGHT CALL — a
