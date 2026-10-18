@@ -23,7 +23,7 @@ test("/ is page a: Tex, Dev's line, a conversation with Tex, and a sign-up with 
   const chat = page.getByRole("region", { name: "An example conversation with Tex" });
   await expect(chat).toBeVisible();
   await expect(chat.locator(".tp-live .tp-b")).toHaveCount(9, { timeout: 20_000 });
-  await expect(chat).toContainText("Text YES to send");
+  await expect(chat).toContainText("Look good?");
   // The sign-up is open from the start, +1 already there, and its button says what it does.
   await expect(page.getByLabel("Join the waitlist")).toBeVisible();
   await expect(page.locator(".tp-cc")).toContainText("+1");

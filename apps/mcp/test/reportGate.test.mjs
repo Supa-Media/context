@@ -47,7 +47,7 @@ export async function runReportGateChecks(check) {
           "Here's the bug report I'd send to the Context team:\n\n" +
             "Search found nothing for a note I know exists.\n\n" +
             "Up to the last 12 messages between us go with it, so they can see what happened.\n\n" +
-            "Reply YES to send it, or NO to drop it.",
+            "Look good? Just say yes and I'll send it.",
     );
     check("nothing of the texts leaves before the YES", sent().length === 0 && !JSON.stringify(sent()).includes("avocado"));
 

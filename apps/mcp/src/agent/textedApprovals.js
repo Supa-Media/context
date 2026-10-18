@@ -21,22 +21,27 @@ export function approvalVerdict(text) {
   return null;
 }
 
-/** The line a texted answer ends with when the turn held something for the person. */
+/**
+ * The line a texted answer ends with when the turn held something for the
+ * person. Said the way a person would ask (Dev, 2026-10-18: "“Text YES to
+ * send” seems very robotic"); an email, a calendar change and a bug report
+ * still go only on a bare yes, so those lines say "just say yes".
+ */
 export function askLine(asked) {
   // An email is shown whole: the person can allow only the copy they read (`emailGate.js`).
   const emails = asked.filter((record) => record.tool === EMAIL_TOOL && typeof record.detail === "string");
   if (asked.length === 1 && asked[0].tool === CALENDAR_TOOL && typeof asked[0].detail === "string") {
-    return `Here's the change I'd make:\n\n${clean(asked[0].detail)}\n\nReply YES to make it now, or NO to drop it.`;
+    return `Here's the change I'd make:\n\n${clean(asked[0].detail)}\n\nLook good? Just say yes and I'll make the change.`;
   }
   if (asked.length === 1 && asked[0].tool === REPORT_TOOL && typeof asked[0].detail === "string") {
-    return `Here's the bug report I'd send to the Context team:\n\n${clean(asked[0].detail)}\n\nReply YES to send it, or NO to drop it.`;
+    return `Here's the bug report I'd send to the Context team:\n\n${clean(asked[0].detail)}\n\nLook good? Just say yes and I'll send it.`;
   }
   if (emails.length > 0 && emails.length === asked.length) {
     const copies = emails.map((record) => clean(record.detail)).join("\n\n---\n\n");
-    return `Here ${emails.length === 1 ? "is the email" : "are the emails"} I'd send:\n\n${copies}\n\nReply YES to send ${emails.length === 1 ? "it" : "them"} now, or NO to drop ${emails.length === 1 ? "it" : "them"}.`;
+    return `${emails.length === 1 ? "Here's the email" : "Here are the emails"} I'd send:\n\n${copies}\n\nLook good? Just say yes and I'll send ${emails.length === 1 ? "it" : "them"}.`;
   }
   const what = asked.map((record) => (typeof record.detail === "string" ? `${record.summary}:\n\n${clean(record.detail)}\n\n` : record.summary)).join("; ");
-  return `Before I ${asked.length === 1 ? "do that" : "do those"}, I need your OK: ${what}. Reply YES to go ahead, or NO to drop it.`;
+  return `Before I ${asked.length === 1 ? "do that" : "do those"}, I need your OK: ${what}. Should I go ahead?`;
 }
 
 /** The longest ask holding an email: one text, under the 3,000 a text keeps (`apps/agent/src/clients.ts`). */

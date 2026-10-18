@@ -179,7 +179,7 @@ describe("replyTo", () => {
 
   it("texts an email the person must approve exactly as the gateway wrote it", async () => {
     const ask = [
-      "Here is the email I'd send:",
+      "Here's the email I'd send:",
       "",
       "To: jo@example.com",
       "Subject: **Links**",
@@ -187,7 +187,7 @@ describe("replyTo", () => {
       "See [one](https://a.example/1), [two](https://a.example/2) and [three](https://a.example/3).",
       "notes/plan.md",
       "",
-      "Reply YES to send it now, or NO to drop it.",
+      "Look good? Just say yes and I'll send it.",
     ].join("\n");
     const reply = await replyTo(
       message("email jo the links"),
@@ -205,7 +205,7 @@ describe("replyTo", () => {
     // sent 3,000 characters at a time. The held call stays armed either way.
     const ask =
       "Before I do that, I need your OK: claim the handle @acme for a new shared workspace " +
-      "(handles are permanent). Reply YES to go ahead, or NO to drop it.";
+      "(handles are permanent). Should I go ahead?";
     const told = ["Sure.", "Here is what I found.", "x".repeat(2_960)].join("\n\n");
     const reply = await replyTo(
       message("make me a workspace for acme"),
@@ -223,7 +223,7 @@ describe("replyTo", () => {
       message("hi"),
       deps({
         "/agent-texts/session": () => [200, { status: "linked", accessToken: "grant-for-this-person" }],
-        "/agent": () => [200, { answer: "**Hi.**", verbatim: ["Reply YES to send it now"] }],
+        "/agent": () => [200, { answer: "**Hi.**", verbatim: ["Just say yes and I'll send it"] }],
       }),
     );
     expect(reply).toEqual(["Hi."]);

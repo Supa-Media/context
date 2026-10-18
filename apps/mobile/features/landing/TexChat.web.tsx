@@ -51,7 +51,7 @@ export const CHAT: readonly Bubble[] = [
     body: <NoteCard title="Supper club" where="Projects" />,
   },
   { from: "me", body: "email maya, sam and jo: first one is friday at 7" },
-  { from: "tex", body: "“Supper club starts Friday at 7. Bring a dish from where you grew up.” Text YES to send." },
+  { from: "tex", body: "Here's the email I'd send: “Supper club starts Friday at 7. Bring a dish from where you grew up!” Look good?" },
   { from: "me", body: "yes" },
   { from: "tex", body: "Sent. I'll remind you Thursday to book the room." },
 ];

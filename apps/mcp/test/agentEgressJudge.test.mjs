@@ -184,7 +184,7 @@ export async function runAgentEgressJudgeChecks(check) {
       yeah.status === 200 &&
         /Assistant: .*Do you want me to share it with the team\?\nPerson: yeah go do it/s.test(answered) &&
         teamVisible("2-areas/fifth.md") &&
-        !/Reply YES/.test(yeah.body?.answer ?? ""),
+        !/Just say yes|Should I go ahead\?/.test(yeah.body?.answer ?? ""),
     );
 
     /*
