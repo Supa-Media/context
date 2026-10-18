@@ -14,23 +14,30 @@ import {
 import {
   ALREADY_HEADING,
   JOINED_HEADING,
-  WAITLIST_WHY,
 } from "../auth/phoneSignIn";
 import { CONSOLE_ROUTE } from "../auth/redirect";
 import { usePhoneSignIn } from "../auth/usePhoneSignIn";
 import { ThemeProvider } from "../design/theme";
 
 /**
- * Page a's sign-up, written as its last line (Dev2, 2026-10-12: "join the
- * waitlist can be inline", then board B in their words: "just like a line",
- * saying "Join the waitlist", with +1 already there and a drop-down for other
- * countries). The line is always open: "Join the waitlist +1 ▾ ____ ›" in the
- * page's own type, the › as its button; every later step (on the list, the
- * texted code, a problem) is drawn on the same line. The rules are the
+ * Page a's sign-up (`TexPage.web`): a labelled phone field and a button that
+ * says what it does (Dev, 2026-10-18: "signing up for the waitlist the button
+ * to click enter isn't clear", replacing the bare › of 2026-10-12). +1 is
+ * already there with a drop-down for other countries. The rules are the
  * sign-in page's (`usePhoneSignIn`): a number not let in joins the waitlist in
- * place, one that is in is texted a code. Email swaps in the homepage's email
- * card, the same fallback the old form had.
+ * place, one that is in is texted a code, and each later step is drawn in the
+ * same place. Email swaps in the homepage's email card, the same fallback the
+ * old form had.
  */
+const CHEVRON = (
+  <svg viewBox="0 0 10 10" aria-hidden>
+    <path d="M2 3.5l3 3 3-3" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+  </svg>
+);
+
+/** What happens next for somebody on the list: the "You're in" text names Tex (`waitlistText.ts`). */
+export const LISTED_NEXT = "When you're let in, we'll text you Tex's number. Text it hello and Tex sets you up.";
+
 export function InlineSignUp() {
   const [mode, setMode] = useState<"phone" | "email">("phone");
   const router = useRouter();
@@ -64,9 +71,11 @@ export function InlineSignUp() {
     if (mode === "phone") input.current?.focus({ preventScroll: true });
   }, [mode, step]);
 
+
+
   if (mode === "email") {
     return (
-      <div className="sp-email">
+      <div className="tp-email">
         <ThemeProvider scheme="light">
           <JoinCard flow={email} ask={0} answered={answered} />
         </ThemeProvider>
@@ -76,22 +85,31 @@ export function InlineSignUp() {
 
   if (step === "listed") {
     return (
-      <div className="sp-in" role="status">
-        <p className="sp-p">
-          {flow.waitlist === "joined" ? JOINED_HEADING : ALREADY_HEADING}
-        </p>
-        <p className="sp-small">{WAITLIST_WHY}</p>
-        <p className="sp-small">
-          <button type="button" className="sp-link" onClick={flow.changeNumber}>
-            Use a different number
-          </button>
-        </p>
+      <div className="tp-in" role="status">
+        <div className="tp-done">
+          <span className="tp-tick" aria-hidden>
+            <svg viewBox="0 0 14 14">
+              <path d="M2.5 7.4l3 3 6-6.6" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </span>
+          <div>
+            <p className="tp-head">{flow.waitlist === "joined" ? JOINED_HEADING : ALREADY_HEADING}</p>
+            <p className="tp-small" style={{ marginTop: 6 }}>
+              {LISTED_NEXT}
+            </p>
+            <p className="tp-small" style={{ marginTop: 10 }}>
+              <button type="button" className="tp-link" onClick={flow.changeNumber}>
+                Use a different number
+              </button>
+            </p>
+          </div>
+        </div>
       </div>
     );
   }
 
   const error = flow.error ? (
-    <p className="sp-err" role="alert">
+    <p className="tp-err" role="alert">
       {flow.error}
     </p>
   ) : null;
@@ -99,62 +117,53 @@ export function InlineSignUp() {
   if (step === "code") {
     return (
       <form
-        className="sp-in"
+        className="tp-in"
         onSubmit={(event) => {
           event.preventDefault();
           if (!flow.submitting) void flow.verify();
         }}
       >
-        <p className="sp-p">Check your texts.</p>
-        <label className="sp-hint" htmlFor="sp-code">
-          Code sent to {flow.sentTo}
+        <label className="tp-label" htmlFor="tp-code">
+          Check your texts
         </label>
-        <p className="sp-line">
-          <input
-            id="sp-code"
-            ref={input}
-            className="sp-field sp-code"
-            data-bad={flow.error ? "" : undefined}
-            value={flow.code}
-            onChange={(event) => {
-              const value = event.target.value
-                .replace(/\D/g, "")
-                .slice(0, OTP_LENGTH);
-              flow.setCode(value);
-              if (value.length === OTP_LENGTH && !flow.submitting)
-                void flow.verify(value);
-            }}
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            maxLength={OTP_LENGTH}
-            disabled={flow.submitting}
-            aria-invalid={flow.error ? true : undefined}
-          />
-          <button
-            type="submit"
-            className="sp-go"
-            aria-label="Sign in"
-            disabled={flow.submitting}
-          >
-            ›
-          </button>
+        <p className="tp-small" style={{ marginTop: -6 }}>
+          We sent a {OTP_LENGTH}-digit code to {flow.sentTo}.
         </p>
+        <div className="tp-row">
+          <span className="tp-field tp-code" data-bad={flow.error ? "" : undefined}>
+            <input
+              id="tp-code"
+              ref={input}
+              value={flow.code}
+              onChange={(event) => {
+                const value = event.target.value.replace(/\D/g, "").slice(0, OTP_LENGTH);
+                flow.setCode(value);
+                if (value.length === OTP_LENGTH && !flow.submitting) void flow.verify(value);
+              }}
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={OTP_LENGTH}
+              placeholder={`${OTP_LENGTH}-digit code`}
+              disabled={flow.submitting}
+              aria-invalid={flow.error ? true : undefined}
+            />
+          </span>
+          <button type="submit" className="tp-go" disabled={flow.submitting}>
+            Sign in
+          </button>
+        </div>
         {error}
         {flow.resent ? (
-          <p className="sp-small" role="status">
+          <p className="tp-small" role="status">
             A new code is on its way. The last one no longer works.
           </p>
         ) : null}
-        <p className="sp-small">
-          <button
-            type="button"
-            className="sp-link"
-            onClick={() => void flow.send(true)}
-          >
+        <p className="tp-small">
+          <button type="button" className="tp-link" onClick={() => void flow.send(true)}>
             Text a new code
           </button>
           {" · "}
-          <button type="button" className="sp-link" onClick={flow.changeNumber}>
+          <button type="button" className="tp-link" onClick={flow.changeNumber}>
             Use a different number
           </button>
         </p>
@@ -164,78 +173,65 @@ export function InlineSignUp() {
 
   return (
     <form
-      className="sp-in"
+      className="tp-in"
       onSubmit={(event) => {
         event.preventDefault();
         if (typed.trim() !== "" && !flow.submitting) void flow.send();
       }}
     >
-      <p className="sp-line">
-        <label className="sp-lead" htmlFor="sp-phone">
-          Join the waitlist
-        </label>
-        <span className="sp-entry">
-          <span className="sp-field" data-bad={flow.error ? "" : undefined}>
-            <span className="sp-cc">
-              +{country.dial} ▾
-              <select
-                aria-label={`Country: ${country.name}`}
-                value={country.iso}
-                onChange={(event) => {
-                  const next = countryByIso(event.target.value);
-                  setCountry(next);
-                  flow.setPhone(composePhone(next, typed));
-                  input.current?.focus();
-                }}
-              >
-                {PHONE_COUNTRIES.map((c) => (
-                  <option key={c.iso} value={c.iso}>
-                    {c.name} +{c.dial}
-                  </option>
-                ))}
-              </select>
-            </span>
-            <input
-              id="sp-phone"
-              ref={input}
-              value={typed}
+      <label className="tp-label" htmlFor="tp-phone">
+        Join the waitlist
+      </label>
+      <div className="tp-row">
+        <span className="tp-field" data-bad={flow.error ? "" : undefined}>
+          <span className="tp-cc">
+            +{country.dial} {CHEVRON}
+            <select
+              aria-label={`Country: ${country.name}`}
+              value={country.iso}
               onChange={(event) => {
-                const text = event.target.value;
-                // A number pasted or autofilled with its own + carries its country.
-                const own = countryOfNumber(text);
-                if (own !== null) setCountry(own);
-                setTyped(text);
-                flow.setPhone(composePhone(own ?? country, text));
+                const next = countryByIso(event.target.value);
+                setCountry(next);
+                flow.setPhone(composePhone(next, typed));
+                input.current?.focus();
               }}
-              type="tel"
-              inputMode="tel"
-              autoComplete="tel"
-              placeholder="your number"
-              aria-describedby="sp-phone-why"
-              disabled={flow.submitting}
-              aria-invalid={flow.error ? true : undefined}
-            />
+            >
+              {PHONE_COUNTRIES.map((c) => (
+                <option key={c.iso} value={c.iso}>
+                  {c.name} +{c.dial}
+                </option>
+              ))}
+            </select>
           </span>
-          <button
-            type="submit"
-            className="sp-go"
-            aria-label="Join"
+          <input
+            id="tp-phone"
+            ref={input}
+            value={typed}
+            onChange={(event) => {
+              const text = event.target.value;
+              // A number pasted or autofilled with its own + carries its country.
+              const own = countryOfNumber(text);
+              if (own !== null) setCountry(own);
+              setTyped(text);
+              flow.setPhone(composePhone(own ?? country, text));
+            }}
+            type="tel"
+            inputMode="tel"
+            autoComplete="tel"
+            placeholder="Your phone number"
+            aria-describedby="tp-phone-why"
             disabled={flow.submitting}
-          >
-            ›
-          </button>
+            aria-invalid={flow.error ? true : undefined}
+          />
         </span>
-      </p>
+        <button type="submit" className="tp-go" disabled={flow.submitting}>
+          Join the waitlist
+        </button>
+      </div>
       {error}
-      <p className="sp-small" id="sp-phone-why">
-        Invite only for now. Already in? We'll text you a code.
-        <br />
-        No phone?{" "}
-        <button
-          type="button"
-          className="sp-link"
-          onClick={() => setMode("email")}
-        >
+      <p className="tp-small" id="tp-phone-why">
+        Invite only for now. When you're in, we'll text you Tex's number. Already in? We'll text you a code.{" "}
+        <button type="button" className="tp-link" onClick={() => setMode("email")}>
           Use email instead
         </button>
       </p>
