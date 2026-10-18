@@ -5,9 +5,14 @@ import { MemoryStorage } from "./memoryStorage.testing";
 import type { Message } from "./reply";
 import { checkReady, oweReadyText, READY_COPY, READY_FIRST_MS } from "./ready";
 import { textRoutine } from "./routines";
+import { withQuote } from "./inbound";
 import {
+  MAX_QUOTED_TEXT,
+  PROFILE_PHOTO_URL,
   parseSendblueChat,
   parseSendblueInbound,
+  repliedToText,
+  shareSendblueProfile,
   sendblueChatId,
   sendblueKeys,
   sendSendblueText,
@@ -85,6 +90,13 @@ describe("sendblue webhook", () => {
     expect(parseSendblueInbound(received({ content: "Liked “x” but why?" }))).toMatchObject({ kind: "message" });
   });
 
+  it("keeps the handle an inline reply answers, and nothing odd", () => {
+    expect(parseSendblueInbound(received({ reply_to: { message_handle: "mh_0" } }))).toMatchObject({ kind: "message", replyTo: "mh_0" });
+    expect(parseSendblueInbound(received({ reply_to: { message_handle: "" } }))).not.toHaveProperty("replyTo");
+    expect(parseSendblueInbound(received({ reply_to: "mh_0" }))).not.toHaveProperty("replyTo");
+    expect(parseSendblueInbound(received({ reply_to: { message_handle: "x".repeat(201) } }))).not.toHaveProperty("replyTo");
+  });
+
   it("keeps a picture's address and name, and only an https one", () => {
     const parsed = parseSendblueInbound(received({ content: "", media_url: "https://cdn.example/f/IMG_1.heic" }));
     expect(parsed).toMatchObject({ kind: "message", attachments: [{ url: "https://cdn.example/f/IMG_1.heic", filename: "IMG_1.heic", mimeType: "" }] });
@@ -108,9 +120,12 @@ function fakeSendblue(calls: Call[], status: (path: string, n: number) => number
   let n = 0;
   return (async (url: string, init: RequestInit) => {
     const parsed = new URL(url);
-    const body = JSON.parse(String(init.body));
-    if (parsed.host === "api.sendblue.co") {
+    const body = init.body === undefined ? {} : JSON.parse(String(init.body));
+    if (parsed.host === "api.sendblue.com") {
       calls.push({ path: parsed.pathname, headers: new Headers(init.headers), body });
+      if (parsed.pathname === "/api/v2/contact-sharing/state") {
+        return Response.json({ status: "OK", data: { hasProfile: true, publishRecordPresent: true } }, { status: status(parsed.pathname, ++n) });
+      }
       return new Response('{"status":"QUEUED"}', { status: status(parsed.pathname, ++n) });
     }
     if (parsed.pathname === "/agent-texts/session") return Response.json({ status: "linked", accessToken: "t" });
@@ -123,6 +138,81 @@ function fakeSendblue(calls: Call[], status: (path: string, n: number) => number
     throw new Error(`unexpected ${url}`);
   }) as unknown as Fetch;
 }
+
+describe("sendblue replied-to words", () => {
+  const chatId = sendblueChatId(LINE, PHONE);
+  const answering = (parent: unknown, status = 200): Fetch =>
+    (async () => new Response(JSON.stringify(parent), { status })) as unknown as Fetch;
+  const tex = { content: "Want me to book it?", number: PHONE, from_number: LINE, is_outbound: true, group_id: "" };
+
+  it("quotes a message in this person's own chat, Tex's or theirs", async () => {
+    expect(await repliedToText(answering({ status: "OK", data: tex }), KEYS, "mh_0", chatId)).toBe("Want me to book it?");
+    const theirs = { content: "  my flight is at 6  ", number: PHONE, from_number: PHONE, to_number: LINE, is_outbound: false };
+    expect(await repliedToText(answering(theirs), KEYS, "mh_0", chatId)).toBe("my flight is at 6");
+    const long = { ...tex, content: "a".repeat(MAX_QUOTED_TEXT + 50) };
+    expect(await repliedToText(answering(long), KEYS, "mh_0", chatId)).toHaveLength(MAX_QUOTED_TEXT);
+  });
+
+  it("never quotes another person's message, a group's, another line's, or a failed read", async () => {
+    expect(await repliedToText(answering({ data: { ...tex, number: "+15555550111" } }), KEYS, "mh_0", chatId)).toBeNull();
+    expect(await repliedToText(answering({ data: { ...tex, group_id: "g1" } }), KEYS, "mh_0", chatId)).toBeNull();
+    expect(await repliedToText(answering({ data: { ...tex, from_number: "+15555550177", sendblue_number: null } }), KEYS, "mh_0", chatId)).toBeNull();
+    expect(await repliedToText(answering({ data: tex }, 404), KEYS, "mh_0", chatId)).toBeNull();
+    expect(await repliedToText(answering({ data: { ...tex, content: "" } }), KEYS, "mh_0", chatId)).toBeNull();
+    expect(await repliedToText(answering({ data: tex }), KEYS, "mh_0", "chat_1")).toBeNull();
+    const throwing = (async () => {
+      throw new Error("down");
+    }) as unknown as Fetch;
+    expect(await repliedToText(throwing, KEYS, "mh_0", chatId)).toBeNull();
+  });
+
+  it("puts the quote ahead of the person's words, only when there is one", () => {
+    expect(withQuote("yes", "Want me to book it?")).toBe("(Replying to: “Want me to book it?”)\nyes");
+    expect(withQuote("yes", undefined)).toBe("yes");
+    expect(withQuote("", "this")).toBe("(Replying to: “this”)");
+  });
+});
+
+describe("sendblue Name & Photo", () => {
+  const chatId = sendblueChatId(LINE, PHONE);
+  function profileApi(state: Record<string, unknown> | null, calls: Call[]): Fetch {
+    return (async (url: string, init: RequestInit) => {
+      const parsed = new URL(url);
+      calls.push({ path: `${parsed.pathname}${parsed.search}`, headers: new Headers(init.headers), body: init.body ? JSON.parse(String(init.body)) : {} });
+      if (parsed.pathname === "/api/v2/contact-sharing/state") {
+        return state === null ? new Response(null, { status: 503 }) : Response.json({ status: "OK", data: state });
+      }
+      return Response.json({ status: "OK" });
+    }) as unknown as Fetch;
+  }
+
+  it("sets Tex's name and photo on a line that has none, and shares nothing yet", async () => {
+    const calls: Call[] = [];
+    expect(await shareSendblueProfile(profileApi({ hasProfile: false, sharingEnabled: false }, calls), KEYS, chatId)).toBe(false);
+    expect(calls.map((c) => c.path)).toEqual([`/api/v2/contact-sharing/state?fromNumber=${encodeURIComponent(LINE)}`, "/api/v2/contact-sharing/profile"]);
+    expect(calls[1].body).toEqual({ fromNumber: LINE, firstName: "Tex", lastName: "", photoUrl: PROFILE_PHOTO_URL });
+  });
+
+  it("leaves a profile still being applied alone", async () => {
+    const calls: Call[] = [];
+    expect(await shareSendblueProfile(profileApi({ hasProfile: true, publishRecordPresent: false }, calls), KEYS, chatId)).toBe(false);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("shares a published profile into the chat", async () => {
+    const calls: Call[] = [];
+    expect(await shareSendblueProfile(profileApi({ hasProfile: true, publishRecordPresent: true }, calls), KEYS, chatId)).toBe(true);
+    expect(calls[1]).toMatchObject({ path: "/api/v2/contact-sharing/share", body: { fromNumber: LINE, toNumber: PHONE } });
+  });
+
+  it("does nothing when the state cannot be read, or the chat is not Sendblue's", async () => {
+    const calls: Call[] = [];
+    expect(await shareSendblueProfile(profileApi(null, calls), KEYS, chatId)).toBe(false);
+    expect(calls).toHaveLength(1);
+    expect(await shareSendblueProfile(profileApi({ publishRecordPresent: true }, calls), KEYS, "chat_1")).toBe(false);
+    expect(calls).toHaveLength(1);
+  });
+});
 
 describe("sendblue sending", () => {
   it("sends from the line the person texted, with both keys", async () => {
@@ -178,7 +268,10 @@ describe("sendblue sending", () => {
       "/api/send-message",
       "/api/send-message",
       "/api/send-message",
+      "/api/v2/contact-sharing/state",
+      "/api/v2/contact-sharing/share",
     ]);
+    expect(calls[6].body).toEqual({ fromNumber: LINE, toNumber: PHONE });
     expect(calls[2].body).toEqual({ number: PHONE, from_number: LINE, content: "answer to q" });
     expect(calls[3].body).toEqual({ number: PHONE, from_number: LINE, media_url: "https://agent.example/media/abc/def.png" });
     expect(calls[4].body).toEqual({ number: PHONE, from_number: LINE, media_url: "https://agent.example/media/abc/card.vcf" });
@@ -202,6 +295,44 @@ describe("sendblue sending", () => {
     await accept(storage, message("sendblue:mh_c3"), 1_000 + 3 * day);
     await drain(storage, at(1_000 + 3 * day));
     expect(cards()).toBe(2);
+  });
+
+  it("keeps sharing the Name & Photo daily until Sendblue takes it, without sending the card again", async () => {
+    const day = 24 * 60 * 60 * 1000;
+    const storage = new MemoryStorage();
+    const calls: Call[] = [];
+    let published = false;
+    const base = fakeSendblue(calls);
+    const fetcher = (async (url: string, init: RequestInit) => {
+      if (new URL(url).pathname === "/api/v2/contact-sharing/state") {
+        calls.push({ path: "/api/v2/contact-sharing/state", headers: new Headers(), body: {} });
+        return Response.json({ status: "OK", data: { hasProfile: published, publishRecordPresent: published } });
+      }
+      return base(url, init);
+    }) as unknown as Fetch;
+    const at = (now: number): InboxDeps => ({ ...deps(fetcher, []), now: () => now });
+    const count = (path: string) => calls.filter((c) => c.path === path).length;
+    await accept(storage, message("sendblue:mh_p1"), 1_000);
+    await drain(storage, at(1_000));
+    expect(count("/api/v2/contact-sharing/profile")).toBe(1);
+    expect(count("/api/v2/contact-sharing/share")).toBe(0);
+    published = true;
+    await accept(storage, message("sendblue:mh_p2"), 1_000 + day + 1);
+    await drain(storage, at(1_000 + day + 1));
+    expect(count("/api/v2/contact-sharing/share")).toBe(1);
+    expect(calls.filter((c) => String(c.body.media_url ?? "").endsWith(".vcf"))).toHaveLength(1);
+    // Both done: nothing more, ever, in this chat.
+    await accept(storage, message("sendblue:mh_p3"), 1_000 + 3 * day);
+    await drain(storage, at(1_000 + 3 * day));
+    expect(count("/api/v2/contact-sharing/state")).toBe(2);
+  });
+
+  it("asks Tex with the replied-to words, but reads commands from the person's own", async () => {
+    const storage = new MemoryStorage();
+    await accept(storage, { ...message("sendblue:mh_q"), text: "yes", quoted: "Want me to book it?" }, 1_000);
+    const calls: Call[] = [];
+    await drain(storage, deps(fakeSendblue(calls), []));
+    expect(calls.find((c) => c.path === "/api/send-message")?.body.content).toBe("answer to (Replying to: “Want me to book it?”)\nyes");
   });
 
   it("never sends the same text twice when a later part fails and is retried", async () => {

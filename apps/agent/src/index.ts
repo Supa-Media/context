@@ -33,7 +33,7 @@ import { runDueHeartbeats } from "./heartbeats";
 import { runDueHousekeeping } from "./housekeeping";
 import type { Picture } from "./line";
 import { hostPicture, OBJECT_ID, ORIGIN_KEY, serveMedia, workerOrigin } from "./media";
-import { parseSendblueInbound, sendblueKeys, verifySendblueSecret } from "./sendblue";
+import { parseSendblueInbound, repliedToText, sendblueKeys, verifySendblueSecret } from "./sendblue";
 import { verifyLinqSignature } from "./signature";
 import { handleSimulator, SIMULATOR_PATH, simulatorEnabled, simulatorInbox } from "./simulator";
 import { SIMULATOR_PAGE } from "./simulatorPage";
@@ -133,11 +133,19 @@ export default {
     }
     logWebhook(line, "accepted");
 
+    // An inline reply carries the words it answers, read from Sendblue now, before it waits in the queue.
+    const { replyTo, ...message } = inbound;
+    const keys = sendblueKeys(env.SENDBLUE_API_KEY_ID, env.SENDBLUE_API_SECRET);
+    if (replyTo !== undefined && keys !== null) {
+      const quoted = await repliedToText((input, init) => fetch(input, init), keys, replyTo, message.chatId);
+      if (quoted !== null) message.quoted = quoted;
+    }
+
     const stub = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(inbound.from));
     // The Worker's own address goes along, for pictures served back to Sendblue (`media.ts`).
     const result = await stub.fetch(`https://inbox/accept?origin=${encodeURIComponent(url.origin)}`, {
       method: "POST",
-      body: JSON.stringify(inbound),
+      body: JSON.stringify(message),
     });
     return new Response(null, { status: result.ok ? 200 : 503 });
   },

@@ -12,13 +12,22 @@
  * compared in constant time, and a redelivered message is answered once
  * because the inbox dedupes on its `message_handle`.
  *
- * No response body is ever logged or echoed: it can quote the message.
+ * No response body is ever logged or echoed: it can quote the message. Two
+ * bodies are read: a replied-to message, only when it is in this person's
+ * own chat (`repliedToText`), and the line's Name & Photo state.
  */
 
 import { MAX_REPLY_TEXT, ServiceError, type Fetch } from "./clients";
 import { MAX_INBOUND_ATTACHMENTS, MAX_INBOUND_TEXT, type Inbound, type InboundAttachment } from "./inbound";
 
-export const SENDBLUE_API = "https://api.sendblue.co";
+/** The base address docs.sendblue.com names for every call. */
+export const SENDBLUE_API = "https://api.sendblue.com";
+
+/** Tex's iMessage Name & Photo: the name and the simulator's white # on blue (`apps/mobile/public/texts-card.png`). */
+export const PROFILE_NAME = "Tex";
+export const PROFILE_PHOTO_URL = "https://context.lc/texts-card.png";
+/** The most of a replied-to message quoted to Tex. */
+export const MAX_QUOTED_TEXT = 500;
 
 export type SendblueKeys = { keyId: string; secret: string };
 
@@ -61,11 +70,7 @@ async function call(
   try {
     response = await fetcher(`${SENDBLUE_API}${path}`, {
       method: "POST",
-      headers: {
-        "sb-api-key-id": keys.keyId,
-        "sb-api-secret-key": keys.secret,
-        "content-type": "application/json",
-      },
+      headers: { ...headersOf(keys), "content-type": "application/json" },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
     });
@@ -75,6 +80,30 @@ async function call(
   // Drained, never read: an error body can quote the request.
   await response.body?.cancel();
   return response.status;
+}
+
+function headersOf(keys: SendblueKeys): Record<string, string> {
+  return { "sb-api-key-id": keys.keyId, "sb-api-secret-key": keys.secret };
+}
+
+/** A GET's JSON, unwrapped from `data` when it is wrapped; null for any failure. Quick, never throws. */
+async function getJson(fetcher: Fetch, keys: SendblueKeys, path: string): Promise<Record<string, unknown> | null> {
+  try {
+    const response = await fetcher(`${SENDBLUE_API}${path}`, {
+      method: "GET",
+      headers: headersOf(keys),
+      signal: AbortSignal.timeout(QUICK_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+      await response.body?.cancel();
+      return null;
+    }
+    const body: unknown = await response.json();
+    if (!isRecord(body)) return null;
+    return isRecord(body.data) ? body.data : body;
+  } catch {
+    return null;
+  }
 }
 
 function chatOf(chatId: string): { number: string; from_number: string } {
@@ -113,6 +142,59 @@ export async function markSendblueRead(fetcher: Fetch, keys: SendblueKeys, chatI
   } catch {
     // A receipt that failed costs only the receipt.
   }
+}
+
+/**
+ * Share Tex's iMessage Name & Photo into this chat, so Messages shows "Tex"
+ * and the icon at the top, as for a saved contact (docs: Name & Photo
+ * Sharing). The profile is set once per line, here, the first time it is
+ * missing; it is applied after the call returns, so that first time shares
+ * nothing and says so, and the next offer shares it. Sendblue needs an
+ * iMessage already sent in the chat, so this runs after a reply. Best effort:
+ * never throws, and true only when Sendblue took the share.
+ */
+export async function shareSendblueProfile(fetcher: Fetch, keys: SendblueKeys, chatId: string): Promise<boolean> {
+  const chat = parseSendblueChat(chatId);
+  if (chat === null) return false;
+  const state = await getJson(fetcher, keys, `/api/v2/contact-sharing/state?fromNumber=${encodeURIComponent(chat.line)}`);
+  if (state === null) return false;
+  try {
+    if (state.publishRecordPresent !== true) {
+      // A profile already set is still being applied: leave it be.
+      if (state.hasProfile !== true) {
+        await call(fetcher, keys, "/api/v2/contact-sharing/profile", {
+          fromNumber: chat.line,
+          firstName: PROFILE_NAME,
+          lastName: "",
+          photoUrl: PROFILE_PHOTO_URL,
+        }, QUICK_TIMEOUT_MS);
+      }
+      return false;
+    }
+    const status = await call(fetcher, keys, "/api/v2/contact-sharing/share", { fromNumber: chat.line, toNumber: chat.phone }, QUICK_TIMEOUT_MS);
+    return status >= 200 && status < 300;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The words of the message an inline reply answers, so Tex reads "this one"
+ * the way the person meant it. Only a message in the same person's own chat
+ * on this line is quoted: the handle comes from a signed webhook, and this
+ * check makes sure it can never pull another person's message in. Null for
+ * anything else, and for any failure: the reply is answered without it.
+ */
+export async function repliedToText(fetcher: Fetch, keys: SendblueKeys, handle: string, chatId: string): Promise<string | null> {
+  const chat = parseSendblueChat(chatId);
+  if (chat === null || handle === "" || handle.length > 200) return null;
+  const parent = await getJson(fetcher, keys, `/api/v2/messages/${encodeURIComponent(handle)}`);
+  if (parent === null || parent.number !== chat.phone) return null;
+  if (typeof parent.group_id === "string" && parent.group_id !== "") return null;
+  const ours = parent.is_outbound === true ? parent.from_number : parent.to_number;
+  if (ours !== chat.line && parent.sendblue_number !== chat.line) return null;
+  const content = typeof parent.content === "string" ? parent.content.trim() : "";
+  return content === "" ? null : content.slice(0, MAX_QUOTED_TEXT);
 }
 
 /**
@@ -187,6 +269,9 @@ export function parseSendblueInbound(payload: unknown): Inbound {
     }
   }
   if (text.length === 0 && attachments.length === 0) return { kind: "ignored", reason: "empty" };
+  // An inline reply names the message it answers; its words are fetched before queueing (`repliedToText`).
+  const parent = isRecord(payload.reply_to) ? payload.reply_to.message_handle : undefined;
+  const replyTo = typeof parent === "string" && parent !== "" && parent.length <= 200 ? parent : undefined;
 
   return {
     kind: "message",
@@ -196,5 +281,6 @@ export function parseSendblueInbound(payload: unknown): Inbound {
     messageId: handle,
     text: text.slice(0, MAX_INBOUND_TEXT),
     ...(attachments.length > 0 ? { attachments: attachments.slice(0, MAX_INBOUND_ATTACHMENTS) } : {}),
+    ...(replyTo !== undefined ? { replyTo } : {}),
   };
 }

@@ -31,7 +31,7 @@ import { prepareAttachments, type ImagesLike } from "./attachments";
 import { handleCandidate, setupReply, textSetup } from "./setup";
 import { textsFromAnswer } from "./format";
 import type { OutgoingPicture } from "./outgoing";
-import type { Inbound } from "./inbound";
+import { withQuote, type Inbound } from "./inbound";
 
 /**
  * One text to answer. `channel` is set only by the staging simulator, whose
@@ -180,7 +180,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       deps.fetch,
       deps.gatewayOrigin,
       session.accessToken,
-      message.text,
+      withQuote(message.text, message.quoted),
       deps.onProgress,
       session.timeZone,
       attachments,
