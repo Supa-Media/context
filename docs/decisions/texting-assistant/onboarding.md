@@ -152,6 +152,12 @@ free plans can't connect to Context. And before any browser work it says what
 it is about to do, that it may take a while, and that it will text when done.
 Both live in the onboarding skill (`@context-lc ai/production/skills/onboarding.md`).
 
+**Every Google link carries a heads-up about Google's warning** (Dev2,
+2026-10-18). Until Google verifies the app, its consent screen says it hasn't
+verified Context and calls going on unsafe. Met cold, that reads as a scam and
+people stop; so the ready text (`READY_COPY.ready`), `connect_google`'s answer
+and the skill all say it's expected and to tap Advanced, then Go to Context.
+
 Tests: `apps/convex/__tests__/textSetup.test.ts` ("an account that already
 owns a personal workspace is never set up or linked by a text", "sets up that
 account and no other", "is held to the app's handle rules", "never lays out a
