@@ -260,10 +260,12 @@ export function BrowseDocument({
       : undefined;
   // How much of this workspace is on the device, under the Notes title (2026-10-18).
   const downloadRows = useDownloadRows(data.contexts);
-  const downloaded = downloadedLine(downloadRows.find((row) => row.workspaceId === data.selectedContextId));
+  const downloadRow = downloadRows.find((row) => row.workspaceId === data.selectedContextId);
   const phoneInbox = (
     <PhoneInbox
-      downloaded={downloaded}
+      downloaded={downloadedLine(downloadRow)}
+      downloading={downloadRow?.state === "downloading"}
+      ledeSource={folderLists}
       onDownloads={requestSyncSheet}
       source={homeSource}
       pins={places.pins}

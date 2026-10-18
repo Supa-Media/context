@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, StyleSheet, View, type GestureResponderEvent } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, View, type GestureResponderEvent } from "react-native";
 import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
 import { EmojiGlyph } from "../emoji/EmojiGlyph";
@@ -20,6 +20,8 @@ import {
   type InboxGroup,
   type InboxNote,
 } from "./inboxModel";
+import type { FolderListSource } from "../files/listBlock/model";
+import { useNoteLedes } from "./noteLedes";
 import type { HomeSource } from "./useHomeSource";
 
 /**
@@ -44,7 +46,9 @@ export function PhoneInbox({
   pins = [],
   recents = [],
   downloaded = null,
+  downloading = false,
   onDownloads,
+  ledeSource,
   opened,
   entries,
   isMe,
@@ -63,8 +67,12 @@ export function PhoneInbox({
   recents?: readonly HomeRecent[];
   /** "1,204 notes downloaded" (`downloadedLine`); `null` where nothing is kept on the device. */
   downloaded?: string | null;
+  /** Notes are coming down now: a spinner beside that line, as Apple Notes has beside its count. */
+  downloading?: boolean;
   /** The Downloads sheet, opened from that line. */
   onDownloads?: () => void;
+  /** Where the first line of a note this device does not keep is read from (`noteLedes.ts`). */
+  ledeSource?: FolderListSource;
   opened: readonly HomeOpened[];
   /** `activity.md`'s lines, for who wrote what and Filed today; empty before it has loaded. */
   entries: readonly InboxActivity[];
@@ -85,6 +93,8 @@ export function PhoneInbox({
     const home = buildHome({ ...source, pins: [], opened, recents: null, tag: null, now });
     return buildInbox({ notes: source.notes, pins, recents, home, entries, isMe, now });
   }, [source, pins, recents, opened, entries, isMe, now]);
+  const shown = useMemo(() => [...inbox.pinned, ...inbox.groups.flatMap((entry) => entry.notes)], [inbox]);
+  const lineOf = useNoteLedes(ledeSource, shown);
   const dots = inbox.dots.map((dot) => dot.path).join("\n");
   const preload = useRef(onPreload);
   preload.current = onPreload;
@@ -107,6 +117,7 @@ export function PhoneInbox({
           <NoteRow
             key={note.path}
             note={note}
+            lede={lineOf(note)}
             when={note.at === undefined ? "" : inboxWhen(note.at, now)}
             onPress={() => onOpen(note.path)}
             onLongPress={hold(note.path)}
@@ -133,7 +144,12 @@ export function PhoneInbox({
               style={({ pressed }) => (pressed ? styles.pressed : null)}
               testID="phone-notes-downloaded"
             >
-              <Text style={styles.sub}>{downloaded}</Text>
+              <View style={styles.downloaded}>
+                {downloading ? (
+                  <ActivityIndicator size="small" color={colors.muted} testID="phone-notes-downloading" />
+                ) : null}
+                <Text style={styles.sub}>{downloaded}</Text>
+              </View>
             </Pressable>
           )}
           <Pressable
@@ -215,6 +231,7 @@ export function PhoneInbox({
               <NoteRow
                 key={note.path}
                 note={note}
+                lede={lineOf(note)}
                 when={note.at === undefined ? "" : inboxWhen(note.at, now)}
                 onPress={() => onOpen(note.path)}
                 onLongPress={hold(note.path)}
@@ -262,12 +279,15 @@ const RECENT_GROUPS = new Set(["Today", "Yesterday", "Previous 7 Days", "Previou
 
 function NoteRow({
   note,
+  lede,
   when,
   onPress,
   onLongPress,
   opening,
 }: {
   note: InboxNote;
+  /** Its first line; `undefined` while it is being read. */
+  lede: string | null | undefined;
   when: string;
   onPress: () => void;
   onLongPress?: (event: GestureResponderEvent) => void;
@@ -282,18 +302,26 @@ function NoteRow({
       onPress={onPress}
       onLongPress={onLongPress}
       accessibilityRole="button"
-      accessibilityLabel={[note.title, when, note.lede ?? ""].filter(Boolean).join(", ")}
+      accessibilityLabel={[note.title, when, lede ?? ""].filter(Boolean).join(", ")}
       style={({ pressed }) => [styles.row, pressed || opening ? styles.rowPressed : null]}
       testID="phone-inbox-note"
     >
       <Text style={styles.rowTitle} numberOfLines={1}>
         {note.title}
       </Text>
-      <Text style={styles.rowSub} numberOfLines={1}>
-        {when === "" ? null : <Text style={styles.rowWhen}>{when}</Text>}
-        {when === "" || !note.lede ? "" : "  "}
-        {note.lede ?? ""}
-      </Text>
+      {lede === undefined ? (
+        // Still being read: the date, then a quiet bar where the line will be.
+        <View style={styles.rowLoading}>
+          {when === "" ? null : <Text style={[styles.rowSub, styles.rowWhen]}>{when}</Text>}
+          <View style={styles.ledeLoading} testID="phone-inbox-lede-loading" />
+        </View>
+      ) : (
+        <Text style={styles.rowSub} numberOfLines={1}>
+          {when === "" ? null : <Text style={styles.rowWhen}>{when}</Text>}
+          {when === "" || !lede ? "" : "  "}
+          {lede ?? ""}
+        </Text>
+      )}
       <View style={styles.rowFolder}>
         <Icon name="folder" size={13} color={colors.muted} />
         <Text style={[styles.rowSub, styles.filedPlace]} numberOfLines={1}>
@@ -387,6 +415,9 @@ const makeStyles = (colors: Colors) =>
     rowTitle: { fontFamily: fonts.body, fontSize: touchType.body, fontWeight: "600", color: colors.text },
     rowSub: { fontFamily: fonts.body, fontSize: pointerType.lede, color: colors.muted },
     rowWhen: { fontWeight: "600", color: colors.text },
+    rowLoading: { flexDirection: "row", alignItems: "center", gap: space.x2, minHeight: 20 },
+    ledeLoading: { flex: 1, maxWidth: 180, height: 10, borderRadius: radii.pill, backgroundColor: colors.rowSelected },
+    downloaded: { flexDirection: "row", alignItems: "center", gap: 6 },
     rowFolder: { flexDirection: "row", alignItems: "center", gap: 4 },
     filedRow: { flexDirection: "row", alignItems: "center", gap: space.x3 },
     filedText: { flex: 1, minWidth: 0, gap: 2 },
