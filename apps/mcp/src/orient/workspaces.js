@@ -14,8 +14,9 @@ import { firstParagraphOf, readFrontPage } from "./frontPage.js";
 import { surveyContext } from "./survey.js";
 import { describeFolders } from "./folderAbout.js";
 import { factJobs } from "../tree/facts.js";
-import { builtInFoldersList, ORIENT_SIBLING_INDEX_CHAR_CAP, ORIENT_SIBLING_LIMIT, renderStructure } from "./render.js";
+import { ORIENT_SIBLING_INDEX_CHAR_CAP, ORIENT_SIBLING_LIMIT, renderStructure } from "./render.js";
 import { hasWebsiteFolder } from "./websiteGuide.js";
+import { systemFoldersSection } from "./systemFolders.js";
 import { loadPrivacyState } from "../privacy/state.js";
 import { within } from "../chaos/report.js";
 import { servedListingStore, TREE_UNREACHABLE } from "../tree/served.js";
@@ -99,8 +100,8 @@ function bodyOf({ page, survey, connected = false }) {
   if (archive) {
     lines.push(`Archive: ${noteCount(archive.count)}, not listed here (fetch \`${archive.prefix}\` lists it).`);
   }
-  const builtIn = builtInFoldersList(survey);
-  if (builtIn) lines.push(`Built-in folders: ${builtIn}.`);
+  const systemFolders = systemFoldersSection(survey);
+  if (systemFolders) lines.push(systemFolders);
   if (hasWebsiteFolder(survey)) lines.push('Has a website/ folder: orient about "website" is how to build it.');
   return lines.join("\n");
 }
