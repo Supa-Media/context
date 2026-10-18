@@ -36,21 +36,16 @@ export type Inbound =
       attachments?: InboundAttachment[];
       /** Sendblue: the handle of the message an inline reply answers. Resolved to `quoted`, then dropped, before queueing. */
       replyTo?: string;
-      /** The words of the message this one replies to, shown to Tex with it (`withQuote`); never parsed as the person's own. */
+      /**
+       * The words of the message this one replies to. Sent to `/agent` apart
+       * from the question and never folded into it: the message picked may be
+       * one Tex sent, so the words are somebody else's, and the gateway's
+       * guards vouch from the person's own (`apps/mcp/src/agent/quoted.js`).
+       */
       quoted?: string;
     }
   | { kind: "ignored"; reason: "event_type" | "group" | "sender" | "service" | "empty" | "reaction" }
   | { kind: "invalid" };
-
-/**
- * The question as Tex reads it: the replied-to words, then the person's own.
- * Only the question carries the quote; commands, link codes and handles are
- * read from the person's words alone.
- */
-export function withQuote(text: string, quoted: string | undefined): string {
-  if (quoted === undefined || quoted === "") return text;
-  return `(Replying to: “${quoted}”)${text === "" ? "" : `\n${text}`}`;
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
