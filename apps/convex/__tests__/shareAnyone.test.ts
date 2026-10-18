@@ -898,11 +898,8 @@ describe("an unlisted link over an encrypted note", () => {
  */
 async function readIntoTree(f: Fixture): Promise<void> {
   await copyTree(f.t, f.workspaceId);
-  for (let pass = 0; pass < 4; pass += 1) {
-    await f.t.action(internal.functions.files.runFileOperation, {
-      workspaceId: f.workspaceId,
-      scope: "private" as const,
-      operation: { kind: "nodesFactFill" as const },
-    });
-  }
+  // The sweep schedules a facts fill. Manual passes can all skip while that
+  // job holds the lease, so await its completion before testing the mint
+  // (ported from #1728).
+  await drainScheduled(f.t);
 }
