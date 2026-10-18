@@ -25,7 +25,7 @@ import type { NoteEditorProps } from "./props";
 import type { NoteView } from "./view";
 import { BODY_LINE, type LineState } from "../lineState";
 import { parentPath } from "../paths";
-import { INBOX_FOLDER } from "../../home/homeView";
+import { inboxFolderNow } from "../../home/homeView";
 
 /** Under a new note's "Title" in the Inbox (board 3 of `meeting-2026-10-17/phone-inbox/`). */
 export const INBOX_TITLE_HINT = "Your agent will file it";
@@ -265,7 +265,7 @@ export function NoteEditor({
     thing that happens to a note is an agent filing it, so that is what it
     says; anywhere else a note is where it was put, and nothing is said.
   */
-  const titleHint = state.path !== null && parentPath(state.path) === INBOX_FOLDER ? INBOX_TITLE_HINT : null;
+  const titleHint = state.path !== null && parentPath(state.path) === inboxFolderNow() ? INBOX_TITLE_HINT : null;
   useEffect(() => controls.current?.titleHint(titleHint), [titleHint]);
   /** What the caret's line is, for the Aa panel; Body until the editor says. */
   const [lineState, setLineState] = useState<LineState>(BODY_LINE);

@@ -57,6 +57,13 @@ export interface FileEntry {
   readOnly: boolean;
   size?: number;
   updatedAt?: number;
+  /**
+   * A built-in folder's job (`inbox`, `projects`, `website`, …), under the
+   * job's original name whatever the folder is called now. Folders only.
+   */
+  role?: string;
+  /** A folder's place among its siblings, once somebody set one (`folderOrder.set`). */
+  order?: number;
 }
 
 export interface FolderListing {

@@ -15,7 +15,7 @@ import {
 import type { HomeSource } from "./useHomeSource";
 import { useHomeTag } from "./homeTag";
 import { Card, FolderLine, NoteRow, PinnedNote, Section, type HoldPoint } from "./homeRows";
-import { INBOX_FOLDER } from "./homeView";
+import { inboxFolderNow } from "./homeView";
 
 const whenOf = (at: number | undefined, now: number) => (at === undefined ? "" : whenLabel(at, now));
 
@@ -116,7 +116,7 @@ export function PhoneHome({
   }, [source, pins, opened, recents, tag, now]);
   const activeTag = home.tagged?.tag ?? null;
   // Inbox is the page ‹ goes back to, not a folder in the list; a visitor has no Inbox page.
-  const folders = visitor ? home.folders : home.folders.filter((folder) => folder.path !== INBOX_FOLDER);
+  const folders = visitor ? home.folders : home.folders.filter((folder) => folder.path !== inboxFolderNow());
   // Every folder Home names, read ahead so the one pressed arrives whole.
   const named = useMemo(
     () =>

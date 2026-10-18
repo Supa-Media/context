@@ -668,6 +668,13 @@ export interface FileBrowser extends BesideEditing, TrashedEditing {
    */
   addBuiltInFolder: (role: string) => Promise<string>;
   /**
+   * Move a folder one place up or down among its sibling folders, as the list
+   * is drawn (`folderOrder.set`). Drawn at once; a refusal puts the order back
+   * and is said on the toast line. Editor only. Absent where nothing can be
+   * written (the demo, tests), and the menu then does not offer it.
+   */
+  moveFolder?: (path: string, direction: "up" | "down") => void;
+  /**
    * Re-home Context's reserved bucket objects under `.context/`.
    *
    * Optional because this is an owner maintenance control, not an editing

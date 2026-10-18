@@ -15,8 +15,8 @@
  *    card itself;
  *  - Delete is the trash (with Undo) in the top row, and an archived row's
  *    Restore heads the list;
- *  - a built-in folder's disabled Rename and Delete stay explanations under
- *    More, never live keys;
+ *  - a built-in folder's dimmed Archive and Delete stay explanations under
+ *    More, never live keys, while its Move and Rename are live;
  *  - a phone row may be shared, a folder included, where the pointer tree
  *    still offers a folder no Share;
  *  - the drawn menu: the card opens, the keys run their ids, Select and More
@@ -106,11 +106,11 @@ describe("the hold menu's arrangement", () => {
     expect(ids(items(row("1-projects/kings/kings-12.md", "file"), { platform: "web" }))).toContain("share");
   });
 
-  test("a built-in folder: no live Move, Rename or Delete, and the explanations are under More", () => {
+  test("a built-in folder: Move and Rename live, no live Delete, and the explanations are under More", () => {
     const layout = holdLayout(items(row("1-projects", "folder")));
-    expect(ids(layout.top)).toEqual(["share"]);
-    expect(ids(layout.main)).not.toContain("rename");
-    expect(layout.more.filter((item) => item.disabled === true).map((item) => item.id)).toEqual(["rename", "delete"]);
+    expect(ids(layout.top)).toEqual(["share", "moveTo"]);
+    expect(ids(layout.main)).toContain("rename");
+    expect(layout.more.filter((item) => item.disabled === true).map((item) => item.id)).toEqual(["archive", "delete"]);
   });
 
   test("an archived note: Restore heads the list", () => {

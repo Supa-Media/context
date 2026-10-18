@@ -125,19 +125,27 @@ describe("a note", () => {
   });
 });
 
-describe("a built-in folder stays where it is", () => {
+/*
+  Since 2026-10-18 a built-in folder's job is on its row, so it is renamed and
+  moved like any folder; the five main ones are still never archived or
+  trashed. More, with jobs known from the listing, in `builtInJobs.test.ts`.
+*/
+describe("a built-in folder is renamed and moved, never put away", () => {
   const list = menu({ kind: "row", row: dir("1-projects") });
 
-  test("cannot be moved, cut or archived, so those are absent", () => {
-    for (const id of ["moveTo", "cut", "archive", "duplicate"] as const) expect(find(list, id)).toBeUndefined();
+  test("rename, move and cut are offered; duplicate and a new icon are not", () => {
+    for (const id of ["rename", "moveTo", "cut"] as const) expect(find(list, id)?.disabled).toBeUndefined();
+    for (const id of ["duplicate", "setIcon"] as const) expect(find(list, id)).toBeUndefined();
   });
 
   /** The one place the file menu dims rather than hides: see `menuBuiltIn.ts`. */
-  test("rename and trash are shown dimmed, trash saying why", () => {
-    expect(find(list, "rename")?.disabled).toBe(true);
+  test("archive and trash are shown dimmed, trash saying it can be renamed but not deleted", () => {
+    expect(find(list, "archive")?.disabled).toBe(true);
     const trash = find(list, "delete");
     expect(trash?.disabled).toBe(true);
     expect(trash?.detail).toMatch(/Built in/);
+    expect(trash?.detail).toMatch(/renamed/);
+    expect(trash?.detail).toMatch(/not deleted/);
   });
 
   test("still creates inside itself, copies and shares like any folder", () => {
@@ -146,28 +154,28 @@ describe("a built-in folder stays where it is", () => {
     }
   });
 
-  test("an older 4-archive and a capitalised Inbox are built in too; an extra is not", () => {
-    expect(find(menu({ kind: "row", row: dir("4-archive") }), "rename")?.disabled).toBe(true);
-    expect(find(menu({ kind: "row", row: dir("Inbox") }), "rename")?.disabled).toBe(true);
-    expect(find(menu({ kind: "row", row: dir("4-clients") }), "rename")?.disabled).toBeUndefined();
-    expect(find(menu({ kind: "row", row: dir("1-projects/archive") }), "moveTo")).toBeDefined();
+  test("an older 4-archive and a capitalised Inbox are built in too; an extra is not kept", () => {
+    expect(find(menu({ kind: "row", row: dir("4-archive") }), "delete")?.disabled).toBe(true);
+    expect(find(menu({ kind: "row", row: dir("Inbox") }), "delete")?.disabled).toBe(true);
+    expect(find(menu({ kind: "row", row: dir("4-clients") }), "delete")?.disabled).toBeUndefined();
+    expect(find(menu({ kind: "row", row: dir("1-projects/archive") }), "delete")?.disabled).toBeUndefined();
   });
 
   /** @shyoh's `projects` beside `Projects` (2026-10-14): the duplicate is an ordinary folder. */
-  test("with the root loaded, a duplicate of the role's folder can be renamed, moved and trashed", () => {
+  test("with the root loaded, a duplicate of the role's folder can be trashed", () => {
     const root = { topLevelFolders: ["Projects", "projects", "Areas"] };
     const duplicate = menu({ kind: "row", row: dir("projects") }, root);
-    expect(find(duplicate, "rename")?.disabled).toBeUndefined();
-    expect(find(duplicate, "moveTo")).toBeDefined();
     expect(find(duplicate, "delete")?.disabled).toBeUndefined();
-    expect(find(menu({ kind: "row", row: dir("Projects") }, root), "rename")?.disabled).toBe(true);
+    expect(find(duplicate, "duplicate")).toBeDefined();
+    expect(find(menu({ kind: "row", row: dir("Projects") }, root), "delete")?.disabled).toBe(true);
     // Alone, it is the role's folder again.
-    expect(find(menu({ kind: "row", row: dir("projects") }, { topLevelFolders: ["projects"] }), "rename")?.disabled).toBe(true);
+    expect(find(menu({ kind: "row", row: dir("projects") }, { topLevelFolders: ["projects"] }), "delete")?.disabled).toBe(true);
   });
 
-  test("a selection holding one cannot be moved, archived or trashed as a whole", () => {
+  test("a selection holding one can be moved, but not archived or trashed as a whole", () => {
     const both = menu({ kind: "selection", rows: [dir("1-projects"), dir("recipes")] });
-    for (const id of ["moveTo", "archive", "delete"] as const) expect(find(both, id)).toBeUndefined();
+    expect(find(both, "moveTo")).toBeDefined();
+    for (const id of ["archive", "delete"] as const) expect(find(both, id)).toBeUndefined();
   });
 });
 

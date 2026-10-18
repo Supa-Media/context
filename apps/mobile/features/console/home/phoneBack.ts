@@ -1,7 +1,7 @@
 import type { SlideDirection } from "../../design/components/PageSlide";
 import { baseName, displayName, isMarkdown, parentPath } from "../files/paths";
 import { scopeLabel } from "../layout/SearchScope";
-import { FOLDERS_PAGE, INBOX_FOLDER, setHomeView, type HomeView } from "./homeView";
+import { FOLDERS_PAGE, inboxFolderNow, setHomeView, type HomeView } from "./homeView";
 import { leavePage, previousPage } from "./phoneHistory";
 
 /**
@@ -88,7 +88,7 @@ function upLevels(selectedPath: string | null, mapOpen: boolean, view: HomeView,
   if (mapOpen) return [home];
   if (selectedPath === null || selectedPath === "") return view === "folders" && !visitor ? [home] : [];
   const parent = parentPath(selectedPath);
-  if (parent === INBOX_FOLDER && !visitor) return [home];
+  if (parent === inboxFolderNow() && !visitor) return [home];
   const levels: PhoneBackTarget[] = visitor ? [home] : [home, { folder: null, label: FOLDERS_LABEL, view: "folders" }];
   const segments = parent.split("/").filter(Boolean);
   segments.forEach((_, index) => {
