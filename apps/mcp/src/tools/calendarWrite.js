@@ -96,7 +96,7 @@ export function calendarCopy(change) {
   return [`Cancel on your Google Calendar:`, `${change.title}, at ${change.start}`].join("\n");
 }
 
-/** One line for the approvals list and the "Done:" reply. */
+/** One line for the approvals list and the "Done, I …" reply (`agent/doneLine.js`). */
 export function calendarSummary(change) {
   const title = `"${change.title.slice(0, 120)}"`;
   if (change.action === "create") return `add ${title} to your calendar`;

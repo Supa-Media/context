@@ -169,7 +169,7 @@ and one that carried the answer would hold note content. Tests:
 The control plane's half (`apps/convex/functions/routines.ts`,
 `functions/lib/routines/`) keeps one row per routine file: the path, the
 schedule read off the folder and front matter (`cadence`, `at`, `on`, `send`,
-`to` handles, `paused`, `timezone`), the writer, `nextRunAt`, and the last run's
+`paused`, `timezone`, and the `to` handles it no longer acts on), the writer, `nextRunAt`, and the last run's
 time and outcome code. It never keeps the body, the `until:` sentence, or the
 problem sentences, because each of those is the note's own words, and the
 outcome is a code from a closed list (`answered`, `skipped`, `finished`,
@@ -183,33 +183,52 @@ the listing was complete. Tests: `routinesSync.test.ts` "keeps the schedule,
 the writer and nothing the note says", `routinesRuns.test.ts` "only a known
 code is kept, and never any text".
 
+### Routines run only in a personal workspace, and text only their writer
+
+Decided by the owner, 2026-10-18, after someone's Tex texted them updates on
+another person's work, from a routine they never wrote. A shared workspace runs
+no routines: each person keeps theirs in their own personal workspace, where
+everything a routine texts is theirs to read. `runsRoutines`
+(`functions/lib/routines/access.ts`) is the one place this is asked, at every
+step a row could come into being or run: a signal from a shared workspace makes
+no row, a scan there deletes its rows instead of writing them, and a row left
+from before is deleted when it comes due and texts nobody. A routine note in a
+shared workspace stays a note; the app's run bar says in one quiet line that
+routines run only in your personal workspace. Tests: `routinesRuns.test.ts`
+"a signal there makes no row, and a row left from before is dropped", "a row
+left from before is dropped when it comes due, and texts nobody", and
+`routineBar.test.ts` "in a shared workspace it says routines run only in a
+personal one".
+
+**A run texts its writer and nobody else.** The `to:` line is gone: it is still
+read off the front matter so an old note parses, and ignored, because a
+routine that could text someone else is how one person's words reached another
+(test: "its writer and nobody else, whoever its `to:` names"). Tex's help no
+longer offers it.
+
+**What a simplification would cost:** letting shared workspaces run routines
+again, or honouring `to:`, puts back a path by which a routine one person wrote
+reaches another person's phone; either turns the tests above red.
+
 **The writer** is whoever last wrote the file, kept only while they are an
 owner or editor of that workspace (a signal naming a member or a stranger names
 nobody). Where the owner is the only person who can write there, a file found
-with no known writer runs as its owner (`writerSource: "fallback"`), and then
-its `to:` is ignored and only the owner is texted, because anyone who put the
-file there without a signal could have named themselves and had the owner's
-private reach texted to them (test: "a personal routine nobody was seen
-writing still texts its owner, whatever its `to:` says"). A personal workspace
-is usually that, but it is the same row as a shared one with more membership,
-so an editor invited into a personal context is a second writer and it waits
-there too (test: "a personal workspace shared with an editor does not fall
-back to its owner either"). In a workspace with more than one writer it does
-not run at all: the row waits (`writer_unknown`, "Save it once so it runs as
-you" in the app) until someone who can write saves it. Falling back to the owner there texted
-one person what another had asked for (reported 2026-10-18: someone's Tex
-texted them updates on another person's work, from a routine they never
-wrote). Asked again when a run is handed out, so a row written
-under the old rule stops too (tests: "a shared routine nobody was seen
-writing texts nobody, and runs once someone who can write saves it", "a
-shared routine left running as its owner by an earlier rule is stopped when it
-comes due"). The first signal from someone who can write makes it theirs. A
-writer who loses write access is **not** replaced by the owner: the row stops
-(`writer_gone`) until someone who can write saves the file, because handing an
-editor's words to the owner would run them with the owner's private reach.
-Write access is asked again when a run is handed out, not only when the row
-was written. Tests: "a writer who lost access is not replaced by the owner",
-"a writer who lost write access is not run".
+with no known writer runs as its owner (`writerSource: "fallback"`), because
+nobody else could have put it there (test: "a personal routine nobody was seen
+writing still texts its owner, whatever its `to:` says"). An editor invited
+into a personal context is a second writer, so there it waits instead (test: "a
+personal workspace shared with an editor does not fall back to its owner
+either"): the row stops (`writer_unknown`, "Save it once so it runs as you" in
+the app) until someone who can write saves it, and this is asked again when a
+run is handed out (test: "a routine nobody was seen writing, where others can
+write too, texts nobody until a writer saves it"). The first signal from
+someone who can write makes it theirs. A writer who loses write access is
+**not** replaced by the owner: the row stops (`writer_gone`) until someone who
+can write saves the file, because handing an editor's words to the owner would
+run them with the owner's private reach. Write access is asked again when a
+run is handed out, not only when the row was written. Tests: "a writer who
+lost access is not replaced by the owner", "a writer who lost write access is
+not run".
 
 **Time zone:** the file's `timezone:`, else the writer's own (`setMyTimeZone`,
 an `accountTimeZones` row), else `America/New_York`.

@@ -263,8 +263,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /**
  * The one shape of Sendblue's receive webhook this Worker acts on: an
  * inbound iMessage in a direct chat, from a phone number, with words or a
- * file. The same rules as Linq's (`inbound.ts`): groups, SMS and Apple ID
- * email senders are dropped on purpose.
+ * file. The same rules as Linq's (`inbound.ts`): groups and Apple ID email
+ * senders are dropped on purpose. An SMS is kept, flagged `sms`, only so it is
+ * answered without its words deciding anything.
  */
 export function parseSendblueInbound(payload: unknown): Inbound {
   if (!isRecord(payload)) return { kind: "invalid" };
@@ -279,12 +280,13 @@ export function parseSendblueInbound(payload: unknown): Inbound {
   const from = payload.from_number;
   if (typeof from !== "string" || !E164.test(from)) return { kind: "ignored", reason: "sender" };
   // The phone is the login, and only Apple vouches for an iMessage sender.
+  // An SMS still gets a fixed answer over iMessage, never one from its words:
+  // a first text to a new number often goes green (`reply.ts`, `smsReply`).
+  if (payload.service === "SMS") return smsInbound(payload, handle, line(payload), from);
   if (payload.service !== "iMessage") return { kind: "ignored", reason: "service" };
 
-  const line = [payload.sendblue_number, payload.to_number].find(
-    (value): value is string => typeof value === "string" && E164.test(value),
-  );
-  if (line === undefined) return { kind: "invalid" };
+  const ours = line(payload);
+  if (ours === undefined) return { kind: "invalid" };
 
   const text = typeof payload.content === "string" ? payload.content.trim() : "";
   if (TAPBACK.test(text) && !payload.media_url) return { kind: "ignored", reason: "reaction" };
@@ -309,11 +311,39 @@ export function parseSendblueInbound(payload: unknown): Inbound {
   return {
     kind: "message",
     eventId: `sendblue:${handle}`,
-    chatId: sendblueChatId(line, from),
+    chatId: sendblueChatId(ours, from),
     from,
     messageId: handle,
     text: text.slice(0, MAX_INBOUND_TEXT),
     ...(attachments.length > 0 ? { attachments: attachments.slice(0, MAX_INBOUND_ATTACHMENTS) } : {}),
     ...(replyTo !== undefined ? { replyTo } : {}),
+  };
+}
+
+/** Tex's line a delivery came in on. */
+function line(payload: Record<string, unknown>): string | undefined {
+  return [payload.sendblue_number, payload.to_number].find(
+    (value): value is string => typeof value === "string" && E164.test(value),
+  );
+}
+
+/**
+ * An SMS, kept only so it is answered: no file and no inline reply are read
+ * from it, and its words never decide anything (`reply.ts`, `smsReply`).
+ */
+function smsInbound(payload: Record<string, unknown>, handle: string, ours: string | undefined, from: string): Inbound {
+  if (ours === undefined) return { kind: "invalid" };
+  const text = typeof payload.content === "string" ? payload.content.trim() : "";
+  if (TAPBACK.test(text)) return { kind: "ignored", reason: "reaction" };
+  const hasMedia = typeof payload.media_url === "string" && payload.media_url !== "";
+  if (text.length === 0 && !hasMedia) return { kind: "ignored", reason: "empty" };
+  return {
+    kind: "message",
+    eventId: `sendblue:${handle}`,
+    chatId: sendblueChatId(ours, from),
+    from,
+    messageId: handle,
+    text: text.slice(0, MAX_INBOUND_TEXT),
+    sms: true,
   };
 }
