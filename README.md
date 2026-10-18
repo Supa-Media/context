@@ -214,7 +214,7 @@ or one folder and can revoke, and a folder link still hides whatever
 | `apps/mcp/`                       | The MCP gateway Worker — tools, OAuth, privacy engine, storage adapter. Self-hosting: [`apps/mcp/SETUP.md`](apps/mcp/SETUP.md) |
 | `apps/mobile/`                    | The Expo app: web, iOS, Android, and the UI the desktop shell hosts        |
 | `apps/desktop/`                   | Electron shell for macOS: menu bar, meeting capture, offline queue         |
-| `apps/agent/`                     | Worker behind the texting assistant (Linq iMessage webhook → gateway `/agent`) |
+| `apps/agent/`                     | Worker behind the texting assistant (Sendblue iMessage webhook → gateway `/agent`) |
 | `infra/router/`                   | Worker fronting `context.lc`: the web app, Convex auth routes, websites    |
 | `infra/email-worker/`             | Email Worker that turns mail to `<username>@context.lc` into an inbox capture |
 | `infra/transcribe-worker/`        | Turns a chunk of meeting audio into text; stores nothing                   |

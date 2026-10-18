@@ -2,7 +2,7 @@
   "name": "@context/agent",
   "version": "0.0.1",
   "private": true,
-  "description": "context-agent: the Worker behind the Context assistant people text. It receives iMessages from Linq, resolves the sender's phone number to a Context account, and answers through the gateway's /agent route with that person's own grant.",
+  "description": "context-agent: the Worker behind the Context assistant people text. It receives iMessages from Sendblue (formerly Linq), resolves the sender's phone number to a Context account, and answers through the gateway's /agent route with that person's own grant.",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",

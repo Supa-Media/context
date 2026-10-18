@@ -119,6 +119,9 @@ jobs:
           # line's contact list with it (`lib/adminFns/texAllowlist.ts`).
           # Absent, the tab says Linq isn't connected.
           LINQ_API_KEY: ${{ secrets.LINQ_API_KEY }}
+          # Tex's dedicated Sendblue line(s), comma-separated E.164: the number
+          # the "Text Tex at" SMS names. Set, the Linq list is not used.
+          TEX_LINE_NUMBERS: ${{ secrets.TEX_LINE_NUMBERS }}
           # Google communications connect. The client id is not itself secret,
           # but keeping both halves beside the feature gates in the production
           # environment stops a deploy from serving UI whose control plane
@@ -231,7 +234,7 @@ jobs:
             STORAGE_SECRET_ENCRYPTION_KEY_PREVIOUS_ID \
             RESEND_API_KEY TWILIO_ACCOUNT_SID TWILIO_API_KEY_SID \
             TWILIO_API_KEY_SECRET \
-            TWILIO_VERIFY_SERVICE_SID TWILIO_MESSAGING_SERVICE_SID PHONE_CHECK APP_ORIGIN EMAIL_WORKER_SECRET AGENT_WORKER_SECRET LINQ_API_KEY \
+            TWILIO_VERIFY_SERVICE_SID TWILIO_MESSAGING_SERVICE_SID PHONE_CHECK APP_ORIGIN EMAIL_WORKER_SECRET AGENT_WORKER_SECRET LINQ_API_KEY TEX_LINE_NUMBERS \
             GOOGLE_OAUTH_CLIENT_ID GOOGLE_OAUTH_CLIENT_SECRET \
             MAIL_CONNECT_ENABLED CALENDAR_CONNECT_ENABLED \
             GOOGLE_PUSH_TOPIC GOOGLE_PUSH_SERVICE_ACCOUNT \

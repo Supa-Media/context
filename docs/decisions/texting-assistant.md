@@ -8,7 +8,7 @@ Workers._
 
 ### The Worker decides nothing about access
 
-`apps/agent` proves that a webhook came from Linq and then asks the control
+`apps/agent` proves that a webhook came from its line and then asks the control
 plane for a short-lived grant belonging to whoever linked the sending phone.
 The gateway's `/agent` route answers with that grant, so the person's scope
 clamp, privacy engine and audit identity apply exactly as they do for any
@@ -19,13 +19,13 @@ service of its own.
 **What a simplification would cost:** a Worker that reads the bucket itself, or
 holds a long-lived token, becomes a second gateway with none of its tests.
 
-### A webhook is acted on only with Linq's signature
+### A webhook is acted on only with the line's secret
 
-Every request to `/linq` is checked against the subscription's `whsec_` secret
-(Standard Webhooks: HMAC-SHA256 over `id.timestamp.body`, 300 seconds of
-tolerance) before its body is parsed. A deployment with no secret refuses
-everything instead of accepting unsigned calls. Tests: `signature.test.ts`,
-`worker.test.ts`.
+`/linq` is checked against Linq's `whsec_` secret (HMAC over `id.timestamp.body`,
+300 s tolerance); `/sendblue` against the secret set on Sendblue's webhook, sent
+verbatim in `sb-signing-secret` and compared by hash in constant time. Both run
+before the body is parsed, and no secret refuses everything. Tests:
+`signature.test.ts`, `sendblue.test.ts`, `worker.test.ts`.
 
 ### Group chats never reach a personal context
 
@@ -92,20 +92,19 @@ Linq's v3 send endpoint requires `parts` and `idempotency_key` inside a
 prevents a reply. Test: `clients.test.ts`, "posts the text to the chat with the
 key and an idempotency key".
 
-### Messages pass through Linq
+### Messages pass through the line: Sendblue, formerly Linq
 
-Decided by the owner, 2026-10-07, by asking for the assistant in production.
-Linq is a third party that carries every message in both directions. Nothing of
-the bucket is stored there, but the text of a question and its answer is. This
-is the same class of decision as a model provider reading note text in flight
-([inference](./storage-and-credentials/inference.md)), and it is accepted on
-the same terms: Linq carries text, never a credential or a bucket key, and a
-person's history stays in their own bucket. Staging and production each deploy
-the Worker on every release that changes it (`deploy-agent-worker.yml` for
-production). Linq's free line is one number, so only one webhook, staging's or
-production's, may point at it at a time, or every text is answered twice. Test:
-`deploy-plan.test.mjs`, "the texting assistant deploys only itself, to staging
-and to production".
+Linq was decided by the owner on 2026-10-07; Sendblue's dedicated line replaced
+its 20-number shared one on 2026-10-18 (Dev2 bought it). The carrier sees every
+message both ways, the same class of decision as a model provider reading note
+text in flight ([inference](./storage-and-credentials/inference.md)), on the
+same terms: text, never a credential or a bucket key; history stays in the
+bucket. A chat id names its line (`sendblue:<line>:<phone>`), so nobody is texted
+first from a number they never texted. Sendblue only fetches pictures by URL, so
+one from notes is served for 30 minutes at a random 256-bit address
+(`media.ts`). One webhook, staging's or production's, per line, or every text is
+answered twice. `TEX_LINE_NUMBERS` names the line(s) the "Text Tex at" SMS gives.
+Test: `deploy-plan.test.mjs`, "the texting assistant deploys only itself".
 
 ### Staging has a texts simulator, and nothing else does
 

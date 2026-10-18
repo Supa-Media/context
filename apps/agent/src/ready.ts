@@ -11,11 +11,12 @@
  *
  * No model writes this text or sees the link, and nothing else is kept: the
  * phone (this object is already named after it), the chat id, and times.
- * Linq's line only reaches people who texted it first, and they did.
+ * Tex only texts people who texted it first, on the line they texted, and they did.
  */
 
-import { post, record as asRecord, sendLinqText, ServiceError, type Fetch } from "./clients";
+import { post, record as asRecord, ServiceError, type Fetch } from "./clients";
 import type { InboxStorage } from "./inbox";
+import { lineFor, type LineDeps } from "./line";
 import { record } from "./simulator";
 
 export const READY_KEY = "ready";
@@ -31,13 +32,13 @@ export const READY_COPY = {
   late: "Your notes are taking longer than usual to set up. Text me in a few minutes and we'll pick up from there.",
 };
 
-type Owed = { phone: string; chatId: string; channel?: "simulator"; since: number; nextAt: number };
+/** `sent` counts the texts already sent, so a retry repeats none on a line with no idempotency key. */
+type Owed = { phone: string; chatId: string; channel?: "simulator"; since: number; nextAt: number; sent?: number };
 
-export type ReadyDeps = {
+export type ReadyDeps = LineDeps & {
   fetch: Fetch;
   controlPlaneOrigin: string;
   workerSecret: string;
-  linqApiKey: string;
   now: () => number;
 };
 
@@ -79,17 +80,20 @@ export async function checkReady(storage: InboxStorage, deps: ReadyDeps): Promis
     return;
   }
   const texts = answer.status === "ready" ? [READY_COPY.ready, answer.url] : [READY_COPY.late];
+  let sent = owed.sent ?? 0;
   try {
     for (const [index, text] of texts.entries()) {
+      if (index < sent) continue;
       if (owed.channel === "simulator") await record(storage, "in", text, now);
-      else await sendLinqText(deps.fetch, deps.linqApiKey, owed.chatId, text, `ready:${owed.since}:${index}`);
+      else await lineFor(deps, owed.chatId).sendText(owed.chatId, text, `ready:${owed.since}:${index}`);
+      sent = index + 1;
     }
   } catch {
-    // Linq refused or was unreachable: look again shortly. Each text keeps its
-    // idempotency key, so a text Linq already took is not sent twice; a fresh
-    // link is minted next time and the unsent one simply expires.
+    // The line refused or was unreachable: look again shortly. Each text keeps
+    // its idempotency key on Linq, and `sent` skips what already went on any
+    // line; a fresh link is minted next time and the unsent one simply expires.
     const nextAt = now + READY_EVERY_MS;
-    await storage.put<Owed>(READY_KEY, { ...owed, nextAt });
+    await storage.put<Owed>(READY_KEY, { ...owed, nextAt, sent });
     await armBy(storage, nextAt);
     return;
   }

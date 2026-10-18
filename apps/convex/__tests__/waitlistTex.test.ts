@@ -179,6 +179,17 @@ describe("Let in on a phone row", () => {
     expect(texts().map(textBody)).toEqual([admittedText(`${ORIGIN}/login`)]);
   });
 
+  test("on a dedicated line (TEX_LINE_NUMBERS) nothing reaches Linq, and the text names that line", async () => {
+    vi.stubEnv("TEX_LINE_NUMBERS", "+15555550177");
+    const t = setupTest();
+    const as = await staff(t);
+    await as.mutation(api.functions.admin.admitWaitlist, { ids: [await row(t, { phone: PHONE })] });
+    await drainScheduled(t);
+    expect(calls.filter((call) => call.url.startsWith(LINQ_ZERO_SERVICE))).toHaveLength(0);
+    expect(texts().map(textBody)).toEqual([admittedText(`${ORIGIN}/login`, "+15555550177")]);
+    expect(await trail(t)).toEqual([]);
+  });
+
   test("removed again before it runs, the phone is not added", async () => {
     const t = setupTest();
     const as = await staff(t);

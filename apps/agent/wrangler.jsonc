@@ -16,6 +16,12 @@
   //                         subscription is created (shown once). Absent, every
   //                         delivery is refused, which is the safe direction.
   //   LINQ_API_KEY          Linq Partner API key, for sending replies
+  //   SENDBLUE_API_KEY_ID, SENDBLUE_API_SECRET
+  //                         Sendblue API keys, for replies on Tex's dedicated line
+  //   SENDBLUE_WEBHOOK_SECRET
+  //                         the secret set on Sendblue's receive webhook, which
+  //                         points at https://<this worker>/sendblue. Absent,
+  //                         every delivery is refused.
   //   AGENT_WORKER_SECRET   opens the control plane's /agent-texts/* routes only
   //   CONTROL_PLANE_ORIGIN  the Convex HTTP origin, from CONTROL_PLANE_URL. A
   //                         secret rather than a var because this repository is
