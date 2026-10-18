@@ -160,6 +160,8 @@ export function ConsoleBottomBar({
                 ? onAskWhere
                 : () => data.files.createUntitled(folder, "note")
           }
+          // The destination's names, asked for on the touch rather than the lift, so the note's name is chosen against them.
+          onPressIn={canNote && folder !== null ? () => data.files.ensureListing(folder) : undefined}
           onLongPress={onCreate === null ? undefined : () => onCreate(folder ?? QUICK_NOTE_FOLDER)}
           accessibilityRole="button"
           accessibilityLabel={canNote ? "New note" : "Create"}

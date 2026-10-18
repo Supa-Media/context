@@ -16,6 +16,7 @@ import { editorReducer, emptyEditor } from "../editor";
 import { type AutosaveController, createAutosaveController } from "../autosave";
 import type { NoteRename } from "../browser/supportingTypes";
 import { useOnlineMoves } from "./useOnlineMoves";
+import type { UnsentCreates } from "./unsentNotes";
 import type { Listings } from "./types";
 
 export function useBrowserState(scope: { current: { epoch: number } }) {
@@ -128,6 +129,13 @@ export function useBrowserState(scope: { current: { epoch: number } }) {
     landed. It is then written to wherever the note ended up.
   */
   const renamingRef = useRef<{ path: string; held: string | null } | null>(null);
+  /** New notes on screen that are in no bucket yet, by path (`unsentNotes.ts`). */
+  const unsentCreates = useRef<UnsentCreates>(new Map());
+  const unsentEpoch = scope.current.epoch;
+  useEffect(() => {
+    const unsent = unsentCreates.current;
+    return () => unsent.clear();
+  }, [unsentEpoch]);
 
   /*
     The selection, readable from a callback that outlives the render that made
@@ -252,7 +260,7 @@ export function useBrowserState(scope: { current: { epoch: number } }) {
     opening, setOpening,
     settleOpening, editor, dispatch, clipboard, setClipboard, notice, setNotice, unreadable, setUnreadable, toasts,
     setToasts,
-    busy, setBusy, loading, setLoading, editorRef, collaborationPaths, renamingRef, selectedPathRef,
+    busy, setBusy, loading, setLoading, editorRef, collaborationPaths, renamingRef, unsentCreates, selectedPathRef,
     nextToastId, dismissToast, say, saveRuns, saveTimers, operationRun, openRun, autosaveNowRef,
     autosave,
   };

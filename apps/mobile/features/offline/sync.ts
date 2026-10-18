@@ -17,6 +17,7 @@ import {
   type PendingWrite,
 } from "./outbox";
 import type { ConflictCheck, FileError } from "../console/files/types";
+import { isBlankNewNote } from "./blankNewNote";
 
 /**
  * Emptying the queue into the bucket.
@@ -243,6 +244,8 @@ export async function drainOutbox(
     const write = unit.write;
     if (write !== undefined) {
       if (deps.shouldWrite !== undefined && !deps.shouldWrite(write)) continue;
+      // A new note nobody wrote in is not sent; leaving it drops it (`blankNewNote.ts`).
+      if (write.baseEtag === null && isBlankNewNote(write.path, write.text)) continue;
       if (write.state !== "pending") {
         held = true;
       } else {

@@ -13,36 +13,30 @@ import { untitledStem } from "../features/console/files/untitled";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 /**
- * **A QUICK NOTE OPENS ONE ROUND TRIP AFTER THE PRESS, AND A SECOND ONE IS
- * NEVER REFUSED.**
+ * **A QUICK NOTE OPENS ON THE PRESS, AND ONE LEFT EMPTY IS NEVER SAVED.**
  *
- * The owner's review of the phone Home (2026-10-01): *"there is some lag when
- * adding a quick note"* and *"I tried adding another quick note but got a 'A
- * file already exists at that path' error"*. One cause, two symptoms:
+ * Dev2 (2026-10-18): *"the compose button takes more than 5 seconds to open a
+ * new note"* and *"make sure that new notes created on mobile but nothing
+ * written in it doesn't get saved and is discarded"*.
  *
- *  - The press waited for **three** round trips in a row before the note was
- *    on screen: the `writeNote`, then a `listFiles` of the folder (`run`'s
- *    refresh), then a `readNote` of the note it had just written (`select`).
- *  - Nothing was drawn until all three were back, so the folder still read as
- *    not having the note. A second press inside that window — the obvious
- *    thing to do when the first one seems not to have worked — picked its
- *    name against that listing, picked the *same* name, and the server's
- *    create refused it. A listing that is simply behind the bucket (another
- *    device made a quick note today) did the same.
- *
- * Now: the row is drawn on the press, the note opens from the write's own
- * answer, and a create refused because the name is taken moves on to the next
- * untitled name rather than surfacing a refusal about a name nobody chose.
+ * Before this the press waited for the note's create in the bucket (and for
+ * the folder's listing when it was not loaded) before anything opened. Now an
+ * untitled note opens at once from its seed, with no version and no request,
+ * its row drawn in its folder; the first save of something typed is the
+ * create. A note left with nothing but its heading is never written and its
+ * row goes. The owner's earlier review (2026-10-01) still holds: a second
+ * press never gets a refusal about a name nobody chose — a name taken behind
+ * the listing's back moves on at the first save (`unsentNotes.ts`).
  *
  * ## Sabotage record
  *
  * Applied as local edits, suite run, named tests observed failing, reverted.
  *
- *   the row not drawn before the write                                  2
- *   opened by `select` (a read) instead of from the write's answer       1
- *   no retry on a taken name                                             1
- *   the drawn row left behind when the write is refused                  1
- *   a create refused as missing shown as "That file does not exist."     1
+ *   `openUnsent` replaced by the old `createNote` (write first)          8
+ *   the blank check in `performSave` removed                            1
+ *   `leaveBlankNew` made a no-op                                        3
+ *   no `retarget` on a taken name                                       1
+ *   the listing awaited before an online note opens                     1
  */
 
 const actions: Record<string, (args: never) => Promise<unknown>> = {};
@@ -199,51 +193,144 @@ describe("a quick note", () => {
     unmount = null;
   });
 
-  test("is drawn in its folder on the press, before the bucket answers", async () => {
+  test("opens on the press, drawn in its folder, with nothing written or read", async () => {
     unmount = await ready();
-    const write = held<unknown>();
-    const real = actions[name("writeNote")]!;
-    actions[name("writeNote")] = () => write.promise;
+    calls.length = 0;
 
     await act(async () => {
       browser.createUntitled(FOLDER, "note");
     });
-    await settle();
-    expect(rows()).toContain(MADE);
 
-    actions[name("writeNote")] = real;
+    expect(browser.selectedPath).toBe(MADE);
+    expect(browser.editor.path).toBe(MADE);
+    expect(browser.editor.etag).toBeNull();
+    expect(browser.editor.draft).toBe(`# ${STEM}\n\n`);
+    expect(browser.opening).toBeNull();
+    expect(rows()).toContain(MADE);
+    expect(calls.filter((c) => c.name === name("writeNote") || c.name === name("readNote"))).toEqual([]);
+  });
+
+  test("does not wait for a folder nobody has listed yet", async () => {
+    unmount = mount();
+    await settle();
+    // The inbox's listing never answers: the note must open anyway.
+    const real = actions[name("listFiles")]!;
+    actions[name("listFiles")] = (args: never) =>
+      (args as { path: string }).path === FOLDER ? new Promise(() => {}) : real(args);
+
+    await act(async () => {
+      browser.createUntitled(FOLDER, "note");
+    });
+
+    expect(browser.editor.path).toBe(MADE);
+    expect(browser.editor.etag).toBeNull();
+  });
+
+  test("the first save of something typed is the create", async () => {
+    unmount = await ready();
+    await act(async () => {
+      browser.createUntitled(FOLDER, "note");
+    });
+    const text = `# ${STEM}\n\nBuy milk\n`;
+    await act(async () => {
+      browser.setDraft(text);
+    });
+    await act(async () => {
+      browser.save();
+    });
+    await settle();
+
+    const write = calls.find((c) => c.name === name("writeNote"))?.args as { path: string; expectedEtag?: string };
+    expect(write.path).toBe(MADE);
+    // A create: no version, so the server refuses it over a note already there.
+    expect(write.expectedEtag).toBeUndefined();
+    expect(files.get(MADE)).toBe(text);
+    expect(browser.editor.etag).toBe(`etag:${MADE}:${text.length}`);
+    expect(rows()).toContain(MADE);
+  });
+
+  test("left with nothing written, it is not saved and its row goes", async () => {
+    unmount = await ready();
+    await act(async () => {
+      browser.createUntitled(FOLDER, "note");
+    });
+    await act(async () => {
+      browser.deselect();
+    });
+    await settle();
+
+    expect(written()).toEqual([]);
+    expect(files.has(MADE)).toBe(false);
+    expect(rows()).not.toContain(MADE);
+  });
+
+  test("emptied, even of its heading, it is still not saved", async () => {
+    unmount = await ready();
+    await act(async () => {
+      browser.createUntitled(FOLDER, "note");
+    });
+    await act(async () => {
+      browser.setDraft("  \n");
+    });
+    await act(async () => {
+      browser.save();
+    });
+    await act(async () => {
+      browser.select("index.md");
+    });
+    await settle();
+
+    expect(written()).toEqual([]);
+    expect(rows()).not.toContain(MADE);
+    expect(browser.editor.path).toBe("index.md");
+  });
+
+  test("a second press from an empty one replaces it rather than adding another", async () => {
+    unmount = await ready();
+    await act(async () => {
+      browser.createUntitled(FOLDER, "note");
+    });
+    await act(async () => {
+      browser.createUntitled(FOLDER, "note");
+    });
+    await settle();
+
+    // One empty note on screen, not two: the first went when the second opened.
+    const made = rows().filter((path) => path.includes(STEM));
+    expect(made).toHaveLength(1);
+    expect(browser.editor.path).toBe(made[0]);
+    expect(written()).toEqual([]);
   });
 
   test("a second press while the first is still being written gets the next name", async () => {
     unmount = await ready();
     const first = held<unknown>();
     const real = actions[name("writeNote")]!;
-    let n = 0;
-    actions[name("writeNote")] = (args: never) => {
-      n += 1;
-      if (n === 1) return first.promise.then(() => real(args));
-      return real(args);
-    };
+    actions[name("writeNote")] = (args: never) => first.promise.then(() => real(args));
 
     await act(async () => {
       browser.createUntitled(FOLDER, "note");
     });
-    await settle();
+    await act(async () => {
+      browser.setDraft(`# ${STEM}\n\nFirst\n`);
+    });
+    // Leaving writes what was typed; the second note is made while that is on its way.
     await act(async () => {
       browser.createUntitled(FOLDER, "note");
     });
-    await settle();
+    expect(browser.editor.path).toBe(NEXT);
+    actions[name("writeNote")] = real;
     await act(async () => {
       first.release(undefined);
     });
     await settle();
 
-    expect(written()).toEqual([MADE, NEXT]);
+    expect(written()).toEqual([MADE]);
+    expect(files.get(MADE)).toBe(`# ${STEM}\n\nFirst\n`);
     expect(browser.notice).toBeNull();
-    expect(files.has(MADE) && files.has(NEXT)).toBe(true);
   });
 
-  test("a name the listing did not know was taken is skipped, not refused", async () => {
+  test("a name the listing did not know was taken moves on at the first save, not refused", async () => {
     files.set(MADE, "# made on another device\n");
     unlisted.add(MADE);
     unmount = await ready();
@@ -251,48 +338,21 @@ describe("a quick note", () => {
     await act(async () => {
       browser.createUntitled(FOLDER, "note");
     });
+    await act(async () => {
+      browser.setDraft(`# ${STEM}\n\nMine\n`);
+    });
+    await act(async () => {
+      browser.save();
+    });
     await settle();
 
     expect(written()).toEqual([MADE, NEXT]);
     expect(browser.notice).toBeNull();
     expect(browser.editor.path).toBe(NEXT);
+    expect(browser.selectedPath).toBe(NEXT);
     expect(files.get(MADE)).toBe("# made on another device\n");
+    expect(files.get(NEXT)).toBe(`# ${STEM}-2\n\nMine\n`);
     expect(rows()).toContain(NEXT);
-  });
-
-  test("opens from the write's own answer, without reading it back or waiting for the list", async () => {
-    unmount = await ready();
-    // The listing after the write never comes back: the note must not wait for it.
-    actions[name("listFiles")] = () => new Promise(() => {});
-
-    await act(async () => {
-      browser.createUntitled(FOLDER, "note");
-    });
-    await settle();
-
-    expect(browser.selectedPath).toBe(MADE);
-    expect(browser.editor.path).toBe(MADE);
-    expect(browser.editor.status).toBe("clean");
-    expect(browser.editor.etag).toBe(`etag:${MADE}:${files.get(MADE)!.length}`);
-    expect(browser.editor.draft).toBe(files.get(MADE));
-    expect(browser.opening).toBeNull();
-    expect(calls.filter((c) => c.name === name("readNote"))).toEqual([]);
-  });
-
-  test("a refused write takes the drawn row back and opens nothing", async () => {
-    unmount = await ready();
-    actions[name("writeNote")] = async () => {
-      throw new ConvexError({ code: "FORBIDDEN", message: "You cannot write here." });
-    };
-
-    await act(async () => {
-      browser.createUntitled(FOLDER, "note");
-    });
-    await settle();
-
-    expect(rows()).not.toContain(MADE);
-    expect(browser.notice).toBe("You cannot write here.");
-    expect(browser.selectedPath).toBeNull();
   });
 
   /*
@@ -309,9 +369,14 @@ describe("a quick note", () => {
     await act(async () => {
       browser.createUntitled(FOLDER, "note");
     });
+    await act(async () => {
+      browser.setDraft(`# ${STEM}\n\nHello\n`);
+    });
+    await act(async () => {
+      browser.save();
+    });
     await settle();
 
-    expect(rows()).not.toContain(MADE);
-    expect(browser.notice).toBe("You can't add notes to inbox. Pick a folder that is shared with you.");
+    expect(browser.editor.message ?? browser.notice).toBe("You can't add notes to inbox. Pick a folder that is shared with you.");
   });
 });
