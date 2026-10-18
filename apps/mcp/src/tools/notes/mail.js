@@ -141,13 +141,22 @@ export async function toolMailNote(store, scope, rules, overrides, args) {
  * 2026-10-16: "we need to make sure that the agents know they need to set up
  * a poll timer that cant be wiped"). The server cannot wake anyone, so a check
  * that stops is mail nobody reads; a timer kept only in a session's memory
- * stopped after one check when its session restarted.
+ * stopped after one check when its session restarted. On 2026-10-18 a Codex
+ * agent read the rhythm, checked by hand and set no timer at all, so the
+ * timer is now the required first step, named per app, and confirmed in the
+ * agent's first mail.
  */
 export const CHECK_RHYTHM =
+  "REQUIRED FIRST STEP, before any other work: set up your mail check timer now. " +
   "Check mail every 5 minutes with a timer that survives your session restarting: a timer kept only in your " +
-  "session's memory is wiped, and the checks silently stop. In Claude Code, run a background shell command " +
-  "(sleep 300) that wakes you and start it again at every check, with a scheduled task as a backup. If your app " +
-  "cannot wake itself, tell the person, so they can prompt you.";
+  "session's memory is wiped, and the checks silently stop. Checking by hand while you work is not a timer. " +
+  "Claude Code: run a background shell command (sleep 300) that wakes you, start it again at every check, and " +
+  "also create a scheduled task (a routine or trigger, hourly is fine) that restarts it; never rely on CronCreate " +
+  "or /loop alone, they live in the session's memory. " +
+  "Codex: create an automation (a scheduled task in the Codex app that runs outside this conversation) every 5 " +
+  "minutes, or the shortest interval it allows, that checks this mail; a loop inside the conversation ends with it. " +
+  "Any other app: use its own scheduled or background task. If your app cannot wake itself, tell the person now, " +
+  "so they can prompt you. Say in your first mail which timer you set.";
 
 /** How long the checks run: a wait with no end once had an agent polling for days. */
 export const CHECK_DEADLINE =

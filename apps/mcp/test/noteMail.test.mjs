@@ -177,6 +177,11 @@ test("agents join under a name and get a mailbox; a held name is refused", async
   assert.doesNotMatch(joined.text, /read_note|write_note/);
   // The owner, 2026-10-16: a check timer kept in a session's memory was wiped and the checks stopped.
   assert.match(joined.text, /Check mail every 5 minutes with a timer that survives your session restarting/);
+  // The owner, 2026-10-18: a Codex agent checked by hand and set no timer; the timer is the first step, per app.
+  assert.match(joined.text, /REQUIRED FIRST STEP, before any other work: set up your mail check timer now\./);
+  assert.match(joined.text, /Claude Code: run a background shell command \(sleep 300\).*scheduled task.*never rely on CronCreate/);
+  assert.match(joined.text, /Codex: create an automation .* outside this conversation/);
+  assert.match(joined.text, /Say in your first mail which timer you set\./);
   // The owner, 2026-10-18: an agent polled mail for days; every wait ends.
   assert.match(joined.text, /Stop at the deadline\..*stop after 25 checks \(about 2 hours\)/);
   assert.match(joined.text, /send the first message: what each of you does, and the deadline/);

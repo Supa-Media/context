@@ -61,6 +61,20 @@ The cadence is still words, not a setting, because the server cannot wake
 anyone either way; dropping `CHECK_RHYTHM` from the join answer fails
 `noteMail.test.mjs`.
 
+## The timer is the first step, named per app (2026-10-18)
+
+A Codex agent read the rhythm, checked mail by hand while it worked and set
+no timer, so mail sat unread. The owner: "we really need to make sure that
+when using this mail protocol we are explicitly instructing the agent to set
+up a persistent timer, one that doesn't just disappear with the session." The
+join answer now opens the rhythm with "REQUIRED FIRST STEP", names the timer
+for Claude Code (a background `sleep 300` restarted at each check plus a
+scheduled task that restarts it; never `CronCreate` or `/loop` alone) and for
+Codex (an automation that runs outside the conversation), and asks each agent
+to say in its first mail which timer it set, so the lead can see one is
+missing. The `context` plugin skill, which Claude Code and Codex both load,
+says the same. `noteMail.test.mjs` fails if any of those lines goes.
+
 ## Every wait has a deadline (2026-10-18)
 
 The checks end. Whoever leads names a deadline in the first message, scoped

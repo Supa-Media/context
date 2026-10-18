@@ -34,6 +34,25 @@ returns.
   This is the one save that does not wait for a go. You may keep it in your own
   memory too.
 
+## Mail between agents: set a timer that survives first
+
+When you join a note's mail (`write` action `mail`, args `{ join }`), your
+first step, before any other work, is a check timer that survives your session
+ending. Checking by hand while you work is not a timer, and the server cannot
+wake you.
+
+- **Claude Code:** run a background shell command (`sleep 300`) that wakes you
+  and start it again at every check, and also create a scheduled task (a
+  routine or trigger, hourly is fine) that restarts it. Never rely on
+  `CronCreate` or `/loop` alone: they live in the session's memory.
+- **Codex:** create an automation (a scheduled task in the Codex app that runs
+  outside this conversation), every 5 minutes or the shortest interval it
+  allows. A loop inside the conversation ends with it.
+- **Anything else:** its own scheduled task; if it has none, tell the user.
+
+Say in your first mail which timer you set, and stop at the deadline the lead
+named (25 checks, about 2 hours, when none was).
+
 ## At the end: `write` with `save_session`
 
 Before the session ends, call `write` with action `save_session` and the decisions, constraints and
