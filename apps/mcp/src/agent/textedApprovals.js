@@ -8,6 +8,7 @@ import { callToolForSession } from "../tools/session.js";
 import { EMAIL_TOOL } from "../tools/email.js";
 import { CALENDAR_TOOL } from "../tools/calendarWrite.js";
 import { REPORT_TOOL } from "../tools/reportProblem.js";
+import { doneLine } from "./doneLine.js";
 import { armForText, disarmRecords, listPending, replayAsAsked, settlePending, withdrawPending } from "../tools/approvals.js";
 
 /** A text that is nothing but yes, or nothing but no; anything else goes to the model. */
@@ -136,8 +137,9 @@ export async function settleByText(store, session, verdict, texted = "") {
     // texted yes to a one-line summary and gets that summary back (the first
     // Action round, 2026-10-10: "Done: write projects/x.md into @woodshop.
     // written: projects/x.md (etag c2.doc-…) visibility: team" failed every
-    // voice line the judge has). What went wrong still says what the tool said.
-    replies.push(settled.result?.isError === true ? `I tried to ${record.summary}, but: ${said}` : `Done: ${record.summary}.`);
+    // voice line the judge has), in the past tense (`doneLine.js`). What went
+    // wrong still says what the tool said.
+    replies.push(settled.result?.isError === true ? `I tried to ${record.summary}, but: ${said}` : doneLine(record.summary));
   }
   // An email or calendar change the text did not say YES to is disarmed now: when the text settled
   // something else, no model turn follows to disarm it, and a later bare yes must not reach it.
