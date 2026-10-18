@@ -53,6 +53,8 @@ const entryValidator = v.object({
   role: v.optional(v.string()),
   /** A folder's place among its siblings, once set (`functions/folderOrder.ts`). */
   order: v.optional(v.number()),
+  /** On a folder in Archive: the built-in folder it is the archive copy of (`lib/nodes/archiveTwins.ts`). */
+  archiveOf: v.optional(v.string()),
 });
 
 export const listingValidator = v.object({

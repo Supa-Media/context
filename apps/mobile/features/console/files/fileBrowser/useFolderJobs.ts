@@ -10,6 +10,8 @@
  *    answers `jobIconMarker(job)` instead of its emoji, so every surface that
  *    draws a folder glyph through `EmojiGlyph` draws the job's icon, an Inbox
  *    renamed Capture included, and an emoji set on it earlier is not shown.
+ *    Archive's copy of one (`archiveOf`) draws the same icon in grey with
+ *    Archive's box on it (`twinIconMarker`).
  *  - **The Inbox and the Archive are found by job** for what has no
  *    listings to hand (`jobFoldersNow.ts`).
  *  - **`moveFolder` moves a folder one place among its siblings.** The new
@@ -28,9 +30,9 @@ import type { Id } from "@context/convex/_generated/dataModel";
 import { toFileError } from "../browser";
 import { listingIsDescending } from "../listingOrder";
 import { parentPath } from "../paths";
-import { archiveFolder, inboxFolder, loadedJobs, projectsFolder, reorderedSiblings, siblingFolders, withFolderOrder } from "../jobIcons/folderJobs";
+import { archiveFolder, inboxFolder, loadedJobs, loadedTwins, projectsFolder, reorderedSiblings, siblingFolders, withFolderOrder } from "../jobIcons/folderJobs";
 import { setJobFoldersNow } from "../jobIcons/jobFoldersNow";
-import { jobIconMarker } from "../jobIcons/marker";
+import { jobIconMarker, twinIconMarker } from "../jobIcons/marker";
 import type { FileBrowserOptions, Listings } from "./types";
 
 interface FolderJobsDeps {
@@ -66,12 +68,16 @@ export function useFolderJobs(deps: FolderJobsDeps): FolderJobsValues {
     setJobFoldersNow({ inbox: inboxFolder(listings), projects: projectsFolder(listings), archive: archiveFolder(listings) });
     return loadedJobs(listings);
   }, [listings]);
+  const twins = useMemo(() => loadedTwins(listings), [listings]);
   const iconOf = useCallback(
     (path: string) => {
       const job = jobs.get(path);
-      return job === undefined ? emojiOf(path) : jobIconMarker(job);
+      if (job !== undefined) return jobIconMarker(job);
+      // Archive's copy of a built-in folder draws that folder's icon in grey, with Archive's box on it.
+      const twin = twins.get(path);
+      return (twin === undefined ? null : twinIconMarker(twin)) ?? emojiOf(path);
     },
-    [emojiOf, jobs],
+    [emojiOf, jobs, twins],
   );
 
   /** Draw `parent`'s folders in this order now, and send it; a refusal says why and puts the server's back. */

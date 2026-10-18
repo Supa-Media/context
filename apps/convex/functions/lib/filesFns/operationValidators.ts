@@ -479,6 +479,7 @@ export const operationValidator = v.union(
   v.object({ kind: v.literal("contextMoveForget"), paths: v.array(v.string()) }),
   v.object({ kind: v.literal("duplicate"), path: v.string() }),
   v.object({ kind: v.literal("archive"), path: v.string(), expectedEtag: v.optional(v.string()) }),
+  v.object({ kind: v.literal("archiveTidy") }),
   v.object({ kind: v.literal("trash"), path: v.string(), expectedEtag: v.optional(v.string()) }),
   v.object({ kind: v.literal("restoreTrash"), from: v.string(), to: v.string() }),
   /** Sent only by `trashedNotes.readTrashedNote`, with the key the audit trail named. */

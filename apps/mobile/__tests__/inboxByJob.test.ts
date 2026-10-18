@@ -73,7 +73,9 @@ describe("the Archive by job", () => {
 
   test("the old names still restore, and nothing else does", () => {
     expect(restoreTargetFor("4-archive/2026-08-26T09-14-02-113Z/1-projects/foo.md", "Old stuff")).toBe("1-projects/foo.md");
-    expect(restoreTargetFor("Old stuff/a.md", "Old stuff")).toBeNull();
+    // Archive keeps the workspace's shape, so a note straight inside it came from the top level.
+    expect(restoreTargetFor("Old stuff/a.md", "Old stuff")).toBe("a.md");
+    expect(restoreTargetFor("Old stuff", "Old stuff")).toBeNull();
     expect(restoreTargetFor("Recipes/2026/soup.md", "Old stuff")).toBeNull();
   });
 

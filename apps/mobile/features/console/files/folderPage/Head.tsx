@@ -45,7 +45,7 @@ import { Text } from "../../../design/components/Text";
 import { EmojiGlyph } from "../../emoji/EmojiGlyph";
 import { JobIcon } from "../jobIcons/JobIcon";
 import { builtInLine } from "../jobIcons/folderJobs";
-import { jobOfIcon } from "../jobIcons/marker";
+import { jobOfIcon, twinJobOfIcon } from "../jobIcons/marker";
 import { FolderChaosLine } from "../../../chaos/FolderChaosLine";
 import { leading, space, touchType, tracking } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
@@ -138,6 +138,7 @@ export function FolderHead({
   const styles = useThemedStyles(makeStyles);
   const [hovered, setHovered] = useState(false);
   const job = jobOfIcon(icon);
+  const twin = twinJobOfIcon(icon);
   const jobLine = job === null ? null : builtInLine(job, title);
   const heading = (
     <Text variant="noteTitle" role="heading" aria-level={2} style={[styles.title, large && styles.titleLarge, hovered && styles.titleHover]}>
@@ -158,6 +159,8 @@ export function FolderHead({
         <View style={[styles.titleBox, icon !== null && styles.titleRow]}>
           {icon === null ? null : job !== null ? (
             <JobIcon job={job} size={large ? TILE_LARGE : TILE} tile testID="folder-head-job" />
+          ) : twin !== null ? (
+            <JobIcon job={twin} size={large ? TILE_LARGE : TILE} tile archived testID="folder-head-twin" />
           ) : (
             <EmojiGlyph
               emoji={icon}

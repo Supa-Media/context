@@ -121,6 +121,12 @@ export const nodeTables = {
     role: v.optional(v.string()),
     /** Where this folder is drawn among its siblings, once somebody has set it; else its job's rank, then its name. */
     order: v.optional(v.number()),
+    /**
+     * On a folder inside Archive: the built-in folder it is the archive copy of, by the job's original name
+     * (`projects`), so Archive keeps the workspace's shape (`archiveMirror.cjs`, owner 2026-10-18). Written
+     * when something is archived into it (`lib/nodes/archiveTwins.ts`), kept by the row through every move.
+     */
+    archiveOf: v.optional(v.string()),
   })
     .index("by_workspace_path", ["workspaceId", "path"])
     .index("by_workspace_role", ["workspaceId", "role"])

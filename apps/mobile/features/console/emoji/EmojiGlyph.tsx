@@ -23,7 +23,7 @@ import { TEX_FIGURE_ICON } from "@context/shared/src/folderIcons.cjs";
 
 import { Tex } from "../../chaos/Tex";
 import { JobIcon } from "../files/jobIcons/JobIcon";
-import { jobOfIcon } from "../files/jobIcons/marker";
+import { jobOfIcon, twinJobOfIcon } from "../files/jobIcons/marker";
 
 import { Text } from "../../design/components/Text";
 import { useCustomEmoji } from "./context";
@@ -47,6 +47,8 @@ export function EmojiGlyph({
   if (emoji === TEX_FIGURE_ICON) return <Tex chaos={0} size={size} testID={testID} />;
   const job = jobOfIcon(emoji);
   if (job !== null) return <JobIcon job={job} size={size} {...(testID === undefined ? {} : { testID })} />;
+  const twin = twinJobOfIcon(emoji);
+  if (twin !== null) return <JobIcon job={twin} size={size} archived {...(testID === undefined ? {} : { testID })} />;
   const name = customEmojiShortcode(emoji);
   if (name === null) {
     return (

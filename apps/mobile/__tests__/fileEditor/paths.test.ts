@@ -58,6 +58,11 @@ describe("path arithmetic", () => {
     expect(restoreTargetFor("1-projects/foo.md")).toBeNull();
   });
 
+  test("an archive that keeps the workspace's shape restores by taking its own name off", () => {
+    expect(restoreTargetFor("9-archive/1-projects/launch/plan.md")).toBe("1-projects/launch/plan.md");
+    expect(restoreTargetFor("Archive/Work/Projects/launch", "Archive")).toBe("Work/Projects/launch");
+  });
+
   test("every archive-role folder restores, whatever its number", () => {
     // A new workspace archives into `9-archive`; an older PARA one into
     // `4-archive`, or a preset's `5-archive`. The word decides the role, so

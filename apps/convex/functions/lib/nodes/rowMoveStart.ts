@@ -41,6 +41,8 @@ import { carryPrivacy, releasePrivacy } from "./movePrivacy";
 import { touchNodesNow } from "./run";
 import type { RowMoveRefusal } from "./rowMove";
 import { driveRowMove, plannedFiles, recordedMove } from "./rowMoveDrive";
+import { afterArchiveMove, archivePlanFor, type ArchivePlan } from "./archiveFollow";
+import { clearanceOf } from "../clearance";
 
 /** The refusal a row move answers with, in the words the console and agents already get for each case. */
 export function refusal(reason: RowMoveRefusal, to: string, visibleTarget: boolean): Error {
@@ -58,6 +60,10 @@ export function refusal(reason: RowMoveRefusal, to: string, visibleTarget: boole
       return new FileOpError("CONFLICT", "That note changed somewhere else after this was asked for.");
     case "invalid":
       return new FileOpError("PATH_INVALID", "That move is not possible.");
+    case "archive_stays":
+      return new FileOpError("PATH_INVALID", "Archive stays at the top level. You can rename it, but it can't go inside another folder.");
+    case "built_in_archived":
+      return new FileOpError("PATH_INVALID", "Built-in folders can't go into Archive. Archive the things inside them instead.");
     case "unkeyed":
     case "not_served":
     case "not_keyed":
@@ -110,6 +116,8 @@ export async function startRowMove(ctx: ActionCtx, args: RowMoveArgs): Promise<M
 
   if (plan.kind === null) throw notFound();
   const planned = await plannedFiles(ctx, workspaceId, from, plan);
+  // Read before the move lands: the twins in Archive are found at the built-in folders' old paths.
+  const archive = await archivePlanFor(ctx, workspaceId, from, to);
   if (planned.unkeyed) throw refusal("unkeyed", to, true);
 
   const state = await loadPrivacyState(store);
@@ -159,12 +167,30 @@ export async function startRowMove(ctx: ActionCtx, args: RowMoveArgs): Promise<M
     throw refusal(answer.reason, to, visibleTarget);
   }
   if (answer.chunked === undefined) {
-    return await settleRowMove(ctx, args, { kind: answer.kind, files: answer.files, left: 0, rowsTruth, ...(answer.etag === undefined ? {} : { etag: answer.etag }) });
+    const settled = await settleRowMove(ctx, args, { kind: answer.kind, files: answer.files, left: 0, rowsTruth, ...(answer.etag === undefined ? {} : { etag: answer.etag }) });
+    return await withArchive(ctx, args, archive, settled);
   }
   const driven = await driveRowMove(ctx, { workspaceId, id: answer.chunked, from, to, store });
   await settleRowMove(ctx, args, { kind: "folder", files: driven.files, left: driven.left, rowsTruth });
   await ctx.runMutation(internal.functions.nodeRowMoves.rowMoveSettled, { id: answer.chunked });
-  return { from, to, paths: [to], queued: driven.files.length, rowed: true, moved: driven.files };
+  return await withArchive(ctx, args, archive, { from, to, paths: [to], queued: driven.files.length, rowed: true, moved: driven.files });
+}
+
+/**
+ * Archive's side of a move that landed (`archiveFollow.ts`): the twins on the way into Archive marked, and
+ * the twins of the built-in folders it moved carried after them, as the owner. The files they carried join
+ * the answer's `moved`, so the links to them follow too.
+ */
+async function withArchive(ctx: ActionCtx, args: RowMoveArgs, plan: ArchivePlan, result: MoveResult): Promise<MoveResult> {
+  const carried = await afterArchiveMove(ctx, args.workspaceId, args.to, plan, async (from, to) =>
+    await startRowMove(ctx, { ...args, from, to, clearance: clearanceOf("private"), expectedEtag: undefined }),
+  );
+  if (carried.length === 0) return result;
+  // The twin moved as the owner, but the answer goes to the caller: only the files they may see are named.
+  const state = await loadPrivacyState(args.store);
+  const { scope, names } = args.clearance;
+  const seen = state.invalid ? [] : carried.filter((pair) => canSee(pair.to, scope, state.rules, state.overrides, names));
+  return seen.length === 0 ? result : { ...result, moved: [...(result.moved ?? []), ...seen] };
 }
 
 /**
