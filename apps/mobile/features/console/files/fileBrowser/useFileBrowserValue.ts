@@ -134,7 +134,7 @@ type FileBrowserValueDeps =
   & Pick<PendingOpsValues, "answerOp" | "pending">
   & Pick<FolderIconsValues, "iconOf" | "setIcon" | "suggestIcon">
   & Pick<FolderJobsValues, "moveFolder" | "placeFolder">
-  & Pick<BuiltInFoldersValues, "addBuiltInFolder">
+  & Pick<BuiltInFoldersValues, "addBuiltInFolder" | "folderJobs" | "setFolderJob">
   & Pick<OpenNoteValues, "prefetch">
   & Pick<TrashedNoteValues, "trashed" | "restoreTrashed" | "restoringTrashed" | "keptOpen">;
 
@@ -154,7 +154,7 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
     setShareCollecting, setSharePreviewTitle,
     setShareSlug, setVisibility, share, shareWithGroup, shares, storeImage, submitForm, toasts,
     toggleFolder, updateFormResponse, updateStorageLayout, useTheirs, voteForm, iconOf, setIcon, suggestIcon,
-    addBuiltInFolder, prefetch, trashed, restoreTrashed, restoringTrashed, keptOpen, moveFolder,
+    addBuiltInFolder, folderJobs, setFolderJob, prefetch, trashed, restoreTrashed, restoringTrashed, keptOpen, moveFolder,
     placeFolder,
   } = deps;
 
@@ -165,6 +165,8 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
       setIcon,
       suggestIcon,
       addBuiltInFolder,
+      folderJobs,
+      setFolderJob,
       moveFolder,
       placeFolder,
       submitForm,
@@ -414,6 +416,8 @@ export function useFileBrowserValue(deps: FileBrowserValueDeps): FileBrowser {
       setIcon,
       suggestIcon,
       addBuiltInFolder,
+      folderJobs,
+      setFolderJob,
       moveFolder,
       placeFolder,
     ],

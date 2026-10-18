@@ -62,14 +62,18 @@ export function folderMenuFacts(
   files: {
     listings: JobListings & Readonly<Record<string, { entries: readonly { kind: string; name: string }[] } | undefined>>;
     moveFolder?: unknown;
+    setFolderJob?: unknown;
+    canShare?: boolean;
   },
   descending = false,
-): Pick<MenuContext, "topLevelFolders" | "jobOf" | "folderPlace"> {
+): Pick<MenuContext, "topLevelFolders" | "jobOf" | "folderPlace" | "canSetJob"> {
   const { listings } = files;
   const topLevelFolders = rootFolderNames(listings);
   return {
     ...(topLevelFolders === undefined ? {} : { topLevelFolders }),
     jobOf: (path: string) => jobOfPath(listings, path),
+    // Owner only, as Share is (`canShare`): a job decides where everybody's mail lands.
+    canSetJob: files.canShare === true && files.setFolderJob !== undefined,
     ...(files.moveFolder === undefined
       ? {}
       : {

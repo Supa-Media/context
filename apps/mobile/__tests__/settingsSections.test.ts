@@ -68,7 +68,7 @@ describe("the order and the grouping", () => {
     }
   });
 
-  test("eight listed rows; four pages live behind a row on another page", () => {
+  test("eight listed rows; five pages live behind a row on another page", () => {
     /*
       The owner called the fifteen-row list cluttered (2026-10-10). Feedback,
       Activity, Meetings and Emoji keep their pages and their keys —
@@ -92,11 +92,11 @@ describe("the order and the grouping", () => {
       "website",
     ]);
     expect(all.filter(isFoldedSection).map((section) => section.key).sort()).toEqual(
-      ["activity", "emoji", "feedback", "meetings"],
+      ["activity", "emoji", "feedback", "folders", "meetings"],
     );
     expect(
       settingsSectionsFor("personal", { invitations: true }).map((section) => section.key),
-    ).toHaveLength(13);
+    ).toHaveLength(14);
   });
 
   test("every section sits under a heading somebody can answer", () => {

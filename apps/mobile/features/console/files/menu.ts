@@ -112,6 +112,8 @@ export type MenuActionId =
    * offered for folders alone: a note has no icon of its own.
    */
   | "setIcon"
+  /** Give the folder a built-in job (`FolderJobDialog`). Owner only, folders only. */
+  | "folderJob"
   /**
    * One place up or down among the folder's sibling folders, as the list is
    * drawn (`FileBrowser.moveFolder`). Editor only, folders only.
@@ -181,6 +183,8 @@ export interface MenuContext {
    * loaded). Absent where order cannot be changed from here.
    */
   folderPlace?: (path: string) => { first: boolean; last: boolean } | null;
+  /** Whether "Use this folder as…" is offered: an owner, with a server to ask (`folderMenuFacts`). */
+  canSetJob?: boolean;
   /**
    * Web prints shortcuts; touch does not, and touch has no "open in new tab".
    *
@@ -419,6 +423,7 @@ function pageItems(context: MenuContext, row: TreeRow): MenuItem[] {
       ...pinGroup(context, row),
       ...tagsGroup(context, row),
       ...(job === null ? iconGroup(context, row) : []),
+      ...(context.canSetJob === true ? [makeItem(context, "folderJob", "Use this folder as…")] : []),
     ],
     /*
       Board 15: "the same Share the app already has, as a full sheet" —

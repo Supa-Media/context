@@ -100,6 +100,7 @@ type JobsView = {
   inboxParts: { name: string; label: string; path: string | null }[];
   guesses: { job: string; path: string; why: string }[];
   missingNeeded: string[];
+  folders: string[];
 };
 
 /** One job as Settings, the import picker and the folder menu draw it. */
@@ -126,6 +127,8 @@ export const jobs = action({
     inboxParts: v.array(v.object({ name: v.string(), label: v.string(), path: v.union(v.string(), v.null()) })),
     guesses: v.array(v.object({ job: v.string(), path: v.string(), why: v.string() })),
     missingNeeded: v.array(v.string()),
+    /** The folders a job can be given to here, the top three levels: an owner's only. */
+    folders: v.array(v.string()),
   }),
   handler: async (ctx, args): Promise<JobsView> => {
     try {
@@ -161,6 +164,7 @@ export const jobs = action({
         }),
         guesses: owner ? guessFolderJobs(folders, shownJobs) : [],
         missingNeeded: SHOWN_JOBS.filter((job) => JOB_GROUP[job] === "needed" && shownJobs.jobs[job] === null),
+        folders: owner ? folders.map((folder) => folder.path).sort() : [],
       };
     } catch (error) {
       throw toConvexError(error);

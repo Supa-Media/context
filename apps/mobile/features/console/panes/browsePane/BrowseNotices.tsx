@@ -308,7 +308,11 @@ export function BrowseNotices({
         asked — and the dialog behind the first is the same one both entry
         points raise.
       */}
-      {missingFolders.visible ? <MainFoldersNotice files={files} dismiss={missingFolders.dismiss} /> : null}
+      {missingFolders.visible ? <MainFoldersNotice
+          files={files}
+          dismiss={missingFolders.dismiss}
+          onChoose={onOpenSettings === undefined ? undefined : () => onOpenSettings("folders")}
+        /> : null}
 
       {storageMigration.visible && files.updateStorageLayout !== undefined ? (
         <View style={styles.notice} testID="browse-storage-migration">

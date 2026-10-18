@@ -23,6 +23,7 @@
  * the only thing standing between a visitor and a button that lies.
  */
 
+import type { FolderJobsAnswer } from "../folderJobsView";
 import type { Clipboard } from "../clipboard";
 import type { EditorState } from "../editor";
 import type {
@@ -667,6 +668,14 @@ export interface FileBrowser extends BesideEditing, TrashedEditing {
    * Editor only.
    */
   addBuiltInFolder: (role: string) => Promise<string>;
+  /**
+   * Which folder does each built-in job, wherever it is nested, with guesses
+   * for an import (`builtInFolders.jobs`). Absent where there is no server
+   * (the demo), and the screens that need it are then not offered.
+   */
+  folderJobs?: () => Promise<FolderJobsAnswer>;
+  /** Give a job to the folder at a path, or take it away (`null`). Owner; rejects with the server's sentence. */
+  setFolderJob?: (job: string, path: string | null) => Promise<void>;
   /**
    * Move a folder one place up or down among its sibling folders, as the list
    * is drawn (`folderOrder.set`). Drawn at once; a refusal puts the order back
