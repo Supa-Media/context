@@ -9,7 +9,7 @@ import { Tex } from "../chaos/Tex";
  * land in it, and an email that goes only after the person's YES, then a
  * reminder. Every reply is something Tex does today: web search
  * (`agent/search.js`), email through the send-review gate (`emailGate.js`),
- * routines; the link card is the note's own link.
+ * routines, and a texted write answers with the note's link (`agent/noteLinks.js`).
  *
  * The card is its final height from the start and the thread fills it from
  * the bottom, so the page never moves while it plays. It starts when it is on screen, plays once and holds
@@ -28,12 +28,16 @@ type Bubble = {
 
 const Folder = ({ children }: { children: ReactNode }) => <b className="tp-f">{children}</b>;
 
-/** The note a reply links to, as a phone draws a link: its title and where it is. */
-function NoteCard({ title, where }: { title: string; where: string }) {
+/**
+ * The note's link as a phone draws it. A note's link unfurls as Context's own
+ * card, never with the note's name (`infra/router`, a private note's name is
+ * not put in a preview), so that is what is drawn.
+ */
+function NoteCard() {
   return (
     <span className="tp-card">
-      <span className="tp-card-t">{title}</span>
-      <span className="tp-card-w">{where} · context.lc</span>
+      <span className="tp-card-t">Context</span>
+      <span className="tp-card-w">context.lc</span>
     </span>
   );
 }
@@ -42,13 +46,13 @@ export const CHAT: readonly Bubble[] = [
   { from: "me", body: "supper club idea: everyone brings a dish from where they grew up" },
   { from: "tex", body: <>Started a note in <Folder>Projects › Supper club</Folder>.</> },
   { from: "me", body: "find a place in brooklyn with a private room for 12" },
-  { from: "tex", body: "Found three under $60 a head, with their menus. Added them to the note:" },
+  { from: "tex", body: "Found three under $60 a head, with their menus. Added them to Supper club:" },
   {
     from: "tex",
     follows: true,
     card: true,
-    label: "A link to the note Supper club, in Projects",
-    body: <NoteCard title="Supper club" where="Projects" />,
+    label: "A link to the note Supper club",
+    body: <NoteCard />,
   },
   { from: "me", body: "email maya, sam and jo: first one is friday at 7" },
   { from: "tex", body: "Here's the email I'd send: “Supper club starts Friday at 7. Bring a dish from where you grew up!” Look good?" },
@@ -62,24 +66,6 @@ const AFTER_ME_MS = 700;
 const AFTER_TEX_MS = 1400;
 const START_MS = 600;
 const FOLLOW_MS = 450;
-
-const WAVE = [6, 10, 7, 14, 9, 16, 8, 12, 15, 7, 11, 16, 9, 13, 6, 10];
-
-function Voice() {
-  return (
-    <span className="tp-voice" aria-hidden>
-      <svg width="12" height="14" viewBox="0 0 12 14">
-        <path d="M1 1.2v11.6L11 7z" fill="currentColor" />
-      </svg>
-      <span className="tp-wave">
-        {WAVE.map((h, i) => (
-          <i key={i} style={{ height: h }} />
-        ))}
-      </span>
-      <span className="tp-len">0:09</span>
-    </span>
-  );
-}
 
 function reducedMotion(): boolean {
   return typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;

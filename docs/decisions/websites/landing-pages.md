@@ -28,16 +28,25 @@ for all of them.
   and beside it one conversation with Tex (`TexPage.web.tsx`, `TexChat.web.tsx`,
   `texCss.ts`). It keeps the old a's sheet, Libron and light-only look, so it
   is the same site.
-- **a's picture is one conversation, not a diagram.** Three things texted in,
-  each filed into a starting folder (Projects, Resources), then a question
-  answered from them; every reply is something Tex does today. Every bubble
-  is laid out from the start and only fades in, so nothing moves while it
-  plays; it starts when on screen, plays once (about eleven seconds) and holds
-  the end, and a visitor who asks for less motion sees the end at once. Tex,
-  the mark, starts as a scribble and settles into the # as the conversation
-  is filed. On a computer the whole page fits the window with no scrolling;
-  on a phone the sign-up comes before the conversation. Putting the graph, a
-  feature list or a second animation back is reversing this decision.
+- **a's picture is one conversation, not a diagram.** Dev then asked for it
+  to show "something a bit more useful, like sending an email doing something
+  research, but it should all fit on a page", and for Tex to sound like a
+  person ("'Text YES to send' seems very robotic"). An idea becomes a note in
+  Projects; a search for a place finds three and adds them to that note,
+  whose link Tex texts; an email is shown as Tex would send it and goes on a
+  yes; Tex says it will send a reminder. Each is something Tex does
+  today: web search (`agent/search.js`), the note's link on a texted write
+  (`agent/noteLinks.js`), the email send-review gate, routines. The link is
+  drawn as the card a note's link really unfurls as, Context's own, never
+  with the note's name. Every bubble is laid out from the start and the
+  thread fills the card from the bottom, so nothing moves while it plays; it
+  starts when on screen, plays once and holds the end, and a visitor who asks
+  for less motion sees the end at once. Tex, the mark, starts as a scribble
+  and settles into the # as the conversation is filed. On a computer the
+  whole page fits the window with no scrolling (on a short window the chat's
+  header folds to one row); on a phone the sign-up comes before the
+  conversation. Putting the graph, a feature list or a second animation back
+  is reversing this decision.
 - **a's sign-up button says what it does.** A labelled phone field with +1
   and a country drop-down, and beside it a solid "Join the waitlist" button
   ("Sign in" on the code step), full width on a narrow phone. The bare › of

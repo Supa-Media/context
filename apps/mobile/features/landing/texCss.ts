@@ -64,12 +64,6 @@ export const TEX_CSS = `
 .tp-card-t{font-weight:600;color:var(--ink)}
 .tp-card-w{font-size:12.5px;color:var(--ink2)}
 .tp-f{font-weight:600;white-space:nowrap}
-.tp-u{text-decoration:underline;text-underline-offset:.15em;text-decoration-color:rgba(255,255,255,.6)}
-.tp-voice{display:flex;align-items:center;gap:8px}
-.tp-voice svg{flex:none}
-.tp-wave{display:flex;gap:2px;align-items:center;height:18px}
-.tp-wave i{display:block;width:2.5px;border-radius:2px;background:rgba(255,255,255,.85)}
-.tp-len{font-size:13px;opacity:.9}
 .tp-typing{display:flex;gap:4px;padding:12px 14px;border-radius:19px;border-bottom-left-radius:6px;background:var(--bubble)}
 .tp-typing i{width:7px;height:7px;border-radius:50%;background:var(--dots);animation:tp-dot 1s infinite}
 .tp-typing i:nth-child(2){animation-delay:.15s}.tp-typing i:nth-child(3){animation-delay:.3s}
