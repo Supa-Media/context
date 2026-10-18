@@ -32,7 +32,7 @@
 const SHARED_ARGUMENT = "context";
 
 /** Addressing arguments every tool takes, said once and left out of each tool's own argument list. */
-const ADDRESSING_ARGUMENTS = [SHARED_ARGUMENT, "mailbox"];
+const ADDRESSING_ARGUMENTS = [SHARED_ARGUMENT, "mailbox", "person_said"];
 
 /** How much of a tool's description is kept as its purpose. */
 const PURPOSE_CHARS = 140;
@@ -173,7 +173,10 @@ export function liveToolListSection(tools, app = {}) {
     "A tool listed here that your app does not offer needs Context reconnected (or a new chat) before you " +
     "can call it.\n\n" +
     `\`*\` marks a required argument; \`{a, b}\` is an object with those keys.` +
-    (shared ? ` Every tool also takes \`${SHARED_ARGUMENT}: "@name"\` to act in another workspace.` : "") +
+    (shared
+      ? ` Every tool also takes \`${SHARED_ARGUMENT}: "@name"\` to act in another workspace, and \`person_said\`: ` +
+        "the person's own words asking for anything that lets more people see something."
+      : "") +
     "\n\n" +
     tools.map(toolLine).join("\n")
   );

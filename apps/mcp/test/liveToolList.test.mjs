@@ -69,11 +69,12 @@ test("the list is generated from the definitions: every tool and every argument,
     const line = toolLine(tool);
     assert.ok(section.includes(line));
     for (const name of Object.keys(tool.inputSchema?.properties || {})) {
-      if (name === "context" || name === "mailbox") continue;
+      if (name === "context" || name === "mailbox" || name === "person_said") continue;
       assert.ok(line.includes(`${name}`), `${tool.name} names ${name}`);
     }
   }
   assert.ok(section.includes('`context: "@name"`'), "the shared argument is said once");
+  assert.ok(section.includes("`person_said`"), "and so is the person's words, for the sharing judge");
   assert.match(section, /Trust this list over your app's copy/);
   assert.match(section, /reconnected/);
 });

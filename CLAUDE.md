@@ -102,8 +102,10 @@ breaking one, stop and say so rather than working around it.
    back, and no page may name the whole context
    ([websites](./docs/decisions/websites.md)). The gate that held an AI
    client's widening for the person's yes was removed by the owner on
-   2026-10-17; what still waits for a yes, checked by the gateway and never by
-   the model, is a step nobody can take back: an email, a calendar change, a
+   2026-10-17; since 2026-10-18 a small judge model lets a widening run only
+   when the person's own words ask for it, with nothing to tap. What still
+   waits for a yes, checked by the gateway and never by the model, is a step
+   nobody can take back: an email, a calendar change, a
    handle claim, a vault key's first use
    ([agent-egress](./docs/decisions/privacy-and-sharing/agent-egress.md)).
 

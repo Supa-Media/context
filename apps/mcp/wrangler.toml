@@ -24,6 +24,12 @@ compatibility_date = "2026-08-01"
 
 [vars]
 
+# The sharing judge (docs/decisions/privacy-and-sharing/agent-egress.md): an AI
+# client's call that would let more people see something runs only when the
+# person's own words ask for it, as a small model reads them. Needs the AI
+# gateway below; leave it out to let such calls run at once.
+SHARING_JUDGE = "on"
+
 # The gateway's own public origin, e.g. "https://mcp.example.com" (no trailing
 # slash).
 #
@@ -193,6 +199,7 @@ name = "context-mcp-staging"
 workers_dev = true
 
 [env.staging.vars]
+SHARING_JUDGE = "on"
 PUBLIC_ORIGIN = "https://mcp-staging.context.lc"
 ALLOWED_ORIGINS = "https://staging.context.lc"
 APP_ORIGIN = "https://staging.context.lc"

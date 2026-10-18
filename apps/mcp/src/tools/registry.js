@@ -164,6 +164,22 @@ const MAILBOX_ARGUMENT = {
 };
 
 /**
+ * The `person_said` argument, added to every tool for the reason `context` is.
+ *
+ * The egress judge (`privacy/judge.js`, the owner, 2026-10-17) lets a call that
+ * widens who can see something run when the person's own words ask for it, and
+ * this gateway never sees an MCP client's chat, so the client reports them here.
+ * Read by the gate only and stripped before any tool runs.
+ */
+const PERSON_SAID_ARGUMENT = {
+  type: "string",
+  description:
+    "Optional. Before anything that lets more people see something (a link, publishing, naming people, " +
+    "a visibility change), the person's own words asking for it, exactly as they wrote them, with your " +
+    "question first if they were answering it.",
+};
+
+/**
  * The same fact, in the one field every client renders.
  *
  * A property blurb is not nothing, but a client is free to summarise the schema,
@@ -209,7 +225,10 @@ export function toolDefinitions() {
       description: `${tool.description || ""}${CONTEXT_ARGUMENT_SENTENCE}`.trim(),
       inputSchema: {
         ...schema,
-        properties: { ...(schema.properties || {}), context: CONTEXT_ARGUMENT, mailbox: MAILBOX_ARGUMENT },
+        properties: { ...(schema.properties || {}), context: CONTEXT_ARGUMENT,
+          mailbox: MAILBOX_ARGUMENT,
+          person_said: PERSON_SAID_ARGUMENT,
+        },
       },
     };
   });

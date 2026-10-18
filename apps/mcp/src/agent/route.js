@@ -279,6 +279,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       ? body.conversation
       : null;
   const history = conversation === null ? [] : await readConversation(store, conversation);
+  session.egress.turn = runner ? { note: routine?.body ?? "" } : { history, question }; // the sharing judge's
 
   /*
     The Mail checker reads this thread's texts and nothing else the turn read
