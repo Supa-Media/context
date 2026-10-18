@@ -15,6 +15,7 @@ import {
   markSendblueRead,
   sendSendblueMedia,
   sendSendblueText,
+  shareSendblueProfile,
   startSendblueTyping,
   type SendblueKeys,
 } from "./sendblue";
@@ -30,6 +31,8 @@ export interface Line {
   markRead(chatId: string): Promise<void>;
   /** Whether the line took the contact card. */
   shareContactCard(chatId: string): Promise<boolean>;
+  /** Whether the line shared its iMessage Name & Photo into the chat; Linq's card already does both. */
+  shareProfile(chatId: string): Promise<boolean>;
 }
 
 export type LineDeps = {
@@ -54,6 +57,7 @@ function linqLine(deps: LineDeps): Line {
     startTyping: (chatId) => startLinqTyping(fetch, key, chatId),
     markRead: (chatId) => markLinqRead(fetch, key, chatId),
     shareContactCard: (chatId) => shareLinqContactCard(fetch, key, chatId),
+    shareProfile: async () => true,
   };
 }
 
@@ -81,7 +85,7 @@ function sendblueLine(deps: LineDeps): Line {
     markRead: async (chatId) => {
       if (deps.sendblue) await markSendblueRead(fetch, deps.sendblue, chatId);
     },
-    // No share call on Sendblue: the card goes as a .vcf, by address (`card.ts`).
+    // The card goes as a .vcf, by address (`card.ts`): a contact the person can save.
     shareContactCard: async (chatId) => {
       const chat = parseSendblueChat(chatId);
       if (!deps.sendblue || !deps.hostPicture || chat === null) return false;
@@ -94,5 +98,7 @@ function sendblueLine(deps: LineDeps): Line {
         return false;
       }
     },
+    // The name and icon at the top of the chat, as for a saved contact (`shareSendblueProfile`).
+    shareProfile: async (chatId) => (deps.sendblue ? shareSendblueProfile(fetch, deps.sendblue, chatId) : false),
   };
 }

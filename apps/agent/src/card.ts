@@ -2,9 +2,10 @@
  * Tex's contact card on the dedicated line: a vCard sent once into a chat, so
  * the person can save "Tex" with its icon instead of a bare number.
  *
- * Linq shared a card set up in its dashboard. Sendblue has no such call, and
- * its "name and photo" profile is not something an API can offer; a `.vcf`
- * file is what iMessage shows as a tappable contact. So the card is built
+ * Linq shared a card set up in its dashboard. Sendblue's Name & Photo sharing
+ * names the chat but saves no contact (`shareSendblueProfile`); a `.vcf` file
+ * is what iMessage shows as a tappable contact to save, which also lets links
+ * expand and raises the line's limits (docs: Sending a contact card). So it is built
  * here for the line the chat lives on and sent like a picture, by a short-lived
  * address (`media.ts`). Its number is always the chat's own line, never one
  * taken from a request.

@@ -99,18 +99,20 @@ describe("worker", () => {
     const sbEnv = () => {
       const made = env();
       const urls: string[] = [];
+      const queued: Record<string, unknown>[] = [];
       made.env.SENDBLUE_WEBHOOK_SECRET = SB_SECRET;
       made.env.SENDER_INBOX = {
         idFromName: (name: string) => ({ name }),
         get: (id: { name: string }) => ({
-          fetch: async (url: string) => {
+          fetch: async (url: string, init?: RequestInit) => {
             made.routedTo.push(id.name);
             urls.push(url);
+            queued.push(JSON.parse(String(init?.body)));
             return Response.json({ outcome: "queued" });
           },
         }),
       } as unknown as DurableObjectNamespace;
-      return { ...made, urls };
+      return { ...made, urls, queued };
     };
     const inbound = (over: Record<string, unknown> = {}) =>
       JSON.stringify({
@@ -138,6 +140,30 @@ describe("worker", () => {
       expect((await worker.fetch(post(inbound(), SB_SECRET), e)).status).toBe(200);
       expect(routedTo).toEqual(["+15555550100"]);
       expect(urls).toEqual(["https://inbox/accept?origin=https%3A%2F%2Fagent.example"]);
+    });
+
+    it("queues an inline reply with the words it answers, read from Sendblue, and never the handle", async () => {
+      const { env: e, queued } = sbEnv();
+      e.SENDBLUE_API_KEY_ID = "kid";
+      e.SENDBLUE_API_SECRET = "ksecret";
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      const asked: string[] = [];
+      vi.stubGlobal("fetch", async (url: string) => {
+        asked.push(url);
+        return Response.json({
+          status: "OK",
+          data: { content: "Want me to book it?", number: "+15555550100", from_number: "+15555550199", is_outbound: true, group_id: "" },
+        });
+      });
+      try {
+        const body = inbound({ content: "yes", reply_to: { message_handle: "mh_0" } });
+        expect((await worker.fetch(post(body, SB_SECRET), e)).status).toBe(200);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+      expect(asked).toEqual(["https://api.sendblue.com/api/v2/messages/mh_0"]);
+      expect(queued[0]).toMatchObject({ text: "yes", quoted: "Want me to book it?" });
+      expect(queued[0]).not.toHaveProperty("replyTo");
     });
 
     it("refuses a wrong or missing secret, and everything when ours is not set", async () => {

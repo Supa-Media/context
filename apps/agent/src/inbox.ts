@@ -84,6 +84,8 @@ export const CARD_KEY = "card";
 export const CARD_EVERY_MS = 24 * 60 * 60 * 1000;
 /** A Sendblue chat's card is a message the person sees, so it goes once per chat, not daily. */
 export const cardSentKey = (chatId: string) => `card-sent:${chatId}`;
+/** A Sendblue chat's Name & Photo, once shared; tried again on the next day's offer until it is. */
+export const profileSharedKey = (chatId: string) => `profile-shared:${chatId}`;
 export type RememberedChat = { chatId: string; channel?: "simulator"; at: number };
 
 /** How long a text that is only a photo or file waits for its words. */
@@ -193,16 +195,20 @@ function lineDeps(deps: InboxDeps): LineDeps {
  * this runs after a reply was sent. The time is kept whether or not the line
  * accepted it, so a line with no card set up costs one request a day, not one
  * per text. On Sendblue the card is a .vcf in the chat (`card.ts`), so once it
- * went it never goes again in that chat.
+ * went it never goes again in that chat; the line's Name & Photo is shared
+ * apart from it, until Sendblue takes it once.
  */
 async function offerCard(storage: InboxStorage, chatId: string, deps: InboxDeps): Promise<void> {
   const last = await storage.get<number>(CARD_KEY);
   if (last !== undefined && deps.now() - last < CARD_EVERY_MS) return;
   const once = isSendblueChat(chatId);
-  if (once && (await storage.get<boolean>(cardSentKey(chatId)))) return;
+  const cardSent = once && (await storage.get<boolean>(cardSentKey(chatId))) === true;
+  const profileShared = once && (await storage.get<boolean>(profileSharedKey(chatId))) === true;
+  if (cardSent && profileShared) return;
   await storage.put(CARD_KEY, deps.now());
-  const shared = await lineFor(lineDeps(deps), chatId).shareContactCard(chatId);
-  if (once && shared) await storage.put(cardSentKey(chatId), true);
+  const line = lineFor(lineDeps(deps), chatId);
+  if (!cardSent && (await line.shareContactCard(chatId)) && once) await storage.put(cardSentKey(chatId), true);
+  if (once && !profileShared && (await line.shareProfile(chatId))) await storage.put(profileSharedKey(chatId), true);
 }
 
 /** Linq clears the typing bubble after about 85 seconds; this renews it sooner. */
@@ -338,6 +344,7 @@ async function fold(storage: InboxStorage, pending: Map<string, Pending>): Promi
     if (next && item.reply === undefined && next.reply === undefined && mediaOnly(item.message)) {
       next.message = {
         ...next.message,
+        ...(next.message.quoted ?? item.message.quoted ? { quoted: next.message.quoted ?? item.message.quoted } : {}),
         attachments: [...(item.message.attachments ?? []), ...(next.message.attachments ?? [])].slice(0, MAX_INBOUND_ATTACHMENTS),
       };
       await storage.put<Pending>(entries[index + 1][0], next);

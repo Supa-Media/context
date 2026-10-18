@@ -103,7 +103,12 @@ bucket. A chat id names its line (`sendblue:<line>:<phone>`), so nobody is texte
 first from a number they never texted. Sendblue only fetches pictures by URL, so
 one from notes is served for 30 minutes at a random 256-bit address
 (`media.ts`), and so is Tex's contact card, once per chat, as a `.vcf` for the
-chat's own line (`card.ts`). One webhook per line, or every text is answered twice. `TEX_LINE_NUMBERS` names the line(s) the "Text Tex at" SMS gives.
+chat's own line (`card.ts`); the line's iMessage Name & Photo ("Tex" and the
+icon) is set once and shared into each chat apart from it. An inline reply is
+answered with the words it replies to, read from Sendblue only when they are in
+that person's own chat on that line (`repliedToText`); commands are still read
+from the person's words alone. Checked against docs.sendblue.com on 2026-10-18.
+One webhook per line, or every text is answered twice. `TEX_LINE_NUMBERS` names the line(s) the "Text Tex at" SMS gives.
 Test: `deploy-plan.test.mjs`, "the texting assistant deploys only itself".
 
 ### Staging has a texts simulator, and nothing else does
