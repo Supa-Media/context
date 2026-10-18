@@ -19,8 +19,8 @@ itself no longer used anywhere. It had also kept Onest, which
 `apps/convex` cannot import from `apps/mobile`, so the values are restated in
 `lib/cardArt.ts` — and **the restatement is compared against the token file in
 `__tests__/cardArt.test.ts`**, which reads it as text and looks each colour up.
-That is the guard the first drift did not have. Petrol is the only hue on the
-card, which is the token file's rationing rule applied here: petrol means
+That is the guard the first drift did not have. Brand blue is the only hue on the
+card, which is the token file's rationing rule applied here: brand blue means
 "here, active, yours" and is never a status, and a card reports no status.
 
 **One face, and the mono is drawn in it.** The chip and the domain line wanted

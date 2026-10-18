@@ -1,7 +1,7 @@
 /**
  * The landing pages' sheet (`features/landing`): the Paper card's colours
  * (the link preview, PR #1237), a warm page with ink type and one blue square
- * for a full stop. The teal accent and the sign-up card stay the app's.
+ * for a full stop. The brand-blue accent and the sign-up card stay the app's.
  */
 export const lightLandingColors = {
   paper: "#EDE4D3",
