@@ -48,6 +48,8 @@ export const heldPrivacyValidator = v.object({
   etag: v.string(),
   folders: v.array(v.object({ prefix: v.string(), visibility: v.string() })),
   notes: v.array(v.object({ path: v.string(), visibility: v.string() })),
+  /** The rows' version, while the rows judge (`nodesPrivacy.heldFor`); without it every open threw. */
+  accessVersion: v.optional(v.number()),
 });
 
 export const openStorageBindingReturns = v.union(
