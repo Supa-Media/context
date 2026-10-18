@@ -45,7 +45,6 @@
 
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
-import { startOrganizerOnUpgrade } from "./lib/organizer/settings";
 import { internalMutation, internalQuery, mutation, query } from "../_generated/server";
 import { recordAudit } from "./lib/audit";
 import { requireWorkspaceRole } from "./lib/workspaceAuth";
@@ -55,6 +54,7 @@ import {
   planStatusFromStripe,
   type Entitlements,
   type PlanStatus,
+  foundingAtNoCharge,
 } from "./lib/premium";
 import { stagingStorageIsFree } from "./lib/managedStorage";
 import { isHandledEventType, type StripeEventFacts } from "./lib/stripe";
@@ -82,7 +82,8 @@ import {
   refreshNoteCountHandler,
   startFreeManagedHandler,
 } from "./lib/billing/freeManaged";
-import { storeSelectionAtUpgrade } from "./lib/billing/upgradeSelection";
+import { activateWithoutStripe, storeSelectionAtUpgrade } from "./lib/billing/upgradeSelection";
+import { foundingStatus } from "./lib/billing/founding";
 import { startManagedMoveIfChosen } from "./lib/billing/managedMove";
 
 /**
@@ -124,27 +125,10 @@ export const activateTestPremium = mutation({
       throw new ConvexError({ code: "FORBIDDEN", message: "This test upgrade is not available." });
     }
 
-    if ((await planFor(ctx, args.workspaceId))?.status === "active") return { active: true };
     // One plan: the upgrade fills in what it buys (`selectionAtUpgrade`).
-    const { plan, selected } = await storeSelectionAtUpgrade(ctx, args.workspaceId);
-    const now = Date.now();
-    await ctx.db.patch(plan._id, { status: "active", updatedAt: now });
-    await startOrganizerOnUpgrade(ctx, args.workspaceId, false, true);
-
-    if (selected.managedStorage) {
-      const binding = await ctx.db
-        .query("storageBindings")
-        .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-        .unique();
-      if (!bindingIsManaged(binding, args.workspaceId)) {
-        await ctx.db.patch(plan._id, { managedProvisioning: "running" });
-        await ctx.scheduler.runAfter(
-          0,
-          internal.functions.managedProvisioning.provisionManagedStorage,
-          { workspaceId: args.workspaceId },
-        );
-      }
-    }
+    const activated = await activateWithoutStripe(ctx, args.workspaceId);
+    if (activated === null) return { active: true };
+    const { selected } = activated;
     await recordAudit(ctx, {
       workspaceId: args.workspaceId,
       actorUserId: userId,
@@ -332,7 +316,10 @@ export const startCheckout = mutation({
       throw new ConvexError({ code: "STAGING_NO_PAYMENT", message: "Storage is free on staging. Reload the app to create your bucket without payment." });
     }
 
-    if (planIsPaying(statusOf(await planFor(ctx, args.workspaceId)))) {
+    // A founder at no charge may buy full Premium: that is what lifts the
+    // founders' note cap. Anyone actually paying is refused a second plan.
+    const current = await planFor(ctx, args.workspaceId);
+    if (planIsPaying(statusOf(current)) && !foundingAtNoCharge(current)) {
       throw new ConvexError({
         code: "ALREADY_PREMIUM",
         message: "This context is already on Premium.",
@@ -566,6 +553,11 @@ export const applyStripeEvent = internalMutation({
     } else {
       return { applied: false, reason: "not_paid" };
     }
+    // A founding plan is Premium whatever Stripe says: a founder who once
+    // subscribed, and cancels, keeps it (`lib/billing/founding.ts`). What
+    // Stripe said is kept beside it, so the console knows the portal is done.
+    const stripeStatus = status;
+    status = foundingStatus(plan, status);
 
     /*
       NOBODY EVER PAYS FOR NOTHING.
@@ -594,6 +586,7 @@ export const applyStripeEvent = internalMutation({
 
     await ctx.db.patch(plan._id, {
       status,
+      stripeStatus,
       managedStorage: restored?.managedStorage ?? plan.managedStorage,
       fastSearch: restored?.fastSearch ?? plan.fastSearch,
       stripeCustomerId: args.customerId ?? plan.stripeCustomerId,
@@ -609,7 +602,6 @@ export const applyStripeEvent = internalMutation({
       lastEventAt: args.createdSeconds,
       updatedAt: Date.now(),
     });
-    await startOrganizerOnUpgrade(ctx, plan.workspaceId, planIsPaying(plan.status), planIsPaying(status));
 
     await recordAudit(ctx, {
       workspaceId: plan.workspaceId,

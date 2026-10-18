@@ -77,11 +77,14 @@ export function siteMatches(sites, origin) {
   });
 }
 
-export function mayUse(meta, userId) {
-  return typeof userId === "string" && userId.length > 0 && Array.isArray(meta?.people) && meta.people.includes(userId);
-}
+/** Who may use a key, and how much of it: `access.js`. */
+export { mayUse, maySee } from "./access.js";
 
 async function readRecord(store, id) {
+  return (await readVersioned(store, id))?.record ?? null;
+}
+
+async function readVersioned(store, id) {
   const object = await store.get(entryKey(id));
   if (!object) return null;
   let record;
@@ -91,7 +94,7 @@ async function readRecord(store, id) {
     return null;
   }
   if (record?.format !== "context-vault-entry" || record.id !== id) return null;
-  return record;
+  return { record, etag: typeof object.etag === "string" && object.etag.length > 0 ? object.etag : null };
 }
 
 /** One entry's meta, or null when it is missing or does not open. */
@@ -152,6 +155,70 @@ export async function writeMeta(store, keys, workspaceId, id, meta) {
   if (record === null) throw new VaultSealError("not found");
   record.meta = await sealPart(keys, { workspaceId, entryId: id, part: "meta" }, meta);
   await store.put(entryKey(id), JSON.stringify(record));
+}
+
+/**
+ * Change one entry's meta only if nobody else changed it first: reads the
+ * entry fresh, asks `change` for the next meta (null changes nothing), and
+ * writes it on condition of the version it read, trying again on a clash.
+ * Answers `{ meta }` (the meta written, or null when `change` wrote nothing)
+ * or `{ conflict: true }`. Storage without conditional writes is refused by
+ * the caller, never written to blind here.
+ */
+export async function changeMeta(store, keys, workspaceId, id, change, { attempts = 3 } = {}) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const read = await readVersioned(store, id);
+    if (read === null || read.etag === null) return { conflict: true };
+    let meta;
+    try {
+      meta = await openPart(keys, { workspaceId, entryId: id, part: "meta" }, read.record.meta);
+    } catch {
+      return { conflict: true };
+    }
+    const next = change(meta);
+    if (next === null) return { meta: null };
+    const record = { ...read.record, meta: await sealPart(keys, { workspaceId, entryId: id, part: "meta" }, next) };
+    const written = await store.put(entryKey(id), JSON.stringify(record), { onlyIf: { etagMatches: read.etag } });
+    if (written) return { meta: next };
+  }
+  return { conflict: true };
+}
+
+/**
+ * Change one entry's meta and secret together, only if nobody else changed it
+ * first: `change(meta, secret)` answers the next `{ meta, secret }` (null
+ * changes nothing), written on condition of the version read and tried again
+ * on a clash, so an edit racing Cut off or a use can never put an old list of
+ * AIs back. Storage without conditional writes has nothing to condition on;
+ * there it writes once, as every other vault change on such storage does.
+ * Answers `{ written }` (what was written, or null) or `{ conflict: true }`.
+ * Control plane only (`apps/convex/functions/vault.ts`).
+ */
+export async function changeEntry(store, keys, workspaceId, id, change, { attempts = 3 } = {}) {
+  const conditional = store?.capabilities?.conditionalWrite !== false;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const read = await readVersioned(store, id);
+    if (read === null || (conditional && read.etag === null)) return { conflict: true };
+    let meta;
+    let secret;
+    try {
+      meta = await openPart(keys, { workspaceId, entryId: id, part: "meta" }, read.record.meta);
+      secret = await openPart(keys, { workspaceId, entryId: id, part: "secret" }, read.record.secret);
+    } catch {
+      return { conflict: true };
+    }
+    const next = change(meta, secret);
+    if (next === null) return { written: null };
+    const record = {
+      ...read.record,
+      meta: await sealPart(keys, { workspaceId, entryId: id, part: "meta" }, next.meta),
+      secret: await sealPart(keys, { workspaceId, entryId: id, part: "secret" }, next.secret),
+    };
+    const options = conditional ? { onlyIf: { etagMatches: read.etag } } : {};
+    if (await store.put(entryKey(id), JSON.stringify(record), options)) return { written: next };
+    if (!conditional) return { conflict: true };
+  }
+  return { conflict: true };
 }
 
 export async function deleteEntry(store, id) {

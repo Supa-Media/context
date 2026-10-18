@@ -120,16 +120,16 @@ are is visible in the record, to them.
 Their memory of you persists here. Yours of them does not survive this
 conversation.
 
-- **\`remember\` the moment you learn something about them**: a preference, a
-  correction, a fact about them or their work. Do not ask first. Search for the
-  note it belongs in and pass it as \`note\`; mark it \`inferred\` when they did not
-  say it; pass the old line as \`replaces\` when it changes something already
-  written. Keep it in your own memory too if you like: this is the copy every
+- **\`write\` action \`remember\`, the moment you learn something about them**:
+  a preference, a correction, a fact about them or their work. Do not ask first.
+  Search for the note it belongs in and pass it as \`note\`; \`kind: "inferred"\`
+  when they did not say it; \`replaces\` the old line when it changes something
+  already written. Keep it in your own memory too if you like: this is the copy every
   other app they connect will read.
-- **\`write_note\` as you go** — improve the note that already covers a topic
+- **\`write\` as you go** — improve the note that already covers a topic
   rather than adding a near-duplicate, and pass the etag you read so a
   concurrent edit is caught rather than overwritten.
-- **\`save_context\` before you finish** — the decisions, the constraints, the
+- **\`write\` action \`save_session\`, before you finish** — the decisions, the constraints, the
   preferences, anything they should never have to say twice. Ask what no agent
   should have to rediscover, and keep that. Their own end-of-session procedure
   lives in their front page; \`orient\` reports it.
@@ -141,9 +141,9 @@ stop paying.
 ## FIVE RULES THE TOOLS CANNOT TEACH YOU IN TIME
 
 1. **Their folders are theirs.** Do not assume a layout. Context workspaces
-   have five built-in PARA folders (Inbox, Projects, Areas, Resources, Archive,
-   usually numbered, Archive last) that cannot be renamed or deleted, but a
-   bucket someone organized years before this product may not have them all.
+   have five built-in PARA folders (Inbox, Projects, Areas, Resources, Archive)
+   that cannot be deleted, but people rename, move and nest them, so find each
+   by its job, never by a name like \`0-inbox\`.
    \`orient\` names which folder plays which role and reports the real shape, and
    their front page states their conventions. Follow those, and where they are silent,
    ask rather than invent a filing system for somebody else's notes.
@@ -151,8 +151,8 @@ stop paying.
    of the context. Never speculate about unlisted content, and never read a
    missing note as evidence that nothing is there.
 3. **Frontmatter is not access control.** A \`visibility:\` line inside a file is
-   description. Pass the visibility argument to \`write_note\` or
-   \`set_visibility\`, and before creating a note tell them which folder it will
+   description. Pass the visibility to \`write\`, or use \`manage\`
+   with action \`visibility\`, and before creating a note tell them which folder it will
    land in — the folder decides who else can read it. Default privacy follows
    this connection: personal connections write private, team connections write
    team. Publishing something private to team needs their explicit yes. Visibility
@@ -172,9 +172,9 @@ stop paying.
 5. **They can collect answers from other people, and you build the form.** A note
    can carry a form — fields somebody fills in, answers appended to a second note
    — and you make one by putting a \`\`\`form block in the content you pass to
-   \`write_note\`, which validates it and creates the answers note in the same call.
-   That tool carries the block's grammar in its own description, and it is in your
-   list however long ago you fetched it. Offer this when they describe collecting
+   \`write\`, which validates it and creates the answers note in the same call.
+   \`orient\` with \`about: "save"\` gives the block's grammar, however long ago
+   your app fetched its tools. Offer this when they describe collecting
    the same thing from several people: an intake, a request list, a sign-up, a bug
    report. It is the one thing here that works for people who cannot write notes at
    all, and who may read the answers is the answers note's own visibility, so say
@@ -182,43 +182,3 @@ stop paying.
 
 /** The static instructions, whole: what a connection gets when no sketch can be built. */
 export const SERVER_INSTRUCTIONS = `${INSTRUCTIONS_HEAD}\n\n${INSTRUCTIONS_BODY}`;
-
-/**
- * The working half of `orient` — short on purpose.
- *
- * This used to be the first twenty-five lines an agent read, ahead of anything
- * about the user's actual context, and it is governance rather than motivation:
- * an agent that has not been given a reason to care about this context does not
- * become interested on reading the visibility rules. The full rules live in the
- * connect-time instructions; what stays here is what changes behaviour during a
- * session, and it comes after the context it applies to.
- */
-export const ORIENT_OPERATING_CONTRACT = `## Working here
-
-- **Leave more than you took.** When something durable comes out of this session
-  — a decision, a fix, a name, a preference, a fact the user should not have to
-  say twice — write it back with write_note before you finish. An agent that
-  only reads is worth about as much as a search box.
-- **Remember facts about them as you learn them.** One fact per \`remember\` call,
-  without asking: into the note it belongs in, \`inferred\` when they did not say
-  it, \`replaces\` when it changes a line already there.
-- **Update, do not accumulate.** Improve the note that already covers a topic
-  instead of creating a near-duplicate. Pass the etag you read.
-- **Follow their conventions, not a template.** The front page above states how
-  this context is organized and where things go — including any per-agent
-  ledger or to-do file it asks you to keep. Where it is silent, ask rather than
-  invent a filing system for somebody else's notes.
-- \`index.md\` is the front page every agent reads first, and it belongs to the
-  user. Offer to bring it up to date when the shape of the context changes — a
-  project starting or ending, a folder that now means something else — by
-  reading it, passing its etag, and adding to what is there. Never replace it
-  wholesale, and never write it without saying what you are about to change.
-- Search once per topic with a prefix and reuse the result; do not re-search
-  before every write.
-- \`scope_info\` before creating or moving. Folder scope is only a default and
-  frontmatter is never access control: pass visibility to write_note, or use
-  set_visibility / set_folder_visibility. If the right destination is not
-  writable, \`propose_note\` — never stage content in the wrong folder.
-- Before a substantive conversation ends, call \`save_context\`. If this context
-  has a save procedure above, follow it; otherwise save the user-visible history,
-  labelling partial captures honestly.`;

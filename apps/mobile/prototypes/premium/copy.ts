@@ -56,7 +56,7 @@ export const pricing = {
   freeTitle: "Free, always",
   freePoints: [
     "Every app, every AI client, every note.",
-    "Storage you own — an S3 bucket or your Dropbox.",
+    "Storage you own — an S3-compatible bucket.",
     "Taking everything with you, whenever you want.",
   ],
   premiumTitle: "Premium",
@@ -90,10 +90,6 @@ export const firstRunA = {
     sub: "Storage you own outright. Works with R2, S3, B2 — and syncs to Obsidian.",
     badge: "Recommended",
   },
-  dropbox: {
-    title: "Connect Dropbox",
-    sub: "One click, free, and Context gets its own folder — the rest stays invisible to us.",
-  },
   managed: {
     title: "Let Context keep them",
     sub: "No account to make anywhere. We create the storage, we pay for it, and you can take it away at any time.",
@@ -122,7 +118,7 @@ export const firstRunB = {
     "Your notes are plain Markdown files, and they live in storage rather than " +
     "in an app. One question decides the rest of this step.",
   haveTitle: "I already have somewhere",
-  haveSub: "An S3 bucket — R2, S3, B2 — or a Dropbox account. Both are free to use with Context.",
+  haveSub: "An S3 bucket — R2, S3, B2. It is free to use with Context.",
   needTitle: "I don't, and I'd rather not set one up",
   needSub: `Context keeps them for you, ${PRICE} for this workspace. Yours to take away at any time.`,
   later: "I'll do this later",
@@ -258,7 +254,7 @@ export const provisionFailed = {
   retry: "Try again",
   fallbackTitle: "Or use storage of your own",
   fallbackBody:
-    "You can connect an S3 bucket or Dropbox instead, and switch to managed " +
+    "You can connect an S3 bucket instead, and switch to managed " +
     "storage later. If you do, tell us and we will stop the subscription — you " +
     "should not pay for storage you are not using.",
   fallback: "Connect storage I own",
@@ -269,7 +265,7 @@ export const provisionFailed = {
 /**
  * An existing context moving to managed storage.
  *
- * The screen the brief calls "existing BYO/Dropbox context switching to managed
+ * The screen the brief calls "existing BYO context switching to managed
  * storage", and the one with a genuine hazard behind it: this context already
  * has notes, in storage the customer controls, and a switch that silently left
  * them behind would be the worst thing this product could do.

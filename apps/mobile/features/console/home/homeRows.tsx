@@ -1,9 +1,10 @@
-import { Fragment, type ReactNode } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Children, Fragment, type ReactNode } from "react";
+import { Pressable, StyleSheet, View, type GestureResponderEvent } from "react-native";
+import { RowOpeningBar } from "../files/RowOpening";
 import { Icon, type IconName } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
 import { EmojiGlyph } from "../emoji/EmojiGlyph";
-import { fonts, radii, space, touchType } from "../../design/tokens";
+import { fonts, pointerType, radii, space, touchType } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { countLabel, type HomeFolder, type HomeNoteTile } from "./homeModel";
 
@@ -13,6 +14,18 @@ import { countLabel, type HomeFolder, type HomeNoteTile } from "./homeModel";
  * the row that opens the live map. Each draws what it is handed and decides
  * nothing about what goes on Home.
  */
+
+
+/** Where a row was held, so its menu opens under the finger. */
+export interface HoldPoint {
+  x: number;
+  y: number;
+}
+
+const held = (onLongPress: ((at: HoldPoint) => void) | undefined) =>
+  onLongPress === undefined
+    ? undefined
+    : (event: GestureResponderEvent) => onLongPress({ x: event.nativeEvent.pageX, y: event.nativeEvent.pageY });
 
 export function Section({ label, children }: { label: string; children: ReactNode }) {
   const styles = useThemedStyles(makeStyles);
@@ -26,12 +39,15 @@ export function Section({ label, children }: { label: string; children: ReactNod
   );
 }
 
-export function Card({ children }: { children: ReactNode[] }) {
+export function Card({ children }: { children: ReactNode }) {
   const styles = useThemedStyles(makeStyles);
+  // Flattened, so a list of rows and a last line after it are ruled alike.
+  const rows = Children.toArray(children);
   return (
     <View style={styles.card}>
-      {children.map((child, index) => (
+      {rows.map((child, index) => (
         <Fragment key={index}>
+          {/* Edge to edge, as the boards draw every list on the phone's top pages. */}
           {index === 0 ? null : <View style={styles.rule} />}
           {child}
         </Fragment>
@@ -48,25 +64,28 @@ export function Tile({
   onPress,
   onLongPress,
   style,
+  opening = false,
 }: {
   icon: IconName;
   title: string;
   shared: boolean;
   lines: string[];
   onPress: () => void;
-  onLongPress?: () => void;
+  onLongPress?: (at: HoldPoint) => void;
   style: object;
+  /** Its page is being read while Home stays on screen (`useShownEntry`): it says so (`RowOpening.tsx`). */
+  opening?: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   return (
     <Pressable
       onPress={onPress}
-      onLongPress={onLongPress}
+      onLongPress={held(onLongPress)}
       accessibilityRole="button"
       accessibilityLabel={[title, ...lines].join(", ")}
-      accessibilityHint={onLongPress === undefined ? undefined : "Hold to pin or unpin"}
-      style={({ pressed }) => [styles.tile, style, pressed ? styles.pressed : null]}
+      accessibilityHint={onLongPress === undefined ? undefined : "Hold for more actions"}
+      style={({ pressed }) => [styles.tile, style, pressed || opening ? styles.pressed : null]}
     >
       <Icon name={icon} size={20} color={colors.text2} />
       <View style={styles.tileTitleRow}>
@@ -80,6 +99,7 @@ export function Tile({
           {line}
         </Text>
       ))}
+      {opening ? <RowOpeningBar /> : null}
     </Pressable>
   );
 }
@@ -89,11 +109,14 @@ export function NoteRow({
   when,
   onPress,
   onLongPress,
+  opening = false,
 }: {
   note: HomeNoteTile;
   when: string;
   onPress: () => void;
-  onLongPress?: () => void;
+  onLongPress?: (at: HoldPoint) => void;
+  /** See `Tile`. */
+  opening?: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -101,10 +124,10 @@ export function NoteRow({
   return (
     <Pressable
       onPress={onPress}
-      onLongPress={onLongPress}
+      onLongPress={held(onLongPress)}
       accessibilityRole="button"
       accessibilityLabel={[note.title, detail, when].filter(Boolean).join(", ")}
-      style={({ pressed }) => [styles.row, pressed ? styles.rowPressed : null]}
+      style={({ pressed }) => [styles.row, pressed || opening ? styles.rowPressed : null]}
     >
       <Icon name="file" size={20} color={colors.text2} />
       <View style={styles.rowText}>
@@ -112,7 +135,9 @@ export function NoteRow({
           <Text style={styles.rowTitle} numberOfLines={1}>
             {note.title}
           </Text>
-          <Text variant="meta">{when}</Text>
+          <Text variant="meta" numberOfLines={1} style={styles.rowWhen}>
+            {when}
+          </Text>
         </View>
         {detail === "" ? null : (
           <Text variant="meta" numberOfLines={1}>
@@ -120,38 +145,50 @@ export function NoteRow({
           </Text>
         )}
       </View>
+      {opening ? <RowOpeningBar /> : null}
     </Pressable>
   );
 }
 
-/** The live map's row on Home: a place, like a folder, that opens the map. */
-export function MapPlace({ onPress }: { onPress: () => void }) {
+/**
+ * A pinned note on Folders (board 2): its name, then when it changed and the
+ * folder it is in, with no icon — the same row Inbox draws a loose note as.
+ */
+export function PinnedNote({
+  title,
+  when,
+  place,
+  onPress,
+  onLongPress,
+  opening = false,
+}: {
+  title: string;
+  when: string;
+  place: string;
+  onPress: () => void;
+  onLongPress?: (at: HoldPoint) => void;
+  opening?: boolean;
+}) {
   const styles = useThemedStyles(makeStyles);
-  const colors = useColors();
   return (
-    <Card>
-      {[
-        <Pressable
-          key="map"
-          onPress={onPress}
-          accessibilityRole="button"
-          accessibilityLabel="Map, who is working in this workspace, live"
-          style={({ pressed }) => [styles.row, pressed ? styles.rowPressed : null]}
-          testID="phone-home-map"
-        >
-          <Icon name="liveMap" size={20} color={colors.text2} />
-          <View style={styles.folderName}>
-            <Text style={styles.rowTitle} numberOfLines={1}>
-              Map
-            </Text>
-          </View>
-          <Text variant="meta" numberOfLines={1} style={styles.counts}>
-            Who is working, live
-          </Text>
-          <Icon name="chevronRight" size={16} color={colors.muted} />
-        </Pressable>,
-      ]}
-    </Card>
+    <Pressable
+      onPress={onPress}
+      onLongPress={held(onLongPress)}
+      accessibilityRole="button"
+      accessibilityLabel={[title, when, place].filter(Boolean).join(", ")}
+      style={({ pressed }) => [styles.lineRow, pressed || opening ? styles.rowPressed : null]}
+      testID="phone-home-pinned"
+    >
+      <Text style={styles.lineTitle} numberOfLines={1}>
+        {title}
+      </Text>
+      <Text style={styles.lineSub} numberOfLines={1}>
+        {when === "" ? null : <Text style={styles.lineWhen}>{when}</Text>}
+        {when === "" || place === "" ? "" : "\u2002 "}
+        {place}
+      </Text>
+      {opening ? <RowOpeningBar /> : null}
+    </Pressable>
   );
 }
 
@@ -160,23 +197,28 @@ export function FolderLine({
   icon = null,
   onPress,
   onLongPress,
+  opening = false,
 }: {
   folder: HomeFolder;
   /** The emoji this folder was given, drawn in place of the folder icon. `null` for the plain one. */
   icon?: string | null;
   onPress: () => void;
-  onLongPress?: () => void;
+  onLongPress?: (at: HoldPoint) => void;
+  /** See `Tile`. */
+  opening?: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const counts = countLabel(folder.notes, folder.folders);
+  // Board 2 draws the number alone: "48 ›". The words stay for a screen reader.
+  const count = folder.notes === 0 && folder.folders === 0 ? "Empty" : String(folder.notes);
   return (
     <Pressable
       onPress={onPress}
-      onLongPress={onLongPress}
+      onLongPress={held(onLongPress)}
       accessibilityRole="button"
       accessibilityLabel={`${folder.title}${folder.shared ? ", shared" : ""}, ${counts}`}
-      style={({ pressed }) => [styles.row, pressed ? styles.rowPressed : null]}
+      style={({ pressed }) => [styles.row, pressed || opening ? styles.rowPressed : null]}
       testID="phone-home-folder"
     >
       {icon === null ? (
@@ -191,41 +233,16 @@ export function FolderLine({
         />
       )}
       <View style={styles.folderName}>
-        <Text style={styles.rowTitle} numberOfLines={1}>
+        <Text style={[styles.rowTitle, styles.folderTitle]} numberOfLines={1}>
           {folder.title}
         </Text>
-        {folder.shared ? <Icon name="people" size={14} color={colors.markTeam} /> : null}
       </View>
-      <Text variant="meta" numberOfLines={1} style={styles.counts}>
-        {counts}
+      {folder.shared ? <Icon name="people" size={15} color={colors.markTeam} /> : null}
+      <Text numberOfLines={1} style={styles.counts}>
+        {count}
       </Text>
       <Icon name="chevronRight" size={16} color={colors.muted} />
-    </Pressable>
-  );
-}
-
-/**
- * "Add a folder", as the last line of All folders: a FolderLine's shape with
- * the folder-plus glyph and muted words, because it is an action on the
- * workspace rather than one of its folders.
- */
-export function AddFolderLine({ onPress }: { onPress: () => void }) {
-  const styles = useThemedStyles(makeStyles);
-  const colors = useColors();
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel="Add a folder"
-      style={({ pressed }) => [styles.row, pressed ? styles.rowPressed : null]}
-      testID="phone-home-add-folder"
-    >
-      <Icon name="folderPlus" size={20} color={colors.muted} />
-      <View style={styles.folderName}>
-        <Text style={styles.addLabel} numberOfLines={1}>
-          Add a folder
-        </Text>
-      </View>
+      {opening ? <RowOpeningBar /> : null}
     </Pressable>
   );
 }
@@ -236,7 +253,7 @@ const makeStyles = (colors: Colors) =>
     section: { gap: space.x2 },
     sectionLabel: { paddingHorizontal: space.x1 },
     tile: {
-      backgroundColor: colors.pageSurface,
+      backgroundColor: colors.cardSurface,
       borderRadius: radii.sheet,
       padding: space.x4,
       gap: space.x1,
@@ -250,8 +267,8 @@ const makeStyles = (colors: Colors) =>
       color: colors.text,
       flexShrink: 1,
     },
-    card: { backgroundColor: colors.pageSurface, borderRadius: radii.sheet, overflow: "hidden" },
-    rule: { height: 1, marginLeft: space.x4 + 20 + space.x3, backgroundColor: colors.line },
+    card: { backgroundColor: colors.cardSurface, borderRadius: radii.sheet, overflow: "hidden" },
+    rule: { height: 1, backgroundColor: colors.line },
     row: {
       flexDirection: "row",
       alignItems: "center",
@@ -264,9 +281,15 @@ const makeStyles = (colors: Colors) =>
     rowText: { flex: 1, gap: 2 },
     rowTop: { flexDirection: "row", alignItems: "baseline", gap: space.x2 },
     rowTitle: { flexShrink: 1, flexGrow: 1, fontFamily: fonts.body, fontSize: touchType.ui, color: colors.text },
+    /** "You edited Thu" stays one line beside a long title; the title gives way. */
+    rowWhen: { flexShrink: 0 },
     folderName: { flex: 1, flexDirection: "row", alignItems: "center", gap: space.x1 + 2 },
     /** Where the 20pt folder icon sits, so a row with an emoji lines up with one without. */
-    addLabel: { color: colors.muted, fontFamily: fonts.body, fontSize: touchType.ui, lineHeight: 22 },
     folderEmoji: { width: 20, textAlign: "center", fontSize: touchType.h3, lineHeight: 24 },
-    counts: { flexShrink: 0 },
+    counts: { flexShrink: 0, fontFamily: fonts.body, fontSize: pointerType.lede, color: colors.muted },
+    folderTitle: { fontSize: touchType.body, fontWeight: "600" },
+    lineRow: { paddingHorizontal: space.x4, paddingVertical: space.x3, gap: 2, minHeight: 60, justifyContent: "center" },
+    lineTitle: { fontFamily: fonts.body, fontSize: touchType.body, fontWeight: "600", color: colors.text },
+    lineSub: { fontFamily: fonts.body, fontSize: pointerType.lede, color: colors.muted },
+    lineWhen: { fontWeight: "600", color: colors.text },
   });

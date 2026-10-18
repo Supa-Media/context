@@ -1,24 +1,27 @@
-import { useRef, useState, type ReactNode } from "react";
-import { Modal, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
+import type { ReactNode } from "react";
+import { Pressable, StyleSheet, View } from "react-native";
 import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
-import { layout, radii, space } from "../../design/tokens";
+import { fonts, layout, radii, space, touchType } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors, type Shadows } from "../../design/theme";
-import { cardPlacement, type AccountCardAnchor } from "../AccountCard";
 import type { PhoneBackTarget } from "./phoneBack";
 
 /**
- * The phone's top-left on any page below Home: a round ‹ that opens the levels
- * above the page.
+ * The phone's top-left on any page below Home: a round ‹ that goes up one
+ * level.
  *
- * The owner's redesign of the note's top bar (2026-10-13): the capsule that
- * spelled out "‹ health" looked ugly, and there was no way Home but backing out
- * one level at a time. They picked the board where pressing ‹ opens a short
- * menu — Home, then each folder down to the page's own — so the bar is the same
- * round key as the ••• beside it, and Home is always the menu's first row.
+ * The owner's second word on it (2026-10-15): *"Back button should just go
+ * back, no need to click into specific folder i want to go back to. If needed
+ * il click back three times to get to root folder"*. So one press is one level
+ * — a note to its folder, a folder to the one it is in, the top to Home — and
+ * there is no menu of levels to choose from (that was 2026-10-13's board C).
+ * Holding it goes straight Home (2026-10-16), as does a swipe in from the
+ * left edge (`EdgeSwipeHome`).
  *
- * With one level (a page at the top of the workspace, or the map) there is
- * nothing to choose between, and ‹ goes there at once.
+ * Going back to one of the two top pages, it says which beside the ‹ — "‹
+ * Inbox" on Folders, "‹ Folders" on a folder at the top (board 2 of
+ * `meeting-2026-10-17/phone-inbox/`). Deeper, a folder's name can be any
+ * length, so the ‹ stays on its own there.
  *
  * `after` is anything that has to stay beside it: a signed-out visitor's Sign
  * in, which is the one call to action the top bar carries and has nowhere else
@@ -36,101 +39,39 @@ export function PhoneBack({
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
-  const triggerRef = useRef<View>(null);
-  const [anchor, setAnchor] = useState<AccountCardAnchor | null>(null);
-  const only = levels.length === 1 ? levels[0] : null;
-  const nearest = levels[levels.length - 1];
-
-  const press = () => {
-    if (only !== null) return onGo(only);
-    // Opened under the button at once, then moved onto its measured box: the
-    // measure answers asynchronously on the web.
-    setAnchor({ x: space.x3, y: 0, width: layout.minTouchTarget, height: layout.minTouchTarget });
-    triggerRef.current?.measureInWindow((x, y, width, height) => {
-      setAnchor((was) => (was === null ? was : { x, y, width, height }));
-    });
-  };
-
-  const go = (target: PhoneBackTarget) => {
-    setAnchor(null);
-    onGo(target);
-  };
-
+  const nearest = levels[levels.length - 1]!;
+  const home = levels[0]!;
   return (
     <View style={styles.row}>
-      <View ref={triggerRef}>
-        <Pressable
-          onPress={press}
-          accessibilityRole="button"
-          accessibilityLabel={only !== null ? `Back to ${only.label}` : `Back to ${nearest.label}, or further up`}
-          aria-haspopup={only !== null ? undefined : "menu"}
-          aria-expanded={only !== null ? undefined : anchor !== null}
-          style={({ pressed }) => [styles.key, pressed ? styles.pressed : null]}
-          testID="phone-back"
-        >
-          <Icon name="chevronLeft" size={20} color={colors.accent} />
-        </Pressable>
-      </View>
-      {after}
-      {anchor === null ? null : (
-        <LevelsMenu levels={levels} anchor={anchor} onGo={go} onDismiss={() => setAnchor(null)} />
-      )}
-    </View>
-  );
-}
-
-/**
- * The levels, dropping from the button. A `Modal` for the same dismissal every
- * other card here has: a press outside, Escape on the web, Back on Android.
- * Rows are 44pt, because this is only ever under a thumb.
- */
-function LevelsMenu({
-  levels,
-  anchor,
-  onGo,
-  onDismiss,
-}: {
-  levels: PhoneBackTarget[];
-  anchor: AccountCardAnchor;
-  onGo: (target: PhoneBackTarget) => void;
-  onDismiss: () => void;
-}) {
-  const styles = useThemedStyles(makeStyles);
-  const colors = useColors();
-  const view = useWindowDimensions();
-  const box = cardPlacement(anchor, view);
-  return (
-    <Modal transparent visible animationType="none" onRequestClose={onDismiss}>
       <Pressable
-        style={StyleSheet.absoluteFill}
-        onPress={onDismiss}
-        accessibilityLabel="Close"
-        testID="phone-back-scrim"
-      />
-      <View role="menu" aria-label="Go back to" style={[styles.menu, box]} testID="phone-back-menu">
-        {levels.map((level) => (
-          <Pressable
-            key={level.folder ?? ""}
-            role="menuitem"
-            accessibilityLabel={level.label}
-            onPress={() => onGo(level)}
-            style={({ pressed }) => [styles.item, pressed ? styles.itemPressed : null]}
-            testID={`phone-back-level-${level.folder ?? "home"}`}
-          >
-            <Icon name={level.folder === null ? "home" : "folder"} size={18} color={colors.muted} />
-            <Text variant="rowTitle" numberOfLines={1} style={styles.itemLabel}>
-              {level.label}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-    </Modal>
+        onPress={() => onGo(nearest)}
+        // Held: straight to Notes, the phone's first page, however deep (owner,
+        // 2026-10-16). One level below it is the same place a press goes.
+        onLongPress={() => onGo(home)}
+        accessibilityRole="button"
+        accessibilityLabel={`Back to ${nearest.label}`}
+        accessibilityHint={home === nearest ? undefined : `Hold to go to ${home.label}`}
+        style={({ pressed }) => [styles.press, pressed ? styles.pressed : null]}
+        testID="phone-back"
+      >
+        <View style={styles.key}>
+          <Icon name="chevronLeft" size={20} color={colors.accent} />
+        </View>
+        {nearest.view === undefined ? null : (
+          <Text style={styles.label} numberOfLines={1}>
+            {nearest.label}
+          </Text>
+        )}
+      </Pressable>
+      {after}
+    </View>
   );
 }
 
 const makeStyles = (colors: Colors, shadows: Shadows) =>
   StyleSheet.create({
     row: { flexDirection: "row", alignItems: "center", gap: space.x2, minWidth: 0, flexShrink: 1 },
+    press: { flexDirection: "row", alignItems: "center", gap: space.x2, minHeight: layout.minTouchTarget },
     key: {
       alignItems: "center",
       justifyContent: "center",
@@ -141,24 +82,6 @@ const makeStyles = (colors: Colors, shadows: Shadows) =>
       backgroundColor: colors.chrome,
       boxShadow: shadows.floating,
     },
+    label: { fontFamily: fonts.body, fontSize: touchType.lede, color: colors.accentText },
     pressed: { opacity: 0.7 },
-    menu: {
-      position: "absolute",
-      paddingVertical: space.x1,
-      borderWidth: 1,
-      borderColor: colors.lineStrong,
-      borderRadius: radii.xl,
-      backgroundColor: colors.surface3,
-      boxShadow: "0 24px 60px -18px rgba(0,0,0,.9)",
-      overflow: "hidden",
-    },
-    item: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: space.x3,
-      minHeight: layout.minTouchTarget,
-      paddingHorizontal: space.x4,
-    },
-    itemPressed: { backgroundColor: colors.surface2 },
-    itemLabel: { flexShrink: 1 },
   });

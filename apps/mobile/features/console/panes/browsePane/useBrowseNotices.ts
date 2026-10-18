@@ -9,7 +9,6 @@ import {
 import type { ConsoleData, selectedContext } from "../../types";
 import { contextIntro, useContextIntro } from "../../contextIntro";
 import { contextSetupFor, setupPromptVisible } from "../../setup";
-import { useOrganizerHasNotice, type NoticePlace } from "../../../organizer/Notices";
 import { useInAppMessage } from "../../../messages/useInAppMessage";
 import { missingFoldersEligible } from "../../files/mainFolderOffers";
 
@@ -151,20 +150,6 @@ export function useBrowseNotices({
    * noise at the worst possible moment.
    */
   /*
-    Dropbox support is ending (`docs/decisions/billing.md`), so an owner of a
-    Dropbox workspace is asked to move off it: to a bucket of theirs, or to
-    Context storage. Owner-only, because only an owner can move storage
-    (`storageActions` is absent for anybody else), and not while a move is
-    already running. Answered on the account and asked again two weeks later
-    (`IN_APP_MESSAGES`), with no device copy, which would keep it away for good.
-  */
-  const dropboxEnding = useInAppMessage({
-    id: "dropbox-ending",
-    workspaceId: files.contextId,
-    eligible: dropboxEndingEligible(data),
-    deviceKey: null,
-  });
-  /*
     "Add the five main folders?": the owner of a real workspace whose root
     lacks one of the main folders; never the homepage's visitor, the demo,
     or a website page. Answered once, either way, on the account
@@ -284,18 +269,13 @@ export function useBrowseNotices({
     [files.contextMoves, dismissedMoves],
   );
 
-  // Auto-organize's lines: the one-time notice, and the phone's way into the review list.
-  const organizerNotice = useOrganizerHasNotice(organizerPlace(files, compact));
-
   const hasNotice =
-    organizerNotice ||
     introVisible ||
     setupPromptVisible(setup) ||
     noBucket ||
     manifestBroken ||
     files.notice !== null ||
     moveNotices.length > 0 ||
-    dropboxEnding.visible ||
     missingFolders.visible ||
     storageMigration.visible;
 
@@ -305,7 +285,6 @@ export function useBrowseNotices({
     setup,
     layingOut,
     storageMigration,
-    dropboxEnding,
     missingFolders,
     intro,
     introAnswer,
@@ -314,26 +293,6 @@ export function useBrowseNotices({
     moveNotices,
     hasNotice,
   };
-}
-
-/**
- * Whether the "Dropbox support is ending" notice may be asked for: an owner
- * (the only role with storage controls), of a workspace on Dropbox, with no
- * move already copying it somewhere.
- */
-export function dropboxEndingEligible(
-  data: Pick<ConsoleData, "storage" | "storageActions">,
-): boolean {
-  return (
-    data.storageActions !== undefined &&
-    data.storage?.provider === "dropbox" &&
-    data.storage.handoffStatus !== "copying"
-  );
-}
-
-/** Where the band is, for auto-organize: the phone's entry line is the workspace page's. */
-export function organizerPlace(files: FileBrowser, compact: boolean): NoticePlace {
-  return { compact, atRoot: files.selectedPath === null || files.selectedPath === "" };
 }
 
 /** What `useBrowseNotices` hands back. */

@@ -25,8 +25,10 @@ import type {
   QueryCtx,
 } from "../../../_generated/server";
 import { recordAudit } from "../audit";
+import { clearanceOf } from "../clearance";
 import { callerId } from "../filesFns/access";
 import { ensureWebsitePublicationRule } from "./publication";
+import { visibleTreePaths } from "./treeFacts";
 import { requireWorkspaceAccess, requireWorkspaceRole } from "../workspaceAuth";
 
 const STARTER_PATH = `${DEFAULT_WEBSITE_ROOT}/index.md`;
@@ -236,18 +238,17 @@ export async function ensureWebsiteStarter(
     actorName?: string | null;
   },
 ): Promise<"created" | "existing"> {
-  try {
-    await ctx.runAction(internal.functions.files.runFileOperation, {
-      workspaceId: args.workspaceId,
-      scope: args.scope,
-      grantedNames: args.grantedNames,
-      actorName: args.actorName,
-      operation: { kind: "read", path: STARTER_PATH },
-    });
-    return "existing";
-  } catch (error) {
-    if (codeOf(error) !== "FILE_NOT_FOUND") throw error;
-  }
+  // Whether the homepage exists, at this caller's own clearance, is the tree's
+  // answer: an existing homepage is never opened. A tree that cannot say (a new
+  // workspace's still filling) falls through to the write below, which only
+  // creates: a page already there answers CONFLICT, read as "existing".
+  const visible = await visibleTreePaths(
+    ctx,
+    args.workspaceId,
+    clearanceOf(args.scope, args.grantedNames),
+    [STARTER_PATH],
+  );
+  if (visible?.has(STARTER_PATH)) return "existing";
 
   try {
     const written = await ctx.runAction(

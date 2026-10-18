@@ -9,7 +9,9 @@
  * the same commit as the code, so they stay in the repository. A round's
  * scores are something a person reads and compares, so they go back to
  * `ai/results/` by themselves; the answers and the key stay the Action's
- * artifacts (big, and the key never sits beside the result).
+ * artifacts (big, and the key never sits beside the result). The one
+ * exception is the replies note (`./replies.mjs`): a bounded few replies,
+ * only where the setups differ, for Compare in the console.
  *
  * The connection is an ordinary OAuth grant of a test account that is a
  * member of `@context-lc`, made once by a person with `pnpm ai connect` and
@@ -34,12 +36,19 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
+import { repliesName } from "./replies.mjs";
 import { section, summaryMarkdown } from "./summary.mjs";
 
 /** The workspace the setups and the results live in, addressed as the MCP endpoint. */
 export const DEFAULT_ENDPOINT = "https://mcp.context.lc/@context-lc/mcp";
 export const SETUPS_FOLDER = "ai/setups";
 export const RESULTS_FOLDER = "ai/results";
+/** What the product runs today: `<job>.md` and the skills it names (`src/agent/production.js`). */
+export const PRODUCTION_FOLDER = "ai/production";
+/** The test lists a person edits; each replaces the repository's copy of the same name. */
+export const TESTS_FOLDER = "ai/tests";
+/** The name the live setup runs under, so a round can always measure what people get. */
+export const LIVE_SETUP = "production";
 /** Read the setups, write the scores; never the private tier. */
 export const RUNNER_SCOPE = "context:read context:write";
 export const RUNNER_CLIENT_NAME = "Benchmark runner (GitHub Actions)";
@@ -181,41 +190,82 @@ export function splitNote(text) {
 }
 
 /**
- * The setups for a job, from `ai/setups/<job>/` in Context into the bench
- * folder's `setups/<job>/`, replacing whatever was there so a setup retired
- * in Context is not still run from a stale file. `about.md` is a folder's
- * description, never a setup.
+ * Everything a round of `job` reads from Context, into the bench folder,
+ * replacing what was there so nothing retired in Context still runs from a
+ * stale file. `about.md` is a folder's description and is never pulled.
+ *
+ *  - `ai/setups/<job>/*.md` into `setups/<job>/`: the setups being tried.
+ *  - `ai/production/<job>.md` into `setups/<job>/production.md`: the live
+ *    setup, so a round measures what people get today (decided by the owner,
+ *    2026-10-16: tests run "with the latest agents and the latest skills").
+ *    It wins over a setup someone named `production`.
+ *  - `ai/production/skills/` into `setups/<job>/skills/`: the skills the live
+ *    setup reads. A skill only in `ai/setups/<job>/skills/` is added beside
+ *    them for a setup trying something new; a copy there of a live skill is
+ *    ignored, because a round must never grade a stale copy as the live one.
+ *  - `ai/tests/*.md` into `tests/`: each replaces the repository's test of the
+ *    same name, so a test edited in the app is the one that runs. The
+ *    repository's copies stay, for a run with no connection.
  */
 export async function pullSetups({ job, dir, connection, fetchImpl = fetch }) {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(job)) throw new Error(`not a job name: ${job}`);
   const prefix = `${SETUPS_FOLDER}/${job}`;
-  const listed = await callTool(connection, "list_notes", { prefix }, fetchImpl);
-  if (listed.isError) throw new Error(`list_notes ${prefix}: ${listed.text}`);
-  const paths = notePaths(listed.text).filter((path) => dirname(path) === prefix && basename(path) !== "about.md");
-  if (paths.length === 0) throw new Error(`no setups in ${prefix}/ in Context: write one there (the production file's format) and run again`);
+  const listed = await listPaths(connection, prefix, fetchImpl);
+  const production = await listPaths(connection, PRODUCTION_FOLDER, fetchImpl);
+  const livePath = `${PRODUCTION_FOLDER}/${job}.md`;
+  const live = production.includes(livePath);
+  const paths = listed.filter((path) => dirname(path) === prefix && basename(path) !== "about.md" && basename(path) !== `${LIVE_SETUP}.md`);
+  // A job with no prompt (transcription, connected AIs) has only its test to pull.
+  const testPath = `${TESTS_FOLDER}/${job}.md`;
+  const hasTest = (await listPaths(connection, TESTS_FOLDER, fetchImpl)).includes(testPath);
+  if (paths.length === 0 && !live && !hasTest) throw new Error(`no setups in ${prefix}/ or ${livePath} in Context, and no ${testPath}: write one there (the production file's format) and run again`);
   const folder = join(dir, "setups", job);
   await rm(folder, { recursive: true, force: true });
   await mkdir(folder, { recursive: true });
   const names = [];
   for (const path of paths) {
-    const read = await callTool(connection, "read_note", { path }, fetchImpl);
-    if (read.isError) throw new Error(`read_note ${path}: ${read.text}`);
-    const { content } = splitNote(read.text);
-    await writeFile(join(folder, basename(path)), content.endsWith("\n") ? content : `${content}\n`);
+    await writeFile(join(folder, basename(path)), await readContent(connection, path, fetchImpl));
     names.push(basename(path, ".md"));
   }
-  // The job's task skills (`src/agent/skills.js`), `<job>/skills/`, beside them.
-  const skillPrefix = `${prefix}/skills`;
-  const skills = [];
-  for (const path of notePaths(listed.text).filter((p) => dirname(p) === skillPrefix && basename(p) !== "about.md")) {
-    const read = await callTool(connection, "read_note", { path }, fetchImpl);
-    if (read.isError) throw new Error(`read_note ${path}: ${read.text}`);
-    const { content } = splitNote(read.text);
-    await mkdir(join(folder, "skills"), { recursive: true });
-    await writeFile(join(folder, "skills", basename(path)), content.endsWith("\n") ? content : `${content}\n`);
-    skills.push(basename(path, ".md"));
+  if (live) {
+    await writeFile(join(folder, `${LIVE_SETUP}.md`), await readContent(connection, livePath, fetchImpl));
+    names.push(LIVE_SETUP);
   }
-  return { folder, names, skills };
+  // The live skills first, then any skill only a setup being tried has.
+  const skills = [];
+  const skillSources = [
+    ...production.filter((p) => dirname(p) === `${PRODUCTION_FOLDER}/skills`),
+    ...listed.filter((p) => dirname(p) === `${prefix}/skills`),
+  ].filter((p) => basename(p) !== "about.md");
+  for (const path of skillSources) {
+    const name = basename(path, ".md");
+    if (skills.includes(name)) continue;
+    await mkdir(join(folder, "skills"), { recursive: true });
+    await writeFile(join(folder, "skills", basename(path)), await readContent(connection, path, fetchImpl));
+    skills.push(name);
+  }
+  const tests = [];
+  for (const path of (await listPaths(connection, TESTS_FOLDER, fetchImpl)).filter((p) => dirname(p) === TESTS_FOLDER && basename(p) !== "about.md")) {
+    await mkdir(join(dir, "tests"), { recursive: true });
+    await writeFile(join(dir, "tests", basename(path)), await readContent(connection, path, fetchImpl));
+    tests.push(basename(path, ".md"));
+  }
+  return { folder, names, skills, tests };
+}
+
+/** The note paths under `prefix`, at any depth. A folder that is not there is empty. */
+async function listPaths(connection, prefix, fetchImpl) {
+  const listed = await callTool(connection, "list_notes", { prefix }, fetchImpl);
+  if (listed.isError) throw new Error(`list_notes ${prefix}: ${listed.text}`);
+  return notePaths(listed.text);
+}
+
+/** One note's text, ending in a newline. */
+async function readContent(connection, path, fetchImpl) {
+  const read = await callTool(connection, "read_note", { path }, fetchImpl);
+  if (read.isError) throw new Error(`read_note ${path}: ${read.text}`);
+  const { content } = splitNote(read.text);
+  return content.endsWith("\n") ? content : `${content}\n`;
 }
 
 /**
@@ -228,8 +278,12 @@ export function scoresNote(raw, { runUrl = null, date = new Date().toISOString()
   const pick = (key) => front.match(new RegExp(`^${key}: (.*)$`, "m"))?.[1] ?? null;
   const job = pick("job") ?? "unknown";
   const lines = ["---", "role: benchmark-scores", `job: ${job}`, `date: ${pick("date") ?? date}`];
+  if (pick("test")) lines.push(`test: ${pick("test")}`);
   if (pick("code_commit")) lines.push(`code_commit: ${pick("code_commit")}`);
   if (pick("status")) lines.push(`status: ${pick("status")}`);
+  // The live setup's row, so a list of results (admin/AI) reads it without opening the note.
+  const live = liveScoreRow(raw);
+  if (live) lines.push(`setup: ${live.setup}`, `score: ${live.score}`, `gates: ${live.gates}`, `good_enough: ${live.goodEnough}`);
   if (runUrl) lines.push(`run: ${runUrl}`);
   lines.push("---", "", `# ${job}, ${pick("date") ?? date}: scores`, "");
   lines.push(
@@ -242,6 +296,31 @@ export function scoresNote(raw, { runUrl = null, date = new Date().toISOString()
   const misses = section(raw, "Misses");
   if (misses) lines.push("", misses);
   return `${lines.join("\n")}\n`;
+}
+
+/**
+ * From the latest "## Scored by" table: the `production` setup's row, or the
+ * first row when the round did not run the live setup. `null` before scoring.
+ */
+export function liveScoreRow(raw) {
+  const at = raw.lastIndexOf("\n## Scored by ");
+  if (at === -1) return null;
+  // The first table only: the case-by-case table below it has case rows, not setup rows.
+  const rows = [];
+  let inTable = false;
+  for (const line of raw.slice(at).split("\n")) {
+    if (!line.startsWith("| ")) {
+      if (inTable) break;
+      continue;
+    }
+    inTable = true;
+    if (line.startsWith("| setup ") || line.startsWith("| ---")) continue;
+    rows.push(line.slice(2, -2).split(" | ").map((cell) => cell.trim()));
+  }
+  const row = rows.find((cells) => cells[0] === LIVE_SETUP) ?? rows[0];
+  if (!row || row.length < 3) return null;
+  const clean = (value) => String(value ?? "").replace(/[^\w %.(),-]/g, "").trim();
+  return { setup: clean(row[0]), score: clean(row[1]), gates: clean(row[2]), goodEnough: clean(row[8] ?? "") || "unknown" };
 }
 
 /** Where a result's scores note goes: beside the results, named after the result. */
@@ -266,6 +345,48 @@ export async function publishResult({ result, runUrl = null, connection, fetchIm
       summary: `benchmark scores for ${basename(result, ".md")}`,
       ...(etag ? { expected_etag: etag } : {}),
     },
+    fetchImpl,
+  );
+  if (written.isError) throw new Error(`write_note ${path}: ${written.text}`);
+  await publishReplies({ result, connection, fetchImpl });
+  return path;
+}
+
+/**
+ * Write a drafted experiment into `ai/setups/<job>/` (`bench/improve.mjs`),
+ * where the AI tab lists it beside live and a person runs or archives it. A
+ * new note only: a draft never replaces a setup someone else wrote.
+ */
+export async function publishSetup({ job, name, file, connection, fetchImpl = fetch }) {
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(job) || !/^[a-z0-9][a-z0-9-]*$/.test(name) || name === LIVE_SETUP) throw new Error(`not a setup to write: ${job}/${name}`);
+  const path = `${SETUPS_FOLDER}/${job}/${name}.md`;
+  const existing = await callTool(connection, "read_note", { path }, fetchImpl);
+  if (!existing.isError) throw new Error(`${path} is already in Context: a draft never replaces a setup`);
+  const written = await callTool(connection, "write_note", { path, content: await readFile(file, "utf8"), summary: `improver draft for ${job}` }, fetchImpl);
+  if (written.isError) throw new Error(`write_note ${path}: ${written.text}`);
+  return path;
+}
+
+/** Where a result's replies note goes in Context: beside its scores note. */
+export function repliesPathFor(resultFile) {
+  return `${RESULTS_FOLDER}/${repliesName(basename(resultFile, ".md"))}`;
+}
+
+/** The replies note `score` wrote beside the result, when the setups differed anywhere. */
+async function publishReplies({ result, connection, fetchImpl }) {
+  let text;
+  try {
+    text = await readFile(join(dirname(result), repliesName(basename(result, ".md"))), "utf8");
+  } catch {
+    return null;
+  }
+  const path = repliesPathFor(result);
+  const existing = await callTool(connection, "read_note", { path }, fetchImpl);
+  const etag = existing.isError ? null : (splitNote(existing.text).header.etag ?? null);
+  const written = await callTool(
+    connection,
+    "write_note",
+    { path, content: text, summary: `benchmark replies for ${basename(result, ".md")}`, ...(etag ? { expected_etag: etag } : {}) },
     fetchImpl,
   );
   if (written.isError) throw new Error(`write_note ${path}: ${written.text}`);
@@ -389,9 +510,10 @@ export async function signInCommand(options) {
 export async function pullCommand(options, dir) {
   if (!options.job) throw new Error("usage: pnpm ai pull <job> [--dir <benchmarks folder>]");
   const connection = await signIn({ env: process.env });
-  const { folder, names, skills } = await pullSetups({ job: options.job, dir, connection });
+  const { folder, names, skills, tests } = await pullSetups({ job: options.job, dir, connection });
   process.stderr.write(`pulled ${names.length} setup${names.length === 1 ? "" : "s"} into ${folder}: ${names.join(", ")}\n`);
   if (skills.length) process.stderr.write(`pulled ${skills.length} skill${skills.length === 1 ? "" : "s"}: ${skills.join(", ")}\n`);
+  if (tests.length) process.stderr.write(`pulled ${tests.length} test${tests.length === 1 ? "" : "s"}: ${tests.join(", ")}\n`);
 }
 
 /** `pnpm ai publish <result file> [--run-url <url>]`: the result's scores note into Context. */

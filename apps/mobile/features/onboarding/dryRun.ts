@@ -47,7 +47,6 @@ const PROVIDERS: Record<string, string> = {
   b2: "Backblaze B2",
   "s3-compatible": "S3-compatible",
   "r2-binding": "Cloudflare R2",
-  dropbox: "Dropbox",
 };
 
 export function providerLabel(provider: string): string {
@@ -84,7 +83,7 @@ function contextFinding(reason: string | undefined): DryRunFinding {
       return {
         key: "context",
         label: "Already a workspace?",
-        value: "No — your workspace offers a starting layout once you are in",
+        value: "No — we will add the five starting folders when you continue",
         tone: "ok",
       };
     default:

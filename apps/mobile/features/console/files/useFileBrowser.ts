@@ -48,6 +48,7 @@ import { useShares } from "./fileBrowser/useShares";
 import { useShareScope } from "./fileBrowser/useShareScope";
 import { usePendingOps } from "./fileBrowser/usePendingOps";
 import { useLinkedTitle } from "./fileBrowser/useLinkedTitle";
+import { useFolderJobs } from "./fileBrowser/useFolderJobs";
 import { useFileBrowserValue } from "./fileBrowser/useFileBrowserValue";
 
 export { draftIsKept } from "./fileBrowser/copy";
@@ -103,7 +104,9 @@ export function useFileBrowser(options: FileBrowserOptions): FileBrowser {
   const withShareScope = { ...withShares, ...useShareScope(withShares) };
   const withPendingOps = { ...withShareScope, ...usePendingOps(withShareScope) };
   const withLinkedTitle = { ...withPendingOps, ...useLinkedTitle(withPendingOps) };
-  return useFileBrowserValue(withLinkedTitle);
+  // Built-in folders draw their job's icon, and folders move among their siblings.
+  const withFolderJobs = { ...withLinkedTitle, ...useFolderJobs(withLinkedTitle) };
+  return useFileBrowserValue(withFolderJobs);
 }
 
 /** Exported for the editor's unsaved-changes guard in the pane. */

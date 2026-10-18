@@ -2,7 +2,8 @@
  * @jest-environment jsdom
  */
 
-import { describe, expect, test } from "@jest/globals";
+import { afterEach, beforeEach, describe, expect, test } from "@jest/globals";
+import { setHomeView } from "../../features/console/home/homeView";
 import { dataWith, ENTRY, mountConsole } from "./fixtures";
 
 /**
@@ -52,6 +53,11 @@ import { dataWith, ENTRY, mountConsole } from "./fixtures";
  * | `contextFootLine` drops the binding | 5 failures / 3 files, one of them `the binding and the counts are one line under the context's own page` |
  */
 describe("the tree's foot became the context root page's foot", () => {
+  // That page is Folders since 2026-10-17: the phone opens on Inbox
+  // (`home/homeView.ts`), whose last dot, All, opens it.
+  beforeEach(() => setHomeView("folders"));
+  afterEach(() => setHomeView("inbox"));
+
   /** The root's listing, for a console that has landed on the context itself. */
   const AT_ROOT = {
     selectedPath: "",
@@ -66,15 +72,22 @@ describe("the tree's foot became the context root page's foot", () => {
     },
   };
 
-  test("the binding and the counts are one line under the context's own page", () => {
+  test("a settled workspace draws no line under its own page, as board 2 does", () => {
     const app = mountConsole(dataWith(AT_ROOT as never, { kind: "folder", path: "", name: "" }));
 
-    // The page is really the context's: Home, headed with the workspace's name.
-    expect(app.find("phone-home")!.textContent).toContain("seyi");
-    // One muted line: the binding, then what has been read of the tree. No
-    // index figure, because this fixture's `fastSearch.status` is `null` —
-    // "not answered yet" — and an absence is never drawn as a zero.
-    expect(app.find("context-foot")!.textContent).toBe("R2 · notes-bucket · 1 note, 0 folders");
+    // The page is really the context's: Folders, with the workspace's name under it.
+    expect(app.find("phone-home")!.textContent).toContain("@seyi");
+    // A bucket that answered and an index nobody has reported on are not news
+    // (`footNeedsSaying`): Settings › Storage names the bucket.
+    expect(app.find("context-foot")).toBeNull();
+  });
+
+  test("and one with no bucket says so there, in one line with the counts", () => {
+    const app = mountConsole({
+      ...dataWith(AT_ROOT as never, { kind: "folder", path: "", name: "" }),
+      storage: null,
+    });
+    expect(app.find("context-foot")!.textContent).toBe("no bucket connected · 1 note, 0 folders");
   });
 
   test("a pointer layout draws no context foot", () => {
@@ -107,8 +120,7 @@ describe("the tree's foot became the context root page's foot", () => {
     expect(app.container.textContent).not.toContain("Choose a note");
     // That page is Home since 2026-09-30 (`home/PhoneHome.tsx`), and it lists what it holds.
     expect(app.find("phone-home")).not.toBeNull();
-    expect(app.find("phone-home-totals")!.textContent).toBe("1 note · 1 folder");
-    expect(app.find("context-foot")).not.toBeNull();
+    expect(app.find("phone-home-totals")!.textContent).toBe("@seyi · 1 note");
   });
 
   test("and a pointer layout keeps its empty state", () => {

@@ -14,6 +14,7 @@ import { AgentSetupOverlay } from "../../agentSetup/AgentSetupOverlay";
 import type { SetupAgent } from "../../agentSetup/guides";
 
 import { SettingsOverlay } from "../settings/SettingsOverlay";
+import { opensOnSettingsList } from "../settings/sections";
 import { selectedContext, type ConsoleData } from "../types";
 import type { ConsoleRouter } from "./types";
 
@@ -122,6 +123,7 @@ export function consoleSyncSheet({
       <SyncSheet
         sync={data.files.sync}
         save={saveChip({ editor: data.files.editor, now: Date.now() })}
+        contexts={data.contexts}
         pending={data.files.pending ?? NO_PENDING}
         onOpen={(path) => {
           data.files.select(path);
@@ -174,6 +176,7 @@ export function consoleSettings({
           panel that has anything to say about the gap.
         */
         returned={checkoutReturn}
+        startOnList={opensOnSettingsList(openSettingsSection)}
         onSelect={(next) => router.setParams({ settings: next })}
         /*
           A context switch inside settings is a navigation, because the

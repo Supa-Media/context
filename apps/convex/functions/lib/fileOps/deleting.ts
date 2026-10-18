@@ -1,12 +1,12 @@
 /**
- * Archiving, trashing, restoring and permanently deleting.
+ * Trashing, restoring and permanently deleting (archiving is `archiving.ts`).
  *
  * Split out of `lib/fileOps.ts`, which re-exports it; that file's header holds
  * the rules every operation keeps.
  */
 
 import { isEncryptedNote } from "../noteEncryption";
-import { canSee, isPlumbing, visibilityOf, archiveRoot, archiveRoots, insideArchive } from "../privacy";
+import { canSee, isPlumbing } from "../privacy";
 import { type Clearance } from "../clearance";
 import {
   eligible as collaborationEligible,
@@ -22,104 +22,22 @@ import { dropFolderIcons } from "@context/shared/src/folderIcons.cjs";
 import { loadPrivacyState } from "./privacyState";
 import { assertWritablePath } from "./writing";
 import { keysUnder, namesExtending, historyKeysFor, isFolder } from "./walk";
-import { createAbsent, fileInTree, filesInTree } from "./treeChecks";
+import { createAbsent, filesInTree } from "./treeChecks";
 import { type MoveResult, movePath } from "./moving";
 import { forgetPrivacy } from "./privacyRewrite";
-
-/* -------------------------------------------------------------------------- */
-/*                            archiving and deleting                          */
-/* -------------------------------------------------------------------------- */
+import { isKeyedStore, KEYED_REFUSAL } from "../noteIds/keyedStore";
 
 /**
- * Archive: move into `<this context's archive>/<timestamp>/<original path>`.
- *
- * This is the destructive-looking action people should reach for, and it is
- * **not destructive** — the file is intact, its original path is preserved
- * inside the archive path, and moving it back restores it exactly. The
- * timestamp segment means archiving the same note twice never collides.
- *
- * Same destination shape the gateway's `archive_note` uses, **and now the same
- * destination**, which it was not. Both were written against a literal
- * `4-archive`; the gateway refused a context that did not declare one, and
- * this created it regardless. So on a `company`-preset workspace — a layout
- * whose archive is `5-archive`, and the default for a shared context — Claude
- * refused to archive and the console quietly opened a second archive beside
- * the real one, in a bucket the owner also sees in Obsidian. One resolver
- * (`archiveRoot`) now answers for both, and this path adopts the gateway's
- * refusal rather than its own invention: a context with no archive folder is
- * told so, instead of being given one nobody chose.
+ * A permanent delete in a keyed workspace. It would retire the note's row and
+ * key, and that is what emptying the trash may do, not an ordinary delete
+ * (`docs/decisions/storage-and-credentials/notes-by-id.md`). Nothing is removed.
  */
-export async function archivePath(
-  store: FileStore,
-  options: {
-    path: string;
-    clearance: Clearance;
-    now: number;
-    /** The version this archive was asked about. See `movePath`. */
-    expectedEtag?: string;
-  },
-): Promise<MoveResult> {
-  const path = requirePath(options.path);
-  await assertNotProtectedFolder(store, path, options.clearance);
-  // Ahead of the destination rather than after it: which folder this context
-  // archives into is a fact about its manifest, so the manifest is read first
-  // and the same state answers the visibility check below.
-  const state = await loadPrivacyState(store);
-  const roots = archiveRoots(state.rules);
-  const archive = archiveRoot(state.rules);
-  // Every archive it has, not the one we would write to: a note already in
-  // `5-archive/` must not be moved into `4-archive/` because the resolver
-  // preferred the latter.
-  if (insideArchive(path, roots)) {
-    throw new FileOpError("PATH_INVALID", "That is already in the archive.");
-  }
-  if (archive === null) {
-    throw new FileOpError(
-      "ARCHIVE_UNAVAILABLE",
-      "This context has no archive folder, and archiving will not create one — its layout is yours. Move this to wherever you keep inactive material, or add an archive folder to privacy.md.",
-    );
-  }
-  // A free destination, because `movePath` refuses to merge onto an existing
-  // folder and archiving a child and then its parent inside the same
-  // millisecond lands the second one on top of the first. The stamp is
-  // server-generated and never caller-chosen, so disambiguating it discloses
-  // nothing and keeps "never merges" true rather than carving an exception into
-  // it. Archiving twice in one millisecond is a scripted or concurrent caller,
-  // not a person clicking twice.
-  const stamp = timestampSlug(options.now);
-  let destination = `${archive}/${stamp}/${path}`;
-  // Asked of the tree (`treeChecks.ts`); `movePath` writes the destination
-  // conditionally where the store can, so a name the tree missed is refused.
-  for (let attempt = 2; attempt <= 100; attempt += 1) {
-    if (!(await isFolder(store, destination)) && !(await fileInTree(store, destination))) break;
-    destination = `${archive}/${stamp}-${attempt}/${path}`;
-  }
+const KEYED_PERMANENT_REFUSAL =
+  "Permanent delete is not available in a keyed workspace yet. Move it to the trash instead, which keeps it restorable. Nothing was changed.";
 
-  // Archiving is a move, so it inherits the destination rule — and on the
-  // scaffold's defaults the archive is private, which means a team caller
-  // cannot archive. That is right: archiving a shared note into a private
-  // archive takes it away from everybody else, irreversibly for the person who
-  // did it. The gateway's `archive_note` has always refused it.
-  //
-  // What it must not do is inherit the *message*. "That file does not exist"
-  // about a note the caller is looking at explains nothing and points at the
-  // wrong thing. Naming the folder discloses nothing they do not already hold:
-  // whether it is shared is visible in their own root listing.
-  if (options.clearance.scope !== "private" && visibilityOf(destination, state.rules) !== "team") {
-    throw new FileOpError(
-      "ARCHIVE_UNAVAILABLE",
-      `Archiving needs access to ${archive}, which has not been shared with you. Ask the owner to share it, or move this somewhere you can both see.`,
-    );
-  }
-
-  return await movePath(store, {
-    from: path,
-    to: destination,
-    clearance: options.clearance,
-    now: options.now,
-    ...(options.expectedEtag === undefined ? {} : { expectedEtag: options.expectedEtag }),
-  });
-}
+/* -------------------------------------------------------------------------- */
+/*                            trashing and deleting                           */
+/* -------------------------------------------------------------------------- */
 
 /**
  * A trash the tree can draw at once, queued by the credential barrier
@@ -127,7 +45,12 @@ export async function archivePath(
  * store non-enumerably, as `queueMove` is; a store without it (tests, the
  * gateway, self-hosting without the tree) trashes the old way.
  */
-type QueueTrash = (trash: { path: string; clearance: Clearance; now: number }) => Promise<MoveResult | null>;
+type QueueTrash = (trash: {
+  path: string;
+  clearance: Clearance;
+  now: number;
+  expectedEtag?: string;
+}) => Promise<MoveResult | null>;
 /**
  * Turn a still-queued trash around: `true` when it was, `false` when the
  * bucket holds the trash, or the store to restore through when the bucket
@@ -157,14 +80,23 @@ export async function trashPath(
   },
 ): Promise<MoveResult> {
   const path = requirePath(options.path);
-  await assertNotProtectedFolder(store, path, options.clearance);
+  await assertNotProtectedFolder(store, path, options.clearance, "remove");
   assertWritablePath(path);
   // A delete asked against a version (the offline queue's) checks it here, so only a press made online queues.
+  // In a keyed workspace the trash is always a row move (`rowTrash.ts`), an offline delete's version included:
+  // the row move checks that version, and a byte trash would move frozen copies and leave the note in place.
   const queue = (store as { queueTrash?: QueueTrash }).queueTrash;
-  if (options.expectedEtag === undefined && typeof queue === "function") {
-    const queued = await queue({ path, clearance: options.clearance, now: options.now });
+  const keyed = await isKeyedStore(store);
+  if ((options.expectedEtag === undefined || keyed) && typeof queue === "function") {
+    const queued = await queue({
+      path,
+      clearance: options.clearance,
+      now: options.now,
+      ...(options.expectedEtag === undefined ? {} : { expectedEtag: options.expectedEtag }),
+    });
     if (queued !== null) return queued;
   }
+  if (keyed) throw new FileOpError("KEYED_WORKSPACE", KEYED_REFUSAL);
   const state = await loadPrivacyState(store);
   if (!canSee(path, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
 
@@ -272,6 +204,30 @@ export async function trashPath(
   const legacyPairs = pairs.filter((pair) => !collaborativePairs.has(pair.source));
   if (legacyPairs.length > 0) await movePairs(store, legacyPairs);
   return { from: path, to: destination, paths: pairs.map((pair) => pair.destination) };
+}
+
+type TrashKeyedRows = (trash: {
+  path: string;
+  clearance: Clearance;
+  now: number;
+  expectedEtag?: string;
+}) => Promise<MoveResult>;
+
+/**
+ * Trash a path in a keyed workspace as its rows (`lib/nodes/rowTrash.ts`), for
+ * the operations that would otherwise delete it permanently (`removeNewFolder`,
+ * a plugin's delete). The rows move to the trash and Restore brings them back,
+ * so nothing is lost. Only the barrier attaches the seam, as the trash's own
+ * does; a store without it stays refused.
+ */
+export async function trashKeyedRows(
+  store: FileStore,
+  options: { path: string; clearance: Clearance; now: number; expectedEtag?: string },
+): Promise<DeleteResult> {
+  const trash = (store as { trashKeyedRows?: TrashKeyedRows }).trashKeyedRows;
+  if (typeof trash !== "function") throw new FileOpError("KEYED_WORKSPACE", KEYED_REFUSAL);
+  const moved = await trash(options);
+  return { paths: moved.paths };
 }
 
 /** Restore one trash result to the original path encoded inside its key. */
@@ -422,7 +378,7 @@ export interface DeleteResult {
  * history is the customer's own object versioning, at their provider, and this
  * product actively tells them to turn it on. Where they did, the noncurrent
  * version survives this delete: we hold no `DeleteObjectVersion` capability we
- * can rely on across R2, S3, B2, Wasabi and Dropbox, and on several of them we
+ * can rely on across R2, S3, B2 and Wasabi, and on several of them we
  * would need permissions the binding does not ask for. That is not a gap to
  * paper over — it is the customer's copy, in the customer's bucket, under the
  * customer's control, which is the arrangement this product is for. It does
@@ -445,7 +401,9 @@ export async function deletePath(
     );
   }
   const path = requirePath(options.path);
-  await assertNotProtectedFolder(store, path, options.clearance);
+  // Refused before anything is read or removed: a keyed row and its key are retired only by emptying the trash.
+  if (await isKeyedStore(store)) throw new FileOpError("KEYED_WORKSPACE", KEYED_PERMANENT_REFUSAL);
+  await assertNotProtectedFolder(store, path, options.clearance, "remove");
   assertWritablePath(path);
 
   const state = await loadPrivacyState(store);

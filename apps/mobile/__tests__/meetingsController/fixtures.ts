@@ -79,6 +79,7 @@ export async function harness(
     startAt?: number;
     activity?: MeetingActivityController;
     activityToken?: () => string;
+    selfName?: () => string | null;
   } = {},
 ): Promise<Harness> {
   const controller = new MeetingsController(options.activity, options.activityToken);
@@ -95,6 +96,7 @@ export async function harness(
     device: DEVICE,
     now: clock.now,
     persistDebounceMs: 0,
+    selfName: options.selfName,
   });
 
   return { controller, store, gateway, recorder, clock };

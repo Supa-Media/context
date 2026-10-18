@@ -16,7 +16,8 @@
  * there. These render what it returns.
  */
 
-import { StyleSheet, View } from "react-native";
+import { useState } from "react";
+import { Pressable, StyleSheet, View } from "react-native";
 import {
   Text,
   radii,
@@ -26,7 +27,7 @@ import {
   useThemedStyles,
   type Colors,
 } from "../design";
-import { pointerType } from "../design/tokens";
+import { darkSeriesColors, lightSeriesColors, pointerType } from "../design/tokens";
 import { useCompact } from "./AdminKit";
 import {
   barHeights,
@@ -127,6 +128,99 @@ export function TrendBars({
           <Text variant="meta">{last ? shortDay(last.day) : ""}</Text>
         </View>
       )}
+    </View>
+  );
+}
+
+/** The categorical series colours for the current theme, by slot. */
+export function useSeriesColors(): readonly string[] {
+  return useTheme().scheme === "dark" ? darkSeriesColors : lightSeriesColors;
+}
+
+export interface StackSegment {
+  label: string;
+  color: string;
+  /** One value per day, aligned with `days`. */
+  values: readonly number[];
+}
+
+/**
+ * Daily stacked bars on one shared scale, one segment per series.
+ *
+ * Unlike `TrendBars`, every bar is drawn against the same maximum, because the
+ * point is comparing days and the parts inside them. Pointing at (or tapping)
+ * a day writes its parts out as text above the bars, which is also what makes
+ * the lighter series colours readable.
+ */
+export function StackedBars({
+  days,
+  segments,
+  format = formatCount,
+  testID,
+}: {
+  days: readonly string[];
+  segments: readonly StackSegment[];
+  format?: (value: number) => string;
+  testID?: string;
+}) {
+  const styles = useThemedStyles(makeStyles);
+  const compact = useCompact();
+  const [picked, setPicked] = useState<number | null>(null);
+  const totals = days.map((_, i) => segments.reduce((total, segment) => total + (segment.values[i] ?? 0), 0));
+  const max = totals.reduce((best, total) => Math.max(best, total), 0);
+  const shown = picked ?? days.length - 1;
+
+  return (
+    <View testID={testID}>
+      <View style={styles.legend}>
+        {segments.map((segment) => (
+          <View key={segment.label} style={styles.legendItem}>
+            <View style={[styles.swatch, { backgroundColor: segment.color }]} />
+            <Text variant="meta" style={compact && styles.legendCompact}>
+              {segment.label}
+            </Text>
+          </View>
+        ))}
+      </View>
+      <Text variant="meta" style={styles.readout} testID={testID ? `${testID}-readout` : undefined}>
+        {days.length === 0
+          ? "No days yet"
+          : `${shortDay(days[shown])} · ${format(totals[shown])} total · ` +
+            segments
+              .filter((segment) => (segment.values[shown] ?? 0) > 0)
+              .map((segment) => `${segment.label} ${format(segment.values[shown])}`)
+              .join(" · ")}
+      </Text>
+      <View style={[styles.bars, compact && styles.barsCompact, styles.stackRow]}>
+        {days.map((day, i) => (
+          <Pressable
+            key={day}
+            style={styles.stackCol}
+            onHoverIn={() => setPicked(i)}
+            onHoverOut={() => setPicked(null)}
+            onPress={() => setPicked(i)}
+            accessibilityLabel={`${shortDay(day)}: ${format(totals[i])}`}
+          >
+            <View style={[styles.stack, { height: `${max > 0 ? (totals[i] / max) * 100 : 0}%` }]}>
+              {[...segments].reverse().map((segment) => {
+                const value = segment.values[i] ?? 0;
+                if (value <= 0 || totals[i] <= 0) return null;
+                return (
+                  <View
+                    key={segment.label}
+                    style={{ flexGrow: value, flexBasis: 0, backgroundColor: segment.color, opacity: picked === null || picked === i ? 1 : 0.45 }}
+                  />
+                );
+              })}
+            </View>
+          </Pressable>
+        ))}
+      </View>
+      <View style={styles.axis}>
+        <Text variant="meta">{days[0] ? shortDay(days[0]) : ""}</Text>
+        <Text variant="meta">{max > 0 ? `peak ${format(max)}` : ""}</Text>
+        <Text variant="meta">{days.length > 0 ? shortDay(days[days.length - 1]) : ""}</Text>
+      </View>
     </View>
   );
 }
@@ -298,6 +392,10 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     bars: { flexDirection: "row", alignItems: "flex-end", gap: 3, height: 112 },
     barsCompact: { height: 88, gap: 2 },
+    stackRow: { alignItems: "flex-end" },
+    stackCol: { flex: 1, height: "100%", justifyContent: "flex-end" },
+    stack: { gap: 1, borderTopLeftRadius: 2, borderTopRightRadius: 2, overflow: "hidden" },
+    readout: { marginTop: 8, marginBottom: 6, fontVariant: ["tabular-nums"] },
     bar: { flex: 1, borderTopLeftRadius: 2, borderTopRightRadius: 2, minHeight: 2 },
     spark: { flexDirection: "row", alignItems: "flex-end", gap: 2, height: 28 },
     sparkBar: { flex: 1, borderRadius: 1, minHeight: 1 },

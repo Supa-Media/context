@@ -26,6 +26,8 @@ export const makeStyles = (colors: Colors) => StyleSheet.create({
     overflow: "hidden",
     boxShadow: "0 40px 100px -30px rgba(0,0,0,1)",
   },
+  /** Room for the list and the highlighted note beside it (board B1). */
+  panelWide: { maxWidth: 1040 },
   panelHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -69,6 +71,9 @@ export const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingTop: space.x3,
     paddingBottom: space.x1,
   },
+  /** The heading with its small print beside it (`emptyNote`). */
+  headingRow: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between" },
+  headingNote: { flexShrink: 1, paddingRight: space.x4, paddingTop: space.x3, paddingBottom: space.x1 },
   empty: {
     paddingHorizontal: space.x4,
     paddingVertical: space.x5,

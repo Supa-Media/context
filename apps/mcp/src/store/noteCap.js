@@ -83,6 +83,7 @@
  */
 
 import { ACTIVITY_PATH } from "../../../../packages/shared/src/activity.cjs";
+import { isIdKey } from "../privacy/engine.js";
 
 export const NOTE_CAP_REACHED = "NOTE_CAP_REACHED";
 
@@ -94,9 +95,14 @@ export const NOTE_CAP_REACHED = "NOTE_CAP_REACHED";
  */
 const STRUCTURE_KEYS = new Set(["index.md", "privacy.md", ACTIVITY_PATH]);
 
-/** Markdown, and not under any dot-prefixed segment. */
+/**
+ * Markdown, not under any dot-prefixed segment, and not a note's id copy
+ * (`notes/<noteId>.md`): a copy is the same note again, written by Context,
+ * and refusing it at the cap would leave the copy stale for ever.
+ */
 export function isCountedNoteKey(key) {
   if (typeof key !== "string" || key.length === 0) return false;
+  if (isIdKey(key)) return false;
   if (key.split("/").some((segment) => segment.startsWith("."))) return false;
   return key.toLowerCase().endsWith(".md");
 }

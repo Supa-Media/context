@@ -84,9 +84,12 @@ export async function runCrossContextOrientationChecks(check, harness) {
   check("orientation names the other contexts this connection reaches", orientation.includes("@theirs"));
   check("and says how to address them", orientation.includes("`context`"));
   check("and does not name a context this person is not in", !orientation.includes("@stranger"));
+  // The connected workspace is described once, as the default: never as a
+  // sibling to go to.
+  const mineHeadings = orientation.match(/^### @mine.*$/gm) ?? [];
   check(
     "and does not list the context it is orienting in as somewhere else to go",
-    !orientation.includes("### @mine")
+    mineHeadings.length === 1 && mineHeadings[0].includes("the one this connection opens by default")
   );
 
   /*
@@ -175,20 +178,30 @@ export async function runCrossContextOrientationChecks(check, harness) {
     say "read-only" too, so a check over the whole text passes with this notice
     deleted — measured, during the sabotage pass, as zero failures.
   */
+  // What this connection may write is the `access` part of the manual now:
+  // the overview names it per workspace, and `about: "access"` says it in full.
+  const accessOf = async (token) => textOf(await callTool(env, token, "orient", { about: "access" }));
   const writeSurfaceOf = (text) => text.split("## Write surface")[1] ?? "";
+  const readOnlyAccess = await accessOf(TOKEN_READ_ONLY);
   check(
     "a read-only grant's write surface says so before it lists writable paths",
-    /This connection is read-only/.test(writeSurfaceOf(readOnlyOrientation))
+    /This connection is read-only/.test(writeSurfaceOf(readOnlyAccess))
   );
+  check(
+    "and the overview names the same reason on the connected workspace's line",
+    /### @\S+ — [^\n]*this connection is read-only/.test(readOnlyOrientation)
+  );
+  const guestAccess = await accessOf(TOKEN_GUEST);
   check(
     "a role that cannot write is named as the role, not as the connection",
-    /You cannot write here/.test(writeSurfaceOf(guestOrientation)) &&
-      !/This connection is read-only/.test(writeSurfaceOf(guestOrientation))
+    /You cannot write here/.test(writeSurfaceOf(guestAccess)) &&
+      !/This connection is read-only/.test(writeSurfaceOf(guestAccess))
   );
+  const ownerAccess = await accessOf(TOKEN_OWNER);
   check(
     "a connection that can write here is told neither",
-    writeSurfaceOf(orientation) !== "" &&
-      !/read-only|cannot write here/i.test(writeSurfaceOf(orientation))
+    writeSurfaceOf(ownerAccess) !== "" &&
+      !/read-only|cannot write here/i.test(writeSurfaceOf(ownerAccess))
   );
   check(
     "and scope_info, the other caller, carries the same notice",
@@ -207,7 +220,7 @@ export async function runCrossContextOrientationChecks(check, harness) {
     "a front page its owner has not shared is absent, and said to be",
     !orientation.includes("QUIET-PRIVATE-INDEX-MARKER") &&
       orientation.includes("@quiet") &&
-      orientation.includes("No front page visible to you there yet")
+      orientation.includes("No front page here yet")
   );
 
   /*

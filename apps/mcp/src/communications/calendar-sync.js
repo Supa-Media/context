@@ -11,6 +11,7 @@
 // to persist beside that one workspace's own connection record.
 
 import { placeDayNote } from "./dayPlacement.js";
+import { isKeyedWorkspace } from "../store/idLayout.js";
 import {
   DEFAULT_HORIZON_DAYS,
   addCalendarDays,
@@ -252,6 +253,9 @@ export async function syncCalendarAccount({ connection, store, fetchImpl, now, m
     if (existing && !isCalendarDayNote(existing.text)) continue;
     if (!dayEvents.length) {
       if (existing) {
+        // In a keyed workspace a note's row is retired only by emptying the trash (`idLayout.js`), and this
+        // gateway cannot trash it: the note stays, empty of events, until the owner removes it.
+        if (await isKeyedWorkspace(store)) continue;
         await store.delete(path);
         writes.push({ path, action: "delete" });
       }

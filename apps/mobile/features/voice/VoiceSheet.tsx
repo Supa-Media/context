@@ -186,7 +186,7 @@ const makeStyles = (colors: Colors, shadows: Shadows) =>
     */
     scrimPointer: { justifyContent: "flex-end", alignItems: "flex-end" },
     card: {
-      backgroundColor: colors.pageSurface,
+      backgroundColor: colors.cardSurface,
       borderColor: colors.lineStrong,
       paddingVertical: 12,
       gap: 2,

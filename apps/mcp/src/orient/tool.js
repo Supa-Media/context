@@ -1,319 +1,228 @@
 /**
- * `orient` and `scope_info` — what a connection is told about the context in
+ * `orient` and `scope_info`: what a connection is told about the context in
  * front of it and the others it can reach.
+ *
+ * With no `about`, `orient` answers in six parts: what Context is, the
+ * Context-wide note, the tool notice, every workspace the person reaches (the
+ * connected one first), the recently touched notes, and how to work here. The
+ * rest of the manual sits behind `about`: the tools, one action, access, the
+ * website guide, and the health of the workspace.
  */
 
+import { currentReach } from "./access.js";
 import { describeStatusList, governingFolderOf, readStatusList } from "../tools/notes/statusList.js";
-import { accessSentence, currentReach } from "./access.js";
-import { canSee, effectiveVisibility, visibilityOf } from "../privacy/engine.js";
-import {
-  formatCapturedLine,
-  NO_FRONT_PAGE,
-  ORIENT_INDEX_CHAR_CAP,
-  ORIENT_SIBLING_INDEX_CHAR_CAP,
-  ORIENT_SIBLING_LIMIT,
-  reducedRecallNotesFor,
-  relativeAge,
-  FOLDER_ABOUT_GUIDANCE,
-  renderBuiltInFolders,
-  renderStructure,
-} from "./render.js";
+import { canSee, visibilityOf, effectiveVisibility } from "../privacy/engine.js";
+import { formatCapturedLine, ORIENT_SIBLING_INDEX_CHAR_CAP, reducedRecallNotesFor, relativeAge } from "./render.js";
 import { getWithLegacyFallback } from "../storageLayout.js";
 import { listAllKeysWithLegacy } from "../notes/storage.js";
 import { loadPrivacyState } from "../privacy/state.js";
 import { normalizePath } from "../notes/paths.js";
-import { ORIENT_OPERATING_CONTRACT } from "../mcp/instructions.js";
 import { PROPOSAL_PENDING_PREFIX } from "../tools/proposals.js";
-import { readFrontPage, readSaveProcedure } from "./frontPage.js";
+import { firstParagraphOf, readFrontPage, readSaveProcedure } from "./frontPage.js";
 import { GLOBAL_ORIENT_PATH, PINNED_CONTEXT_NAME, readGlobalOrientNote } from "./globalNote.js";
-import { websiteGuideFor } from "./websiteGuide.js";
+import { WEBSITE_GUIDE, hasWebsiteFolder } from "./websiteGuide.js";
 import { scopeInfoText } from "../privacy/scopeInfo.js";
+import { inV2Names } from "../tools/v2/speak.js";
+import { toolNewsSection } from "../tools/news.js";
+import { appOf } from "../tools/liveList.js";
 import { splitReducedRecallNotes } from "../search/visible.js";
-import { surveyContext } from "./survey.js";
-import { describeFolders } from "./folderAbout.js";
 import { toolError, toolText } from "../tools/results.js";
 import { chaosSection } from "../chaos/orient.js";
-import { within } from "../chaos/report.js";
-import { withReadReach } from "../privacy/egress.js";
+import { HOW_TO_WORK, inToolNames } from "./howToWork.js";
+import { actionManual, actionNames, findAction, toolsManual } from "./manual.js";
+import { connectedBlock, openOnce, surveyOf, surveyOtherContexts } from "./workspaces.js";
 
-/**
- * How long one other workspace's front page may hold up `orient`. The
- * texting assistant gives a whole tool call 20 s (`agent/turn.js`), and each
- * other workspace costs a control-plane round trip and bucket reads of its
- * own; a slow one is named with the way in rather than waited for.
- */
-export const ORIENT_OTHER_WORKSPACE_WAIT_MS = 3000;
+export { ORIENT_OTHER_WORKSPACE_WAIT_MS, surveyOtherContexts } from "./workspaces.js";
 
-/**
- * Openers that open each workspace at most once for the rest of this one
- * orient call. The global note and the other-workspaces section both read
- * `@context-lc`, and each open is a control-plane round trip. The memo lives
- * in this call's frame and holds only stores opened through this call's own
- * `store` — one session, one person — so nothing outlives the request or
- * reaches anybody else.
- */
-function openOnce(store) {
-  const opened = new Map();
-  const once = (name, open) => {
-    if (!opened.has(name)) opened.set(name, open());
-    return opened.get(name);
-  };
-  return {
-    openContext:
-      typeof store.openContext === "function" ? (name) => once(name, () => store.openContext(name)) : null,
-    openPinned:
-      typeof store.openPinnedContext === "function"
-        ? () => once(PINNED_CONTEXT_NAME, () => store.openPinnedContext())
-        : store.openPinnedContext,
-  };
+/** The newest notes of the connected workspace `orient` names. */
+const ORIENT_RECENT_SHOWN = 8;
+
+/** What Context is, in three or four lines: the first thing every answer says. */
+export const CONTEXT_INTRO =
+  "# Context\n\n" +
+  "Context is shared Markdown notes that people and AI agents keep together. Each workspace is one folder " +
+  "tree of notes, and a person can reach several. Look before you ask: the answer is usually already written " +
+  "down. Write back what you learn, so the next session does not rediscover it.";
+
+/** The tool notice when the app's copy of the tools is current. */
+export const SIX_TOOLS_LINE =
+  "Six tools: orient, search, fetch, write, manage, send. orient about: \"tools\" lists every action and its arguments.";
+
+/** The values `about` takes besides an action name. `website` is also an action name, and the guide wins. */
+const ABOUT_WORDS = ["tools", "access", "website", "health"];
+
+/** Trim, and read the legacy `tools: true` as `about: "tools"`. Null for the overview. */
+function aboutOf({ about, tools } = {}) {
+  if (typeof about === "string" && about.trim() !== "") return about.trim();
+  return tools === true ? "tools" : null;
 }
 
-/**
- * One other workspace's section of orient. Never throws.
- *
- * Answers `reached` as well as the section: the workspace and the tier this
- * call read its front page at, for the egress ledger, and `null` when it
- * handed the model no note text — a workspace that could not be opened, whose
- * manifest is torn, or that shows this caller no front page was not read, and
- * recording it would make the gate ask about a read that never happened
- * (`tools/search.js`'s `reachOf`, for the same fan-out one tool call wide).
- */
-async function frontPageOf(entry, openContext) {
-  const head = `### ${entry.name} — ${accessSentence(entry)}\n`;
-  try {
-    const opened = await openContext(entry.name);
-    const privacy = await loadPrivacyState(opened.store);
-    if (privacy.error) {
-      return { section: `${head}Its privacy manifest could not be read, so nothing there is readable until its owner repairs it.`, reached: null };
-    }
-    const page = await readFrontPage(
-      opened.store,
-      opened.session.scope,
-      privacy.rules,
-      privacy.overrides,
-      ORIENT_SIBLING_INDEX_CHAR_CAP
-    );
-    return {
-      section:
-        head +
-        (page ||
-          "No front page visible to you there yet. `list_notes` with " +
-            `\`context: "${entry.name}"\` is the way in.`),
-      reached: page ? { workspaceId: opened.session?.workspaceId, scope: opened.session?.scope } : null,
-    };
-  } catch {
-    // Named, and honest about why it is thin. Dropping the row would make
-    // a context that exists look like one that does not.
-    return { section: `${head}Could not be opened just now; its storage may be disconnected.`, reached: null };
-  }
+/** The connected workspace's entry in `store.contexts`, when there is one. */
+const currentEntryOf = (store) => (store.contexts || []).find((entry) => entry.current) || null;
+
+/** The connected workspace's front page, as its first paragraph. */
+async function frontParagraphOf(store, scope, rules, overrides) {
+  const text = await readFrontPage(store, scope, rules, overrides, ORIENT_SIBLING_INDEX_CHAR_CAP);
+  return firstParagraphOf(text);
 }
 
-/**
- * The "other contexts" section, and `reached`: every workspace whose front
- * page this one call put in front of the model, for the egress ledger.
- * Exported for the test that holds that reporting in place.
- */
-export async function surveyOtherContexts(store, openContext) {
-  const others = (store.contexts || []).filter((entry) => !entry.current);
-  if (!others.length) return { section: null, reached: [] };
-
-  const readable = typeof openContext === "function" ? others.slice(0, ORIENT_SIBLING_LIMIT) : [];
-  // The tail names what the CAP left out, so it is empty when nothing was
-  // capped. `others.slice(0)` is every sibling, and when `readable` is empty —
-  // an orient already addressed into another context gets no `openContext`, by
-  // the no-chaining rule — the body below is already listing all of them as
-  // bullets. That printed the whole section twice, and made a list that was
-  // complete read as truncated.
-  const named = readable.length ? others.slice(readable.length) : [];
-
-  const pages = await Promise.all(
-    readable.map(async (entry) => {
-      const page = await within(frontPageOf(entry, openContext), ORIENT_OTHER_WORKSPACE_WAIT_MS);
-      // `frontPageOf` answers every failure itself, so null here is only ever
-      // late. Named with the call that finishes the job, never dropped: a
-      // workspace that exists must not read as one that does not. Late is also
-      // nothing read, so it reports no reach.
-      return (
-        page ?? {
-          section:
-            `### ${entry.name} — ${accessSentence(entry)}\n` +
-            `Map not loaded in time. Call orient with context: "${entry.name}" to see it.`,
-          reached: null,
-        }
-      );
-    })
+/** The Context-wide note section, or nothing where there is none. */
+function globalSection(globalNote) {
+  if (!globalNote) return null;
+  return (
+    `## For every workspace — from ${PINNED_CONTEXT_NAME} (\`${GLOBAL_ORIENT_PATH}\`)\n\n` +
+    "Standing rules from Context.LC for every person and agent, in every workspace. " +
+    "Follow them here alongside this context's own front page below.\n\n" +
+    globalNote
   );
-
-  const tail = named.length
-    ? "\n\nAlso reachable, not read here: " +
-      named.map((entry) => entry.name).join(", ") +
-      ". Orient with one of those names to see it."
-    : "";
-
-  const heading = readable.length
-    ? "## Other contexts you can reach, and their front pages\n\n"
-    : "## Other contexts you can reach\n\n";
-  const body = readable.length
-    ? pages.map(({ section }) => section).join("\n\n")
-    : others.map((entry) => `- ${entry.name} — ${accessSentence(entry)}`).join("\n");
-
-  const section =
-    heading +
-    body +
-    tail +
-    "\n\nEvery tool here takes an optional `context` argument: pass one of these names to " +
-    "read or write there instead of this one — `write_note` included, so filing a note in one " +
-    "of them is one call and needs no reconnection. Orient again with that argument before " +
-    "working in it: the map above, and every search and listing, is for this context only. " +
-    "Each line above already says what this connection may do in that context, so take it from " +
-    "there rather than assuming a reach you have not been given — or holding back one you have.";
-
-  return {
-    section,
-    reached: pages
-      .map(({ reached }) => reached)
-      .filter((reached) => typeof reached?.workspaceId === "string" && reached.workspaceId !== ""),
-  };
 }
 
-export async function toolOrient(store, scope, rules, overrides) {
-  const open = openOnce(store);
-  const [frontPage, procedure, privateIndex, pendingProposals, survey, reducedRecallNotes, globalNote, chaos, otherContexts] =
-    await Promise.all([
-      readFrontPage(store, scope, rules, overrides, ORIENT_INDEX_CHAR_CAP),
-      readSaveProcedure(store, scope, rules, overrides),
-      scope === "private" ? getWithLegacyFallback(store, "index-private.md") : Promise.resolve(null),
-      scope === "private" ? listAllKeysWithLegacy(store, PROPOSAL_PENDING_PREFIX) : Promise.resolve([]),
-      // Described after the survey, because the descriptions are read only for
-      // the folders the survey is about to draw, and it names their front notes.
-      surveyContext(store, scope, rules, overrides).then(async (survey) => {
-        await describeFolders(store, survey);
-        return survey;
-      }),
-      reducedRecallNotesFor(store, (path) => canSee(path, scope, rules, overrides)),
-      readGlobalOrientNote({
-        contexts: store.contexts,
-        openPinned: open.openPinned,
-        here: { store, scope, rules, overrides },
-      }),
-      chaosSection(store, scope, rules, overrides).catch(() => null),
-      // Alongside the walk above rather than after it: each other workspace is
-      // a control-plane round trip and bucket reads of its own, and waiting
-      // for this workspace's survey first is what timed the call out.
-      surveyOtherContexts(store, open.openContext),
-    ]);
-
-  const parts = [
-    survey.loading
-      ? "# Orientation\n\nThis is the user's own context: their projects, decisions, people and writing. " +
-        `Its map is not drawn below because ${survey.loading}`
-      : `# Orientation\n\n${survey.total} notes visible to this connection across ` +
-        `${survey.folders.length} folders. This is the user's own context: their projects, ` +
-        "decisions, people and writing. Assume the answer to a question about their work is " +
-        "already in here somewhere, and look before you ask them to repeat it.",
+/** The recently touched notes of the connected workspace: five notes, then the collapsed capture lines. */
+function recentSection(survey) {
+  if (!survey.recent.length && !survey.captured.length) return null;
+  const now = Date.now();
+  const lines = [
+    ...survey.recent.slice(0, ORIENT_RECENT_SHOWN).map((note) => `- ${note.key} — ${relativeAge(note.uploaded, now)}`),
+    ...survey.captured.map((summary) => formatCapturedLine(summary, now)),
   ];
-  // First, ahead of the person's own front page: it is short by construction
-  // and it is the one thing Context.LC's staff can say to every agent at once.
-  if (globalNote) {
+  return (
+    "## Recently updated\n" +
+    lines.join("\n") +
+    "\n\nThese are where the person's attention has been. Read one before assuming you know what they are working on." +
+    // Mail, meetings and saved sessions arrive on their own schedule, not the person's: one line per kind, so they cannot crowd out a note they touched.
+    (survey.captured.length
+      ? " Mail, meetings and saved sessions arrive automatically and are collapsed to one line per kind above; search, or fetch the folder's path ending in /, shows the individual notes."
+      : "")
+  );
+}
+
+/** The `about: "health"` answer: the tidiness score, and what search cannot find in full. */
+async function healthAnswer(store, scope, rules, overrides) {
+  const chaos = await chaosSection(store, scope, rules, overrides).catch(() => null);
+  const reduced = await reducedRecallNotesFor(store, (path) => canSee(path, scope, rules, overrides));
+  const parts = [chaos || "## Chaos score\n\nNo score for this workspace yet."];
+  if (reduced.length) {
+    // Named, then counted, as the map always did: a shed mailbox sheds by the day.
+    const { shown, rest } = splitReducedRecallNotes(reduced);
+    const lines = shown.map((path) => `- ${path}`);
+    if (rest) lines.push(`- (+${rest} more notes in the same state)`);
     parts.push(
-      `## For every workspace — from ${PINNED_CONTEXT_NAME} (\`${GLOBAL_ORIENT_PATH}\`)\n\n` +
-        "Standing rules from Context.LC for every person and agent, in every workspace. " +
-        "Follow them here alongside this context's own front page below.\n\n" +
-        globalNote
+      "## Search coverage\n" +
+        "These notes hold more messages than the search index can keep in full, so search will not find a " +
+        "term that appeared only in a message it had to drop — the note itself is unaffected and fetch always " +
+        "returns it whole. A search miss on one of these is not proof the content is gone:\n" +
+        lines.join("\n")
     );
   }
+  return parts.join("\n\n");
+}
+
+/** Every `about` answer, each for the one thing it names. */
+async function aboutAnswer(store, scope, rules, overrides, about) {
+  if (about === "tools") return toolText(`# Context's tools and actions\n\n${await toolsManual(store, scope)}`);
+  if (about === "access") {
+    const text = scopeInfoText(scope, rules, currentReach(store));
+    return toolText(typeof store.offeredTools === "function" ? inV2Names(text) : text);
+  }
+  if (about === "website") {
+    const survey = await surveyOf(store, store, scope, rules, overrides);
+    const note = hasWebsiteFolder(survey)
+      ? ""
+      : survey.loading
+        ? "This workspace's map is still loading, so whether it has a website/ folder is not known yet. The guide to building one:\n\n"
+        : "This workspace has no website/ folder yet. The guide to building one:\n\n";
+    return toolText(note + WEBSITE_GUIDE);
+  }
+  if (about === "health") return toolText(await healthAnswer(store, scope, rules, overrides));
+  const found = findAction(about, scope);
+  if (found) return toolText(actionManual(found));
+  return toolError(
+    `orient has no "about" value "${about.length > 40 ? `${about.slice(0, 40)}…` : about}". ` +
+      `Use one of: ${ABOUT_WORDS.join(", ")}, or an action name: ${actionNames(scope).join(", ")}.`
+  );
+}
+
+/** The overview: what a connection needs before its first answer. */
+async function overview(store, scope, rules, overrides) {
+  const open = openOnce(store);
+  // When the app's copy is behind, the reconnect steps: read before anything else is awaited.
+  const news = toolNewsSection(store.actor?.toolsListedAt, undefined, appOf(store));
+  const [survey, page, procedure, privateIndex, pendingProposals, globalNote, others] = await Promise.all([
+    surveyOf(store, store, scope, rules, overrides),
+    frontParagraphOf(store, scope, rules, overrides),
+    readSaveProcedure(store, scope, rules, overrides),
+    scope === "private" ? getWithLegacyFallback(store, "index-private.md") : Promise.resolve(null),
+    scope === "private" ? listAllKeysWithLegacy(store, PROPOSAL_PENDING_PREFIX) : Promise.resolve([]),
+    readGlobalOrientNote({
+      contexts: store.contexts,
+      openPinned: open.openPinned,
+      here: { store, scope, rules, overrides },
+    }),
+    // Alongside the connected workspace's own work rather than after it: each
+    // other workspace is a control-plane round trip and bucket reads of its own.
+    surveyOtherContexts(store, open.openContext),
+  ]);
+
+  const parts = [CONTEXT_INTRO];
+  // Staff's channel to every agent, ahead of everything the person's own workspaces say.
+  const global = globalSection(globalNote);
+  if (global) parts.push(global);
+  // When the app's copy is behind, the reconnect steps and the manual it needs.
+  // Otherwise the one line that says what the tools are and where the rest is.
+  // The texting assistant is handed the older, full list every turn and has no
+  // `offeredTools` (`mcp/handlers.js` sets it for MCP connections only): no
+  // tool line for it, and the rules below in the names it has.
+  const v2 = typeof store.offeredTools === "function";
+  const say = (text) => inToolNames(text, { v2 });
+  if (v2 && news) parts.push(`${news}\n\n${await toolsManual(store, scope)}`);
+  else if (v2) parts.push(SIX_TOOLS_LINE);
+
+  const current = currentEntryOf(store);
+  const connected = connectedBlock({ entry: current, page, survey });
+  const workspaces = [connected];
+  if (others.section) workspaces.push(others.section);
   parts.push(
-    `## Front page — index.md\n\n${frontPage || NO_FRONT_PAGE}`
+    "## Workspaces\n\nCalls with no `context` go to the first one. Pass `context: \"@name\"` to work in another.\n\n" +
+      workspaces.join("\n\n")
   );
 
   if (scope === "private" && privateIndex) {
     parts.push(`## Owner's front page — index-private.md\n\n${(await privateIndex.text()).trim()}`);
   }
+  const recent = recentSection(survey);
+  if (recent) parts.push(recent);
 
-  if (survey.recent.length || survey.captured.length) {
-    const now = Date.now();
-    const lines = [
-      ...survey.recent.map((note) => `- ${note.key} — ${relativeAge(note.uploaded, now)}`),
-      ...survey.captured.map((summary) => formatCapturedLine(summary, now)),
-    ];
-    parts.push(
-      "## Recently updated\n" +
-        lines.join("\n") +
-        "\n\nThese are where the user's attention has been. Read one before assuming you " +
-        "know what they are working on." +
-        // Mail, meetings and saved sessions arrive on their own schedule, not
-        // the user's — collapsed here to a pointer rather than individual
-        // entries so they cannot crowd out a note the user actually touched.
-        // list_notes or search_notes answers "what came in" in full.
-        (survey.captured.length
-          ? " Mail, meetings and saved sessions arrive automatically and are collapsed to one " +
-            "line per kind above — list_notes or search_notes on the folder for the individual notes."
-          : "")
-    );
-  }
-
-  parts.push(
-    survey.loading
-      ? `## Structure\n\nNot drawn: ${survey.loading}`
-      : `## Structure\n${renderStructure(survey)}\n\n` +
-        (renderBuiltInFolders(survey) ? `${renderBuiltInFolders(survey)}\n\n` : "") +
-        `${FOLDER_ABOUT_GUIDANCE}\n\n` +
-        "Go deeper with list_notes on a prefix, and search_notes before concluding something " +
-        "is not written down — a topic that is missing from this map is usually filed under a " +
-        "name you did not guess."
-  );
-
-  if (chaos) parts.push(chaos);
-
-  if (reducedRecallNotes.length) {
-    // Named, then counted — a shed mailbox sheds by the day, so this list is
-    // hundreds of lines long in exactly the context that most needs the rest
-    // of this page. See `RENDERED_RECALL_NOTE_LIMIT`, and the same `(+N more)`
-    // idiom `renderStructure` uses for the identical reason.
-    const { shown, rest } = splitReducedRecallNotes(reducedRecallNotes);
-    const lines = shown.map((path) => `- ${path}`);
-    if (rest) lines.push(`- (+${rest} more notes in the same state)`);
-    parts.push(
-      "## Search coverage\n" +
-        "These notes hold more messages than the search index can keep in full, so " +
-        "search_notes will not find a term that appeared only in a message it had to drop — " +
-        "the note itself is unaffected and read_note always returns it whole. A search miss on " +
-        "one of these is not proof the content is gone:\n" +
-        lines.join("\n")
-    );
-  }
-
-  const websiteGuide = websiteGuideFor(survey);
-  if (websiteGuide) parts.push(websiteGuide);
-
-  if (otherContexts.section) parts.push(otherContexts.section);
-
-  if (scope === "private" && pendingProposals.length) {
-    parts.push(
-      `## Pending note proposals\n${pendingProposals.length} waiting for you. ` +
-        "Use list_proposals, read_proposal, and review_proposal to process them."
-    );
-  }
-
-  // Before the contract, because it *is* the contract for this context — the
-  // user's own words outrank ours, and an agent that reads the generic rule
-  // first and their procedure second has them in the wrong order.
+  // The owner's own end-of-session procedure, before the generic rules: their words outrank ours.
   if (procedure && (procedure.text || procedure.destination)) {
     parts.push(
-      "## Before this session ends\n" +
-        "This context has its own save procedure, written by its owner. Follow it, and call " +
-        "`save_context` to carry it out.\n" +
-        (procedure.destination ? `\nSaved sessions go to \`${procedure.destination}/\`.\n` : "") +
+      say("## Before this session ends\n" +
+        "This workspace has its own save procedure, written by its owner. Follow it, and use write with action " +
+        "save_session to carry it out.\n" +
+        (procedure.destination ? `\nSaved sessions go to \`${procedure.destination}/\`.\n` : "")) +
         (procedure.text ? `\n${procedure.text}` : "")
     );
   }
+  if (scope === "private" && pendingProposals.length) {
+    parts.push(
+      say(
+        `## Pending note proposals\n${pendingProposals.length} waiting for you. ` +
+          "Use fetch with `proposals:` to read them, and manage with action review_proposal to decide each one."
+      )
+    );
+  }
+  parts.push(say(`## How to work here\n\n${HOW_TO_WORK}`));
+  return toolText(parts.join("\n\n---\n\n"));
+}
 
-  parts.push(ORIENT_OPERATING_CONTRACT);
-  parts.push(scopeInfoText(scope, rules, currentReach(store)));
-  // The ledger has to hear every workspace this one call read from, the way
-  // `search_notes` reports its own fan-out: it is what `approvalRequired`
-  // weighs before letting this turn widen anything (`privacy/egress.js`).
-  return withReadReach(toolText(parts.join("\n\n---\n\n")), otherContexts.reached);
+/**
+ * `orient`: the overview, or one part of the manual named by `about`.
+ *
+ * @param {object} options `about` (a string, see `aboutAnswer`), and the legacy `tools` flag
+ */
+export async function toolOrient(store, scope, rules, overrides, options = {}) {
+  const about = aboutOf(options);
+  if (about === null) return await overview(store, scope, rules, overrides);
+  return await aboutAnswer(store, scope, rules, overrides, about);
 }
 
 export async function toolScopeInfo(store, scope, rules, overrides, pathArg, listWorkspaces = false) {

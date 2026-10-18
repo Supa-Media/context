@@ -224,9 +224,9 @@ index 9d9b3748..7460b8e5 100644
    clearExactVisibilityIfAbsent,
    deleteCreatedDestination,
 @@ -109,6 +114,24 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
-   // Asked of the Convex tree (`tree/names.js`); the write is conditional.
-   const destinationTaken = await destinationRefusal(store, dest, "conflict: archive destination already exists");
-   if (destinationTaken) return destinationTaken;
+   });
+   if (unanswered) return unanswered;
+   if (dest === null) return toolError(ARCHIVE_TAKEN);
 +  // Before any write, because this path has no rollback at all: a throw from
 +  // the backstop leaves the destination written, the source undeleted, and a
 +  // protocol error in the caller's hands.
@@ -237,17 +237,17 @@ index 9d9b3748..7460b8e5 100644
 +  // is true and the first is not: `destinationVisibility` above is `private`
 +  // only at owner scope, and `team` for everybody else. So the guard is
 +  // reachable, at exactly the scope where its message must not be — hence the
-+  // split below. What actually bounds it is the millisecond timestamp in
-+  // `dest`, which is what the ORIGINAL comment said, and which was deleted for
-+  // being "the wrong reason for a true statement". It was the right reason.
++  // split below. The millisecond timestamp in `dest` that once bounded it is
++  // gone (Archive keeps the workspace's shape since 2026-10-18), so `dest` is
++  // now a path people reuse: re-review this guard's reach before reviving it.
 +  if (foldedTwinBlocks(dest, destinationVisibility, rules, overrides)) {
 +    return scope === "private"
 +      ? toolError(FOLDED_TWIN_REFUSAL)
 +      : writePermissionError("archive destination");
 +  }
  
-   if (collaborationBase) {
-     if (store.capabilities?.conditionalDelete !== true) {
+   // A keyed workspace archives the note as a row change, never as a copy (`queuedFolder.js`).
+   const keyedArchive = await startKeyedNoteMove(store, scope, path, dest, expectedEtag, { rules, overrides });
 diff --git a/apps/mcp/src/tools/moves/folder.js b/apps/mcp/src/tools/moves/folder.js
 index 374b182..29e46fb 100644
 --- a/apps/mcp/src/tools/moves/folder.js

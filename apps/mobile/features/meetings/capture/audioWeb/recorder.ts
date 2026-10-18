@@ -1,8 +1,11 @@
 import type { TranscriptSegment } from "../../protocol";
 import type { CaptureOptions, MeetingRecorder, RecorderError, RecorderState } from "../index";
-import { meterLevel, publishRecorderLevel } from "../level";
+import { meterLevel, publishRecorderLevel, publishRecorderSplit } from "../level";
+import { callAudioGivenUp, noteCallAudioShare, readCallAudioMemory } from "../callAudioMemory";
+import { browserName } from "../browser";
 import { MAX_INFLIGHT_CHUNKS, SEGMENT_MS, chunkIdFor } from "../segments";
 import { resolveTranscriber } from "../transcriber";
+import { talkTimeline } from "../talkTimeline";
 import {
   type AudioGraph,
   browserCanShareSystemAudio,
@@ -22,9 +25,11 @@ import {
   NO_TRANSCRIBER,
   OFFLINE_NOT_KEPT,
   SEND_BACKLOG,
+  CALL_AUDIO_ROOM,
   SYSTEM_AUDIO_ENDED,
   SYSTEM_AUDIO_UNSHARED,
   browserOffline,
+  callAudioSkipped,
   messageOf,
   requireSessionId,
 } from "./messages";
@@ -65,6 +70,8 @@ export function mediaRecorderRecorder(): MeetingRecorder {
   let chunkStartedAtMs = 0;
   /** Something else holds the input and we are waiting for `unmute`. */
   let interrupted = false;
+  /** Which side was louder, on the session clock. See `talkTimeline.ts`. */
+  const talk = talkTimeline();
 
   // Same reason as the phone's: a rotation tick cannot await, so every touch of
   // the device goes through one chain. The send is deliberately not on it.
@@ -151,19 +158,29 @@ export function mediaRecorderRecorder(): MeetingRecorder {
     stopLevelPolling();
     const node = graph?.analyser ?? null;
     if (node === null) return;
+    const call = graph?.callAnalyser ?? null;
     const samples = new Float32Array(node.fftSize);
+    const read = (from: AnalyserNode): number | null => {
+      from.getFloatTimeDomainData(samples);
+      return meterLevel(rmsDbfs(samples));
+    };
     levelTimer = setInterval(() => {
       if (graph === null || state !== "recording") {
         publishRecorderLevel(null);
+        publishRecorderSplit(null);
         return;
       }
       try {
-        node.getFloatTimeDomainData(samples);
-        publishRecorderLevel(meterLevel(rmsDbfs(samples)));
+        const you = read(node);
+        const heard = call === null ? null : read(call);
+        publishRecorderLevel(Math.max(you ?? 0, heard ?? 0));
+        publishRecorderSplit({ you, call: heard });
+        if (active !== null) talk.note(chunkStartOffsetMs + (Date.now() - chunkStartedAtMs), you, heard);
       } catch {
         // A graph going away underneath this timer is not a capture failure
         // and is not worth a chip. The meter says it has no reading.
         publishRecorderLevel(null);
+        publishRecorderSplit(null);
       }
     }, LEVEL_INTERVAL_MS);
   }
@@ -177,6 +194,7 @@ export function mediaRecorderRecorder(): MeetingRecorder {
       other way — it would draw a loud room over a meeting that has ended.
     */
     publishRecorderLevel(null);
+    publishRecorderSplit(null);
   }
 
   function openChunk(): void {
@@ -310,7 +328,17 @@ export function mediaRecorderRecorder(): MeetingRecorder {
       report({ recoverable: true, message: NO_SPEECH });
       return;
     }
-    for (const segment of segments) emit(segment);
+    for (const segment of segments) emit(withSpeakerSide(segment));
+  }
+
+  /**
+   * The segment, with the side that was louder while it was said, when the
+   * meeting has a call to compare against. Otherwise exactly what the engine
+   * said (`mixed`), so a room meeting never gains a speaker.
+   */
+  function withSpeakerSide(segment: TranscriptSegment): TranscriptSegment {
+    const channel = talk.channelFor(segment.startMs, segment.endMs);
+    return channel === null ? segment : { ...segment, channel };
   }
 
   /**
@@ -462,7 +490,15 @@ export function mediaRecorderRecorder(): MeetingRecorder {
         where this browser can share audio: a picker in front of every meeting
         is the price of not recording one side of a call.
       */
-      const wanted = options?.systemAudio === true && canShareSystemAudio;
+      const asked = options?.systemAudio === true && canShareSystemAudio;
+      /*
+        A browser that handed back no sound the last few times is not asked
+        again: the meeting starts on the microphone and says so, with a link
+        that asks (`callAudioMemory.ts`). The same picker failing the same way
+        at every meeting was the complaint.
+      */
+      const skipped = asked && callAudioGivenUp(readCallAudioMemory());
+      const wanted = asked && !skipped;
       displayStream = wanted ? await askForSystemAudio() : null;
 
       try {
@@ -495,6 +531,7 @@ export function mediaRecorderRecorder(): MeetingRecorder {
       chunkIndex = 0;
       chunkStartOffsetMs = 0;
       interrupted = false;
+      talk.clear();
 
       try {
         openChunk();
@@ -515,8 +552,18 @@ export function mediaRecorderRecorder(): MeetingRecorder {
         `desktop.ts` reports its own `micOnly` at the same point for the same
         reason.
       */
+      if (wanted) noteCallAudioShare(displayStream !== null);
       if (wanted && displayStream === null) {
         report({ recoverable: true, message: SYSTEM_AUDIO_UNSHARED, kind: "call-audio-missing" });
+      } else if (skipped) {
+        report({
+          recoverable: true,
+          message: callAudioSkipped(browserName()),
+          kind: "call-audio-skipped",
+        });
+      } else if (options?.systemAudio === false && canShareSystemAudio) {
+        // "Nobody on a call? Record the room", from the first-time note.
+        report({ recoverable: true, message: CALL_AUDIO_ROOM, kind: "call-audio-room" });
       }
     },
 
@@ -540,6 +587,7 @@ export function mediaRecorderRecorder(): MeetingRecorder {
       const shared = await askForSystemAudio();
       const next = shared === null ? null : await buildGraph(mic, shared);
       const usable = shared !== null && next?.mixed != null;
+      noteCallAudioShare(usable);
       const stillRunning = (state === "recording" || state === "paused") && micStream === mic;
       if (!usable || !stillRunning) {
         for (const track of shared?.getTracks() ?? []) track.stop();

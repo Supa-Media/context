@@ -4,6 +4,11 @@
  * `authorizeFileAccess` before the credential barrier `runFileOperation` is
  * reached.
  *
+ * In rows mode (`nodeMigration.accessSource` = `rows`) the change is written to
+ * the tree's access rows instead (`nodesAccess.consoleAccess`), and nothing is
+ * written to `privacy.md`: the rows are the truth there. Authorization is the
+ * same either way.
+ *
  * Handler bodies of functions `functions/files.ts` registers, moved verbatim;
  * the registrations (names, args, returns) stay there.
  */
@@ -15,6 +20,7 @@ import type { ActionCtx } from "../../../_generated/server";
 import { callerId } from "./access";
 import type { OperationResult } from "./operationTypes";
 import { visibilityValidator } from "./validators";
+import { isPlumbing, type Visibility } from "../privacy";
 
 /**
  * Resolve the name an owner typed to the one that may go in `privacy.md`.
@@ -61,6 +67,92 @@ async function resolveNamedAudience(
   return resolved;
 }
 
+/* -------------------------------------------------------------------------- */
+/*                               rows mode                                    */
+/* -------------------------------------------------------------------------- */
+
+type VisibilityOperationResult = Extract<OperationResult, { kind: "visibility" }>;
+
+/** Whether the rows are the truth for this deployment: a change is written to them, not to `privacy.md`. */
+async function rowsOn(ctx: ActionCtx): Promise<boolean> {
+  return await ctx.runQuery(internal.functions.nodesAccess.rowsMode, {});
+}
+
+/**
+ * One console change written to the rows (`nodesAccess.consoleAccess`), answered in the shape the file path
+ * answers. The same refusals the file path gives for a path it cannot take: a note must be `.md`, a folder
+ * must not be plumbing. A path with no row is "does not exist": a row is never made here.
+ */
+async function rowsChange(
+  ctx: ActionCtx,
+  change: {
+    workspaceId: Id<"workspaces">;
+    actorUserId: Id<"users">;
+    path: string;
+    kind: "note" | "folder";
+    tier?: "private" | "team";
+    group?: string;
+  },
+): Promise<VisibilityOperationResult> {
+  if (change.kind === "note" && !change.path.endsWith(".md")) {
+    throw new ConvexError({
+      code: "PATH_INVALID",
+      message: "Only markdown notes can have their own visibility. Set the folder's default instead.",
+    });
+  }
+  if (change.kind === "folder" && isPlumbing(change.path)) {
+    throw new ConvexError({ code: "PATH_INVALID", message: "That path is reserved." });
+  }
+  const answer = await ctx.runMutation(internal.functions.nodesAccess.consoleAccess, change);
+  if (!answer.ok) {
+    if (answer.code === "GROUP_NOT_FOUND") {
+      throw new ConvexError({ code: "GROUP_NOT_FOUND", message: "That is not a group or a member of this context." });
+    }
+    throw new ConvexError({ code: "FILE_NOT_FOUND", message: "That file does not exist." });
+  }
+  return {
+    kind: "visibility",
+    path: answer.path,
+    visibility: answer.visibility as Visibility,
+    inherited: answer.inherited as Visibility,
+    exception: answer.exception,
+  };
+}
+
+/**
+ * The activity line a tier change records on its path in the file mode, written in rows mode too: the change
+ * itself went to the rows, and the activity file is the same. `visibility.note` and `visibility.folder` only;
+ * a group records no line in the file mode either. `teamVisible` is the rows' answer for the paths.
+ */
+export async function recordRowsVisibilityLine(
+  ctx: ActionCtx,
+  line: {
+    workspaceId: Id<"workspaces">;
+    action: "visibility.note" | "visibility.folder";
+    path: string;
+    to: string;
+    teamVisible: boolean;
+    actorName?: string | null;
+  },
+): Promise<void> {
+  await ctx.runAction(internal.functions.files.runFileOperation, {
+    workspaceId: line.workspaceId,
+    scope: "private",
+    ...(line.actorName === undefined ? {} : { actorName: line.actorName }),
+    operation: {
+      kind: "visibilityLine",
+      action: line.action,
+      path: line.path,
+      to: line.to,
+      teamVisible: line.teamVisible,
+    },
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                 handlers                                   */
+/* -------------------------------------------------------------------------- */
+
 /**
  * Change one note's visibility, through the privacy manifest. Requires
  * `owner` — see `setDirectoryVisibility` for why, learned the hard way.
@@ -83,17 +175,30 @@ export async function setNoteVisibilityHandler(
     workspaceId: args.workspaceId,
     minimum: "owner",
   });
-  const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
-    workspaceId: args.workspaceId,
-    scope,
-    grantedNames,
-    actorName,
-    operation: {
-      kind: "setVisibility",
-      path: args.path,
-      visibility: args.visibility,
-    },
-  })) as Extract<OperationResult, { kind: "visibility" }>;
+  let result: VisibilityOperationResult;
+  if (await rowsOn(ctx)) {
+    result = await rowsChange(ctx, { workspaceId: args.workspaceId, actorUserId, path: args.path, kind: "note", tier: args.visibility });
+    await recordRowsVisibilityLine(ctx, {
+      workspaceId: args.workspaceId,
+      action: "visibility.note",
+      path: result.path,
+      to: args.visibility,
+      teamVisible: result.visibility === "team",
+      actorName,
+    });
+  } else {
+    result = (await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      grantedNames,
+      actorName,
+      operation: {
+        kind: "setVisibility",
+        path: args.path,
+        visibility: args.visibility,
+      },
+    })) as Extract<OperationResult, { kind: "visibility" }>;
+  }
 
   await ctx.runMutation(internal.functions.audit.recordEvent, {
     workspaceId: args.workspaceId,
@@ -145,12 +250,14 @@ export async function setNoteGroupHandler(
   // was the friction that made the feature unusable.
   const name = await resolveNamedAudience(ctx, args.workspaceId, args.group);
 
-  const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
-    workspaceId: args.workspaceId,
-    scope,
-    grantedNames,
-    operation: { kind: "setNoteGroup", path: args.path, group: name },
-  })) as Extract<OperationResult, { kind: "visibility" }>;
+  const result = (await rowsOn(ctx))
+    ? await rowsChange(ctx, { workspaceId: args.workspaceId, actorUserId, path: args.path, kind: "note", group: name })
+    : ((await ctx.runAction(internal.functions.files.runFileOperation, {
+        workspaceId: args.workspaceId,
+        scope,
+        grantedNames,
+        operation: { kind: "setNoteGroup", path: args.path, group: name },
+      })) as Extract<OperationResult, { kind: "visibility" }>);
 
   await ctx.runMutation(internal.functions.audit.recordEvent, {
     workspaceId: args.workspaceId,
@@ -205,12 +312,14 @@ export async function setFolderGroupHandler(
 
   const name = await resolveNamedAudience(ctx, args.workspaceId, args.group);
 
-  const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
-    workspaceId: args.workspaceId,
-    scope,
-    grantedNames,
-    operation: { kind: "setFolderGroup", path: args.path, group: name },
-  })) as Extract<OperationResult, { kind: "visibility" }>;
+  const result = (await rowsOn(ctx))
+    ? await rowsChange(ctx, { workspaceId: args.workspaceId, actorUserId, path: args.path, kind: "folder", group: name })
+    : ((await ctx.runAction(internal.functions.files.runFileOperation, {
+        workspaceId: args.workspaceId,
+        scope,
+        grantedNames,
+        operation: { kind: "setFolderGroup", path: args.path, group: name },
+      })) as Extract<OperationResult, { kind: "visibility" }>);
 
   await ctx.runMutation(internal.functions.audit.recordEvent, {
     workspaceId: args.workspaceId,
@@ -248,17 +357,30 @@ export async function setDirectoryVisibilityHandler(
     workspaceId: args.workspaceId,
     minimum: "owner",
   });
-  const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
-    workspaceId: args.workspaceId,
-    scope,
-    grantedNames,
-    actorName,
-    operation: {
-      kind: "setFolderVisibility",
-      path: args.path,
-      visibility: args.visibility,
-    },
-  })) as Extract<OperationResult, { kind: "visibility" }>;
+  let result: VisibilityOperationResult;
+  if (await rowsOn(ctx)) {
+    result = await rowsChange(ctx, { workspaceId: args.workspaceId, actorUserId, path: args.path, kind: "folder", tier: args.visibility });
+    await recordRowsVisibilityLine(ctx, {
+      workspaceId: args.workspaceId,
+      action: "visibility.folder",
+      path: result.path,
+      to: args.visibility,
+      teamVisible: args.visibility === "team",
+      actorName,
+    });
+  } else {
+    result = (await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      grantedNames,
+      actorName,
+      operation: {
+        kind: "setFolderVisibility",
+        path: args.path,
+        visibility: args.visibility,
+      },
+    })) as Extract<OperationResult, { kind: "visibility" }>;
+  }
 
   await ctx.runMutation(internal.functions.audit.recordEvent, {
     workspaceId: args.workspaceId,
@@ -282,6 +404,9 @@ export async function setDirectoryVisibilityHandler(
  * It cannot touch a manifest that parses — see `lib/fileOps.ts` for why that
  * check, rather than this one, is the safety argument — and what it writes is
  * every folder `private`, so a person cannot use it to publish anything.
+ *
+ * In rows mode there is no file to repair: the rows are the access map, so the
+ * repair is refused as one that finds nothing to do.
  */
 export async function resetPrivacyHandler(
   ctx: ActionCtx,
@@ -295,6 +420,12 @@ export async function resetPrivacyHandler(
     workspaceId: args.workspaceId,
     minimum: "owner",
   });
+  if (await rowsOn(ctx)) {
+    throw new ConvexError({
+      code: "PRIVACY_MANIFEST_USABLE",
+      message: "Access is kept on the tree's rows now, so there is no privacy.md to repair. Change a folder or note's access instead.",
+    });
+  }
   const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
     workspaceId: args.workspaceId,
     scope,

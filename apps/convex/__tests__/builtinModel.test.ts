@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { createUser, createWorkspace, gatewayPost, setupTest } from "./fixtures.helpers";
+import { addMember, createUser, createWorkspace, gatewayPost, setupTest } from "./fixtures.helpers";
 import { asUser } from "./fixtures.helpers";
 import { JEV_FEATURES } from "../functions/lib/jev/features";
 import { utcDay } from "../functions/lib/jev/meter";
@@ -76,12 +76,26 @@ describe("who may use it", () => {
     expect((await usage(t, workspaceId))?.calls).toBe(1);
   });
 
-  test("a free texter is refused, and the refusal is counted", async () => {
+  test("a free texter may too, under the same 100 a day (Tex is free, decided 2026-10-17)", async () => {
     const t = setupTest();
     const { workspaceId, accessToken } = await texter(t, { paying: false });
-    expect(await ask(t, accessToken)).toEqual({ allowed: false, reason: "not_premium" });
+    expect(JEV_FEATURES.assistant.dailyCallsFree).toBe(100);
+    expect(await ask(t, accessToken)).toEqual({ allowed: true, remaining: 99 });
+    expect((await usage(t, workspaceId))?.calls).toBe(1);
+  });
+
+  test("a free texter's 101st turn of the day is refused as the daily cap, and counted", async () => {
+    const t = setupTest();
+    const { workspaceId, accessToken } = await texter(t, { paying: false });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("jevUsage", {
+        day: utcDay(Date.now()), feature: BUILTIN_FEATURE, workspaceId,
+        calls: 99, failed: 0, refused: 0, questions: 0, tokens: 0, costMicroUsd: 0, ms: 0, updatedAt: Date.now(),
+      });
+    });
+    expect(await ask(t, accessToken)).toEqual({ allowed: true, remaining: 0 });
+    expect(await ask(t, accessToken)).toEqual({ allowed: false, reason: "daily_cap" });
     expect((await usage(t, workspaceId))?.refused).toBe(1);
-    expect((await usage(t, workspaceId))?.calls).toBe(0);
   });
 
   test("a grant for any other client is refused, whatever its plan", async () => {
@@ -290,4 +304,64 @@ describe("a routine", () => {
     expect(await report(f.t, run!.accessToken, { inputTokens: 10, outputTokens: 10, ms: 5 })).toBe(true);
     expect(await usage(f.t, f.workspaceId)).toMatchObject({ calls: 1, tokens: 20 });
   }, 20_000);
+});
+
+/**
+ * Try it, on the AI tab (the owner, 2026-10-16): a console grant may spend the
+ * built-in model only when the gateway's Try it route asks **and** its person
+ * can edit `@context-lc`. Sabotage: drop the role check in `editsAiNotes` and
+ * "a console grant of a member of @context-lc is refused" fails; drop the
+ * `tryIt` condition and "an ordinary console turn is still refused" fails.
+ */
+describe("Try it on the AI tab", () => {
+  async function consoleGrant(t: T, role: "owner" | "editor" | "member" | null) {
+    const userId = await createUser(t, "tryer@example.invalid");
+    const workspaceId = await createWorkspace(t, userId, "tryer", { kind: "personal" });
+    const now = Date.now();
+    await t.run((ctx) =>
+      ctx.db.insert("workspacePlans", { workspaceId, managedStorage: false, fastSearch: true, status: "active", createdAt: now, updatedAt: now }),
+    );
+    if (role !== null) {
+      const founder = await createUser(t, "founder@example.invalid");
+      const pinned = await createWorkspace(t, founder, "context-lc", { kind: "shared" });
+      await addMember(t, pinned, userId, role);
+    }
+    const minted = (await asUser(t, userId).action(api.functions.agentGrant.mintConsoleGrant, { workspaceId: workspaceId as never })) as {
+      accessToken: string;
+    };
+    return { workspaceId, accessToken: minted.accessToken };
+  }
+
+  async function tryIt(t: T, accessToken: string) {
+    const response = await gatewayPost(t, "/gateway/builtin-model", { accessToken, expectedWorkspaceId: null, tryIt: true });
+    return (JSON.parse(await response.text()) as { verdict: unknown }).verdict;
+  }
+
+  test("an editor of @context-lc may, counted on their own workspace", async () => {
+    const t = setupTest();
+    const { workspaceId, accessToken } = await consoleGrant(t, "editor");
+    const cap = JEV_FEATURES.assistant.dailyCallsPerWorkspace;
+    expect(await tryIt(t, accessToken)).toEqual({ allowed: true, remaining: cap - 1 });
+    expect((await usage(t, workspaceId))?.calls).toBe(1);
+    expect(await report(t, accessToken, { inputTokens: 10, outputTokens: 5, failed: false, ms: 1, tryIt: true })).toBe(true);
+  });
+
+  test("a console grant of a member of @context-lc is refused", async () => {
+    const t = setupTest();
+    const { accessToken } = await consoleGrant(t, "member");
+    expect(await tryIt(t, accessToken)).toEqual({ allowed: false, reason: "not_texts" });
+  });
+
+  test("a console grant of somebody outside @context-lc is refused", async () => {
+    const t = setupTest();
+    const { accessToken } = await consoleGrant(t, null);
+    expect(await tryIt(t, accessToken)).toEqual({ allowed: false, reason: "not_texts" });
+  });
+
+  test("an ordinary console turn is still refused, editor or not", async () => {
+    const t = setupTest();
+    const { accessToken } = await consoleGrant(t, "editor");
+    expect(await ask(t, accessToken)).toEqual({ allowed: false, reason: "not_texts" });
+    expect(await report(t, accessToken, { inputTokens: 10, outputTokens: 5, failed: false, ms: 1 })).toBe(false);
+  });
 });

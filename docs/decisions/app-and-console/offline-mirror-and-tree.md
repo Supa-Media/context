@@ -80,8 +80,7 @@ is absent for everybody; `privacy.md` reaches only the owner, marked
 empty manifest would be an oracle of a different shape.
 
 **Versions come from the listing, never from a read.** The etag on each entry
-is the store's own — S3's `ETag`, Dropbox's `rev` (which the Dropbox listing
-used to drop) — and is the value `readNote` returns, so one walk says which
+is the store's own — S3's `ETag` — and is the value `readNote` returns, so one walk says which
 notes changed and nothing else is fetched. An entry without an etag means the
 store listed none: read it to learn its version, never "unchanged".
 
@@ -91,8 +90,8 @@ and at `team` scope that key is routinely a private note: handing it back would
 name one private path per page, to exactly the reader the filter exists for.
 So a page ends on a visible entry and the next call asks the store to start
 after it (`startAfter`, ListObjectsV2's `start-after`). That only means
-something on a store that lists in key order and honours the position, and
-Dropbox does neither, so both are *checked*: a listing seen out of order gets no
+something on a store that lists in key order and honours the position, so
+both are *checked*: a listing seen out of order gets no
 cursor, and a resumed walk that comes back with a key at or before the cursor
 stops. Either way the page says `truncated: true` — the pages so far are a
 floor, and the client must not read a missing path as a deletion — rather than
@@ -553,3 +552,34 @@ row" (`collaboration.test.mjs`), "a sibling folder's missing notes are not
 this page's" (`folderPageHoldsFolder.test.ts`), "a retry for one context
 leaves the others alone, and says which it wants"
 (`offlineFolderFreshener.test.ts`).
+
+### The phone downloads everything but Archive, and a workspace can stay online
+
+Decided by the owner, 2026-10-16: "we should be auto downloading everything
+not in archive", and "allow them per workspace to just choose not to download
+it, to keep it online only". The mirror still lists every note it may hold, so
+the tree is whole offline, but fetches a body only where `keepsBody`
+(`offline/downloadChoice.ts`) says so: never under a top-level folder playing
+the archive role, never in a workspace this device keeps online only. A body an
+older build fetched is dropped on the next pass — whatever the listing named,
+because a catch-up names only what changed — except where somebody's unsent
+work is based on it. The most recently edited notes come down first.
+
+The choice is the device's, not the account's: it is about this device's
+storage. It is the `download` kind in the offline namespace, so sign-out and a
+lost workspace forget it, and `sweep` never ages it out. The phone says what is
+downloading in one place: the top-right pill ("340 / 1,204", a percentage past
+ten thousand) when nothing about the connection or the queue is to say, opening
+the sheet's Downloads block with a line and a Don't download button per
+workspace. Tests: `offlineDownloadChoice.test.ts` (sabotage: removing the
+reconcile's body sweep fails "a body an older build downloaded goes") and
+`downloadPillRender.test.ts`.
+
+A note whose collaboration document will not open (`STORAGE_UNSAFE`) is asked
+for again as the Markdown the bucket holds (`plain`), the read a folder List
+already uses (2026-10-16). Some of those documents never recover on their own,
+and without the second read the mirror counted the same notes missing on every
+pass, holding the pill at "2,828 / 2,831". The plain copy's version is the
+object's, which is what the listing names, so it settles; the editor still
+refuses the note. Test: `offlineMirrorUnsafeReads.test.ts` (sabotage: returning
+the first answer fails "the copy settles").

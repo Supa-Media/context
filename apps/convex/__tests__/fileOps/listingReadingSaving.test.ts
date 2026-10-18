@@ -335,7 +335,7 @@ describe("a team-scoped caller sees only what is shared", () => {
    *
    * The call-count assertion above uses a one-object folder, which is the only
    * size at which walking a withheld folder to the end costs what an absent one
-   * costs. `limit` is a hint — Dropbox documents it as approximate and the
+   * costs. `limit` is a hint — some stores document it as approximate and the
    * store is the customer's — so a page of ten turns a sixty-object private
    * folder into six round trips against the absent folder's one, and past
    * `LIST_PAGE_CAP` pages the body diverges too: `truncated: true` against

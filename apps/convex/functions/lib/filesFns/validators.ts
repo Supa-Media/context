@@ -49,6 +49,12 @@ const entryValidator = v.object({
   readOnly: v.boolean(),
   size: v.optional(v.number()),
   updatedAt: v.optional(v.number()),
+  /** A folder's built-in job, under its original name (`lib/nodes/folderJobs.ts`). */
+  role: v.optional(v.string()),
+  /** A folder's place among its siblings, once set (`functions/folderOrder.ts`). */
+  order: v.optional(v.number()),
+  /** On a folder in Archive: the built-in folder it is the archive copy of (`lib/nodes/archiveTwins.ts`). */
+  archiveOf: v.optional(v.string()),
 });
 
 export const listingValidator = v.object({
@@ -151,6 +157,8 @@ export const manifestEntryValidator = v.object({
   etag: v.optional(v.string()),
   size: v.optional(v.number()),
   updatedAt: v.optional(v.number()),
+  /** The note's id where the tree holds one; a bucket walk has none. */
+  noteId: v.optional(v.string()),
   visibility: visibilityReadValidator,
   inherited: visibilityReadValidator,
   exception: v.boolean(),
@@ -181,7 +189,7 @@ export const manifestValidator = v.object({
 export const folderNotesValidator = v.object({
   kind: v.literal("folderNotes"),
   available: v.boolean(),
-  notes: v.array(v.object({ path: v.string(), updatedAt: v.optional(v.number()), props: v.string() })),
+  notes: v.array(v.object({ path: v.string(), updatedAt: v.optional(v.number()), size: v.optional(v.number()), props: v.string() })),
   cursor: v.union(v.string(), v.null()),
   missing: v.array(v.string()),
   fill: v.boolean(),
@@ -270,6 +278,13 @@ export const movedValidator = v.object({
   etag: v.optional(v.string()),
   /** Files a queued folder move carries; the bucket catches up behind the tree. See `movePath`. */
   queued: v.optional(v.number()),
+  /**
+   * A keyed workspace's move: rows changed and no bytes moved (`lib/nodes/rowMoveStart.ts`), with each moved
+   * file's old and new path. Optional, because only that move reports them; without them in the validator a
+   * keyed rename through `moveEntry` failed validation after the rows had already moved.
+   */
+  rowed: v.optional(v.boolean()),
+  moved: v.optional(v.array(v.object({ from: v.string(), to: v.string() }))),
 });
 
 export const deletedValidator = v.object({
@@ -351,6 +366,8 @@ export const contextMovePlannedValidator = v.object({
 export const contextMoveSettledValidator = v.object({
   kind: v.literal("contextMoveSettled"),
 });
+
+export const activityRecordedValidator = v.object({ kind: v.literal("activityRecorded") });
 
 export const visibilityResultValidator = v.object({
   kind: v.literal("visibility"),

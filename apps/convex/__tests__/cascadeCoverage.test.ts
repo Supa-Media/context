@@ -272,7 +272,6 @@ describe("every sealed, workspace-scoped table is swept or explained", () => {
     // addition — and so this file cannot pass by finding nothing.
     expect(credentialBearingWorkspaceTables()).toEqual([
       "cloudflareProvisioning",
-      "dropboxConnectAttempts",
       "googleConnectAttempts",
       "googleConnections",
       "managedStorageMigrations",

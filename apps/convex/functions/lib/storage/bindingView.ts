@@ -36,18 +36,6 @@ export const getStorageBindingReturns = v.union(
     rootPrefix: v.optional(v.string()),
     maskedAccessKeyId: v.optional(v.string()),
     forcePathStyle: v.optional(v.boolean()),
-    /**
-     * Whose Dropbox this is — `dbid:…`, never a token. Absent for every
-     * other provider, and absent for a Dropbox binding nobody has finished
-     * connecting yet.
-     *
-     * Not gated by role: it identifies an account the same way `bucket`
-     * identifies a bucket, and every member of a context can already see
-     * that. It is a live read of the row, so a reconnect onto a different
-     * Dropbox account is reflected the moment the binding is patched — the
-     * console never caches the account it showed last.
-     */
-    dropboxAccountId: v.optional(v.string()),
     capabilities: capabilitiesValidator,
     status: v.string(),
     lastVerifiedAt: v.optional(v.number()),
@@ -230,14 +218,12 @@ export async function getStorageBindingHandler(
     region: binding.region,
     bucket: binding.bucket,
     rootPrefix: binding.rootPrefix,
-    // Absent for Dropbox, which has no access key. `undefined` rather than
-    // an empty string, so the console renders nothing instead of a masked
-    // credential that does not exist.
+    // `undefined` rather than an empty string, so the console renders nothing
+    // instead of a masked credential that does not exist.
     maskedAccessKeyId: binding.accessKeyId
       ? maskAccessKeyId(binding.accessKeyId)
       : undefined,
     forcePathStyle: binding.forcePathStyle,
-    dropboxAccountId: binding.dropboxAccountId,
     capabilities: binding.capabilities,
     status: binding.status,
     lastVerifiedAt: binding.lastVerifiedAt,

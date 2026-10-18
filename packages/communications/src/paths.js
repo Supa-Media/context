@@ -85,7 +85,7 @@ const DAY_FILE = /^(\d{4}-\d{2}-\d{2})(?:-part-([2-9]|[1-9]\d+))?\.md$/;
  *    for its storage.
  *  - **`.` and `..` escape the folder**, raw or percent-encoded — the storage
  *    adapter decodes before it compares.
- *  - **Case folds on Dropbox and not on R2**, so two addresses differing only
+ *  - **Case folds on some stores and not on R2**, so two addresses differing only
  *    in case are two folders on one backend and one on another.
  *
  * Producing `[a-z0-9-]` only closes all three by construction rather than by

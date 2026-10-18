@@ -107,12 +107,12 @@ describe("the map's address", () => {
     for (const value of [undefined, "", "0", "true", "yes"]) expect(mapFromQuery(value)).toBe(false);
   });
 
-  test("opening it closes What changed and Settings; closing clears only its own key", () => {
+  test("opening it closes Settings; closing clears only its own key", () => {
     const { calls, router } = recorder();
     routeMap(router, false).openMap();
     routeMap(router, true).closeMap();
     expect(calls).toEqual([
-      ["setParams", { map: "1", changes: undefined, settings: undefined }],
+      ["setParams", { map: "1", settings: undefined }],
       ["setParams", { map: undefined }],
     ]);
   });
@@ -122,7 +122,7 @@ describe("the map's address", () => {
     routeMap(router, false).toggle();
     routeMap(router, true).toggle();
     expect(calls).toEqual([
-      ["setParams", { map: "1", changes: undefined, settings: undefined }],
+      ["setParams", { map: "1", settings: undefined }],
       ["setParams", { map: undefined }],
     ]);
   });
@@ -193,36 +193,30 @@ describe("the Map button in the sidebar's top row", () => {
 });
 
 describe("the map on a phone", () => {
-  function home(onOpenMap?: () => void) {
-    return createElement(PhoneHome, {
-      title: "Seyi",
-      source: { notes: [], folders: [], shared: new Set<string>() },
-      pins: [],
-      opened: [],
-      recents: [],
-      onOpen: noop,
-      onTogglePin: null,
-      onOpenMap,
-    });
-  }
-
-  test("is a place on Home that opens it", () => {
-    const opened: string[] = [];
-    mount(home(() => opened.push("map")));
-    expect(byId("phone-home-map")?.textContent).toContain("Map");
-    press(byId("phone-home-map"));
-    expect(opened).toEqual(["map"]);
-  });
-
-  test("has no place on Home where there is no map (a visitor, the demo)", () => {
-    mount(home(undefined));
+  /*
+    Off Home since 2026-10-15 (owner: "No one cares about seeing the map. it
+    should not be an item that shows up on the home page").
+    SABOTAGE: putting the Map row back on `PhoneHome` fails this.
+  */
+  test("has no place on Home", () => {
+    mount(
+      createElement(PhoneHome, {
+        title: "Seyi",
+        source: { notes: [], folders: [], shared: new Set<string>() },
+        pins: [],
+        opened: [],
+        recents: [],
+        onOpen: noop,
+      }),
+    );
     expect(byId("phone-home")).not.toBeNull();
     expect(byId("phone-home-map")).toBeNull();
+    expect(byId("phone-home")?.textContent).not.toContain("Who is working");
   });
 
-  test("goes back to Home, whatever is selected under it", () => {
-    expect(phoneBackLevels(null, true)).toEqual([{ folder: null, label: HOME_LABEL }]);
-    expect(phoneBackLevels("1-projects/launch/plan.md", true)).toEqual([{ folder: null, label: HOME_LABEL }]);
+  test("goes back to Inbox, whatever is selected under it", () => {
+    expect(phoneBackLevels(null, true)).toEqual([{ folder: null, label: HOME_LABEL, view: "inbox" }]);
+    expect(phoneBackLevels("1-projects/launch/plan.md", true)).toEqual([{ folder: null, label: HOME_LABEL, view: "inbox" }]);
     // And with the map closed, back is what it always was.
     expect(phoneBackLevels(null, false)).toEqual([]);
   });

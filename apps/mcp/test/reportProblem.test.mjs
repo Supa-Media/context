@@ -14,6 +14,7 @@ import { after, before, beforeEach, test } from "node:test";
 import worker from "../src/index.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
+import { fullToolList } from "./fullToolList.mjs";
 
 const S3_ENDPOINT = "https://s3.example-report-problem.test";
 const TOKEN_OWNER = `cat_report_owner_${"0".repeat(23)}`;
@@ -78,14 +79,18 @@ after(() => {
 });
 
 test("the tool is offered to every connection, a read-only one included", async () => {
+  // The full list (`fullToolList.mjs`): report_problem is one of the older
+  // tools, which `tools/list` answers only as the `write` tool's `report_problem`
+  // action. Offered to a read-only connection there too, it is not: `write` is
+  // a tool that writes, so the six v2 tools do not reach that connection with it.
   for (const token of [TOKEN_OWNER, TOKEN_READ_ONLY]) {
-    const names = ((await rpc(token, "tools/list", {}))?.tools || []).map((tool) => tool.name);
+    const names = (await fullToolList(env, token)).map((tool) => tool.name);
     assert.ok(names.includes("report_problem"), `not offered to ${token}`);
   }
 });
 
 test("its description says what to send and what never to include", async () => {
-  const tool = ((await rpc(TOKEN_OWNER, "tools/list", {}))?.tools || []).find((entry) => entry.name === "report_problem");
+  const tool = (await fullToolList(env, TOKEN_OWNER)).find((entry) => entry.name === "report_problem");
   assert.match(tool.description, /never include/i);
   assert.match(tool.description, /note/i);
   assert.equal(tool.annotations.readOnlyHint, true);

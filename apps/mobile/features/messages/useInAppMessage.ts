@@ -6,8 +6,7 @@ import { accountAnswer, messageKey, seenFrom, type Seen } from "./rules";
 
 /**
  * Ask for the screen for one message, whose answer is kept somewhere of its
- * own (the setup checklist on the membership, auto-organize's notice on its
- * settings). `eligible` is everything about the moment that the message's own
+ * own (the setup checklist on the membership). `eligible` is everything about the moment that the message's own
  * code decides — role, layout, state — and `seen` its own answer. `visible`
  * says whether it is this message's turn.
  */

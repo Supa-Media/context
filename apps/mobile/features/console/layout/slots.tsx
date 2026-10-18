@@ -11,7 +11,8 @@ import { saveChip } from "../files/status";
 import { SyncPill } from "../files/SyncSheet";
 import type { useTabs } from "../files/useTabs";
 import { PhoneBack } from "../home/PhoneBack";
-import { phoneBackLevels } from "../home/phoneBack";
+import { goToLevel, phoneBackLevels } from "../home/phoneBack";
+import type { HomeView } from "../home/homeView";
 import type { MapRoute } from "../map/live/route";
 import { SwitcherMenu } from "../SwitcherMenu";
 import { selectedContext, type ConsoleData } from "../types";
@@ -72,6 +73,8 @@ export function consoleAccountSlot({
   data,
   switcherProps,
   map,
+  view = "inbox",
+  previous = null,
 }: {
   phone: boolean;
   browsing: boolean;
@@ -79,18 +82,23 @@ export function consoleAccountSlot({
   switcherProps: ComponentProps<typeof SwitcherMenu>;
   /** The live map's route, when the console has one: ‹ Home closes it. */
   map?: MapRoute;
+  /** Inbox or Folders, when nothing is open (`useHomeView`). */
+  view?: HomeView;
+  /** The page shown before this one (`usePreviousPage`): where ‹ goes. */
+  previous?: string | null;
 }) {
   const account = <SwitcherMenu {...switcherProps} trigger="phone" />;
+  const named = <SwitcherMenu {...switcherProps} trigger="phone" phoneNamed={data.visitor === undefined} />;
   const mapOpen = map?.open === true;
-  const levels = phone && browsing ? phoneBackLevels(data.files.selectedPath, mapOpen) : [];
-  if (levels.length === 0) return account;
+  const levels = phone && browsing ? phoneBackLevels(data.files.selectedPath, mapOpen, view, data.visitor !== undefined, previous) : [];
+  // Inbox and Folders: the mark with its @name and ⌄ (board 1).
+  if (levels.length === 0) return phone && browsing && (data.files.selectedPath ?? "") === "" ? named : account;
   return (
     <PhoneBack
       levels={levels}
       onGo={(target) => {
         if (mapOpen) map?.closeMap();
-        if (target.folder === null) data.files.deselect();
-        else data.files.select(target.folder);
+        goToLevel(target, data.files);
       }}
       after={switcherProps.onSignIn !== undefined ? account : undefined}
     />

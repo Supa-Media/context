@@ -21,16 +21,28 @@ import { internal } from "../../_generated/api";
 import type { Doc, Id } from "../../_generated/dataModel";
 import type { ActionCtx } from "../../_generated/server";
 import { hashToken } from "./crypto";
+import type { NoteIdItem } from "./nodes/noteIds";
 import { GATEWAY_SECRET_ENV_VAR, randomOpaqueToken } from "./gatewayAuth";
 import { MOVER_PAGE_TIMEOUT_MS } from "./managedProvisioningFns/constants";
 import type { MigrationPageResult } from "./managedProvisioningFns/migrationRun";
 
 type TicketPhase = Doc<"moverTickets">["phase"];
 type CarriedObject = { source: string; destination: string; size: number };
-type TicketFor =
-  | { migrationId: Id<"managedStorageMigrations">; walkRunId?: undefined; contextMoveId?: undefined }
-  | { walkRunId: number; migrationId?: undefined; contextMoveId?: undefined }
-  | { contextMoveId: Id<"contextMoves">; objects: CarriedObject[]; migrationId?: undefined; walkRunId?: undefined };
+/**
+ * The job a ticket names. `mintPage` checks that exactly one is set, and that
+ * a job's own phases carry its own fields, so a loose type here is safe.
+ */
+type TicketFor = {
+  migrationId?: Id<"managedStorageMigrations">;
+  walkRunId?: number;
+  contextMoveId?: Id<"contextMoves">;
+  objects?: CarriedObject[];
+  idRunId?: number;
+  idItems?: NoteIdItem[];
+  /** The old-copy cleanup (`lib/cleanup/`): its run, and the keys a delete page may remove. */
+  cleanupRunId?: number;
+  cleanupKeys?: string[];
+};
 
 export const STORAGE_MOVER_ORIGIN_ENV_VAR = "STORAGE_MOVER_ORIGIN";
 const MOVER_PAGE_PATH = "/internal/mover/page";
@@ -100,6 +112,10 @@ async function handToMover(
     ...(page.migrationId === undefined ? {} : { migrationId: page.migrationId }),
     ...(page.walkRunId === undefined ? {} : { walkRunId: page.walkRunId }),
     ...(page.contextMoveId === undefined ? {} : { contextMoveId: page.contextMoveId, objects: page.objects }),
+    ...(page.idRunId === undefined ? {} : { idRunId: page.idRunId, idItems: page.idItems }),
+    ...(page.cleanupRunId === undefined
+      ? {}
+      : { cleanupRunId: page.cleanupRunId, ...(page.cleanupKeys === undefined ? {} : { cleanupKeys: page.cleanupKeys }) }),
     phase: page.phase,
     ...(page.expectedCursor === undefined ? {} : { expectedCursor: page.expectedCursor }),
     now: Date.now(),
@@ -263,4 +279,105 @@ export async function runContextMoveBatchOnMover(
       }
     : null;
   return { kind: "done", landed, skipped, conflicts, failure };
+}
+
+/* -------------------------------------------------------------------------- */
+/*                    a page of the path-to-id copy on the mover              */
+/* -------------------------------------------------------------------------- */
+
+export type NoteIdPageOutcome =
+  | { kind: "done"; results: unknown[] }
+  | { kind: "stale" }
+  | { kind: "unanswered" }
+  | { kind: "failed"; code: string };
+
+/**
+ * Hand one page of the id copy (`id_copy`) or its check (`id_check`) to the
+ * mover. The ticket names the run and the items; the mover answers what it did
+ * to those items, and the caller reads the answer for them only.
+ */
+export async function runNoteIdPageOnMover(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  page: { runId: number; phase: "id_copy" | "id_check"; items: NoteIdItem[] },
+  origin: string,
+  options: { fetchImpl?: typeof fetch; env?: Record<string, string | undefined> } = {},
+): Promise<NoteIdPageOutcome> {
+  const body = await handToMover(
+    ctx,
+    workspaceId,
+    { idRunId: page.runId, idItems: page.items, phase: page.phase },
+    origin,
+    options,
+  );
+  if (body === null || typeof body !== "object") return { kind: "unanswered" };
+  const answer = body as Record<string, unknown>;
+  if (answer.ok !== true) {
+    if (answer.error === "STALE") return { kind: "stale" };
+    return { kind: "failed", code: typeof answer.error === "string" && WALK_CODE.test(answer.error) ? answer.error : "ID_COPY_FAILED" };
+  }
+  return { kind: "done", results: Array.isArray(answer.results) ? answer.results : [] };
+}
+
+/* -------------------------------------------------------------------------- */
+/*                 a page of the old-copy cleanup on the mover                */
+/* -------------------------------------------------------------------------- */
+
+export type CleanupOutcome<T> =
+  | ({ kind: "done" } & T)
+  | { kind: "stale" }
+  | { kind: "unanswered" }
+  | { kind: "failed"; code: string };
+
+/** The answer a cleanup page gave, or the outcome that says why there is none. */
+function cleanupAnswer(body: unknown): { ok: true; answer: Record<string, unknown> } | CleanupOutcome<never> {
+  if (body === null || typeof body !== "object") return { kind: "unanswered" };
+  const answer = body as Record<string, unknown>;
+  if (answer.ok !== true) {
+    if (answer.error === "STALE") return { kind: "stale" };
+    return { kind: "failed", code: typeof answer.error === "string" && WALK_CODE.test(answer.error) ? answer.error : "CLEANUP_FAILED" };
+  }
+  return { ok: true, answer };
+}
+
+/** One page of the bucket's keys, from `cursor`, listed by the mover. Keys only; no body is read. */
+export async function runCleanupListOnMover(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  page: { runId: number; cursor?: string },
+  origin: string,
+  options: { fetchImpl?: typeof fetch; env?: Record<string, string | undefined> } = {},
+): Promise<CleanupOutcome<{ keys: string[]; nextCursor: string | null }>> {
+  const body = await handToMover(
+    ctx,
+    workspaceId,
+    { cleanupRunId: page.runId, phase: "cleanup_list", ...(page.cursor === undefined ? {} : { expectedCursor: page.cursor }) },
+    origin,
+    options,
+  );
+  const answered = cleanupAnswer(body);
+  if (!("ok" in answered)) return answered;
+  const keys = Array.isArray(answered.answer.keys) ? answered.answer.keys.filter((key): key is string => typeof key === "string") : [];
+  const nextCursor = typeof answered.answer.nextCursor === "string" && answered.answer.nextCursor !== "" ? answered.answer.nextCursor : null;
+  return { kind: "done", keys, nextCursor };
+}
+
+/** The keys one delete page may remove, deleted by the mover; one answer per key. */
+export async function runCleanupDeleteOnMover(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  page: { runId: number; keys: string[] },
+  origin: string,
+  options: { fetchImpl?: typeof fetch; env?: Record<string, string | undefined> } = {},
+): Promise<CleanupOutcome<{ results: { key: string; ok: boolean; reason?: string }[] }>> {
+  const body = await handToMover(ctx, workspaceId, { cleanupRunId: page.runId, cleanupKeys: page.keys, phase: "cleanup_delete" }, origin, options);
+  const answered = cleanupAnswer(body);
+  if (!("ok" in answered)) return answered;
+  const results = Array.isArray(answered.answer.results)
+    ? answered.answer.results.filter(
+        (entry): entry is { key: string; ok: boolean; reason?: string } =>
+          entry !== null && typeof entry === "object" && typeof (entry as { key?: unknown }).key === "string" && typeof (entry as { ok?: unknown }).ok === "boolean",
+      )
+    : [];
+  return { kind: "done", results };
 }

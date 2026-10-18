@@ -31,7 +31,10 @@
  * - `signed in only`: a browser that is signed out lands on `sign_in`
  *   instead, and goes on to the page it wanted once the person signs in.
  * - `text (flag):` lines and `- button (flag):` elements show only once the
- *   flag is set; `[sets flag]` on a button sets it when the button goes through.
+ *   flag is set; `(!flag)` shows only while it is unset, and `(a, !b)` needs
+ *   all of them. `[sets flag]` on a button sets it when the button goes through.
+ * - A select's choice is kept for the conversation, by page and label, so a
+ *   setting chosen once is still chosen when the page is loaded again.
  * - `[needs Label, Label = value]`: the button goes nowhere until those boxes
  *   are filled (or hold that value, or that option is chosen, or that box is
  *   ticked), and the page then says what is missing.
@@ -65,7 +68,23 @@ export const placeOf = (url) => {
   }
 };
 
-function readElement(kind, flag, rest, where) {
+/**
+ * A `(flag)` condition as a list of `{name, not}`, every one of which must
+ * hold; null when the line has none.
+ */
+export function readFlags(raw, where) {
+  if (raw === undefined || raw === null) return null;
+  return raw.split(",").map((part) => {
+    const name = part.trim().replace(/^!\s*/, "");
+    if (!name) throw new Error(`${where}: an empty flag in "(${raw})"`);
+    return { name, not: part.trim().startsWith("!") };
+  });
+}
+
+/** Whether a line or element with condition `when` shows, given the flags set. */
+export const shows = (when, flags) => when === null || when.every(({ name, not }) => flags.has(name) !== not);
+
+function readElement(kind, when, rest, where) {
   let text = rest.trim();
   const needs = [];
   const sets = [];
@@ -97,7 +116,7 @@ function readElement(kind, flag, rest, where) {
     options = listed[2].split(",").map((s) => s.trim()).filter(Boolean);
   }
   if (!text) throw new Error(`${where}: an element needs a label`);
-  return { kind, flag, label: text, href, needs, sets, options };
+  return { kind, when, label: text, href, needs, sets, options };
 }
 
 /** One site file, parsed. Throws with the line that is wrong. */
@@ -128,8 +147,8 @@ export function parseSite(raw, label = "site") {
     let m;
     if ((m = t.match(/^title:\s*(.*)$/))) page.title = m[1];
     else if (t === "signed in only") page.signedInOnly = true;
-    else if ((m = t.match(/^text(?:\s+\(([^)]+)\))?:\s*(.*)$/))) page.text.push({ flag: m[1]?.trim() ?? null, line: m[2] });
-    else if ((m = t.match(ELEMENT))) page.elements.push(readElement(m[1], m[2]?.trim() ?? null, m[3], where));
+    else if ((m = t.match(/^text(?:\s+\(([^)]+)\))?:\s*(.*)$/))) page.text.push({ when: readFlags(m[1], where), line: m[2] });
+    else if ((m = t.match(ELEMENT))) page.elements.push(readElement(m[1], readFlags(m[2], where), m[3], where));
     else throw new Error(`${where}: cannot read "${t}"`);
   });
   if (site.pages.size === 0) throw new Error(`${label}: no pages`);
@@ -146,6 +165,8 @@ export function createWeb(sites) {
   const byHost = new Map(sites.map((site) => [site.host, site]));
   const signedIn = new Set();
   const flags = new Set();
+  // A select's choice, by page and label: the site remembers a setting across loads.
+  const chosen = new Map();
   const events = [];
   const browsers = new Map();
   let handedOff = null;
@@ -182,17 +203,23 @@ export function createWeb(sites) {
     events.push(`open ${placeOf(browser.url)}`);
   }
 
-  /** The page's elements whose flag is set (or that have none), with their place in the file. */
-  const visible = (page) => page.elements.map((el, i) => ({ el, i })).filter(({ el }) => el.flag === null || flags.has(el.flag));
+  /** The page's elements whose flags hold (or that have none), with their place in the file. */
+  const visible = (page) => page.elements.map((el, i) => ({ el, i })).filter(({ el }) => shows(el.when, flags));
+  const choiceKey = (page, el) => `${placeOf(page.url)} ${el.label.toLowerCase()}`;
+  /** What an element holds: a select's kept choice (else its first option), or what this page load typed or ticked. */
+  const valueOf = (browser, page, i) => {
+    const el = page.elements[i];
+    return el.kind === "select" ? chosen.get(choiceKey(page, el)) ?? el.options[0] : browser.values.get(i);
+  };
 
   function reading(browser, note = "") {
     const page = pageFor(browser.url);
     if (!page) return { url: browser.url, title: "Page not found", text: "This page doesn't exist.", truncated: false, elements: [] };
-    const text = page.text.filter((t) => t.flag === null || flags.has(t.flag)).map((t) => t.line);
+    const text = page.text.filter((t) => shows(t.when, flags)).map((t) => t.line);
     if (note) text.unshift(note);
     const elements = visible(page).map(({ el, i }, shown) => {
-      const value = browser.values.get(i);
-      const item = { ref: shown + 1, kind: el.kind === "password" ? "textbox (password)" : el.kind, label: el.kind === "select" ? `${el.label} (now: ${value ?? el.options[0]})` : el.label };
+      const value = valueOf(browser, page, i);
+      const item = { ref: shown + 1, kind: el.kind === "password" ? "textbox (password)" : el.kind, label: el.kind === "select" ? `${el.label} (now: ${value})` : el.label };
       if (el.href) item.href = el.href;
       if (el.kind === "checkbox") item.checked = value === true;
       else if ((el.kind === "textbox" || el.kind === "password") && value) item.filled = true;
@@ -205,9 +232,9 @@ export function createWeb(sites) {
   function missing(browser, page, element) {
     const out = [];
     for (const need of element.needs) {
-      const index = page.elements.findIndex((el) => (el.flag === null || flags.has(el.flag)) && el.label.toLowerCase() === need.label.toLowerCase());
+      const index = page.elements.findIndex((el) => shows(el.when, flags) && el.label.toLowerCase() === need.label.toLowerCase());
       const el = page.elements[index];
-      const value = index < 0 ? undefined : browser.values.get(index) ?? (el.kind === "select" ? el.options[0] : undefined);
+      const value = index < 0 ? undefined : valueOf(browser, page, index);
       const ok =
         el?.kind === "checkbox"
           ? value === true
@@ -267,7 +294,7 @@ export function createWeb(sites) {
         if (!el || el.kind !== "select") return { ok: false, reason: "that is not a list" };
         const option = el.options.find((o) => o.toLowerCase() === String(s.option ?? "").toLowerCase());
         if (!option) return { ok: false, reason: "no such option" };
-        browser.values.set(at, option);
+        chosen.set(choiceKey(page, el), option);
         events.push(`select ${placeOf(browser.url)} "${el.label}: ${option}"`);
         return { ok: true };
       }
@@ -295,6 +322,8 @@ export function createWeb(sites) {
       }
       const result = step(browser, s);
       ran.push({ do: s.do, ok: result.ok, ...(result.reason ? { reason: result.reason } : {}) });
+      // A refused step, with the element number it named: why a driver's form never filled.
+      if (!result.ok) events.push(`refused ${s.do} ${placeOf(browser.url)}${Number.isInteger(s.ref) ? ` [${s.ref}]` : ""}: ${result.reason}`);
       if (result.note) note = result.note;
       // A click that changed the page leaves the steps after it for the next call.
       if (result.moved && s.do !== "goto" && i < body.steps.length - 1) {
@@ -345,7 +374,7 @@ export function createWeb(sites) {
       const results = [];
       for (const site of sites) {
         if (!site.search.some((word) => words.has(word))) continue;
-        for (const page of site.pages.values()) results.push({ title: page.title || page.url, url: page.url, description: page.text.find((t) => t.flag === null)?.line ?? "" });
+        for (const page of site.pages.values()) results.push({ title: page.title || page.url, url: page.url, description: page.text.find((t) => t.when === null)?.line ?? "" });
       }
       events.push(`search "${String(query).slice(0, 80)}"`);
       return results;

@@ -20,9 +20,8 @@
  * registered redirect URI to `https` and loopback, and the provider catalogue
  * is constants. The reason to close it anyway is that **this was the only one
  * of the app's five ways out that was not an allowlist or tighter** —
- * `safeHref` over a shared note's Markdown, `isGoogleAuthorizeUrl` and
- * `isDropboxAuthorizeUrl` over an exact origin, and `Landing`'s constants are
- * the other four.
+ * `safeHref` over a shared note's Markdown, `isGoogleAuthorizeUrl` over an
+ * exact origin, and `Landing`'s constants are the others.
  *
  * **Adding a client whose deep link uses a new scheme means adding it here**,
  * and forgetting is loud rather than silent: `clientProviders.test.ts` asserts

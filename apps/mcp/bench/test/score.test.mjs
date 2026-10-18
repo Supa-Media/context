@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { parseBars, scoreFile } from "../score.mjs";
+import { repliesNote } from "../replies.mjs";
 
 const SETUPS = ["alpha", "beta", "gamma"];
 const QUESTIONS = [1, 2, 3, 4];
@@ -470,7 +471,7 @@ test("the job log shows each broken gate's failing answer, its reason and its ch
     ["a3", { verdicts: [v("must not", "invent a street", false, "lookup misses are not gates")] }],
   ]);
   const answers = new Map([
-    ["a1", { conversation: [{ from: "person", text: "deposit came in" }, { from: "assistant", text: "Done." }], toolsLine: "Tools: write_note", changes: ["- wrote woodshop/todo.md"] }],
+    ["a1", { conversation: [{ from: "person", text: "deposit came in" }, { from: "assistant", text: "Done." }], toolsLine: "Tools: write_note", browser: ["open shop.example/form", "refused type shop.example/form [3]: that is not a box to type in"], changes: ["- wrote woodshop/todo.md"] }],
     ["a2", { conversation: [{ from: "assistant", text: "PASSING ANSWER" }], toolsLine: null, changes: [] }],
     ["a3", { conversation: [{ from: "assistant", text: "LOOKUP ANSWER" }], toolsLine: null, changes: [] }],
   ]);
@@ -479,8 +480,109 @@ test("the job log shows each broken gate's failing answer, its reason and its ch
   assert.match(text, /Tex: Done\./);
   assert.match(text, /Tools: write_note/);
   assert.match(text, /- wrote woodshop\/todo\.md/);
+  // What the browser did, refused steps with their element numbers included.
+  assert.match(text, /Browser: open shop\.example\/form \| refused type shop\.example\/form \[3\]: that is not a box to type in/);
   // A passing run, a judge line and a failed line on a question that is not a gate stay out.
   assert.doesNotMatch(text, /PASSING ANSWER|LOOKUP ANSWER|stiff/);
   // No answer id reaches the log.
   assert.doesNotMatch(text, /\ba1\b|\ba2\b/);
+});
+
+test("the case table has one row per question: passed of answered runs for each setup, untested when its mirror failed", async () => {
+  const { dir, path, cleanup } = await folder();
+  try {
+    await scoreFile({ path, dir, date: "2026-10-10" });
+    const md = await readFile(path, "utf8");
+    const table = md.slice(md.indexOf("### Case by case"), md.indexOf("Best setup that passes every bar"));
+    assert.equal(
+      table.split("\n").filter((line) => line.startsWith("| ")).join("\n"),
+      [
+        "| case | alpha | beta | gamma |",
+        "| --- | --- | --- | --- |",
+        "| 1. Hours at the dentist? | 2 of 2 | 1 of 2 | 2 of 2 |",
+        "| 2. Is my dentist visit private? | 2 of 2 | untested | 1 of 2 |",
+        "| 3. Push the Lisbon trip back? | 2 of 2 | 2 of 2 | 2 of 2 |",
+        "| 4. Is the old list gone? | 2 of 2 | 2 of 2 | 2 of 2 |",
+      ].join("\n"),
+    );
+    // The table sits after the gate reasons and before the best setup, and the setup rows are untouched.
+    assert.ok(md.indexOf("Why gates failed, gamma:") < md.indexOf("### Case by case"));
+    assert.equal(scoredRows(md).length, 3);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("a case's title is one table cell, and a case with no answered run reads 0 of 0", async () => {
+  const { scoreSetups, scoreSection, parseBars } = await import("../score.mjs");
+  const questions = new Map([
+    [1, { n: 1, text: "Is A | B   split?", kind: "lookup", mirror: null }],
+    [2, { n: 2, text: "Mirror of one?", kind: "lookup", mirror: 1 }],
+    [3, { n: 3, text: "Never asked?", kind: "lookup", mirror: null }],
+  ]);
+  const key = [
+    { id: "a1", setup: "alpha", question: 1, run: 1 },
+    { id: "a2", setup: "alpha", question: 2, run: 1 },
+    { id: "b1", setup: "beta", question: 1, run: 1 },
+    { id: "b2", setup: "beta", question: 2, run: 1 },
+    // Question 3 is in the key but no run of it was answered: 0 of 0.
+    { id: "b3", setup: "beta", question: 3, run: 1 },
+  ];
+  const judged = new Map([
+    ["a1", { verdicts: [{ kind: "must", line: "x", pass: true, reason: "" }] }],
+    ["a2", { verdicts: [{ kind: "must", line: "x", pass: true, reason: "" }] }],
+    ["b1", { verdicts: [{ kind: "must", line: "x", pass: false, reason: "" }] }],
+    ["b2", { verdicts: [{ kind: "must", line: "x", pass: true, reason: "" }] }],
+    ["b3", { verdicts: [], skipped: "no answer: status 500" }],
+  ]);
+  const answers = new Map(key.map((row) => [row.id, { time: null, conversation: [] }]));
+  const { rows, cases } = scoreSetups({ key, judged, answers, questions, bars: parseBars({}) });
+  assert.deepEqual(cases[0], { question: 1, title: "Is A / B split?", cells: { alpha: { passed: 1, runs: 1 }, beta: { passed: 0, runs: 1 } } });
+  // Beta's question 2 mirrors question 1, which beta failed.
+  assert.equal(cases[1].cells.beta, "untested");
+  assert.deepEqual(cases[2].cells, { alpha: { passed: 0, runs: 0 }, beta: { passed: 0, runs: 0 } });
+  assert.equal(cases[2].title, "Never asked?");
+  // No cases means no table, as before the table existed.
+  const plain = scoreSection({ judgeModel: "judge", date: "2026-10-16", rows, best: null });
+  assert.doesNotMatch(plain, /Case by case/);
+  assert.match(scoreSection({ judgeModel: "judge", date: "2026-10-16", rows, best: null, cases }), /\| 2\. Mirror of one\? \| 1 of 1 \| untested \|/);
+});
+
+test("score writes the replies that differ beside the result, without an answer id", async () => {
+  const { dir, path, cleanup } = await folder();
+  try {
+    await scoreFile({ path, dir, date: "2026-10-10" });
+    const replies = await readFile(join(dir, "results", "2026-10-08 texting-assistant replies.md"), "utf8");
+    assert.match(replies, /^---\nrole: benchmark-replies\njob: texting-assistant\ndate: 2026-10-08\ntest: texting-assistant\n---/);
+    // Q1: alpha passed both runs, beta missed run 2; the failed run is the one shown.
+    assert.match(replies, /## 1\. Hours at the dentist\?\n\n### alpha · run 1 of 2 · passed\n\n> Person: when's my dentist appointment\?\n> Reply: It is Tuesday at 9am\./);
+    assert.match(replies, /### beta · run 2 of 2 · failed\n\n- missed must: say Tuesday\n> Person: when's my dentist appointment\?\n> Reply: It is Monday\./);
+    // Q3 and Q4 passed everywhere: nothing to read.
+    assert.doesNotMatch(replies, /## 3\.|## 4\./);
+    assert.doesNotMatch(replies, /alpha-1-1|beta-1-2|key\.md/);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("a round of one setup keeps the replies it failed, so the loop can read what went wrong", () => {
+  const questions = new Map([[1, { n: 1, text: "Dentist?" }], [2, { n: 2, text: "Hello?" }]]);
+  const key = [
+    { id: "p1", setup: "production", question: 1, run: 1 },
+    { id: "p2", setup: "production", question: 1, run: 2 },
+    { id: "p3", setup: "production", question: 2, run: 1 },
+  ];
+  const verdict = (pass) => ({ verdicts: [{ kind: "must", line: "say Tuesday", pass, reason: "" }] });
+  const judged = new Map([["p1", verdict(true)], ["p2", verdict(false)], ["p3", verdict(true)]]);
+  const answers = new Map([
+    ["p1", { conversation: [{ from: "assistant", text: "Tuesday." }] }],
+    ["p2", { conversation: [{ from: "assistant", text: "Monday." }] }],
+    ["p3", { conversation: [{ from: "assistant", text: "Hey." }] }],
+  ]);
+  const note = repliesNote({ key, judged, answers, questions, front: { job: "texting-assistant" }, date: "2026-10-17" });
+  assert.match(note, /replies that failed/);
+  assert.match(note, /## 1\. Dentist\?\n\n### production · run 2 of 2 · failed\n\n- missed must: say Tuesday\n> Reply: Monday\./);
+  assert.doesNotMatch(note, /## 2\./, "a case it passed every run is not shown");
+  judged.set("p2", verdict(true));
+  assert.equal(repliesNote({ key, judged, answers, questions, front: { job: "texting-assistant" }, date: "2026-10-17" }), null);
 });

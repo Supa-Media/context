@@ -17,7 +17,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { internal } from "../../_generated/api";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
-import { addMember, createUser, gatewayPost } from "../fixtures.helpers";
+import { addMember, copyTree, createUser, gatewayPost } from "../fixtures.helpers";
 import { fixture, publish } from "../website.helpers";
 import { bodyOf, registerClient, seedConnectedClient, token } from "./fixtures.helpers";
 
@@ -75,6 +75,8 @@ async function site(f: Awaited<ReturnType<typeof historyFixture>>, accessToken: 
 }
 
 async function publishAgain(f: Awaited<ReturnType<typeof historyFixture>>) {
+  // Pages written straight into the bucket reach the tree before the Publish lists it.
+  await copyTree(f.t, f.workspaceId);
   await f.t.action(internal.functions.websites.reconcileWorkspace, { workspaceId: f.workspaceId, publish: true });
 }
 
@@ -121,15 +123,28 @@ describe("/gateway/site history", () => {
     expect(one!.version!.files.map((file) => file.path)).toEqual(["website/index.md"]);
   });
 
+  test("a version's page is judged by the tree, never by opening the page", async () => {
+    const f = await historyFixture();
+    const first = (await site(f, EDITOR, { action: "history" }))!.versions[0]!.revision;
+    f.backend.requests.length = 0;
+
+    const old = await site(f, EDITOR, { action: "history", revision: first, path: "website/about.md" });
+    expect(old!.version!.files).toEqual([
+      { path: "website/about.md", text: "---\ntitle: About\nnav: 2\n---\n\nFirst about\n" },
+    ]);
+    expect(f.backend.requests.filter((request) => request.method === "GET" && request.key === "website/about.md")).toEqual([]);
+  });
+
   test("a page held back now is counted, never handed back, even before its copies are wiped", async () => {
     const f = await historyFixture();
     const first = (await site(f, EDITOR, { action: "history" }))!.versions[0]!.revision;
-    // Written straight into the bucket, as another app would: no scan has run,
-    // so the copies are still there and only the read-time check stands.
+    // Written straight into the bucket; the tree is what a product write would
+    // touch, so the narrowing reaches the answer once the tree has read it.
     const manifest = f.backend.snapshot()[PRIVACY_KEY]!;
     const narrowed = manifest.replace(/^(\s*)website: team\s*$/m, "$1website: private");
     expect(narrowed).not.toBe(manifest);
     f.backend.seed(PRIVACY_KEY, narrowed);
+    await copyTree(f.t, f.workspaceId);
 
     const old = await site(f, EDITOR, { action: "history", revision: first });
     expect(old!.version!.files).toEqual([]);

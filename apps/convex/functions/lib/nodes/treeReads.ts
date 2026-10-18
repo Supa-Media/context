@@ -26,9 +26,9 @@
  * workspace with no bucket bound throws `TreeUnbound`, which the barrier
  * answers as `STORAGE_NOT_CONNECTED`.
  *
- * A `manifest` without `source: "tree"` is not here: only a website Publish
- * asks for one, and it must see a page written past the app at once
- * (`docs/decisions/websites.md`).
+ * A `manifest` without `source: "tree"` is not here: it is the one walk that
+ * still lists the bucket (`fileOps/syncManifest.ts`). No website reads it: a
+ * website scan, Publish included, lists the tree too (`docs/decisions/websites.md`).
  */
 
 import { internal } from "../../../_generated/api";

@@ -15,7 +15,7 @@
    in the same function, so the rule can no longer see they are stable. */
 import { useCallback } from "react";
 import { toFileError } from "../browser";
-import { type ReadResult, collectNotes, downloadNotice, pathsUnder } from "../download";
+import { type ReadResult, archiveEntries, collectNotes, downloadNotice, pathsUnder } from "../download";
 import { buildZip, downloadName } from "../zip";
 import { saveFile } from "../saveFile";
 import { afterPaste, planPaste, put } from "../clipboard";
@@ -46,6 +46,7 @@ type RowCommandsDeps =
     | "archiveEntry"
     | "copyEntry"
     | "duplicateEntry"
+    | "exportAccessAction"
     | "moveEntry"
     | "notePathsAction"
     | "readNote"
@@ -92,7 +93,7 @@ type RowCommandsDeps =
 export function useRowCommands(deps: RowCommandsDeps) {
   const {
     archiveEntry, autosave, clipboard, copyEntry, dispatch, editorRef, drawListingMove, drawMove,
-    duplicateEntry, followRename, listings, moveEntry, moveResult, notePathsAction, noteRenamed, queueMoveOf,
+    duplicateEntry, exportAccessAction, followRename, listings, moveEntry, moveResult, notePathsAction, noteRenamed, queueMoveOf,
     queueRemovalOf, readNote, readNotesAction, renamingRef, restoreTrashEntry, run, select, selectedPath,
     setClipboard, setNotice, setSelectedPath, trashEntry, viaQueue, workspaceId,
     writeNote, beginOnlineMove, beginOnlineCreate, drawLocally, pendingMoveTo, pendingCreateTo, workspaceGenerationRef,
@@ -312,15 +313,27 @@ export function useRowCommands(deps: RowCommandsDeps) {
             return;
           }
 
-          const listed = await notePathsAction({ workspaceId });
-          if (listed.paths === null) {
+          // In rows mode the server says which notes the person may have and
+          // writes the access list beside them (`exportAccess`); in file mode it
+          // answers `file` and the archive is made from the notes list, as before.
+          const plan = await exportAccessAction({ workspaceId, folder: path });
+          let listedPaths: string[] | null;
+          let access: string | null = null;
+          if (plan.mode === "rows") {
+            listedPaths = plan.chunks === null ? null : plan.chunks.flat();
+            access = plan.access;
+          } else {
+            const answer = await notePathsAction({ workspaceId });
+            listedPaths = answer.pathChunks?.flat() ?? answer.paths;
+          }
+          if (listedPaths === null) {
             // The walk did not reach the end, so an archive built from it
             // would be short with nothing saying so. Refused rather than
             // written — see the header.
             setNotice("That folder could not be listed to the end, so nothing was downloaded.");
             return;
           }
-          const wanted = pathsUnder(listed.paths, path);
+          const wanted = pathsUnder(listedPaths, path);
           // Said before the reads start, because a folder of two hundred notes
           // is several round trips and a control that does nothing visible for
           // four seconds reads as one that did nothing.
@@ -335,7 +348,7 @@ export function useRowCommands(deps: RowCommandsDeps) {
           });
           const saved = saveFile(
             downloadName(path, ".zip"),
-            buildZip(entries),
+            buildZip(archiveEntries(entries, access)),
             "application/zip",
           );
           setNotice(
@@ -348,7 +361,7 @@ export function useRowCommands(deps: RowCommandsDeps) {
         }
       })();
     },
-    [notePathsAction, readNote, readNotesAction, workspaceId],
+    [exportAccessAction, notePathsAction, readNote, readNotesAction, workspaceId],
   );
 
   const archive = useCallback(

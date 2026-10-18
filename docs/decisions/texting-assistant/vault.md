@@ -62,6 +62,53 @@ specific person.
 - Once given, the member's own assistants can have it filled for them through
   their own grants, under the same fill rules. They never see it either.
 
+### A key is given to a person, a group or everyone, to use or to see
+
+Decided by the owner, 2026-10-17, on the vault sharing boards: "make sure we
+can share with groups, people or the whole workspace". Given in Settings ›
+Vault on the key itself; the rules are `apps/mcp/src/vault/access.js`, read by
+the gateway and the control plane alike.
+
+- **A share is `{ to, level, by, at }`** in the key's sealed meta. `to` is a
+  member's id, a group of the workspace as `@name`, or `*` for every member,
+  people who join later included. A group is matched against the same
+  `@names` a note's privacy rule is (`grantedNamesFor`), so a key given to a
+  group reaches exactly the people and connections a note pointed at it does.
+- **`use` or `see`, default `use`.** `use` lets the person's own AIs use the
+  key through Context; the person is never shown the value and gets no view
+  link. `see` adds Show. The most generous share wins. The saver always sees
+  it, and a person on the old people list with no share keeps seeing it.
+- **Each AI's yes belongs to a person** (`by` on every yes, one-time grant,
+  use and refusal). One person's yes never lets somebody else's copy of the
+  same app use the key. A record from before `by` existed is the saver's.
+- **Who may give it away:** whoever saved it, or an owner or editor who can
+  see it. Somebody given it to use can never pass it on, an editor included.
+  Groups are given by owners only, since only owners are shown groups. Only a
+  shared workspace's keys can be given; a personal key is moved first.
+- **Taking it back takes their AIs with it.** Everyone who no longer has the
+  key by any route loses their AIs' yeses, grants, uses and refusals, so
+  giving it again starts them afresh. A person may hand back a key given to
+  them by name; nobody can take it from whoever saved it.
+- Audited as `vault.shared` / `vault.unshared` with the kind and level only.
+- **Whoever newly has it is told by email** (`functions/vaultNotify.ts`):
+  who gave it, in which workspace, use or see, and a link to Settings ›
+  Vault; never the key's name, site or value. Scheduled, never awaited, so
+  Give says nothing about anybody's mailbox; at most 50 people per Give and
+  10 such mails per person a day. A level change on an existing share sends
+  nothing.
+- **A personal key is moved, not given** (`functions/vaultMove.ts`): only
+  its saver, only into a shared workspace they own or edit, as the barrier's
+  own reveal, add and delete. Its AIs' yeses stay behind, so they ask again
+  there. Audited `vault.moved` in both workspaces.
+
+**What it costs:** a key's meta can now name up to 200 shares, and a
+non-manager sees only their own AIs on a shared key. Reversing per-person
+yeses fails "one person's yes never lets another person's AI in"
+(`apps/mcp/test/vaultSharing.test.mjs`); letting a use-only person give it on
+fails "somebody given a key for their AIs can't pass it on"
+(`apps/convex/__tests__/vaultSharing.test.ts`). When entries become notes
+(below), a share maps onto a tree row's grantee with view meaning `see`.
+
 ### Saving and sharing are a person's action on a signed-in page; an agent only asks
 
 Decided by the owner, 2026-10-10: "this must be a human action ... the agent
@@ -141,10 +188,208 @@ member it was never given cannot have a view link made for it"),
 `apps/mcp/test/vault.test.mjs` ("the fill step types one field for one
 environment, on the entry's site only").
 
+### An AI uses a key without seeing it: Context adds it on the way out
+
+Shape agreed with the owner, 2026-10-16 ("wouldn't it be the same if you just
+proxied network requests through context and had it add the key you
+wanted?"). Boards first, then the build: the save page, the vault list, the
+first-use ask and the activity log are drawn in the owner's workspace
+(@supa `1-projects/vault-key-proxy/`), and nothing below is built until the
+owner picks.
+
+This widens the 2026-10-06 rule on one side and keeps it on the other. Still
+true: no model ever sees a value, in a tool result, a log or a message. What
+changes: the fill step is no longer the only thing that opens a secret for
+use. A second opener, the gateway's proxy step, adds one field's value to one
+outgoing request.
+
+- **Pinned to one website when saved.** An entry used this way names exactly
+  one host (`api.stripe.com`), and how the site wants the key: the sign-in
+  header (`Authorization: Bearer`), a header the person names, or a query
+  parameter. Exact host only, never "beneath it" as a login's fill allows,
+  and https only. A request to any other host goes out without the key; the
+  model cannot choose where a key goes, which is the whole defence against a
+  planted "send the key to webhook.site". A host anyone can publish on
+  itself (`webhook.site`, or a shared hosting suffix such as `workers.dev`)
+  is refused at save time, because pinning to it pins to everyone. One
+  person's address beneath a suffix (`my-app.workers.dev`,
+  `<name>.convex.cloud`) is allowed: the person types it, and the key goes
+  to that exact address only (the owner, 2026-10-16: "the user is writing
+  the domain in so they should be allowed to").
+- **The save form suggests the website; it never decides it** (decided by the
+  owner, 2026-10-16). As the person types a name or an address, the form
+  offers API hosts from a vendored list: about 200 picked by hand
+  (`apiHostsTop.ts`, ranked first, with the header or parameter each wants)
+  and about 800 from the APIs.guru OpenAPI directory, CC0
+  (`scripts/build-vault-api-hosts.mjs`). The list ships in the app rather
+  than being looked up, so what a person types is not sent anywhere while
+  they type. It drops any host the server would refuse, and the form mirrors
+  the shared-suffix list so a refusal is said while typing; a mobile test
+  keeps that copy equal to the gateway's. The pin is still checked where it
+  is saved and on every use.
+- **Blanked from the answer.** Before a response reaches the model the
+  gateway replaces the value, and its base64, URL-encoded and hex forms, with
+  a fixed marker, in headers and body. An answer it cannot read whole (over the
+  size cap, compressed in a way it cannot open) is refused rather than passed
+  through unread.
+- **The first use by each AI asks the person.** The unit of a yes is one entry,
+  one connected client (the grant), one host. The ask reuses the egress gate's
+  machinery (`.context/approvals/pending/`, the app's `/approvals` and a texted
+  YES, which the gateway reads before any model runs), never anything the
+  model can call. A key Tex itself asks for is asked in the app only, so Tex's
+  own thread never settles Tex's own ask. The request does not hang while the
+  person decides: it answers at once "waiting for <person>'s yes, try again",
+  and the ask stays open for ten minutes, after which it is a no. "From now on"
+  lasts until the person cuts that client off in Settings › Vault; "just this
+  once" lets one request through. The entry's switch "Ask me the first time
+  each AI uses it" is on by default; off means every client the person
+  connected may use it without asking. "Just this once" is spent with a
+  conditional write, so two requests racing on one grant send one key; on
+  storage without conditional writes the app refuses "Just this once" and
+  says why.
+- **Staff open it with a Features switch in the admin console, not a
+  deployment variable** (decided by the owner, 2026-10-16: "remove it, make a
+  features switch in admin"). `/gateway/binding` carries the switches as
+  `features`; only a literal `true` is on, and a missing row is off. A
+  self-hosted deployment switches it in its own console the same way.
+- **Every use is an audit entry** (`vault.proxied`, `vault.proxy_refused`):
+  who, which entry, which environment, method, host and path, status. Never a
+  query string, a header value or a body, since those are where a site puts
+  what it answered.
+- **Settings › Vault reads its history from the key itself** (board 2, as
+  drawn, 2026-10-16). Each use updates the key's own sealed meta: per AI, a
+  count, when it last used the key, and the method and path of that last use
+  (`apps/mcp/src/vault/usage.js`). A No is kept there too, so the page can say
+  "You said no" and offer Allow, and a later yes clears it. Keeping this in
+  the key rather than in the control plane means a key's history moves,
+  exports and is deleted with the key. Every such write is conditional on the
+  version just read. That way a use racing Cut off can never write the
+  removed AI back. Storage without conditional writes records no history and
+  still uses the key. The asks waiting are read from the pending approvals
+  as they stand.
+- **New key and Show the key open in place** (the owner, 2026-10-16: "I don't
+  like that it opens a new page"). Each press still mints a fresh vault link
+  and runs the same calls as `/vault/<token>` (`useVaultLinkFlow`), so a value
+  is typed or revealed only on a link, each reveal is recorded, and the list
+  itself never holds a value. What was revealed lives in that one component
+  and is dropped when another key is picked or the page closes. Going back to
+  a separate page would cost nothing in safety and only the person's place in
+  Settings.
+- **A key is changed where it is shown** (the owner, 2026-10-16: "I should
+  also be able to edit it inline and save the edits and have it log that I
+  changed the password"). Picking a key opens its view link at once: a
+  login's username shows as it is, every password and secret value is dots
+  until Show, and each field is editable with Save and Undo. A save goes
+  through the same view link (`editVaultEntry`), so only the person the link
+  was minted for, within its half hour, can change that key; owners and
+  editors may change any key given to them, a member only one they saved.
+  Meta and secret are rewritten together on condition of the version read
+  (`changeEntry`), so an edit never undoes a Cut off or a use that raced it.
+  It is audited as `vault.edited` with the names of what changed
+  ("password"), never a value, and a save that changed nothing is not logged.
+  Each pick is a reveal, and is recorded as one; asking for a second press
+  first would only add a step the owner asked to remove.
+- **Edit is the whole key, and Delete sits beside it** (the owner,
+  2026-10-16: "no way for me to edit the url here, or even delete the
+  key?"). The picked key reads quietly (values as dots in rows, Show and
+  Copy on each) with one Edit button, as board 2 draws it; Edit opens one
+  form in place for the name, the website it is only ever sent to, how it is
+  sent, the first-use ask, "Fills on" and the values. A new website is
+  checked by the same `savedPin` as a new key and its sending style is
+  guessed again, while the AIs already allowed and their uses stay with the
+  key. A named header may carry one word before the key (`Authorization:
+  Convex <key>`); `*.convex.cloud` is guessed that way. Delete is a bold red
+  one-way door asked once more inline, goes through the same view link with
+  the same say as an edit, removes meta and sealed values as one object, and
+  is audited as `vault.deleted` by name.
+- **"Fills on" suggests the site as a name is typed** ("convex" offers
+  convex.dev), from the same list as "Only ever sent to". The site itself is
+  offered, not a dashboard address, because a saved site fills every page
+  beneath it.
+- **Two ways in.** (1) A fetch-through-Context argument on an existing vault
+  tool (new capability, existing tool: `gateway-protocol.md`) for a plain web
+  request from any MCP client. (2) For command-line tools on an agent's own
+  computer, the `npx @supa-media/context` CLI runs a local proxy that the tools
+  reach through `HTTPS_PROXY`. It terminates TLS with a certificate authority
+  it generates on that machine, and hands each request to the gateway, which
+  adds the key and makes the call. The machine holds that local certificate and
+  a revocable grant, never a key. A Worker cannot be a CONNECT proxy itself,
+  which is why the local half exists.
+- **What it does not stop.** A model with a yes can do whatever the key lets it
+  do on that site: read the customers, refund a charge. Pinning stops the key
+  leaving; the key's own permissions stop the rest, so the save page asks for
+  the narrowest key the site offers.
+
+**What a simplification would cost:** letting the model name the host turns a
+planted instruction into a stolen key; allowing subdomains or a shared hosting
+suffix itself lets anyone who can publish there collect it; scrubbing only the literal
+value misses the echo in base64; letting one yes cover every AI makes a steered
+client's first use silent. Tests to write with the build: a request to another
+host carries no key, an echoed key comes back blanked in each encoding, an
+unanswered ask is a no after ten minutes, and a model's own call cannot settle
+an ask.
+
+### A vault entry is a Markdown note under `.context/vault/`, with notes' privacy
+
+Decided by the owner, 2026-10-16, with the proxy above: "it should be plain
+markdown notes underlyingly, just in the hidden context folder, with all the
+extra details needed for settings". Settings › Vault stays the only place
+people see the vault; nothing changes on screen. Underneath:
+
+- **One note per entry**, `.context/vault/<id>.md`, replacing the sealed
+  `.json` pair. Its front matter is plain: name, type, the pinned host and
+  how the site wants the key, the fields and which environments hold a value,
+  and the "ask the first time" switch. Like every note, that front matter is
+  read from the Convex tree, never from storage, so Settings lists the vault
+  the way the sidebar lists notes.
+- **Values stay sealed.** The body is one sealed block holding the username,
+  password and field values, under the same data key and associated data as
+  today (workspace, entry id, generation). Non-negotiable #1's exception is
+  unchanged: no value is ever plain in the bucket, and no tool reads the
+  block; only the fill step, the proxy step and a person's reveal open it.
+- **Who has it is a tree row's access**, the same rows and grantees as notes
+  (private, or named people and groups, each with view or edit), replacing the
+  entry's own people list. A vault entry always starts private, whatever its
+  folder, and only a member of its workspace can be given one. "View" on a
+  vault entry means use it and reveal it; it never means an AI may read it.
+- **No AI reads a vault note.** `.context/` is system data, so it is never in
+  a listing, a search or `read_note`; a vault note is additionally excluded by
+  its kind, so a future change that surfaces `.context/` cannot surface it.
+- **Export carries it.** Download as folders includes the vault notes with the
+  block still sealed, and the owner's exported keys open it, which is the exit
+  promise the sealed `.json` kept.
+
+**What it costs:** a bucket read now shows that an entry named "Stripe"
+exists and which host it is pinned to; before, the meta part was sealed too.
+This follows from plain notes and was put to the owner when they chose them. The test "a bucket read of a vault
+entry never yields the login, its name or its site" becomes "never yields the
+login or a value", and a new one proves no tool, listing or search returns a
+vault note. Built with the proxy, after the boards are picked; entries saved
+before then are rewritten into notes by a one-time pass.
+
+### Tex signs in itself; handing its browser over is the rare case
+
+Decided by the owner, 2026-10-16, after Tex asked him to open its browser and
+sign in: "we should be asking the user to open up Tex's computer very rarely."
+With no saved login, Tex asks one question, "Do you sign in with Gmail or
+another email?", and sends `vault_add_link` for that login (Google's, site
+`google.com`, for Gmail; the site's own otherwise). Once it's saved, Tex signs
+in with `fill_login`; a Google login fills on Google's own sign-in page, which a
+site's "Continue with Google" button opens (`siteMatches` takes subdomains, so
+`accounts.google.com` matches and a look-alike host does not). A handoff is for
+what truly needs the person: a code, a captcha, a payment, or a sign-in they
+said they would rather do. The rule is in three places the model reads: the
+web prompt (`webPrompt`), `fill_login`'s and `browse`'s descriptions, and the
+`sign-in-for-them` skill in `@context-lc ai/production/skills/`.
+Reversing it fails `apps/mcp/test/agentFillLogin.test.mjs` ("signing in is
+Tex's to do"). The bench has no vault fill step, so golden tasks 1, 2, 4 and 7
+script Maya declining the save and test the handoff as the fallback.
+
 ### Later, not now
 
 Editing and deleting an entry, and a Vault list in Settings, come together;
 until then a changed key is saved as a new entry. Handing a coding agent an
-environment's values to run with (the way `op run` does) needs its own
-section here: today no model ever sees a value. TOTP secrets, email codes, a
+environment's values to run with (the way `op run` does) stays out: the agent
+types the commands, so it could print what it was handed. The proxy above is
+the answer to that need. TOTP secrets, email codes, a
 sealed cookie jar and cards each need their own section before they are built.

@@ -168,6 +168,10 @@ export function ownedContexts(
  * about contexts **owned**, so it renders for an invitee at zero. Only the way
  * in was missing.
  *
+ * Since 2026-10-16 the gate itself sends them there (everybody starts with a
+ * personal workspace), so this entry is the fallback for any surface that
+ * renders before the gate has answered, not the main way in.
+ *
  * Two things this must not do:
  *
  *  - **Offer it while the list is loading.** `undefined` is not "owns
@@ -230,8 +234,13 @@ export function standingFrom(
     // still there once the query recovers — while leaving them in an empty
     // console costs them the product. Anybody with a context to open is
     // rendered as before, because the invitation count cannot change that.
-    if (mine.length > 0) return undefined;
-    return { owned, reachable: 0, invitations: 0 };
+    //
+    // Somebody who owns nothing but can open another person's workspace is
+    // answered too: the invitation count cannot change where they go (see
+    // `needsOnboarding`), so waiting on it would only keep them in a console
+    // with nothing of their own.
+    if (owned > 0) return undefined;
+    return { owned, reachable: mine.length, invitations: 0 };
   }
 
   return { owned, reachable: mine.length, invitations: invitations.length };
@@ -252,25 +261,34 @@ export function isWelcomePath(pathname: string): boolean {
  *
  * The order of the three answers is the whole rule:
  *
- *  1. **Anything reachable → render.** One context is enough, and it does not
- *     have to be yours. Somebody reading a context they were given is exactly
- *     where they should be, and prompting them to build their own belongs on a
- *     banner rather than in a redirect.
- *  2. **Otherwise, a pending invitation → `/invite`.** This is the case the
- *     old rule got wrong. They have nothing yet, but they were sent here by
- *     somebody, and the invitation is the reason they opened the app at all.
- *     Sending them to "claim your name" instead throws away the entire
- *     referral.
- *  3. **Otherwise → `/welcome`.** A genuinely empty account, which is what the
- *     original rule was written for.
+ *  1. **A personal workspace of your own → render.** Everybody starts with
+ *     one, free or paid, and every other workspace — one they add for a side
+ *     project, one somebody shared with them — sits beside it (decided by the
+ *     owner, 2026-10-16, replacing "anything reachable is enough").
+ *  2. **Otherwise, nothing to open and a pending invitation → `/invite`.**
+ *     They were sent here by somebody, and the invitation is the reason they
+ *     opened the app at all. Answering it first keeps the referral; claiming a
+ *     name comes straight after, because accepting leaves them with something
+ *     to open and still nothing of their own.
+ *  3. **Otherwise → `/welcome`.** An empty account, or one that can read
+ *     somebody else's workspace and owns none: both claim a name and get their
+ *     own, and whatever was shared with them is still there afterwards.
  */
 export function needsOnboarding({
   standing,
   pathname,
+  setupPending = false,
 }: {
   /** `undefined` while either subscription is outstanding. */
   standing: ContextStanding | undefined;
   pathname: string;
+  /**
+   * True while `mySetup` has not answered yet (domain sign-up,
+   * `features/auth/accountSetupModel.ts`). Somebody who joined through a
+   * domain owns nothing until that answer lands, and a redirect to `/welcome`
+   * in the meantime would drop the link they opened. Waits; never redirects.
+   */
+  setupPending?: boolean;
 }): RouteDecision {
   if (standing === undefined) return { action: "render" };
   // Both destinations answer for themselves; redirecting to a path somebody is
@@ -278,8 +296,11 @@ export function needsOnboarding({
   if (isWelcomePath(pathname)) return { action: "render" };
   if (isInvitePath(pathname)) return { action: "render" };
 
-  if (standing.reachable > 0) return { action: "render" };
-  if (standing.invitations > 0) return { action: "redirect", href: INVITE_ROUTE };
+  if (standing.owned > 0) return { action: "render" };
+  if (setupPending) return { action: "wait" };
+  if (standing.reachable === 0 && standing.invitations > 0) {
+    return { action: "redirect", href: INVITE_ROUTE };
+  }
   return { action: "redirect", href: WELCOME_ROUTE };
 }
 
@@ -299,12 +320,11 @@ export function resolveWelcomeRoute({
   /** True once `createWorkspace` has returned in this session. */
   claimed: boolean;
   /**
-   * True when the URL carries `resume=structure` — a Dropbox connect started
-   * inside this flow, left for the OAuth redirect, and came back. The person
-   * *does* own a context now, because step 1 ran before they left; bouncing
-   * them to the console is how the first live run lost its layout and agents
-   * steps. Not a way to re-run onboarding at large: it enters at the layout
-   * step, whose writes are owner-gated and refuse an unverified binding.
+   * True when the URL carries `resume=structure` — a link from a build that
+   * sent people out of this flow and back again. The person *does* own a
+   * context now, because step 1 ran before they left. Not a way to re-run
+   * onboarding at large: it enters at the layout step, whose writes are
+   * owner-gated and refuse an unverified binding.
    */
   resuming?: boolean;
 }): RouteDecision {

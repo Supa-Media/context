@@ -11,9 +11,12 @@
 import { atName } from "../format";
 import { baseName, displayName } from "../files/paths";
 import { SHARE_PATH_PREFIX } from "../files/shares";
+import type { ReportPerson, ReportTarget } from "../../report/model";
+import { grantItemKey, grantQuery } from "./sharedGrant";
 
-/** One row of `shares.listSharedWithMe`. */
-export interface SharedItem {
+/** A share sent to you: one row of `shares.listSharedWithMe` with `kind: "share"` (or no kind, from before grants). */
+export interface ShareItem {
+  kind?: "share";
   token: string;
   workspaceId: string;
   slug: string;
@@ -29,8 +32,70 @@ export interface SharedItem {
   createdAt: number;
 }
 
+/**
+ * A row you hold a grant on (`kind: "grant"`): the same row as a share, but it
+ * opens by its note id, not a token, and the granter is recorded only where
+ * the row says so.
+ */
+export interface GrantItem {
+  kind: "grant";
+  workspaceId: string;
+  slug: string;
+  displayName: string;
+  workspaceKind: "personal" | "shared";
+  noteId: string;
+  entryPath: string;
+  itemKind: "file" | "folder";
+  /** Who wrote the grant, `null` when the row does not record it. */
+  sharedBy: string | null;
+  sharedByHandle: string | null;
+  sharedByName: string | null;
+  /** The note's title, or its file name without `.md`. Never empty. */
+  title: string;
+  createdAt: number;
+}
+
+/** One row of `shares.listSharedWithMe`. */
+export type SharedItem = ShareItem | GrantItem;
+
 /** The URL of @shared. */
 export const SHARED_HREF = "/console/shared";
+
+/** The key a row is listed, selected and opened under: its token for a share, its grant for a grant. */
+export function sharedItemKey(item: SharedItem): string {
+  return item.kind === "grant" ? grantItemKey(item.workspaceId, item.noteId) : item.token;
+}
+
+/** Where a row opens, whichever kind it is: a share's `?note=`, a grant's `?grant=`. */
+export function sharedItemHref(item: SharedItem): string {
+  if (item.kind !== "grant") return sharedNoteHref(item.token);
+  return `${SHARED_HREF}${grantQuery({
+    workspaceId: item.workspaceId,
+    ref: { by: "id", noteId: item.noteId },
+    folder: item.itemKind === "folder",
+  })}`;
+}
+
+/**
+ * What a row's Report names: a share by its token, a grant by its workspace and stable note id. Never a path,
+ * which is the owner's words; the server re-derives either from what the caller can still reach.
+ */
+export function reportTargetOf(item: SharedItem): ReportTarget {
+  return item.kind === "grant"
+    ? { kind: "grant", workspaceId: item.workspaceId, noteId: item.noteId }
+    : { kind: "share", token: item.token };
+}
+
+/** Who a row's Report offers to block: the person who shared it, or nobody when the grant records no granter. */
+export function reportPersonOf(item: SharedItem): ReportPerson | null {
+  if (item.kind === "grant" && item.sharedBy === null) return null;
+  return { handle: item.sharedByHandle, name: item.sharedByName };
+}
+
+/** The share token a row carries, for the parts of the page that only a share can use (its link). */
+export function shareTokenOf(item: SharedItem): string | null {
+  return item.kind === "grant" ? null : item.token;
+}
 
 /**
  * Where a row opens: the note inside @shared itself (board A3), with the
@@ -152,13 +217,17 @@ export interface PersonGroup {
   items: SharedItem[];
 }
 
+/** The group key of a grant whose row does not say who wrote it: one group, not one per row. */
+const UNRECORDED = "unrecorded";
+
 export function groupByPerson(items: readonly SharedItem[]): PersonGroup[] {
   const groups = new Map<string, PersonGroup>();
   for (const item of newestFirst(items)) {
-    const group = groups.get(item.sharedBy);
+    const key = item.sharedBy ?? UNRECORDED;
+    const group = groups.get(key);
     if (group === undefined) {
-      groups.set(item.sharedBy, {
-        sharedBy: item.sharedBy,
+      groups.set(key, {
+        sharedBy: key,
         label: sharerLabel(item),
         handle: item.sharedByHandle,
         items: [item],

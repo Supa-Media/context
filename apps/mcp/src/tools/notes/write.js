@@ -235,7 +235,7 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
     const there = await openNoteBeingWritten(store, path, found);
     return toolError(
       `that note already exists (etag ${there?.etag}). A form block is ordinary Markdown: ` +
-        "read the note, add the block to its content, and save it with write_note — or write " +
+        "read the note, add the block to its content, and save it with write — or write " +
         "the form to a path of its own."
     );
   }
@@ -323,7 +323,7 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
    * in the app does: its text is sealed and an image's bytes would not be.
    * Objects first, then the line — see `notes/uploadedImages.js`.
    */
-  const attached = await prepareAttachedImages(path, content, args.images, storedBody);
+  const attached = await prepareAttachedImages(store, path, content, args.images, storedBody);
   if (attached.error) return toolError(attached.error);
   content = attached.content;
   if (attached.images.length) await storeNoteImages(store, attached.images);
@@ -522,7 +522,7 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
   ), { created: !existing });
 }
 
-async function prepareAttachedImages(path, content, images, storedBody) {
+async function prepareAttachedImages(store, path, content, images, storedBody) {
   if (images === undefined) return { content, images: [] };
   if (isDrawingPath(path)) return { error: "images cannot be attached to a drawing; embed the drawing in a note instead" };
   if (storedBody !== null && isEncryptedNote(storedBody)) {
@@ -532,5 +532,5 @@ async function prepareAttachedImages(path, content, images, storedBody) {
         "Nothing was written; attach the image to a note that is not encrypted.",
     };
   }
-  return prepareNoteImages(content, images);
+  return prepareNoteImages(content, images, store);
 }

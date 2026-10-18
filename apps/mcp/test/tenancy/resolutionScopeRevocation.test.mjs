@@ -12,6 +12,7 @@
  * `runTenancyDiscoveryChecks` (§6).
  */
 
+import { fullToolList } from "../fullToolList.mjs";
 import {
   CONTROL_PLANE_ORIGIN,
   GATEWAY_SECRET,
@@ -115,7 +116,7 @@ export async function runTenancyResolutionChecks(check, harness) {
         binding: {
           workspaceId: "ws_a",
           provider: "r2-binding",
-          bindingName: "LOCAL_CONTEXT_BUCKET",
+          bindingName: "UNLISTED_BUCKET",
           capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
           status: "active",
         },
@@ -127,7 +128,7 @@ export async function runTenancyResolutionChecks(check, harness) {
   restoreSmuggled();
   check(
     "a control plane cannot point a tenant at a non-allowlisted worker binding",
-    smuggled.status === 503 && !smuggled.text.includes("CRON-ONLY-MARKER")
+    smuggled.status === 503 && !smuggled.text.includes("UNLISTED-MARKER")
   );
 
   const restoreUnbound = withControlPlaneOverride((path) => {
@@ -255,13 +256,21 @@ export async function runTenancyResolutionChecks(check, harness) {
   });
   check("a read-only grant cannot move either", readOnlyMove.isError === true);
 
-  const readOnlyTools = (await rpc(env, TOKEN_A_READONLY, "tools/list")).body.result.tools;
+  // The full list (`fullToolList.mjs`): the read-only filter is applied to it
+  // and to the six v2 tools alike, and the older names are what it was written
+  // against. The HTTP list is checked too, below.
+  const readOnlyTools = await fullToolList(env, TOKEN_A_READONLY);
   check(
     "a read-only grant is not shown write tools",
     readOnlyTools.every((tool) => tool.annotations?.readOnlyHint === true) &&
       readOnlyTools.some((tool) => tool.name === "read_note")
   );
-  const fullTools = (await rpc(env, TOKEN_A, "tools/list")).body.result.tools;
+  const readOnlyV2 = (await rpc(env, TOKEN_A_READONLY, "tools/list")).body.result.tools.map((tool) => tool.name).sort();
+  check(
+    "a read-only grant is offered orient, search and fetch, and no v2 tool that writes",
+    JSON.stringify(readOnlyV2) === JSON.stringify(["fetch", "orient", "search"])
+  );
+  const fullTools = await fullToolList(env, TOKEN_A);
   check("a full grant is shown every tool", fullTools.length > readOnlyTools.length);
 
   const captureToken = token("tenant_a_capture");

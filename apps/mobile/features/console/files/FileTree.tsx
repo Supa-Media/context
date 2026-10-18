@@ -13,9 +13,11 @@ import type { PickGesture } from "./selection";
 import { useRowInteractions } from "./rowInteractions";
 import { SyncMarkDot, withSyncMark } from "./SyncMarkDot";
 import { TreeFolderGlyph } from "./TreeFolderGlyph";
+import { TreeDropLine } from "./TreeDropLine";
 import { AgentMark, withAgentMark } from "../agents/AgentMark";
 import type { AgentMarkKind } from "../agents/agentActivity";
 import type { TreeRow } from "./tree";
+import type { DropZone } from "./treeDrop";
 import type { Visibility } from "./types";
 
 /**
@@ -100,6 +102,7 @@ export function FileTree({
   workspaceId = null,
   iconOf,
   onIconPress,
+  onIconIntent,
   onIntent,
 }: {
   rows: readonly TreeRow[];
@@ -115,6 +118,8 @@ export function FileTree({
    * then part of the row like the name. See `TreeFolderGlyph`.
    */
   onIconPress?: (path: string, anchor: { x: number; y: number }) => void;
+  /** The pointer is on a folder's icon: start what its picker will ask for. */
+  onIconIntent?: (path: string) => void;
   /**
    * Whether the visibility markers are pressable. Owner-only — an editor
    * changing visibility is an editor deciding their own clearance, which is
@@ -135,8 +140,11 @@ export function FileTree({
   onPick?: (path: string, gesture: PickGesture) => void;
   /** Drag wiring. Absent in the read-only demo, which must not offer one. */
   drag?: TreeDragHandlers;
-  /** The row under a drag, washed to say the drop would land there. */
-  dropTarget?: string | null;
+  /**
+   * Where a drag would land: a line above or below a row (a folder put in
+   * order, `treeDrop.ts`), or a wash on a folder it would go into.
+   */
+  dropTarget?: { path: string; zone: DropZone } | null;
   /**
    * Whether a note's latest edit has reached the bucket — see `pendingMarks`.
    * Absent on a console with no offline layer, which marks nothing.
@@ -197,13 +205,14 @@ export function FileTree({
         onMenu={onMenu}
         onPick={onPick}
         drag={drag}
-        isDropTarget={dropTarget === row.path}
+        drop={dropTarget !== null && dropTarget.path === row.path ? dropTarget.zone : null}
         sync={row.kind === "file" ? (pendingStateFor?.(row.path) ?? null) : null}
         marked={markedPaths?.has(row.path) ?? false}
         agent={agentMarks?.get(row.path) ?? null}
         workspaceId={workspaceId}
         folderIcon={row.kind === "folder" || isNoteRow(row) ? (iconOf?.(row.path) ?? null) : null}
         onIconPress={onIconPress}
+        onIconIntent={onIconIntent}
         onIntent={onIntent}
       />
     );
@@ -213,9 +222,10 @@ export function FileTree({
 /** What the tree needs from whoever owns the drag. */
 export interface TreeDragHandlers {
   onDragStart: (path: string) => void;
-  onDragOver: (path: string, modifiers: readonly DragModifier[]) => void;
+  /** `at`: how far down the row the pointer is, `0` to `1` (`rowInteractionContract`). */
+  onDragOver: (path: string, modifiers: readonly DragModifier[], at?: number) => void;
   onDragLeave: (path: string) => void;
-  onDrop: (path: string, modifiers: readonly DragModifier[]) => void;
+  onDrop: (path: string, modifiers: readonly DragModifier[], at?: number) => void;
   onDragEnd: () => void;
   /** Whether this row may be picked up, and whether a drop may land on it. */
   canDrag: (row: TreeRow) => boolean;
@@ -237,13 +247,14 @@ function FileRow({
   onMenu,
   onPick,
   drag,
-  isDropTarget,
+  drop,
   sync,
   marked,
   agent,
   workspaceId,
   folderIcon,
   onIconPress,
+  onIconIntent,
   onIntent,
 }: {
   row: TreeRow;
@@ -255,6 +266,7 @@ function FileRow({
    */
   folderIcon: string | null;
   onIconPress?: (path: string, anchor: { x: number; y: number }) => void;
+  onIconIntent?: (path: string) => void;
   /**
    * Whether the visibility markers are pressable. Owner-only — an editor
    * changing visibility is an editor deciding their own clearance, which is
@@ -268,7 +280,8 @@ function FileRow({
   onMenu?: (row: TreeRow, anchor: { x: number; y: number }) => void;
   onPick?: (path: string, gesture: PickGesture) => void;
   drag?: TreeDragHandlers;
-  isDropTarget: boolean;
+  /** Where a drop on this row would land, or `null` when none is over it. */
+  drop: DropZone | null;
   /** This note's edit is not in the bucket yet. `null` for one that is. */
   sync: SyncMark | null;
   /** Something under this row changed since this person last caught up. */
@@ -299,9 +312,11 @@ function FileRow({
 
   return (
     <View
-      style={[styles.row, isDropTarget && styles.rowDrop]}
+      style={[styles.row, drop === "into" && styles.rowDrop]}
       ref={interactions.ref as never}
     >
+      {/* A folder dropped here goes above or below this row: `TreeDropLine`. */}
+      {drop === "above" || drop === "below" ? <TreeDropLine side={drop} left={indentFor(row.depth) + 16} /> : null}
       {/*
         THE SELECTED ROW'S ACCENT BAR.
 
@@ -369,6 +384,7 @@ function FileRow({
               icon={folderIcon}
               note={row.kind !== "folder"}
               onPress={onIconPress === undefined ? undefined : (anchor) => onIconPress(row.path, anchor)}
+              onIntent={onIconIntent === undefined ? undefined : () => onIconIntent(row.path)}
             />
           )}
         </View>
@@ -585,14 +601,13 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: colors.accent,
   },
   /**
-   * The row a drop would land in.
+   * The folder a drop would go into: a wash on the whole row.
    *
-   * A wash, never an insertion line between rows: a bucket lists
-   * alphabetically, so there is no position to drop *between*, and a line would
-   * promise an ordering the storage does not have.
+   * Folders have an order of their own since 2026-10-18 (`nodes.order`), so a
+   * drop *between* rows means something too and draws `TreeDropLine` instead.
+   * Notes still list by name, so a note only ever drops into a folder.
    */
   rowDrop: { backgroundColor: colors.accentDim },
-
   /** `.tnode` */
   node: {
     flexDirection: "row",

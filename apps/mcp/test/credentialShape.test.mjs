@@ -38,7 +38,7 @@ import { storeForBinding } from "../src/store/factory.js";
 const TOKEN = `cat_shape_${"0".repeat(30)}`;
 const API_TOKEN = "d1-write-token-not-a-real-one";
 const SECRET_KEY = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY";
-const DROPBOX_TOKEN = "sl.dropbox-access-token-not-a-real-one";
+const OTHER_SECRET_KEY = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLE02";
 
 /**
  * The D1 descriptor, and it is deliberately NOT a property of the binding.
@@ -206,7 +206,7 @@ export async function runCredentialShapeChecks(check) {
     property, so `JSON.stringify(store)` emitted a customer's bucket secret in
     full while the token beside it was carefully hidden. `S3Store`'s own
     constructor says of it: "never logged, never written to the bucket, never
-    placed in a URL." Dropbox's access token was the same.
+    placed in a URL." A provider's access token was the same.
 
     Nothing in the gateway stringifies or spreads a store today — `{ ...session }`
     in `meetings/` is a meeting record — so this was latent rather than leaking.
@@ -230,25 +230,31 @@ export async function runCredentialShapeChecks(check) {
     !exposedText(store).includes(SECRET_KEY)
   );
 
-  const dropboxStore = storeForBinding(
+  // A second S3 store, so the same rule is proved on a second credential, on a
+  // binding built the same way the first one was.
+  const otherStore = storeForBinding(
     {
-      provider: "dropbox",
+      provider: "s3",
+      endpoint: "https://s3.example-object-storage.test",
+      region: "auto",
+      bucket: "example-bucket-two",
       status: "active",
       workspaceId: "ws_home",
-      accessToken: DROPBOX_TOKEN,
+      accessKeyId: "AKIAEXAMPLEEXAMPLE01",
+      secretAccessKey: OTHER_SECRET_KEY,
       rootPrefix: "/context",
       capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
     },
     {}
   );
   check(
-    "a Dropbox store still holds its token by name",
-    dropboxStore.accessToken === DROPBOX_TOKEN
+    "a second S3 store still holds its secret by name",
+    otherStore.secretAccessKey === OTHER_SECRET_KEY
   );
   check(
     "but does not carry it out through a spread or a stringify either",
-    !exposedKeys(dropboxStore).includes("accessToken") &&
-      !exposedText(dropboxStore).includes(DROPBOX_TOKEN)
+    !exposedKeys(otherStore).includes("secretAccessKey") &&
+      !exposedText(otherStore).includes(OTHER_SECRET_KEY)
   );
 
   /*

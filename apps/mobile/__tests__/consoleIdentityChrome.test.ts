@@ -10,13 +10,13 @@ import { createRoot } from "react-dom/client";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 /**
- * The console's chrome, after the first live Dropbox connect.
+ * The console's chrome, after the first live storage connect.
  *
  * Three findings from one review, all in the frame rather than in any pane:
  *
- *  1. The storage pill read **"dropbox · undefined"** — the chip interpolated
- *     `provider · bucket` and a Dropbox binding has no bucket — and pressing
- *     it did nothing, so the binding it named was a fact with no way in.
+ *  1. The storage pill read **"provider · undefined"** — the chip interpolated
+ *     `provider · bucket` and a binding with no bucket has no such value — and
+ *     pressing it did nothing, so the binding it named was a fact with no way in.
  *  2. The rail listed every reachable context flat under "Contexts", so a
  *     context you own and a context you were invited into were
  *     indistinguishable at the moment of choosing which to open.
@@ -86,6 +86,8 @@ jest.mock("../features/agent/useConsoleGrant", () => ({
 }));
 
 jest.mock("convex/react", () => ({
+  // ⌘K's Recent asks for the person's own list; unanswered here, so it falls back to the tab's.
+  useQueries: () => ({}),
   useAction: () => async () => {
     throw new Error("not used in this test");
   },
@@ -301,10 +303,10 @@ function mountConsole(next: Shape = {}, width = 1440) {
   };
 }
 
-const DROPBOX_STORAGE: ConsoleStorage = {
+const FOLDER_STORAGE: ConsoleStorage = {
   connected: true,
   status: "connected",
-  provider: "dropbox",
+  provider: "s3-compatible",
   conditionalWrite: true,
   updatedAt: 0,
 };
@@ -355,7 +357,7 @@ describe("the widget note command is consumed", () => {
 
 /*
   The top bar names no connected binding any more. It was a pill beside search
-  on every route — "R2 · managed", "R2 · example-bucket", "Dropbox · second/" —
+  on every route — "R2 · managed", "R2 · example-bucket", "S3 · second/" —
   and for a managed bucket it was a fact nobody chose and nobody can act on.
   A connected binding is named once, in the status strip along the bottom
   (except a managed one, which has no name worth reading); the bar keeps only
@@ -365,23 +367,23 @@ describe("the widget note command is consumed", () => {
   and "puts no pill in the top bar" fails for every provider below; drop the
   `managed` check from `Status` and "a managed bucket is named nowhere" fails.
 */
-describe("the storage pill on a Dropbox binding", () => {
-  test("the strip says Dropbox — never 'undefined' — with the folder when there is one", () => {
-    const bare = mountConsole({ storage: DROPBOX_STORAGE });
-    expect(bare.text()).toContain("Dropbox");
+describe("the storage pill on a binding with no bucket", () => {
+  test("the strip says the provider — never 'undefined' — with the folder when there is one", () => {
+    const bare = mountConsole({ storage: FOLDER_STORAGE });
+    expect(bare.text()).toContain("S3");
     expect(bare.text()).not.toContain("undefined");
     bare.unmount();
 
     const scoped = mountConsole({
-      storage: { ...DROPBOX_STORAGE, rootPrefix: "second/" },
+      storage: { ...FOLDER_STORAGE, rootPrefix: "second/" },
     });
-    expect(scoped.text()).toContain("Dropbox · second/");
+    expect(scoped.text()).toContain("S3 · second/");
     expect(scoped.text()).not.toContain("undefined");
     scoped.unmount();
   });
 
   test("and puts no pill in the top bar", () => {
-    const app = mountConsole({ storage: DROPBOX_STORAGE });
+    const app = mountConsole({ storage: FOLDER_STORAGE });
     expect(app.find("storage-pill")).toBeNull();
     app.unmount();
   });

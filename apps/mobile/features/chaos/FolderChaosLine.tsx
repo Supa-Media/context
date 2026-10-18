@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Modal, Pressable, ScrollView, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text } from "../design/components/Text";
@@ -7,6 +7,7 @@ import { useThemedStyles } from "../design/theme";
 import { useChaosView } from "./ChaosContext";
 import { askYourAi, folderAdvice, folderLine, folderLineShows, type ChaosFolder } from "./chaosModel";
 import { makeChaosStyles } from "./styles";
+import { cachedFolderLine, folderLinesVersion, readFolderLine, subscribeFolderLines } from "./folderLineCache";
 
 /**
  * A crowded or thin folder's one quiet line, beside its title: "14 things in
@@ -29,23 +30,23 @@ export function FolderChaosLine({
 }) {
   const view = useChaosView();
   const styles = useThemedStyles(makeChaosStyles);
-  const [mine, setMine] = useState<ChaosFolder | null>(null);
   const [advising, setAdvising] = useState(false);
   const ask = view?.folderScore;
   const version = view?.version;
+  // Kept per workspace and usually asked by the press that opened the page (`folderLineCache`).
+  useSyncExternalStore(subscribeFolderLines, folderLinesVersion, folderLinesVersion);
+  const mine = cachedFolderLine(ask, folder) ?? null;
+  const asked = useRef<string | null>(null);
   useEffect(() => {
-    setMine(null);
     setAdvising(false);
-    if (ask === undefined) return undefined;
-    let live = true;
-    ask(folder)
-      .then((answer) => {
-        if (live) setMine(answer !== null && answer.available ? answer.folder : null);
-      })
-      .catch(() => {});
-    return () => {
-      live = false;
-    };
+  }, [folder]);
+  useEffect(() => {
+    if (ask === undefined) return;
+    // Asked again when the workspace's score moves, and on every visit: what is kept is drawn meanwhile.
+    const key = `${folder}\u0000${String(version)}`;
+    if (asked.current === key) return;
+    asked.current = key;
+    void readFolderLine(ask, folder, cachedFolderLine(ask, folder) !== undefined);
   }, [ask, folder, version]);
   if (view === undefined || !folderLineShows(mine)) return null;
   const line = folderLine(mine);

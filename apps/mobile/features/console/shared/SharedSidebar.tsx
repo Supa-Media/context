@@ -8,7 +8,7 @@ import { radii, space, pointerType as t } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { useFieldFont } from "../../design/fieldFont";
 import { PersonFace } from "../faces/PersonFace";
-import { groupByPerson, itemTitle, matchesFilter, type SharedItem } from "./sharedInbox";
+import { groupByPerson, itemTitle, matchesFilter, sharedItemKey, type SharedItem } from "./sharedInbox";
 
 /**
  * Board A2's left column: @shared in the place the file tree stands, so the
@@ -29,12 +29,13 @@ export function SharedSidebar({
 }: {
   /** `undefined` while the list has not arrived. */
   items: readonly SharedItem[] | undefined;
-  /** The open note's token, or `null` on the list. */
+  /** The open row's key (`sharedItemKey`), or `null` on the list. */
   selected: string | null;
   /** When the reader last opened @shared, for the dots; `null` = never, `undefined` = loading. */
   seenAt: number | null | undefined;
   onEverything: () => void;
-  onOpen: (token: string) => void;
+  /** A row was pressed: its key. */
+  onOpen: (key: string) => void;
   /** The account button, the column's foot. */
   foot: ReactNode;
 }) {
@@ -145,23 +146,24 @@ export function SharedSidebar({
               </PressRow>
               {open
                 ? person.items.map((item) => {
-                    const here = selected === item.token;
+                    const key = sharedItemKey(item);
+                    const here = selected === key;
                     return (
                       <PressRow
-                        key={item.token}
+                        key={key}
                         accessibilityLabel={`${itemTitle(item)}${isNew(item) ? ", new" : ""}`}
                         selected={here}
-                        onPress={() => onOpen(item.token)}
+                        onPress={() => onOpen(key)}
                         radius={radii.sm}
                         style={[styles.row, styles.noteRow]}
                         selectedStyle={styles.rowSelected}
-                        testID={`shared-side-${item.token}`}
+                        testID={`shared-side-${key}`}
                       >
                         {here ? <View style={styles.selectedBar} testID="shared-here" /> : null}
                         <Text variant="tree" numberOfLines={1} style={styles.noteName}>
                           {itemTitle(item)}
                         </Text>
-                        {isNew(item) ? <View style={styles.newDot} testID={`shared-side-new-${item.token}`} /> : null}
+                        {isNew(item) ? <View style={styles.newDot} testID={`shared-side-new-${key}`} /> : null}
                       </PressRow>
                     );
                   })

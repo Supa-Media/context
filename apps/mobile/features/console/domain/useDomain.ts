@@ -1,9 +1,10 @@
 import { useMemo } from "react";
-import { useMutation, useQueries, type RequestForQueries } from "convex/react";
+import { useAction, useMutation, useQueries, type RequestForQueries } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { EMPTY_QUERY_SPEC } from "../querySpec";
 import type { DomainSettings } from "./domain";
+import type { DomainLookup } from "./domainHelp";
 
 /** A short link the domain's root could open: anyone can read it, and it has a name. */
 export interface HomepageChoice {
@@ -16,6 +17,10 @@ export interface DomainActions {
   checkNow: () => Promise<void>;
   setHomepage: (slug: string | null) => Promise<void>;
   remove: () => Promise<void>;
+  /** Before connecting: what public DNS says about a name. */
+  lookup: (hostname: string) => Promise<DomainLookup>;
+  /** Email the setup steps to whoever runs the domain. */
+  emailSteps: (to: string, note: string | null) => Promise<void>;
 }
 
 export interface DomainPanelView {
@@ -75,6 +80,8 @@ export function useDomain(workspaceId: string | null): DomainPanelView {
   const checkNow = useMutation(api.functions.customDomains.checkNow);
   const setHomepage = useMutation(api.functions.customDomains.setHomepage);
   const remove = useMutation(api.functions.customDomains.remove);
+  const lookup = useAction(api.functions.customDomainsLookup.lookup);
+  const emailSteps = useMutation(api.functions.customDomains.emailSteps);
 
   const homepageChoices = useMemo<HomepageChoice[]>(() => {
     if (!Array.isArray(sharesResult)) return [];
@@ -101,8 +108,12 @@ export function useDomain(workspaceId: string | null): DomainPanelView {
       remove: async () => {
         if (id !== null) await remove({ domainId: id });
       },
+      lookup: async (hostname) => await lookup({ workspaceId: workspaceId as Id<"workspaces">, hostname }),
+      emailSteps: async (to, note) => {
+        if (id !== null) await emailSteps({ domainId: id, to, note });
+      },
     };
-  }, [workspaceId, canManage, domainId, connect, checkNow, setHomepage, remove]);
+  }, [workspaceId, canManage, domainId, connect, checkNow, setHomepage, remove, lookup, emailSteps]);
 
   return {
     settings,

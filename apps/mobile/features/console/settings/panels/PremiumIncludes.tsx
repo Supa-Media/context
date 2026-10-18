@@ -1,9 +1,9 @@
-import type { ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
 import { Card } from "../../../design/components/Card";
 import { Pill } from "../../../design/components/Pill";
 import { Text } from "../../../design/components/Text";
 import { useThemedStyles } from "../../../design/theme";
+import { foundingAtNoCharge } from "./founding";
 import { formatBytes, premiumStateOf, type PremiumStatus } from "./premium";
 
 /**
@@ -18,11 +18,6 @@ import { formatBytes, premiumStateOf, type PremiumStatus } from "./premium";
  * Fast search is no longer part of Premium. Since 2026-10-08 it is on for every
  * workspace, free or paid, and the owner can still switch it off under Storage
  * & search, so it is not listed here at all.
- *
- * Auto-organize is not a row here: its own line (`IncludedLine`) is handed in
- * as `extra`, because only the organizer knows whether it is switched on for
- * this deployment, and a row saying it was included where it is not would be
- * selling something that does not arrive.
  */
 export interface IncludeRow {
   key: "notes" | "domain";
@@ -35,28 +30,37 @@ export function premiumIncludeRows(status: PremiumStatus): IncludeRow[] {
   // Only where the notes live on a bucket we run. The owner's own storage has
   // no cap of ours to lift, and paying never moves it.
   if (status.storageIsManaged || status.selected.managedStorage) {
+    // The founders' deal keeps the free tier's note cap (decided by the owner,
+    // 2026-10-17); "Unlimited" would be untrue for them.
+    if (foundingAtNoCharge(status)) {
+      const cap = (status.noteCap ?? FOUNDING_NOTE_CAP).toLocaleString("en-US");
+      rows.push({
+        key: "notes",
+        label: `Up to ${cap} notes`,
+        detail: `Founding members get ${cap} notes on storage we run. Full Premium lifts the cap, and storage of your own has none.`,
+      });
+      return [...rows, DOMAIN_ROW];
+    }
     rows.push({
       key: "notes",
       label: "Unlimited notes",
       detail: `Room for ${formatBytes(status.ceilingBytes)}, far more than most people ever write.`,
     });
   }
-  rows.push({
-    key: "domain",
-    label: "Your own domain",
-    detail: "Links and your website open at an address like docs.acme.com.",
-  });
+  rows.push(DOMAIN_ROW);
   return rows;
 }
 
-export function PremiumIncludes({
-  status,
-  extra,
-}: {
-  status: PremiumStatus;
-  /** Auto-organize's line, where the organizer offers it. */
-  extra?: ReactNode;
-}) {
+/** What the founders' deal caps notes at when the server has not said (it always should on storage we run). */
+const FOUNDING_NOTE_CAP = 1000;
+
+const DOMAIN_ROW: IncludeRow = {
+  key: "domain",
+  label: "Your own domain",
+  detail: "Links and your website open at an address like docs.acme.com.",
+};
+
+export function PremiumIncludes({ status }: { status: PremiumStatus }) {
   const styles = useThemedStyles(makeStyles);
   const paying = premiumStateOf(status.status) === "premium";
 
@@ -74,7 +78,6 @@ export function PremiumIncludes({
           </Text>
         </View>
       ))}
-      {extra ?? null}
     </Card>
   );
 }

@@ -1,7 +1,9 @@
 import { CollaborationFixture } from "./collaboration/Fixture";
 import { CHECKOUT_PARAM, checkoutOutcomeFrom } from "@context/shared";
 import { AppFrameFixture } from "./AppFrameFixture";
+import { AiLibraryFixture } from "./AiLibraryFixture";
 import { DomainFixture } from "./DomainFixture";
+import { MailFixture } from "./MailFixture";
 import { AppFrameVisualFixture } from "./AppFrameVisualFixture";
 import { ResumeFixture, isResumeSurface } from "./ResumeFixture";
 import { E2EFixtureScreen } from "../console/E2EFixtureScreen";
@@ -14,6 +16,9 @@ import { SharedLinkFixture } from "./SharedLinkFixture";
 import { SharedInboxFixture } from "./SharedInboxFixture";
 import { PhoneCheckScreen } from "../auth/PhoneCheckScreen";
 import { PaletteFilterFixture } from "./PaletteFilterFixture";
+import { PaletteResultsFixture } from "./PaletteResultsFixture";
+import { MeetingCardFixture } from "./MeetingCardFixture";
+import { MoveNoticeFixture } from "./MoveNoticeFixture";
 
 /**
  * Which fixture `/e2e-fixture` is showing, decided off the query.
@@ -39,6 +44,8 @@ export interface FixtureParams {
   role?: string | string[];
   /** `screen=shared-link`: `no` draws a link addressed to a person rather than open to anyone. */
   anyone?: string | string[];
+  /** `screen=meeting-card`: which call-audio state to draw; `MeetingCardFixture` lists them. */
+  warn?: string | string[];
   checkout?: string | string[];
   screen?: string | string[];
   /** No `screen`: `1` draws the open note as moved to the trash. */
@@ -73,6 +80,7 @@ function first(value: string | string[] | undefined): string | undefined {
 export function FixtureScreen({ params }: { params: FixtureParams }) {
   if (first(params.screen) === "collaboration") return <CollaborationFixture user={first(params.user)} note={first(params.note)} />;
   if (first(params.screen) === "vault-import") return <VaultImportFixture />;
+  if (first(params.screen) === "ai") return <AiLibraryFixture at={first(params.at)} />;
   // A projects folder's List, Board and side peek on an in-memory folder. See its own header.
   if (first(params.screen) === "projects") {
     const slow = Number(first(params.slow) ?? "0");
@@ -82,6 +90,10 @@ export function FixtureScreen({ params }: { params: FixtureParams }) {
   if (first(params.screen) === "cast-studio") return <CastStudioFixture />;
   if (first(params.screen) === "cast-studio-pages") return <CastStudioFixture pages />;
   if (first(params.screen) === "cast-studio-folders") return <CastStudioFixture folders />;
+  if (first(params.screen) === "mail") return <MailFixture />;
+  // The notice band's lines for a move into another workspace. See its own header.
+  if (first(params.screen) === "move-notice") return <MoveNoticeFixture at={first(params.at)} />;
+  if (first(params.screen) === "meeting-card") return <MeetingCardFixture warn={first(params.warn)} at={first(params.at)} />;
   if (first(params.screen) === "domain") return <DomainFixture at={first(params.at)} site={first(params.site)} />;
   // The live map open over Browse, on invented data. See its own header.
   if (first(params.screen) === "live-map") return <LiveMapFixture />;
@@ -91,6 +103,8 @@ export function FixtureScreen({ params }: { params: FixtureParams }) {
   }
   // ⌘K's in: filter and workspace chips, on invented workspaces. See its own header.
   if (first(params.screen) === "palette-filters") return <PaletteFilterFixture />;
+  // ⌘K's answered search: rich rows, preview, Tab narrows the tree. See its own header.
+  if (first(params.screen) === "palette-results") return <PaletteResultsFixture />;
   if (first(params.screen) === "shared") return <SharedInboxFixture at={first(params.at)} />;
   if (first(params.screen) === "shared-link") return <SharedLinkFixture anyone={first(params.anyone) !== "no"} folder={first(params.at) === "folder"} />;
 

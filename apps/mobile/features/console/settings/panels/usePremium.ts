@@ -1,3 +1,4 @@
+import { Platform } from "react-native";
 import { useCallback, useMemo, useState } from "react";
 import { useConvex, useQueries, type RequestForQueries } from "convex/react";
 import { api } from "@context/convex/_generated/api";
@@ -70,10 +71,11 @@ export function usePremium(options: {
   const answered = raw !== undefined && !(raw instanceof Error) && raw !== null;
   const status = answered ? (raw as PremiumStatus) : null;
   const canManage = status !== null && status.canManage;
+  const canPurchase = Platform.OS === "web" && canManage;
 
   const choose = useCallback(
     async (next: PremiumEntitlements) => {
-      if (workspaceId === null) return;
+      if (Platform.OS !== "web" || workspaceId === null) return;
       await convex.mutation(api.functions.billing.setEntitlements, {
         workspaceId,
         managedStorage: next.managedStorage,
@@ -84,7 +86,7 @@ export function usePremium(options: {
   );
 
   const upgrade = useCallback(async () => {
-    if (workspaceId === null) return;
+    if (Platform.OS !== "web" || workspaceId === null) return;
     if (status?.stagingFreeStorage === true || status?.isTestAccount === true) {
       await convex.mutation(api.functions.billing.activateTestPremium, {
         workspaceId,
@@ -98,7 +100,7 @@ export function usePremium(options: {
   }, [convex, status?.isTestAccount, status?.stagingFreeStorage, workspaceId]);
 
   const manageBilling = useCallback(async () => {
-    if (workspaceId === null) return;
+    if (Platform.OS !== "web" || workspaceId === null) return;
     const started = await convex.mutation(api.functions.billing.startPortal, {
       workspaceId,
     });
@@ -138,9 +140,9 @@ export function usePremium(options: {
     session,
     // Absent, never disabled: the mutations are owner-only and the server
     // re-checks, so a member is offered nothing rather than a refusal.
-    choose: canManage ? choose : undefined,
-    upgrade: canManage ? upgrade : undefined,
-    manageBilling: canManage ? manageBilling : undefined,
+    choose: canPurchase ? choose : undefined,
+    upgrade: canPurchase ? upgrade : undefined,
+    manageBilling: canPurchase ? manageBilling : undefined,
     retryManagedStorage: canManage ? retryManagedStorage : undefined,
     deleteTestWorkspace:
       canManage && status?.isTestAccount === true

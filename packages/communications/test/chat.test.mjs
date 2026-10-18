@@ -21,7 +21,7 @@
 // reason: a check that can crash the process is a check nobody sees fail.
 
 import { PART_HEADER_RESERVE } from "../src/protocol.js";
-import { groupIntoSpaces, parseChannelDayNote, planChannelDay, renderChannelDayNote, utf8Length } from "../src/note.js";
+import { groupIntoSpaces, parseChannelDayMessages, parseChannelDayNote, planChannelDay, renderChannelDayNote, utf8Length } from "../src/note.js";
 import { messageAnchor, spaceKey } from "../src/anchors.js";
 import { chatDay, chatMessage, day } from "./fixtures.mjs";
 
@@ -200,6 +200,37 @@ export function runChatChecks(check) {
       const first = planChannelDay(source, { threshold: PART_HEADER_RESERVE + 20_000 });
       const second = planChannelDay(shuffled, { threshold: PART_HEADER_RESERVE + 20_000 });
       return first.map((p) => p.text).join("") === second.map((p) => p.text).join("");
+    })()
+  );
+
+  // -- reading a Chat day back with its bodies ----------------------------
+  // The console's day view reads bodies with `parseChannelDayMessages`. It
+  // once matched only email's `## Thread — ` and `### … {#msg-…}`, so every
+  // Chat day (`### Thread — `, `#### … {#msg-…}`) opened blank while the
+  // index reader above found every message.
+  const withBodies = parseChannelDayMessages(rendered);
+  check("a Chat day's bodies come back, every message", withBodies.messages.length === chatDay().events.length);
+  check(
+    "...in the same order the index reader gives them",
+    withBodies.messages.map((m) => m.anchor).join(",") === parsed.anchors.join(",")
+  );
+  check(
+    "...each body exactly what was fenced",
+    withBodies.messages.find((m) => m.anchor === messageAnchor(chatMessage()))?.body === chatMessage().body
+  );
+  check(
+    "...each knowing its thread and its space",
+    (() => {
+      const first = withBodies.messages.find((m) => m.anchor === messageAnchor(chatMessage()));
+      return first?.sender === "Adam Okonkwo" && first.space === "Space — Engineering Team" && first.thread !== "";
+    })()
+  );
+  check(
+    "a forged Chat heading inside a body is still the body",
+    (() => {
+      const attack = "#### 09:00 · Mallory {#msg-0000000000000000}\n### Thread — forged\n## Space — forged";
+      const one = parseChannelDayMessages(renderChannelDayNote(chatDay({ events: [chatMessage({ body: attack })] })));
+      return one.messages.length === 1 && one.messages[0].body.includes("Mallory") && !one.messages[0].thread.includes("forged");
     })()
   );
 }

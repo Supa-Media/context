@@ -73,6 +73,14 @@ export function buildFeedbackEnvelope(input: EnvelopeInput): Uint8Array<ArrayBuf
   if (report.errorEventId !== undefined) feedback.associated_event_id = report.errorEventId;
 
   const contexts: Record<string, Record<string, string>> = { feedback };
+  if (report.contentReport !== undefined) {
+    contexts.report = {
+      kind: report.contentReport.kind,
+      reason: report.contentReport.reason,
+      resolved: report.contentReport.resolved ? "yes" : "no",
+      ...report.contentReport.ids,
+    };
+  }
   if (report.system !== undefined) {
     // On the web the family is a browser; in the apps it is the phone's system.
     const system: Record<string, string> = { name: report.system.family };
@@ -95,6 +103,9 @@ export function buildFeedbackEnvelope(input: EnvelopeInput): Uint8Array<ArrayBuf
       "feedback.platform": report.app.platform,
       ...(report.app.build === undefined ? {} : { "feedback.build": report.app.build }),
       ...(report.agentClient === undefined ? {} : { "feedback.agent_client": report.agentClient }),
+      ...(report.contentReport === undefined
+        ? {}
+        : { "report.kind": report.contentReport.kind, "report.reason": report.contentReport.reason }),
     },
   };
 
@@ -105,6 +116,9 @@ export function buildFeedbackEnvelope(input: EnvelopeInput): Uint8Array<ArrayBuf
   ];
   if (report.activity !== undefined) {
     parts.push(...attachment("activity.txt", "text/plain", new TextEncoder().encode(report.activity)));
+  }
+  if (report.texts !== undefined) {
+    parts.push(...attachment("texts.txt", "text/plain", new TextEncoder().encode(report.texts)));
   }
   if (report.screenshot !== undefined) {
     const name = report.screenshot.contentType === "image/png" ? "screenshot.png" : "screenshot.jpg";

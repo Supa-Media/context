@@ -70,9 +70,11 @@ import { createRoot } from "react-dom/client";
 
 import { BrowsePane } from "../features/console/panes/BrowsePane";
 import { storagePillLabel } from "../features/console/storage/pill";
+import { contextFootLine } from "../features/console/files/contextFoot";
 import type { ConsoleData, ConsoleStorage } from "../features/console/types";
 import type { FileBrowser } from "../features/console/files/browser";
 import { emptyEditor } from "../features/console/files/editor";
+import { setHomeView } from "../features/console/home/homeView";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -217,37 +219,41 @@ describe("the pill's label answers for both absences and neither is a claim", ()
 /* -------------------------------------------------------------------------- */
 
 /**
- * The same rule, on the phone's own surface for it.
+ * The same rule, in the line that turns `storagePillLabel`'s `null` into the
+ * words "no bucket connected" (`contextFootLine`, drawn at the foot of a
+ * pointer layout's root page).
  *
- * The line `storage · index · counts` used to be the file tree's footer, and a
- * phone has no file tree — it is the foot of the context root page now, drawn
- * by `FolderView` from `contextFootLine`. That line is the **second** caller
- * that turns `storagePillLabel`'s `null` into the words "no bucket connected",
- * which is exactly the substitution this whole file exists to keep honest: it
- * has to know which absence it is holding, because one of them is a claim and
- * the other is a round trip.
+ * It was the phone's Folders page foot too, until board 2 of
+ * `meeting-2026-10-17/phone-inbox/` left it off (Dev2, "EXACTLY like the
+ * mockups"); a phone reads its bucket in Settings › Storage now. The guard is
+ * asked directly, since no phone page draws the line any more.
  *
  * SABOTAGE: dropping the `storage === undefined` arm from `contextFootLine`, so
- * an unanswered binding reads as "no bucket connected", measured **zero**
- * failures across the whole suite (172 suites / 3,282 tests) — the guard was
- * written and nothing had ever asked it a question. These three are the answer;
- * with them the same mutant fails the first of them and only it.
+ * an unanswered binding reads as "no bucket connected", fails the first test.
  */
-describe("the phone's context foot is held to the same rule", () => {
+describe("the context foot is held to the same rule", () => {
+  const line = (storage: ConsoleStorage | null | undefined) =>
+    contextFootLine({ storage, fastSearch: null, listings: {} });
+
   test("a binding still in flight puts nothing about storage on the line", () => {
-    const text = render(dataWith(undefined, { atRoot: true }));
-    expect(text).toContain("Nothing read yet");
-    expect(text).not.toContain("no bucket connected");
+    expect(line(undefined)).toContain("Nothing read yet");
+    expect(line(undefined)).not.toContain("no bucket connected");
   });
 
   test("and a context that really has none says so there", () => {
-    // The control, the same one every case in this file carries: a foot that
-    // simply never mentioned storage would pass the test above, and the phone
-    // has no other route to this fact at all.
-    expect(render(dataWith(null, { atRoot: true }))).toContain("no bucket connected");
+    expect(line(null)).toContain("no bucket connected");
   });
 
   test("a connected one is named rather than described", () => {
-    expect(render(dataWith(CONNECTED, { atRoot: true }))).toContain("R2 · notes-bucket");
+    expect(line(CONNECTED)).toContain("R2 · notes-bucket");
+  });
+
+  test("the phone's Folders page draws no storage line (board 2)", () => {
+    setHomeView("folders");
+    try {
+      expect(render(dataWith(CONNECTED, { atRoot: true }))).not.toContain("notes-bucket");
+    } finally {
+      setHomeView("inbox");
+    }
   });
 });

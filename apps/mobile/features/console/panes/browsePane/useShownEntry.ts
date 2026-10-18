@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FileEntry } from "../../files/types";
 
 /**
@@ -30,17 +30,31 @@ export function shownEntry({
   selectedPath,
   opening,
   editorPath,
+  waiting = false,
 }: {
   /** What the selection names, as `entryAt` answers it. */
   target: FileEntry | null;
-  /** What was drawn last while nothing was on its way, in this context. */
-  held: FileEntry | null;
+  /**
+   * What was drawn last while nothing was on its way, in this context: `null`
+   * is the page with nothing selected (a phone's Home), and `undefined` is
+   * nothing drawn yet, which holds nothing.
+   */
+  held: FileEntry | null | undefined;
   selectedPath: string | null;
   opening: string | null;
   editorPath: string | null;
+  /**
+   * The selection is a page whose reads have not all landed yet — a folder
+   * page without its front note, notes and words (`folderPageReady`). Held
+   * like a note on its way, so it arrives whole rather than in three steps.
+   */
+  waiting?: boolean;
 }): FileEntry | null {
-  const arriving = opening !== null && opening === selectedPath && editorPath !== selectedPath;
-  if (!arriving || held === null || held.path === selectedPath) return target;
+  const arriving = waiting || (opening !== null && opening === selectedPath && editorPath !== selectedPath);
+  if (!arriving || held === undefined || selectedPath === null) return target;
+  // Home stays while the note or folder opened from it is read (owner, 2026-10-16).
+  if (held === null) return null;
+  if (held.path === selectedPath) return target;
   /*
     A held note is only worth keeping while the editor still holds it. Drawn
     against any other editor state it is the empty editor this exists to
@@ -50,12 +64,23 @@ export function shownEntry({
   return held;
 }
 
+/** How long a folder page may keep the last page on screen while its reads land: past it, it draws what it has. */
+export const PAGE_WAIT_MS = 1200;
+
+export interface ShownEntry {
+  /** What the region draws. */
+  readonly entry: FileEntry | null;
+  /** The page drawn is the last one, kept while `selectedPath` is read. */
+  readonly holding: boolean;
+}
+
 export function useShownEntry({
   target,
   contextId,
   selectedPath,
   opening,
   editorPath,
+  waiting = false,
 }: {
   target: FileEntry | null;
   /** The context the browser is on; nothing is held across a switch. */
@@ -63,15 +88,26 @@ export function useShownEntry({
   selectedPath: string | null;
   opening: string | null;
   editorPath: string | null;
-}): FileEntry | null {
+  /** See `shownEntry`. Given up on after `PAGE_WAIT_MS`, so a slow read never strands the last page. */
+  waiting?: boolean;
+}): ShownEntry {
   const last = useRef<{ contextId: string | null; entry: FileEntry | null } | null>(null);
-  const held = last.current !== null && last.current.contextId === contextId ? last.current.entry : null;
-  const shown = shownEntry({ target, held, selectedPath, opening, editorPath });
+  const [gaveUp, setGaveUp] = useState<string | null>(null);
+  const waitingNow = waiting && selectedPath !== null && gaveUp !== selectedPath;
+  useEffect(() => {
+    if (!waitingNow || selectedPath === null) return;
+    const timer = setTimeout(() => setGaveUp(selectedPath), PAGE_WAIT_MS);
+    return () => clearTimeout(timer);
+  }, [waitingNow, selectedPath]);
+  const held = last.current !== null && last.current.contextId === contextId ? last.current.entry : undefined;
+  const shown = shownEntry({ target, held, selectedPath, opening, editorPath, waiting: waitingNow });
   /*
     Remembered during render, like `editorRef`: what is remembered is exactly
     what this render draws, so the next render holds the page that is on the
     glass rather than one an effect caught a commit late.
   */
   last.current = { contextId, entry: shown };
-  return shown;
+  const arriving = waitingNow || (opening !== null && opening === selectedPath && editorPath !== selectedPath);
+  const holding = arriving && held !== undefined && selectedPath !== null && (shown === null || shown.path !== selectedPath);
+  return { entry: shown, holding };
 }

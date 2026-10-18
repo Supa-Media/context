@@ -2,9 +2,9 @@ import { browseHref, noteHref } from "../../nav";
 import type { ConsoleRouter } from "../../layout/types";
 
 /**
- * Whether the URL has the live map open: `?map=1`, beside `?note=` the way
- * What changed rides as `?changes=1`, so Browse and the tree stay mounted under
- * it and Back and a shared link both find it. Anything but `1` is closed.
+ * Whether the URL has the live map open: `?map=1`, beside `?note=`, so Browse
+ * and the tree stay mounted under it and Back and a shared link both find it.
+ * Anything but `1` is closed.
  *
  * This is the workspace map the sidebar's Map button opens. The old
  * `/console/map` constellation route is a different page and is left alone.
@@ -34,11 +34,11 @@ export interface MapRoute {
 }
 
 /**
- * The map is one page in the document slot at a time with What changed and
- * Settings, so opening it closes both; closing it clears only its own key.
+ * The map is one page in the document slot at a time with Settings, so
+ * opening it closes Settings; closing it clears only its own key.
  */
 export function routeMap(router: Pick<ConsoleRouter, "setParams" | "push">, open: boolean): MapRoute {
-  const openMap = () => router.setParams({ map: "1", changes: undefined, settings: undefined });
+  const openMap = () => router.setParams({ map: "1", settings: undefined, trash: undefined });
   const closeMap = () => router.setParams({ map: undefined });
   return {
     open,

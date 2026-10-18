@@ -218,8 +218,8 @@ this product chose:
 - **"Can I share a private note with a group?"** has the answer **yes** — a
   note override may name one — and nothing on screen suggested it.
 
-So the console moves to the words this audience already holds, from Drive and
-Dropbox: `private` → **Restricted**, `team` → **Everyone in @supa**, a `@name`
+So the console moves to the words this audience already holds, from Drive:
+`private` → **Restricted**, `team` → **Everyone in @supa**, a `@name`
 rule → **the name**, a link → **Anyone with the link**, unchanged because it was
 already honest.
 
@@ -313,3 +313,182 @@ personal workspace impossible again. `apps/convex/__tests__/shareRead.test.ts`
 entry note refuses its named reader, if a stranger with the token gets it, or
 if a private note linked from it opens; `shareSurvivesMove.test.ts` fails if a
 link follows a note into a private folder.
+
+### A tier keeps the owner's list; only a list names people (2026-10-16)
+
+In rows mode a row's base (`private`, `team`, or inherit) and its list are
+separate. A change between `private` and `team` that names no list keeps the
+owner's list as it is. A given list replaces it, and `[]` is the explicit way to
+clear it. A reset to `inherit` clears the owner's list too: inherit means "share
+exactly like the parent", and a list left behind would be a grant the console no
+longer shows. The gateway sends `grantees` only when the caller passes one, and
+the console's tier verb sends none. Before this, a tier change cleared the list,
+so making a note `team` quietly removed every person the owner had named.
+
+The owner names people with `nodesAccess.setGrantees`: a handle (a group of
+this workspace, or one of its members), a group id, or an email. Someone
+outside the workspace is named by email only: an email grant is stored whether
+or not an account holds it, so no answer says whether a handle exists anywhere
+else, and an outsider's handle gets the same refusal as a handle nobody holds. Every entry that does not resolve gets one refusal, `GRANTEE_NOT_FOUND`,
+with nothing else in it, and nothing is written. A missing account and a
+deleted one are the same refusal. A member or an editor is `FORBIDDEN`. A
+non-member, or a path with no row, is `NOT_FOUND`. Each list is capped at 100
+entries, and past that it is `INVALID`.
+
+Every change of the owner's list writes one `access.list` audit row, with the
+row's id, counts, and grantee ids. An email is audited only as a SHA-256 of its
+lowercased form. A refused change writes no audit row.
+
+What a "simplification" would cost: a tier change that clears the list leaves
+outsiders' access to go away silently, an inherit that keeps the list leaves a
+grant nobody can see, and a refusal that names what failed is an oracle for
+whether a handle exists. A reset to inherit by an editor, on a row with an
+owner's list, is `FORBIDDEN`, since it changes the list. `setAccess.test.ts`,
+`setAccessLists.test.ts` ("a tier change keeps the owner's list", "101
+grantees are refused", "a missing account and a deleted one") and
+`setGrantees.test.ts` ("one refusal for every grantee that does not resolve")
+fail if either is reverted. The gateway's `setAccessBody.test.mjs` fails if
+it sends `grantees` for a tier.
+
+## An edit grant lets a member write one note's body
+
+*Built on 2026-10-16 (edit-grants, PR 2).* A workspace `member` who holds the
+edit name of the row that governs a note (`lib/nodes/governingRow.ts`, the walk
+`canSee` makes) may write that note's body through `writeNote`. Nothing else
+is opened: moves, renames, trash, archive, copies, sharing, groups, images,
+mail and creating a note stay `editor`. The new text may not carry a form
+block, since that creates response files. A path that is not canonical (`..`,
+`.`, empty segments, backslashes) is refused for a member, because the walk
+reads the path as written.
+
+Every refusal is the `INSUFFICIENT_ROLE` a member without a grant gets, so a
+member cannot tell an ungranted note from one that does not exist.
+
+What a "simplification" would cost: reading the grant from the rendered rules
+loses a team-base row's list, and a write that trusts the path text lets a
+`..` walk into another folder's notes. `__tests__/files/memberEditWrite.test.ts`
+fails if the grant is ignored, a form block is allowed, or a non-canonical path
+is not refused; `__tests__/files/memberWriteCoverage.test.ts` fails if any other
+console write takes the member path.
+
+## Email grants match a member's confirmed addresses
+
+An email grant on a row (`nodeAccess`, `granteeKind: "email"`, stored lower
+case) used to match nobody: `grantedNamesFor` passed the caller's user and
+groups to `accessNamesFor` and no emails. Now a member holds the grant when the
+address is one they have proved they read: their main `users.email` once it is
+verified, or an added sign-in email. `ownedConfirmedEmailsOf` (`lib/signInEmails.ts`)
+gives that list, and drops any address that `accountForEmail` does not give to
+this same account. A full account holds one main address and ten added ones,
+so the list is bounded at eleven, and the newest added address still grants.
+Membership is still checked first, so a non-member gets
+`[]` as before; outsiders are a later slice.
+
+An address two accounts hold matches neither of them. That state is one the
+add flow refuses to create, but old rows predate it, and the owner's grant
+cannot say which person was meant, so both get nothing. Unverified
+`users.email` matches nothing, as it does everywhere else in sign-in and
+sharing.
+
+What a "simplification" would cost: dropping the ownership check lets an address
+that someone else also holds open a private note to both of them, which is a
+wider grant than the owner named. Dropping the `emails` argument turns every
+email grant back into a silent no-op, and the owner sees a grant that never
+works. Counting an unverified address as proved lets anyone who typed a
+person's address into their own unverified profile read notes granted to that
+address. `emailGrants.test.ts` fails on each of these: "an added, confirmed
+address grants a member the note", "an address two accounts hold grants neither
+of them" and "an unverified users.email grants nothing" (which needs both
+verified checks broken, since the ownership lookup refuses an unverified
+address too).
+
+## Outsiders read what they were granted, through the share path
+
+*Built on 2026-10-16 (outsider read, slice 2).* A row's access list can name an
+account that is not a member of the workspace (`granteeKind: "user"`), or an
+address that account holds (`granteeKind: "email"`, counted only when
+`ownedConfirmedEmailsOf` gives it to that account alone). Such a person reads
+what was granted to them, read-only, and nothing else.
+
+- **Found, then re-derived.** `nodeAccess` is found through two global indexes
+  (`by_grantee_user`, `by_grantee_email`), bounded at 200. Each candidate is
+  judged again from its workspace's live rows: the names come from
+  `accessNamesFor` over `accessRowsOf`, the node must be live, and `canSee` at
+  `team` scope with those names over the **guest** rendering
+  (`renderAccess(rows, "guest")`) must open the path.
+- **The guest rendering never shows `team`.** A row a member can see because of
+  its `team` base is `private` to an outsider. Only a row that names them (by
+  account or by a confirmed address) opens to them.
+- **One path, one decision, through the share read.** `shares.readGrantedNote`
+  (a note, by its stable id or by a path under a grant) and
+  `shares.listGrantedFolder` read through `readThroughShare` at `team` scope with
+  the caller's names. A folder grant covers its subtree, and every path beneath
+  it is decided again: a private subfolder, a note held back by name, and a note
+  the members can see are all absent. A listing is filtered entry by entry.
+- **One refusal.** Not granted, not there, trashed, granted in another
+  workspace, a member, and a grant the live rows no longer name all answer
+  `SHARE_UNAVAILABLE`, with the same message. A signed-out caller gets
+  `NOT_AUTHENTICATED` for every target. A storage failure is passed through.
+- **Leaving takes the account's grants along.** `removeMember` and
+  `leaveWorkspace` delete that account's `user` grants in that workspace, rebuild
+  the snapshot the readers judge by, and write one `access.list` row. Email grants
+  are left as they are: they name an address, and the owner who wrote one takes
+  it back. (An open question, below.)
+- **Edit writes the body, and nothing else.** See the next section.
+
+What a "simplification" would cost. Trusting the candidate grant row, instead of
+the names the live rows give, lets a revoked grant, or a grant a stale snapshot
+no longer records, keep reading. Judging an outsider by the member rendering
+lets anyone holding one folder read a note the members can see, which is the
+`team` base that non-negotiable #5 forbids reaching the internet. Leaving the
+departed member's account grants in place turns "removed" into a read the owner
+did not keep. `outsiderRead.test.ts` ("the candidate row is never trusted on its
+own", and "a note the members can see is not opened to an outsider by a folder
+grant") fails on the first two. "every refusal is the one answer" pins the
+byte-identical refusal, and `outsiderRemoval.test.ts` ("removeMember deletes the
+user's grants in that workspace and audits the change") fails on the third.
+
+Open, and not decided here: an email grant on a removed member's address still
+reaches them as an outsider. Removing it too would be a second decision with its
+own cost (an owner who named a person by address and then removed them from the
+workspace for an unrelated reason would lose that address's grant without being
+asked), so this slice leaves it and says so.
+
+## An outsider with edit saves the note's body
+
+*Built on 2026-10-17.* An outsider whose grant on the row that governs a note is
+`edit` saves that note's body through `shares.writeGrantedNote`, and does
+nothing else with it. It is the member rule (`memberWrite.ts`, above) on the
+outsider's own view of the rows.
+
+- **Decided by the governing row, under the guest rendering.** `guestCanEdit`
+  (`lib/grants/outsider.ts`) asks that the path open to the outsider
+  (`guestCanSee`), that it be canonical, and that the row `governingRowOf`
+  finds for it names them with `edit`. A note's own list replaces its folder's,
+  so a folder edit grant does not reach a note whose list gives them view. A
+  `team` note inside a folder granted to them is closed, as it is for reading.
+- **A body write over a version they read.** `expectedEtag` is required (a
+  write with none would create a note), a form block is refused with
+  `GRANT_FORM_REFUSED` (its responses are a creation), and the path written is
+  the one `authorizeGrant` resolved, never the one typed. It goes through
+  `runFileOperation` at `team` scope with the outsider's names, the barrier a
+  member's edit grant writes through. A conflict passes through as the editor's
+  `CONFLICT`; every other refusal is `SHARE_UNAVAILABLE`. The save is audited in
+  the workspace's trail under the outsider's account.
+- **An editor reads the comments.** `readGrantedNote` keeps the comments block
+  and anchors for an outsider who may edit, because the save writes the whole
+  text back and stripping them would delete every thread. A reader still gets
+  them stripped, as a link does.
+- **In the app** the note opens in Shared with me in the same editor, writable,
+  with a "Can edit" pill (`useGrantEditor`): the editor reducer and autosave
+  every note uses, with each save sent through the grant. No live room is
+  opened for an outsider.
+
+What a "simplification" would cost. Reading `edit` off any row the outsider
+holds, instead of the governing one, lets a folder grant override a note's
+narrower list. Treating view as edit hands a reader the bytes. Stripping
+comments for an editor deletes threads on the first save.
+`outsiderEdit.test.ts` fails on each ("a note's own view list beats the
+folder's edit", "a view grant reads and cannot save", "an editor reads the
+comments, and a reader does not"), and `sharedGrantEdit.test.ts` pins the app
+wiring.

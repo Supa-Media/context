@@ -548,7 +548,7 @@ make sure we are not bombarding users". So:
 - **Answered on the account.** `messageReads` keeps the answer (labels and
   times only, a closed list of names, capped per person, swept with the
   account and the workspace); messages whose answer already had a home keep
-  it (`setupRetiredAt`, `organizerSettings`). The device keeps a copy, which
+  it (`setupRetiredAt`). The device keeps a copy, which
   is carried up once and decides alone only when the backend cannot answer.
 
 Reversing it means a message that shows per browser again, or two that stack.
@@ -562,3 +562,16 @@ Moved to [A replay reads the activity feed, and a move line carries its pairs](.
 ### Moves between workspaces are read from the control plane, and an agent's move now leaves a row there (2026-10-07)
 
 Moved to [Moves between workspaces are read from the control plane, and an agent's move now leaves a row there](./app-and-console/live-map-history.md#moves-between-workspaces-are-read-from-the-control-plane-and-an-agents-move-now-leaves-a-row-there-2026-10-07).
+
+### Report ids use the platform's random source (2026-10-15)
+
+Opening Report on a fresh iOS release crashed during mount: Hermes does not
+provide browser Web Crypto. The same id generator initializes feedback.
+`feedback/clientReportId.native.ts` now uses the already installed expo-crypto
+CSPRNG; the browser implementation keeps Web Crypto. Both produce the same
+12-byte, 24-hex-character id used for report deduplication. There is no weak
+random fallback and no new native dependency.
+
+`nativeReportId.test.ts` removes browser crypto, selects Metro's native
+implementation and mounts the real report dialog. It fails if the shared
+model calls browser crypto again, or if the native provider is not used.

@@ -93,8 +93,6 @@ describe("features", () => {
   test("feature colours come in one fixed order, each its own tone", () => {
     expect(FEATURE_ORDER).toEqual([
       "assistant",
-      "whatChanged",
-      "organizer",
       "ownerSuggest",
       "transcription",
       "meaning",
@@ -102,7 +100,9 @@ describe("features", () => {
     const tones = FEATURE_ORDER.map((feature) => featureTone(feature));
     expect(new Set(tones).size).toBe(FEATURE_ORDER.length);
     expect(featureTone("assistant")).toBe("accent");
-    expect(featureTone("whatChanged")).toBe("shared");
+    expect(featureTone("ownerSuggest")).toBe("ok");
+    // A feature the list does not name, a removed one's old rows included, still shows, in grey.
+    expect(featureTone("organizer")).toBe("muted");
   });
 
   test("the Cloudflare-only rows are added only when Cloudflare is configured", () => {
@@ -161,11 +161,11 @@ describe("features", () => {
 
   test("a bar splits each account by feature, as fractions of its own spend", () => {
     const parts = splitByFeature([
-      { feature: "whatChanged", costUsd: 0.5 },
+      { feature: "meetingSummary", costUsd: 0.5 },
       { feature: "assistant", costUsd: 0.25 },
-      { feature: "organizer", costUsd: 0.25 },
+      { feature: "iconSuggest", costUsd: 0.25 },
     ]);
-    expect(parts.map((part) => part.feature)).toEqual(["assistant", "whatChanged", "organizer"]);
+    expect(parts.map((part) => part.feature)).toEqual(["assistant", "meetingSummary", "iconSuggest"]);
     expect(parts.map((part) => part.fraction)).toEqual([0.25, 0.5, 0.25]);
     expect(splitByFeature([{ feature: "assistant", costUsd: 0 }])).toEqual([]);
   });
@@ -192,13 +192,13 @@ describe("the days and the accounts", () => {
       {
         day: "2026-10-06",
         byFeature: [
-          { feature: "organizer", costUsd: 0.1 },
+          { feature: "iconSuggest", costUsd: 0.1 },
           { feature: "assistant", costUsd: 0.1 },
         ],
       },
       { day: "2026-10-07", byFeature: [{ feature: "assistant", costUsd: 0.3 }] },
     ]);
-    expect(days[0].segments.map((segment) => segment.feature)).toEqual(["assistant", "organizer"]);
+    expect(days[0].segments.map((segment) => segment.feature)).toEqual(["assistant", "iconSuggest"]);
     expect(days[0].height).toBeCloseTo(2 / 3, 5);
     expect(days[1].height).toBe(1);
   });
@@ -208,8 +208,8 @@ describe("the days and the accounts", () => {
       text: "Texting assistant today: 34 of 100 questions",
       fraction: 0.34,
     });
-    expect(todayLine({ feature: "whatChanged", label: "What changed", used: 12, cap: 100 }).text).toBe(
-      "What changed today: 12 of 100 new items",
+    expect(todayLine({ feature: "meetingSummary", label: "Meeting summaries", used: 12, cap: 100 }).text).toBe(
+      "Meeting summaries today: 12 of 100 uses",
     );
     expect(todayLine({ feature: "assistant", label: "Texting assistant", used: 0, cap: 0 }).fraction).toBe(0);
   });
@@ -243,11 +243,11 @@ function report(over: Partial<AiCostsReport> = {}): AiCostsReport {
     perQuestionUsd: 0.0018,
     features: [
       {
-        feature: "whatChanged",
-        label: "What changed",
+        feature: "meetingSummary",
+        label: "Meeting summaries",
         models: ["@cf/zai-org/glm-4.7-flash"],
         uses: 640,
-        unit: "new items",
+        unit: "requests",
         eachUsd: 0.0016,
         costUsd: 1.01,
       },
@@ -261,8 +261,8 @@ function report(over: Partial<AiCostsReport> = {}): AiCostsReport {
         costUsd: 0.75,
       },
       {
-        feature: "organizer",
-        label: "Auto-organize",
+        feature: "iconSuggest",
+        label: "Icon suggestions",
         models: ["@cf/cloudflare/clef"],
         uses: 398,
         unit: "notes",
@@ -278,14 +278,14 @@ function report(over: Partial<AiCostsReport> = {}): AiCostsReport {
         day: "2026-10-06",
         byFeature: [
           { feature: "assistant", costUsd: 0.2 },
-          { feature: "whatChanged", costUsd: 0.1 },
+          { feature: "meetingSummary", costUsd: 0.1 },
         ],
       },
       {
         day: "2026-10-07",
         byFeature: [
           { feature: "assistant", costUsd: 0.31 },
-          { feature: "whatChanged", costUsd: 0.1 },
+          { feature: "meetingSummary", costUsd: 0.1 },
         ],
       },
     ],

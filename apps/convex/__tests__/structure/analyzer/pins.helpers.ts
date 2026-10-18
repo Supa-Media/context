@@ -69,9 +69,11 @@ export const CREDENTIAL_BARRIERS = new Set([
   /*
    * The vault's barrier (`functions/vault.ts`, decided by the owner
    * 2026-10-10). It opens a bucket credential and the data key to seal or
-   * open one login's name, sites and people, and returns only those: no
-   * operation it has reads a secret part. Its callers are the signed-in save
-   * and share actions, which check the person against the request first.
+   * open one login's name, sites and people, and returns only those, except
+   * `reveal`, which returns the values to the person on a live view link, and
+   * `edit`, which changes them in place and returns only what changed by
+   * name. Its callers are the signed-in actions, which check the person
+   * against the link or the membership first.
    */
   "functions.vault.runVaultOperation",
 ]);
@@ -143,4 +145,43 @@ export const CREDENTIAL_HTTP_ROUTES = new Set([
   // alone opens nothing; with a live ticket, one page of one move already
   // under way.
   "http.gatewayMoverOpen",
+  // The person's own Gmail (`/gateway/email/send`, owner 2026-10-17:
+  // email goes out from the person's own mailbox, never from ours). The
+  // argument made again: the gateway secret, plus the person's live access
+  // token on a grant that may write, the same two proofs as
+  // `/gateway/binding`. The sender is resolved from that grant's person, never
+  // from the request: only their own personal workspace's Google connections,
+  // and only one whose consent granted `gmail.send`; a `from` naming anybody
+  // else's address matches nothing. The token is minted inside the route,
+  // spent on one request to Gmail, and never returned, logged or stored; the
+  // answer is the sender's address or a refusal word. A stolen gateway secret
+  // alone sends nothing; with a live token, mail as that one person, inside
+  // their hourly and daily limits, after the gateway's send-review gate.
+  // `__tests__/personEmail.test.ts` carries the behavioural half.
+  "http.gatewayPersonEmail",
+  // The person's own Google Calendar (`/gateway/calendar/event`, owner
+  // 2026-10-17: calendar changes for testers). The same argument as the
+  // Gmail route above: gateway secret plus the person's live write grant;
+  // the calendar is resolved from that grant's own personal workspace, and
+  // only a connection whose consent granted `calendar.events`. The token is
+  // minted inside the route, spent on a lookup and one change to the primary
+  // calendar, and never returned, logged or stored. A stolen gateway secret
+  // alone changes nothing; with a live token, that one person's calendar,
+  // inside their limits, never an event with guests.
+  // `__tests__/calendarWrite.test.ts` carries the behavioural half.
+  "http.gatewayCalendarWrite",
+  // The person's own Gmail, read (`/gateway/email/search` and
+  // `/gateway/email/read`, owner 2026-10-18: mail the sync does not hold is
+  // read from the connection). Gateway secret plus the person's live access
+  // token on a grant holding `context:private`, addressed to a personal
+  // workspace that grant's person created and owns; an editor or member of
+  // it is refused, and a shared workspace has no mail. The mailbox is
+  // resolved from that workspace's own Google connections, never from the
+  // request; an address naming anybody else's matches nothing. The token is
+  // minted inside the route, spent on Gmail reads and never returned, logged
+  // or stored, and nothing read is kept. A stolen gateway secret alone reads
+  // nothing; with a live private token, that one person's mail, 120 reads an
+  // hour. `__tests__/personMail.test.ts` carries the behavioural half.
+  "http.gatewayPersonMailSearch",
+  "http.gatewayPersonMailRead",
 ]);

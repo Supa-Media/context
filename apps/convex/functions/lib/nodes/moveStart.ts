@@ -36,7 +36,7 @@ import { remapFolderIcons } from "@context/shared/src/folderIcons.cjs";
 import type { Clearance } from "../clearance";
 import { FileOpError, notFound } from "../fileOps/errors";
 import { folderVisibleAtScope } from "../fileOps/listing";
-import { assertMoveDestinationsVisible } from "../fileOps/moveRules";
+import { assertDestinationsVisible, assertMoveDestinationsVisible } from "../fileOps/moveRules";
 import { loadPrivacyState } from "../fileOps/privacyState";
 import type { FileStore } from "../fileOps/store";
 import type { MoveResult } from "../fileOps/moving";
@@ -44,6 +44,8 @@ import { PRIVACY_KEY, canSee } from "../privacy";
 import { carryPrivacy, releasePrivacy } from "./movePrivacy";
 import type { PendingMove } from "./moveOverlay";
 import { touchNodesNow } from "./run";
+import { startRowMove } from "./rowMoveStart";
+import type { ProjectionClient } from "../fileOps/search";
 
 /** Rows one inventory page reads. */
 const ROWS_PAGE = 2_000;
@@ -119,9 +121,17 @@ export async function startQueuedMove(
     to: string;
     clearance: Clearance;
     now: number;
+    /** A move asked against one note's version (an offline rename). */
+    expectedEtag?: string;
+    projection?: ProjectionClient | null;
   },
 ): Promise<MoveResult | null> {
   const { workspaceId, store, from, to, clearance, now } = args;
+  // A keyed workspace moves rows, for a file and a folder alike, and never queues bytes (`rowMoveStart.ts`).
+  const rowed = await startRowMove(ctx, args);
+  if (rowed !== null) return rowed;
+  // A move asked against a version is about one note, which never queues: the old way moves it.
+  if (args.expectedEtag !== undefined) return null;
   if (!storeCanQueue(store)) return null;
   const reserved = await ctx.runMutation(internal.functions.nodeMoves.reserve, {
     workspaceId,
@@ -133,6 +143,13 @@ export async function startQueuedMove(
   });
   if (!reserved.ok) {
     if (reserved.reason === "reserved") {
+      // "Something there is still moving" is itself something to know: said before the caller's clearance
+      // is read, it tells a `team` caller that a private folder exists and is being moved, where a free name
+      // is refused as not found. The names are judged first, and a caller who may see neither is told that.
+      const state = await loadPrivacyState(store);
+      if (state.invalid) throw new FileOpError("PRIVACY_MANIFEST_INVALID", "The privacy rules could not be read; the move was not made.");
+      if (!canSee(from, clearance.scope, state.rules, state.overrides, clearance.names)) throw notFound();
+      assertDestinationsVisible([to], clearance, state.rules, state.overrides);
       throw new FileOpError("CONFLICT", "Something there is still moving. Try again once it has finished.");
     }
     return null;
@@ -166,6 +183,15 @@ export async function startQueuedMove(
       state,
     );
 
+    // In rows mode the rows are the truth, and an unkeyed move re-creates its rows at the new name, where their
+    // access is not carried: a private folder would come out inheriting its new parent. Refused, nothing moved.
+    const rowsTruth = await ctx.runQuery(internal.functions.nodesAccess.rowsMode, {});
+    if (rowsTruth) {
+      throw new FileOpError(
+        "CONFLICT",
+        "This folder cannot move by name while privacy is kept on rows: its access does not follow it. Nothing was moved.",
+      );
+    }
     const carried = await carryPrivacy(store, from, to);
     if (carried === null) return null;
     await touchNodesNow(ctx, workspaceId, store, { paths: [], files: [PRIVACY_KEY] });
@@ -179,7 +205,7 @@ export async function startQueuedMove(
     });
     if (!drawn) {
       // Nothing moved: take the carried rules back and let the old way carry them.
-      await releasePrivacy(store, { from: to, undone: true, added: carried.added }).catch(() => {});
+      if (!rowsTruth) await releasePrivacy(store, { from: to, undone: true, added: carried.added }).catch(() => {});
       await touchNodesNow(ctx, workspaceId, store, { paths: [], files: [PRIVACY_KEY] });
       return null;
     }

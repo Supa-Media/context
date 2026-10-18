@@ -221,19 +221,24 @@ export const mostOpened = query({
   },
 });
 
-const recentValidator = v.object({ path: v.string(), at: v.number() });
+const recentKind = v.union(v.literal("opened"), v.literal("edited"));
+const recentValidator = v.object({ path: v.string(), at: v.number(), kind: v.optional(recentKind) });
 
 /**
  * This note was just opened or edited by the caller: it goes to the top of
- * their Recent. One row per note, so opening it again only moves it up.
+ * their Recent. One row per note, so opening it again only moves it up, and
+ * the row says what they did last ("You edited 9:12", owner, 2026-10-17).
+ * Only the app calls this, for the person's own taps and typing; no AI
+ * connection reaches it.
  */
 export const recordRecent = mutation({
-  args: { workspaceId: v.id("workspaces"), path: v.string() },
+  args: { workspaceId: v.id("workspaces"), path: v.string(), kind: v.optional(recentKind) },
   returns: v.null(),
   handler: async (ctx, args) => {
     const userId = await writerIn(ctx, args.workspaceId);
     const path = placePath(args.path);
     const now = Date.now();
+    const kind = args.kind ?? "opened";
     const row = await ctx.db
       .query("placeRecents")
       .withIndex("by_user_workspace_path", (q) =>
@@ -241,7 +246,7 @@ export const recordRecent = mutation({
       )
       .first();
     if (row !== null) {
-      await ctx.db.patch(row._id, { at: now });
+      await ctx.db.patch(row._id, { at: now, kind });
       return null;
     }
     const rows = await ctx.db
@@ -252,7 +257,7 @@ export const recordRecent = mutation({
       const oldest = rows.sort((a, b) => a.at - b.at).slice(0, rows.length - RECENT_ROWS_PER_WORKSPACE + 1);
       for (const old of oldest) await ctx.db.delete(old._id);
     }
-    await ctx.db.insert("placeRecents", { userId, workspaceId: args.workspaceId, path, at: now });
+    await ctx.db.insert("placeRecents", { userId, workspaceId: args.workspaceId, path, at: now, kind });
     return null;
   },
 });
@@ -268,7 +273,9 @@ export const recentNotes = query({
       .query("placeRecents")
       .withIndex("by_user_workspace", (q) => q.eq("userId", userId).eq("workspaceId", args.workspaceId))
       .collect();
-    return rows.sort((a, b) => b.at - a.at).map(({ path, at }) => ({ path, at }));
+    return rows
+      .sort((a, b) => b.at - a.at)
+      .map(({ path, at, kind }) => (kind === undefined ? { path, at } : { path, at, kind }));
   },
 });
 
@@ -279,8 +286,8 @@ const ruleListValidator = v.object({
 });
 
 /**
- * Called by the credential barrier after a move made in one go (the app, the
- * organizer, an agent's move told to the tree), with the rules the bucket
+ * Called by the credential barrier after a move made in one go (the app, an
+ * agent's move told to the tree), with the rules the bucket
  * holds after it: every member's places follow, where they may see the new
  * name (`lib/placesFollow.ts`).
  */

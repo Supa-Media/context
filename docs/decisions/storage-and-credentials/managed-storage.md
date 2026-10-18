@@ -245,7 +245,7 @@ toggling the switch. The tests are the settling cases in
 
 ### Moving an existing context into the managed bucket
 
-An existing S3/R2 or Dropbox binding remains the live binding while a paid
+An existing S3/R2 binding remains the live binding while a paid
 move runs. The control plane parks the new managed bucket credential in
 `managedStorageMigrations`, encrypted with the same workspace-bound envelope
 as ordinary storage credentials, and copies objects in bounded resumable
@@ -537,11 +537,9 @@ A write fence was the alternative, and it was turned down: a refused writer
 here loses data. The email worker rejects mail it cannot store for good (it must,
 or it becomes an existence oracle), and queued jobs fail permanently.
 
-The old bucket's key rides sealed in the passes' scheduled arguments, the
-Dropbox funeral's shape. No table holds it, and nothing reschedules the last
-pass. A pass stops when the workspace's binding is no longer the one the move
-switched to. A Dropbox source gets no passes, because the rebind revokes its
-grant.
+The old bucket's key rides sealed in the passes' scheduled arguments. No table
+holds it, and nothing reschedules the last pass. A pass stops when the
+workspace's binding is no longer the one the move switched to.
 
 The new binding is also `connected` from the switch-over, with the capabilities
 the move's own probe just found. For the seconds a binding reads `unverified`,

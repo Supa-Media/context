@@ -259,4 +259,9 @@ describe("a List reads no note", () => {
     expect(answer.cursor).toBe("ok.md");
     expect(answer.fill).toBe(true);
   });
+  test("a note's size comes through when the tree lists one, and is left out when it does not", () => {
+    const answer = answerFromFacts([row("sized.md", { size: 27_661 }), row("unsized.md", {})], null);
+    expect(answer.notes.find((note) => note.path === "sized.md")?.size).toBe(27_661);
+    expect(answer.notes.find((note) => note.path === "unsized.md")).not.toHaveProperty("size");
+  });
 });

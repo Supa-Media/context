@@ -57,6 +57,11 @@ export const placeTables = {
     /** A note path. */
     path: v.string(),
     at: v.number(),
+    /**
+     * What they did last: opened it, or typed in it. Absent on rows from
+     * before the row said (2026-10-17), which read as a time alone.
+     */
+    kind: v.optional(v.union(v.literal("opened"), v.literal("edited"))),
   })
     .index("by_user_workspace", ["userId", "workspaceId"])
     .index("by_user_workspace_path", ["userId", "workspaceId", "path"])

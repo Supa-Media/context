@@ -23,6 +23,7 @@ import { FACT_LEASE_MS, factStateRow, factsDue } from "./lib/nodes/facts";
 import { treeServesNow } from "./lib/nodes/listing";
 import { migrationPaused } from "./lib/nodes/pause";
 import { NODE_SWEEP_LEASE_MS, nodeSweepDue, type NodeTreeState } from "./lib/nodes/table";
+import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { requestSmallDataSync } from "./lib/smallData/state";
 
 /**
@@ -33,7 +34,7 @@ export const MIGRATION_PHASE = 3;
 /** Workspaces one report or one start reads: a bound on a loop, not on any deployment we have. */
 export const MIGRATION_ROWS = 500;
 
-async function staffOnly(ctx: QueryCtx): Promise<Id<"users">> {
+export async function staffOnly(ctx: QueryCtx): Promise<Id<"users">> {
   try {
     return (await requireAdmin(ctx)).userId;
   } catch (error) {
@@ -42,7 +43,7 @@ async function staffOnly(ctx: QueryCtx): Promise<Id<"users">> {
 }
 
 /** Every workspace with storage, a workspace once however many bindings it has. */
-async function boundWorkspaces(ctx: QueryCtx): Promise<{ ids: Id<"workspaces">[]; truncated: boolean }> {
+export async function boundWorkspaces(ctx: QueryCtx): Promise<{ ids: Id<"workspaces">[]; truncated: boolean }> {
   const ids: Id<"workspaces">[] = [];
   const seen = new Set<string>();
   let truncated = false;
@@ -63,7 +64,7 @@ async function boundWorkspaces(ctx: QueryCtx): Promise<{ ids: Id<"workspaces">[]
  * on: every one but those only archived accounts hold (`lib/archivedWorkspaces.ts`).
  * One workspace's own button still reaches an archived one.
  */
-async function liveBoundWorkspaces(ctx: QueryCtx): Promise<Id<"workspaces">[]> {
+export async function liveBoundWorkspaces(ctx: QueryCtx): Promise<Id<"workspaces">[]> {
   const live: Id<"workspaces">[] = [];
   for (const workspaceId of (await boundWorkspaces(ctx)).ids) {
     if (!(await workspaceArchived(ctx.db, workspaceId))) live.push(workspaceId);
@@ -104,15 +105,18 @@ const stateOf = (row: Doc<"nodeTrees"> | null): NodeTreeState | null =>
  * `waiting` (never started), `copying`, `stuck` (the last pass failed),
  * `copied` (swept, not checked against the bucket yet), `matches`,
  * `differs` (the last check found mismatches), `skipped` (a store that
- * can be listed neither in order nor by token, retried daily).
+ * can be listed neither in order nor by token, retried daily), `keyed`
+ * (the notes live at `notes/<id>.md`, so no check against the bucket's paths
+ * runs, and a result left from before the flip says nothing any more).
  */
-export type MigrationStage = "waiting" | "copying" | "stuck" | "copied" | "matches" | "differs" | "skipped";
+export type MigrationStage = "waiting" | "copying" | "stuck" | "copied" | "matches" | "differs" | "skipped" | "keyed";
 
-export function stageOf(row: Doc<"nodeTrees"> | null): MigrationStage {
+export function stageOf(row: Doc<"nodeTrees"> | null, keyed = false): MigrationStage {
   if (row === null || row.status === "empty") return row?.error ? "stuck" : "waiting";
   if (row.status === "unsupported") return "skipped";
   if (row.error !== undefined) return "stuck";
   if (row.status === "filling" || row.cursor !== undefined) return "copying";
+  if (keyed) return "keyed";
   if (row.parity === undefined) return "copied";
   return row.parity.mismatches === 0 && row.parity.privacyMatches ? "matches" : "differs";
 }
@@ -125,6 +129,7 @@ const stageValidator = v.union(
   v.literal("matches"),
   v.literal("differs"),
   v.literal("skipped"),
+  v.literal("keyed"),
 );
 
 const rowValidator = v.object({
@@ -204,7 +209,7 @@ export const report = query({
       rows.push({
         workspaceId,
         slug: workspace.slug ?? null,
-        stage: stageOf(tree),
+        stage: stageOf(tree, await keyedWorkspace(ctx.db, workspaceId)),
         files: tree?.files ?? 0,
         archived: await workspaceArchived(ctx.db, workspace),
         running: tree?.leaseAt !== undefined && now - tree.leaseAt < NODE_SWEEP_LEASE_MS,
@@ -236,8 +241,9 @@ async function startSweeps(ctx: MutationCtx, ids: readonly Id<"workspaces">[]): 
   let started = 0;
   for (const workspaceId of ids) {
     const state = stateOf(await treeOf(ctx, workspaceId));
+    const keyed = await keyedWorkspace(ctx.db, workspaceId);
     // An unlistable store is tried again only once its day has passed (`nodeSweepDue`).
-    if (state?.status === "unsupported" && !nodeSweepDue(state, now)) continue;
+    if (state?.status === "unsupported" && !nodeSweepDue(state, now, keyed)) continue;
     // A pass that holds the lease is already running; a second would only double the work.
     if (state?.leaseAt !== undefined && now - state.leaseAt < NODE_SWEEP_LEASE_MS) continue;
     await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
@@ -305,7 +311,8 @@ async function startDueSweeps(ctx: MutationCtx): Promise<number> {
   const now = Date.now();
   const due: Id<"workspaces">[] = [];
   for (const workspaceId of ids) {
-    if (nodeSweepDue(stateOf(await treeOf(ctx, workspaceId)), now)) due.push(workspaceId);
+    const keyed = await keyedWorkspace(ctx.db, workspaceId);
+    if (nodeSweepDue(stateOf(await treeOf(ctx, workspaceId)), now, keyed)) due.push(workspaceId);
   }
   return await startSweeps(ctx, due);
 }

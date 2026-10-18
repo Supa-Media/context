@@ -10,6 +10,11 @@
  * same ten-a-day budget per person, the same Sentry envelope, nothing of the
  * report stored.
  *
+ * One exception, by where it goes: a report from the texting grant is a bug
+ * report the person filed with Tex, and it lands as a note in the pinned
+ * context's `tex-bugs/` folder instead of Sentry (`bugNotes.ts`). Only on a
+ * deployment that has a pinned context; a self-hosted one sends it to Sentry.
+ *
  * Always 200. `{ report: { eventId } }` when it was sent. `{ report: null }`
  * for a token that resolves to nothing, one answer for every reason. And
  * `{ report: null, refused }` for a person the token did resolve to, with a
@@ -22,7 +27,8 @@ import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { hashToken } from "../crypto";
-import { parseAgentReport } from "../feedback/agentReport";
+import { fileBugNote } from "../../bugNotes";
+import { TEXTS_CLIENT_ID, parseAgentReport } from "../feedback/agentReport";
 import { deliverFeedback, feedbackTarget } from "../feedback/deliver";
 import { json, stringField } from "../gatewayAuth";
 
@@ -42,16 +48,27 @@ export async function gatewayFeedbackHandler(ctx: ActionCtx, body: Record<string
   });
   if (session === null) return json({ report: null });
 
+  const userId = session.actorUserId as Id<"users">;
+  const bugNote =
+    session.clientId === TEXTS_CLIENT_ID ? await ctx.runQuery(internal.functions.bugNotes.destination, { userId }) : null;
   const sentry = feedbackTarget();
-  if (sentry === null) return json({ report: null, refused: "not_configured" });
+  if (sentry === null && bugNote === null) return json({ report: null, refused: "not_configured" });
 
   try {
-    const report = parseAgentReport({ message: body.message, clientName: session.clientName ?? "" });
-    const sent = await deliverFeedback(ctx, {
-      sentry,
-      userId: session.actorUserId as Id<"users">,
-      report,
+    const report = parseAgentReport({
+      message: body.message,
+      clientName: session.clientName ?? "",
+      clientId: session.clientId,
+      texts: body.texts,
     });
+    const sent =
+      bugNote !== null
+        ? await deliverFeedback(ctx, {
+            userId,
+            report,
+            send: (eventId, now) => fileBugNote(ctx, bugNote, { message: report.message, texts: report.texts, eventId, now }),
+          })
+        : await deliverFeedback(ctx, { sentry: sentry!, userId, report });
     return json({ report: sent });
   } catch (error) {
     const code = error instanceof ConvexError ? (error.data as { code?: string })?.code : undefined;

@@ -55,6 +55,7 @@ export interface MeetingsControllerShape {
   consumeActivityControl(meetingId: string, suppliedToken: string): boolean;
   invalidateMeetingActivity(meetingId: string): void;
   discard(meetingId: string): Promise<void>;
+  dismissNotice(meetingId: string): void;
   retry(meetingId: string): Promise<void>;
   retryFinalize(meetingId: string): Promise<void>;
   requestSync(): void;

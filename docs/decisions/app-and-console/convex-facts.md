@@ -114,3 +114,40 @@ bytes); `nodesPurge.test.ts`, `nodesMigration.test.ts`; and
 facts), `treeServed.test.mjs` (the listing tools answer as the bucket does
 and open no note) and `listingProps.test.mjs` (what a row says when the props
 are missing or sealed).
+
+### A public list block reads its rows from the facts, and the facts carry the website flags
+
+Decided 2026-10-15, following the owner's rule of 2026-10-14: names and front
+matter go through the tree; only a note's content comes from storage.
+
+A list block on a website page used to open every note it might list, at the
+publication clearance, to read its front matter and to check that the page
+still publishes. It now asks the tree (`nodeFacts.publishedRows`): each note
+the publication clearance can see (`team`, no granted names, the rules
+mirror's `canSee`), with its version, when it changed, and its props. The
+release copy Publish kept is still read for a page edited since Publish: that
+copy is what the site published, and the list shows it as published.
+
+Whether a page still publishes cannot be read from `properties`: the front
+matter parser drops a bare key (`draft` on its own line), so a check from the
+properties alone would let a page its owner withdrew stay listed. The facts
+therefore carry `site: { draft, restricts }` (`apps/mcp/src/tree/siteFlags.js`),
+computed by the same `websiteTextRestricts` the control plane's live checks
+import, so the two can never disagree. A row whose props predate the flags is
+treated as unread: left off the list, never shown from a guess. Rows read
+before the flags existed are re-read by the fill, which notes the props
+version it has read at (`nodeFactState.propsVersion`, `PROPS_VERSION`) and
+walks the predating rows a page at a time while staying `ready`, so Lists,
+the map and the chaos score keep answering from the facts meanwhile.
+
+**What a "simplification" would cost.** Answering "still publishes" from
+`properties` lets a bare `draft` line publish a withdrawn page. Re-reading
+the old rows with a fresh walk (`ready: false`) would send every List back to
+the bucket and hide the chaos score in every workspace until the walk ended.
+
+**Tests.** `apps/convex/__tests__/websiteListsFromTree.test.ts` (a list opens
+none of the notes it lists; a bare `draft` added since Publish takes a note
+off; a row whose props predate the flags is left out and is re-read with the
+fill staying ready); `nodes/nodesMigration.test.ts` (the cron starts a fill
+for a caught-up workspace whose props predate the version);
+`apps/mcp/test/siteFlags.test.mjs` (the flags are as strict as the text check).

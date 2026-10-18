@@ -9,6 +9,7 @@
  * that nothing is deleted. The copy itself is held in `domain.test.ts`.
  */
 
+import { Platform } from "react-native";
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
 
 jest.mock("react-native-safe-area-context", () => ({
@@ -54,6 +55,8 @@ const actions = (): DomainActions => ({
   checkNow: jest.fn(async () => {}) as DomainActions["checkNow"],
   setHomepage: jest.fn(async () => {}) as DomainActions["setHomepage"],
   remove: jest.fn(async () => {}) as DomainActions["remove"],
+  lookup: jest.fn(async () => ({ ok: false as const, message: "" })) as DomainActions["lookup"],
+  emailSteps: jest.fn(async () => {}) as DomainActions["emailSteps"],
 });
 
 const pending = (over: Partial<DomainView> = {}): DomainView => ({
@@ -71,6 +74,11 @@ const pending = (over: Partial<DomainView> = {}): DomainView => ({
   checkingSince: Date.now() - 60_000,
   oneClick: null,
   www: null,
+  zone: null,
+  dnsHost: null,
+  hints: [],
+  forwarding: null,
+  stepsSent: null,
   records: [
     { purpose: "routing", type: "CNAME", name: "docs.acme.com", host: "docs", value: "customers.context.lc", done: false },
     {
@@ -321,3 +329,18 @@ describe("DomainPanel", () => {
     });
   });
 });
+
+for (const os of ["ios", "android"] as const) {
+  test(`${os} shows domain status without paid offers or reactivation instructions`, () => {
+    const before = Platform.OS;
+    Object.defineProperty(Platform, "OS", { configurable: true, value: os });
+    try {
+      for (const domain of [null, pending({ status: "suspended" })]) {
+        const root = mount({ settings: settings({ paying: false, domain }), failed: false, homepageChoices: [], actions: actions() }, jest.fn());
+        expect(root.textContent).not.toMatch(/Premium|turn.*back on/i);
+        expect(root.querySelector('[data-testid="domain-upsell"]')).toBeNull();
+        expect(root.textContent).toContain(domain === null ? "No domain connected" : "Domain paused");
+      }
+    } finally { Object.defineProperty(Platform, "OS", { configurable: true, value: before }); }
+  });
+}

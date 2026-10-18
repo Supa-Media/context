@@ -619,7 +619,8 @@ async function runWiredChecks(check) {
   );
   check(
     "and the link now names where the note actually went",
-    /^# keep\n\n\[\[\.\.\/\.\.\/4-archive\/.+\/1-projects\/beta\/log\]\]\n$/.test(read("1-projects/gamma/keep.md") ?? "")
+    // Archive keeps the workspace's shape (`archiveMirror.cjs`): the note sits at its own path inside it.
+    read("1-projects/gamma/keep.md") === "# keep\n\n[[../../4-archive/1-projects/beta/log]]\n"
   );
 
   /* -- forwarding: the references a rewrite cannot reach ------------------- */

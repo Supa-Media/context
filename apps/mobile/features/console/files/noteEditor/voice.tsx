@@ -7,7 +7,7 @@ import type { NoteView } from "./view";
  * the live editor is on screen and there is a voice host; see the call site.
  */
 export function noteVoiceButton(view: NoteView, voice: VoiceHost) {
-  const { editable, controls, compact, barUp, dictateAsked } = view;
+  const { editable, controls, compact, dictateAsked } = view;
   return (
     <VoiceButton
       page={{ ...voice.page, writable: voice.page.writable && editable }}
@@ -41,12 +41,18 @@ export function noteVoiceButton(view: NoteView, voice: VoiceHost) {
         because what it was really protecting is the corner: one floating
         control at a time, and the row's `+` is that control.
 
+        **And since 2026-10-17 the phone's resting microphone is a key on
+        the accessory bar** (board 3 of `meeting-2026-10-17/phone-inbox/`),
+        which presses `startDictation` below. So on a phone the corner never
+        draws one: with the bar down the row's `+` has the corner, with it up
+        the bar's own key is the microphone.
+
         What this never stands down is a microphone that is already open.
         The live capsule is the only way to stop a run and take back what
         it typed, and the failure card is a sentence owed to whoever opened
         one. `VoiceButton` draws both whatever this says.
       */
-      microphoneElsewhere={compact ? !barUp : voice.createButton === true}
+      microphoneElsewhere={compact ? true : voice.createButton === true}
       /*
         The right-click menu's Dictate row, reaching the microphone this
         button owns. It is the same `start()` the sheet calls, so there is

@@ -146,10 +146,17 @@ describe("shortcuts are printed on the web and absent on touch", () => {
     expect(find(list, "open")).toBeDefined();
   });
 
-  test("otherwise the two platforms offer the same actions", () => {
+  /*
+    Except Share on a folder: a phone's hold opens the folder and the pane's
+    full share sheet, which has a folder form; the pointer tree's dialog does
+    not (the owner's hold board, 2026-10-16).
+  */
+  test("otherwise the two platforms offer the same actions, plus a folder's Share on touch", () => {
     const web = ids(menu({ kind: "row", row: dir("1-projects") }));
     const touch = ids(menu({ kind: "row", row: dir("1-projects") }, { platform: "touch" }));
-    expect(touch).toEqual(web);
+    expect(web).not.toContain("share");
+    expect(touch.filter((id) => id !== "share")).toEqual(web);
+    expect(touch).toContain("share");
   });
 });
 

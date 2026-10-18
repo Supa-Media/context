@@ -1,5 +1,7 @@
 # App and console — the tree moves into the control plane
 
+> **Superseded in part (owner, 2026-10-15):** names, folders and privacy move onto tree rows and bodies to `notes/<noteId>.md`, so bucket sweeps, `privacy.md` and byte-copying moves are retired as the work in [notes-by-id](../storage-and-credentials/notes-by-id.md) lands.
+
 ### A workspace's tree and its privacy rules live in Convex, and the bucket keeps the files
 
 *Decided by the owner, 2026-10-12* ("what would it look like if people's tree
@@ -131,9 +133,8 @@ bucket" below.
 
 What stays on the bucket, each for a reason: opening and editing a note; a
 website Publish (below); the background work that keeps the tree equal to the
-bucket (sweeps, touches, parity, the facts fill, the move worker); the
-organizer's read-only passes, which still fall back to the bucket's listing
-where the tree does not serve; a folder page's inherited statuses, read by
+bucket (sweeps, touches, parity, the facts fill, the move worker); a folder
+page's inherited statuses, read by
 name from the front notes above it (`serverFrontNotes`); and search.
 
 What a "simplification" would cost: a bucket fallback on any of these
@@ -308,8 +309,8 @@ counts, `list_notes`, `list_contacts`, `list_meetings`, `list_channel_days`
 and `evaluate_lists` list from the tree and only from the tree (owner,
 2026-10-13: "the only thing that should be reading from storage directly
 should be actually opening and editing a note ... I don't want to see even
-fallbacks"), and auto-organize's `gather` and `outline` passes list from it
-too. The front matter those tools show (a meeting's date and attendees, a
+fallbacks"). (Auto-organize's `gather` and `outline` passes listed from it
+too, until the owner removed auto-organize on 2026-10-17.) The front matter those tools show (a meeting's date and attendees, a
 day's account and message count, a contact's name and organization, a List's
 columns) is the tree's props of each note (`ask: "props"`,
 [convex-facts](./convex-facts.md)), so they open no note; `orient` describes a
@@ -673,8 +674,7 @@ What fails if reversed:
   row, draws at once at every clearance, carries and releases privacy,
   collapses chains, reserves old names, and Undo/Retry work;
   `movePaths.test.ts` and `moveObject.test.ts`: the fold, promotion, and an
-  edit or a stranger's note never lost mid-copy; `organizerTreeChange.test.ts`:
-  the organizer's moves reach the tree; `apps/mcp/test/queuedFolderMove.test.mjs`:
+  edit or a stranger's note never lost mid-copy; `apps/mcp/test/queuedFolderMove.test.mjs`:
   the gateway queues folder moves and reads through them.
 - `apps/convex/__tests__/nodes/treeNamesAndPlaces.test.ts` and
   `places.test.ts`: places follow a move only where their person may see the

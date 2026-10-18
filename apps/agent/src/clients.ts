@@ -17,6 +17,7 @@
  */
 
 import type { GatewayAttachment } from "./attachments";
+import { readPictures, type OutgoingPicture } from "./outgoing";
 
 export type Fetch = typeof fetch;
 
@@ -26,7 +27,7 @@ const AGENT_TIMEOUT_MS = 120_000;
 
 export class ServiceError extends Error {
   constructor(
-    readonly service: "linq" | "control_plane" | "gateway",
+    readonly service: "linq" | "sendblue" | "control_plane" | "gateway",
     readonly status: number | null,
   ) {
     super(`${service} request failed${status === null ? "" : ` (${status})`}`);
@@ -34,7 +35,7 @@ export class ServiceError extends Error {
   }
 }
 
-async function post(
+export async function post(
   fetcher: Fetch,
   service: ServiceError["service"],
   url: string,
@@ -62,7 +63,7 @@ async function post(
   return { status: response.status, json };
 }
 
-function record(value: unknown): Record<string, unknown> {
+export function record(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
@@ -139,9 +140,8 @@ export async function markLinqRead(fetcher: Fetch, apiKey: string, chatId: strin
  * "Context" and its icon in place of a bare number and a grey silhouette.
  *
  * The card itself is set once per line in Linq, not here: the name "Context"
- * and the photo at https://context.lc/texts-card.png, the simulator's white #
- * on blue (`apps/mobile/public/texts-card.png`), so a real chat looks like the
- * simulator's. This only shares it. Linq takes it only in an iMessage chat that already has an
+ * and the photo at https://context.lc/texts-card.png, Tex the mascot
+ * (`apps/mobile/public/texts-card.png`). This only shares it. Linq takes it only in an iMessage chat that already has an
  * outbound message, says it may not take effect in every chat, and gives no
  * confirmation the person saved it, so the inbox offers it at most once a day
  * per sender, after a reply has gone out. Best effort and quick, like the
@@ -213,9 +213,17 @@ export async function linkPhone(
 // ── Gateway ───────────────────────────────────────────────────────────────
 
 export type AgentAnswer =
-  | { kind: "answer"; text: string }
+  /**
+   * `verbatim`: parts of `text` the gateway needs texted exactly as written,
+   * never reformatted (an email the person is asked to approve). Absent when none.
+   */
+  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; verbatim?: string[] }
   | { kind: "no_model" }
   | { kind: "daily_limit" }
+  /** The gateway could not start the turn (503: nothing ran), so asking again is safe. */
+  | { kind: "not_started" }
+  /** The gateway's 503 for a workspace with no bucket it can reach: a new one still starting, or a broken binding. */
+  | { kind: "no_storage" }
   | { kind: "unavailable" };
 
 /**
@@ -238,6 +246,12 @@ export async function askAgent(
   onProgress?: (text: string) => Promise<void>,
   timeZone?: string,
   attachments: GatewayAttachment[] = [],
+  /**
+   * The words an inline reply answers, sent apart from the question: they are
+   * somebody else's, and `question` is what the gateway's guards vouch from
+   * (`apps/mcp/src/agent/quoted.js`).
+   */
+  quoted?: string,
 ): Promise<AgentAnswer> {
   // The person's zone, so the turn knows the time where they are, and what
   // they sent with the text (`attachments.ts`).
@@ -246,6 +260,7 @@ export async function askAgent(
     conversation: "texts",
     ...(timeZone ? { timeZone } : {}),
     ...(attachments.length > 0 ? { attachments } : {}),
+    ...(quoted ? { quoted } : {}),
   };
   if (onProgress) return askAgentStreaming(fetcher, gatewayOrigin, accessToken, ask, onProgress);
   let result: { status: number; json: unknown };
@@ -264,13 +279,27 @@ export async function askAgent(
   return agentAnswer(result.status, result.json);
 }
 
+/** At most a few verbatim parts, each one a string the answer really contains. */
+function readVerbatim(value: unknown, answer: string): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((part): part is string => typeof part === "string" && part.trim() !== "" && answer.includes(part))
+    .slice(0, 5);
+}
+
 function agentAnswer(status: number, json: unknown): AgentAnswer {
   const body = record(json);
-  if (status === 200 && typeof body.answer === "string" && body.answer.trim()) {
-    return { kind: "answer", text: body.answer.trim() };
+  const pictures = readPictures(body.pictures);
+  if (status === 200 && typeof body.answer === "string" && (body.answer.trim() || pictures.length > 0)) {
+    const verbatim = readVerbatim(body.verbatim, body.answer);
+    return { kind: "answer", text: body.answer.trim(), pictures, ...(verbatim.length > 0 ? { verbatim } : {}) };
   }
   if (status === 409) return { kind: "no_model" };
   if (status === 429) return { kind: "daily_limit" };
+  // Only the gateway's own 503, sent before the turn runs (`apps/mcp/src/agent/route.js`):
+  // a platform 503 (a Worker over its limits) can come after tools ran.
+  if (status === 503 && body.error === "model_unavailable") return { kind: "not_started" };
+  if (status === 503 && body.error === "storage_unavailable") return { kind: "no_storage" };
   return { kind: "unavailable" };
 }
 
@@ -282,8 +311,8 @@ function agentAnswer(status: number, json: unknown): AgentAnswer {
 export const AGENT_STREAM_TIMEOUT_MS = 12 * 60_000;
 /** The gateway writes a heartbeat every 15 seconds; this long with no line is a dead stream. */
 export const AGENT_STREAM_IDLE_MS = 60_000;
-/** One line of the stream is a progress text or a final JSON body, never more. */
-const MAX_STREAM_LINE = 256 * 1024;
+/** One line of the stream is a progress text or a final JSON body, which may carry pictures (`outgoing.ts`). */
+const MAX_STREAM_LINE = 24 * 1024 * 1024;
 
 async function askAgentStreaming(
   fetcher: Fetch,

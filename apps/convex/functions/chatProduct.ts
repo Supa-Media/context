@@ -69,6 +69,7 @@ import { hashToken } from "./lib/crypto";
 import { encryptSecret, decryptSecret, requireKeyset } from "./lib/crypto";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
 import { recordAudit } from "./lib/audit";
+import { connectScopes } from "./lib/googleWriteTesters";
 import {
   accountSlugFor,
   defaultGoogleDestinationFolder,
@@ -82,7 +83,6 @@ import {
   googleRedirectAllowed,
   grantedScopesFor,
   isGoogleReconnectRequired,
-  scopesForProducts,
   GoogleOAuthError,
   type GoogleProduct,
 } from "./lib/googleOAuth";
@@ -221,7 +221,7 @@ export const parkChatAttempt = internalMutation({
       SHA-256 of the value that never travels through Google. Required here,
       not optional: a park path that can omit it is a flow that can be started
       unbound, and the schema field is optional only for rows parked before
-      the binding existed. See `dropboxConnect.ts` for the argument in full.
+      the binding existed. See `googleConnect.ts` for the argument in full.
     */
     hashedCompletion: v.string(),
     encryptedVerifier: v.string(),
@@ -326,7 +326,7 @@ export const startChatConnect = action({
       knows it — including somebody who built it for a workspace they own and
       sent it to another person to consent. PKCE does not see that case: the
       attacker is the initiator, so the verifier is genuinely theirs.
-      `dropboxConnect.ts` carries the argument in full.
+      `googleConnect.ts` carries the argument in full.
     */
     const completionSecret = randomOpaqueToken(STATE_BYTES);
 
@@ -352,7 +352,7 @@ export const startChatConnect = action({
         redirectUri: args.redirectUri,
         challenge,
         state,
-        scopes: scopesForProducts(products),
+        scopes: await connectScopes(ctx, userId, products),
       }),
     };
   },
@@ -413,7 +413,7 @@ export const consumeChatAttemptAndExchange = internalMutation({
       different question from the product check below.
 
       This flow was the fourth, and for one review it was the one left out:
-      the branch that bound Dropbox, Gmail and Calendar left Chat completing on
+      the branch that bound Gmail and Calendar left Chat completing on
       `{state, code}` alone, and a demonstration of the attack against
       `startChatConnect` still bound a stranger's Google account — the one that
       reads every space they are in — to the initiator's context. The product

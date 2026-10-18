@@ -143,7 +143,7 @@ export async function namesInUse(store: FileStore, folder: string): Promise<Set<
       // Subfolder names count: a folder called `note copy.md` takes that name
       // as surely as a note does, and landing a file key beside a folder
       // prefix is the shape `movePath` refuses as unrepresentable on a
-      // Dropbox binding.
+      // binding whose store cannot represent that shape.
       const rest = object.key.slice(prefix.length);
       const slash = rest.indexOf("/");
       names.add(slash === -1 ? rest : rest.slice(0, slash));

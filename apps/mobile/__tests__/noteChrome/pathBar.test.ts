@@ -2,8 +2,12 @@
  * @jest-environment jsdom
  */
 
-import { describe, expect, test } from "@jest/globals";
+import { afterEach, describe, expect, test } from "@jest/globals";
+import { setHomeView } from "../../features/console/home/homeView";
 import { dataWith, emptyEditor, layout, mountConsole, SHORT_FILE } from "./fixtures";
+
+// A press of ‹ can leave the phone on Folders; each test starts where a launch does.
+afterEach(() => setHomeView("inbox"));
 
 /**
  * **The phone's path bar**, which is the reversal of a stated decision.
@@ -35,21 +39,20 @@ import { dataWith, emptyEditor, layout, mountConsole, SHORT_FILE } from "./fixtu
  * Every assertion is about *pressing*: a back button that says the right word
  * and goes somewhere else is the bug this has to catch.
  *
- * **Since 2026-10-13 ‹ opens the levels above the page** (owner: *"I like the
- * idea of clicking back and then the menu opening"*): Home first, the page's
- * own folder last. A page at the top of the workspace has only Home above it,
- * and ‹ goes there at once.
+ * **Since 2026-10-15 one press is one level up** (owner: *"Back button should
+ * just go back ... If needed il click back three times to get to root
+ * folder"*), replacing 2026-10-13's menu of levels.
  *
  * SABOTAGE: `phoneBackLevels` taking the page's own path for its parent fails
- * the first two; `BrowsePathBar` drawing the old `NavBand` fails the third.
+ * the first two; `PhoneBack` opening a menu again, or going to Home rather than
+ * the nearest level, fails the first; `BrowsePathBar` drawing the old `NavBand`
+ * fails the third.
  */
-const level = (folder: string) =>
-  document.body.querySelector<HTMLElement>(`[data-testid="phone-back-level-${folder}"]`);
 
 describe("the phone's way up", () => {
   const DEEP = "3-resources/books/the-lean-startup.md";
 
-  test("a note's back button opens the levels above it, and a level opens its folder", () => {
+  test("a note's back button goes to its folder, one press, no menu", () => {
     const chosen: string[] = [];
     const app = mountConsole(
       dataWith(
@@ -62,46 +65,29 @@ describe("the phone's way up", () => {
     );
     const back = app.find("phone-back");
     expect(back).not.toBeNull();
-    expect(back!.getAttribute("aria-label")).toBe("Back to books, or further up");
-    // No folder name on the button any more: it is a round ‹.
+    expect(back!.getAttribute("aria-label")).toBe("Back to books");
+    // No folder name on the button: it is a round ‹.
     expect(back!.textContent).toBe("");
     app.press(back);
-    // Nothing chosen yet: the press opened the menu.
-    expect(chosen).toEqual([]);
-    const rows = [...document.body.querySelectorAll('[data-testid^="phone-back-level-"]')].map(
-      (row) => row.textContent,
-    );
-    expect(rows).toEqual(["Home", "resources", "books"]);
-    app.press(level("3-resources/books"));
     expect(chosen).toEqual(["3-resources/books"]);
-    expect(document.body.querySelector('[data-testid="phone-back-menu"]')).toBeNull();
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
   });
 
-  test("a folder's levels go to the folder it is in, or Home", () => {
-    let home = 0;
+  test("a folder's back button goes to the folder it is in", () => {
     const chosen: string[] = [];
     const app = mountConsole(
-      dataWith(
-        {
-          select: (path: string) => chosen.push(path),
-          deselect: () => {
-            home += 1;
-            return true;
-          },
-        } as never,
-        { kind: "folder", path: "3-resources/books", name: "books" },
-      ),
+      dataWith({ select: (path: string) => chosen.push(path) } as never, {
+        kind: "folder",
+        path: "3-resources/books",
+        name: "books",
+      }),
     );
+    expect(app.find("phone-back")!.getAttribute("aria-label")).toBe("Back to resources");
     app.press(app.find("phone-back"));
-    app.press(level("3-resources"));
     expect(chosen).toEqual(["3-resources"]);
-    // Home is the menu's first row, which is the bar's Home button.
-    app.press(app.find("phone-back"));
-    app.press(level("home"));
-    expect(home).toBe(1);
   });
 
-  test("the top of the workspace goes back to Home, and no path is drawn", () => {
+  test("the top of the workspace goes back to Folders, and no path is drawn", () => {
     let home = 0;
     const app = mountConsole(
       dataWith(
@@ -115,7 +101,7 @@ describe("the phone's way up", () => {
         { path: "index.md", name: "index.md" },
       ),
     );
-    expect(app.find("phone-back")!.getAttribute("aria-label")).toBe("Back to Home");
+    expect(app.find("phone-back")!.getAttribute("aria-label")).toBe("Back to Folders");
     app.press(app.find("phone-back"));
     expect(home).toBe(1);
     // None of the old row: no workspace pill, no path, no leaf.
@@ -124,20 +110,26 @@ describe("the phone's way up", () => {
     expect(app.find("breadcrumb-leaf")).toBeNull();
   });
 
-  test("a deep note draws no folder segments, only the levels behind ‹", () => {
+  test("a deep note draws no folder segments, only ‹ to the nearest folder", () => {
     const app = mountConsole(dataWith({}, { path: "a/b/c/d/the-lean-startup.md", name: "the-lean-startup.md" }));
     for (const folder of ["a", "a/b", "a/b/c", "a/b/c/d"]) expect(app.find2(`Open ${folder}`)).toBeNull();
-    app.press(app.find("phone-back"));
-    expect(level("a/b/c/d")).not.toBeNull();
-    expect(level("a")).not.toBeNull();
+    expect(app.find("phone-back")!.getAttribute("aria-label")).toBe("Back to d");
   });
 
-  test("Home has no back button: its top-left is the workspace's own mark", () => {
+  test("Inbox has no back button: its top-left is the workspace's mark, @name and ⌄", () => {
     const app = mountConsole(dataWith({ selectedPath: null } as never));
     expect(app.find("phone-back")).toBeNull();
     const account = app.find("account-menu");
     expect(account).not.toBeNull();
     expect(account!.getAttribute("aria-label")).toBe("@seyi — workspaces and account");
+    // Board 1 of `meeting-2026-10-17/phone-inbox/`: the line above "Inbox".
+    expect(app.find("account-menu-name")?.textContent).toBe("@seyi");
+  });
+
+  test("below the top pages the slot is ‹, and the name goes", () => {
+    const app = mountConsole(dataWith({}, { path: DEEP, name: "the-lean-startup.md" }));
+    expect(app.find("phone-back")).not.toBeNull();
+    expect(app.find("account-menu-name")).toBeNull();
   });
 
   test("the back button is a real 44pt target", () => {

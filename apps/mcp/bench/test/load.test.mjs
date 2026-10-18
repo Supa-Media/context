@@ -5,7 +5,7 @@ import { existsSync } from "node:fs";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expandWorkspaces, heldBack, isGateQuestion, parsePeople, parseTest, readBenchFolder } from "../load.mjs";
+import { expandWorkspaces, heldBack, isGateQuestion, parsePeople, parseTest, readBenchFolder, runnableQuestions } from "../load.mjs";
 
 const BENCH = process.env.AI_BENCH_DIR ?? "/mnt/project-files/ai-benchmarks/markdown/ai";
 const skipReal = existsSync(join(BENCH, "README.md")) ? false : `example folder not found at ${BENCH}`;
@@ -500,4 +500,34 @@ test("parseTest reads every_answer as a list of judge lines, in the file's order
 test("parseTest gives a test with no every_answer an empty list", () => {
   const raw = ["---", "test: texting-assistant", "---", "", "## 1. Q?", "", "- kind: lookup", "- as: Maya", "- must: answer"].join("\n");
   assert.deepEqual(parseTest(raw).everyAnswer, []);
+});
+
+// ---- drafted cases ----
+
+test("parseTest reads a drafted line as who drafted the case, and a bare one as drafted with no name", () => {
+  const { questions } = parseTest(["## 1. Plain?", "- must: say hi", "", "## 2. Drafted?", "- drafted: Claude", "", "## 3. Bare?", "- drafted:", ""].join("\n"));
+  assert.equal(questions[0].drafted, null);
+  assert.equal(questions[1].drafted, "Claude");
+  assert.equal(questions[2].drafted, "");
+});
+
+test("parseTest skips a bullet it does not know, without throwing", () => {
+  const { questions } = parseTest(["## 1. Plain?", "- whatever: a note for a person", "- must: say hi", ""].join("\n"));
+  assert.deepEqual(questions[0].must, ["say hi"]);
+});
+
+test("runnableQuestions drops drafted cases, names each one it drops, and honours only", () => {
+  const { questions } = parseTest(["## 1. One?", "- must: a", "", "## 2. Two?", "- drafted: Claude", "", "## 3. Three?", "- must: c", ""].join("\n"));
+  const logged = [];
+  const write = (line) => logged.push(line);
+  assert.deepEqual(runnableQuestions(questions, null, write).map((q) => q.n), [1, 3]);
+  assert.deepEqual(logged, ["skipping drafted case q2 (not checked by a person yet)\n"]);
+  // A drafted case named by `only` is still skipped, and named once.
+  logged.length = 0;
+  assert.deepEqual(runnableQuestions(questions, [2, 3], write).map((q) => q.n), [3]);
+  assert.deepEqual(logged, ["skipping drafted case q2 (not checked by a person yet)\n"]);
+  // One `only` leaves the drafted case out before it is looked at, so nothing is named.
+  logged.length = 0;
+  assert.deepEqual(runnableQuestions(questions, [1], write).map((q) => q.n), [1]);
+  assert.deepEqual(logged, []);
 });

@@ -3,7 +3,8 @@
  *
  * The owner's phone artboards (2026-09-27, screen 7) give a folder page a
  * "Select" button in its header and make a long press on a row the shortcut
- * into the same mode. A phone has no file tree — and so none of the tree's
+ * into the same mode. Since the owner's hold board (2026-10-16) the long press
+ * is Apple Notes' lifted menu, and its Select is that shortcut. A phone has no file tree — and so none of the tree's
  * ⌘-click or shift-click multi-selection — so without this a phone could only
  * ever move, archive or delete one note at a time.
  *

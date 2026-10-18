@@ -63,6 +63,7 @@ import { hashToken } from "./lib/crypto";
 import { encryptSecret, decryptSecret, requireKeyset } from "./lib/crypto";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
 import { recordAudit } from "./lib/audit";
+import { connectScopes } from "./lib/googleWriteTesters";
 import {
   createPkcePair,
   exchangeGoogleCode,
@@ -70,7 +71,6 @@ import {
   googleRedirectAllowed,
   grantedScopesFor,
   isGoogleReconnectRequired,
-  scopesForProducts,
   GoogleOAuthError,
   type GoogleProduct,
 } from "./lib/googleOAuth";
@@ -265,7 +265,7 @@ export const startCalendarConnect = action({
         redirectUri: args.redirectUri,
         challenge,
         state,
-        scopes: scopesForProducts(products),
+        scopes: await connectScopes(ctx, userId, products),
       }),
     };
   },
@@ -273,7 +273,7 @@ export const startCalendarConnect = action({
 
 /**
  * Finish a Calendar connect. No session required — same argument as
- * `completeGmailConnect` / `dropboxConnect.ts`'s `completeDropboxConnect`:
+ * `completeGmailConnect` and the Google callback in `googleConnect.ts`:
  * the workspace and the actor come from the parked attempt, never from the
  * caller, so an interceptor of the callback URL can complete or burn the
  * victim's own connect and nothing else.
@@ -332,7 +332,7 @@ export const consumeCalendarAttemptAndExchange = internalMutation({
       not see that case: the attacker is the initiator, so the verifier is
       genuinely theirs. The product check stops a Calendar attempt binding
       Gmail; this stops somebody else's Google account binding to the
-      attacker's context. `dropboxConnect.ts` carries the full argument.
+      attacker's context. `googleConnect.ts` carries the full argument.
 
       Checked after the delete, so a wrong secret spends the attempt. Refused
       with the same `null` as every other failure here.

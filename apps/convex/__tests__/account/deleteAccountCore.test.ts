@@ -1,5 +1,5 @@
 import { withoutFixtureSessions } from "../fixtures.helpers";
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test } from "vitest";
 import { api } from "../../_generated/api";
 import {
   addMember,
@@ -7,20 +7,13 @@ import {
   captureError,
   createUser,
   createWorkspace,
-  drainScheduled,
   errorCode,
   seedGoogleConnection,
   seedGrant,
-  seedAppSecret,
-  seedStorageBinding,
   setupTest,
 } from "../fixtures.helpers";
 import { TEST_ACCOUNT_EMAIL } from "../../functions/lib/testAccount";
 import { managedBucketName } from "../../functions/lib/managedStorage";
-import {
-  MANAGED_R2_ACCOUNT_ID_ENV_VAR,
-  MANAGED_R2_API_TOKEN_SECRET,
-} from "../../functions/lib/managedStorage";
 import {
   onboardedAccount,
   seedAuthRows,
@@ -70,51 +63,18 @@ describe("deleteAccount", () => {
     expect(errorCode(sharedError)).toBe("FORBIDDEN");
   });
 
-  test("only the dedicated test account schedules deletion of its managed bucket", async () => {
-    const t = setupTest();
-    const owner = await createUser(t, TEST_ACCOUNT_EMAIL);
-    const workspaceId = await createWorkspace(t, owner, "cuj-cleanup");
-    await seedStorageBinding(t, {
-      workspaceId,
-      boundBy: owner,
-      bucket: managedBucketName(workspaceId),
-      accessKeyId: "fake-managed-token-id",
-    });
-    vi.stubEnv(MANAGED_R2_ACCOUNT_ID_ENV_VAR, "0123456789abcdef0123456789abcdef");
-    await seedAppSecret(t, MANAGED_R2_API_TOKEN_SECRET, "fake-managed-api-token");
-    vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) =>
-      new Response(JSON.stringify({
-        success: true,
-        result: (init?.method ?? "GET") === "GET" && String(input).endsWith("/objects") ? [] : {},
-      })),
-    );
-
-    try {
-      await asUser(t, owner).mutation(api.functions.account.deleteAccount, {});
-      const scheduled = await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
-      const cleanup = scheduled.filter((job) => job.name.includes("deleteManagedTestResources"));
-      expect(cleanup).toHaveLength(1);
-      expect(cleanup[0]?.args[0]).toMatchObject({
-        workspaceId,
-        bucket: managedBucketName(workspaceId),
-        tokenId: "fake-managed-token-id",
-      });
-      await drainScheduled(t);
-    } finally {
-      vi.unstubAllEnvs();
-      vi.unstubAllGlobals();
-    }
-  });
-
-  test("ordinary accounts never schedule managed bucket deletion", async () => {
+  test("an ordinary sole owner's managed bucket is queued for erasure, not forgotten", async () => {
     const { t, owner, workspaceId } = await onboardedAccount("ordinary-cleanup");
     await t.run(async (ctx) => {
       const binding = await ctx.db.query("storageBindings").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).unique();
-      await ctx.db.patch(binding!._id, { bucket: managedBucketName(workspaceId) });
+      await ctx.db.patch(binding!._id, { bucket: managedBucketName(workspaceId), accessKeyId: "fake-managed-token-id" });
     });
     await asUser(t, owner).mutation(api.functions.account.deleteAccount, {});
+    const queued = await t.run((ctx) => ctx.db.query("managedErasures").collect());
+    expect(queued).toHaveLength(1);
+    expect(queued[0]).toMatchObject({ workspaceId, bucket: managedBucketName(workspaceId), tokenId: "fake-managed-token-id" });
     const scheduled = await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
-    expect(scheduled.some((job) => job.name.includes("deleteManagedTestResources"))).toBe(false);
+    expect(scheduled.filter((job) => job.name.includes("runManagedErasure"))).toHaveLength(1);
   });
 
   test("a sole owner's deletion cascades through the whole workspace and frees its slug", async () => {
@@ -145,18 +105,8 @@ describe("deleteAccount", () => {
         expiresAt: Date.now() + 86_400_000,
         createdAt: Date.now(),
       });
-      await ctx.db.insert("dropboxConnectAttempts", {
-        hashedState: "fake-hashed-state-not-real",
-        encryptedVerifier: "v2:current:FAKE:VERIFIER",
-        workspaceId,
-        startedBy: owner,
-        redirectUri: "https://console.example/callback",
-        expiresAt: Date.now() + 600_000,
-        createdAt: Date.now(),
-      });
       // The named gap this file exists to close: a parked Google connect,
-      // same shape as the Dropbox one above, previously left out of the
-      // cascade entirely.
+      // previously left out of the cascade entirely.
       await ctx.db.insert("googleConnectAttempts", {
         hashedState: "fake-hashed-google-state-not-real",
         encryptedVerifier: "v2:current:FAKE:GOOGLE-VERIFIER",
@@ -337,7 +287,6 @@ describe("deleteAccount", () => {
       expect(await ctx.db.query("vaultImportJobs").collect()).toHaveLength(0);
       expect(await ctx.db.query("workspaceInvitations").collect()).toHaveLength(0);
       expect(await ctx.db.query("auditEvents").collect()).toHaveLength(0);
-      expect(await ctx.db.query("dropboxConnectAttempts").collect()).toHaveLength(0);
       expect(await ctx.db.query("googleConnectAttempts").collect()).toHaveLength(0);
       expect(await ctx.db.query("googleConnections").collect()).toHaveLength(0);
       expect(await ctx.db.query("ingestionTickets").collect()).toHaveLength(0);

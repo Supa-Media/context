@@ -10,7 +10,6 @@ import {
   CONTROL_PLANE_ORIGIN,
   GATEWAY_SECRET,
   createControlPlaneStub,
-  createDropboxBackend,
   createS3Backend,
   sha256Hex,
 } from "../controlPlaneStub.mjs";
@@ -22,7 +21,6 @@ export {
   CONTROL_PLANE_ORIGIN,
   GATEWAY_SECRET,
   createControlPlaneStub,
-  createDropboxBackend,
   createS3Backend,
   sha256Hex,
   createWorkerCtx,
@@ -42,19 +40,15 @@ export const TOKEN_A_SIBLING = token("tenant_a_sibling");
 export const REFRESH_A = `crt_tenant_a_${"0".repeat(24)}`;
 
 /**
- * Two more tenants on the one-click tier.
- *
- * Dropbox has no bucket name and no per-tenant endpoint, so the S3 pair's
- * "adjacent bucket names on one endpoint" arrangement has an even tighter
- * Dropbox equivalent: **the same two URLs and the same rootPrefix, separated by
- * the access token alone.** If the token is not what decides, these two see
- * each other, and their identically-keyed notes are what says so.
+ * Two more tenants, each on its own bucket with the same rootPrefix and the
+ * same key layout as the other. Nothing but the binding's bucket and key pair
+ * tells them apart, and their identically-keyed notes are what says so. (They
+ * were on a store removed on 2026-10-16.)
  */
 export const TOKEN_C = token("tenant_c_owner");
 export const TOKEN_D = token("tenant_d_owner");
-/** Dropbox's own short-lived tokens are `sl.`-prefixed. Obviously fake. */
-export const DROPBOX_TOKEN_C = "sl.FAKE-tenant-c-access-token";
-export const DROPBOX_TOKEN_D = "sl.FAKE-tenant-d-access-token";
+export const SECRET_C = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLECC";
+export const SECRET_D = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEDD";
 
 export async function rpc(env, tokenValue, method, params, { path = "/mcp" } = {}) {
   const { ctx, settle } = createWorkerCtx();
@@ -202,15 +196,13 @@ export function memoryR2(seed = {}) {
 }
 
 /**
- * Builds the shared fixture every tenancy section runs against: two S3
- * tenants on the same endpoint with adjacent bucket names, two Dropbox
- * tenants sharing the same URLs and folder name, separated by their access
- * tokens alone, and the control-plane grants and env each section's checks
- * need.
+ * Builds the shared fixture every tenancy section runs against: four S3
+ * tenants on the same endpoint with adjacent bucket names, the control-plane
+ * grants and env each section's checks need.
  *
  * Call `harness.restoreAll()` once, after every section has run, to restore
- * `globalThis.fetch` and uninstall the control-plane, S3 and Dropbox stubs in
- * the same order the original single-function suite did.
+ * `globalThis.fetch` and uninstall the control-plane and S3 stubs in the same
+ * order the original single-function suite did.
  */
 export async function createTenancyHarness() {
   const previousFetch = globalThis.fetch;
@@ -220,8 +212,6 @@ export async function createTenancyHarness() {
 
   const s3 = createS3Backend(S3_ENDPOINT);
   const restoreS3 = s3.install();
-  const dropbox = createDropboxBackend();
-  const restoreDropbox = dropbox.install();
   const controlPlane = createControlPlaneStub();
   const restoreControlPlane = controlPlane.install();
 
@@ -252,20 +242,29 @@ export async function createTenancyHarness() {
     status: "active",
   });
 
-  // Two Dropbox tenants. No endpoint, no region, no bucket, no key pair — the
-  // binding is a short-lived access token and the folder the customer picked,
-  // and both of them picked the same folder name.
+  // Two more S3 tenants. Both pick the same rootPrefix, so the key a note sits
+  // at is the same in each; the bucket and the key pair are what differ.
   controlPlane.addWorkspace("ws_c", "gamma", {
-    provider: "dropbox",
-    accessToken: DROPBOX_TOKEN_C,
+    provider: "s3",
+    endpoint: S3_ENDPOINT,
+    region: "auto",
+    bucket: "tenant-c",
     rootPrefix: "context/",
+    accessKeyId: "AKIAEXAMPLEEXAMPLECC",
+    secretAccessKey: SECRET_C,
+    forcePathStyle: true,
     capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
     status: "active",
   });
   controlPlane.addWorkspace("ws_d", "delta", {
-    provider: "dropbox",
-    accessToken: DROPBOX_TOKEN_D,
+    provider: "s3",
+    endpoint: S3_ENDPOINT,
+    region: "auto",
+    bucket: "tenant-d",
     rootPrefix: "context/",
+    accessKeyId: "AKIAEXAMPLEEXAMPLEDD",
+    secretAccessKey: SECRET_D,
+    forcePathStyle: true,
     capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
     status: "active",
   });
@@ -347,16 +346,17 @@ export async function createTenancyHarness() {
   bucketB.set("1-projects/beta-secret.md", { body: "BETA-ONLY-MARKER", etag: "b1" });
   bucketB.set("1-projects/alpha.md", { body: "beta's own file, same name", etag: "b2" });
 
-  // Both Dropbox folders hold the same three paths, so nothing about a key can
-  // tell them apart. Note `1-projects/alpha.md` exists in all four tenants now.
-  const folderC = dropbox.accountFor(DROPBOX_TOKEN_C);
-  const folderD = dropbox.accountFor(DROPBOX_TOKEN_D);
-  folderC.set("/context/privacy.md", { body: PRIVACY_MANIFEST, rev: "c0" });
-  folderC.set("/context/1-projects/alpha.md", { body: "gamma's own file", rev: "c1" });
-  folderC.set("/context/1-projects/gamma-secret.md", { body: "GAMMA-ONLY-MARKER", rev: "c2" });
-  folderD.set("/context/privacy.md", { body: PRIVACY_MANIFEST, rev: "d0" });
-  folderD.set("/context/1-projects/alpha.md", { body: "delta's own file", rev: "d1" });
-  folderD.set("/context/1-projects/delta-secret.md", { body: "DELTA-ONLY-MARKER", rev: "d2" });
+  // Both new buckets hold the same three paths under the same rootPrefix, so
+  // nothing about a key can tell them apart. `1-projects/alpha.md` exists in
+  // all four tenants now.
+  const bucketC = s3.bucketFor("tenant-c");
+  const bucketD = s3.bucketFor("tenant-d");
+  bucketC.set("context/privacy.md", { body: PRIVACY_MANIFEST, etag: "c0" });
+  bucketC.set("context/1-projects/alpha.md", { body: "gamma's own file", etag: "c1" });
+  bucketC.set("context/1-projects/gamma-secret.md", { body: "GAMMA-ONLY-MARKER", etag: "c2" });
+  bucketD.set("context/privacy.md", { body: PRIVACY_MANIFEST, etag: "d0" });
+  bucketD.set("context/1-projects/alpha.md", { body: "delta's own file", etag: "d1" });
+  bucketD.set("context/1-projects/delta-secret.md", { body: "DELTA-ONLY-MARKER", etag: "d2" });
 
   const env = {
     CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
@@ -365,23 +365,21 @@ export async function createTenancyHarness() {
     ALLOWED_BUCKET: memoryR2(),
     // Present on env and deliberately NOT in NATIVE_BINDINGS. A control plane
     // that names it must not be able to reach it.
-    LOCAL_CONTEXT_BUCKET: memoryR2({ "secret.md": "CRON-ONLY-MARKER" }),
+    UNLISTED_BUCKET: memoryR2({ "secret.md": "UNLISTED-MARKER" }),
   };
-  controlPlane.serveTreesFrom(env, { s3, dropbox });
+  controlPlane.serveTreesFrom(env, { s3 });
 
   return {
     s3,
-    dropbox,
     controlPlane,
     env,
     bucketA,
     bucketB,
-    folderC,
-    folderD,
+    bucketC,
+    bucketD,
     grantAReadonly,
     restoreAll() {
       restoreControlPlane();
-      restoreDropbox();
       restoreS3();
       restoreFetch();
     },

@@ -53,7 +53,7 @@ export function validateState(state, head, path) {
     !Array.isArray(state.deferredUpdates) ||
     state.deferredUpdates.some((update) => typeof update !== "string") ||
     (state.pending !== null && (!isObject(state.pending) || typeof state.pending.revision !== "string" || typeof state.pending.previousRevision !== "string" || typeof state.pending.previousRawEtag !== "string" || typeof state.pending.text !== "string")) ||
-    (state.structural !== null && (!isObject(state.structural) || typeof state.structural.operationId !== "string" || !["move", "delete", "restore", "seal"].includes(state.structural.kind)))
+    (state.structural !== null && (!isObject(state.structural) || typeof state.structural.operationId !== "string" || !["move", "delete", "restore", "seal", "rename"].includes(state.structural.kind)))
   ) {
     throw fail("CORRUPT_STATE", "collaboration document identity or state is invalid");
   }
@@ -71,6 +71,7 @@ export async function readHead(store, path) {
     typeof head.generation !== "string" ||
     typeof head.stateKey !== "string" ||
     head.stateKey !== documentKey(head.documentId) ||
+    (head.noteId !== undefined && (typeof head.noteId !== "string" || head.noteId === "")) ||
     !["active", "moving", "prepared", "moved", "deleting", "deleted", "restoring", "sealing", "sealed"].includes(head.status || "active")
   ) {
     throw fail("CORRUPT_STATE", "collaboration path head is invalid");
@@ -90,6 +91,11 @@ export function vacatedHead(head, destinationObject) {
   return !destinationObject && (head?.status === "moved" || head?.status === "deleted");
 }
 
+/**
+ * The head at a name, carrying the note id of the row it was made for. The id
+ * travels with every transition of the head, so a later transition never drops
+ * the record that tells one note's history from another's at the same name.
+ */
 export function identityHead(head, status = head.status, extra = {}) {
   return {
     schemaVersion: SCHEMA_VERSION,
@@ -98,6 +104,7 @@ export function identityHead(head, status = head.status, extra = {}) {
     generation: head.generation,
     stateKey: head.stateKey,
     status,
+    ...(head.noteId === undefined ? {} : { noteId: head.noteId }),
     ...extra,
   };
 }
@@ -124,7 +131,7 @@ export async function readStructural(store, operationId) {
   const object = await readObject(store, structuralKey(operationId));
   if (!object) throw fail("CORRUPT_STATE", "structural collaboration operation is missing");
   const value = parseJson(object.text, "structural operation");
-  if (value.schemaVersion !== SCHEMA_VERSION || value.kind !== "move" && value.kind !== "delete" && value.kind !== "restore" && value.kind !== "seal" || value.operationId !== operationId) {
+  if (value.schemaVersion !== SCHEMA_VERSION || value.kind !== "move" && value.kind !== "delete" && value.kind !== "restore" && value.kind !== "seal" && value.kind !== "rename" || value.operationId !== operationId) {
     throw fail("CORRUPT_STATE", "structural collaboration operation is invalid");
   }
   return { value, etag: object.etag };

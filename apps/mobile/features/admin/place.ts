@@ -11,9 +11,10 @@
  *   /admin/estate · /activity · /credentials
  *   /admin/agent[/<turn id>]           one answer opened, step by step
  *   /admin/ai-costs[/<account id>]     one account's drawer
- *   /admin/search[/indexes|/speed]     bare = indexes
+ *   /admin/search[/indexes|/notes|/rows|/speed]     bare = indexes
  *   /admin/waitlist[/waiting|/let-in|/removed|/friends]   bare = waiting
  *   /admin/people
+ *   /admin/ai[/<view>[/<name>[/<part>[/<name>]]]]   see `./aiPlace.ts`; bare = overview
  *
  * plus `?days=` for the window Growth, Activity and AI costs read over, which
  * is a filter rather than a place: changing it replaces the address instead
@@ -25,6 +26,7 @@
  * tab's own default rather than drawing a half-chosen tab).
  */
 
+import { parseAiPlace } from "./aiPlace";
 import { DEFAULT_WINDOW, WINDOW_CHOICES, isAdminTab, type AdminTab } from "./report";
 
 export type AdminPlace = {
@@ -39,7 +41,7 @@ export const DEFAULT_PLACE: AdminPlace = { tab: "growth", sub: null };
 const SLUGS: Partial<Record<AdminTab, string>> = { aiCosts: "ai-costs" };
 
 /** Views a tab names with a fixed word. Tabs absent here take an id, or nothing. */
-export const SEARCH_PLACES = ["indexes", "speed"] as const;
+export const SEARCH_PLACES = ["indexes", "notes", "rows", "speed"] as const;
 export const WAITLIST_PLACES = ["waiting", "let-in", "removed", "friends"] as const;
 
 const FIXED: Partial<Record<AdminTab, readonly string[]>> = {
@@ -71,9 +73,15 @@ export function tabSlug(tab: AdminTab): string {
  */
 export function parseAdminPlace(segments: readonly string[]): AdminPlace | null {
   if (segments.length === 0) return DEFAULT_PLACE;
-  if (segments.length > 2) return null;
   const tab = tabFromSlug(segments[0]!);
   if (tab === null) return null;
+  // The AI tab's places go deeper: a job, then a part of it (`./aiPlace.ts`).
+  if (tab === "ai") {
+    const sub = segments.slice(1).join("/");
+    if (sub === "") return { tab, sub: null };
+    return parseAiPlace(sub) === null ? null : { tab, sub };
+  }
+  if (segments.length > 2) return null;
   const sub = segments[1];
   if (sub === undefined || sub === "") return { tab, sub: null };
   const fixed = FIXED[tab];
@@ -82,10 +90,24 @@ export function parseAdminPlace(segments: readonly string[]): AdminPlace | null 
   return null;
 }
 
+/**
+ * The Search tab's view for a place's `sub`, `indexes` for none. Every view in
+ * `SEARCH_PLACES` comes through: a list kept by hand here once left out `rows`,
+ * so its address and its tab both drew Indexes.
+ */
+export function searchView(sub: string | null): (typeof SEARCH_PLACES)[number] {
+  return (SEARCH_PLACES as readonly string[]).includes(sub ?? "")
+    ? (sub as (typeof SEARCH_PLACES)[number])
+    : "indexes";
+}
+
 /** The path for a place: the inverse of `parseAdminPlace`. */
 export function adminPath(place: AdminPlace): string {
   const base = `/admin/${tabSlug(place.tab)}`;
-  return place.sub === null ? base : `${base}/${encodeURIComponent(place.sub)}`;
+  if (place.sub === null) return base;
+  // An AI place is several segments, each already held to a name's characters.
+  if (place.tab === "ai") return `${base}/${place.sub.split("/").map(encodeURIComponent).join("/")}`;
+  return `${base}/${encodeURIComponent(place.sub)}`;
 }
 
 /** The window an address asks for, or the default for one that names none or nonsense. */

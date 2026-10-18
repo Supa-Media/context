@@ -99,12 +99,6 @@ describe("deleteWorkspace", () => {
         publishedAt: Date.now(),
         pages: [{ path: "website/index.md", pageId: "00000000-0000-4000-8000-000000000002" }],
       });
-      await ctx.db.insert("organizerSettings", {
-        workspaceId,
-        autopilot: { done: false, archive: false, file: false },
-        pending: 0,
-        updatedAt: Date.now(),
-      });
     });
 
     // The pre-state, asserted first: an "is gone afterwards" check over a row
@@ -153,11 +147,6 @@ describe("deleteWorkspace", () => {
         .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
         .collect();
       expect(keptVersions).toEqual([]);
-      const organizer = await ctx.db
-        .query("organizerSettings")
-        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-        .collect();
-      expect(organizer).toEqual([]);
     });
 
     // And it is claimable again, by anybody — the whole point of freeing it.
@@ -324,7 +313,8 @@ describe("deleteWorkspace", () => {
       // Nothing was scheduled at their storage: an S3 binding is forgotten,
       // and their files stay exactly where they are.
       const scheduled = await ctx.db.system.query("_scheduled_functions").collect();
-      expect(scheduled.filter((job) => job.name.includes("deleteManagedTestResources"))).toEqual([]);
+      expect(scheduled.filter((job) => job.name.includes("runManagedErasure"))).toEqual([]);
+      expect(await ctx.db.query("managedErasures").collect()).toEqual([]);
     });
   });
 

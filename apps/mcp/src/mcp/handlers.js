@@ -27,7 +27,7 @@ import {
 } from "../protocol.js";
 import { instructionsForSession } from "./sessionInstructions.js";
 import { json } from "../http/responses.js";
-import { reportSessionUsage } from "./usage.js";
+import { reportSessionUsage, reportToolsListed } from "./usage.js";
 import { toolsForSession } from "../tools/advertised.js";
 
 export async function handleMcp(request, store, session) {
@@ -46,6 +46,13 @@ export async function handleMcp(request, store, session) {
    */
   store.actor = actorFor(session);
   store.contexts = contextsFor(session);
+  /*
+    What `tools/list` offers this connection, for `orient`'s live tool list
+    (`tools/liveList.js`). A function, so only the call that renders it pays
+    for the plugin-settings read. The listing is the connection's, never the
+    addressed context's, so `openContext` hands the same one along.
+  */
+  store.offeredTools = () => toolsForSession(session, store);
 
   let body;
   try {
@@ -161,6 +168,7 @@ async function handleModernMcp(request, msg, store, session) {
           ...CACHEABLE,
         });
       case "tools/list":
+        reportToolsListed(store);
         return modernResultResponse(id, {
           tools: await toolsForSession(session, store),
           ...CACHEABLE,
@@ -230,6 +238,7 @@ async function handleRpc(msg, store, session) {
       case "ping":
         return rpcResult(id, {});
       case "tools/list":
+        reportToolsListed(store);
         return rpcResult(id, { tools: await toolsForSession(session, store) });
       case "tools/call": {
         if (isNotification) return null;

@@ -49,6 +49,8 @@ import * as recipients from "./lib/shares/recipients";
 import * as previews from "./lib/shares/previews";
 import * as readPath from "./lib/shares/readPath";
 import * as gatewayOwner from "./lib/shares/gatewayOwner";
+import * as grantedRead from "./lib/shares/grantedRead";
+import * as entryNote from "./lib/shares/entryNote";
 import * as validators from "./lib/shares/validators";
 
 export { MAX_ACTIVE_SHARES } from "./lib/shares/standing";
@@ -423,6 +425,72 @@ export const readSharedNote = action({
   args: validators.readSharedNoteArgs,
   returns: validators.readSharedNoteReturns,
   handler: readPath.readSharedNoteHandler,
+});
+
+/* -------------------------------------------------------------------------- */
+/*     an outsider's read: what was granted to an account that is not a member */
+/* -------------------------------------------------------------------------- */
+
+/** The live decision for one grant, from the caller's guest view of the rows. INTERNAL. */
+export const authorizeGrantRead = internalQuery({
+  args: grantedRead.authorizeGrantReadArgs,
+  returns: grantedRead.authorizeGrantReadReturns,
+  handler: grantedRead.authorizeGrantReadHandler,
+});
+
+/** Of these paths, the ones the caller's guest view opens. INTERNAL. */
+export const visibleGrantedPaths = internalQuery({
+  args: grantedRead.visibleGrantedPathsArgs,
+  returns: grantedRead.visibleGrantedPathsReturns,
+  handler: grantedRead.visibleGrantedPathsHandler,
+});
+
+/** Read one note granted to the signed-in caller, who is not a member. See `lib/shares/grantedRead.ts`. */
+export const readGrantedNote = action({
+  args: grantedRead.readGrantedNoteArgs,
+  returns: grantedRead.readGrantedNoteReturns,
+  handler: grantedRead.readGrantedNoteHandler,
+});
+
+/** The handle an outsider's saves are signed with. INTERNAL. */
+export const grantWriter = internalQuery({
+  args: grantedRead.grantWriterArgs,
+  returns: grantedRead.grantWriterReturns,
+  handler: grantedRead.grantWriterHandler,
+});
+
+/** Save one note granted to the signed-in caller with edit, who is not a member. See `lib/shares/grantedRead.ts`. */
+export const writeGrantedNote = action({
+  args: grantedRead.writeGrantedNoteArgs,
+  returns: grantedRead.writeGrantedNoteReturns,
+  handler: grantedRead.writeGrantedNoteHandler,
+});
+
+/** List one folder granted to the signed-in caller, who is not a member. See `lib/shares/grantedRead.ts`. */
+export const listGrantedFolder = action({
+  args: grantedRead.listGrantedFolderArgs,
+  returns: grantedRead.listGrantedFolderReturns,
+  handler: grantedRead.listGrantedFolderHandler,
+});
+
+/* -------------------------------------------------------------------------- */
+/*     a share follows its note by id                                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Fill `entryNoteId` on shares minted before it existed, a page at a time,
+ * until the walk ends. Started by the daily cron. See `lib/shares/entryNote.ts`.
+ */
+export const stampEntryNoteIds = internalMutation({
+  args: entryNote.stampEntryNoteIdsArgs,
+  returns: entryNote.stampEntryNoteIdsReturns,
+  handler: async (ctx, args) => {
+    const result = await entryNote.stampEntryNoteIdsPage(ctx, args);
+    if (result.next !== null) {
+      await ctx.scheduler.runAfter(0, internal.functions.shares.stampEntryNoteIds, { cursor: result.next });
+    }
+    return result;
+  },
 });
 
 export const previewForNote = query({

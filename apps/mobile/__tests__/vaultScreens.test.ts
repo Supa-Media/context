@@ -120,6 +120,8 @@ function type(id: string, text: string) {
     field.dispatchEvent(new Event("input", { bubbles: true }));
   });
 }
+/** The line under the website field: its hint, or its error in place of it. */
+const hostNote = () => container.querySelector('[id="vault-proxy-host-note"]')?.textContent ?? null;
 async function flush() {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -167,6 +169,93 @@ describe("the secret form", () => {
         ],
       },
     ]);
+  });
+
+  test("the AI switch sends the one website, the guessed style and the ask, and holds Save until a website is typed", async () => {
+    const saved: VaultDraft[] = [];
+    render(add, { kind: "idle" }, { onSave: async (draft) => (saved.push(draft), true) }, { type: "secret", name: "Anthropic", fields: "ANTHROPIC_API_KEY" });
+    type("vault-field-0-prod", "fake-anthropic-value-0001");
+    expect(find("vault-proxy-host")).toBeNull();
+    press("vault-proxy-on");
+    expect(find("vault-save")?.getAttribute("aria-disabled")).toBe("true");
+    type("vault-proxy-host", "api.anthropic.com");
+    expect(find("vault-proxy-style")?.textContent).toContain("the x-api-key header, found for you");
+    expect(find("vault-proxy-ask")?.getAttribute("aria-checked")).toBe("true");
+    press("vault-save");
+    await flush();
+    expect(saved[0].proxy).toEqual({ host: "api.anthropic.com", style: "header", name: "x-api-key", ask: true });
+  });
+
+  test("Advanced changes how the site wants it; turning the ask off is sent; switch off sends nothing", async () => {
+    const saved: VaultDraft[] = [];
+    render(add, { kind: "idle" }, { onSave: async (draft) => (saved.push(draft), true) }, { type: "secret", name: "Maps", fields: "KEY" });
+    type("vault-field-0-prod", "fake-maps-value-000001");
+    press("vault-proxy-on");
+    type("vault-proxy-host", "api.example.com");
+    expect(find("vault-proxy-style")?.textContent).toContain("sign-in header");
+    press("vault-proxy-advanced");
+    press("vault-proxy-kind-query");
+    expect(find("vault-save")?.getAttribute("aria-disabled")).toBe("true");
+    type("vault-proxy-param", "api_key");
+    press("vault-proxy-ask");
+    press("vault-save");
+    await flush();
+    expect(saved[0].proxy).toEqual({ host: "api.example.com", style: "query", name: "api_key", ask: false });
+    expect(attributeText().includes("fake-maps-value")).toBe(false);
+  });
+
+  test("the key's name offers its API in one tap, and typing a name suggests addresses", async () => {
+    const saved: VaultDraft[] = [];
+    render(add, { kind: "idle" }, { onSave: async (draft) => (saved.push(draft), true) }, { type: "secret", name: "Stripe", fields: "STRIPE_SECRET_KEY" });
+    type("vault-field-0-prod", "sk_test_fake_prod_999");
+    press("vault-proxy-on");
+    expect(find("vault-proxy-from-name")?.textContent).toContain("api.stripe.com");
+    type("vault-proxy-host", "openai");
+    expect(find("vault-proxy-from-name")).toBeNull();
+    expect(hostNote()).toMatch(/^Context never adds it/);
+    press("vault-proxy-suggestion-api.openai.com");
+    expect((find("vault-proxy-host") as HTMLInputElement).value).toBe("api.openai.com");
+    expect(find("vault-proxy-suggestions")).toBeNull();
+    type("vault-proxy-host", "");
+    press("vault-proxy-from-name");
+    press("vault-save");
+    await flush();
+    expect(saved[0].proxy).toEqual({ host: "api.stripe.com", style: "bearer", ask: true });
+  });
+
+  test("Fills on suggests the site as a name is typed, and a pick fills it", () => {
+    render(add, { kind: "idle" }, {}, { type: "secret", name: "Convex", fields: "CONVEX_DEPLOY_KEY" });
+    type("vault-site", "convex");
+    press("vault-site-suggestion-convex.dev");
+    expect((find("vault-site") as HTMLInputElement).value).toBe("convex.dev");
+    expect(find("vault-site-suggestions")).toBeNull();
+  });
+
+  test("Save says what it waits for, and a website anyone can publish on is refused while typing", () => {
+    render(add, { kind: "idle" }, {}, { type: "secret", name: "Hook", fields: "TOKEN" });
+    expect(find("vault-save-why")?.textContent).toBe("To save, fill in at least one value.");
+    type("vault-field-0-prod", "fake-hook-value-000001");
+    expect(find("vault-save-why")).toBeNull();
+    press("vault-proxy-on");
+    expect(find("vault-save-why")?.textContent).toBe("To save, enter the website the key is for.");
+    type("vault-proxy-host", "webhook.site");
+    expect(hostNote()).toMatch(/^Anyone can put a page on webhook\.site/);
+    expect(find("vault-save-why")?.textContent).toBe("To save, finish the website above.");
+    expect(find("vault-save")?.getAttribute("aria-disabled")).toBe("true");
+    type("vault-proxy-host", "https://api.example.com/v1/hooks");
+    expect(find("vault-proxy-saved-as")?.textContent).toBe("Saved as api.example.com, the whole site.");
+    expect(find("vault-save-why")).toBeNull();
+  });
+
+  test("with the switch off the draft has no proxy, and a login never shows the switch", async () => {
+    const saved: VaultDraft[] = [];
+    render(add, { kind: "idle" }, { onSave: async (draft) => (saved.push(draft), true) }, { type: "secret", name: "X", fields: "K" });
+    type("vault-field-0-prod", "fake-value-0000000001");
+    press("vault-save");
+    await flush();
+    expect("proxy" in saved[0]).toBe(false);
+    press("vault-type-login");
+    expect(find("vault-proxy")).toBeNull();
   });
 
   test("a repeated field name is said beside the row and holds Save", () => {

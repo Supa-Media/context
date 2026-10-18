@@ -249,6 +249,65 @@ describe("one account cannot claim the namespace", () => {
     const bobsOwn = await createWorkspace(t, bob, "bob-context");
     expect(await t.run((ctx) => ctx.db.get(bobsOwn))).not.toBeNull();
   });
+
+  /*
+    The cap counts the contexts a person owns, however many they were invited
+    into. Memberships are read in the order they were made, so a person who
+    joined many contexts before creating their own has their owned rows
+    behind the member ones: a cap that read a fixed number of memberships and
+    then kept the owners would count none of them and never refuse.
+
+    Sabotage (reverted): the owner filter back after `take(11)` fails the
+    first check below; the filter dropped, so every membership counts, fails
+    both.
+  */
+  async function memberOfMany(t: ReturnType<typeof setupTest>, count: number) {
+    const person = await createUser(t, "joiner@example.invalid");
+    const hosts = [
+      await createUser(t, "host-a@example.invalid"),
+      await createUser(t, "host-b@example.invalid"),
+    ];
+    for (let i = 0; i < count; i += 1) {
+      const host = hosts[Math.floor(i / 8)];
+      const shared = await createWorkspace(t, host, `hosted-${i}`, { kind: "shared" });
+      await addMember(t, shared, person, i % 2 === 0 ? "member" : "editor", host);
+      await expireCreateWindow(t);
+    }
+    return person;
+  }
+
+  async function expireCreateWindow(t: ReturnType<typeof setupTest>) {
+    await t.run(async (ctx) => {
+      for (const row of await ctx.db.query("rateLimits").collect()) {
+        await ctx.db.patch(row._id, { windowStartedAt: 0, count: 0 });
+      }
+    });
+  }
+
+  test("a member of many contexts who owns ten is refused the eleventh", async () => {
+    const t = setupTest();
+    const person = await memberOfMany(t, 15);
+    for (let i = 0; i < 10; i += 1) {
+      await createWorkspace(t, person, `own-${i}`, { kind: "shared" });
+      await expireCreateWindow(t);
+    }
+    const error = await captureError(() => createWorkspace(t, person, "own-10", { kind: "shared" }));
+    expect(errorCode(error)).toBe("WORKSPACE_LIMIT_REACHED");
+    expect(
+      await t.run((ctx) => ctx.db.query("names").filter((q) => q.eq(q.field("name"), "own-10")).first()),
+    ).toBeNull();
+  });
+
+  test("owning nine while a member of fifteen still allows a tenth", async () => {
+    const t = setupTest();
+    const person = await memberOfMany(t, 15);
+    for (let i = 0; i < 9; i += 1) {
+      await createWorkspace(t, person, `own-${i}`, { kind: "shared" });
+      await expireCreateWindow(t);
+    }
+    const tenth = await createWorkspace(t, person, "own-9", { kind: "shared" });
+    expect(await t.run((ctx) => ctx.db.get(tenth))).not.toBeNull();
+  });
 });
 
 describe("listMyWorkspaces", () => {

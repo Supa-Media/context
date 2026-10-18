@@ -124,13 +124,13 @@ const { unseenCount, unseenPaths, visibleEntries } = require("./activityReading.
  * cannot import either privacy engine and must not need to: a key with a dot
  * segment is Context's own storage and is not a note in any tool.
  *
- * `activity.md` itself would otherwise be a loop, and Tex's transcripts
- * (`agent/transcript.js`) a line per text: logs of their own, never lines.
+ * `activity.md` itself would otherwise be a loop, and Tex's transcripts and dream
+ * logs (`agent/transcript.js`, `dream.js`) a line each: logs of their own, never lines.
  */
 function isQuietPath(path) {
   if (typeof path !== "string" || path === "") return true;
   if (path === ACTIVITY_PATH) return true;
-  return path.startsWith("tex/transcripts/") || path.split("/").some((segment) => segment.startsWith("."));
+  return path.startsWith("tex/transcripts/") || path.startsWith("tex/dreams/") || path.split("/").some((segment) => segment.startsWith("."));
 }
 
 /**

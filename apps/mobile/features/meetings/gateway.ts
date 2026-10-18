@@ -130,6 +130,19 @@ export class MeetingGatewayError extends Error {
 }
 
 /**
+ * Not written yet, and not failed either: something durable on this device has
+ * the write and will send it on its own. The desktop shell's outbox is the one
+ * such thing. `sync.ts` keeps the record without counting an attempt against
+ * it, so a meeting the machine is still sending is never parked as unsaved.
+ */
+export class MeetingHeldByDevice extends MeetingGatewayError {
+  constructor(message: string) {
+    super(ERRORS.unavailable, message);
+    this.name = "MeetingHeldByDevice";
+  }
+}
+
+/**
  * Where the person said this meeting goes, or `null` when nobody was asked.
  *
  * The first argument to every call about a meeting; see the file comment for

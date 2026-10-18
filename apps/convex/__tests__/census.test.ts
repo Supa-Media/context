@@ -295,7 +295,7 @@ async function bind(
   owner: Id<"users">,
   bucket: string,
   status: "connected" | "unverified" | "error" = "connected",
-  provider: "r2" | "s3" | "dropbox" = "r2",
+  provider: "r2" | "s3" = "r2",
 ): Promise<void> {
   await t.run(async (ctx) => {
     await ctx.db.insert("storageBindings", {

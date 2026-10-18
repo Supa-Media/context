@@ -67,13 +67,21 @@ jest.mock("../../features/agent/useConsoleGrant", () => ({
   useConsoleGrant: () => async () => { throw new Error("No fixture gateway session"); },
 }));
 
+// One client and one action for the whole run, as Convex's own hooks are stable
+// across renders: a source built from them (`useFolderLists`) keeps its identity,
+// and what the page cache files under it stays found.
+const mockConvex = { query: async () => undefined, mutation: async () => null };
+const mockAction = async () => {
+  throw new Error("not used in this test");
+};
 jest.mock("convex/react", () => ({
   useQueries: () => ({}),
+  // The share dialog's list (`useShareGrants`): none here, so it draws as it did before lists existed.
+  useQuery: () => undefined,
+  useMutation: () => async () => ({ ok: true, version: 1 }),
   // An owner picker searches through the client; nothing here opens one.
-  useConvex: () => ({ query: async () => undefined, mutation: async () => null }),
-  useAction: () => async () => {
-    throw new Error("not used in this test");
-  },
+  useConvex: () => mockConvex,
+  useAction: () => mockAction,
 }));
 
 jest.mock("react-native-safe-area-context", () => ({

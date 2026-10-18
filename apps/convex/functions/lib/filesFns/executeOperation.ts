@@ -27,6 +27,7 @@ import {
   maintainSearchIndex,
   movePath,
   notePathIndex,
+  notePathsAnswer,
   workspaceGraph,
   projectSearchIndex,
   readFile,
@@ -43,14 +44,17 @@ import {
   setFolderVisibility,
   setVisibility,
   syncManifest as syncManifestOp,
+  trashKeyedRows,
   trashPath,
   writeFile,
   writeImage,
 } from "../fileOps";
+import { isKeyedStore } from "../noteIds/keyedStore";
 import { ensureFolderVisibility } from "../fileOps/visibility";
 import { visiblePathsOf } from "../fileOps/visiblePaths";
 import { readRoutineRuns } from "../fileOps/routineRuns";
 import { addBuiltInFolder } from "../fileOps/builtInFolders";
+import { tidyArchive } from "../fileOps/archiving";
 import {
   type FormNotifyMaterial,
   ensureFormResponseFiles,
@@ -83,9 +87,8 @@ import {
 } from "./plugins";
 import { toConvexError } from "./operationErrors";
 import { executeContextMoveOperation, isContextMoveOperation } from "./contextMoveOperations";
-import { runOrganizerOperation } from "../organizer/sweepOps";
+import { executePluginOperation } from "./executePluginOperation";
 
-const MAX_PLUGIN_BUNDLE_BYTES = 10 * 1024 * 1024;
 
 /**
  * Dispatch, and turn a `FileOpError` into a `ConvexError` the console can
@@ -175,272 +178,24 @@ export async function executeOperation(
   try {
     if (isContextMoveOperation(operation)) return await executeContextMoveOperation(store, clearance, operation);
     switch (operation.kind) {
-      case "pluginInventory": {
-        const inventory = await inventoryPlugins(store) as PluginInventory;
-        return { kind: "pluginInventory", ...inventory };
-      }
       /*
-        The cheap half, and the one the console may run without being asked.
-
-        `pluginInventory` opens every bundle in `.obsidian/plugins/`, which is
-        why it waits for a press. This reads one small pointer per plugin
-        Context installed and writes nothing, so the screen that manages
-        installs can arrive knowing what is installed — which, until this
-        existed, it did not.
+        The plugin operations live in `executePluginOperation.ts`, which was
+        split out of this file for its size. Listed here so this switch stays
+        exhaustive over `FileOperation`.
       */
-      case "pluginManagedList": {
-        const managed = await listManagedInstalls(store) as ManagedInstalls;
-        return { kind: "pluginManagedInstalls", ...managed };
-      }
-      /*
-        The built-in plugins, resolved against this bucket's settings file.
-
-        The catalogue and the resolver are the gateway's — imported here, never
-        reimplemented — for the reason `lib/formOps.ts` gives about the form
-        format: two copies of "which plugins exist and which are on" would let
-        a console and a connected client disagree about the same context, and
-        the disagreement would be invisible until somebody's tool went missing
-        from one of the two.
-      */
-      case "contextPlugins": {
-        return contextPluginsResult(await resolveContextPlugins(store));
-      }
-      case "contextPluginSet": {
-        try {
-          await setPluginEnabled(store, operation.pluginId, operation.enabled);
-        } catch (error) {
-          // A lost conditional write is a conflict, which is what the console
-          // knows how to show; anything else is this bucket refusing, and is
-          // reported as a storage failure rather than as a bad request.
-          const message = error instanceof Error ? error.message : "That could not be saved.";
-          throw new FileOpError(
-            /changed while/.test(message) ? "CONFLICT" : "STORAGE_UNSAFE",
-            message,
-          );
-        }
-        // Re-read rather than assume. The write is the request; the answer is
-        // what the bucket now says, which is the only thing the console should
-        // draw a switch from.
-        return contextPluginsResult(await resolveContextPlugins(store));
-      }
-      case "pluginManagedInstall": {
-        if (
-          store.capabilities?.conditionalWrite !== true ||
-          store.capabilities?.conditionalCreate !== true
-        ) {
-          throw new FileOpError("STORAGE_UNSAFE", "This storage cannot safely install plugins.");
-        }
-        const root = managedPluginRoot(operation.pluginId);
-        const release = `${root}/releases/${managedPluginSegment(operation.version, "version")}`;
-        await putImmutablePluginObject(store, `${release}/manifest.json`, operation.manifestJson);
-        await putImmutablePluginObject(store, `${release}/main.js`, operation.mainJs);
-        const existingStyles = await store.get(`${release}/styles.css`);
-        if (operation.stylesCss === null && existingStyles) {
-          throw new FileOpError("CONFLICT", "That plugin release has unexpected stylesheet bytes.");
-        }
-        if (operation.stylesCss !== null) {
-          await putImmutablePluginObject(store, `${release}/styles.css`, operation.stylesCss);
-        }
-        const pointerKey = `${root}/current.json`;
-        const existing = await store.get(pointerKey);
-        if (existing) {
-          try {
-            const current = JSON.parse(await existing.text()) as Record<string, unknown>;
-            const currentGeneration = managedPointerGeneration(current);
-            if (currentGeneration > operation.lifecycleGeneration) {
-              throw new FileOpError("CONFLICT", "A newer plugin operation already completed.");
-            }
-            if (
-              current.state === "uninstalling" &&
-              currentGeneration === operation.lifecycleGeneration
-            ) {
-              throw new FileOpError("CONFLICT", "That plugin is currently being uninstalled.");
-            }
-          } catch (error) {
-            if (error instanceof FileOpError) throw error;
-          }
-        }
-        const pointer = JSON.stringify({
-          id: operation.pluginId,
-          version: operation.version,
-          repository: operation.repository,
-          lifecycleGeneration: operation.lifecycleGeneration,
-        });
-        const written = await store.put(pointerKey, pointer, {
-          onlyIf: existing ? { etagMatches: existing.etag } : { absent: true },
-        });
-        if (written === null) {
-          throw new FileOpError("CONFLICT", "The installed plugin changed during installation.");
-        }
-        return { kind: "pluginManaged", pluginId: operation.pluginId, version: operation.version };
-      }
-      case "pluginManagedUninstall": {
-        const root = managedPluginRoot(operation.pluginId);
-        const pointerKey = `${root}/current.json`;
-        const pointer = await store.get(pointerKey);
-        if (!pointer) throw new FileOpError("FILE_NOT_FOUND", "That managed plugin is not installed.");
-        let current: Record<string, unknown>;
-        try {
-          current = JSON.parse(await pointer.text()) as { id?: unknown; version?: unknown };
-        } catch {
-          throw new FileOpError("CONFLICT", "That managed plugin pointer is invalid.");
-        }
-        if (current.id !== operation.pluginId || current.version !== operation.expectedVersion) {
-          throw new FileOpError("CONFLICT", "That managed plugin changed before uninstall.");
-        }
-        if (managedPointerGeneration(current) > operation.lifecycleGeneration) {
-          throw new FileOpError("CONFLICT", "A newer plugin operation already completed.");
-        }
-        if (store.capabilities?.conditionalDelete !== true) {
-          throw new FileOpError("STORAGE_UNSAFE", "This storage cannot safely uninstall plugins.");
-        }
-        const deleted = await store.delete(pointerKey, { onlyIf: { etagMatches: pointer.etag } });
-        if (deleted === null) {
-          throw new FileOpError("CONFLICT", "That managed plugin changed before uninstall.");
-        }
-        return { kind: "pluginManaged", pluginId: operation.pluginId, version: operation.expectedVersion };
-      }
-      case "pluginManagedFence": {
-        if (
-          store.capabilities?.conditionalWrite !== true ||
-          store.capabilities?.conditionalCreate !== true
-        ) {
-          throw new FileOpError("STORAGE_UNSAFE", "This storage cannot safely recover plugins.");
-        }
-        const pointerKey = `${managedPluginRoot(operation.pluginId)}/current.json`;
-        const existing = await store.get(pointerKey);
-        if (existing) {
-          try {
-            const current = JSON.parse(await existing.text()) as Record<string, unknown>;
-            if (managedPointerGeneration(current) > operation.lifecycleGeneration) {
-              throw new FileOpError("CONFLICT", "A newer plugin operation already completed.");
-            }
-          } catch (error) {
-            if (error instanceof FileOpError) throw error;
-          }
-        }
-        const fence = JSON.stringify({
-          id: operation.pluginId,
-          state: "recovering",
-          lifecycleGeneration: operation.lifecycleGeneration,
-        });
-        const written = await store.put(pointerKey, fence, {
-          onlyIf: existing ? { etagMatches: existing.etag } : { absent: true },
-        });
-        if (written === null) {
-          const raced = await store.get(pointerKey);
-          if (!raced || await raced.text() !== fence) {
-            throw new FileOpError("CONFLICT", "Plugin recovery lost a concurrent storage change.");
-          }
-        }
-        return { kind: "pluginManaged", pluginId: operation.pluginId, version: "" };
-      }
-      case "pluginBundleRead": {
-        const inventory = await inventoryPlugins(store) as PluginInventory;
-        const plugin = inventory.plugins.find((entry) =>
-          entry.id === operation.pluginId && entry.bundleFingerprint === operation.bundleFingerprint
-        );
-        if (!plugin || !plugin.bundleFingerprint) {
-          throw new FileOpError("CONFLICT", "That plugin bundle changed before it could be loaded.");
-        }
-        const base = plugin.source === "context"
-          ? `${managedPluginRoot(plugin.id)}/releases/${managedPluginSegment(plugin.version, "version")}`
-          : `.obsidian/plugins/${plugin.folder}`;
-        const manifest = await store.get(`${base}/manifest.json`);
-        const main = await store.get(`${base}/main.js`);
-        if (!manifest || !main) {
-          throw new FileOpError("FILE_NOT_FOUND", "That plugin bundle is incomplete.");
-        }
-        const styles = await store.get(`${base}/styles.css`);
-        const styleIdentity = styles ? `present:${styles.etag}` : "absent";
-        const currentFingerprint = `v2:${[manifest.etag, main.etag, styleIdentity]
-          .map((etag) => encodeURIComponent(etag)).join(":")}`;
-        if (currentFingerprint !== operation.bundleFingerprint) {
-          throw new FileOpError("CONFLICT", "That plugin bundle changed before it could be loaded.");
-        }
-        const manifestJson = await manifest.text();
-        const mainJs = await main.text();
-        const stylesCss = styles ? await styles.text() : null;
-        if (manifestJson.length + mainJs.length + (stylesCss?.length ?? 0) > MAX_PLUGIN_BUNDLE_BYTES) {
-          throw new FileOpError("PLUGIN_TOO_LARGE", "That plugin bundle is too large to load.");
-        }
-        return {
-          kind: "pluginBundle",
-          pluginId: plugin.id,
-          version: plugin.version,
-          bundleFingerprint: operation.bundleFingerprint,
-          manifestJson,
-          mainJs,
-          stylesCss,
-        };
-      }
-      case "pluginSettingsRead": {
-        const object = await store.get(pluginSettingsKey(operation.pluginId));
-        if (!object) return { kind: "pluginSettings", json: "{}", etag: null };
-        return { kind: "pluginSettings", json: await object.text(), etag: object.etag };
-      }
-      case "pluginSettingsWrite": {
-        const key = pluginSettingsKey(operation.pluginId);
-        const existing = await store.get(key);
-        if (operation.expectedEtag === null ? existing !== null : existing?.etag !== operation.expectedEtag) {
-          throw new FileOpError(
-            "CONFLICT",
-            "Plugin settings changed while they were being edited.",
-            existing?.etag,
-          );
-        }
-        const onlyIf: { etagMatches?: string; absent?: true } = existing
-          ? { etagMatches: existing.etag }
-          : { absent: true as const };
-        const written = (existing || store.capabilities?.conditionalCreate === true)
-          ? await store.put(key, operation.json, { onlyIf })
-          : await store.put(key, operation.json);
-        if (written === null) {
-          const current = await store.get(key);
-          throw new FileOpError(
-            "CONFLICT",
-            "Plugin settings changed while they were being edited.",
-            current?.etag,
-          );
-        }
-        return { kind: "pluginSettings", json: operation.json, etag: written.etag };
-      }
-      case "pluginRename": {
-        const current = await readFile(store, { path: operation.from, clearance });
-        if (current.etag !== operation.expectedEtag) {
-          throw new FileOpError(
-            "CONFLICT",
-            "That file changed somewhere else while the plugin was using it.",
-            current.etag,
-          );
-        }
-        const moved = await movePath(store, {
-          from: operation.from,
-          to: operation.to,
-          clearance,
-          now,
-          expectedEtag: operation.expectedEtag,
-          requireAtomic: true,
-        });
-        return { kind: "moved", ...moved };
-      }
-      case "pluginDelete": {
-        const current = await readFile(store, { path: operation.path, clearance });
-        if (current.etag !== operation.expectedEtag) {
-          throw new FileOpError(
-            "CONFLICT",
-            "That file changed somewhere else while the plugin was using it.",
-            current.etag,
-          );
-        }
-        const deleted = await deletePath(store, {
-          path: operation.path,
-          confirmation: DELETE_CONFIRMATION,
-          clearance,
-          expectedEtag: operation.expectedEtag,
-        });
-        return { kind: "deleted", ...deleted };
-      }
+      case "pluginInventory":
+      case "pluginManagedList":
+      case "contextPlugins":
+      case "contextPluginSet":
+      case "pluginManagedInstall":
+      case "pluginManagedUninstall":
+      case "pluginManagedFence":
+      case "pluginBundleRead":
+      case "pluginSettingsRead":
+      case "pluginSettingsWrite":
+      case "pluginRename":
+      case "pluginDelete":
+        return await executePluginOperation(store, clearance, operation, now);
       case "list": {
         const listing = await listFolder(store, { path: operation.path, clearance });
         return { kind: "listing", ...listing };
@@ -534,7 +289,7 @@ export async function executeOperation(
       }
       case "notePaths": {
         const found = await notePathIndex(store, clearance);
-        return { kind: "notePaths", paths: found?.paths ?? null };
+        return { kind: "notePaths", ...notePathsAnswer(found?.paths ?? null) };
       }
       case "workspaceGraph":
         return { kind: "workspaceGraph", ...(await workspaceGraph(store, clearance, { compact: operation.compact === true })) };
@@ -560,7 +315,7 @@ export async function executeOperation(
           failureDetail: pass.failureDetail ?? null,
         };
       }
-      case "projectMeaning": case "pruneIndex": case "folderNotes": case "chaosScore": case "nodesSweep": case "nodesFactFill": case "nodesTouch": case "nodesParity": case "nodesMoveStart": case "nodesMoveWork": case "nodesPrivacyExport": case "nodesSmallData": case "readTrashed": // run by the barrier (`meaningPass.ts`, `treeOps.ts`, `lib/nodes/run.ts`, `fileOps/trashedReading.ts`)
+      case "projectMeaning": case "pruneIndex": case "folderNotes": case "chaosScore": case "nodesSweep": case "nodesFactFill": case "nodesTouch": case "nodesParity": case "nodesMoveStart": case "nodesMoveBatch": case "nodesMoveWork": case "nodesPrivacyExport": case "nodesSmallData": case "readTrashed": // run by the barrier (`meaningPass.ts`, `treeOps.ts`, `lib/nodes/run.ts`, `fileOps/trashedReading.ts`)
         return IDLE_MEANING;
       case "maintainIndex": {
         // Scope-blind on purpose: an index describes the bucket, and building
@@ -717,8 +472,6 @@ export async function executeOperation(
         const found = await listFolderPaths(store, { clearance });
         return { kind: "folderPaths", ...found };
       }
-      case "organizer":
-        return { kind: "organizerResult", output: await runOrganizerOperation(store, clearance, operation, now, actor) };
       case "routineRuns":
         return { kind: "routineRuns", runs: await readRoutineRuns(store, { path: operation.path, clearance }) };
       case "readActivity": {
@@ -754,6 +507,18 @@ export async function executeOperation(
           count: moved.queued ?? moved.paths.length,
         });
         return { kind: "moved", ...moved };
+      }
+      case "archiveTidy": {
+        // The workspace's own housekeeping, at the owner's clearance only: it moves things a member may not see.
+        if (clearance.scope !== "private") throw new FileOpError("PATH_INVALID", "Only an owner can tidy the archive.");
+        const tidied = await tidyArchive(store, { clearance, now });
+        return {
+          kind: "moved",
+          from: tidied.archive ?? "",
+          to: tidied.archive ?? "",
+          paths: tidied.moved.map((move) => move.to),
+          ...(tidied.left ? { queued: tidied.moved.length } : {}),
+        };
       }
       case "trash": {
         const moved = await trashPath(store, {
@@ -823,6 +588,19 @@ export async function executeOperation(
           to: operation.visibility,
         });
         return { kind: "visibility", ...result };
+      }
+      case "visibilityLine": {
+        // Rows mode: the change went to the rows (`visibility.ts`), and this is the activity line the file path
+        // records for the same change. The team flag is the rows' answer, not the rules'.
+        const landed = await recordActivity(store, {
+          action: operation.action,
+          paths: [operation.path],
+          details: { to: operation.to },
+          actor,
+          teamVisible: operation.teamVisible,
+        });
+        if (landed !== null) onActivity?.(landed);
+        return { kind: "activityRecorded" };
       }
       case "setFolderVisibility": {
         const { result, changed } = operation.onlyIfUnset === true

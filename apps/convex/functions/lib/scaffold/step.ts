@@ -22,6 +22,7 @@ import type { ActionCtx } from "../../../_generated/server";
 import type { Id } from "../../../_generated/dataModel";
 import { storeForBinding } from "../../../../mcp/src/store/factory.js";
 import { managedEncryptionOption } from "../managedEncryptionFns/storeOption";
+import { consoleIdLayoutHooks } from "../noteIds/consoleLayer";
 import { redactSecrets } from "../verification";
 import { type CustomFolder, type ScaffoldStore, scaffoldContext } from "../scaffold";
 
@@ -56,9 +57,12 @@ export async function scaffoldStep(
   let sealing: Awaited<ReturnType<typeof managedEncryptionOption>> = null;
   try {
     sealing = await managedEncryptionOption(ctx, options.workspaceId);
+    // The layout is written through the id switch, as every other console write is (`lib/noteIds/consoleLayer.ts`).
+    const idLayout = await consoleIdLayoutHooks(ctx, options.workspaceId);
     store = storeForBinding(options.credential, undefined, {
       probeCapabilities: true,
       managedEncryption: sealing,
+      idLayout,
     }) as unknown as ScaffoldStore;
   } catch (error) {
     // A key that will not open is a refusal, never a plain write: the bucket
@@ -83,6 +87,14 @@ export async function scaffoldStep(
   // and declared the bucket sealed, leaving them unreadable (`reseal.ts`).
   // The layout itself landed either way: a refusal here must not fail it,
   // and staff's Seal again still reaches anything left plain.
+  // Rows mode derives nothing on its own: a new context's folders take their scaffolded defaults once their rows
+  // exist (`nodesPrivacy.deriveNewWorkspaceRows`, which does nothing once the workspace has an access state).
+  if (result.scaffolded && (await ctx.runQuery(internal.functions.nodesAccess.rowsMode, {}))) {
+    await ctx.scheduler.runAfter(0, internal.functions.nodesPrivacy.deriveNewWorkspaceRows, {
+      workspaceId: options.workspaceId,
+      attempt: 0,
+    });
+  }
   if (sealing === null && result.written.length > 0) {
     try {
       await ctx.runMutation(internal.functions.managedEncryption.afterPlainWrites, { workspaceId: options.workspaceId });

@@ -269,19 +269,12 @@ function FirstRunA(): ReactElement {
           goto={null}
           testID="proto-choose-bucket"
         />
-        <ChoiceCard
-          title={firstRunA.dropbox.title}
-          sub={firstRunA.dropbox.sub}
-          goto={null}
-          testID="proto-choose-dropbox"
-        />
       </ChoiceRow>
       {/*
-        The third option is on the same screen and below the two free ones, at
+        The managed option is on the same screen and below the free one, at
         full width rather than as a third column. Ordering free before paid is
-        the honest hierarchy — Dropbox is one click and costs nothing, so a
-        screen that sold above it would be selling against its own free tier —
-        and full width is what stops "below" reading as "lesser".
+        the honest hierarchy, and full width is what stops "below" reading as
+        "lesser".
       */}
       <View style={styles.managedWrap}>
         <ChoiceCard

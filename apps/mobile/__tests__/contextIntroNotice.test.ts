@@ -50,11 +50,14 @@
 
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
 
+// One action for the whole run, as Convex's own `useAction` is stable across
+// renders: a source built from it (`useFolderLists`) keeps its identity.
+const mockAction = async () => {
+  throw new Error("not used in this test");
+};
 jest.mock("convex/react", () => ({
   useQueries: () => ({}),
-  useAction: () => async () => {
-    throw new Error("not used in this test");
-  },
+  useAction: () => mockAction,
   useConvex: () => undefined,
 }));
 

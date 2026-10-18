@@ -33,10 +33,10 @@
  */
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Animated, Pressable, StyleSheet, View } from "react-native";
+import { Animated, Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { Text } from "../../../design/components/Text";
-import { motion, radii, space } from "../../../design/tokens";
+import { layout, motion, radii, space } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
 import type { FolderListSource } from "../listBlock/model";
 import { aboutSnippet } from "./aboutSnippet";
@@ -80,7 +80,15 @@ export function AboutBlock({
 }) {
   const styles = useThemedStyles(makeStyles);
   const body = usePanelBody(source, path);
-  const [width, setWidth] = useState(0);
+  // The last block's width: every folder page's block is the same width, so the first frame already knows whether "More" is drawn.
+  const screenWidth = useWindowDimensions().width;
+  const [width, setMeasured] = useState(
+    () => measuredWidth[compact ? "phone" : "desk"] || (compact ? Math.max(0, screenWidth - 2 * layout.readingMargin) : 0),
+  );
+  const setWidth = (next: number) => {
+    measuredWidth[compact ? "phone" : "desk"] = next;
+    setMeasured(next);
+  };
   const [typing, setTyping] = useState<string | null>(null);
   const [hovered, setHovered] = useState(false);
   // Whether this note's room was last held empty while it was read: what arrives then fades in.
@@ -177,6 +185,14 @@ export function AboutBlock({
     </FadeIn>
   );
 }
+
+/**
+ * The words' width as last measured, per layout. Until a block has measured
+ * itself it cannot tell whether its words fill their lines, and a "More" line
+ * that appeared a frame after the page pushed the list down (owner's phone
+ * recording, 2026-10-17). One page's block is every page's width.
+ */
+const measuredWidth: { phone: number; desk: number } = { phone: 0, desk: 0 };
 
 /** Two lines' worth of nothing: the room the words take, held while they are read. */
 const FILLER = "\u00a0\n\u00a0";

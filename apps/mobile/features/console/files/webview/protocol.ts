@@ -55,6 +55,7 @@
  */
 
 import { decodeLinkTarget, type LinkTarget } from "../linkMarkdown";
+import type { LineState } from "../lineState";
 
 export const PROTOCOL_VERSION = 1;
 
@@ -80,6 +81,10 @@ export type EditorCommand =
   | { name: "wrap"; before: string; after: string }
   /** Put `prefix` at the start of the caret's line, or take it off again. */
   | { name: "toggleLinePrefix"; prefix: string }
+  /** Set the caret line's heading marks (`# `, `## `, `""`): Aa's styles. A set, never stacked. */
+  | { name: "lineStyle"; prefix: string }
+  /** The line under a new note's "Title" (`untitledTitle.ts`), or `null`. Draws only; never focuses. */
+  | { name: "titleHint"; text: string | null }
   /**
    * `[[]]`, caret between the brackets, with the `[[` completion opened
    * immediately — A2 in the editor-polish sweep. See `docs/decisions/app-and-console.md`,
@@ -150,6 +155,13 @@ export function decodeCommand(value: unknown): EditorCommand | null {
     case "toggleLinePrefix":
       if (typeof command.prefix !== "string") return null;
       return { name: "toggleLinePrefix", prefix: command.prefix };
+    case "lineStyle":
+      if (typeof command.prefix !== "string" || !/^(#{1,6} )?$/.test(command.prefix)) return null;
+      return { name: "lineStyle", prefix: command.prefix };
+    case "titleHint": {
+      const text = (command as { text?: unknown }).text;
+      return text === null || (typeof text === "string" && text.length <= 200) ? { name: "titleHint", text } : null;
+    }
     case "insertLink":
       return (command as { ask?: unknown }).ask === true ? { name: "insertLink", ask: true } : { name: "insertLink" };
     case "applyLink": {
@@ -174,8 +186,8 @@ export function decodeCommand(value: unknown): EditorCommand | null {
 
 /** Would running this change the document? */
 export function writesDocument(command: EditorCommand): boolean {
-  // `cancelLink` only puts a selection back.
-  return command.name !== "blur" && command.name !== "cancelLink";
+  // `cancelLink` only puts a selection back; `titleHint` only draws a line.
+  return command.name !== "blur" && command.name !== "cancelLink" && command.name !== "titleHint";
 }
 
 /**
@@ -224,6 +236,14 @@ export type ToGuest =
   | { v: number; type: "crdtSnapshot"; documentId: string; update: string }
   /** Tear down any durable binding while the next document is loading. */
   | { v: number; type: "crdtReset" }
+  /**
+   * The note's text as the bucket last gave it, drawn read-only while the
+   * durable snapshot is on its way. Without it a freshly mounted guest in
+   * durable mode drew an empty page under the note's name until the shared
+   * copy arrived (Dev2, 2026-10-16: kings-18 opened blank). Ignored once a
+   * snapshot is bound; the snapshot replaces it when it lands.
+   */
+  | { v: number; type: "preview"; text: string }
   /** `false` for `privacy.md`, and for a member who may read but not write. */
   | { v: number; type: "editable"; editable: boolean }
   /**
@@ -455,6 +475,7 @@ export type ToHost =
    * on an edit — coalesced to one message a frame, like every other.
    */
   | { v: number; type: "caret"; top: number; bottom: number }
+  | { v: number; type: "line-state"; style: LineState["style"]; list: LineState["list"] } // Aa lights it
   /** The guest failed to start. Surfaced rather than left as a blank rectangle. */
   | { v: number; type: "failed"; message: string }
   /**
@@ -600,6 +621,7 @@ export const TO_GUEST_TYPES: ReadonlySet<ToGuest["type"]> = new Set([
   "revision",
   "crdtSnapshot",
   "crdtReset",
+  "preview",
   "editable",
   "theme",
   "inset",
@@ -627,6 +649,7 @@ export const TO_HOST_TYPES: ReadonlySet<ToHost["type"]> = new Set([
   "focus",
   "height",
   "caret",
+  "line-state",
   "failed",
   "open-link",
   "open-url",

@@ -15,6 +15,7 @@ import {
   routineSettings,
   type RoutineCadence,
 } from "@context/shared/src/routines.cjs";
+import { TEX_FOLDER } from "@context/shared/src/folderRoles.cjs";
 
 /**
  * The folders a scan lists, both of them every time (the owner, 2026-10-14):
@@ -83,6 +84,13 @@ export type RoutineOutcome = (typeof ROUTINE_OUTCOMES)[number];
 /** Set by the control plane itself when the writer can no longer write here. */
 export const WRITER_GONE = "writer_gone";
 
+/**
+ * Set by the control plane itself on a shared workspace's routine that nobody
+ * was seen writing: it waits, not running, until someone who can write saves
+ * it. Only a personal workspace falls back to its owner.
+ */
+export const WRITER_UNKNOWN = "writer_unknown";
+
 /** Outcomes that mean the row no longer describes the file: re-read the folder. */
 export const RECONCILE_OUTCOMES: ReadonlySet<string> = new Set([
   "routine_gone",
@@ -102,6 +110,19 @@ export function isRoutineOutcome(value: unknown): value is RoutineOutcome {
  */
 export function isUnderRoutines(path: string): boolean {
   return isRoutinePath(path);
+}
+
+/**
+ * `path` as a routine row names it: under `tex/`, wherever the folder doing
+ * Tex's job (`texPath`) now sits (owner, 2026-10-18; Tex's folder may be
+ * nested). Rows keep the default name because every reader of a `tex/` path
+ * is carried to the real folder (`canonicalJobPath`), so a later move of
+ * Tex's folder leaves them right. Any other path is returned as it is.
+ */
+export function asTexPath(path: string, texPath: string | null | undefined): string {
+  if (typeof texPath !== "string" || texPath === "" || texPath === TEX_FOLDER) return path;
+  if (path === texPath) return TEX_FOLDER;
+  return path.startsWith(`${texPath}/`) ? `${TEX_FOLDER}/${path.slice(texPath.length + 1)}` : path;
 }
 
 /** The schedule a routine file carries, as stored. No body, no `until`, no problems. */

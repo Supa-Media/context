@@ -18,7 +18,9 @@ import {
   LINQ_ZERO_SERVICE,
   SHARED_LINE_CAP,
   addToLinqLine,
+  dedicatedTexLines,
   readLinqLine,
+  texLineFor,
   removeFromLinqLine,
 } from "../functions/lib/adminFns/texAllowlist";
 
@@ -218,6 +220,15 @@ describe("the console's Tex list, through the admin functions", () => {
     expect(byPhone.get(phones(3)[2]!)).toBeNull();
   });
 
+  test("with a dedicated line set, staff see an open line and Linq is not asked", async () => {
+    const { as, fake } = await setup(phones(3));
+    vi.stubEnv("TEX_LINE_NUMBERS", "+15555550177, +15555550178");
+    const before = fake.calls.length;
+    expect(await as.action(api.functions.admin.texAllowlist, {})).toEqual({ state: "unlimited", line: "+15555550177" });
+    expect(fake.calls).toHaveLength(before);
+    vi.unstubAllEnvs();
+  });
+
   test("a change is on the admin trail with the last four digits only", async () => {
     const { t, as } = await setup(phones(3));
     expect(await as.action(api.functions.admin.changeTexAllowlist, { phone: "+15559990011", change: "add" })).toEqual({
@@ -234,5 +245,20 @@ describe("the console's Tex list, through the admin functions", () => {
       ["tex.allowlist_removed", phones(3)[2]!.slice(-4)],
     ]);
     expect(JSON.stringify(trail)).not.toContain("+1555999");
+  });
+});
+
+describe("Tex's dedicated lines", () => {
+  test("reads well-formed numbers only, once each", () => {
+    expect(dedicatedTexLines(undefined)).toEqual([]);
+    expect(dedicatedTexLines(" +15555550177 , nope, +15555550177,+15555550178")).toEqual(["+15555550177", "+15555550178"]);
+  });
+
+  test("always tells one person the same line, and spreads people over several", () => {
+    const lines = ["+15555550177", "+15555550178"];
+    expect(texLineFor(lines, "+15555550100")).toBe(texLineFor(lines, "+15555550100"));
+    const told = new Set(phones(20).map((phone) => texLineFor(lines, phone)));
+    expect(told).toEqual(new Set(lines));
+    expect(texLineFor(["+15555550177"], "+15555550100")).toBe("+15555550177");
   });
 });

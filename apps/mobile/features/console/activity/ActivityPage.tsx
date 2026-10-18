@@ -7,7 +7,6 @@ import { Text } from "../../design/components/Text";
 import { layout, pointerType as t, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { ActivityList } from "./ActivityList";
-import { useOrganizerUndoFor } from "../../organizer/OrganizerContext";
 import {
   ACTIVITY_PATH,
   emptyLine,
@@ -76,7 +75,6 @@ export function ActivityPage({
   editable?: boolean;
 }) {
   const styles = useThemedStyles(sheet);
-  const undoFor = useOrganizerUndoFor();
   const [copied, setCopied] = useState(false);
   /*
     Counted from the file in hand rather than from the entries: the whole point
@@ -105,7 +103,6 @@ export function ActivityPage({
           seenAt={activity.seenAt}
           now={now}
           empty={emptyLine(shared)}
-          undoFor={undoFor}
           onOpen={onOpen}
         />
         {stray > 0 ? (

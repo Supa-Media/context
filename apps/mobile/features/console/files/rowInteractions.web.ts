@@ -132,6 +132,8 @@ export function useRowInteractions(options: RowInteractionOptions): RowInteracti
    * the standard fix and the reason it is here rather than a boolean.
    */
   const depth = useRef(0);
+  /** Where in the row the pointer last was (`fractionDown`), for the timer below. */
+  const lastAt = useRef<number | undefined>(undefined);
   const expandTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /** The node this hook is currently attached to, or null between attachments. */
@@ -249,14 +251,15 @@ export function useRowInteractions(options: RowInteractionOptions): RowInteracti
         const current = latest.current;
         depth.current += 1;
         if (!current.canDrop) return;
-        current.onDragOver(current.path, modifiersOf(event));
+        lastAt.current = fractionDown(event, element);
+        current.onDragOver(current.path, modifiersOf(event), lastAt.current);
 
         // Hovering a closed folder opens it, so a drop can reach something that
         // was not on screen when the drag began.
         if (expandTimer.current === null) {
           expandTimer.current = setTimeout(() => {
             expandTimer.current = null;
-            latest.current.onDragOver(latest.current.path, []);
+            latest.current.onDragOver(latest.current.path, [], lastAt.current);
           }, AUTO_EXPAND_MS);
         }
       };
@@ -274,6 +277,11 @@ export function useRowInteractions(options: RowInteractionOptions): RowInteracti
         if (event.dataTransfer !== null) {
           event.dataTransfer.dropEffect = modifiersOf(event).includes("copy") ? "copy" : "move";
         }
+        // `dragenter` fires once per row; whether the drop goes above, below or
+        // into it changes as the pointer moves down it. The handler only
+        // redraws when the zone changes (`useTreeDrag`).
+        lastAt.current = fractionDown(event, element);
+        current.onDragOver(current.path, modifiersOf(event), lastAt.current);
       };
 
       const onDragLeave = () => {
@@ -290,7 +298,7 @@ export function useRowInteractions(options: RowInteractionOptions): RowInteracti
         if (!current.canDrop) return;
         event.preventDefault();
         event.stopPropagation();
-        current.onDrop(current.path, modifiersOf(event));
+        current.onDrop(current.path, modifiersOf(event), fractionDown(event, element));
       };
 
       const onDragEnd = () => {
@@ -361,6 +369,13 @@ function pickGestureOf(event: MouseEvent): PickGesture | null {
   if (event.shiftKey) return "range";
   if (isApplePlatform() ? event.metaKey : event.ctrlKey) return "toggle";
   return null;
+}
+
+/** How far down `element` the pointer is: `0` its top edge, `1` its bottom; absent for a row with no height. */
+function fractionDown(event: DragEvent, element: HTMLElement): number | undefined {
+  if (typeof element.getBoundingClientRect !== "function") return undefined;
+  const box = element.getBoundingClientRect();
+  return box.height > 0 ? (event.clientY - box.top) / box.height : undefined;
 }
 
 /**

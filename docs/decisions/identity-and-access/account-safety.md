@@ -15,7 +15,7 @@ the account's confirmed emails stands behind them:
   session that has been signed out stops counting at once.
 - **What is big:** changing the phone or linking another texting number;
   adding a second email, removing one, or moving mail to another; pointing
-  existing storage elsewhere (own bucket, Dropbox, Cloudflare, storage moves
+  existing storage elsewhere (own bucket, Cloudflare, storage moves
   and the managed hand-off); disconnecting storage; exporting encryption keys;
   approving an AI connection, a machine or a plugin; deleting a workspace or
   the account; signing other devices out; turning phone sign-in back on; and

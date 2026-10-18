@@ -27,8 +27,10 @@
  */
 
 import { relativeTime } from "../../format";
+import { foundingAtNoCharge } from "./founding";
 import { managedFailureCopy } from "./managedFailure";
 export { managedFailureCopy } from "./managedFailure";
+export { renewalLine } from "./renewal";
 
 /** The five states this section can be in. */
 export const PREMIUM_STATES = [
@@ -60,6 +62,10 @@ export interface PremiumStatus {
   currentPeriodEnd?: number;
   cancelAtPeriodEnd?: boolean;
   hasStripeCustomer?: boolean;
+  /** Owner only: that customer's subscription has not ended. */
+  subscriptionLive?: boolean;
+  /** Founding Premium: active because of the grant, not a payment. */
+  founding?: boolean;
   /** Dedicated production CUJ account; never trusted by the server. */
   isTestAccount?: boolean;
   stagingFreeStorage?: boolean;
@@ -380,7 +386,7 @@ export function describePremium(
   switch (state) {
     case "premium":
       return {
-        title: "This context is on Premium",
+        title: "This workspace is on Premium",
         blurb:
           "Billed to this workspace rather than to you, so a work workspace " +
           "can go on a work card while a personal one stays personal.",
@@ -461,7 +467,10 @@ export function premiumPill(
  * - `choose` — an owner who has not picked either entitlement. The server
  *   refuses a checkout with nothing in it, so no button is drawn; the panel
  *   says what to tick instead, which is one tap away.
- * - `upgrade` — an owner with a selection and no Stripe customer yet.
+ * - `upgrade` — an owner with no Stripe customer whose plan is not active.
+ *   An active plan with no customer (founding Premium, a test or staging
+ *   activation) is offered nothing: `startCheckout` refuses every active
+ *   plan, so the button's only outcome would be an error.
  * - `manage` — an owner this context already has a customer for, whatever the
  *   status. Updating a card, cancelling and restarting all live in Stripe's
  *   portal, which is where the card and the invoices already are.
@@ -474,9 +483,12 @@ export function premiumControl(view: PremiumView): PremiumControl {
   if (!status.canManage) return "none";
   if ((status.isTestAccount === true || status.stagingFreeStorage === true) && status.status === "active")
     return "none";
-  if (status.hasStripeCustomer === true) {
+  // A founder whose subscription ended keeps the customer id and has nothing
+  // left to manage: the founding line stands in for the portal.
+  if (status.hasStripeCustomer === true && !foundingAtNoCharge(status)) {
     return view.manageBilling === undefined ? "none" : "manage";
   }
+  if (premiumStateOf(status.status) === "premium") return "none";
   // A status this build does not know is never sold over: with nothing to
   // tick first, the state is now the only thing between it and a checkout.
   if (!status.configured || premiumStateOf(status.status) === "unavailable") return "none";
@@ -631,26 +643,9 @@ export function usageLine(status: PremiumStatus, now = Date.now()): string | nul
     status.notesCountedAt === undefined
       ? ""
       : `, counted ${relativeTime(status.notesCountedAt, now)}`;
-  return `${notes} in this context${when}. The ${formatBytes(status.ceilingBytes)} ceiling is on stored bytes, which are not metered yet.`;
-}
-
-/** When the current period ends, in a sentence, or `null`. */
-export function renewalLine(
-  status: PremiumStatus,
-  now = Date.now(),
-): string | null {
-  if (status.currentPeriodEnd === undefined) return null;
-  const at = new Date(status.currentPeriodEnd * 1000);
-  if (Number.isNaN(at.getTime())) return null;
-  const on = at.toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
-  if (status.cancelAtPeriodEnd === true) return `Premium ends on ${on}.`;
-  return status.currentPeriodEnd * 1000 < now
-    ? `The period that was paid for ended on ${on}.`
-    : `Renews on ${on}.`;
+  // The ceiling is named once, under "What Premium includes"; repeating it
+  // here as "not metered" was jargon beside a number that is a note count.
+  return `${notes} in this workspace${when}.`;
 }
 
 /**

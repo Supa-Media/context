@@ -59,14 +59,20 @@ import {
 } from "../../../../mcp/src/communications/googleChat/sync.js";
 import type { FileStore } from "../fileOps";
 import {
+  CalendarCursorMissingError,
   CalendarTimezoneMismatchError,
   classifyForwardSyncError,
+  ForwardSyncStorageError,
+  logForwardSyncFailure,
   type ForwardSyncJob,
+  type ForwardSyncProduct,
   type ForwardSyncResult,
   timeoutFetch,
   writeSharedCalendarDay,
 } from "./forwardSyncSupport";
+import { runGmailRecentImport } from "./gmailRecentImport";
 import type { OperationResult } from "./operationTypes";
+import { ensureGooglePush } from "../googlePush/ensure";
 
 /* -------------------------------------------------------------------------- */
 /*                    the forward sync pass, one connection                   */
@@ -84,11 +90,14 @@ export async function releaseForwardSync(
   ctx: ActionCtx,
   connectionId: Id<"googleConnections">,
   reason: string | undefined,
+  /** The product whose turn this was, when one was chosen. */
+  product?: ForwardSyncProduct,
 ): Promise<ForwardSyncResult> {
   await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
     connectionId,
     status: "skipped",
     errorCode: reason,
+    ...(product === undefined ? {} : { product }),
   });
   return {
     kind: "googleForwardSync",
@@ -109,12 +118,15 @@ export async function failForwardSync(
   connectionId: Id<"googleConnections">,
   errorCode: string,
   error: string,
+  /** The product whose turn failed, so its siblings get the next one. */
+  product?: ForwardSyncProduct,
 ): Promise<ForwardSyncResult> {
   await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
     connectionId,
     status: "failed",
     errorCode,
     error,
+    ...(product === undefined ? {} : { product }),
   });
   return {
     kind: "googleForwardSync",
@@ -136,7 +148,7 @@ async function runGoogleCalendarForwardSync(
   accessToken: string,
 ): Promise<ForwardSyncResult> {
   if (store.capabilities?.conditionalWrite !== true) {
-    throw new Error("Shared Calendar sync requires storage with conditional writes");
+    throw new ForwardSyncStorageError("calendar");
   }
   const calendarStore = store as unknown as Parameters<typeof persistCalendarContribution>[0]["store"];
   const previous = await loadCalendarContribution({
@@ -162,7 +174,7 @@ async function runGoogleCalendarForwardSync(
     materialize: false,
   });
   if (provider.skipped || !provider.syncToken || !provider.lastFullSyncDate) {
-    throw new Error("Google Calendar did not return a resumable cursor");
+    throw new CalendarCursorMissingError();
   }
 
   await persistCalendarContribution({
@@ -242,7 +254,7 @@ async function runGoogleChatForwardSync(
   accessToken: string,
 ): Promise<ForwardSyncResult> {
   if (store.capabilities === undefined) {
-    throw new Error("Google Chat sync requires declared storage capabilities");
+    throw new ForwardSyncStorageError("chat");
   }
   // `FileStore` is the deliberately narrow view used by file operations and
   // omits `StoredObject.arrayBuffer`; every adapter returned by
@@ -374,7 +386,7 @@ async function runGoogleChatForwardSync(
 /**
  * ONE FORWARD PASS: advance this connection's cursor, write whatever changed.
  *
- * Forward-only, per #388 and `docs/decisions/communications.md`. Three shapes:
+ * Forward-only per #388, bar one first-connect import (`gmailRecentImport.ts`). Three shapes:
  *
  *  - **No cursor yet.** The connection was bound before a baseline could be
  *    read, so one is taken now from `users.getProfile` and stored. Nothing is
@@ -417,220 +429,232 @@ export async function runGoogleForwardSync(
         job.connectionId,
         "GOOGLE_RECONNECT_REQUIRED",
         "Google needs to be reconnected before this mailbox can sync.",
+        job.product,
       );
     }
 
-    if (job.product === "chat") {
-      return await runGoogleChatForwardSync(ctx, store, job, minted.accessToken);
+    const result = await runMintedPass(ctx, store, job, minted.accessToken);
+    // A product that just synced keeps its push watch alive with the same
+    // token; `ensureGooglePush` never throws, so it is never this pass's failure.
+    if (result.status === "synced") {
+      const { connectionId, product } = job;
+      await ensureGooglePush(ctx, { connectionId, product, accessToken: minted.accessToken, fetchImpl: timeoutFetch });
     }
-    if (job.product === "calendar") {
-      return await runGoogleCalendarForwardSync(ctx, store, job, minted.accessToken);
-    }
+    return result;
+  } catch (error) {
+    return await forwardSyncFailed(ctx, job, error);
+  }
+}
 
-    if (job.historyId === undefined) {
-      const historyId = await getProfileHistoryId({
-        fetchImpl: timeoutFetch,
-        accessToken: minted.accessToken,
-      });
-      await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
-        connectionId: job.connectionId,
-        status: "synced",
-        historyId,
-        daysTouched: 0,
-        bytesWritten: 0,
-        // A cursor, not a sync: this pass read no mail, and the console must
-        // be able to say so rather than showing a mailbox that looks current.
-        baseline: true,
-      });
-      return {
-        kind: "googleForwardSync",
-        connectionId: job.connectionId,
-        status: "synced",
-        daysTouched: 0,
-        bytesWritten: 0,
-        cursorAdvanced: true,
-        gapDetected: false,
-        truncated: false,
-      };
-    }
+async function runMintedPass(
+  ctx: ActionCtx,
+  store: FileStore,
+  job: Extract<ForwardSyncJob, { kind: "run" }>,
+  accessToken: string,
+): Promise<ForwardSyncResult> {
+  if (job.product === "chat") return await runGoogleChatForwardSync(ctx, store, job, accessToken);
+  if (job.product === "calendar") return await runGoogleCalendarForwardSync(ctx, store, job, accessToken);
+  if (job.recentImport === true) return await runGmailRecentImport(ctx, store, job, accessToken);
 
-    const result = await runIncrementalSync({
-      store,
+  if (job.historyId === undefined) {
+    const historyId = await getProfileHistoryId({
       fetchImpl: timeoutFetch,
-      accessToken: minted.accessToken,
-      mailboxSlug: job.mailboxSlug,
-      address: job.address,
-      folders: job.folders,
-      startHistoryId: job.historyId,
-      folder: job.destinationFolder,
-      // The same nonce the backfill used, so a day rewritten by either path
-      // keeps its message anchors — see `packages/communications/src/note.js`.
-      nonce: `gmail:${job.connectionId}`,
-      /*
-       * NO `now`, AND THAT IS THE WHOLE POINT OF A LOOP THAT REPEATS.
-       *
-       * `renderDay` defaults `updated` to the latest message's own `sentAt`
-       * precisely so that re-rendering an unchanged day is byte-identical, and
-       * `syncOneDay` forwards whatever `now` a caller passes straight through
-       * to it. The backfill removed by #388 passed a wall clock, which was
-       * survivable for a one-shot import and is not for a pass that runs every
-       * few minutes: every touched day would get a new `updated`, a new write,
-       * and a new etag, forever — churn wearing the costume of sync activity.
-       * Attachment retention is measured against a real wall clock inside
-       * `syncOneDay` regardless, so nothing here loses a clock it needed.
-       */
-      quotaBytes: job.quotaBytes,
-      bytesAlreadyUsed: job.bytesAlreadyUsed,
-      attachmentMode: job.attachmentMode,
-      attachmentRetentionDays: job.attachmentRetentionDays,
+      accessToken: accessToken,
     });
-
-    if (result.gapDetected) {
-      const historyId = await getProfileHistoryId({
-        fetchImpl: timeoutFetch,
-        accessToken: minted.accessToken,
-      });
-      await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
-        connectionId: job.connectionId,
-        status: "synced",
-        historyId,
-        daysTouched: 0,
-        bytesWritten: 0,
-        gapDetected: true,
-        // Re-baselining reads nothing either, for the same reason.
-        baseline: true,
-      });
-      return {
-        kind: "googleForwardSync",
-        connectionId: job.connectionId,
-        status: "synced",
-        daysTouched: 0,
-        bytesWritten: 0,
-        cursorAdvanced: true,
-        gapDetected: true,
-        truncated: false,
-      };
-    }
-
-    if (result.quotaExceeded) {
-      // Whatever was written stays written and is counted; the cursor does
-      // not move, so the days this pass could not afford are asked for again
-      // once the connection has room.
-      await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
-        connectionId: job.connectionId,
-        status: "failed",
-        daysTouched: result.daysTouched.length,
-        bytesWritten: result.bytesWritten,
-        errorCode: "MAIL_QUOTA_EXCEEDED",
-        error: "This connection reached its storage quota before the pass finished.",
-      });
-      return {
-        kind: "googleForwardSync",
-        connectionId: job.connectionId,
-        status: "failed",
-        daysTouched: result.daysTouched.length,
-        bytesWritten: result.bytesWritten,
-        cursorAdvanced: false,
-        gapDetected: false,
-        truncated: result.truncated === true,
-        errorCode: "MAIL_QUOTA_EXCEEDED",
-      };
-    }
-
-    if (result.truncated === true && result.historyId === undefined) {
-      /*
-       * PAGED, BUT WITH NO SAFE PLACE TO RESUME.
-       *
-       * Gmail may return pages that contain no records for the requested
-       * `messageAdded` history type while still returning a next page token.
-       * If fifty such pages exhaust this pass's bound, there is no history
-       * record id to persist. Marking the row as catching up would leave the
-       * cursor unchanged and make the next sweep repeat the exact same fifty
-       * pages forever. Fail visibly and honor the retry ladder instead.
-       */
-      await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
-        connectionId: job.connectionId,
-        status: "failed",
-        daysTouched: result.daysTouched.length,
-        bytesWritten: result.bytesWritten,
-        errorCode: "GOOGLE_SYNC_NO_RESUME_CURSOR",
-        error: "Google returned more mailbox history but no safe resume point. The next scheduled pass will try again.",
-      });
-      return {
-        kind: "googleForwardSync",
-        connectionId: job.connectionId,
-        status: "failed",
-        daysTouched: result.daysTouched.length,
-        bytesWritten: result.bytesWritten,
-        cursorAdvanced: false,
-        gapDetected: false,
-        truncated: true,
-        errorCode: "GOOGLE_SYNC_NO_RESUME_CURSOR",
-      };
-    }
-
-    /*
-     * A WALK THAT RAN OUT OF PAGES IS NOT A FINISHED SYNC.
-     *
-     * `history.list` hands back the mailbox's *current* head on every page, so
-     * a truncated walk that stored it would say "caught up" while holding only
-     * the first pages — and everything behind them would be skipped forever,
-     * with no gap signalled and the row reading `active`. `runIncrementalSync`
-     * reports the truncation and offers the last record it actually walked
-     * instead; the cursor moves there, and `catchUp` keeps this connection due
-     * so the next pass drains further rather than waiting out its interval.
-     */
-    const truncated = result.truncated === true;
     await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
       connectionId: job.connectionId,
       status: "synced",
-      historyId: result.historyId,
-      daysTouched: result.daysTouched.length,
-      bytesWritten: result.bytesWritten,
-      catchUp: truncated,
+      historyId,
+      daysTouched: 0,
+      bytesWritten: 0,
+      // A cursor, not a sync: this pass read no mail, and the console must
+      // be able to say so rather than showing a mailbox that looks current.
+      baseline: true,
     });
     return {
       kind: "googleForwardSync",
       connectionId: job.connectionId,
       status: "synced",
+      daysTouched: 0,
+      bytesWritten: 0,
+      cursorAdvanced: true,
+      gapDetected: false,
+      truncated: false,
+    };
+  }
+
+  const result = await runIncrementalSync({
+    store,
+    fetchImpl: timeoutFetch,
+    accessToken: accessToken,
+    mailboxSlug: job.mailboxSlug,
+    address: job.address,
+    folders: job.folders,
+    startHistoryId: job.historyId,
+    folder: job.destinationFolder,
+    // The same nonce the backfill used, so a day rewritten by either path
+    // keeps its message anchors — see `packages/communications/src/note.js`.
+    nonce: `gmail:${job.connectionId}`,
+    /*
+     * NO `now`, AND THAT IS THE WHOLE POINT OF A LOOP THAT REPEATS.
+     *
+     * `renderDay` defaults `updated` to the latest message's own `sentAt`
+     * precisely so that re-rendering an unchanged day is byte-identical, and
+     * `syncOneDay` forwards whatever `now` a caller passes straight through
+     * to it. The backfill removed by #388 passed a wall clock, which was
+     * survivable for a one-shot import and is not for a pass that runs every
+     * few minutes: every touched day would get a new `updated`, a new write,
+     * and a new etag, forever — churn wearing the costume of sync activity.
+     * Attachment retention is measured against a real wall clock inside
+     * `syncOneDay` regardless, so nothing here loses a clock it needed.
+     */
+    quotaBytes: job.quotaBytes,
+    bytesAlreadyUsed: job.bytesAlreadyUsed,
+    attachmentMode: job.attachmentMode,
+    attachmentRetentionDays: job.attachmentRetentionDays,
+  });
+
+  if (result.gapDetected) {
+    const historyId = await getProfileHistoryId({
+      fetchImpl: timeoutFetch,
+      accessToken: accessToken,
+    });
+    await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+      connectionId: job.connectionId,
+      status: "synced",
+      historyId,
+      daysTouched: 0,
+      bytesWritten: 0,
+      gapDetected: true,
+      // Re-baselining reads nothing either, for the same reason.
+      baseline: true,
+    });
+    return {
+      kind: "googleForwardSync",
+      connectionId: job.connectionId,
+      status: "synced",
+      daysTouched: 0,
+      bytesWritten: 0,
+      cursorAdvanced: true,
+      gapDetected: true,
+      truncated: false,
+    };
+  }
+
+  if (result.quotaExceeded) {
+    // Whatever was written stays written and is counted; the cursor does
+    // not move, so the days this pass could not afford are asked for again
+    // once the connection has room.
+    await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+      connectionId: job.connectionId,
+      status: "failed",
       daysTouched: result.daysTouched.length,
       bytesWritten: result.bytesWritten,
-      cursorAdvanced: result.historyId !== undefined,
+      errorCode: "MAIL_QUOTA_EXCEEDED",
+      error: "This connection reached its storage quota before the pass finished.",
+    });
+    return {
+      kind: "googleForwardSync",
+      connectionId: job.connectionId,
+      status: "failed",
+      daysTouched: result.daysTouched.length,
+      bytesWritten: result.bytesWritten,
+      cursorAdvanced: false,
       gapDetected: false,
-      truncated,
+      truncated: result.truncated === true,
+      errorCode: "MAIL_QUOTA_EXCEEDED",
     };
-  } catch (error) {
-    // The first account in a multi-account workspace can finish before a
-    // sibling has ever stored its contribution. That is an expected warm-up
-    // state, not an outage: keep this account's cursor in place, release the
-    // claim, and let the sibling's own due pass fill the missing slice.
-    if (
-      error instanceof ChatContributionIncompleteError ||
-      error instanceof CalendarContributionIncompleteError
-    ) {
-      return await releaseForwardSync(
-        ctx,
-        job.connectionId,
-        job.product === "calendar"
-          ? "CALENDAR_WAITING_FOR_ACCOUNT"
-          : "CHAT_WAITING_FOR_ACCOUNT",
-      );
-    }
-    const { code, message } = classifyForwardSyncError(error);
-    // Structured, and carrying no mail: an identifier, a code, and the name of
-    // whatever was thrown.
-    console.log(
-      JSON.stringify({
-        event: "google.forward_sync_failed",
-        connectionId: job.connectionId,
-        product: job.product,
-        errorCode: code,
-        errorName: error instanceof Error ? error.name : typeof error,
-        gmailStatus: error instanceof GmailApiError ? error.status : undefined,
-      }),
-    );
-    return await failForwardSync(ctx, job.connectionId, code, message);
   }
+
+  if (result.truncated === true && result.historyId === undefined) {
+    /*
+     * PAGED, BUT WITH NO SAFE PLACE TO RESUME.
+     *
+     * Gmail may return pages that contain no records for the requested
+     * `messageAdded` history type while still returning a next page token.
+     * If fifty such pages exhaust this pass's bound, there is no history
+     * record id to persist. Marking the row as catching up would leave the
+     * cursor unchanged and make the next sweep repeat the exact same fifty
+     * pages forever. Fail visibly and honor the retry ladder instead.
+     */
+    await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+      connectionId: job.connectionId,
+      status: "failed",
+      daysTouched: result.daysTouched.length,
+      bytesWritten: result.bytesWritten,
+      errorCode: "GOOGLE_SYNC_NO_RESUME_CURSOR",
+      error: "Google returned more mailbox history but no safe resume point. The next scheduled pass will try again.",
+    });
+    return {
+      kind: "googleForwardSync",
+      connectionId: job.connectionId,
+      status: "failed",
+      daysTouched: result.daysTouched.length,
+      bytesWritten: result.bytesWritten,
+      cursorAdvanced: false,
+      gapDetected: false,
+      truncated: true,
+      errorCode: "GOOGLE_SYNC_NO_RESUME_CURSOR",
+    };
+  }
+
+  /*
+   * A WALK THAT RAN OUT OF PAGES IS NOT A FINISHED SYNC.
+   *
+   * `history.list` hands back the mailbox's *current* head on every page, so
+   * a truncated walk that stored it would say "caught up" while holding only
+   * the first pages — and everything behind them would be skipped forever,
+   * with no gap signalled and the row reading `active`. `runIncrementalSync`
+   * reports the truncation and offers the last record it actually walked
+   * instead; the cursor moves there, and `catchUp` keeps this connection due
+   * so the next pass drains further rather than waiting out its interval.
+   */
+  const truncated = result.truncated === true;
+  await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+    connectionId: job.connectionId,
+    status: "synced",
+    historyId: result.historyId,
+    daysTouched: result.daysTouched.length,
+    bytesWritten: result.bytesWritten,
+    catchUp: truncated,
+  });
+  return {
+    kind: "googleForwardSync",
+    connectionId: job.connectionId,
+    status: "synced",
+    daysTouched: result.daysTouched.length,
+    bytesWritten: result.bytesWritten,
+    cursorAdvanced: result.historyId !== undefined,
+    gapDetected: false,
+    truncated,
+  };
+}
+
+async function forwardSyncFailed(
+  ctx: ActionCtx,
+  job: Extract<ForwardSyncJob, { kind: "run" }>,
+  error: unknown,
+): Promise<ForwardSyncResult> {
+  // The first account in a multi-account workspace can finish before a
+  // sibling has ever stored its contribution. That is an expected warm-up
+  // state, not an outage: keep this account's cursor in place, release the
+  // claim, and let the sibling's own due pass fill the missing slice.
+  if (
+    error instanceof ChatContributionIncompleteError ||
+    error instanceof CalendarContributionIncompleteError
+  ) {
+    return await releaseForwardSync(
+      ctx,
+      job.connectionId,
+      job.product === "calendar"
+        ? "CALENDAR_WAITING_FOR_ACCOUNT"
+        : "CHAT_WAITING_FOR_ACCOUNT",
+      job.product,
+    );
+  }
+  const { code, message } = classifyForwardSyncError(error);
+  logForwardSyncFailure(job, code, error);
+  return await failForwardSync(ctx, job.connectionId, code, message, job.product);
 }
 
 export async function runGoogleGmailBackfill(

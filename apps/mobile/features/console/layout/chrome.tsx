@@ -27,7 +27,7 @@ import type { ConsoleData } from "../types";
  * about storage.
  *
  * **It used to name every binding** — `R2 · notes-bucket`, `R2 · managed`,
- * `Dropbox · second/` — as a pill beside search, on every route. For a managed
+ * `S3 · second/` — as a pill beside search, on every route. For a managed
  * bucket that was a fact the person never chose and cannot act on; for their
  * own it repeated the status strip along the bottom, which already names the
  * bucket, with Settings → Storage behind both. Three pills of equal weight in
@@ -142,7 +142,7 @@ export function Status({
     conflictCheck: data.files.editor.conflictCheck,
     // The bucket's name, from `storagePillLabel` — two call sites once
     // interpolated `provider · bucket` themselves, which is how one of them
-    // printed "dropbox · undefined". Not for a managed bucket: its name is a
+    // printed "R2 · undefined". Not for a managed bucket: its name is a
     // workspace id nobody chose, "R2 · managed" tells somebody nothing they
     // can act on, and this segment's detail says "a bucket which you own".
     storageLabel: data.storage?.managed === true ? null : storagePillLabel(data.storage),

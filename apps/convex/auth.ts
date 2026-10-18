@@ -1,6 +1,6 @@
 import { createSupaAuth } from "@supa-media/convex/auth";
 import { productionOtpGuard, sealDevOtpBypass } from "./functions/lib/otpBypass";
-import { reviewerTestEmail } from "./functions/lib/reviewerAccount";
+import { APP_REVIEW_PHONE, appReviewPhoneEnabled, reviewerTestEmail } from "./functions/lib/reviewerAccount";
 import { mayCreateUser } from "./functions/lib/waitlist";
 import { userWithSignInEmail } from "./functions/lib/signInEmails";
 import { internal } from "./_generated/api";
@@ -9,6 +9,7 @@ import { scheduleSignupAlert } from "./functions/signupAlerts";
 import { scheduleXConversion } from "./functions/xConversions";
 import { scheduleMetaConversion } from "./functions/metaConversions";
 import { checkCode } from "./functions/phoneCodes";
+import { SIGN_IN_CODE_LENGTH, checkLinkCode } from "./functions/textSignIn";
 
 // Before the providers are built, because they read `DEV_OTP_BYPASS` while
 // they are being built. See `functions/lib/otpBypass.ts` for why this is a
@@ -48,6 +49,9 @@ export const { auth, signIn, signOut, store, isAuthenticated } = createSupaAuth(
     await scheduleSignupAlert(ctx as never, { kind: "account", userId: userId as Id<"users"> });
     await scheduleXConversion(ctx as never, { kind: "account", userId: userId as Id<"users"> });
     await scheduleMetaConversion(ctx as never, { kind: "account", userId: userId as Id<"users"> });
+    // The first accounts are Premium at no charge (`functions/lib/billing/founding.ts`).
+    // Scheduled, not inline, so nothing in it can fail a sign-in.
+    await ctx.scheduler.runAfter(0, internal.functions.foundingPremium.catchUp, {});
   },
   // Signing in with a phone (Dev2, 2026-10-09). The app texts the code
   // (`functions/phoneSignIn.ts`), `checkCode` checks it, and `signInUser` names the
@@ -58,7 +62,13 @@ export const { auth, signIn, signOut, store, isAuthenticated } = createSupaAuth(
     findUserByPhone: (ctx, phone) => ctx.runMutation(internal.functions.phoneSignIn.signInUser, { phone }) as never,
     mayCheck: (ctx, phone) => ctx.runMutation(internal.functions.phoneSignIn.spendCheck, { phone }),
     // Context texts its own codes (`functions/phoneCodes.ts`), so it checks them too.
-    check: (phone, code, ctx) => checkCode(ctx as never, phone, code),
+    // A ten-digit code comes only from opening a link Tex texted
+    // (`functions/textSignIn.ts`) and is checked against those alone.
+    check: async (phone, code, ctx) => {
+      if (phone === APP_REVIEW_PHONE) return appReviewPhoneEnabled() && code === "000000" ? "approved" : "wrong";
+      if (code.length === SIGN_IN_CODE_LENGTH) return await checkLinkCode(ctx as never, phone, code);
+      return await checkCode(ctx as never, phone, code);
+    },
   },
   resend: {
     fromAddress: process.env.AUTH_EMAIL_FROM ?? "auth@context.com",

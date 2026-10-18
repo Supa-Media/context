@@ -28,7 +28,6 @@ import type { FileBrowser } from "../features/console/files/browser";
 import { ChaosProvider, useConsoleChaos } from "../features/chaos/ChaosContext";
 import { Tex } from "../features/chaos/Tex";
 import { texColors } from "../features/design/tokens/landingColors";
-import { ChaosHomeLine } from "../features/chaos/ChaosHomeLine";
 import { ChaosSheet } from "../features/chaos/ChaosPopover";
 import { FolderChaosLine } from "../features/chaos/FolderChaosLine";
 import type { ChaosScore } from "../features/chaos/chaosModel";
@@ -291,25 +290,6 @@ describe("a folder page's line", () => {
     expect(strip(byId("chaos-panel")?.textContent)).toContain(
       "Chaos 34 of 100",
     );
-  });
-});
-
-describe("the phone's Home", () => {
-  test("one quiet card with the score, opening the panel as a sheet", async () => {
-    await mount(createElement(ChaosHomeLine), source(SCORED));
-    const line = byId("phone-home-chaos");
-    expect(strip(line?.textContent)).toContain("Chaos 34 · crowded");
-    expect(strip(line?.textContent)).toContain("a week ago 41 ↓");
-    expect(line?.querySelector("svg")).toBeNull();
-    await press(line);
-    expect(byId("chaos-panel")).not.toBeNull();
-  });
-
-  test("not scored yet, or no score: nothing", async () => {
-    await mount(createElement(ChaosHomeLine), source(UNSCORED));
-    expect(byId("phone-home-chaos")).toBeNull();
-    await mount(createElement(ChaosHomeLine));
-    expect(byId("phone-home-chaos")).toBeNull();
   });
 });
 

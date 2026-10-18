@@ -1,0 +1,67 @@
+# Does the icon picker's suggestion read real names well, with the real model?
+#
+# Asks the deployed inference Worker's /decide route, so Clef itself, for the
+# suggested emoji of real folder and note names, out of every emoji
+# (apps/convex/__tests__/iconSuggest.live.test.ts), and prints them for a
+# person to read. With `models` ticked it also compares decision models and
+# meaning fingerprints on the same names.
+#
+# This was the third step of "Organizer Eval (live)" until auto-organize and
+# What changed were removed by the owner on 2026-10-17; the icon steps are all
+# that is left of it.
+#
+# No customer note is ever sent: the names are in the test. Manual, and
+# weekly, so a change in the model's answers shows up without anybody having
+# to look.
+name: Icon Suggest (live)
+
+on:
+  workflow_dispatch:
+    inputs:
+      models:
+        description: "Also compare decision models (Clef, Clef Flash, Jev) and meaning fingerprints"
+        type: boolean
+        required: false
+        default: false
+  schedule:
+    - cron: "17 6 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: icon-suggest-live
+  cancel-in-progress: false
+
+jobs:
+  live:
+    name: Icon suggestions against the deployed Worker
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    env:
+      ICON_LIVE_URL: ${{ secrets.TRANSCRIBE_WORKER_URL }}
+      ICON_LIVE_SECRET: ${{ secrets.TRANSCRIBE_WORKER_SECRET }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Refuse to run without the Worker's address and secret
+        run: |
+          for var in ICON_LIVE_URL ICON_LIVE_SECRET; do
+            if [ -z "${!var}" ]; then echo "::error::$var is empty in the production environment."; exit 1; fi
+          done
+      - name: Suggest icons for real names out of every emoji
+        working-directory: apps/convex
+        run: npx vitest run __tests__/iconSuggest.live.test.ts
+      - name: Compare decision models on the icon suggestion
+        if: ${{ !cancelled() && inputs.models }}
+        working-directory: apps/convex
+        env:
+          ICON_MODELS_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ICON_MODELS_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+        run: npx vitest run __tests__/iconSuggest.models.live.test.ts __tests__/iconSuggest.meaning.live.test.ts

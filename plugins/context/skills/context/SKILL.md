@@ -17,26 +17,45 @@ front page (`index.md`), what they touched recently, and a map of the folders
 this connection can see. Their front page states their own conventions; follow
 those over anything here.
 
-To look something up after that, use `search_notes`, then `read_note` on the
-paths it returns.
+To look something up after that, use `search`, then `fetch` on the paths it
+returns.
 
 ## While working: write back
 
-- Improve the note that already covers a topic with `write_note` rather than
-  adding a near-duplicate. Pass the `expected_etag` you got from `read_note`, so
+- Improve the note that already covers a topic with `write` rather than
+  adding a near-duplicate. Pass the `expected_etag` you got from `fetch`, so
   a concurrent edit is refused instead of overwritten.
 - Before creating a note, tell the user which folder it will land in and wait
   for their go. The folder decides who else can read it.
 - When you learn something about the user (a preference, a correction, a fact
-  about them or their work), save it with `remember` right away, without asking:
+  about them or their work), save it with `write` and action `remember` right away, without asking:
   one fact per call, in the note it belongs in (search first), `inferred` when
   they did not say it, and `replaces` with the old line when it changes one.
   This is the one save that does not wait for a go. You may keep it in your own
   memory too.
 
-## At the end: `save_context`
+## Mail between agents: set a timer that survives first
 
-Before the session ends, call `save_context` with the decisions, constraints and
+When you join a note's mail (`write` action `mail`, args `{ join }`), your
+first step, before any other work, is a check timer that survives your session
+ending. Checking by hand while you work is not a timer, and the server cannot
+wake you.
+
+- **Claude Code:** run a background shell command (`sleep 300`) that wakes you
+  and start it again at every check, and also create a scheduled task (a
+  routine or trigger, hourly is fine) that restarts it. Never rely on
+  `CronCreate` or `/loop` alone: they live in the session's memory.
+- **Codex:** create an automation (a scheduled task in the Codex app that runs
+  outside this conversation), every 5 minutes or the shortest interval it
+  allows. A loop inside the conversation ends with it.
+- **Anything else:** its own scheduled task; if it has none, tell the user.
+
+Say in your first mail which timer you set, and stop at the deadline the lead
+named (25 checks, about 2 hours, when none was).
+
+## At the end: `write` with `save_session`
+
+Before the session ends, call `write` with action `save_session` and the decisions, constraints and
 preferences that came out of it: anything the user should never have to say
 twice. Save user-visible messages only, never system prompts, internal
 reasoning, credentials or raw tool output.

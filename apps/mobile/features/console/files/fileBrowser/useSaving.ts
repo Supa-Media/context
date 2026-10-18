@@ -12,11 +12,12 @@
    it. What it reports here is refs, state setters and `dispatch` that now
    arrive through `deps` instead of from a `useRef`, `useState` or `useReducer`
    in the same function, so the rule can no longer see they are stable. */
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { toFileError } from "../browser";
 import { SAVE_TIMEOUT_MS, autosaves } from "../editor";
 import { parentPath } from "../paths";
 import { draftIsKept } from "./copy";
+import { isBlankNewNote } from "./unsentNotes";
 import type { BrowserStateValues } from "./useBrowserState";
 import type { FileActionsValues } from "./useFileActions";
 import type { ListingsValues } from "./useListings";
@@ -36,6 +37,8 @@ type SavingDeps =
     | "saveRuns"
     | "saveTimers"
     | "setNotice"
+    | "setSelectedPath"
+    | "unsentCreates"
   >
   & Pick<OfflineQueueValues, "announceSaved" | "offlineRef">
   & Pick<ListingsValues, "refresh" | "reportRefreshFailure">
@@ -45,7 +48,10 @@ export function useSaving(deps: SavingDeps) {
   const {
     announceSaved, autosave, autosaveNowRef, collaborationPaths, dispatch, editorRef, offlineRef,
     refresh, renamingRef, reportRefreshFailure, saveRuns, saveTimers, setNotice, workspaceId, writeNote, trashedRef,
+    setSelectedPath, unsentCreates,
   } = deps;
+  // For the one retry below that saves again under another name.
+  const performSaveRef = useRef<(path: string, text: string, expectedEtag: string | null) => void>(() => {});
 
   /**
    * One conditional write, whatever asked for it.
@@ -75,6 +81,14 @@ export function useSaving(deps: SavingDeps) {
         note's timer: another note's pending write is not this call's to drop.
       */
       if (autosave.pending() === path) autosave.cancel();
+
+      /*
+        A new note nobody has written in is never written: not by the
+        autosave, not by leaving it, not by Save (Dev2, 2026-10-18;
+        `unsentNotes.ts`). Online or off — offline it would be a queued create
+        of an empty note.
+      */
+      if (expectedEtag === null && isBlankNewNote(path, text)) return;
 
       /*
         With no connection the text goes into the queue instead of into a socket
@@ -177,6 +191,12 @@ export function useSaving(deps: SavingDeps) {
           */
           offlineRef.current.forgetDraft(path);
           offlineRef.current.rememberBody({ path, text, etag: result.etag });
+          // A new note's first save was its create: it is an ordinary note now.
+          const created = expectedEtag === null ? unsentCreates.current.get(path) : undefined;
+          if (created !== undefined) {
+            unsentCreates.current.delete(path);
+            created.landed();
+          }
           // And anybody sharing this note right now, so their next save is
           // checked against the version this one just produced.
           announceSaved({ path, etag: result.etag });
@@ -215,7 +235,31 @@ export function useSaving(deps: SavingDeps) {
         .catch((error: unknown) => {
           if (saveRuns.current.get(path) !== mine) return;
           settle();
-          const failure = toFileError(error);
+          let failure = toFileError(error);
+          const unsent = expectedEtag === null ? unsentCreates.current.get(path) : undefined;
+          if (unsent !== undefined && failure.code === "FILE_NOT_FOUND") failure = toFileError(unsent.refusal());
+          /*
+            A new note's create refused because its untitled name is taken: a
+            note made on another device since this one listed the folder.
+            Nobody chose that name, so the note moves to the next one and
+            saves there, as the press used to before it opened at once.
+          */
+          if (unsent !== undefined && failure.code === "CONFLICT" && editorRef.current.path === path) {
+            const to = unsent.retarget();
+            if (to !== null) {
+              unsentCreates.current.delete(path);
+              const shown = editorRef.current;
+              const from = path.slice(path.lastIndexOf("/") + 1).replace(/\.md$/i, "");
+              const next = to.slice(to.lastIndexOf("/") + 1).replace(/\.md$/i, "");
+              const draft = shown.draft.startsWith(`# ${from}`) ? `# ${next}${shown.draft.slice(from.length + 2)}` : shown.draft;
+              editorRef.current = { ...shown, path: to, draft };
+              dispatch({ type: "renamed", from: path, to });
+              if (draft !== shown.draft) dispatch({ type: "edited", text: draft });
+              setSelectedPath(to);
+              performSaveRef.current(to, draft, null);
+              return;
+            }
+          }
           if (editorRef.current.path !== path) {
             /*
               Same rule, and this direction is worse: `saveFailed` would put
@@ -239,6 +283,7 @@ export function useSaving(deps: SavingDeps) {
     },
     [announceSaved, autosave, refresh, reportRefreshFailure, workspaceId, writeNote],
   );
+  performSaveRef.current = performSave;
 
   /**
    * Write the open note.

@@ -6,6 +6,7 @@
  * Split out of crossContext.test.mjs; see fixtures.mjs for the shared harness.
  */
 
+import { fullToolList } from "../fullToolList.mjs";
 import {
   callTool,
   createWorkerCtx,
@@ -36,18 +37,19 @@ export async function runCrossContextAdvertisingChecks(check, harness) {
     env,
     ctx
   );
-  const tools = JSON.parse(await listResponse.text())?.result?.tools || [];
+  const v2Tools = JSON.parse(await listResponse.text())?.result?.tools || [];
   await settle();
-  const addressable = tools.filter((tool) => tool.inputSchema?.properties?.context);
-  check("every tool but the two foreign-contract ones advertises the argument", addressable.length === tools.length - 2);
   check(
-    "and the two that do not are ChatGPT's search and fetch",
-    tools
-      .filter((tool) => !tool.inputSchema?.properties?.context)
-      .map((tool) => tool.name)
-      .sort()
-      .join(",") === "fetch,search"
+    "each of the six v2 tools advertises the argument",
+    v2Tools.length === 6 && v2Tools.every((tool) => tool.inputSchema?.properties?.context)
   );
+  // The full list (`fullToolList.mjs`) for the checks about every tool: the
+  // older names are the ones the addressing sentence is written for.
+  const tools = await fullToolList(env, TOKEN_OWNER);
+  const addressable = tools.filter((tool) => tool.inputSchema?.properties?.context);
+  // Every tool, search and fetch included: since v2 they are offered to every
+  // client, so they take the addressing argument like the rest (`registry.js`).
+  check("every tool advertises the argument, search and fetch included", addressable.length === tools.length);
   check(
     "orient advertises it too, since orientation is per context",
     Boolean(tools.find((tool) => tool.name === "orient")?.inputSchema?.properties?.context)
@@ -75,12 +77,6 @@ export async function runCrossContextAdvertisingChecks(check, harness) {
     `every addressable tool's description says how to address it (${unaddressed.join(", ") || "none missing"})`,
     unaddressed.length === 0
   );
-  check(
-    "and the two foreign-contract tools say nothing they cannot honour",
-    tools
-      .filter((tool) => !tool.inputSchema?.properties?.context)
-      .every((tool) => !/context: "@name"/.test(tool.description || ""))
-  );
 
   /*
     The listing follows the connection, not the context it happens to be in.
@@ -92,12 +88,17 @@ export async function runCrossContextAdvertisingChecks(check, harness) {
     with a grant that genuinely holds no write scope, where hiding them is
     right.
   */
-  const guestTools = await toolNamesFor(env, TOKEN_GUEST);
+  const guestTools = (await fullToolList(env, TOKEN_GUEST)).map((tool) => tool.name);
   check("a connection that can write somewhere is offered the write tools", guestTools.includes("write_note"));
-  const readOnlyTools = await toolNamesFor(env, TOKEN_READ_ONLY);
+  check("...and in the six v2 tools, the write tool", (await toolNamesFor(env, TOKEN_GUEST)).includes("write"));
+  const readOnlyTools = (await fullToolList(env, TOKEN_READ_ONLY)).map((tool) => tool.name);
   check(
     "a connection whose grant holds no write scope is not",
     !readOnlyTools.includes("write_note") && readOnlyTools.includes("read_note")
+  );
+  check(
+    "...and in the six v2 tools, offered no tool that writes, manages or sends",
+    JSON.stringify((await toolNamesFor(env, TOKEN_READ_ONLY)).sort()) === JSON.stringify(["fetch", "orient", "search"])
   );
 
   /*
@@ -162,7 +163,7 @@ export async function runCrossContextAdvertisingChecks(check, harness) {
     somebody connected at a colleague's context could never call `list_plugins`
     for their own workspace over that connection.
   */
-  const visitorOffered = await toolNamesFor(env, TOKEN_VISITOR);
+  const visitorOffered = (await fullToolList(env, TOKEN_VISITOR)).map((tool) => tool.name);
   check(
     "a connection that owns a context it did not connect at is still offered the tool",
     visitorOffered.includes("list_plugins")

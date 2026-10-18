@@ -154,7 +154,7 @@ test("orient carries the global note first, for a member who reaches it through 
   const text = await orient(TOKEN_READER);
   assert.ok(text.includes(RULE), "the rule is in orient");
   const global = text.indexOf(RULE);
-  assert.ok(global < text.indexOf("## Front page"), "before the person's own front page");
+  assert.ok(global < text.indexOf("## Workspaces"), "before the workspaces, the person's own front page among them");
   assert.ok(!text.includes("updated: 2026-09-29"), "frontmatter is not shown");
 });
 
@@ -173,7 +173,7 @@ test("a deployment with no pinned context gets no section and no error", async (
   const text = await orient(TOKEN_LONELY);
   assert.ok(!text.includes(RULE));
   assert.ok(!/## .*every workspace/i.test(text));
-  assert.ok(text.includes("# Orientation"));
+  assert.ok(text.includes("# Context"));
 });
 
 test("it is capped at the line limit and says where the rest is", async () => {
@@ -206,7 +206,7 @@ test("an unreachable pinned bucket never fails orient", async () => {
   pinnedBucket.delete("privacy.md");
   try {
     const text = await orient(TOKEN_READER);
-    assert.ok(text.includes("# Orientation"));
+    assert.ok(text.includes("# Context"));
   } finally {
     pinnedBucket.set("privacy.md", saved);
   }

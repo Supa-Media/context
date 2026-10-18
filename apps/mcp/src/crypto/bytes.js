@@ -1,16 +1,13 @@
 /**
- * Base64 codecs and a constant-time comparison, shared by the Granola webhook
- * signature check and the key-rotation progress MAC. Moved verbatim out of
- * `src/index.js`.
+ * Base64 codecs and a constant-time comparison, shared by the key-rotation
+ * progress MAC, the vault seal and the mover's ticket check.
  */
 
 /**
  * Constant-time string comparison, for the webhook HMAC above.
  *
- * The only remaining secret comparison in this worker. Access tokens are not
- * compared here at all — they are hashed and resolved by the control plane —
- * which is why this lives beside its one caller instead of in a shared auth
- * section that no longer exists.
+ * Access tokens are not compared here at all — they are hashed and resolved by
+ * the control plane.
  */
 export function timingSafeEqual(a, b) {
   if (typeof a !== "string" || typeof b !== "string" || !a || !b) return false;

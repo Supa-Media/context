@@ -42,6 +42,7 @@ import { noteHref } from "../console/nav";
 import { PLATFORM_ORIGIN } from "../site/host";
 import { NoteBody } from "./NoteBody";
 import { SharedConsole } from "./SharedConsole";
+import { ReportPageLink, currentAddress } from "../report/ReportLink";
 import { loginHref } from "../auth/redirect";
 import { ShareForm, collectAddress, type CollectAddress } from "./ShareForm";
 import { fenceAsForm } from "./collectForm";
@@ -222,6 +223,23 @@ export function ShareScreen({
     router.push(back);
   }, [requestedPath, router, segment, shortLink, site]);
 
+  // "Report" under the page: the server is handed the token (or the short
+  // link's handle) and forwards ids only; a signed-out reader gets an email.
+  const reportTarget =
+    shortLink !== undefined
+      ? { kind: "public_page" as const, handle: shortLink.handle, path: `/${shortLink.slug}` }
+      : token !== null
+        ? { kind: "public_page" as const, token }
+        : null;
+  const report =
+    reportTarget === null ? undefined : (
+      <ReportPageLink
+        target={reportTarget}
+        address={() => currentAddress(`${PLATFORM_ORIGIN}${hrefFor() ?? ""}`)}
+        style={styles.reportText}
+      />
+    );
+
   if (view.kind === "wait") return <View style={styles.ground} />;
   if (view.kind === "signIn") {
     // Never a sign-in on a customer's origin: continue on ours instead.
@@ -250,6 +268,7 @@ export function ShareScreen({
         signedIn={auth.isAuthenticated}
         onOpen={open}
         onSignIn={signIn}
+        report={report}
       />
     );
   }
@@ -278,6 +297,7 @@ export function ShareScreen({
           />
         )}
         {site !== undefined ? <PublishedWith /> : null}
+        {view.kind === "ready" && report !== undefined ? <View style={styles.report}>{report}</View> : null}
       </CenteredScroll>
     </View>
   );
@@ -367,7 +387,7 @@ function Unavailable() {
  *
  * ## Why this is a list and not a rendered document
  *
- * A folder has no body. The page a reader wants is the one Drive and Dropbox
+ * A folder has no body. The page a reader wants is the one Drive and other file apps
  * give them — the names, each openable, subfolders enterable — and every entry
  * here has already been through the privacy engine at `team` scope on the
  * server, so what is drawn is exactly what may be read. There is no filtering
@@ -600,4 +620,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   linkList: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
   card: { borderRadius: radii.xl },
   publishedWith: { alignSelf: "center", paddingVertical: 18 },
+  report: { alignSelf: "center", paddingVertical: 12 },
+  reportText: { color: colors.muted },
 });

@@ -13,25 +13,38 @@
  *   the reply is sent or given up on. Then it is deleted.
  * - `seen:<eventId>` holds a timestamp, never text, for a day, so a webhook
  *   that Linq redelivers is answered once.
- * - `chat` holds the Linq chat id of this sender's last accepted text, never
- *   text, so a routine can text them unprompted (routines.ts). Linq's line
- *   only reaches people who texted it first, and this is the record of that.
+ * - `chat` holds the chat id of this sender's last accepted text (Linq's, or
+ *   `sendblue:<line>:<phone>`), never text, so a routine can text them
+ *   unprompted (routines.ts), on the line they texted. Tex only reaches people
+ *   who texted it first, and this is the record of that.
+ * - `media:<token>` holds a picture from the person's notes for at most half
+ *   an hour, while Sendblue fetches it (`media.ts`).
  * - `card` holds a timestamp, never text: when this sender was last offered
  *   the line's contact card, so it is offered at most once a day.
+ * - `ready` holds the phone, the chat id and times, never text, while Tex owes
+ *   somebody set up by text the "your notes are ready" text (`ready.ts`); it
+ *   goes when that text is sent, or after twenty minutes.
  * Conversation history is not kept here at all; the gateway keeps it in the
  * person's own bucket.
  *
  * A photo and its words often arrive as two texts, the photo first. So a text
  * that is only files waits `MEDIA_WAIT_MS` for words to follow, and `drain`
  * folds it into the next text, so the person gets one answer about the photo
- * rather than "what photo?" and then a reply to the photo alone.
+ * rather than "what photo?" and then a reply to the photo alone. The words can
+ * also arrive first, so words alone wait `TEXT_WAIT_MS`, and a photo that
+ * lands behind them is folded into them.
  */
 
-import { markLinqRead, sendLinqText, shareLinqContactCard, startLinqTyping, type Fetch } from "./clients";
 import { textsFromAnswer } from "./format";
 import { MAX_INBOUND_ATTACHMENTS } from "./inbound";
-import { COPY, replyTo, type Message, type ReplyDeps } from "./reply";
+import { lineFor, type LineDeps } from "./line";
+import { pruneMedia } from "./media";
+import { CARD_VERSION } from "./card";
+import { isSendblueChat } from "./sendblue";
+import { PICTURE_FAILED, describePart, partsFor, type Media, type OutgoingPicture, type SendPart } from "./outgoing";
+import { COPY, replyTo, TryLater, type Message, type ReplyDeps } from "./reply";
 import { record } from "./simulator";
+import { oweReadyText } from "./ready";
 
 /** The subset of `DurableObjectStorage` this uses, so tests can pass a Map. */
 export type InboxStorage = {
@@ -40,15 +53,24 @@ export type InboxStorage = {
   delete(key: string): Promise<boolean>;
   list<T>(options: { prefix: string }): Promise<Map<string, T>>;
   setAlarm(scheduledTime: number): Promise<void>;
+  /** When the alarm is set for, if it is; absent in tests that do not need it. */
+  getAlarm?(): Promise<number | null>;
 };
 
-export type InboxDeps = ReplyDeps & { linqApiKey: string; now: () => number };
+export type InboxDeps = ReplyDeps & Omit<LineDeps, "fetch"> & { now: () => number };
 
-/** `reply` was one string before a reply could be several texts; both are read. */
-type Pending = { message: Message; reply?: string[] | string; attempts: number };
+/**
+ * `reply` was one string before a reply could be several texts; both are read.
+ * A picture in it is an uploaded attachment's id or a web address, never bytes.
+ * `sent` counts the parts already sent, so a retry after a partial send repeats
+ * none of them on a line with no idempotency key (Sendblue).
+ */
+type Pending = { message: Message; reply?: SendPart[] | string; attempts: number; tries?: number; sent?: number };
 
 export const SEEN_FOR_MS = 24 * 60 * 60 * 1000;
 export const MAX_SEND_ATTEMPTS = 3;
+/** Tries at a text whose turn could not start (`TryLater`), the last one saying so. */
+export const MAX_ANSWER_ATTEMPTS = 3;
 /** Most pending messages one sender may have queued; beyond it, new ones are dropped. */
 export const MAX_PENDING = 20;
 
@@ -61,12 +83,34 @@ export const CHAT_KEY = "chat";
 /** When this sender was last offered the contact card; Linq asks for once a day at most. */
 export const CARD_KEY = "card";
 export const CARD_EVERY_MS = 24 * 60 * 60 * 1000;
+/** A Sendblue chat's card is a message the person sees, so it goes once per chat and `CARD_VERSION`, not daily. */
+export const cardSentKey = (chatId: string) => `card-sent:${chatId}`;
+/** When a Sendblue chat's card or Name & Photo was last tried; per chat, so a card offered on Linq never holds back the new line's. */
+export const cardOfferedKey = (chatId: string) => `card-offered:${chatId}`;
+/** Set when someone who texted Tex's old Linq line first texts the new one; their first reply there says so. */
+export const NEW_LINE_KEY = "new-line";
+export const NEW_LINE_TEXT = "Tex here, on my new number. Text me here from now on; my contact card is coming so you can save it.";
+/** Set once this sender was texted the new number on the old line (`newLine.ts`); then the new line needs no such line. */
+export const NEW_LINE_TOLD_KEY = "new-line-told";
+/** The `CARD_VERSION` of a Sendblue chat's Name & Photo, once shared; tried again on the next day's offer until it is. */
+export const profileSharedKey = (chatId: string) => `profile-shared:${chatId}`;
+/** The `CARD_VERSION` this chat last set the line's Name & Photo to, so a new photo is set once per chat, not every offer. */
+export const profileSetKey = (chatId: string) => `profile-set:${chatId}`;
 export type RememberedChat = { chatId: string; channel?: "simulator"; at: number };
 
 /** How long a text that is only a photo or file waits for its words. */
 export const MEDIA_WAIT_MS = 4_000;
 
+/**
+ * How long words with no file wait for a photo sent just before them: Messages
+ * sends the photo first, but its upload can make Linq deliver the words first
+ * (2026-10-16, a photo then "and this one?" 0.4 s apart arrived words first and
+ * got two answers).
+ */
+export const TEXT_WAIT_MS = 3_000;
+
 const mediaOnly = (message: Message) => message.text.trim() === "" && (message.attachments?.length ?? 0) > 0;
+const wordsOnly = (message: Message) => message.text.trim() !== "" && (message.attachments?.length ?? 0) === 0;
 
 const seenKey = (eventId: string) => `seen:${eventId}`;
 const pendingKey = (seq: number) => `pending:${String(seq).padStart(12, "0")}`;
@@ -84,13 +128,20 @@ export async function accept(
   await storage.put("seq", seq);
   await storage.put(seenKey(message.eventId), now);
   await storage.put<Pending>(pendingKey(seq), { message, attempts: 0 });
+  const previous = await storage.get<RememberedChat>(CHAT_KEY);
+  const told = (await storage.get<number>(NEW_LINE_TOLD_KEY)) !== undefined;
+  if (previous && !told && previous.channel !== "simulator" && !isSendblueChat(previous.chatId) && isSendblueChat(message.chatId)) {
+    await storage.put(NEW_LINE_KEY, message.chatId);
+  }
   await storage.put<RememberedChat>(CHAT_KEY, {
     chatId: message.chatId,
     ...(message.channel === "simulator" ? { channel: "simulator" as const } : {}),
     at: now,
   });
-  // Nothing else is waiting, so a lone photo can wait for its words.
-  await storage.setAlarm(mediaOnly(message) && pending.size === 0 ? now + MEDIA_WAIT_MS : now);
+  // Nothing else is waiting, so a lone photo can wait for its words, and lone
+  // words for a photo still on its way.
+  const wait = pending.size > 0 ? 0 : mediaOnly(message) ? MEDIA_WAIT_MS : wordsOnly(message) ? TEXT_WAIT_MS : 0;
+  await storage.setAlarm(now + wait);
   return "queued";
 }
 
@@ -99,22 +150,42 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
   const pending = await fold(storage, await storage.list<Pending>({ prefix: "pending:" }));
   for (const [key, item] of pending) {
     const stored = item.reply;
-    const reply = stored === undefined ? await answering(item.message, deps, storage) : [stored].flat();
+    let reply: SendPart[];
+    if (stored !== undefined) reply = [stored].flat();
+    else {
+      const tries = (item.tries ?? 0) + 1;
+      try {
+        reply = await answering(item.message, { ...deps, retry: tries < MAX_ANSWER_ATTEMPTS }, storage);
+      } catch (error) {
+        if (!(error instanceof TryLater)) throw error;
+        // Nothing ran, so this text and the ones behind it wait; later ones keep their order.
+        await storage.put<Pending>(key, { ...item, tries });
+        await storage.setAlarm(deps.now() + 2 ** tries * 5_000);
+        return;
+      }
+    }
+    // The first answer on the new line says it is Tex's new number, once.
+    const movedTo = stored === undefined ? await storage.get<string>(NEW_LINE_KEY) : undefined;
+    if (movedTo !== undefined && movedTo === item.message.chatId) {
+      reply = [NEW_LINE_TEXT, ...reply];
+      await storage.delete(NEW_LINE_KEY);
+    }
+    let sent = item.sent ?? 0;
     try {
       // Each text keeps its own idempotency key, so a retry after a partial
-      // send repeats nothing Linq already accepted.
-      for (const [index, text] of reply.entries()) {
+      // send repeats nothing Linq already accepted; `sent` does the same on
+      // a line without keys.
+      const line = lineFor(lineDeps(deps), item.message.chatId);
+      for (const [index, part] of reply.entries()) {
+        if (index < sent) continue;
         if (item.message.channel === "simulator") {
-          await record(storage, "in", text, deps.now());
+          await record(storage, "in", describePart(part), deps.now());
           continue;
         }
-        await sendLinqText(
-          deps.fetch as Fetch,
-          deps.linqApiKey,
-          item.message.chatId,
-          text,
-          index === 0 ? `reply:${item.message.eventId}` : `reply:${item.message.eventId}:${index}`,
-        );
+        const key = index === 0 ? `reply:${item.message.eventId}` : `reply:${item.message.eventId}:${index}`;
+        if (typeof part === "string") await line.sendText(item.message.chatId, part, key);
+        else await sendPicture(deps, item.message.chatId, part.media, key);
+        sent = index + 1;
       }
       await storage.delete(key);
       if (item.message.channel !== "simulator") await offerCard(storage, item.message.chatId, deps);
@@ -126,30 +197,73 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
       }
       // Keep the computed reply so a retry sends the same answer rather than
       // asking the model again; it is deleted with the item.
-      await storage.put<Pending>(key, { message: item.message, reply, attempts });
+      await storage.put<Pending>(key, { message: item.message, reply, attempts, sent });
       await storage.setAlarm(deps.now() + 2 ** attempts * 5_000);
       return;
     }
   }
   await pruneSeen(storage, deps.now());
+  await pruneMedia(storage, deps.now());
+}
+
+function lineDeps(deps: InboxDeps): LineDeps {
+  return { fetch: deps.fetch as LineDeps["fetch"], linqApiKey: deps.linqApiKey, sendblue: deps.sendblue, hostPicture: deps.hostPicture };
 }
 
 /**
- * Share the line's contact card, so Messages names it "Context" with its icon,
- * once a day at most. Linq needs an outbound message in the chat first, which
- * is why this runs after a reply was sent. The time is kept whether or not Linq
+ * Share the line's contact card, so Messages names it with its icon, once a
+ * day at most. Linq needs an outbound message in the chat first, which is why
+ * this runs after a reply was sent. The time is kept whether or not the line
  * accepted it, so a line with no card set up costs one request a day, not one
- * per text.
+ * per text. On Sendblue the card is a .vcf in the chat (`card.ts`), so once
+ * the current card went it never goes again in that chat, and a new
+ * `CARD_VERSION` sends it once more, at once; the line's Name & Photo is
+ * shared apart from it, and set again with a new photo before it is.
  */
 async function offerCard(storage: InboxStorage, chatId: string, deps: InboxDeps): Promise<void> {
-  const last = await storage.get<number>(CARD_KEY);
-  if (last !== undefined && deps.now() - last < CARD_EVERY_MS) return;
-  await storage.put(CARD_KEY, deps.now());
-  await shareLinqContactCard(deps.fetch as Fetch, deps.linqApiKey, chatId);
+  if (!isSendblueChat(chatId)) {
+    const last = await storage.get<number>(CARD_KEY);
+    if (last !== undefined && deps.now() - last < CARD_EVERY_MS) return;
+    await storage.put(CARD_KEY, deps.now());
+    await lineFor(lineDeps(deps), chatId).shareContactCard(chatId);
+    return;
+  }
+  const sentAs = versionOf(await storage.get<number | boolean>(cardSentKey(chatId)));
+  const sharedAs = versionOf(await storage.get<number | boolean>(profileSharedKey(chatId)));
+  if (sentAs === CARD_VERSION && sharedAs === CARD_VERSION) return;
+  // A day between tries, except that a newer card is tried at once.
+  const offered = await storage.get<number | Offered>(cardOfferedKey(chatId));
+  const last = typeof offered === "number" ? { at: offered, version: 1 } : offered;
+  if (last !== undefined && last.version === CARD_VERSION && deps.now() - last.at < CARD_EVERY_MS) return;
+  await storage.put<Offered>(cardOfferedKey(chatId), { at: deps.now(), version: CARD_VERSION });
+
+  const line = lineFor(lineDeps(deps), chatId);
+  if (sentAs !== CARD_VERSION && (await line.shareContactCard(chatId))) await storage.put(cardSentKey(chatId), CARD_VERSION);
+  if (sharedAs === CARD_VERSION) return;
+  // A chat that knew an older card sets the new photo on the line first, once; it is shared on a later offer.
+  const older = sharedAs !== undefined || (last !== undefined && last.version !== CARD_VERSION);
+  const refresh = older && (await storage.get<number>(profileSetKey(chatId))) !== CARD_VERSION;
+  const shared = await line.shareProfile(chatId, refresh);
+  if (shared === "refreshed") await storage.put(profileSetKey(chatId), CARD_VERSION);
+  if (shared === "shared") await storage.put(profileSharedKey(chatId), CARD_VERSION);
+}
+
+type Offered = { at: number; version: number };
+
+/** A card or profile recorded before versions were kept (`true`) was version 1. */
+function versionOf(value: number | boolean | undefined): number | undefined {
+  return value === true ? 1 : typeof value === "number" ? value : undefined;
 }
 
 /** Linq clears the typing bubble after about 85 seconds; this renews it sooner. */
 export const TYPING_REFRESH_MS = 55_000;
+/**
+ * The bubble asked for again this soon after the first: on Sendblue the read
+ * receipt and the bubble go out back to back, and Dev2 (2026-10-18) saw
+ * "Read" with no bubble for 15 seconds, so the second ask lands after the
+ * receipt has.
+ */
+export const TYPING_AGAIN_MS = 1_500;
 
 /**
  * How long a turn may run without a word before the person is told it is a
@@ -172,7 +286,43 @@ export const WORKING_NUDGE_MS = 40_000;
  * key, and are not retried with the answer: a line about where a task had got
  * to is stale by the time a retry would send it.
  */
-async function answering(message: Message, deps: InboxDeps, storage: InboxStorage): Promise<string[]> {
+async function answering(message: Message, deps: InboxDeps, storage: InboxStorage): Promise<SendPart[]> {
+  let pictures: OutgoingPicture[] = [];
+  // Setup started their bucket: Tex owes this chat a text once it is ready (`ready.ts`).
+  const onSetUp = () =>
+    oweReadyText(
+      storage,
+      { phone: message.from, chatId: message.chatId, ...(message.channel === "simulator" ? { channel: "simulator" as const } : {}) },
+      deps.now(),
+    );
+  const texts = await answerTexts(message, { ...deps, onSetUp, onPictures: (sent) => void (pictures = sent) }, storage);
+  if (pictures.length === 0) return texts;
+  // The simulator has no Linq to upload to; its log says a picture went.
+  const upload =
+    message.channel === "simulator"
+      ? async (): Promise<Media> => ({ attachment_id: "simulator" })
+      : (picture: { name: string; mediaType: string; data: string }) =>
+          lineFor(lineDeps(deps), message.chatId).uploadPicture(picture);
+  return await partsFor(texts, pictures, upload);
+}
+
+/**
+ * A picture that Linq refuses (a web address that is gone, or not an image)
+ * becomes a sentence saying so rather than a reply retried until dropped; a
+ * failure that is not a refusal is retried with the reply.
+ */
+async function sendPicture(deps: InboxDeps, chatId: string, media: Media, key: string) {
+  const line = lineFor(lineDeps(deps), chatId);
+  try {
+    await line.sendMedia(chatId, media, key);
+  } catch (error) {
+    const status = (error as { status?: number | null }).status;
+    if (typeof status !== "number" || status < 400 || status >= 500 || status === 429) throw error;
+    await line.sendText(chatId, PICTURE_FAILED, `${key}:failed`);
+  }
+}
+
+async function answerTexts(message: Message, deps: InboxDeps, storage: InboxStorage): Promise<string[]> {
   const simulator = message.channel === "simulator";
   let progressSent = 0;
   let chain: Promise<void> = Promise.resolve();
@@ -183,9 +333,10 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
       try {
         if (simulator) await record(storage, "in", text, deps.now());
         else {
-          await sendLinqText(deps.fetch as Fetch, deps.linqApiKey, message.chatId, text, `progress:${message.eventId}:${index}`);
+          const line = lineFor(lineDeps(deps), message.chatId);
+          await line.sendText(message.chatId, text, `progress:${message.eventId}:${index}`);
           // Sending a text clears the bubble; the task is still going.
-          await startLinqTyping(deps.fetch as Fetch, deps.linqApiKey, message.chatId);
+          await line.startTyping(message.chatId);
         }
       } catch {
         // A progress line that failed costs the person a line, never the answer.
@@ -212,10 +363,14 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
   }
   // Read first, then the bubble, as a person would: the text is seen, then
   // answered. Both are quick and never throw.
-  await markLinqRead(deps.fetch as Fetch, deps.linqApiKey, message.chatId);
-  const typing = () => startLinqTyping(deps.fetch as Fetch, deps.linqApiKey, message.chatId);
+  const line = lineFor(lineDeps(deps), message.chatId);
+  await line.markRead(message.chatId);
+  const typing = () => line.startTyping(message.chatId);
   await typing();
   let renewal: Promise<void> = Promise.resolve();
+  const again = setTimeout(() => {
+    renewal = typing();
+  }, TYPING_AGAIN_MS);
   const timer = setInterval(() => {
     renewal = typing();
   }, TYPING_REFRESH_MS);
@@ -223,6 +378,7 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
     return await replyTo(message, { ...deps, onProgress });
   } finally {
     clearTimeout(nudge);
+    clearTimeout(again);
     clearInterval(timer);
     await renewal;
     await chain;
@@ -231,8 +387,9 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
 
 /**
  * A text that is only files, followed by another not yet answered, becomes
- * part of that one: its files go first, in the order sent. The last text is
- * never folded, so files with no words after them are still answered.
+ * part of that one: its files go first, in the order sent. Files with no words
+ * after them join the words-only text just before them instead, which they
+ * overtook on the way; otherwise they are answered on their own.
  */
 async function fold(storage: InboxStorage, pending: Map<string, Pending>): Promise<Map<string, Pending>> {
   const entries = [...pending];
@@ -242,9 +399,17 @@ async function fold(storage: InboxStorage, pending: Map<string, Pending>): Promi
     if (next && item.reply === undefined && next.reply === undefined && mediaOnly(item.message)) {
       next.message = {
         ...next.message,
+        ...(next.message.quoted ?? item.message.quoted ? { quoted: next.message.quoted ?? item.message.quoted } : {}),
         attachments: [...(item.message.attachments ?? []), ...(next.message.attachments ?? [])].slice(0, MAX_INBOUND_ATTACHMENTS),
       };
       await storage.put<Pending>(entries[index + 1][0], next);
+      await storage.delete(key);
+      continue;
+    }
+    const before = [...kept].at(-1);
+    if (before && item.reply === undefined && before[1].reply === undefined && mediaOnly(item.message) && wordsOnly(before[1].message)) {
+      before[1].message = { ...before[1].message, attachments: (item.message.attachments ?? []).slice(0, MAX_INBOUND_ATTACHMENTS) };
+      await storage.put<Pending>(before[0], before[1]);
       await storage.delete(key);
       continue;
     }

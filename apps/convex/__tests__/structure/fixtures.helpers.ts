@@ -137,25 +137,10 @@ export const DECRYPT_IMPORTERS: ReadonlySet<string> = new Set([
   // not added: the set did not grow, and this module registers nothing.
   "functions/lib/storage/credentialOpening.ts",
   "functions/cloudflare.ts",
-  // THE THIRD, AND WHAT IT OPENS.
-  //
-  // Not a storage credential and not an account credential: a **PKCE
-  // verifier**, parked for the ten minutes between sending somebody to
-  // Dropbox and their coming back. It is sealed at rest for the same reason
-  // the others are — this table would otherwise hold a live half-credential in
-  // the clear — and it is opened in exactly one place, `exchangeAndBind`,
-  // which is reachable only by a schedule edge.
-  //
-  // Worth stating plainly because the argument for a third importer is the
-  // argument the comment above says to be suspicious of: it could not call one
-  // of the two that already decrypt, because neither has anything to do with
-  // an OAuth flow, and folding it into `storage.ts` would put the connect
-  // handshake inside the module that serves credentials to the gateway.
-  "functions/dropboxConnect.ts",
   // THE FOURTH, AND THE ONLY ONE THAT OPENS NOBODY'S CREDENTIAL BUT OURS.
   //
   // Every importer above holds something belonging to a *customer* — their
-  // bucket key, their Cloudflare account, their half-finished Dropbox
+  // bucket key, their Cloudflare account, their half-finished connect
   // handshake — and the rules around them exist to keep one tenant's secret
   // away from another tenant and from every client. `appSecrets` is the other
   // direction: the platform's own integration credentials, the Cloudflare
@@ -198,17 +183,17 @@ export const DECRYPT_IMPORTERS: ReadonlySet<string> = new Set([
   "functions/encryptionKeys.ts",
   // THE SIXTH, AND THE SAME SHAPE AS THE THIRD ONE OVER.
   //
-  // `googleConnect.ts` is `dropboxConnect.ts`'s argument, restated for a
+  // `googleConnect.ts` is the connect argument, restated for a
   // different OAuth provider and a different credential: a PKCE verifier
   // parked for the ten minutes of a Google consent round trip
   // (`exchangeAndBind`), the account's refresh token opened one last time to
   // disable the WHOLE grant at Google after a disconnect
-  // (`revokeGoogleGrant`), and — the one without a Dropbox equivalent — a
+  // (`revokeGoogleGrant`), and — a
   // refresh token opened to mint a short-lived access token for the
   // gateway's sync job (`mintGoogleAccessToken`), the same "hand the gateway
   // minutes, not the standing grant" shape `getBindingForGateway` already
   // uses for a bucket credential. It could not call `storage.ts`'s decrypt
-  // path for the same reason `dropboxConnect.ts` could not: neither has
+  // path for the same reason the other connect flows could not: neither has
   // anything to do with an OAuth handshake for a *Google account*, and
   // folding a second provider's connect flow into either would put two
   // unrelated handshakes behind one module.
@@ -221,13 +206,20 @@ export const DECRYPT_IMPORTERS: ReadonlySet<string> = new Set([
   // cutover deletes that row, while failure keeps it solely for resumable
   // retry. No public return or route reaches it.
   "functions/managedProvisioning.ts",
+  // THE MOVER'S DOOR, SPLIT OUT OF managedProvisioning.ts TO KEEP THAT FILE UNDER ITS SIZE LIMIT.
+  //
+  // This is a new importer, and it opens nothing new: the same destination secret,
+  // for the same page, that `managedProvisioning.ts`'s migration copy opened before.
+  // `openMoverPage` is reachable only through a mover ticket the gateway spends.
+  // See `functions/lib/managedProvisioningFns/moverDoor.ts`.
+  "functions/lib/managedProvisioningFns/moverDoor.ts",
   // THE NINTH, AND THE SHORTEST-LIVED.
   //
   // After a storage move switches over, a writer that opened the old storage
   // a moment before can still finish into it. `runMoveCatchUp` opens the old
   // bucket's key for the passes, thirty minutes at most, that bring such a
   // write across. The envelope rides sealed in the scheduled arguments (the
-  // Dropbox funeral's shape), no table holds it, and the old bucket is only
+  // the funeral's shape), no table holds it, and the old bucket is only
   // read. Its own module rather than `managedProvisioning.ts` because it
   // serves every move, not only managed storage, and that file is at its size
   // limit. See `functions/lib/moveCatchUp.ts`.
@@ -238,7 +230,7 @@ export const DECRYPT_IMPORTERS: ReadonlySet<string> = new Set([
   // `chatProduct.ts` decrypts a PKCE verifier for its own connect round trip
   // (`exchangeAndBindChat`) — the same reason `googleConnect.ts` has one.
   // It is a sibling file rather than functions added to `googleConnect.ts`
-  // itself for the same reason that file gives for not folding Dropbox in:
+  // itself for the same reason that file gives for not folding a third flow in:
   // two independent connect flows (Gmail's and Chat's) patching one shared
   // row is a real design, not a reason to interleave their code.
   "functions/chatProduct.ts",
@@ -328,12 +320,10 @@ export const SCHEMA_ENCRYPTED_FIELDS = (() => {
  * because a barrier returning half a key pair has already returned too much.
  */
 export const PLAINTEXT_CREDENTIAL_FIELDS = [
-  // The S3 secret, and the Dropbox one. `accesstoken` matters as much as
-  // `secretaccesskey` and is easier to miss, because it is the *decrypted*
-  // half — the value `getBindingForGateway` hands the gateway, not an envelope
-  // with an offline step in front of it. It never appears as a schema column,
-  // so the derivation above cannot find it: at rest Dropbox is stored as
-  // `encryptedAccessToken`, and the bare `accessToken` exists only in flight.
+  // The S3 secret. `accesstoken` is kept from the removed provider's shape: it
+  // was the *decrypted* half, the value a gateway credential once carried, not
+  // an envelope with an offline step in front of it. Keeping the name guards
+  // against a decrypted token of that shape ever returning again.
   // A guard that only reads the schema is a guard that only knows the shapes
   // that sit still.
   "secretaccesskey",

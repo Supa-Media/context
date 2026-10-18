@@ -135,6 +135,22 @@ describe("the turn log", () => {
     expect(JSON.stringify(await turns(t, workspaceId))).not.toContain("SECRET-REASON");
   });
 
+  test("each model round keeps the model that ran it, so a planned turn shows its Opus and Haiku rounds", async () => {
+    const t = setupTest();
+    const { workspaceId, accessToken } = await texter(t);
+    const trace = [
+      { kind: "router", tier: "think", model: "anthropic/claude-opus-5-5", ok: true, ms: 40 },
+      { kind: "model", model: "anthropic/claude-opus-5-5", ok: true, ms: 3_000 },
+      { kind: "tool", tool: "browse", ok: true, ms: 900 },
+      { kind: "model", model: "anthropic/claude-haiku-5-5", ok: true, ms: 800 },
+    ];
+    expect((await report(t, accessToken, { trace })).recorded).toBe(true);
+    const [row] = await turns(t, workspaceId);
+    expect(row.trace).toEqual(trace);
+    const bad = [{ kind: "model", model: "a model\nwith a sentence", ok: true, ms: 1 }];
+    expect((await report(t, accessToken, { trace: bad })).recorded).toBe(false);
+  });
+
   test("an unknown token, the wrong workspace, or a missing gateway secret records nothing", async () => {
     const t = setupTest();
     const { accessToken } = await texter(t);

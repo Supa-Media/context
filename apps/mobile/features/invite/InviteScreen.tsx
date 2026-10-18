@@ -9,12 +9,16 @@ import { Card } from "../design/components/Card";
 import { CenteredScroll } from "../design/components/CenteredScroll";
 import { FormError } from "../design/components/Input";
 import { Text } from "../design/components/Text";
-import { clamp, fonts, leading, pointerType as t, radii, space, tracking } from "../design/tokens";
+import { clamp, leading, pointerType as t, radii, space } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { EMPTY_QUERY_SPEC } from "../console/querySpec";
 import { CONSOLE_ROUTE } from "../auth/redirect";
 import { WELCOME_ROUTE } from "../onboarding/route";
 import { ContextOverview } from "../overview/ContextOverview";
+import { ReportLink } from "../report/ReportLink";
+import { Title } from "./Title";
+
+export { Title };
 import { atName } from "../console/format";
 import {
   acceptanceLine,
@@ -346,6 +350,13 @@ function ReadyBody({
           testID="invite-decline"
         />
       </View>
+      <View style={styles.report}>
+        <ReportLink
+          target={{ kind: "invitation", token: invitation.token }}
+          person={{ handle: invitation.invitedByHandle ?? null, name: null }}
+          testID="invite-report"
+        />
+      </View>
 
       <Text variant="foot" style={styles.foot} testID="invite-foot">
         Nothing is created for you here. You can start a personal workspace of your own later,
@@ -403,29 +414,6 @@ export function DeadEnd({
   );
 }
 
-/**
- * The heading's type, as a style array.
- *
- * A function rather than a `StyleSheet` entry because the size is clamped
- * against the window width, and `tracking()` and `leading()` derive from it —
- * so neither can be pre-baked. Same shape as the consent screen's `Title`.
- */
-export function Title({ size, children }: { size: number; children: ReactNode }) {
-  const styles = useThemedStyles(makeStyles);
-  return (
-    <Text
-      role="heading"
-      aria-level={1}
-      style={[
-        styles.title,
-        { fontSize: size, lineHeight: leading(size, 1.08), letterSpacing: tracking(size, -0.03) },
-      ]}
-    >
-      {children}
-    </Text>
-  );
-}
-
 const makeStyles = (colors: Colors) => StyleSheet.create({
   ground: { flex: 1, backgroundColor: colors.ground, overflow: "hidden" },
   wrap: {
@@ -437,7 +425,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   mark: { alignSelf: "flex-start", marginBottom: 30 },
   markSuffix: { color: colors.accent },
-  title: { fontFamily: fonts.display, fontWeight: "600", color: colors.text },
   eyebrow: { color: colors.muted, marginBottom: space.x2 },
   sub: { marginTop: 14, fontSize: t.body, lineHeight: leading(t.body, 1.55) },
 
@@ -482,6 +469,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   error: { marginTop: 14 },
 
   decisions: { marginTop: 20, flexDirection: "row", gap: 12 },
+  report: { marginTop: 12, alignItems: "flex-start" },
   // Both halves flex identically, so neither is the wider, more obvious click.
   decision: { flex: 1, alignSelf: "auto" },
 

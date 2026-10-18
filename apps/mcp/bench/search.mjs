@@ -33,7 +33,7 @@ import { basename, join } from "node:path";
 import { parseSearchSetup } from "../src/agent/production.js";
 import { realNow } from "./clock.mjs";
 import { benchFolder } from "./folder.mjs";
-import { expandWorkspaces, readBenchFolder } from "./load.mjs";
+import { expandWorkspaces, readBenchFolder, runnableQuestions } from "./load.mjs";
 import { cachedEmbeddings, fakeAi, fakeGateway, workersAi } from "./models.mjs";
 import { prepareRun } from "./warm.mjs";
 import { createWorld } from "./world.mjs";
@@ -207,7 +207,7 @@ export async function searchCommand(options) {
   if (!test) throw new Error("no tests/search.md");
   const setups = await readSearchSetups(dir, list(options.setups));
   const only = list(options.questions)?.map(Number);
-  const questions = test.questions.filter((question) => !only || only.includes(question.n));
+  const questions = runnableQuestions(test.questions, only);
   for (const question of questions) {
     if (question.expect.length === 0 && question.forbid.length === 0) throw new Error(`question ${question.n} names no expected or forbidden note (- expect: @workspace/path)`);
   }

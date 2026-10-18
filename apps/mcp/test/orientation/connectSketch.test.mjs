@@ -179,7 +179,7 @@ export async function runOrientationConnectSketchChecks(check, harness) {
     "a private front page's save procedure is withheld from a team connection",
     // The positive half is not decoration either: an `orient` that failed
     // outright would satisfy the absence for free.
-    teamOriented.includes("## Working here") &&
+    teamOriented.includes("## How to work here") &&
       !teamOriented.includes("## Before this session ends")
   );
   const ownerOriented = await orientText(env, OWNER_TOKEN);

@@ -10,7 +10,7 @@
  * are sent, as `iconSuggest.ts` sends them to Clef.
  */
 
-import { emojiMeaningSet, nameMeaningText } from "@context/shared/src/emojiMeaning";
+import { nameMeaningText } from "@context/shared/src/emojiMeaning";
 import { internal } from "../../_generated/api";
 import type { ActionCtx } from "../../_generated/server";
 import {
@@ -62,35 +62,45 @@ export async function emojiEmbedder(callerKey: string): Promise<Embed | null> {
   };
 }
 
-/**
- * The closest emoji to `path`'s name, or `"unready"` when there is no
- * inference Worker, no ready build to search (the first fill is started here), or
- * the model did not answer: the caller asks Clef instead, so a suggestion is never lost to this.
- */
-export async function suggestByMeaning(ctx: ActionCtx, workspaceId: string, path: string): Promise<string | "unready"> {
-  const embed = await emojiEmbedder(`emoji:${workspaceId}`);
-  if (embed === null) return "unready";
-  const set = emojiMeaningSet();
-  const state = await ctx.runQuery(internal.functions.emojiMeaning.setState, { set });
-  if (state !== "ready") {
-    if (await ctx.runMutation(internal.functions.emojiMeaning.claimFill, { set })) {
-      await ctx.scheduler.runAfter(0, internal.functions.emojiMeaning.fill, { set });
-    }
-    return "unready";
+/** Start building `set`'s fingerprints unless a live fill already holds it. */
+export async function startFill(ctx: ActionCtx, set: string): Promise<void> {
+  if (await ctx.runMutation(internal.functions.emojiMeaning.claimFill, { set })) {
+    await ctx.scheduler.runAfter(0, internal.functions.emojiMeaning.fill, { set });
   }
+}
+
+/**
+ * Each fingerprint row's emoji, once read, for the life of this runtime. Rows
+ * never change: a new build is a new set with new rows, so a remembered one is
+ * never stale, and a warm suggestion skips that read.
+ */
+const charById = new Map<string, string>();
+
+/**
+ * The closest emoji to `path`'s name in the ready build `set`, or `null` when
+ * there is no inference Worker or the model did not answer: the caller asks
+ * Clef instead, so a suggestion is never lost to this.
+ */
+export async function nearestByMeaning(ctx: ActionCtx, workspaceId: string, set: string, path: string): Promise<string | null> {
+  const embed = await emojiEmbedder(`emoji:${workspaceId}`);
+  if (embed === null) return null;
   let vector: number[] | undefined;
   try {
     [vector] = await embed([nameMeaningText(path)]);
   } catch {
     // The error never carries the name; Clef answers this one instead.
-    return "unready";
+    return null;
   }
-  if (vector === undefined) return "unready";
+  if (vector === undefined) return null;
   const [best] = await ctx.vectorSearch("emojiMeanings", "by_vector", {
     vector,
     limit: 1,
     filter: (q) => q.eq("set", set),
   });
-  if (best === undefined) return "unready";
-  return (await ctx.runQuery(internal.functions.emojiMeaning.charOf, { id: best._id })) ?? "unready";
+  if (best === undefined) return null;
+  const known = charById.get(best._id);
+  if (known !== undefined) return known;
+  const char = await ctx.runQuery(internal.functions.emojiMeaning.charOf, { id: best._id });
+  if (char !== null) charById.set(best._id, char);
+  return char;
 }

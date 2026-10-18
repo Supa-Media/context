@@ -135,6 +135,7 @@ export function useActivity(
       unseen: unseenCount(entries, seenAt, me),
       unseenPaths: unseenNotePaths(entries, seenAt, me),
       loaded,
+      me,
       refresh,
       markSeen,
     }),

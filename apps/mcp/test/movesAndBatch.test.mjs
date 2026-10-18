@@ -1,4 +1,6 @@
-import { check, rpc, call, lacks, succeeded, contextStore, objects, controlPlane, env, worker, storedText, WORKSPACE_ID } from "./harness.mjs";
+import { check, rpc, call, lacks, succeeded, contextStore, objects, controlPlane, env, worker, storedText, WORKSPACE_ID, accessTokenFor } from "./harness.mjs";
+import { fullToolList } from "./fullToolList.mjs";
+
 import { isLogicalDeleteMarker } from "../src/store/logicalDelete.js";
 import { readDocument as readCollaborationDocument } from "@context/collaboration";
 import { checkSettledConcurrentFailure, finishMoveWithBoundedCleanup } from "./moveCleanupChecks.mjs";
@@ -247,8 +249,7 @@ export async function runMovesAndBatchChecks() {
       objects.has("1-projects/big-moved/note-501.md") &&
       storedText("1-projects/big-move/note-000.md") === "post cutover source edit"
   );
-  const teamMaterializeTools =
-    (await rpc("pub-token", "tools/list"))?.result?.tools?.map((tool) => tool.name) ?? [];
+  const teamMaterializeTools = (await fullToolList(env, accessTokenFor("pub-token"), contextStore)).map((tool) => tool.name);
   check(
     "materialize_move is not advertised outside owner scope",
     !teamMaterializeTools.includes("materialize_move")

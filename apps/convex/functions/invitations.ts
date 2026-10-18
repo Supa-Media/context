@@ -82,7 +82,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { invalidateInvitationSignInCode } from "./invitationEmail";
 import { recordAudit } from "./lib/audit";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
-import { identifiersForUser, resolveAddressedUser } from "./lib/identities";
+import { handleForUser, identifiersForUser, resolveAddressedUser } from "./lib/identities";
 import {
   formatInvitee,
   inviteeRejectionError,
@@ -92,6 +92,8 @@ import {
 import { findName } from "./lib/nameClaims";
 import { consumeRateLimit } from "./lib/rateLimit";
 import { purgeExpiredInvitationsHandler } from "./lib/invitations/sweep";
+import { invitationForCaller, isPending } from "./lib/invitations/forCaller";
+import { hasBlocked } from "./lib/blocks";
 import { clearGroupNames } from "./lib/workspaces/groupNames";
 import {
   getMembership,
@@ -158,11 +160,6 @@ function invitationNotFound(): ConvexError<{ code: string; message: string }> {
   });
 }
 
-/** Whether an invitation is answerable right now. */
-function isPending(invitation: Doc<"workspaceInvitations">, now: number): boolean {
-  return invitation.status === "pending" && invitation.expiresAt > now;
-}
-
 /**
  * The one row an invitation to this identifier would occupy, if any.
  *
@@ -218,19 +215,11 @@ async function resolveInvitationForCaller(
   userId: Id<"users">,
   now: number,
 ): Promise<Doc<"workspaceInvitations">> {
-  const invitation = await ctx.db
-    .query("workspaceInvitations")
-    .withIndex("by_token", (q) => q.eq("token", token))
-    .unique();
+  // `lib/invitations/forCaller.ts` holds the predicate, so the report and block
+  // paths answer through the same one. It also refuses an invitation from
+  // somebody this caller blocked, with the same answer as every other refusal.
+  const invitation = await invitationForCaller(ctx, token, userId, now);
   if (invitation === null) throw invitationNotFound();
-  if (!isPending(invitation, now)) throw invitationNotFound();
-
-  const addressed = await resolveAddressedUser(ctx, {
-    kind: invitation.inviteeKind,
-    value: invitation.invitee,
-  });
-  if (addressed === null || addressed !== userId) throw invitationNotFound();
-
   return invitation;
 }
 
@@ -518,6 +507,13 @@ export const listMyInvitations = query({
       displayName: v.string(),
       role: v.string(),
       invitedBy: v.id("users"),
+      /**
+       * The inviter's handle, without the `@`, or `null` for an account with
+       * none — so the invitation can say who is asking and offer to block
+       * them. The invitation email already names them; this tells the invitee
+       * nothing that email did not.
+       */
+      invitedByHandle: v.union(v.string(), v.null()),
       createdAt: v.number(),
       expiresAt: v.number(),
     }),
@@ -549,6 +545,8 @@ export const listMyInvitations = query({
         value: row.invitee,
       });
       if (addressed !== userId) continue;
+      // Somebody this person blocked: absent, as `acceptInvitation` refuses it.
+      if (await hasBlocked(ctx, userId, row.invitedBy)) continue;
 
       const workspace = await ctx.db.get(row.workspaceId);
       if (workspace === null) continue;
@@ -559,6 +557,7 @@ export const listMyInvitations = query({
         displayName: workspace.displayName,
         role: row.role,
         invitedBy: row.invitedBy,
+        invitedByHandle: await handleForUser(ctx, row.invitedBy),
         createdAt: row.createdAt,
         expiresAt: row.expiresAt,
       });

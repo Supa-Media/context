@@ -90,6 +90,7 @@ export {
 export const COMMANDS_THAT_WRITE: readonly EditorCommand[] = [
   { name: "wrap", before: "**", after: "**" },
   { name: "toggleLinePrefix", prefix: "# " },
+  { name: "lineStyle", prefix: "## " },
   { name: "insertLink" },
   { name: "undo" },
   { name: "redo" },

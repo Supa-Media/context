@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { checkVerdicts, readCheck, recordedFront, writeTarget } from "../checks.mjs";
+import { checkVerdicts, filedNotes, readCheck, recordedFront, writeTarget } from "../checks.mjs";
 
 const once = "- must write: maya/routines/once/ with at: 2026-10-09 9:00 am";
 const weekdays = "- must write: maya/routines/daily/ with at: 7:30 am, on: weekdays";
@@ -85,4 +85,42 @@ test("a result note's Changes recorded lines grade the same as the live record",
     "- deleted maya/todo.md: ",
   ];
   assert.deepEqual(grade([once, weekdays, "- must not write: maya/todo.md"], changes), [true, true, true]);
+});
+
+test("a file check grades where housekeeping left a note, what its front matter says and what it holds", () => {
+  const lines = [
+    "- must file: tomas/1-projects/kitchen/overview.md under tomas/4-archive/",
+    "- must file: tomas/todo.md under tomas/todo.md",
+    "- must not file: tomas/2-areas/car/insurance.md under tomas/2-areas/car/",
+    "- must file: tomas/1-projects/tax/overview.md under tomas/ with status: finished",
+    "- must file: tomas/0-inbox/contacts/b/ben-2.md under tomas/0-inbox/contacts/b/ben-2.md with review: *",
+    "- must file: tomas/0-inbox/contacts/a/ana.md under tomas/0-inbox/contacts/a/ containing 2026-05-04-note",
+  ];
+  const where = (map) => checkVerdicts({ checks: lines.map(readCheck) }, { tools: [], browser: [], changes: [], where: map }).map((v) => v.pass);
+  const at = (path, front = {}, text = "") => ({ at: path, front, text });
+  assert.deepEqual(
+    where({
+      "tomas/1-projects/kitchen/overview.md": at("tomas/4-archive/1-projects/kitchen/overview.md"),
+      "tomas/todo.md": at("tomas/todo.md"),
+      "tomas/2-areas/car/insurance.md": at("tomas/2-areas/insurance.md"),
+      "tomas/1-projects/tax/overview.md": at("tomas/4-archive/1-projects/tax/overview.md", { status: "Finished" }),
+      "tomas/0-inbox/contacts/b/ben-2.md": at("tomas/0-inbox/contacts/b/ben-2.md", { review: "Possible duplicate of ben.md?" }),
+      "tomas/0-inbox/contacts/a/ana.md": at("tomas/0-inbox/contacts/a/ana.md", {}, "- [[0-inbox/2026-05-04-note]]"),
+    }),
+    [true, true, true, true, true, true],
+  );
+  assert.deepEqual(
+    where({
+      "tomas/1-projects/kitchen/overview.md": null,
+      "tomas/todo.md": at("tomas/inbox/todo.md"),
+      "tomas/2-areas/car/insurance.md": at("tomas/2-areas/car/insurance.md"),
+      "tomas/1-projects/tax/overview.md": at("tomas/1-projects/tax/overview.md", { status: "in progress" }),
+      "tomas/0-inbox/contacts/b/ben-2.md": at("tomas/0-inbox/contacts/b/ben-2.md", {}),
+      "tomas/0-inbox/contacts/a/ana.md": at("tomas/0-inbox/contacts/a/ana.md", {}, "Kitchen designer."),
+    }),
+    [false, false, false, false, false, false],
+    "a note gone, moved elsewhere, left where it was, with a stale status, no review, or without the merged link",
+  );
+  assert.equal(filedNotes({ checks: lines.map(readCheck) }).length, 6);
+  assert.throws(() => readCheck("- must file: tomas/todo.md in tomas/x/"), /file check/);
 });

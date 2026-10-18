@@ -49,6 +49,8 @@ import type { SettingsSectionKey } from "./sections";
  * a card at the foot of Profile now.)
  * `meetings` has nothing persisted to report by design, which
  * `MeetingsPanel`'s own header argues.
+ * `vault` reads its keys through the vault's barrier, an action its panel
+ * calls on open, never a subscription on every console load.
  */
 export function settingsPreview(
   key: SettingsSectionKey,
@@ -131,10 +133,12 @@ export function settingsPreview(
     */
     case "workspace":
     case "activity":
+    case "vault":
     case "feedback":
     case "premium":
     case "website":
     case "emoji":
+    case "folders":
     case "meetings":
       return null;
   }

@@ -15,8 +15,8 @@
  *    a page names with `folder:`, unsafe, so the menu waits for the rebuild.
  *
  * SABOTAGE (each a temporary local edit, reverted):
- *  - list without `source: "tree"` while moves are pending (`routes.ts`): the
- *    mid-move Publish case fails (it can no longer publish the moved pages);
+ *  - list the bucket instead of the tree (`routes.ts`): the mid-move Publish
+ *    case fails (it can no longer publish the moved pages);
  *  - drop `assertScanSawMoves`: nothing fails any more, and it stays as a
  *    second guard. Since 2026-10-13 a tree walk is only ever the tree's own
  *    answer or `TREE_LOADING` (`lib/nodes/treeReads.ts`), so a scan that
@@ -149,7 +149,11 @@ describe("a Publish while a folder move is queued", () => {
     });
     await queuedMove(f, "website/blog", "website/posts");
 
-    await expect(pressPublish(f)).rejects.toMatchObject({ data: { code: "TREE_LOADING" } });
+    // The Publish itself, not `pressPublish`: that helper copies the tree first,
+    // which would make it serve again before the Publish looked.
+    await expect(
+      asUser(f.t, f.owner).action(api.functions.websites.publish, { workspaceId: f.workspaceId }),
+    ).rejects.toMatchObject({ data: { code: "TREE_LOADING" } });
     expect(await indexedKeys(f)).toEqual(before);
   });
 

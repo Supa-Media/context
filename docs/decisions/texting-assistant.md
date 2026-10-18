@@ -8,7 +8,7 @@ Workers._
 
 ### The Worker decides nothing about access
 
-`apps/agent` proves that a webhook came from Linq and then asks the control
+`apps/agent` proves that a webhook came from its line and then asks the control
 plane for a short-lived grant belonging to whoever linked the sending phone.
 The gateway's `/agent` route answers with that grant, so the person's scope
 clamp, privacy engine and audit identity apply exactly as they do for any
@@ -19,13 +19,13 @@ service of its own.
 **What a simplification would cost:** a Worker that reads the bucket itself, or
 holds a long-lived token, becomes a second gateway with none of its tests.
 
-### A webhook is acted on only with Linq's signature
+### A webhook is acted on only with the line's secret
 
-Every request to `/linq` is checked against the subscription's `whsec_` secret
-(Standard Webhooks: HMAC-SHA256 over `id.timestamp.body`, 300 seconds of
-tolerance) before its body is parsed. A deployment with no secret refuses
-everything instead of accepting unsigned calls. Tests: `signature.test.ts`,
-`worker.test.ts`.
+`/linq` is checked against Linq's `whsec_` secret (HMAC over `id.timestamp.body`,
+300 s tolerance); `/sendblue` against the secret set on Sendblue's webhook, sent
+verbatim in `sb-signing-secret` and compared by hash in constant time. Both run
+before the body is parsed, and no secret refuses everything. Tests:
+`signature.test.ts`, `sendblue.test.ts`, `worker.test.ts`.
 
 ### Group chats never reach a personal context
 
@@ -45,7 +45,7 @@ false on data.chat".
 ### A phone is linked by texting back a code, and the link only shows it
 
 A phone nobody has linked is texted a sign-in link (`/texts/<token>`), not
-instructions. Opening it signed in shows `link CODE` for that phone, named by
+instructions, unless it may be [set up by text](./texting-assistant/onboarding.md). Opening it signed in shows `link CODE` for that phone, named by
 its last four digits, and the person texts it back. The link carries the
 number so nobody types it; it does not link anything. The code still has to
 arrive *from* that phone, so a forwarded link, or one opened over a shoulder,
@@ -75,7 +75,7 @@ at `data.sender_handle.handle`. The parser requires both service fields to
 agree. The same delivery puts the message ID and parts at `data.id` and
 `data.parts`, rather than under `data.message`. Tests: `inbound.test.ts`,
 "reads the live direct iMessage shape" and "refuses SMS, RCS, missing service,
-or conflicting handle transport".
+or conflicting handle transport". An SMS is still answered, never from its words (2026-10-18). Someone just let in off the waitlist often texts Tex's new number green first, and silence until they happened to send a blue one read as broken. A Sendblue SMS is queued flagged `sms`, with no file and no inline reply read from it. Its answer is fixed: setup's first step or the sign-in link for an unlinked phone, and "send it again here" for a linked one. LINK, UNLINK, a handle and the model are never reached. The answer goes to the number itself, never to whoever faked it, and goes as iMessage, so the next text is one Tex reads. Tests: `reply.test.ts`, "never opens a linked person's notes" and "LINK and UNLINK are not commands over SMS"; `sendblue.test.ts`, "takes an SMS only as an SMS".
 
 ### The Worker holds message text only while it is answering it
 
@@ -92,20 +92,20 @@ Linq's v3 send endpoint requires `parts` and `idempotency_key` inside a
 prevents a reply. Test: `clients.test.ts`, "posts the text to the chat with the
 key and an idempotency key".
 
-### Messages pass through Linq
+### Messages pass through the line: Sendblue, formerly Linq
 
-Decided by the owner, 2026-10-07, by asking for the assistant in production.
-Linq is a third party that carries every message in both directions. Nothing of
-the bucket is stored there, but the text of a question and its answer is. This
-is the same class of decision as a model provider reading note text in flight
-([inference](./storage-and-credentials/inference.md)), and it is accepted on
-the same terms: Linq carries text, never a credential or a bucket key, and a
-person's history stays in their own bucket. Staging and production each deploy
-the Worker on every release that changes it (`deploy-agent-worker.yml` for
-production). Linq's free line is one number, so only one webhook, staging's or
-production's, may point at it at a time, or every text is answered twice. Test:
-`deploy-plan.test.mjs`, "the texting assistant deploys only itself, to staging
-and to production".
+Linq was decided by the owner on 2026-10-07; Sendblue's dedicated line replaced
+its 20-number shared one on 2026-10-18 (Dev2 bought it). The carrier sees every
+message both ways, the same class of decision as a model provider reading note
+text in flight ([inference](./storage-and-credentials/inference.md)), on the
+same terms: text, never a credential or a bucket key; history stays in the
+bucket. A chat id names its line (`sendblue:<line>:<phone>`), so nobody is texted
+first from a number they never texted. Sendblue only fetches pictures by URL, so
+one from notes is served for 30 minutes at a random 256-bit address
+(`media.ts`), and so is Tex's contact card, once per chat, as a `.vcf` for the
+chat's own line (`card.ts`), plus the line's iMessage Name & Photo. An inline reply is quoted to Tex only from that person's own chat (`repliedToText`); checked against docs.sendblue.com 2026-10-18.
+One webhook per line, or every text is answered twice. `TEX_LINE_NUMBERS` names the line(s) the "Text Tex at" SMS gives.
+Test: `deploy-plan.test.mjs`, "the texting assistant deploys only itself".
 
 ### Staging has a texts simulator, and nothing else does
 
@@ -239,21 +239,30 @@ exception to two rules, bounded as follows:
 Built 2026-10-10, with personal and shared vaults and sharing as a person's
 own action: [the vault](./texting-assistant/vault.md).
 
-Tex's daily transcript of each person's texts, thinking and tool calls in
-their own `tex/transcripts/` folder, written as each text is answered:
-[transcripts](./texting-assistant/transcripts.md).
+Tex's own jobs, each with its record:
 
-Golden tasks (jobs Tex must always get right, gating a setup), the task
-skills it reads before doing one, and why a read skill may vouch for an
-address: [golden tasks](./texting-assistant/golden-tasks.md).
+- [Transcripts](./texting-assistant/transcripts.md): each person's texts,
+  thinking and tool calls, daily in their own `tex/transcripts/`.
+- [Dreams](./texting-assistant/dreams.md): nightly, brings `tex/about-me.md`
+  up to date from the day's transcripts, logged in `tex/dreams/`.
+- [Heartbeat](./texting-assistant/heartbeat.md): three looks a day, one text at most.
+- [Attention](./texting-assistant/attention.md): agents ask Tex to text them; `tex/attention.md` decides. [Bug reports](./texting-assistant/bug-reports.md) by text go, texts included, only on their YES.
+- [Housekeeping](./texting-assistant/housekeeping.md): archives, merges and folds to lower the
+  chaos score, logging each change in `tex/housekeeping/` with how to undo it.
+- [Delegation](./texting-assistant/delegation.md): hands a whole sub-project
+  to Claude Code, Codex, Claude, Claude Design or ChatGPT, with the task note's
+  mail as the channel and a supervisor routine keeping the agent on track.
+- [Golden tasks](./texting-assistant/golden-tasks.md): jobs Tex must always
+  get right, gating a setup; the task skills it reads before doing one, and
+  why a read skill may vouch for an address.
 
-### The built-in model is for Premium, capped, and metered like Jev
+### The built-in model is free, capped at 100 a day, and metered like Jev
 
-Decided by the owner, 2026-10-06 ("Premium, capped"). A Premium workspace's
-texts are answered by a model we pay for (GLM-4.7 Flash on Workers AI, or
-Claude Haiku 5.5 once a gateway is configured, see below; `AGENT_BUILTIN_MODEL`
-to swap it), up to 100 questions a day. Anyone else is told the assistant is
-not available to them.
+Decided by the owner, 2026-10-17 ("Open to all"), replacing "Premium, capped".
+Every workspace's texts are answered by a model we pay for (GLM-4.7 Flash or
+Claude Haiku 5.5, see below; `AGENT_BUILTIN_MODEL` to swap it), up to 100 turns
+per UTC day, paying or not (plan `everyone`, `dailyCallsFree: 100`); dreams,
+check-ins, housekeeping and routines count toward the same 100.
 
 **Removed 2026-10-10 (owner's decision): saved provider keys deleted; the
 assistant uses only the built-in model.** People could once save their own
@@ -579,8 +588,7 @@ words say what Context is").
 
 Decided by the owner, 2026-10-08: the assistant's model and its prompt come
 from one plain Markdown note per job in the pinned `@context-lc` workspace,
-`ai/production/texting-assistant.md` for texted turns and
-`ai/production/app-assistant.md` for questions asked in the app, so promoting a
+`ai/production/texting-assistant.md` for texted turns, so promoting a
 setup is editing that file and the gateway does not ship
 (`apps/mcp/src/agent/production.js`). The rest of `ai/` is the benchmark that
 decides what goes there (README, invented people and workspaces, tests,
@@ -601,6 +609,13 @@ invented data.
   (Until 2026-10-10 a person's own connected key kept its own model; those keys
   are gone.) The gateway call is filed under the file's version, and the meter
   reports the model that answered.
+- A turn that is not texted has no production note and uses the built-in
+  words. The app assistant's note, `ai/production/app-assistant.md`, and its
+  row in the AI tab were removed by the owner, 2026-10-17: "remove 'app
+  assistant' that doesnt exist right now, … all of those should be deleted and
+  thrown away, no way to access it in the app and not in use". A stale copy in
+  `@context-lc` is never read (`agentInstructions.test.mjs`, "an app turn gets
+  the built-in words").
 
 **What a simplification would cost:** using the setup's model without checking the deployment can call it turns every texted answer into an
 error on a self-hosted or gateway-less deployment; reading it with the gateway's
@@ -615,7 +630,7 @@ Moved to [Setups are benchmarked in a throwaway world, on invented workspaces](.
 
 ### A text has every MCP tool
 
-_Which of them a turn is shown in full is the setup's `core_tools` (2026-10-14, [tool shelf](./texting-assistant/tool-shelf.md))._
+_Since 2026-10-16 Tex is shown them as the six tools, each listing only the actions it holds ([six tools for Tex](./texting-assistant/tool-shelf.md))._
 
 Decided by the owner, 2026-10-08, in three steps. "Edit directly" replaced
 "writes are proposals" for the texting client: a proposal has no screen on a

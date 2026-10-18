@@ -10,7 +10,8 @@
  * (rotate_encryption_keys) reads to prove a rotation does not touch it.
  */
 
-import { PASSPHRASE_VECTOR, worker } from "./fixtures.mjs";
+import { PASSPHRASE_VECTOR, worker } from "./fixtures.mjs";import { fullToolList } from "../fullToolList.mjs";
+
 
 export async function runEncryptionGatewayPassphraseChecks(check, harness) {
   const { a, call, env, KEYLESS, MACHINE_A, OWNER_A, readA, storeA, textOf } = harness;
@@ -72,18 +73,23 @@ export async function runEncryptionGatewayPassphraseChecks(check, harness) {
         }),
         search: await call(OWNER_A, "search_notes", { query: "pinned passphrase vector" }),
         list: await call(OWNER_A, "list_notes", { prefix: "1-projects" }),
-        tools: await (async () => {
-          const res = await worker.fetch(
-            new Request("https://x/mcp", {
-              method: "POST",
-              headers: { Authorization: `Bearer ${OWNER_A}`, "Content-Type": "application/json" },
-              body: JSON.stringify({ jsonrpc: "2.0", id: 9001, method: "tools/list" }),
-            }),
-            env,
-            { waitUntil() {} },
-          );
-          return (await res.json()).result.tools;
-        })(),
+        // The full list (`fullToolList.mjs`), and the six v2 tools `tools/list`
+        // answers, since both are what this gateway advertises.
+        tools: [
+          ...(await fullToolList(env, OWNER_A)),
+          ...(await (async () => {
+            const res = await worker.fetch(
+              new Request("https://x/mcp", {
+                method: "POST",
+                headers: { Authorization: `Bearer ${OWNER_A}`, "Content-Type": "application/json" },
+                body: JSON.stringify({ jsonrpc: "2.0", id: 9001, method: "tools/list" }),
+              }),
+              env,
+              { waitUntil() {} },
+            );
+            return (await res.json()).result.tools;
+          })()),
+        ],
       };
     } finally {
       console.log = realLockedLog;

@@ -9,13 +9,32 @@
  * been handed, so it is never trusted to name a row of this workspace.
  */
 
+import { roleForNewFolder } from "./folderJobs";
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../../_generated/server";
 import { nodePath, type LeftAudiences, type NodeTable, type StoredNode } from "./table";
-import { readMirror } from "./listing";
+import { readerMirror } from "./readerRules";
 import { NODE_LOG_PRUNE, audiencesNow, expiredBefore, mirrorRules, nextSeq, type Rules } from "./log";
+import { newNoteId } from "./noteIds";
+import { applyPendingAccess } from "./pendingAccess";
 
-const PATCHABLE = ["parentId", "name", "etag", "size", "uploaded", "observedAt", "goneAt"] as const;
+/**
+ * The fields a patch may set. A key passed as `undefined` clears the field
+ * (`patch` below), so a row leaves keyed state by `storageKey: undefined`.
+ */
+const PATCHABLE = [
+  "parentId",
+  "name",
+  "etag",
+  "size",
+  "uploaded",
+  "observedAt",
+  "goneAt",
+  "noteId",
+  "storageKey",
+  "idCopy",
+  "keyedFrom",
+] as const;
 
 function toStored(doc: Doc<"nodes">): StoredNode {
   return {
@@ -29,6 +48,12 @@ function toStored(doc: Doc<"nodes">): StoredNode {
     uploaded: doc.uploaded,
     observedAt: doc.observedAt,
     goneAt: doc.goneAt,
+    noteId: doc.noteId,
+    storageKey: doc.storageKey,
+    idCopy: doc.idCopy,
+    keyedFrom: doc.keyedFrom,
+    access: doc.access,
+    role: doc.role,
   };
 }
 
@@ -97,7 +122,7 @@ export function convexNodeTable(
     for (const row of expired) if (row._id !== last?._id) await writer.db.delete(row._id);
   };
   const rulesNow = async (): Promise<Rules> => {
-    if (rules === null) rules = await mirrorRules(await readMirror(writer.db, workspaceId));
+    if (rules === null) rules = await mirrorRules(await readerMirror(writer, workspaceId));
     return rules;
   };
 
@@ -112,8 +137,14 @@ export function convexNodeTable(
 
     async insert(node) {
       if (!writable) throw new Error("insert on a read-only node table");
+      // Every row has its id from the start (`noteIds.ts`): a seam write brings the note's own, a bucket row mints one.
+      const noteId = node.noteId ?? newNoteId();
+      // A built-in folder takes its job the moment its row is made (`folderJobs.ts`).
+      const role = node.goneAt === undefined ? await roleForNewFolder(writer.db, workspaceId, node) : undefined;
       const id = await writer.db.insert("nodes", {
         workspaceId,
+        noteId,
+        storageKey: node.storageKey,
         path: node.path,
         parentId: node.parentId as Id<"nodes"> | undefined,
         name: node.name,
@@ -123,7 +154,12 @@ export function convexNodeTable(
         uploaded: node.uploaded,
         observedAt: node.observedAt,
         goneAt: node.goneAt,
+        ...(role === undefined ? {} : { role }),
       });
+      // A row born where access was asked for before it existed takes that access now, in this mutation.
+      if (node.goneAt === undefined) {
+        await applyPendingAccess(writer, workspaceId, { id, path: node.path, kind: node.kind, noteId }, Date.now());
+      }
       return id;
     },
 
@@ -174,6 +210,14 @@ export function convexNodeTable(
       return child !== null;
     },
 
+    async idHeldElsewhere(noteId, exceptId) {
+      const holders = await ctx.db
+        .query("nodes")
+        .withIndex("by_workspace_noteId", (q) => q.eq("workspaceId", workspaceId).eq("noteId", noteId))
+        .collect();
+      return holders.some((holder) => holder._id !== exceptId && holder.goneAt === undefined);
+    },
+
     async logChange(path, gone) {
       if (!writable) throw new Error("log on a read-only node table");
       await openLog();
@@ -192,9 +236,14 @@ export function convexNodeTable(
     },
 
     async observedBefore(before, limit) {
+      // A keyed row is never pruned by an observation's age (`observe.ts`), so it is
+      // not read here at all: a page of only keyed rows would otherwise never end.
+      // The same holds for a row carrying its own access (`nodes.access`, the
+      // folder anchors and overrides `accessBackfill.ts` derives): a rule names it.
       const docs = await ctx.db
         .query("nodes")
         .withIndex("by_workspace_observed", (q) => q.eq("workspaceId", workspaceId).lt("observedAt", before))
+        .filter((q) => q.and(q.eq(q.field("storageKey"), undefined), q.eq(q.field("access"), undefined)))
         .take(limit);
       return docs.map(toStored);
     },

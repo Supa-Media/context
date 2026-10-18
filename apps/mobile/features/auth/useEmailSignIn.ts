@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Platform } from "react-native";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useMutation } from "convex/react";
 import { ConvexError } from "convex/values";
@@ -74,6 +75,8 @@ export function useEmailSignIn(options: { source: "homepage" | "login"; onSigned
         ...(landing === undefined ? {} : { landing }),
         ...(campaign === undefined ? {} : { campaign }),
         ...metaBrowserIds(),
+        // Never reported to an ad network from inside the app (`waitlist.enter`).
+        ...(Platform.OS === "web" ? {} : { app: "native" as const }),
       });
       if (status === "admitted") await sendCode(normalized, false);
       else {

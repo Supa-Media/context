@@ -31,11 +31,12 @@ const ids = (items: { id: string }[]) => items.map((item) => item.id);
 describe("the note actions sheet", () => {
   test("an owner gets the artboard's rows, in its order", () => {
     const items = noteActionItems({ entry: note(), canEdit: true, canShare: true, visitor: false });
-    expect(ids(items)).toEqual(["share", "rename", "moveTo", "copyLink", "archive"]);
+    expect(ids(items)).toEqual(["share", "rename", "moveTo", "addProperty", "copyLink", "archive"]);
     expect(items.map((item) => item.label)).toEqual([
       "Share…",
       "Rename",
       "Move to…",
+      "Add property",
       "Copy link",
       "Move to archive",
     ]);
@@ -59,7 +60,15 @@ describe("the note actions sheet", () => {
 
   test("an editor who is not the owner is offered no Share and no team link", () => {
     const items = noteActionItems({ entry: note(), canEdit: true, canShare: false, visitor: false });
-    expect(ids(items)).toEqual(["rename", "moveTo", "archive"]);
+    expect(ids(items)).toEqual(["rename", "moveTo", "addProperty", "archive"]);
+  });
+
+  test("Add property is for a note somebody may change, and not a website page or privacy.md", () => {
+    // The way in for a loose note, which draws no chips on a phone (owner, 2026-10-18, board A of `loose-note-chips`).
+    expect(ids(noteActionItems({ entry: note(), canEdit: false, canShare: false, visitor: false }))).not.toContain("addProperty");
+    expect(ids(noteActionItems({ entry: note({ path: "website/about.md", name: "about.md" }), canEdit: true, canShare: true, visitor: false }))).not.toContain("addProperty");
+    expect(ids(noteActionItems({ entry: note({ path: "2-areas/privacy.md", name: "privacy.md" }), canEdit: true, canShare: true, visitor: false }))).not.toContain("addProperty");
+    expect(ids(noteActionItems({ entry: note({ path: "2-areas/sketch.excalidraw.png", name: "sketch.excalidraw.png" }), canEdit: true, canShare: true, visitor: false }))).not.toContain("addProperty");
   });
 
   test("a reader is offered nothing to change", () => {

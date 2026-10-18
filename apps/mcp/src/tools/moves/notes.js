@@ -36,6 +36,7 @@ import { remapIcons } from "../../../../../packages/shared/src/folderIcons.cjs";
 import { rewriteReferencesAfterMove } from "./references.js";
 import { nameTwinRefusal } from "../../tree/twins.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
+import { startKeyedBatchMove } from "./queuedFolder.js";
 
 export async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
   if (!Array.isArray(movesArg) || movesArg.length < 1) return toolError("moves must be a non-empty array");
@@ -67,6 +68,9 @@ export async function toolMoveNotes(store, scope, rules, overrides, movesArg, dr
       "expected_source_etag is required for every applied batch move. Run with dry_run=true to obtain current etags."
     );
   }
+  // A keyed workspace moves the batch as one control-plane call of row changes, made whole or not at all
+  // (`queuedFolder.js`). A dry run still shows the plan below.
+  if (!dryRun && store?.keyedLayout === true) return await startKeyedBatchMove(store, scope, rules, overrides, moves);
   if (!dryRun) {
     const unsafeMove = moveSafetyRefusal(store);
     if (unsafeMove) return toolError(unsafeMove);
@@ -81,7 +85,7 @@ export async function toolMoveNotes(store, scope, rules, overrides, movesArg, dr
       a second place to make it wrong. `toolReadNote` argues the shape in full.
 
       A metadata probe rather than reusing the `get` below: that `get` buffers
-      the whole object on S3 and Dropbox, and a source this caller may not see
+      the whole object on S3, and a source this caller may not see
       must not have its body pulled into the worker to refuse them. The cost is
       one extra metadata round trip per move in the batch, paid deliberately.
 

@@ -60,7 +60,7 @@ const makeStyles = (colors: Colors, shadows: Shadows) =>
       height: layout.bottomBarHeight,
       marginHorizontal: space.x1,
       borderRadius: radii.sheet,
-      backgroundColor: colors.pageSurface,
+      backgroundColor: colors.cardSurface,
       boxShadow: shadows.floating,
     },
     key: {

@@ -42,6 +42,9 @@ export const SUBREQUEST_LIMIT = 50;
 
 export const OWNER_TOKEN = `cat_searchidx_owner_${"0".repeat(16)}`;
 export const TEAM_TOKEN = `cat_searchidx_member_${"0".repeat(15)}`;
+// The same team member, connected through ChatGPT: the client name selects the
+// OpenAI dialect for a bare `search`.
+export const TEAM_CHATGPT_TOKEN = `cat_searchidx_member_chatgpt_${"0".repeat(8)}`;
 export const BIG_TOKEN = `cat_searchidx_big_${"0".repeat(18)}`;
 export const BROKEN_TOKEN = `cat_searchidx_broken_${"0".repeat(15)}`;
 export const DEEP_TOKEN = `cat_searchidx_deep_${"0".repeat(17)}`;
@@ -73,7 +76,7 @@ export function createBucket() {
     objects,
     counts,
     failGetKeys,
-    /** Off for the Dropbox-shaped backend, whose listings carry no etag. */
+    /** Off for a backend whose listings carry no etag. */
     listEtags: true,
     setBeforePut(hook) {
       onBeforePut = hook;
@@ -305,6 +308,16 @@ export async function createSearchIntegrationHarness() {
       userId: user,
     });
   }
+
+  await controlPlane.addGrant({
+    accessToken: TEAM_CHATGPT_TOKEN,
+    workspaceId: "ws_search",
+    role: "editor",
+    scopes: ["context:read"],
+    clientId: "mcp_client_searchidx_chatgpt",
+    clientName: "ChatGPT",
+    userId: "u_member",
+  });
 
   const env = {
     CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,

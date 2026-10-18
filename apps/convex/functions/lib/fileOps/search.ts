@@ -68,6 +68,8 @@ export interface SearchHit {
   snippets: string[];
   /** Found by what the note is about, not by the words typed ("Same topic, different words"). */
   meaningOnly?: boolean;
+  /** Has some of the words typed, not all of them (the projection's relaxed any-word pass). */
+  loose?: boolean;
 }
 
 export interface SearchResults {
@@ -211,6 +213,25 @@ export async function notePathIndex(
   return { paths: paths.filter((path) => isVisible(path) && !isPlumbing(path)) };
 }
 
+/**
+ * Convex refuses an array over 8,192 items in a function's return value, so a
+ * workspace of eleven thousand notes failed every `notePaths` call outright.
+ * Past `NOTE_PATHS_CHUNK` the paths go out in chunks, the way the map's graph
+ * already sends them, and `paths` is `null`: a client from before the chunks
+ * reads that as "not indexed yet", which leaves its links to the file tree
+ * rather than failing.
+ */
+export const NOTE_PATHS_CHUNK = 8_000;
+
+export function notePathsAnswer(paths: string[] | null): { paths: string[] | null; pathChunks?: string[][] } {
+  if (paths === null || paths.length <= NOTE_PATHS_CHUNK) return { paths };
+  const pathChunks: string[][] = [];
+  for (let start = 0; start < paths.length; start += NOTE_PATHS_CHUNK) {
+    pathChunks.push(paths.slice(start, start + NOTE_PATHS_CHUNK));
+  }
+  return { paths: null, pathChunks };
+}
+
 export async function searchNotes(
   store: FileStore,
   options: {
@@ -312,12 +333,22 @@ export async function searchNotes(
     // Shown at the names the tree draws while a queued folder move copies,
     // judged again there, as `search_notes` answers (`atTreeNames`).
     const withMoves = atTreeNames(
-      await withMeaning(store, found, await meaningPending, { keyField: "path", isVisible }),
+      await withMeaning(store, found, await meaningPending, {
+        keyField: "path",
+        isVisible,
+        // Snippets for the notes only meaning found, out of the database in one statement rather than a read each.
+        ...(projection !== null ? { projection: { client: () => projection, filling: projection.filling === true } } : {}),
+      }),
       (store as { pendingMoves?: unknown }).pendingMoves,
       { isVisible, prefix: underFolder, keyField: "path" },
     );
-    const { meaning: _meaning, evidence: _evidence, ...results } = withMoves;
-    return { ...(results as SearchResults), timing: timed(wordsMs) };
+    const { meaning: _meaning, evidence, ...results } = withMoves;
+    // `withMeaning` moves `loose` off the hits into `evidence`; the console
+    // puts it back on, since its rows count the words a loose hit has
+    // ("Has 2 of 3 words", board B1 of the leadership weekly, 2026-10-17).
+    const looseAt = (evidence ?? {}) as Record<string, { loose?: boolean } | undefined>;
+    const hits = (results as SearchResults).hits.map((hit) => (looseAt[hit.path]?.loose === true ? { ...hit, loose: true } : hit));
+    return { ...(results as SearchResults), hits, timing: timed(wordsMs) };
   };
 
   /*
@@ -524,10 +555,13 @@ export async function maintainSearchIndex(
  */
 export async function indexChangedNotes(
   store: FileStore,
-  change: { written: string[]; gone: string[]; moved?: string[][]; queued?: boolean },
+  change: { written: string[]; gone: string[]; moved?: string[][]; queued?: boolean; shardIndex?: false },
   projection: ProjectionClient | null = null,
 ): Promise<{ pending: number; changed: boolean; complete: boolean; shed: number; oversizedShards: number }> {
   if (projection !== null && change.queued !== true) await followInProjection(store, change, projection);
+  // A context with a search database keeps no index in its bucket (the
+  // barrier sets this; decided by the owner, 2026-10-17).
+  if (change.shardIndex === false) return { pending: 0, changed: false, complete: true, shed: 0, oversizedShards: 0 };
   const only = new Map<string, { version: string; uploaded: string } | null>();
   const uploaded = new Date().toISOString();
   for (const path of change.gone) only.set(path, null);

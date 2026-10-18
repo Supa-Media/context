@@ -69,6 +69,9 @@ Object.defineProperty(window, "matchMedia", { configurable: true, value: () => q
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+// A pointer layout's width: a phone's draws the phone palettes (`phoneColors.ts`).
+Object.defineProperty(document.documentElement, "clientWidth", { value: 1280, configurable: true });
+
 // Required after `matchMedia` exists, which `import` would hoist above.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { useColors, useScheme, useThemedStyles } = require("../features/design/theme") as typeof import("../features/design/theme");

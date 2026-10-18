@@ -68,7 +68,7 @@ const makeStyles = (colors: Colors) =>
     indexCompact: {
       padding: space.x2,
       borderRadius: radii.sheet,
-      backgroundColor: colors.pageSurface,
+      backgroundColor: colors.cardSurface,
       marginBottom: space.x2,
     },
     cell: {

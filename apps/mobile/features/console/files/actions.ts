@@ -69,6 +69,8 @@ export type Dialog =
    * was raised by clicking the icon in the tree, so the picker opens there.
    */
   | { kind: "folderIcon"; path: string; anchor?: { x: number; y: number } }
+  /** "Use this folder as…": a built-in job for the folder (`FolderJobDialog`). */
+  | { kind: "folderJob"; path: string }
   /** "Add a folder" at the top of the workspace: its built-in folders, or one of the person's own. */
   | { kind: "addFolder" }
   /** Several picked rows' tags, from a phone's select bar (board 16). */
@@ -258,6 +260,9 @@ export function runMenuAction(
       // Folders and notes (`iconGroup` offers it on nothing else).
       context.setDialog({ kind: "folderIcon", path });
       return;
+    case "folderJob":
+      context.setDialog({ kind: "folderJob", path });
+      return;
     case "selectNotes":
       context.startSelect?.(path);
       return;
@@ -279,6 +284,11 @@ export function runMenuAction(
       return;
     case "moveTo":
       context.setDialog({ kind: "move", path });
+      return;
+    case "moveUp":
+    case "moveDown":
+      // Folders only (`orderGroup`); a browser that cannot write has no `moveFolder`.
+      if (kind === "folder") files.moveFolder?.(path, id === "moveUp" ? "up" : "down");
       return;
     case "archive":
       context.setDialog({ kind: "archive", path });

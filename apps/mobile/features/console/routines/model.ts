@@ -60,6 +60,9 @@ export type RoutineBarView =
 const WENT_WELL = new Set(["answered", "skipped", "finished"]);
 
 export const WRITER_GONE_WORDS = "Stopped: the writer can't edit here any more";
+export const WRITER_UNKNOWN_WORDS = "Waiting: save it once so it runs as you";
+/** The owner, 2026-10-18: routines run only in a personal workspace. */
+export const SHARED_WORKSPACE_WORDS = "Routines run only in your personal workspace.";
 
 /**
  * The bar for the note at `path` with this text.
@@ -72,17 +75,20 @@ export function routineBarView(options: {
   text: string;
   row: RoutineRow | null | undefined;
   now: number;
+  /** The note is in a shared workspace, where no routine runs. */
+  shared?: boolean;
 }): RoutineBarView {
   const found = options.path === null ? null : routineFromPath(options.path);
   if (found === null) return { kind: "none" };
+  if (options.shared === true) return { kind: "unscheduled", line: SHARED_WORKSPACE_WORDS };
   if (found.kind === "unscheduled") return { kind: "unscheduled", line: found.reason };
   const { settings, problems } = routineSettings(options.text, found.cadence);
   const row = options.row;
-  const stopped = row?.lastOutcome === "writer_gone";
+  const stopped = row?.lastOutcome === "writer_gone" || row?.lastOutcome === "writer_unknown";
   let last: string;
   let mark: LastRunMark = null;
   if (stopped) {
-    last = WRITER_GONE_WORDS;
+    last = row?.lastOutcome === "writer_unknown" ? WRITER_UNKNOWN_WORDS : WRITER_GONE_WORDS;
     mark = "failed";
   } else if (settings.done) {
     // A one-off that has run: the schedule line already says when.
@@ -134,6 +140,8 @@ export function runWords(run: RoutineRun, send: RoutineRow["send"] = "text"): { 
       return { label: "Not texted", detail: "Nobody to text yet. Text the assistant first." };
     case "writer_gone":
       return { label: "Stopped", detail: "The writer can't edit here any more." };
+    case "writer_unknown":
+      return { label: "Waiting", detail: "Nobody was seen writing it. Save it once so it runs as you." };
     default:
       return { label: "Didn't run", detail: null };
   }

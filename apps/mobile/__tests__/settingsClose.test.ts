@@ -20,7 +20,7 @@
  * parameter and touches nothing else.
  *
  * What still needs guarding is the other half of that promise: the old path is
- * in the wild — the Dropbox failure notice and the search nudge both link to
+ * in the wild — the search nudge rows link to
  * it, and somebody has it in a chat — so it must keep landing on settings
  * rather than on a dead page. That is what this file asserts now.
  */

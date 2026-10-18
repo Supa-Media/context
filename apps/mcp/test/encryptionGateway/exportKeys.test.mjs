@@ -12,26 +12,17 @@
  * for the module overview and the sabotage-testing record.
  */
 
-import { KEY_A, KEY_B, worker } from "./fixtures.mjs";
+import { KEY_A, KEY_B, worker } from "./fixtures.mjs";import { fullToolList } from "../fullToolList.mjs";
+
 
 export async function runEncryptionGatewayExportKeysChecks(check, harness) {
   const { call, controlPlane, env, KEYLESS, OWNER_A, OWNER_B, textOf, TEAM_A } = harness;
 
     /* -- (15) no export_encryption_keys -------------------------------------- */
 
-    let id = 90_000;
-    const listedFor = async (token) => {
-      const res = await worker.fetch(
-        new Request("https://x/mcp", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ jsonrpc: "2.0", id: ++id, method: "tools/list", params: {} }),
-        }),
-        env,
-        { waitUntil() {} },
-      );
-      return ((await res.json()).result?.tools ?? []).map((tool) => tool.name);
-    };
+    // The full list (`fullToolList.mjs`): the rotation tool is an older name,
+    // which `tools/list` answers only through the six v2 tools now.
+    const listedFor = async (token) => (await fullToolList(env, token)).map((tool) => tool.name);
     const ownerTools = await listedFor(OWNER_A);
     const teamTools = await listedFor(TEAM_A);
     check(

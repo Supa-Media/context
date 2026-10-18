@@ -59,15 +59,18 @@ import { space, useColors, useThemedStyles, type Colors } from "../design";
 import { ActivitySection } from "./ActivitySection";
 import { AgentSection } from "./AgentSection";
 import { AiCostsSection } from "./AiCostsSection";
+import { AiSection, aiPlaceOf } from "./AiSection";
 import { useCompact } from "./AdminKit";
 import { ConsoleHeader } from "./ConsoleHeader";
 import { EstateSection } from "./EstateSection";
 import { GrowthSection } from "./GrowthSection";
 import { PeopleSection } from "./PeopleSection";
+import { ReportsSection } from "./ReportsSection";
+import { FeaturesSection } from "./FeaturesSection";
 import { DEFAULT_WINDOW, unsetKnownSecrets, type AdminTab } from "./report";
 import { SearchSection } from "./SearchSection";
 import { SecretsSection } from "./SecretsSection";
-import { DEFAULT_PLACE, type AdminPlace } from "./place";
+import { DEFAULT_PLACE, searchView, type AdminPlace } from "./place";
 import type { AdminPlaceControl } from "./useAdminPlace";
 import { useOwnedOr } from "./useOwnedOr";
 import { WaitlistSection, waitlistPlace, waitlistView } from "./WaitlistSection";
@@ -87,7 +90,7 @@ export function AdminPane(props: AdminPaneProps = {}) {
   if (isAdmin === undefined) return <AuthPending />;
   if (!isAdmin) return <DeadLinkScreen />;
   return (
-    <AdminChrome>
+    <AdminChrome wide={props.place?.tab === "ai"}>
       <Console {...props} />
     </AdminChrome>
   );
@@ -106,7 +109,7 @@ export function AdminPane(props: AdminPaneProps = {}) {
  * it. The column's vertical spacing is on an inner view rather than on the
  * content container, whose top and bottom padding are the safe area's.
  */
-export function AdminChrome({ children }: { children: ReactNode }) {
+export function AdminChrome({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
   const styles = useThemedStyles(makeStyles);
   const compact = useCompact();
   return (
@@ -114,7 +117,7 @@ export function AdminChrome({ children }: { children: ReactNode }) {
       style={styles.scroll}
       testID="admin-pane"
     >
-      <View style={[styles.column, compact && styles.columnCompact]}>{children}</View>
+      <View style={[styles.column, wide && styles.columnWide, compact && styles.columnCompact]}>{children}</View>
     </ScreenScroll>
   );
 }
@@ -180,9 +183,12 @@ function Console(props: AdminPaneProps) {
         {tab === "aiCosts" ? (
           <AiCostsSection days={days} openId={sub} onOpen={(id) => openOrClose({ tab: "aiCosts", sub: id })} />
         ) : null}
+        {tab === "ai" ? (
+          <AiSection days={days} place={aiPlaceOf(sub)} onPlace={(next) => go({ tab: "ai", sub: next })} />
+        ) : null}
         {tab === "search" ? (
           <SearchSection
-            view={sub === "speed" ? "speed" : "indexes"}
+            view={searchView(sub)}
             onView={(view) => go({ tab: "search", sub: view === "indexes" ? null : view })}
           />
         ) : null}
@@ -194,6 +200,8 @@ function Console(props: AdminPaneProps) {
           />
         ) : null}
         {tab === "people" ? <PeopleSection /> : null}
+        {tab === "reports" ? <ReportsSection /> : null}
+        {tab === "features" ? <FeaturesSection /> : null}
       </View>
     </>
   );
@@ -210,6 +218,8 @@ const makeStyles = (colors: Colors) =>
       paddingTop: 36,
       paddingBottom: 72,
     },
+    // The AI tab is a library with a tree beside its tables: it needs the room.
+    columnWide: { maxWidth: 1440 },
     columnCompact: { paddingHorizontal: space.x4, paddingTop: space.x5, paddingBottom: 48 },
     body: { marginTop: space.x6 },
     bodyCompact: { marginTop: space.x4 },

@@ -22,6 +22,8 @@
  *  3. The empty state hidden while a listing is still in flight, so a list with
  *     nothing in it looks like it is still loading forever.
  *     → **1 fails**: `an empty listing says so`.
+ *  4. An email's copy behind the "Show what would run" toggle.
+ *     → **1 fails**: `an email is shown whole before Approve`.
  */
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -44,6 +46,19 @@ const ITEM: Approval = {
   client: "Claude Desktop",
   createdAt: NOW - 5 * 60_000,
   expiresAt: NOW + 14 * 60_000,
+  kind: null,
+};
+
+const KEY_ASK: Approval = {
+  id: "ap_key",
+  summary: "let Claude Code use your Stripe key on api.example.com",
+  tool: "vault_list",
+  args: { vault_use: { entry: "v0", client: "client_x" } },
+  audience: "outside",
+  client: "Claude Code",
+  createdAt: NOW - 60_000,
+  expiresAt: NOW + 9 * 60_000,
+  kind: "vault_use",
 };
 
 function view(over: Partial<ApprovalsView> = {}): ApprovalsView & { decided: string[] } {
@@ -124,6 +139,14 @@ describe("what is waiting", () => {
     expect(row).toContain("Expires in 14 min");
   });
 
+  test("an email is shown whole before Approve, with no press needed", () => {
+    const copy = "From: seyi@gmail.example\nTo: jo@example.com, sam@example.com\nSubject: Re: Thursday\n\nHi Jo,\n\nThursday at 3 works.\n\nSee https://a.example/1 and https://a.example/2.";
+    const panel = mount(view({ items: [{ ...ITEM, id: "ap_mail", tool: "send_email", summary: 'send an email to jo@example.com and 1 more, "Re: Thursday"', detail: copy }] }));
+    expect(panel.find("approval-read-ap_mail")?.textContent).toBe(copy);
+    expect(panel.find("approval-detail-ap_mail")).toBeNull();
+    expect(panel.find("approve-ap_mail")).not.toBeNull();
+  });
+
   test("the arguments are one press away, and only shown when asked for", () => {
     const panel = mount(view({ items: [ITEM] }));
     expect(panel.find(`approval-detail-${ITEM.id}`)).toBeNull();
@@ -156,6 +179,21 @@ describe("the choice", () => {
     const state = view({ items: [ITEM] });
     mount(state).press(`deny-${ITEM.id}`);
     expect(state.decided).toEqual([`deny:${ITEM.id}`]);
+  });
+
+  test("a saved key's first use offers from now on, just this once and no, and nothing to show", () => {
+    const state = view({ items: [KEY_ASK] });
+    const panel = mount(state);
+    expect(panel.find(`approval-toggle-${KEY_ASK.id}`)).toBeNull();
+    expect(panel.find(`approve-always-${KEY_ASK.id}`)?.textContent).toContain("Yes, from now on");
+    expect(panel.find(`approve-${KEY_ASK.id}`)?.textContent).toContain("Just this once");
+    expect(panel.find(`deny-${KEY_ASK.id}`)?.textContent).toContain("No");
+    panel.press(`approve-always-${KEY_ASK.id}`);
+    expect(state.decided).toEqual([`approve_always:${KEY_ASK.id}`]);
+  });
+
+  test("an ordinary held call has no from-now-on", () => {
+    expect(mount(view({ items: [ITEM] })).find(`approve-always-${ITEM.id}`)).toBeNull();
   });
 
   test("nothing can be decided while another decision is in flight", () => {

@@ -52,6 +52,16 @@ export const IDLE_PROJECTION = {
 /** What a pruning pass answers when there is no `ready` database to prune. */
 export const IDLE_PRUNE = { kind: "indexPruned", deleted: 0, checked: false } as const;
 
+/** What a bucket-index pass answers for a context whose search database replaces that index. */
+export const IDLE_INDEX_PASS = {
+  kind: "indexMaintained",
+  pending: 0,
+  changed: false,
+  complete: true,
+  shed: 0,
+  oversizedShards: 0,
+} as const;
+
 /** What a meaning pass answers when its index is not there to fill. */
 export const IDLE_MEANING = {
   kind: "meaningProjected",
@@ -101,7 +111,11 @@ export type FileOperation =
    * Re-index the notes one file operation changed, without listing the bucket.
    * Scheduled by the barrier behind that operation; never sent by a client.
    */
-  | { kind: "indexNotes"; written: string[]; gone: string[]; moved?: string[][]; queued?: boolean }
+  /**
+   * `shardIndex: false` is set by the barrier, never by a caller, for a
+   * context whose search database replaces the bucket's index.
+   */
+  | { kind: "indexNotes"; written: string[]; gone: string[]; moved?: string[][]; queued?: boolean; shardIndex?: false }
   | { kind: "projectIndex"; passes?: number }
   /** Remove a `ready` database's rows for notes that are gone. See `prunePass.ts`. */
   | { kind: "pruneIndex"; passes?: number }
@@ -120,7 +134,9 @@ export type FileOperation =
     }
   | { kind: "nodesParity"; confirm?: boolean }
   /** A queued folder move (`lib/nodes/moveStart.ts`, `moveWork.ts`): started for the gateway, worked by the scheduler. */
-  | { kind: "nodesMoveStart"; from: string; to: string }
+  | { kind: "nodesMoveStart"; from: string; to: string; expectedEtag?: string }
+  /** A batch of note moves in a keyed workspace, made whole or not at all (`lib/nodes/rowMoveBatch.ts`). */
+  | { kind: "nodesMoveBatch"; moves: { from: string; to: string; expectedEtag?: string }[] }
   | { kind: "nodesMoveWork" }
   /** Write `privacy.md` from the rules held as the authority (`nodesPrivacy.ts`). */
   | { kind: "nodesPrivacyExport" }
@@ -169,6 +185,8 @@ export type FileOperation =
   | { kind: "contextMoveForget"; paths: string[] }
   | { kind: "duplicate"; path: string }
   | { kind: "archive"; path: string; expectedEtag?: string }
+  /** The one-time tidy of Archive's date folders into its matching places (`fileOps/archiving.ts`); owner only. */
+  | { kind: "archiveTidy" }
   | { kind: "trash"; path: string; expectedEtag?: string }
   | { kind: "restoreTrash"; from: string; to: string }
   /** A trashed note's text, read-only, at the key its trail names (`fileOps/trashedReading.ts`); run by the barrier. */
@@ -177,6 +195,17 @@ export type FileOperation =
   | { kind: "setVisibility"; path: string; visibility: "private" | "team" }
   | { kind: "setNoteGroup"; path: string; group: string }
   | { kind: "setFolderGroup"; path: string; group: string }
+  /**
+   * Rows mode: the activity line a tier change records on the file path, for a change written to the rows
+   * (`visibility.ts`). Not a privacy write: it touches `activity.md` only.
+   */
+  | {
+      kind: "visibilityLine";
+      action: "visibility.note" | "visibility.folder";
+      path: string;
+      to: string;
+      teamVisible: boolean;
+    }
   | {
       kind: "setFolderVisibility";
       path: string;
@@ -236,13 +265,7 @@ export type FileOperation =
     }
   | { kind: "resetPrivacy" }
   | { kind: "migrateStorage"; cleanup: boolean }
-  | { kind: "readStorageLayout" }
-  | {
-      kind: "organizer";
-      action: "gather" | "record" | "read" | "resolve" | "clear" | "autopilot" | "undo";
-      input: string;
-      autopilot?: boolean;
-    };
+  | { kind: "readStorageLayout" };
 
 /**
  * What a file operation hands back to the console.
@@ -308,7 +331,7 @@ export type OperationResult =
       mainJs: string;
       stylesCss: string | null;
     }
-  | { kind: "notePaths"; paths: string[] | null }
+  | { kind: "notePaths"; paths: string[] | null; pathChunks?: string[][] }
   | ({ kind: "workspaceGraph" } & WorkspaceGraphResult)
   | { kind: "visiblePaths"; paths: string[] }
   | {
@@ -323,6 +346,7 @@ export type OperationResult =
   | {
       kind: "meaningProjected";
       embedded: number;
+      repathed?: number;
       deleted: number;
       notesIndexed: number;
       notesPending: number;
@@ -398,7 +422,9 @@ export type OperationResult =
   /** `readTrashed`: the note's text where the trash holds it, never anything to save over. */
   | { kind: "trashedText"; path: string; text: string; encrypted: boolean }
   /** `nodesMoveStart`: whether the move was queued; `false` with no `error` sends the caller the old way. */
-  | { kind: "moveQueued"; queued: boolean; count?: number; error?: string; message?: string }
+  | { kind: "moveQueued"; queued: boolean; count?: number; rowed?: boolean; moved?: { from: string; to: string }[]; error?: string; message?: string }
+  /** `nodesMoveBatch`: every move made (`ok`, with each old and new name), or none (`error` and `message`). */
+  | { kind: "moveBatch"; ok: boolean; moves?: { from: string; to: string }[]; error?: string; message?: string }
   | { kind: "nodesParity"; clearances: number; mismatches: number; privacyMatches: boolean }
   | TreeChangesResult
   | FolderNotesResult
@@ -443,6 +469,7 @@ export type OperationResult =
     }
   | { kind: "contextMoveSettled" }
   | { kind: "deleted"; paths: string[] }
+  | { kind: "activityRecorded" }
   | {
       kind: "visibility";
       path: string;
@@ -462,8 +489,7 @@ export type OperationResult =
   | { kind: "image"; bytes: ArrayBuffer }
   | { kind: "emojiImage"; bytes: ArrayBuffer; contentType: string }
   | { kind: "emojiStored"; name: string; leaf: string }
-  | { kind: "emojiRemoved" }
-  | { kind: "organizerResult"; output: string };
+  | { kind: "emojiRemoved" };
 
 /**
  * One page of what changed since a device's last sync (`treeChanges.ts`).

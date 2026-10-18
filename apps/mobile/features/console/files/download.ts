@@ -184,4 +184,29 @@ export function downloadNotice(
   return `Downloaded ${notes}; ${left} and ${missed === 1 ? "is" : "are"} not in the archive.`;
 }
 
+/** The file a rows-mode archive carries in place of `privacy.md`. */
+export const ACCESS_FILE = "access.md";
+
+/**
+ * The entries an archive is made of: the notes, and in rows mode the top-level
+ * `access.md` made from the rows (`exportAccess` on the server).
+ *
+ * `access` is `null` in file mode, and the archive is then the notes alone, as
+ * it was before rows existed. Two things are refused rather than written:
+ * a `privacy.md` at the top of the list (the rules file is never part of an
+ * archive in rows mode, and a list that names it is wrong, so nothing is
+ * handed over), and a note already called `access.md` at the top, which would
+ * leave two entries with one name.
+ */
+export function archiveEntries(notes: readonly ZipEntry[], access: string | null): ZipEntry[] {
+  if (access === null) return [...notes];
+  for (const entry of notes) {
+    if (entry.path === "privacy.md") throw new Error("privacy.md is not part of a rows-mode archive.");
+    if (entry.path === ACCESS_FILE) {
+      throw new Error("A note at the top of this folder is named access.md, so the archive cannot list access. Rename it, then download again.");
+    }
+  }
+  return [...notes, { path: ACCESS_FILE, bytes: new TextEncoder().encode(access) }];
+}
+
 export { buildZip };

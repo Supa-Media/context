@@ -16,6 +16,7 @@ import {
   adminPath,
   parseAdminPlace,
   parseWindow,
+  searchView,
   sectionSegments,
   type AdminPlace,
 } from "../features/admin/place";
@@ -77,6 +78,12 @@ describe("every place has one address", () => {
 
   test("every Search view the tab offers has an address", () => {
     expect(SEARCH_SUBVIEWS.map((entry) => entry.key).sort()).toEqual([...SEARCH_PLACES].sort());
+  });
+
+  test("every search address opens its own view", () => {
+    for (const view of SEARCH_PLACES) expect(searchView(view)).toBe(view);
+    expect(searchView(null)).toBe("indexes");
+    expect(searchView("nonsense")).toBe("indexes");
   });
 
   test("waitlist views and their address words are inverses", () => {
@@ -150,5 +157,32 @@ describe("the router gives places a Back step without a second page", () => {
   test("a stored state comes back as it was, history and all", () => {
     const stored = push(start(), section("search"));
     expect(router.getRehydratedState(stored, options)).toBe(stored);
+  });
+});
+
+describe("the AI tab's addresses", () => {
+  test("bare /admin/ai is the overview", () => {
+    expect(parseAdminPlace(["ai"])).toEqual({ tab: "ai", sub: null });
+  });
+
+  test("each AI view has its address", () => {
+    expect(parseAdminPlace(["ai", "skills"])).toEqual({ tab: "ai", sub: "skills" });
+    expect(parseAdminPlace(["ai", "files", "results"])).toEqual({ tab: "ai", sub: "files/results" });
+    expect(parseAdminPlace(["ai", "jobs", "texting-assistant", "compare", "live-6"])).toEqual({
+      tab: "ai",
+      sub: "jobs/texting-assistant/compare/live-6",
+    });
+  });
+
+  test("an AI view the tab does not have names no place", () => {
+    expect(parseAdminPlace(["ai", "nope"])).toBeNull();
+    expect(parseAdminPlace(["ai", "skills", "a", "extra"])).toBeNull();
+    expect(parseAdminPlace(["ai", "files", "nope"])).toBeNull();
+    expect(parseAdminPlace(["ai", "jobs", "../x"])).toBeNull();
+  });
+
+  test("the AI tab's place round-trips through its address", () => {
+    expect(adminPath({ tab: "ai", sub: null })).toBe("/admin/ai");
+    expect(adminPath({ tab: "ai", sub: "skills" })).toBe("/admin/ai/skills");
   });
 });

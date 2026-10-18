@@ -9,7 +9,7 @@ import { type Visibility, canSee, visibilityOf } from "../privacy";
 import { type Clearance } from "../clearance";
 import { LIST_PAGE_CAP, type FileStore } from "./store";
 import { requireFolderPath, requirePath, parentOf } from "./paths";
-import { loadPrivacyState } from "./privacyState";
+import { loadPrivacyState, manifestUsable as isManifestUsable } from "./privacyState";
 import { folderVisibleAtScope, describeFile } from "./listing";
 
 /* -------------------------------------------------------------------------- */
@@ -39,6 +39,8 @@ export interface ManifestEntry {
   etag?: string;
   size?: number;
   updatedAt?: number;
+  /** The note's id, where the tree holds one for this row. Absent for a bucket listing, which has none. */
+  noteId?: string;
   visibility: Visibility;
   inherited: Visibility;
   exception: boolean;
@@ -119,7 +121,7 @@ function compareKeys(a: string, b: string): number {
  * size, `privacy.md` reaches only `private` scope, and Context's plumbing
  * (`.context/`, `.history/`, `.audit/`, `.obsidian/`) reaches nobody.
  *
- * **No note is read.** The etag is the listing's — S3's `ETag`, Dropbox's
+ * **No note is read.** The etag is the listing's — S3's `ETag`, another store's
  * `rev` — which is the value a read returns, so a sync can tell which notes
  * changed from one walk and fetch only those.
  *
@@ -133,7 +135,7 @@ function compareKeys(a: string, b: string): number {
  * for what comes after it (`startAfter`, ListObjectsV2's `start-after`).
  *
  * That only means something on a store that lists in key order and honours the
- * position, and not every store does: Dropbox's recursive `list_folder` does
+ * position, and not every store does: some stores' recursive listings do
  * neither. So both are checked rather than assumed. A listing seen out of
  * order gets no cursor, and a resumed walk that comes back with a key at or
  * before the cursor stops — in both cases `truncated`, because handing back
@@ -158,7 +160,7 @@ export async function syncManifest(
   const after = options.cursor === undefined ? undefined : requirePath(options.cursor);
   const pageEntries = options.pageEntries ?? MANIFEST_PAGE_ENTRIES;
   const state = await loadPrivacyState(store);
-  const manifestUsable = state.text !== null && !state.invalid;
+  const manifestUsable = isManifestUsable(state);
   const folder = options.folder === undefined ? "" : requireFolderPath(options.folder);
   const prefix = folder === "" ? "" : `${folder}/`;
   if (folder !== "" && !folderVisibleAtScope(folder, options.clearance, state.rules, state.overrides)) {
@@ -241,7 +243,7 @@ export async function syncManifest(
     if (jump !== null) {
       const first = objects[0]?.key;
       if (first !== undefined && compareKeys(first, jump.target) <= 0) {
-        // The store did not honour the position (Dropbox has none). Go back to
+        // The store did not honour the position (some stores have none). Go back to
         // the page the jump left, past what was already handled, and walk the
         // rest of the bucket one page at a time like any other store.
         canJump = false;
@@ -285,13 +287,14 @@ export async function syncManifest(
       if (!noteFolders(key)) return stop();
       if (!canSee(key, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) continue;
 
-      const meta = object as { size?: number; uploaded?: Date | string | number; etag?: string };
+      const meta = object as { size?: number; uploaded?: Date | string | number; etag?: string; noteId?: string };
       const described = describeFile(key, state.rules, state.overrides);
       entries.push({
         path: key,
         ...(typeof meta.etag === "string" && meta.etag !== "" ? { etag: meta.etag } : {}),
         ...(typeof meta.size === "number" ? { size: meta.size } : {}),
         ...(meta.uploaded === undefined ? {} : { updatedAt: new Date(meta.uploaded).getTime() }),
+        ...(typeof meta.noteId === "string" && meta.noteId !== "" ? { noteId: meta.noteId } : {}),
         visibility: described.visibility,
         inherited: described.inherited,
         exception: described.exception,

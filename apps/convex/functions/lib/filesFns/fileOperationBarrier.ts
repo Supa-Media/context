@@ -17,11 +17,11 @@ import { ConvexError, type Infer } from "convex/values";
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
-import { STORAGE_LAYOUT_ROLLBACK_MS } from "../../../../mcp/src/storageLayout.js";
 import { storeForBinding } from "../../../../mcp/src/store/factory.js";
 import { withPrivacyAuthority } from "../../../../mcp/src/store/privacyAuthority.js";
 import { storePrivacyAuthority } from "../nodes/storeAuthority";
 import { attachSmallData } from "../smallData/attach";
+import { consoleIdLayoutHooks } from "../noteIds/consoleLayer";
 import { encryptedUnreadable, managedEncryptionOption, rethrowUnreadable } from "../managedEncryptionFns/storeOption";
 import { asRelocation } from "../../../../mcp/src/store/noteCap.js";
 import type { GatewayCredential } from "../../storage";
@@ -29,10 +29,10 @@ import { clearanceOf } from "../clearance";
 import { messageFor } from "../d1";
 import { type FileStore, loadPrivacyState, type ProjectionClient } from "../fileOps";
 import type { FormNotifyMaterial } from "../formOps";
-import { recordTreeChange, recordWrites } from "../treeAnnounce";
+import { recordWrites } from "../treeAnnounce";
 import { indexChangeOf, treeChangeOf, treeChangeOfResult } from "./access";
 import { markWebsiteAfterOperation } from "../websites/routeChangeAt";
-import { routinePathsTouched } from "../routines/changes";
+import { mayTouchNestedRoutines, routinePathsTouched } from "../routines/changes";
 import { executeOperation } from "./executeOperation";
 import { announceTreeChange, manifestSource } from "./treeOps";
 import { searchDatabaseClient } from "../fastSearchFns/client";
@@ -44,6 +44,8 @@ import { attachQueueMove, isMoveOperation, pendingMovesLookup, runMoveOperation,
 import { attachPlacesFollower } from "../nodes/followPlaces";
 import { attachLandedTouch } from "../nodes/landedTouch";
 import { attachTreeListing } from "../nodes/treeNames";
+import { attachWorkspaceKeyed } from "../noteIds/keyedStore";
+import { attachArrivalAccess } from "../nodes/arrivalAccess";
 import { servedNoteCount } from "../nodes/servedCount";
 import { attachMeaningIndex } from "../../../../mcp/src/search/meaning/store.js";
 import {
@@ -63,6 +65,7 @@ import {
 import { type ForwardSyncJob, timeoutFetch } from "./forwardSyncSupport";
 import {
   type FileOperation,
+  IDLE_INDEX_PASS,
   IDLE_PROJECTION,
   IDLE_PRUNE,
   type OperationResult,
@@ -71,9 +74,20 @@ import { operationValidator } from "./operationValidators";
 import { runPrunePass } from "./prunePass";
 import { readTrashedText } from "../fileOps/trashedReading";
 import { toConvexError } from "./operationErrors";
+import { afterMaintenance } from "./maintenanceFollowUps";
+
+/** Operations that write `privacy.md`'s rules: refused in rows mode, where the rows are written instead. */
+const PRIVACY_WRITE_OPERATIONS = new Set([
+  "setVisibility",
+  "setNoteGroup",
+  "setFolderGroup",
+  "setFolderVisibility",
+  "resetPrivacy",
+  "ensurePrivacy",
+]);
 
 /** Operations that rearrange notes inside one context: never refused by the note cap. */
-const RELOCATING_OPERATIONS = new Set(["move", "archive", "trash"]);
+const RELOCATING_OPERATIONS = new Set(["move", "archive", "archiveTidy", "trash"]);
 
 export async function runFileOperationHandler(
   ctx: ActionCtx,
@@ -85,6 +99,15 @@ export async function runFileOperationHandler(
     operation: Infer<typeof operationValidator>;
   },
 ): Promise<OperationResult> {
+  // In rows mode the rows are the truth and `privacy.md` is not written: a change to who can see something
+  // is made on the rows (`filesFns/visibility.ts`), and a rules write reaching here is refused, before any
+  // credential is opened.
+  if (PRIVACY_WRITE_OPERATIONS.has(args.operation.kind) && (await ctx.runQuery(internal.functions.nodesAccess.rowsMode, {}))) {
+    throw new ConvexError({
+      code: "ROWS_MODE",
+      message: "Access is kept on the tree's rows now. Change it through the console, or the gateway's set access.",
+    });
+  }
   /*
    * A PROJECTION PASS ASKS THE ROW BEFORE IT ASKS FOR A CREDENTIAL.
    *
@@ -99,9 +122,10 @@ export async function runFileOperationHandler(
    * `projectionTargetForWorkspace` is the same composed gate that decides
    * whether a D1 write credential may leave this deployment for the gateway,
    * and every reason to say no is the same `null`. `backfilling` and nothing
-   * else: a `ready` row is served by the gateway riding its own search's
-   * sync, and a chain that kept running against one would be a full bucket
-   * listing per link, forever, for a context with nothing left to copy.
+   * else: a `ready` row is kept current by writes and repaired by the daily
+   * check (`prunePass.ts`), and a chain that kept running against one would
+   * be a full bucket listing per link, forever, for a context with nothing
+   * left to copy.
    */
   let projection: ProjectionClient | null = null;
   let projectionLeaseToken: string | null = null;
@@ -169,10 +193,28 @@ export async function runFileOperationHandler(
   // (`search/d1/follow.js`). Silent on every no, as a search is.
   // So is a queued folder move when its copy lands, and the daily check of a
   // `ready` database removes rows for notes that are gone (`prunePass.ts`).
-  if (args.operation.kind === "indexNotes" || args.operation.kind === "nodesMoveWork" || args.operation.kind === "pruneIndex") {
+  //
+  // A context with a search database, ready or still filling, keeps no index
+  // in its bucket (decided by the owner, 2026-10-17): its database is the
+  // search, its own scheduled copy fills it, and a bucket-index pass was a
+  // listing and a read of every changed note for an index nothing reads. So
+  // `maintainIndex` stops here, before any credential, and `indexNotes`
+  // follows the change into the database alone.
+  let operation: FileOperation = args.operation as FileOperation;
+  if (args.operation.kind === "maintainIndex" || args.operation.kind === "indexNotes" || args.operation.kind === "nodesMoveWork" || args.operation.kind === "pruneIndex") {
     // Never fails the operation it rides on: a move's copy must not stop over a derivative.
-    const target = await projectionTarget("ready").catch(() => null);
-    if (target !== null) projection = await clientFor(target).catch(() => null);
+    const target = await ctx
+      .runQuery(internal.functions.fastSearch.projectionTargetForWorkspace, { workspaceId: args.workspaceId })
+      .catch(() => null);
+    // A database a search can actually open, on the same terms the search
+    // uses above: with no credential to reach it, the bucket's index is still
+    // what answers, so it is still kept.
+    const client = target !== null && (target.state === "ready" || target.state === "backfilling")
+      ? await clientFor(target).catch(() => null)
+      : null;
+    if (args.operation.kind === "maintainIndex" && client !== null) return IDLE_INDEX_PASS;
+    if (args.operation.kind === "indexNotes" && client !== null) operation = { ...args.operation, shardIndex: false };
+    if (target?.state === "ready") projection = client;
     if (args.operation.kind === "pruneIndex" && projection === null) return IDLE_PRUNE;
   }
 
@@ -357,6 +399,8 @@ export async function runFileOperationHandler(
     return await failForwardSync(ctx, args.operation.connectionId, refusal.data.code, refusal.data.message);
   }
 
+  // While staff have switched reads to the id copies, the app reads and saves through them as an AI client does.
+  const idLayout = await consoleIdLayoutHooks(ctx, args.workspaceId);
   // A plaintext secret is in scope from here to the end of this function. It
   // is used to construct one store and nothing else — it is not logged, not
   // returned, and not passed to `lib/fileOps.ts`, which only ever sees the
@@ -367,7 +411,7 @@ export async function runFileOperationHandler(
     // the gateway uses, so the console reads and writes exactly what an AI
     // client does. A second switch here would be the second place to forget
     // a new backend, and the direction that forgetting fails is "built an
-    // S3 store out of a Dropbox binding".
+    // S3 store out of a binding of another provider".
     //
     // `timeoutFetch` is forwarded because a console request has somebody
     // waiting on it; the gateway does not need one.
@@ -390,6 +434,7 @@ export async function runFileOperationHandler(
       // The cap counts the tree's rows, never the bucket (`store/noteCap.js`).
       noteCount: async () => (await servedNoteCount(ctx, args.workspaceId))?.notes ?? null,
       managedEncryption,
+      idLayout,
     }) as unknown as FileStore;
   } catch {
     // The constructor's message can quote the endpoint the customer typed.
@@ -419,7 +464,11 @@ export async function runFileOperationHandler(
 
   if (isNodesOperation(args.operation)) return await runNodesOperation(ctx, { ...args, operation: args.operation }, store);
   if (isMoveOperation(args.operation)) return await runMoveOperation(ctx, { ...args, operation: args.operation }, store, projection);
-  if (args.operation.kind === "pruneIndex") return await runPrunePass(ctx, { ...args, operation: args.operation }, store, projection, await movesLookup);
+  if (args.operation.kind === "pruneIndex") {
+    // Its census decides which rows are gone, so it reads the tree's names too: a bucket listing of uuid keys would delete every keyed row.
+    attachTreeListing(ctx, args.workspaceId, store);
+    return await runPrunePass(ctx, { ...args, operation: args.operation }, store, projection, await movesLookup);
+  }
 
   // While moves are pending, a note is moved to where the tree draws it before it is read or written.
   const bucket = store;
@@ -436,6 +485,8 @@ export async function runFileOperationHandler(
   }
 
   if (meaning !== null && args.operation.kind === "projectMeaning") {
+    // Its census is the tree's names, as every other listing here is (`namesListing`).
+    attachTreeListing(ctx, args.workspaceId, store);
     return await runMeaningPass(ctx, { ...args, operation: args.operation }, store, meaning);
   }
 
@@ -463,24 +514,23 @@ export async function runFileOperationHandler(
     Read before the operation because afterwards the answer is gone: a note
     made private is, by then, private. See `announceTreeChange`.
   */
-  // The organizer decides its paths inside itself, so they are read off the store as it writes.
-  const organizerChange = args.operation.kind === "organizer" ? recordTreeChange(store) : null;
   const treeChange = treeChangeOf(args.operation as FileOperation);
-  const privacyBefore =
-    treeChange?.narrows === true || organizerChange !== null ? await loadPrivacyState(store).catch(() => null) : null;
+  const privacyBefore = treeChange?.narrows === true ? await loadPrivacyState(store).catch(() => null) : null;
   // A move inside this context adds no note, so it runs in the cap's
   // relocation window (`store/noteCap.js`). Copying, duplicating, restoring
   // from the trash and a move in from another context all add one, and stay
   // capped.
   const listing = await manifestSource(ctx, args, store);
-  attachQueueMove(ctx, args, listing.store, bucket);
+  attachQueueMove(ctx, args, listing.store, bucket, undefined, projection);
   attachTreeListing(ctx, args.workspaceId, listing.store);
+  attachWorkspaceKeyed(ctx, args.workspaceId, listing.store);
+  await attachArrivalAccess(ctx, args, listing.store);
   const followPlaces = attachPlacesFollower(ctx, args.workspaceId, listing.store);
   if (args.operation.kind === "move") attachLandedTouch(ctx, args.workspaceId, listing.store, store);
   const operate = () => executeOperation(
     listing.store,
     clearanceOf(args.scope, args.grantedNames ?? []),
-    args.operation as FileOperation,
+    operation as FileOperation,
     Date.now(),
     projection,
     // A person acting in the console, for the activity file. `client` is
@@ -511,7 +561,14 @@ export async function runFileOperationHandler(
   // `tex/routines/`) too. The person who acted is named by `actorName`, the handle `authorizeFileAccess` resolved from live
   // membership; `recordRoutineSignal` keeps them as the writer only if they
   // can write here now. Best effort, like the website mark above.
-  const routinePaths = routinePathsTouched(args.operation as FileOperation, result);
+  let routinePaths = routinePathsTouched(args.operation as FileOperation, result);
+  if (routinePaths.length === 0 && mayTouchNestedRoutines(args.operation as FileOperation, result)) {
+    // Tex's folder may be nested anywhere (owner, 2026-10-18): ask where, and name its routines as rows do.
+    const tex = await ctx
+      .runQuery(internal.functions.nodesGateway.folderJobs, { workspaceId: args.workspaceId })
+      .then((held) => held.jobs.tex ?? null, () => null);
+    routinePaths = routinePathsTouched(args.operation as FileOperation, result, tex);
+  }
   if (routinePaths.length > 0) {
     await ctx
       .runMutation(internal.functions.routines.recordRoutineSignal, {
@@ -551,7 +608,7 @@ export async function runFileOperationHandler(
   }
 
   const indexChange = indexChangeOf(args.operation as FileOperation, result);
-  const landedChange = organizerChange?.() ?? treeChange ?? treeChangeOfResult(args.operation as FileOperation, result);
+  const landedChange = treeChange ?? treeChangeOfResult(args.operation as FileOperation, result);
   await announceTreeChange(ctx, store, args, landedChange, result, privacyBefore, indexChange?.written);
   if (landedChange?.every === true) await requestNodesSweep(ctx, args.workspaceId); // e.g. clear vault: no path to name
   await followPlaces();
@@ -605,93 +662,6 @@ export async function runFileOperationHandler(
     return answer;
   }
 
-  // A maintenance pass that got somewhere and is not finished schedules the
-  // next one. Here rather than in a job of its own because a second internal
-  // action that opens a bucket credential is a second credential barrier,
-  // and `CREDENTIAL_BARRIERS` holding one entry with a long warning attached
-  // is the point of it — see CLAUDE.md, "Credential barriers are enumerated,
-  // never inferred". Scheduling from inside the barrier propagates no taint.
-  if (
-    args.operation.kind === "maintainIndex" &&
-    result.kind === "indexMaintained" &&
-    result.changed &&
-    !result.complete
-  ) {
-    const passes = Math.floor(args.operation.passes ?? 0);
-    if (passes > 0) {
-      await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
-        workspaceId: args.workspaceId,
-        scope: args.scope,
-        operation: { kind: "maintainIndex", passes: passes - 1 },
-      });
-    }
-  }
-  if (args.operation.kind === "migrateStorage" && result.kind === "storageMigrated") {
-    /*
-      WHAT THE BUCKET SAID, WRITTEN DOWN WHERE A QUERY CAN REACH IT.
-
-      The bucket stays authoritative — `migrateStorageLayout` keeps its own
-      state under `.context/` and short-circuits on `complete`. This is the
-      copy the console reads, and it is recorded on **every** pass rather
-      than only at the end, so an owner watching a long migration sees
-      `copying` rather than nothing at all.
-
-      Before this, nothing outside the bucket knew the migration had ever
-      run. The console's offer to run it was therefore answered by a flag on
-      one device, and came back on the next browser and the next phone for a
-      bucket already migrated — which is the nag this is here to end.
-    */
-    await ctx.runMutation(internal.functions.storage.recordStorageLayoutState, {
-      workspaceId: args.workspaceId,
-      state: result.state,
-    });
-    const continuing =
-      (args.operation.cleanup && result.state === "cleaning") ||
-      (!args.operation.cleanup && result.state === "copying");
-    if (continuing) {
-      await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
-        workspaceId: args.workspaceId,
-        scope: "private",
-        operation: {
-          kind: "migrateStorage",
-          cleanup: args.operation.cleanup,
-        },
-      });
-    } else if (!args.operation.cleanup && result.state === "copied") {
-      await ctx.scheduler.runAfter(
-        STORAGE_LAYOUT_ROLLBACK_MS + 5_000,
-        internal.functions.files.runFileOperation,
-        {
-          workspaceId: args.workspaceId,
-          scope: "private",
-          operation: { kind: "migrateStorage", cleanup: true },
-        },
-      );
-    }
-  }
-  if (args.operation.kind === "readStorageLayout" && result.kind === "storageLayoutRead") {
-    /*
-      THE QUESTION NOBODY WAS ASKING.
-
-      `migrateStorage` records what the bucket said, but only a context that
-      ran the migration *after* that recording existed ever had anything
-      recorded. Every context migrated before it kept a `complete` in its own
-      bucket and an empty column here, and the console reads an empty column
-      as "nobody has run this" — so it offered the update again on every
-      device, for ever, to the people who had already run it.
-
-      This is the same write from the other direction: ask, and write down
-      the answer, without running anything. `observed: false` is not an
-      answer — a bucket that would not talk to us teaches us nothing, and
-      recording a timestamp for it would claim otherwise and close the offer
-      on a context that may genuinely still need it.
-    */
-    if (result.observed) {
-      await ctx.runMutation(internal.functions.storage.recordStorageLayoutState, {
-        workspaceId: args.workspaceId,
-        ...(result.state === null ? {} : { state: result.state }),
-      });
-    }
-  }
+  await afterMaintenance(ctx, args, result);
   return result;
 }

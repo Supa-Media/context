@@ -24,6 +24,9 @@ import type { FileBrowser } from "./browser";
 import { editorReducer, emptyEditor } from "./editor";
 import { knownNotePaths } from "./paths";
 import { shownIcon } from "./folderIcons";
+import { archiveFolder, inboxFolder, loadedJobs, loadedTwins, projectsFolder } from "./jobIcons/folderJobs";
+import { setJobFoldersNow } from "./jobIcons/jobFoldersNow";
+import { jobIconMarker, twinIconMarker } from "./jobIcons/marker";
 import type { OpenNote } from "./types";
 
 /** The note at a path in this tree, or `null` when it is a folder. */
@@ -123,6 +126,13 @@ export function useStaticFileBrowser(tree: DemoContextTree, contextId: string | 
     if (note === null) dispatch({ type: "closed" });
     else dispatch({ type: "opened", note });
   }, [tree]);
+
+  const jobs = useMemo(() => {
+    // As the real console does (`useFolderJobs`): the folder page and a note's chips read where Projects is from here.
+    setJobFoldersNow({ inbox: inboxFolder(tree.listings), projects: projectsFolder(tree.listings), archive: archiveFolder(tree.listings) });
+    return loadedJobs(tree.listings);
+  }, [tree]);
+  const twins = useMemo(() => loadedTwins(tree.listings), [tree]);
 
   return useMemo(
     () => ({
@@ -255,7 +265,13 @@ export function useStaticFileBrowser(tree: DemoContextTree, contextId: string | 
       linkPaths: knownNotePaths(tree.listings),
       resetPrivacy: noop,
       // The icons the tree came with (a homepage scene names some); nothing here can set one.
-      iconOf: (path: string) => shownIcon(tree.icons ?? {}, path),
+      // A built-in folder draws its job's icon, as in the real console (`useFolderJobs`).
+      iconOf: (path: string) => {
+        const job = jobs.get(path);
+        if (job !== undefined) return jobIconMarker(job);
+        const twin = twins.get(path);
+        return (twin === undefined ? null : twinIconMarker(twin)) ?? shownIcon(tree.icons ?? {}, path);
+      },
       setIcon: async () => {},
       // The landing page has no bucket to add a folder to; its sheet is never offered.
       addBuiltInFolder: async () => {
@@ -303,6 +319,7 @@ export function useStaticFileBrowser(tree: DemoContextTree, contextId: string | 
       deselect,
       editor,
       expanded,
+      jobs,
       select,
       selectedPath,
       toggleFolder,

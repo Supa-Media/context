@@ -1,4 +1,5 @@
-import { restoreTargetFor } from "../files/paths";
+import { isMarkdown, restoreTargetFor } from "../files/paths";
+import { chipsFit } from "../files/noteEditor/chips/chipModel";
 import type { MenuItem } from "../files/menuItem";
 import type { FileEntry } from "../files/types";
 
@@ -28,7 +29,7 @@ import type { FileEntry } from "../files/types";
  * visitor's edits stay in their tab, so they may rename and move there, and
  * copy the page's link; they have no workspace to share into and no archive.
  */
-export type NoteActionId = "read" | "share" | "rename" | "moveTo" | "copyLink" | "archive" | "restore";
+export type NoteActionId = "read" | "share" | "rename" | "moveTo" | "addProperty" | "copyLink" | "archive" | "restore";
 
 export interface NoteActionContext {
   /** The note or folder that is open. */
@@ -77,6 +78,14 @@ export function noteActionItems({
   if (writable) {
     items.push({ id: "rename", label: "Rename", testID: "note-action-rename" });
     items.push({ id: "moveTo", label: "Move to…", testID: "note-action-move" });
+  }
+  /*
+    Add property: the way in for a loose note, which draws no chips over its
+    name on a phone (owner, 2026-10-18, board A of `loose-note-chips`). It
+    opens the note's Properties card on its Add row (`addPropertyAsk.ts`).
+  */
+  if (!visitor && writable && entry.kind === "file" && isMarkdown(entry.path) && chipsFit(entry.path)) {
+    items.push({ id: "addProperty", label: "Add property", testID: "note-action-add-property" });
   }
   if (visitor || canShare) {
     items.push({ id: "copyLink", label: "Copy link", testID: "note-action-copy-link" });

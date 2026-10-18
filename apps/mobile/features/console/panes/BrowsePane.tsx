@@ -1,12 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { View } from "react-native";
 import { Reveal } from "../../design/components/Reveal";
 import { useConsoleNav } from "../ConsoleNavContext";
 import { anchorOnScreen } from "../followedAnchor";
 import { useSurfacePadding } from "../../app/Screen";
 import { useThemedStyles } from "../../design/theme";
-import { Menu } from "../../design/components/Menu";
-import { runMenuAction } from "../files/actions";
 import { ExplorerDialogs } from "../files/Explorer";
 import { useReadMode } from "../files/readMode";
 import { useDeclaredView } from "../files/viewMode";
@@ -25,10 +23,27 @@ import type { BrowsePaneProps } from "./browsePane/props";
 import { makeStyles } from "./browsePane/styles";
 import { useBrowseNotices } from "./browsePane/useBrowseNotices";
 import { useFolderListing } from "./browsePane/useFolderListing";
+import { ListingMenu } from "./browsePane/ListingMenu";
 import { useShownEntry } from "./browsePane/useShownEntry";
+import {
+  folderPageReady,
+  pageCacheVersion,
+  preloadFolderPage,
+  preloadFronts,
+  subscribePageCache,
+} from "../files/folderPage/pageCache";
 import { NoteIntentContext } from "../files/noteIntent";
-import { useOrganizerView } from "../../organizer/OrganizerContext";
+import { FOLDERS_PAGE, useHomeView } from "../home/homeView";
+import { usePhoneHistory } from "../home/phoneHistory";
+import { goToLevel, HOME_LABEL } from "../home/phoneBack";
 import { useMapRoute } from "../map/live/MapRouteContext";
+import { useChaosView } from "../../chaos/ChaosContext";
+import {
+  cachedFolderLine,
+  folderLinesVersion,
+  preloadFolderLine,
+  subscribeFolderLines,
+} from "../../chaos/folderLineCache";
 
 /**
  * Browse — the note, and nothing between you and it.
@@ -99,15 +114,6 @@ export function BrowsePane({
     files.selectedPath === null
       ? null
       : entryAt(files.listings, files.selectedPath, files.editor);
-  // The page already on screen, until the one being opened is ready to swap
-  // in. See `useShownEntry`.
-  const selected = useShownEntry({
-    target,
-    contextId: files.contextId,
-    selectedPath: files.selectedPath,
-    opening: files.opening,
-    editorPath: files.editor.path,
-  });
 
   /**
    * Whether the file browser is talking about the context the console is on.
@@ -207,7 +213,49 @@ export function BrowsePane({
     saveTags,
     selectAsked,
     takeSelect,
+    holdSelect,
   } = useFolderListing({ files, contextLabel, settled, current, data, onShare: files.canShare ? setSharing : undefined });
+  /*
+    A folder page is drawn from three reads besides its listing (`pageCache`):
+    until they land the page on screen stays, and the press that chose the
+    folder has already started them. Re-rendered as each one lands.
+  */
+  useSyncExternalStore(subscribePageCache, pageCacheVersion, pageCacheVersion);
+  // The chaos line under a folder's title is part of the page too (`folderLineCache`).
+  const askChaos = useChaosView()?.folderScore;
+  useSyncExternalStore(subscribeFolderLines, folderLinesVersion, folderLinesVersion);
+  const folderPending =
+    compact &&
+    target !== null &&
+    target.kind === "folder" &&
+    classifyCommsPath(target.path) === null &&
+    (!folderPageReady(folderLists, target.path) ||
+      (askChaos !== undefined && cachedFolderLine(askChaos, target.path) === undefined));
+  const pendingFolder = folderPending && target !== null ? target.path : null;
+  useEffect(() => {
+    if (pendingFolder === null) return;
+    preloadFolderPage(folderLists, pendingFolder);
+    preloadFolderLine(askChaos, pendingFolder);
+  }, [pendingFolder, folderLists, askChaos]);
+  // The page already on screen, until the one being opened is ready to swap
+  // in. See `useShownEntry`.
+  const { entry: selected, holding } = useShownEntry({
+    target,
+    contextId: files.contextId,
+    selectedPath: files.selectedPath,
+    opening: files.opening,
+    editorPath: files.editor.path,
+    waiting: folderPending,
+  });
+  // Whatever the listing on screen names, its folders' front notes are read ahead (`preloadFronts`).
+  const shownListing = files.listings[selected?.kind === "folder" ? selected.path : ""];
+  useEffect(() => {
+    if (!compact || shownListing === undefined) return;
+    preloadFronts(
+      folderLists,
+      shownListing.entries.filter((each) => each.kind === "folder").map((each) => each.path),
+    );
+  }, [compact, shownListing, folderLists]);
   /*
     The two bands the floating chrome occupies, spent as content padding at
     both ends.
@@ -229,7 +277,6 @@ export function BrowsePane({
     setup,
     layingOut,
     storageMigration,
-    dropboxEnding,
     missingFolders,
     intro,
     introAnswer,
@@ -268,7 +315,6 @@ export function BrowsePane({
       moveNotices={moveNotices}
       setDismissedMoves={setDismissedMoves}
       storageMigration={storageMigration}
-      dropboxEnding={dropboxEnding}
       missingFolders={missingFolders}
     />
     )}
@@ -295,10 +341,12 @@ export function BrowsePane({
    * each other by construction.
    */
   const commsRoute = selected === null ? null : classifyCommsPath(selected.path);
-  // What changed draws where the document would (`BrowseDocument`).
-  const organizerPage = useOrganizerView()?.pageOpen === true;
-  // And so does the live map, filling the slot (`?map=1`).
+  // The live map draws where the document would, filling the slot (`?map=1`).
   const mapPage = useMapRoute()?.open === true && current != null;
+  // Inbox or Folders, when nothing is open on a phone (`home/homeView.ts`).
+  const homeView = useHomeView();
+  // Every page a phone shows, in order, so ‹ goes back to the one before (`phoneHistory.ts`).
+  usePhoneHistory(compact && !mapPage ? (selected?.path ?? (homeView === "folders" ? FOLDERS_PAGE : "")) : null, files.contextId ?? null);
 
   const openDocument = (
     <BrowseDocument
@@ -330,6 +378,7 @@ export function BrowsePane({
       notices={notices}
       pathBar={pathBar}
       layingOut={layingOut}
+      holding={holding}
     />
   );
 
@@ -449,8 +498,9 @@ export function BrowsePane({
         openDocument={openDocument}
         notices={notices}
         pathBar={pathBar}
-        page={organizerPage}
         fill={mapPage}
+        topPage={homeView === "folders" ? FOLDERS_PAGE : ""}
+        onSwipeHome={selected !== null || homeView === "folders" ? () => goToLevel({ folder: null, label: HOME_LABEL, view: "inbox" }, files) : undefined}
       />
 
       {/*
@@ -466,19 +516,14 @@ export function BrowsePane({
         driven by its own state, because a dialog belongs to the surface that
         raised it.
       */}
-      {folderMenu !== null ? (
-        <Menu
-          items={folderMenu.items}
-          anchor={folderMenu.anchor}
-          title={folderMenu.title}
-          onSelect={(id) => {
-            const target = folderMenu.target;
-            setFolderMenu(null);
-            runMenuAction(id, target, menuActions);
-          }}
-          onDismiss={() => setFolderMenu(null)}
-        />
-      ) : null}
+      <ListingMenu
+        menu={folderMenu}
+        setMenu={setFolderMenu}
+        actions={menuActions}
+        notes={homeSource.notes}
+        folders={homeSource.folders}
+        holdSelect={holdSelect}
+      />
 
       <ExplorerDialogs
         files={files}

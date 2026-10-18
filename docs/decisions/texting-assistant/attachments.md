@@ -16,8 +16,9 @@ that pictures and files reach the model. Now:
   picture would make the model API refuse the whole turn); a HEIC photo or one
   over 5 MB converted to a JPEG by the Worker's Images binding; a text file,
   contact card or calendar invite as its text; a Word, Excel or PowerPoint
-  file as its words (`officeText.ts`, a bounded zip reader); anything else,
-  audio and video included, as a sentence saying why it couldn't be opened.
+  file as its words (`officeText.ts`, a bounded zip reader); a voice message
+  or other recording (8 MB at most) as audio; anything else, video included,
+  as a sentence saying why it couldn't be opened.
 - The gateway (`apps/mcp/src/agent/attachments.js`) checks types and sizes
   against the model API's (8 files, 5 MB a picture, 10 MB a PDF, 20 MB in all)
   and sends them as image and document blocks before the person's words. A
@@ -30,4 +31,42 @@ that pictures and files reach the model. Now:
   from outside the workspace, so a widening in it asks first, as after a web
   page. A bare "yes" sent with a photo goes to the model, never to a waiting ask.
 
+## Voice messages (owner, 2026-10-15: "make it support voice memos, that's important")
+
+The gateway turns audio into words before the model runs, with the same
+transcription service meetings use (`ingestion/transcription.js` →
+`infra/transcribe-worker`, Whisper with its silence filtering). Only the audio
+and its type cross; the workspace travels as the forwarder's HMAC, as for
+meetings. The model gets the transcript as a text document titled as a voice
+message and is told to answer it as if typed. Unlike other attachments, the
+transcript (2,000 characters at most) is kept in the saved conversation: it is
+the person's own message, said instead of typed. No service configured, a
+failed transcription or a recording with no speech each become a sentence, so
+Tex asks them to type it rather than guessing. Video is still not read.
+
 Tests: `agentAttachments.test.mjs`, `attachments.test.ts`, `inbound.test.ts`.
+
+## Pictures Tex sends (owner, 2026-10-16: "Tex says he can't send pictures by text, can you fix that?")
+
+A texted answer may end with photos. The model writes `[picture N]` on its own
+line for picture N that a tool showed it this turn (a note's picture, read with
+`read_image`, so its privacy check has passed), or `[picture <https address>]`
+for a web image. The gateway (`apps/mcp/src/agent/outgoingPictures.js`) takes
+those lines out of the text and returns the pictures, at most four, as
+`pictures` on the `/agent` answer. Only a text from the person's phone does
+this, and the prompt says so on every texted turn, a production setup included.
+
+A web address is sent only when it appeared word for word in a tool result or
+in the person's own text that turn. Linq fetches it, so an address the model
+put together could carry a private note's words to whoever runs that server
+(the classic image-link leak); an address copied from what was read was
+written before the turn and carries nothing it learned.
+
+The texting Worker (`apps/agent/src/outgoing.ts`) uploads a note's picture to
+Linq's attachment store and sends it by attachment id, so it never needs an
+address anyone could open, and a retry keeps only that id. A picture that
+cannot be uploaded, or that Linq refuses, becomes "I couldn't send that
+picture just now." The saved conversation says a picture was sent, never its
+bytes.
+
+Tests: `agentOutgoingPictures.test.mjs`, `outgoing.test.ts`.

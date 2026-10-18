@@ -15,8 +15,6 @@ import { runStoreSigningChecks } from "./store/signing.test.mjs";
 import { runStoreRootPrefixAndTraversalChecks } from "./store/rootPrefixAndTraversal.test.mjs";
 import { runStoreAddressingAndProbeChecks } from "./store/addressingAndProbe.test.mjs";
 import { runStoreGuardChecks } from "./store/guards.test.mjs";
-import { runStoreDropboxChecks } from "./store/dropbox.test.mjs";
-import { runStoreDropboxFolderChecks } from "./store/dropboxFolders.test.mjs";
 import { runStoreWorkerWiringChecks } from "./store/workerWiring.test.mjs";
 
 /**
@@ -30,7 +28,5 @@ export async function runStoreChecks(check, gateway) {
   await runStoreRootPrefixAndTraversalChecks(check);
   await runStoreAddressingAndProbeChecks(check);
   await runStoreGuardChecks(check, gateway);
-  await runStoreDropboxChecks(check);
-  await runStoreDropboxFolderChecks(check);
   await runStoreWorkerWiringChecks(check);
 }

@@ -53,6 +53,7 @@ import {
   normalizeTranscription,
 } from "../../../../packages/meetings/src/session.js";
 import { SCOPE_READ, SCOPE_WRITE, hasScope } from "../session.js";
+import { unclaimedNotePath } from "./notes.js";
 import { transcribeChunk } from "./transcribe.js";
 import {
   LIMITS,
@@ -916,21 +917,6 @@ function writeNoteFor(store, session, meeting, publishNote) {
     markdown: renderMeetingNote(meeting),
     segmentCount: meeting.transcript.length,
   });
-}
-
-/**
- * The path this meeting will occupy, avoiding one that is already taken.
- *
- * `meetingNotePath` already ends in a short form of the session id, so a
- * collision means either a retry of this same session — which reuses the path
- * out of the record and never reaches here — or a note somebody else's tooling
- * put there. Suffixing rather than overwriting mirrors `uniqueSessionPath` in
- * `index.js`: a gateway that overwrites an unrelated note to file a meeting has
- * destroyed something no version history of ours can give back.
- */
-async function unclaimedNotePath(store, candidate) {
-  if (!(await store.get(candidate))) return candidate;
-  return candidate.replace(/\.md$/, `-${crypto.randomUUID().slice(0, 8)}.md`);
 }
 
 /**

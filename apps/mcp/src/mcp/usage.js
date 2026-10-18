@@ -3,6 +3,8 @@
  * work goes through. Moved verbatim out of `src/index.js`.
  */
 
+import { countTokens, requestText, responseParts } from "./tokens.js";
+
 /**
  * The metrics one tool call is worth.
  *
@@ -43,6 +45,20 @@ export function reportSessionUsage(store, workspaceId) {
   }
 }
 
+/**
+ * That this connection just fetched our tool list. `orient` then names only
+ * the tool changes after this moment (`tools/news.js`). Fire and forget, like
+ * the counters: it may never fail the listing it describes.
+ */
+export function reportToolsListed(store) {
+  if (typeof store?.reportToolsListed !== "function") return;
+  try {
+    store.reportToolsListed();
+  } catch {
+    // Bookkeeping only.
+  }
+}
+
 export function reportToolUsage(store, toolName, workspaceId) {
   if (typeof store?.reportUsage !== "function") return;
   if (typeof workspaceId !== "string" || workspaceId === "") return;
@@ -57,6 +73,74 @@ export function reportToolUsage(store, toolName, workspaceId) {
     // synchronous throw from a host that refuses deferral in an unexpected
     // way. A counter must not be able to fail a tool call by any route.
   }
+}
+
+/**
+ * Premium usage analytics for one tool call: tokens in and out, the call, a
+ * failure, images and writes, by the grant's agent and the model.
+ *
+ * Built lazily, inside the deferred report, so tokenizing never delays the
+ * answer. What leaves the gateway is counts, ids it already holds, a model
+ * string and a method word; never the arguments or the answer themselves.
+ * Whether the workspace is Premium is the control plane's to decide.
+ *
+ * `result` is null when the dispatch threw.
+ */
+export function reportBoundaryUsage(store, session, workspaceId, params, result) {
+  if (typeof store?.reportUsage !== "function") return;
+  if (typeof workspaceId !== "string" || workspaceId === "") return;
+  const clientId = session?.actorClientId;
+  // A legacy shared-token session has no agent to attribute to.
+  if (typeof clientId !== "string" || clientId === "") return;
+  const base = {
+    workspaceId,
+    clientId,
+    ...(typeof session.actorUserId === "string" ? { userId: session.actorUserId } : {}),
+    ...(typeof store.usageModel === "string" ? { model: store.usageModel } : {}),
+  };
+  const build = async () => {
+    const response = responseParts(result);
+    const [sent, returned] = await Promise.all([
+      countTokens(requestText(params)),
+      countTokens(response.text),
+    ]);
+    const failed = result === null || result?.isError === true;
+    const hourly = [
+      { ...base, metric: "mcp.request_tokens", method: sent.method, count: sent.count },
+      { ...base, metric: "mcp.response_tokens", method: returned.method, count: returned.count },
+      { ...base, metric: failed ? "mcp.failed_calls" : "mcp.calls", method: "count", count: 1 },
+      { ...base, metric: "mcp.images", method: "count", count: response.images },
+    ];
+    if (!failed && (USAGE_METRICS_BY_TOOL.get(params?.name) ?? []).includes("note.write")) {
+      hourly.push({ ...base, metric: "note.write", method: "count", count: 1 });
+    }
+    // Zero is not an event: the control plane reads a missing count as one.
+    return { hourly: hourly.filter((event) => event.count > 0) };
+  };
+  try {
+    store.reportUsage(build);
+  } catch {
+    // As in `reportToolUsage`.
+  }
+}
+
+/**
+ * Run one tool call and report what crossed the boundary, whatever happened:
+ * a refusal and a throw still cost the agent the tokens it reads. `run` gets a
+ * `routed` object and sets `routed.workspaceId` to the context the call reached,
+ * so a call is attributed once, there, even a move that touches two.
+ */
+export async function measuredCall(store, session, params, run) {
+  const routed = { workspaceId: session?.workspaceId };
+  let result;
+  try {
+    result = await run(routed);
+  } catch (error) {
+    reportBoundaryUsage(store, session, routed.workspaceId, params, null);
+    throw error;
+  }
+  reportBoundaryUsage(store, session, routed.workspaceId, params, result);
+  return result;
 }
 
 export function deferredWork(work) {

@@ -13,6 +13,7 @@ import { FileOpError, notFound } from "./errors";
 import { requirePath } from "./paths";
 import { loadPrivacyState } from "./privacyState";
 import { assertWritablePath } from "./writing";
+import { refuseKeyedStore } from "../noteIds/keyedStore";
 
 /** Keys removed per retryable replacement pass. Small enough for every provider. */
 export const VAULT_CLEAR_BATCH_OBJECTS = 100;
@@ -31,6 +32,11 @@ export async function clearVaultBatch(
   store: FileStore,
   countOnly: boolean,
 ): Promise<{ mode: "counted" | "deleted"; objects: number; complete: boolean }> {
+  // Clearing deletes by key, and in a keyed workspace the keys are the frozen
+  // copies and the id keys alike. The tree's rows would still name every note
+  // that was just deleted, and the import lands at paths no row adopts, so the
+  // replacement is refused there rather than half done (`lib/noteIds/keyedStore.ts`).
+  await refuseKeyedStore(store);
   if (countOnly) {
     let cursor: string | undefined;
     let objects = 0;

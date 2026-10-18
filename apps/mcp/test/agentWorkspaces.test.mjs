@@ -59,7 +59,7 @@ test("one workspace is no choice, and says nothing", () => {
   assert.equal(workspacesPrompt(null), "");
 });
 
-test("a long list is capped and points at scope_info", () => {
+test("a long list is capped and points at orient", () => {
   const many = Array.from({ length: MAX_LISTED_WORKSPACES + 3 }, (_, i) => ({
     name: `@w${i}`,
     kind: "shared",
@@ -68,7 +68,7 @@ test("a long list is capped and points at scope_info", () => {
     canWrite: true,
   }));
   const prompt = workspacesPrompt(many);
-  assert.match(prompt, /and 3 more \(scope_info lists them all\)/);
+  assert.match(prompt, /and 3 more \(orient lists them all\)/);
   assert.doesNotMatch(prompt, new RegExp(`@w${MAX_LISTED_WORKSPACES}\\b`));
 });
 

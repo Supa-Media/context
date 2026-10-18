@@ -20,6 +20,8 @@ export interface RoutineHostValue {
   row: RoutineRow | null | undefined;
   /** Newest first; `null` while being read. */
   runs: RoutineRun[] | null;
+  /** In a shared workspace, where no routine runs: nothing is asked. */
+  shared: boolean;
   /** May press Run now and Pause: an editor or owner. */
   canEdit: boolean;
   /** Queue a run; answers a sentence to show when it could not. */
@@ -35,22 +37,25 @@ export function useRoutineHost(): RoutineHostValue | null {
 /**
  * Mounted by the live console around the note. Answers `null` for a note
  * outside `tex/routines/` and `routines/`, and asks the control plane nothing
- * unless the open note is a scheduled routine.
+ * unless the open note is a scheduled routine in a personal workspace.
  */
 export function RoutineProvider({
   workspaceId,
+  shared,
   path,
   canEdit,
   children,
 }: {
   workspaceId: string | undefined;
+  /** A shared workspace runs no routines (the owner, 2026-10-18). */
+  shared: boolean;
   path: string | null;
   canEdit: boolean;
   children: ReactNode;
 }) {
   const found = path === null ? null : routineFromPath(path);
   const routine = found?.kind === "routine";
-  const ask = routine && workspaceId !== undefined ? { workspaceId: workspaceId as Id<"workspaces">, path: path! } : null;
+  const ask = routine && !shared && workspaceId !== undefined ? { workspaceId: workspaceId as Id<"workspaces">, path: path! } : null;
   // `useQueries` rather than `useQuery`: a refused query is a value here, not
   // a throw during render that would take the whole console down with it.
   const spec = useMemo((): RequestForQueries => {
@@ -96,8 +101,8 @@ export function RoutineProvider({
 
   const value = useMemo(
     (): RoutineHostValue | null =>
-      found === null || path === null ? null : { path, row: ask === null ? null : row, runs, canEdit, runNow },
-    [path, found === null, ask === null, row, runs, canEdit, runNow], // eslint-disable-line react-hooks/exhaustive-deps
+      found === null || path === null ? null : { path, row: ask === null ? null : row, runs: ask === null ? [] : runs, shared, canEdit: canEdit && !shared, runNow },
+    [path, found === null, ask === null, row, runs, shared, canEdit, runNow], // eslint-disable-line react-hooks/exhaustive-deps
   );
   return <RoutineContext.Provider value={value}>{children}</RoutineContext.Provider>;
 }

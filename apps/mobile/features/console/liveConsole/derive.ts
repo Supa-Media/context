@@ -176,7 +176,6 @@ export function consoleStorageFrom(
           region: binding.region,
           rootPrefix: binding.rootPrefix,
           accessKey: binding.maskedAccessKeyId,
-          dropboxAccountId: binding.dropboxAccountId,
           conditionalWrite: binding.capabilities.conditionalWrite,
           noteCount: binding.noteCount,
           noteCountedAt: binding.noteCountedAt,

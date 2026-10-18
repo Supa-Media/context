@@ -201,6 +201,7 @@ function mockConsoleData(): never {
     createFolder: () => {},
     /* Recorded, so the `+` sheet's rows can be shown to reach the browser. */
     createUntitled: (folder: string, kind: string) => created.push(`${kind}:${folder}`),
+    ensureListing: () => {},
     rename: () => {},
     move: () => {},
     duplicate: () => {},

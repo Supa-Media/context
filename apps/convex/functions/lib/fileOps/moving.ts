@@ -55,6 +55,17 @@ export interface MoveResult {
    * it. `paths` is then just `to`.
    */
   queued?: number;
+  /**
+   * Set when a keyed workspace moved it as a row change (`nodes/rowMoveStart.ts`):
+   * nothing was copied, and `queued` counts the files that moved.
+   */
+  rowed?: true;
+  /**
+   * The files a keyed row move renamed, each at its old and new path, so the
+   * gateway can carry their collaboration heads and state along
+   * (`notes-by-id.md`). Metadata only; set with `rowed`.
+   */
+  moved?: { from: string; to: string }[];
 }
 
 /**
@@ -63,11 +74,17 @@ export interface MoveResult {
  * non-enumerably, as the barrier's other seams are; a store without it (the
  * gateway's own, tests, self-hosting without the tree) moves the old way.
  */
-type QueueMove = (move: { from: string; to: string; clearance: Clearance; now: number }) => Promise<MoveResult | null>;
+type QueueMove = (move: {
+  from: string;
+  to: string;
+  clearance: Clearance;
+  now: number;
+  expectedEtag?: string;
+}) => Promise<MoveResult | null>;
 
 async function queuedMove(
   store: FileStore,
-  move: { from: string; to: string; clearance: Clearance; now: number },
+  move: { from: string; to: string; clearance: Clearance; now: number; expectedEtag?: string },
 ): Promise<MoveResult | null> {
   const queue = (store as { queueMove?: QueueMove }).queueMove;
   return typeof queue === "function" ? await queue(move) : null;
@@ -136,7 +153,7 @@ export async function movePath(
   assertWritablePath(from);
   assertWritablePath(to);
   if (from === to) return { from, to, paths: [] };
-  await assertNotProtectedFolder(store, from, options.clearance);
+  await assertNotProtectedFolder(store, from, options.clearance, "move");
   if (to.startsWith(`${from}/`)) {
     throw new FileOpError("PATH_INVALID", "A folder cannot be moved inside itself.");
   }
@@ -157,11 +174,16 @@ export async function movePath(
   // `projects` beside `Projects` is refused by name before anything moves.
   await assertNoNameTwin(store, to, options.clearance, "folder", from);
 
-  // A move asked against a version is about one note, which never queues.
-  if (options.expectedEtag === undefined) {
-    const queued = await queuedMove(store, { from, to, clearance: options.clearance, now: options.now });
-    if (queued !== null) return queued;
-  }
+  // A keyed workspace moves a row here, even against a version (`rowMoveStart.ts`); anywhere else a
+  // move asked against a version is about one note and goes the old way.
+  const queued = await queuedMove(store, {
+    from,
+    to,
+    clearance: options.clearance,
+    now: options.now,
+    ...(options.expectedEtag === undefined ? {} : { expectedEtag: options.expectedEtag }),
+  });
+  if (queued !== null) return queued;
 
   const state = await loadPrivacyState(store);
   if (!canSee(from, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
@@ -209,7 +231,7 @@ export async function movePath(
   // "The destination must not exist" is about a destination of either kind. The
   // collision loop below checks key against key, so a file onto a file was
   // always caught; a folder onto a folder merged, and the two crossed pairs
-  // left a file key shadowing a folder prefix — a shape a Dropbox binding
+  // left a file key shadowing a folder prefix — a shape some stores
   // cannot even represent.
   if (await isFolder(store, to)) {
     if (!folderVisibleAtScope(to, options.clearance, state.rules, state.overrides)) throw notFound();
@@ -480,7 +502,7 @@ export async function movePath(
 
       `createFolder` writes down the assumption the rest of this file is built
       on — object storage has no folders, only shared key prefixes — and it is
-      true of R2 and S3 and false of Dropbox. There the files move and the
+      true of R2 and S3 and false of some stores. There the files move and the
       directory stays, `list` keeps reporting it as a prefix, and the console
       goes on drawing the folder somebody just moved. The notes at the new name
       and the old folder still beside them is a move that reads as a copy, and

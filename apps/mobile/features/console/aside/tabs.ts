@@ -9,7 +9,8 @@
  * ## What the panel holds
  *
  * What happens *beside* a note rather than in it: a recording of what is being
- * said, and what an AI client is waiting on a person's yes for. Meetings used
+ * said, and, only while there is one, what an AI client is waiting on a
+ * person's yes for. Meetings used
  * to float over whatever you were reading because it had nowhere to live, and
  * giving it a home is the whole of this panel.
  */
@@ -33,12 +34,24 @@ export const DEFAULT_ASIDE_TAB: AsideTab = "meetings";
  * The tabs a console shows, in order.
  *
  * Meetings is always there. Approvals needs this console to have an approvals
- * route to ask — `approvals` is false otherwise (the homepage, the demo), and
- * the tab is then absent rather than an empty list that says nothing is
- * waiting when nobody has checked.
+ * route to ask — `approvals` is false otherwise (the homepage, the demo) — and
+ * something to ask about: an email, a calendar change, a new @handle or a
+ * vault key's first use waiting for the person. With nothing waiting it is
+ * absent (Dev2, 2026-10-17: the widening approvals are gone, and an empty tab
+ * every day was the friction). `answered` keeps it while the person reads what
+ * their last answer did, so the notice does not vanish under them.
  */
-export function visibleAsideTabs({ approvals }: { approvals: boolean }): AsideTab[] {
-  return ASIDE_TABS.map((tab) => tab.key).filter((key) => key === "meetings" || approvals);
+export function visibleAsideTabs({
+  approvals,
+  waiting,
+  answered = false,
+}: {
+  approvals: boolean;
+  waiting: number;
+  answered?: boolean;
+}): AsideTab[] {
+  const showApprovals = approvals && (waiting > 0 || answered);
+  return ASIDE_TABS.map((tab) => tab.key).filter((key) => key === "meetings" || showApprovals);
 }
 
 /**

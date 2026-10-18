@@ -174,11 +174,11 @@ describe("the AI costs report", () => {
     const t = setupTest();
     const { staff, adaWs, boWs } = await world(t);
     await spend(t, adaWs, "assistant", { costUsd: 1, calls: 1 });
-    await spend(t, boWs, "organizer", { costUsd: 2, daysAgo: 3 });
+    await spend(t, boWs, "ownerSuggest", { costUsd: 2, daysAgo: 3 });
     // The prior seven days: seven to thirteen days before today.
     await spend(t, adaWs, "assistant", { costUsd: 4, daysAgo: 10, calls: 1 });
     // Older than both windows: counted in neither.
-    await spend(t, adaWs, "whatChanged", { costUsd: 8, daysAgo: 20 });
+    await spend(t, adaWs, "iconSuggest", { costUsd: 8, daysAgo: 20 });
 
     const result = await report(t, staff, 7);
     expect(result.days).toBe(7);
@@ -191,29 +191,57 @@ describe("the AI costs report", () => {
     const t = setupTest();
     const { staff, adaWs } = await world(t);
     await spend(t, adaWs, "assistant", { costUsd: 2, calls: 4 });
-    await spend(t, adaWs, "organizer", { costUsd: 0.5, calls: 10 });
+    await spend(t, adaWs, "ownerSuggest", { costUsd: 0.5, calls: 10 });
 
     const result = await report(t, staff, 7);
-    expect(result.features.map((f) => f.feature)).toEqual(["assistant", "organizer", "ownerSuggest", "whatChanged", "meetingSummary", "iconSuggest"]);
+    expect(result.features.map((f) => f.feature)).toEqual(["assistant", "ownerSuggest", "meetingSummary", "iconSuggest"]);
     expect(new Set(result.features.map((f) => f.feature))).toEqual(new Set(Object.keys(JEV_FEATURES)));
 
     expect(result.features[0]).toMatchObject({ feature: "assistant", uses: 4, unit: "questions", costUsd: 2 });
     expect(result.features[0].eachUsd).toBeCloseTo(0.5);
-    expect(result.features[1]).toMatchObject({ feature: "organizer", uses: 10, unit: "requests", costUsd: 0.5 });
+    expect(result.features[1]).toMatchObject({ feature: "ownerSuggest", uses: 10, unit: "requests", costUsd: 0.5 });
     expect(result.features[1].eachUsd).toBeCloseTo(0.05);
-    expect(result.features[2]).toMatchObject({ feature: "ownerSuggest", uses: 0, costUsd: 0, eachUsd: null, models: [] });
-    expect(result.features[3]).toMatchObject({ feature: "whatChanged", uses: 0, costUsd: 0, eachUsd: null });
-    expect(result.features[4]).toMatchObject({ feature: "meetingSummary", uses: 0, costUsd: 0, eachUsd: null });
+    expect(result.features[2]).toMatchObject({ feature: "meetingSummary", uses: 0, costUsd: 0, eachUsd: null, models: [] });
+    expect(result.features[3]).toMatchObject({ feature: "iconSuggest", uses: 0, costUsd: 0, eachUsd: null });
+  });
+
+  test("a removed feature's old rows still count, under its retired label, so the features add up to the total", async () => {
+    const t = setupTest();
+    const { staff, adaWs } = await world(t);
+    await spend(t, adaWs, "assistant", { costUsd: 2, calls: 4 });
+    // Usage auto-organize and What changed wrote before they were removed (2026-10-17).
+    await spend(t, adaWs, "organizer", { costUsd: 0.5, calls: 10, daysAgo: 2 });
+    await spend(t, adaWs, "whatChanged", { costUsd: 0.25, calls: 1, daysAgo: 3 });
+    await modelSpend(t, adaWs, "whatChanged", CLEF_MODEL, { costUsd: 0.25, calls: 1, daysAgo: 3 });
+
+    const result = await report(t, staff, 7);
+    expect(result.totalUsd).toBe(2.75);
+    const sum = result.features.reduce((total, f) => total + f.costUsd, 0);
+    expect(sum).toBeCloseTo(result.totalUsd);
+    expect(result.features.find((f) => f.feature === "organizer")).toMatchObject({ label: "Auto-organize (removed)", uses: 10, costUsd: 0.5 });
+    expect(result.features.find((f) => f.feature === "whatChanged")).toMatchObject({ label: "What changed (removed)", costUsd: 0.25, models: [CLEF_MODEL] });
+    const threeDaysAgo = result.daily.find((d) => d.day === day(3))!;
+    expect(threeDaysAgo.byFeature.find((f) => f.feature === "whatChanged")?.costUsd).toBe(0.25);
+    // Every live feature is still listed beside them.
+    for (const name of Object.keys(JEV_FEATURES)) expect(result.features.map((f) => f.feature)).toContain(name);
+
+    // A window they spent nothing in does not list them: a row only in the window before is the prior total's.
+    const later = setupTest();
+    const quietWorld = await world(later);
+    await spend(later, quietWorld.adaWs, "organizer", { costUsd: 1, calls: 1, daysAgo: 10 });
+    const quiet = await report(later, quietWorld.staff, 7);
+    expect(quiet.priorUsd).toBe(1);
+    expect(quiet.features.map((f) => f.feature)).not.toContain("organizer");
   });
 
   test("models aggregate across days and carry their list price, or null when unpriced", async () => {
     const t = setupTest();
     const { staff, adaWs } = await world(t);
     await spend(t, adaWs, "assistant", { costUsd: 0.75, calls: 3 });
-    await spend(t, adaWs, "whatChanged", { costUsd: 0.1, calls: 1 });
+    await spend(t, adaWs, "iconSuggest", { costUsd: 0.1, calls: 1 });
     await modelSpend(t, adaWs, "assistant", GLM_MODEL, { costUsd: 0.5, calls: 2, input: 1_000_000, output: 1000 });
     await modelSpend(t, adaWs, "assistant", GLM_MODEL, { costUsd: 0.25, calls: 1, input: 500, output: 2000, daysAgo: 2 });
-    await modelSpend(t, adaWs, "whatChanged", CLEF_MODEL, { costUsd: 0.1, calls: 1 });
+    await modelSpend(t, adaWs, "iconSuggest", CLEF_MODEL, { costUsd: 0.1, calls: 1 });
 
     const result = await report(t, staff, 7);
     expect(result.models).toEqual([
@@ -228,7 +256,7 @@ describe("the AI costs report", () => {
       { model: CLEF_MODEL, label: modelLabel(CLEF_MODEL), inputTokens: 0, outputTokens: 0, price: null, costUsd: 0.1 },
     ]);
     expect(result.features.find((f) => f.feature === "assistant")?.models).toEqual([GLM_MODEL]);
-    expect(result.features.find((f) => f.feature === "whatChanged")?.models).toEqual([CLEF_MODEL]);
+    expect(result.features.find((f) => f.feature === "iconSuggest")?.models).toEqual([CLEF_MODEL]);
   });
 
   test("unrecorded model spend is jevUsage beyond the models, and never negative", async () => {
@@ -238,7 +266,7 @@ describe("the AI costs report", () => {
     await spend(t, adaWs, "assistant", { costUsd: 1, calls: 1 });
     await modelSpend(t, adaWs, "assistant", GLM_MODEL, { costUsd: 1 });
     // Before models were recorded: three dollars in jevUsage, no model row.
-    await spend(t, adaWs, "organizer", { costUsd: 3, calls: 1, daysAgo: 5 });
+    await spend(t, adaWs, "ownerSuggest", { costUsd: 3, calls: 1, daysAgo: 5 });
 
     const result = await report(t, staff, 7);
     expect(result.totalUsd).toBe(4);
@@ -260,7 +288,7 @@ describe("the AI costs report", () => {
     const t = setupTest();
     const { staff, adaWs } = await world(t);
     await spend(t, adaWs, "assistant", { costUsd: 1, calls: 1 });
-    await spend(t, adaWs, "organizer", { costUsd: 2, calls: 1, daysAgo: 4 });
+    await spend(t, adaWs, "ownerSuggest", { costUsd: 2, calls: 1, daysAgo: 4 });
     await spend(t, adaWs, "assistant", { costUsd: 0.5, calls: 1, daysAgo: 4 });
 
     const result = await report(t, staff, 7);
@@ -269,7 +297,7 @@ describe("the AI costs report", () => {
       expect(entry.byFeature.map((f) => f.feature)).toEqual(Object.keys(JEV_FEATURES));
     }
     const fourDaysAgo = result.daily[2];
-    expect(fourDaysAgo.byFeature.find((f) => f.feature === "organizer")?.costUsd).toBe(2);
+    expect(fourDaysAgo.byFeature.find((f) => f.feature === "ownerSuggest")?.costUsd).toBe(2);
     expect(fourDaysAgo.byFeature.find((f) => f.feature === "assistant")?.costUsd).toBe(0.5);
     expect(result.daily[1].byFeature.every((f) => f.costUsd === 0)).toBe(true);
     expect(result.daily[6].byFeature.find((f) => f.feature === "assistant")?.costUsd).toBe(1);
@@ -278,11 +306,11 @@ describe("the AI costs report", () => {
   test("an account pays for the workspaces it owns, never for one it only belongs to", async () => {
     const t = setupTest();
     const { staff, ada, bo, adaWs, boWs, shared, pair, orphan } = await ownershipWorld(t);
-    await spend(t, adaWs, "organizer", { costUsd: 1 });
-    await spend(t, boWs, "organizer", { costUsd: 2 });
-    await spend(t, shared, "organizer", { costUsd: 4 });
-    await spend(t, pair, "organizer", { costUsd: 8 });
-    await spend(t, orphan, "organizer", { costUsd: 16 });
+    await spend(t, adaWs, "ownerSuggest", { costUsd: 1 });
+    await spend(t, boWs, "ownerSuggest", { costUsd: 2 });
+    await spend(t, shared, "ownerSuggest", { costUsd: 4 });
+    await spend(t, pair, "ownerSuggest", { costUsd: 8 });
+    await spend(t, orphan, "ownerSuggest", { costUsd: 16 });
 
     const result = await report(t, staff, 7);
     expect(result.totalUsd).toBe(31);
@@ -298,11 +326,11 @@ describe("the AI costs report", () => {
   test("paying accounts own a paying workspace, and paying spend is what they own", async () => {
     const t = setupTest();
     const { staff, adaWs, boWs, shared, pair, orphan } = await ownershipWorld(t);
-    await spend(t, adaWs, "organizer", { costUsd: 1 });
-    await spend(t, boWs, "organizer", { costUsd: 2 });
-    await spend(t, shared, "organizer", { costUsd: 4 });
-    await spend(t, pair, "organizer", { costUsd: 8 });
-    await spend(t, orphan, "organizer", { costUsd: 16 });
+    await spend(t, adaWs, "ownerSuggest", { costUsd: 1 });
+    await spend(t, boWs, "ownerSuggest", { costUsd: 2 });
+    await spend(t, shared, "ownerSuggest", { costUsd: 4 });
+    await spend(t, pair, "ownerSuggest", { costUsd: 8 });
+    await spend(t, orphan, "ownerSuggest", { costUsd: 16 });
 
     const none = await report(t, staff, 7);
     expect(none.payingAccounts).toBe(0);
@@ -350,7 +378,7 @@ describe("the AI costs report", () => {
     for (let i = 0; i < 8; i += 1) {
       const user = await createUser(t, `u${i}@example.invalid`);
       const ws = await createWorkspace(t, user, `u${i}`, { kind: "personal" });
-      await spend(t, ws, "organizer", { costUsd: i + 1 });
+      await spend(t, ws, "ownerSuggest", { costUsd: i + 1 });
     }
     expect(AI_COSTS_TOP_ACCOUNTS).toBe(6);
 
@@ -366,7 +394,7 @@ describe("the AI costs report", () => {
     await setPlan(t, adaWs, "active");
     await spend(t, adaWs, "assistant", { costUsd: 0.3, calls: 3 });
     await modelSpend(t, adaWs, "assistant", GLM_MODEL, { costUsd: 0.3, calls: 3 });
-    await spend(t, adaWs, "organizer", { costUsd: 1, calls: 1, daysAgo: 2 });
+    await spend(t, adaWs, "ownerSuggest", { costUsd: 1, calls: 1, daysAgo: 2 });
     await spend(t, shared, "assistant", { costUsd: 0.2, calls: 2 });
 
     const result = await drawer(t, staff, String(ada));
@@ -394,7 +422,7 @@ describe("the AI costs report", () => {
       },
     ]);
     expect(result.rows.map((r) => [r.workspace, r.feature, r.models])).toEqual([
-      ["ada", "organizer", []],
+      ["ada", "ownerSuggest", []],
       ["ada", "assistant", [GLM_MODEL]],
       ["shared-ada", "assistant", []],
     ]);
@@ -425,9 +453,9 @@ describe("the AI costs report", () => {
   test("a window that runs past the read budget says so, and its totals become a floor", async () => {
     const t = setupTest();
     const { adaWs, boWs, shared } = await ownershipWorld(t);
-    await spend(t, adaWs, "organizer", { costUsd: 1 });
-    await spend(t, boWs, "organizer", { costUsd: 2 });
-    await spend(t, shared, "organizer", { costUsd: 4 });
+    await spend(t, adaWs, "ownerSuggest", { costUsd: 1 });
+    await spend(t, boWs, "ownerSuggest", { costUsd: 2 });
+    await spend(t, shared, "ownerSuggest", { costUsd: 4 });
 
     const full = await t.run((ctx) => aiCostsReportHandler(ctx, { days: 7 }));
     expect(full.truncated).toBe(false);
@@ -445,9 +473,9 @@ describe("the AI costs report", () => {
     await setPlan(t, adaWs, "active");
     await spend(t, adaWs, "assistant", { costUsd: 0.3, calls: 3, failed: 1 });
     await modelSpend(t, adaWs, "assistant", GLM_MODEL, { costUsd: 0.3, calls: 3, input: 10, output: 10 });
-    await spend(t, shared, "organizer", { costUsd: 0.6, calls: 1 });
-    await spend(t, pair, "whatChanged", { costUsd: 0.1, calls: 1, daysAgo: 1 });
-    await modelSpend(t, pair, "whatChanged", CLEF_MODEL, { costUsd: 0.1, calls: 1, daysAgo: 1 });
+    await spend(t, shared, "ownerSuggest", { costUsd: 0.6, calls: 1 });
+    await spend(t, pair, "iconSuggest", { costUsd: 0.1, calls: 1, daysAgo: 1 });
+    await modelSpend(t, pair, "iconSuggest", CLEF_MODEL, { costUsd: 0.1, calls: 1, daysAgo: 1 });
 
     const reportValue = await report(t, staff, 30);
     const drawerValue = await drawer(t, staff, String(ada), 30);

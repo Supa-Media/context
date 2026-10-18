@@ -23,7 +23,6 @@ import {
   nameOf,
 } from "@context/shared/src/activity.cjs";
 import { displayName, displayPath } from "../files/paths";
-import { isOrganizerEntry } from "../../organizer/rules";
 
 export { ACTIVITY_PATH } from "@context/shared/src/activity.cjs";
 /*
@@ -32,7 +31,7 @@ export { ACTIVITY_PATH } from "@context/shared/src/activity.cjs";
   one module, so a `.cjs` path typed slightly differently in a component is a
   thing that cannot happen.
 */
-export { clientOf, repairPrompt, strayRows } from "@context/shared/src/activity.cjs";
+export { actorLabel, clientOf, repairPrompt, strayRows } from "@context/shared/src/activity.cjs";
 
 /** One line of the file, as the console receives it. */
 export interface ActivityEntry {
@@ -44,6 +43,8 @@ export interface ActivityEntry {
   by: string | null;
   via: string | null;
   note: string | null;
+  /** A move's `[from, to]` pairs, as `activity.cjs` records them; absent for anything else. */
+  moves?: [string, string][];
 }
 
 /**
@@ -149,15 +150,6 @@ export function rowText(entry: ActivityEntry): { title: string; meta: string } {
   */
   const called = (path: string) => displayName(nameOf(path));
   const title = (() => {
-    /*
-      Auto-organize's one kind of revision is a status set to done, so its row
-      says that — and names the project, whose front note speaks for its
-      folder. `status` is accepted too, should the file ever carry it.
-    */
-    if (isOrganizerEntry(entry) && !many && (entry.kind === "revised" || entry.kind === "status")) {
-      const front = /^(about|overview|index|README)\.md$/i.test(nameOf(first)) ? folderOf(first) : first;
-      return `${who} marked ${called(front)} done`;
-    }
     switch (entry.kind) {
       case "added":
         return many ? `${who} added ${entry.n} notes to ${here}` : `${who} added ${called(first)}`;
@@ -465,6 +457,8 @@ export interface ActivityView {
   unseenPaths: ReadonlySet<string>;
   /** Whether the first read has landed. Nothing is drawn as `0` before it. */
   loaded: boolean;
+  /** The reader's own `@name`, when known: whose hand "their own" is. */
+  me?: string | null;
   /** Re-read the file. Called when this console writes something. */
   refresh: () => void;
   /** Catch up to now. Safe to call twice; the marker only moves forward. */

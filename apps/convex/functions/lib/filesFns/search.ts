@@ -108,8 +108,11 @@ export async function searchContextHandler(
   //
   // Nothing is scheduled for a converged index. A pass per search over a
   // bucket with no work in it is a full listing per search, billed to the
-  // customer, to discover there was nothing to do.
-  if (result.indexMissing || result.indexIncomplete) {
+  // customer, to discover there was nothing to do. Nor for an answer from a
+  // search database, filling or not: its own scheduled copy fills it, and a
+  // chain of bucket-index passes behind it was a dozen listings per search
+  // for an index nothing reads (decided by the owner, 2026-10-17).
+  if (result.indexMissing || (result.answeredBy === "index" && result.indexIncomplete)) {
     await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
@@ -467,9 +470,11 @@ export async function searchContextsHandler(
 
   const page = pageOf(fuse(sources), sources);
   const named = new Map(scope.map((context) => [context.workspaceId, context]));
+  const edited = await editedTimes(ctx, page.rows);
   return {
     results: page.rows.map((row) => {
       const context = named.get(row.key)!;
+      const when = edited.get(`${row.key}/${row.path}`);
       return {
         workspaceId: context.workspaceId as Id<"workspaces">,
         slug: context.slug,
@@ -478,6 +483,8 @@ export async function searchContextsHandler(
         title: row.title,
         snippet: row.snippet,
         meaningOnly: row.meaningOnly,
+        ...(row.loose ? { loose: true } : {}),
+        ...(when === undefined || when === null ? {} : { edited: when }),
       };
     }),
     matchCount,
@@ -486,4 +493,33 @@ export async function searchContextsHandler(
     sources: rows,
     searchableCount: searchable.length,
   };
+}
+
+/**
+ * When each row's note was last written, read from the tree in one query per
+ * workspace on the page ("edited Sep 12" on a search row). Every path here has
+ * already passed the caller's `canSee` in `searchNotes`; this only dates them.
+ * A failure dates nothing rather than failing the search.
+ */
+async function editedTimes(
+  ctx: ActionCtx,
+  rows: readonly { key: string; path: string }[],
+): Promise<Map<string, number | null>> {
+  const byWorkspace = new Map<string, string[]>();
+  for (const row of rows) byWorkspace.set(row.key, [...(byWorkspace.get(row.key) ?? []), row.path]);
+  const out = new Map<string, number | null>();
+  await Promise.all(
+    [...byWorkspace].map(async ([workspaceId, paths]) => {
+      try {
+        const times = await ctx.runQuery(internal.functions.nodesListing.editedAt, {
+          workspaceId: workspaceId as Id<"workspaces">,
+          paths,
+        });
+        paths.forEach((path, index) => out.set(`${workspaceId}/${path}`, times[index] ?? null));
+      } catch {
+        // Undated rows read fine; a search must not fail over a date.
+      }
+    }),
+  );
+  return out;
 }

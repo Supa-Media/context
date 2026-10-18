@@ -115,8 +115,24 @@ function safeText(text) {
 const toolLabel = (call) => (typeof call === "string" ? call : call.ok === false ? `${call.tool} (failed)` : call.tool);
 const failedCalls = (run) => (run.tools ?? []).filter((call) => typeof call !== "string" && call.ok === false).length;
 
-// Price of one run, using the model that actually answered it.
-const runPrice = (run, setup) => priceUsd(run.model ?? setup?.model, run.usage);
+/**
+ * Price of one run. A run that recorded what each model spent
+ * (`usageByModel`, a turn that planned on one model and drove on another,
+ * `src/agent/modelPlan.js`) is priced model by model; an older run at the
+ * model that answered it. Null when any model it ran on has no known price.
+ */
+export function runPriceUsd(run, setup) {
+  const byModel = run.usageByModel && typeof run.usageByModel === "object" ? Object.entries(run.usageByModel) : [];
+  if (byModel.length === 0) return priceUsd(run.model ?? setup?.model, run.usage);
+  let total = 0;
+  for (const [model, usage] of byModel) {
+    const price = priceUsd(model, usage);
+    if (price === null) return null;
+    total += price;
+  }
+  return total;
+}
+const runPrice = runPriceUsd;
 
 function summaryRow(setup, runs) {
   const mine = runs.filter((r) => r.setup === setup.name);
@@ -159,6 +175,38 @@ function questionList(nums) {
   if (sorted.length <= 1) return sorted.map(String).join("");
   return `${sorted.slice(0, -1).join(", ")} and ${sorted.at(-1)}`;
 }
+/**
+ * How much of a routed setup's work the thinking model did, over all its
+ * answers: the share of model rounds and of model spend on `think`. The owner
+ * set the target (2026-10-17): "like, 20% Opus, 80% Haiku". Read from each
+ * run's `rounds` and `usageByModel` (`world.mjs`); null for a result recorded
+ * before they were, which has no per-round models to count.
+ */
+export const THINK_SHARE_TARGET = 0.2;
+function thinkShareLine(setup, mine) {
+  const think = setup.router.think;
+  let rounds = 0;
+  let thinkRounds = 0;
+  let spend = 0;
+  let thinkSpend = 0;
+  for (const run of mine) {
+    for (const [model, count] of Object.entries(run.rounds ?? {})) {
+      rounds += count;
+      if (model === think) thinkRounds += count;
+    }
+    for (const [model, usage] of Object.entries(run.usageByModel ?? {})) {
+      const price = priceUsd(model, usage);
+      if (price === null) return null;
+      spend += price;
+      if (model === think) thinkSpend += price;
+    }
+  }
+  if (rounds === 0) return null;
+  const pct = (part, whole) => (whole > 0 ? `${Math.round((part / whole) * 100)}%` : "n/a");
+  const planned = typeof setup.router.thinkRounds === "number" ? `, planning ${plural(setup.router.thinkRounds, "round")} a routed answer` : "";
+  return `Think share: ${setup.name} ran ${thinkRounds} of ${plural(rounds, "model round")} (${pct(thinkRounds, rounds)}) and ${fmtUsd(thinkSpend)} of ${fmtUsd(spend)} model spend (${pct(thinkSpend, spend)}) on ${think}${planned}; the target is about ${Math.round(THINK_SHARE_TARGET * 100)}%.`;
+}
+
 function routedLines(setups, runs) {
   const lines = [];
   for (const setup of setups) {
@@ -169,6 +217,8 @@ function routedLines(setups, runs) {
     const price = prices.length ? fmtUsd(mean(prices)) : "n/a";
     const which = thought.length ? `: questions ${questionList(thought.map((r) => r.question))}` : "";
     lines.push(`Routed: ${setup.name} sent ${thought.length} of ${mine.length} answers to ${setup.router.think} (${price} each)${which}; the rest ran on ${setup.model}.`);
+    const share = thinkShareLine(setup, mine);
+    if (share !== null) lines.push(share);
     const near = mine.filter((r) => routerOf(r)?.tier === "main" && routerOf(r)?.confidence !== null);
     if (near.length) {
       const byQuestion = new Map();
@@ -237,6 +287,8 @@ function runBlock(run, setup) {
   lines.push(`Tools: ${tools}`, "");
   // What a scripted browser did (`sites.mjs`): one line, read back by the checks.
   if (run.browser?.length) lines.push(`Browser: ${run.browser.map((event) => event.replace(/\s+/g, " ").replaceAll(" | ", " / ")).join(" | ")}`, "");
+  // Where housekeeping left each note a `file` check names, and what it holds: one JSON line, read back by the checks.
+  if (Object.keys(run.where ?? {}).length) lines.push(`Filed: ${JSON.stringify(run.where)}`, "");
   if (run.changes?.length) {
     lines.push("Changes recorded:", "");
     for (const c of run.changes) {

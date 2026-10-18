@@ -26,10 +26,12 @@
  *
  * ## Ids carry no path
  *
- * An id is a hash of the path plus the passage number. The path itself rides as
- * metadata (it is what a hit is turned back into), but an id that is a hash can
- * be computed for deletion from the path alone, and is the same length whatever
- * the path is — Vectorize caps ids at 64 bytes and paths have no such cap.
+ * An id is a hash of the note's key plus the passage number. The key is its
+ * note id (`meaningKeyOf`), so a move or rename keeps every passage where it
+ * is; the path rides as metadata (it is what a hit is turned back into) and is
+ * rewritten in place. An id that is a hash can be computed for deletion from
+ * the key alone, and is the same length whatever the key is: Vectorize caps
+ * ids at 64 bytes and paths have no such cap.
  *
  * ## Tier, and what it is not
  *
@@ -43,6 +45,7 @@
 import { extractFields } from "../indexer.js";
 import { chunkText } from "../d1/project.js";
 import { indexableText } from "../../encryption.js";
+import { isNoteId } from "../../store/noteIdKeys.js";
 
 export const MEANING_PASSAGE_CHARS = 1_500;
 export const MEANING_PASSAGE_OVERLAP = 150;
@@ -64,9 +67,25 @@ async function pathHash(path) {
   ).join("");
 }
 
-/** Every id one note's passages can have, in passage order. */
-export async function meaningIdsFor(path) {
-  const hash = await pathHash(path);
+/**
+ * The key a note's passages are filed under: its note id where it has one,
+ * else its path.
+ *
+ * Keyed by id, a note keeps its passages through every move and rename: only
+ * the `path` and `tier` riding as metadata change, and those are rewritten from
+ * the stored vectors (`repathPassages`) with no model call and no note read.
+ * The path is the key only for a note with no id (a store with no control
+ * plane, a test's bucket), and for passages written before the switch, which
+ * the catch-up pass moves over to the id (`catchup.js`). A note id never ends
+ * in `.md` and every key a path gives does, so the two cannot meet.
+ */
+export function meaningKeyOf(path, noteId) {
+  return isNoteId(noteId) ? noteId : path;
+}
+
+/** Every id one note's passages can have, in passage order. `key` is `meaningKeyOf`'s. */
+export async function meaningIdsFor(key) {
+  const hash = await pathHash(key);
   return Array.from({ length: MEANING_MAX_PASSAGES }, (_, index) => `${hash}-${index}`);
 }
 
@@ -98,8 +117,8 @@ export function meaningPassages(path, content) {
  * An unknown visibility writes nothing and deletes every id, so a note is
  * removed rather than guessed into a tier.
  */
-export async function meaningChangeFor(path, { content, visibility }, embed) {
-  const ids = await meaningIdsFor(path);
+export async function meaningChangeFor(path, { content, visibility, noteId = null }, embed) {
+  const ids = await meaningIdsFor(meaningKeyOf(path, noteId));
   const tier = meaningTierFor(visibility);
   const passages = tier === undefined ? [] : meaningPassages(path, content);
   if (passages.length === 0) return { vectors: [], deleteIds: ids };
@@ -107,9 +126,84 @@ export async function meaningChangeFor(path, { content, visibility }, embed) {
   const vectors = passages.map((_, index) => ({
     id: ids[index],
     values: values[index],
-    metadata: { path, chunk: index, tier },
+    metadata: passageMetadata(path, noteId, index, tier),
   }));
   return { vectors, deleteIds: ids.slice(passages.length) };
+}
+
+/** What a passage carries beside its numbers: never any of the note's text. */
+function passageMetadata(path, noteId, chunk, tier) {
+  return isNoteId(noteId) ? { path, noteId, chunk, tier } : { path, chunk, tier };
+}
+
+/**
+ * Ids asked for at once when re-pathing: one `get_by_ids` request's worth,
+ * which holds every passage of a note of up to about 27,000 characters.
+ */
+const REPATH_FIRST = 20;
+
+/**
+ * Point every passage of the notes in `moves` at their new path and tier,
+ * from the vectors the index already holds: no model call and no note read.
+ *
+ * `moves` are `{noteId, path, visibility}`, the note's id and where it is now,
+ * and `from` where its passages are filed now when that is not the id: the
+ * path an older write filed them under, which the catch-up pass adopts this
+ * way rather than asking the model again (`catchup.js`). Adopted passages are
+ * written under the id and the old ones left for the caller to delete.
+ * A note's passages are a run from 0 (see `deleteStaleTails`), so the first
+ * `REPATH_FIRST` ids are asked for together and the rest only for a note that
+ * filled them. Returns the note ids that had no passages to re-path, which the
+ * caller embeds the ordinary way (a note written before passages were filed
+ * by id, or one never embedded); an unknown visibility is in that list too,
+ * since what it asks for is the delete an embed of it makes.
+ *
+ * @param {{getByIds: Function, upsert: Function}} client
+ * @param {Array<{noteId: string, path: string, visibility: string, from?: string}>} moves
+ * @returns {Promise<string[]>}
+ */
+export async function repathPassages(client, moves) {
+  const wanted = (Array.isArray(moves) ? moves : []).filter(
+    (move) => move && isNoteId(move.noteId) && typeof move.path === "string" && move.path,
+  );
+  if (wanted.length === 0) return [];
+  const idsOf = new Map();
+  const targetsOf = new Map();
+  for (const move of wanted) {
+    const target = await meaningIdsFor(move.noteId);
+    targetsOf.set(move.noteId, target);
+    idsOf.set(move.noteId, typeof move.from === "string" && move.from ? await meaningIdsFor(move.from) : target);
+  }
+  const found = new Map();
+  const collect = (vectors) => {
+    for (const vector of vectors) found.set(vector.id, vector);
+  };
+  collect(await client.getByIds(wanted.flatMap((move) => idsOf.get(move.noteId).slice(0, REPATH_FIRST))));
+  const longer = wanted.filter((move) => found.has(idsOf.get(move.noteId)[REPATH_FIRST - 1]));
+  if (longer.length > 0) {
+    collect(await client.getByIds(longer.flatMap((move) => idsOf.get(move.noteId).slice(REPATH_FIRST))));
+  }
+
+  const vectors = [];
+  const missing = [];
+  for (const move of wanted) {
+    const tier = meaningTierFor(move.visibility);
+    const target = targetsOf.get(move.noteId);
+    const held = idsOf
+      .get(move.noteId)
+      .map((id, index) => [found.get(id), target[index]])
+      .filter(([vector]) => vector);
+    if (tier === undefined || held.length === 0) {
+      missing.push(move.noteId);
+      continue;
+    }
+    for (const [vector, id] of held) {
+      const chunk = Number.isInteger(vector.metadata?.chunk) ? vector.metadata.chunk : 0;
+      vectors.push({ id, values: vector.values, metadata: passageMetadata(move.path, move.noteId, chunk, tier) });
+    }
+  }
+  if (vectors.length > 0) await client.upsert(vectors);
+  return missing;
 }
 
 /**
@@ -157,14 +251,14 @@ export async function deleteStaleTails(client, tails) {
 const REMOVE_HEAD = 12;
 
 /**
- * Take every passage of `paths` out of the index. The first `REMOVE_HEAD` of
+ * Take every passage of `keys` (`meaningKeyOf`'s) out of the index. The first `REMOVE_HEAD` of
  * each go unasked, which is all most notes have; the rest only where the
  * note has any (`deleteStaleTails`), so removing a moved folder of short
  * notes costs what it did before the cap grew. Tails go first, so a delete
  * refused part-way leaves each note's passages a run from 0.
  */
-export async function removePassages(client, paths) {
-  const all = await Promise.all(paths.map((path) => meaningIdsFor(path)));
+export async function removePassages(client, keys) {
+  const all = await Promise.all(keys.map((key) => meaningIdsFor(key)));
   await deleteStaleTails(client, all.map((ids) => ids.slice(REMOVE_HEAD)).filter((tail) => tail.length > 0));
   await client.deleteByIds(all.flatMap((ids) => ids.slice(0, REMOVE_HEAD)));
 }

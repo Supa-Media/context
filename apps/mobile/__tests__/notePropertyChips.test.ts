@@ -245,3 +245,70 @@ test("on a phone a written-in note folds the faint chips into one", async () => 
   expect(app.anywhere("menu-item-open:status")).not.toBeNull();
   expect(app.anywhere("menu-item-open:owner")).not.toBeNull();
 });
+
+/*
+ * Outside the Projects folder a note is just a page (owner, 2026-10-18,
+ * picking board A of `loose-note-chips`): "this note is not in the project
+ * folder, so I don't know why it's showing up". Status, Owner, Priority and
+ * Due date are offered only under the folder doing the Projects job; a value
+ * a loose note already has still shows, and ••• → Add property is the way in.
+ *
+ * Sabotage record (temporary local edits, reverted):
+ * 1. `tracks` always true in `document.tsx` — "a new loose note offers no
+ *    task chips" and "on a phone a loose note draws nothing" fail.
+ * 2. `inProjectsNow` back to "project" in the name — "a renamed Projects
+ *    folder keeps its chips" fails.
+ * 3. NoteEditor not listening to `askAddProperty` — "••• Add property opens
+ *    the Properties card" fails.
+ */
+describe("a loose note", () => {
+  const { setJobFoldersNow } =
+    require("../features/console/files/jobIcons/jobFoldersNow") as typeof import("../features/console/files/jobIcons/jobFoldersNow");
+  const { askAddProperty } =
+    require("../features/console/files/noteEditor/chips/addPropertyAsk") as typeof import("../features/console/files/noteEditor/chips/addPropertyAsk");
+  afterEach(() => setJobFoldersNow({ inbox: "0-inbox", projects: "1-projects", archive: "9-archive" }));
+
+  test("a new loose note offers no task chips, only Add property under the pointer", async () => {
+    const app = mount({ path: "0-inbox/untitled-2026-10-18.md" });
+    for (const key of ["status", "owner", "priority", "due"]) expect(app.chip(`note-chip-add-${key}`)).toBeNull();
+    const more = app.chip("note-chip-more")!;
+    expect(more.textContent).toContain("Add property");
+    expect(hidden(more)).toBe(true);
+  });
+
+  test("on a phone a loose note draws nothing over its name", async () => {
+    const app = mount({ width: 390, path: "0-inbox/untitled-2026-10-18.md" });
+    expect(app.chip("note-chip-more")).toBeNull();
+    expect(app.host()?.querySelector('[data-testid="note-chips"]') ?? null).toBeNull();
+  });
+
+  test("a value it already has still shows, and can be changed", async () => {
+    const draft = "---\nstatus: in progress\n---\n\n# Call the landlord\n";
+    const app = mount({ width: 390, path: "2-areas/home/landlord.md", draft });
+    expect(app.chip("note-chip-status")!.textContent).toContain("in progress");
+    expect(app.chip("note-chip-more")).toBeNull();
+    await app.press(app.chip("note-chip-status"));
+    await app.press(app.anywhere("menu-item-set:status:finished"));
+    expect(app.latest()).toBe(draft.replace("in progress", "finished"));
+  });
+
+  test("a note at the top level is loose", async () => {
+    const app = mount({ path: "todo.md" });
+    expect(app.chip("note-chip-add-status")).toBeNull();
+  });
+
+  test("a renamed Projects folder keeps its chips, and a folder named for projects elsewhere does not get them", async () => {
+    setJobFoldersNow({ inbox: "0-inbox", projects: "Work", archive: "9-archive" });
+    const work = mount({ path: "Work/cafe/untitled.md" });
+    expect(work.chip("note-chip-add-status")).not.toBeNull();
+    const side = mount({ path: "2-areas/side-projects/untitled.md" });
+    expect(side.chip("note-chip-add-status")).toBeNull();
+  });
+
+  test("••• Add property opens the Properties card on its Add row", async () => {
+    const app = mount({ width: 390, path: "0-inbox/untitled-2026-10-18.md" });
+    expect(app.container.querySelector('[data-testid="note-properties-adding"]')).toBeNull();
+    act(() => askAddProperty());
+    expect(app.container.querySelector('[data-testid="note-properties-adding"]')).not.toBeNull();
+  });
+});

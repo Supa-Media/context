@@ -39,6 +39,7 @@ import {
   CHECKOUT_PARAM,
   checkoutOutcomeFrom,
   checkoutReturnPath,
+  integrationsSettingsPath,
   portalReturnPath,
 } from "@context/shared";
 import { routeFromFile } from "../features/app/reachability";
@@ -123,6 +124,12 @@ describe("where Stripe sends somebody back to", () => {
     */
     const url = checkoutReturnPath("settings", "seyi", "done");
     expect(url.startsWith(settingsHref("seyi", "premium"))).toBe(true);
+  });
+
+  test("the Connected apps link an agent hands out is the console's own address for it", () => {
+    // `manage` connect_google (`gatewayRoutes/workspaces.ts`) sends a person here.
+    expect(integrationsSettingsPath("seyi")).toBe(settingsHref("seyi", "integrations"));
+    expect(integrationsSettingsPath("@seyi")).toBe(settingsHref("@seyi", "integrations"));
   });
 
   test("a cancelled checkout returns to the same place, saying so", () => {

@@ -14,8 +14,6 @@ const GRANOLA_EVENTS_PREFIX = `${CONTEXT_ROOT}integrations/granola/events/`;
 const PROPOSAL_PREFIX = `${CONTEXT_ROOT}proposals/`;
 const PROBE_PREFIX = `${CONTEXT_ROOT}probes/`;
 const WEBSITE_RELEASE_PREFIX = `${CONTEXT_ROOT}website/releases/`;
-/** Auto-organize suggestions: new in v1 with no legacy location, so no mapping. */
-const ORGANIZER_PREFIX = `${CONTEXT_ROOT}organizer/`;
 /**
  * What AI clients read: one object per read under a UTC day, plus a
  * rebuildable roll-up of each day beside it. New with no legacy location.
@@ -70,7 +68,6 @@ module.exports = {
   WEBSITE_RELEASE_PREFIX,
   READS_PREFIX,
   VAULT_PREFIX,
-  ORGANIZER_PREFIX,
   LEGACY_STORAGE_PREFIXES,
   currentStorageKey,
   legacyStorageKey,

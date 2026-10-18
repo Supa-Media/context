@@ -258,8 +258,8 @@ they are silent.
   and `normalizeMeetingFolder` already carry the rules, and this package
   reuses them rather than writing a third validator — two implementations of
   "does this string escape its bucket" is how one of them ends up weaker.
-- **Case folds on Dropbox and not on R2.** `DropboxStore` treats `Foo` and
-  `foo` as one file. An address-derived segment that differs only in case is
+- **Case folds on some stores and not on R2.** A store that treats `Foo` and
+  `foo` as one file makes an address-derived segment that differs only in case
   two folders on one backend and one on another, and privacy answers are
   folded case-insensitively precisely because of it.
 
@@ -350,3 +350,21 @@ appears in each day's note. There is no cross-day thread *file*: continuity is
 a virtual view assembled from the thread key on each message, exactly as the
 scoping note asks. A thread file would be a second canonical copy of the same
 messages and the first thing to go stale.
+
+### Connected accounts show where each service delivers
+
+The owner asked to make Google connector use visible for the renewed approval
+demo (2026-10-15). Settings now shows each enabled service's actual destination
+folder and its own last successful sync beneath the account row. These are
+read-only facts from the connection query. The destination and interval pickers
+removed in September remain removed.
+
+An account's successful Gmail pass does not establish that Calendar or Chat
+delivered anything. A service without `lastSyncedAt` says it is waiting for its
+first sync, even when another service on the same account has succeeded. Missing
+setup has no invented default path. Disabled services show no destination.
+
+The checks in `googleConnectionsCard.test.ts` cover distinct mailbox folders,
+disabled service data, and Calendar delivery while Gmail is still waiting. The
+card also explains forward-only email and Chat sync and why the notes are
+available to connected AI assistants.

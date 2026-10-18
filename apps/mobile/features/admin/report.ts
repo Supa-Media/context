@@ -252,10 +252,13 @@ export const ADMIN_TABS = [
   { key: "activity", label: "Activity" },
   { key: "agent", label: "Agent" },
   { key: "aiCosts", label: "AI costs" },
+  { key: "ai", label: "AI" },
   { key: "search", label: "Search" },
   { key: "credentials", label: "Credentials" },
   { key: "waitlist", label: "Waitlist" },
   { key: "people", label: "People" },
+  { key: "reports", label: "Reports" },
+  { key: "features", label: "Features" },
 ] as const;
 
 export type AdminTab = (typeof ADMIN_TABS)[number]["key"];
@@ -448,7 +451,6 @@ export const PROVIDER_LABELS: Record<string, string> = {
   s3: "Amazon S3",
   b2: "Backblaze B2",
   "s3-compatible": "S3-compatible",
-  dropbox: "Dropbox",
 };
 
 export function providerLabel(provider: string): string {

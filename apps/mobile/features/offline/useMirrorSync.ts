@@ -30,8 +30,10 @@ import {
   type MirrorRun,
   type MirrorSyncDeps,
 } from "./mirrorSync";
+import { keepsBody, loadDownloadChoices, onDownloadChoiceChange } from "./downloadChoice";
 import { useReachability } from "./reachability";
 import { openStore } from "./store";
+import { readForMirror } from "./mirrorReads";
 import { visibilityTierForRole, type VisibilityTier } from "../console/visibility";
 
 /**
@@ -85,7 +87,7 @@ export interface MirrorActions {
     cursor?: string;
     source?: "tree";
   }) => Promise<ManifestPage & { source?: "tree" | "bucket" | "nodes" }>;
-  readNotes: (args: { workspaceId: string; paths: string[] }) => Promise<{ results: BatchRead[] }>;
+  readNotes: (args: { workspaceId: string; paths: string[]; plain?: boolean }) => Promise<{ results: BatchRead[] }>;
   /** What changed since a cursor; absent, every sync walks the whole tree. */
   syncTreeChanges?: (args: {
     workspaceId: string;
@@ -175,6 +177,7 @@ export function useMirrorSync(options: {
         mine,
         now: () => Date.now(),
         needed: (workspaceId) => neededEtags(kv, workspaceId),
+        keepsBody,
         // The Convex tree's rows, as a tab's walk asks: the same `canSee` over
         // the same keys. The bucket is never walked; a tree still copying
         // answers `TREE_LOADING` (decided by the owner, 2026-10-13).
@@ -198,18 +201,31 @@ export function useMirrorSync(options: {
                   MANIFEST_TIMEOUT_MS,
                 ),
             }),
-        readNotes: async (workspaceId, paths) =>
-          (
-            await withTimeout(
-              actionsRef.current.readNotes({ workspaceId, paths }),
-              READ_TIMEOUT_MS,
-            )
-          ).results,
+        readNotes: (workspaceId, paths) =>
+          readForMirror(
+            async (asked, plain) =>
+              (
+                await withTimeout(
+                  actionsRef.current.readNotes({ workspaceId, paths: asked, ...(plain ? { plain: true } : {}) }),
+                  READ_TIMEOUT_MS,
+                )
+              ).results,
+            paths,
+          ),
         onListed: (workspaceId) => {
           if (mine()) publishMirrorListed(workspaceId);
         },
         onFetched: (workspaceId) => {
           if (mine()) publishMirrorNotesChanged(workspaceId);
+        },
+        onChecked: (workspaceId) => {
+          if (!mine()) return;
+          // Said without reading the index back: the point of a quiet
+          // catch-up is that it parses and writes nothing.
+          const before = mirrorStatuses().get(workspaceId);
+          if (before?.state === "synced" || before?.state === "partial") {
+            publishMirrorStatus(workspaceId, { ...before, lastSyncedAt: Date.now() });
+          }
         },
         onProgress: (workspaceId, progress) => {
           if (!mine()) return;
@@ -266,6 +282,8 @@ export function useMirrorSync(options: {
     void (async () => {
       const store = await openMirrorStore();
       if (store === null) return;
+      // Which workspaces are online only, before the first body is asked for.
+      await loadDownloadChoices(kvRef.current!);
       const deps = engine(store);
       const { mine } = deps;
       const first = focused.current;
@@ -317,6 +335,7 @@ export function useMirrorSync(options: {
           const target = targetsRef.current.find((each) => each.workspaceId === workspaceId);
           const store = await openMirrorStore();
           if (target === undefined || store === null) return;
+          await loadDownloadChoices(kvRef.current!);
           await freshenFolder(engine(store), target, folder);
         },
       }),
@@ -461,6 +480,9 @@ export function useMirrorSync(options: {
   useEffect(() => {
     if (feedKey !== "") sync();
   }, [feedKey, sync]);
+
+  // A workspace switched to or from online only: drop or fetch its bodies now.
+  useEffect(() => onDownloadChoiceChange(() => sync()), [sync]);
 
   // Back to the foreground, and a modest interval while it stays there.
   useEffect(() => {

@@ -44,6 +44,10 @@
 import type { Id } from "../../_generated/dataModel";
 import type { QueryCtx } from "../../_generated/server";
 import { identifiersForUser, resolveAddressedUser } from "./identities";
+import { accessSourceOf } from "./nodes/accessBackfill";
+import { accessRowsOf } from "./nodes/accessRows";
+import { accessNamesFor } from "./nodes/rowAccess";
+import { ownedConfirmedEmailsOf } from "./signInEmails";
 
 /**
  * The most rows one of these lookups will scan.
@@ -82,6 +86,7 @@ export async function grantedNamesFor(
   if (membership === null) return [];
 
   const names = new Set<string>();
+  const groupIds: Id<"workspaceGroups">[] = [];
 
   const groupRows = await ctx.db
     .query("workspaceGroupMembers")
@@ -96,6 +101,7 @@ export async function grantedNamesFor(
     const group = await ctx.db.get(row.groupId);
     if (group === null || group.workspaceId !== workspaceId) continue;
     names.add(group.name);
+    groupIds.push(group._id);
   }
 
   for (const identifier of await identifiersForUser(ctx, userId)) {
@@ -106,6 +112,17 @@ export async function grantedNamesFor(
     const owner = await resolveAddressedUser(ctx, identifier);
     if (owner !== userId) continue;
     names.add(identifier.value);
+  }
+
+  // Once the access rows are the source, a grant on a row names the caller by its token (`rowAccess.ts`).
+  // The membership check above has already run, so a person named by a grant who is no longer a
+  // member of this workspace gets nothing. The token is stored without its `@`, as the names above are.
+  if ((await accessSourceOf(ctx.db)) === "rows") {
+    // An email grant matches only an address this account alone holds (`ownedConfirmedEmailsOf`).
+    const emails = await ownedConfirmedEmailsOf(ctx, userId);
+    for (const name of accessNamesFor({ userId, groupIds, emails }, await accessRowsOf(ctx, workspaceId))) {
+      names.add(name.slice(1));
+    }
   }
 
   return [...names];

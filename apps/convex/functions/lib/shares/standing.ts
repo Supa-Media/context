@@ -12,6 +12,7 @@ import type { Doc, Id } from "../../../_generated/dataModel";
 import { findName } from "../nameClaims";
 import { resolveAddressedUser } from "../identities";
 import { getMembership } from "../workspaceAuth";
+import { hasBlocked } from "../blocks";
 
 /**
  * Caps on how many rows one response carries, and on how many shares one
@@ -254,6 +255,13 @@ export async function shareStillStands(
     value: share.recipient,
   });
   if (addressed === null || addressed !== userId) return null;
+
+  // The reader blocked the sharer (`lib/blocks.ts`). Only a share addressed to
+  // a person reaches this line, so a team or unlisted link is untouched — a
+  // block narrows what is *sent* to somebody, not the workspaces they are in.
+  // The same `null` as a revocation, so the sharer, who never learns of the
+  // block, and the reader, who chose it, are both told nothing new.
+  if (await hasBlocked(ctx, userId, share.createdBy)) return null;
 
   return workspace;
 }

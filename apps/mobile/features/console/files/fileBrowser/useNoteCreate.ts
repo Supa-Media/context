@@ -38,7 +38,7 @@ import type { RunOperationValues } from "./useRunOperation";
 type NoteCreateDeps =
   & { options: FileBrowserOptions }
   & Pick<FileActionsValues, "workspaceId" | "workspaceGenerationRef" | "writeNote">
-  & Pick<BrowserStateValues, "beginOnlineCreate" | "drawLocally" | "openRun" | "setExpanded" | "setNotice">
+  & Pick<BrowserStateValues, "beginOnlineCreate" | "drawLocally" | "openRun" | "setExpanded" | "setNotice" | "unsentCreates">
   & Pick<OfflineQueueValues, "listings" | "listingsRef" | "offlineRef">
   & Pick<ListingsValues, "refresh" | "reportRefreshFailure">
   & Pick<RunOperationValues, "run">
@@ -68,7 +68,7 @@ function seedFor(name: string): string {
 export function useNoteCreate(deps: NoteCreateDeps) {
   const {
     options, beginOnlineCreate, drawLocally, openRun, listings, listingsRef, offlineRef, refresh, reportRefreshFailure, run, select,
-    setExpanded, setNotice, workspaceId, workspaceGenerationRef, writeNote,
+    setExpanded, setNotice, unsentCreates, workspaceId, workspaceGenerationRef, writeNote,
   } = deps;
 
   /**
@@ -213,6 +213,74 @@ export function useNoteCreate(deps: NoteCreateDeps) {
   );
 
   /**
+   * An untitled note, online: opened on the press, written on the first save
+   * of something typed in it, and never written if nothing is
+   * (`unsentNotes.ts`). The row is drawn now and stays until a listing has
+   * the note — or until the note is left blank, which takes it back.
+   */
+  const openUnsent = useCallback(
+    (folder: string, name: string, navigation: number) => {
+      if (workspaceId === null || openRun.current !== navigation) return;
+      const problem = describeNameProblem(name) ?? collision(listingsRef.current, folder, name);
+      if (problem !== null) return setNotice(problem);
+      const epoch = workspaceGenerationRef.current.epoch;
+      const refused: string[] = [];
+      const draw = (path: string) => {
+        const change = beginOnlineCreate(path);
+        // Committed at once: `select` waits on a create still on its way, and
+        // this one is not on its way anywhere until somebody types.
+        change.commit();
+        drawLocally((listed) => applyNoteCreate(listed, path));
+        return () => {
+          change.reject();
+          if (workspaceGenerationRef.current.epoch === epoch) drawLocally((listed) => undoNoteCreate(listed, path));
+        };
+      };
+      const register = (path: string, current: string) => {
+        const takeBack = draw(path);
+        unsentCreates.current.set(path, {
+          discard: () => {
+            awaitingTitle.current.delete(path);
+            takeBack();
+          },
+          landed: () => announceDid(workspaceId ?? null, { kind: "create", path }),
+          retarget: () => {
+            if (workspaceGenerationRef.current.epoch !== epoch || refused.length >= UNTITLED_RETRIES) return null;
+            refused.push(current);
+            takeBack();
+            awaitingTitle.current.delete(path);
+            const nextName = untitledName(listingsRef.current, folder, "note", new Date(), refused);
+            const next = joinPath(folder, nextName);
+            awaitingTitle.current.add(next);
+            register(next, nextName);
+            return next;
+          },
+          refusal: () => cannotAddTo(folder),
+        });
+      };
+      const path = joinPath(folder, name);
+      register(path, name);
+      const visibility = listingsRef.current[folder]?.folderDefault ?? "private";
+      const opened = select(path, {
+        path,
+        text: seedFor(name),
+        etag: "",
+        visibility,
+        inherited: visibility,
+        exception: false,
+        readOnly: false,
+      });
+      if (!opened) {
+        unsentCreates.current.get(path)?.discard();
+        unsentCreates.current.delete(path);
+        return;
+      }
+      setExpanded((current) => (folder === "" ? current : new Set([...current, folder])));
+    },
+    [select, workspaceId],
+  );
+
+  /**
    * New drawing: the same creation as above, with the suffix supplied.
    *
    * A person names a diagram, not a file format, and `<name>.excalidraw.md` is
@@ -243,6 +311,9 @@ export function useNoteCreate(deps: NoteCreateDeps) {
         if (workspaceGenerationRef.current.epoch !== epoch) return;
         const name = untitledName(known, folder, kind, new Date());
         awaitingTitle.current.add(joinPath(folder, name));
+        // A note opens now and is written when somebody writes in it; a
+        // drawing, and anything offline, is made as before.
+        if (kind === "note" && offlineRef.current.reachability !== "offline") return openUnsent(folder, name, navigation);
         createNote(folder, name, kind, navigation);
       };
       /*
@@ -266,11 +337,21 @@ export function useNoteCreate(deps: NoteCreateDeps) {
         silently did not appear.
       */
       if (listings[folder] !== undefined) return make(listings);
+      /*
+        Except a note, online, which does not wait for it: nothing is written
+        until somebody types, the listing lands long before that, and a name
+        it turns out to have taken moves on at the first save
+        (`UnsentCreate.retarget`).
+      */
+      if (kind === "note" && offlineRef.current.reachability !== "offline") {
+        void refresh([folder]).catch(reportRefreshFailure);
+        return make(listings);
+      }
       void refresh([folder])
         .then(({ pages }) => make({ ...listingsRef.current, ...pages }))
         .catch(reportRefreshFailure);
     },
-    [createNote, listings, options.canEdit, refresh, reportRefreshFailure],
+    [createNote, listings, openUnsent, options.canEdit, refresh, reportRefreshFailure],
   );
 
   return { createNote, createDrawing, awaitingTitle, createUntitled };

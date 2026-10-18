@@ -24,12 +24,11 @@ compatibility_date = "2026-08-01"
 
 [vars]
 
-# The egress gate (docs/decisions/privacy-and-sharing/agent-egress.md) holds an
-# AI client's call that would widen who can see something until the person
-# approves it. "off" lets such calls run at once. The owner switched it off on
-# this deployment on 2026-10-10 until orient asks smarter; leave it unset on
-# your own deployment to keep the gate.
-EGRESS_APPROVALS = "off"
+# The sharing judge (docs/decisions/privacy-and-sharing/agent-egress.md): an AI
+# client's call that would let more people see something runs only when the
+# person's own words ask for it, as a small model reads them. Needs the AI
+# gateway below; leave it out to let such calls run at once.
+SHARING_JUDGE = "on"
 
 # The gateway's own public origin, e.g. "https://mcp.example.com" (no trailing
 # slash).
@@ -147,10 +146,6 @@ service = "context-site-shots"
 # `src/session.js`.
 # NATIVE_BINDINGS = "CONTEXT_BUCKET"
 
-# Optional, single-deployment ingestion only: a root prefix applied inside the
-# storage adapter and invisible above it. Keys are never otherwise rewritten.
-# LOCAL_CONTEXT_ROOT_PREFIX = "context/"
-
 # ── Secrets (`wrangler secret put <NAME>`; never commit values) ──────────────
 #
 #   CONTROL_PLANE_URL       required. The Convex HTTP-actions origin
@@ -169,12 +164,6 @@ service = "context-site-shots"
 # `INBOX_TOKEN` no longer exist, and no environment variable grants access to
 # anything.
 #
-# Single-deployment ingestion only (all optional, all inert without a bucket
-# bound below):
-#   CALENDAR_ICS_URL        a calendar's secret iCal URL
-#   GRANOLA_API_KEY         reads Granola note contents
-#   GRANOLA_WEBHOOK_SECRET  verifies signed Granola webhook deliveries
-#
 # Optional on any deployment:
 #   BRAVE_SEARCH_API_KEY    lets the texting assistant search the web
 #                           (src/agent/search.js); without it there is no
@@ -188,22 +177,6 @@ service = "context-site-shots"
 
 # ── Self-host only, commented out on purpose ────────────────────────────────
 #
-# The calendar cron and the Granola webhook are the two features with no user
-# behind them. No OAuth token arrives on a cron tick, so they cannot use the
-# per-request credential path; instead they write to one bucket bound directly
-# to this Worker. That only makes sense for someone hosting the gateway over
-# their own single context.
-#
-# `LOCAL_CONTEXT_BUCKET` is not an access path. No request carrying a token can
-# reach it, and it is never used to serve an MCP session or an `/inbox` capture
-# — those always go through `storeForSession`, which requires a live grant. On a
-# multi-tenant deployment it is unset, and both features are inert: the webhook
-# answers 404 and the cron returns immediately.
-#
-# [[r2_buckets]]
-# binding = "LOCAL_CONTEXT_BUCKET"
-# bucket_name = "my-context"
-
 # A native R2 binding for a self-hoster's *served* context — the other half of
 # `NATIVE_BINDINGS` above. The binding name here must appear in that allowlist
 # and must match the `bindingName` the control plane returns, or the gateway
@@ -213,9 +186,6 @@ service = "context-site-shots"
 # binding = "CONTEXT_BUCKET"
 # bucket_name = "my-context"
 
-# Daily 05:00 UTC calendar refresh, plus a retry pass over pending Granola
-# events. Does nothing unless `LOCAL_CONTEXT_BUCKET` is bound.
-#
 # The texting assistant's built-in model (`src/agent/builtin.js`), spent only
 # after the control plane allows the turn and metered there. Self-hosting
 # without Workers AI: delete this block; a turn with no connected model account
@@ -223,16 +193,13 @@ service = "context-site-shots"
 [ai]
 binding = "AI"
 
-# [triggers]
-# crons = ["0 5 * * *"]
-
 # Staging shares code with production, but owns its queue and presence objects.
 [env.staging]
 name = "context-mcp-staging"
 workers_dev = true
 
 [env.staging.vars]
-EGRESS_APPROVALS = "off"
+SHARING_JUDGE = "on"
 PUBLIC_ORIGIN = "https://mcp-staging.context.lc"
 ALLOWED_ORIGINS = "https://staging.context.lc"
 APP_ORIGIN = "https://staging.context.lc"

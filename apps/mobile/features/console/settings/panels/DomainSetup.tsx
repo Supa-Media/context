@@ -23,6 +23,7 @@ import {
   type DomainView,
 } from "../../domain/domain";
 import type { DomainActions } from "../../domain/useDomain";
+import { CompanyOpen, DomainHints, EmailSteps, ForwardingStep } from "./DomainHelp";
 import { DnsRecords, DomainSteps } from "./DomainRecords";
 
 /**
@@ -97,7 +98,8 @@ export function DomainSetup({ domain, actions }: { domain: DomainView; actions: 
   const provider = oneClick === null ? "" : providerName(oneClick.provider);
   const showRecords = domain.stage !== "https";
   const foldable = oneClick !== null || domain.ownershipVerified;
-  const folded = foldable && !recordsOpen && !needsAttention(domain);
+  // A finding on a record is read beside that record, so it is never folded away.
+  const folded = foldable && !recordsOpen && !needsAttention(domain) && domain.hints.length === 0;
 
   return (
     <>
@@ -110,9 +112,11 @@ export function DomainSetup({ domain, actions }: { domain: DomainView; actions: 
         </Notice>
       ) : null}
       <DomainSteps domain={domain} />
+      <DomainHints domain={domain} />
       <Text variant="rowSub" style={[styles.block, styles.measure]}>
         {sentence}
       </Text>
+      {showRecords && !folded && oneClick === null ? <CompanyOpen domain={domain} /> : null}
       {oneClick !== null ? (
         away ? (
           <Button
@@ -158,6 +162,8 @@ export function DomainSetup({ domain, actions }: { domain: DomainView; actions: 
         </Row>
       ) : null}
       {showRecords && !folded ? <DnsRecords domain={domain} now={now} /> : null}
+      <ForwardingStep domain={domain} />
+      {domain.stage !== "https" ? <EmailSteps domain={domain} actions={actions} /> : null}
       {note !== null ? (
         <Text variant="foot" style={styles.block}>
           {note}

@@ -3,7 +3,7 @@ import { FRONT_NOTES } from "../../../mcp/src/lists/grammar.js";
 import type { FileEntry, FolderListing } from "../console/files/types";
 import type { DemoContextTree } from "../console/placeholderData/treeHelpers";
 import type { LegalPageContent } from "../legal/LegalPage";
-import { privacyContent, termsContent } from "../legal/content";
+import { privacyContent, supportContent, termsContent } from "../legal/content";
 import { BUILT_IN_PAGES } from "./builtInPages";
 
 /**
@@ -54,13 +54,15 @@ export function legalMarkdown(content: LegalPageContent, standalone: string): st
 }
 
 /*
-  Also real routes, `/privacy` and `/terms`, which stay: a policy needs an
-  address of its own to be linked from a consent screen. The link inside each
+  Also real routes, `/privacy`, `/terms` and `/support`, which stay: a policy
+  needs an address of its own to be linked from a consent screen, and the App
+  Store listing needs one for support. The link inside each
   note is how the homepage reaches them (`APP_ROUTES`).
 */
 export const LEGAL_PAGES: readonly HomePage[] = [
   { routePath: "/legal/privacy", title: "Privacy", markdown: legalMarkdown(privacyContent, "/privacy") },
   { routePath: "/legal/terms", title: "Terms", markdown: legalMarkdown(termsContent, "/terms") },
+  { routePath: "/legal/support", title: "Support", markdown: legalMarkdown(supportContent, "/support") },
 ];
 
 /**
@@ -232,7 +234,7 @@ export const MISSING_PAGE_MARKDOWN =
  * Paths that belong to the app rather than to the site. A link to one leaves
  * the shell for that screen; every other root-relative link is a page.
  */
-const APP_ROUTES = ["/login", "/join/", "/console", "/connect", "/invite", "/privacy", "/terms", "/workspace/new", "/s/"];
+const APP_ROUTES = ["/login", "/join/", "/console", "/connect", "/invite", "/privacy", "/support", "/terms", "/workspace/new", "/s/"];
 
 export type HomeLink = { kind: "page"; routePath: string } | { kind: "app"; href: string };
 
@@ -293,7 +295,9 @@ export const APP_SEGMENTS: ReadonlySet<string> = new Set([
   "preview",
   "privacy",
   "s",
+  "signin",
   "stop-new-email",
+  "support",
   "terms",
   "tex",
   "texts",

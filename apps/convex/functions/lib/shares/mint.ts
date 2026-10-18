@@ -88,6 +88,7 @@ import {
   findShareFor,
   pathRejection,
 } from "./paths";
+import { entryNoteIdAt } from "./entryNote";
 
 export const createShareArgs = {
   workspaceId: v.id("workspaces"),
@@ -183,6 +184,9 @@ export async function createShareHandler(
       : undefined;
 
   let shareId: Id<"noteShares">;
+  // The note this share follows wherever it moves (`entryNote.ts`). Re-stamped on a re-mint, which may name
+  // the note now at this path rather than the one an older row was minted on.
+  const entryNoteId = await entryNoteIdAt(ctx.db, args.workspaceId, pathCheck.path);
   if (existing !== null) {
     // Revoked, and now re-shared. A **new** token, so the link that was
     // revoked stays dead — otherwise "revoke" would have meant "pause".
@@ -200,11 +204,13 @@ export async function createShareHandler(
       // fresh share to a claim that may no longer exist.
       recipientHeldSince: heldSince,
       revokedAt: undefined,
+      entryNoteId,
     });
   } else {
     shareId = await ctx.db.insert("noteShares", {
       workspaceId: args.workspaceId,
       entryPath: pathCheck.path,
+      entryNoteId,
       recipientKind: parsed.invitee.kind,
       recipient: parsed.invitee.value,
       recipientHeldSince: heldSince,
@@ -329,6 +335,9 @@ export async function mintTeamShare(
     const token = randomOpaqueToken();
 
     let shareId: Id<"noteShares">;
+    // The note this share follows wherever it moves (`entryNote.ts`). Re-stamped on a re-mint, which may name
+    // the note now at this path rather than the one an older row was minted on.
+    const entryNoteId = await entryNoteIdAt(ctx.db, args.workspaceId, pathCheck.path);
     if (existing !== null) {
       // Revoked and re-made. A new token, so a link already taken back stays
       // dead — the same rule `createShare` follows.
@@ -341,11 +350,13 @@ export async function mintTeamShare(
         createdBy: userId,
         createdAt: now,
         revokedAt: undefined,
+        entryNoteId,
       });
     } else {
       shareId = await ctx.db.insert("noteShares", {
         workspaceId: args.workspaceId,
         entryPath: pathCheck.path,
+        entryNoteId,
         // Nobody to name. See the schema: one field carries the audience, so
         // there is no second field to disagree with it.
         recipientKind: "members",

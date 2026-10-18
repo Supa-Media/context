@@ -9,7 +9,7 @@ import { TextLink } from "../design/components/TextLink";
 import { leading, pointerType as t } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { useCopy } from "../design/useCopy";
-import { Title } from "../invite/InviteScreen";
+import { Title } from "../invite/Title";
 import { Segmented } from "./Segmented";
 import {
   ENVS,

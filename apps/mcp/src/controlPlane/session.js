@@ -3,7 +3,7 @@
  * session or a storage binding, and asking whether a turn may spend the
  * built-in model.
  */
-import { ControlPlaneError } from "./client.js";
+import { CONTROL_PLANE_SITE_TIMEOUT_MS, ControlPlaneError } from "./client.js";
 
 export function createSessionMethods({ post, required }) {
   return {
@@ -108,6 +108,13 @@ export function createSessionMethods({ post, required }) {
         // Phase 3, an eighth sibling: the privacy rules while they are the
         // authority, absent while `privacy.md` is (`store/privacyAuthority.js`).
         privacy: parsed.privacy ?? null,
+        // The layout the bytes are read from: `"ids"` while staff have switched
+        // to the id copies, `"keys"` once notes may live only at their id keys
+        // (`store/idLayout.js`), `null` for paths. Anything else is paths.
+        idLayout: parsed.idLayout === "ids" || parsed.idLayout === "keys" ? parsed.idLayout : null,
+        // The staff console's feature switches (`functions/featureSwitches.ts`):
+        // only a literal `true` turns one on, so a missing or odd value is off.
+        features: { vaultKeyUse: parsed.features?.vaultKeyUse === true },
       };
     },
 
@@ -119,8 +126,43 @@ export function createSessionMethods({ post, required }) {
      *
      * @returns {Promise<{queued: true, count: number}|{queued: false}|{queued: false, error: string, message: string}>}
      */
-    async startQueuedMove(accessToken, expectedWorkspaceId, from, to) {
-      return required(await post("/gateway/moves/start", { accessToken, expectedWorkspaceId, from, to }), "move");
+    async startQueuedMove(accessToken, expectedWorkspaceId, from, to, expectedEtag) {
+      const body = { accessToken, expectedWorkspaceId, from, to };
+      // A note asked against the version the caller read; absent for a folder or an online press.
+      if (typeof expectedEtag === "string") body.expectedEtag = expectedEtag;
+      return required(await post("/gateway/moves/start", body), "move");
+    },
+
+    /**
+     * Ask the control plane to make several note moves in a keyed workspace,
+     * whole or not at all (`/gateway/moves/batch`). The same proofs as
+     * `startQueuedMove`. Each move may carry the version the caller read.
+     *
+     * @param {{from: string, to: string, expectedEtag?: string}[]} moves
+     * @returns {Promise<{ok: true, moves: {from: string, to: string}[]}|{ok: false, error: string, message: string}>}
+     */
+    async startMoveBatch(accessToken, expectedWorkspaceId, moves) {
+      return required(await post("/gateway/moves/batch", { accessToken, expectedWorkspaceId, moves }), "move");
+    },
+
+    /**
+     * Ask the control plane to move a note or folder into another workspace
+     * the grant reaches (`/gateway/moves/across`), with the engine the
+     * console's Move uses: the only way a keyed note crosses. The same proofs
+     * as `startQueuedMove`; both workspaces' roles are checked there.
+     *
+     * @returns {Promise<{status: "complete"|"failed"|"moving", movedObjects: number, skipped: {path: string, reason: string}[], error?: string}|null>}
+     */
+    async moveAcross(accessToken, sourceWorkspaceId, destinationWorkspaceId, from, to) {
+      return required(
+        // The engine carries the note before it answers: longer than a lookup.
+        await post(
+          "/gateway/moves/across",
+          { accessToken, sourceWorkspaceId, destinationWorkspaceId, from, to },
+          { timeoutMs: CONTROL_PLANE_SITE_TIMEOUT_MS }
+        ),
+        "move"
+      );
     },
 
     /**
@@ -130,8 +172,9 @@ export function createSessionMethods({ post, required }) {
      *
      * @returns {Promise<{allowed: true, remaining: number}|{allowed: false, reason: string}|null>}
      */
-    async startBuiltinTurn(accessToken, expectedWorkspaceId) {
-      const parsed = await post("/gateway/builtin-model", { accessToken, expectedWorkspaceId });
+    async startBuiltinTurn(accessToken, expectedWorkspaceId, { tryIt = false } = {}) {
+      // `tryIt` only from the AI tab's Try it route (`agent/tryIt.js`): the control plane checks the person may.
+      const parsed = await post("/gateway/builtin-model", { accessToken, expectedWorkspaceId, ...(tryIt ? { tryIt: true } : {}) });
       return required(parsed, "verdict");
     },
 
@@ -183,9 +226,10 @@ export function createSessionMethods({ post, required }) {
     async recordBuiltinUsage(
       accessToken,
       expectedWorkspaceId,
-      { input, output, cacheRead = 0, cacheWrite = 0, model, decision = 0, failed, ms },
+      { input, output, cacheRead = 0, cacheWrite = 0, model, decision = 0, failed, ms, tryIt = false },
     ) {
       await post("/gateway/builtin-model/usage", {
+        ...(tryIt ? { tryIt: true } : {}),
         accessToken,
         expectedWorkspaceId,
         inputTokens: input,

@@ -46,39 +46,67 @@ export function mintOwnershipToken(): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-interface DohAnswer {
-  type?: number;
-  data?: string;
+export interface DohRecord {
+  /** The owner name, without its trailing dot. */
+  name: string;
+  type: number;
+  data: string;
 }
 
-/** TXT is record type 16. */
-const TXT = 16;
+/** Record types by number, as DNS-over-HTTPS answers name them. */
+export const RR = { A: 1, NS: 2, CNAME: 5, SOA: 6, TXT: 16, AAAA: 28, CAA: 257 } as const;
 
 /**
- * Every TXT string published at `name`, or `null` when the resolver could not
- * be asked. An empty list is an answer — nothing is there yet.
+ * One question to the public resolver: the answer and authority sections, or
+ * `null` when it could not be asked. An empty answer is an answer.
  */
-export async function lookupTxt(name: string): Promise<string[] | null> {
+export async function dohQuery(
+  name: string,
+  type: keyof typeof RR,
+): Promise<{ answer: DohRecord[]; authority: DohRecord[] } | null> {
   const signal =
     typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
       ? AbortSignal.timeout(DOH_TIMEOUT_MS)
       : undefined;
   try {
     const response = await globalThis.fetch(
-      `${DOH_ENDPOINT}?name=${encodeURIComponent(name)}&type=TXT`,
+      `${DOH_ENDPOINT}?name=${encodeURIComponent(name)}&type=${type}`,
       {
         headers: { Accept: "application/dns-json" },
         ...(signal ? { signal } : {}),
       },
     );
     if (!response.ok) return null;
-    const body = (await response.json()) as { Answer?: DohAnswer[] } | null;
-    return (body?.Answer ?? [])
-      .filter((answer) => answer.type === TXT && typeof answer.data === "string")
-      .map((answer) => unquoteTxt(answer.data as string));
+    const body = (await response.json()) as { Answer?: unknown[]; Authority?: unknown[] } | null;
+    return { answer: records(body?.Answer), authority: records(body?.Authority) };
   } catch {
     return null;
   }
+}
+
+function records(raw: unknown[] | undefined): DohRecord[] {
+  if (!Array.isArray(raw)) return [];
+  const out: DohRecord[] = [];
+  for (const item of raw) {
+    const record = item as { name?: unknown; type?: unknown; data?: unknown };
+    if (typeof record.type !== "number" || typeof record.data !== "string") continue;
+    out.push({
+      name: typeof record.name === "string" ? record.name.toLowerCase().replace(/\.$/, "") : "",
+      type: record.type,
+      data: record.data,
+    });
+  }
+  return out;
+}
+
+/**
+ * Every TXT string published at `name`, or `null` when the resolver could not
+ * be asked. An empty list is an answer — nothing is there yet.
+ */
+export async function lookupTxt(name: string): Promise<string[] | null> {
+  const result = await dohQuery(name, "TXT");
+  if (result === null) return null;
+  return result.answer.filter((answer) => answer.type === RR.TXT).map((answer) => unquoteTxt(answer.data));
 }
 
 /**

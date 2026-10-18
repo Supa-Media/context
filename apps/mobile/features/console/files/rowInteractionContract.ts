@@ -30,9 +30,14 @@ export interface RowInteractionOptions {
   canDrag: boolean;
   canDrop: boolean;
   onDragStart: (path: string) => void;
-  onDragOver: (path: string, modifiers: readonly DragModifier[]) => void;
+  /**
+   * `at` is how far down the row the pointer is, `0` its top edge and `1` its
+   * bottom, so a folder can be dropped above, below or into a row
+   * (`treeDrop.ts`). Absent where the platform cannot say.
+   */
+  onDragOver: (path: string, modifiers: readonly DragModifier[], at?: number) => void;
   onDragLeave: (path: string) => void;
-  onDrop: (path: string, modifiers: readonly DragModifier[]) => void;
+  onDrop: (path: string, modifiers: readonly DragModifier[], at?: number) => void;
   onDragEnd: () => void;
 }
 

@@ -159,11 +159,9 @@ describe("the meter", () => {
     const { recorder } = harness({ systemAudio: true });
     await recorder.start();
 
-    // One analyser fed by every input: the question the mark answers is about
-    // the recording, and the recording is both of them.
-    const analyser = webState.contexts[0]?.analyser;
-    expect(analyser).toBeDefined();
+    // One analyser per input, so the live card can draw You and Call apart.
     expect(webState.contexts[0]?.sourced).toHaveLength(2);
+    expect(webState.contexts[0]?.analysers).toHaveLength(2);
     await recorder.stop();
   });
 });

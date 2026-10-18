@@ -182,6 +182,7 @@ describe("the request cannot name a context", () => {
       noteCount: 912,
       managedEncryption: null,
       encryptionKey: null,
+      keyed: false,
     });
     for (const noteCap of [undefined, 0, -1, 1.5, "1000", null]) {
       const { plane } = client({ binding: { status: "active" }, noteCap });
@@ -192,6 +193,14 @@ describe("the request cannot name a context", () => {
       expect((await plane.getBinding("ticket-1"))?.noteCount, String(noteCount)).toBeNull();
     }
     expect(await client({ binding: null }).plane.getBinding("ticket-1")).toBeNull();
+  });
+
+  it("reads keyed beside the binding, and only a literal true counts", async () => {
+    expect((await client({ binding: { status: "active" }, keyed: true }).plane.getBinding("ticket-1"))?.keyed).toBe(true);
+    for (const keyed of [undefined, false, 1, "true", null]) {
+      const { plane } = client({ binding: { status: "active" }, keyed });
+      expect((await plane.getBinding("ticket-1"))?.keyed, String(keyed)).toBe(false);
+    }
   });
 
   it("carries managed-storage encryption's mode and key beside the binding, never inside it", async () => {

@@ -1,15 +1,27 @@
-import { ActivityIndicator, StyleSheet, View } from "react-native";
-import { Button } from "../../design/components/Button";
-import { Card, Grow, Row } from "../../design/components/Card";
-import { Dot } from "../../design/components/Dot";
-import { Hint } from "../../design/components/Field";
+import { useRef, useState } from "react";
+import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
+import { Card } from "../../design/components/Card";
+import { Dot, type DotTone } from "../../design/components/Dot";
+import { Menu } from "../../design/components/Menu";
+import type { MenuItem } from "../files/menuItem";
 import { FormError } from "../../design/components/Input";
 import { Icon, type IconName } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
-import { useArming } from "../useArming";
 import { GOOGLE_REDIRECT_ORIGINS, type GoogleSyncServices } from "./google";
+import {
+  SERVICE_TITLES,
+  accountStatus,
+  enabledServices,
+  formatDay,
+  formatWhen,
+  lastDelivered,
+  listWords,
+  type GoogleService,
+} from "./googleStatus";
 import { useGoogleStart } from "./useGoogleStart";
+
+export { accountStatus } from "./googleStatus";
 
 export interface GoogleSyncSchedule {
   intervalMinutes: number;
@@ -60,18 +72,24 @@ export interface GoogleConnection {
     destinationPath: string;
     historyCursorReady: boolean;
     lastSyncedAt?: number;
+    /** Why this service's last turn failed; absent once it syncs again. */
+    lastFailure?: string;
   };
   calendar?: {
     destinationFolder: string;
     destinationPath: string;
     syncCursorReady: boolean;
     lastSyncedAt?: number;
+    /** Why this service's last turn failed; absent once it syncs again. */
+    lastFailure?: string;
   };
   chat?: {
     destinationFolder: string;
     destinationPath: string;
     cursorCount: number;
     lastSyncedAt?: number;
+    /** Why this service's last turn failed; absent once it syncs again. */
+    lastFailure?: string;
   };
   syncRun?: {
     runId: string;
@@ -109,118 +127,38 @@ export interface GoogleActions {
   disconnect: (connectionId: string) => Promise<null>;
 }
 
-/** One of the three things a Google account carries into a context. */
-export type GoogleService = "gmail" | "calendar" | "chat";
 
-/** In the order Google's own consent screen lists them. */
-const SERVICES: readonly GoogleService[] = ["gmail", "calendar", "chat"];
-
-/** The reader's word for each service, which is not always Google's. */
-const SERVICE_TITLES: Record<GoogleService, string> = {
-  gmail: "Email",
-  calendar: "Calendar",
-  chat: "Chat",
-};
-
-/**
- * The mark beside each service on a resting account row.
- *
- * Three glyphs say what three headings and three copies of this card used to
- * say, in the width of one line — which is the whole reason the three panels
- * could become one. They are never the only statement of it: the row's
- * accessible name spells the services out in words, because every icon in this
- * set is drawn `aria-hidden` and an icon is not a label.
- */
+/** The mark for each service, on the row and in its folders. */
 const SERVICE_ICONS: Record<GoogleService, IconName> = {
   gmail: "mail",
   calendar: "calendar",
   chat: "chat",
 };
 
-/** "Calendar", "Calendar and Chat", "Email, Calendar and Chat". */
-function listWords(words: readonly string[]): string {
-  if (words.length <= 1) return words[0] ?? "";
-  return `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
-}
+/** Google is always asked for all three at once; see `GoogleAddRow`. */
+const EVERYTHING: GoogleSyncServices = { gmail: true, calendar: true, chat: true };
 
-/** The services this account actually carries, in a fixed order. */
-function enabledServices(connection: GoogleConnection): GoogleService[] {
-  return SERVICES.filter((service) => connection.syncServices[service]);
-}
+type StartGoogle = ReturnType<typeof useGoogleStart>;
 
 /**
- * The account at rest: one dot, one line.
+ * Every Google account this context reads, one row each.
  *
- * ## Bad news first, and the account's own before a service's
+ * ## The shape (owner's pick, board 2, 2026-10-17)
  *
- * This is the rule the three-panel layout could not keep. A stale grant
- * belongs to the *account*, the panels belonged to *services*, and so whether
- * a person saw "reconnect needed" depended on which of Email, Calendar or
- * Chats they happened to open — each of which answered the health question
- * from a different field. One row, one sentence, and it is the account's.
+ * A row is the address, one short sentence, and a mark per service with its
+ * own health dot, so which of Email, Calendar or Chat is stuck shows at a
+ * glance. Everything there is to do to an account — Reconnect, its folders and
+ * times, Disconnect — is in one menu behind "…", so the page carries no
+ * buttons for the action nobody came to take. The one exception is a broken
+ * account: its Reconnect is also on the row itself, because "there is no way
+ * to reconnect" is the complaint this layout answers.
  *
- * `crit` is reserved for something a person has to act on. Everything else is
- * the same short line, because the schedule is no longer a setting and
- * "syncing" is the whole of what there is to say.
- */
-export function accountStatus(connection: GoogleConnection): {
-  tone: "ok" | "warn" | "crit";
-  text: string;
-} {
-  const failed =
-    connection.errorCode ??
-    connection.syncRun?.errorCode ??
-    (connection.syncStatus === "reconnect_required" || connection.syncStatus === "error"
-      ? connection.syncStatus
-      : undefined);
-  if (failed !== undefined) {
-    return {
-      tone: "crit",
-      /*
-        The server's own sentence wherever there is one: it names the account
-        and what to do. The fallback is written as a sentence here rather than
-        dropped on the row as the fragment the status code is.
-      */
-      text:
-        connection.lastError ??
-        connection.syncRun?.lastError ??
-        connection.sync.lastFailure ??
-        (failed === "reconnect_required"
-          ? "Reconnect this account before it can sync again."
-          : "This account is not syncing."),
-    };
-  }
-  // Connected and not yet proven, which is where every account lives between
-  // the consent screen and its first pass. A real state, and not an error.
-  if (!connection.sync.everSynced) {
-    return { tone: "warn", text: "Connected; waiting for the first pass." };
-  }
-  if (connection.sync.catchingUp) return { tone: "ok", text: "Catching up on older mail." };
-  return { tone: "ok", text: "Syncing." };
-}
-
-/**
- * Every Google account this context reads, as one row each.
+ * Where a day lands and how often an account is polled are facts, stated once
+ * under the list, not settings.
  *
- * ## What this replaced
- *
- * Three copies of a much larger card — one under Email, one under Calendar,
- * one under Chats — each listing the same accounts, each with a destination
- * field per service, a six-button schedule picker, and its own Disconnect. Two
- * connected accounts drew six cards and eighteen interval buttons on one page,
- * for two values, and the owner called the result overwhelming (2026-09-18).
- *
- * What went is not just repetition, it is the settings themselves. Where a day
- * lands and how often an account is polled are facts now, stated once under
- * the list: every account writes to the folder the control plane names and is
- * checked every five minutes. A row is a thing that is connected, and its one
- * button does the one thing worth doing to it.
- *
- * The owner gate is unchanged and is still the object's: `actions` is absent
- * for anybody who is not this context's owner, so Add and Disconnect are
- * absent rather than disabled, and this component re-decides nothing —
- * `features/console/capabilities.ts` records what happens to a rule that gets
- * copied into a component.
+ * The owner gate is the object's: `actions` is absent for anybody who is not
+ * this context's owner, so Add, Reconnect and Disconnect are absent rather than
+ * disabled, and this component re-decides nothing.
  */
 export function GoogleConnectionsCard({
   connections = [],
@@ -231,143 +169,326 @@ export function GoogleConnectionsCard({
   actions?: GoogleActions;
   loading?: boolean;
 }) {
+  // The Google hook needs a Convex client, so it is only mounted for an owner:
+  // nobody else has anything to start.
+  return actions ? (
+    <OwnerGoogleCard connections={connections} actions={actions} loading={loading} />
+  ) : (
+    <GoogleCardBody connections={connections} loading={loading} />
+  );
+}
+
+function OwnerGoogleCard(props: {
+  connections: GoogleConnection[];
+  actions: GoogleActions;
+  loading: boolean;
+}) {
+  const google = useGoogleStart(props.actions.workspaceId);
+  return <GoogleCardBody {...props} google={google} />;
+}
+
+function GoogleCardBody({
+  connections,
+  actions,
+  loading,
+  google,
+}: {
+  connections: GoogleConnection[];
+  actions?: GoogleActions;
+  loading: boolean;
+  google?: StartGoogle;
+}) {
   const styles = useThemedStyles(makeStyles);
+  const empty = connections.length === 0;
 
   return (
-    <Card>
-      <Row style={styles.head}>
-        <Grow>
-          <Text variant="rowTitle">Google</Text>
-          <Text variant="rowSub" style={styles.rowSub}>
-            Bring in Gmail, Calendar and Chat. Checked every five minutes.
-          </Text>
-        </Grow>
-        {actions ? (
-          <GoogleConnectButton actions={actions} first={connections.length === 0} />
-        ) : null}
-      </Row>
-
-      {connections.length === 0 ? (
-        /* With the button right there, "no account yet" is already said. */
-        !loading && actions ? null : (
-        <Row divided>
-          <Grow>
+    <View>
+      <Card style={styles.card}>
+        {empty && !(actions && !loading) ? (
+          <View style={styles.row}>
             <Text variant="rowSub">
-              {loading
-                ? "Loading Google accounts…"
-                : "No Google account connected yet."}
+              {loading ? "Loading Google accounts…" : "No Google account connected yet."}
             </Text>
-          </Grow>
-        </Row>
-        )
-      ) : (
-        connections.map((connection) => (
+          </View>
+        ) : null}
+        {connections.map((connection, index) => (
           <GoogleAccountRow
             key={connection.connectionId}
             connection={connection}
             actions={actions}
+            google={google}
+            first={index === 0}
           />
-        ))
-      )}
+        ))}
+        {google ? <GoogleAddRow google={google} first={empty} /> : null}
+      </Card>
 
-      {actions ? null : (
+      {google?.state.kind === "failed" ? (
+        <View style={styles.failure}>
+          <FormError headline={google.state.headline} next={google.state.message} />
+        </View>
+      ) : null}
+      {google?.redirectUri === null ? (
         <Text variant="foot" style={styles.note}>
-          Only an owner can connect or remove Google accounts.
+          Google connect works in a browser at {GOOGLE_REDIRECT_ORIGINS.join(" or ")}.
         </Text>
-      )}
-    </Card>
+      ) : null}
+      <Text variant="foot" style={styles.note}>
+        {empty
+          ? "Bring in Gmail, Calendar and Chat. Your 50 most recent emails come in when you connect, then new mail as it arrives."
+          : "Email, calendar and chat land in your inbox folder, checked every five minutes."}
+        {actions ? "" : " Only an owner can connect or remove Google accounts."}
+      </Text>
+    </View>
   );
 }
 
-/** One connected account: what it is, what it carries, and the way out. */
+type RowAction = "reconnect" | "folders" | "disconnect";
+
+/** One connected account: the address, one sentence, its services, and "…". */
 function GoogleAccountRow({
   connection,
   actions,
+  google,
+  first,
 }: {
   connection: GoogleConnection;
   actions?: GoogleActions;
+  google?: StartGoogle;
+  first: boolean;
 }) {
+  const colors = useColors();
   const styles = useThemedStyles(makeStyles);
-  const disconnect = useArming(() => {
-    if (actions === undefined) return;
-    void actions.disconnect(connection.connectionId);
-  });
+  const triggerRef = useRef<View>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [showFolders, setShowFolders] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const status = accountStatus(connection);
   const services = enabledServices(connection);
   const words = listWords(services.map((service) => SERVICE_TITLES[service]));
+  const delivered = lastDelivered(connection);
+  const starting = google?.state.kind === "starting";
+  const canReconnect = google !== undefined && google.redirectUri !== null;
+  const broken = status.tone === "crit";
+
+  const sentence =
+    broken && delivered !== undefined
+      ? `Stopped ${formatDay(delivered)}. ${status.text}`
+      : status.tone === "ok" && !connection.sync.catchingUp && delivered !== undefined
+        ? `Up to date · ${formatWhen(delivered)}`
+        : status.text;
+  const tint = broken ? styles.critText : status.tone === "warn" ? styles.warnText : null;
+
+  const reconnect = () => google?.start(EVERYTHING, connection.email);
+  const items: MenuItem<RowAction>[] = [
+    ...(canReconnect
+      ? [{ id: "reconnect" as const, label: "Reconnect with Google", testID: `menu-reconnect-${connection.connectionId}` }]
+      : []),
+    {
+      id: "folders",
+      label: showFolders ? "Hide folders and times" : "Show folders and times",
+      testID: `menu-folders-${connection.connectionId}`,
+    },
+    ...(actions === undefined
+      ? []
+      : [{
+          id: "disconnect" as const,
+          label: "Disconnect",
+          danger: true,
+          separatorBefore: true,
+          testID: `menu-disconnect-${connection.connectionId}`,
+        }]),
+  ];
+  const choose = (id: RowAction) => {
+    setMenu(null);
+    if (id === "reconnect") reconnect();
+    if (id === "folders") setShowFolders((shown) => !shown);
+    if (id === "disconnect") setConfirming(true);
+  };
+  const openMenu = () => {
+    const fallback = { x: 0, y: 0 };
+    setMenu(fallback);
+    triggerRef.current?.measureInWindow?.((x, y, width, height) => {
+      setMenu({ x: x + width - 220, y: y + height + 4 });
+    });
+  };
 
   return (
-    <View>
-      <Row divided style={styles.accountRow}>
-        <Dot tone={status.tone} />
-        <Grow style={styles.accountText}>
-          <Text variant="rowTitle">{connection.email}</Text>
+    <View style={first ? null : styles.divided}>
+      <View style={styles.row}>
+        <View style={styles.rowText}>
+          <Text variant="rowTitle" numberOfLines={1}>
+            {connection.email}
+          </Text>
           <Text
             variant="rowSub"
-            style={[styles.rowSub, status.tone === "crit" ? styles.critText : null]}
+            style={[styles.rowSub, tint]}
             /*
               Announced when it changes rather than only drawn: a grant that
-              expired while somebody had this screen open is the one line on it
-              that has to reach a reader who is not looking at it.
+              expired while somebody had this screen open is the one line on
+              it that has to reach a reader who is not looking at it.
             */
-            role={status.tone === "crit" ? "status" : undefined}
+            role={broken ? "status" : undefined}
           >
-            {status.text}
+            {sentence}
+            {broken && canReconnect ? " " : ""}
+            {broken && canReconnect ? (
+              <Text
+                variant="rowSub"
+                role="button"
+                onPress={starting ? undefined : reconnect}
+                style={styles.reconnect}
+                accessibilityLabel={`Reconnect ${connection.email} with Google`}
+                testID={`reconnect-google-${connection.connectionId}`}
+              >
+                {starting ? "Opening Google…" : "Reconnect"}
+              </Text>
+            ) : null}
           </Text>
-        </Grow>
-        {/*
-          The services, as marks. Labelled for assistive tech on the group
-          rather than per glyph — "Email, Calendar and Chat" is the sentence,
-          three separate labels would be three stops reading one fact.
-        */}
+        </View>
         <View
           style={styles.services}
           accessibilityRole="text"
-          accessibilityLabel={words === "" ? "No services granted" : `Syncing ${words}`}
+          accessibilityLabel={serviceLabel(connection, services)}
         >
           {services.map((service) => (
             <View key={service} style={styles.serviceMark}>
-              <Icon name={SERVICE_ICONS[service]} size={14} />
+              <Icon name={SERVICE_ICONS[service]} size={13} color={colors.text2} />
+              <Dot tone={serviceTone(connection, service)} size={9} style={styles.serviceDot} />
             </View>
           ))}
         </View>
-        {/*
-          Absent for anybody who is not the owner, rather than disabled. The
-          old card drew it greyed out, which is a button inviting a press that
-          can only refuse — and `sections.ts` records the rule this list
-          follows everywhere else: a control that cannot act is not drawn.
-        */}
-        {actions === undefined ? null : (
-          <Button
-            label={disconnect.stage === "armed" ? "Press again" : "Disconnect"}
-            accessibilityLabel={
-              words === ""
-                ? `Disconnect ${connection.email}`
-                : `Disconnect ${connection.email}, which stops ${words}`
-            }
-            variant="danger"
-            onPress={disconnect.press}
-            testID={`disconnect-google-${connection.connectionId}`}
-          />
-        )}
-      </Row>
-      {/*
-        The consequence at the moment of the press rather than beside the
-        button always — `useArming`, the same shape as storage's Disconnect and
-        a share's Revoke. It is the one place the account's three services have
-        to be named in words: Disconnect is an *account* action, and a row
-        showing three marks should not leave anybody guessing which of them
-        stop.
-      */}
-      {disconnect.stage === "armed" ? (
-        <Hint style={styles.armedHint}>
-          <Text variant="hint" role="status">
-            {words === ""
-              ? `Context stops reading ${connection.email}. Nothing already written to your bucket is touched, and you can connect it again.`
-              : `${words} stop for ${connection.email}. Nothing already written to your bucket is touched, and you can connect it again.`}
-          </Text>
-        </Hint>
+        <View ref={triggerRef}>
+          <Pressable
+            onPress={openMenu}
+            style={styles.more}
+            accessibilityRole="button"
+            aria-haspopup="menu"
+            accessibilityLabel={`More for ${connection.email}`}
+            testID={`google-account-${connection.connectionId}`}
+          >
+            <Icon name="more" size={16} color={colors.muted} />
+          </Pressable>
+        </View>
+      </View>
+      {menu !== null ? (
+        <Menu<RowAction>
+          items={items}
+          title={connection.email}
+          titleDetail={sentence}
+          anchor={menu}
+          onSelect={choose}
+          onDismiss={() => setMenu(null)}
+        />
       ) : null}
+      {showFolders ? <AccountDetail connection={connection} services={services} /> : null}
+      {confirming && actions !== undefined ? (
+        <View style={styles.confirm}>
+          <Text variant="rowSub" role="status">
+            {words === ""
+              ? `Context stops reading ${connection.email}. Notes already saved stay where they are, and you can connect it again.`
+              : `${words} stop for ${connection.email}. Notes already saved stay where they are, and you can connect it again.`}
+          </Text>
+          <View style={styles.confirmActions}>
+            {/*
+              Red text rather than a filled button: disconnecting is undone by
+              connecting again and deletes nothing, so it is not a delete.
+            */}
+            <Text
+              variant="rowTitle"
+              role="button"
+              onPress={() => {
+                setConfirming(false);
+                void actions.disconnect(connection.connectionId);
+              }}
+              style={styles.disconnect}
+              accessibilityLabel={
+                words === ""
+                  ? `Disconnect ${connection.email}`
+                  : `Disconnect ${connection.email}, which stops ${words}`
+              }
+              testID={`disconnect-google-${connection.connectionId}`}
+            >
+              Disconnect
+            </Text>
+            <Text
+              variant="rowTitle"
+              role="button"
+              onPress={() => setConfirming(false)}
+              style={styles.keep}
+              testID={`keep-google-${connection.connectionId}`}
+            >
+              Keep it
+            </Text>
+          </View>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+/** A service's own health, for its dot. */
+function serviceTone(connection: GoogleConnection, service: GoogleService): DotTone {
+  if (accountStatus(connection).tone === "crit") return "crit";
+  const source = connection[service];
+  if (source?.lastFailure !== undefined) return "warn";
+  return source?.lastSyncedAt === undefined ? "neutral" : "ok";
+}
+
+/** The marks in words, with each one's health: an icon and a dot are not a label. */
+function serviceLabel(connection: GoogleConnection, services: GoogleService[]): string {
+  if (services.length === 0) return "No services granted";
+  const said: Record<DotTone, string> = {
+    ok: "up to date",
+    warn: "paused",
+    crit: "stopped",
+    neutral: "waiting for its first sync",
+  };
+  return services
+    .map((service) => `${SERVICE_TITLES[service]} ${said[serviceTone(connection, service)]}`)
+    .join(", ");
+}
+
+/** An account's folders and each service's last delivery. */
+function AccountDetail({
+  connection,
+  services,
+}: {
+  connection: GoogleConnection;
+  services: GoogleService[];
+}) {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
+  return (
+    <View style={styles.detail}>
+      {services.map((service, index) => {
+        const source = connection[service];
+        const line =
+          source?.lastFailure !== undefined
+            ? `${source.lastSyncedAt === undefined ? "Nothing yet" : `Last new ${service === "gmail" ? "mail" : "item"} ${formatWhen(source.lastSyncedAt)}`}. ${source.lastFailure}`
+            : source?.lastSyncedAt === undefined
+              ? "Waiting for the first sync."
+              : `Up to date · ${formatWhen(source.lastSyncedAt)}`;
+        return (
+          <View key={service} style={[styles.service, index === 0 ? null : styles.serviceDivided]}>
+            <View style={styles.serviceIcon}>
+              <Icon name={SERVICE_ICONS[service]} size={14} color={colors.text2} />
+            </View>
+            <View style={styles.rowText}>
+              <Text variant="rowTitle">{SERVICE_TITLES[service]}</Text>
+              <Text variant="treeMetaMono" style={styles.path}>
+                {source?.destinationFolder ?? "Waiting for setup"}
+              </Text>
+              <Text
+                variant="rowSub"
+                style={[styles.rowSub, source?.lastFailure === undefined ? null : styles.warnText]}
+              >
+                {line}
+              </Text>
+            </View>
+          </View>
+        );
+      })}
     </View>
   );
 }
@@ -375,73 +496,104 @@ function GoogleAccountRow({
 /**
  * Adding an account, which asks Google for all three products at once.
  *
- * The toggle group that used to sit here — Gmail, Calendar, Chat — is gone,
- * and it was already dead: every panel that rendered this card passed a
- * `service`, which forced the full scope set anyway, because Google's
- * verification is project-wide and an active OAuth request has to match the
- * scopes submitted in Cloud Console. A picker whose value was overridden on
- * every path is a control that lies about what consent it is about to ask for.
+ * There is no product picker: Google's verification is project-wide and an
+ * active OAuth request has to match the scopes submitted in Cloud Console, so
+ * a toggle here would be a control that lies about what consent it asks for.
  */
-function GoogleConnectButton({
-  actions,
-  first,
-}: {
-  actions: GoogleActions;
-  /** No account yet: the button says what it connects. */
-  first: boolean;
-}) {
+function GoogleAddRow({ google, first }: { google: StartGoogle; first: boolean }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
-  const google = useGoogleStart(actions.workspaceId);
   const starting = google.state.kind === "starting";
-  const everything: GoogleSyncServices = { gmail: true, calendar: true, chat: true };
-
   return (
-    <View style={styles.connect}>
-      <Button
-        label={starting ? "Opening Google…" : first ? "Connect Google" : "Add account"}
-        disabled={starting || google.redirectUri === null}
-        onPress={() => google.start(everything)}
-        trailing={starting ? <ActivityIndicator color={colors.text} size="small" /> : null}
-        testID="connect-google"
-      />
-      {google.redirectUri === null ? (
-        <Text variant="foot" style={styles.note}>
-          Google connect works in a browser at {GOOGLE_REDIRECT_ORIGINS.join(" or ")}.
-        </Text>
-      ) : null}
-      {google.state.kind === "failed" ? (
-        <FormError headline={google.state.headline} next={google.state.message} />
-      ) : null}
-    </View>
+    <Pressable
+      onPress={() => google.start(EVERYTHING)}
+      disabled={starting || google.redirectUri === null}
+      style={[styles.row, first ? null : styles.divided, google.redirectUri === null ? styles.busy : null]}
+      accessibilityRole="button"
+      testID="connect-google"
+    >
+      <View style={styles.plus}>
+        {starting ? (
+          <ActivityIndicator color={colors.accent} size="small" />
+        ) : (
+          <Icon name="plus" size={16} color={colors.accent} />
+        )}
+      </View>
+      <Text variant="rowTitle" style={styles.addLabel}>
+        {starting ? "Opening Google…" : first ? "Connect Google" : "Add a Google account"}
+      </Text>
+    </Pressable>
   );
 }
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    head: { marginBottom: 2 },
-    rowSub: { marginTop: 2 },
-    note: { marginTop: 8 },
-    connect: { alignItems: "flex-end" },
-    accountRow: { flexWrap: "wrap", gap: 10 },
     /*
-      A floor under the text column so the marks and the button wrap whole
-      rather than squeezing the address into one word per line. The number is
-      `PrivacyPanel`'s, for its reason: a growing column shrinks to zero before
-      a sibling wraps, which at 390pt turned an address into five lines.
+      Longhands, not `padding`: RN-web lets `Card`'s own paddingVertical and
+      paddingHorizontal win over a shorthand. The rows carry their own.
     */
-    accountText: { flexGrow: 1, flexShrink: 1, flexBasis: 180, minWidth: 180 },
-    services: { flexDirection: "row", gap: 5, alignItems: "center" },
+    card: { paddingVertical: 0, paddingHorizontal: 0, overflow: "hidden" },
+    row: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      paddingVertical: 12,
+      paddingHorizontal: 14,
+      minHeight: 58,
+    },
+    divided: { borderTopWidth: 1, borderTopColor: colors.line },
+    rowText: { flex: 1, minWidth: 0 },
+    rowSub: { marginTop: 2 },
+    critText: { color: colors.critText, fontWeight: "700" },
+    warnText: { color: colors.warnText },
+    reconnect: { color: colors.accent, fontWeight: "700", textDecorationLine: "underline" },
+    services: { flexDirection: "row", gap: 6, alignItems: "center", flexShrink: 0 },
     serviceMark: {
-      width: 22,
-      height: 22,
-      borderRadius: 6,
+      width: 26,
+      height: 26,
+      borderRadius: 7,
       alignItems: "center",
       justifyContent: "center",
-      borderWidth: 1,
-      borderColor: colors.line,
       backgroundColor: colors.surface3,
     },
-    critText: { color: colors.critText },
-    armedHint: { marginTop: 10 },
+    serviceDot: {
+      position: "absolute",
+      right: -2,
+      top: -2,
+      borderWidth: 2,
+      borderColor: colors.surface2,
+      width: 11,
+      height: 11,
+      borderRadius: 6,
+    },
+    more: {
+      width: 30,
+      height: 30,
+      borderRadius: 15,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    confirm: { paddingHorizontal: 14, paddingBottom: 12, gap: 6 },
+    confirmActions: { flexDirection: "row", gap: 20, alignItems: "center" },
+    keep: { color: colors.text2, fontWeight: "600", paddingVertical: 4 },
+    busy: { opacity: 0.6 },
+    detail: { paddingLeft: 14, paddingRight: 14, paddingBottom: 8 },
+    service: { flexDirection: "row", alignItems: "flex-start", gap: 10, paddingVertical: 9 },
+    serviceDivided: { borderTopWidth: 1, borderTopColor: colors.line },
+    serviceIcon: { width: 20, alignItems: "center", paddingTop: 2 },
+    path: { marginTop: 2 },
+    disconnect: { color: colors.crit, fontWeight: "700", paddingVertical: 4, alignSelf: "flex-start" },
+    plus: {
+      width: 34,
+      height: 34,
+      borderRadius: 17,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1.5,
+      borderStyle: "dashed",
+      borderColor: colors.lineStrong,
+    },
+    addLabel: { color: colors.accent },
+    failure: { marginTop: 8 },
+    note: { marginTop: 8, paddingHorizontal: 4 },
   });

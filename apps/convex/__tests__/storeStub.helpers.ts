@@ -139,7 +139,7 @@ export function memoryStore(
      */
     ignoreIfMatchOnDelete?: boolean;
     /**
-     * Accept `startAfter` on `list` and ignore it, the way `DropboxStore`
+     * Accept `startAfter` on `list` and ignore it, the way a store that ignores key order
      * does — its `list_folder` has no such position. A walk that trusted the
      * store to have resumed would hand back the start of the bucket again,
      * under a cursor that promised the rest of it.

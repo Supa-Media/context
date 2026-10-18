@@ -106,7 +106,9 @@ import { FilterTokens, type PaletteFilters } from "./PaletteFilterTokens";
 /*                                  measures                                  */
 /* -------------------------------------------------------------------------- */
 
-import { POINTER_ROW_HEIGHT, PaletteRow, TOUCH_ROW_HEIGHT } from "./PaletteRow";
+import { PaletteMatchRow, isRich, richListHeight, rowHeight, rowTop } from "./PaletteResultRow";
+import { PaletteFoot, PaletteSplit, previewPane } from "./PaletteFoot";
+import { PaletteHeading } from "./PaletteHeading";
 
 export { POINTER_ROW_HEIGHT, TOUCH_ROW_HEIGHT, highlightRuns, secondLine } from "./PaletteRow";
 
@@ -124,7 +126,6 @@ const PANEL_TOP_MAX = 180;
  * spelled out even though only half of it typechecks.
  */
 const LISTBOX_ROLE = "listbox" as unknown as Role;
-
 
 /* -------------------------------------------------------------------------- */
 /*                                    props                                   */
@@ -200,6 +201,8 @@ export interface PaletteProps {
   placeholder: string;
   /** Rendered above the list when the query is empty (e.g. "Recent"). */
   emptyHeading?: string;
+  /** Small print beside `emptyHeading`: what the list holds, said once. */
+  emptyNote?: string;
   /**
    * What an untyped palette lists instead of `items`: the notes somebody was
    * just in (`recentItems`). Absent or empty, it lists `items` as it always
@@ -240,6 +243,16 @@ export interface PaletteProps {
   lookIn?: PaletteLookIn;
   /** Typed filters (⌘K's `in:`): suggestions while one is typed, chips once picked. */
   filters?: PaletteFilters;
+  /**
+   * The highlighted search answer, read in full beside the list on a wide
+   * pointer layout (board B1). Absent, the panel is the list alone.
+   */
+  preview?: (item: PaletteItem, query: string) => ReactNode;
+  /**
+   * Tab: narrow the file tree to names matching the query, and close. What
+   * the tree's own filter field did before search became one bar (board A3).
+   */
+  onNarrowTree?: (query: string) => void;
 }
 
 export { SEE_ALL_ID, seeAllItem } from "./paletteHandoffs";
@@ -253,6 +266,7 @@ export function Palette({
   items,
   placeholder,
   emptyHeading,
+  emptyNote,
   recent,
   noMatchMessage,
   search,
@@ -263,6 +277,8 @@ export function Palette({
   fieldAccessory,
   lookIn,
   filters,
+  preview,
+  onNarrowTree,
 }: PaletteProps) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -279,7 +295,6 @@ export function Palette({
    * constraint is the room, not the input device.
    */
   const touch = Platform.OS !== "web" || width < layout.narrowBreakpoint;
-  const rowHeight = touch ? TOUCH_ROW_HEIGHT : POINTER_ROW_HEIGHT;
 
   /*
     A filter being typed ("rent in:ac") turns the list into its suggestions,
@@ -428,10 +443,11 @@ export function Palette({
   const viewport = useRef(0);
   const offset = useRef(0);
 
+  const matchItems = useMemo(() => matches.map((match) => match.item), [matches]);
   useEffect(() => {
     if (selected < 0 || viewport.current <= 0) return;
-    const top = selected * rowHeight;
-    const bottom = top + rowHeight;
+    const top = rowTop(matchItems, selected, touch);
+    const bottom = top + rowHeight(matchItems[selected]!, touch);
     const at = offset.current;
 
     // Scroll the minimum that puts the row inside the window, so walking down
@@ -443,11 +459,15 @@ export function Palette({
 
     offset.current = next;
     scroller.current?.scrollTo({ y: next, animated: false });
-  }, [selected, rowHeight]);
+  }, [selected, matchItems, touch]);
 
   /* ------------------------------- keyboard ------------------------------ */
 
-  usePaletteKeys({ move, choose, onDismiss });
+  const narrow = useMemo(
+    () => (onNarrowTree === undefined || touch || words.trim() === "" ? undefined : () => onNarrowTree(words.trim())),
+    [onNarrowTree, touch, words],
+  );
+  usePaletteKeys({ move, choose, onDismiss, onTab: narrow });
 
   /* -------------------------------- pieces ------------------------------- */
 
@@ -543,6 +563,7 @@ export function Palette({
   const looked = touch && lookIn ? lookIn.render({ query, found, look, setLook: lookAt }) : null;
   const notes = looked?.notes !== false;
 
+  const typedWords = useMemo(() => words.split(/[^\p{L}\p{N}]+/u), [words]);
   const list = (
     <ScrollView
       ref={scroller}
@@ -553,7 +574,7 @@ export function Palette({
       onLayout={onListLayout}
       onScroll={onListScroll}
       scrollEventThrottle={16}
-      style={touch ? styles.listTouch : styles.listPointer}
+      style={touch ? styles.listTouch : matchItems.some(isRich) ? [styles.listPointer, { maxHeight: richListHeight(height) }] : styles.listPointer}
       contentContainerStyle={styles.listContent}
     >
       {/*
@@ -589,8 +610,9 @@ export function Palette({
               {typing?.heading ?? filters?.idle?.heading}
             </Text>
           ) : null}
-          <PaletteRow
+          <PaletteMatchRow
             match={match}
+            words={typedWords}
             selected={index === selected}
             touch={touch}
             onPress={() => {
@@ -616,12 +638,7 @@ export function Palette({
   );
 
   const heading =
-    emptyHeading && notes && query.trim() === "" && found > 0 ? (
-      <Text variant="eyebrow" style={styles.heading} testID="palette-heading">
-        {emptyHeading}
-      </Text>
-    ) : null;
-
+    emptyHeading && notes && query.trim() === "" && found > 0 ? <PaletteHeading heading={emptyHeading} note={emptyNote} /> : null;
 
   /* ------------------------------ the sheet ------------------------------ */
 
@@ -645,6 +662,7 @@ export function Palette({
     PANEL_TOP_MAX,
     Math.max(PANEL_TOP_MIN, Math.round(height * PANEL_TOP_FRACTION)),
   );
+  const { wide, reading } = previewPane(preview, width, matchItems, selected, words);
 
   return (
     <Modal transparent animationType="fade" visible onRequestClose={onDismiss}>
@@ -656,7 +674,7 @@ export function Palette({
       >
         {/* Swallow presses inside the panel, so only the scrim dismisses. */}
         <Pressable
-          style={styles.panel}
+          style={[styles.panel, wide && styles.panelWide]}
           onPress={() => {}}
           accessibilityLabel={placeholder}
           testID="palette-panel"
@@ -671,7 +689,8 @@ export function Palette({
           {heading}
           {sourceNotice}
           {reducedRecallNotice}
-          {list}
+          {wide ? <PaletteSplit list={list} preview={reading} /> : list}
+          {onNarrowTree === undefined ? null : <PaletteFoot onNarrowTree={narrow} />}
         </Pressable>
       </Pressable>
     </Modal>

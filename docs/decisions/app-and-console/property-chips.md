@@ -36,3 +36,32 @@ no status group holds ("wip"), which the folder page then files under "No group
 yet"; drawing the chips above the editor on the web puts them over the name
 rather than under it. `__tests__/notePropertyChips.test.ts` and
 `__tests__/propertySlot.test.ts` fail if either is undone.
+
+## Only a note in the Projects folder is offered the task chips (2026-10-18)
+
+**Decided by the owner, 2026-10-18**, of a new Inbox note on the phone: "this
+note is not in the project folder, so I don't know why it's showing up", and,
+shown the boards (`loose-note-chips`), picking A and the folder-job fix.
+
+- **Status, Owner, Priority and Due date are offered only under the folder
+  doing the Projects job**, whatever it is named, and everything under it. A
+  loose note (Inbox, Areas, Resources, the top level, anywhere else) starts
+  with its name. This narrows the 2026-10-14 rule above; nothing else in it
+  changes.
+- **A value a loose note already has still shows** as a solid chip, and can be
+  changed or taken off. The file stays the whole truth.
+- **The way in is ••• → Add property on a phone** (`addPropertyAsk.ts`), which
+  opens the Properties card on its Add row. Under a pointer a loose note keeps
+  one "Add property" chip that waits for the hover, as a written-in note's
+  faint chips already did.
+- **"In a project" is the folder's job, never its name.** The folder page
+  (List, Board, statuses) used to look for "project" in a folder's name, which
+  lost a Projects folder renamed Work and gave an Areas folder called Side
+  projects a status column. Both read `jobFoldersNow` now.
+
+What a "simplification" would cost: task chips on every note put a row of
+tracking controls over shopping lists and meeting notes; a name check comes
+back wrong the day somebody renames a folder.
+`__tests__/notePropertyChips.test.ts` ("a loose note") and
+`__tests__/folderPageModel.test.ts` ("which folders track progress") fail if
+either is undone.

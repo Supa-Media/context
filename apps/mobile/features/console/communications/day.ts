@@ -44,10 +44,14 @@ export function shapeChannelDay(
     if (text === null) continue;
     const parsed = parseChannelDayMessages(text);
     for (const message of parsed.messages) {
-      let bucket = byThread.get(message.thread);
+      // A Google Chat day nests threads under spaces, and two spaces can each
+      // hold a thread with the same subject; they stay apart. Every other
+      // channel has no space, so its key is the subject alone, as before.
+      const key = `${message.space}\u0000${message.thread}`;
+      let bucket = byThread.get(key);
       if (bucket === undefined) {
         bucket = { thread: message.thread, messages: [] };
-        byThread.set(message.thread, bucket);
+        byThread.set(key, bucket);
         threads.push(bucket);
       }
       const view: DayMessageView = {

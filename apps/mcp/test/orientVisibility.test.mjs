@@ -5,6 +5,8 @@ export async function runOrientVisibilityChecks() {
   // -- orient scoping
   const oPriv = (await call("priv-token", "orient"))?.content?.[0]?.text;
   const oPub = (await call("pub-token", "orient"))?.content?.[0]?.text;
+  // What a connection may do is the `access` part of the manual, not the overview.
+  const oPubAccess = (await call("pub-token", "orient", { about: "access" }))?.content?.[0]?.text;
   check("private orient has private manifest", oPriv?.includes("PRIVATE manifest"));
   // Was: asserts orient tells agents to keep a ledger under `2-areas/agent-todos/`.
   // That is one customer's house rule, and this gateway serves buckets organized
@@ -29,17 +31,17 @@ export async function runOrientVisibilityChecks() {
   // never comes back. So orient owes the caller three things beyond a folder
   // list — the user's own front page, what they touched recently, and a reason
   // to write anything back.
-  check("orient names the front page", oPriv?.includes("## Front page — index.md"));
-  check("orient carries the front page content", oPriv?.includes("# public manifest"));
+  check("orient names the front page, in its workspace", oPriv?.includes("## Workspaces") && oPriv?.includes("Front page: public manifest"));
+  check("orient carries the front page content", oPriv?.includes("public manifest"));
   check("orient surfaces recent activity", oPriv?.includes("## Recently updated"));
   check(
     "orient dates recent activity relatively",
     /## Recently updated\n(?:- \S+\.md — (?:just now|\d+(?:m|h|d|w|mo|y) ago)\n)+/.test(oPriv)
   );
-  check("orient asks the agent to write back", oPriv?.includes("Leave more than you took"));
+  check("orient asks the agent to write back", oPriv?.includes("Write back what you learn"));
   check(
     "orient points at the next call rather than ending",
-    oPriv?.includes("list_notes") && oPriv?.includes("search_notes")
+    oPriv?.includes("search before you ask") && oPriv?.includes("fetch index.md")
   );
 
   // A count that included notes the caller cannot see would let a colleague
@@ -102,7 +104,7 @@ export async function runOrientVisibilityChecks() {
   // WHOLE chain to undefined — so on a failed orient the negation is true twice
   // and the check passes without an orientation existing.
   const pubRecentActivity =
-    typeof oPub === "string" ? oPub.split("## Structure")[0] : undefined;
+    typeof oPub === "string" ? oPub.split("## Recently updated")[1]?.split("## How to work here")[0] : undefined;
   check(
     "orient's recent activity never names a private note",
     lacks(pubRecentActivity, "secret-thing") && lacks(pubRecentActivity, "one-on-ones")
@@ -122,8 +124,9 @@ export async function runOrientVisibilityChecks() {
   // These are the same read capabilities as search_notes and read_note, so the
   // checks that matter are that the shape parses and that the dialect discloses
   // nothing the ordinary tools would not.
+  // These run as a client registered as "ChatGPT": only that name gets the JSON.
   const openaiSearch = JSON.parse(
-    (await call("priv-token", "search", { query: "togather" }))?.content?.[0]?.text
+    (await call("chatgpt-token", "search", { query: "togather" }))?.content?.[0]?.text
   );
   check(
     "search answers OpenAI's shape: a results array of id/title/text/url",
@@ -141,7 +144,7 @@ export async function runOrientVisibilityChecks() {
     "a result id round-trips through fetch",
     await (async () => {
       const fetched = JSON.parse(
-        (await call("priv-token", "fetch", { id: openaiSearch.results[0].id }))?.content?.[0]?.text
+        (await call("chatgpt-token", "fetch", { id: openaiSearch.results[0].id }))?.content?.[0]?.text
       );
       return (
         fetched.id === openaiSearch.results[0].id &&
@@ -154,10 +157,10 @@ export async function runOrientVisibilityChecks() {
   // The privacy checks, which are the reason this is not just a formatter: a
   // team connection's search must not surface a private note, and fetch of a
   // private path must be byte-identical to fetching a path that never existed.
-  const teamSearch = JSON.parse(
-    (await call("pub-token", "search", { query: "PRIVATEWORD" }))?.content?.[0]?.text
-  );
-  check("a team search cannot surface a private note", teamSearch.results.length === 0);
+  // Those are about what is visible, not the dialect, so they read the text
+  // answers of the ordinary tools (a non-ChatGPT client gets `search_notes`).
+  const teamSearch = (await call("pub-token", "search", { query: "PRIVATEWORD" }))?.content?.[0]?.text;
+  check("a team search cannot surface a private note", lacks(teamSearch, "PRIVATEWORD") && lacks(teamSearch, "secret-thing"));
   const teamFetchPrivate = await call("pub-token", "fetch", { id: "1-projects/secret-thing/status.md" });
   const teamFetchMissing = await call("pub-token", "fetch", { id: "1-projects/never-existed.md" });
   check(
@@ -165,9 +168,14 @@ export async function runOrientVisibilityChecks() {
     teamFetchPrivate.isError === true &&
       JSON.stringify(teamFetchPrivate) === JSON.stringify(teamFetchMissing)
   );
+  // The ChatGPT dialect refuses plumbing outright. The ordinary `fetch` is
+  // `read_note`, and `read_note` lets the owner read the manifest by design
+  // (`canSee`: privacy.md is visible to the private scope only), so it is
+  // checked for the dot-path refusal, which both share.
   check(
     "fetch refuses plumbing and non-note ids",
-    (await call("priv-token", "fetch", { id: "privacy.md" }))?.isError === true &&
+    (await call("chatgpt-token", "fetch", { id: "privacy.md" }))?.isError === true &&
+      (await call("chatgpt-token", "fetch", { id: ".history/index.md.x.archive.md" }))?.isError === true &&
       (await call("priv-token", "fetch", { id: ".history/index.md.x.archive.md" }))?.isError === true
   );
 
@@ -289,12 +297,12 @@ export async function runOrientVisibilityChecks() {
       visibilityTierForGrant(["context:read", "context:private"], "editor") === "team" &&
       visibilityTierForGrant(["context:read", "context:private"], "member") === "team"
   );
-  check("orient exposes team write surface", oPub?.includes("Team-writable folder defaults") && oPub?.includes("2-areas"));
+  check("orient exposes team write surface", oPubAccess?.includes("Team-writable folder defaults") && oPubAccess?.includes("2-areas"));
   check(
     "orient identifies shared credentials as team access",
-    /connection (?:scope|access): team/i.test(oPub) &&
-      !/connection (?:scope|access): public/i.test(oPub) &&
-      !/writable public prefixes/i.test(oPub)
+    /connection (?:scope|access): team/i.test(oPubAccess) &&
+      !/connection (?:scope|access): public/i.test(oPubAccess) &&
+      !/writable public prefixes/i.test(oPubAccess)
   );
   const publicScopeInfo = (await call("pub-token", "scope_info"))?.content?.[0]?.text;
   const privateScopeInfo = (await call("priv-token", "scope_info"))?.content?.[0]?.text;

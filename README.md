@@ -119,8 +119,8 @@ client's own custom instructions, system prompt, or rules file (the connect
 screen shows you exactly where, per client):
 
 > Always orient using the Context MCP (call `orient`) before answering
-> anything about me or my work, and save what you learn with `save_context`
-> before you finish.
+> anything about me or my work, and save what you learn with `write` (action
+> `save_session`) before you finish.
 
 Most of what `orient` returns is derived from the bucket and rebuilt on every
 call. One part is not: `index.md`, an ordinary Markdown file at the root of your
@@ -162,7 +162,7 @@ ends, and the decision worth keeping was never written down.
 
 Two answers, and you want both:
 
-- **`save_context`**, a tool the agent calls when it finishes. What it does is
+- **`save_session`**, an action of `write` the agent calls when it finishes. What it does is
   yours to define — put a `## Save context` section in your `index.md` with a
   `destination:` line and whatever procedure you want followed, and `orient`
   hands it to every agent that connects.
@@ -214,7 +214,7 @@ or one folder and can revoke, and a folder link still hides whatever
 | `apps/mcp/`                       | The MCP gateway Worker — tools, OAuth, privacy engine, storage adapter. Self-hosting: [`apps/mcp/SETUP.md`](apps/mcp/SETUP.md) |
 | `apps/mobile/`                    | The Expo app: web, iOS, Android, and the UI the desktop shell hosts        |
 | `apps/desktop/`                   | Electron shell for macOS: menu bar, meeting capture, offline queue         |
-| `apps/agent/`                     | Worker behind the texting assistant (Linq iMessage webhook → gateway `/agent`) |
+| `apps/agent/`                     | Worker behind the texting assistant (Sendblue iMessage webhook → gateway `/agent`) |
 | `infra/router/`                   | Worker fronting `context.lc`: the web app, Convex auth routes, websites    |
 | `infra/email-worker/`             | Email Worker that turns mail to `<username>@context.lc` into an inbox capture |
 | `infra/transcribe-worker/`        | Turns a chunk of meeting audio into text; stores nothing                   |

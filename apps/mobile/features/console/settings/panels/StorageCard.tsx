@@ -66,36 +66,25 @@ export function StorageCard({
   });
 
   const addressing = forcePathStyleToAddressing(storage.forcePathStyle);
-  const isDropbox = storage.provider === "dropbox";
   const isManaged = storage.managed === true;
 
   /**
    * Only the fields this backend actually has.
    *
-   * Built by pushing what is present rather than by listing four and letting
-   * three of them be `undefined`: a Dropbox binding has no bucket, endpoint,
-   * region or access key, and an empty labelled well reads as a field somebody
-   * failed to fill in rather than one that does not exist here.
+   * Built by pushing what is present rather than by listing every field and
+   * letting the absent ones be `undefined`: an empty labelled well reads as a
+   * field somebody failed to fill in rather than one that does not exist here.
    */
   const fields: Array<{ label: string; value: string }> = [
     {
       label: "Provider",
-      value: isManaged ? "Context-managed storage" : isDropbox ? "Dropbox" : storage.provider,
+      value: isManaged ? "Context-managed storage" : storage.provider,
     },
   ];
-  // Which account, not just which provider: saying whose Dropbox this is,
-  // and noticing a *different* one arriving on a reconnect.
-  if (isDropbox && storage.dropboxAccountId) {
-    fields.push({ label: "Connected as", value: storage.dropboxAccountId });
-  }
   if (storage.bucket) fields.push({ label: "Bucket", value: storage.bucket });
   if (storage.endpoint) fields.push({ label: "Endpoint", value: storage.endpoint });
   if (storage.accessKey) fields.push({ label: "Access key", value: storage.accessKey });
-  if (storage.rootPrefix) {
-    fields.push({ label: isDropbox ? "Folder" : "Root prefix", value: storage.rootPrefix });
-  } else if (isDropbox) {
-    fields.push({ label: "Folder", value: "Context's own app folder" });
-  }
+  if (storage.rootPrefix) fields.push({ label: "Root prefix", value: storage.rootPrefix });
   // Shown only when somebody actually had to answer it at connect time.
   if (addressing !== null) {
     fields.push({
@@ -106,7 +95,7 @@ export function StorageCard({
 
   const failure =
     storage.status === "error"
-      ? describeStorageFailure(storage.errorCode, storage.lastError, storage.provider)
+      ? describeStorageFailure(storage.errorCode, storage.lastError)
       : null;
   const verdict = storageVerdict(storage, failure !== null);
   const running = reverify.state.kind === "running";
@@ -178,18 +167,9 @@ export function StorageCard({
 
           {isManaged || actions === undefined ? null : (
             <Row style={styles.actions}>
-              {/*
-                One button, two honest labels. A Dropbox binding has no key to
-                rotate, so offering "Rotate key" against one would name a
-                credential that has never existed for it.
-              */}
               <Button
-                label={isDropbox ? "Reconnect" : "Rotate key"}
-                accessibilityLabel={
-                  isDropbox
-                    ? "Reconnect Dropbox, or connect a bucket instead"
-                    : "Paste a new access key and secret"
-                }
+                label="Rotate key"
+                accessibilityLabel="Paste a new access key and secret"
                 disabled={disconnecting}
                 onPress={onRebind}
                 testID="storage-rebind"

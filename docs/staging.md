@@ -13,8 +13,10 @@ A staging run deploys only what the commit can affect. Its first job,
 selects Convex, each Worker, and the app (web export and OTA update) from the
 files that changed. A component owns its workspace directories, the workspace
 packages it declares, and every file its sources import, including files
-Convex and the app import from `apps/mcp/src`. Tests and READMEs do not deploy
-anything. Dependency, workflow or planner changes, a base that cannot be found,
+Convex and the app import from `apps/mcp/src`. The app declares Convex only to
+type its calls, so it owns just the Convex files it imports (`_generated/api.js`
+and a few shared helpers): a Convex-only merge rebuilds neither the web export
+nor the OTA update. Tests and READMEs do not deploy anything. Dependency, workflow or planner changes, a base that cannot be found,
 and any file the planner does not recognise deploy everything. The run summary
 lists each component and why it was or was not deployed. Independent jobs run
 in parallel, and the live staging check runs on every run.
@@ -74,8 +76,8 @@ billing sessions or connector sync state as a shortcut to a working login.
 Encrypted storage credentials are bound to workspace IDs and encryption keys;
 a copied row cannot be decrypted with staging's independent key.
 
-Google and Dropbox require their staging callback URLs to be registered with
-the provider before enabling their connect UI. Google mail/calendar connection
+Google requires its staging callback URL to be registered with the provider
+before enabling its connect UI. Google mail/calendar connection
 flags can remain disabled while registration is pending. Email ingestion uses
 `staging.context.lc` and requires its own MX records and Email Routing rule to
 `context-email-staging`; deploying the Worker does not change production MX.

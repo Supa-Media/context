@@ -24,6 +24,13 @@ time zone, by `apps/mcp/src/agent/transcript.js`:
   (`vault.md`). The thinking and the answers are kept although they can
   restate what was read, because they are what was asked for; the answers
   are already kept in the conversation history.
+- **What they sent is shown** (owner, same day: "when we send voice memos
+  or … an image … in the transcripts I can see them"). A texted picture is
+  stored once in the workspace's image store (`.context/assets/images/`, where
+  a paste goes) through write_note's `images` and embedded where it was sent,
+  borrowing the note's visibility; one write_note refuses is named instead. A
+  voice message is quoted as the words it was heard as. Any other file is
+  named, its bytes never kept.
 - **Not the model's read.** The transcript reads its day under a ledger of
   its own, so appending to it never makes a widening in the same text ask.
 - **Through the dispatcher.** Each write is a `write_note` under the turn's own
@@ -37,6 +44,7 @@ time zone, by `apps/mcp/src/agent/transcript.js`:
 
 A simplification that dropped any of these would cost: the note read back as
 the person's own notes (prompt line), a feed buried in log lines (quiet
-path), a day overwritten by one turn (read before write), or a shared note
-copied out of its workspace (no results). Tests: `agentTranscript.test.mjs`,
+path), a day overwritten by one turn (read before write), a shared note
+copied out of its workspace (no results), or a picture they texted that
+the transcript cannot show (stored images). Tests: `agentTranscript.test.mjs`,
 `agentTranscriptRoute.test.mjs`, `activity/substance.test.mjs`.

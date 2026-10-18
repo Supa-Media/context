@@ -31,11 +31,14 @@ import {
   unsupportedState,
 } from "./lib/nodes/observe";
 import { convexNodeTable } from "./lib/nodes/convexTable";
+import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { readMirror, treeServesNow } from "./lib/nodes/listing";
+import { readerMirror } from "./lib/nodes/readerRules";
 import { liveNode } from "./lib/nodes/facts";
 import { mirrorRules } from "./lib/nodes/log";
 import { canSee } from "./lib/privacy";
 import { mirrorFollowsFile, noticePrivacyListing, RULES_VERSION_PREFIX } from "./lib/nodes/privacyAuthority";
+import { accessSourceOf, refreshAccess } from "./lib/nodes/accessBackfill";
 import { migrationPaused } from "./lib/nodes/pause";
 import {
   NODE_PRIVACY_KEY,
@@ -59,6 +62,7 @@ const rowValidator = v.object({
   etag: v.optional(v.string()),
   size: v.optional(v.number()),
   uploaded: v.optional(v.number()),
+  noteId: v.optional(v.string()),
 });
 
 const stateValidator = v.object({
@@ -79,6 +83,8 @@ const mirrorValidator = v.object({
   invalid: v.boolean(),
   folders: v.array(v.object({ prefix: v.string(), visibility: v.string() })),
   notes: v.array(v.object({ path: v.string(), visibility: v.string() })),
+  /** Set on a reader's mirror in rows mode: `folders` and `notes` are the rows' judgement, not file text. */
+  rows: v.optional(v.boolean()),
 });
 
 const parityValidator = v.object({
@@ -199,9 +205,18 @@ export const observe = internalMutation({
     const table = convexNodeTable(ctx, args.workspaceId, args.left ?? []);
     const privacyRow = args.rows.find((row) => row.path === NODE_PRIVACY_KEY);
     if (privacyRow !== undefined) await noticePrivacyListing(ctx, args.workspaceId, privacyRow.etag);
+    // A listing of path objects: in a keyed workspace it adopts nothing (`observe.ts`).
+    const keyed = await keyedWorkspace(ctx.db, args.workspaceId);
     const result = await applyObservation(
       table,
-      { at: args.at, rows: args.rows, gone: args.gone, vanishedUnder: args.vanishedUnder },
+      {
+        at: args.at,
+        rows: args.rows,
+        gone: args.gone,
+        vanishedUnder: args.vanishedUnder,
+        source: "bucket",
+        keyedWorkspace: keyed,
+      },
       args.vanishCursor ?? { index: 0 },
     );
     return { more: result.more, vanishCursor: result.next };
@@ -225,6 +240,8 @@ export const prune = internalMutation({
   args: { workspaceId: v.id("workspaces"), startedAt: v.number() },
   returns: v.object({ more: v.boolean() }),
   handler: async (ctx, { workspaceId, startedAt }): Promise<{ more: boolean }> => {
+    // A keyed workspace is not pruned: the sweep finishes as ready and keeps every row.
+    if (await keyedWorkspace(ctx.db, workspaceId)) return { more: false };
     const table = convexNodeTable(ctx, workspaceId);
     const { more } = await pruneUnobserved(table, startedAt);
     return { more };
@@ -249,10 +266,11 @@ export const finish = internalMutation({
       throw error;
     }
     await saveTree(ctx, workspaceId, row, next);
+    const keyed = await keyedWorkspace(ctx.db, workspaceId);
     // `begin` cleared `dirty`, so a mark now is a sweep asked for while this
     // one held the lease (an email capture names no path, so a sweep is its
     // only re-check). Started here, or it waits for the hourly cron.
-    if (next.dirty && nodeSweepDue(next, Date.now()) && !(await migrationPaused(ctx.db))) {
+    if (next.dirty && nodeSweepDue(next, Date.now(), keyed) && !(await migrationPaused(ctx.db))) {
       await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
         workspaceId,
         scope: "private",
@@ -268,7 +286,8 @@ export const finish = internalMutation({
     // one a single in-flight write made differ fell back to the bucket for
     // ever, both until staff pressed Check. Since 2026-10-13 the check is an
     // alarm for staff and serves nobody differently.
-    if (nodeParityDue(row?.parity, at)) {
+    // A keyed workspace is not checked: its keyed rows are the store seam's, and a listing cannot prove them.
+    if (!keyed && nodeParityDue(row?.parity, at)) {
       await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
         workspaceId,
         scope: "private",
@@ -317,10 +336,16 @@ export const listLive = internalQuery({
       const scoped = q.eq("workspaceId", workspaceId);
       return after === undefined ? scoped : scoped.gt("path", after);
     });
-    const rows: { path: string; etag?: string; size?: number; uploaded?: number }[] = [];
+    const rows: { path: string; etag?: string; size?: number; uploaded?: number; noteId?: string }[] = [];
     for await (const doc of query) {
       if (doc.kind !== "file" || doc.goneAt !== undefined) continue;
-      rows.push({ path: doc.path, etag: doc.etag, size: doc.size, uploaded: doc.uploaded });
+      rows.push({
+        path: doc.path,
+        etag: doc.etag,
+        size: doc.size,
+        uploaded: doc.uploaded,
+        ...(doc.noteId === undefined ? {} : { noteId: doc.noteId }),
+      });
       if (rows.length >= size) break;
     }
     const cursor = rows.length >= size ? rows[rows.length - 1].path : null;
@@ -351,7 +376,7 @@ export const requestSweep = internalMutation({
     const next = dirtyState(row === null ? null : toState(row));
     await saveTree(ctx, workspaceId, row, next);
     // Paused: the tree stays dirty, and resuming starts the sweep.
-    if (nodeSweepDue(next, Date.now()) && !(await migrationPaused(ctx.db))) {
+    if (nodeSweepDue(next, Date.now(), await keyedWorkspace(ctx.db, workspaceId)) && !(await migrationPaused(ctx.db))) {
       await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
         workspaceId,
         scope: "private",
@@ -360,6 +385,13 @@ export const requestSweep = internalMutation({
     }
     return null;
   },
+});
+
+/** Whether the workspace is keyed (`lib/noteIds/keyedState.ts`), for the tree's runs to check before they sweep or check it. INTERNAL. */
+export const isKeyed = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.boolean(),
+  handler: async (ctx, { workspaceId }): Promise<boolean> => keyedWorkspace(ctx.db, workspaceId),
 });
 
 /** The store can be listed neither in key order nor by token: not served, tried again a day later. */
@@ -401,7 +433,7 @@ export const teamShareable = internalQuery({
   handler: async (ctx, { workspaceId, path }) => {
     if (!(await treeServesNow(ctx.db, workspaceId))) return null;
     const row = await liveNode(ctx.db, workspaceId, path);
-    const mirror = await readMirror(ctx.db, workspaceId);
+    const mirror = await readerMirror(ctx, workspaceId);
     if (row === null || mirror?.invalid === true) return { visible: false, sealed: false };
     const rules = await mirrorRules(mirror);
     return { visible: canSee(path, "team", rules.rules, rules.overrides), sealed: row.sealed === true };
@@ -419,7 +451,7 @@ export const served = internalQuery({
   returns: v.union(v.null(), v.object({ mirror: v.union(v.null(), mirrorValidator) })),
   handler: async (ctx, { workspaceId }) => {
     if (!(await treeServesNow(ctx.db, workspaceId))) return null;
-    return { mirror: await readMirror(ctx.db, workspaceId) };
+    return { mirror: await readerMirror(ctx, workspaceId) };
   },
 });
 
@@ -449,6 +481,9 @@ export const savePrivacy = internalMutation({
   args: { workspaceId: v.id("workspaces"), mirror: mirrorValidator, at: v.number() },
   returns: v.null(),
   handler: async (ctx, { workspaceId, mirror, at }): Promise<null> => {
+    // In rows mode the rows are the truth: a `privacy.md` read is never stored as the rules, so nothing a reader
+    // judges by (`readerRules.readerMirror`) can be moved back to an older file.
+    if ((await accessSourceOf(ctx.db)) === "rows") return null;
     const doc = await ctx.db
       .query("nodePrivacy")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
@@ -468,6 +503,7 @@ export const savePrivacy = internalMutation({
     const fields = { ...mirror, observedAt: at, fileAhead: undefined, exportedEtag: undefined };
     if (doc === null) await ctx.db.insert("nodePrivacy", { workspaceId, ...fields });
     else await ctx.db.patch(doc._id, fields);
+    await refreshAccess(ctx, workspaceId);
     return null;
   },
 });

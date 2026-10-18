@@ -6,6 +6,7 @@
  * Split out of toolArguments.test.mjs; see fixtures.mjs for the shared helpers.
  */
 
+import { fullToolList } from "../fullToolList.mjs";
 import {
   callTool,
   callToolModern,
@@ -56,7 +57,9 @@ export async function runToolArgumentProtocolEraChecks(check, harness) {
   // only because its handler re-checks the selected destination and can write
   // no note. crossContext/routingSuggestion.test.mjs pins that narrower rule.
   const CROSS_CONTEXT_PLANNING_TOOL_NAMES = ["suggest_destination"];
-  const writingToolNames = ((await rpc(env, TOKEN_OWNER, "tools/list", {}))?.result?.tools || [])
+  // The full list (`fullToolList.mjs`): the older writing tools are what the
+  // exemption is about. The six v2 tools are checked just below the loop.
+  const writingToolNames = (await fullToolList(env, TOKEN_OWNER))
     .filter((tool) => tool?.annotations?.readOnlyHint !== true)
     .map((tool) => tool?.name)
     .filter(
@@ -76,6 +79,20 @@ export async function runToolArgumentProtocolEraChecks(check, harness) {
     `a member is refused every writing tool the form exemption does not name (${writingToolNames.length})`,
     memberLeaks.length === 0
   );
+  // The same refusal reached through the v2 tools, which translate to the
+  // calls above before the gate sees them.
+  const v2Leaks = [];
+  for (const args of [
+    { action: "save", path: "1-projects/probe.md", content: "x" },
+    { action: "move", args: { source: "1-projects/a.md", destination: "1-projects/b.md" } },
+  ]) {
+    const tool = args.action === "save" ? "write" : "manage";
+    const refusal = await callTool(env, TOKEN_OWNER, tool, { ...args, context: "@shared" });
+    if (refusal?.isError !== true || textOf(refusal) !== "permission denied: you have read-only access to @shared.") {
+      v2Leaks.push(`${tool} ${args.action} -> ${textOf(refusal)}`);
+    }
+  }
+  check("...and so is every v2 call that would write there", v2Leaks.length === 0);
   check(
     "...and the set really was enumerated rather than empty",
     writingToolNames.length >= 10
@@ -97,7 +114,7 @@ export async function runToolArgumentProtocolEraChecks(check, harness) {
         path: "1-projects/probe.md",
         workspaceId: WORKSPACE_OTHER,
       })
-    ) === 'unknown argument "workspaceId"; permitted here: path, context'
+    ) === 'unknown argument "workspaceId"; permitted here: path, mail, context, mailbox, person_said'
   );
   check(
     "...and still serves the same call without it, so the era is really reached",
@@ -135,7 +152,7 @@ export async function runToolArgumentProtocolEraChecks(check, harness) {
   );
   check(
     "__proto__ arriving over the wire is an unknown argument, not a prototype",
-    textOf(overTheWire) === 'unknown argument "__proto__"; permitted here: path, context'
+    textOf(overTheWire) === 'unknown argument "__proto__"; permitted here: path, mail, context, mailbox, person_said'
   );
   check(
     "...and nothing in this isolate was polluted by asking",
@@ -156,7 +173,7 @@ export async function runToolArgumentProtocolEraChecks(check, harness) {
   check(
     "a lone surrogate in a property name is escaped rather than passed through",
     textOf(await callToolRaw(env, TOKEN_OWNER, "read_note", '{"path\\ud800":"a.md"}')) ===
-      'unknown argument "path\\ud800"; permitted here: path, context'
+      'unknown argument "path\\ud800"; permitted here: path, mail, context, mailbox, person_said'
   );
   check(
     "a repeated property is validated as the value that actually reaches the handler",

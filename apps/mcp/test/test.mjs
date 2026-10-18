@@ -16,17 +16,17 @@ import { runSearchShardQueryChecks } from "./searchShardQuery.test.mjs";
 import { runSearchShardsChecks } from "./searchShards.test.mjs";
 import { runSearchDocmapPathsChecks } from "./searchDocmapPaths.test.mjs";
 import { runSearchPacingChecks } from "./searchPacing.test.mjs";
+import { runSearchPacingControlPlaneChecks } from "./searchPacingControlPlane.test.mjs";
 import { runSearchV2IntegrationChecks } from "./searchV2Integration.test.mjs";
+import { runSearchV2IntegrationShardChecks } from "./searchV2IntegrationShards.test.mjs";
 import { runStoreFactoryChecks } from "./storeFactory.test.mjs";
 import { runTenancyChecks } from "./tenancy.test.mjs";
-import { runDropboxFolderChecks } from "./dropboxFolders.test.mjs";
 import { runPluginChecks } from "./plugins.test.mjs";
 import { runContextPluginChecks } from "./contextPlugins.test.mjs";
 import { runPrivacyGroupChecks } from "./privacyGroups.test.mjs";
 import { runFormChecks } from "./forms.test.mjs";
 import { runListChecks } from "./lists.test.mjs";
 import { runProjectListChecks } from "./listProjects.test.mjs";
-import { runOrganizerChecks } from "./organizer.test.mjs";
 import { runSetPropertyChecks } from "./listSetProperty.test.mjs";
 import { runStatusAdviceChecks, runStatusChecks } from "./listStatuses.test.mjs";
 import { runLinkToolChecks } from "./linkTools.test.mjs";
@@ -67,9 +67,18 @@ import { runAgentComputerChecks } from "./agentComputer.test.mjs";
 import { runAgentBrowseChecks } from "./agentBrowse.test.mjs";
 import { runAgentRoutineChecks } from "./agentRoutine.test.mjs";
 import { runAgentRoutineTexChecks } from "./agentRoutineTex.test.mjs";
+import { runAgentDelegateRouteChecks } from "./agentDelegateRoute.test.mjs";
 import { runAgentTranscriptChecks } from "./agentTranscriptRoute.test.mjs";
+import { runAgentDreamChecks } from "./agentDream.test.mjs";
+import { runAgentHeartbeatChecks } from "./agentHeartbeat.test.mjs";
+import { runAgentHousekeepingChecks } from "./agentHousekeeping.test.mjs";
 import { runAgentEgressChecks } from "./agentEgress.test.mjs";
 import { runAgentEgressTextingChecks } from "./agentEgressTexting.test.mjs";
+import { runEmailGateChecks } from "./emailGate.test.mjs";
+import { runEmailReadChecks } from "./emailRead.test.mjs";
+import { runCalendarGateChecks } from "./calendarGate.test.mjs";
+import { runReportGateChecks } from "./reportGate.test.mjs";
+import { runAgentEgressJudgeChecks } from "./agentEgressJudge.test.mjs";
 import { runAgentSearchChecks } from "./agentSearch.test.mjs";
 import { runEncryptionChecks } from "./encryption.test.mjs";
 import { runEncryptionGatewayChecks } from "./encryptionGateway.test.mjs";
@@ -89,10 +98,11 @@ import { runProposalsAndArchiveChecks } from "./proposalsAndArchive.test.mjs";
 import { runMovesAndBatchChecks } from "./movesAndBatch.test.mjs";
 import { checkSyncOwnedSourceChanges } from "./moveSyncOwnedChecks.mjs";
 import { runMoveDiagnosticsRedactionChecks } from "./moveDiagnosticsRedaction.test.mjs";
-import { runWebhooksAndCalendarChecks } from "./webhooksAndCalendar.test.mjs";
+import { runInboxCaptureChecks } from "./inboxCapture.test.mjs";
 import { runAttachmentsCoreChecks } from "./attachmentsCore.test.mjs";
 import { runAttachmentsEdgeChecks } from "./attachmentsEdge.test.mjs";
 import { runUploadedImageChecks } from "./uploadedImages.test.mjs";
+import { runImageUploadLinkChecks } from "./imageUploadLinks.test.mjs";
 
 /**
  * This file used to hold the ~4,100 lines of sequential checks below inline.
@@ -114,10 +124,11 @@ await runProposalsAndArchiveChecks();
 await runMovesAndBatchChecks();
 await checkSyncOwnedSourceChanges();
 await suite("runMoveDiagnosticsRedactionChecks", () => runMoveDiagnosticsRedactionChecks());
-await runWebhooksAndCalendarChecks();
+await runInboxCaptureChecks();
 await runAttachmentsCoreChecks();
 await runAttachmentsEdgeChecks();
 await runUploadedImageChecks();
+await runImageUploadLinkChecks();
 
 await suite("runStoreChecks", () => runStoreChecks(check, {
   // The hostile-backend checks need a real way in; there is only one.
@@ -133,8 +144,8 @@ await suite("runStoreFactoryChecks", () => runStoreFactoryChecks(check));
 // -- multi-tenancy, OAuth, and the ways both are supposed to fail
 //
 // Last, and with its own control plane and object store: it swaps
-// globalThis.fetch and restores it, so it must not run while the calendar cron
-// checks above still own that global.
+// globalThis.fetch and restores it, so it must not run beside a check that
+// still owns that global.
 // Orientation's budgeted walk and fail-soft handshake, against a bucket that
 // paginates and delimits honestly. Its own control plane, so it runs beside the
 // tenancy suite rather than against the shared fixture.
@@ -156,12 +167,26 @@ await suite("runAgentComputerChecks", () => runAgentComputerChecks(check));
 await suite("runAgentBrowseChecks", () => runAgentBrowseChecks(check));
 await suite("runAgentRoutineChecks", () => runAgentRoutineChecks(check));
 await suite("runAgentRoutineTexChecks", () => runAgentRoutineTexChecks(check));
+// Tex hands a job to another agent, and its supervisor routine keeps it on track.
+await suite("runAgentDelegateRouteChecks", () => runAgentDelegateRouteChecks(check));
 // Tex's daily transcript in tex/transcripts/, written as a text is answered.
 await suite("runAgentTranscriptChecks", () => runAgentTranscriptChecks(check));
+await suite("runAgentDreamChecks", () => runAgentDreamChecks(check));
+await suite("runAgentHeartbeatChecks", () => runAgentHeartbeatChecks(check));
+await suite("runAgentHousekeepingChecks", () => runAgentHousekeepingChecks(check));
 // The egress gate: a widening tool call waits for a person, outside the model.
 await suite("runAgentEgressChecks", () => runAgentEgressChecks(check));
 // The texting-turn half of the egress gate, on its own fresh world (agentEgressFixtures.mjs).
 await suite("runAgentEgressTextingChecks", () => runAgentEgressTextingChecks(check));
+// The send-review gate: every email waits for the person's yes to its exact copy.
+await suite("runEmailGateChecks", () => runEmailGateChecks(check));
+await suite("runEmailReadChecks", () => runEmailReadChecks(check));
+// The calendar gate: every change waits for the person's yes to it.
+await suite("runCalendarGateChecks", () => runCalendarGateChecks(check));
+// The bug-report gate: a report filed by text waits for the person's YES, and only then carries their texts.
+await suite("runReportGateChecks", () => runReportGateChecks(check));
+// The gate with a judge: the person's words, read by a small model, decide (SHARING_JUDGE = "on").
+await suite("runAgentEgressJudgeChecks", () => runAgentEgressJudgeChecks(check));
 await suite("runAgentSearchChecks", () => runAgentSearchChecks(check));
 
 // A privacy rule that names a group: what the tools do when they meet one.
@@ -172,7 +197,6 @@ await suite("runPrivacyGroupChecks", () => runPrivacyGroupChecks(check));
 await suite("runFormChecks", () => runFormChecks(check));
 await suite("runListChecks", () => runListChecks(check));
 await suite("runProjectListChecks", () => runProjectListChecks(check));
-await suite("runOrganizerChecks", () => runOrganizerChecks(check));
 await suite("runSetPropertyChecks", () => runSetPropertyChecks(check));
 await suite("runStatusChecks", () => runStatusChecks(check));
 await suite("runStatusAdviceChecks", () => runStatusAdviceChecks(check));
@@ -220,10 +244,12 @@ await suite("runSearchDocmapPathsChecks", () => runSearchDocmapPathsChecks(check
 await suite("runSearchShardQueryChecks", () => runSearchShardQueryChecks(check));
 await suite("runSearchFilterChecks", () => runSearchFilterChecks(check));
 await suite("runSearchV2IntegrationChecks", () => runSearchV2IntegrationChecks(check));
+await suite("runSearchV2IntegrationShardChecks", () => runSearchV2IntegrationShardChecks(check));
 // What a search *costs*: the ops it reserves for its own answer, the share of
 // the backfill it does while somebody waits, and the round trips it no longer
 // serializes.
 await suite("runSearchPacingChecks", () => runSearchPacingChecks(check));
+await suite("runSearchPacingControlPlaneChecks", () => runSearchPacingControlPlaneChecks(check));
 
 // The Obsidian plugin compatibility check: the scan as pure functions, the
 // inventory against its own bucket stubs, and the phrasing of the report. No
@@ -299,7 +325,7 @@ await suite("runCommentToolChecks", () => runCommentToolChecks(check, { call, co
     (read?.content?.[0]?.text || "").includes(`path: ${dayPath}`) &&
       lacks(read?.content?.[0]?.text, `path: ${deepLink}`)
   );
-  const fetched = await call("priv-token", "fetch", { id: deepLink });
+  const fetched = await call("chatgpt-token", "fetch", { id: deepLink });
   check(
     "the ChatGPT dialect's fetch takes the id its own search would have handed out",
     (fetched?.content?.[0]?.text || "").includes("DEEPLINKWORD")
@@ -323,7 +349,6 @@ await suite("runCommentToolChecks", () => runCommentToolChecks(check, { call, co
 }
 
 await suite("runTenancyChecks", () => runTenancyChecks(check));
-await suite("runDropboxFolderChecks", () => runDropboxFolderChecks(check));
 await suite("runCrossContextChecks", () => runCrossContextChecks(check));
 // The two bulk-move suites (thousands of objects through the real S3 signing
 // path) run from test/bulkMoves.mjs, in their own process beside this one;

@@ -230,6 +230,27 @@ describe("the console's search, out of the projection", () => {
     expect(owner.some((sql) => sql.includes("notes_team_fts"))).toBe(true);
   });
 
+  test("a hit with only some of the words says so, and one with all of them does not", async () => {
+    // The console's rows count the words a loose hit has ("Has 1 of 2
+    // words", leadership weekly 2026-10-17), so `loose` must survive the
+    // merge with search by meaning, which moves it off the hits.
+    const store = bucket();
+    const stub = await projected(store);
+    forgetR2Index(store);
+
+    const some = await searchNotes(
+      store,
+      { query: "quokkaplan wallabyrate", clearance: clearanceOf("private") },
+      stub.client,
+    );
+    expect(some.hits.length).toBeGreaterThan(0);
+    expect(some.hits.every((hit) => hit.loose === true)).toBe(true);
+
+    const all = await searchNotes(store, { query: "quokkaplan", clearance: clearanceOf("private") }, stub.client);
+    expect(all.hits.length).toBeGreaterThan(0);
+    expect(all.hits.some((hit) => "loose" in hit)).toBe(false);
+  });
+
   test("a ready projection's miss is the answer, never the bucket index", async () => {
     // Dev2, 2026-10-08: the bucket index is the slow path, and a search must
     // not fall through to it. A row gone from the projection is not found by

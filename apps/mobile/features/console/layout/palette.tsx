@@ -9,6 +9,8 @@ import type { ConsoleRouter } from "./types";
 import type { PaletteSearch } from "./usePaletteSearch";
 import { lookInFor } from "./SearchLookIn";
 import { showTagOnHome } from "../home/homeTag";
+import { NotePreview } from "./NotePreview";
+import { narrowTree, treeListening } from "../files/treeFilter";
 
 /**
  * ⌘K, while it is open, with its handoff to the search page.
@@ -21,6 +23,7 @@ export function consolePalette({
   paletteOpen,
   paletteItems,
   recent = [],
+  recentYours = false,
   search,
   setPaletteOpen,
   router,
@@ -32,6 +35,8 @@ export function consolePalette({
   paletteOpen: boolean;
   paletteItems: PaletteSearch["paletteItems"];
   recent?: PaletteSearch["recent"];
+  /** `recent` is the person's own Recent rather than this tab's history. */
+  recentYours?: boolean;
   search: PaletteSearch["search"];
   setPaletteOpen: Dispatch<SetStateAction<boolean>>;
   router: ConsoleRouter;
@@ -58,11 +63,12 @@ export function consolePalette({
         currentSlug={current?.slug ?? null}
         contexts={data.contexts}
         reachability={data.files.sync?.reachability ?? "unknown"}
-        render={({ search: asked, accessory, bar, everywhere }) => (
+        render={({ search: asked, accessory, bar, everywhere, read }) => (
       <Palette
         items={loadedInScope(paletteItems, everywhere?.narrowed ?? null, current?.slug ?? null)}
         recent={recent}
         emptyHeading={recent.length > 0 ? "Recent" : undefined}
+        emptyNote={recent.length > 0 && recentYours ? "Notes you opened or typed in, on any device." : undefined}
         placeholder={scope === null ? "Search" : `Search in ${scopeLabel(scope)}`}
         scopeBar={
           scope === null || setScope === undefined ? bar : (
@@ -117,6 +123,17 @@ export function consolePalette({
           }
         }}
         onDismiss={() => setPaletteOpen(false)}
+        // The highlighted answer, read beside the list on a wide window (board B1).
+        preview={read === null ? undefined : (item, query) => <NotePreview item={item} query={query} read={read} />}
+        // Tab narrows the tree to the names typed: the tree's old filter, now that search is one bar (board A3).
+        onNarrowTree={
+          treeListening()
+            ? (query) => {
+                setPaletteOpen(false);
+                narrowTree(query);
+              }
+            : undefined
+        }
         lookIn={
           places === undefined
             ? undefined

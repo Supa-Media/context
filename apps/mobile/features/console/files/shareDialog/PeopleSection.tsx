@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { View } from "react-native";
 import { Text } from "../../../design/components/Text";
 import { useThemedStyles } from "../../../design/theme";
@@ -42,6 +43,7 @@ export function PeopleSection({
   onRevoke,
   onSetPreviewTitle,
   onRemovalRoute,
+  grantRows,
 }: {
   owners: readonly AccessMember[];
   groupRow: AccessRow | undefined;
@@ -56,6 +58,8 @@ export function PeopleSection({
   onRevoke: ShareDialogProps["onRevoke"];
   onSetPreviewTitle: ShareDialogProps["onSetPreviewTitle"];
   onRemovalRoute: ShareDialogProps["onRemovalRoute"];
+  /** The note's own list, each with Can view or Can edit (`GrantRows`), where it has one. */
+  grantRows?: ReactNode;
 }) {
   const styles = useThemedStyles(makeStyles);
   const people = (shares ?? []).filter(isPersonShare);
@@ -90,6 +94,8 @@ export function PeopleSection({
           </View>
         );
       })}
+
+      {grantRows}
 
       {people.map((share) => {
         const id = `share:${share.shareId}`;

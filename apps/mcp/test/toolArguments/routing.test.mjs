@@ -57,35 +57,27 @@ export async function runToolArgumentRoutingChecks(check, harness) {
     }))?.isError
   );
 
-  /* ------- the two whose schema is somebody else's contract ------------- */
+  /* ------- search and fetch carry the addressing argument too ------------- */
 
   /*
-    `search` and `fetch` are ChatGPT's deep-research shape and deliberately
-    do not advertise the addressing argument, so a `context` on one of them
-    is refused like any other property they do not take. That is a real
-    behaviour change and it is the schema's answer rather than a widening of
-    it: those chats send what the contract defines and nothing else, and a
-    client that can see the ordinary tools can address a context with them.
+    `search` and `fetch` were ChatGPT's deep-research contract, and once refused
+    `context` as a property they do not take. Since v2 (2026-10-16) every tool
+    takes the addressing argument, `search` and `fetch` included
+    (`registry.js`: "they are two of the six tools every client is offered, not a
+    side door"), so a `context` on either reaches the context it names, under
+    the same routing and the same refusals as every other tool.
   */
   check(
-    "search refuses the addressing argument its schema does not carry",
-    textOf(await callTool(env, TOKEN_OWNER, "search", { query: "probe", context: "@shared" })) ===
-      'unknown argument "context"; permitted here: query'
+    "search takes the addressing argument, and reaches the context it names",
+    !textOf(await callTool(env, TOKEN_OWNER, "search", { query: "probe", context: "@shared" })).includes(
+      'unknown argument "context"'
+    )
   );
   check(
-    "...and so does fetch",
+    "...and fetch reaches that same context with it",
     textOf(
       await callTool(env, TOKEN_OWNER, "fetch", {
         id: "1-projects/probe.md",
-        context: "@shared",
-      })
-    ) === 'unknown argument "context"; permitted here: id'
-  );
-  check(
-    "...while the ordinary tools still reach that same context with it",
-    textOf(
-      await callTool(env, TOKEN_OWNER, "read_note", {
-        path: "1-projects/probe.md",
         context: "@shared",
       })
     ).includes("SHARED-MARKER")

@@ -1,5 +1,12 @@
-/** `archive_note` — a note moved into the context's archive root. */
+/**
+ * `archive_note` — a note moved into the context's archive root, at its own
+ * path there (`Archive/Projects/launch/plan.md`), so Archive keeps the
+ * workspace's shape and a taken name arrives numbered, `plan (2).md`
+ * (`archiveMirror.cjs`, owner 2026-10-18). The console's archive answers the
+ * same (`lib/fileOps/archiving.ts`).
+ */
 
+import { factJobs } from "../../tree/facts.js";
 import { withActivityHint } from "../../live/activityHint.js";
 import {
   archiveRoot,
@@ -24,7 +31,8 @@ import { collaborationHead } from "../../live/collaborationHttp.js";
 import { deleteWithLegacyFallback, getWithLegacyFallback } from "../../storageLayout.js";
 import { insideArchive } from "../sessionArchive.js";
 import { isEncryptedNote } from "../../encryption.js";
-import { normalizePath, timestampSlug } from "../../notes/paths.js";
+import { normalizePath } from "../../notes/paths.js";
+import { archiveDestination, firstFreePath } from "../../../../../packages/shared/src/archiveMirror.cjs";
 import { probeWithLegacyFallback } from "../../notes/storage.js";
 import { recordChange } from "../../activity/record.js";
 import { recordForwarding } from "../../forwarding.js";
@@ -32,6 +40,9 @@ import { remapIcons } from "../../../../../packages/shared/src/folderIcons.cjs";
 import { rewriteReferencesAfterMove } from "./references.js";
 import { destinationRefusal } from "./destination.js";
 import { toolError, toolText, writePermissionError } from "../results.js";
+import { startKeyedNoteMove } from "./queuedFolder.js";
+
+const ARCHIVE_TAKEN = "conflict: archive destination already exists";
 
 export async function toolArchiveNote(store, scope, rules, overrides, pathArg, expectedEtag) {
   const path = normalizePath(pathArg);
@@ -60,8 +71,10 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
   // number. `5-archive` is the `company` preset's, and the preset is the
   // default for a shared context, so the most common shared workspace we
   // create was told it had no archive while looking at its own.
-  const roots = archiveRoots(rules);
-  const root = archiveRoot(rules);
+  // The folder doing the Archive's job wins, whatever it is called now (`tree/facts.js` `factJobs`).
+  const archiveJob = (await factJobs(store))?.jobs.archive ?? null;
+  const roots = [...new Set([...(archiveJob ? [archiveJob] : []), ...archiveRoots(rules)])];
+  const root = archiveJob ?? archiveRoot(rules);
   if (!root) {
     return toolError(
       "this context has no archive folder — its layout is its owner's, and archiving must " +
@@ -102,15 +115,25 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
       `conflict: note changed since you read it (current etag ${currentEtag}); re-read and retry`
     );
   }
-  const stamp = timestampSlug();
-  const dest = `${root}/${stamp}/${path}`;
   const destinationVisibility = scope === "private" ? "private" : "team";
-  if (scope !== "private" && visibilityOf(dest, rules) !== "team") {
+  if (scope !== "private" && visibilityOf(archiveDestination(root, path), rules) !== "team") {
     return writePermissionError("archive destination");
   }
-  // Asked of the Convex tree (`tree/names.js`); the write is conditional.
-  const destinationTaken = await destinationRefusal(store, dest, "conflict: archive destination already exists");
-  if (destinationTaken) return destinationTaken;
+  // The first free name, asked of the Convex tree (`tree/names.js`); the write is conditional.
+  let unanswered = null;
+  const dest = await firstFreePath(archiveDestination(root, path), async (candidate) => {
+    if (unanswered) return false;
+    const refusal = await destinationRefusal(store, candidate, ARCHIVE_TAKEN);
+    // A tree that cannot answer refuses in its own words, never as a taken name, and is asked no more.
+    if (refusal && refusal.content?.[0]?.text !== ARCHIVE_TAKEN) unanswered = refusal;
+    return refusal !== null && !unanswered;
+  });
+  if (unanswered) return unanswered;
+  if (dest === null) return toolError(ARCHIVE_TAKEN);
+
+  // A keyed workspace archives the note as a row change, never as a copy (`queuedFolder.js`).
+  const keyedArchive = await startKeyedNoteMove(store, scope, path, dest, expectedEtag, { rules, overrides });
+  if (keyedArchive !== null) return keyedArchive;
 
   if (collaborationBase) {
     if (store.capabilities?.conditionalDelete !== true) {

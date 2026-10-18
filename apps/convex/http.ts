@@ -60,37 +60,8 @@
  * along with the rule that only an enumerated route may reach a decrypted
  * storage credential.
  *
- * ============================================================================
- * THE INGEST ROUTES
- * ============================================================================
- *
- * `infra/email-worker/src/controlPlane.ts` is the normative contract, and
- * `functions/ingestionGateway.ts` holds the reasoning for what they may do.
- * Three things about them are worth stating here, where the routes are:
- *
- * 1. **A different secret.** They are built by `emailWorkerRoute`, not
- *    `gatewayRoute`, and the two secrets do not substitute for one another. A
- *    stolen email-worker secret must not become a working MCP gateway.
- *
- * 2. **They relax the two-proof rule, and that is a decision, not an
- *    oversight.** An inbound email carries no user access token — nobody is
- *    present and nothing was authorized just now — so proof #2 cannot exist in
- *    the form `/gateway/binding` uses. What is kept is its important half:
- *    `/gateway/ingest/resolve` takes a *name a sender typed* and mints a ticket
- *    for whatever that name resolved to; `/gateway/ingest/binding` takes only
- *    that ticket. No field in either request can name a context, so a holder of
- *    the worker secret has no vocabulary for "give me the shared context
- *    `acme-board`" — and no such context could answer anyway, because mail
- *    lands in a personal context and nowhere else.
- *
- * 3. **`/gateway/ingest/binding` is the second internet-facing path to a
- *    decrypted credential**, and it is enumerated as such in
- *    `__tests__/structure.test.ts`. That file's `CREDENTIAL_HTTP_ROUTES`
- *    comment says a second entry "means a second internet-facing path to other
- *    people's bucket keys". It does. The residual risk is written out in full
- *    in the worker's contract and is bounded by: personal contexts only,
- *    ingestion-enabled owners only, a per-name rate limit on resolve, and a
- *    ticket that expires in five minutes and buys exactly one credential.
+ * The ingest routes, and why they relax the two-proof rule, are explained at
+ * the top of `functions/ingestionGateway.ts`.
  */
 
 import { httpRouter } from "convex/server";
@@ -119,18 +90,26 @@ import {
   stripeSignatureIsValid,
 } from "./functions/lib/stripe";
 import * as sessions from "./functions/lib/gatewayRoutes/sessions";
+import * as noteMail from "./functions/lib/gatewayRoutes/noteMail";
 import * as credentials from "./functions/lib/gatewayRoutes/credentials";
 import * as privacyRoute from "./functions/lib/gatewayRoutes/privacy";
 import * as signals from "./functions/lib/gatewayRoutes/signals";
 import { gatewayTreeManifestHandler } from "./functions/lib/nodes/gatewayManifest";
 import { gatewayTreeFactsHandler } from "./functions/lib/nodes/gatewayFacts";
+import { gatewayNoteIdsAdoptHandler, gatewayNoteIdsLookupHandler, gatewayNoteIdsRemovedHandler, gatewayNoteIdsResolveHandler, gatewayNoteIdsWroteHandler, keyedSibling } from "./functions/lib/noteIds/http";
+import { ingestNoteIdsAdoptHandler, ingestNoteIdsLookupHandler, ingestNoteIdsWroteHandler } from "./functions/lib/noteIds/ingestHttp";
 import { servedNoteCount } from "./functions/lib/nodes/servedCount";
 import * as moveRoutes from "./functions/lib/gatewayRoutes/moves";
+import { gatewayMoveAcrossHandler } from "./functions/lib/gatewayRoutes/moveAcross";
 import * as jobs from "./functions/lib/gatewayRoutes/jobs";
 import * as oauth from "./functions/lib/gatewayRoutes/oauth";
 import * as links from "./functions/lib/gatewayRoutes/links";
 import * as vault from "./functions/lib/gatewayRoutes/vault";
+import * as personEmail from "./functions/lib/gatewayRoutes/personEmail";
+import * as personMail from "./functions/lib/gatewayRoutes/personMail";
+import * as calendarWrite from "./functions/lib/gatewayRoutes/calendarWrite";
 import * as site from "./functions/lib/gatewayRoutes/site";
+import * as workspaceRoutes from "./functions/lib/gatewayRoutes/workspaces";
 import * as feedback from "./functions/lib/gatewayRoutes/feedback";
 import * as agentTexts from "./functions/lib/gatewayRoutes/agentTexts";
 import * as builtinModel from "./functions/lib/gatewayRoutes/builtinModel";
@@ -138,11 +117,21 @@ import * as meetingSummary from "./functions/lib/gatewayRoutes/meetingSummary";
 import * as agentTurns from "./functions/lib/gatewayRoutes/agentTurns";
 import * as searchTiming from "./functions/lib/gatewayRoutes/searchTiming";
 import * as routines from "./functions/lib/gatewayRoutes/routines";
+import * as dreams from "./functions/lib/gatewayRoutes/dreams";
+import * as heartbeats from "./functions/lib/gatewayRoutes/heartbeats";
+import * as housekeeping from "./functions/lib/gatewayRoutes/housekeeping";
 import { serverError } from "./functions/lib/gatewayRoutes/responses";
+import * as sharePreviews from "./functions/lib/publicRoutes/sharePreviews";
 import * as shortLinkCards from "./functions/lib/publicRoutes/shortLinkCards";
 import * as siteCards from "./functions/lib/publicRoutes/siteCards";
 import * as siteHomeRoute from "./functions/lib/publicRoutes/siteHome";
 import * as sitePageRoute from "./functions/lib/publicRoutes/sitePage";
+import {
+  calendarChannelRoute,
+  calendarPushHandler,
+  pubsubPushHandler,
+  pubsubPushRoute,
+} from "./functions/lib/googlePush/routes";
 import { ingestEncryptionSiblings } from "./functions/lib/managedEncryptionFns/storeOption";
 
 const http = httpRouter();
@@ -291,6 +280,10 @@ function stripeWebhookRoute(
 /* -------------------------------------------------------------------------- */
 
 export const gatewaySession = gatewayRoute(sessions.gatewaySessionHandler);
+export const gatewayToolsListed = gatewayRoute(sessions.gatewayToolsListedHandler);
+export const gatewayMailJoin = gatewayRoute(noteMail.gatewayMailJoinHandler);
+export const gatewayMailGet = gatewayRoute(noteMail.gatewayMailGetHandler);
+export const gatewayMailRead = gatewayRoute(noteMail.gatewayMailReadHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 1b. POST /gateway/sessions/by-grant — resolve live relay grant metadata    */
@@ -343,6 +336,14 @@ export const gatewayTree = gatewayRoute(signals.gatewayTreeHandler);
 export const gatewayTreeTouch = gatewayRoute(signals.gatewayTreeTouchHandler);
 export const gatewayTreeManifest = gatewayRoute(gatewayTreeManifestHandler);
 export const gatewayTreeFacts = gatewayRoute(gatewayTreeFactsHandler);
+
+/* -------------------------------------------------------------------------- */
+/* 2b-noteids. POST /gateway/note-ids/lookup and /wrote — the id copy         */
+/* -------------------------------------------------------------------------- */
+
+export const gatewayNoteIdsLookup = gatewayRoute(gatewayNoteIdsLookupHandler);
+export const gatewayNoteIdsWrote = gatewayRoute(gatewayNoteIdsWroteHandler);
+export const gatewayNoteIdsResolve = gatewayRoute(gatewayNoteIdsResolveHandler);
 
 /* -------------------------------------------------------------------------- */
 /* 2b-ter. POST /gateway/website — a write of ours moved the site's bytes   */
@@ -550,6 +551,7 @@ export const gatewayIngestBinding = emailWorkerRoute(async (ctx, body) => {
     binding,
     ...(noteCap === null ? {} : { noteCap }),
     ...(counted === null ? {} : { noteCount: counted.notes }),
+    ...(await keyedSibling(ctx, binding.workspaceId)),
     ...managed,
   });
 });
@@ -590,136 +592,18 @@ export const gatewayIngestRecord = emailWorkerRoute(async (ctx, body) => {
 /* The share link preview — the one route here with no secret at all           */
 /* -------------------------------------------------------------------------- */
 
-/**
- * `POST /share/preview` — the title a share link unfurls with.
- *
- * **Unauthenticated on purpose**, and the only route on this deployment that
- * is. It is enumerated in `UNAUTHENTICATED_HTTP_ROUTES` in
- * `__tests__/structure.test.ts`, which pins the exemption to exactly one route
- * and asserts this handler returns nothing but the title.
- *
- * The caller is `infra/router`, answering a crawler that has no session and
- * never will. A shared secret would be a fourth credential to rotate for a
- * value the request already carries: the caller presents a share token, 32
- * bytes from `crypto.getRandomValues` that only the owner and the person they
- * sent it to have ever seen, and the router refuses to forward anything that is
- * not shaped like one. See `functions/shares.ts:previewTitleForToken` for the
- * whole argument, including what it costs.
- *
- * POST rather than GET, like every route below it: a GET would put the share
- * token in a URL, and from there into an access log, a referrer header, and
- * browser history. The token is the capability.
- *
- * Always 200, always `{ "title": string | null, "openToAnyone": boolean }`. A
- * malformed body is the same shape with `null` and `false`, because a crawler
- * cannot act on a 400 and a status code that varied would be one more thing to
- * read — and because every absence on this route has to be one absence, which
- * over two fields means the whole tuple rather than the first of them.
- */
-export const sharePreview = httpAction(async (ctx, request) => {
-  const body = await readJsonBody(request);
-  const token = body === null ? null : stringField(body, "token");
-  if (token === null) return json({ title: null, openToAnyone: false });
-
-  const result = await ctx.runQuery(api.functions.shares.previewTitleForToken, {
-    token,
-  });
-  // Both fields named, never a spread of `result`. The failure to expect on an
-  // unauthenticated route is a field added upstream arriving here by a spread
-  // nobody looked at — which is why `structure.test.ts` pins this handler's
-  // fields by name and refuses one.
-  return json({ title: result.title, openToAnyone: result.openToAnyone });
-});
+// The title a share unfurls with. Handler: functions/lib/publicRoutes/sharePreviews.ts.
+export const sharePreview = httpAction(sharePreviews.sharePreviewHandler);
 
 http.route({ path: "/share/preview", method: "POST", handler: sharePreview });
 
-/**
- * `POST /share/card` — the card image for a share.
- *
- * **The second unauthenticated route**, beside `/share/preview`, and it
- * discloses strictly less than that one: the same title, as a picture. Both are
- * enumerated in `UNAUTHENTICATED_HTTP_ROUTES` in `__tests__/structure.test.ts`,
- * which pins the list and forces this argument to be made again for a third.
- *
- * PNG bytes, or 404. Every absence is one 404 — unknown token, revoked,
- * expired, title switched off, never rendered, bucket unreachable — so a
- * crawler cannot tell a share that was taken back from one that never existed.
- * The router turns any non-200 into the static product card.
- *
- * POST, like every route here: a GET would put the share token in an access
- * log, a referrer header and browser history. The token is the capability.
- */
-export const shareCard = httpAction(async (ctx, request) => {
-  const body = await readJsonBody(request);
-  const token = body === null ? null : stringField(body, "token");
-  if (token === null) return new Response(null, { status: 404 });
-
-  const bytes = await ctx.runAction(
-    internal.functions.shareCard.cardBytesForToken,
-    {
-      token,
-    },
-  );
-  if (bytes === null) return new Response(null, { status: 404 });
-
-  return new Response(bytes, {
-    status: 200,
-    headers: {
-      "Content-Type": "image/png",
-      // The router caches; this says nothing about how long, because the
-      // router's key carries the title hash and is the real invalidation.
-      "Cache-Control": "no-store",
-      "X-Content-Type-Options": "nosniff",
-    },
-  });
-});
+// The card image for a share. Handler: functions/lib/publicRoutes/sharePreviews.ts.
+export const shareCard = httpAction(sharePreviews.shareCardHandler);
 
 http.route({ path: "/share/card", method: "POST", handler: shareCard });
 
-/**
- * `POST /share/note` — the card for a **readable** team link.
- *
- * `/console/@seyi?note=1-projects/plan.md` is what an owner copies, because a
- * URL pasted into a document should say what it points at. This is what lets it
- * unfurl.
- *
- * **Unauthenticated, and the third such route.** Its argument is a handle and a
- * path, both guessable — unlike the two beside it, whose argument is a CSPRNG
- * token. So this one does open an oracle, and what bounds it is that it answers
- * only for notes the owner has explicitly team-linked: an unlinked note is
- * byte-identical to one that does not exist. See `previewForNote`, which is
- * where that trade is argued.
- *
- * **This route grew a field and did not become a fourth route**, which is the
- * cheap-looking half of the change worth stating. `children` is two or three
- * names from inside a linked folder; it is bounded and privacy-filtered in
- * `previewForNote`, bounded again there on the way out, and bounded a third
- * time at the edge. Answering it from here rather than from a new endpoint
- * keeps `UNAUTHENTICATED_HTTP_ROUTES` at three — the enumeration is a pin
- * rather than an amnesty, and a fourth entry is a conversation this feature did
- * not need to have.
- */
-export const shareNotePreview = httpAction(async (ctx, request) => {
-  const body = await readJsonBody(request);
-  const slug = body === null ? null : stringField(body, "slug");
-  const path = body === null ? null : stringField(body, "path");
-  if (slug === null || path === null) {
-    return json({ title: null, cardToken: null, children: [] });
-  }
-
-  const result = await ctx.runQuery(api.functions.shares.previewForNote, {
-    slug,
-    path,
-  });
-  // Named rather than spread, so the shape of what leaves this deployment
-  // unauthenticated is legible in this file and cannot grow by a field being
-  // added upstream. `structure.test.ts` reads this body and asserts it.
-  return json({
-    title: result.title,
-    cardToken: result.cardToken,
-    children: result.children,
-  });
-});
+// The card for a readable team link. Handler: functions/lib/publicRoutes/sharePreviews.ts.
+export const shareNotePreview = httpAction(sharePreviews.shareNotePreviewHandler);
 
 http.route({ path: "/share/note", method: "POST", handler: shareNotePreview });
 
@@ -881,6 +765,12 @@ export const stripeWebhook = stripeWebhookRoute(async (ctx, body) => {
 
 http.route({ path: "/stripe/webhook", method: "POST", handler: stripeWebhook });
 
+/** Google's push notifications: each only makes a sync due sooner. `lib/googlePush/routes.ts`. */
+export const googlePubsubPush = pubsubPushRoute(pubsubPushHandler);
+http.route({ path: "/google/push/pubsub", method: "POST", handler: googlePubsubPush });
+export const googleCalendarPush = calendarChannelRoute(calendarPushHandler);
+http.route({ path: "/google/push/calendar", method: "POST", handler: googleCalendarPush });
+
 export const gatewayUsage = gatewayRoute(signals.gatewayUsageHandler);
 export const gatewaySearchTiming = gatewayRoute(searchTiming.gatewaySearchTimingHandler);
 
@@ -901,10 +791,17 @@ http.route({ path: "/gateway/search-index/progress", method: "POST", handler: ga
 http.route({ path: "/gateway/activity", method: "POST", handler: gatewayActivity });
 http.route({ path: "/gateway/moves", method: "POST", handler: gatewayMoves });
 http.route({ path: "/gateway/moves/start", method: "POST", handler: gatewayMoveStart });
+http.route({ path: "/gateway/moves/batch", method: "POST", handler: gatewayRoute(moveRoutes.gatewayMoveBatchHandler) });
+http.route({ path: "/gateway/moves/across", method: "POST", handler: gatewayRoute(gatewayMoveAcrossHandler) });
 http.route({ path: "/gateway/tree", method: "POST", handler: gatewayTree });
 http.route({ path: "/gateway/tree/touch", method: "POST", handler: gatewayTreeTouch });
 http.route({ path: "/gateway/tree/manifest", method: "POST", handler: gatewayTreeManifest });
 http.route({ path: "/gateway/tree/facts", method: "POST", handler: gatewayTreeFacts });
+http.route({ path: "/gateway/note-ids/lookup", method: "POST", handler: gatewayNoteIdsLookup });
+http.route({ path: "/gateway/note-ids/wrote", method: "POST", handler: gatewayNoteIdsWrote });
+http.route({ path: "/gateway/note-ids/resolve", method: "POST", handler: gatewayNoteIdsResolve });
+http.route({ path: "/gateway/note-ids/adopt", method: "POST", handler: gatewayRoute(gatewayNoteIdsAdoptHandler) });
+http.route({ path: "/gateway/note-ids/removed", method: "POST", handler: gatewayRoute(gatewayNoteIdsRemovedHandler) });
 http.route({ path: "/gateway/website", method: "POST", handler: gatewayWebsite });
 http.route({ path: "/gateway/routines", method: "POST", handler: gatewayRoutines });
 http.route({ path: "/gateway/forms/notify", method: "POST", handler: gatewayFormsNotify });
@@ -919,9 +816,19 @@ http.route({ path: "/gateway/codes/consume", method: "POST", handler: gatewayCod
 http.route({ path: "/gateway/grants/create", method: "POST", handler: gatewayGrantsCreate });
 http.route({ path: "/gateway/grants/rotate", method: "POST", handler: gatewayGrantsRotate });
 http.route({ path: "/gateway/grants/revoke", method: "POST", handler: gatewayGrantsRevoke });
+http.route({ path: "/gateway/grants/tools-listed", method: "POST", handler: gatewayToolsListed });
+http.route({ path: "/gateway/mail/join", method: "POST", handler: gatewayMailJoin });
+http.route({ path: "/gateway/mail/get", method: "POST", handler: gatewayMailGet });
+http.route({ path: "/gateway/mail/read", method: "POST", handler: gatewayMailRead });
 http.route({ path: "/gateway/ingest/resolve", method: "POST", handler: gatewayIngestResolve });
 http.route({ path: "/gateway/ingest/binding", method: "POST", handler: gatewayIngestBinding });
 http.route({ path: "/gateway/ingest/record", method: "POST", handler: gatewayIngestRecord });
+export const gatewayIngestNoteIdsLookup = emailWorkerRoute(ingestNoteIdsLookupHandler);
+export const gatewayIngestNoteIdsWrote = emailWorkerRoute(ingestNoteIdsWroteHandler);
+export const gatewayIngestNoteIdsAdopt = emailWorkerRoute(ingestNoteIdsAdoptHandler);
+http.route({ path: "/gateway/ingest/note-ids/lookup", method: "POST", handler: gatewayIngestNoteIdsLookup });
+http.route({ path: "/gateway/ingest/note-ids/wrote", method: "POST", handler: gatewayIngestNoteIdsWrote });
+http.route({ path: "/gateway/ingest/note-ids/adopt", method: "POST", handler: gatewayIngestNoteIdsAdopt });
 /* -------------------------------------------------------------------------- */
 /* Links, for an agent that asked for one                                     */
 /* -------------------------------------------------------------------------- */
@@ -935,6 +842,23 @@ export const gatewayVaultRequest = gatewayRoute(vault.gatewayVaultRequestHandler
 
 http.route({ path: "/gateway/vault/request", method: "POST", handler: gatewayVaultRequest });
 
+// One email, as the token's person, after they said yes to its exact copy.
+export const gatewayPersonEmail = gatewayRoute(personEmail.gatewayPersonEmailHandler, 128_000);
+
+http.route({ path: "/gateway/email/send", method: "POST", handler: gatewayPersonEmail });
+
+// The person's own mail, read live for what their synced notes do not hold.
+export const gatewayPersonMailSearch = gatewayRoute(personMail.gatewayPersonMailSearchHandler);
+export const gatewayPersonMailRead = gatewayRoute(personMail.gatewayPersonMailReadHandler);
+
+http.route({ path: "/gateway/email/search", method: "POST", handler: gatewayPersonMailSearch });
+http.route({ path: "/gateway/email/read", method: "POST", handler: gatewayPersonMailRead });
+
+// One calendar change, as the token's person, after they said yes to it.
+export const gatewayCalendarWrite = gatewayRoute(calendarWrite.gatewayCalendarWriteHandler);
+
+http.route({ path: "/gateway/calendar/event", method: "POST", handler: gatewayCalendarWrite });
+
 export const gatewayFeedback = gatewayRoute(feedback.gatewayFeedbackHandler);
 
 http.route({ path: "/gateway/feedback", method: "POST", handler: gatewayFeedback });
@@ -947,11 +871,23 @@ export const gatewayLinksRevoke = gatewayRoute(links.gatewayLinksRevokeHandler);
 
 http.route({ path: "/gateway/links/revoke", method: "POST", handler: gatewayLinksRevoke });
 
+/* Setting a workspace up through an agent: create, lay out, connect Google. */
+export const gatewayWorkspacesCreate = gatewayRoute(workspaceRoutes.gatewayWorkspacesCreateHandler);
+export const gatewayWorkspacesLayout = gatewayRoute(workspaceRoutes.gatewayWorkspacesLayoutHandler);
+export const gatewayWorkspacesConnectGoogle = gatewayRoute(workspaceRoutes.gatewayWorkspacesConnectGoogleHandler);
+http.route({ path: "/gateway/workspaces/create", method: "POST", handler: gatewayWorkspacesCreate });
+http.route({ path: "/gateway/workspaces/layout", method: "POST", handler: gatewayWorkspacesLayout });
+http.route({ path: "/gateway/workspaces/connect-google", method: "POST", handler: gatewayWorkspacesConnectGoogle });
+/* Tex's dream now, for the owner's own agent (`lib/dreams/now.ts`). */
+export const gatewayDreamsStart = gatewayRoute(dreams.gatewayDreamsStartHandler);
+http.route({ path: "/gateway/dreams/start", method: "POST", handler: gatewayDreamsStart });
+/* An agent asks for the person's attention (`lib/attention/ask.ts`); delivered by their check-in row. */
+export const gatewayAttentionAsk = gatewayRoute(heartbeats.gatewayAttentionAskHandler);
+http.route({ path: "/gateway/attention/ask", method: "POST", handler: gatewayAttentionAsk });
+
 /* A website's status or a publish, for an owner's or editor's agent. */
 export const gatewaySite = gatewayRoute(site.gatewaySiteHandler);
-
 http.route({ path: "/gateway/site", method: "POST", handler: gatewaySite });
-
 http.route({ path: "/gateway/usage", method: "POST", handler: gatewayUsage });
 http.route({ path: "/gateway/search-timing", method: "POST", handler: gatewaySearchTiming });
 
@@ -964,11 +900,23 @@ export const agentTextsInvite = agentWorkerRoute(agentTexts.agentTextsInviteHand
 export const agentTextsUnlink = agentWorkerRoute(agentTexts.agentTextsUnlinkHandler);
 http.route({ path: "/agent-texts/invite", method: "POST", handler: agentTextsInvite });
 http.route({ path: "/agent-texts/unlink", method: "POST", handler: agentTextsUnlink });
+export const agentTextsSetup = agentWorkerRoute(agentTexts.agentTextsSetupHandler);
+http.route({ path: "/agent-texts/setup", method: "POST", handler: agentTextsSetup });
+http.route({ path: "/agent-texts/ready", method: "POST", handler: agentWorkerRoute(agentTexts.agentTextsReadyHandler) });
+http.route({ path: "/agent-texts/phones", method: "POST", handler: agentWorkerRoute(agentTexts.agentTextsPhonesHandler) });
 
-/* Routines: the runs due now, and how each one went (a code, never text). */
+/* Routines and Tex's nightly dreams: what is due now, and how each went (a code, never text). */
 export const agentRoutinesDue = agentWorkerRoute(routines.agentRoutinesDueHandler);
 export const agentRoutinesResult = agentWorkerRoute(routines.agentRoutinesResultHandler);
 http.route({ path: "/agent-texts/routines/due", method: "POST", handler: agentRoutinesDue });
 http.route({ path: "/agent-texts/routines/result", method: "POST", handler: agentRoutinesResult });
+http.route({ path: "/agent-texts/dreams/due", method: "POST", handler: agentWorkerRoute(dreams.agentDreamsDueHandler) });
+http.route({ path: "/agent-texts/dreams/result", method: "POST", handler: agentWorkerRoute(dreams.agentDreamsResultHandler) });
+/* Tex's check-ins (`functions/heartbeats.ts`): the same shape as dreams, plus the person's own phones to text. */
+http.route({ path: "/agent-texts/heartbeats/due", method: "POST", handler: agentWorkerRoute(heartbeats.agentHeartbeatsDueHandler) });
+http.route({ path: "/agent-texts/heartbeats/result", method: "POST", handler: agentWorkerRoute(heartbeats.agentHeartbeatsResultHandler) });
+/* Tex's housekeeping (`functions/housekeeping.ts`): the same shape as dreams; it texts nobody. */
+http.route({ path: "/agent-texts/housekeeping/due", method: "POST", handler: agentWorkerRoute(housekeeping.agentHousekeepingDueHandler) });
+http.route({ path: "/agent-texts/housekeeping/result", method: "POST", handler: agentWorkerRoute(housekeeping.agentHousekeepingResultHandler) });
 
 export default http;

@@ -39,12 +39,14 @@ import { attachChangeReporters } from "../controlPlane/changeReporters.js";
 import { deferredWork } from "../mcp/usage.js";
 import { enforceOrigin, isTransportPath } from "../origin.js";
 import { handleAgent } from "../agent/route.js";
+import { DREAMS_CLIENT_ID, handleDream } from "../agent/dream.js";
+import { HEARTBEAT_CLIENT_ID, handleHeartbeat } from "../agent/heartbeat.js";
+import { HOUSEKEEPING_CLIENT_ID, handleHousekeeping } from "../agent/housekeeping.js";
 import { streamTurn, wantsProgress } from "../agent/progress.js";
 import { handleApprovals } from "./approvals.js";
 import { handleTexComputer, TEX_COMPUTER_PATHS } from "./texComputer.js";
 import { handleAgentActivity, handlePresence } from "../live/presenceRoute.js";
 import { handleCollaboration } from "../live/collaborationRoute.js";
-import { handleGranolaWebhook } from "../ingestion/granolaWebhook.js";
 import { handleInbox } from "../ingestion/inboxRoute.js";
 import { handleMcp } from "../mcp/handlers.js";
 import {
@@ -54,7 +56,6 @@ import {
   meetingScopeRefusal,
   scopeForMeetingRequest,
 } from "../meetings/ingest.js";
-import { localIngestionStore } from "../ingestion/inbox.js";
 import { MEETING_SUMMARY_PATH, handleMeetingSummary } from "../meetings/summarize.js";
 import { publishMeetingNote, resolveMeetingNotePath } from "../meetings/notes.js";
 import { searchBudgetFor } from "../search/budget.js";
@@ -62,7 +63,12 @@ import { searchSettingsFor } from "../search/settings.js";
 import { transcriptionForwarder } from "../ingestion/transcription.js";
 import { toolSuggestDestination } from "../routing/suggestDestination.js";
 import { PINNED_CONTEXT_NAME } from "../orient/globalNote.js";
+import { PRODUCTION_MEETING_SUMMARIES_PATH, readJobSetupWith } from "../agent/production.js";
+import { handleTryIt } from "../agent/tryIt.js";
+import { withSearchPassesHeld } from "../search/heldPasses.js";
 import { MOVER_PAGE_PATH, handleMoverPage } from "../moves/mover.js";
+import { IMAGE_UPLOAD_PATH, attachImageUploads, handleImageUpload } from "../notes/imageUploads.js";
+import { judgeFor } from "../privacy/judge.js";
 
 export async function route(request, env, ctx) {
     const url = new URL(request.url);
@@ -71,6 +77,9 @@ export async function route(request, env, ctx) {
     // workspace selector is ever read off it. It takes no person's token: the
     // gateway secret and a ticket the control plane minted (`moves/mover.js`).
     if (url.pathname === MOVER_PAGE_PATH) return await handleMoverPage(request, env);
+    // An upload link's PUT (`notes/imageUploads.js`): no person's token and no
+    // workspace selector; the ticket in its header is the whole authority.
+    if (url.pathname === IMAGE_UPLOAD_PATH) return await handleImageUpload(request, env);
 
     const origin = publicOrigin(request, env);
 
@@ -210,6 +219,7 @@ export async function route(request, env, ctx) {
       path === "/mcp" ||
       path === "/inbox" ||
       path === "/agent" ||
+      path === "/agent/try" ||
       path === "/collaboration" ||
       approvalsRoute ||
       meetingRoute
@@ -231,10 +241,13 @@ export async function route(request, env, ctx) {
           : unauthorizedResponse(origin, slug, error);
       }
 
-      // The owner switched the approval gate off for now (2026-10-10, until
-      // orient leans less on the personal context and asks smarter). Unset
-      // keeps it on, so a self-hosted gateway is held as before.
-      if (env.EGRESS_APPROVALS === "off") session.egressOff = true;
+      // The sharing judge (the owner, 2026-10-18): a call that lets more people
+      // see something runs when the person's own words ask for it, read by a
+      // small model (`privacy/judge.js`). Off unless set; nothing without a model.
+      if (env.SHARING_JUDGE === "on") {
+        const judge = judgeFor(env);
+        if (judge) session.sharingJudge = judge;
+      }
 
       // A meeting write is a write, and it is checked here — before a store
       // exists and before any lookup — so the refusal is decided without
@@ -303,6 +316,7 @@ export async function route(request, env, ctx) {
       store.searchSettings = searchSettingsFor(env);
       attachGatewayJobQueue(store, session, controlPlane, env);
       attachLinkCalls(store, session, controlPlane, env);
+      attachImageUploads(store, session, controlPlane, origin);
       // The one way anything in this worker gets to keep working after the
       // response has gone out. Request-scoped like the budget above, and the
       // credential inside `store` never outlives the request either: an
@@ -334,6 +348,15 @@ export async function route(request, env, ctx) {
       */
       store.presenceRooms = env.PRESENCE_ROOM ?? null;
 
+      /*
+        The model behind this connection, where the client says: the desktop
+        app names the one it launched Claude Code with. A label for the usage
+        breakdown and nothing else, normalized to a closed shape by the control
+        plane; no MCP client is required to send it.
+      */
+      const declaredModel = request.headers.get("X-Context-Model");
+      if (declaredModel) store.usageModel = declaredModel.slice(0, 128);
+
       /**
        * Count a thing that happened, behind the response and never in front of
        * it.
@@ -357,7 +380,10 @@ export async function route(request, env, ctx) {
        *    own bucket already holds and we deliberately do not.
        */
       store.reportUsage = (events) => {
-        if (!Array.isArray(events) || events.length === 0) return;
+        // A function is a report to build later (`reportBoundaryUsage`): it
+        // tokenizes, so it runs a macrotask after the response, never before.
+        const lazy = typeof events === "function";
+        if (!lazy && (!Array.isArray(events) || events.length === 0)) return;
         // **The deferral is checked before the request is built, not after.**
         // A host with no `waitUntil` has nothing keeping the invocation alive
         // past the response, so a `fetch` started here is one the runtime may
@@ -369,8 +395,15 @@ export async function route(request, env, ctx) {
         // nobody counts is a slightly emptier dashboard.
         if (typeof store.defer !== "function") return;
         try {
+          const sent = lazy
+            ? new Promise((resolve) => setTimeout(resolve, 0))
+                .then(events)
+                .then(({ events: counted = [], hourly = [] } = {}) =>
+                  controlPlane.reportUsage(counted, hourly),
+                )
+            : controlPlane.reportUsage(events);
           store.defer(
-            controlPlane.reportUsage(events).catch(() => {
+            sent.catch(() => {
               // A counter that could not be written changes nothing about the
               // answer that has already gone out.
             }),
@@ -400,6 +433,19 @@ export async function route(request, env, ctx) {
           ...progress,
           workspaceId: session.workspaceId,
         });
+
+      // That this connection just fetched `tools/list`, against its own grant
+      // (the token is the proof, as for the session). Deferred and dropped
+      // where it cannot be, the trade `reportUsage` makes: a stamp that is
+      // lost only means `orient` repeats some tool news next time.
+      store.reportToolsListed = () => {
+        if (typeof store.defer !== "function") return;
+        try {
+          store.defer(controlPlane.reportToolsListed(session.accessToken).catch(() => {}));
+        } catch {
+          // A host whose `waitUntil` refuses the work simply does not report.
+        }
+      };
 
       /**
        * That something landed in this context's `activity.md`, and at which
@@ -471,7 +517,22 @@ export async function route(request, env, ctx) {
       // and not merely at what tier.
       if (summaryRoute) {
         store.actor = actorFor(session);
-        return handleMeetingSummary(request, store, session, { controlPlane, env });
+        // The summary's own setup note is the one other thing this route reads:
+        // `@context-lc ai/production/meeting-summaries.md`, through the
+        // caller's own membership and clearance there, opened only for that
+        // read. The meeting's store itself still opens nothing.
+        const readSetup = () =>
+          readJobSetupWith(
+            {
+              contexts: contextsFor(session),
+              openPinned: async () => {
+                const target = sessionForContext(session, PINNED_CONTEXT_NAME);
+                return { session: target, store: await storeForSession(target, env, controlPlane) };
+              },
+            },
+            PRODUCTION_MEETING_SUMMARIES_PATH,
+          );
+        return handleMeetingSummary(request, store, session, { controlPlane, env, readSetup });
       }
 
       if (meetingRoute) {
@@ -520,7 +581,10 @@ export async function route(request, env, ctx) {
         targetStore.searchSettings = store.searchSettings;
         attachGatewayJobQueue(targetStore, target, controlPlane, env);
         attachLinkCalls(targetStore, target, controlPlane, env);
+        attachImageUploads(targetStore, target, controlPlane, origin);
         targetStore.defer = store.defer;
+        // A turn's held index passes include the contexts it opens (`search/heldPasses.js`).
+        if (typeof store.holdSearchPass === "function") targetStore.holdSearchPass = store.holdSearchPass;
         // The same binding, keyed later by the *target's* workspace id: a
         // write routed into another context is announced in that context's
         // note room and recorded in its activity, never in the caller's.
@@ -530,6 +594,8 @@ export async function route(request, env, ctx) {
         attachChangeReporters(targetStore, target.workspaceId, controlPlane);
         targetStore.actor = actorFor(target);
         targetStore.contexts = contextsFor(target);
+        // The connection's own listing, wherever orient was addressed.
+        targetStore.offeredTools = store.offeredTools;
         // Against the context that was routed to, never the connection's own.
         // `targetStore.searchIndex` came from that context's own binding, so
         // the projection and the figure describing it name one workspace.
@@ -569,22 +635,28 @@ export async function route(request, env, ctx) {
       // another context by name exactly as a client's tool call can, through
       // the same one place that decision is taken.
       if (path === "/agent") {
+        // A turn is one invocation: the index passes its searches start wait
+        // for it to end, or every later call queues behind them (`search/heldPasses.js`).
+        const held = (turn) => withSearchPassesHeld(store, turn);
+        // Tex's housekeeping has its own client and its own guarded turn (`agent/housekeeping.js`).
+        if (session.actorClientId === HOUSEKEEPING_CLIENT_ID) return await held(() => handleHousekeeping(request, env, store, session, controlPlane));
+        // Tex's nightly dream has its own client and its own turn, and does nothing else (`agent/dream.js`).
+        if (session.actorClientId === DREAMS_CLIENT_ID) return await held(() => handleDream(request, env, store, session, controlPlane));
+        // So has its daytime check-in, which only reads (`agent/heartbeat.js`).
+        if (session.actorClientId === HEARTBEAT_CLIENT_ID) return await held(() => handleHeartbeat(request, env, store, session, controlPlane));
         // The texting Worker asks for a long task as a stream of progress
         // lines (`agent/progress.js`); everyone else gets the whole turn.
-        if (!wantsProgress(request)) return await handleAgent(request, env, store, session, controlPlane);
-        return streamTurn((progress) => handleAgent(request, env, store, session, controlPlane, { progress }), {
+        if (!wantsProgress(request)) return await held(() => handleAgent(request, env, store, session, controlPlane));
+        return streamTurn((progress) => held(() => handleAgent(request, env, store, session, controlPlane, { progress })), {
           waitUntil: ctx && typeof ctx.waitUntil === "function" ? (work) => ctx.waitUntil(work) : null,
         });
       }
+      // The console's Try it box (`agent/tryIt.js`): one read-only turn on a
+      // setup an @context-lc editor picked, then a judge turn on its rules.
+      if (path === "/agent/try") return await withSearchPassesHeld(store, () => handleTryIt(request, env, store, session, controlPlane));
       if (approvalsRoute) return await handleApprovals(request, store, session);
 
       return handleMcp(request, store, session);
-    }
-
-    if (path === "/granola-webhook" && request.method === "POST") {
-      const store = localIngestionStore(env);
-      if (!store) return json({ error: "not_found" }, 404);
-      return handleGranolaWebhook(request, env, store, ctx);
     }
 
     return json({ error: "not_found" }, 404);

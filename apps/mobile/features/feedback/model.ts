@@ -53,11 +53,7 @@ export function reportCode(eventId: string): string {
   return `FB-${eventId.replace(/[^0-9a-f]/gi, "").slice(0, 6).toUpperCase()}`;
 }
 
-export function newClientReportId(): string {
-  const bytes = new Uint8Array(12);
-  globalThis.crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-}
+export { newClientReportId } from "./clientReportId";
 
 export function bytesToBase64(bytes: Uint8Array): string {
   let binary = "";

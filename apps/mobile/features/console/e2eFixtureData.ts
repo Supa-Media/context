@@ -77,6 +77,60 @@ export function useE2EFixtureConsoleData(): ConsoleData {
           via: "Claude",
           note: "screenshots of the editor bugs from the call",
         },
+        /*
+          Two notes an agent filed out of the Inbox today, so the phone's
+          Inbox draws its Filed today rows (board 2 of the 2026-10-17 phone
+          boards). Destinations the demo tree has; a row whose note is gone is
+          not drawn.
+        */
+        {
+          at: new Date(Date.now() - 20 * 60_000).toISOString(),
+          kind: "moved",
+          paths: ["2-areas/weekly-review.md"],
+          n: 1,
+          vis: "team",
+          by: "@seyi",
+          via: "Tex",
+          note: null,
+          moves: [["0-inbox/weekly-review.md", "2-areas/weekly-review.md"]],
+        },
+        {
+          at: new Date(Date.now() - 35 * 60_000).toISOString(),
+          kind: "moved",
+          paths: ["1-projects/dc-chapter.md"],
+          n: 1,
+          vis: "team",
+          by: "@seyi",
+          via: "Claude",
+          note: null,
+          moves: [["0-inbox/dc-chapter.md", "1-projects/dc-chapter.md"]],
+        },
+        /*
+          Notes people edited by hand, at a spread of ages, so the phone's
+          Inbox draws Today, Previous 7 Days, Previous 30 Days and a month
+          (Dev2, 2026-10-18). The app's own client is a person's hand; the
+          Claude line above is not, so its notes stay off those sections.
+        */
+        {
+          at: new Date(Date.now() - 60 * 60_000).toISOString(),
+          kind: "revised",
+          paths: ["0-inbox/voice-memo-2026-08-24.md"],
+          n: 1,
+          vis: "team",
+          by: "@seyi",
+          via: "Context (this app)",
+          note: null,
+        },
+        {
+          at: new Date(Date.now() - 3 * 60 * 60_000).toISOString(),
+          kind: "revised",
+          paths: ["1-projects/ltn-2026-rider.md"],
+          n: 1,
+          vis: "team",
+          by: "@seyi",
+          via: "Context (this app)",
+          note: null,
+        },
         {
           at: new Date(Date.now() - 26 * 60 * 60_000).toISOString(),
           kind: "meeting",
@@ -85,6 +139,36 @@ export function useE2EFixtureConsoleData(): ConsoleData {
           vis: "team",
           by: null,
           via: null,
+          note: null,
+        },
+        {
+          at: new Date(Date.now() - 3 * 24 * 60 * 60_000).toISOString(),
+          kind: "revised",
+          paths: ["3-resources/matthew-13-soil.md"],
+          n: 1,
+          vis: "team",
+          by: "@seyi",
+          via: "Context (this app)",
+          note: null,
+        },
+        {
+          at: new Date(Date.now() - 12 * 24 * 60 * 60_000).toISOString(),
+          kind: "revised",
+          paths: ["2-areas/public-worship/board-notes.md"],
+          n: 1,
+          vis: "team",
+          by: "@seyi",
+          via: "Context (this app)",
+          note: null,
+        },
+        {
+          at: new Date(Date.now() - 50 * 24 * 60 * 60_000).toISOString(),
+          kind: "revised",
+          paths: ["3-resources/doxology-framework.md"],
+          n: 1,
+          vis: "team",
+          by: "@seyi",
+          via: "Context (this app)",
           note: null,
         },
       ],

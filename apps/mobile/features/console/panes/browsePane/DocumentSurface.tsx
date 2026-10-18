@@ -1,12 +1,14 @@
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { ScrollView, View } from "react-native";
 import { ScreenViewport, type useSurfacePadding } from "../../../app/Screen";
 import { PageSlide } from "../../../design/components/PageSlide";
 import { useThemedStyles } from "../../../design/theme";
 import { slideDirection } from "../../home/phoneBack";
+import { EdgeSwipeHome } from "../../home/EdgeSwipeHome";
 import type { classifyCommsPath } from "../../communications/paths";
 import type { entryAt } from "../../files/tree";
 import { makeStyles } from "./styles";
+import { rememberScroll, usePageScroll } from "./pageScroll";
 
 /** The phone slide's key for the map: no path can be it (`phoneBack.ts` reads it). */
 export const MAP_PAGE_KEY = "\u0000map";
@@ -24,8 +26,9 @@ export function DocumentSurface({
   openDocument,
   notices,
   pathBar,
-  page = false,
   fill = false,
+  onSwipeHome,
+  topPage = "",
 }: {
   selected: ReturnType<typeof entryAt>;
   compact: boolean;
@@ -35,17 +38,16 @@ export function DocumentSurface({
   notices: ReactNode;
   pathBar: ReactNode;
   /**
-   * A page that is not the selection is on screen (What changed): it rides the
-   * page scroller whatever is selected under it, since it brings none of its own.
-   */
-  page?: boolean;
-  /**
    * A page that fills the slot edge to edge and scrolls nothing (the live
    * map): no page scroller, no reading margin. On a phone it is still one
    * slide, and it stops at the top bar and the toolbar rather than passing
    * under them, since a canvas cannot pay for chrome in content padding.
    */
   fill?: boolean;
+  /** A phone's swipe in from the left edge: straight Home. Absent on Home. */
+  onSwipeHome?: () => void;
+  /** The page key when nothing is selected: Inbox (`""`) or Folders (`FOLDERS_PAGE`). */
+  topPage?: string;
 }) {
   const styles = useThemedStyles(makeStyles);
   /**
@@ -89,9 +91,13 @@ export function DocumentSurface({
    *    they are the only two things a `file` selection can draw.
    */
   const documentOwnsScroller =
-    !page &&
     selected !== null &&
     (commsRoute === null ? selected.kind === "file" : commsRoute.kind === "channel-day");
+
+  const pageKey = selected?.path ?? topPage;
+  const restoredOffset = usePageScroll(pageKey);
+  // One object per offset: a fresh one each render could set the offset again under a scrolling thumb.
+  const startAt = useMemo(() => ({ x: 0, y: restoredOffset }), [restoredOffset]);
 
   if (fill) {
     return compact ? (
@@ -139,41 +145,53 @@ export function DocumentSurface({
           a note — two different branches below — is still one navigation the
           slide can see (`PageSlide`).
         */
-        <PageSlide pageKey={selected?.path ?? ""} directionOf={slideDirection} testID="page-slide">
-          {!page && selected !== null && selected.kind === "file" ? (
-            openDocument
-          ) : (
-            /*
+        <EdgeSwipeHome onHome={onSwipeHome}>
+          <PageSlide pageKey={pageKey} directionOf={slideDirection} testID="page-slide">
+            {selected !== null && selected.kind === "file" ? (
+              openDocument
+            ) : (
+              /*
               The status bar's band goes on the box *around* the scroller and our
               own chrome inside it — see `SurfacePadding` in `app/frame.ts`. Spent
               together on the content, the whole inset scrolled away with the
               listing and the folder's rows rode up under the clock.
             */
-            <ScreenViewport padding={padding}>
-              <ScrollView
-                style={styles.scroll}
-                contentContainerStyle={{
-                  paddingTop: padding.content.top,
-                  paddingBottom: padding.content.bottom,
-                }}
-                scrollIndicatorInsets={{
-                  top: padding.content.top,
-                  bottom: padding.content.bottom,
-                }}
-                testID="browse-scroll"
-              >
-                {/*
+              <ScreenViewport padding={padding} style={styles.statusBand}>
+                <ScrollView
+                  /*
+                    One scroller per page. It was one for every page, so a
+                    folder opened from halfway down Home arrived halfway down
+                    itself and then jumped to the top as it filled in. A page
+                    gone back to is where it was left (`pageScroll`).
+                  */
+                  key={pageKey}
+                  contentOffset={startAt}
+                  onScroll={(event) => rememberScroll(pageKey, event.nativeEvent.contentOffset.y)}
+                  scrollEventThrottle={64}
+                  style={styles.scroll}
+                  contentContainerStyle={{
+                    paddingTop: padding.content.top,
+                    paddingBottom: padding.content.bottom,
+                  }}
+                  scrollIndicatorInsets={{
+                    top: padding.content.top,
+                    bottom: padding.content.bottom,
+                  }}
+                  testID="browse-scroll"
+                >
+                  {/*
                   `pathBar` was the folder path, and is now only who else is in
                   the note: the way up is the ‹ back button at the top left (see
                   `BrowsePathBar`, owner's review 2026-10-01).
                 */}
-                {pathBar}
-                {notices}
-                <View style={styles.bodyCompact}>{openDocument}</View>
-              </ScrollView>
-            </ScreenViewport>
-          )}
-        </PageSlide>
+                  {pathBar}
+                  {notices}
+                  <View style={styles.bodyCompact}>{openDocument}</View>
+                </ScrollView>
+              </ScreenViewport>
+            )}
+          </PageSlide>
+        </EdgeSwipeHome>
       ) : documentOwnsScroller ? (
         <>
           {notices}
@@ -195,11 +213,7 @@ export function DocumentSurface({
         */
         <>
           {notices}
-          <ScrollView
-            style={styles.page}
-            contentContainerStyle={styles.pageContent}
-            testID="document-scroll"
-          >
+          <ScrollView style={styles.page} contentContainerStyle={styles.pageContent} testID="document-scroll">
             {openDocument}
           </ScrollView>
         </>

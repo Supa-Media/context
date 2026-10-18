@@ -16,6 +16,8 @@
 import { isDrawingPath } from "@context/drawings";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { folderRole } from "@context/shared/src/folderRoles.cjs";
+import { restoreTarget } from "@context/shared/src/archiveMirror.cjs";
+import { archiveFolderNow } from "./jobIcons/jobFoldersNow";
 import { withoutSortPrefix as sharedWithoutSortPrefix } from "@context/shared/src/linkedHeading";
 import { FRONT_NOTES } from "../../../../mcp/src/lists/grammar.js";
 
@@ -413,21 +415,27 @@ export function formatBytes(bytes: number | undefined): string {
 }
 
 /**
- * `4-archive/2026-08-26T09-14-02-113Z/1-projects/foo.md` → `1-projects/foo.md`.
- * `9-archive/…` and `5-archive/…` restore the same way: the first segment only
- * has to play the archive role (`folderRole`), so an older workspace's archive
- * name works without renaming anything.
+ * `Archive/Projects/launch/plan.md` → `Projects/launch/plan.md`: what
+ * "restore" puts back (`restoreTarget`, `archiveMirror.cjs`). Archive keeps the
+ * workspace's shape (owner, 2026-10-18), so restoring is taking the archive's
+ * name off the front; an archive made before that, under a date folder
+ * (`4-archive/2026-08-26T09-14-02-113Z/1-projects/foo.md`), loses the date too.
  *
- * What "restore" puts back. The archive keeps the original path inside the
- * timestamped folder precisely so this is a string operation rather than a
- * guess, and returns `null` for anything that is not an archive path so the
- * console can hide the button instead of offering a restore that would land
- * somewhere arbitrary.
+ * The archive is the folder doing the Archive's job now, whatever it is called
+ * and wherever it is (`jobFoldersNow.ts`); a first segment that plays the
+ * archive role by name (`4-archive`, `9-archive`, `5-archive`) restores the
+ * same way, so an older workspace's archive works without renaming anything.
+ * Anything that is not in an archive answers `null`, so the console hides the
+ * button rather than offer a restore that would land somewhere arbitrary.
  */
-export function restoreTargetFor(archivedPath: string): string | null {
-  const match = archivedPath.match(/^([^/]+)\/[^/]+\/(.+)$/);
-  if (!match || folderRole(match[1]) !== "archive") return null;
-  return match[2];
+export function restoreTargetFor(archivedPath: string, archive: string = archiveFolderNow()): string | null {
+  if (archive !== "") {
+    const target = restoreTarget(archive, archivedPath);
+    if (target !== null) return target;
+  }
+  const first = archivedPath.slice(0, Math.max(0, archivedPath.indexOf("/")));
+  if (first === "" || folderRole(first) !== "archive") return null;
+  return restoreTarget(first, archivedPath);
 }
 
 /**

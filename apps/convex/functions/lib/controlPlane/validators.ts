@@ -9,7 +9,6 @@
 
 import { v } from "convex/values";
 import {
-  dropboxBindingValidator,
   encryptionKeyValidator,
   keyRotationValidator,
   meaningIndexValidator,
@@ -49,12 +48,14 @@ export const heldPrivacyValidator = v.object({
   etag: v.string(),
   folders: v.array(v.object({ prefix: v.string(), visibility: v.string() })),
   notes: v.array(v.object({ path: v.string(), visibility: v.string() })),
+  /** The rows' version, while the rows judge (`nodesPrivacy.heldFor`); without it every open threw. */
+  accessVersion: v.optional(v.number()),
 });
 
 export const openStorageBindingReturns = v.union(
   v.null(),
   v.object({
-    binding: v.union(s3BindingValidator, dropboxBindingValidator),
+    binding: s3BindingValidator,
     searchIndex: v.optional(searchIndexValidator),
     meaningIndex: v.optional(meaningIndexValidator),
     encryptionKey: v.optional(encryptionKeyValidator),
@@ -64,7 +65,7 @@ export const openStorageBindingReturns = v.union(
   }),
 );
 
-export const openGatewayJobArgs = { hashedTicket: v.string() };
+export const openGatewayJobArgs = { hashedTicket: v.string(), contentSha256: v.optional(v.string()) };
 
 export const openGatewayJobReturns = v.union(
   v.null(),
@@ -77,13 +78,17 @@ export const openGatewayJobReturns = v.union(
       grantId: v.id("oauthGrants"),
       kind: gatewayJobKindValidator,
       moveId: v.optional(v.string()),
+      imageSha256: v.optional(v.string()),
+      imageBytes: v.optional(v.number()),
     }),
-    binding: v.union(s3BindingValidator, dropboxBindingValidator),
+    binding: s3BindingValidator,
     searchIndex: v.optional(searchIndexValidator),
     meaningIndex: v.optional(meaningIndexValidator),
     encryptionKey: v.optional(encryptionKeyValidator),
     rotation: v.optional(keyRotationValidator),
     managedEncryption: v.optional(managedEncryptionSiblingValidator),
     privacy: v.optional(heldPrivacyValidator),
+    /** Whether the workspace is keyed (`lib/noteIds/keyedStore.ts`): a path-based job is refused. */
+    keyed: v.optional(v.boolean()),
   }),
 );

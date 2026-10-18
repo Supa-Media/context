@@ -34,8 +34,22 @@ export type Inbound =
       text: string;
       /** Absent on a text with no files, and on messages queued before files were read. */
       attachments?: InboundAttachment[];
+      /** Sendblue: the handle of the message an inline reply answers. Resolved to `quoted`, then dropped, before queueing. */
+      replyTo?: string;
+      /**
+       * The words of the message this one replies to. Sent to `/agent` apart
+       * from the question and never folded into it: the message picked may be
+       * one Tex sent, so the words are somebody else's, and the gateway's
+       * guards vouch from the person's own (`apps/mcp/src/agent/quoted.js`).
+       */
+      quoted?: string;
+      /**
+       * Sendblue: it came as SMS (a green bubble), whose sender number anyone
+       * can fake. Its words are never acted on (`reply.ts`, `smsReply`).
+       */
+      sms?: true;
     }
-  | { kind: "ignored"; reason: "event_type" | "group" | "sender" | "service" | "empty" }
+  | { kind: "ignored"; reason: "event_type" | "group" | "sender" | "service" | "empty" | "reaction" }
   | { kind: "invalid" };
 
 function isRecord(value: unknown): value is Record<string, unknown> {

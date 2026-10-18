@@ -6,11 +6,14 @@ import { SwitcherMenu } from "./SwitcherMenu";
 import { BrowsePane } from "./panes/BrowsePane";
 import { ConsoleNavProvider, type ConsoleNav } from "./ConsoleNavContext";
 import { PhoneBack } from "./home/PhoneBack";
-import { phoneBackLevels } from "./home/phoneBack";
+import { goToLevel, phoneBackLevels } from "./home/phoneBack";
+import { useHomeView } from "./home/homeView";
+import { usePreviousPage } from "./home/phoneHistory";
 import type { CheckoutOutcome } from "@context/shared";
 import { SettingsOverlay } from "./settings/SettingsOverlay";
 import {
   DEFAULT_ACCOUNT_SETTINGS_SECTION,
+  opensOnSettingsList,
   DEFAULT_SETTINGS_SECTION,
   type SettingsSectionKey,
 } from "./settings/sections";
@@ -198,7 +201,9 @@ export function E2EFixtureScreen({
     pressable, which is what the case about the handoff asserts.
   */
   // The phone's ‹ back, as `consoleAccountSlot` draws it in the product's top bar.
-  const levels = phone ? phoneBackLevels(data.files.selectedPath) : [];
+  const homeView = useHomeView();
+  const previous = usePreviousPage();
+  const levels = phone ? phoneBackLevels(data.files.selectedPath, false, homeView, false, previous) : [];
 
   const voiceHost: VoiceHost = {
     page: fixtureVoicePage(data.files, current),
@@ -283,16 +288,14 @@ export function E2EFixtureScreen({
                   data={data}
                   label={current === null ? "Your context" : atName(current.slug)}
                   trigger="phone"
+                  phoneNamed={(data.files.selectedPath ?? "") === ""}
                   onOpenContext={openContext}
                   onOpenSettings={openSettings}
                 />
               ) : (
                 <PhoneBack
                   levels={levels}
-                  onGo={(target) => {
-                    if (target.folder === null) data.files.deselect();
-                    else data.files.select(target.folder);
-                  }}
+                  onGo={(target) => goToLevel(target, data.files)}
                 />
               )}
               <View style={styles.accountSpacer} />
@@ -348,6 +351,7 @@ export function E2EFixtureScreen({
             browser-reachable screen otherwise. `settings.spec.ts` drives it.
           */
           returned={returned}
+          startOnList={opensOnSettingsList(settings)}
           onSelect={setSettings}
           onSwitchContext={openContext}
           onDismiss={() => setSettings(null)}

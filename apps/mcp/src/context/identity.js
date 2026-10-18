@@ -29,6 +29,12 @@ export function actorFor(session) {
     // to. Both are already on the session `actorFor` is built from, and both
     // are ids and slugs — never a credential.
     role: session.role,
+    /**
+     * The `@names` this grant reaches in this workspace (its groups, and the
+     * person's own handles), for a vault key given to a group
+     * (`vault/access.js`). Names only, the set `canSee` already reads.
+     */
+    groups: [...(session.grantedGroups ?? [])],
     name: personalNameFor(session),
     /**
      * The client's own name, for the one reader who is a person.
@@ -41,6 +47,8 @@ export function actorFor(session) {
      * `clientId`, which is the one the control plane issued.
      */
     client: typeof session.actorClientName === "string" ? session.actorClientName : null,
+    /** When this connection last fetched our tool list; see `tools/news.js`. */
+    toolsListedAt: Number.isFinite(session.toolsListedAt) ? session.toolsListedAt : null,
   };
 }
 

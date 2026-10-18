@@ -27,6 +27,7 @@ import { contextMenuListener } from "./contextMenu";
 import { selectTitle, titleLine } from "./titleLine";
 import { propertySlot } from "./propertySlot";
 import { comments } from "../comments/extension";
+import { noteMail } from "../mail/extension";
 import { commentRail } from "../comments/rail";
 import { commentSheet } from "../comments/sheet";
 import { DIAGRAM_FRAME_PATH } from "../livePreview/diagram";
@@ -128,6 +129,7 @@ export function mountEditor({
         if (!mayPersist({ bound: bound.current, canWrite: presenceRef.current?.canWrite === true })) return;
         handlers.current.onSave();
       },
+      onLineState: (state) => handlers.current.onLineState?.(state),
     },
   };
 
@@ -220,6 +222,8 @@ export function mountEditor({
       }),
       commentRail,
       commentSheet({ placement: "viewport" }),
+      // Mail at the note's end, folded to one line; signed like comments (files/mail/).
+      noteMail(),
       // Folder lists. The iOS guest asks its host for the same notes over the
       // bridge (`webview/guestExtras.ts`).
       listHost.of(lists),
@@ -304,6 +308,8 @@ export function mountEditor({
   const api: EditorControls = {
     wrap: (before, after) => runCommand(created, { name: "wrap", before, after }),
     toggleLinePrefix: (prefix) => runCommand(created, { name: "toggleLinePrefix", prefix }),
+    lineStyle: (prefix) => runCommand(created, { name: "lineStyle", prefix }),
+    titleHint: (text) => runCommand(created, { name: "titleHint", text }),
     insertLink: (ask) => runCommand(created, { name: "insertLink" }, ask),
     applyLink: (link) => runCommand(created, { name: "applyLink", link }),
     cancelLink: () => runCommand(created, { name: "cancelLink" }),

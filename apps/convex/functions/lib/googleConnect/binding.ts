@@ -131,6 +131,14 @@ export async function applyGmailConnectionBindingHandler(
       quotaBytes: existing?.gmail?.quotaBytes ?? DEFAULT_MAIL_QUOTA_BYTES,
       historyId: gmailHistoryId,
       lastSyncedAt: existing?.gmail?.lastSyncedAt,
+      // THE FIFTY MOST RECENT MESSAGES, ONCE, ON THE FIRST GMAIL CONNECT.
+      // Only a row Gmail has never been on is marked: a reconnect, or a row
+      // revived after a disconnect, keeps whatever it had — including nothing,
+      // for a row older than the import — so connecting again is never a
+      // second read of somebody's history. `docs/decisions/communications/gmail-and-sync-loop.md`.
+      recentImport: existing?.gmail
+        ? existing.gmail.recentImport
+        : { status: "pending" as const, attempts: 0 },
     },
     // EVERY product's scope slice is recomputed from the ONE verbatim grant
     // this connect just received, never carried forward.

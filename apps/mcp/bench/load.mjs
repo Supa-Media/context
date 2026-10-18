@@ -83,6 +83,10 @@ function readQuestion(sec) {
     judge: [],
     // The question number of the same fact asked by someone allowed to see it.
     mirror: null,
+    // Set by an AI, and removed by a person once they have checked the case.
+    // A drafted case is never run (`runnableQuestions`); "" is a bare line
+    // with no name, which still counts as drafted.
+    drafted: null,
     // Allowed but never required: told to the judge, never graded.
     may: [],
     // A search question (`tests/search.md`): the notes that should come back,
@@ -114,6 +118,7 @@ function readQuestion(sec) {
     else if ((m = line.match(/^- expect:\s*(.*)$/))) q.expect.push(...m[1].split(",").map((part) => part.trim()).filter(Boolean));
     else if ((m = line.match(/^- in:\s*(.*)$/))) q.in = m[1].trim() || null;
     else if ((m = line.match(/^- forbid:\s*(.*)$/))) q.forbid.push(...m[1].split(",").map((part) => part.trim()).filter(Boolean));
+    else if ((m = line.match(/^- drafted:\s*(.*)$/))) q.drafted = m[1].trim();
     else if ((m = line.match(/^- mirror:\s*(.*)$/))) {
       if (!/^\d+$/.test(m[1].trim())) throw new Error(`question ${sec.n}: mirror must be a question number, got "${m[1].trim()}"`);
       q.mirror = Number(m[1].trim());
@@ -126,6 +131,21 @@ function readQuestion(sec) {
 // question, a back-and-forth question marked `gate:`, and every golden task
 // (`tests/tasks.md`, decided by the owner 2026-10-11: Tex MUST do these).
 export const isGateQuestion = (q) => q.kind === "privacy" || q.kind === "task" || (q.kind === "back-and-forth" && q.gate === true);
+
+/**
+ * The questions a run answers: the `only` numbers when given, and never a
+ * drafted one. A drafted case was written by an AI and no person has checked
+ * it yet, so its answers would count for nothing; each one skipped is named on
+ * stderr so the run's log says why it is missing.
+ */
+export function runnableQuestions(questions, only, write = (line) => process.stderr.write(line)) {
+  return questions.filter((q) => {
+    if (only && !only.includes(q.n)) return false;
+    if (q.drafted === null) return true;
+    write(`skipping drafted case q${q.n} (not checked by a person yet)\n`);
+    return false;
+  });
+}
 
 // Parse a test file: front matter plus one question per "## n. text" heading.
 export function parseTest(raw) {
@@ -143,7 +163,14 @@ export function parseTest(raw) {
   // Collect the lines under each numbered heading; ignore anything before the first.
   const sections = [];
   let cur = null;
+  // A fenced block is a case's input (`check.mjs`), whose own headings are text.
+  let fenced = false;
   for (const line of lines.slice(bodyStart)) {
+    if (line.trim().startsWith("```")) fenced = !fenced;
+    else if (fenced) {
+      if (cur) cur.lines.push(line);
+      continue;
+    }
     const h = line.match(/^## (\d+)\. (.+?)\s*$/);
     if (h) {
       cur = { n: Number(h[1]), text: h[2], lines: [] };

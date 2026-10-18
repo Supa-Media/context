@@ -314,7 +314,7 @@ export async function toolReadContact(store, scope, rules, overrides, args = {})
     */
     return toolText(
       `${header}\n\nThis is ${isEncryptedNote(text) ? "an encrypted note" : "not a contact page this context generated"}` +
-        " — it is a note at a contact's key, not a page built from your messages. Read it with read_note."
+        " — it is a note at a contact's key, not a page built from your messages. Read it with fetch, on its path."
     );
   }
 

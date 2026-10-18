@@ -30,6 +30,8 @@ import {
 } from "./fixtures.helpers";
 import type { Id } from "../_generated/dataModel";
 
+import { copyTree } from "./fixtures.helpers";
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -109,6 +111,7 @@ describe("website lifecycle state", () => {
 
   test("enable creates the missing homepage, then records enabled state", async () => {
     const f = await fixture();
+    await copyTree(f.t, f.workspaceId);
     const enabled = await asUser(f.t, f.owner).action(
       api.functions.workspaces.enableWebsite,
       { workspaceId: f.workspaceId },
@@ -136,6 +139,7 @@ describe("website lifecycle state", () => {
 
   test("an existing homepage is authoritative and remains byte-identical", async () => {
     const f = await fixture();
+    await copyTree(f.t, f.workspaceId);
     const existing = "---\ntitle: Kept\n---\n\n# Do not replace me\n";
     f.backend.seed("website/index.md", existing);
 
@@ -149,6 +153,7 @@ describe("website lifecycle state", () => {
 
   test("enable is idempotent and does not touch the bucket twice", async () => {
     const f = await fixture();
+    await copyTree(f.t, f.workspaceId);
     const first = await asUser(f.t, f.owner).action(
       api.functions.workspaces.enableWebsite,
       { workspaceId: f.workspaceId },
@@ -172,6 +177,7 @@ describe("website lifecycle state", () => {
     const f = await fixture({
       refuseWrite: (key) => key === "website/index.md",
     });
+    await copyTree(f.t, f.workspaceId);
     const failure = await captureError(() =>
       asUser(f.t, f.owner).action(api.functions.workspaces.enableWebsite, {
         workspaceId: f.workspaceId,
@@ -188,6 +194,7 @@ describe("website lifecycle state", () => {
 
   test("only the role that manages Settings may enable or disable", async () => {
     const f = await fixture();
+    await copyTree(f.t, f.workspaceId);
     const before = f.backend.requests.length;
     const editorEnable = await captureError(() =>
       asUser(f.t, f.editor).action(api.functions.workspaces.enableWebsite, {
@@ -218,6 +225,7 @@ describe("website lifecycle state", () => {
 
   test("disable is idempotent and preserves every website file", async () => {
     const f = await fixture();
+    await copyTree(f.t, f.workspaceId);
     f.backend.seed("website/about.md", "# About\n");
     await asUser(f.t, f.owner).action(api.functions.workspaces.enableWebsite, {
       workspaceId: f.workspaceId,
@@ -244,6 +252,7 @@ describe("website lifecycle state", () => {
 
   test("state rows are tenant-scoped even when workspaces use the same route", async () => {
     const f = await fixture();
+    await copyTree(f.t, f.workspaceId);
     const otherOwner = await createUser(f.t, "other@example.invalid");
     const otherWorkspaceId = await createWorkspace(
       f.t,

@@ -459,7 +459,7 @@ describe("a filtered view says so and does not fill in the gap", () => {
     /*
       Not hypothetical: the whole-scroll pane renders every block, and several
       suites mount it over a `ConsoleData` whose `files` is `{ listings: {} }`
-      cast past the type — `dropboxScreens.test.ts` among them, whose own
+      cast past the type — `storageScreens.test.ts` among them, whose own
       fixture comment records the last section to break this way. Nine checks
       in a suite that is not about privacy went red on the first version of
       this panel, which called a method that stub does not carry.

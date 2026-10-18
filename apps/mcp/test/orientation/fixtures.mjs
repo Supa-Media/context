@@ -121,8 +121,9 @@ export async function callText(env, token, name, args) {
   return body?.result?.content?.[0]?.text || "";
 }
 
-export async function orientText(env, token) {
-  const { body } = await rpc(env, token, "tools/call", { name: "orient", arguments: {} });
+/** orient's text: the overview, or one part of the manual named by `args.about`. */
+export async function orientText(env, token, args = {}) {
+  const { body } = await rpc(env, token, "tools/call", { name: "orient", arguments: args });
   return body?.result?.content?.[0]?.text || "";
 }
 

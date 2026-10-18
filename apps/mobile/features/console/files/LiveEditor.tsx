@@ -111,6 +111,7 @@ export function LiveEditor({
   controls,
   onFocus,
   onBlur,
+  onLineState,
   onScrollBy,
   accessibilityLabel,
   onOpenNote,
@@ -184,6 +185,7 @@ export function LiveEditor({
     controls,
     onFocus,
     onBlur,
+    onLineState,
     onScrollBy,
     onOpenNote,
     onOpenTag,
@@ -206,6 +208,7 @@ export function LiveEditor({
     controls,
     onFocus,
     onBlur,
+    onLineState,
     onScrollBy,
     onOpenNote,
     onOpenTag,
@@ -305,6 +308,7 @@ export function LiveEditor({
           */
           onHeight: (next) => setHeight(next),
           onCaret: (caret) => keepCaretClear(caret),
+          onLineState: (state) => handlers.current.onLineState?.(state),
           onFailed: (message) => setFailure(message),
           /*
             Both read off the ref rather than closed over, like every other
@@ -442,6 +446,9 @@ export function LiveEditor({
         bridge.setCrdtSnapshot({ documentId: collaboration.documentId, update: collaboration.revision });
       } else {
         bridge.setCrdtSnapshot(null);
+        // The bucket's text, read-only, until the snapshot lands: never an
+        // empty page under the note's name.
+        bridge.setCrdtPreview(value);
       }
       return;
     }

@@ -3,7 +3,7 @@
  * live membership at the moment it is asked; nothing here is cached on a row.
  */
 
-import type { Id } from "../../../_generated/dataModel";
+import type { Doc, Id } from "../../../_generated/dataModel";
 import type { QueryCtx } from "../../../_generated/server";
 import { resolveAddressedUser } from "../identities";
 import { getMembership, type WorkspaceRole } from "../workspaceAuth";
@@ -70,11 +70,20 @@ export async function userForActorName(
 }
 
 /**
- * The phones a run texts. `to:` handles that resolve to a person who is a live
- * member of this workspace (any role: reading a routine's text is no more
- * than reading the workspace) with a linked phone; with no `to:`, the writer.
- * `send: note` texts nobody. A handle that resolves to nobody, to someone
- * outside the workspace, or to someone with no phone is dropped silently.
+ * Whether routines run in this workspace at all: only a personal one (decided
+ * by the owner, 2026-10-18). Tex is a personal assistant; a routine in a shared
+ * workspace texted one person what another had asked for. A personal routine
+ * can still read the shared workspaces its writer belongs to.
+ */
+export function runsRoutines(workspace: Pick<Doc<"workspaces">, "kind">): boolean {
+  return workspace.kind === "personal";
+}
+
+/**
+ * The phones a run texts: the writer's own, and nobody else's. `send: note`
+ * texts nobody, and neither does a writer who is no longer a member or has
+ * no linked phone. A `to:` line is not read (owner, 2026-10-18): a routine
+ * is one person's, and texting anyone else is what the old rule got wrong.
  */
 export async function routineRecipients(
   ctx: QueryCtx,
@@ -82,30 +91,13 @@ export async function routineRecipients(
     workspaceId: Id<"workspaces">;
     writerUserId: Id<"users">;
     send: "text" | "note" | "both";
-    to: string[];
   },
 ): Promise<string[]> {
   if (args.send === "note") return [];
-  const people: Id<"users">[] = [];
-  if (args.to.length === 0) {
-    people.push(args.writerUserId);
-  } else {
-    for (const handle of args.to.slice(0, 20)) {
-      const userId = await resolveAddressedUser(ctx, { kind: "name", value: handle });
-      if (userId === null) continue;
-      if ((await getMembership(ctx, args.workspaceId, userId)) === null) continue;
-      people.push(userId);
-    }
-  }
-  const phones = new Set<string>();
-  for (const userId of people) {
-    // The writer too: only a live member is texted.
-    if ((await getMembership(ctx, args.workspaceId, userId)) === null) continue;
-    const link = await ctx.db
-      .query("phoneLinks")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
-      .first();
-    if (link !== null) phones.add(link.phone);
-  }
-  return [...phones];
+  if ((await getMembership(ctx, args.workspaceId, args.writerUserId)) === null) return [];
+  const link = await ctx.db
+    .query("phoneLinks")
+    .withIndex("by_user", (q) => q.eq("userId", args.writerUserId))
+    .first();
+  return link === null ? [] : [link.phone];
 }

@@ -46,7 +46,6 @@ export function StorageStep({ controller }: { controller: OnboardingController }
   return (
     <StorageStepBody
       connectState={controller.connectState}
-      workspaceId={controller.claimed?.workspaceId ?? null}
       contextName={controller.claimed === null ? "this context" : `@${controller.claimed.slug}`}
       connect={controller.connect}
       managed={controller.managed}
@@ -65,7 +64,6 @@ export function StorageStep({ controller }: { controller: OnboardingController }
  */
 export function StorageStepBody({
   connectState,
-  workspaceId,
   contextName,
   connect,
   managed,
@@ -80,7 +78,6 @@ export function StorageStepBody({
   /** Back to the free bucket from B1-01, where it is on offer. */
   onPickFree?: () => void;
   connectState: ConnectState;
-  workspaceId: string | null;
   contextName: string;
   connect: (values: ConnectFormValues) => Promise<{ status: string }>;
   /** Absent where this deployment cannot provide managed storage. */
@@ -150,12 +147,11 @@ export function StorageStepBody({
         <PointAtBucket connect={connect} onPickFree={onPickFree} />
       ) : (
         <StorageChoice
-          workspaceId={workspaceId}
           connect={connect}
           managed={
             managed === null || !managed.available
               ? undefined
-              : { price: managed.price, stagingFreeStorage: managed.status?.stagingFreeStorage, onChoose: managed.choose }
+              : { price: managed.price, founding: managed.founding, stagingFreeStorage: managed.status?.stagingFreeStorage, onChoose: managed.choose }
           }
         />
       )}

@@ -11,7 +11,7 @@ import {
   setupTest,
 } from "./fixtures.helpers";
 import { hashToken } from "../functions/lib/crypto";
-import { CONSOLE_CLIENT_ID, CONSOLE_GRANT_TTL_MS } from "../functions/agentGrant";
+import { CONSOLE_CLIENT_ID, CONSOLE_GRANT_TTL_MS, CONSOLE_MINT_LIMIT } from "../functions/agentGrant";
 
 /**
  * THE CONSOLE'S OWN GRANT, AND WHY IT IS AN ORDINARY ONE.
@@ -49,6 +49,9 @@ import { CONSOLE_CLIENT_ID, CONSOLE_GRANT_TTL_MS } from "../functions/agentGrant
  *  4. `hashedRefreshToken` written as a constant, which is what somebody does
  *     when a required column has nothing to put in it.
  *     → **1 fails**: `no two console grants share a refresh-token hash`.
+ *  5. `CONSOLE_MINT_LIMIT` put back to 40, the value a browser agent hit.
+ *     → **1 fails**: `a browser agent opening a hundred notes in an hour is
+ *     not refused`.
  */
 
 const SCOPES_ASKED = ["context:read", "context:write", "context:private"];
@@ -289,6 +292,70 @@ describe("one live grant, and it is revocable", () => {
     expect(rows.filter((row) => row.status === "revoked")).toHaveLength(1);
     expect(await resolves(t, second.accessToken)).toBe(true);
     expect(await resolves(t, first.accessToken)).toBe(false);
+  });
+});
+
+describe("how often the console may mint", () => {
+  /*
+    A browser agent opening notes for its person loads a page per note, and
+    every load is a new instance that mints. At 40 an hour the agent was
+    refused partway through its work, and every note after that failed with a
+    server error naming mintConsoleGrant (2026-10-15).
+  */
+  test("a browser agent opening a hundred notes in an hour is not refused", async () => {
+    const t = setupTest();
+    const ownerId = await createUser(t, "owner@example.invalid");
+    const workspaceId = await createWorkspace(t, ownerId, "seyi");
+    const client = asUser(t, ownerId);
+    for (let load = 0; load < 100; load++) {
+      const minted = await client.action(api.functions.agentGrant.mintConsoleGrant, {
+        workspaceId,
+        consoleInstanceId: `page-load-${load}`,
+      });
+      expect(minted.scopes).toEqual(SCOPES_ASKED);
+    }
+  });
+
+  /*
+    Why the listing has to defend itself (`grants.test.ts`): inside the hour
+    nothing has expired, so neither reuse branch matches a fresh instance id
+    and every load inserts a row. The rows are real, and they are the newest
+    ones the connections screen sees.
+  */
+  test("each fresh page load inside the hour leaves its own grant row", async () => {
+    const t = setupTest();
+    const ownerId = await createUser(t, "owner@example.invalid");
+    const workspaceId = await createWorkspace(t, ownerId, "seyi");
+    const client = asUser(t, ownerId);
+    const loads = CONSOLE_MINT_LIMIT;
+    for (let load = 0; load < loads; load++) {
+      await client.action(api.functions.agentGrant.mintConsoleGrant, {
+        workspaceId,
+        consoleInstanceId: `note-${load}`,
+      });
+    }
+    const rows = await t.run(async (ctx) =>
+      (await ctx.db.query("oauthGrants").collect()).filter(
+        (grant) => grant.clientId === CONSOLE_CLIENT_ID && grant.status === "active",
+      ),
+    );
+    expect(rows).toHaveLength(loads);
+  });
+
+  test("a runaway loop is still refused once the hour's budget is spent", async () => {
+    const t = setupTest();
+    const ownerId = await createUser(t, "owner@example.invalid");
+    const workspaceId = await createWorkspace(t, ownerId, "seyi");
+    await t.run(async (ctx) => {
+      await ctx.db.insert("rateLimits", {
+        key: `agent.consoleGrant:${ownerId}`,
+        windowStartedAt: Date.now(),
+        count: CONSOLE_MINT_LIMIT,
+      });
+    });
+
+    const error = await captureError(() => mint(t, ownerId, workspaceId));
+    expect(errorCode(error)).toBe("RATE_LIMITED");
   });
 });
 

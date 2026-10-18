@@ -23,6 +23,7 @@
  * the only thing standing between a visitor and a button that lies.
  */
 
+import type { FolderJobsAnswer } from "../folderJobsView";
 import type { Clipboard } from "../clipboard";
 import type { EditorState } from "../editor";
 import type {
@@ -667,6 +668,30 @@ export interface FileBrowser extends BesideEditing, TrashedEditing {
    * Editor only.
    */
   addBuiltInFolder: (role: string) => Promise<string>;
+  /**
+   * Which folder does each built-in job, wherever it is nested, with guesses
+   * for an import (`builtInFolders.jobs`). Absent where there is no server
+   * (the demo), and the screens that need it are then not offered.
+   */
+  folderJobs?: () => Promise<FolderJobsAnswer>;
+  /** Give a job to the folder at a path, or take it away (`null`). Owner; rejects with the server's sentence. */
+  setFolderJob?: (job: string, path: string | null) => Promise<void>;
+  /**
+   * Move a folder one place up or down among its sibling folders, as the list
+   * is drawn (`folderOrder.set`). Drawn at once; a refusal puts the order back
+   * and is said on the toast line. Editor only. Absent where nothing can be
+   * written (the demo, tests), and the menu then does not offer it.
+   */
+  moveFolder?: (path: string, direction: "up" | "down") => void;
+  /**
+   * Put a dragged folder at a place (`treeDrop.ts`): `folders` is the level
+   * `parent` in the order wanted, server order, the folder named at the path
+   * it will have. In its own level that is a reorder, drawn at once like
+   * `moveFolder`; from another level it is `move` first, then the order. A
+   * refusal of either is said on the notice line and the server's order is put
+   * back. Editor only; absent where nothing can be written.
+   */
+  placeFolder?: (path: string, parent: string, folders: readonly string[]) => void;
   /**
    * Re-home Context's reserved bucket objects under `.context/`.
    *

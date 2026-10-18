@@ -25,6 +25,7 @@
 
 import { livePreviewStyles } from "../livePreview";
 import { commentStyles, type CommentPalette } from "../comments/styles";
+import { mailStyles } from "../mail/styles";
 
 /**
  * The stylesheet, as one string.
@@ -55,8 +56,8 @@ export function guestStyles(): string {
   --lp-link: #2a5db0;
   --lp-code-bg: rgba(0,0,0,0.06);
   --lp-mark: rgba(255,229,0,0.42);
-  --lp-tag: #0A5350;
-  --lp-tag-wash: rgba(14,108,105,0.10);
+  --lp-tag: #22389F;
+  --lp-tag-wash: rgba(42,69,207,0.10);
   --lp-line: rgba(0,0,0,0.09);
   --lp-line-strong: rgba(0,0,0,0.18);
   --lp-raised: rgba(0,0,0,0.03);
@@ -130,6 +131,8 @@ html, body {
 
 #root .cm-editor { height: 100%; background: transparent; }
 #root .cm-editor.cm-focused { outline: none; }
+/* The title as the phone Inbox boards draw it (2026-10-17): bold, slightly tight. */
+#root .cm-lp-h1 { font-weight: 700; letter-spacing: -0.01em; }
 
 #root .cm-scroller {
   font-family: var(--lp-body);
@@ -189,6 +192,7 @@ html, body {
 
 ${livePreviewStyles}
 ${commentStyles(GUEST_COMMENT_PALETTE, "var(--lp-body)").replaceAll(".cm-lp-root", "#root")}
+${mailStyles(GUEST_COMMENT_PALETTE, "var(--lp-body)").replaceAll(".cm-lp-root", "#root")}
 `;
 }
 

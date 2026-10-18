@@ -52,6 +52,8 @@ export interface PendingInvitation {
   role: string;
   /** An opaque user id. Deliberately never rendered — see `invitationLede`. */
   invitedBy: string;
+  /** The inviter's handle without the `@`, for "Report or block"; `null` for none. */
+  invitedByHandle?: string | null;
   createdAt: number;
   expiresAt: number;
 }

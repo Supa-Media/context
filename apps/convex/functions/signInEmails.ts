@@ -12,6 +12,7 @@ import { parseInvitee } from "./lib/invitees";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
 import { accountsForEmail, attachedEmailsOf, MAX_EMAILS_PER_ACCOUNT } from "./lib/signInEmails";
 import { confirmedEmailsOf, requireEmailProof } from "./lib/emailProof";
+import { isFreshSingleEmailAccount } from "./lib/freshSignup";
 
 /**
  * Several sign-in emails on one account (Dev2, 2026-10-09).
@@ -359,7 +360,22 @@ export const confirmAddEmail = action({
  * every address uses the seven-day wait instead (`emailRecovery.ts`).
  */
 async function requireProofToAddEmail(ctx: QueryCtx, userId: Id<"users">): Promise<void> {
-  if ((await confirmedEmailsOf(ctx, userId)).length === 0) return;
+  const confirmed = await confirmedEmailsOf(ctx, userId);
+  if (confirmed.length === 0) return;
+  // Just signed up with one address: setting up a personal one needs no proof
+  // (`lib/freshSignup.ts`). Two addresses, or an old account, need it.
+  const user = await ctx.db.get(userId);
+  if (
+    user !== null &&
+    isFreshSingleEmailAccount({
+      createdAt: user._creationTime,
+      now: Date.now(),
+      confirmedCount: confirmed.length,
+      attachedCount: (await attachedEmailsOf(ctx, userId)).length,
+    })
+  ) {
+    return;
+  }
   await requireEmailProof(ctx, userId);
 }
 

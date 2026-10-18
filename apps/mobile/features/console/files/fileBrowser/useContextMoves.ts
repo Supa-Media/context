@@ -158,17 +158,9 @@ export function useContextMoves(deps: ContextMovesDeps) {
           destinationWorkspaceId: contextId as Id<"workspaces">,
           to,
         });
-        return {
-          touched: [path],
-          /*
-            The present tense is the honest one. `startContextMove` returns as
-            soon as the job exists; nothing has crossed yet, and a folder of a
-            few thousand notes will still be crossing when this toast is gone.
-            `contextMoves` is what says when it is done — and no `undo`,
-            because the inverse of a move that is still running is not a move.
-          */
-          message: `Moving to ${destination.label}…`,
-        };
+        // No message: `run` would pin it as a second notice with its own Dismiss,
+        // and the move's own line (`contextMoves`) already says it is moving.
+        return { touched: [path] };
       });
       if (selectedPath === path) {
         setSelectedPath(null);
@@ -182,7 +174,9 @@ export function useContextMoves(deps: ContextMovesDeps) {
     (id: string) => {
       void run(async () => {
         await resumeContextMoveAction({ moveId: id as Id<"contextMoves"> });
-        return { touched: [], message: "Picking the move back up…" };
+        // No message. `run` would leave it as a sticky notice with its own
+        // Dismiss, and the row flipping back to `moving` already says it.
+        return { touched: [] };
       });
     },
     [resumeContextMoveAction, run],

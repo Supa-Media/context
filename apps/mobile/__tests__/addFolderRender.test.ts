@@ -104,7 +104,8 @@ describe("the desktop tree's Add a folder row", () => {
   });
 });
 
-describe("phone Home's Add a folder line", () => {
+// Board 2 of meeting-2026-10-17/phone-inbox: one button in Folders' head, no last line.
+describe("phone Folders' Add a folder button", () => {
   const source = { notes: [], folders: ["2-areas"], shared: new Set<string>() };
   function home(onAddFolder?: () => void) {
     return createElement(PhoneHome, {
@@ -114,23 +115,23 @@ describe("phone Home's Add a folder line", () => {
       opened: [],
       recents: null,
       onOpen: () => {},
-      onTogglePin: null,
       ...(onAddFolder === undefined ? {} : { onAddFolder }),
     } as never);
   }
 
-  test("an editor sees it as the last line of All folders, and tapping it asks for the add", () => {
+  test("an editor sees it in the head, and tapping it asks for the add", () => {
     let asked = 0;
     mount(home(() => (asked += 1)));
-    const line = at("phone-home-add-folder");
-    expect(line?.textContent).toContain("Add a folder");
-    act(() => line!.click());
+    const button = at("phone-home-new-folder");
+    expect(button?.getAttribute("aria-label")).toBe("Add a folder");
+    expect(at("phone-home-add-folder")).toBeNull();
+    act(() => button!.click());
     expect(asked).toBe(1);
   });
 
   test("it is absent where nobody may make a folder", () => {
     mount(home());
-    expect(at("phone-home-add-folder")).toBeNull();
+    expect(at("phone-home-new-folder")).toBeNull();
   });
 });
 

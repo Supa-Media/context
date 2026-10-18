@@ -13,9 +13,11 @@ export function createFeedbackMethods({ post }) {
      * grant's own. Answers `{ eventId }` when it was sent, `{ refused }` with
      * a word (`invalid`, `rate_limited`, `not_configured`, `unavailable`) for
      * a person it resolved, and `null` for a token that resolves to nothing.
+     * `texts` — the person's recent texts with Tex — goes only after their
+     * YES to the report (`tools/reportGate.js`).
      */
-    async reportProblem(accessToken, message) {
-      const parsed = await post("/gateway/feedback", { accessToken, message });
+    async reportProblem(accessToken, message, texts = undefined) {
+      const parsed = await post("/gateway/feedback", { accessToken, message, ...(typeof texts === "string" ? { texts } : {}) });
       if (parsed?.report && typeof parsed.report.eventId === "string") return { eventId: parsed.report.eventId };
       if (typeof parsed?.refused === "string") return { refused: parsed.refused };
       return null;

@@ -2,34 +2,45 @@
 
 Part of [the texting assistant](../texting-assistant.md).
 
-## A setup hands Tex a few tools and names the rest (2026-10-14)
+## Tex holds the six tools, each listing only what it was granted (2026-10-16)
 
-Decided by the owner, 2026-10-14, after finding Tex "very stupid": "we only
-give it the absolute necessity tools ... it should know the names of the tools
-... and then it uses tool search to get the actual schema." Every texted turn
-was handed about fifty tools, some 18,000 tokens of schema, on every round,
-and a small model buried in descriptions picks slowly and badly.
+Decided by the owner, 2026-10-16: "it makes sense for both tex and other
+connected agents to have the same 6 tools, but different levels of access with
+each tool", and "Fold in" for Tex's own abilities. This replaces the tool shelf
+of 2026-10-14 (a setup's `core_tools` plus `find_tools`), which existed to cut
+some fifty tools' schemas down; six tools are smaller than the shelf was.
 
-A setup may name its core tools (`core_tools: [search_notes, read_note, …]` in
-`ai/production/<job>.md`). A turn is then offered those, each cut to the first
-paragraph of its description, plus `find_tools`; every other tool it holds is
-listed in the system prompt by name and first sentence, and `find_tools`
-(by names, or by a few words) puts the full definition in the tool list from
-the next round on (`apps/mcp/src/agent/toolShelf.js`). With four core tools the
-tools and the list together are about 3,600 tokens. A setup with no
-`core_tools` is offered everything, as before.
+Every Tex turn (a text, a routine's run, the app panel, a dream, Try it) is
+shown orient, search, fetch, write, manage and send (`apps/mcp/src/agent/sixTools.js`).
+What Tex may reach is still decided by the older tools' names, by the guards
+each surface already had (`agentTools`, `textingWriteTools`, the dream's three,
+Try it's read-only list, the computer's tools only on a text). The six only
+change what the model is told: each tool lists just the actions whose carrying
+tool the turn holds, and a dream narrows further by naming its one action
+(`grants: { write: ["save"] }`). A call to one of the six is translated into its
+carrying tool and must then pass the turn's allowlist; an action outside the
+grant is refused before anything is dispatched. Tex's own abilities are actions
+no connected app is granted: `send` browse, open_page, search_web, fill_login
+and progress, and `fetch` ids `skill:<name>` and `texts:`. The older names stay
+callable as themselves, as on the MCP, so a setup note or an earlier turn that
+names `write_note` still works; a setup's `core_tools` is no longer read.
 
-The shelf changes what the model is told about, never what it may reach: every
-shelved tool is one the turn already holds, so a model that calls one by name
-without loading it has it loaded and run, and a name the turn does not hold is
-still refused. `write_note`'s routine help sits in its first paragraph so a core
-`write_note` keeps it. This is ours rather than a provider's tool-search
-feature because a turn can fall back to a non-Claude model mid-turn.
+**What a simplification would cost:** deciding Tex's reach from the six's
+names instead of the carrying tools would rebuild every surface's guard and
+lose the ones that read a tool's own name (the routine path guard, the dream's
+note-only write); showing Tex every action regardless of grant gets it refused
+mid-task. Tests: `apps/mcp/test/agentSixTools.test.mjs`, and the attacks through
+the six in `apps/mcp/test/agentRoutine.test.mjs`.
 
-**What a simplification would cost:** offering every tool again puts the
-18,000 tokens back on every round; hiding the shelved names from the prompt
-gets "I can't do that" for things Tex can do. Tests:
-`apps/mcp/test/agentToolShelf.test.mjs`.
+## Tex sets workspaces up without a browser (Dev2, 2026-10-17)
+
+Decided by Dev2, 2026-10-17: what is UI-only about Context itself is doable
+through the MCP, so Tex does not send the person to a browser for Context; only
+a third party's sign-in needs one. Tex holds `manage` create_workspace, layout
+and connect_google like any connected app, through `textingWriteTools`, with
+nothing withheld. connect_google gives a link to the app's Connected apps page,
+because Google's own sign-in is the person's to finish. See
+[workspace setup](../gateway-protocol/workspace-setup.md).
 
 ## The conversation is kept long and shown short (2026-10-14)
 
@@ -66,6 +77,9 @@ The note has a hard size: 500 lines and 40,000 characters (the owner,
 any write past it, whoever the writer, and `remember` goes through the same
 check, so the prompt always carries the whole note and Tex is told to merge
 and drop what's stale as it grows.
+Since 2026-10-15 a nightly dream also rewrites it from the day's
+transcripts, and starts it for anyone who has none
+([dreams](./dreams.md)).
 
 **What a simplification would cost:** keeping the profile anywhere but a note
 makes it the opaque memory the owner ruled out. Tests:
