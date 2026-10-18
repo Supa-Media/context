@@ -94,6 +94,122 @@ describe("worker", () => {
     expect(routedTo).toEqual([]);
   });
 
+  describe("sendblue webhook", () => {
+    const SB_SECRET = "0123456789abcdef0123456789abcdef";
+    const sbEnv = () => {
+      const made = env();
+      const urls: string[] = [];
+      made.env.SENDBLUE_WEBHOOK_SECRET = SB_SECRET;
+      made.env.SENDER_INBOX = {
+        idFromName: (name: string) => ({ name }),
+        get: (id: { name: string }) => ({
+          fetch: async (url: string) => {
+            made.routedTo.push(id.name);
+            urls.push(url);
+            return Response.json({ outcome: "queued" });
+          },
+        }),
+      } as unknown as DurableObjectNamespace;
+      return { ...made, urls };
+    };
+    const inbound = (over: Record<string, unknown> = {}) =>
+      JSON.stringify({
+        content: "hello",
+        is_outbound: false,
+        message_handle: "mh_1",
+        from_number: "+15555550100",
+        sendblue_number: "+15555550199",
+        media_url: "",
+        message_type: "message",
+        group_id: "",
+        service: "iMessage",
+        ...over,
+      });
+    const post = (body: string, secret?: string) =>
+      new Request("https://agent.example/sendblue", {
+        method: "POST",
+        headers: secret === undefined ? {} : { "sb-signing-secret": secret },
+        body,
+      });
+
+    it("queues an iMessage carrying our secret in the sender's inbox, with the Worker's own address", async () => {
+      const { env: e, routedTo, urls } = sbEnv();
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      expect((await worker.fetch(post(inbound(), SB_SECRET), e)).status).toBe(200);
+      expect(routedTo).toEqual(["+15555550100"]);
+      expect(urls).toEqual(["https://inbox/accept?origin=https%3A%2F%2Fagent.example"]);
+    });
+
+    it("refuses a wrong or missing secret, and everything when ours is not set", async () => {
+      const { env: e, routedTo } = sbEnv();
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      expect((await worker.fetch(post(inbound(), "wrong-secret-wrong-secret"), e)).status).toBe(401);
+      expect((await worker.fetch(post(inbound()), e)).status).toBe(401);
+      // A Linq signature does not open the Sendblue route.
+      expect((await worker.fetch(await signedRequest(inbound(), { path: "/sendblue" }), e)).status).toBe(401);
+      e.SENDBLUE_WEBHOOK_SECRET = undefined;
+      expect((await worker.fetch(post(inbound(), ""), e)).status).toBe(401);
+      expect(routedTo).toEqual([]);
+    });
+
+    it("answers 200 and drops an SMS or a group, logging why but never the number or text", async () => {
+      const { env: e, routedTo } = sbEnv();
+      const lines: string[] = [];
+      vi.spyOn(console, "log").mockImplementation((line: string) => void lines.push(line));
+      expect((await worker.fetch(post(inbound({ service: "SMS" }), SB_SECRET), e)).status).toBe(200);
+      expect((await worker.fetch(post(inbound({ group_id: "g" }), SB_SECRET), e)).status).toBe(200);
+      expect(routedTo).toEqual([]);
+      expect(lines.map((line) => JSON.parse(line))).toEqual([
+        { event: "sendblue_webhook", outcome: "ignored", reason: "service" },
+        { event: "sendblue_webhook", outcome: "ignored", reason: "group" },
+      ]);
+      expect(lines.join("\n")).not.toMatch(/5555550100|hello/);
+    });
+  });
+
+  describe("hosted pictures", () => {
+    const ID = "b".repeat(64);
+    const TOKEN = "c".repeat(64);
+    const mediaEnv = () => {
+      const made = env();
+      const asked: string[] = [];
+      made.env.SENDER_INBOX = {
+        idFromString: (hex: string) => {
+          if (hex !== ID) throw new Error("not an id of this namespace");
+          return { hex };
+        },
+        get: () => ({
+          fetch: async (url: string) => {
+            asked.push(url);
+            return new Response("bytes", { headers: { "content-type": "image/png" } });
+          },
+        }),
+      } as unknown as DurableObjectNamespace;
+      return { env: made.env, asked };
+    };
+
+    it("asks the object named in the address for its picture", async () => {
+      const { env: e, asked } = mediaEnv();
+      const response = await worker.fetch(new Request(`https://agent.example/media/${ID}/${TOKEN}.png`), e);
+      expect(response.status).toBe(200);
+      expect(asked).toEqual([`https://inbox/media/${TOKEN}`]);
+    });
+
+    it("is a 404 for any address that is not one, without asking any object", async () => {
+      const { env: e, asked } = mediaEnv();
+      for (const path of [
+        `/media/${"d".repeat(64)}/${TOKEN}.png`,
+        `/media/${ID}/${TOKEN}`,
+        `/media/${ID}/../routine-text`,
+        `/media/${ID.toUpperCase()}/${TOKEN}.png`,
+      ]) {
+        expect((await worker.fetch(new Request(`https://agent.example${path}`), e)).status).toBe(404);
+      }
+      expect((await worker.fetch(new Request(`https://agent.example/media/${ID}/${TOKEN}.png`, { method: "POST" }), e)).status).toBe(405);
+      expect(asked).toEqual([]);
+    });
+  });
+
   it("reports which settings are present, and never a secret's value", async () => {
     const { env: e } = env();
     e.LINQ_WEBHOOK_SECRET = "";
@@ -104,6 +220,8 @@ describe("worker", () => {
       ok: true,
       webhook: false,
       replies: true,
+      sendblueWebhook: false,
+      sendblueReplies: false,
       workerSecret: true,
       controlPlane: true,
       gatewayOrigin: "https://gw.example",

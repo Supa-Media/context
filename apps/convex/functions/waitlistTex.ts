@@ -1,4 +1,7 @@
 /**
+ * With Tex on a dedicated Sendblue line (`TEX_LINE_NUMBERS`, 2026-10-18) there
+ * is no list: this only says which number to text. Before that:
+ *
  * Letting somebody in puts their phone on Tex's list (Dev2, 2026-10-17:
  * "letting someone off the wait list automatically puts them into that
  * list"). The list is the Linq shared line's contacts, twenty at most, and a
@@ -28,7 +31,7 @@ import {
   type ActionCtx,
   type QueryCtx,
 } from "../_generated/server";
-import { addToLinqLineAt, removeFromLinqLine } from "./lib/adminFns/texAllowlist";
+import { addToLinqLineAt, dedicatedTexLines, removeFromLinqLine, texLineFor } from "./lib/adminFns/texAllowlist";
 import { recordAdminAudit } from "./lib/adminFns/audit";
 import { confirmedEmailsOf, currentPhoneOf } from "./lib/emailProof";
 import { textTexNumber } from "./waitlistText";
@@ -107,6 +110,12 @@ export async function putOnTexLine(
     const facts = await ctx.runQuery(internal.functions.waitlistTex.texFacts, { waitlistId });
     const number = phone ?? facts?.phone ?? null;
     if (facts === null || number === null) return null;
+    // A dedicated line has no list: anybody can text it.
+    const dedicated = dedicatedTexLines(process.env.TEX_LINE_NUMBERS);
+    if (dedicated.length > 0) {
+      log("dedicated");
+      return texLineFor(dedicated, number);
+    }
     if (!process.env.LINQ_API_KEY?.trim()) {
       log("skipped", { reason: "linq_not_connected" });
       return null;

@@ -114,7 +114,7 @@ import {
   SHARED_LINE_CAP,
   addToLinqLine,
   peopleForPhones,
-  readLinqLine,
+  readTexLine,
   removeFromLinqLine,
   texAllowlistValidator,
   texChangeValidator,
@@ -813,7 +813,7 @@ export const texAllowlist = action({
     } catch (error) {
       throw toConvexError(error);
     }
-    const line = await readLinqLine({ LINQ_API_KEY: process.env.LINQ_API_KEY });
+    const line = await readTexLine({ LINQ_API_KEY: process.env.LINQ_API_KEY, TEX_LINE_NUMBERS: process.env.TEX_LINE_NUMBERS });
     if (line.state !== "shared") return line;
     const people: TexPerson[] = await ctx.runQuery(internal.functions.admin.texPeople, {
       phones: line.contacts.map((contact) => contact.phone),

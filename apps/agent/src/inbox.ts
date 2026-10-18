@@ -13,9 +13,12 @@
  *   the reply is sent or given up on. Then it is deleted.
  * - `seen:<eventId>` holds a timestamp, never text, for a day, so a webhook
  *   that Linq redelivers is answered once.
- * - `chat` holds the Linq chat id of this sender's last accepted text, never
- *   text, so a routine can text them unprompted (routines.ts). Linq's line
- *   only reaches people who texted it first, and this is the record of that.
+ * - `chat` holds the chat id of this sender's last accepted text (Linq's, or
+ *   `sendblue:<line>:<phone>`), never text, so a routine can text them
+ *   unprompted (routines.ts), on the line they texted. Tex only reaches people
+ *   who texted it first, and this is the record of that.
+ * - `media:<token>` holds a picture from the person's notes for at most half
+ *   an hour, while Sendblue fetches it (`media.ts`).
  * - `card` holds a timestamp, never text: when this sender was last offered
  *   the line's contact card, so it is offered at most once a day.
  * - `ready` holds the phone, the chat id and times, never text, while Tex owes
@@ -32,10 +35,11 @@
  * lands behind them is folded into them.
  */
 
-import { markLinqRead, sendLinqText, shareLinqContactCard, startLinqTyping, type Fetch } from "./clients";
 import { textsFromAnswer } from "./format";
 import { MAX_INBOUND_ATTACHMENTS } from "./inbound";
-import { PICTURE_FAILED, describePart, partsFor, sendLinqMedia, uploadLinqPicture, type OutgoingPicture, type SendPart } from "./outgoing";
+import { lineFor, type LineDeps } from "./line";
+import { pruneMedia } from "./media";
+import { PICTURE_FAILED, describePart, partsFor, type Media, type OutgoingPicture, type SendPart } from "./outgoing";
 import { COPY, replyTo, TryLater, type Message, type ReplyDeps } from "./reply";
 import { record } from "./simulator";
 import { oweReadyText } from "./ready";
@@ -51,13 +55,15 @@ export type InboxStorage = {
   getAlarm?(): Promise<number | null>;
 };
 
-export type InboxDeps = ReplyDeps & { linqApiKey: string; now: () => number };
+export type InboxDeps = ReplyDeps & Omit<LineDeps, "fetch"> & { now: () => number };
 
 /**
  * `reply` was one string before a reply could be several texts; both are read.
  * A picture in it is an uploaded attachment's id or a web address, never bytes.
+ * `sent` counts the parts already sent, so a retry after a partial send repeats
+ * none of them on a line with no idempotency key (Sendblue).
  */
-type Pending = { message: Message; reply?: SendPart[] | string; attempts: number; tries?: number };
+type Pending = { message: Message; reply?: SendPart[] | string; attempts: number; tries?: number; sent?: number };
 
 export const SEEN_FOR_MS = 24 * 60 * 60 * 1000;
 export const MAX_SEND_ATTEMPTS = 3;
@@ -138,17 +144,22 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
         return;
       }
     }
+    let sent = item.sent ?? 0;
     try {
       // Each text keeps its own idempotency key, so a retry after a partial
-      // send repeats nothing Linq already accepted.
+      // send repeats nothing Linq already accepted; `sent` does the same on
+      // a line without keys.
+      const line = lineFor(lineDeps(deps), item.message.chatId);
       for (const [index, part] of reply.entries()) {
+        if (index < sent) continue;
         if (item.message.channel === "simulator") {
           await record(storage, "in", describePart(part), deps.now());
           continue;
         }
         const key = index === 0 ? `reply:${item.message.eventId}` : `reply:${item.message.eventId}:${index}`;
-        if (typeof part === "string") await sendLinqText(deps.fetch as Fetch, deps.linqApiKey, item.message.chatId, part, key);
+        if (typeof part === "string") await line.sendText(item.message.chatId, part, key);
         else await sendPicture(deps, item.message.chatId, part.media, key);
+        sent = index + 1;
       }
       await storage.delete(key);
       if (item.message.channel !== "simulator") await offerCard(storage, item.message.chatId, deps);
@@ -160,12 +171,17 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
       }
       // Keep the computed reply so a retry sends the same answer rather than
       // asking the model again; it is deleted with the item.
-      await storage.put<Pending>(key, { message: item.message, reply, attempts });
+      await storage.put<Pending>(key, { message: item.message, reply, attempts, sent });
       await storage.setAlarm(deps.now() + 2 ** attempts * 5_000);
       return;
     }
   }
   await pruneSeen(storage, deps.now());
+  await pruneMedia(storage, deps.now());
+}
+
+function lineDeps(deps: InboxDeps): LineDeps {
+  return { fetch: deps.fetch as LineDeps["fetch"], linqApiKey: deps.linqApiKey, sendblue: deps.sendblue, hostPicture: deps.hostPicture };
 }
 
 /**
@@ -179,7 +195,7 @@ async function offerCard(storage: InboxStorage, chatId: string, deps: InboxDeps)
   const last = await storage.get<number>(CARD_KEY);
   if (last !== undefined && deps.now() - last < CARD_EVERY_MS) return;
   await storage.put(CARD_KEY, deps.now());
-  await shareLinqContactCard(deps.fetch as Fetch, deps.linqApiKey, chatId);
+  await lineFor(lineDeps(deps), chatId).shareContactCard(chatId);
 }
 
 /** Linq clears the typing bubble after about 85 seconds; this renews it sooner. */
@@ -220,9 +236,9 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
   // The simulator has no Linq to upload to; its log says a picture went.
   const upload =
     message.channel === "simulator"
-      ? async () => "simulator"
+      ? async (): Promise<Media> => ({ attachment_id: "simulator" })
       : (picture: { name: string; mediaType: string; data: string }) =>
-          uploadLinqPicture(deps.fetch as Fetch, deps.linqApiKey, picture);
+          lineFor(lineDeps(deps), message.chatId).uploadPicture(picture);
   return await partsFor(texts, pictures, upload);
 }
 
@@ -231,13 +247,14 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
  * becomes a sentence saying so rather than a reply retried until dropped; a
  * failure that is not a refusal is retried with the reply.
  */
-async function sendPicture(deps: InboxDeps, chatId: string, media: { attachment_id: string } | { url: string }, key: string) {
+async function sendPicture(deps: InboxDeps, chatId: string, media: Media, key: string) {
+  const line = lineFor(lineDeps(deps), chatId);
   try {
-    await sendLinqMedia(deps.fetch as Fetch, deps.linqApiKey, chatId, media, key);
+    await line.sendMedia(chatId, media, key);
   } catch (error) {
     const status = (error as { status?: number | null }).status;
     if (typeof status !== "number" || status < 400 || status >= 500 || status === 429) throw error;
-    await sendLinqText(deps.fetch as Fetch, deps.linqApiKey, chatId, PICTURE_FAILED, `${key}:failed`);
+    await line.sendText(chatId, PICTURE_FAILED, `${key}:failed`);
   }
 }
 
@@ -252,9 +269,10 @@ async function answerTexts(message: Message, deps: InboxDeps, storage: InboxStor
       try {
         if (simulator) await record(storage, "in", text, deps.now());
         else {
-          await sendLinqText(deps.fetch as Fetch, deps.linqApiKey, message.chatId, text, `progress:${message.eventId}:${index}`);
+          const line = lineFor(lineDeps(deps), message.chatId);
+          await line.sendText(message.chatId, text, `progress:${message.eventId}:${index}`);
           // Sending a text clears the bubble; the task is still going.
-          await startLinqTyping(deps.fetch as Fetch, deps.linqApiKey, message.chatId);
+          await line.startTyping(message.chatId);
         }
       } catch {
         // A progress line that failed costs the person a line, never the answer.
@@ -281,8 +299,9 @@ async function answerTexts(message: Message, deps: InboxDeps, storage: InboxStor
   }
   // Read first, then the bubble, as a person would: the text is seen, then
   // answered. Both are quick and never throw.
-  await markLinqRead(deps.fetch as Fetch, deps.linqApiKey, message.chatId);
-  const typing = () => startLinqTyping(deps.fetch as Fetch, deps.linqApiKey, message.chatId);
+  const line = lineFor(lineDeps(deps), message.chatId);
+  await line.markRead(message.chatId);
+  const typing = () => line.startTyping(message.chatId);
   await typing();
   let renewal: Promise<void> = Promise.resolve();
   const timer = setInterval(() => {

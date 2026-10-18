@@ -148,6 +148,32 @@ function asTime(value: unknown): number | null {
   return Number.isFinite(at) && at > 0 ? at : null;
 }
 
+/**
+ * Tex's dedicated Sendblue line(s), from `TEX_LINE_NUMBERS` (comma-separated
+ * E.164, Dev2 2026-10-18). Anybody can text a dedicated line, so while one is
+ * set there is no list to be on, and the Linq list is no longer consulted.
+ */
+export function dedicatedTexLines(value: string | undefined): string[] {
+  return [...new Set((value ?? "").split(",").map((part) => part.trim()).filter((part) => E164.test(part)))];
+}
+
+/**
+ * The line a person is told to text. Several lines share people out by their
+ * number, so the same person is always told the same line, and adding a line
+ * moves only some of them.
+ */
+export function texLineFor(lines: string[], phone: string): string {
+  let sum = 0;
+  for (const char of phone) sum = (sum * 31 + char.charCodeAt(0)) % 1_000_003;
+  return lines[sum % lines.length];
+}
+
+/** The line the console shows: a dedicated one when set, else Linq's. Never throws. */
+export async function readTexLine(env: LinqEnv & { TEX_LINE_NUMBERS?: string }): Promise<LinqLine> {
+  const dedicated = dedicatedTexLines(env.TEX_LINE_NUMBERS);
+  return dedicated.length > 0 ? { state: "unlimited", line: dedicated[0] } : await readLinqLine(env);
+}
+
 /** The line, and its list when it has one. Never throws. */
 export async function readLinqLine(env: LinqEnv, fetchImpl: Fetch = globalThis.fetch): Promise<LinqLine> {
   const key = env.LINQ_API_KEY?.trim();

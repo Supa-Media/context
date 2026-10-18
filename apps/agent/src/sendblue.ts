@@ -1,0 +1,191 @@
+/**
+ * Sendblue: Tex's dedicated iMessage line (Dev2, 2026-10-18), in place of
+ * Linq's free shared line, whose 20-number list kept newcomers out.
+ *
+ * Sendblue has no chat ids: a message goes to a phone number from one of our
+ * line numbers. So a Sendblue chat is named `sendblue:<line>:<phone>`, which
+ * is what the inbox remembers as the chat a sender last texted from, and the
+ * reply goes back from the same line it came in on.
+ *
+ * Its receive webhook carries the secret we set, verbatim, in the
+ * `sb-signing-secret` header; there is no HMAC over the body. So the secret is
+ * compared in constant time, and a redelivered message is answered once
+ * because the inbox dedupes on its `message_handle`.
+ *
+ * No response body is ever logged or echoed: it can quote the message.
+ */
+
+import { MAX_REPLY_TEXT, ServiceError, type Fetch } from "./clients";
+import { MAX_INBOUND_ATTACHMENTS, MAX_INBOUND_TEXT, type Inbound, type InboundAttachment } from "./inbound";
+
+export const SENDBLUE_API = "https://api.sendblue.co";
+
+export type SendblueKeys = { keyId: string; secret: string };
+
+const E164 = /^\+[1-9]\d{6,14}$/;
+const CHAT_PREFIX = "sendblue:";
+const TIMEOUT_MS = 30_000;
+const QUICK_TIMEOUT_MS = 3_000;
+
+export function sendblueChatId(line: string, phone: string): string {
+  return `${CHAT_PREFIX}${line}:${phone}`;
+}
+
+export function isSendblueChat(chatId: string): boolean {
+  return chatId.startsWith(CHAT_PREFIX);
+}
+
+/** The line and the person of a Sendblue chat id, or null for anything else. */
+export function parseSendblueChat(chatId: string): { line: string; phone: string } | null {
+  if (!isSendblueChat(chatId)) return null;
+  const [line, phone, ...rest] = chatId.slice(CHAT_PREFIX.length).split(":");
+  if (rest.length > 0 || !E164.test(line ?? "") || !E164.test(phone ?? "")) return null;
+  return { line, phone };
+}
+
+/** Both keys, or null: a half-configured line is no line. */
+export function sendblueKeys(keyId: string | undefined, secret: string | undefined): SendblueKeys | null {
+  const id = keyId?.trim();
+  const key = secret?.trim();
+  return id && key ? { keyId: id, secret: key } : null;
+}
+
+async function call(
+  fetcher: Fetch,
+  keys: SendblueKeys,
+  path: string,
+  body: Record<string, unknown>,
+  timeoutMs = TIMEOUT_MS,
+): Promise<number> {
+  let response: Response;
+  try {
+    response = await fetcher(`${SENDBLUE_API}${path}`, {
+      method: "POST",
+      headers: {
+        "sb-api-key-id": keys.keyId,
+        "sb-api-secret-key": keys.secret,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch {
+    throw new ServiceError("sendblue", null);
+  }
+  // Drained, never read: an error body can quote the request.
+  await response.body?.cancel();
+  return response.status;
+}
+
+function chatOf(chatId: string): { number: string; from_number: string } {
+  const chat = parseSendblueChat(chatId);
+  if (chat === null) throw new ServiceError("sendblue", null);
+  return { number: chat.phone, from_number: chat.line };
+}
+
+export async function sendSendblueText(fetcher: Fetch, keys: SendblueKeys, chatId: string, text: string): Promise<void> {
+  const status = await call(fetcher, keys, "/api/send-message", {
+    ...chatOf(chatId),
+    content: text.slice(0, MAX_REPLY_TEXT),
+  });
+  if (status < 200 || status >= 300) throw new ServiceError("sendblue", status);
+}
+
+/** Send one picture by its https address, which Sendblue fetches. */
+export async function sendSendblueMedia(fetcher: Fetch, keys: SendblueKeys, chatId: string, url: string): Promise<void> {
+  const status = await call(fetcher, keys, "/api/send-message", { ...chatOf(chatId), media_url: url });
+  if (status < 200 || status >= 300) throw new ServiceError("sendblue", status);
+}
+
+/** The "…" bubble. Best effort and quick; never throws. */
+export async function startSendblueTyping(fetcher: Fetch, keys: SendblueKeys, chatId: string): Promise<void> {
+  try {
+    await call(fetcher, keys, "/api/send-typing-indicator", chatOf(chatId), QUICK_TIMEOUT_MS);
+  } catch {
+    // A bubble that failed costs nothing.
+  }
+}
+
+/** "Read" under the person's text. Best effort and quick; never throws. */
+export async function markSendblueRead(fetcher: Fetch, keys: SendblueKeys, chatId: string): Promise<void> {
+  try {
+    await call(fetcher, keys, "/api/mark-read", chatOf(chatId), QUICK_TIMEOUT_MS);
+  } catch {
+    // A receipt that failed costs only the receipt.
+  }
+}
+
+/**
+ * Whether the request carries our webhook secret. Both sides are hashed
+ * first, so the comparison takes the same time whatever the header holds,
+ * its length included. A short or missing secret refuses everything, which is
+ * the safe direction.
+ */
+export async function verifySendblueSecret(secret: string, headers: Headers): Promise<boolean> {
+  const expected = secret.trim();
+  const given = headers.get("sb-signing-secret");
+  if (expected.length < 16 || !given) return false;
+  const digest = async (value: string) =>
+    new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
+  const [a, b] = await Promise.all([digest(expected), digest(given.trim())]);
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
+  return diff === 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * The one shape of Sendblue's receive webhook this Worker acts on: an
+ * inbound iMessage in a direct chat, from a phone number, with words or a
+ * file. The same rules as Linq's (`inbound.ts`): groups, SMS and Apple ID
+ * email senders are dropped on purpose.
+ */
+export function parseSendblueInbound(payload: unknown): Inbound {
+  if (!isRecord(payload)) return { kind: "invalid" };
+  const handle = payload.message_handle;
+  if (typeof handle !== "string" || handle === "" || handle.length > 200) return { kind: "invalid" };
+  if (payload.is_outbound !== false) return { kind: "ignored", reason: "event_type" };
+
+  const group = payload.group_id;
+  if ((typeof group === "string" && group !== "") || (payload.message_type !== undefined && payload.message_type !== "message")) {
+    return { kind: "ignored", reason: "group" };
+  }
+  const from = payload.from_number;
+  if (typeof from !== "string" || !E164.test(from)) return { kind: "ignored", reason: "sender" };
+  // The phone is the login, and only Apple vouches for an iMessage sender.
+  if (payload.service !== "iMessage") return { kind: "ignored", reason: "service" };
+
+  const line = [payload.sendblue_number, payload.to_number].find(
+    (value): value is string => typeof value === "string" && E164.test(value),
+  );
+  if (line === undefined) return { kind: "invalid" };
+
+  const text = typeof payload.content === "string" ? payload.content.trim() : "";
+  const attachments: InboundAttachment[] = [];
+  if (typeof payload.media_url === "string" && payload.media_url !== "") {
+    try {
+      const url = new URL(payload.media_url);
+      if (url.protocol === "https:") {
+        const name = decodeURIComponent(url.pathname.split("/").pop() ?? "").slice(0, 200);
+        // No type or size is sent; the bytes and the name tell (`attachments.ts`).
+        attachments.push({ url: payload.media_url, mimeType: "", filename: name, size: null });
+      }
+    } catch {
+      // not an address
+    }
+  }
+  if (text.length === 0 && attachments.length === 0) return { kind: "ignored", reason: "empty" };
+
+  return {
+    kind: "message",
+    eventId: `sendblue:${handle}`,
+    chatId: sendblueChatId(line, from),
+    from,
+    messageId: handle,
+    text: text.slice(0, MAX_INBOUND_TEXT),
+    ...(attachments.length > 0 ? { attachments: attachments.slice(0, MAX_INBOUND_ATTACHMENTS) } : {}),
+  };
+}

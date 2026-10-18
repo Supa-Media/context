@@ -112,10 +112,13 @@ jobs:
           AGENT_WORKER_SECRET: ${{ secrets.AGENT_WORKER_SECRET }}
           LINQ_API_KEY: ${{ secrets.LINQ_API_KEY }}
           LINQ_WEBHOOK_SECRET: ${{ secrets.LINQ_WEBHOOK_SECRET }}
+          SENDBLUE_API_KEY_ID: ${{ secrets.SENDBLUE_API_KEY_ID }}
+          SENDBLUE_API_SECRET: ${{ secrets.SENDBLUE_API_SECRET }}
+          SENDBLUE_WEBHOOK_SECRET: ${{ secrets.SENDBLUE_WEBHOOK_SECRET }}
         run: |
           set -euo pipefail
           printf '%s' "$CONTROL_PLANE_URL" | pnpm exec wrangler secret put CONTROL_PLANE_ORIGIN
-          for name in AGENT_WORKER_SECRET LINQ_API_KEY LINQ_WEBHOOK_SECRET; do
+          for name in AGENT_WORKER_SECRET LINQ_API_KEY LINQ_WEBHOOK_SECRET SENDBLUE_API_KEY_ID SENDBLUE_API_SECRET SENDBLUE_WEBHOOK_SECRET; do
             if [ -n "${!name:-}" ]; then
               printf '%s' "${!name}" | pnpm exec wrangler secret put "$name"
             else
@@ -150,7 +153,7 @@ jobs:
               console.error("The texting assistant is misconfigured: " + JSON.stringify({ ok: d.ok, controlPlane: d.controlPlane, gatewayOrigin: d.gatewayOrigin }));
               process.exit(1);
             }
-            for (const [key, name] of [["webhook", "LINQ_WEBHOOK_SECRET"], ["replies", "LINQ_API_KEY"], ["workerSecret", "AGENT_WORKER_SECRET"]]) {
+            for (const [key, name] of [["sendblueWebhook", "SENDBLUE_WEBHOOK_SECRET"], ["sendblueReplies", "SENDBLUE_API_KEY_ID and SENDBLUE_API_SECRET"], ["workerSecret", "AGENT_WORKER_SECRET"]]) {
               if (d[key] !== true) console.log("::warning::The texting assistant has no " + name + " yet, so it answers no texts.");
             }
             require("fs").writeFileSync("/tmp/agent-gateway", d.gatewayOrigin);

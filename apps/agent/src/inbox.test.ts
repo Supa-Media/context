@@ -184,7 +184,7 @@ describe("inbox", () => {
     expect(sent).toEqual([{ text: COPY.unavailable, idempotency: "reply:e1" }]);
   });
 
-  it("sends a sign-in link as its own text, and a retry repeats neither text's key", async () => {
+  it("sends a sign-in link as its own text, and a retry resends only the text that failed", async () => {
     const storage = new MemoryStorage();
     await accept(storage, msg("e1"), 1_000);
     const sent: Sent[] = [];
@@ -192,7 +192,8 @@ describe("inbox", () => {
     // The greeting goes through, the link fails, then everything succeeds.
     await drain(storage, deps({ unlinked: true, sent, linqStatus: () => (++sends === 2 ? 503 : 200) }));
     await drain(storage, deps({ unlinked: true, sent }));
-    expect(sent.map((s) => s.idempotency)).toEqual(["reply:e1", "reply:e1", "reply:e1:1"]);
+    // The greeting is not sent twice: a line with no idempotency key (Sendblue) would show it twice.
+    expect(sent.map((s) => s.idempotency)).toEqual(["reply:e1", "reply:e1:1"]);
     expect(sent.at(-1)?.text).toBe("https://app.example/texts/abc123");
     expect(storage.data.has("pending:000000000001")).toBe(false);
   });

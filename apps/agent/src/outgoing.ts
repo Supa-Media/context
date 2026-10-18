@@ -15,8 +15,11 @@ import { LINQ_API, MAX_REPLY_TEXT, ServiceError, type Fetch } from "./clients";
 
 export type OutgoingPicture = { name: string; mediaType: string; data: string } | { url: string };
 
-/** What the inbox sends after the words: a text, or a media part ready for Linq. */
-export type SendPart = string | { media: { attachment_id: string } | { url: string } };
+/** A picture ready to send: an attachment uploaded to Linq, or an address the line fetches. */
+export type Media = { attachment_id: string } | { url: string };
+
+/** What the inbox sends after the words: a text, or a media part ready for the line. */
+export type SendPart = string | { media: Media };
 
 export const MAX_OUTGOING_PICTURES = 4;
 const SENDABLE = new Set(["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif"]);
@@ -103,7 +106,7 @@ export async function uploadLinqPicture(
 export async function partsFor(
   texts: string[],
   pictures: OutgoingPicture[],
-  upload: (picture: { name: string; mediaType: string; data: string }) => Promise<string>,
+  upload: (picture: { name: string; mediaType: string; data: string }) => Promise<Media>,
 ): Promise<SendPart[]> {
   const parts: SendPart[] = [...texts];
   let failed = false;
@@ -113,7 +116,7 @@ export async function partsFor(
       continue;
     }
     try {
-      parts.push({ media: { attachment_id: await upload(picture) } });
+      parts.push({ media: await upload(picture) });
     } catch {
       failed = true;
     }
@@ -127,7 +130,7 @@ export async function sendLinqMedia(
   fetcher: Fetch,
   apiKey: string,
   chatId: string,
-  media: { attachment_id: string } | { url: string },
+  media: Media,
   idempotencyKey: string,
 ): Promise<void> {
   let response: Response;
