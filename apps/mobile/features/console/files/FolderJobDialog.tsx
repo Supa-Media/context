@@ -86,8 +86,13 @@ export function FolderJobDialog({
                   <View style={styles.flex}>
                     <Text variant="rowTitle">{choice.label}</Text>
                     <Text variant="rowSub">{choice.line}</Text>
+                    {/* Under the line, not beside it: a long nested path would squeeze the words to a letter a row. */}
+                    {choice.current ? (
+                      <Text variant="meta">This folder does it now</Text>
+                    ) : choice.now === null ? null : (
+                      <Text variant="meta">Now {pathCrumbs(choice.now)}</Text>
+                    )}
                   </View>
-                  <Text variant="meta">{choice.current ? "This folder" : choice.now === null ? "" : `now ${pathCrumbs(choice.now)}`}</Text>
                 </Pressable>
               ))}
             </View>

@@ -210,7 +210,7 @@ function JobLine({
               {row.job === "tex" ? "Made the first time Tex is used" : "No folder"}
             </Text>
           ) : (
-            <Text variant="body" testID={`folders-path-${row.job}`}>
+            <Text variant="body" style={[styles.path, stacked && styles.pathStacked]} testID={`folders-path-${row.job}`}>
               {pathCrumbs(row.path)}
             </Text>
           )}
@@ -219,14 +219,14 @@ function JobLine({
             {row.canChange && onChoose !== undefined ? (
               <Button
                 label={row.path === null ? "Use a folder" : "Change"}
-                variant={row.path === null ? "ghost" : "dialog"}
+                variant="dialog"
                 disabled={busy}
                 onPress={onPick}
                 testID={`folders-change-${row.job}`}
               />
             ) : null}
             {makeable ? <Button label="Add" variant="dialog" disabled={busy} onPress={onAdd} testID={`folders-add-${row.job}`} /> : null}
-            {row.canRemove && onRemove !== undefined && !confirming ? (
+            {row.canRemove && row.path !== null && onRemove !== undefined && !confirming ? (
               <TextLink label="Remove" onPress={() => setConfirming(true)} testID={`folders-remove-${row.job}`} />
             ) : null}
           </View>
@@ -271,9 +271,12 @@ const makeStyles = (colors: Colors) =>
     divided: { borderTopWidth: StyleSheet.hairlineWidth, borderColor: colors.lineStrong },
     lineTop: { flexDirection: "row", alignItems: "center", gap: space.x3 },
     lineStacked: { flexDirection: "column", alignItems: "stretch" },
-    what: { flex: 1, flexDirection: "row", alignItems: "flex-start", gap: space.x3, minWidth: 0 },
-    where: { flexDirection: "row", alignItems: "center", gap: space.x3, flexShrink: 1 },
-    whereStacked: { paddingLeft: 32, justifyContent: "space-between", flexWrap: "wrap" },
+    what: { flex: 1, flexDirection: "row", alignItems: "flex-start", gap: space.x3, minWidth: 240 },
+    // A long nested path wraps inside its half; it never squeezes the job's words.
+    where: { flexDirection: "row", alignItems: "center", gap: space.x3, flexShrink: 1, maxWidth: "50%" },
+    path: { flexShrink: 1, textAlign: "right" },
+    pathStacked: { textAlign: "left" },
+    whereStacked: { paddingLeft: 32, justifyContent: "space-between", flexWrap: "wrap", maxWidth: "100%" },
     none: { fontStyle: "italic" },
     actions: { flexDirection: "row", alignItems: "center", gap: space.x2, flexWrap: "wrap" },
     confirm: { gap: space.x2, paddingLeft: 32 },
