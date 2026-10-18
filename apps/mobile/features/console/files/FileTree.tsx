@@ -13,6 +13,7 @@ import type { PickGesture } from "./selection";
 import { useRowInteractions } from "./rowInteractions";
 import { SyncMarkDot, withSyncMark } from "./SyncMarkDot";
 import { TreeFolderGlyph } from "./TreeFolderGlyph";
+import { TreeDropLine } from "./TreeDropLine";
 import { AgentMark, withAgentMark } from "../agents/AgentMark";
 import type { AgentMarkKind } from "../agents/agentActivity";
 import type { TreeRow } from "./tree";
@@ -314,18 +315,8 @@ function FileRow({
       style={[styles.row, drop === "into" && styles.rowDrop]}
       ref={interactions.ref as never}
     >
-      {/*
-        THE INSERTION LINE: a folder dropped here goes above or below this
-        row, among its siblings (or into this row's level from another). From
-        the name's indent, so it says which level the folder would join.
-      */}
-      {drop === "above" || drop === "below" ? (
-        <View
-          style={[styles.dropLine, drop === "above" ? styles.dropLineAbove : styles.dropLineBelow, { left: indentFor(row.depth) }]}
-          testID={`tree-drop-${drop}`}
-          aria-hidden
-        />
-      ) : null}
+      {/* A folder dropped here goes above or below this row: `TreeDropLine`. */}
+      {drop === "above" || drop === "below" ? <TreeDropLine side={drop} left={indentFor(row.depth) + 16} /> : null}
       {/*
         THE SELECTED ROW'S ACCENT BAR.
 
@@ -613,23 +604,10 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * The folder a drop would go into: a wash on the whole row.
    *
    * Folders have an order of their own since 2026-10-18 (`nodes.order`), so a
-   * drop *between* rows means something too and draws `dropLine` instead.
+   * drop *between* rows means something too and draws `TreeDropLine` instead.
    * Notes still list by name, so a note only ever drops into a folder.
    */
   rowDrop: { backgroundColor: colors.accentDim },
-  /** Where a folder dropped between rows would go: 2pt of accent across the row's edge. */
-  dropLine: {
-    position: "absolute",
-    zIndex: 2,
-    right: 4,
-    height: 2,
-    borderRadius: radii.pill,
-    backgroundColor: colors.accent,
-  },
-  /** Centred on the 1pt gap between rows, so the line above one row is the line below the last. */
-  dropLineAbove: { top: -1 },
-  dropLineBelow: { bottom: -2 },
-
   /** `.tnode` */
   node: {
     flexDirection: "row",
