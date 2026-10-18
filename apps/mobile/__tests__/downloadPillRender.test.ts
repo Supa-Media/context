@@ -9,9 +9,9 @@ import { createRoot } from "react-dom/client";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 /**
- * The phone's one way in to downloads (owner, 2026-10-16), mounted: the
- * top-right pill while notes come down, and the Downloads block with a
- * Don't download button per workspace. A device that keeps a copy is the
+ * Downloads on the phone, mounted: since 2026-10-18 the count lives under
+ * the Notes title (Dev2: "get rid of the ugly pill in the top right"), and
+ * the Downloads block keeps a Don't download button per workspace. A device that keeps a copy is the
  * case; a plain browser tab keeps none and says nothing (`mirrorSupported`).
  */
 
@@ -68,34 +68,15 @@ function mount(element: ReactElement) {
 }
 
 describe("downloads on the phone", () => {
-  test("no pill when nothing is coming down", () => {
-    publishMirrorStatus("a", { state: "synced", notes: 3, bytes: 0, lastSyncedAt: 1, total: 3 });
-    const find = mount(createElement(SyncPill, { sync: online, save: null, contexts, onPress: () => {} }));
+  test("the top right has no download pill, even while notes come down", () => {
+    publishMirrorStatus("a", { state: "syncing", notes: 340, bytes: 0, lastSyncedAt: null, total: 1204, remaining: 864 });
+    const find = mount(createElement(SyncPill, { sync: online, save: null, onPress: () => {} }));
     expect(find("download-pill")).toBeNull();
     expect(find("sync-pill")).toBeNull();
   });
 
-  test("the pill counts what is coming down", () => {
-    publishMirrorStatus("a", { state: "syncing", notes: 340, bytes: 0, lastSyncedAt: null, total: 1204, remaining: 864 });
-    const find = mount(createElement(SyncPill, { sync: online, save: null, contexts, onPress: () => {} }));
-    expect(find("download-pill")?.textContent).toBe("340 / 1,204");
-  });
-
-  test("the count is drawn in the text colour, not left unset", () => {
-    publishMirrorStatus("a", { state: "syncing", notes: 340, bytes: 0, lastSyncedAt: null, total: 1204, remaining: 864 });
-    const find = mount(createElement(SyncPill, { sync: online, save: null, contexts, onPress: () => {} }));
-    const words = [...find("download-pill")!.querySelectorAll<HTMLElement>("div, span")].find(
-      (el) => el.textContent === "340 / 1,204" && el.children.length === 0,
-    )!;
-    expect(getComputedStyle(words).color).toBe("rgb(255, 255, 255)");
-  });
-
-  test("being offline still wins the pill", () => {
-    publishMirrorStatus("a", { state: "syncing", notes: 340, bytes: 0, lastSyncedAt: null, total: 1204, remaining: 864 });
-    const find = mount(
-      createElement(SyncPill, { sync: { ...online, reachability: "offline" }, save: null, contexts, onPress: () => {} }),
-    );
-    expect(find("download-pill")).toBeNull();
+  test("being offline still has its pill", () => {
+    const find = mount(createElement(SyncPill, { sync: { ...online, reachability: "offline" }, save: null, onPress: () => {} }));
     expect(find("sync-pill")?.textContent).toContain("Offline");
   });
 

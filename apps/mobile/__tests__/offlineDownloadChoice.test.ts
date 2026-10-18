@@ -14,7 +14,7 @@ import {
   loadDownloadChoices,
   setOnlineOnly,
 } from "../features/offline/downloadChoice";
-import { downloadPill, downloadRows, rowStatus } from "../features/offline/downloadSummary";
+import { downloadedLine, downloadRows, rowStatus } from "../features/offline/downloadSummary";
 import type { MirrorStatus } from "../features/offline/mirrorStatus";
 
 /**
@@ -227,25 +227,27 @@ describe("what the pill and the sheet say", () => {
       ["@seyi", "done", "All 50"],
       ["@public-worship", "online-only", "Online only"],
     ]);
-    expect(downloadPill(rows)?.text).toBe("340 / 1,204");
+    expect(downloadedLine(rows[0])).toBe("340 of 1,204 notes downloaded");
   });
 
-  test("no pill when nothing is coming down", () => {
+  test("the line under Notes says how many are on the device, once all are", () => {
     const rows = downloadRows(contexts, new Map<string, MirrorStatus>([["a", { state: "synced", notes: 3, bytes: 0, lastSyncedAt: 1, total: 3 }]]), new Set());
-    expect(downloadPill(rows)).toBeNull();
+    expect(downloadedLine(rows[0])).toBe("3 notes downloaded");
+    expect(downloadedLine(undefined)).toBeNull();
   });
 
-  test("the pill stays between passes while notes are still missing", () => {
+  test("and between passes, while notes are still missing", () => {
     const rows = downloadRows(
       contexts,
       new Map<string, MirrorStatus>([["a", { state: "partial", notes: 2_828, bytes: 0, lastSyncedAt: 1, total: 2_831, remaining: 3 }]]),
       new Set(),
     );
-    expect(downloadPill(rows)?.text).toBe("2,828 / 2,831");
+    expect(downloadedLine(rows[0])).toBe("2,828 of 2,831 notes downloaded");
   });
 
-  test("a percentage once the numbers get long", () => {
-    const rows = downloadRows([{ id: "a", slug: "big" }], new Map<string, MirrorStatus>([["a", syncing(2_500, 10_000)]]), new Set());
-    expect(downloadPill(rows)?.text).toBe("25%");
+  test("a workspace kept online, or not started, says so", () => {
+    const rows = downloadRows(contexts, new Map<string, MirrorStatus>(), new Set([contexts[1]!.id]));
+    expect(downloadedLine(rows[0])).toBe("Not downloaded yet");
+    expect(downloadedLine(rows[1])).toBe("Online only");
   });
 });

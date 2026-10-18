@@ -1,8 +1,8 @@
 import type { MirrorStatus } from "./mirrorStatus";
 
 /**
- * What the phone says about downloads (owner, 2026-10-16): one pill at the
- * top right while notes are coming down, "340 / 1,204", that opens a
+ * What the phone says about downloads (owner, 2026-10-16; moved under the
+ * Notes title 2026-10-18): how many notes are on this device, which opens a
  * Downloads sheet with a line per workspace and a Don't download button.
  *
  * Pure, so the words are tested without a renderer. Counts only, never note
@@ -55,40 +55,28 @@ export function formatCount(n: number): string {
   return String(Math.max(0, Math.round(n))).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
-export interface DownloadPill {
-  done: number;
-  total: number;
-  /** "340 / 1,204", or "28%" once the numbers are too long for the top row. */
-  text: string;
-  label: string;
-  fraction: number;
-}
-
 /**
- * The pill, or `null` when everything this device keeps is here. Across every
- * workspace, so there is one entry point however many are syncing.
- *
- * Shown while anything is left, not only while a pass runs: passes start and
- * stop all the time (a change, the app coming back, the five-minute timer),
- * and a pill that only lived inside a pass blinked out between them with
- * notes still missing (owner, 2026-10-16: "the note counter disappears
- * sometimes").
+ * The line under the phone's Notes title, for the workspace on screen: how
+ * many of its notes are on this device, pressed for the Downloads sheet.
+ * Dev2 (2026-10-18): *"under it can have a clickable number of notes
+ * downloaded underneath notes, and get rid of the ugly pill in the top
+ * right"* — it replaced the top-right pill of 2026-10-16, which said the same
+ * only while notes were missing. `null` where this device keeps no copy.
  */
-export function downloadPill(rows: readonly DownloadRow[]): DownloadPill | null {
-  if (!rows.some((row) => row.state === "downloading" || row.state === "partial")) return null;
-  let done = 0;
-  let total = 0;
-  for (const row of rows) {
-    if (row.state === "downloading" || row.state === "partial") {
-      done += row.done;
-      total += row.total;
-    }
+export function downloadedLine(row: DownloadRow | undefined): string | null {
+  if (row === undefined) return null;
+  const notes = (n: number) => `${formatCount(n)} note${n === 1 ? "" : "s"}`;
+  switch (row.state) {
+    case "downloading":
+    case "partial":
+      return `${formatCount(row.done)} of ${notes(row.total)} downloaded`;
+    case "done":
+      return row.total === 0 ? null : `${notes(row.total)} downloaded`;
+    case "waiting":
+      return "Not downloaded yet";
+    case "online-only":
+      return "Online only";
   }
-  if (total <= 0) return null;
-  const fraction = Math.min(1, done / total);
-  const counts = `${formatCount(done)} / ${formatCount(total)}`;
-  const text = total >= 10_000 ? `${Math.floor(fraction * 100)}%` : counts;
-  return { done, total, fraction, text, label: `Downloading notes, ${formatCount(done)} of ${formatCount(total)}` };
 }
 
 /** The right-hand words on a workspace's row in the sheet. */

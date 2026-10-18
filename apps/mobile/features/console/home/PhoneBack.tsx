@@ -45,12 +45,12 @@ export function PhoneBack({
     <View style={styles.row}>
       <Pressable
         onPress={() => onGo(nearest)}
-        // Held: straight to Inbox, the phone's first page, however deep (owner,
+        // Held: straight to Notes, the phone's first page, however deep (owner,
         // 2026-10-16). One level below it is the same place a press goes.
         onLongPress={() => onGo(home)}
         accessibilityRole="button"
         accessibilityLabel={`Back to ${nearest.label}`}
-        accessibilityHint={home === nearest ? undefined : "Hold to go to Inbox"}
+        accessibilityHint={home === nearest ? undefined : `Hold to go to ${home.label}`}
         style={({ pressed }) => [styles.press, pressed ? styles.pressed : null]}
         testID="phone-back"
       >

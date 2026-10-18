@@ -85,6 +85,8 @@ import { ChaosSheet } from "../chaos/ChaosPopover";
 import { MapRouteProvider, useConsoleMapRoute } from "./map/live/MapRouteContext";
 import { TrashRouteProvider, useConsoleTrashRoute } from "./trash/TrashRouteContext";
 import { useHomeView } from "./home/homeView";
+import { usePreviousPage } from "./home/phoneHistory";
+import { useSyncSheetRequests } from "./files/syncSheetRequest";
 
 
 /**
@@ -172,6 +174,7 @@ export function ConsoleFrame({
   */
   const [syncOpen, setSyncOpen] = useState(false);
   const closeSync = useCallback(() => setSyncOpen(false), []);
+  useSyncSheetRequests(() => setSyncOpen(true));
   /*
     The toolbar's `+` raises the explorer's own dialog. Held here rather than
     inside `Explorer` because the toolbar is a sibling of the explorer, not a
@@ -301,6 +304,7 @@ export function ConsoleFrame({
   // The Trash page (`?trash=1`), in the same slot; leaves the same way.
   // Inbox or Folders, for the ‹ on Folders (`home/homeView.ts`).
   const homeView = useHomeView();
+  const previousPage = usePreviousPage();
   const trashRoute = useConsoleTrashRoute(router, params.trashOpen === true, {
     available: !data.demo && visitor === undefined,
     workspaceId: data.selectedContextId,
@@ -521,7 +525,7 @@ export function ConsoleFrame({
           switching, and neither could say the other's rows). On any page below
           Home it is ‹ back instead, naming where it goes (owner, 2026-10-01).
         */
-        accountSlot={consoleAccountSlot({ phone, browsing, data, switcherProps, map: mapRoute, view: homeView })}
+        accountSlot={consoleAccountSlot({ phone, browsing, data, switcherProps, map: mapRoute, view: homeView, previous: previousPage })}
         /*
           `browsing`, not `insideContext`.
 
