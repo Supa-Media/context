@@ -322,6 +322,8 @@ export function createWeb(sites) {
       }
       const result = step(browser, s);
       ran.push({ do: s.do, ok: result.ok, ...(result.reason ? { reason: result.reason } : {}) });
+      // A refused step, with the element number it named: why a driver's form never filled.
+      if (!result.ok) events.push(`refused ${s.do} ${placeOf(browser.url)}${Number.isInteger(s.ref) ? ` [${s.ref}]` : ""}: ${result.reason}`);
       if (result.note) note = result.note;
       // A click that changed the page leaves the steps after it for the next call.
       if (result.moved && s.do !== "goto" && i < body.steps.length - 1) {

@@ -76,6 +76,14 @@ export function useListingOrder(): boolean {
   return useSyncExternalStore(subscribe, () => descending, () => descending);
 }
 
+/**
+ * The same answer outside a render, for a command that runs on a press: "Move
+ * up" means up as the list is drawn, which Z to A is the server's down.
+ */
+export function listingIsDescending(): boolean {
+  return descending;
+}
+
 /** Back to A to Z, for a test that must not leak an order into the next one. */
 export function resetListingOrder(): void {
   setListingOrder(false);

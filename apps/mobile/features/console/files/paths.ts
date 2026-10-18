@@ -16,6 +16,7 @@
 import { isDrawingPath } from "@context/drawings";
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { folderRole } from "@context/shared/src/folderRoles.cjs";
+import { archiveFolderNow } from "./jobIcons/jobFoldersNow";
 import { withoutSortPrefix as sharedWithoutSortPrefix } from "@context/shared/src/linkedHeading";
 import { FRONT_NOTES } from "../../../../mcp/src/lists/grammar.js";
 
@@ -416,7 +417,8 @@ export function formatBytes(bytes: number | undefined): string {
  * `4-archive/2026-08-26T09-14-02-113Z/1-projects/foo.md` → `1-projects/foo.md`.
  * `9-archive/…` and `5-archive/…` restore the same way: the first segment only
  * has to play the archive role (`folderRole`), so an older workspace's archive
- * name works without renaming anything.
+ * name works without renaming anything, and so does the folder doing the
+ * Archive's job now under any name (`archive`).
  *
  * What "restore" puts back. The archive keeps the original path inside the
  * timestamped folder precisely so this is a string operation rather than a
@@ -424,7 +426,13 @@ export function formatBytes(bytes: number | undefined): string {
  * console can hide the button instead of offering a restore that would land
  * somewhere arbitrary.
  */
-export function restoreTargetFor(archivedPath: string): string | null {
+export function restoreTargetFor(archivedPath: string, archive: string = archiveFolderNow()): string | null {
+  // The folder doing the Archive's job, whatever it is called and wherever it
+  // is (`jobFoldersNow.ts`): `Old stuff/<stamp>/…` once Archive is renamed.
+  if (archive !== "" && archivedPath.startsWith(`${archive}/`)) {
+    const inside = archivedPath.slice(archive.length + 1).match(/^[^/]+\/(.+)$/);
+    if (inside) return inside[1]!;
+  }
   const match = archivedPath.match(/^([^/]+)\/[^/]+\/(.+)$/);
   if (!match || folderRole(match[1]) !== "archive") return null;
   return match[2];

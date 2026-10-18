@@ -471,7 +471,7 @@ test("the job log shows each broken gate's failing answer, its reason and its ch
     ["a3", { verdicts: [v("must not", "invent a street", false, "lookup misses are not gates")] }],
   ]);
   const answers = new Map([
-    ["a1", { conversation: [{ from: "person", text: "deposit came in" }, { from: "assistant", text: "Done." }], toolsLine: "Tools: write_note", changes: ["- wrote woodshop/todo.md"] }],
+    ["a1", { conversation: [{ from: "person", text: "deposit came in" }, { from: "assistant", text: "Done." }], toolsLine: "Tools: write_note", browser: ["open shop.example/form", "refused type shop.example/form [3]: that is not a box to type in"], changes: ["- wrote woodshop/todo.md"] }],
     ["a2", { conversation: [{ from: "assistant", text: "PASSING ANSWER" }], toolsLine: null, changes: [] }],
     ["a3", { conversation: [{ from: "assistant", text: "LOOKUP ANSWER" }], toolsLine: null, changes: [] }],
   ]);
@@ -480,6 +480,8 @@ test("the job log shows each broken gate's failing answer, its reason and its ch
   assert.match(text, /Tex: Done\./);
   assert.match(text, /Tools: write_note/);
   assert.match(text, /- wrote woodshop\/todo\.md/);
+  // What the browser did, refused steps with their element numbers included.
+  assert.match(text, /Browser: open shop\.example\/form \| refused type shop\.example\/form \[3\]: that is not a box to type in/);
   // A passing run, a judge line and a failed line on a question that is not a gate stay out.
   assert.doesNotMatch(text, /PASSING ANSWER|LOOKUP ANSWER|stiff/);
   // No answer id reaches the log.

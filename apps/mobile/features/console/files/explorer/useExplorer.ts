@@ -5,7 +5,7 @@ import type { useFrame } from "../../../app/AppFrame";
 import type { FileBrowser } from "../browser";
 import { canDrop as verdictFor, type DragSource } from "../dnd";
 import type { TreeDragHandlers } from "../FileTree";
-import { useListingOrder } from "../listingOrder";
+import { listingIsDescending, useListingOrder } from "../listingOrder";
 import { itemsFor, type MenuActionId, type MenuTarget } from "../menu";
 import { runMenuAction, type ActionContext, type Dialog } from "../actions";
 import { useRightClick } from "../rightClick";
@@ -17,7 +17,7 @@ import { buildTreeRows, findEntry, targetFolder, type TreeRow } from "../tree";
 import type { MenuState } from "./menuState";
 import type { ExplorerProps } from "./props";
 import { inheritedOf } from "./rowVisibility";
-import { rootFolderNames } from "../menuBuiltIn";
+import { folderMenuFacts } from "../menuBuiltIn";
 import { useActivityMarks } from "./useActivityMarks";
 import { useTreePick } from "./useTreePick";
 
@@ -225,7 +225,8 @@ export function useExplorer({
         canShare: files.canShare,
         canDownload: files.canDownload,
         clipboard: files.clipboard,
-        topLevelFolders: rootFolderNames(files.listings),
+        // The root's names, each folder's job and its place among its siblings (`menuBuiltIn.ts`).
+        ...folderMenuFacts(files, listingIsDescending()),
         platform,
         // Read, never assumed. `menu.ts` defaults this to Apple, which prints
         // `⌘⇧M` on Windows beside a row whose chord is actually `Ctrl+Shift+M`.

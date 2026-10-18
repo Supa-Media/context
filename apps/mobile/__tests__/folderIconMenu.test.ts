@@ -3,8 +3,8 @@
  *
  * Offered for a folder or note an editor can change, on the tree's menu and on a
  * phone's folder page alike, and for no other file, no read-only row and no
- * console that cannot edit. Built-in folders get it too: an icon is decoration, and
- * the built-in locks are about moving a folder.
+ * console that cannot edit. Not built-in folders, since 2026-10-18: their job's
+ * drawn icon is the point (board 9), so they cannot take another.
  */
 
 import { describe, expect, test } from "@jest/globals";
@@ -15,14 +15,22 @@ import { dir, find, ids, menu, note, row } from "./fileMenu/fixtures";
 
 describe("Set icon… is offered for a folder an editor can change", () => {
   test("a folder row, for an editor", () => {
-    const item = find(menu({ kind: "row", row: dir("1-projects") }), "setIcon");
+    const item = find(menu({ kind: "row", row: dir("1-projects/launch") }), "setIcon");
     expect(item?.label).toBe("Set icon…");
   });
 
-  test("a built-in folder too: the icon is decoration, not a move", () => {
+  test("not a built-in folder: its job's drawn icon is the point", () => {
     const builtIn = dir("1-projects");
     expect(isBuiltInRow(builtIn)).toBe(true);
-    expect(ids(menu({ kind: "row", row: builtIn }))).toContain("setIcon");
+    expect(ids(menu({ kind: "row", row: builtIn }))).not.toContain("setIcon");
+    expect(ids(menu({ kind: "page", row: builtIn }))).not.toContain("setIcon");
+  });
+
+  test("a renamed built-in folder neither, known by the job on its listing entry", () => {
+    const jobOf = (path: string) => (path === "Capture" ? ("inbox" as const) : null);
+    expect(ids(menu({ kind: "row", row: dir("Capture") }, { jobOf }))).not.toContain("setIcon");
+    // A folder named like a job that does not do it is somebody's own.
+    expect(ids(menu({ kind: "row", row: dir("1-projects") }, { jobOf }))).toContain("setIcon");
   });
 
   test("a note can have one too (2026-10-13)", () => {
@@ -52,7 +60,7 @@ describe("Set icon… is offered for a folder an editor can change", () => {
   });
 
   test("the phone folder page's ••• offers it for a folder an editor can change", () => {
-    const list = menu({ kind: "page", row: dir("1-projects") });
+    const list = menu({ kind: "page", row: dir("1-projects/launch") });
     expect(ids(list)).toContain("setIcon");
   });
 

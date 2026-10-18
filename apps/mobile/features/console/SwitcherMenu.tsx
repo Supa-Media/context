@@ -81,7 +81,6 @@ export type SwitcherMenuId =
   | "new"
   | "settings"
   | "invite"
-  | "community"
   | "leave"
   | "signout"
   | "feedback"
@@ -103,7 +102,6 @@ export function SwitcherMenu({
   onOpenSettings,
   onInviteFriends,
   inviteDetail,
-  onOpenCommunity,
   onLeaveContext,
   onSignOut,
   onSignIn,
@@ -123,14 +121,14 @@ export function SwitcherMenu({
   onNewWorkspace?: () => void;
   onOpenSettings?: () => void;
   /**
-   * Invite friends past the waitlist, and the community's join link — both
-   * from the referrals artboard (2026-09-29). Offered only where the caller
+   * Invite friends past the waitlist, from the referrals artboard
+   * (2026-09-29). The community's join link was here too until Dev2 took it
+   * off the card (2026-10-18). Offered only where the caller
    * has somewhere to take them; `inviteDetail` is "2 left" when invites can
    * be sent, so the count is on the row before the dialog opens.
    */
   onInviteFriends?: () => void;
   inviteDetail?: string;
-  onOpenCommunity?: () => void;
   /**
    * Leave the context you are in. Omitted where there is nothing to leave —
    * `leaveWorkspace` refuses an owner (`OWNER_CANNOT_LEAVE`), so the caller
@@ -281,48 +279,57 @@ export function SwitcherMenu({
       ? `Chaos ${shownScore(chaosResult.score)} · ${chaosResult.word ?? chaosWord(chaosResult.score)}`
       : null;
 
+  const phone = trigger === "phone";
   const places: AccountCardRow[] = [
+    /*
+      Settings heads the group (Dev2, 2026-10-18): it is the row people come
+      to this card for most.
+    */
+    ...(onOpenSettings
+      ? [{ id: "settings", label: "Settings", leading: <Icon name="gear" size={14} />, testID: "switcher-settings" }]
+      : []),
     ...(onOpenMeetings
       ? [{ id: "meetings", label: "Meetings", leading: <Icon name="calendar" size={14} />, testID: "switcher-meetings" }]
       : []),
     /*
       The phone's Folders page lost its Trash and Chaos lines to board 2 of
       meeting-2026-10-17/phone-inbox (Dev2: "EXACTLY like the mockups"), so
-      they are here, behind the @name line they open from on Inbox.
+      they are here, behind the @name line they open from on Inbox. A
+      pointer layout's tree lost its Trash row too (Dev2, 2026-10-18), so the
+      card behind your name is where Trash is there as well.
     */
-    ...(phoneNamed && trash !== undefined
+    ...((phoneNamed || !phone) && trash !== undefined
       ? [{ id: "trash", label: "Trash", leading: <Icon name="trash" size={14} />, testID: "switcher-trash" }]
       : []),
     ...(chaos === null
       ? []
       : [{ id: "chaos", label: chaos, leading: <Icon name="sparkle" size={14} />, testID: "switcher-chaos" }]),
-    ...(onOpenSettings
-      ? [{ id: "settings", label: "Settings", leading: <Icon name="gear" size={14} />, testID: "switcher-settings" }]
-      : []),
     /*
       The quick way between light and dark (Dev2, 2026-10-14), for everyone
       including the homepage's visitor: it names the one you would switch to.
-      Settings › Profile has the third choice, following the device.
+      Settings › Profile has the third choice, following the device. Phone
+      only: a pointer layout has it as the sun in the top bar (Dev2,
+      2026-10-18; `layout/topTrailing.tsx`), and one place is enough.
     */
-    {
-      id: "appearance",
-      label: scheme === "dark" ? "Light mode" : "Dark mode",
-      leading: <Icon name="sun" size={14} />,
-      testID: "switcher-appearance",
-    },
+    ...(phone
+      ? [{
+          id: "appearance",
+          label: scheme === "dark" ? "Light mode" : "Dark mode",
+          leading: <Icon name="sun" size={14} />,
+          testID: "switcher-appearance",
+        }]
+      : []),
     /*
       Signed in only — `onSignOut` is the card's own word for that — and only
-      where this build can send a report at all. The phone's way in, since its
-      top bar has no room for the bug button.
+      where this build can send a report at all. Phone only, since its top bar
+      has no room for the bug button; a pointer layout has that button beside
+      Search (Dev2, 2026-10-18).
     */
-    ...(onSignOut && canReport
+    ...(phone && onSignOut && canReport
       ? [{ id: "feedback", label: "Send feedback", leading: <Icon name="bug" size={14} />, testID: "switcher-feedback" }]
       : []),
     ...(onInviteFriends
       ? [{ id: "invite", label: "Invite friends", detail: inviteDetail, leading: <Icon name="mail" size={14} />, testID: "switcher-invite" }]
-      : []),
-    ...(onOpenCommunity
-      ? [{ id: "community", label: "Community", leading: <Icon name="chat" size={14} />, testID: "switcher-community" }]
       : []),
     ...(whatsNew
       ? [{
@@ -390,7 +397,6 @@ export function SwitcherMenu({
     else if (id === "trash") trash?.openTrash();
     else if (id === "chaos") chaosView?.openPanel("sheet");
     else if (id === "invite") onInviteFriends?.();
-    else if (id === "community") onOpenCommunity?.();
     else if (id === "leave") onLeaveContext?.();
     else if (id === "signout") onSignOut?.();
     else if (id === "feedback") openFeedback("menu");

@@ -38,8 +38,9 @@
 
 import type { Clipboard } from "./clipboard";
 import type { MenuItem } from "./menuItem";
-import { builtInLockedItems, isBuiltInRow } from "./menuBuiltIn";
-import { iconGroup, makeItem } from "./menuMake";
+import type { RowRole } from "@context/shared/src/folderRoles.cjs";
+import { builtInLocks, fixedItems, keptItems, rowJob } from "./menuBuiltIn";
+import { downloadGroup, iconGroup, makeItem, orderGroup, pinGroup, tagsGroup } from "./menuMake";
 import { visibilityGroup } from "./menuVisibility";
 import { restoreTargetFor } from "./paths";
 import type { TreeRow } from "./tree";
@@ -111,6 +112,12 @@ export type MenuActionId =
    * offered for folders alone: a note has no icon of its own.
    */
   | "setIcon"
+  /**
+   * One place up or down among the folder's sibling folders, as the list is
+   * drawn (`FileBrowser.moveFolder`). Editor only, folders only.
+   */
+  | "moveUp"
+  | "moveDown"
   /** Pick several rows of the folder page (board 16). */
   | "selectNotes"
   | "archive"
@@ -162,6 +169,18 @@ export interface MenuContext {
    * built-in folder is offered Rename and trash (`menuBuiltIn.ts`).
    */
   topLevelFolders?: readonly string[];
+  /**
+   * The job of the folder at a path, from the loaded listings (`jobOfPath`):
+   * a job, `null` for none, `undefined` where its listing is not loaded and
+   * `topLevelFolders` decides by name. See `menuBuiltIn.ts`.
+   */
+  jobOf?: (path: string) => RowRole | null | undefined;
+  /**
+   * Where a folder sits among its sibling folders as drawn, for Move up and
+   * Move down, or `null` when it cannot move among them (alone, or not
+   * loaded). Absent where order cannot be changed from here.
+   */
+  folderPlace?: (path: string) => { first: boolean; last: boolean } | null;
   /**
    * Web prints shortcuts; touch does not, and touch has no "open in new tab".
    *
@@ -384,7 +403,8 @@ function pageItems(context: MenuContext, row: TreeRow): MenuItem[] {
   if (row.readOnly) return entryItems(context, [row]);
   if (!context.canEdit) return joinGroups([pinGroup(context, row), downloadGroup(context, row)]);
   const archived = restoreTargetFor(row.path) !== null;
-  const builtIn = isBuiltInRow(row, context.topLevelFolders);
+  const job = rowJob(row, context);
+  const locks = builtInLocks(job);
   return joinGroups([
     [
       makeItem(context, "newNote", "New note"),
@@ -392,10 +412,13 @@ function pageItems(context: MenuContext, row: TreeRow): MenuItem[] {
       ...pasteGroup(context, row.path),
     ],
     [
-      ...(builtIn ? [] : [makeItem(context, "rename", "Rename…"), makeItem(context, "moveTo", "Move to…")]),
+      ...(locks.fixed
+        ? fixedItems(context)
+        : [makeItem(context, "rename", "Rename…"), makeItem(context, "moveTo", "Move to…")]),
+      ...orderGroup(context, row),
       ...pinGroup(context, row),
       ...tagsGroup(context, row),
-      ...iconGroup(context, row),
+      ...(job === null ? iconGroup(context, row) : []),
     ],
     /*
       Board 15: "the same Share the app already has, as a full sheet" —
@@ -411,8 +434,8 @@ function pageItems(context: MenuContext, row: TreeRow): MenuItem[] {
         : [],
     context.selectable === true ? [makeItem(context, "selectNotes", "Select notes")] : [],
     downloadGroup(context, row),
-    builtIn
-      ? builtInLockedItems(context)
+    locks.kept
+      ? keptItems(context, "Archive folder")
       : [
           archived
             ? makeItem(context, "restore", "Restore folder")
@@ -436,46 +459,6 @@ function homeItems(context: MenuContext, row: TreeRow): MenuItem[] {
       : [],
     download,
   ]);
-}
-
-/**
- * Download, as its own group, or nothing.
- *
- * Shared by the row menu and the breadcrumb menu, and by both of their
- * read-only branches, because it is the one item those branches keep: it is a
- * read, and non-negotiable #1 says the exit is never gated. A second copy of
- * "is this offered" is how one of the four ends up without it.
- */
-function downloadGroup(context: MenuContext, target: { kind: string } | null): MenuItem[] {
-  // A `loading` or `empty` row is not a file or a folder and has no path
-  // behind it, so there is nothing to hand anybody. The row menu never opens
-  // on one, and asking the question here rather than trusting that is what
-  // keeps this usable from four call sites.
-  if (!context.canDownload || target === null) return [];
-  if (target.kind !== "file" && target.kind !== "folder") return [];
-  return [
-    makeItem(
-      context,
-      "download",
-      target.kind === "folder" ? "Download folder (.zip)" : "Download",
-    ),
-  ];
-}
-
-/** "Pin to Home" or "Unpin from Home", for one row, where there is a Home to pin to. */
-function pinGroup(context: MenuContext, single: TreeRow | null): MenuItem[] {
-  if (context.pinned === undefined || single === null) return [];
-  return context.pinned(single.path)
-    ? [makeItem(context, "unpin", "Unpin from Home")]
-    : [makeItem(context, "pin", "Pin to Home")];
-}
-
-/** "Tags", with the folder's tags beside it, where they can be changed from here. */
-function tagsGroup(context: MenuContext, row: TreeRow): MenuItem[] {
-  const tags = context.tagsOf?.(row.path);
-  if (tags == null) return [];
-  const item = makeItem(context, "tags", "Tags");
-  return [tags.length === 0 ? item : { ...item, value: tags.join(", ") }];
 }
 
 /** "Paste foo.md", or nothing. The label names the thing so it is not a guess. */
@@ -546,9 +529,13 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
    * where it came from.
    */
   const archived = rows.every((row) => restoreTargetFor(row.path) !== null);
-  // A built-in folder stays where it is (`menuBuiltIn.ts`). In a selection it
-  // poisons the moving verbs for the whole lot, like a read-only row does.
-  const builtIn = rows.some((row) => isBuiltInRow(row, context.topLevelFolders));
+  // What a built-in folder may not do (`menuBuiltIn.ts`). In a selection one
+  // poisons that verb for the whole lot, like a read-only row does.
+  const jobs = rows.map((row) => rowJob(row, context));
+  const locks = jobs.map(builtInLocks);
+  const fixed = locks.some((lock) => lock.fixed);
+  const kept = locks.some((lock) => lock.kept);
+  const singleJob = single === null ? null : jobs[0]!;
 
   return joinGroups([
     /*
@@ -591,19 +578,24 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
     // renames is three dialogs, and "Duplicate 3 items" is a batch job with a
     // naming scheme nobody has chosen. They are omitted rather than offered
     // for the first row of the selection.
+    // A built-in folder is renamed and moved like any folder, but not
+    // duplicated: a second Inbox would be an ordinary folder full of copies.
     [
-      ...(single === null || builtIn
+      ...(single === null
         ? []
-        : [
-            makeItem(context, "rename", "Rename…"),
-            makeItem(context, "duplicate", "Duplicate"),
-          ]),
-      ...(builtIn
+        : fixed
+          ? fixedItems(context)
+          : [
+              makeItem(context, "rename", "Rename…"),
+              ...(singleJob === null ? [makeItem(context, "duplicate", "Duplicate")] : []),
+            ]),
+      ...(fixed
         ? []
         : [makeItem(context, "moveTo", single === null ? `Move ${items(count)} to…` : "Move to…")]),
+      ...orderGroup(context, single),
     ],
 
-    iconGroup(context, single),
+    singleJob === null ? iconGroup(context, single) : [],
 
     // `copyEntry` and the clipboard both take folders, so a folder is copied
     // and cut exactly like a note is. A selection gets neither: the clipboard
@@ -612,7 +604,7 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
     // Dragging with ⌥ held is how several are copied at once.
     single === null
       ? []
-      : [makeItem(context, "copy", "Copy"), ...(builtIn ? [] : [makeItem(context, "cut", "Cut")])],
+      : [makeItem(context, "copy", "Copy"), ...(fixed ? [] : [makeItem(context, "cut", "Cut")])],
 
     // The `@name/1-projects/foo.md` form addresses one path in somebody else's
     // sentence or an agent's prompt; a newline-separated list of three is not
@@ -661,10 +653,10 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
       ? visibilityGroup(context, isFolder, count, single)
       : [],
 
-    builtIn
+    kept
       ? single === null
         ? []
-        : builtInLockedItems(context)
+        : keptItems(context)
       : [
           archived
             ? makeItem(context, "restore", single === null ? `Restore ${items(count)}` : "Restore")

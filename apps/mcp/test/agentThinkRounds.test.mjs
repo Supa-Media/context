@@ -28,6 +28,9 @@
  *   `runTurn` keeping the plan after the fallback took over
  *     → "the fallback still takes over mid-plan, and the turn stays on it"
  *       fails (before the fallback was made once-a-turn, this looped forever)
+ *   `systemFor` leaving out the planner and driver lines
+ *     → "the planner is told to write its plan in words, and the driver that
+ *       those words are its plan" fails (applied and observed, 2026-10-18)
  */
 
 import assert from "node:assert/strict";
@@ -250,4 +253,20 @@ test("parseSetup refuses think_rounds without a router, or that is not a whole n
   for (const bad of ["0", "10", "-1", "1.5", "two", "", "01", "[1]"]) {
     assert.equal(await parseSetup(file(`${ROUTED}\n  think_rounds: ${bad}`)), null, JSON.stringify(bad));
   }
+});
+
+test("the planner is told to write its plan in words, and the driver that those words are its plan", async () => {
+  const gw = scripted([tools(1), tools(2), answer()]);
+  await turn(gw.fetchImpl, { router: router({ thinkRounds: 1 }) });
+  const systemText = (body) => JSON.stringify(body.system);
+  assert.match(systemText(gw.bodies[0]), /write the plan in a few short lines/, "Opus plans in words Haiku can read");
+  assert.doesNotMatch(systemText(gw.bodies[0]), /its plan is in its words above/);
+  assert.match(systemText(gw.bodies[1]), /its plan is in its words above/, "Haiku is told the plan is there");
+  assert.doesNotMatch(systemText(gw.bodies[1]), /write the plan in a few short lines/);
+});
+
+test("a turn with no plan carries neither line", async () => {
+  const gw = scripted([tools(1), answer()]);
+  await turn(gw.fetchImpl, { router: router() });
+  for (const body of gw.bodies) assert.doesNotMatch(JSON.stringify(body.system), /write the plan|its plan is in its words/);
 });
