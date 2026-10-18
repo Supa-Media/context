@@ -115,8 +115,16 @@ archive of a file or folder rewrites `nodes` rows and copies nothing:
   Recovery is journaled: once the new name is claimed, any read of it finishes
   an interrupted rename. A failure before the claim needs a retry of
   `renameDocument`, which nothing makes yet.
-- **Not carried yet:** body links are not rewritten (forwarding covers them);
-  routines are not re-keyed. Shares need no carrying: they follow the note by
+- **Body links are rewritten for moves an AI client makes** (`move_note`,
+  `move_many`, `move_folder`, `archive`, decided 2026-10-18 when Dev2 asked a
+  keyed folder move to keep its links): once the rows and the collaboration
+  history have moved, the gateway points every link to a moved note, and every
+  relative link inside one, at the new name (`tools/moves/queuedFolder.js`,
+  `rewriteRowedLinks`), over the notes the link facts name. A rewrite that
+  cannot run is reported as not done and the forwarding record covers it.
+  `keyedFolderMove.test.mjs` fails if it is dropped.
+- **Not carried yet:** a move made in the console does not rewrite body links
+  (forwarding covers them); routines are not re-keyed. Shares need no carrying: they follow the note by
   its id (below).
 
 **Known gap.** A rename can fail before the new name is claimed (the journal
