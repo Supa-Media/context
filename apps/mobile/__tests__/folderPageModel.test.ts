@@ -5,10 +5,11 @@
  * device's notes and decides nothing about drawing.
  */
 
-import { describe, expect, test } from "@jest/globals";
+import { afterEach, describe, expect, test } from "@jest/globals";
 import {
   isNoteStatus,
   isProjectsFolder,
+  rowsAreProjects,
   folderItems,
   groupFolderItems,
   dropValue,
@@ -167,16 +168,29 @@ describe("groups", () => {
 });
 
 describe("which folders track progress", () => {
-  test("a folder named for projects, with any prefix or case, and everything under it", () => {
-    for (const folder of ["1-projects", "Projects", "project", "work/Side-Projects", "1-projects/trip", "1-projects/trip/days"]) {
+  const { setJobFoldersNow } =
+    require("../features/console/files/jobIcons/jobFoldersNow") as typeof import("../features/console/files/jobIcons/jobFoldersNow");
+  afterEach(() => setJobFoldersNow({ inbox: "0-inbox", projects: "1-projects", archive: "9-archive" }));
+
+  test("the folder doing the Projects job, and everything under it", () => {
+    for (const folder of ["1-projects", "1-projects/trip", "1-projects/trip/days"]) {
       expect(isProjectsFolder(folder)).toBe(true);
     }
   });
 
-  test("areas, resources, the archive and the root do not", () => {
-    for (const folder of ["", "2-areas", "2-areas/apps", "3-resources/books", "4-archive", "website", "clients/acme"]) {
+  test("areas, resources, the archive and the root do not, whatever their names say", () => {
+    for (const folder of ["", "2-areas", "2-areas/apps", "2-areas/side-projects", "3-resources/books", "4-archive", "website", "clients/acme", "1-projects-old"]) {
       expect(isProjectsFolder(folder)).toBe(false);
     }
+  });
+
+  test("a renamed Projects folder is still the Projects folder, and the old name is not", () => {
+    setJobFoldersNow({ inbox: "0-inbox", projects: "Work", archive: "9-archive" });
+    expect(isProjectsFolder("Work")).toBe(true);
+    expect(isProjectsFolder("Work/cafe")).toBe(true);
+    expect(rowsAreProjects("Work")).toBe(true);
+    expect(rowsAreProjects("Work/cafe")).toBe(false);
+    expect(isProjectsFolder("1-projects")).toBe(false);
   });
 });
 

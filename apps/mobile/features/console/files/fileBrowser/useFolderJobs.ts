@@ -28,7 +28,7 @@ import type { Id } from "@context/convex/_generated/dataModel";
 import { toFileError } from "../browser";
 import { listingIsDescending } from "../listingOrder";
 import { parentPath } from "../paths";
-import { archiveFolder, inboxFolder, loadedJobs, reorderedSiblings, siblingFolders, withFolderOrder } from "../jobIcons/folderJobs";
+import { archiveFolder, inboxFolder, loadedJobs, projectsFolder, reorderedSiblings, siblingFolders, withFolderOrder } from "../jobIcons/folderJobs";
 import { setJobFoldersNow } from "../jobIcons/jobFoldersNow";
 import { jobIconMarker } from "../jobIcons/marker";
 import type { FileBrowserOptions, Listings } from "./types";
@@ -57,12 +57,13 @@ export function useFolderJobs(deps: FolderJobsDeps): FolderJobsValues {
 
   const jobs = useMemo(() => {
     /*
-      The phone's pages (built from notes, not listings) and Restore find the
-      Inbox and the Archive through `jobFoldersNow`: told here, as the listings
+      The phone's pages (built from notes, not listings), Restore, the folder
+      page and a note's chips find the Inbox, the Projects folder and the
+      Archive through `jobFoldersNow`: told here, as the listings
       change and before anything drawn from them, so nothing reads the old
       name a frame late. Idempotent, which is what lets it sit in a memo.
     */
-    setJobFoldersNow({ inbox: inboxFolder(listings), archive: archiveFolder(listings) });
+    setJobFoldersNow({ inbox: inboxFolder(listings), projects: projectsFolder(listings), archive: archiveFolder(listings) });
     return loadedJobs(listings);
   }, [listings]);
   const iconOf = useCallback(

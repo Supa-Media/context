@@ -54,6 +54,14 @@ type Open =
  * row of controls. A thumb has no hover, so a written-in note on a phone
  * gives the unset ones one quiet "Add property" chip instead.
  *
+ * **Only in the Projects folder** (`tracks`; owner, 2026-10-18, board A of
+ * `loose-note-chips`). Status, Owner, Priority and Due date are for tracking
+ * work, so a loose note — anywhere outside the folder doing the Projects job —
+ * offers none of them. A value it already has is still a solid chip. Under a
+ * pointer the one "Add property" chip waits for the hover; on a phone there is
+ * nothing over the name at all, and ••• → Add property is the way in
+ * (`addPropertyAsk.ts`).
+ *
  * A reader who may not edit sees the solid chips and nothing to press.
  */
 export function PropertyChips({
@@ -64,6 +72,7 @@ export function PropertyChips({
   source,
   touch,
   revealed,
+  tracks,
   onOther,
 }: {
   text: string;
@@ -77,6 +86,8 @@ export function PropertyChips({
   touch: boolean;
   /** The pointer is over the name or the chips. */
   revealed: boolean;
+  /** The note is in the Projects folder, where the task properties are offered. */
+  tracks: boolean;
   /** "Other property…" under More: the Properties card's own Add row. */
   onOther?: () => void;
 }) {
@@ -131,13 +142,14 @@ export function PropertyChips({
     else if (verb === "set") write(key as ChipKey, value);
   };
 
-  // The faint chips: on their own, or folded into one under a thumb once the note has words.
-  const folded = touch && !fresh;
-  const showUnset = writable && (fresh || revealed || open !== null || touch);
+  // The faint chips: on their own in a project, else folded into one, which a phone's loose note does not draw.
+  const folded = !tracks || (touch && !fresh);
+  const offered = tracks || !touch;
+  const showUnset = writable && (tracks ? fresh || revealed || open !== null || touch : revealed || open !== null);
   const unset = folded || !writable ? [] : chips.unset;
   const more = folded ? [...chips.unset, ...chips.more] : chips.more;
 
-  if (chips.set.length === 0 && !writable) return null;
+  if (chips.set.length === 0 && (!writable || !offered)) return null;
 
   return (
     <View style={styles.wrap} testID="note-chips">
@@ -165,7 +177,7 @@ export function PropertyChips({
             testID={`note-chip-add-${key}`}
           />
         ))}
-        {writable && (more.length > 0 || onOther !== undefined) ? (
+        {writable && offered && (more.length > 0 || onOther !== undefined) ? (
           <Chip
             label={folded ? "Add property" : "More"}
             hidden={!showUnset}

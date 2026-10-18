@@ -25,6 +25,7 @@ import type { NoteEditorProps } from "./props";
 import type { NoteView } from "./view";
 import { BODY_LINE, type LineState } from "../lineState";
 import { parentPath } from "../paths";
+import { onAddPropertyAsked } from "./chips/addPropertyAsk";
 import { inboxFolderNow } from "../../home/homeView";
 
 /** Under a new note's "Title" in the Inbox (board 3 of `meeting-2026-10-17/phone-inbox/`). */
@@ -259,6 +260,8 @@ export function NoteEditor({
   /** "Other property…" under the chips' More: the Properties card opens on its Add row. */
   const [addAsked, setAddAsked] = useState(0);
   useEffect(() => setAddAsked(0), [state.path]);
+  // And ••• → Add property, where a loose note on a phone has no chip for it (`addPropertyAsk.ts`).
+  useEffect(() => onAddPropertyAsked(() => setAddAsked((asked) => asked + 1)), []);
   const controls = useRef<EditorControls | null>(null);
   /*
     Board 3's new note: the line under its "Title". In the Inbox the next

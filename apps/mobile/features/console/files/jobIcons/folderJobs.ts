@@ -100,6 +100,11 @@ export function inboxFolder(listings: JobListings): string {
   return jobFolder(listings, "inbox", DEFAULT_FOLDER.inbox);
 }
 
+/** Where the Projects folder is: the folder doing its job, else `1-projects`. */
+export function projectsFolder(listings: JobListings): string {
+  return jobFolder(listings, "projects", DEFAULT_FOLDER.projects);
+}
+
 /** Where the Archive is: the folder doing its job, else `9-archive`. */
 export function archiveFolder(listings: JobListings): string {
   return jobFolder(listings, "archive", DEFAULT_FOLDER.archive);
