@@ -36,7 +36,7 @@ import { remapFolderIcons } from "@context/shared/src/folderIcons.cjs";
 import type { Clearance } from "../clearance";
 import { FileOpError, notFound } from "../fileOps/errors";
 import { folderVisibleAtScope } from "../fileOps/listing";
-import { assertMoveDestinationsVisible } from "../fileOps/moveRules";
+import { assertDestinationsVisible, assertMoveDestinationsVisible } from "../fileOps/moveRules";
 import { loadPrivacyState } from "../fileOps/privacyState";
 import type { FileStore } from "../fileOps/store";
 import type { MoveResult } from "../fileOps/moving";
@@ -143,6 +143,13 @@ export async function startQueuedMove(
   });
   if (!reserved.ok) {
     if (reserved.reason === "reserved") {
+      // "Something there is still moving" is itself something to know: said before the caller's clearance
+      // is read, it tells a `team` caller that a private folder exists and is being moved, where a free name
+      // is refused as not found. The names are judged first, and a caller who may see neither is told that.
+      const state = await loadPrivacyState(store);
+      if (state.invalid) throw new FileOpError("PRIVACY_MANIFEST_INVALID", "The privacy rules could not be read; the move was not made.");
+      if (!canSee(from, clearance.scope, state.rules, state.overrides, clearance.names)) throw notFound();
+      assertDestinationsVisible([to], clearance, state.rules, state.overrides);
       throw new FileOpError("CONFLICT", "Something there is still moving. Try again once it has finished.");
     }
     return null;

@@ -31,7 +31,7 @@ import { remapFolderIcons, remapIcons } from "@context/shared/src/folderIcons.cj
 import type { Clearance } from "../clearance";
 import { FileOpError, notFound } from "../fileOps/errors";
 import { folderVisibleAtScope } from "../fileOps/listing";
-import { assertMoveDestinationsVisible } from "../fileOps/moveRules";
+import { assertDestinationsVisible, assertMoveDestinationsVisible } from "../fileOps/moveRules";
 import { loadPrivacyState } from "../fileOps/privacyState";
 import type { FileStore } from "../fileOps/store";
 import { followInProjection, type ProjectionClient } from "../fileOps/search";
@@ -66,6 +66,25 @@ export function refusal(reason: RowMoveRefusal, to: string, visibleTarget: boole
   }
 }
 
+/**
+ * The refusal for names a move already under way is carrying. "Something there is still moving" is itself
+ * something to know: answered before the caller's clearance is read, it tells a `team` caller that a private
+ * folder exists and is being moved, where a free name answers not-found. So the names are judged first, and
+ * a caller who may not see either of them gets the refusal a free name gives.
+ */
+async function busyOrHidden(args: RowMoveArgs): Promise<Error> {
+  const { store, from, to, clearance } = args;
+  const state = await loadPrivacyState(store);
+  if (state.invalid) return new FileOpError("PRIVACY_MANIFEST_INVALID", "The privacy rules could not be read; the move was not made.");
+  if (!canSee(from, clearance.scope, state.rules, state.overrides, clearance.names)) return notFound();
+  try {
+    assertDestinationsVisible([to], clearance, state.rules, state.overrides);
+  } catch (error) {
+    return error as Error;
+  }
+  return refusal("busy", to, true);
+}
+
 interface RowMoveArgs {
   workspaceId: Id<"workspaces">;
   store: FileStore;
@@ -83,11 +102,11 @@ export async function startRowMove(ctx: ActionCtx, args: RowMoveArgs): Promise<M
   if (!plan.keyed) return null;
   const recorded = await recordedMove(ctx, workspaceId, from, (move) => !move.trash && move.to === to);
   if (recorded !== null && !recorded.trash) {
-    if (recorded.to !== to) throw refusal("busy", to, true);
+    if (recorded.to !== to) throw await busyOrHidden(args);
     return await resumeRowMove(ctx, args, recorded);
   }
   // One move per subtree at a time; asked before either name is read, since one may be half-moved.
-  if (await ctx.runQuery(internal.functions.nodeRowMoves.rowMoveOverlaps, { workspaceId, from, to })) throw refusal("busy", to, true);
+  if (await ctx.runQuery(internal.functions.nodeRowMoves.rowMoveOverlaps, { workspaceId, from, to })) throw await busyOrHidden(args);
 
   if (plan.kind === null) throw notFound();
   const planned = await plannedFiles(ctx, workspaceId, from, plan);
