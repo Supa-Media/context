@@ -130,7 +130,7 @@ export const BUNDLE_SOURCES: Readonly<Record<string, string>> = {
   "apps/mobile/features/console/files/webview/protocol.ts": "e503e49ebadfd3a3164e959a9f37fcdcd903d6c271fc020de80104c63735ca51",
   "apps/mobile/features/console/files/webview/styles.ts": "74256eb5ae94cc429e22215b5dca0ffd865b19cb70f7c1f3ac761e1fb5859e7a",
   "apps/mobile/features/console/presence/agentName.ts": "10578c78a2c1d5c31046a5f6d076d1827699fdbbbe061ceecaaa7ca761604bf9",
-  "apps/mobile/features/design/tokens/colors.ts": "9fe477c2dbb8bf30ac40a15864c3aa77298baac02fb9a88a0aebc79fc0589b63",
+  "apps/mobile/features/design/tokens/colors.ts": "92b0e95c68ae693605f0972b90f6b6a89800b39c167dcdfb0a898f4e04730d3e",
   "apps/mobile/features/voice/dictation.ts": "57cf14dc00e534eb3a93022294f7f3d5f1b256ad82724be4d23e8b40adc42b64",
   "packages/drawings/src/collab.js": "6407da8b4407ffddcc1cf0e584979d4ab08f3ac883dfb06b010459fef2f753c7",
   "packages/drawings/src/excalidraw.js": "d190b7c15675c34e0ad07b8d83a4766c1cdc661b50322f5e6112be5084ac9e1b",
