@@ -11,6 +11,7 @@
 
 import { internal } from "../../../_generated/api";
 import type { Doc, Id } from "../../../_generated/dataModel";
+import type { DatabaseReader } from "../../../_generated/server";
 import type { ActionCtx, MutationCtx } from "../../../_generated/server";
 import {
   MAX_PATH_LENGTH,
@@ -285,7 +286,7 @@ export async function commitRoutinesHandler(
     // In a shared workspace the owner is not the person a routine nobody was
     // seen writing belongs to: running it as them texted one person what
     // another asked for. It waits until someone who can write saves it.
-    const waits = writerSource === "fallback" && !fallsBackToOwner(workspace);
+    const waits = writerSource === "fallback" && !(await fallsBackToOwner(ctx.db, workspace));
     const zone = effectiveTimeZone(schedule.timeZone, await accountTimeZone(ctx, writer));
     const nextRunAt = waits ? null : nextRunFor(schedule, zone, now);
     const outcome = waits
@@ -329,13 +330,25 @@ export async function commitRoutinesHandler(
 
 /**
  * Whether a routine nobody was seen writing may run as the workspace's owner:
- * only in a personal workspace, whose owner is the one person it is for. In a
- * shared one any owner or editor could have written it, and its answer would
- * reach whoever happens to own the workspace.
+ * only where the owner is the only person who could have written it. A
+ * personal workspace is usually that, but it is the same row as a shared one
+ * with more membership (`functions/invitations.ts`), so an editor invited into
+ * a personal context is a second writer and the question is the same there as
+ * in a shared workspace: the fallback would run their words with the owner's
+ * private reach, and text the owner the answer.
  */
-export function fallsBackToOwner(workspace: Pick<Doc<"workspaces">, "kind">): boolean {
-  return workspace.kind === "personal";
+export async function fallsBackToOwner(db: DatabaseReader, workspace: Doc<"workspaces">): Promise<boolean> {
+  if (workspace.kind !== "personal") return false;
+  const members = await db
+    .query("workspaceMembers")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
+    .take(WRITERS_READ);
+  // Ownership is a membership row, so "only the owner writes here" is one writer, whoever they are.
+  return members.filter((member) => member.role === "owner" || member.role === "editor").length <= 1;
 }
+
+/** Members read to answer "is the owner the only writer": more than any personal context has. */
+const WRITERS_READ = 200;
 
 /**
  * The writer a signal named for this path: the path itself, else the nearest

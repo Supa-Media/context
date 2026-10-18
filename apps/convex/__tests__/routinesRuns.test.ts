@@ -56,6 +56,8 @@ async function personalWorkspaceOf(f: RoutineFixture, userId: RoutineFixture["ow
  *   `fallsBackToOwner` → true for every workspace
  *     → "a shared routine nobody was seen writing texts nobody…" and
  *       "a shared routine left running as its owner…" fail
+ *   `fallsBackToOwner` reading only `kind`, not who else may write
+ *     → "a personal workspace shared with an editor does not fall back…" fails
  */
 
 vi.setConfig({ testTimeout: 20_000 });
@@ -259,10 +261,11 @@ describe("who a run texts", () => {
     expect(await rowAt(f.t, f.workspaceId, DAILY)).toMatchObject({ nextRunAt: null, lastOutcome: "writer_unknown" });
   });
 
+  // The owner is the only writer here, which is what lets the fallback run as them: a personal
+  // workspace shared with an editor is two writers, and the case below.
   test("a personal routine nobody was seen writing still texts its owner, whatever its `to:` says", async () => {
     const f = await routineFixture();
     const personal = await personalWorkspaceOf(f, f.owner);
-    await addMember(f.t, personal, f.editor, "editor", f.owner);
     await seedStorageBinding(f.t, { workspaceId: personal, boundBy: f.owner, bucket: "personal-bucket" });
     const backend = seededBucket("personal-bucket");
     stubBuckets(f.backend, backend);
@@ -273,6 +276,24 @@ describe("who a run texts", () => {
     expect(await rowAt(f.t, personal, DAILY)).toMatchObject({ writerUserId: f.owner, writerSource: "fallback" });
     await makeDue(f.t, personal, DAILY);
     expect((await due(f.t))[0]!.phones).toEqual(["+15555550100"]);
+  });
+
+  test("a personal workspace shared with an editor does not fall back to its owner either", async () => {
+    // The fallback runs the routine with the writer's reach, and a personal
+    // workspace with an editor has two people who could have written it: the
+    // owner's private reach would then run words that may be the editor's.
+    const f = await routineFixture();
+    const personal = await personalWorkspaceOf(f, f.owner);
+    await addMember(f.t, personal, f.editor, "editor", f.owner);
+    await seedStorageBinding(f.t, { workspaceId: personal, boundBy: f.owner, bucket: "shared-personal-bucket" });
+    const backend = seededBucket("shared-personal-bucket");
+    stubBuckets(f.backend, backend);
+    await linkPhone(f.t, f.owner, "+15555550100");
+    backend.seed(DAILY, "---\nto: @studio-bo\n---\nGo.\n");
+    await signal(f.t, { workspaceId: personal, paths: [DAILY] });
+    expect(await rowAt(f.t, personal, DAILY)).toMatchObject({ writerSource: "fallback", lastOutcome: "writer_unknown" });
+    await makeDue(f.t, personal, DAILY);
+    expect(await due(f.t)).toEqual([]);
   });
 
   test("the writer by default, and nobody for `send: note`", async () => {
