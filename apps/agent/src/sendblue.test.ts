@@ -71,8 +71,31 @@ describe("sendblue webhook", () => {
     });
   });
 
-  it("drops what Tex must not answer: SMS, groups, email senders, its own sends, nothing at all", () => {
-    expect(parseSendblueInbound(received({ service: "SMS" }))).toEqual({ kind: "ignored", reason: "service" });
+  it("takes an SMS only as an SMS: no file, no inline reply, flagged so its words decide nothing", () => {
+    const sms = { service: "SMS", media_url: "https://cdn.example/f/IMG_1.heic", reply_to: { message_handle: "mh_0" } };
+    expect(parseSendblueInbound(received(sms))).toEqual({
+      kind: "message",
+      eventId: "sendblue:mh_1",
+      chatId: `sendblue:${LINE}:${PHONE}`,
+      from: PHONE,
+      messageId: "mh_1",
+      text: "hello",
+      sms: true,
+    });
+    // A picture alone is still answered, never fetched.
+    expect(parseSendblueInbound(received({ ...sms, content: "" }))).toMatchObject({ kind: "message", text: "", sms: true });
+    expect(parseSendblueInbound(received({ ...sms, content: "" }))).not.toHaveProperty("attachments");
+    expect(parseSendblueInbound(received({ service: "SMS", group_id: "g1" }))).toEqual({ kind: "ignored", reason: "group" });
+    expect(parseSendblueInbound(received({ service: "SMS", content: " " }))).toEqual({ kind: "ignored", reason: "empty" });
+    expect(parseSendblueInbound(received({ service: "SMS", content: "Loved “hi”" }))).toEqual({ kind: "ignored", reason: "reaction" });
+    expect(parseSendblueInbound(received({ service: "SMS", sendblue_number: null, to_number: "x" }))).toEqual({ kind: "invalid" });
+    // An iMessage is never flagged.
+    expect(parseSendblueInbound(received())).not.toHaveProperty("sms");
+  });
+
+  it("drops what Tex must not answer: other services, groups, email senders, its own sends, nothing at all", () => {
+    expect(parseSendblueInbound(received({ service: "RCS" }))).toEqual({ kind: "ignored", reason: "service" });
+    expect(parseSendblueInbound(received({ service: "sms" }))).toEqual({ kind: "ignored", reason: "service" });
     expect(parseSendblueInbound(received({ service: undefined }))).toEqual({ kind: "ignored", reason: "service" });
     expect(parseSendblueInbound(received({ group_id: "g1" }))).toEqual({ kind: "ignored", reason: "group" });
     expect(parseSendblueInbound(received({ message_type: "group" }))).toEqual({ kind: "ignored", reason: "group" });
