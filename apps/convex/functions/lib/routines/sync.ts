@@ -30,7 +30,7 @@ import {
   scheduleFromNote,
   type RoutineSchedule,
 } from "./model";
-import { accountTimeZone, userForActorName, workspaceOwner, writingRole } from "./access";
+import { accountTimeZone, runsRoutines, userForActorName, workspaceOwner, writingRole } from "./access";
 import { PROPS_AT_PATHS } from "../nodes/facts";
 import { TEX_FOLDER } from "@context/shared/src/folderRoles.cjs";
 
@@ -59,7 +59,14 @@ export async function recordRoutineSignalHandler(
   args: { workspaceId: string; userId?: string; actorName?: string; paths: string[] },
 ): Promise<null> {
   const workspaceId = ctx.db.normalizeId("workspaces", args.workspaceId);
-  if (workspaceId === null || (await ctx.db.get(workspaceId)) === null) return null;
+  if (workspaceId === null) return null;
+  const workspace = await ctx.db.get(workspaceId);
+  // A shared workspace runs no routines: nothing to scan, and any row left from before goes.
+  if (workspace === null) return null;
+  if (!runsRoutines(workspace)) {
+    await dropRoutines(ctx, workspaceId);
+    return null;
+  }
   const paths = routinePathsOf(args.paths);
   if (paths === null) return null;
 
@@ -248,6 +255,7 @@ export async function commitRoutinesHandler(
 ): Promise<{ upserted: number; deleted: number }> {
   const workspace = await ctx.db.get(args.workspaceId);
   if (workspace === null) return { upserted: 0, deleted: 0 };
+  if (!runsRoutines(workspace)) return { upserted: 0, deleted: await dropRoutines(ctx, args.workspaceId) };
   const now = Date.now();
   const existing = await ctx.db
     .query("routines")
@@ -326,6 +334,16 @@ export async function commitRoutinesHandler(
     }
   }
   return { upserted, deleted };
+}
+
+/** Delete every routine row of a workspace that runs none. The notes stay. */
+async function dropRoutines(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<number> {
+  const rows = await ctx.db
+    .query("routines")
+    .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId))
+    .take(MAX_ROUTINES_PER_WORKSPACE * 2);
+  for (const row of rows) await ctx.db.delete(row._id);
+  return rows.length;
 }
 
 /**

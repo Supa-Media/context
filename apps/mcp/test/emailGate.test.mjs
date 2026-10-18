@@ -110,7 +110,7 @@ export async function runEmailGateChecks(check) {
         model.requests.length === before &&
         sends().length === 1 &&
         JSON.stringify(sends()[0].email) === JSON.stringify({ from: "seyi@gmail.example", to: EMAIL.to, cc: [], subject: EMAIL.subject, body: EMAIL.body }) &&
-        /^Done: send an email to jo@example\.com, "Re: Thursday"\.$/.test(yes.body?.answer ?? "") &&
+        /^Done, I sent an email to jo@example\.com, "Re: Thursday"\.$/.test(yes.body?.answer ?? "") &&
         pending().length === 0,
     );
 

@@ -74,7 +74,7 @@ export async function runAgentEgressTextingChecks(check) {
       "a texted YES runs it without a model, and says so",
       yes.status === 200 &&
         model.requests.length === before &&
-        /^Done: claim the handle @woodshop/.test(yes.body?.answer ?? "") &&
+        /^Done, I claimed the handle @woodshop/.test(yes.body?.answer ?? "") &&
         claimed("woodshop") &&
         pending().length === 0,
     );

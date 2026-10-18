@@ -1,7 +1,11 @@
 import { describe, expect, test } from "vitest";
 import { internal } from "../../_generated/api";
+import { executeOperation } from "../../functions/lib/filesFns/executeOperation";
+import { attachQueueMove } from "../../functions/lib/nodes/moveBarrier";
+import { attachTreeListing } from "../../functions/lib/nodes/treeNames";
+import { attachWorkspaceKeyed } from "../../functions/lib/noteIds/keyedStore";
 import { NOTE_ID, keyedFixture, liveAt, rowOf } from "./keyedFixture.helpers";
-import { TEAM, start, type Fixture } from "./moveFixture.helpers";
+import { OWNER, TEAM, start, type Fixture } from "./moveFixture.helpers";
 
 // Archive keeps the workspace's shape (owner, 2026-10-18; `lib/nodes/archiveTwins.ts`,
 // `archiveMirror.cjs`): each built-in folder has a marked twin in Archive that follows its
@@ -10,6 +14,7 @@ import { TEAM, start, type Fixture } from "./moveFixture.helpers";
 // Sabotage, each run as a temporary local edit and reverted, and each failing here:
 //  - drop `withArchive` from `startRowMove`: the twin stays at the old name (rename, nest, merge cases);
 //  - name every carried file in the answer, whatever the caller may see: the team rename lists the private archive;
+//  - drop "archiveTidy" from the barrier's `QUEUEING`: the keyed tidy moves nothing (the old path move is refused);
 //  - drop `markArchiveTwins`' patch: no twin is marked;
 //  - drop the `archive_stays` / `built_in_archived` returns from `archiveMoveRefusal`: the guard cases move.
 
@@ -165,5 +170,30 @@ describe("the hourly tidy finds the workspaces that still have date folders", ()
     });
     await f.t.mutation(internal.functions.archiveTidy.catchUp, {});
     expect(await scheduledTidies(f)).toBe(1);
+  });
+});
+
+describe("the tidy, in a workspace that keeps its notes by id", () => {
+  /** Run one operation through the barrier's seams, as `fileOperationBarrier.ts` attaches them. */
+  function operate(f: Fixture, operation: Parameters<typeof executeOperation>[2]) {
+    const args = { workspaceId: f.ws, scope: OWNER.scope, operation: { kind: operation.kind } };
+    attachQueueMove(f.ctx, args, f.store, f.store);
+    attachWorkspaceKeyed(f.ctx, f.ws, f.store);
+    attachTreeListing(f.ctx, f.ws, f.store);
+    return executeOperation(f.store, OWNER, operation, Date.now());
+  }
+
+  test("empties a date folder into Archive's shape as row moves, each note keeping its id", async () => {
+    const f = await withArchive();
+    const stamp = "9-archive/2026-10-15T22-16-49-545Z";
+    await start(f, "1-projects/launch", `${stamp}/1-projects/launch`);
+    const brief = await rowOf(f, `${stamp}/1-projects/launch/brief.md`);
+
+    const answer = (await operate(f, { kind: "archiveTidy" })) as { paths?: string[]; queued?: number };
+
+    expect(answer.paths?.length ?? 0).toBeGreaterThan(0);
+    expect((await rowOf(f, "9-archive/1-projects/launch/brief.md"))._id).toBe(brief._id);
+    expect(await liveAt(f, `${stamp}/1-projects/launch/brief.md`)).toBe(false);
+    expect(await archiveOf(f, "9-archive/1-projects")).toBe("projects");
   });
 });

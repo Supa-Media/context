@@ -178,11 +178,11 @@ describe("worker", () => {
       expect(routedTo).toEqual([]);
     });
 
-    it("answers 200 and drops an SMS or a group, logging why but never the number or text", async () => {
+    it("answers 200 and drops a group or an unknown service, logging why but never the number or text", async () => {
       const { env: e, routedTo } = sbEnv();
       const lines: string[] = [];
       vi.spyOn(console, "log").mockImplementation((line: string) => void lines.push(line));
-      expect((await worker.fetch(post(inbound({ service: "SMS" }), SB_SECRET), e)).status).toBe(200);
+      expect((await worker.fetch(post(inbound({ service: "RCS" }), SB_SECRET), e)).status).toBe(200);
       expect((await worker.fetch(post(inbound({ group_id: "g" }), SB_SECRET), e)).status).toBe(200);
       expect(routedTo).toEqual([]);
       expect(lines.map((line) => JSON.parse(line))).toEqual([

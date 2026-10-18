@@ -665,7 +665,7 @@ export function BrowseDocument({
   */
   function routineNote(editor: ReactNode) {
     return data.routines === true ? (
-      <RoutineProvider workspaceId={current?.id} path={files.editor.path} canEdit={files.canEdit}>
+      <RoutineProvider workspaceId={current?.id} shared={current?.kind === "shared"} path={files.editor.path} canEdit={files.canEdit}>
         {editor}
       </RoutineProvider>
     ) : (

@@ -60,7 +60,7 @@ export async function runCalendarGateChecks(check) {
       model.requests.length === before &&
         changes().length === 1 &&
         JSON.stringify(changes()[0].change) === JSON.stringify(readCalendarChange(CREATE).change) &&
-        yes.body?.answer === 'Done: add "Dentist" to your calendar.',
+        yes.body?.answer === 'Done, I added "Dentist" to your calendar.',
     );
 
     controlPlane.flags.calendarAddress = null;
