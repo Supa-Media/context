@@ -214,7 +214,7 @@ describe("a keyed move refuses what it cannot make true, and changes nothing", (
     expect(await treeOf(f)).toEqual(treeBefore);
   });
 
-  test("a folder of more than the row cap is refused as too large, at the real limit", async () => {
+  test("a folder of one row more than the cap moves whole, in pages, at the real limit (`keyedChunkedMove.test.ts`)", async () => {
     const f = await keyedFixture();
     await f.t.run(async (ctx) => {
       const folder = await ctx.db.insert("nodes", {
@@ -240,8 +240,11 @@ describe("a keyed move refuses what it cannot make true, and changes nothing", (
       }
     });
 
-    await expect(start(f, "2-areas/big", "3-resources/big")).rejects.toMatchObject({ code: "FOLDER_TOO_LARGE" });
-    expect(await liveAt(f, "2-areas/big/n0.md")).toBe(true);
+    const moved = await start(f, "2-areas/big", "3-resources/big");
+
+    expect(moved).toMatchObject({ rowed: true, queued: 501 });
+    expect(await liveAt(f, "2-areas/big/n0.md")).toBe(false);
+    expect(await liveAt(f, "3-resources/big/n500.md")).toBe(true);
   });
 
   test("a note that arrived under the folder after the caller judged it is refused as changed, and nothing moves", async () => {

@@ -255,7 +255,12 @@ something. An owner sees everything.
 
 A bucket too large to walk for one move reports the rewrite as **not done**
 rather than as partial. A partial rewrite announcing success leaves a person
-believing their links were fixed.
+believing their links were fixed. Where the tree's link facts are whole, the
+walk reads only the notes that can hold a link to what moved (those pointing at
+a moved path or its bare name, those changed since their links were read, and
+moved notes holding links of their own), in the console (`linkCandidates`,
+`lib/fileOps/references.ts`, 2026-10-18) as in the gateway
+(`tree/facts.js`), so the cap counts those notes and not the workspace.
 
 The rewrite takes no `.history/` snapshot, and that is the current rule rather
 than an omission: it landed the same week version history became the customer's

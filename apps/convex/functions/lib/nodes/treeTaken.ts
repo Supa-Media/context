@@ -21,7 +21,8 @@
 import type { Id } from "../../../_generated/dataModel";
 import type { DatabaseReader } from "../../../_generated/server";
 import { logicalPath, physicalCandidates } from "../../../../mcp/src/moves/queued.js";
-import { type PendingMove, pendingMoves } from "./moveOverlay";
+import type { PendingMove } from "./moveOverlay";
+import { drawnMoves } from "./rowMoveChunks";
 
 /** Names one ask may carry. */
 export const TAKEN_PATHS = 100;
@@ -122,7 +123,7 @@ export async function treeTaken(
   workspaceId: Id<"workspaces">,
   paths: readonly string[],
 ): Promise<TakenAnswer> {
-  const moves = await pendingMoves(db, workspaceId);
+  const moves = await drawnMoves(db, workspaceId);
   const answer: TakenAnswer = { files: [], folders: [] };
   for (const path of new Set(paths.slice(0, TAKEN_PATHS))) {
     if (path === "") continue;

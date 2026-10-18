@@ -70,10 +70,34 @@ archive of a file or folder rewrites `nodes` rows and copies nothing:
 
 - **Refused, nothing written:** a queued byte move still pending; a
   destination, or a path a moved row would take, held by a live row; a file
-  under the name with no key yet; a stale expected etag; more than
-  `ROW_MOVE_MAX` (500) live rows, answered `FOLDER_TOO_LARGE`. Above the cap
-  there is **no** queued byte fallback: the queue would move the frozen path
-  copies the bucket still holds, which are not the notes.
+  under the name with no key yet; a stale expected etag; a name another keyed
+  move is still carrying (`CONFLICT`, one move per subtree at a time). There is
+  **no** queued byte fallback: the queue would move the frozen path copies the
+  bucket still holds, which are not the notes.
+- **A folder of any size moves** (built 2026-10-18,
+  `lib/nodes/rowMoveChunks.ts`). Within `ROW_MOVE_MAX` (500) live rows a move is
+  one mutation. Above it the first mutation makes every whole-move check, moves
+  the folder's own row and records the move in `rowMoves`; the rows beneath
+  follow in pages of `ROW_MOVE_MAX`, in path order, so a folder always moves
+  before what is in it, and row ids are kept. While the record says `moving`,
+  the half-moved folder reads as one: listings fold the rows still at the old
+  name to the new one (`drawnMoves`), the id layer's lookup finds a note at
+  whichever name its row holds now (`throughRowMoves`), and in rows mode each
+  access row under either name is read at the other too (`withMovingAccess`),
+  so every note is found once and judged by the same rules wherever it sits.
+  In file mode the rules are carried before the first mutation and released
+  after the last; a page that finds them changed since moves nothing until they
+  are carried again. The request pages the move to the end; if it stops, a
+  scheduled watchdog (`continueRowMove`) finishes the rows after a lease, and
+  asking for the same move again does the bucket's side (the old name's rules,
+  forwarding, icons, search) and drops the record. A page is idempotent. A row
+  that cannot move (taken meanwhile, unkeyed, or not the mover's to see) stays
+  at the old name in a folder of that name, private in rows mode, with what is
+  in it. Pins, settings and the folder's job follow once, at the start; the
+  emptied folder is retired at the end. **Open gap:** the gateway carries the
+  collaboration history of at most `COLLABORATION_RENAME_MAX` (500) moved notes
+  in the request (`keyedCollaboration.js`), so in a bigger folder the rest are
+  in the known gap below until something retries them.
 - **Refused, not moved, when the caller cannot see the whole name:** a folder
   holding a note the caller may not see cannot move in one step.
 - **Carried:** the change log (gone at the old path, present at the new one),
@@ -122,8 +146,8 @@ staff should not switch a workspace with live collaborative notes to `keys`.
   its rules at its own name for Restore. Its links and pins stay where they
   were, as a trash made in one go leaves them. Restore moves the rows back: a
   note, one note out of a trashed folder, or the whole folder, with each row's
-  id, key and bytes. The row cap applies (`FOLDER_TOO_LARGE`, nothing moved): no
-  byte fallback. The `trash` flag on `rowMove` is refused unless one end of the
+  id, key and bytes. A folder over the row cap goes in pages, and comes back in
+  pages, as a move does; there is no byte fallback. The `trash` flag on `rowMove` is refused unless one end of the
   move is under `.context/trash`.
 - **Trash, Restore and the history.** A trash carries each moved note's heads
   to its trash location, and a Restore carries them back (`renameDocument` with
@@ -143,13 +167,16 @@ staff should not switch a workspace with live collaborative notes to `keys`.
   folder" check is not made there: the folder goes to the trash, and Restore
   brings back whatever was typed.
 - **The cap counts the name.** `ROW_MOVE_MAX` (500) is the live rows a move
-  renames, the folder or note itself included. A folder of 501 rows is refused.
+  renames in one transaction, the folder or note itself included. A folder of
+  501 rows moves in pages; a batch of 501 rows is refused, since it must land
+  whole.
 
 What a "simplification" would cost: a byte move in a keyed workspace moves
 frozen copies and leaves the live note where it was, and a trash that moves
 bytes leaves the note in place. `keyedTrash.test.ts` (the trash, restore, cap
 and name-collision cases) and the cap cases in `keyedRowMove.test.ts` fail if
-either is reversed.
+either is reversed. Refusing big folders again, or reading through a moving one
+without its fold, lookup or access copies, fails `keyedChunkedMove.test.ts`.
 
 **A head made before heads recorded ids** (built 2026-10-17, `adoptUnstampedHead`
 in `packages/collaboration/src/load.js`). An active head with no note id, at a

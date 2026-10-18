@@ -13,6 +13,7 @@ import type { Doc, Id } from "../../../_generated/dataModel";
 import type { QueryCtx } from "../../../_generated/server";
 import { withPendingPrivate } from "./pendingAccess";
 import type { AccessRow, Grantee } from "./rowAccess";
+import { movingRowMoves, withMovingAccess } from "./rowMoveChunks";
 
 function granteeOf(grant: Doc<"nodeAccess">): Grantee | null {
   if (grant.granteeKind === "user" && grant.granteeUserId !== undefined) {
@@ -92,6 +93,8 @@ export async function accessRowsOf(ctx: QueryCtx, workspaceId: Id<"workspaces">)
           grantees: entry.grantees.map((grantee) => ({ kind: grantee.kind, id: grantee.id, role: grantee.role })),
         }))
       : await scanAccessRows(ctx, workspaceId);
+  // A folder moving in pages is judged by the same rules at both its names (`rowMoveChunks.ts`).
+  const moving = withMovingAccess(rows, await movingRowMoves(ctx.db, workspaceId));
   // A private access waiting for its row closes the path before the row exists (`pendingAccess.ts`).
-  return withPendingPrivate(rows, state?.pending, Date.now());
+  return withPendingPrivate(moving, state?.pending, Date.now());
 }

@@ -17,7 +17,9 @@ import {
 } from "@context/collaboration";
 import { LIST_PAGE_CAP, type FileStore } from "./store";
 import type { PrivacyState } from "./privacyState";
+import type { TreeNames } from "./treeChecks";
 import { namesListing } from "./walk";
+import { bareNameOf } from "../../../../mcp/src/tree/links.js";
 
 /**
  * How many notes a move will read looking for references to what moved.
@@ -28,6 +30,11 @@ import { namesListing } from "./walk";
  * rewrite is reported as **not done**, which is the honest failure — a partial
  * rewrite announcing success would leave somebody believing their links were
  * fixed.
+ *
+ * Where the tree's link facts are whole the count is of the notes that can
+ * hold a link to what moved (`linkCandidates`), not of the workspace, so a
+ * workspace of any size is rewritten; only where the facts cannot answer is
+ * every visible note read, and counted, as before.
  */
 const LINK_SCAN_CAP = 4000;
 
@@ -87,11 +94,15 @@ export async function rewriteReferences(
   } catch {
     return { notes: 0, links: 0, capped: true };
   }
-  if (keys === null || keys.length > LINK_SCAN_CAP) return { notes: 0, links: 0, capped: true };
-
+  if (keys === null) return { notes: 0, links: 0, capped: true };
   const wasAt = new Map<string, string>();
   for (const [source, destination] of options.renames) wasAt.set(destination, source);
+  // Every visible note names what a bare link resolves against; only the ones that can hold a link to what
+  // moved are read (`linkCandidates`), so the cap is on those, not on the workspace.
   const byName = indexByName(keys.map((key) => wasAt.get(key) ?? key));
+  const candidates = await linkCandidates(store, options.renames);
+  if (candidates !== null) keys = keys.filter((key) => candidates.has(key));
+  if (keys.length > LINK_SCAN_CAP) return { notes: 0, links: 0, capped: true };
 
   let notes = 0;
   let links = 0;
@@ -147,6 +158,42 @@ export async function rewriteReferences(
 
 /** Notes read ahead of the one being rewritten. */
 const REFERENCE_READ_AHEAD = 8;
+
+/** Renamed paths, or bare names, one facts read asks about: well inside the control plane's `MOVE_RENAMES_CAP`. */
+const CANDIDATE_BATCH = 1_000;
+
+/**
+ * The notes a rewrite for `renames` must read, at their names after the move, from the tree's link facts
+ * (`nodeLinks`), as the gateway narrows its own (`apps/mcp/src/tree/facts.js`): every note pointing at a
+ * renamed path by path or at its bare name, every note changed since its links were read, and every renamed
+ * note that holds links of its own (its relative links move with it). `null` where the facts cannot answer
+ * (no tree attached, or not whole yet), and every visible note is read as before.
+ */
+async function linkCandidates(store: FileStore, renames: ReadonlyMap<string, string>): Promise<Set<string> | null> {
+  const tree = (store as { treeListing?: TreeNames }).treeListing;
+  if (typeof tree?.links !== "function" || typeof tree.linking !== "function") return null;
+  const sources = [...renames.keys()];
+  const names = [...new Set(sources.map((path) => bareNameOf(path) as string))];
+  const found = new Set<string>();
+  try {
+    for (const [list, kind] of [[sources, "sources"], [names, "names"]] as const) {
+      for (let at = 0; at < list.length; at += CANDIDATE_BATCH) {
+        const batch = list.slice(at, at + CANDIDATE_BATCH);
+        const answer = await tree.links(kind === "sources" ? { sources: batch, names: [] } : { sources: [], names: batch });
+        if (answer === null) return null;
+        for (const path of [...answer.pointing, ...answer.unparsed]) found.add(renames.get(path) ?? path);
+      }
+    }
+    // A moved note's own links are kept under either name, as far as the facts have followed the move.
+    const ends = [...new Set([...renames.keys(), ...renames.values()])];
+    for (let at = 0; at < ends.length; at += CANDIDATE_BATCH) {
+      for (const path of await tree.linking(ends.slice(at, at + CANDIDATE_BATCH))) found.add(renames.get(path) ?? path);
+    }
+  } catch {
+    return null;
+  }
+  return found;
+}
 
 /**
  * Hands back each key's text in the order asked, keeping up to `depth` reads

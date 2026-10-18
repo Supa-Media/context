@@ -23,7 +23,11 @@ import { renameDocument, supported as collaborationSupported } from "@context/co
 import { canSee } from "../privacy/engine.js";
 import { announceMovedToPresence } from "../live/presence.js";
 
-/** Moved files one request will carry. A keyed move is at most the row cap, so this never bites in practice. */
+/**
+ * Moved files one request will carry. A keyed folder over the row cap moves in pages
+ * (`rowMoveChunks.ts`), so a bigger folder's notes past this are not carried here:
+ * the open gap `notes-by-id.md` names.
+ */
 export const COLLABORATION_RENAME_MAX = 500;
 
 /**

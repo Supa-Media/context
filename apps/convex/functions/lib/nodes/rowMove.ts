@@ -10,10 +10,13 @@
  *  - a queued byte move is still pending here (its names are not settled);
  *  - the destination, or any path a moved row would take, is held by a live row;
  *  - any file under the name has no key (its flip is not finished);
- *  - the name and the live rows under it are more than `maxRows` (the caller says too large).
+ *  - another keyed move still moving overlaps either name (`busy`, `rowMoveChunks.ts`);
+ *  - the name and the live rows under it are more than `maxRows`, unless the
+ *    caller asked for a chunked move (`chunk`): then the folder's root moves
+ *    here and the rows beneath follow a page at a time (`rowMoveChunks.ts`).
  *
- * Everything here is one mutation, so a refusal leaves nothing behind and a
- * success is all of it. Privacy rules are not written here: they live in
+ * A move within the cap is one mutation, so a refusal leaves nothing behind and
+ * a success is all of it. Privacy rules are not written here: they live in
  * `privacy.md`, which the caller carries before and releases after
  * (`rowMoveStart.ts`, as `moveStart.ts` does for a queued move).
  *
@@ -41,8 +44,13 @@ import { refreshAccess } from "./accessBackfill";
 import { MAIN_ROLES, type MainRole, jobOfName } from "@context/shared/src/folderRoles.cjs";
 import { claimJobBeforeMove, jobOfRow, roleForNewFolder } from "./folderJobs";
 import { followFolderSettings } from "./settingsFollow";
+import { beginChunkedMove, overlapsRowMove } from "./rowMoveChunks";
 
-/** Live rows one row move may rename, the name itself included. Above this the caller refuses as too large. */
+/**
+ * Live rows one row move renames in one transaction, the name itself included.
+ * A bigger folder moves in pages of this many (`rowMoveChunks.ts`); a batch,
+ * which must land whole, is refused above it.
+ */
 export const ROW_MOVE_MAX = 500;
 
 export type RowMoveRefusal =
@@ -67,6 +75,8 @@ export type RowMoveAnswer =
       files: { from: string; to: string }[];
       /** The moved file's etag, for a single note (`movePath`'s answer). */
       etag?: string;
+      /** Set when only the root moved here and the rows beneath follow in pages (`rowMoveChunks.ts`). */
+      chunked?: Id<"rowMoves">;
     }
   | { ok: false; reason: RowMoveRefusal };
 
@@ -110,7 +120,7 @@ export async function subtreeOf(
 }
 
 /** Whether any live row sits beneath `path`: a destination that is not free even though nothing sits at it. */
-async function liveUnder(db: DatabaseReader, workspaceId: Id<"workspaces">, path: string): Promise<boolean> {
+export async function liveUnder(db: DatabaseReader, workspaceId: Id<"workspaces">, path: string): Promise<boolean> {
   const prefix = `${path}/`;
   for await (const doc of db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).gt("path", prefix))) {
     if (!doc.path.startsWith(prefix)) return false;
@@ -155,6 +165,11 @@ export async function applyRowMove(
     maxRows?: number;
     /** A move into or out of the trash: no rules are checked or carried, and no links or pins follow. */
     trash?: boolean;
+    /**
+     * Move a folder bigger than the cap in pages (`rowMoveChunks.ts`), judging each page's rows at this
+     * clearance. Absent, a folder over the cap is refused `too_large` (a batch, which must land whole).
+     */
+    chunk?: { scope: "private" | "team"; grantedNames: string[] };
   },
 ): Promise<RowMoveAnswer> {
   const { workspaceId: ws, from, to, now } = args;
@@ -176,8 +191,13 @@ export async function applyRowMove(
   // `subtreeOf` counts the rows beneath; the name is one of the `max`, so `max - 1` of them may sit beneath it.
   const subtree = await subtreeOf(ctx.db, ws, from, max - 1);
   if (subtree.root === null) return refuse("not_found");
-  if (subtree.over) return refuse("too_large");
+  // One move per subtree at a time: a name another keyed move is still carrying is not settled.
+  if (await overlapsRowMove(ctx.db, ws, from, to)) return refuse("busy");
   const root = subtree.root;
+  if (subtree.over) {
+    if (args.chunk === undefined || root.kind !== "folder" || args.expectedEtag !== undefined) return refuse("too_large");
+    return await beginChunkedMove(ctx, { workspaceId: ws, root, from, to, now, trash, privacyEtag: args.privacyEtag, clearance: args.chunk, mirror });
+  }
   if (args.expectedEtag !== undefined) {
     if (root.kind !== "file") return refuse("invalid");
     if (!etagIs(root, args.expectedEtag)) return refuse("changed");
@@ -199,7 +219,7 @@ export async function applyRowMove(
     if (held !== null) tombstones.push(held);
   }
   if (await liveUnder(ctx.db, ws, to)) return refuse("taken");
-  const ancestors = await Promise.all(folderChain(to).map(async (path) => ({ path, row: await rowAt(ctx.db, ws, path) })));
+  const ancestors = await chainAt(ctx.db, ws, to);
   if (ancestors.some((entry) => entry.row !== null && entry.row.goneAt === undefined && entry.row.kind === "file")) {
     return refuse("taken");
   }
@@ -212,51 +232,14 @@ export async function applyRowMove(
   if (!trash) await claimJobBeforeMove(ctx, ws, root);
   for (const row of tombstones) await removeReplaced(ctx, row);
 
-  // The folders `to` needs, outermost first: revived where a tombstone held the name, created where nothing did.
-  let parentId: Id<"nodes"> | undefined;
-  for (const { path, row } of ancestors) {
-    if (row !== null && row.kind === "folder") {
-      const patch: Partial<Doc<"nodes">> = { observedAt: now, parentId };
-      if (row.goneAt !== undefined) patch.goneAt = undefined;
-      await ctx.db.patch(row._id, patch);
-      parentId = row._id;
-      continue;
-    }
-    // A tombstone file where a folder must stand: the name is free, so it goes.
-    if (row !== null) await removeReplaced(ctx, row);
-    parentId = await insertFolder(ctx, ws, path, parentId, now);
-  }
+  const parentId = await standFolders(ctx, ws, ancestors, now);
   const oldParent = root.parentId;
 
-  for (const pair of pairs) {
-    const isRoot = pair.row._id === root._id;
-    await ctx.db.patch(pair.row._id, {
-      path: pair.to,
-      observedAt: now,
-      ...(isRoot ? { parentId, name: nameOf(to) } : {}),
-    });
-  }
-
-  // Links name their note by its path: each moved note's links now say where it is. A trash leaves them where
-  // they were, for Restore, as a trash made in one go does.
+  await ctx.db.patch(root._id, { path: to, observedAt: now, parentId, name: nameOf(to) });
+  const below = pairs.filter((pair) => pair.row._id !== root._id);
+  for (const pair of below) await ctx.db.patch(pair.row._id, { path: pair.to, observedAt: now });
   const files = pairs.filter((pair) => pair.row.kind === "file");
-  if (!trash) {
-    for (const pair of files) {
-      const links = await ctx.db
-        .query("nodeLinks")
-        .withIndex("by_workspace_source", (q) => q.eq("workspaceId", ws).eq("source", pair.from))
-        .collect();
-      for (const link of links) await ctx.db.patch(link._id, { source: pair.to });
-    }
-  }
-
-  // The change log: each file left its old path and appeared at its new one. Folders are not logged, and
-  // neither is the trash's plumbing: a note going into the trash is gone, and one restored from it appears.
-  const table = convexNodeTable(ctx, ws);
-  for (const pair of files) {
-    if (!isPlumbing(pair.from)) await table.logChange?.(pair.from, true);
-    if (!isPlumbing(pair.to)) await table.logChange?.(pair.to, false);
-  }
+  await followMovedFiles(ctx, ws, files, trash);
 
   await retireEmptied(ctx, ws, oldParent, now);
 
@@ -279,11 +262,75 @@ export async function applyRowMove(
   };
 }
 
+/** `path`'s folder chain, outermost first, each with the row at it: what a move into `path` must stand. */
+export async function chainAt(
+  db: DatabaseReader,
+  ws: Id<"workspaces">,
+  path: string,
+): Promise<{ path: string; row: Doc<"nodes"> | null }[]> {
+  return await Promise.all(folderChain(path).map(async (folder) => ({ path: folder, row: await rowAt(db, ws, folder) })));
+}
+
+/**
+ * The folders of a chain (`chainAt`), outermost first: kept where a live folder stands, revived where a
+ * tombstone held the name, created where nothing did. Answers the innermost folder's id. The caller has
+ * refused a chain with a live file in it.
+ */
+export async function standFolders(
+  ctx: MutationCtx,
+  ws: Id<"workspaces">,
+  chain: readonly { path: string; row: Doc<"nodes"> | null }[],
+  now: number,
+): Promise<Id<"nodes"> | undefined> {
+  let parentId: Id<"nodes"> | undefined;
+  for (const { path, row } of chain) {
+    if (row !== null && row.kind === "folder") {
+      const patch: Partial<Doc<"nodes">> = { observedAt: now, parentId };
+      if (row.goneAt !== undefined) patch.goneAt = undefined;
+      await ctx.db.patch(row._id, patch);
+      parentId = row._id;
+      continue;
+    }
+    // A tombstone file where a folder must stand: the name is free, so it goes.
+    if (row !== null) await removeReplaced(ctx, row);
+    parentId = await insertFolder(ctx, ws, path, parentId, now);
+  }
+  return parentId;
+}
+
+/**
+ * What follows each moved file's row: its links, which name it by its path, and the change log (it left its
+ * old path and appeared at its new one). A trash leaves the links where they were, for Restore, as a trash
+ * made in one go does. Folders are not logged, and neither is the trash's plumbing: a note going into the
+ * trash is gone, and one restored from it appears.
+ */
+export async function followMovedFiles(
+  ctx: MutationCtx,
+  ws: Id<"workspaces">,
+  files: readonly { from: string; to: string }[],
+  trash: boolean,
+): Promise<void> {
+  if (!trash) {
+    for (const pair of files) {
+      const links = await ctx.db
+        .query("nodeLinks")
+        .withIndex("by_workspace_source", (q) => q.eq("workspaceId", ws).eq("source", pair.from))
+        .collect();
+      for (const link of links) await ctx.db.patch(link._id, { source: pair.to });
+    }
+  }
+  const table = convexNodeTable(ctx, ws);
+  for (const pair of files) {
+    if (!isPlumbing(pair.from)) await table.logChange?.(pair.from, true);
+    if (!isPlumbing(pair.to)) await table.logChange?.(pair.to, false);
+  }
+}
+
 /**
  * Remove a row a move replaces, with the grants on it: they name a row that is gone. A tombstone a rule
  * named is re-derived onto the row now holding its name (`refreshAccess`, at the end of the move).
  */
-async function removeReplaced(ctx: MutationCtx, row: Doc<"nodes">): Promise<void> {
+export async function removeReplaced(ctx: MutationCtx, row: Doc<"nodes">): Promise<void> {
   const grants = await ctx.db
     .query("nodeAccess")
     .withIndex("by_node", (q) => q.eq("nodeId", row._id))
@@ -292,7 +339,7 @@ async function removeReplaced(ctx: MutationCtx, row: Doc<"nodes">): Promise<void
   await ctx.db.delete(row._id);
 }
 
-async function insertFolder(
+export async function insertFolder(
   ctx: MutationCtx,
   ws: Id<"workspaces">,
   path: string,
@@ -317,7 +364,7 @@ async function insertFolder(
  * it, as `observe.ts` does for a tombstone (`retireEmptyFolders`), so the
  * sidebar stops drawing a folder nothing is in.
  */
-async function retireEmptied(ctx: MutationCtx, ws: Id<"workspaces">, start: Id<"nodes"> | undefined, now: number): Promise<void> {
+export async function retireEmptied(ctx: MutationCtx, ws: Id<"workspaces">, start: Id<"nodes"> | undefined, now: number): Promise<void> {
   let next = start;
   for (let depth = 0; next !== undefined && depth < 64; depth += 1) {
     const folder = await ctx.db.get(next);

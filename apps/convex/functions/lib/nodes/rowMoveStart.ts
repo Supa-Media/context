@@ -12,9 +12,15 @@
  *     it may not see in full are refused (a row move cannot leave them behind).
  *  2. The rules are carried to the new name (`carryPrivacy`), so the moved
  *     notes are never judged without the narrowing they carry.
- *  3. The rows move (`nodeRowMoves.rowMove`), which re-checks everything.
+ *  3. The rows move (`nodeRowMoves.rowMove`), which re-checks everything. A
+ *     folder over the cap moves its root there and the rest in pages, driven
+ *     here until the last (`rowMoveChunks.ts`, `rowMoveDrive.ts`).
  *  4. The old name's rules go, and the bucket-side records follow it:
  *     forwarding, folder icons, and the search index.
+ *
+ * Asking again for a chunked move that is still recorded (`rowMoveFor`) resumes
+ * it from step 3, for whoever may see both names: a request that stopped
+ * mid-move left the rows to the watchdog and the bucket's steps undone.
  */
 
 import { internal } from "../../../_generated/api";
@@ -34,6 +40,7 @@ import { PRIVACY_KEY, canSee } from "../privacy";
 import { carryPrivacy, releasePrivacy } from "./movePrivacy";
 import { touchNodesNow } from "./run";
 import type { RowMoveRefusal } from "./rowMove";
+import { driveRowMove, plannedFiles, recordedMove } from "./rowMoveDrive";
 
 /** The refusal a row move answers with, in the words the console and agents already get for each case. */
 export function refusal(reason: RowMoveRefusal, to: string, visibleTarget: boolean): Error {
@@ -59,36 +66,42 @@ export function refusal(reason: RowMoveRefusal, to: string, visibleTarget: boole
   }
 }
 
-export async function startRowMove(
-  ctx: ActionCtx,
-  args: {
-    workspaceId: Id<"workspaces">;
-    store: FileStore;
-    from: string;
-    to: string;
-    clearance: Clearance;
-    now: number;
-    expectedEtag?: string;
-    projection?: ProjectionClient | null;
-  },
-): Promise<MoveResult | null> {
+interface RowMoveArgs {
+  workspaceId: Id<"workspaces">;
+  store: FileStore;
+  from: string;
+  to: string;
+  clearance: Clearance;
+  now: number;
+  expectedEtag?: string;
+  projection?: ProjectionClient | null;
+}
+
+export async function startRowMove(ctx: ActionCtx, args: RowMoveArgs): Promise<MoveResult | null> {
   const { workspaceId, store, from, to, clearance, now } = args;
   const plan = await ctx.runQuery(internal.functions.nodeRowMoves.plan, { workspaceId, from });
   if (!plan.keyed) return null;
+  const recorded = await recordedMove(ctx, workspaceId, from, (move) => !move.trash && move.to === to);
+  if (recorded !== null && !recorded.trash) {
+    if (recorded.to !== to) throw refusal("busy", to, true);
+    return await resumeRowMove(ctx, args, recorded);
+  }
+  // One move per subtree at a time; asked before either name is read, since one may be half-moved.
+  if (await ctx.runQuery(internal.functions.nodeRowMoves.rowMoveOverlaps, { workspaceId, from, to })) throw refusal("busy", to, true);
 
   if (plan.kind === null) throw notFound();
-  if (plan.tooLarge) throw refusal("too_large", to, true);
-  if (plan.unkeyed) throw refusal("unkeyed", to, true);
+  const planned = await plannedFiles(ctx, workspaceId, from, plan);
+  if (planned.unkeyed) throw refusal("unkeyed", to, true);
 
   const state = await loadPrivacyState(store);
   if (state.invalid) throw new FileOpError("PRIVACY_MANIFEST_INVALID", "The privacy rules could not be read; the move was not made.");
   if (!canSee(from, clearance.scope, state.rules, state.overrides, clearance.names)) throw notFound();
   // A folder with something in it this caller cannot see cannot move as one: the row move takes all of it.
   // The refusal says nothing of what is hidden, so it does not show that anything is.
-  if (plan.files.some((key) => !canSee(key, clearance.scope, state.rules, state.overrides, clearance.names))) {
+  if (planned.files.some((key) => !canSee(key, clearance.scope, state.rules, state.overrides, clearance.names))) {
     throw new FileOpError("CONFLICT", "That folder cannot move in one step.");
   }
-  const pairs = plan.files.map((key) => ({ source: key, destination: `${to}${key.slice(from.length)}` }));
+  const pairs = planned.files.map((key) => ({ source: key, destination: `${to}${key.slice(from.length)}` }));
   assertMoveDestinationsVisible(pairs, clearance, state);
 
   // In rows mode the rows are the truth and the rules are not carried: a folder that would widen keeps its
@@ -109,7 +122,9 @@ export async function startRowMove(
     from,
     to,
     privacyEtag: carried.etag,
-    plannedFiles: plan.files,
+    // A chunked move judges each page's rows itself; within the cap the mutation checks the very files judged here.
+    ...(plan.tooLarge ? {} : { plannedFiles: planned.files }),
+    chunk: { scope: clearance.scope, grantedNames: [...clearance.names] },
     now,
     ...(args.expectedEtag === undefined ? {} : { expectedEtag: args.expectedEtag }),
   });
@@ -124,11 +139,29 @@ export async function startRowMove(
         : canSee(to, clearance.scope, state.rules, state.overrides, clearance.names);
     throw refusal(answer.reason, to, visibleTarget);
   }
+  if (answer.chunked === undefined) {
+    return await settleRowMove(ctx, args, { kind: answer.kind, files: answer.files, left: 0, rowsTruth, ...(answer.etag === undefined ? {} : { etag: answer.etag }) });
+  }
+  const driven = await driveRowMove(ctx, { workspaceId, id: answer.chunked, from, to, store });
+  await settleRowMove(ctx, args, { kind: "folder", files: driven.files, left: driven.left, rowsTruth });
+  await ctx.runMutation(internal.functions.nodeRowMoves.rowMoveSettled, { id: answer.chunked });
+  return { from, to, paths: [to], queued: driven.files.length, rowed: true, moved: driven.files };
+}
 
-  if (!rowsTruth) await releasePrivacy(store, { from, undone: false, added: carried.added });
+/**
+ * The bucket's side once the rows have moved: the old name's rules go (unless a chunked move left rows
+ * there, which still need them), and forwarding, icons and the search index follow.
+ */
+async function settleRowMove(
+  ctx: ActionCtx,
+  args: RowMoveArgs,
+  moved: { kind: "file" | "folder"; files: { from: string; to: string }[]; left: number; rowsTruth: boolean; etag?: string },
+): Promise<MoveResult> {
+  const { workspaceId, store, from, to, now } = args;
+  if (!moved.rowsTruth && moved.left === 0) await releasePrivacy(store, { from, undone: false, added: { folders: [], notes: [] } });
   await touchNodesNow(ctx, workspaceId, store, { paths: [], files: [PRIVACY_KEY] });
-  await recordForwarding(store, [{ from, to, kind: answer.kind === "folder" ? ("folder" as const) : ("note" as const) }], { now });
-  if (answer.kind === "folder") await remapFolderIcons(store, from, to);
+  await recordForwarding(store, [{ from, to, kind: moved.kind === "folder" ? ("folder" as const) : ("note" as const) }], { now });
+  if (moved.kind === "folder") await remapFolderIcons(store, from, to);
   else await remapIcons(store, [{ from, to }]);
   if (args.projection) {
     await followInProjection(store, { written: [], gone: [], moved: [[from, to]] }, args.projection);
@@ -137,9 +170,29 @@ export async function startRowMove(
     from,
     to,
     paths: [to],
-    queued: answer.files.length,
+    queued: moved.files.length,
     rowed: true,
-    moved: answer.files,
-    ...(answer.etag === undefined ? {} : { etag: answer.etag }),
+    moved: moved.files,
+    ...(moved.etag === undefined ? {} : { etag: moved.etag }),
   };
+}
+
+/** Asked again for a chunked move still recorded: page what is left, then the bucket's side, for a caller who may see both names. */
+async function resumeRowMove(
+  ctx: ActionCtx,
+  args: RowMoveArgs,
+  recorded: { id: Id<"rowMoves">; state: "moving" | "moved"; left: number },
+): Promise<MoveResult> {
+  const { workspaceId, store, from, to, clearance } = args;
+  const state = await loadPrivacyState(store);
+  if (state.invalid) throw new FileOpError("PRIVACY_MANIFEST_INVALID", "The privacy rules could not be read; the move was not finished.");
+  if (!canSee(from, clearance.scope, state.rules, state.overrides, clearance.names)) throw notFound();
+  if (!folderVisibleAtScope(to, clearance, state.rules, state.overrides)) throw notFound();
+  const rowsTruth = await ctx.runQuery(internal.functions.nodesAccess.rowsMode, {});
+  const driven = recorded.state === "moving"
+    ? await driveRowMove(ctx, { workspaceId, id: recorded.id, from, to, store })
+    : { files: [], left: recorded.left };
+  const result = await settleRowMove(ctx, args, { kind: "folder", files: driven.files, left: driven.left, rowsTruth });
+  await ctx.runMutation(internal.functions.nodeRowMoves.rowMoveSettled, { id: recorded.id });
+  return result;
 }

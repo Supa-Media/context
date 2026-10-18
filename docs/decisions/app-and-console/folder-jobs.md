@@ -74,12 +74,18 @@ identifying it as a special system thing, using the original names".
   folders" line, read from the rows (`ask: "jobs"` on `/gateway/tree/facts`),
   and `archive_note` archives into the folder doing the Archive's job.
 
-**Known limits.** A keyed folder move rewrites at most `ROW_MOVE_MAX` (500)
-rows in one step, so renaming a built-in folder holding more than that is
-refused as too large until moves are chunked. Links inside notes are not
-rewritten by a keyed move; a link through a built-in folder's default name
-still resolves through `canonicalJobPath`, and other links through the
-forwarding ledger.
+**Known limits.** A built-in folder of any size can be renamed or moved: a
+keyed folder over `ROW_MOVE_MAX` (500) rows moves in pages, reading as one
+folder at its new name while it does
+([notes-by-id](../storage-and-credentials/notes-by-id.md#moves-in-a-keyed-workspace-are-row-changes),
+2026-10-18). For the few seconds a big move takes, a setting or share changed
+by the folder's new name on a note not yet moved is refused as not found, and
+one asked for again lands. Links inside notes are not rewritten by a keyed
+move; a link through a built-in folder's default name still resolves through
+`canonicalJobPath`, and other links through the forwarding ledger. Where links
+are rewritten (a move in a workspace not yet keyed), only the notes the tree's
+link facts name are read, so the size of the workspace does not matter
+([links-and-routing](./links-and-routing.md)).
 
 What a "simplification" would cost: finding a built-in folder by its name
 again breaks every writer and agent the first time somebody renames one, and
