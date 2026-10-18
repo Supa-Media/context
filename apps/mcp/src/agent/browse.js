@@ -61,6 +61,22 @@ const MAX_TEXT_SHOWN = 8_000;
 
 const MODEL_STEPS = new Set(["goto", "click", "type", "select", "press", "back", "scroll", "read", "handoff"]);
 
+/** The steps that act on one element of the last reading, by its number. */
+const REF_STEPS = new Set(["click", "type", "select"]);
+
+/*
+  THE ELEMENT NUMBER, HOWEVER IT WAS WRITTEN. Golden tasks gh-66 (2026-10-18):
+  Haiku, driving after Opus planned, sent ChatGPT's form steps with the number
+  as text ("3", "[3]"), so every type, select and click was refused as "not a
+  box to type in" and Tex told the person its browser could not type. The
+  reading shows `[3]`, so that is what a model copies; the number is the same.
+*/
+function withRef(step) {
+  if (typeof step.ref !== "string") return step;
+  const m = /^\s*\[?\s*(\d{1,4})\s*\]?\s*$/.exec(step.ref);
+  return m ? { ...step, ref: Number(m[1]) } : step;
+}
+
 /** The gateway's line when a handoff was asked for and no link could be made. */
 export const NO_LINK_LINE = "I couldn't make a link to my browser this time, so that step is yours to do on the site.";
 
@@ -256,8 +272,12 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
       const planned = [];
       let gotos = 0;
       let handoff = false;
-      for (const step of asked) {
-        if (!MODEL_STEPS.has(step?.do)) return textResult(`There is no "${String(step?.do).slice(0, 20)}" step.`, true);
+      for (const raw of asked) {
+        if (!MODEL_STEPS.has(raw?.do)) return textResult(`There is no "${String(raw?.do).slice(0, 20)}" step.`, true);
+        const step = withRef(raw);
+        if (REF_STEPS.has(step.do) && !Number.isInteger(step.ref)) {
+          return textResult(`A ${step.do} step needs ref: the element's number from the last reading, like 3 for [3].`, true);
+        }
         if (step.do === "handoff") {
           if (computer.canHandOff?.() !== true) {
             return textResult("This browser can't be handed to the person. Tell them what to do on the site themselves.", true);

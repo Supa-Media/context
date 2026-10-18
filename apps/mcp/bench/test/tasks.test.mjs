@@ -113,3 +113,42 @@ test("without the skill, the browser cannot open an address the person never wro
     world.close();
   }
 });
+
+test("a refused step is recorded with its element number and reason, and never counts as typed", async () => {
+  const gatewayFetch = scripted([
+    skill,
+    browse({ do: "goto", url: "https://chatgpt.com/plugins" }, { do: "type", ref: 99, text: "Context" }),
+    { text: "I couldn't type there." },
+  ]);
+  const world = await createWorld(bench, "Maya", SETUP, { gatewayFetch, sites: await sites(), skills: [{ name: "connect-chatgpt", raw: SKILL }] });
+  try {
+    const turn = await world.text("can you make sure my chatgpt is properly set up to use context");
+    assert.deepEqual(turn.tools.map((call) => [call.tool, call.ok]), [["read_skill", true], ["browse", false]]);
+    const events = world.browser();
+    assert.ok(events.includes("refused type chatgpt.com/auth/login [99]: that is not a box to type in"), JSON.stringify(events));
+    const verdicts = checkVerdicts({ kind: "task", checks: [{ kind: "must", what: "type", value: "Context", line: "type Context" }] }, { tools: [], browser: events });
+    assert.equal(verdicts[0].pass, false, "a refused type is not a typed value");
+  } finally {
+    world.close();
+  }
+});
+
+test("an element number written as text (\"1\", \"[1]\") is the same number; a step with none is refused before the browser", async () => {
+  const gatewayFetch = scripted([
+    skill,
+    browse({ do: "goto", url: "https://chatgpt.com/plugins" }, { do: "type", ref: "[1]", text: "context" }),
+    browse({ do: "type", ref: "1", text: "context" }),
+    browse({ do: "type", text: "context" }),
+    { text: "Typed." },
+  ]);
+  const world = await createWorld(bench, "Maya", SETUP, { gatewayFetch, sites: await sites(), skills: [{ name: "connect-chatgpt", raw: SKILL }] });
+  try {
+    const turn = await world.text("can you make sure my chatgpt is properly set up to use context");
+    assert.deepEqual(turn.tools.map((call) => [call.tool, call.ok]), [["read_skill", true], ["browse", true], ["browse", true], ["browse", false]]);
+    const events = world.browser();
+    assert.deepEqual(events.filter((event) => event.startsWith("type ")), ['type chatgpt.com/auth/login "context"', 'type chatgpt.com/auth/login "context"'], JSON.stringify(events));
+    assert.ok(!events.some((event) => event.startsWith("refused ")), "the step with no number never reached the browser");
+  } finally {
+    world.close();
+  }
+});

@@ -50,7 +50,7 @@ import { systemPrompt } from "./prompt.js";
 import { localNowPrompt } from "./localNow.js";
 import { workspacesPrompt } from "./workspaces.js";
 import { pickTier } from "./router.js";
-import { addModelUsage, failedCall, modelForRound, thinkRoundsFor } from "./modelPlan.js";
+import { addModelUsage, DRIVER_PROMPT, failedCall, modelForRound, PLANNER_PROMPT, thinkRoundsFor } from "./modelPlan.js";
 import { PROGRESS_PROMPT, PROGRESS_TOOL } from "./progress.js";
 import { usedTools } from "./conversation.js";
 import { SIX_TOOLS, sixToolsOver } from "./sixTools.js";
@@ -394,7 +394,8 @@ export async function runTurn(options) {
     (observe && texting ? CHECK_IN_PROMPT : "") + // what its own check-ins do (`heartbeat.js`)
     (observe && texting ? ATTENTION_PROMPT : "") + // the pings other agents ask it to text (`attention.js`)
     (localNow === null ? "" : localNowPrompt(localNow.now, localNow.timeZone)) +
-    workspacesPrompt(workspaces);
+    workspacesPrompt(workspaces) +
+    (plan === null ? "" : answering === plan.think ? PLANNER_PROMPT : DRIVER_PROMPT); // `modelPlan.js`
   let system = systemFor(model);
   const messages = [
     ...history.map(({ role, text }) => ({ role, text })),
@@ -489,10 +490,10 @@ export async function runTurn(options) {
         timing.modelMs += ms;
         trace.push({ kind: "fallback", from: model, model: fallback, status: error.status ?? null, ok: true, ms });
         tell({ kind: "model", model: fallback, reason: `after ${model} failed` });
-        // Another model reads none of this one's thinking, and the prompt changed with it.
-        switchTo(fallback);
         // The rest of the turn stays on the fallback: a plan would send it back to what failed.
         plan = null;
+        // Another model reads none of this one's thinking, and the prompt changed with it.
+        switchTo(fallback);
         round -= 1;
         continue;
       }
