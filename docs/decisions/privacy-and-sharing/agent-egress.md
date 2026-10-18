@@ -346,3 +346,35 @@ task note do the same. Tests: `agentDelegate.test.mjs` ("a turn that read
 something from outside never vouches for the message", "again gives the same
 message … writing nothing", "a delegated message is typed only on its agent's
 own site").
+
+### An inline reply's quoted message is not the person's words (2026-10-18)
+
+Texting Tex, somebody can reply to one message in the thread, and Sendblue
+names the message they picked. Tex reads a bare "this one" better when it
+knows which message that is, so the words are fetched
+(`apps/agent/src/sendblue.ts`, `repliedToText`) and shown to the model.
+
+They are sent to `/agent` as their own field and never folded into
+`question`. Four guards read `question` as the person's own words: the
+openable addresses a browser may fetch (`vouched` in `agent/route.js`), the
+addresses a texted answer may send a picture from (`outgoingPictures.js`),
+the sharing judge's reading of what was asked (`privacy/judge.js`, through
+`session.egress.turn`), and the Mail checker's words (`agent/mailChecker.js`).
+A texted YES or NO is matched against it too, before any model runs.
+
+The message replied to may be one Tex sent, and a Tex answer carries whatever
+Tex read that turn: an email, a note a collaborator writes into, a page. So
+folding it in makes a previous answer vouch, which is the laundering
+`route.js` already refuses for a routine's last run — an address read on a
+page, repeated in an answer, becomes openable the moment somebody replies to
+that message. `agent/quoted.js` keeps the two apart: it scrubs the quote of
+the characters that would end its mark, and only `runTurn` is handed both,
+with the quote marked as vouching for nothing.
+
+What a simplification would cost: one string for both, and a stranger's words
+arrive on the person's line wearing the person's authority. Tests:
+`agentEgressJudge.test.mjs` ("a texted turn is judged on the person's own
+text, never the message they replied to", "the model still reads the quoted
+message, marked as quoted and vouching for nothing");
+`apps/agent/src/reply.test.ts` ("sends the message a reply answers apart from
+the person's own words").

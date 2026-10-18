@@ -5,7 +5,6 @@ import { MemoryStorage } from "./memoryStorage.testing";
 import type { Message } from "./reply";
 import { checkReady, oweReadyText, READY_COPY, READY_FIRST_MS } from "./ready";
 import { textRoutine } from "./routines";
-import { withQuote } from "./inbound";
 import {
   MAX_QUOTED_TEXT,
   PROFILE_PHOTO_URL,
@@ -131,7 +130,7 @@ function fakeSendblue(calls: Call[], status: (path: string, n: number) => number
     if (parsed.pathname === "/agent-texts/session") return Response.json({ status: "linked", accessToken: "t" });
     if (parsed.pathname === "/agent") {
       return Response.json({
-        answer: `answer to ${body.question}`,
+        answer: `answer to ${body.question}${body.quoted ? ` [quoting ${body.quoted}]` : ""}`,
         pictures: [{ name: "p.png", mediaType: "image/png", data: btoa("png-bytes") }],
       });
     }
@@ -164,12 +163,6 @@ describe("sendblue replied-to words", () => {
       throw new Error("down");
     }) as unknown as Fetch;
     expect(await repliedToText(throwing, KEYS, "mh_0", chatId)).toBeNull();
-  });
-
-  it("puts the quote ahead of the person's words, only when there is one", () => {
-    expect(withQuote("yes", "Want me to book it?")).toBe("(Replying to: “Want me to book it?”)\nyes");
-    expect(withQuote("yes", undefined)).toBe("yes");
-    expect(withQuote("", "this")).toBe("(Replying to: “this”)");
   });
 });
 
@@ -356,12 +349,16 @@ describe("sendblue sending", () => {
     expect(calls.some((c) => c.body.content === NEW_LINE_TEXT)).toBe(false);
   });
 
-  it("asks Tex with the replied-to words, but reads commands from the person's own", async () => {
+  // The replied-to words reach Tex, but apart from the question: the gateway's guards vouch from
+  // the person's own words, and the message picked may be one Tex sent (`apps/mcp/src/agent/quoted.js`).
+  it("sends the replied-to words apart from the person's own", async () => {
     const storage = new MemoryStorage();
     await accept(storage, { ...message("sendblue:mh_q"), text: "yes", quoted: "Want me to book it?" }, 1_000);
     const calls: Call[] = [];
     await drain(storage, deps(fakeSendblue(calls), []));
-    expect(calls.find((c) => c.path === "/api/send-message")?.body.content).toBe("answer to (Replying to: “Want me to book it?”)\nyes");
+    expect(calls.find((c) => c.path === "/api/send-message")?.body.content).toBe(
+      "answer to yes [quoting Want me to book it?]",
+    );
   });
 
   it("never sends the same text twice when a later part fails and is retried", async () => {

@@ -63,6 +63,7 @@ import { markUntrusted, newLedger } from "../privacy/egress.js";
 import { transcriptionForwarder } from "../ingestion/transcription.js";
 import { outgoingPictures, sentPicturesLine } from "./outgoingPictures.js";
 import { disarmTexting, withdrawPending } from "../tools/approvals.js";
+import { askedWith, quotedOf } from "./quoted.js";
 import { approvalVerdict, settleByText, textedAsk } from "./textedApprovals.js";
 
 /**
@@ -183,6 +184,14 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   if (question.length > MAX_QUESTION_LENGTH) {
     return json({ error: "invalid_request", error_description: `A question is at most ${MAX_QUESTION_LENGTH} characters.` }, 400);
   }
+  /*
+    The words an inline reply answers (`quoted.js`). They are somebody else's
+    — the message picked may be one Tex sent, carrying whatever Tex read — so
+    they never join `question`, which is what the browser's addresses, the
+    outgoing pictures, the sharing judge and the Mail checker all vouch from.
+    Only `runTurn` sees the two together, and the quote is marked there.
+  */
+  const quoted = session.actorClientId === TEXTS_CLIENT_ID ? quotedOf(body.quoted) : "";
 
   /*
     A TEXTED YES OR NO SETTLES A PENDING APPROVAL BEFORE ANY MODEL RUNS.
@@ -505,7 +514,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   const outgoing = outgoingPictures({ enabled: session.actorClientId === TEXTS_CLIENT_ID, question });
   try {
     const turn = await runTurn({
-      question,
+      question: askedWith(question, quoted),
       place: body.place ?? null,
       // A turn that edits directly is not also handed proposals: they have no
       // screen on a phone, and two ways to change a note is one too many.

@@ -247,6 +247,12 @@ export async function askAgent(
   onProgress?: (text: string) => Promise<void>,
   timeZone?: string,
   attachments: GatewayAttachment[] = [],
+  /**
+   * The words an inline reply answers, sent apart from the question: they are
+   * somebody else's, and `question` is what the gateway's guards vouch from
+   * (`apps/mcp/src/agent/quoted.js`).
+   */
+  quoted?: string,
 ): Promise<AgentAnswer> {
   // The person's zone, so the turn knows the time where they are, and what
   // they sent with the text (`attachments.ts`).
@@ -255,6 +261,7 @@ export async function askAgent(
     conversation: "texts",
     ...(timeZone ? { timeZone } : {}),
     ...(attachments.length > 0 ? { attachments } : {}),
+    ...(quoted ? { quoted } : {}),
   };
   if (onProgress) return askAgentStreaming(fetcher, gatewayOrigin, accessToken, ask, onProgress);
   let result: { status: number; json: unknown };
