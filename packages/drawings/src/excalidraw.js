@@ -125,6 +125,17 @@ export const MAX_PAYLOAD_CHARS = 4_000_000;
  */
 export const MAX_ELEMENTS = 5_000;
 
+/**
+ * The most characters of a file a parse reads.
+ *
+ * `MAX_PAYLOAD_CHARS` bounds the payload, but not the Markdown half around it:
+ * a multi-megabyte `Text Elements` section was split, trimmed and returned
+ * whole, and every indexing pass (shards, the D1 projection) parses each
+ * drawing it touches. Past this the rest of the file is not read and
+ * `truncated` says so; a payload cut by it reads as unreadable.
+ */
+export const MAX_DRAWING_CHARS = 4_200_000;
+
 /** `^a1b2c3` at the end of a text-element line: the plugin's id, not content. */
 const ELEMENT_ID = /\s*\^([A-Za-z0-9_-]+)\s*$/;
 
@@ -166,7 +177,8 @@ const NEXT_SECTION = new RegExp(`^(?:#{1,6}[ \\t]+\\S|${PAYLOAD_COMMENT})`, "m")
  * message a person sees rather than for a branch.
  */
 export function parseDrawing(text, key = "") {
-  const body = typeof text === "string" ? text : "";
+  const whole = typeof text === "string" ? text : "";
+  const body = whole.length > MAX_DRAWING_CHARS ? whole.slice(0, MAX_DRAWING_CHARS) : whole;
   const name = drawingName(key);
   const sections = splitSections(stripFrontmatter(body));
 
@@ -178,7 +190,7 @@ export function parseDrawing(text, key = "") {
   let elements = null;
   let appState = null;
   let unreadable = null;
-  let truncated = false;
+  let truncated = body !== whole;
 
   if (!payload) {
     unreadable = "missing";
@@ -199,7 +211,7 @@ export function parseDrawing(text, key = "") {
         unreadable = "unrecognised";
       } else {
         const live = scene.elements.filter((element) => element && !element.isDeleted);
-        truncated = live.length > MAX_ELEMENTS;
+        truncated = truncated || live.length > MAX_ELEMENTS;
         elements = truncated ? live.slice(0, MAX_ELEMENTS) : live;
         appState = scene.appState ?? null;
       }

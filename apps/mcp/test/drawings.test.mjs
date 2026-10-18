@@ -396,4 +396,15 @@ export async function runDrawingChecks(check) {
   } finally {
     restore();
   }
+
+  {
+    // A drawing past the parse cap is indexed from its first part only.
+    const labels = Array.from({ length: 400_000 }, (_, index) => `label ${index}`).join("\n\n");
+    const huge = `## Text Elements\n${labels}\n%%\n`;
+    const started = performance.now();
+    const fields = extractFields("1-projects/huge.excalidraw.md", huge);
+    const ms = performance.now() - started;
+    check(`a multi-megabyte drawing indexes in under 2 s (took ${Math.round(ms)} ms)`, ms < 2000);
+    check("and its indexed text is bounded by the parse cap", fields.body.length < 4_200_000 && fields.body.includes("label 1\n"));
+  }
 }
