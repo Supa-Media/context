@@ -64,7 +64,8 @@ import { transcriptionForwarder } from "../ingestion/transcription.js";
 import { outgoingPictures, sentPicturesLine } from "./outgoingPictures.js";
 import { disarmTexting, withdrawPending } from "../tools/approvals.js";
 import { askedWith, quotedOf } from "./quoted.js";
-import { approvalVerdict, settleByText, textedAsk } from "./textedApprovals.js";
+import { textedAsk } from "./textedApprovals.js";
+import { settleTextedText } from "./textedSettle.js";
 
 /**
  * What a turn that may not run says. Nothing in the app can change this any
@@ -193,38 +194,17 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   */
   const quoted = session.actorClientId === TEXTS_CLIENT_ID ? quotedOf(body.quoted) : "";
 
-  /*
-    A TEXTED YES OR NO SETTLES A PENDING APPROVAL BEFORE ANY MODEL RUNS.
-
-    The egress gate (`privacy/egress.js`) held a widening call until the
-    person says so, and the person says so here: a text that is nothing but
-    yes or no, from the linked phone, is matched by this code and never shown
-    to a model. The call then runs through the same dispatcher under this
-    session, marked approved, and the result is the reply. Only the texting
-    client: a routine's run has no person on the line, and the app approves
-    through `/approvals`.
-  */
+  // A texted yes or no settles a pending approval before any model runs (`textedSettle.js`).
   if (session.actorClientId === TEXTS_CLIENT_ID) {
-    const verdict = sent.length > 0 ? null : approvalVerdict(question); // a yes with a photo is about the photo
-    if (verdict !== null) {
-      const settled = await settleByText(store, session, verdict, question);
-      if (settled !== null) {
-        // The yes and what it released go in today's transcript too (`transcript.js`), after the reply.
-        const noted = openTranscript(dispatch, { now: received, timeZone: readTimeZone(body.timeZone), question }).finish({ answer: settled });
-        await deferred(store, noted);
-        return json({ answer: settled, provider: "gateway", model: "none", steps: [] });
-      }
-    }
-    /*
-      A text that goes to the model is not the answer to an ask made before it:
-      the person has moved on, and a bare "yes" to the model's next question
-      must not release a call raised two texts ago. Disarmed here, before the
-      model runs, so an ask this turn raises is the only one a yes can reach.
-    */
-    if ((await disarmTexting(store, { userId: session.actorUserId })) > 0) {
-      // Still armed, a yes to the model's next question would release it.
-      return json({ answer: "I couldn't clear what I asked you before. Reply NO to drop it, then send that again.", provider: "gateway", model: "none", steps: [] });
-    }
+    const settled = await settleTextedText(store, session, {
+      dispatch,
+      question,
+      hasAttachments: sent.length > 0,
+      now: received,
+      timeZone: readTimeZone(body.timeZone),
+      defer: (work) => deferred(store, work),
+    });
+    if (settled !== null) return json(settled);
   }
 
   try {
