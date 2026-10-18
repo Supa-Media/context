@@ -33,6 +33,7 @@ import { groupLabel } from "../listBlock/words";
 import { valueChoices } from "../listBlock/valueMenu";
 import { baseName, displayName, folderLabel, isMarkdown, repeatsFolderName } from "../paths";
 import type { FileEntry } from "../types";
+import { inProjectsNow, projectsFolderNow } from "../jobIcons/jobFoldersNow";
 import { compareStatus, folderStatuses, GROUPS, type StatusList } from "./statuses";
 import { comparePriority, priorityOf, type Priority } from "./taskProps";
 
@@ -358,24 +359,27 @@ export function taskChildren(folder: string, notes: readonly ListNote[]): { subt
 }
 
 /**
- * Whether a folder is a projects folder, or inside one: some segment of its
- * path has "project" in its name, whatever its prefix or case (`1-projects`,
- * `Projects`, `side-projects/launch`). Only these pages offer List and Board,
- * and a status of their own; areas, resources and the rest are file listings,
- * where tracking progress means nothing and the switch was clutter.
+ * Whether a folder is the Projects folder, or inside one: the folder doing
+ * the Projects job (`jobFoldersNow`), whatever it has been renamed, and
+ * everything under it. Only these pages offer List and Board, and a status of
+ * their own; areas, resources and the rest are file listings, where tracking
+ * progress means nothing and the switch was clutter.
+ *
+ * Not "project" in a folder's name, which it was until 2026-10-18: that lost
+ * a Projects folder renamed Work, and gave an Areas folder called Side
+ * projects a status column (owner, picking board A of `loose-note-chips`).
  */
 export function isProjectsFolder(folder: string): boolean {
-  return folder.split("/").some((segment) => segment.toLowerCase().includes("project"));
+  return inProjectsNow(folder);
 }
 
 /**
- * Whether a folder's rows are projects rather than tasks: the projects folder
- * itself (`1-projects`), not a project inside it. Its plain notes are offered
- * "Make it a project" instead of "Make it a task".
+ * Whether a folder's rows are projects rather than tasks: the Projects folder
+ * itself, not a project inside it. Its plain notes are offered "Make it a
+ * project" instead of "Make it a task".
  */
 export function rowsAreProjects(folder: string): boolean {
-  const parent = folder.includes("/") ? folder.slice(0, folder.lastIndexOf("/")) : "";
-  return isProjectsFolder(folder) && !isProjectsFolder(parent);
+  return folder === projectsFolderNow();
 }
 
 /**

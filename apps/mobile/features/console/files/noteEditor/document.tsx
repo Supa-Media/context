@@ -16,6 +16,8 @@ import { RecentRunsSection } from "../../routines/RecentRuns";
 import { editChangesTitle } from "../linkedTitle";
 import { ChipsPlacement } from "./chips/ChipsPlacement";
 import { chipsFit } from "./chips/chipModel";
+import { inProjectsNow } from "../jobIcons/jobFoldersNow";
+import { parentPath } from "../paths";
 import type { NoteView } from "./view";
 
 /**
@@ -131,7 +133,9 @@ export function noteDocument(view: NoteView) {
     The common properties as chips under the note's name (`chips/`), on every
     note somebody writes in — a new one with no front matter included — and
     not on a website page or `privacy.md` (`chipsFit`), a drawing, the
-    activity list, or a locked or encrypted note.
+    activity list, or a locked or encrypted note. Status, Owner, Priority and
+    Due date are offered only in the Projects folder (`tracks`); elsewhere only
+    a value the note already has shows.
   */
   const chipsOn =
     state.path !== null &&
@@ -336,6 +340,7 @@ export function noteDocument(view: NoteView) {
             now={openedAt}
             edit={wholeEdit}
             source={folderLists}
+            tracks={inProjectsNow(parentPath(state.path!))}
             onOther={wholeEdit === undefined ? undefined : () => setAddAsked(addAsked + 1)}
             lastChange={lastChange}
           />
