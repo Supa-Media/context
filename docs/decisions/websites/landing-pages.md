@@ -38,15 +38,15 @@ for all of them.
   today: web search (`agent/search.js`), the note's link on a texted write
   (`agent/noteLinks.js`), the email send-review gate, routines. The link is
   drawn as the card a note's link really unfurls as, Context's own, never
-  with the note's name. Every bubble is laid out from the start and the
-  thread fills the card from the bottom, so nothing moves while it plays; it
-  starts when on screen, plays once and holds the end, and a visitor who asks
-  for less motion sees the end at once. Tex, the mark, starts as a scribble
-  and settles into the # as the conversation is filed. On a computer the
-  whole page fits the window with no scrolling (on a short window the chat's
-  header folds to one row); on a phone the sign-up comes before the
-  conversation. Putting the graph, a feature list or a second animation back
-  is reversing this decision.
+  with the note's name. The whole conversation is drawn at once and nothing
+  on the page animates (Dev, 2026-10-18: "just do the full convo no
+  animating"); Tex, the mark, is the settled #. On a computer the whole page
+  fits the window with no scrolling (on a short window the chat's header
+  folds to one row). A phone is sized for a phone, not shrunk from the
+  computer layout (Dev, 2026-10-18: "this looks so bad and zoomed in on
+  mobile"): a smaller headline, reading-size text, the button under the
+  field below 600px, and the sign-up before the conversation. Putting the
+  graph, a feature list or an animation back is reversing this decision.
 - **a's sign-up button says what it does.** A labelled phone field with +1
   and a country drop-down, and beside it a solid "Join the waitlist" button
   ("Sign in" on the code step), full width on a narrow phone. The bare › of
@@ -100,6 +100,6 @@ Test: `apps/mobile/__tests__/landingRoute.test.ts` and `landingPages.test.ts`
 `loginScreen.test.ts` (a phone join fires both pixels),
 `adminWaitlistRender.test.ts`, the waitlist tests in
 `apps/convex/__tests__/waitlist.test.ts` and `phoneSignIn.test.ts`, and
-`e2e/webkit/landingPages.spec.ts` (a opens on Dev's line, the conversation plays to its end
-or shows at once with less motion, the sign-up and the conversation fit a laptop's first screen, the button says "Join the waitlist",
+`e2e/webkit/landingPages.spec.ts` (a opens on Dev's line, the whole conversation shows at once
+with nothing animating, a phone from 375 to 430 wide gets the phone sizes with the button under the field, the sign-up and the conversation fit a laptop's first screen, the button says "Join the waitlist",
 b is the old page with its map and editor, c is the shell, retired letters go home).

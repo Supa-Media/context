@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import { useEffect, type CSSProperties } from "react";
 import { Tex } from "../chaos/Tex";
 import { simpleLandingColors as C } from "../design/tokens/landingColors";
 import { InlineSignUp } from "./InlineSignUp.web";
@@ -14,12 +14,9 @@ import { TEX_CSS } from "./texCss";
  *
  * Page a's sheet, type and light-only look are kept, so it is the same site.
  * On a computer the whole page fits the window without scrolling; a phone is
- * one column with the sign-up above the conversation. Tex, the mark, starts
- * as a scribble and settles into the # as the conversation gets filed.
+ * one column with the sign-up above the conversation.
  */
 export function TexPage() {
-  const [chaos, setChaos] = useState(100);
-  const onProgress = useCallback((done: number) => setChaos(Math.round(100 * (1 - done))), []);
   useEffect(() => {
     const title = document.title;
     document.title = "Context: text your notes";
@@ -37,7 +34,6 @@ export function TexPage() {
     "--blue": C.blue,
     "--bubble": C.bubble,
     "--rule": C.rule,
-    "--dots": C.dots,
     colorScheme: "light",
   } as CSSProperties;
   return (
@@ -45,8 +41,8 @@ export function TexPage() {
       <style>{TEX_CSS}</style>
       <main className="tp-main">
         <div className="tp-words">
-          <a className="tp-tex" href="/" aria-label="Context. Tex, the Context mascot, a blue scribble that settles into a #">
-            <Tex chaos={chaos} scheme="light" />
+          <a className="tp-tex" href="/" aria-label="Context. Tex, the Context mascot, a blue #">
+            <Tex chaos={0} scheme="light" />
           </a>
           <h1 className="tp-h1">
             <span>Text your notes.</span> <span>We'll organize them.</span>
@@ -59,7 +55,7 @@ export function TexPage() {
             <InlineSignUp />
           </div>
         </div>
-        <TexChat onProgress={onProgress} />
+        <TexChat />
       </main>
       <footer className="tp-foot">
         <a href="/login">Sign in</a>

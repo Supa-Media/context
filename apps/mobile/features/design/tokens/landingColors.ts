@@ -52,8 +52,7 @@ export const simpleLandingColors = {
   /** A sign-up problem: a number or code that did not work. */
   bad: "#9A2B1F",
   blue: texColors.light.ink,
-  /** Tex's bubble, the line under the chat's header, and Tex typing. */
+  /** Tex's bubble and the line under the chat's header. */
   bubble: "#E9E7E0",
   rule: "#E7E4DB",
-  dots: "#9C988E",
 } as const;

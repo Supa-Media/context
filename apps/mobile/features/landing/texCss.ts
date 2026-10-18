@@ -33,7 +33,7 @@ export const TEX_CSS = `
 .tp-go:hover{background:#000}
 .tp-go:disabled{cursor:default;opacity:.55}
 .tp-go:focus-visible,.tp-link:focus-visible,.tp a:focus-visible,.tp-cc:focus-within{outline:2px solid var(--ink);outline-offset:3px;border-radius:12px}
-.tp-small,.tp-err{margin:0;font-family:var(--sans);font-size:13.5px;line-height:1.5;color:var(--ink2)}
+.tp-small,.tp-err{margin:0;text-wrap:pretty;font-family:var(--sans);font-size:13.5px;line-height:1.5;color:var(--ink2)}
 .tp-err{color:var(--bad)}
 .tp-link{all:unset;cursor:pointer;color:var(--ink);text-decoration:underline;text-decoration-color:var(--hair);text-underline-offset:.2em}
 .tp-link:hover{text-decoration-color:var(--ink)}
@@ -47,16 +47,11 @@ export const TEX_CSS = `
 .tp-chat-top{display:flex;flex-direction:column;align-items:center;gap:4px;padding:16px 0 12px;border-bottom:1px solid var(--rule)}
 .tp-av{width:40px;height:40px;border-radius:50%;background:var(--paper);display:grid;place-items:center}
 .tp-name{font-size:12.5px;color:var(--ink2)}
-.tp-logs{position:relative}
 .tp-log{display:flex;flex-direction:column;gap:6px;padding:16px 14px 0;font-size:15px;line-height:1.35}
-.tp-ghost{visibility:hidden}
-.tp-live{position:absolute;inset:0;justify-content:flex-end;overflow:hidden}
 .tp-msg{position:relative;display:flex}
 .tp-from-me{justify-content:flex-end}
 .tp-from-me+.tp-from-tex,.tp-from-tex+.tp-from-me{margin-top:8px}
 .tp-b{max-width:80%;margin:0;padding:8px 13px;border-radius:19px;text-wrap:pretty}
-.tp-live .tp-msg{animation:tp-in .4s ease both}
-@keyframes tp-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 .tp-from-me .tp-b{background:var(--blue);color:#fff;border-bottom-right-radius:6px}
 .tp-from-tex .tp-b{background:var(--bubble);color:var(--ink);border-bottom-left-radius:6px}
 .tp-linkb{padding:0!important;overflow:hidden;min-width:62%}
@@ -64,12 +59,7 @@ export const TEX_CSS = `
 .tp-card-t{font-weight:600;color:var(--ink)}
 .tp-card-w{font-size:12.5px;color:var(--ink2)}
 .tp-f{font-weight:600;white-space:nowrap}
-.tp-typing{display:flex;gap:4px;padding:12px 14px;border-radius:19px;border-bottom-left-radius:6px;background:var(--bubble)}
-.tp-typing i{width:7px;height:7px;border-radius:50%;background:var(--dots);animation:tp-dot 1s infinite}
-.tp-typing i:nth-child(2){animation-delay:.15s}.tp-typing i:nth-child(3){animation-delay:.3s}
-@keyframes tp-dot{0%,60%,100%{opacity:.35}30%{opacity:1}}
 .tp-from-tex .tp-linkb{background:#fff;border:1px solid var(--rule);border-bottom-left-radius:6px}
-@media (prefers-reduced-motion:reduce){.tp-live .tp-msg{animation:none}.tp-typing i{animation:none}}
 
 .tp-foot{width:100%;max-width:560px;margin:0 auto;padding:0 20px 28px;display:flex;flex-wrap:wrap;gap:8px 22px;font-size:14px;color:var(--ink2)}
 .tp-foot a:hover{color:var(--ink)}
@@ -98,6 +88,24 @@ export const TEX_CSS = `
   .tp-chat-top{flex-direction:row;justify-content:center;gap:8px;padding:8px 0}
   .tp-av{width:32px;height:32px}
 }
-@media (max-width:899px){.tp-sub{text-wrap:balance}}
-@media (max-width:420px){.tp-in .tp-row{flex-direction:column}.tp-field{flex:none}.tp-go{width:100%}}
+/*
+  A phone is one column, sized for a phone rather than shrunk from a
+  computer (Dev, 2026-10-18: "this looks so bad and zoomed in on mobile"): a
+  smaller mark and headline, reading-size text, and the button under the
+  field so the number has the whole width.
+*/
+@media (max-width:899px){
+  .tp-main{padding-top:20px}
+  .tp-tex{width:44px;height:44px;margin-bottom:12px}
+  .tp-h1{font-size:clamp(30px,8vw,36px);line-height:1.08}
+  .tp-sub{margin-top:14px;font-size:17px;line-height:1.45;text-wrap:balance}
+  .tp-sign{margin-top:24px}
+  .tp-label{font-size:17px}
+  .tp-chat{margin-top:28px;border-radius:20px}
+  .tp-chat-top{flex-direction:row;justify-content:center;gap:8px;padding:10px 0}
+  .tp-av{width:32px;height:32px}
+  .tp-log{font-size:15px}
+  .tp-b{max-width:85%}
+}
+@media (max-width:599px){.tp-in .tp-row{flex-direction:column}.tp-field{flex:none}.tp-go{width:100%}}
 `;
