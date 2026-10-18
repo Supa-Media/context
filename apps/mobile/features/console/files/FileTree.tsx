@@ -16,6 +16,7 @@ import { TreeFolderGlyph } from "./TreeFolderGlyph";
 import { AgentMark, withAgentMark } from "../agents/AgentMark";
 import type { AgentMarkKind } from "../agents/agentActivity";
 import type { TreeRow } from "./tree";
+import type { DropZone } from "./treeDrop";
 import type { Visibility } from "./types";
 
 /**
@@ -138,8 +139,11 @@ export function FileTree({
   onPick?: (path: string, gesture: PickGesture) => void;
   /** Drag wiring. Absent in the read-only demo, which must not offer one. */
   drag?: TreeDragHandlers;
-  /** The row under a drag, washed to say the drop would land there. */
-  dropTarget?: string | null;
+  /**
+   * Where a drag would land: a line above or below a row (a folder put in
+   * order, `treeDrop.ts`), or a wash on a folder it would go into.
+   */
+  dropTarget?: { path: string; zone: DropZone } | null;
   /**
    * Whether a note's latest edit has reached the bucket — see `pendingMarks`.
    * Absent on a console with no offline layer, which marks nothing.
@@ -200,7 +204,7 @@ export function FileTree({
         onMenu={onMenu}
         onPick={onPick}
         drag={drag}
-        isDropTarget={dropTarget === row.path}
+        drop={dropTarget !== null && dropTarget.path === row.path ? dropTarget.zone : null}
         sync={row.kind === "file" ? (pendingStateFor?.(row.path) ?? null) : null}
         marked={markedPaths?.has(row.path) ?? false}
         agent={agentMarks?.get(row.path) ?? null}
@@ -217,9 +221,10 @@ export function FileTree({
 /** What the tree needs from whoever owns the drag. */
 export interface TreeDragHandlers {
   onDragStart: (path: string) => void;
-  onDragOver: (path: string, modifiers: readonly DragModifier[]) => void;
+  /** `at`: how far down the row the pointer is, `0` to `1` (`rowInteractionContract`). */
+  onDragOver: (path: string, modifiers: readonly DragModifier[], at?: number) => void;
   onDragLeave: (path: string) => void;
-  onDrop: (path: string, modifiers: readonly DragModifier[]) => void;
+  onDrop: (path: string, modifiers: readonly DragModifier[], at?: number) => void;
   onDragEnd: () => void;
   /** Whether this row may be picked up, and whether a drop may land on it. */
   canDrag: (row: TreeRow) => boolean;
@@ -241,7 +246,7 @@ function FileRow({
   onMenu,
   onPick,
   drag,
-  isDropTarget,
+  drop,
   sync,
   marked,
   agent,
@@ -274,7 +279,8 @@ function FileRow({
   onMenu?: (row: TreeRow, anchor: { x: number; y: number }) => void;
   onPick?: (path: string, gesture: PickGesture) => void;
   drag?: TreeDragHandlers;
-  isDropTarget: boolean;
+  /** Where a drop on this row would land, or `null` when none is over it. */
+  drop: DropZone | null;
   /** This note's edit is not in the bucket yet. `null` for one that is. */
   sync: SyncMark | null;
   /** Something under this row changed since this person last caught up. */
@@ -305,9 +311,21 @@ function FileRow({
 
   return (
     <View
-      style={[styles.row, isDropTarget && styles.rowDrop]}
+      style={[styles.row, drop === "into" && styles.rowDrop]}
       ref={interactions.ref as never}
     >
+      {/*
+        THE INSERTION LINE: a folder dropped here goes above or below this
+        row, among its siblings (or into this row's level from another). From
+        the name's indent, so it says which level the folder would join.
+      */}
+      {drop === "above" || drop === "below" ? (
+        <View
+          style={[styles.dropLine, drop === "above" ? styles.dropLineAbove : styles.dropLineBelow, { left: indentFor(row.depth) }]}
+          testID={`tree-drop-${drop}`}
+          aria-hidden
+        />
+      ) : null}
       {/*
         THE SELECTED ROW'S ACCENT BAR.
 
@@ -592,13 +610,25 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: colors.accent,
   },
   /**
-   * The row a drop would land in.
+   * The folder a drop would go into: a wash on the whole row.
    *
-   * A wash, never an insertion line between rows: a bucket lists
-   * alphabetically, so there is no position to drop *between*, and a line would
-   * promise an ordering the storage does not have.
+   * Folders have an order of their own since 2026-10-18 (`nodes.order`), so a
+   * drop *between* rows means something too and draws `dropLine` instead.
+   * Notes still list by name, so a note only ever drops into a folder.
    */
   rowDrop: { backgroundColor: colors.accentDim },
+  /** Where a folder dropped between rows would go: 2pt of accent across the row's edge. */
+  dropLine: {
+    position: "absolute",
+    zIndex: 2,
+    right: 4,
+    height: 2,
+    borderRadius: radii.pill,
+    backgroundColor: colors.accent,
+  },
+  /** Centred on the 1pt gap between rows, so the line above one row is the line below the last. */
+  dropLineAbove: { top: -1 },
+  dropLineBelow: { bottom: -2 },
 
   /** `.tnode` */
   node: {

@@ -317,17 +317,29 @@ export function useCreateAndMove(deps: CreateAndMoveDeps) {
     [createDirectory, drawLocally, listings, options.canEdit, queuedToast, run, select, undoNewFolder, workspaceId],
   );
 
+  /*
+    Resolves with whether the move reached the server, so a folder dragged to
+    a place can be put in order after it lands (`useFolderJobs.placeFolder`).
+    A refusal, or a move left in the offline queue, is `false`: nothing
+    follows it.
+  */
   const move = useCallback(
-    (path: string, destinationFolder: string) => {
+    (path: string, destinationFolder: string): Promise<boolean> => {
       const problem = describeMoveProblem(
         path,
         destinationFolder,
         namesIn(listings, destinationFolder),
       );
-      if (problem !== null) return setNotice(problem);
+      if (problem !== null) {
+        setNotice(problem);
+        return Promise.resolve(false);
+      }
       const to = joinPath(destinationFolder, path.slice(path.lastIndexOf("/") + 1));
       const from = parentPath(path);
-      if (viaQueue(path)) return queueMoveOf(path, to, `Moved to ${folderLabel(destinationFolder)}.`);
+      if (viaQueue(path)) {
+        queueMoveOf(path, to, `Moved to ${folderLabel(destinationFolder)}.`);
+        return Promise.resolve(false);
+      }
       const result = moveResult(path, to);
       /*
         The folder whose page is open follows it rather than closing: a
@@ -339,7 +351,7 @@ export function useCreateAndMove(deps: CreateAndMoveDeps) {
       const pageFollows = (from: string) => selectedPathRef.current === from && listings[from] !== undefined;
       const follows = pageFollows(path);
       const undoDraw = follows ? drawListingMove(path, to) : drawMove(path, to);
-      void run(async () => {
+      return run(async () => {
         await moveEntry({ workspaceId: workspaceId!, from: path, to });
         // Drawn on the live map: a move made here reaches no tool call's record.
         announceDid(workspaceId ?? null, { kind: "move", from: path, to });
@@ -368,6 +380,7 @@ export function useCreateAndMove(deps: CreateAndMoveDeps) {
         };
       }, undoDraw).then((ok) => {
         if (ok && follows && selectedPathRef.current === path) select(to);
+        return ok;
       });
     },
     [drawListingMove, drawMove, listings, moveEntry, moveResult, queueMoveOf, run, select, viaQueue, workspaceId],
