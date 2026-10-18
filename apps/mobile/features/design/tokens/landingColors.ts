@@ -37,12 +37,10 @@ export const texColors = {
 } as const;
 
 /**
- * Page a's off-white sheet (`SimplePage.web`), after the references: ink type
- * on off-white, a grey hairline under the examples and a warm highlighter.
- * Light only (Dev, 2026-10-11: the dark version read as a different page).
- * Tex, the mascot, draws in `texColors` (its blue is the sheet's); the four AI
- * helpers on the graph each have a cursor colour (Claude, ChatGPT, Maya's
- * Codex, Jon's Claude).
+ * Page a's off-white sheet (`TexPage.web`): ink type on off-white, a grey
+ * hairline and a card for the conversation with Tex. Light only (Dev,
+ * 2026-10-11: the dark version read as a different page). Your texts are in
+ * Tex's blue, Tex's replies in a warm grey.
  */
 export const simpleLandingColors = {
   paper: "#F1F0EA",
@@ -54,8 +52,8 @@ export const simpleLandingColors = {
   /** A sign-up problem: a number or code that did not work. */
   bad: "#9A2B1F",
   blue: texColors.light.ink,
-  agent1: "#C4572F",
-  agent2: "#167A5E",
-  agent3: "#6A45C2",
-  agent4: "#B23F78",
+  /** Tex's bubble, the line under the chat's header, and Tex typing. */
+  bubble: "#E9E7E0",
+  rule: "#E7E4DB",
+  dots: "#9C988E",
 } as const;
