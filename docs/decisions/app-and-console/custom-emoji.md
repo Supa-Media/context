@@ -89,6 +89,10 @@ already holds. `folderIcons.test.ts` (Convex) and `folderIconRender.test.ts`
 
 ## Built-in folders have a default emoji, and notes can have one
 
+*Superseded for built-in folders on 2026-10-18*: they draw a hand-drawn icon
+that cannot be changed ([folder-jobs](./folder-jobs.md)). Own folders and
+notes keep what follows.
+
 Decided by the owner, 2026-10-13 ("can we make default emojis for these
 folders, also can we add emojis to plain notes like activity"), reversing the
 2026-10-08 "no folder gets a special icon" for the built-in folders only.

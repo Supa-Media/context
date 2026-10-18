@@ -16,6 +16,7 @@ import {
 } from "@context/collaboration";
 import { LIST_PAGE_CAP, FOLDER_OPERATION_CAP, TRASH_ROOT, type FileStore } from "./store";
 import { assertNotProtectedFolder } from "./nameTwins";
+import { treeJobs } from "./treeChecks";
 import { FileOpError, notFound } from "./errors";
 import { requirePath, timestampSlug } from "./paths";
 import { dropFolderIcons } from "@context/shared/src/folderIcons.cjs";
@@ -69,13 +70,16 @@ export async function archivePath(
   },
 ): Promise<MoveResult> {
   const path = requirePath(options.path);
-  await assertNotProtectedFolder(store, path, options.clearance);
+  await assertNotProtectedFolder(store, path, options.clearance, "remove");
   // Ahead of the destination rather than after it: which folder this context
   // archives into is a fact about its manifest, so the manifest is read first
   // and the same state answers the visibility check below.
   const state = await loadPrivacyState(store);
-  const roots = archiveRoots(state.rules);
-  const archive = archiveRoot(state.rules);
+  // The folder doing the Archive's job wins, whatever it is called now (`folderJobs.ts`); the rules' archive
+  // names are still the archives a note may already be in.
+  const archiveJob = (await treeJobs(store))?.jobs.archive ?? null;
+  const roots = [...new Set([...(archiveJob === null ? [] : [archiveJob]), ...archiveRoots(state.rules)])];
+  const archive = archiveJob ?? archiveRoot(state.rules);
   // Every archive it has, not the one we would write to: a note already in
   // `5-archive/` must not be moved into `4-archive/` because the resolver
   // preferred the latter.
@@ -171,7 +175,7 @@ export async function trashPath(
   },
 ): Promise<MoveResult> {
   const path = requirePath(options.path);
-  await assertNotProtectedFolder(store, path, options.clearance);
+  await assertNotProtectedFolder(store, path, options.clearance, "remove");
   assertWritablePath(path);
   // A delete asked against a version (the offline queue's) checks it here, so only a press made online queues.
   // In a keyed workspace the trash is always a row move (`rowTrash.ts`), an offline delete's version included:
@@ -494,7 +498,7 @@ export async function deletePath(
   const path = requirePath(options.path);
   // Refused before anything is read or removed: a keyed row and its key are retired only by emptying the trash.
   if (await isKeyedStore(store)) throw new FileOpError("KEYED_WORKSPACE", KEYED_PERMANENT_REFUSAL);
-  await assertNotProtectedFolder(store, path, options.clearance);
+  await assertNotProtectedFolder(store, path, options.clearance, "remove");
   assertWritablePath(path);
 
   const state = await loadPrivacyState(store);

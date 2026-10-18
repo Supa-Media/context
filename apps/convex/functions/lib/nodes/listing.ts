@@ -21,6 +21,8 @@ import { mirrorFile, readMirror } from "./privacyMirror";
 import { readerMirror, rulesForReaders } from "./readerRules";
 import { childrenThroughMoves, pendingMoves } from "./moveOverlay";
 import { NODE_PRIVACY_KEY, type PrivacyMirror } from "./table";
+import { folderJobsOf } from "./folderJobs";
+import { compareListingEntries, isRowRole, jobAt } from "@context/shared/src/folderRoles.cjs";
 
 export { readMirror };
 
@@ -166,9 +168,40 @@ export async function listFolderFromNodes(
   const mirror = await readerMirror(ctx, workspaceId);
   const judged = await rulesForReaders(ctx, workspaceId);
   const manifestUsable = mirror !== null && mirror.etag !== undefined && !mirror.invalid;
-  return await listFolder(folderRowsStore(folder, rows, more, mirror), {
+  const listing = await listFolder(folderRowsStore(folder, rows, more, mirror), {
     path: folder,
     clearance,
     judged: { ...judged, manifestUsable },
   });
+  return await withFolderJobs(ctx, workspaceId, folder, rows, listing);
+}
+
+/**
+ * Each folder entry with its job and its order from its row (`folderJobs.ts`),
+ * drawn in that order (`compareListingEntries`). At the root a folder whose
+ * row has no job yet takes the one its name gives it, so a renamed and an
+ * unrenamed Inbox list alike.
+ */
+async function withFolderJobs(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+  folder: string,
+  rows: readonly Doc<"nodes">[],
+  listing: FolderListing,
+): Promise<FolderListing> {
+  if (!listing.entries.some((entry) => entry.kind === "folder")) return listing;
+  const byPath = new Map(rows.filter((row) => row.kind === "folder").map((row) => [row.path, row]));
+  const jobs = folder === "" ? await folderJobsOf(ctx.db, workspaceId) : null;
+  const entries = listing.entries.map((entry) => {
+    if (entry.kind !== "folder") return entry;
+    const row = byPath.get(entry.path);
+    const role = isRowRole(row?.role) ? row.role : jobs === null ? null : jobAt(jobs, entry.path);
+    return {
+      ...entry,
+      ...(role === null ? {} : { role }),
+      ...(typeof row?.order === "number" ? { order: row.order } : {}),
+    };
+  });
+  entries.sort((a, b) => compareListingEntries(folder, a, b));
+  return { ...listing, entries };
 }

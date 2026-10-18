@@ -27,6 +27,7 @@ import type { Observation } from "./lib/nodes/table";
 import { clampAt, entryOf, noteEntryValidator, type NoteEntry } from "./lib/noteIds/keyed";
 import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { nodeAt } from "./lib/noteIds/state";
+import { canonicalJobPath } from "./lib/nodes/folderJobs";
 
 const adoptResultValidator = v.union(
   v.object({ adopted: v.literal(true) }),
@@ -44,10 +45,12 @@ export const notesFor = internalQuery({
     const keyed = await keyedWorkspace(ctx.db, workspaceId);
     const notes: NoteEntry[] = [];
     for (const path of [...new Set(paths)]) {
-      const row = await nodeAt(ctx.db, workspaceId, path);
+      // A built-in folder's default name reaches the folder doing that job now (`folderJobs.ts`),
+      // answered under the path asked, which is the one the caller looks it up by.
+      const row = await nodeAt(ctx.db, workspaceId, keyed ? await canonicalJobPath(ctx.db, workspaceId, path) : path);
       if (row === null) continue;
       const entry = entryOf(row);
-      if (entry !== null) notes.push(entry);
+      if (entry !== null) notes.push({ ...entry, path });
     }
     return { keyed, notes };
   },
@@ -100,8 +103,9 @@ export const adoptKeyed = internalMutation({
     at: v.number(),
   },
   returns: adoptResultValidator,
-  handler: async (ctx, { workspaceId, path, noteId, key, etag, size, at }) => {
+  handler: async (ctx, { workspaceId, path: asked, noteId, key, etag, size, at }) => {
     const refused = { adopted: false as const, taken: null };
+    const path = await canonicalJobPath(ctx.db, workspaceId, asked);
     if (!isNoteId(noteId) || key !== idKeyFor(noteId, path) || isPlumbing(path)) return refused;
     if (!(await keyedWorkspace(ctx.db, workspaceId))) return refused;
     if (await noteIdHeldElsewhere(ctx, workspaceId, noteId, path)) return refused;
@@ -111,7 +115,8 @@ export const adoptKeyed = internalMutation({
     if (row !== null && row.goneAt === undefined && row.storageKey !== undefined && row.noteId === noteId) {
       return { adopted: true as const };
     }
-    return { adopted: false as const, taken: row === null ? null : entryOf(row) };
+    const taken = row === null ? null : entryOf(row);
+    return { adopted: false as const, taken: taken === null ? null : { ...taken, path: asked } };
   },
 });
 
@@ -131,7 +136,8 @@ export const recordKeyed = internalMutation({
     at: v.number(),
   },
   returns: v.boolean(),
-  handler: async (ctx, { workspaceId, path, key, etag, size, at }) => {
+  handler: async (ctx, { workspaceId, path: asked, key, etag, size, at }) => {
+    const path = await canonicalJobPath(ctx.db, workspaceId, asked);
     const row = await nodeAt(ctx.db, workspaceId, path);
     if (row === null || row.goneAt !== undefined || row.storageKey !== key || row.noteId === undefined) return false;
     await applyObservation(convexNodeTable(ctx, workspaceId), seamWrite(path, clampAt(at), { etag, size, noteId: row.noteId, storageKey: key }));
@@ -146,7 +152,8 @@ export const recordKeyed = internalMutation({
 export const removeKeyed = internalMutation({
   args: { workspaceId: v.id("workspaces"), path: v.string(), key: v.string(), at: v.number() },
   returns: v.boolean(),
-  handler: async (ctx, { workspaceId, path, key, at }) => {
+  handler: async (ctx, { workspaceId, path: asked, key, at }) => {
+    const path = await canonicalJobPath(ctx.db, workspaceId, asked);
     const row = await nodeAt(ctx.db, workspaceId, path);
     if (row === null || row.goneAt !== undefined || row.storageKey !== key) return false;
     await applyObservation(convexNodeTable(ctx, workspaceId), {

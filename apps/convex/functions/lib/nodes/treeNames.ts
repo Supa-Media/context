@@ -50,6 +50,7 @@ export function attachTreeListing(ctx: ActionCtx, workspaceId: Id<"workspaces">,
       if (answer !== null) return answer;
       throw notServed(await loadingReadiness(ctx, workspaceId));
     },
+    jobs: async () => await ctx.runQuery(internal.functions.nodesGateway.folderJobs, { workspaceId }),
   };
   Object.defineProperty(store, "treeListing", { value: listing, enumerable: false, configurable: true });
 }

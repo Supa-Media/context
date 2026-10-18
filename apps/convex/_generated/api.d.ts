@@ -48,6 +48,7 @@ import type * as functions_fastSearchProvision from "../functions/fastSearchProv
 import type * as functions_files from "../functions/files.js";
 import type * as functions_folderIcons from "../functions/folderIcons.js";
 import type * as functions_folderNotes from "../functions/folderNotes.js";
+import type * as functions_folderOrder from "../functions/folderOrder.js";
 import type * as functions_folders from "../functions/folders.js";
 import type * as functions_forms from "../functions/forms.js";
 import type * as functions_formNotify from "../functions/formNotify.js";
@@ -243,6 +244,7 @@ declare const fullApi: ApiFromModules<{
   "functions/files": typeof functions_files;
   "functions/folderIcons": typeof functions_folderIcons;
   "functions/folderNotes": typeof functions_folderNotes;
+  "functions/folderOrder": typeof functions_folderOrder;
   "functions/folders": typeof functions_folders;
   "functions/forms": typeof functions_forms;
   "functions/formNotify": typeof functions_formNotify;

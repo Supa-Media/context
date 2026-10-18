@@ -79,6 +79,8 @@ export interface StoredNode {
   keyedFrom?: KeyedFrom;
   /** The row's own access, when a privacy rule names it (`nodes.access`). A row carrying it is never pruned. */
   access?: { base: "private" | "team" };
+  /** A built-in folder's job (`nodes.role`, `folderJobs.ts`). A folder carrying one is never retired for being empty. */
+  role?: string;
 }
 
 /**

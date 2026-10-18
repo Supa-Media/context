@@ -49,6 +49,10 @@ const entryValidator = v.object({
   readOnly: v.boolean(),
   size: v.optional(v.number()),
   updatedAt: v.optional(v.number()),
+  /** A folder's built-in job, under its original name (`lib/nodes/folderJobs.ts`). */
+  role: v.optional(v.string()),
+  /** A folder's place among its siblings, once set (`functions/folderOrder.ts`). */
+  order: v.optional(v.number()),
 });
 
 export const listingValidator = v.object({

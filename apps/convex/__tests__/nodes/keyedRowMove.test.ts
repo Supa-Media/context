@@ -66,12 +66,15 @@ describe("a keyed workspace moves rows, not bytes", () => {
 
   test("a folder the move empties is retired, and the destination folders it needed are made", async () => {
     const f = await keyedFixture();
-    // `3-resources` holds only `r.md`, so moving it away empties the folder; `2-areas` does not exist yet.
+    // `1-projects/secret` holds only `codes.md`, so moving it away empties the folder; `2-areas` does not exist yet.
+    await start(f, "1-projects/secret/codes.md", "2-areas/deep/codes.md");
+    // `3-resources` is a built-in folder: emptied, it stays, since its job is still there (`folderJobs.ts`).
     await start(f, "3-resources/r.md", "2-areas/deep/r.md");
 
     const tree = await treeOf(f);
     const live = (path: string) => tree.some((row) => row.path === path && row.live);
-    expect(live("3-resources")).toBe(false);
+    expect(live("1-projects/secret")).toBe(false);
+    expect(live("3-resources")).toBe(true);
     expect(live("2-areas")).toBe(true);
     expect(live("2-areas/deep")).toBe(true);
     expect(tree.find((row) => row.path === "2-areas/deep/r.md")).toMatchObject({ live: true, name: "r.md", parent: "2-areas/deep" });

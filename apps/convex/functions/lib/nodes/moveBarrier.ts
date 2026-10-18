@@ -122,8 +122,9 @@ export async function runMoveOperation(
     // Asked of the tree, on a store of its own so the move's walks below are unchanged.
     const named = Object.create(store) as FileStore;
     attachTreeListing(ctx, args.workspaceId, named);
+    attachWorkspaceKeyed(ctx, args.workspaceId, named);
     const clearance = clearanceOf(args.scope, args.grantedNames ?? []);
-    await assertNotProtectedFolder(named, from, clearance);
+    await assertNotProtectedFolder(named, from, clearance, "move");
     if (from === to || to.startsWith(`${from}/`) || from.startsWith(`${to}/`)) {
       throw new FileOpError("PATH_INVALID", "A folder cannot be moved into, onto or over itself.");
     }

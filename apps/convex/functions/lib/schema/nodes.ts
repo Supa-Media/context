@@ -111,8 +111,19 @@ export const nodeTables = {
      * (`lib/nodes/observe.ts`).
      */
     access: v.optional(v.object({ base: v.union(v.literal("private"), v.literal("team")) })),
+    /**
+     * A built-in folder's job, under its original name (`inbox`, `projects`,
+     * `website`, `meetings`; `ROW_ROLES` in `folderRoles.cjs`). Set when the
+     * folder is made at the root under a job's name, or before its first move,
+     * and then carried by every rename and move, so the folder is found by its
+     * job whatever it is called (`lib/nodes/folderJobs.ts`, owner 2026-10-18).
+     */
+    role: v.optional(v.string()),
+    /** Where this folder is drawn among its siblings, once somebody has set it; else its job's rank, then its name. */
+    order: v.optional(v.number()),
   })
     .index("by_workspace_path", ["workspaceId", "path"])
+    .index("by_workspace_role", ["workspaceId", "role"])
     .index("by_workspace_noteId", ["workspaceId", "noteId"])
     /** A key a row keys its bytes at: the old-copy cleanup's re-check and count look a key up here (`lib/cleanup/`). */
     .index("by_workspace_storageKey", ["workspaceId", "storageKey"])

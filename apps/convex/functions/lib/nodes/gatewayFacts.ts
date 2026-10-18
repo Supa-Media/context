@@ -27,6 +27,8 @@
  *   `list_contacts` show in place of reading note bodies.
  * - `ask: "names"`: a write's "is this name taken?" and the note cap's count,
  *   unfiltered and so for a writer only (`gatewayNames.ts`).
+ * - `ask: "jobs"`: which folder does each built-in job (`folderJobs.ts`), and
+ *   the root's folder names, both only where this reader can see the folder.
  * - `ask: "forwarding"`: the forwarding ledger (`smallData.ledger`), oldest
  *   first, for this reader: an entry whose old path the reader may not see is
  *   left out, and one whose new path they may not see comes back with
@@ -60,7 +62,7 @@ import { namesFor } from "./gatewayNames";
 const NOT_SERVED = { served: false } as const;
 
 /** What a request may ask for. */
-const ASKS = new Set(["links", "chaos", "props", "forwarding"]);
+const ASKS = new Set(["links", "chaos", "props", "forwarding", "jobs"]);
 
 /** Notes one props request may name: one `propsAt` query's worth. */
 export const PROPS_REQUEST_PATHS = PROPS_AT_PATHS;
@@ -149,6 +151,15 @@ async function factsFor(ctx: ActionCtx, body: Record<string, unknown>): Promise<
         forwarding.push({ ...entry, to: sees(entry.to, entry.kind) ? entry.to : null });
       }
       return { served: true, forwarding };
+    }
+
+    if (body.ask === "jobs") {
+      const clearance = clearanceOf(reader.scope);
+      const sees = (path: string) => folderVisibleAtScope(path, clearance, state.rules, state.overrides);
+      const found = await ctx.runQuery(internal.functions.nodesGateway.folderJobs, { workspaceId: reader.workspaceId });
+      const jobs: Record<string, string | null> = {};
+      for (const [job, path] of Object.entries(found.jobs)) jobs[job] = path !== null && sees(path) ? path : null;
+      return { served: true, jobs, roots: found.roots.filter(sees) };
     }
 
     if (body.ask === "props") {

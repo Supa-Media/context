@@ -13,6 +13,7 @@ import { accessSentence } from "./access.js";
 import { firstParagraphOf, readFrontPage } from "./frontPage.js";
 import { surveyContext } from "./survey.js";
 import { describeFolders } from "./folderAbout.js";
+import { factJobs } from "../tree/facts.js";
 import { builtInFoldersList, ORIENT_SIBLING_INDEX_CHAR_CAP, ORIENT_SIBLING_LIMIT, renderStructure } from "./render.js";
 import { hasWebsiteFolder } from "./websiteGuide.js";
 import { loadPrivacyState } from "../privacy/state.js";
@@ -59,6 +60,9 @@ export function openOnce(store) {
 export async function surveyOf(listing, facts, scope, rules, overrides) {
   const survey = await surveyContext(listing, scope, rules, overrides);
   await describeFolders(facts, survey);
+  // Which folder does each built-in job, whatever it is called now; absent where the tree cannot say.
+  const jobs = await factJobs(facts);
+  if (jobs !== null) survey.jobs = jobs.jobs;
   return survey;
 }
 
@@ -67,7 +71,9 @@ function unreadableSurvey() {
   return { rootNotes: [], folders: [], total: 0, recent: [], captured: [], loading: TREE_UNREACHABLE };
 }
 
-const isArchive = (name) => folderRole(name) === "archive";
+/** Whether a top-level folder is the Archive: the folder doing that job, else the one named for it. */
+const archiveTest = (survey) => (name) =>
+  survey.jobs?.archive ? survey.jobs.archive === name : folderRole(name) === "archive";
 const folderName = (folder) => folder.prefix.replace(/\/+$/, "");
 const noteCount = (count) => (count === 1 ? "1 note" : `${count} notes`);
 
@@ -87,6 +93,7 @@ function bodyOf({ page, survey, connected = false }) {
   );
   if (survey.loading) return lines.join("\n");
   lines.push("Folders:");
+  const isArchive = archiveTest(survey);
   lines.push(renderStructure(survey, { exclude: isArchive }));
   const archive = survey.folders.find((folder) => isArchive(folderName(folder)));
   if (archive) {
