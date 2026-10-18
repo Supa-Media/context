@@ -4,8 +4,10 @@
  * The message goes to the control plane with this connection's own token
  * (`store.reportProblem`, attached in `http/routing.js`), which resolves the
  * person and sends it through the same intake as the app's bug button: the
- * same ten-a-day budget, the same destination, nothing of it stored. Nothing
- * in any workspace changes.
+ * same ten-a-day budget, nothing of it stored, and nothing in the caller's
+ * own workspace changes. A bug report by text is the one that is kept: the
+ * control plane writes it as a note in the pinned context instead of sending
+ * it to Sentry (`apps/convex/functions/bugNotes.ts`).
  *
  * By text it is a bug report the person files through Tex, and it never goes
  * as it is called: `reportGate.js` holds it until they reply YES to the exact

@@ -27,7 +27,7 @@ function clientLabel(name: string): string {
 /** Kept equal to `apps/mcp/src/tools/reportGate.js`'s `MAX_REPORT_TEXTS_CHARS`. */
 export const MAX_REPORT_TEXTS_CHARS = 16_000;
 /** The texting assistant's grant (`functions/textLinks.ts`), the only one that may attach texts. */
-const TEXTS_CLIENT_ID = "context_texts";
+export const TEXTS_CLIENT_ID = "context_texts";
 
 function randomReportId(): string {
   const bytes = new Uint8Array(12);

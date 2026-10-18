@@ -1,10 +1,10 @@
 /**
  * The half of feedback intake after a report has been checked and its person
- * is known: reserve it against that person's budget, post it to Sentry, and
- * record the outcome. Shared by the app's `submitFeedback` and the gateway's
- * `/gateway/feedback`, so a report from either counts against one ten-a-day
- * budget and is sent the one way. See `functions/feedback.ts` for the order
- * and why.
+ * is known: reserve it against that person's budget, post it to Sentry (or,
+ * for a bug report by text, hand it to `send`), and record the outcome.
+ * Shared by the app's `submitFeedback` and the gateway's `/gateway/feedback`,
+ * so a report from either counts against one ten-a-day budget. See
+ * `functions/feedback.ts` for the order and why.
  */
 
 import { ConvexError } from "convex/values";
@@ -40,9 +40,20 @@ type Reservation =
   | { kind: "limited"; retryAfterMs: number }
   | { kind: "reserved"; eventId: string; receiptId: Id<"feedbackReceipts"> };
 
+/**
+ * Takes a reserved report somewhere other than Sentry: a bug report by text
+ * becomes a note (`bugNotes.ts`). True once it has landed.
+ */
+export type FeedbackSend = (eventId: string, now: number) => Promise<boolean>;
+
 export async function deliverFeedback(
   ctx: Pick<ActionCtx, "runMutation">,
-  { sentry, userId, report }: { sentry: SentryTarget; userId: Id<"users">; report: FeedbackReport },
+  {
+    sentry,
+    userId,
+    report,
+    send,
+  }: { sentry?: SentryTarget; userId: Id<"users">; report: FeedbackReport; send?: FeedbackSend },
 ): Promise<{ eventId: string }> {
   const now = Date.now();
   const reservation: Reservation = await ctx.runMutation(internal.functions.feedback.reserveFeedback, {
@@ -62,15 +73,24 @@ export async function deliverFeedback(
     });
   }
 
-  const body = buildFeedbackEnvelope({
-    dsn: sentry.dsn,
-    eventId: reservation.eventId,
-    userId,
-    environment: environment(),
-    now,
-    report,
-  });
-  let delivered = false;
+  const delivered =
+    send !== undefined
+      ? await send(reservation.eventId, now)
+      : sentry !== undefined && (await postToSentry(sentry, { eventId: reservation.eventId, userId, now, report }));
+
+  if (!delivered) {
+    await ctx.runMutation(internal.functions.feedback.releaseFeedback, { receiptId: reservation.receiptId });
+    throw new ConvexError({ code: "FEEDBACK_UNAVAILABLE", message: "The report could not be sent just now." });
+  }
+  await ctx.runMutation(internal.functions.feedback.markFeedbackSent, { receiptId: reservation.receiptId });
+  return { eventId: reservation.eventId };
+}
+
+async function postToSentry(
+  sentry: SentryTarget,
+  { eventId, userId, now, report }: { eventId: string; userId: Id<"users">; now: number; report: FeedbackReport },
+): Promise<boolean> {
+  const body = buildFeedbackEnvelope({ dsn: sentry.dsn, eventId, userId, environment: environment(), now, report });
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), SEND_TIMEOUT_MS);
   try {
@@ -80,19 +100,12 @@ export async function deliverFeedback(
       body,
       signal: controller.signal,
     });
-    delivered = response.ok;
+    return response.ok;
   } catch {
     // Network failure or timeout: the report was not taken. Its content is
     // not logged, here or anywhere.
-    delivered = false;
+    return false;
   } finally {
     clearTimeout(timer);
   }
-
-  if (!delivered) {
-    await ctx.runMutation(internal.functions.feedback.releaseFeedback, { receiptId: reservation.receiptId });
-    throw new ConvexError({ code: "FEEDBACK_UNAVAILABLE", message: "The report could not be sent just now." });
-  }
-  await ctx.runMutation(internal.functions.feedback.markFeedbackSent, { receiptId: reservation.receiptId });
-  return { eventId: reservation.eventId };
 }
