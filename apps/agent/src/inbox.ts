@@ -257,6 +257,13 @@ function versionOf(value: number | boolean | undefined): number | undefined {
 
 /** Linq clears the typing bubble after about 85 seconds; this renews it sooner. */
 export const TYPING_REFRESH_MS = 55_000;
+/**
+ * The bubble asked for again this soon after the first: on Sendblue the read
+ * receipt and the bubble go out back to back, and Dev2 (2026-10-18) saw
+ * "Read" with no bubble for 15 seconds, so the second ask lands after the
+ * receipt has.
+ */
+export const TYPING_AGAIN_MS = 1_500;
 
 /**
  * How long a turn may run without a word before the person is told it is a
@@ -361,6 +368,9 @@ async function answerTexts(message: Message, deps: InboxDeps, storage: InboxStor
   const typing = () => line.startTyping(message.chatId);
   await typing();
   let renewal: Promise<void> = Promise.resolve();
+  const again = setTimeout(() => {
+    renewal = typing();
+  }, TYPING_AGAIN_MS);
   const timer = setInterval(() => {
     renewal = typing();
   }, TYPING_REFRESH_MS);
@@ -368,6 +378,7 @@ async function answerTexts(message: Message, deps: InboxDeps, storage: InboxStor
     return await replyTo(message, { ...deps, onProgress });
   } finally {
     clearTimeout(nudge);
+    clearTimeout(again);
     clearInterval(timer);
     await renewal;
     await chain;

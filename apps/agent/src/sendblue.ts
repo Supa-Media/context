@@ -129,20 +129,30 @@ export async function sendSendblueMedia(fetcher: Fetch, keys: SendblueKeys, chat
 
 /** The "…" bubble. Best effort and quick; never throws. */
 export async function startSendblueTyping(fetcher: Fetch, keys: SendblueKeys, chatId: string): Promise<void> {
+  let status: number | null = null;
   try {
-    await call(fetcher, keys, "/api/send-typing-indicator", chatOf(chatId), QUICK_TIMEOUT_MS);
+    status = await call(fetcher, keys, "/api/send-typing-indicator", chatOf(chatId), QUICK_TIMEOUT_MS);
   } catch {
-    // A bubble that failed costs nothing.
+    // A bubble that failed costs nothing, but is logged below.
   }
+  logRefused("sendblue_typing", status);
 }
 
 /** "Read" under the person's text. Best effort and quick; never throws. */
 export async function markSendblueRead(fetcher: Fetch, keys: SendblueKeys, chatId: string): Promise<void> {
+  let status: number | null = null;
   try {
-    await call(fetcher, keys, "/api/mark-read", chatOf(chatId), QUICK_TIMEOUT_MS);
+    status = await call(fetcher, keys, "/api/mark-read", chatOf(chatId), QUICK_TIMEOUT_MS);
   } catch {
-    // A receipt that failed costs only the receipt.
+    // A receipt that failed costs only the receipt, but is logged below.
   }
+  logRefused("sendblue_read", status);
+}
+
+/** A bubble or receipt Sendblue refused, so "no typing bubble" can be told from "never asked". The status only, never the number. */
+function logRefused(event: string, status: number | null): void {
+  if (status !== null && status >= 200 && status < 300) return;
+  console.log(JSON.stringify({ event, outcome: "refused", status }));
 }
 
 /**
