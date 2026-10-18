@@ -269,9 +269,9 @@ describe("tenant isolation", () => {
       return owner;
     });
     const betaId = await asUser(t, other).mutation(api.functions.workspaces.createWorkspace, {
-      slug: "bravo-team",
+      slug: "bravo",
       displayName: "bravo",
-      kind: "shared",
+      kind: "personal",
     });
     const betaBucket = seededBucket("beta-bucket");
     betaBucket.seed("routines/daily/beta-only.md", "Beta's routine.\n");
