@@ -3,6 +3,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
+import { ConvexError } from "convex/values";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import type { FileBrowser } from "../features/console/files/browser";
@@ -166,6 +167,19 @@ function moves(): { from: string; to: string }[] {
 }
 
 /** Make the note, open it, and hand back the path it landed at. */
+/** Type a line under the open new note's heading and save it: its create. */
+async function typeAndSave(line: string): Promise<void> {
+  const path = browser.editor.path!;
+  const stem = path.slice(path.lastIndexOf("/") + 1).replace(/\.md$/, "");
+  await act(async () => {
+    browser.setDraft(`# ${stem}\n\n${line}\n`);
+  });
+  await act(async () => {
+    browser.save();
+  });
+  await settle();
+}
+
 async function makeAndOpen(): Promise<void> {
   await act(async () => {
     browser.createUntitled(FOLDER, "note");
@@ -227,6 +241,7 @@ describe("a note made without a name", () => {
     unmount = null;
   });
 
+  // Opened at once and written with the first thing typed (`unsentNotes.ts`).
   test("is written at untitled-<date>, with no name asked for", async () => {
     unmount = mount();
     await settle();
@@ -235,6 +250,7 @@ describe("a note made without a name", () => {
       browser.createUntitled(FOLDER, "note");
     });
     await settle();
+    await typeAndSave("Notes from today");
 
     const written = calls
       .filter((c) => c.name === name("writeNote"))
@@ -265,10 +281,12 @@ describe("a note made without a name", () => {
       browser.createUntitled(FOLDER, "note");
     });
     await settle();
+    await typeAndSave("First");
     await act(async () => {
       browser.createUntitled(FOLDER, "note");
     });
     await settle();
+    await typeAndSave("Second");
 
     const written = calls
       .filter((c) => c.name === name("writeNote"))
@@ -294,6 +312,15 @@ describe("a note made without a name", () => {
   test("a name is chosen against a folder this session has not opened", async () => {
     const UNSEEN = "0-inbox";
     files.set(`${UNSEEN}/${STEM}.md`, "# captured earlier\n");
+    // The bucket's create refuses a name already there, as the server's does.
+    const write = actions[name("writeNote")]!;
+    actions[name("writeNote")] = async (args: never) => {
+      const { path, expectedEtag } = args as { path: string; expectedEtag?: string };
+      if (expectedEtag === undefined && files.has(path)) {
+        throw new ConvexError({ code: "CONFLICT", message: "A file already exists at that path." });
+      }
+      return write(args);
+    };
 
     unmount = mount();
     await settle();
@@ -303,11 +330,16 @@ describe("a note made without a name", () => {
       browser.createUntitled(UNSEEN, "note");
     });
     await settle();
+    await typeAndSave("Captured now");
 
+    // It opened before the folder's names were in, so its first save meets the
+    // note made earlier, and moves on to the next name rather than refusing.
     const written = calls
       .filter((c) => c.name === name("writeNote"))
       .map((c) => (c.args as { path: string }).path);
-    expect(written).toEqual([`${UNSEEN}/${STEM}-2.md`]);
+    expect(written.at(-1)).toBe(`${UNSEEN}/${STEM}-2.md`);
+    expect(files.get(`${UNSEEN}/${STEM}.md`)).toBe("# captured earlier\n");
+    expect(browser.editor.path).toBe(`${UNSEEN}/${STEM}-2.md`);
     expect(browser.notice).toBeNull();
   });
 

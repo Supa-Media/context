@@ -26,6 +26,7 @@ import type { OpenNote } from "../types";
 import type { RestoredDraft } from "../editor";
 import { INSTANT_OPEN_MS } from "./timing";
 import { createNotePrefetch, type NotePrefetch } from "./notePrefetch";
+import { isBlankNewNote } from "./unsentNotes";
 import type { BrowserStateValues } from "./useBrowserState";
 import type { FileActionsValues } from "./useFileActions";
 import type { ListingsValues } from "./useListings";
@@ -49,6 +50,7 @@ type OpenNoteDeps =
     | "setSelectedPath"
     | "setUnreadable"
     | "settleOpening"
+    | "unsentCreates"
   >
   & Pick<OfflineQueueValues, "listings" | "listingsRef" | "offlineRef">
   & Pick<ListingsValues, "ensureListing" | "refresh" | "reportRefreshFailure">;
@@ -60,8 +62,30 @@ export function useOpenNote(deps: OpenNoteDeps) {
   const {
     autosave, collaborationPaths, dispatch, editorRef, ensureListing, listings, listingsRef, offlineRef, openRun, readNote, refresh,
     reportRefreshFailure, setNavigations, setNotice, setOpening, setSelectedPath, setUnreadable,
-    settleOpening, workspaceId, workspaceGenerationRef, pendingMoveTo, pendingCreateTo, renamingRef,
+    settleOpening, workspaceId, workspaceGenerationRef, pendingMoveTo, pendingCreateTo, renamingRef, unsentCreates,
   } = deps;
+
+  /*
+    Leaving a new note nobody wrote in: it is not saved, and its row goes
+    (Dev2, 2026-10-18; `unsentNotes.ts`). Online it was never written;
+    offline its queued create is dropped. Called past the leaving guard, so
+    only on a navigation that happens.
+  */
+  const leaveBlankNew = (next: string | null): void => {
+    const left = editorRef.current;
+    if (left.path === null || left.path === next || left.etag !== null) return;
+    if (!isBlankNewNote(left.path, left.draft)) return;
+    const unsent = unsentCreates.current.get(left.path);
+    if (unsent !== undefined) {
+      unsentCreates.current.delete(left.path);
+      unsent.discard();
+    } else if (offlineRef.current.pendingCreate(left.path) !== undefined) {
+      offlineRef.current.dropQueued(left.path);
+    } else {
+      return;
+    }
+    offlineRef.current.forgetDraft(left.path);
+  };
 
   /*
     Reads asked for before the press (`notePrefetch.ts`), keyed by context and
@@ -410,6 +434,15 @@ export function useOpenNote(deps: OpenNoteDeps) {
         guard first would only make the ordering look load-bearing when it is
         not.
       */
+      /*
+        The new note on screen, asked for again — its row tapped, or the
+        address catching up with it. It is in no bucket yet, so a read of it
+        would be a refusal about the person's own note (`unsentNotes.ts`).
+      */
+      if (written === undefined && editorRef.current.path === path && unsentCreates.current.has(path)) {
+        setSelectedPath(path);
+        return true;
+      }
       const pending = pendingMoveTo(path) ?? pendingCreateTo(path);
       if (pending !== undefined) {
         // A destination row is a promise, not a readable storage path yet.
@@ -420,6 +453,7 @@ export function useOpenNote(deps: OpenNoteDeps) {
           setNotice(guard.prompt ?? null);
           return false;
         }
+        leaveBlankNew(path);
         const epoch = workspaceGenerationRef.current.epoch;
         const mine = ++openRun.current;
         setSelectedPath(path);
@@ -447,6 +481,7 @@ export function useOpenNote(deps: OpenNoteDeps) {
         setNotice(guard.prompt ?? null);
         return false;
       }
+      leaveBlankNew(path);
       setSelectedPath(path);
       // Past the guard, so a refused navigation is not one. See `navigations`.
       setNavigations((count) => count + 1);
@@ -475,6 +510,15 @@ export function useOpenNote(deps: OpenNoteDeps) {
         // Anything still being read is for a note nobody is going to now.
         openRun.current += 1;
         setOpening(null);
+        /*
+          `etag: ""` is a new note in no bucket yet (`unsentNotes.ts`): opened
+          with no version, so its first save is the create, and not kept on
+          the device as if the bucket had it.
+        */
+        if (written.etag === "") {
+          dispatch({ type: "opened", note: written, unsent: true });
+          return true;
+        }
         offlineRef.current.rememberNote(written);
         dispatch({ type: "opened", note: written });
         return true;
@@ -555,6 +599,7 @@ export function useOpenNote(deps: OpenNoteDeps) {
       setNotice(guard.prompt ?? null);
       return false;
     }
+    leaveBlankNew(null);
     // See `openRun`: a read still in flight for the note being closed must not
     // be able to dispatch `opened` back into an editor this call just closed.
     openRun.current += 1;
