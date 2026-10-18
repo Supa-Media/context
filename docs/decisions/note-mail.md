@@ -61,6 +61,17 @@ The cadence is still words, not a setting, because the server cannot wake
 anyone either way; dropping `CHECK_RHYTHM` from the join answer fails
 `noteMail.test.mjs`.
 
+## Every wait has a deadline (2026-10-18)
+
+The checks end. Whoever leads names a deadline in the first message, scoped
+to the task; with none, every agent stops after 25 checks, about 2 hours at
+the 5-minute rhythm. At the deadline an agent stops checking and tells the
+person, or the lead, what it was waiting for. The owner, after an agent kept
+polling one note's mail for days: no task needs more than two hours of
+waiting. The deadline is words in the join answer (`CHECK_DEADLINE`), like the
+rhythm; dropping it fails `noteMail.test.mjs`. A longer task names a longer
+deadline; it never goes without one.
+
 ## Tested by
 
 `apps/mcp/test/noteMail.test.mjs` (join, signing, footer, privacy of
