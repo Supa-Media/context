@@ -56,7 +56,8 @@ identifying it as a special system thing, using the original names".
   Archive last) and then by name (`compareListingEntries`). The numbers in
   front of names stop being needed to sort.
 - **Built-in folders draw a hand-drawn icon in Tex blue, and nobody can change
-  it** for now (`folderIcons.set` refuses one). The owner may later offer a
+  it** for now: the app draws the job's icon over any emoji a row holds and
+  offers no way to set one on a built-in folder. The owner may later offer a
   set to pick from. The icon follows the job, so Projects always looks like
   Projects.
 - **Agents are told** which folder does which job in `orient`'s "Built-in
