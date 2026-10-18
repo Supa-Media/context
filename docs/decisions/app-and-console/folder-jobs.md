@@ -70,9 +70,14 @@ identifying it as a special system thing, using the original names".
   offers no way to set one on a built-in folder. The owner may later offer a
   set to pick from. The icon follows the job, so Projects always looks like
   Projects.
-- **Agents are told** which folder does which job in `orient`'s "Built-in
-  folders" line, read from the rows (`ask: "jobs"` on `/gateway/tree/facts`),
-  and `archive_note` archives into the folder doing the Archive's job.
+- **Agents are told** which folder does which job in `orient`'s "System
+  folders" lines, one per folder this connection can see: its path now,
+  wherever it is nested, whether it is required (the five main ones) or
+  optional, and one line on what it is for (`apps/mcp/src/orient/systemFolders.js`,
+  owner 2026-10-18). A required one the connection cannot find is said as not
+  found by this connection, never as absent. The paths are read from the rows
+  (`ask: "jobs"` on `/gateway/tree/facts`), and `archive_note` archives into
+  the folder doing the Archive's job.
 
 **Known limits.** A built-in folder of any size can be renamed or moved: a
 keyed folder over `ROW_MOVE_MAX` (500) rows moves in pages, reading as one

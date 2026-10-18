@@ -10,7 +10,7 @@ import { classifyCaptureKind } from "../communications/paths.js";
 import { createSearchBudget } from "../search/maintain.js";
 import { INSTRUCTIONS_NAME_CHAR_CAP } from "../mcp/instructions.js";
 import { loadIndexManifest, shedNotePathsOf } from "../search/shards.js";
-import { JOB_LABEL, ROLE_LABEL, ROW_ROLES, compareTopLevelFolders, folderRole } from "../../../../packages/shared/src/folderRoles.cjs";
+import { compareTopLevelFolders } from "../../../../packages/shared/src/folderRoles.cjs";
 
 export const ORIENT_RECENT_LIMIT = 8;
 export const ORIENT_CHILDREN_LIMIT = 12;
@@ -184,26 +184,6 @@ export const SAVE_DESTINATION_LINE = /^\s*(?:[-*]\s*)?destination\s*:\s*(\S.*?)\
 export const SAVE_PROCEDURE_CHAR_CAP = 2_000;
 
 const folderName = (folder) => folder.prefix.replace(/\/+$/, "");
-
-/**
- * The built-in folders this connection can see, each with its job, or "" when
- * none. Where the tree says which folder does each job (`survey.jobs`), that
- * answer is used, so a renamed or moved Inbox is still named as the Inbox;
- * otherwise each top-level folder's name decides.
- */
-export function builtInFoldersList(survey) {
-  if (survey.jobs) {
-    return ROW_ROLES.filter((job) => typeof survey.jobs[job] === "string")
-      .map((job) => `${JOB_LABEL[job]} \`${survey.jobs[job]}/\``)
-      .join(" · ");
-  }
-  const named = [];
-  for (const folder of [...survey.folders].sort((a, b) => compareTopLevelFolders(folderName(a), folderName(b)))) {
-    const role = folderRole(folderName(folder));
-    if (role !== null && !named.some((entry) => entry.role === role)) named.push({ role, prefix: folder.prefix });
-  }
-  return named.map(({ role, prefix }) => `${ROLE_LABEL[role]} \`${prefix}\``).join(" · ");
-}
 
 /** `- 1-projects/ (42 notes) — Work with a finish line.` */
 function folderDescription(node) {
