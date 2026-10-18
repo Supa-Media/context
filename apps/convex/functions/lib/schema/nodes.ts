@@ -293,6 +293,39 @@ export const nodeTables = {
     .index("by_next", ["nextAt"]),
 
   /**
+   * A keyed folder move too big for one transaction (`lib/nodes/rowMoveChunks.ts`):
+   * its root has moved, and the rows beneath follow a page at a time. While
+   * it is `moving`, listings, the id layer's lookups and the access rows read
+   * through it, so a note is found once, at either name, and judged by the
+   * same rules at both. `moved` once the last row has; the starting request
+   * deletes it after the bucket-side steps. Paths and counts, never content.
+   */
+  rowMoves: defineTable({
+    workspaceId: v.id("workspaces"),
+    from: v.string(),
+    to: v.string(),
+    /** Into or out of `.context/trash` (`rowTrash.ts`): no rules are checked, no links or pins follow. */
+    trash: v.boolean(),
+    state: v.union(v.literal("moving"), v.literal("moved")),
+    /** The mover's clearance: a row it could not see is left behind, never moved unjudged. */
+    scope: v.union(v.literal("private"), v.literal("team")),
+    grantedNames: v.array(v.string()),
+    /** The rules' version the move was judged under, in file mode; a page waits for a re-carry when it moves. */
+    privacyEtag: v.union(v.string(), v.null()),
+    /** The last path under `from` a page reached, and which walk this is: a second walk from the start ends it. */
+    cursor: v.optional(v.string()),
+    pass: v.number(),
+    /** The moved folder's parent before the move: retired at the end if the move emptied it. */
+    oldParentId: v.optional(v.id("nodes")),
+    /** Rows moved, and rows left at the old name (taken, unkeyed or not the mover's to see). */
+    moved: v.number(),
+    left: v.number(),
+    now: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_workspace", ["workspaceId"]),
+
+  /**
    * Which note links to which (decided by the owner, 2026-10-13: the tree's
    * link table moves from the workspace's search database into Convex). A
    * note's links were read at its row's `parsed` version.

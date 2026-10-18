@@ -12,7 +12,7 @@
  *  - the keyed branch in `startQueuedTrash` (the trash refused or queued as bytes);
  *  - the restore branch in `restoreQueuedTrash` (Restore "not found");
  *  - the name-collision loop (a second trash in the same millisecond is refused);
- *  - the row cap, at the real limit (`FOLDER_TOO_LARGE`, nothing moved);
+ *  - a folder over the row cap trashed and restored whole, in pages (`rowMoveChunks.ts`);
  *  - the `trash` flag's own check (a flagged move that is not into or out of the trash);
  *  - the privacy carry skipped for a trash (rules rewritten, or a private note widened);
  *  - the visibility check (a hidden note trashed by a team member).
@@ -184,15 +184,27 @@ describe("the trash destination", () => {
   });
 });
 
-describe("the row cap on a trash", () => {
-  test("a folder of more rows than the cap is refused as too large, and nothing moves", async () => {
+describe("the row cap on a trash", { timeout: 60_000 }, () => {
+  test("a folder of more rows than the cap goes to the trash in pages, whole, and comes back whole", async () => {
     const f = await keyedFixture();
-    await bigFolder(f, "2-areas/big", 500);
-    const before = await treeOf(f);
+    await bigFolder(f, "2-areas/big", 1_200);
+    const ids = new Map((await treeOf(f)).filter((row) => row.path.startsWith("2-areas/big/")).map((row) => [row.noteId, row.path]));
 
-    await expect(operate(f, { kind: "trash", path: "2-areas/big" })).rejects.toMatchObject({ data: { code: "FOLDER_TOO_LARGE" } });
+    const trashed = await operate(f, { kind: "trash", path: "2-areas/big" });
 
-    expect(await treeOf(f)).toEqual(before);
+    expect(trashed).toMatchObject({ kind: "moved", queued: 1_200 });
+    const after = await treeOf(f);
+    expect(after.some((row) => row.live && row.path.startsWith("2-areas/big"))).toBe(false);
+    const inTrash = after.filter((row) => row.live && row.path.startsWith(`${trashed.to}/`));
+    expect(inTrash).toHaveLength(1_200);
+    for (const row of inTrash) expect(`2-areas/big${row.path.slice(trashed.to.length)}`).toBe(ids.get(row.noteId));
+    expect(await f.t.run(async (ctx) => await ctx.db.query("rowMoves").collect())).toEqual([]);
+
+    await operate(f, { kind: "restoreTrash", from: trashed.to, to: "2-areas/big" });
+
+    const back = (await treeOf(f)).filter((row) => row.live && row.path.startsWith("2-areas/big/"));
+    expect(back).toHaveLength(1_200);
+    for (const row of back) expect(row.path).toBe(ids.get(row.noteId));
   });
 
   test("a folder of exactly the cap in rows, the folder included, is trashed whole", async () => {

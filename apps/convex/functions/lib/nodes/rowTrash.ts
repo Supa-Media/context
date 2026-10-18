@@ -13,9 +13,10 @@
  * second trash in the same millisecond takes `<stamp>-2`, `<stamp>-3`, ... until
  * a free name is found.
  *
- * A folder with more live rows than `ROW_MOVE_MAX` is refused as too large, as a
- * row move of it is: there is no byte fallback, because the bytes it would move
- * are not the notes.
+ * A folder with more live rows than `ROW_MOVE_MAX` goes in pages, as a row move
+ * of it does (`rowMoveChunks.ts`): its root at once, so every listing drops it,
+ * and the rows beneath behind it. Trashing it again while it is still going
+ * carries the same trash on; a big Restore goes the same way.
  */
 
 import { internal } from "../../../_generated/api";
@@ -31,9 +32,25 @@ import { TRASH_ROOT, type FileStore } from "../fileOps/store";
 import { canSee } from "../privacy";
 import { refusal } from "./rowMoveStart";
 import { carryRowHistory } from "./rowHistory";
+import { driveRowMove, plannedFiles, recordedMove } from "./rowMoveDrive";
 
 /** Trash destinations tried for one stamp before the trash is refused: the bucket's own bound. */
 const TRASH_ATTEMPTS = 100;
+
+type Pairs = { from: string; to: string }[];
+
+/** The pages of a chunked trash or Restore, then its record goes: a trash has no bucket rules to settle. */
+async function pagesOf(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  store: FileStore,
+  move: { id: Id<"rowMoves">; to: string; state: "moving" | "moved" },
+  from: string,
+): Promise<Pairs> {
+  const driven = move.state === "moving" ? await driveRowMove(ctx, { workspaceId, id: move.id, from, to: move.to, store }) : { files: [] };
+  await ctx.runMutation(internal.functions.nodeRowMoves.rowMoveSettled, { id: move.id });
+  return driven.files;
+}
 
 /**
  * Move `path` (a note or a folder) into the trash as its rows, for a keyed
@@ -55,15 +72,28 @@ export async function startRowTrash(
 ): Promise<MoveResult> {
   const { workspaceId, store, path, clearance, now } = args;
   const plan = await ctx.runQuery(internal.functions.nodeRowMoves.plan, { workspaceId, from: path });
+  const recorded = await recordedMove(ctx, workspaceId, path, (move) => move.trash);
+  if (recorded !== null && recorded.trash) {
+    // Trashed again while its pages are still going: the same trash carries on, for whoever may see the name.
+    const state = await loadPrivacyState(store);
+    if (state.invalid || !canSee(path, clearance.scope, state.rules, state.overrides, clearance.names)) throw notFound();
+    const moves = await pagesOf(ctx, workspaceId, store, recorded, path);
+    await carryRowHistory(store, moves);
+    if (args.projection) await followInProjection(store, { written: [], gone: moves.map((pair) => pair.from) }, args.projection);
+    return { from: path, to: recorded.to, paths: [recorded.to], queued: moves.length, rowed: true };
+  }
+  if (recorded !== null || (await ctx.runQuery(internal.functions.nodeRowMoves.rowMoveOverlaps, { workspaceId, from: path, to: path }))) {
+    throw refusal("busy", path, true);
+  }
   if (plan.kind === null) throw notFound();
-  if (plan.tooLarge) throw refusal("too_large", path, true);
-  if (plan.unkeyed) throw refusal("unkeyed", path, true);
+  const planned = await plannedFiles(ctx, workspaceId, path, plan);
+  if (planned.unkeyed) throw refusal("unkeyed", path, true);
 
   const state = await loadPrivacyState(store);
   if (state.invalid) throw new FileOpError("PRIVACY_MANIFEST_INVALID", "The privacy rules could not be read; the trash was not made.");
   if (!canSee(path, clearance.scope, state.rules, state.overrides, clearance.names)) throw notFound();
   // A folder with something in it this caller cannot see cannot be trashed as one step: the row move takes all of it.
-  if (plan.files.some((key) => !canSee(key, clearance.scope, state.rules, state.overrides, clearance.names))) {
+  if (planned.files.some((key) => !canSee(key, clearance.scope, state.rules, state.overrides, clearance.names))) {
     throw new FileOpError("CONFLICT", "That folder cannot be moved to the trash in one step.");
   }
 
@@ -75,7 +105,8 @@ export async function startRowTrash(
       from: path,
       to,
       privacyEtag: null,
-      plannedFiles: plan.files,
+      ...(plan.tooLarge ? {} : { plannedFiles: planned.files }),
+      chunk: { scope: clearance.scope, grantedNames: [...clearance.names] },
       now,
       trash: true,
       ...(args.expectedEtag === undefined ? {} : { expectedEtag: args.expectedEtag }),
@@ -88,9 +119,12 @@ export async function startRowTrash(
   }
   if (!answer.ok) throw refusal(answer.reason, path, true);
 
-  await carryRowHistory(store, plan.files.map((key) => ({ from: key, to: `${to}${key.slice(path.length)}` })));
-  if (args.projection) await followInProjection(store, { written: [], gone: plan.files }, args.projection);
-  return { from: path, to, paths: [to], queued: plan.files.length, rowed: true };
+  const moves = answer.chunked === undefined
+    ? planned.files.map((key) => ({ from: key, to: `${to}${key.slice(path.length)}` }))
+    : await pagesOf(ctx, workspaceId, store, { id: answer.chunked, to, state: "moving" }, path);
+  await carryRowHistory(store, moves);
+  if (args.projection) await followInProjection(store, { written: [], gone: moves.map((pair) => pair.from) }, args.projection);
+  return { from: path, to, paths: [to], queued: moves.length, rowed: true };
 }
 
 /**
@@ -105,18 +139,29 @@ export async function restoreRowTrash(
 ): Promise<void> {
   const { workspaceId, store, trash, path, now } = args;
   const plan = await ctx.runQuery(internal.functions.nodeRowMoves.plan, { workspaceId, from: trash });
+  const recorded = await recordedMove(ctx, workspaceId, trash, (move) => move.to === path);
+  if (recorded !== null) {
+    if (recorded.to !== path) throw refusal("busy", path, true);
+    await carryRowHistory(store, await pagesOf(ctx, workspaceId, store, recorded, trash));
+    return;
+  }
   if (plan.kind === null) throw notFound();
-  if (plan.tooLarge) throw refusal("too_large", path, true);
-  if (plan.unkeyed) throw refusal("unkeyed", path, true);
+  const planned = await plannedFiles(ctx, workspaceId, trash, plan);
+  if (planned.unkeyed) throw refusal("unkeyed", path, true);
   const answer = await ctx.runMutation(internal.functions.nodeRowMoves.rowMove, {
     workspaceId,
     from: trash,
     to: path,
     privacyEtag: null,
-    plannedFiles: plan.files,
+    ...(plan.tooLarge ? {} : { plannedFiles: planned.files }),
+    // The caller judged the trash as a whole; a page judges nothing that comes out of the trash.
+    chunk: { scope: "private", grantedNames: [] },
     now,
     trash: true,
   });
   if (!answer.ok) throw refusal(answer.reason, path, true);
-  await carryRowHistory(store, plan.files.map((key) => ({ from: key, to: `${path}${key.slice(trash.length)}` })));
+  const moves = answer.chunked === undefined
+    ? planned.files.map((key) => ({ from: key, to: `${path}${key.slice(trash.length)}` }))
+    : await pagesOf(ctx, workspaceId, store, { id: answer.chunked, to: path, state: "moving" }, trash);
+  await carryRowHistory(store, moves);
 }

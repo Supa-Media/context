@@ -19,7 +19,8 @@ import { requireFolderPath } from "../fileOps/paths";
 import type { FileStore } from "../fileOps/store";
 import { mirrorFile, readMirror } from "./privacyMirror";
 import { readerMirror, rulesForReaders } from "./readerRules";
-import { childrenThroughMoves, pendingMoves } from "./moveOverlay";
+import { childrenThroughMoves } from "./moveOverlay";
+import { drawnMoves } from "./rowMoveChunks";
 import { NODE_PRIVACY_KEY, type PrivacyMirror } from "./table";
 import { folderJobsOf } from "./folderJobs";
 import { compareListingEntries, isRowRole, jobAt } from "@context/shared/src/folderRoles.cjs";
@@ -160,7 +161,7 @@ export async function listFolderFromNodes(
   // The same refusal the bucket listing gives a malformed path, before any read.
   const folder = requireFolderPath(path);
   // Moves the tree shows already, folded in before privacy is judged (`moveOverlay.ts`).
-  const moves = await pendingMoves(ctx.db, workspaceId);
+  const moves = await drawnMoves(ctx.db, workspaceId);
   const { rows, more } = moves.length === 0
     ? await childrenOf(ctx, workspaceId, folder)
     : await childrenThroughMoves(folder, moves, (source) => childrenOf(ctx, workspaceId, source), (key) => rowAt(ctx, workspaceId, key));

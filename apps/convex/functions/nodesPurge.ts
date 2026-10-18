@@ -95,6 +95,12 @@ export async function forgetWorkspaceTree(
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .collect();
   for (const row of moves) await ctx.db.delete(row._id);
+  // So do keyed moves in pages: the rows they would carry are going too.
+  const rowMoves = await ctx.db
+    .query("rowMoves")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const row of rowMoves) await ctx.db.delete(row._id);
   const factState = await ctx.db
     .query("nodeFactState")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
