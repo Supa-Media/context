@@ -89,7 +89,7 @@ export function InlineSignUp() {
         <div className="tp-done">
           <span className="tp-tick" aria-hidden>
             <svg viewBox="0 0 14 14">
-              <path d="M2.5 7.4l3 3 6-6.6" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M2.5 7.4l3 3 6-6.6" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </span>
           <div>

@@ -38,7 +38,7 @@ export const TEX_CSS = `
 .tp-link{all:unset;cursor:pointer;color:var(--ink);text-decoration:underline;text-decoration-color:var(--hair);text-underline-offset:.2em}
 .tp-link:hover{text-decoration-color:var(--ink)}
 .tp-done{display:flex;gap:12px;align-items:flex-start}
-.tp-tick{flex:none;width:28px;height:28px;margin-top:1px;border-radius:50%;background:var(--blue);display:grid;place-items:center}
+.tp-tick{flex:none;color:#fff;width:28px;height:28px;margin-top:1px;border-radius:50%;background:var(--blue);display:grid;place-items:center}
 .tp-tick svg{width:14px;height:14px}
 .tp-head{font-size:21px;line-height:1.3;font-weight:500}
 .tp-email{max-width:400px;font-size:16px;line-height:1.4}
