@@ -82,6 +82,10 @@ export async function toolConnectGoogle(store, args) {
       // their phone (a texted code) and, for an account a phone made, their email once.
       "If they aren't signed in to Context in that browser, it first asks for their phone number and texts them a " +
       "code, and the first time it asks for their email too (it emails a code). Say so in one line, so it doesn't " +
-      "surprise them. Only they can finish that sign-in; it takes them a couple of minutes."
+      "surprise them. Only they can finish that sign-in; it takes them a couple of minutes. " +
+      // Google has not verified the app yet (Dev2, 2026-10-18), so its consent
+      // screen warns before it asks for access.
+      "Google then warns that it hasn't verified Context: tell them that's expected, and to tap Advanced, then " +
+      "Go to Context (or Continue)."
   );
 }

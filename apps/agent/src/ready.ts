@@ -28,7 +28,7 @@ export const READY_GIVE_UP_MS = 20 * 60_000;
 
 export const READY_COPY = {
   ready:
-    "You're good to go! Want to connect your Google, so I can get to know you from your email? Tap this, add your email, then tap Connect Google. Text me when it's done.",
+    "You're good to go! Want to connect your Google, so I can get to know you from your email? Tap this, add your email, then tap Connect Google. Google will say it hasn't verified Context yet. That's expected: tap Advanced, then Go to Context. Text me when it's done.",
   late: "Your notes are taking longer than usual to set up. Text me in a few minutes and we'll pick up from there.",
 };
 
