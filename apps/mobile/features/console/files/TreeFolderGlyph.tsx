@@ -2,6 +2,8 @@ import { useRef } from "react";
 import { Pressable, StyleSheet, View, type GestureResponderEvent } from "react-native";
 import { Icon } from "../../design/components/Icon";
 import { EmojiGlyph } from "../emoji/EmojiGlyph";
+import { JobIcon } from "./jobIcons/JobIcon";
+import { jobOfIcon } from "./jobIcons/marker";
 import { pointerType, radii } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 
@@ -26,6 +28,10 @@ import { useColors, useThemedStyles, type Colors } from "../../design/theme";
  * icon, the way a folder draws the plain folder icon (the owner: "give notes a
  * plain icon by default ... so it can be clicked on and changed"). Clicking it
  * opens the same picker.
+ *
+ * A built-in folder draws its job's icon (`JobIcon`, boards 8 and 9 of the
+ * system folders set) at the box's full 16pt, and it is only drawn: a
+ * built-in folder cannot take another icon, so there is no picker to open.
  */
 export function TreeFolderGlyph({
   label,
@@ -48,6 +54,8 @@ export function TreeFolderGlyph({
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const ref = useRef<View>(null);
+  const job = jobOfIcon(icon);
+  if (job !== null) return <JobIcon job={job} size={16} testID="tree-folder-job" />;
   const plain = <Icon name={note ? "file" : "folder"} size={14} color={colors.chromeMuted} />;
   const glyph =
     icon === null ? (

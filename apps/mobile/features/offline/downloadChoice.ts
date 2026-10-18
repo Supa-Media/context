@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { folderRole } from "@context/shared/src/folderRoles.cjs";
+import { archiveFolderNow } from "../console/files/jobIcons/jobFoldersNow";
 import { keyFor, parseKey } from "./keys";
 import type { KeyValueStore } from "./memory";
 
@@ -11,7 +12,8 @@ import type { KeyValueStore } from "./memory";
  * Two rules, both about which note bodies the mirror keeps:
  *
  *  - **Archive stays online.** A note under a top-level folder playing the
- *    archive role (`folderRole`, so `4-archive` and `9-archive` alike) is
+ *    archive role (`folderRole`, so `4-archive` and `9-archive` alike), or
+ *    under the folder doing the Archive's job by any name, is
  *    listed — its name is in the tree offline too — but its body is never
  *    downloaded, and a body an older build downloaded is dropped. Trash is not
  *    in the manifest at all (it is plumbing under `.context/`).
@@ -28,9 +30,11 @@ import type { KeyValueStore } from "./memory";
 const ONLINE_ONLY = "online-only";
 
 /** Whether a note at this path is one the mirror downloads at all. */
-export function downloadsPath(path: string): boolean {
+export function downloadsPath(path: string, archive: string = archiveFolderNow()): boolean {
   const top = path.split("/", 1)[0] ?? "";
   if (top === path) return true; // a note at the root
+  // The folder doing the Archive's job, renamed or moved (`jobFoldersNow.ts`).
+  if (archive !== "" && path.startsWith(`${archive}/`)) return false;
   return folderRole(top) !== "archive";
 }
 

@@ -4,6 +4,7 @@ import { Text } from "../design/components/Text";
 import { fonts, layout, radii, space, touchType } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors, type Shadows } from "../design/theme";
 import { targetFolder } from "./files/tree";
+import { inboxFolder } from "./files/jobIcons/folderJobs";
 import { SelectActionsBar } from "./files/SelectActionsBar";
 import { useSelectBar } from "./files/selectActions";
 import { scopeLabel } from "./layout/SearchScope";
@@ -11,8 +12,14 @@ import { NoteQuickBar, type NoteQuick, type NoteQuickId } from "./NoteQuickBar";
 import type { ConsoleData } from "./types";
 import { visibilityTierForRole } from "./visibility";
 
-/** Where a quick note from Home lands (Dev2, 2026-09-30: "inbox is the default folder"). */
-export const QUICK_NOTE_FOLDER = "0-inbox";
+/**
+ * Where a quick note from Home lands (Dev2, 2026-09-30: "inbox is the default
+ * folder"): the folder doing the Inbox's job, whatever it is called now, and
+ * `0-inbox` until the root has listed (`inboxFolder`).
+ */
+export function quickNoteInbox(data: ConsoleData): string {
+  return inboxFolder(data.files.listings);
+}
 
 /**
  * Where the round button's note goes: the folder on screen, the folder of the
@@ -26,7 +33,7 @@ export const QUICK_NOTE_FOLDER = "0-inbox";
 export function quickNoteFolder(data: ConsoleData): string | null {
   const folder = targetFolder(data.files.listings, data.files.selectedPath);
   if (folder !== "") return folder;
-  return inboxTakesNotes(data) ? QUICK_NOTE_FOLDER : null;
+  return inboxTakesNotes(data) ? quickNoteInbox(data) : null;
 }
 
 /**
@@ -52,9 +59,10 @@ export function inboxTakesNotes(data: ConsoleData): boolean {
   // An owner, a visitor's demo, or a role not known yet: the Inbox, as always.
   if (visibilityTierForRole(role) !== "team") return true;
   const { listings } = data.files;
+  const path = quickNoteInbox(data);
   const inbox =
-    listings[QUICK_NOTE_FOLDER]?.folderDefault ??
-    listings[""]?.entries.find((entry) => entry.kind === "folder" && entry.path === QUICK_NOTE_FOLDER)?.visibility ??
+    listings[path]?.folderDefault ??
+    listings[""]?.entries.find((entry) => entry.kind === "folder" && entry.path === path)?.visibility ??
     listings[""]?.folderDefault;
   return inbox !== "private";
 }
@@ -162,7 +170,7 @@ export function ConsoleBottomBar({
           }
           // The destination's names, asked for on the touch rather than the lift, so the note's name is chosen against them.
           onPressIn={canNote && folder !== null ? () => data.files.ensureListing(folder) : undefined}
-          onLongPress={onCreate === null ? undefined : () => onCreate(folder ?? QUICK_NOTE_FOLDER)}
+          onLongPress={onCreate === null ? undefined : () => onCreate(folder ?? quickNoteInbox(data))}
           accessibilityRole="button"
           accessibilityLabel={canNote ? "New note" : "Create"}
           accessibilityHint={canNote && onCreate !== null ? "Hold for a drawing, a folder or a meeting" : undefined}
