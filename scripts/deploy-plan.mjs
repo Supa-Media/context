@@ -78,6 +78,9 @@ const SHARED_IGNORED = [
   "architecture.config.json",
 ];
 
+/** Declared by the app for types; only the files it imports are bundled. */
+const APP_IMPORT_ONLY = ["@context/convex"];
+
 const workflow = (name) => `.github/workflows/${name}.yml`;
 
 /**
@@ -101,8 +104,8 @@ export const TARGETS = {
       mcp: { packages: ["@context/mcp", "@context/site-shots"], worker: "apps/mcp" },
       // Staging publishes the app export inside this Worker's Static Assets
       // version, so an app input is also a router input.
-      router: { packages: ["@context/router", "@context/mobile"], worker: "infra/router" },
-      app: { packages: ["@context/mobile"], files: ["scripts/build-drawing-editor.mjs"] },
+      router: { packages: ["@context/router", "@context/mobile"], importOnly: APP_IMPORT_ONLY, worker: "infra/router" },
+      app: { packages: ["@context/mobile"], importOnly: APP_IMPORT_ONLY, files: ["scripts/build-drawing-editor.mjs"] },
     },
     fanOut: [...SHARED_FAN_OUT, workflow("deploy-staging")],
     // Staging runs no Sentry inbox.
@@ -123,13 +126,15 @@ export const TARGETS = {
       // half changing must rebuild and deploy both halves of that version.
       web: {
         packages: ["@context/mobile", "@context/router"],
+        importOnly: APP_IMPORT_ONLY,
         files: ["scripts/build-drawing-editor.mjs", workflow("build-web"), workflow("deploy-router")],
       },
       router: {
         packages: ["@context/mobile", "@context/router"],
+        importOnly: APP_IMPORT_ONLY,
         files: ["scripts/build-drawing-editor.mjs", workflow("build-web"), workflow("deploy-router")],
       },
-      ota: { packages: ["@context/mobile"], files: [workflow("deploy-mobile-update")] },
+      ota: { packages: ["@context/mobile"], importOnly: APP_IMPORT_ONLY, files: [workflow("deploy-mobile-update")] },
     },
     fanOut: [...SHARED_FAN_OUT, workflow("deploy-production")],
     ignored: SHARED_IGNORED,
@@ -210,6 +215,7 @@ export function componentInputs(component, root = ROOT, byName = manifests(root)
   const files = new Set();
   const queue = [...(component.files ?? [])];
   const seen = new Set();
+  const importOnly = new Set(component.importOnly ?? []);
 
   const claimPackage = (name) => {
     const workspace = byName.get(name);
@@ -219,7 +225,7 @@ export function componentInputs(component, root = ROOT, byName = manifests(root)
     queue.push(...sourceFiles(root, workspace.dir));
     for (const section of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]) {
       for (const [dep, version] of Object.entries(workspace.manifest[section] ?? {})) {
-        if (String(version).startsWith("workspace:") && byName.has(dep)) claimPackage(dep);
+        if (String(version).startsWith("workspace:") && byName.has(dep) && !importOnly.has(dep)) claimPackage(dep);
       }
     }
   };
@@ -240,7 +246,13 @@ export function componentInputs(component, root = ROOT, byName = manifests(root)
           for (const target of fileCandidates(root, base)) queue.push(target);
         } else {
           const name = specifier.startsWith("@") ? specifier.split("/").slice(0, 2).join("/") : specifier.split("/")[0];
-          if (byName.has(name)) claimPackage(name);
+          if (!byName.has(name)) continue;
+          const subpath = specifier.slice(name.length);
+          if (importOnly.has(name) && subpath.startsWith("/")) {
+            for (const target of fileCandidates(root, byName.get(name).dir + subpath)) queue.push(target);
+          } else {
+            claimPackage(name);
+          }
         }
       }
     }

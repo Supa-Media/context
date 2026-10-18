@@ -13,8 +13,10 @@ A staging run deploys only what the commit can affect. Its first job,
 selects Convex, each Worker, and the app (web export and OTA update) from the
 files that changed. A component owns its workspace directories, the workspace
 packages it declares, and every file its sources import, including files
-Convex and the app import from `apps/mcp/src`. Tests and READMEs do not deploy
-anything. Dependency, workflow or planner changes, a base that cannot be found,
+Convex and the app import from `apps/mcp/src`. The app declares Convex only to
+type its calls, so it owns just the Convex files it imports (`_generated/api.js`
+and a few shared helpers): a Convex-only merge rebuilds neither the web export
+nor the OTA update. Tests and READMEs do not deploy anything. Dependency, workflow or planner changes, a base that cannot be found,
 and any file the planner does not recognise deploy everything. The run summary
 lists each component and why it was or was not deployed. Independent jobs run
 in parallel, and the live staging check runs on every run.
