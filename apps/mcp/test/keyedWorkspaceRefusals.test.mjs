@@ -6,8 +6,10 @@
  * path is a frozen copy nothing reads again. So:
  *  - the whole-bucket rotation walks the tree's names (the layer routes each
  *    to its live bytes), and reports every rewrap it makes to the tree;
- *  - a folder move refuses outright, and so does a move across workspaces
- *    from a store with no control plane to ask (`keyedMoveAcross.test.mjs`);
+ *  - a folder move with no control plane to move its rows refuses outright
+ *    (with one, it moves as rows: `keyedFolderMove.test.mjs`), and so does a
+ *    move across workspaces from a store with no control plane to ask
+ *    (`keyedMoveAcross.test.mjs`);
  *  - a queued materialize refuses when the control plane says the workspace is keyed.
  *
  * Sabotage, each run as a temporary local edit and reverted, and each failing here:
@@ -224,7 +226,7 @@ test("an unkeyed workspace's rotation is unchanged: it still lists the bucket", 
 
 /* --------------------------- folder move and across contexts --------------------------- */
 
-test("a folder move refuses a keyed workspace before listing or writing anything, dry run included", async () => {
+test("a folder move with no control plane refuses a keyed workspace before listing or writing anything, dry run included", async () => {
   for (const dryRun of [false, true]) {
     const { raw, store } = await keyedWorkspace();
     const result = await toolMoveFolder(store, "private", { rules: [] }, [], "1-projects", "2-areas/projects", dryRun);
