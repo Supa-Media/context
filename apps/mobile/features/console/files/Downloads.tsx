@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
@@ -24,6 +24,32 @@ export function useDownloadRows(contexts: readonly { id: string; slug: string }[
     () => (contexts === undefined || !mirrorSupported() ? [] : downloadRows(contexts, statuses, onlineOnly)),
     [contexts, statuses, onlineOnly],
   );
+}
+
+/** How long notes must keep coming down before the line says so. */
+export const STEADY_DOWNLOAD_MS = 3_000;
+
+/**
+ * `row`, but "downloading" only once it has lasted `STEADY_DOWNLOAD_MS`.
+ *
+ * Dev2 (2026-10-18): the line under Notes "keeps flickering … between spinning
+ * [and] how many notes are actually downloaded". Each background pass that
+ * finds a note or two new says "downloading" for a moment and "done" again,
+ * so "2,842 of 2,844" and its spinner came and went every few seconds. Until
+ * a download has lasted, the line counts what is on the phone, without a
+ * spinner, which is true the whole time.
+ */
+export function useSteadyDownloadRow(row: DownloadRow | undefined): DownloadRow | undefined {
+  const downloading = row?.state === "downloading";
+  const [steady, setSteady] = useState(false);
+  useEffect(() => {
+    setSteady(false);
+    if (!downloading) return;
+    const timer = setTimeout(() => setSteady(true), STEADY_DOWNLOAD_MS);
+    return () => clearTimeout(timer);
+  }, [downloading, row?.workspaceId]);
+  if (row === undefined || !downloading || steady) return row;
+  return { ...row, state: "done", total: row.done };
 }
 
 export function DownloadsSection({ rows }: { rows: readonly DownloadRow[] }) {

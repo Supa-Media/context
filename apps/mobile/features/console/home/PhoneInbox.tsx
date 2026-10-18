@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, View, type GestureResponderEvent } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View, type GestureResponderEvent } from "react-native";
 import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
 import { EmojiGlyph } from "../emoji/EmojiGlyph";
@@ -9,11 +9,9 @@ import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { buildHome, type HomeOpened } from "./homeModel";
 import { Card, Section, type HoldPoint } from "./homeRows";
 import type { HomePin, HomeRecent } from "./homeModel";
-import { INBOX_FOLDER } from "./homeView";
 import { HOME_LABEL } from "./phoneBack";
 import {
   buildInbox,
-  inboxCount,
   inboxWhen,
   type FiledNote,
   type InboxActivity,
@@ -29,10 +27,9 @@ import type { HomeSource } from "./useHomeSource";
  * of `meeting-2026-10-17/phone-inbox/`, approved by Dev2: "THIS LOOKS AMAZING!
  * LETS DO IT").
  *
- * Top to bottom: the title and how many notes lie in the Inbox (a press opens
- * the Inbox folder, where every one of them is, whoever wrote it), one row of
- * small round folder icons ending in All, **Pinned**, then the notes people
- * edited by hand, from any folder, under Apple Notes' date headings (Dev2,
+ * Top to bottom: the title and how much is downloaded, every top-level folder
+ * in one row that scrolls sideways (the Inbox first, as the folder it is),
+ * **Pinned**, then the notes you edited by hand, from any folder, under Apple Notes' date headings (Dev2,
  * 2026-10-18: "we need a pinned and prev 30 days section like apple notes"),
  * and **Filed today** — the notes an
  * agent (or you) moved out of the Inbox today, with where they went — after
@@ -53,7 +50,7 @@ export function PhoneInbox({
   entries,
   isMe,
   onOpen,
-  onAll,
+  ready = true,
   onActions,
   onHold,
   iconOf,
@@ -78,8 +75,11 @@ export function PhoneInbox({
   entries: readonly InboxActivity[];
   isMe: (by: string) => boolean;
   onOpen: (path: string) => void;
-  /** The last dot: opens Folders. */
-  onAll: () => void;
+  /**
+   * Whether what the page is built from has arrived: until then it draws its
+   * header and grey rows, never "nothing written" that turns into notes.
+   */
+  ready?: boolean;
   onActions?: (anchor: { x: number; y: number }) => void;
   onHold?: (path: string, at: HoldPoint) => void;
   iconOf?: (path: string) => string | null;
@@ -95,12 +95,16 @@ export function PhoneInbox({
   }, [source, pins, recents, opened, entries, isMe, now]);
   const shown = useMemo(() => [...inbox.pinned, ...inbox.groups.flatMap((entry) => entry.notes)], [inbox]);
   const lineOf = useNoteLedes(ledeSource, shown);
-  const dots = inbox.dots.map((dot) => dot.path).join("\n");
+  // The folders on screen first: a phone shows about five before it scrolls.
+  const ahead = inbox.folders
+    .slice(0, PRELOAD_FOLDERS)
+    .map((folder) => folder.path)
+    .join("\n");
   const preload = useRef(onPreload);
   preload.current = onPreload;
   useEffect(() => {
-    if (dots !== "") preload.current?.(dots.split("\n"));
-  }, [dots]);
+    if (ahead !== "") preload.current?.(ahead.split("\n"));
+  }, [ahead]);
   const hold = (path: string) =>
     onHold === undefined
       ? undefined
@@ -152,17 +156,6 @@ export function PhoneInbox({
               </View>
             </Pressable>
           )}
-          <Pressable
-            onPress={() => onOpen(INBOX_FOLDER)}
-            disabled={inbox.count === 0}
-            accessibilityRole="button"
-            accessibilityLabel={`${inboxCount(inbox.count, inbox.filed.length)}. Open the Inbox folder`}
-            style={({ pressed }) => (pressed ? styles.pressed : null)}
-          >
-            <Text style={styles.sub} testID="phone-inbox-count">
-              {inboxCount(inbox.count, inbox.filed.length)}
-            </Text>
-          </Pressable>
         </View>
         {onActions === undefined ? null : (
           <Pressable
@@ -177,8 +170,15 @@ export function PhoneInbox({
         )}
       </View>
 
-      <View style={styles.dots} testID="phone-inbox-dots">
-        {inbox.dots.map((folder) => {
+      {/* Every top-level folder, the Inbox first, in one row that scrolls sideways (Dev2, 2026-10-18). */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.folderRow}
+        contentContainerStyle={styles.folders}
+        testID="phone-inbox-folders"
+      >
+        {inbox.folders.map((folder) => {
           const emoji = iconOf?.(folder.path) ?? null;
           return (
             <Pressable
@@ -188,7 +188,7 @@ export function PhoneInbox({
               accessibilityRole="button"
               accessibilityLabel={folder.title}
               style={({ pressed }) => [styles.dot, pressed || opening === folder.path ? styles.pressed : null]}
-              testID="phone-inbox-dot"
+              testID="phone-inbox-folder"
             >
               <View style={styles.dotCircle}>
                 {emoji === null ? (
@@ -208,21 +208,7 @@ export function PhoneInbox({
             </Pressable>
           );
         })}
-        <Pressable
-          onPress={onAll}
-          accessibilityRole="button"
-          accessibilityLabel="All folders"
-          style={({ pressed }) => [styles.dot, pressed ? styles.pressed : null]}
-          testID="phone-inbox-all"
-        >
-          <View style={styles.dotCircle}>
-            <Icon name="more" size={20} color={colors.text} />
-          </View>
-          <Text style={styles.dotName} numberOfLines={1}>
-            All
-          </Text>
-        </Pressable>
-      </View>
+      </ScrollView>
 
       {inbox.pinned.length === 0 ? null : (
         <Section label="Pinned">
@@ -242,15 +228,17 @@ export function PhoneInbox({
         </Section>
       )}
 
-      {inbox.groups.length === 0 ? (
-        <View style={styles.empty} testID="phone-inbox-empty">
-          <Text style={styles.emptyTitle}>Nothing written yet.</Text>
-          <Text style={styles.emptyText}>
-            Notes you and your team write by hand show here, newest first. New ones start in the Inbox, and your
-            agents file them.
-          </Text>
+      {inbox.groups.length > 0 ? null : !ready ? (
+        <View style={styles.loading} testID="phone-inbox-loading">
+          {[0, 1, 2].map((at) => (
+            <View key={at} style={styles.loadingCard} />
+          ))}
         </View>
-      ) : null}
+      ) : (
+        <View style={styles.empty} testID="phone-inbox-empty">
+          <Text style={styles.emptyTitle}>Nothing you{"\u2019"}ve handwritten yet.</Text>
+        </View>
+      )}
       {recent.map(group)}
 
       {inbox.filed.length === 0 ? null : (
@@ -274,6 +262,9 @@ export function PhoneInbox({
     </View>
   );
 }
+
+/** Folders whose pages are read ahead: those on screen before the row scrolls. */
+const PRELOAD_FOLDERS = 6;
 
 const RECENT_GROUPS = new Set(["Today", "Yesterday", "Previous 7 Days", "Previous 30 Days"]);
 
@@ -398,7 +389,9 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.cardSurface,
     },
     pressed: { opacity: 0.6 },
-    dots: { flexDirection: "row", justifyContent: "flex-start", gap: 7 },
+    // The row runs to the screen's edges, so a folder half off the side says it scrolls.
+    folderRow: { marginHorizontal: -layout.readingMargin, flexGrow: 0 },
+    folders: { flexDirection: "row", gap: 7, paddingHorizontal: layout.readingMargin },
     dot: { width: 52, alignItems: "center", gap: 6 },
     dotCircle: {
       width: 46,
@@ -425,5 +418,6 @@ const makeStyles = (colors: Colors) =>
     filedPlace: { flexShrink: 1 },
     empty: { gap: space.x2, paddingTop: space.x2 },
     emptyTitle: { fontFamily: fonts.body, fontSize: touchType.h3, fontWeight: "700", color: colors.text },
-    emptyText: { fontFamily: fonts.body, fontSize: pointerType.lede, lineHeight: 21, color: colors.muted },
+    loading: { gap: space.x3 },
+    loadingCard: { height: 92, borderRadius: radii.sheet, backgroundColor: colors.cardSurface },
   });

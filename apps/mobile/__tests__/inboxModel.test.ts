@@ -4,7 +4,6 @@ import type { HomeFolder, HomeNote } from "../features/console/home/homeModel";
 import {
   buildInbox,
   humanEdits,
-  inboxCount,
   inboxGroupOf,
   inboxWhen,
   placeOf,
@@ -45,6 +44,7 @@ const NOTES = [
   note("2-areas/preaching/advent.md", "Advent series"),
   note("1-projects/dc-chapter.md", "DC chapter"),
   note("1-projects/moved-twice.md", "Moved twice"),
+  note("3-resources/psalm-23.md", "Psalm 23"),
 ];
 
 const moved = (when: string, moves: [string, string][], who: Partial<InboxActivity> = {}): InboxActivity => ({
@@ -82,10 +82,12 @@ const wrote = (when: string, paths: string[], who: Partial<InboxActivity> = {}):
 });
 
 describe("the notes people wrote by hand", () => {
-  test("are only the notes a person's own hand changed, newest first, from any folder", () => {
+  test("are only the notes your own hand changed, newest first, from any folder", () => {
     const { groups } = inbox([
       wrote(at(9), ["0-inbox/sermon.md"]),
-      wrote(at(10), ["1-projects/dc-chapter.md"], { via: "Context (this app)", by: "@sayo" }),
+      wrote(at(10), ["1-projects/dc-chapter.md"], { via: "Context (this app)" }),
+      // A teammate's hand in a shared workspace is not yours (Dev2, 2026-10-18).
+      wrote(at(10, 30), ["3-resources/psalm-23.md"], { by: "@sayo" }),
       wrote(at(11), ["2-areas/preaching/advent.md"], { via: "Claude" }),
       wrote(at(12), ["0-inbox/old-idea.md"], { via: "Tex", kind: "added" }),
     ]);
@@ -98,6 +100,7 @@ describe("the notes people wrote by hand", () => {
     const edits = humanEdits(
       [wrote(at(9, 0, 1), ["1-projects/dc-chapter.md"]), wrote(at(12), ["1-projects/dc-chapter.md"], { via: "Claude" })],
       [],
+      (by) => by === "@seyi",
     );
     expect(edits.get("1-projects/dc-chapter.md")).toBe(Date.parse(at(9, 0, 1)));
   });
@@ -145,10 +148,6 @@ describe("the notes people wrote by hand", () => {
     expect(inboxGroupOf(new Date(2026, 7, 3).getTime(), NOW)).toBe("August");
     expect(inboxGroupOf(new Date(2025, 11, 3).getTime(), NOW)).toBe("2025");
   });
-
-  test("the count still counts every note in the Inbox, whoever wrote it", () => {
-    expect(inbox([]).count).toBe(2);
-  });
 });
 
 describe("filed today", () => {
@@ -193,11 +192,22 @@ describe("filed today", () => {
   });
 });
 
-describe("folder dots", () => {
-  test("open-most first, then the rest, never the Inbox or Archive, at most five", () => {
-    const folders = ["0-inbox", "1-projects", "2-areas", "3-resources", "4-archive", "5-a", "6-b", "7-c"].map(folder);
-    const dots = inbox([], folders, [folder("3-resources"), folder("2-areas/preaching")]).dots;
-    expect(dots.map((dot) => dot.path)).toEqual(["3-resources", "1-projects", "2-areas", "5-a", "6-b"]);
+describe("the folder row", () => {
+  test("is every top-level folder: the Inbox first, pinned, opened most, the rest, Archive last", () => {
+    const folders = ["0-inbox", "1-projects", "2-areas", "3-resources", "4-archive", "5-a", "6-b", "7-c", "2-areas/x"].map(folder);
+    const row = inbox([], folders, [folder("3-resources"), folder("2-areas/preaching")], {
+      pins: [{ path: "6-b", kind: "folder" }],
+    }).folders;
+    expect(row.map((each) => each.path)).toEqual([
+      "0-inbox",
+      "6-b",
+      "3-resources",
+      "1-projects",
+      "2-areas",
+      "5-a",
+      "7-c",
+      "4-archive",
+    ]);
   });
 });
 
@@ -212,11 +222,5 @@ describe("the words", () => {
     expect(inboxWhen(new Date(2026, 9, 13, 9).getTime(), NOW)).toBe("Tuesday");
     expect(inboxWhen(new Date(2026, 8, 12, 9).getTime(), NOW)).toBe("Sep 12");
     expect(inboxWhen(new Date(2025, 8, 12, 9).getTime(), NOW)).toBe("Sep 12, 2025");
-  });
-
-  test("the count under the title", () => {
-    expect(inboxCount(0, 3)).toBe("Inbox empty · 3 filed today");
-    expect(inboxCount(1, 0)).toBe("1 in the Inbox");
-    expect(inboxCount(5, 2)).toBe("5 in the Inbox · 2 filed today");
   });
 });

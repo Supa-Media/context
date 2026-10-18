@@ -38,12 +38,15 @@ function page(extra: Record<string, unknown>) {
   act(() =>
     root.render(
       createElement(PhoneInbox, {
-        source: { notes: [{ path: "0-inbox/a.md", title: "A", lede: null, tags: [] }], folders: ["0-inbox"], shared: new Set() },
+        source: {
+          notes: [{ path: "0-inbox/a.md", title: "A", lede: null, tags: [] }],
+          folders: ["0-inbox", "1-projects", "4-archive"],
+          shared: new Set(),
+        },
         opened: [],
         entries: [],
         isMe: () => true,
         onOpen: (path: string) => opened.push(path),
-        onAll: () => {},
         ...extra,
       } as never),
     ),
@@ -57,11 +60,29 @@ function page(extra: Record<string, unknown>) {
 }
 
 describe("the phone's Notes title", () => {
-  test("says Notes, and its Inbox count still opens the Inbox folder", () => {
+  test("says Notes, with no Inbox count under it", () => {
     const ui = page({});
     expect(ui.container.querySelector('[role="heading"]')?.textContent).toBe("Notes");
-    act(() => ui.find("phone-inbox-count")!.click());
+    expect(ui.container.textContent).not.toContain("in the Inbox");
+  });
+
+  test("lists every top-level folder in a row, the Inbox first as a folder, and no All", () => {
+    // Dev2 2026-10-18: "Inbox is just a folder, so we should show it … why not just have a horizontal scroll".
+    const ui = page({});
+    const chips = [...ui.container.querySelectorAll<HTMLElement>('[data-testid="phone-inbox-folder"]')];
+    expect(chips.map((chip) => chip.textContent)).toEqual(["inbox", "projects", "archive"]);
+    expect(ui.container.textContent).not.toContain("All");
+    act(() => chips[0]!.click());
     expect(ui.opened).toEqual(["0-inbox"]);
+  });
+
+  test("says only that nothing is handwritten yet, and grey rows before it knows", () => {
+    // Dev2 2026-10-18: "This should just say nothing you've handwritten yet. That's it. No more prose."
+    expect(page({}).find("phone-inbox-empty")!.textContent).toBe("Nothing you\u2019ve handwritten yet.");
+    const early = page({ ready: false });
+    expect(early.find("phone-inbox-empty")).toBeNull();
+    expect(early.find("phone-inbox-loading")).not.toBeNull();
+    expect(early.container.querySelector('[role="heading"]')?.textContent).toBe("Notes");
   });
 
   test("has the downloaded count under it, which opens Downloads", () => {
