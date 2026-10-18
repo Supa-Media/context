@@ -91,7 +91,9 @@ function retryAfterMs(response) {
 export async function gmailFetch(fetchImpl, accessToken, path, params) {
   const url = new URL(`${GMAIL_API_ORIGIN}${path}`);
   for (const [key, value] of Object.entries(params ?? {})) {
-    if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
+    if (value === undefined || value === null) continue;
+    // A list repeats its key, as `metadataHeaders` must.
+    for (const each of Array.isArray(value) ? value : [value]) url.searchParams.append(key, String(each));
   }
   for (let attempt = 0; ; attempt += 1) {
     const response = await fetchImpl(url.toString(), {
@@ -173,6 +175,14 @@ export async function listAllMessageIds({ fetchImpl, accessToken, query, maxPage
 export async function getMessage({ fetchImpl, accessToken, id }) {
   return gmailFetch(fetchImpl, accessToken, `/gmail/v1/users/me/messages/${encodeURIComponent(id)}`, {
     format: "full",
+  });
+}
+
+/** One message's headers and snippet, without its body: what a search result shows. */
+export async function getMessageHeaders({ fetchImpl, accessToken, id }) {
+  return gmailFetch(fetchImpl, accessToken, `/gmail/v1/users/me/messages/${encodeURIComponent(id)}`, {
+    format: "metadata",
+    metadataHeaders: ["From", "To", "Subject", "Date"],
   });
 }
 

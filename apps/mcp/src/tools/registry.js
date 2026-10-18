@@ -24,6 +24,10 @@ import { baseToolDefinitions } from "./schemas.js";
  * neither.
  */
 export const PRIVATE_TIER_ONLY_TOOLS = new Set([
+  // The person's own mail, live from Gmail: as private as anything they own,
+  // and the control plane refuses anybody but the personal workspace's owner.
+  "search_email",
+  "read_email",
   "list_plugins",
   "rotate_encryption_keys",
   "materialize_move",

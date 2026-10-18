@@ -17,5 +17,20 @@ export function createEmailMethods({ post }) {
       if (answer?.ok === true && typeof answer.from === "string") return { ok: true, from: answer.from };
       return { ok: false, refused: REFUSALS.has(answer?.refused) ? answer.refused : "unavailable" };
     },
+    /** The person's own mail, read live for what their notes do not hold (`tools/emailRead.js`). */
+    async personMailSearch(accessToken, expectedWorkspaceId, search) {
+      const answer = await post("/gateway/email/search", { accessToken, expectedWorkspaceId, ...search });
+      if (answer?.ok === true && Array.isArray(answer.results) && Array.isArray(answer.mailboxes)) {
+        return { ok: true, results: answer.results, mailboxes: answer.mailboxes, incomplete: answer.incomplete === true };
+      }
+      return { ok: false, refused: READ_REFUSALS.has(answer?.refused) ? answer.refused : "unavailable" };
+    },
+    async personMailRead(accessToken, expectedWorkspaceId, address, id) {
+      const answer = await post("/gateway/email/read", { accessToken, expectedWorkspaceId, address, id });
+      if (answer?.ok === true && answer.message && typeof answer.message === "object") return { ok: true, message: answer.message };
+      return { ok: false, refused: READ_REFUSALS.has(answer?.refused) ? answer.refused : "unavailable" };
+    },
   };
 }
+
+const READ_REFUSALS = new Set(["invalid", "not_allowed", "no_mailbox", "rate_limited", "not_found", "unavailable"]);

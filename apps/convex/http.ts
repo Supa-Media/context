@@ -106,6 +106,7 @@ import * as oauth from "./functions/lib/gatewayRoutes/oauth";
 import * as links from "./functions/lib/gatewayRoutes/links";
 import * as vault from "./functions/lib/gatewayRoutes/vault";
 import * as personEmail from "./functions/lib/gatewayRoutes/personEmail";
+import * as personMail from "./functions/lib/gatewayRoutes/personMail";
 import * as calendarWrite from "./functions/lib/gatewayRoutes/calendarWrite";
 import * as site from "./functions/lib/gatewayRoutes/site";
 import * as workspaceRoutes from "./functions/lib/gatewayRoutes/workspaces";
@@ -845,6 +846,13 @@ http.route({ path: "/gateway/vault/request", method: "POST", handler: gatewayVau
 export const gatewayPersonEmail = gatewayRoute(personEmail.gatewayPersonEmailHandler, 128_000);
 
 http.route({ path: "/gateway/email/send", method: "POST", handler: gatewayPersonEmail });
+
+// The person's own mail, read live for what their synced notes do not hold.
+export const gatewayPersonMailSearch = gatewayRoute(personMail.gatewayPersonMailSearchHandler);
+export const gatewayPersonMailRead = gatewayRoute(personMail.gatewayPersonMailReadHandler);
+
+http.route({ path: "/gateway/email/search", method: "POST", handler: gatewayPersonMailSearch });
+http.route({ path: "/gateway/email/read", method: "POST", handler: gatewayPersonMailRead });
 
 // One calendar change, as the token's person, after they said yes to it.
 export const gatewayCalendarWrite = gatewayRoute(calendarWrite.gatewayCalendarWriteHandler);
