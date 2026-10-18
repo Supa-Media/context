@@ -14,8 +14,7 @@ import { describeSyncMark, type OpRow as QueuedOp, type PendingMarks } from "./p
 import { compactSync, syncSheetSections, type StatusSegment, type SyncSheetSection } from "./status";
 import { SyncMarkDot, withSyncMark } from "./SyncMarkDot";
 import { mirrorSheetSection } from "../../offline/mirrorCopy";
-import { downloadPill } from "../../offline/downloadSummary";
-import { DownloadPillContent, DownloadsSection, useDownloadRows } from "./Downloads";
+import { DownloadsSection, useDownloadRows } from "./Downloads";
 
 /**
  * Sync, on a phone: a pill in the header and a sheet behind it.
@@ -49,37 +48,16 @@ import { DownloadPillContent, DownloadsSection, useDownloadRows } from "./Downlo
 export function SyncPill({
   sync,
   save,
-  contexts,
   onPress,
 }: {
   sync: SyncFacts | undefined;
   /** The open note's `saveChip`, or `null` with nothing open. */
   save: StatusSegment | null;
-  /** Every workspace, for the download count when nothing else is to say. */
-  contexts?: readonly { id: string; slug: string }[];
   onPress: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const pill = compactSync(sync, save);
-  /*
-    Nothing about the connection or the queue: the pill is the one way in to
-    what is downloading (owner, 2026-10-16), and absent when nothing is.
-  */
-  const downloads = downloadPill(useDownloadRows(contexts));
-  if (pill === null && downloads !== null) {
-    return (
-      <PressRow
-        accessibilityLabel={`${downloads.label}. Show downloads`}
-        onPress={onPress}
-        radius={radii.pill}
-        style={styles.pill}
-        hoverStyle={styles.pillHover}
-        testID="download-pill"
-      >
-        <DownloadPillContent pill={downloads} />
-      </PressRow>
-    );
-  }
+  // How much is downloaded is the line under Notes now (2026-10-18), not a pill here.
   if (pill === null) return null;
 
   return (

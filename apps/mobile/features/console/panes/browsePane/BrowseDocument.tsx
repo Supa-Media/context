@@ -42,6 +42,9 @@ import { MapPage } from "../../map/live/ui/MapPage";
 import { TrashPage } from "../../trash/TrashPage";
 import { useTrashRoute } from "../../trash/TrashRouteContext";
 import { PhoneInbox } from "../../home/PhoneInbox";
+import { useDownloadRows } from "../../files/Downloads";
+import { requestSyncSheet } from "../../files/syncSheetRequest";
+import { downloadedLine } from "../../../offline/downloadSummary";
 import type { HoldPoint } from "../../home/homeRows";
 import type { InboxActivity } from "../../home/inboxModel";
 
@@ -255,8 +258,13 @@ export function BrowseDocument({
           if (entry != null) folderMenuFor(parentPath(path)).onRow(entry, at);
         }
       : undefined;
+  // How much of this workspace is on the device, under the Notes title (2026-10-18).
+  const downloadRows = useDownloadRows(data.contexts);
+  const downloaded = downloadedLine(downloadRows.find((row) => row.workspaceId === data.selectedContextId));
   const phoneInbox = (
     <PhoneInbox
+      downloaded={downloaded}
+      onDownloads={requestSyncSheet}
       source={homeSource}
       pins={places.pins}
       recents={places.recents}

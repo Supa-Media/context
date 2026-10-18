@@ -1,20 +1,19 @@
 import { useMemo, useState } from "react";
 import { StyleSheet, View } from "react-native";
-import Svg, { Circle } from "react-native-svg";
 import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
 import { radii, space } from "../../design/tokens";
-import { useColors, useThemedStyles, type Colors } from "../../design/theme";
+import { useThemedStyles, type Colors } from "../../design/theme";
 import { setOnlineOnly, useOnlineOnly } from "../../offline/downloadChoice";
-import { downloadRows, rowStatus, type DownloadPill, type DownloadRow } from "../../offline/downloadSummary";
+import { downloadRows, rowStatus, type DownloadRow } from "../../offline/downloadSummary";
 import { useMirrorStatuses } from "../../offline/mirrorStatus";
 import { mirrorSupported } from "../../offline/mirrorStore";
 import { openStore } from "../../offline/store";
 
 /**
- * Downloads, on a phone (owner, 2026-10-16): the top-right pill while notes
- * come down, and the block in the sheet behind it with a line and a Don't
- * download button per workspace. Words are `downloadSummary.ts`'s.
+ * Downloads, on a phone (owner, 2026-10-16): the block in the sync sheet with
+ * a line and a Don't download button per workspace, opened from the count
+ * under the Notes title (2026-10-18). Words are `downloadSummary.ts`'s.
  */
 
 /** Every workspace's download line; empty where this runtime keeps no copy. */
@@ -24,36 +23,6 @@ export function useDownloadRows(contexts: readonly { id: string; slug: string }[
   return useMemo(
     () => (contexts === undefined || !mirrorSupported() ? [] : downloadRows(contexts, statuses, onlineOnly)),
     [contexts, statuses, onlineOnly],
-  );
-}
-
-/** The ring and the count inside the pill. */
-export function DownloadPillContent({ pill }: { pill: DownloadPill }) {
-  const colors = useColors();
-  const r = 8;
-  const around = 2 * Math.PI * r;
-  return (
-    <>
-      <Svg width={20} height={20} viewBox="0 0 20 20" aria-hidden>
-        {/* The track in `muted` at a third: `lineStrong` vanished on a dark pill. */}
-        <Circle cx={10} cy={10} r={r} fill="none" stroke={colors.muted} strokeOpacity={0.35} strokeWidth={2.5} />
-        <Circle
-          cx={10}
-          cy={10}
-          r={r}
-          fill="none"
-          stroke={colors.accent}
-          strokeWidth={2.5}
-          strokeLinecap="round"
-          strokeDasharray={`${Math.max(0.5, pill.fraction * around)} ${around}`}
-          transform="rotate(-90 10 10)"
-        />
-      </Svg>
-      {/* `pill` carries no colour of its own; unset, it drew near-black on a dark pill. */}
-      <Text variant="pill" numberOfLines={1} style={{ color: colors.text }}>
-        {pill.text}
-      </Text>
-    </>
   );
 }
 

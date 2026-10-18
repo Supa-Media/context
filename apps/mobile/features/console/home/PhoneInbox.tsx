@@ -10,6 +10,7 @@ import { buildHome, type HomeOpened } from "./homeModel";
 import { Card, Section, type HoldPoint } from "./homeRows";
 import type { HomePin, HomeRecent } from "./homeModel";
 import { INBOX_FOLDER } from "./homeView";
+import { HOME_LABEL } from "./phoneBack";
 import {
   buildInbox,
   inboxCount,
@@ -42,6 +43,8 @@ export function PhoneInbox({
   source,
   pins = [],
   recents = [],
+  downloaded = null,
+  onDownloads,
   opened,
   entries,
   isMe,
@@ -58,6 +61,10 @@ export function PhoneInbox({
   pins?: readonly HomePin[];
   /** This person's Recent: the notes they edited themselves are among them. */
   recents?: readonly HomeRecent[];
+  /** "1,204 notes downloaded" (`downloadedLine`); `null` where nothing is kept on the device. */
+  downloaded?: string | null;
+  /** The Downloads sheet, opened from that line. */
+  onDownloads?: () => void;
   opened: readonly HomeOpened[];
   /** `activity.md`'s lines, for who wrote what and Filed today; empty before it has loaded. */
   entries: readonly InboxActivity[];
@@ -115,8 +122,20 @@ export function PhoneInbox({
       <View style={styles.head}>
         <View style={styles.headText}>
           <Text style={styles.title} accessibilityRole="header">
-            Inbox
+            {HOME_LABEL}
           </Text>
+          {downloaded === null ? null : (
+            <Pressable
+              onPress={onDownloads}
+              disabled={onDownloads === undefined}
+              accessibilityRole="button"
+              accessibilityLabel={`${downloaded}. Show downloads`}
+              style={({ pressed }) => (pressed ? styles.pressed : null)}
+              testID="phone-notes-downloaded"
+            >
+              <Text style={styles.sub}>{downloaded}</Text>
+            </Pressable>
+          )}
           <Pressable
             onPress={() => onOpen(INBOX_FOLDER)}
             disabled={inbox.count === 0}

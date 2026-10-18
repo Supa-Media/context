@@ -34,6 +34,7 @@ import {
 } from "../files/folderPage/pageCache";
 import { NoteIntentContext } from "../files/noteIntent";
 import { FOLDERS_PAGE, useHomeView } from "../home/homeView";
+import { usePhoneHistory } from "../home/phoneHistory";
 import { goToLevel, HOME_LABEL } from "../home/phoneBack";
 import { useMapRoute } from "../map/live/MapRouteContext";
 import { useChaosView } from "../../chaos/ChaosContext";
@@ -344,6 +345,8 @@ export function BrowsePane({
   const mapPage = useMapRoute()?.open === true && current != null;
   // Inbox or Folders, when nothing is open on a phone (`home/homeView.ts`).
   const homeView = useHomeView();
+  // Every page a phone shows, in order, so ‹ goes back to the one before (`phoneHistory.ts`).
+  usePhoneHistory(compact && !mapPage ? (selected?.path ?? (homeView === "folders" ? FOLDERS_PAGE : "")) : null, files.contextId ?? null);
 
   const openDocument = (
     <BrowseDocument

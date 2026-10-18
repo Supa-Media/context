@@ -8,6 +8,7 @@ import { ConsoleNavProvider, type ConsoleNav } from "./ConsoleNavContext";
 import { PhoneBack } from "./home/PhoneBack";
 import { goToLevel, phoneBackLevels } from "./home/phoneBack";
 import { useHomeView } from "./home/homeView";
+import { usePreviousPage } from "./home/phoneHistory";
 import type { CheckoutOutcome } from "@context/shared";
 import { SettingsOverlay } from "./settings/SettingsOverlay";
 import {
@@ -201,7 +202,8 @@ export function E2EFixtureScreen({
   */
   // The phone's ‹ back, as `consoleAccountSlot` draws it in the product's top bar.
   const homeView = useHomeView();
-  const levels = phone ? phoneBackLevels(data.files.selectedPath, false, homeView) : [];
+  const previous = usePreviousPage();
+  const levels = phone ? phoneBackLevels(data.files.selectedPath, false, homeView, false, previous) : [];
 
   const voiceHost: VoiceHost = {
     page: fixtureVoicePage(data.files, current),
