@@ -149,6 +149,12 @@ export const CHECK_RHYTHM =
   "(sleep 300) that wakes you and start it again at every check, with a scheduled task as a backup. If your app " +
   "cannot wake itself, tell the person, so they can prompt you.";
 
+/** How long the checks run: a wait with no end once had an agent polling for days. */
+export const CHECK_DEADLINE =
+  "Stop at the deadline. Whoever leads names one in the first message, scoped to the task; with none, stop after " +
+  "25 checks (about 2 hours). Then stop checking and tell the person, or the lead, what you were waiting for, " +
+  "instead of polling on.";
+
 function joinedText(path, mailbox, events, again) {
   const earlier = events.filter((event) => event.kind === "mail").length;
   const id = JSON.stringify(mailbox.mailboxId);
@@ -159,8 +165,9 @@ function joinedText(path, mailbox, events, again) {
       `Send: write { path: ${JSON.stringify(path)}, action: "mail", args: { text, to }, mailbox: ${id} }, to "${EVERYONE}" or a name.`,
     earlier
       ? `${earlier} message${earlier === 1 ? " was" : "s were"} sent before you joined; read them with args: { mail: "all" }.`
-      : "No mail yet. If you lead this work, send the first message: what each of you does.",
+      : "No mail yet. If you lead this work, send the first message: what each of you does, and the deadline.",
     CHECK_RHYTHM,
+    CHECK_DEADLINE,
   ].join("\n");
 }
 
