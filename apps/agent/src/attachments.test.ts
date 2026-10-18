@@ -181,6 +181,20 @@ describe("prepareAttachments", () => {
     ]);
   });
 
+  it("hears a voice message with no type and no extension by its bytes, as Sendblue may send it", async () => {
+    const caf = new Uint8Array([0x63, 0x61, 0x66, 0x66, 0, 1, 0, 0, 9, 9, 9]);
+    const m4a = new TextEncoder().encode("\0\0\0\x20ftypM4A \0\0");
+    const mp4 = new TextEncoder().encode("\0\0\0\x20ftypisom\0\0");
+    const bytes: Record<string, Uint8Array> = { "https://cdn/a": caf, "https://cdn/b": m4a, "https://cdn/c": mp4 };
+    const fetch = (async (url: string) => new Response(bytes[url])) as unknown as Fetch;
+    const out = await prepareAttachments(
+      [att("https://cdn/a", "", "f1"), att("https://cdn/b", "", "f2"), att("https://cdn/c", "", "f3")],
+      { fetch },
+    );
+    expect(out.map((o) => o.mediaType)).toEqual(["audio/x-caf", "audio/mp4", ""]);
+    expect(out[2]).toHaveProperty("unread");
+  });
+
   it("names a recording too long to transcribe instead of sending it", async () => {
     const fetch = (async () => new Response(new Uint8Array(MAX_AUDIO_BYTES + 1))) as unknown as Fetch;
     const [out] = await prepareAttachments([att("https://cdn/a", "audio/x-caf", "Audio Message.caf")], { fetch });

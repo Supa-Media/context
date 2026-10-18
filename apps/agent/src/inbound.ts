@@ -35,7 +35,7 @@ export type Inbound =
       /** Absent on a text with no files, and on messages queued before files were read. */
       attachments?: InboundAttachment[];
     }
-  | { kind: "ignored"; reason: "event_type" | "group" | "sender" | "service" | "empty" }
+  | { kind: "ignored"; reason: "event_type" | "group" | "sender" | "service" | "empty" | "reaction" }
   | { kind: "invalid" };
 
 function isRecord(value: unknown): value is Record<string, unknown> {

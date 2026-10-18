@@ -77,6 +77,14 @@ describe("sendblue webhook", () => {
     expect(parseSendblueInbound("nope")).toEqual({ kind: "invalid" });
   });
 
+  it("never answers a tapback that arrives as words", () => {
+    for (const content of ["Loved “see you at 6”", "Laughed at “ha”", 'Emphasized "ok"', "Removed a heart from “x”", "Reacted 🎉 to “done”"]) {
+      expect(parseSendblueInbound(received({ content }))).toEqual({ kind: "ignored", reason: "reaction" });
+    }
+    expect(parseSendblueInbound(received({ content: "Loved the movie" }))).toMatchObject({ kind: "message" });
+    expect(parseSendblueInbound(received({ content: "Liked “x” but why?" }))).toMatchObject({ kind: "message" });
+  });
+
   it("keeps a picture's address and name, and only an https one", () => {
     const parsed = parseSendblueInbound(received({ content: "", media_url: "https://cdn.example/f/IMG_1.heic" }));
     expect(parsed).toMatchObject({ kind: "message", attachments: [{ url: "https://cdn.example/f/IMG_1.heic", filename: "IMG_1.heic", mimeType: "" }] });
@@ -150,13 +158,15 @@ describe("sendblue sending", () => {
       sendblue: KEYS,
       hostPicture: async (picture) => {
         hosted.push(picture.name);
-        return "https://agent.example/media/abc/def.png";
+        return picture.mediaType === "text/vcard"
+          ? "https://agent.example/media/abc/card.vcf"
+          : "https://agent.example/media/abc/def.png";
       },
       now: () => 1_000,
     };
   }
 
-  it("answers a Sendblue chat through Sendblue: read, typing, words, then the picture by address", async () => {
+  it("answers a Sendblue chat through Sendblue: read, typing, words, the picture by address, then Tex's card", async () => {
     const storage = new MemoryStorage();
     await accept(storage, message("sendblue:mh_1"), 1_000);
     const calls: Call[] = [];
@@ -167,12 +177,31 @@ describe("sendblue sending", () => {
       "/api/send-typing-indicator",
       "/api/send-message",
       "/api/send-message",
+      "/api/send-message",
     ]);
     expect(calls[2].body).toEqual({ number: PHONE, from_number: LINE, content: "answer to q" });
     expect(calls[3].body).toEqual({ number: PHONE, from_number: LINE, media_url: "https://agent.example/media/abc/def.png" });
-    expect(hosted).toEqual(["p.png"]);
-    // No Linq contact card on a Sendblue chat.
-    expect(calls.some((c) => c.path.includes("contact"))).toBe(false);
+    expect(calls[4].body).toEqual({ number: PHONE, from_number: LINE, media_url: "https://agent.example/media/abc/card.vcf" });
+    expect(hosted).toEqual(["p.png", "Tex.vcf"]);
+  });
+
+  it("sends the card once per chat, even days later, but tries again after one that failed", async () => {
+    const day = 24 * 60 * 60 * 1000;
+    const storage = new MemoryStorage();
+    const calls: Call[] = [];
+    const cards = () => calls.filter((c) => String(c.body.media_url ?? "").endsWith(".vcf")).length;
+    // The first card is refused by Sendblue.
+    const refusing = fakeSendblue(calls, (path) => (calls.at(-1)?.body.media_url === "https://agent.example/media/abc/card.vcf" && cards() === 1 ? 500 : 200));
+    const at = (now: number): InboxDeps => ({ ...deps(refusing, []), now: () => now });
+    await accept(storage, message("sendblue:mh_c1"), 1_000);
+    await drain(storage, at(1_000));
+    expect(cards()).toBe(1);
+    await accept(storage, message("sendblue:mh_c2"), 1_000 + day + 1);
+    await drain(storage, at(1_000 + day + 1));
+    expect(cards()).toBe(2);
+    await accept(storage, message("sendblue:mh_c3"), 1_000 + 3 * day);
+    await drain(storage, at(1_000 + 3 * day));
+    expect(cards()).toBe(2);
   });
 
   it("never sends the same text twice when a later part fails and is retried", async () => {
@@ -189,6 +218,8 @@ describe("sendblue sending", () => {
       "answer to q",
       "https://agent.example/media/abc/def.png",
       "https://agent.example/media/abc/def.png",
+      // The card, once, after the reply finally went.
+      "https://agent.example/media/abc/card.vcf",
     ]);
   });
 

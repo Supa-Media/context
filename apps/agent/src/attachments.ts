@@ -88,6 +88,17 @@ export function sniff(bytes: Uint8Array): string | null {
   return null;
 }
 
+/**
+ * A voice message by its bytes, for a line that names no type (Sendblue sends
+ * only an address): Apple's CAF, or an M4A. Never a video's MP4.
+ */
+export function sniffAudio(bytes: Uint8Array): string | null {
+  const ascii = (from: number, to: number) => String.fromCharCode(...bytes.subarray(from, to));
+  if (ascii(0, 4) === "caff") return "audio/x-caf";
+  if (ascii(4, 8) === "ftyp" && ascii(8, 12) === "M4A ") return "audio/mp4";
+  return null;
+}
+
 /** The model API's longest side for a picture; past it the whole request is refused. */
 export const MAX_IMAGE_EDGE = 8000;
 
@@ -221,7 +232,7 @@ async function prepareOne(item: InboundAttachment, index: number, deps: Attachme
   if (bytes === "too_big") return unread(`It is over the ${megabytes(MAX_DOWNLOAD_BYTES)} Tex can open.`);
   if (bytes === null) return unread("The download failed. Ask them to send it again.");
 
-  const audio = type.startsWith("audio/") ? type : AUDIO_EXTENSIONS[ext];
+  const audio = type.startsWith("audio/") ? type : (AUDIO_EXTENSIONS[ext] ?? (type === "" ? sniffAudio(bytes) : null));
   if (audio) {
     if (bytes.length > MAX_AUDIO_BYTES) return unread(`It is a ${megabytes(bytes.length)} recording, over the ${megabytes(MAX_AUDIO_BYTES)} Tex can listen to. Ask them to send a shorter one.`);
     return { name, mediaType: audio, data: toBase64(bytes) };

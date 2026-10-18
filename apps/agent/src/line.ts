@@ -8,8 +8,10 @@
 
 import { markLinqRead, sendLinqText, shareLinqContactCard, startLinqTyping, ServiceError, type Fetch } from "./clients";
 import { sendLinqMedia, uploadLinqPicture, type Media } from "./outgoing";
+import { CARD_MEDIA_TYPE, CARD_NAME, texCard } from "./card";
 import {
   isSendblueChat,
+  parseSendblueChat,
   markSendblueRead,
   sendSendblueMedia,
   sendSendblueText,
@@ -79,7 +81,18 @@ function sendblueLine(deps: LineDeps): Line {
     markRead: async (chatId) => {
       if (deps.sendblue) await markSendblueRead(fetch, deps.sendblue, chatId);
     },
-    // The line's name and photo are set once in Sendblue's dashboard; there is no card to offer.
-    shareContactCard: async () => false,
+    // No share call on Sendblue: the card goes as a .vcf, by address (`card.ts`).
+    shareContactCard: async (chatId) => {
+      const chat = parseSendblueChat(chatId);
+      if (!deps.sendblue || !deps.hostPicture || chat === null) return false;
+      try {
+        const data = btoa(texCard(chat.line));
+        const url = await deps.hostPicture({ name: `${CARD_NAME}.vcf`, mediaType: CARD_MEDIA_TYPE, data });
+        await sendSendblueMedia(fetch, deps.sendblue, chatId, url);
+        return true;
+      } catch {
+        return false;
+      }
+    },
   };
 }
