@@ -84,6 +84,11 @@ export const CARD_KEY = "card";
 export const CARD_EVERY_MS = 24 * 60 * 60 * 1000;
 /** A Sendblue chat's card is a message the person sees, so it goes once per chat, not daily. */
 export const cardSentKey = (chatId: string) => `card-sent:${chatId}`;
+/** When a Sendblue chat's card or Name & Photo was last tried; per chat, so a card offered on Linq never holds back the new line's. */
+export const cardOfferedKey = (chatId: string) => `card-offered:${chatId}`;
+/** Set when someone who texted Tex's old Linq line first texts the new one; their first reply there says so. */
+export const NEW_LINE_KEY = "new-line";
+export const NEW_LINE_TEXT = "Tex here, on my new number. Text me here from now on; my contact card is coming so you can save it.";
 /** A Sendblue chat's Name & Photo, once shared; tried again on the next day's offer until it is. */
 export const profileSharedKey = (chatId: string) => `profile-shared:${chatId}`;
 export type RememberedChat = { chatId: string; channel?: "simulator"; at: number };
@@ -118,6 +123,10 @@ export async function accept(
   await storage.put("seq", seq);
   await storage.put(seenKey(message.eventId), now);
   await storage.put<Pending>(pendingKey(seq), { message, attempts: 0 });
+  const previous = await storage.get<RememberedChat>(CHAT_KEY);
+  if (previous && previous.channel !== "simulator" && !isSendblueChat(previous.chatId) && isSendblueChat(message.chatId)) {
+    await storage.put(NEW_LINE_KEY, message.chatId);
+  }
   await storage.put<RememberedChat>(CHAT_KEY, {
     chatId: message.chatId,
     ...(message.channel === "simulator" ? { channel: "simulator" as const } : {}),
@@ -148,6 +157,12 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
         await storage.setAlarm(deps.now() + 2 ** tries * 5_000);
         return;
       }
+    }
+    // The first answer on the new line says it is Tex's new number, once.
+    const movedTo = stored === undefined ? await storage.get<string>(NEW_LINE_KEY) : undefined;
+    if (movedTo !== undefined && movedTo === item.message.chatId) {
+      reply = [NEW_LINE_TEXT, ...reply];
+      await storage.delete(NEW_LINE_KEY);
     }
     let sent = item.sent ?? 0;
     try {
@@ -199,13 +214,14 @@ function lineDeps(deps: InboxDeps): LineDeps {
  * apart from it, until Sendblue takes it once.
  */
 async function offerCard(storage: InboxStorage, chatId: string, deps: InboxDeps): Promise<void> {
-  const last = await storage.get<number>(CARD_KEY);
-  if (last !== undefined && deps.now() - last < CARD_EVERY_MS) return;
   const once = isSendblueChat(chatId);
+  const gate = once ? cardOfferedKey(chatId) : CARD_KEY;
+  const last = await storage.get<number>(gate);
+  if (last !== undefined && deps.now() - last < CARD_EVERY_MS) return;
   const cardSent = once && (await storage.get<boolean>(cardSentKey(chatId))) === true;
   const profileShared = once && (await storage.get<boolean>(profileSharedKey(chatId))) === true;
   if (cardSent && profileShared) return;
-  await storage.put(CARD_KEY, deps.now());
+  await storage.put(gate, deps.now());
   const line = lineFor(lineDeps(deps), chatId);
   if (!cardSent && (await line.shareContactCard(chatId)) && once) await storage.put(cardSentKey(chatId), true);
   if (once && !profileShared && (await line.shareProfile(chatId))) await storage.put(profileSharedKey(chatId), true);

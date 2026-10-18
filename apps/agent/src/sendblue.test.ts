@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Fetch } from "./clients";
-import { accept, drain, type InboxDeps } from "./inbox";
+import { accept, CARD_KEY, CHAT_KEY, drain, NEW_LINE_TEXT, type InboxDeps } from "./inbox";
 import { MemoryStorage } from "./memoryStorage.testing";
 import type { Message } from "./reply";
 import { checkReady, oweReadyText, READY_COPY, READY_FIRST_MS } from "./ready";
@@ -325,6 +325,35 @@ describe("sendblue sending", () => {
     await accept(storage, message("sendblue:mh_p3"), 1_000 + 3 * day);
     await drain(storage, at(1_000 + 3 * day));
     expect(count("/api/v2/contact-sharing/state")).toBe(2);
+  });
+
+  it("sends the card on the new line even when the old line's card went out today", async () => {
+    const storage = new MemoryStorage();
+    await storage.put(CARD_KEY, 900);
+    await accept(storage, message("sendblue:mh_n1"), 1_000);
+    const calls: Call[] = [];
+    await drain(storage, deps(fakeSendblue(calls), []));
+    expect(calls.filter((c) => String(c.body.media_url ?? "").endsWith(".vcf"))).toHaveLength(1);
+    expect(calls.filter((c) => c.path === "/api/v2/contact-sharing/share")).toHaveLength(1);
+  });
+
+  it("says once that this is Tex's new number to someone who texted the old line", async () => {
+    const storage = new MemoryStorage();
+    await storage.put(CHAT_KEY, { chatId: "chat_linq", at: 500 });
+    await accept(storage, message("sendblue:mh_m1"), 1_000);
+    await accept(storage, message("sendblue:mh_m2"), 1_000);
+    const calls: Call[] = [];
+    await drain(storage, deps(fakeSendblue(calls), []));
+    const texts = calls.filter((c) => c.path === "/api/send-message" && c.body.content).map((c) => c.body.content);
+    expect(texts).toEqual([NEW_LINE_TEXT, "answer to q", "answer to q"]);
+  });
+
+  it("never says it to someone new to Tex, or on the old line", async () => {
+    const storage = new MemoryStorage();
+    await accept(storage, message("sendblue:mh_f1"), 1_000);
+    const calls: Call[] = [];
+    await drain(storage, deps(fakeSendblue(calls), []));
+    expect(calls.some((c) => c.body.content === NEW_LINE_TEXT)).toBe(false);
   });
 
   it("asks Tex with the replied-to words, but reads commands from the person's own", async () => {
