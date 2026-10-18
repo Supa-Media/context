@@ -179,6 +179,8 @@ async function retireEmptyFolders(
     const node = await lookup(path);
     if (node === null || node.kind !== "folder" || node.goneAt !== undefined) continue;
     if (node.observedAt > at) continue;
+    // A built-in folder stays when it is emptied: its job is still there to do (`folderJobs.ts`).
+    if (node.role !== undefined) continue;
     if (await table.hasLiveChild(node.id)) continue;
     await table.patch(node.id, { goneAt: at });
     cache.set(path, { ...node, goneAt: at });

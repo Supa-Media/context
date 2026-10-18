@@ -153,7 +153,7 @@ export async function movePath(
   assertWritablePath(from);
   assertWritablePath(to);
   if (from === to) return { from, to, paths: [] };
-  await assertNotProtectedFolder(store, from, options.clearance);
+  await assertNotProtectedFolder(store, from, options.clearance, "move");
   if (to.startsWith(`${from}/`)) {
     throw new FileOpError("PATH_INVALID", "A folder cannot be moved inside itself.");
   }

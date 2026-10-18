@@ -20,6 +20,10 @@ const {
   indexingPriority,
   compareIndexingOrder,
   countByIndexingPriority,
+  compareListingEntries,
+  folderJobs,
+  jobAt,
+  jobPath,
 } = require("../../../packages/shared/src/folderRoles.cjs");
 
 test("the word decides the role, the number only sorts", () => {
@@ -62,7 +66,7 @@ test("new workspaces sort the same way in any app", () => {
 
 test("archive is drawn last even when its number says otherwise", () => {
   const sorted = ["website", "4-archive", "recipes", "5-clients", "3-resources", "0-inbox", "2-areas", "1-projects", "6-teams"].sort(compareTopLevelFolders);
-  assert.deepEqual(sorted, ["0-inbox", "1-projects", "2-areas", "3-resources", "5-clients", "6-teams", "recipes", "website", "4-archive"]);
+  assert.deepEqual(sorted, ["0-inbox", "1-projects", "2-areas", "3-resources", "5-clients", "6-teams", "website", "recipes", "4-archive"]);
 });
 
 test("rolesIn picks one folder per role regardless of listing order", () => {
@@ -140,4 +144,68 @@ test("a new name may not twin a sibling it only looks like: another dash, an inv
   assert.equal(siblingTwin("\u2068kings-1\u2069.md", ["kings-1.md"]), "kings-1.md", "display isolates");
   assert.equal(siblingTwin("\uff4b\uff49\uff4e\uff47\uff53-1.md", ["kings-1.md"]), "kings-1.md", "fullwidth letters");
   assert.equal(siblingTwin("kings-1.md", ["kings-10.md", "kings 1.md", "kings_1.md"]), null, "a different name is not a twin");
+});
+
+// Folder jobs on rows (owner, 2026-10-18): a built-in folder keeps its job
+// through a rename or a move, and a writer naming the default name lands in it.
+const row = (path, role) => ({ path, name: path.split("/").at(-1), top: !path.includes("/"), ...(role ? { role } : {}) });
+
+test("a row's own job wins wherever the folder now is", () => {
+  const answer = folderJobs([row("Capture", "inbox"), row("Work"), row("Work/Big plans", "projects"), row("2-areas"), row("Archive")]);
+  assert.equal(answer.jobs.inbox, "Capture");
+  assert.equal(answer.jobs.projects, "Work/Big plans");
+  assert.equal(answer.jobs.areas, "2-areas", "an unclaimed job falls to its root name");
+  assert.equal(answer.jobs.archive, "Archive");
+  assert.equal(answer.jobs.resources, null);
+  assert.equal(jobAt(answer, "Work/Big plans"), "projects");
+  assert.equal(jobAt(answer, "Work"), null);
+});
+
+test("a folder named for a job another row claims does not take it", () => {
+  // `Projects` at the root was made after the real Projects moved under Work.
+  const answer = folderJobs([row("Projects"), row("Work/Projects", "projects")]);
+  assert.equal(answer.jobs.projects, "Work/Projects");
+});
+
+test("the website job is the website folder until a row says otherwise", () => {
+  assert.equal(folderJobs([row("website")]).jobs.website, "website");
+  assert.equal(folderJobs([row("Site", "website"), row("website")]).jobs.website, "Site");
+});
+
+test("a default name is carried to the folder doing that job now", () => {
+  const answer = folderJobs([row("Capture", "inbox"), row("1-projects"), row("Old stuff", "archive")]);
+  assert.equal(jobPath(answer, "0-inbox/memories/a.md"), "Capture/memories/a.md");
+  assert.equal(jobPath(answer, "inbox/email"), "Capture/email");
+  assert.equal(jobPath(answer, "0-inbox"), "Capture");
+  assert.equal(jobPath(answer, "4-archive/0-inbox/contacts/x.md"), "Old stuff/0-inbox/contacts/x.md", "only the first segment");
+  assert.equal(jobPath(answer, "1-projects/a.md"), "1-projects/a.md", "the folder that has the name is the folder");
+  assert.equal(jobPath(answer, "Capture/a.md"), "Capture/a.md");
+  assert.equal(jobPath(answer, "recipes/a.md"), "recipes/a.md");
+  assert.equal(jobPath(answer, "2-areas/a.md"), "2-areas/a.md", "no folder does the job: as given");
+  assert.equal(jobPath(null, "0-inbox/a.md"), "0-inbox/a.md");
+});
+
+test("a real root folder with a job's name wins over the rule", () => {
+  // A legacy twin: `inbox` beside the renamed Inbox, made before the twin guard.
+  const answer = folderJobs([row("Capture", "inbox"), row("inbox")]);
+  assert.equal(jobPath(answer, "inbox/a.md"), "inbox/a.md");
+  assert.equal(jobPath(answer, "0-inbox/a.md"), "Capture/a.md");
+});
+
+test("listing order: a row's order first, then its job, then own folders, archive last", () => {
+  const sorted = (parent, entries) => [...entries].sort((a, b) => compareListingEntries(parent, a, b)).map((e) => e.name);
+  const f = (name, extra = {}) => ({ kind: "folder", name, ...extra });
+  assert.deepEqual(
+    sorted("", [f("Old stuff", { role: "archive" }), f("Recipes"), f("Capture", { role: "inbox" }), f("Library", { role: "resources" }), f("website")]),
+    ["Capture", "Library", "website", "Recipes", "Old stuff"],
+  );
+  assert.deepEqual(
+    sorted("", [f("Capture", { role: "inbox", order: 20 }), f("Recipes", { order: 0 }), f("1-projects", { order: 10 })]),
+    ["Recipes", "1-projects", "Capture"],
+  );
+  // Below the root, folders are by name, a job folder moved there first.
+  assert.deepEqual(sorted("Work", [f("b"), f("Projects", { role: "projects" }), f("a")]), ["Projects", "a", "b"]);
+  assert.deepEqual(sorted("Work", [f("b", { order: 0 }), f("a", { order: 10 })]), ["b", "a"]);
+  // Files stay after folders, by name.
+  assert.deepEqual(sorted("", [{ kind: "file", name: "a.md" }, f("Recipes")]), ["Recipes", "a.md"]);
 });

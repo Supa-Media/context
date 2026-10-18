@@ -43,6 +43,10 @@ export interface FileEntry {
   readOnly: boolean;
   size?: number;
   updatedAt?: number;
+  /** A folder's built-in job (`lib/nodes/folderJobs.ts`): written on its row, or at the root given by its name. */
+  role?: string;
+  /** A folder's place among its siblings, when somebody set one (`nodes.order`). */
+  order?: number;
 }
 
 export interface FolderListing {

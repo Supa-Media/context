@@ -38,6 +38,9 @@ import { folderChain, nameOf } from "./table";
 import { TRASH_ROOT } from "../fileOps/store";
 import { isPlumbing } from "../privacy";
 import { refreshAccess } from "./accessBackfill";
+import { MAIN_ROLES, type MainRole, jobOfName } from "@context/shared/src/folderRoles.cjs";
+import { claimJobBeforeMove, jobOfRow, roleForNewFolder } from "./folderJobs";
+import { followFolderSettings } from "./settingsFollow";
 
 /** Live rows one row move may rename, the name itself included. Above this the caller refuses as too large. */
 export const ROW_MOVE_MAX = 500;
@@ -201,7 +204,12 @@ export async function applyRowMove(
     return refuse("taken");
   }
 
+  // A main folder is never trashed, whatever the caller checked (`assertNotProtectedFolder`).
+  if (trash && MAIN_ROLES.includes((await jobOfRow(ctx.db, ws, root)) as MainRole)) return refuse("invalid");
+
   // Writes. Nothing above wrote, so every refusal left the rows as they were.
+  // A built-in folder writes down its job before its name changes, so the job goes with it.
+  if (!trash) await claimJobBeforeMove(ctx, ws, root);
   for (const row of tombstones) await removeReplaced(ctx, row);
 
   // The folders `to` needs, outermost first: revived where a tombstone held the name, created where nothing did.
@@ -255,6 +263,8 @@ export async function applyRowMove(
   // Pins and recents follow a move; a trashed note keeps them at its name, for Restore to find.
   if (!trash) await followMovesForMembers(ctx, ws, [{ from, to }], mirror);
   await markWebsiteMoved(ctx, ws, { from, to });
+  // Settings that name a folder (meetings, email, Google) follow it, as pins do.
+  if (!trash) await followFolderSettings(ctx, ws, from, to);
   await freshenMeaningAfterActivity(ctx, ws);
   // The rows moved and the rules moved with them, so the access rows follow. A tombstone a rule named at the
   // destination (`nodes.access`) was replaced above; the row now holding its name takes the rule's access here.
@@ -289,6 +299,7 @@ async function insertFolder(
   parentId: Id<"nodes"> | undefined,
   now: number,
 ): Promise<Id<"nodes">> {
+  const role = await roleForNewFolder(ctx.db, ws, { path, kind: "folder", parentId });
   return await ctx.db.insert("nodes", {
     workspaceId: ws,
     noteId: newNoteId(),
@@ -297,6 +308,7 @@ async function insertFolder(
     name: nameOf(path),
     kind: "folder",
     observedAt: now,
+    ...(role === undefined ? {} : { role }),
   });
 }
 
@@ -310,6 +322,8 @@ async function retireEmptied(ctx: MutationCtx, ws: Id<"workspaces">, start: Id<"
   for (let depth = 0; next !== undefined && depth < 64; depth += 1) {
     const folder = await ctx.db.get(next);
     if (folder === null || folder.kind !== "folder" || folder.goneAt !== undefined) return;
+    // A built-in folder stays when a move empties it: its job is still there to do (`folderJobs.ts`).
+    if (folder.role !== undefined || (folder.parentId === undefined && jobOfName(folder.name) !== null)) return;
     const child = await ctx.db
       .query("nodes")
       .withIndex("by_parent_name", (q) => q.eq("workspaceId", ws).eq("parentId", next))

@@ -9,6 +9,7 @@
  * been handed, so it is never trusted to name a row of this workspace.
  */
 
+import { roleForNewFolder } from "./folderJobs";
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../../_generated/server";
 import { nodePath, type LeftAudiences, type NodeTable, type StoredNode } from "./table";
@@ -52,6 +53,7 @@ function toStored(doc: Doc<"nodes">): StoredNode {
     idCopy: doc.idCopy,
     keyedFrom: doc.keyedFrom,
     access: doc.access,
+    role: doc.role,
   };
 }
 
@@ -137,6 +139,8 @@ export function convexNodeTable(
       if (!writable) throw new Error("insert on a read-only node table");
       // Every row has its id from the start (`noteIds.ts`): a seam write brings the note's own, a bucket row mints one.
       const noteId = node.noteId ?? newNoteId();
+      // A built-in folder takes its job the moment its row is made (`folderJobs.ts`).
+      const role = node.goneAt === undefined ? await roleForNewFolder(writer.db, workspaceId, node) : undefined;
       const id = await writer.db.insert("nodes", {
         workspaceId,
         noteId,
@@ -150,6 +154,7 @@ export function convexNodeTable(
         uploaded: node.uploaded,
         observedAt: node.observedAt,
         goneAt: node.goneAt,
+        ...(role === undefined ? {} : { role }),
       });
       // A row born where access was asked for before it existed takes that access now, in this mutation.
       if (node.goneAt === undefined) {

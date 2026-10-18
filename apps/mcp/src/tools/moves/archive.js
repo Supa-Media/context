@@ -1,5 +1,6 @@
 /** `archive_note` — a note moved into the context's archive root. */
 
+import { factJobs } from "../../tree/facts.js";
 import { withActivityHint } from "../../live/activityHint.js";
 import {
   archiveRoot,
@@ -61,8 +62,10 @@ export async function toolArchiveNote(store, scope, rules, overrides, pathArg, e
   // number. `5-archive` is the `company` preset's, and the preset is the
   // default for a shared context, so the most common shared workspace we
   // create was told it had no archive while looking at its own.
-  const roots = archiveRoots(rules);
-  const root = archiveRoot(rules);
+  // The folder doing the Archive's job wins, whatever it is called now (`tree/facts.js` `factJobs`).
+  const archiveJob = (await factJobs(store))?.jobs.archive ?? null;
+  const roots = [...new Set([...(archiveJob ? [archiveJob] : []), ...archiveRoots(rules)])];
+  const root = archiveJob ?? archiveRoot(rules);
   if (!root) {
     return toolError(
       "this context has no archive folder — its layout is its owner's, and archiving must " +

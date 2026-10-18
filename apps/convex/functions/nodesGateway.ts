@@ -10,6 +10,7 @@ import { internalQuery } from "../_generated/server";
 import { readClearanceArgs, readClearanceHandler, readClearanceReturns } from "./lib/nodes/gatewayManifest";
 import { treeServesNow } from "./lib/nodes/listing";
 import { TAKEN_PATHS, treeTaken } from "./lib/nodes/treeTaken";
+import { folderJobsAndClaims } from "./lib/nodes/folderJobs";
 
 /** The workspace and tier a gateway-borne token reads at, or null. INTERNAL. */
 export const readClearance = internalQuery({
@@ -31,5 +32,25 @@ export const taken = internalQuery({
     if (paths.length > TAKEN_PATHS) throw new Error("too many paths in one ask");
     if (!(await treeServesNow(ctx.db, workspaceId))) return null;
     return await treeTaken(ctx.db, workspaceId, paths);
+  },
+});
+
+const jobsValidator = v.record(v.string(), v.union(v.string(), v.null()));
+
+/**
+ * Which folder does each built-in job (`lib/nodes/folderJobs.ts`): `jobs`, the
+ * root's folder names, and the rows whose job is written on them. Unfiltered
+ * names: the caller judges what a person may see. INTERNAL.
+ */
+export const folderJobs = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({
+    jobs: jobsValidator,
+    roots: v.array(v.string()),
+    claimed: v.array(v.object({ path: v.string(), role: v.string() })),
+  }),
+  handler: async (ctx, { workspaceId }) => {
+    const { answer, claimed } = await folderJobsAndClaims(ctx.db, workspaceId);
+    return { jobs: answer.jobs, roots: answer.roots, claimed };
   },
 });

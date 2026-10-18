@@ -3,6 +3,25 @@
 export type MainRole = "inbox" | "projects" | "areas" | "resources" | "archive";
 export type ExtraRole = "clients" | "teams" | "products";
 export type FolderRole = MainRole | ExtraRole;
+/** A job a folder row can carry in `role`. */
+export type RowRole = FolderRole | "website" | "meetings";
+
+/** Which folder does each job (`folderJobs`). */
+export interface FolderJobs {
+  jobs: Record<RowRole, string | null>;
+  roots: string[];
+}
+
+export declare const ROW_ROLES: readonly RowRole[];
+export declare const WEBSITE_FOLDER: "website";
+export declare const JOB_LABEL: Readonly<Record<RowRole, string>>;
+export declare function isRowRole(value: unknown): value is RowRole;
+export declare function jobOfName(name: string): RowRole | null;
+export declare function folderJobs(
+  rows: Iterable<{ path: string; name: string; role?: string | null; top: boolean }>,
+): FolderJobs;
+export declare function jobAt(jobs: FolderJobs | null | undefined, path: string): RowRole | null;
+export declare function jobPath(jobs: FolderJobs | null | undefined, path: string): string;
 
 export declare const MAIN_ROLES: readonly MainRole[];
 export declare const EXTRA_ROLES: readonly ExtraRole[];
@@ -19,8 +38,8 @@ export declare function folderRank(name: string): number;
 export declare function compareTopLevelFolders(a: string, b: string): number;
 export declare function compareListingEntries(
   parent: string,
-  a: { kind: string; name: string },
-  b: { kind: string; name: string },
+  a: { kind: string; name: string; role?: string | null; order?: number | null },
+  b: { kind: string; name: string; role?: string | null; order?: number | null },
 ): number;
 export declare function rolesIn(names: Iterable<string>): Record<FolderRole, string | null>;
 export declare function missingMainRoles(names: Iterable<string>): MainRole[];
