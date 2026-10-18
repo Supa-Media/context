@@ -67,13 +67,17 @@ function plain(path) {
   return String(path ?? "").trim().replace(/^\.?\/+/, "");
 }
 
-/** Why housekeeping may not touch `path`, or null. Folders are passed with or without their slash. */
-export function protectedReason(path) {
+/**
+ * Why housekeeping may not touch `path`, or null. Folders are passed with or
+ * without their slash. `runFolders` are the folders doing Tex's and the
+ * website's jobs wherever a person nested them (owner, 2026-10-18).
+ */
+export function protectedReason(path, runFolders = []) {
   const p = plain(path);
   if (p === "") return "the whole workspace";
   const asFolder = p.endsWith("/") ? p : `${p}/`;
-  for (const prefix of PROTECTED_PREFIXES) {
-    if (asFolder.startsWith(prefix)) return `${prefix} is run by Context itself`;
+  for (const prefix of [...PROTECTED_PREFIXES, ...runFolders.map((folder) => `${plain(folder).replace(/\/+$/, "")}/`)]) {
+    if (prefix !== "/" && asFolder.startsWith(prefix)) return `${prefix} is run by Context itself`;
   }
   if (!p.includes("/") && !p.endsWith("/") && /\.[a-z0-9]+$/i.test(p)) return "a note at the top of the workspace is the person's own front page or list";
   return null;
@@ -143,9 +147,10 @@ function archivedTo(result) {
  * A housekeeping run's dispatcher over the session's own `dispatch`.
  *
  * @param {(name: string, args: object) => Promise<object>} dispatch
+ * @param {string[]} [runFolders] where Tex's and the website's folders are now (`protectedReason`)
  * @returns {{ callTool: (name: string, args: object) => Promise<object>, changes: object[], refusals: number }}
  */
-export function housekeepingCallTool(dispatch) {
+export function housekeepingCallTool(dispatch, runFolders = []) {
   const ledger = { changes: [], refusals: 0 };
   const refuse = (text) => {
     ledger.refusals += 1;
@@ -169,7 +174,7 @@ export function housekeepingCallTool(dispatch) {
     }
     if (paths.some((path) => plain(path).startsWith("@"))) return refuse("Housekeeping works in this workspace only: no path may name another.");
     for (const path of paths) {
-      const why = protectedReason(path);
+      const why = protectedReason(path, runFolders);
       if (why) return refuse(`Housekeeping leaves ${plain(path)} alone: ${why}.`);
     }
     // A whole top-level folder (all projects, all areas) is never one tidy.

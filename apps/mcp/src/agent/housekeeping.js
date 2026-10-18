@@ -43,6 +43,7 @@ import { grantedToolsFor } from "./sixTools.js";
 import { newLedger } from "../privacy/egress.js";
 import { json } from "../http/responses.js";
 import { appendLogEntry, builtinMeter, clock, dayOf, longDate } from "./jobLog.js";
+import { factJobs } from "../tree/facts.js";
 import { HOUSEKEEPING_GRANTS, housekeepingCallTool, housekeepingTools, undoLine } from "./housekeepingGuard.js";
 
 export const HOUSEKEEPING_FOLDER = "tex/housekeeping";
@@ -211,7 +212,9 @@ export async function handleHousekeeping(request, env, store, session, controlPl
   }
 
   const events = [];
-  const guard = housekeepingCallTool(dispatch);
+  // Tex's folder and the website's, wherever they are nested now, are never tidied.
+  const jobs = await factJobs(store);
+  const guard = housekeepingCallTool(dispatch, [jobs?.jobs.tex, jobs?.jobs.website].filter((path) => typeof path === "string"));
   // Housekeeping's setup note (`ai/production/housekeeping.md`): its words, and its
   // model when this deployment can call it. Missing or invalid is the built-in ones.
   const setup = await readJobSetup(store, session, PRODUCTION_HOUSEKEEPING_PATH);

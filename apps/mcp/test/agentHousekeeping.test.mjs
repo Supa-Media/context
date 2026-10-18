@@ -143,6 +143,13 @@ function unitChecks(check) {
       ["1-projects/x/overview.md", "1-projects/x", "2-areas/apps/", "4-archive/1-projects/x/"].every((path) => protectedReason(path) === null),
   );
   check(
+    "Tex's folder and the website's are left alone wherever a person nested them",
+    protectedReason("Life/Assistant/about-me.md", ["Life/Assistant"]) !== null &&
+      protectedReason("Life/Assistant", ["Life/Assistant/"]) !== null &&
+      protectedReason("Life/Assistants/x.md", ["Life/Assistant"]) === null &&
+      protectedReason("Life/Assistant/about-me.md") === null,
+  );
+  check(
     "every change says how to put it back",
     undoLine({ do: "moved", from: "a/b.md", to: "c/b.md" }) === "move `c/b.md` back to `a/b.md`" &&
       undoLine({ do: "archived", path: "a.md", from: "a/x.md", to: "4-archive/x.md" }).includes("4-archive/x.md") &&
