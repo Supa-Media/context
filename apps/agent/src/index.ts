@@ -33,6 +33,7 @@ import { runDueHeartbeats } from "./heartbeats";
 import { runDueHousekeeping } from "./housekeeping";
 import type { Picture } from "./line";
 import { hostPicture, OBJECT_ID, ORIGIN_KEY, serveMedia, workerOrigin } from "./media";
+import { bearerMatches, parseTellRequest, tellEveryone, tellNewLine, type Told } from "./newLine";
 import { parseSendblueInbound, repliedToText, sendblueKeys, verifySendblueSecret } from "./sendblue";
 import { verifyLinqSignature } from "./signature";
 import { handleSimulator, SIMULATOR_PATH, simulatorEnabled, simulatorInbox } from "./simulator";
@@ -94,6 +95,7 @@ export default {
       return handleSimulator(request, env, SIMULATOR_PAGE);
     }
     if (url.pathname.startsWith("/media/")) return media(request, env, url);
+    if (url.pathname === "/new-line") return newLine(request, env);
     const line = url.pathname === "/sendblue" ? "sendblue" : url.pathname === "/linq" ? "linq" : null;
     if (line === null) return new Response(null, { status: 404 });
     if (request.method !== "POST") return new Response(null, { status: 405 });
@@ -221,6 +223,36 @@ async function media(request: Request, env: Env, url: URL): Promise<Response> {
   return env.SENDER_INBOX.get(id).fetch(`https://inbox/media/${match[2]}`);
 }
 
+/**
+ * `POST /new-line` `{ number, send }`: tell everyone whose last chat is on the
+ * old line that Tex has a new number (`newLine.ts`). Behind the Worker's own
+ * secret; without `send: true` it is a dry run that texts nobody.
+ */
+async function newLine(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "POST") return new Response(null, { status: 405 });
+  if (!(await bearerMatches(env.AGENT_WORKER_SECRET, request.headers.get("authorization")))) {
+    return new Response(null, { status: 401 });
+  }
+  const asked = parseTellRequest(await request.json().catch(() => null));
+  if (asked === null || !env.CONTROL_PLANE_ORIGIN) return new Response(null, { status: 400 });
+  const counts = await tellEveryone(
+    {
+      fetch: (input, init) => fetch(input, init),
+      controlPlaneOrigin: env.CONTROL_PLANE_ORIGIN,
+      workerSecret: env.AGENT_WORKER_SECRET,
+      tellPhone: async (phone, body) => {
+        const stub = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(phone));
+        const response = await stub.fetch("https://inbox/new-line", { method: "POST", body: JSON.stringify(body) });
+        if (!response.ok) return "failed";
+        return ((await response.json()) as { told: Told }).told;
+      },
+    },
+    asked,
+  ).catch(() => null);
+  console.log(JSON.stringify({ event: "new_line", dryRun: asked.dryRun, ...(counts ?? { error: "unreachable" }) }));
+  return counts === null ? new Response(null, { status: 502 }) : Response.json({ dryRun: asked.dryRun, ...counts });
+}
+
 /** Ask one phone's inbox to text it a routine's answer. */
 async function textPhone(env: Env, phone: string, text: string, idempotencyKey: string): Promise<PhoneTexted> {
   const stub = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(phone));
@@ -270,6 +302,17 @@ export class SenderInbox implements DurableObject {
         },
       );
       return Response.json({ status });
+    }
+    if (path === "/new-line") {
+      const body = (await request.json()) as { text?: unknown; dryRun?: unknown };
+      if (typeof body.text !== "string" || typeof body.dryRun !== "boolean") return new Response(null, { status: 400 });
+      const told = await tellNewLine(this.state.storage, { text: body.text, dryRun: body.dryRun }, {
+        fetch: (input, init) => fetch(input, init),
+        linqApiKey: this.env.LINQ_API_KEY,
+        sendblue: sendblueKeys(this.env.SENDBLUE_API_KEY_ID, this.env.SENDBLUE_API_SECRET),
+        now: () => Date.now(),
+      });
+      return Response.json({ told });
     }
     if (path.startsWith("/media/")) {
       if (request.method !== "GET") return new Response(null, { status: 405 });

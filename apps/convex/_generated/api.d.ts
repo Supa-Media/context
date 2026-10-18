@@ -154,6 +154,7 @@ import type * as functions_workspaceDomains from "../functions/workspaceDomains.
 import type * as functions_telemetry from "../functions/telemetry.js";
 import type * as functions_appearance from "../functions/appearance.js";
 import type * as functions_textLinks from "../functions/textLinks.js";
+import type * as functions_textPhones from "../functions/textPhones.js";
 import type * as functions_textSetup from "../functions/textSetup.js";
 import type * as functions_textSignIn from "../functions/textSignIn.js";
 import type * as functions_routines from "../functions/routines.js";
@@ -342,6 +343,7 @@ declare const fullApi: ApiFromModules<{
   "functions/telemetry": typeof functions_telemetry;
   "functions/appearance": typeof functions_appearance;
   "functions/textLinks": typeof functions_textLinks;
+  "functions/textPhones": typeof functions_textPhones;
   "functions/textSetup": typeof functions_textSetup;
   "functions/textSignIn": typeof functions_textSignIn;
   "functions/routines": typeof functions_routines;

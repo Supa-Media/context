@@ -159,6 +159,16 @@ export async function agentTextsUnlinkHandler(
   return json({ status });
 }
 
+/**
+ * `POST /agent-texts/phones` — `{}` → `{ phones }`, every phone Tex may have a
+ * chat with, for the new-number notice. The Worker still texts only a phone
+ * whose own chat is on the old line.
+ */
+export async function agentTextsPhonesHandler(ctx: ActionCtx): Promise<Response> {
+  const phones: string[] = await ctx.runQuery(internal.functions.textPhones.knownPhones, {});
+  return json({ phones });
+}
+
 function appOrigin(): string | null {
   const raw = process.env[APP_ORIGIN_ENV_VAR];
   if (typeof raw !== "string" || raw.length === 0) return null;

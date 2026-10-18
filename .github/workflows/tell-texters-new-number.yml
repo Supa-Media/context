@@ -1,0 +1,57 @@
+# Tell everyone whose last chat with Tex is on the old Linq line that Tex has
+# a new number (apps/agent/src/newLine.ts). Run by hand only.
+#
+# Without `send` it is a dry run: the Worker counts who would be told and
+# texts nobody. With `send` each such phone gets one text, once, in the chat
+# that phone itself started; a second run tells nobody twice. The job prints
+# counts, never a phone.
+on:
+  workflow_dispatch:
+    inputs:
+      number:
+        description: "Tex's new number, E.164"
+        required: true
+        default: "+18133350746"
+      send:
+        description: "Text them for real (unticked = dry run)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tell-texters-new-number
+  cancel-in-progress: false
+
+env:
+  WORKER_NAME: context-agent
+
+jobs:
+  tell:
+    name: Tell old-line texters the new number
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    steps:
+      - name: Call the Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          AGENT_WORKER_SECRET: ${{ secrets.AGENT_WORKER_SECRET }}
+          NUMBER: ${{ inputs.number }}
+          SEND: ${{ inputs.send }}
+        run: |
+          set -euo pipefail
+          sub="$(curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" \
+            | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>process.stdout.write(JSON.parse(s).result?.subdomain??""))')"
+          if [ -z "$sub" ]; then echo "No workers.dev subdomain on this account." >&2; exit 1; fi
+          echo "::add-mask::$sub"
+          body="$(NUMBER="$NUMBER" SEND="$SEND" node -e 'process.stdout.write(JSON.stringify({number: process.env.NUMBER, send: process.env.SEND === "true"}))')"
+          curl --fail-with-body --silent --show-error --max-time 600 \
+            -X POST -H "Authorization: Bearer $AGENT_WORKER_SECRET" -H 'content-type: application/json' \
+            -d "$body" "https://$WORKER_NAME.$sub.workers.dev/new-line" | tee /tmp/counts.json
+          echo
+          { echo "### New-number notice"; echo; echo '```json'; cat /tmp/counts.json; echo; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
