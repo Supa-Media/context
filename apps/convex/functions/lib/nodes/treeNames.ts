@@ -51,6 +51,9 @@ export function attachTreeListing(ctx: ActionCtx, workspaceId: Id<"workspaces">,
       throw notServed(await loadingReadiness(ctx, workspaceId));
     },
     jobs: async () => await ctx.runQuery(internal.functions.nodesGateway.folderJobs, { workspaceId }),
+    // A move's link rewrite reads only the notes these name (`fileOps/references.ts`).
+    links: async ({ sources, names }) => await ctx.runQuery(internal.functions.nodeFacts.candidates, { workspaceId, sources, names }),
+    linking: async (paths) => await ctx.runQuery(internal.functions.nodeLinkSources.linking, { workspaceId, paths }),
   };
   Object.defineProperty(store, "treeListing", { value: listing, enumerable: false, configurable: true });
 }
