@@ -54,7 +54,17 @@ identifying it as a special system thing, using the original names".
   dragging (`functions/folderOrder.ts`, steps of ten). Without one, folders
   draw by job (Inbox, Projects, Areas, Resources, extras, Website, own folders,
   Archive last) and then by name (`compareListingEntries`). The numbers in
-  front of names stop being needed to sort.
+  front of names stop being needed to sort. Every surface that lists folders
+  draws by that one comparator, the phone's Folders page included
+  (`homeModel.ts`), so the sidebar and the phone never disagree.
+- **Dragging in the sidebar tree** (`apps/mobile/features/console/files/treeDrop.ts`):
+  the top or bottom quarter of a folder row drops above or below it, with an
+  insertion line, and the middle into it, with the wash. Between siblings is
+  a reorder of that level; between rows of another level is a move there,
+  then the order with the folder where it was dropped, sent only once the
+  move has landed. Website reorders among its siblings (as Move up and Move
+  down do) but is never dropped into another level or nested. Notes and
+  several rows at once only nest, since notes still list by name.
 - **Built-in folders draw a hand-drawn icon in Tex blue, and nobody can change
   it** for now: the app draws the job's icon over any emoji a row holds and
   offers no way to set one on a built-in folder. The owner may later offer a
