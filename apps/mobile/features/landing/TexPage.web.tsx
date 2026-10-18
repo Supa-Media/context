@@ -52,8 +52,8 @@ export function TexPage() {
             <span>Text your notes.</span> <span>We'll organize them.</span>
           </h1>
           <p className="tp-sub">
-            Send Tex a thought, a link, a photo, a voice memo or a PDF. It files everything into plain notes you own, and
-            answers when you ask what's in them.
+            Send Tex a thought, a link, a photo or a voice memo. It files everything into plain notes you own, then looks
+            things up, emails people and reminds you.
           </p>
           <div className="tp-sign">
             <InlineSignUp />

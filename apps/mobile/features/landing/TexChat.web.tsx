@@ -3,11 +3,13 @@ import { Tex } from "../chaos/Tex";
 
 /**
  * Page a's picture: one conversation with Tex, played once (Dev, 2026-10-18:
- * "more Tex/Chat focused", replacing the graph "that confuses people"). Three
- * things texted in, each filed where it belongs, then a question answered
- * from them. Every reply is something Tex does today: it reads links, photos,
- * voice memos and PDFs, files them into the starting folders, and answers
- * from the notes.
+ * "more Tex/Chat focused", replacing the graph "that confuses people", then
+ * "show it doing something a bit more useful, like sending an email doing
+ * something research"). An idea filed into a note, a search whose results
+ * land in it, and an email that goes only after the person's YES, then a
+ * reminder. Every reply is something Tex does today: web search
+ * (`agent/search.js`), email through the send-review gate (`emailGate.js`),
+ * routines; the link card is the note's own link.
  *
  * The card is its final height from the start and the thread fills it from
  * the bottom, so the page never moves while it plays. It starts when it is on screen, plays once and holds
@@ -39,19 +41,19 @@ function NoteCard({ title, where }: { title: string; where: string }) {
 export const CHAT: readonly Bubble[] = [
   { from: "me", body: "supper club idea: everyone brings a dish from where they grew up" },
   { from: "tex", body: <>Started a note in <Folder>Projects › Supper club</Folder>.</> },
-  { from: "me", body: <span className="tp-u">example.com/short-ribs</span> },
-  { from: "tex", body: "Saved the recipe:" },
+  { from: "me", body: "find a place in brooklyn with a private room for 12" },
+  { from: "tex", body: "Found three under $60 a head, with their menus. Added them to the note:" },
   {
     from: "tex",
     follows: true,
     card: true,
-    label: "A link to the note Braised short ribs, in Resources › Recipes",
-    body: <NoteCard title="Braised short ribs" where="Resources › Recipes" />,
+    label: "A link to the note Supper club, in Projects",
+    body: <NoteCard title="Supper club" where="Projects" />,
   },
-  { from: "me", body: "make supper club the first Friday of every month" },
-  { from: "tex", body: "Done. Supper club is now monthly." },
-  { from: "me", body: "what am I making for supper club?" },
-  { from: "tex", body: "The short ribs you saved. Serves six." },
+  { from: "me", body: "email maya, sam and jo: first one is friday at 7" },
+  { from: "tex", body: "“Supper club starts Friday at 7. Bring a dish from where you grew up.” Text YES to send." },
+  { from: "me", body: "yes" },
+  { from: "tex", body: "Sent. I'll remind you Thursday to book the room." },
 ];
 
 /** How long Tex "types" before a reply, and the pause after each bubble. */

@@ -97,9 +97,12 @@ export const TEX_CSS = `
 }
 @media (min-width:900px) and (min-height:560px){.tp{overflow-y:hidden}}
 @media (min-width:900px) and (max-height:760px){
-  .tp-log{gap:5px;font-size:14.5px;padding-top:12px}
-  .tp-tex{width:56px;height:56px}
-  .tp-chat-top{padding:12px 0 10px}
+  .tp-log{gap:4px;font-size:14px;line-height:1.3;padding-top:10px}
+  .tp-b{padding:6px 12px}
+  .tp-card{padding:7px 12px 8px}
+  .tp-tex{width:52px;height:52px}
+  .tp-chat-top{flex-direction:row;justify-content:center;gap:8px;padding:8px 0}
+  .tp-av{width:32px;height:32px}
 }
 @media (max-width:899px){.tp-sub{text-wrap:balance}}
 @media (max-width:420px){.tp-in .tp-row{flex-direction:column}.tp-field{flex:none}.tp-go{width:100%}}
