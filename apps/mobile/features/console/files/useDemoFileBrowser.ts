@@ -24,6 +24,8 @@ import type { FileBrowser } from "./browser";
 import { editorReducer, emptyEditor } from "./editor";
 import { knownNotePaths } from "./paths";
 import { shownIcon } from "./folderIcons";
+import { loadedJobs } from "./jobIcons/folderJobs";
+import { jobIconMarker } from "./jobIcons/marker";
 import type { OpenNote } from "./types";
 
 /** The note at a path in this tree, or `null` when it is a folder. */
@@ -123,6 +125,8 @@ export function useStaticFileBrowser(tree: DemoContextTree, contextId: string | 
     if (note === null) dispatch({ type: "closed" });
     else dispatch({ type: "opened", note });
   }, [tree]);
+
+  const jobs = useMemo(() => loadedJobs(tree.listings), [tree]);
 
   return useMemo(
     () => ({
@@ -255,7 +259,11 @@ export function useStaticFileBrowser(tree: DemoContextTree, contextId: string | 
       linkPaths: knownNotePaths(tree.listings),
       resetPrivacy: noop,
       // The icons the tree came with (a homepage scene names some); nothing here can set one.
-      iconOf: (path: string) => shownIcon(tree.icons ?? {}, path),
+      // A built-in folder draws its job's icon, as in the real console (`useFolderJobs`).
+      iconOf: (path: string) => {
+        const job = jobs.get(path);
+        return job === undefined ? shownIcon(tree.icons ?? {}, path) : jobIconMarker(job);
+      },
       setIcon: async () => {},
       // The landing page has no bucket to add a folder to; its sheet is never offered.
       addBuiltInFolder: async () => {
@@ -303,6 +311,7 @@ export function useStaticFileBrowser(tree: DemoContextTree, contextId: string | 
       deselect,
       editor,
       expanded,
+      jobs,
       select,
       selectedPath,
       toggleFolder,

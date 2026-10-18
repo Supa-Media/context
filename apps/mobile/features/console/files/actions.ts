@@ -280,6 +280,11 @@ export function runMenuAction(
     case "moveTo":
       context.setDialog({ kind: "move", path });
       return;
+    case "moveUp":
+    case "moveDown":
+      // Folders only (`orderGroup`); a browser that cannot write has no `moveFolder`.
+      if (kind === "folder") files.moveFolder?.(path, id === "moveUp" ? "up" : "down");
+      return;
     case "archive":
       context.setDialog({ kind: "archive", path });
       return;

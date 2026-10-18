@@ -11,7 +11,9 @@
  * the plain folder glyph.
  *
  * One icon is neither: `TEX_FIGURE_ICON`, `tex/`'s default, which is Tex
- * itself at a chaos of 0, the calm # with its eyes.
+ * itself at a chaos of 0, the calm # with its eyes. A built-in folder's drawn
+ * icon is the other (`jobIcons/marker.ts`): `iconOf` answers it for a folder
+ * with a job, so every glyph a folder draws through here draws the job.
  */
 
 import { useEffect, useState, type ReactNode } from "react";
@@ -20,6 +22,8 @@ import { customEmojiShortcode } from "@context/shared";
 import { TEX_FIGURE_ICON } from "@context/shared/src/folderIcons.cjs";
 
 import { Tex } from "../../chaos/Tex";
+import { JobIcon } from "../files/jobIcons/JobIcon";
+import { jobOfIcon } from "../files/jobIcons/marker";
 
 import { Text } from "../../design/components/Text";
 import { useCustomEmoji } from "./context";
@@ -41,6 +45,8 @@ export function EmojiGlyph({
   testID?: string;
 }) {
   if (emoji === TEX_FIGURE_ICON) return <Tex chaos={0} size={size} testID={testID} />;
+  const job = jobOfIcon(emoji);
+  if (job !== null) return <JobIcon job={job} size={size} {...(testID === undefined ? {} : { testID })} />;
   const name = customEmojiShortcode(emoji);
   if (name === null) {
     return (

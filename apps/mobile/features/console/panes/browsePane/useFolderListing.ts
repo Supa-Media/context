@@ -19,7 +19,8 @@ import { useHomePlaces } from "../../home/useHomePlaces";
 import { useHomeSource } from "../../home/useHomeSource";
 import { bulkTagTargets, folderTagTarget, listedIn } from "../../home/folderTags";
 import { useFolderLists } from "../../../offline/useFolderLists";
-import { rootFolderNames } from "../../files/menuBuiltIn";
+import { listingIsDescending } from "../../files/listingOrder";
+import { folderMenuFacts } from "../../files/menuBuiltIn";
 
 /** Select mode asked for on a folder page: from its •••, or from a row's hold with that row picked. */
 export interface SelectAsk {
@@ -189,7 +190,8 @@ export function useFolderListing({
             // must be, and then the pane's full sheet over it.
             (compact && target.kind === "row")),
         clipboard: files.clipboard,
-        topLevelFolders: rootFolderNames(files.listings),
+        // The root's names, each folder's job and its place among its siblings (`menuBuiltIn.ts`).
+        ...folderMenuFacts(files, listingIsDescending()),
         /*
           The `touch` arm's first real caller, and exactly what it was kept for.
 

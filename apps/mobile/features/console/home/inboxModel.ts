@@ -2,7 +2,8 @@ import { clientOf } from "@context/shared/src/activityActors.cjs";
 import { folderRole } from "@context/shared/src/folderRoles.cjs";
 import { baseName, folderLabel, isUnlistedFile, parentPath, restoreTargetFor } from "../files/paths";
 import type { Home, HomeFolder, HomeNote, HomePin, HomeRecent } from "./homeModel";
-import { INBOX_FOLDER } from "./homeView";
+import { inboxFolderNow } from "./homeView";
+import { archiveFolderNow } from "../files/jobIcons/jobFoldersNow";
 
 /**
  * The phone's first page, Inbox: what each part holds.
@@ -162,6 +163,7 @@ export function buildInbox({
   entries,
   isMe,
   now,
+  inbox = inboxFolderNow(),
 }: {
   notes: readonly HomeNote[];
   /** This person's pins; only the notes among them are drawn here. */
@@ -174,6 +176,8 @@ export function buildInbox({
   /** Whether an activity line's `by` is the person looking. */
   isMe: (by: string) => boolean;
   now: number;
+  /** The folder doing the Inbox's job, whatever it is called (`inboxFolderNow`). */
+  inbox?: string;
 }): Inbox {
   const byPath = new Map(notes.map((note) => [note.path, note]));
   const edits = humanEdits(entries, recents, isMe);
@@ -220,7 +224,7 @@ export function buildInbox({
     .sort((a, b) => b.at - a.at);
   for (const { entry, at } of newestFirst) {
     for (const [from, to] of entry.moves ?? []) {
-      if (parentPath(from) !== INBOX_FOLDER || parentPath(to) === INBOX_FOLDER) continue;
+      if (parentPath(from) !== inbox || parentPath(to) === inbox) continue;
       // Drawn where it is now: a note moved again since, or gone, is not this row.
       const note = byPath.get(to);
       if (note === undefined || seen.has(to)) continue;
@@ -235,7 +239,7 @@ export function buildInbox({
   // most, and the rest; Archive last.
   const top = new Map(home.folders.filter((folder) => !folder.path.includes("/")).map((folder) => [folder.path, folder]));
   const order = [
-    INBOX_FOLDER,
+    inbox,
     ...pins.filter((pin) => pin.kind === "folder").map((pin) => pin.path),
     ...home.openMost.map((folder) => folder.path),
     ...top.keys(),
@@ -245,7 +249,8 @@ export function buildInbox({
     const folder = top.get(path);
     if (folder !== undefined && !folders.includes(folder)) folders.push(folder);
   }
-  const isArchive = (folder: HomeFolder) => folderRole(baseName(folder.path)) === "archive";
+  const isArchive = (folder: HomeFolder) =>
+    folder.path === archiveFolderNow() || folderRole(baseName(folder.path)) === "archive";
 
   return {
     pinned,

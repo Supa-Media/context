@@ -52,7 +52,11 @@ export function useHomeView(): HomeView {
 export const FOLDERS_PAGE = "\u0000folders";
 
 /**
- * The Inbox's folder: where a quick note lands (Dev2, 2026-09-30: "inbox is
- * the default folder") and what the phone's first page lists.
+ * The Inbox's folder before anything has listed: where a quick note lands
+ * (Dev2, 2026-09-30: "inbox is the default folder") and what the phone's
+ * first page lists. Read `inboxFolderNow()` instead: the Inbox can be renamed,
+ * and that answers the folder doing its job (`files/jobIcons/jobFoldersNow.ts`).
  */
 export const INBOX_FOLDER = "0-inbox";
+
+export { inboxFolderNow } from "../files/jobIcons/jobFoldersNow";

@@ -28,6 +28,13 @@
  * "calm…" (the owner, 2026-10-14: "it just kind of squished everything").
  * The title and the switch keep the row; the line reads as the page's first
  * quiet fact, as it already did under a phone's big title.
+ *
+ * ## A built-in folder
+ *
+ * Its job's drawn icon on a paper tile in place of an emoji (board 9 of the
+ * system folders set), and, when its name no longer says the job, one plain
+ * line under the title saying which built-in folder it is and what lands in
+ * it: "Built-in Inbox. Unfiled captures. …" (`builtInLine`). No tint, no box.
  */
 
 import { useState, type ReactNode } from "react";
@@ -36,6 +43,9 @@ import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { Settle } from "../../../design/components/Settle";
 import { Text } from "../../../design/components/Text";
 import { EmojiGlyph } from "../../emoji/EmojiGlyph";
+import { JobIcon } from "../jobIcons/JobIcon";
+import { builtInLine } from "../jobIcons/folderJobs";
+import { jobOfIcon } from "../jobIcons/marker";
 import { FolderChaosLine } from "../../../chaos/FolderChaosLine";
 import { leading, space, touchType, tracking } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
@@ -127,6 +137,8 @@ export function FolderHead({
 }) {
   const styles = useThemedStyles(makeStyles);
   const [hovered, setHovered] = useState(false);
+  const job = jobOfIcon(icon);
+  const jobLine = job === null ? null : builtInLine(job, title);
   const heading = (
     <Text variant="noteTitle" role="heading" aria-level={2} style={[styles.title, large && styles.titleLarge, hovered && styles.titleHover]}>
       {title}
@@ -144,7 +156,9 @@ export function FolderHead({
     <Settle testID="folder-head-settle" contentStyle={styles.stack}>
       <View style={[styles.head, large && styles.headLarge]} testID="folder-head-row">
         <View style={[styles.titleBox, icon !== null && styles.titleRow]}>
-          {icon === null ? null : (
+          {icon === null ? null : job !== null ? (
+            <JobIcon job={job} size={large ? TILE_LARGE : TILE} tile testID="folder-head-job" />
+          ) : (
             <EmojiGlyph
               emoji={icon}
               size={large ? ICON_LARGE : ICON}
@@ -173,6 +187,11 @@ export function FolderHead({
         {switcher}
         {actions}
       </View>
+      {jobLine === null ? null : (
+        <Text variant="meta" style={styles.jobLine} testID="folder-head-built-in">
+          {jobLine}
+        </Text>
+      )}
       {/* Under the title, on every page: beside it, it squeezed a long name onto two lines. */}
       {folder !== undefined ? <FolderChaosLine folder={folder} ownLine /> : null}
       {children}
@@ -266,6 +285,9 @@ export function PropertyLine({
 /** The title's emoji: a little over the title's own size, as a page icon is. */
 const ICON = 18;
 const ICON_LARGE = touchType.title;
+/** A built-in folder's tile: board 9's 56pt beside a phone's big title, and in the same proportion to the pointer layout's smaller one. */
+const TILE = 32;
+const TILE_LARGE = 56;
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
@@ -297,4 +319,5 @@ const makeStyles = (colors: Colors) =>
     line: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", rowGap: 2 },
     part: { flexDirection: "row", alignItems: "center" },
     value: { color: colors.text2 },
+    jobLine: { color: colors.text2 },
   });

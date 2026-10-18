@@ -8,6 +8,7 @@ import {
 import { resolveContextRoute, settingsFromQuery, type ConsoleRoute } from "../nav";
 import { trashFromQuery } from "../trash/TrashRouteContext";
 import { mapFromQuery } from "../map/live/route";
+import { inboxFolder } from "../files/jobIcons/folderJobs";
 import type { ConsoleData } from "../types";
 import type { ConsoleRouter } from "./types";
 
@@ -131,7 +132,7 @@ export function useQuickNoteAction({
       and a modal asking what to call a note nobody has written yet is the
       opposite of that. `untitled.ts` has the name it gets and how it loses it.
     */
-    data.files.createUntitled("0-inbox", "note");
+    data.files.createUntitled(inboxFolder(data.files.listings), "note");
     // The list is the layout's, unchanged: `handledQuickNote` is its `useRef`,
     // stable by construction, which the rule cannot see through a parameter.
     // eslint-disable-next-line react-hooks/exhaustive-deps
