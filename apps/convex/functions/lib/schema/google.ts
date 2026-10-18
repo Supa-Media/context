@@ -18,6 +18,14 @@ const productAttemptFields = {
   lastAttemptAt: v.optional(v.number()),
   lastFailureCode: v.optional(v.string()),
   lastFailure: v.optional(v.string()),
+  /**
+   * A failure that is this product's alone (Google rate-limited it, or was
+   * briefly unavailable) backs off here rather than on the account: the
+   * product has no turn before `retryAt`, `failures` climbs the same ladder
+   * the account uses, and its siblings keep syncing. Cleared by a success.
+   */
+  retryAt: v.optional(v.number()),
+  failures: v.optional(v.number()),
 };
 
 /**

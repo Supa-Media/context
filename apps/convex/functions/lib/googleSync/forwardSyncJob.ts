@@ -136,7 +136,9 @@ export async function googleForwardSyncJobHandler(
 
   // One claim, a cursor per product: Google's pushed product first, then
   // the least-recently-synced one, so no product starves (`googleSchedule.ts`).
-  const product = nextProductToSync(connection, products);
+  const product = nextProductToSync(connection, products, Date.now());
+  // Every product is waiting out a failure of its own (`retryAt`).
+  if (product === undefined) return { kind: "skip" as const, reason: "GOOGLE_PRODUCT_BACKOFF" };
 
   if (product === "calendar") {
     const calendar = connection.calendar!;

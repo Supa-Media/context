@@ -141,6 +141,7 @@ describe("nextProductToSync", () => {
       nextProductToSync(
         { gmail: { lastSyncedAt: now - 10 }, calendar: { lastAttemptAt: now }, chat: { lastSyncedAt: now - 5 } },
         ["gmail", "calendar", "chat"] as const,
+        now,
       ),
     ).toBe("gmail");
   });
@@ -151,7 +152,7 @@ describe("nextProductToSync", () => {
         "gmail",
         "calendar",
         "chat",
-      ] as const),
+      ] as const, 10),
     ).toBe("chat");
   });
 });

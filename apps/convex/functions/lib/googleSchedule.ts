@@ -123,7 +123,39 @@ export const ENGINE_PRODUCTS = ["gmail", "calendar", "chat"] as const;
 
 type SyncableProduct = (typeof ENGINE_PRODUCTS)[number];
 
-type ProductTurns = { lastSyncedAt?: number; lastAttemptAt?: number };
+type ProductTurns = { lastSyncedAt?: number; lastAttemptAt?: number; retryAt?: number };
+
+/**
+ * The failures that belong to one product and lift by themselves: Google
+ * rate-limiting it, or being briefly unavailable or slow. Anything else (a
+ * refused grant, storage that cannot do what a product needs, a quota) still
+ * fails the account, because a person has to do something about it.
+ */
+export const PRODUCT_TRANSIENT_CODES: ReadonlySet<string> = new Set([
+  "GOOGLE_RATE_LIMITED",
+  "GOOGLE_UNAVAILABLE",
+  "GOOGLE_SYNC_TIMEOUT",
+]);
+
+export function isProductTransient(code: string | undefined): boolean {
+  return code !== undefined && PRODUCT_TRANSIENT_CODES.has(code);
+}
+
+/**
+ * Is this product waiting out a failure of its own?
+ *
+ * A product Google rate-limited backs off by itself (`retryAt`), so its
+ * siblings on the same account keep their turns and the account is not
+ * stopped over one service's limit.
+ */
+export function productBackingOff(
+  connection: { gmail?: ProductTurns; calendar?: ProductTurns; chat?: ProductTurns },
+  product: SyncableProduct,
+  now: number,
+): boolean {
+  const retryAt = connection[product]?.retryAt;
+  return retryAt !== undefined && retryAt > now;
+}
 
 function lastSyncedAtFor(
   connection: {
@@ -214,10 +246,18 @@ export function isDue(
     reason to wait.
   */
   const pending = connection.push?.pending;
-  if (pending !== undefined && syncableProductsOf(connection).some((product) => pending[product] !== undefined)) {
+  if (
+    pending !== undefined &&
+    syncableProductsOf(connection).some(
+      (product) => pending[product] !== undefined && !productBackingOff(connection, product, now),
+    )
+  ) {
     return true;
   }
   const products = syncableProductsOf(connection);
+  if (products.length > 0 && products.every((product) => productBackingOff(connection, product, now))) {
+    return false;
+  }
   const completedAt = products.map((product) => lastTurnAtFor(connection, product));
   // A product newly added to an already-running Google account has never had
   // a chance to establish its own cursor. The account's recent Gmail pass
@@ -293,8 +333,12 @@ export function nextProductToSync<P extends SyncableProduct>(
   connection: Parameters<typeof lastSyncedAtFor>[0] & {
     push?: { pending?: Partial<Record<SyncableProduct, number>> };
   },
-  products: readonly P[],
-): P {
+  candidates: readonly P[],
+  now: number,
+): P | undefined {
+  // A product waiting out its own backoff has no turn, pushed or not.
+  const products = candidates.filter((product) => !productBackingOff(connection, product, now));
+  if (products.length === 0) return undefined;
   const pushed = products.filter((product) => connection.push?.pending?.[product] !== undefined);
   const last = (product: P) => lastTurnAtFor(connection, product) ?? Number.NEGATIVE_INFINITY;
   return [...(pushed.length > 0 ? pushed : products)].sort((left, right) => last(left) - last(right))[0]!;
