@@ -43,8 +43,11 @@ function arc(cx: number, cy: number, rx: number, ry: number, a0: number, a1: num
   return points;
 }
 
+/** A job drawn here: every one but Tex's, which is Tex himself (`jobIconMarker`). */
+export type DrawnJob = Exclude<RowRole, "tex">;
+
 /** What each job draws, one list of points per stroke. */
-const DRAWINGS: Readonly<Record<RowRole, readonly Stroke[]>> = {
+const DRAWINGS: Readonly<Record<DrawnJob, readonly Stroke[]>> = {
   // A tray things drop into.
   inbox: [
     [[14, 56], [27, 24], [73, 24], [86, 56], [86, 79], [14, 79], [14, 54]],
@@ -107,7 +110,7 @@ const DRAWINGS: Readonly<Record<RowRole, readonly Stroke[]>> = {
 };
 
 /** The jobs that have a drawing: every job a folder row can carry. */
-export const DRAWN_JOBS = Object.freeze(Object.keys(DRAWINGS)) as readonly RowRole[];
+export const DRAWN_JOBS = Object.freeze(Object.keys(DRAWINGS)) as readonly DrawnJob[];
 
 /** How far a point moves, at most, on the main stroke and on the dry one. */
 const JITTER = 2.4;
@@ -172,14 +175,14 @@ export interface DrawnStroke {
   dry: string;
 }
 
-const drawn = new Map<RowRole, readonly DrawnStroke[]>();
+const drawn = new Map<DrawnJob, readonly DrawnStroke[]>();
 
 /**
  * The strokes of `job`'s drawing, computed once. The main and dry passes of
  * each stroke draw from one generator in turn, as the board did, so this is
  * the board's drawing to the tenth of a unit.
  */
-export function jobStrokes(job: RowRole): readonly DrawnStroke[] {
+export function jobStrokes(job: DrawnJob): readonly DrawnStroke[] {
   const known = drawn.get(job);
   if (known !== undefined) return known;
   const next = generator(seedFor(job));

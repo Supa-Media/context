@@ -1,7 +1,7 @@
 import { memo } from "react";
 import { View } from "react-native";
 import { G, Path, Svg } from "react-native-svg";
-import type { RowRole } from "@context/shared/src/folderRoles.cjs";
+import type { DrawnJob } from "./geometry";
 import { useScheme } from "../../../design/theme";
 import { darkLandingColors, lightLandingColors, texColors } from "../../../design/tokens/landingColors";
 import { JOB_ICON_VIEW_BOX, inkFor, jobStrokes } from "./geometry";
@@ -23,7 +23,7 @@ export const JobIcon = memo(function JobIcon({
   tile = false,
   testID,
 }: {
-  job: RowRole;
+  job: DrawnJob;
   /** Width and height in points: the drawing's, or with `tile` the tile's. */
   size: number;
   tile?: boolean;
