@@ -258,6 +258,8 @@ export function BrowseDocument({
   const phoneInbox = (
     <PhoneInbox
       source={homeSource}
+      pins={places.pins}
+      recents={places.recents}
       opened={places.opened}
       entries={data.activity?.entries ?? NO_ENTRIES}
       isMe={isMe}

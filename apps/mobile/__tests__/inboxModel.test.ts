@@ -3,7 +3,9 @@ import { CONSOLE_CLIENT_NAME } from "@context/shared/src/activityActors.cjs";
 import type { HomeFolder, HomeNote } from "../features/console/home/homeModel";
 import {
   buildInbox,
+  humanEdits,
   inboxCount,
+  inboxGroupOf,
   inboxWhen,
   placeOf,
   type InboxActivity,
@@ -11,8 +13,13 @@ import {
 
 /**
  * The phone's first page, Inbox (leadership weekly, 2026-10-17; boards 1 and 2
- * of `meeting-2026-10-17/phone-inbox/`): what is loose, what was filed today
- * and where, and which folders get a dot.
+ * of `meeting-2026-10-17/phone-inbox/`): Pinned, the notes people wrote by
+ * hand under Apple Notes' date headings (Dev2, 2026-10-18), what was filed
+ * today and where, and which folders get a dot.
+ *
+ * SABOTAGE: dropping the `clientOf(entry.via) !== null` check in `humanEdits`
+ * lists a note only an AI wrote; dropping the move carry-over loses a note a
+ * person wrote and an agent then filed.
  *
  * SABOTAGE: dropping the `parentPath(from) === INBOX_FOLDER` check lets a move
  * between two folders into Filed today; dropping the `at >= today` check lets
@@ -49,9 +56,15 @@ const moved = (when: string, moves: [string, string][], who: Partial<InboxActivi
   ...who,
 });
 
-function inbox(entries: InboxActivity[], folders: HomeFolder[] = [], openMost: HomeFolder[] = []) {
+function inbox(
+  entries: InboxActivity[],
+  folders: HomeFolder[] = [],
+  openMost: HomeFolder[] = [],
+  extra: Partial<Parameters<typeof buildInbox>[0]> = {},
+) {
   return buildInbox({
     notes: NOTES,
+    ...extra,
     home: { folders, openMost: openMost as never },
     entries,
     isMe: (by) => by === "@seyi",
@@ -59,9 +72,82 @@ function inbox(entries: InboxActivity[], folders: HomeFolder[] = [], openMost: H
   });
 }
 
-describe("loose notes", () => {
-  test("are the notes lying in the Inbox itself, newest first", () => {
-    expect(inbox([]).loose.map((row) => row.title)).toEqual(["Sermon thoughts", "Old idea"]);
+const wrote = (when: string, paths: string[], who: Partial<InboxActivity> = {}): InboxActivity => ({
+  at: when,
+  kind: "revised",
+  by: "@seyi",
+  via: null,
+  paths,
+  ...who,
+});
+
+describe("the notes people wrote by hand", () => {
+  test("are only the notes a person's own hand changed, newest first, from any folder", () => {
+    const { groups } = inbox([
+      wrote(at(9), ["0-inbox/sermon.md"]),
+      wrote(at(10), ["1-projects/dc-chapter.md"], { via: "Context (this app)", by: "@sayo" }),
+      wrote(at(11), ["2-areas/preaching/advent.md"], { via: "Claude" }),
+      wrote(at(12), ["0-inbox/old-idea.md"], { via: "Tex", kind: "added" }),
+    ]);
+    expect(groups.map((group) => [group.label, group.notes.map((row) => [row.title, row.folder])])).toEqual([
+      ["Today", [["DC chapter", "projects"], ["Sermon thoughts", "inbox"]]],
+    ]);
+  });
+
+  test("are dated by the hand's last edit, not by an AI's later write", () => {
+    const edits = humanEdits(
+      [wrote(at(9, 0, 1), ["1-projects/dc-chapter.md"]), wrote(at(12), ["1-projects/dc-chapter.md"], { via: "Claude" })],
+      [],
+    );
+    expect(edits.get("1-projects/dc-chapter.md")).toBe(Date.parse(at(9, 0, 1)));
+  });
+
+  test("keep a note a person wrote after an agent filed it", () => {
+    const { groups } = inbox([
+      wrote(at(9), ["0-inbox/advent.md"]),
+      moved(at(10), [["0-inbox/advent.md", "2-areas/preaching/advent.md"]], { via: "Tex" }),
+    ]);
+    expect(groups[0]?.notes.map((row) => [row.path, row.folder])).toEqual([["2-areas/preaching/advent.md", "preaching"]]);
+  });
+
+  test("include what this person's app marked edited, and not what they only opened", () => {
+    const { groups } = inbox([], [], [], {
+      recents: [
+        { path: "1-projects/moved-twice.md", at: new Date(2026, 9, 2).getTime(), kind: "edited" },
+        { path: "1-projects/dc-chapter.md", at: NOW, kind: "opened" },
+      ],
+    });
+    expect(groups.map((group) => [group.label, group.notes.map((row) => row.title)])).toEqual([
+      ["Previous 30 Days", ["Moved twice"]],
+    ]);
+  });
+
+  test("leave pinned notes to Pinned, which says where each is", () => {
+    const result = inbox([wrote(at(9), ["0-inbox/sermon.md"])], [], [], {
+      pins: [
+        { path: "0-inbox/sermon.md", kind: "note" },
+        { path: "2-areas/preaching/advent.md", kind: "note" },
+        { path: "2-areas", kind: "folder" },
+      ],
+    });
+    expect(result.pinned.map((row) => [row.title, row.folder])).toEqual([
+      ["Sermon thoughts", "inbox"],
+      ["Advent series", "preaching"],
+    ]);
+    expect(result.groups).toEqual([]);
+  });
+
+  test("the headings are Apple Notes' own", () => {
+    expect(inboxGroupOf(new Date(2026, 9, 17, 1).getTime(), NOW)).toBe("Today");
+    expect(inboxGroupOf(new Date(2026, 9, 16).getTime(), NOW)).toBe("Yesterday");
+    expect(inboxGroupOf(new Date(2026, 9, 12).getTime(), NOW)).toBe("Previous 7 Days");
+    expect(inboxGroupOf(new Date(2026, 8, 20).getTime(), NOW)).toBe("Previous 30 Days");
+    expect(inboxGroupOf(new Date(2026, 7, 3).getTime(), NOW)).toBe("August");
+    expect(inboxGroupOf(new Date(2025, 11, 3).getTime(), NOW)).toBe("2025");
+  });
+
+  test("the count still counts every note in the Inbox, whoever wrote it", () => {
+    expect(inbox([]).count).toBe(2);
   });
 });
 
@@ -129,8 +215,8 @@ describe("the words", () => {
   });
 
   test("the count under the title", () => {
-    expect(inboxCount(0, 3)).toBe("Nothing loose");
-    expect(inboxCount(1, 0)).toBe("1 loose note");
-    expect(inboxCount(5, 2)).toBe("5 loose notes · 2 filed today");
+    expect(inboxCount(0, 3)).toBe("Inbox empty · 3 filed today");
+    expect(inboxCount(1, 0)).toBe("1 in the Inbox");
+    expect(inboxCount(5, 2)).toBe("5 in the Inbox · 2 filed today");
   });
 });

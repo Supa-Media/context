@@ -105,6 +105,32 @@ export function useE2EFixtureConsoleData(): ConsoleData {
           note: null,
           moves: [["0-inbox/dc-chapter.md", "1-projects/dc-chapter.md"]],
         },
+        /*
+          Notes people edited by hand, at a spread of ages, so the phone's
+          Inbox draws Today, Previous 7 Days, Previous 30 Days and a month
+          (Dev2, 2026-10-18). The app's own client is a person's hand; the
+          Claude line above is not, so its notes stay off those sections.
+        */
+        {
+          at: new Date(Date.now() - 60 * 60_000).toISOString(),
+          kind: "revised",
+          paths: ["0-inbox/voice-memo-2026-08-24.md"],
+          n: 1,
+          vis: "team",
+          by: "@seyi",
+          via: "Context (this app)",
+          note: null,
+        },
+        {
+          at: new Date(Date.now() - 3 * 60 * 60_000).toISOString(),
+          kind: "revised",
+          paths: ["1-projects/ltn-2026-rider.md"],
+          n: 1,
+          vis: "team",
+          by: "@seyi",
+          via: "Context (this app)",
+          note: null,
+        },
         {
           at: new Date(Date.now() - 26 * 60 * 60_000).toISOString(),
           kind: "meeting",
@@ -113,6 +139,36 @@ export function useE2EFixtureConsoleData(): ConsoleData {
           vis: "team",
           by: null,
           via: null,
+          note: null,
+        },
+        {
+          at: new Date(Date.now() - 3 * 24 * 60 * 60_000).toISOString(),
+          kind: "revised",
+          paths: ["3-resources/matthew-13-soil.md"],
+          n: 1,
+          vis: "team",
+          by: "@seyi",
+          via: "Context (this app)",
+          note: null,
+        },
+        {
+          at: new Date(Date.now() - 12 * 24 * 60 * 60_000).toISOString(),
+          kind: "revised",
+          paths: ["2-areas/public-worship/board-notes.md"],
+          n: 1,
+          vis: "team",
+          by: "@seyi",
+          via: "Context (this app)",
+          note: null,
+        },
+        {
+          at: new Date(Date.now() - 50 * 24 * 60 * 60_000).toISOString(),
+          kind: "revised",
+          paths: ["3-resources/doxology-framework.md"],
+          n: 1,
+          vis: "team",
+          by: "@seyi",
+          via: "Context (this app)",
           note: null,
         },
       ],
