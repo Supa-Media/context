@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { texCard } from "./card";
 
@@ -13,5 +14,8 @@ describe("Tex's contact card", () => {
     // Unfolded, the photo is a whole PNG.
     const photo = card.replace(/\r\n /g, "").match(/PHOTO;ENCODING=b;TYPE=PNG:([A-Za-z0-9+/=]+)/)![1];
     expect([...atob(photo).slice(1, 4)].join("")).toBe("PNG");
+    // The same picture the Name & Photo points at, so the two never drift apart.
+    const served = btoa(String.fromCharCode(...readFileSync(new URL("../../mobile/public/texts-card.png", import.meta.url))));
+    expect(photo).toBe(served);
   });
 });

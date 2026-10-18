@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Fetch } from "./clients";
-import { accept, CARD_KEY, CHAT_KEY, drain, NEW_LINE_TEXT, type InboxDeps } from "./inbox";
+import { accept, CARD_KEY, cardOfferedKey, cardSentKey, CHAT_KEY, drain, NEW_LINE_TEXT, type InboxDeps } from "./inbox";
+import { CARD_VERSION } from "./card";
 import { MemoryStorage } from "./memoryStorage.testing";
 import type { Message } from "./reply";
 import { checkReady, oweReadyText, READY_COPY, READY_FIRST_MS } from "./ready";
@@ -188,29 +189,37 @@ describe("sendblue Name & Photo", () => {
 
   it("sets Tex's name and photo on a line that has none, and shares nothing yet", async () => {
     const calls: Call[] = [];
-    expect(await shareSendblueProfile(profileApi({ hasProfile: false, sharingEnabled: false }, calls), KEYS, chatId)).toBe(false);
+    expect(await shareSendblueProfile(profileApi({ hasProfile: false, sharingEnabled: false }, calls), KEYS, chatId)).toBe("not_yet");
     expect(calls.map((c) => c.path)).toEqual([`/api/v2/contact-sharing/state?fromNumber=${encodeURIComponent(LINE)}`, "/api/v2/contact-sharing/profile"]);
     expect(calls[1].body).toEqual({ fromNumber: LINE, firstName: "Tex", lastName: "", photoUrl: PROFILE_PHOTO_URL });
   });
 
   it("leaves a profile still being applied alone", async () => {
     const calls: Call[] = [];
-    expect(await shareSendblueProfile(profileApi({ hasProfile: true, publishRecordPresent: false }, calls), KEYS, chatId)).toBe(false);
+    expect(await shareSendblueProfile(profileApi({ hasProfile: true, publishRecordPresent: false }, calls), KEYS, chatId)).toBe("not_yet");
     expect(calls).toHaveLength(1);
   });
 
   it("shares a published profile into the chat", async () => {
     const calls: Call[] = [];
-    expect(await shareSendblueProfile(profileApi({ hasProfile: true, publishRecordPresent: true }, calls), KEYS, chatId)).toBe(true);
+    expect(await shareSendblueProfile(profileApi({ hasProfile: true, publishRecordPresent: true }, calls), KEYS, chatId)).toBe("shared");
     expect(calls[1]).toMatchObject({ path: "/api/v2/contact-sharing/share", body: { fromNumber: LINE, toNumber: PHONE } });
   });
 
   it("does nothing when the state cannot be read, or the chat is not Sendblue's", async () => {
     const calls: Call[] = [];
-    expect(await shareSendblueProfile(profileApi(null, calls), KEYS, chatId)).toBe(false);
+    expect(await shareSendblueProfile(profileApi(null, calls), KEYS, chatId)).toBe("not_yet");
     expect(calls).toHaveLength(1);
-    expect(await shareSendblueProfile(profileApi({ publishRecordPresent: true }, calls), KEYS, "chat_1")).toBe(false);
+    expect(await shareSendblueProfile(profileApi({ publishRecordPresent: true }, calls), KEYS, "chat_1")).toBe("not_yet");
     expect(calls).toHaveLength(1);
+  });
+
+  it("sets the profile again, new photo and all, when asked to refresh, and shares nothing yet", async () => {
+    const calls: Call[] = [];
+    expect(await shareSendblueProfile(profileApi({ hasProfile: true, publishRecordPresent: true }, calls), KEYS, chatId, true)).toBe("refreshed");
+    expect(calls.map((c) => c.path)).toEqual(["/api/v2/contact-sharing/profile"]);
+    expect(calls[0].body).toEqual({ fromNumber: LINE, firstName: "Tex", lastName: "", photoUrl: PROFILE_PHOTO_URL });
+    expect(PROFILE_PHOTO_URL).toBe(`https://context.lc/texts-card.png?v=${CARD_VERSION}`);
   });
 });
 
@@ -325,6 +334,44 @@ describe("sendblue sending", () => {
     await accept(storage, message("sendblue:mh_p3"), 1_000 + 3 * day);
     await drain(storage, at(1_000 + 3 * day));
     expect(count("/api/v2/contact-sharing/state")).toBe(2);
+  });
+
+  it("sends a newer card once, at once, to a chat that had the old one today, and sets the new photo before sharing it", async () => {
+    const day = 24 * 60 * 60 * 1000;
+    const storage = new MemoryStorage();
+    const chat = sendblueChatId(LINE, PHONE);
+    // What a chat looked like before cards had versions: card sent and offered an hour ago.
+    await storage.put(cardSentKey(chat), true);
+    await storage.put(cardOfferedKey(chat), 1_000 - 60 * 60 * 1000);
+    const calls: Call[] = [];
+    const at = (now: number): InboxDeps => ({ ...deps(fakeSendblue(calls), []), now: () => now });
+    const cards = () => calls.filter((c) => String(c.body.media_url ?? "").endsWith(".vcf")).length;
+    const count = (path: string) => calls.filter((c) => c.path === path).length;
+    await accept(storage, message("sendblue:mh_v1"), 1_000);
+    await drain(storage, at(1_000));
+    expect(cards()).toBe(1);
+    expect(count("/api/v2/contact-sharing/profile")).toBe(1);
+    expect(count("/api/v2/contact-sharing/share")).toBe(0);
+    // The same day: nothing more.
+    await accept(storage, message("sendblue:mh_v2"), 2_000);
+    await drain(storage, at(2_000));
+    expect(cards()).toBe(1);
+    expect(count("/api/v2/contact-sharing/profile")).toBe(1);
+    // The next day: the new photo is shared, without setting it again or resending the card.
+    await accept(storage, message("sendblue:mh_v3"), 1_000 + day + 1);
+    await drain(storage, at(1_000 + day + 1));
+    expect(count("/api/v2/contact-sharing/share")).toBe(1);
+    expect(count("/api/v2/contact-sharing/profile")).toBe(1);
+    expect(cards()).toBe(1);
+  });
+
+  it("never sets the photo again for someone new to Tex", async () => {
+    const storage = new MemoryStorage();
+    await accept(storage, message("sendblue:mh_f1"), 1_000);
+    const calls: Call[] = [];
+    await drain(storage, deps(fakeSendblue(calls), []));
+    expect(calls.filter((c) => c.path === "/api/v2/contact-sharing/profile")).toHaveLength(0);
+    expect(calls.filter((c) => c.path === "/api/v2/contact-sharing/share")).toHaveLength(1);
   });
 
   it("sends the card on the new line even when the old line's card went out today", async () => {

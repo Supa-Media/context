@@ -16,6 +16,7 @@ import {
   sendSendblueMedia,
   sendSendblueText,
   shareSendblueProfile,
+  type ProfileShared,
   startSendblueTyping,
   type SendblueKeys,
 } from "./sendblue";
@@ -31,8 +32,8 @@ export interface Line {
   markRead(chatId: string): Promise<void>;
   /** Whether the line took the contact card. */
   shareContactCard(chatId: string): Promise<boolean>;
-  /** Whether the line shared its iMessage Name & Photo into the chat; Linq's card already does both. */
-  shareProfile(chatId: string): Promise<boolean>;
+  /** The line's iMessage Name & Photo shared into the chat, or set again first with `refresh`; Linq's card already does both. */
+  shareProfile(chatId: string, refresh?: boolean): Promise<ProfileShared>;
 }
 
 export type LineDeps = {
@@ -57,7 +58,7 @@ function linqLine(deps: LineDeps): Line {
     startTyping: (chatId) => startLinqTyping(fetch, key, chatId),
     markRead: (chatId) => markLinqRead(fetch, key, chatId),
     shareContactCard: (chatId) => shareLinqContactCard(fetch, key, chatId),
-    shareProfile: async () => true,
+    shareProfile: async () => "shared",
   };
 }
 
@@ -99,6 +100,6 @@ function sendblueLine(deps: LineDeps): Line {
       }
     },
     // The name and icon at the top of the chat, as for a saved contact (`shareSendblueProfile`).
-    shareProfile: async (chatId) => (deps.sendblue ? shareSendblueProfile(fetch, deps.sendblue, chatId) : false),
+    shareProfile: async (chatId, refresh) => (deps.sendblue ? shareSendblueProfile(fetch, deps.sendblue, chatId, refresh) : "not_yet"),
   };
 }

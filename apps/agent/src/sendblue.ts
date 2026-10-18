@@ -18,14 +18,15 @@
  */
 
 import { MAX_REPLY_TEXT, ServiceError, type Fetch } from "./clients";
+import { CARD_VERSION } from "./card";
 import { MAX_INBOUND_ATTACHMENTS, MAX_INBOUND_TEXT, type Inbound, type InboundAttachment } from "./inbound";
 
 /** The base address docs.sendblue.com names for every call. */
 export const SENDBLUE_API = "https://api.sendblue.com";
 
-/** Tex's iMessage Name & Photo: the name and the simulator's white # on blue (`apps/mobile/public/texts-card.png`). */
+/** Tex's iMessage Name & Photo: the name and the card's photo (`apps/mobile/public/texts-card.png`), its address versioned so a new photo is fetched anew. */
 export const PROFILE_NAME = "Tex";
-export const PROFILE_PHOTO_URL = "https://context.lc/texts-card.png";
+export const PROFILE_PHOTO_URL = `https://context.lc/texts-card.png?v=${CARD_VERSION}`;
 /** The most of a replied-to message quoted to Tex. */
 export const MAX_QUOTED_TEXT = 500;
 
@@ -150,14 +151,33 @@ export async function markSendblueRead(fetcher: Fetch, keys: SendblueKeys, chatI
  * Sharing). The profile is set once per line, here, the first time it is
  * missing; it is applied after the call returns, so that first time shares
  * nothing and says so, and the next offer shares it. Sendblue needs an
- * iMessage already sent in the chat, so this runs after a reply. Best effort:
- * never throws, and true only when Sendblue took the share.
+ * iMessage already sent in the chat, so this runs after a reply. `refresh`
+ * sets the profile again whatever is there (the photo changed), and shares
+ * nothing until it is applied. Best effort: never throws.
  */
-export async function shareSendblueProfile(fetcher: Fetch, keys: SendblueKeys, chatId: string): Promise<boolean> {
+export async function shareSendblueProfile(
+  fetcher: Fetch,
+  keys: SendblueKeys,
+  chatId: string,
+  refresh = false,
+): Promise<ProfileShared> {
   const chat = parseSendblueChat(chatId);
-  if (chat === null) return false;
+  if (chat === null) return "not_yet";
+  if (refresh) {
+    try {
+      const status = await call(fetcher, keys, "/api/v2/contact-sharing/profile", {
+        fromNumber: chat.line,
+        firstName: PROFILE_NAME,
+        lastName: "",
+        photoUrl: PROFILE_PHOTO_URL,
+      }, QUICK_TIMEOUT_MS);
+      return status >= 200 && status < 300 ? "refreshed" : "not_yet";
+    } catch {
+      return "not_yet";
+    }
+  }
   const state = await getJson(fetcher, keys, `/api/v2/contact-sharing/state?fromNumber=${encodeURIComponent(chat.line)}`);
-  if (state === null) return false;
+  if (state === null) return "not_yet";
   try {
     if (state.publishRecordPresent !== true) {
       // A profile already set is still being applied: leave it be.
@@ -169,14 +189,17 @@ export async function shareSendblueProfile(fetcher: Fetch, keys: SendblueKeys, c
           photoUrl: PROFILE_PHOTO_URL,
         }, QUICK_TIMEOUT_MS);
       }
-      return false;
+      return "not_yet";
     }
     const status = await call(fetcher, keys, "/api/v2/contact-sharing/share", { fromNumber: chat.line, toNumber: chat.phone }, QUICK_TIMEOUT_MS);
-    return status >= 200 && status < 300;
+    return status >= 200 && status < 300 ? "shared" : "not_yet";
   } catch {
-    return false;
+    return "not_yet";
   }
 }
+
+/** What sharing the Name & Photo came to: shared into the chat, the profile set again (shared on a later offer), or neither yet. */
+export type ProfileShared = "shared" | "refreshed" | "not_yet";
 
 /**
  * The words of the message an inline reply answers, so Tex reads "this one"
