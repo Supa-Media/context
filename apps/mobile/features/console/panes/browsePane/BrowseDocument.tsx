@@ -42,13 +42,13 @@ import { MapPage } from "../../map/live/ui/MapPage";
 import { TrashPage } from "../../trash/TrashPage";
 import { useTrashRoute } from "../../trash/TrashRouteContext";
 import { PhoneInbox } from "../../home/PhoneInbox";
-import { useDownloadRows } from "../../files/Downloads";
+import { useDownloadRows, useSteadyDownloadRow } from "../../files/Downloads";
 import { requestSyncSheet } from "../../files/syncSheetRequest";
 import { downloadedLine } from "../../../offline/downloadSummary";
 import type { HoldPoint } from "../../home/homeRows";
 import type { InboxActivity } from "../../home/inboxModel";
 
-import { setHomeView, useHomeView } from "../../home/homeView";
+import { useHomeView } from "../../home/homeView";
 import { ownPersonalContext } from "../../identity";
 
 /** Filed today before `activity.md` has answered: nothing, one array so Inbox does not redraw. */
@@ -260,7 +260,7 @@ export function BrowseDocument({
       : undefined;
   // How much of this workspace is on the device, under the Notes title (2026-10-18).
   const downloadRows = useDownloadRows(data.contexts);
-  const downloadRow = downloadRows.find((row) => row.workspaceId === data.selectedContextId);
+  const downloadRow = useSteadyDownloadRow(downloadRows.find((row) => row.workspaceId === data.selectedContextId));
   const phoneInbox = (
     <PhoneInbox
       downloaded={downloadedLine(downloadRow)}
@@ -274,7 +274,8 @@ export function BrowseDocument({
       entries={data.activity?.entries ?? NO_ENTRIES}
       isMe={isMe}
       onOpen={files.select}
-      onAll={() => setHomeView("folders")}
+      // Drawn at once on opening, from the phone's copy; grey rows until the edits are known.
+      ready={(data.activity?.loaded ?? true) && (homeSource.notes.length > 0 || landing !== null)}
       onActions={(at) => void openFolderActions("", at)}
       onHold={rowHold}
       iconOf={files.iconOf}
@@ -308,7 +309,8 @@ export function BrowseDocument({
     />
   );
   // A visitor on the homepage has no Inbox: their page is the workspace's own.
-  const phoneHome = data.visitor === undefined && homeView === "inbox" ? phoneInbox : phoneFolders;
+  const onNotes = data.visitor === undefined && homeView === "inbox";
+  const phoneHome = onNotes ? phoneInbox : phoneFolders;
   // What a phone's folder rows say beside their names: counts, dates, first lines, pins.
   const phoneRowsFor = useMemo(
     () =>
@@ -438,7 +440,10 @@ export function BrowseDocument({
           />
         ) : !compact ? (
           <Empty contextLabel={contextLabel} />
-        ) : landing === null ? null : (
+        ) : landing === null && !onNotes ? null : (
+          // Notes draws at once on opening, its header and grey rows standing in
+          // for what is still on its way (Dev2, 2026-10-18: "when I open the app,
+          // it's just a blank black screen").
           phoneHome
         )
       ) : isMarkdown(files.opening ?? pendingNote ?? "") ? (

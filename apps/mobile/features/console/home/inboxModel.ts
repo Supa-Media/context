@@ -25,9 +25,9 @@ import { INBOX_FOLDER } from "./homeView";
  *    went and who moved them — "when it gets organized it's not going to be
  *    in inbox anymore", so the last thing you wrote does not vanish from the
  *    page you start on. One calendar day (board 2's recommendation).
- *  - **Folder dots**: one row of small round icons, the folders this person
- *    opens most first, then the rest, at most five — "smaller dots or
- *    something with their icons". The last dot, All, opens Folders.
+ *  - **Folders**: every top-level folder in one row that scrolls sideways,
+ *    the Inbox first as the folder it is (Dev2, 2026-10-18: "Inbox is just a
+ *    folder, so we should show it … why not just have a horizontal scroll").
  *
  * A pure function over what the phone already has, like `homeModel.ts`.
  */
@@ -73,13 +73,11 @@ export interface Inbox {
   pinned: InboxNote[];
   /** The notes a person edited by hand, not pinned, by date, newest group first. */
   groups: InboxGroup[];
-  /** How many notes are lying in the Inbox folder itself, whoever wrote them. */
-  count: number;
   filed: FiledNote[];
-  dots: HomeFolder[];
+  /** Every top-level folder, for the row that scrolls under the title. */
+  folders: HomeFolder[];
 }
 
-export const DOT_COUNT = 5;
 const FILED_COUNT = 10;
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -115,15 +113,20 @@ export function inboxGroupOf(at: number, now: number): string {
 const WRITES = new Set(["added", "revised"]);
 
 /**
- * When a person's own hand last changed each note, by the note's path today.
+ * When the looker's own hand last changed each note, by the note's path today.
  *
  * From two records, both of which only a person's hand reaches: `activity.md`'s
  * `added` and `revised` lines with no AI client on them (`clientOf`; the app's
- * own console is a person), any member's, read oldest first so a later move
+ * own console is a person) signed by the looker (`isMe`), never a teammate's,
+ * read oldest first so a later move
  * carries the date to the note's new name; and the looker's own Recent rows the
  * app marked `edited`, which reach further back than the feed's last 400 lines.
  */
-export function humanEdits(entries: readonly InboxActivity[], recents: readonly HomeRecent[]): Map<string, number> {
+export function humanEdits(
+  entries: readonly InboxActivity[],
+  recents: readonly HomeRecent[],
+  isMe: (by: string) => boolean,
+): Map<string, number> {
   const edits = new Map<string, number>();
   const note = (path: string, at: number) => {
     if (at > (edits.get(path) ?? -Infinity)) edits.set(path, at);
@@ -139,7 +142,8 @@ export function humanEdits(entries: readonly InboxActivity[], recents: readonly 
       edits.delete(from);
       note(to, was);
     }
-    if (!WRITES.has(entry.kind) || entry.by === null || clientOf(entry.via) !== null) continue;
+    // Your own hand only, in a shared workspace too (Dev2, 2026-10-18): a teammate's edit is not yours.
+    if (!WRITES.has(entry.kind) || entry.by === null || !isMe(entry.by) || clientOf(entry.via) !== null) continue;
     for (const path of entry.paths ?? []) note(path, at);
   }
   for (const recent of recents) if (recent.kind === "edited") note(recent.path, recent.at);
@@ -172,7 +176,7 @@ export function buildInbox({
   now: number;
 }): Inbox {
   const byPath = new Map(notes.map((note) => [note.path, note]));
-  const edits = humanEdits(entries, recents);
+  const edits = humanEdits(entries, recents, isMe);
   const row = (note: HomeNote): InboxNote => {
     const parent = parentPath(note.path);
     const at = edits.get(note.path) ?? note.updatedAt;
@@ -206,7 +210,6 @@ export function buildInbox({
     if (last?.label === label) last.notes.push(row(note));
     else groups.push({ label, notes: [row(note)] });
   }
-  const count = notes.filter((note) => parentPath(note.path) === INBOX_FOLDER).length;
 
   const today = startOfDay(now);
   const seen = new Set<string>();
@@ -228,14 +231,28 @@ export function buildInbox({
     }
   }
 
-  const isDot = (folder: HomeFolder) => folder.path !== INBOX_FOLDER && folderRole(baseName(folder.path)) !== "archive";
-  const dots: HomeFolder[] = [];
-  for (const folder of [...home.openMost.filter((row) => !row.path.includes("/")), ...home.folders]) {
-    if (dots.length >= DOT_COUNT) break;
-    if (isDot(folder) && !dots.some((dot) => dot.path === folder.path)) dots.push(folder);
+  // The Inbox first, as the folder it is; then pinned folders, the ones opened
+  // most, and the rest; Archive last.
+  const top = new Map(home.folders.filter((folder) => !folder.path.includes("/")).map((folder) => [folder.path, folder]));
+  const order = [
+    INBOX_FOLDER,
+    ...pins.filter((pin) => pin.kind === "folder").map((pin) => pin.path),
+    ...home.openMost.map((folder) => folder.path),
+    ...top.keys(),
+  ];
+  const folders: HomeFolder[] = [];
+  for (const path of order) {
+    const folder = top.get(path);
+    if (folder !== undefined && !folders.includes(folder)) folders.push(folder);
   }
+  const isArchive = (folder: HomeFolder) => folderRole(baseName(folder.path)) === "archive";
 
-  return { pinned, groups, count, filed: filed.slice(0, FILED_COUNT), dots };
+  return {
+    pinned,
+    groups,
+    filed: filed.slice(0, FILED_COUNT),
+    folders: [...folders.filter((folder) => !isArchive(folder)), ...folders.filter(isArchive)],
+  };
 }
 
 /**
@@ -253,13 +270,4 @@ export function inboxWhen(at: number, now: number): string {
   return then.getFullYear() === new Date(now).getFullYear()
     ? `${month} ${then.getDate()}`
     : `${month} ${then.getDate()}, ${then.getFullYear()}`;
-}
-
-/** "5 in the Inbox", "1 in the Inbox · 3 filed today", "Inbox empty". */
-export function inboxCount(count: number, filed: number): string {
-  const parts = [
-    count === 0 ? "Inbox empty" : `${count} in the Inbox`,
-    ...(filed > 0 ? [`${filed} filed today`] : []),
-  ];
-  return parts.join(" · ");
 }

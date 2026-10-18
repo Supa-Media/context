@@ -63,20 +63,18 @@ export async function waitForNote(page: Page, heading: string): Promise<void> {
 }
 
 /**
- * Tap one of Folders' folder lines by the folder's name, whatever it holds.
- * The phone opens on Inbox (2026-10-17), whose last dot, All, opens Folders.
+ * Tap a top-level folder by its name: in Notes' sideways folder row, where the
+ * phone opens (2026-10-18), or on Folders' lines where that page is showing.
  */
 export async function tapFolderOnHome(page: Page, name: string): Promise<void> {
-  const all = page.getByTestId("phone-inbox-all");
-  if ((await all.count()) > 0) {
-    const box = await all.first().boundingBox();
-    if (box !== null) await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
-  }
-  const line = page.getByTestId("phone-home-folder").filter({ has: page.getByText(name, { exact: true }) });
-  await line.first().waitFor();
-  const box = await line.first().boundingBox();
-  if (box === null) throw new Error(`no folder "${name}" on Home to tap`);
+  const named = page.getByText(name, { exact: true });
+  const chip = page.getByTestId("phone-inbox-folder").filter({ has: named });
+  await chip.or(page.getByTestId("phone-home-folder").filter({ has: named })).first().waitFor();
+  const line = (await chip.count()) > 0 ? chip : page.getByTestId("phone-home-folder").filter({ has: named });
+  // The row settles as the page's own reads land (the slide in, the pages read ahead).
+  const box = await settledBox(line.first());
   await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+  await page.getByTestId("phone-back").first().waitFor();
 }
 
 /**
