@@ -92,7 +92,7 @@ export async function claimDueRoutinesHandler(
       // Asked now too, so a row written before this rule never runs as the
       // owner of a shared workspace: nobody was seen writing it there.
       const workspace = await ctx.db.get(row.workspaceId);
-      if (workspace === null || !fallsBackToOwner(workspace)) {
+      if (workspace === null || !(await fallsBackToOwner(ctx.db, workspace))) {
         await ctx.db.patch(row._id, { nextRunAt: null, lastOutcome: WRITER_UNKNOWN, updatedAt: now });
         continue;
       }
