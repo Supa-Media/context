@@ -59,7 +59,7 @@ export async function runProtocolVersioningChecks() {
     modernList.status === 200 &&
       JSON.stringify(namesOf(modernList.body.result?.tools)) ===
         JSON.stringify(["fetch", "manage", "orient", "search", "send", "write"]) &&
-      (await fullListFor("priv-token")).length === 55
+      (await fullListFor("priv-token")).length === 57
   );
   check(
     "modern tools/list carries the required freshness hints",

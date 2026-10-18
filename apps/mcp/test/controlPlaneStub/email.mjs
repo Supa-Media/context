@@ -24,10 +24,31 @@ export function createEmailRoute(clearedEditor, flags) {
     return answer;
   }
 
-  /** The route's answer, or undefined for a path that is not this one. */
-  async function handle(path, body) {
-    return path === "/gateway/email/send" ? await send(body) : undefined;
+  /**
+   * `/gateway/email/search` and `/gateway/email/read` (`gatewayRoutes/personMail.ts`):
+   * `mailboxes` and `mailResults` answer a search, `mailMessage` a read, and
+   * `mailRefusal` refuses both. The real clearance is proved in Convex.
+   */
+  const mailCalls = [];
+  async function mail(path, body) {
+    const cleared = await clearedEditor(body);
+    let answer;
+    if (!cleared) answer = { ok: false, refused: "not_allowed" };
+    else if (flags.mailRefusal) answer = { ok: false, refused: flags.mailRefusal };
+    else if (path === "/gateway/email/search") {
+      answer = { ok: true, results: flags.mailResults ?? [], mailboxes: flags.mailboxes ?? [] };
+    } else answer = flags.mailMessage ? { ok: true, message: flags.mailMessage } : { ok: false, refused: "not_found" };
+    const { accessToken: _token, ...rest } = body;
+    mailCalls.push({ path, body: rest, answer });
+    return answer;
   }
 
-  return { calls, handle };
+  /** The route's answer, or undefined for a path that is not this one. */
+  async function handle(path, body) {
+    if (path === "/gateway/email/send") return await send(body);
+    if (path === "/gateway/email/search" || path === "/gateway/email/read") return await mail(path, body);
+    return undefined;
+  }
+
+  return { calls, mailCalls, handle };
 }

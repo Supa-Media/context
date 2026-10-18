@@ -39,6 +39,10 @@ import {
 import { memoryS3, type MemoryS3 } from "../storeStub.helpers";
 import { encryptSecret, requireKeyset } from "../../functions/lib/crypto";
 import { S3Store } from "../../../mcp/src/store/s3.js";
+import { gmailRetry } from "../../../mcp/src/communications/gmail/api.js";
+
+// Gmail's rate-limit retries wait seconds in production; a test waits none.
+gmailRetry.sleep = async () => {};
 
 export const MINUTE = 60_000;
 

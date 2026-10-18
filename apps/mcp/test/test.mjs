@@ -75,6 +75,7 @@ import { runAgentHousekeepingChecks } from "./agentHousekeeping.test.mjs";
 import { runAgentEgressChecks } from "./agentEgress.test.mjs";
 import { runAgentEgressTextingChecks } from "./agentEgressTexting.test.mjs";
 import { runEmailGateChecks } from "./emailGate.test.mjs";
+import { runEmailReadChecks } from "./emailRead.test.mjs";
 import { runCalendarGateChecks } from "./calendarGate.test.mjs";
 import { runReportGateChecks } from "./reportGate.test.mjs";
 import { runAgentEgressJudgeChecks } from "./agentEgressJudge.test.mjs";
@@ -179,6 +180,7 @@ await suite("runAgentEgressChecks", () => runAgentEgressChecks(check));
 await suite("runAgentEgressTextingChecks", () => runAgentEgressTextingChecks(check));
 // The send-review gate: every email waits for the person's yes to its exact copy.
 await suite("runEmailGateChecks", () => runEmailGateChecks(check));
+await suite("runEmailReadChecks", () => runEmailReadChecks(check));
 // The calendar gate: every change waits for the person's yes to it.
 await suite("runCalendarGateChecks", () => runCalendarGateChecks(check));
 // The bug-report gate: a report filed by text waits for the person's YES, and only then carries their texts.

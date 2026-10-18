@@ -543,6 +543,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A move or a cancel names the event by its title and start, and must match one
 - Never an event with guests
 - Testers only until Google's review (owner, 2026-10-17)
+- Synced mail first, then Gmail for what the sync does not hold (owner, 2026-10-18)
+- A pass fetches only the mail it has not seen
 
 ## [The desktop shell](./desktop.md)
 
