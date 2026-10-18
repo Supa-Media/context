@@ -58,32 +58,67 @@ export class GmailHistoryExpiredError extends GmailApiError {
   }
 }
 
+/**
+ * How a call Google asked to slow down is retried before it fails the pass.
+ *
+ * Google's own advice for `rateLimitExceeded`, `userRateLimitExceeded` and a
+ * 429 is to back off and try again; a pass that gave up on the first one
+ * stopped the whole account for fifteen minutes or more over a limit measured
+ * in seconds. Two retries, honouring `Retry-After` up to a bound, then the
+ * pass fails and the sweep's backoff takes over. `dailyLimitExceeded` and
+ * `quotaExceeded` are not retried: waiting seconds does not refill a day.
+ * Mutable only so the tests can make the waits instant.
+ */
+export const gmailRetry = {
+  delaysMs: [2_000, 8_000],
+  maxRetryAfterMs: 20_000,
+  sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+};
+
+const RETRYABLE_REASONS = new Set(["rateLimitExceeded", "userRateLimitExceeded"]);
+
+function retryable(status, details) {
+  if (status === 429) return details.reason !== "dailyLimitExceeded" && details.reason !== "quotaExceeded";
+  return status === 403 && RETRYABLE_REASONS.has(details.reason ?? "");
+}
+
+function retryAfterMs(response) {
+  const raw = response.headers?.get?.("retry-after");
+  const seconds = raw === null || raw === undefined ? NaN : Number(raw);
+  return Number.isFinite(seconds) && seconds >= 0 ? Math.min(seconds * 1000, gmailRetry.maxRetryAfterMs) : undefined;
+}
+
 export async function gmailFetch(fetchImpl, accessToken, path, params) {
   const url = new URL(`${GMAIL_API_ORIGIN}${path}`);
   for (const [key, value] of Object.entries(params ?? {})) {
     if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
   }
-  const response = await fetchImpl(url.toString(), {
-    headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
-  });
-  if (!response.ok) {
-    // A 404 IS NOT UNIVERSALLY A HISTORY GAP, and this used to say it was.
-    // `history.list` answering 404 means the cursor expired and the only
-    // correct answer is a full reconcile; `messages.get` answering 404 means
-    // one message was deleted between being listed and being fetched, which
-    // is an ordinary Tuesday in a live mailbox, and `attachments.get`
-    // answering 404 means one file is gone. Mapping all three to
-    // `GmailHistoryExpiredError` made a deleted message either abort the whole
-    // sync or — if a caller reacted to the type the way the class name tells
-    // it to — trigger a needless 90-day reconcile, once per deletion, forever.
-    // Only `listHistoryPage` promotes a 404 now, at its own call site.
-    throw new GmailApiError(
-      response.status,
-      `Gmail answered ${path} with ${response.status}`,
-      await safeGoogleErrorDetails(response),
-    );
+  for (let attempt = 0; ; attempt += 1) {
+    const response = await fetchImpl(url.toString(), {
+      headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
+    });
+    if (response.ok) return response.json();
+    const details = await safeGoogleErrorDetails(response);
+    if (attempt < gmailRetry.delaysMs.length && retryable(response.status, details)) {
+      await gmailRetry.sleep(retryAfterMs(response) ?? gmailRetry.delaysMs[attempt]);
+      continue;
+    }
+    throw gmailError(response.status, path, details);
   }
-  return response.json();
+}
+
+function gmailError(status, path, details) {
+  // A 404 IS NOT UNIVERSALLY A HISTORY GAP, and this used to say it was.
+  // `history.list` answering 404 means the cursor expired and the only
+  // correct answer is a full reconcile; `messages.get` answering 404 means
+  // one message was deleted between being listed and being fetched, which
+  // is an ordinary Tuesday in a live mailbox, and `attachments.get`
+  // answering 404 means one file is gone. Mapping all three to
+  // `GmailHistoryExpiredError` made a deleted message either abort the whole
+  // sync or — if a caller reacted to the type the way the class name tells
+  // it to — trigger a needless 90-day reconcile, once per deletion, forever.
+  // Only `listHistoryPage` promotes a 404 now, at its own call site.
+  return new GmailApiError(status, `Gmail answered ${path} with ${status}`, details);
 }
 
 async function safeGoogleErrorDetails(response) {
@@ -180,7 +215,27 @@ export async function getProfileHistoryId({ fetchImpl, accessToken }) {
  * gap `docs/decisions/communications.md` names, whose only correct answer is
  * a full reconcile.
  */
-export async function listHistoryPage({ fetchImpl, accessToken, startHistoryId, pageToken }) {
+/**
+ * Does a history record's message belong in the connection's days?
+ *
+ * `messageAdded` names every message the mailbox gained: a draft saved on
+ * every keystroke pause, spam, a chat, mail a filter archived. None of those
+ * is on a day `buildDayQuery` lists, and each one used to cost a full fetch
+ * and a whole day's rebuild. The record carries the message's labels, so this
+ * keeps only mail in one of the connection's folders and out of Spam, Trash
+ * and Drafts. A record with no labels is kept: unsure means rebuild.
+ */
+function inConnectionFolders(message, folders) {
+  if (!Array.isArray(message?.labelIds)) return true;
+  const labels = new Set(message.labelIds);
+  if (labels.has("SPAM") || labels.has("TRASH") || labels.has("DRAFT")) return false;
+  const wanted = (Array.isArray(folders) && folders.length ? folders : ["inbox", "sent"])
+    .map((folder) => FOLDER_LABEL_IDS[folder])
+    .filter(Boolean);
+  return wanted.some((label) => labels.has(label));
+}
+
+export async function listHistoryPage({ fetchImpl, accessToken, startHistoryId, pageToken, folders }) {
   let body;
   try {
     body = await gmailFetch(fetchImpl, accessToken, "/gmail/v1/users/me/history", {
@@ -203,7 +258,7 @@ export async function listHistoryPage({ fetchImpl, accessToken, startHistoryId, 
       if (lastRecordId === undefined || historyIdIsAfter(id, lastRecordId)) lastRecordId = id;
     }
     for (const added of record.messagesAdded ?? []) {
-      if (added?.message?.id) ids.add(String(added.message.id));
+      if (added?.message?.id && inConnectionFolders(added.message, folders)) ids.add(String(added.message.id));
     }
   }
   return {
@@ -248,14 +303,14 @@ function historyIdIsAfter(a, b) {
  * caller that reached the end wants it — but a caller must consult
  * `truncated` before believing it.
  */
-export async function listAllHistory({ fetchImpl, accessToken, startHistoryId, maxPages = 50 }) {
+export async function listAllHistory({ fetchImpl, accessToken, startHistoryId, folders, maxPages = 50 }) {
   const messageIds = new Set();
   let pageToken;
   let historyId = startHistoryId;
   let lastRecordId;
   let truncated = false;
   for (let page = 0; page < maxPages; page += 1) {
-    const result = await listHistoryPage({ fetchImpl, accessToken, startHistoryId, pageToken });
+    const result = await listHistoryPage({ fetchImpl, accessToken, startHistoryId, pageToken, folders });
     for (const id of result.messageIds) messageIds.add(id);
     if (result.historyId) historyId = result.historyId;
     if (
