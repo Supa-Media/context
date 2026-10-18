@@ -87,7 +87,7 @@ const PRIVACY_WRITE_OPERATIONS = new Set([
 ]);
 
 /** Operations that rearrange notes inside one context: never refused by the note cap. */
-const RELOCATING_OPERATIONS = new Set(["move", "archive", "trash"]);
+const RELOCATING_OPERATIONS = new Set(["move", "archive", "archiveTidy", "trash"]);
 
 export async function runFileOperationHandler(
   ctx: ActionCtx,
