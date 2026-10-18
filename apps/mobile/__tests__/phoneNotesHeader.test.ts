@@ -77,3 +77,30 @@ describe("the phone's Notes title", () => {
     expect(page({ downloaded: null }).find("phone-notes-downloaded")).toBeNull();
   });
 });
+
+describe("while notes are coming down", () => {
+  test("a spinner sits beside the downloaded count, and goes when they are down", () => {
+    expect(page({ downloaded: "3 of 9 notes downloaded", downloading: true }).find("phone-notes-downloading")).not.toBeNull();
+    expect(page({ downloaded: "9 notes downloaded", downloading: false }).find("phone-notes-downloading")).toBeNull();
+  });
+
+  test("a row's first line loads behind a quiet bar, then shows", async () => {
+    // Dev2 2026-10-18: "if it's still being downloaded maybe we should have UI to show that it's loading".
+    require("../features/console/home/noteLedes").forgetNoteLedes();
+    let answer: (value: unknown) => void = () => {};
+    const ledeSource = {
+      load: () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    };
+    const ui = page({ ledeSource, recents: [{ path: "0-inbox/a.md", at: Date.now(), kind: "edited" }] });
+    const row = () => ui.container.querySelector<HTMLElement>('[data-testid="phone-inbox-note"]')!;
+    expect(ui.find("phone-inbox-lede-loading")).not.toBeNull();
+    await act(async () => {
+      answer({ complete: true, notes: [{ path: "0-inbox/a.md", properties: {}, heading: null, lede: "Call the venue" }] });
+    });
+    expect(ui.find("phone-inbox-lede-loading")).toBeNull();
+    expect(row().textContent).toContain("Call the venue");
+  });
+});
