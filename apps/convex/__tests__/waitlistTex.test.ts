@@ -110,7 +110,7 @@ describe("Let in on a phone row", () => {
     expect(listed).toEqual([PHONE]);
     expect(calls.indexOf(adds()[0]!)).toBeLessThan(calls.indexOf(texts()[0]!));
     expect(texts().map(textBody)).toEqual([admittedText(`${ORIGIN}/login`, TEX)]);
-    expect(textBody(texts()[0]!)).toMatch(/^You're in! Text Tex at \+15555550199/);
+    expect(textBody(texts()[0]!)).toMatch(/^You're in! Text Tex at \+1 \(555\) 555-0199 and Tex/);
     // Texting Tex is the only thing it asks: no sign-in link beside it.
     expect(textBody(texts()[0]!)).not.toContain("/login");
     expect(await trail(t)).toEqual([

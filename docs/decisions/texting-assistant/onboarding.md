@@ -116,23 +116,48 @@ Past the first hundred nothing changes: the free bucket. Test: "past the first
 hundred, a new phone starts the free bucket", and the storage test's founding
 plan.
 
-**The first texts after setup are told when the bucket isn't there yet.** It
-takes a minute or two to answer; the setup text says so and asks for
-"ready", which is what the onboarding skill picks up from. A text in that
-window gets the gateway's 503 `storage_unavailable`, which the Worker now
-answers with "Your notes aren't ready for me yet…" (`COPY.noStorage`) rather
-than "Something went wrong on my side".
+**Tex texts first once the notes are ready, with a link that signs them in**
+(Dev2, 2026-10-18, reviewing the onboarding screens: "it should take a couple
+of minutes, I'll let you know when I'm ready", and "since it's coming from
+that number already, then it's pre-authenticated"). The setup text says Tex
+will text when it is done and carries no link. The sender's inbox owes that
+text (`apps/agent/src/ready.ts`): its alarm asks `POST /agent-texts/ready`
+every 30 seconds, and once the workspace's binding is `connected` and its
+folders are laid out, it texts a fixed line and a link to
+`/signin/<token>` (`functions/textSignIn.ts`). After twenty minutes it says
+it is taking longer and stops. Linq's line only reaches people who texted it
+first, and they did, so this is not Tex texting first.
 
-**Someone set up by text has never signed in to the app.** Every link Tex
-sends them (the console, Gmail's connect page) asks for their phone number
-first (a texted code) and, for an account a phone made, their email once
-(`EmailCheckScreen`). `connect_google` tells the model so, and the onboarding
-skill says it in the same text as the link.
+The link is a credential, so it is kept as narrow as a texted code: it signs
+in only the account holding the phone it was texted to, through the same
+`phone-verify` provider; it opens once, within a day; opening it (in the
+page, not the request, so a link preview spends nothing) mints a ten-digit
+code good for five minutes, which no six-digit texted code can collide with;
+only hashes are stored; the destination is built by the control plane and
+narrowed again by `safeNextRoute`. No model writes the text or sees the
+link: the Worker fetches and sends it. What a "simplification" would cost:
+minting the link in a model tool (`connect_google`) would put a sign-in
+credential in front of a model that reads untrusted email and can send it.
+
+A text sent before the notes are ready gets the gateway's 503
+`storage_unavailable`, which the Worker answers with "Your notes aren't ready
+for me yet…" (`COPY.noStorage`) rather than "Something went wrong on my side".
+
+**Asking for a Gmail link again still goes through the app's sign-in.** A link
+the model sends (`connect_google`) asks for the phone number first and, for
+an account a phone made, the email once (`EmailCheckScreen`).
+
+**Tex asks whether they pay for ChatGPT or Claude** (Dev2, 2026-10-18): the
+free plans can't connect to Context. And before any browser work it says what
+it is about to do, that it may take a while, and that it will text when done.
+Both live in the onboarding skill (`@context-lc ai/production/skills/onboarding.md`).
 
 Tests: `apps/convex/__tests__/textSetup.test.ts` ("an account that already
 owns a personal workspace is never set up or linked by a text", "sets up that
 account and no other", "is held to the app's handle rules", "never lays out a
 bucket that is not our own, or one not seen empty") and
 `apps/agent/src/setup.test.ts` ("the message's words never leave the
-Worker", "texts no link but the console's"). Each file's header records the
-sabotage runs.
+Worker", "texts no link but the console's"), `apps/convex/__tests__/textSignIn.test.ts`
+(the link waits for ready storage, opens once, signs in no other phone, and
+expires) and `apps/agent/src/ready.test.ts` (the ready text goes once, never
+with a link that is not https). Each file's header records the sabotage runs.

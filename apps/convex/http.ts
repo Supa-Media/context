@@ -894,6 +894,7 @@ http.route({ path: "/agent-texts/invite", method: "POST", handler: agentTextsInv
 http.route({ path: "/agent-texts/unlink", method: "POST", handler: agentTextsUnlink });
 export const agentTextsSetup = agentWorkerRoute(agentTexts.agentTextsSetupHandler);
 http.route({ path: "/agent-texts/setup", method: "POST", handler: agentTextsSetup });
+http.route({ path: "/agent-texts/ready", method: "POST", handler: agentWorkerRoute(agentTexts.agentTextsReadyHandler) });
 
 /* Routines and Tex's nightly dreams: what is due now, and how each went (a code, never text). */
 export const agentRoutinesDue = agentWorkerRoute(routines.agentRoutinesDueHandler);

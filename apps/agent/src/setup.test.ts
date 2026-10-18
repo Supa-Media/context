@@ -122,18 +122,36 @@ describe("an unlinked phone the control plane may set up", () => {
     }
   });
 
-  it("confirms the handle and texts the workspace link on its own", async () => {
+  it("confirms the handle, says Tex will text when the notes are ready, and owes that text", async () => {
     const url = "https://app.example/console/ada";
-    const reply = await replyTo(
-      message("ada"),
-      deps({
+    let owed = 0;
+    const reply = await replyTo(message("ada"), {
+      ...deps({
         "/agent-texts/session": unlinked,
         "/agent-texts/setup": () => [200, { status: "set_up", handle: "ada", storage: "on_the_way", url }],
       }),
-    );
-    expect(reply).toEqual([SETUP_COPY.setUp("ada", "on_the_way"), url]);
+      onSetUp: async () => void (owed += 1),
+    });
+    // No link yet: the ready text brings one that signs them in (`ready.ts`).
+    expect(reply).toEqual([SETUP_COPY.setUp("ada", "on_the_way")]);
     expect(reply[0]).toContain("@ada");
+    expect(reply[0]).toContain("I'll text you");
     expect(reply[0]).toContain("UNLINK");
+    expect(owed).toBe(1);
+  });
+
+  it("with no bucket started, texts the workspace link on its own and owes nothing", async () => {
+    const url = "https://app.example/console/ada";
+    let owed = 0;
+    const reply = await replyTo(message("ada"), {
+      ...deps({
+        "/agent-texts/session": unlinked,
+        "/agent-texts/setup": () => [200, { status: "set_up", handle: "ada", storage: "none", url }],
+      }),
+      onSetUp: async () => void (owed += 1),
+    });
+    expect(reply).toEqual([SETUP_COPY.setUp("ada", "none"), url]);
+    expect(owed).toBe(0);
   });
 
   it("texts no link but the console's, for the handle it was told", async () => {

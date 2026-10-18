@@ -15,6 +15,7 @@ import { hashToken } from "../crypto";
 import { APP_ORIGIN_ENV_VAR, badRequest, json, randomOpaqueToken, stringField } from "../gatewayAuth";
 import { TEXTS_GRANT_TTL_MS, TEXTS_LINK_ROUTE } from "../../textLinks";
 import type { SetupAnswer } from "../../textSetup";
+import { SIGN_IN_LINK_ROUTE } from "../../textSignIn";
 
 /**
  * `POST /agent-texts/link` — `{ phone, code }` → `{ status: "linked", handle }`
@@ -118,6 +119,30 @@ export async function agentTextsSetupHandler(
   if (answer.status !== "set_up") return json(answer);
   const origin = appOrigin();
   return json(origin === null ? answer : { ...answer, url: `${origin}/console/${answer.handle}` });
+}
+
+/**
+ * `POST /agent-texts/ready` — `{ phone }` → `{ status: "ready", url }` once
+ * the notes of a phone set up by text are ready, with a link that signs it in
+ * and opens Google's connect card (`functions/textSignIn.ts`); else
+ * `{ status: "waiting" }`, or `{ status: "gone" }` to stop asking. The token is
+ * in the URL once and only its hash is stored.
+ */
+export async function agentTextsReadyHandler(
+  ctx: ActionCtx,
+  body: Record<string, unknown>,
+): Promise<Response> {
+  const phone = stringField(body, "phone");
+  if (phone === null) return badRequest();
+  const origin = appOrigin();
+  if (origin === null) return json({ status: "gone" });
+  const token = randomOpaqueToken(32);
+  const answer: { status: "waiting" | "gone" } | { status: "ready"; next: string } = await ctx.runMutation(
+    internal.functions.textSignIn.readyLink,
+    { phone, tokenHash: await hashToken(token) },
+  );
+  if (answer.status !== "ready") return json(answer);
+  return json({ status: "ready", url: `${origin}${SIGN_IN_LINK_ROUTE}/${token}` });
 }
 
 /** `POST /agent-texts/unlink` — `{ phone }` → `{ status: "unlinked" | "not_linked" }`. */
