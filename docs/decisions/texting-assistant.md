@@ -75,18 +75,7 @@ at `data.sender_handle.handle`. The parser requires both service fields to
 agree. The same delivery puts the message ID and parts at `data.id` and
 `data.parts`, rather than under `data.message`. Tests: `inbound.test.ts`,
 "reads the live direct iMessage shape" and "refuses SMS, RCS, missing service,
-or conflicting handle transport".
-
-An SMS is still answered, never from its words (2026-10-18). Someone just let
-in off the waitlist often texts Tex's new number green first, and silence until
-they happened to send a blue one read as broken. A Sendblue SMS is queued
-flagged `sms`, with no file and no inline reply read from it. Its answer is
-fixed: setup's first step or the sign-in link for an unlinked phone, and "send
-it again here" for a linked one. LINK, UNLINK, a handle and the model are never
-reached. The answer goes to the number itself, never to whoever faked it, and
-goes as iMessage, so the next text is one Tex reads. Tests: `reply.test.ts`,
-"never opens a linked person's notes" and "LINK and UNLINK are not commands
-over SMS"; `sendblue.test.ts`, "takes an SMS only as an SMS".
+or conflicting handle transport". An SMS is still answered, never from its words (2026-10-18). Someone just let in off the waitlist often texts Tex's new number green first, and silence until they happened to send a blue one read as broken. A Sendblue SMS is queued flagged `sms`, with no file and no inline reply read from it. Its answer is fixed: setup's first step or the sign-in link for an unlinked phone, and "send it again here" for a linked one. LINK, UNLINK, a handle and the model are never reached. The answer goes to the number itself, never to whoever faked it, and goes as iMessage, so the next text is one Tex reads. Tests: `reply.test.ts`, "never opens a linked person's notes" and "LINK and UNLINK are not commands over SMS"; `sendblue.test.ts`, "takes an SMS only as an SMS".
 
 ### The Worker holds message text only while it is answering it
 
