@@ -38,6 +38,7 @@ import { NoteCapReached, asRelocation } from "../store/noteCap.js";
 import { oneLine, recordRead } from "../privacy/egress.js";
 import { createPending, findPending, takeDone } from "./approvals.js";
 import { HELD_GATES } from "./heldGates.js";
+import { wordsOfTurn } from "../agent/conversation.js";
 import { wideningOf } from "../privacy/widening.js";
 import { loadPrivacyState } from "../privacy/state.js";
 import { PrivacyOverrides } from "../privacy/engine.js";
@@ -162,7 +163,7 @@ async function egressGate(suppliedName, supplied, args, { store, session, target
  * ask them in the chat and call again. Nothing is held, nobody taps anything.
  *
  * The words are the person's message when this gateway ran the turn itself
- * (`session.egress.words`, set by `/agent`), and only then: a model's
+ * (`session.egress.turn`, set by `/agent`; `wordsOfTurn`), and only then: a model's
  * `person_said` is never read for such a turn, and a turn of ours with no
  * person behind it (a dream, a try-it run) has no words. An MCP client's chat
  * is never seen here, so its `person_said` is the client's report of them.
@@ -186,7 +187,8 @@ async function judgedGate(name, suppliedName, args, { store, session, target, ta
   });
   if (widening === null || widening.elsewhereOnly === true) return null;
   const ours = session.egress?.complete === true;
-  const own = typeof session.egress?.words === "string" ? session.egress.words : ours ? "" : null;
+  const turn = session.egress?.turn;
+  const own = turn ? turn.note ?? wordsOfTurn(turn.history ?? [], turn.question ?? "") : ours ? "" : null;
   const words = own ?? (typeof personSaid === "string" ? personSaid : "");
   const verdict = await session.sharingJudge({
     words,
