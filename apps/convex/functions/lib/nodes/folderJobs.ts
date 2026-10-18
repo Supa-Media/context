@@ -26,6 +26,7 @@ import type { DatabaseReader, MutationCtx } from "../../../_generated/server";
 import {
   type FolderJobs,
   type RowRole,
+  NO_JOB,
   ROW_ROLES,
   folderJobs,
   isRowRole,
@@ -90,7 +91,7 @@ export async function folderJobsAndClaims(
       path: row.path,
       name: row.name,
       top: row.parentId === undefined,
-      ...(isRowRole(row.role) ? { role: row.role } : {}),
+      ...(isRowRole(row.role) || row.role === NO_JOB ? { role: row.role } : {}),
     })),
   );
   const claimed = rows.flatMap((row) => (isRowRole(row.role) ? [{ path: row.path, role: row.role }] : []));
@@ -159,7 +160,7 @@ export async function roleForNewFolder(
  * folder doing no job.
  */
 export async function claimJobBeforeMove(ctx: MutationCtx, workspaceId: Id<"workspaces">, row: Doc<"nodes">): Promise<RowRole | null> {
-  if (row.kind !== "folder") return null;
+  if (row.kind !== "folder" || row.role === NO_JOB) return null;
   if (isRowRole(row.role)) return row.role;
   const jobs = await folderJobsOf(ctx.db, workspaceId);
   let job = jobAt(jobs, row.path);
@@ -171,7 +172,7 @@ export async function claimJobBeforeMove(ctx: MutationCtx, workspaceId: Id<"work
 
 /** The job a row does now: its own, or the one its name gives it at the root. */
 export async function jobOfRow(db: DatabaseReader, workspaceId: Id<"workspaces">, row: Doc<"nodes">): Promise<RowRole | null> {
-  if (row.kind !== "folder") return null;
+  if (row.kind !== "folder" || row.role === NO_JOB) return null;
   if (isRowRole(row.role)) return row.role;
   return jobAt(await folderJobsOf(db, workspaceId), row.path);
 }

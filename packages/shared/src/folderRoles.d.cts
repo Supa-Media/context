@@ -4,7 +4,7 @@ export type MainRole = "inbox" | "projects" | "areas" | "resources" | "archive";
 export type ExtraRole = "clients" | "teams" | "products";
 export type FolderRole = MainRole | ExtraRole;
 /** A job a folder row can carry in `role`. */
-export type RowRole = FolderRole | "website" | "meetings";
+export type RowRole = FolderRole | "website" | "meetings" | "tex";
 
 /** Which folder does each job (`folderJobs`). */
 export interface FolderJobs {
@@ -14,6 +14,8 @@ export interface FolderJobs {
 
 export declare const ROW_ROLES: readonly RowRole[];
 export declare const WEBSITE_FOLDER: "website";
+export declare const TEX_FOLDER: "tex";
+export declare const NO_JOB: "none";
 export declare const JOB_LABEL: Readonly<Record<RowRole, string>>;
 export declare function isRowRole(value: unknown): value is RowRole;
 export declare function jobOfName(name: string): RowRole | null;
