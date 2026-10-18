@@ -44,7 +44,7 @@ export function NoteRoutineBar({
     return () => clearInterval(timer);
   }, [host === null]); // eslint-disable-line react-hooks/exhaustive-deps
   if (host === null) return null;
-  const view = routineBarView({ path: host.path, text, row: host.row, now });
+  const view = routineBarView({ path: host.path, text, row: host.row, now, shared: host.shared });
   return (
     <RoutineBar
       view={view}
