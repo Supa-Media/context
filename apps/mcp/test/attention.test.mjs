@@ -149,6 +149,9 @@ test("every texted turn is told how to change what reaches them", () => {
   assert.match(ATTENTION_PROMPT, /tex\/attention\.md/);
   assert.match(ATTENTION_PROMPT, /tolerance: emergencies/);
   assert.match(ATTENTION_PROMPT, /change that note/);
+  // A text about what Tex texts them is about these pings with no ping in view (bench attention gh-55, 2026-10-18).
+  assert.match(ATTENTION_PROMPT, /even with no ping in sight/);
+  assert.match(ATTENTION_PROMPT, /muting one changes only `mute`/);
 });
 
 /* ---------------- through the worker ---------------- */

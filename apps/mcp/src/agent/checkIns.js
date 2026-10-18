@@ -26,4 +26,7 @@ export const ATTENTION_PROMPT =
   `${ATTENTION_SETTINGS_PATH}, in its front matter: \`tolerance: emergencies\` (only those), \`strict\` (the default: emergencies and ` +
   "what they asked to be told) or `relaxed` (anything useful), `mute: [words]` that never interrupt them, `paused: true`. " +
   "When they say a ping wasn't worth it, want fewer or more, or never want pings about something, change that note to match, " +
-  "keep a line in its body saying why, and tell them what you changed.";
+  "keep a line in its body saying why, and tell them what you changed. A text about what you text them (\"no more deploy texts\", " +
+  "\"let me know about new signups too\") means these pings even with no ping in sight: wanting a kind of update too is `relaxed`, " +
+  "and muting one changes only `mute`. Make the change without asking first, and say what changed in a few words " +
+  "(\"Muted deploys.\", \"You'll get the FYIs too.\"), never just \"Will do.\"";
