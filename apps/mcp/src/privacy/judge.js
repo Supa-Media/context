@@ -18,8 +18,14 @@
  *   asking model's description of it.
  * - **The words are fenced as data.** They are quoted inside a tag the model
  *   is told never to follow instructions from.
- * - **It fails closed.** No gateway, an error, a timeout, an answer that is
- *   not the one tool with a boolean: the call does not run.
+ * - **An answer that is not a clear yes is a no.** An error, a timeout, an
+ *   answer that is not the one tool with a boolean, or no words at all: the
+ *   call does not run.
+ * - **A deployment with no model to ask does not judge at all**, and such a
+ *   call runs unchecked (`judgeFor` returns null, and `tools/session.js`
+ *   skips the gate). That is self-hosting without our AI gateway, which is a
+ *   supported path; it is the one case where nothing here stands in the way,
+ *   and it is deliberate rather than a failure mode.
  *
  * Where the words come from is the caller's business and the weak point,
  * named in `docs/decisions/privacy-and-sharing/agent-egress.md`: a turn this
