@@ -9,8 +9,8 @@ import { Tex } from "../chaos/Tex";
  * voice memos and PDFs, files them into the starting folders, and answers
  * from the notes.
  *
- * Every bubble is laid out from the start and only fades in, so the page never
- * moves while it plays. It starts when it is on screen, plays once and holds
+ * The card is its final height from the start and the thread fills it from
+ * the bottom, so the page never moves while it plays. It starts when it is on screen, plays once and holds
  * the end; a visitor who asks for less motion sees the end at once.
  */
 
@@ -102,32 +102,53 @@ export function useChatPlayback(total: number) {
   return { box, shown, typing };
 }
 
+function Row({ bubble, children }: { bubble: Bubble; children?: ReactNode }) {
+  return (
+    <div className={`tp-msg tp-from-${bubble.from}`}>
+      <p className="tp-b" aria-label={bubble.label}>
+        {children ?? bubble.body}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * The card is as tall as the whole conversation from the start (an unseen
+ * copy holds the height), and the live thread fills it from the bottom, as a
+ * phone's does, so it never looks half empty and the page never moves.
+ */
 export function TexChat({ onProgress }: { onProgress?: (done: number) => void }) {
   const { box, shown, typing } = useChatPlayback(CHAT.length);
   useEffect(() => onProgress?.(shown / CHAT.length), [shown, onProgress]);
+  const chaos = Math.round(100 * (1 - shown / CHAT.length));
   return (
     <section ref={box} className="tp-chat" aria-label="An example conversation with Tex">
       <div className="tp-chat-top">
         <span className="tp-av">
-          <Tex chaos={0} size={28} scheme="light" />
+          <Tex chaos={chaos} size={28} scheme="light" />
         </span>
         <span className="tp-name">Tex</span>
       </div>
-      <div className="tp-log">
-        {CHAT.map((bubble, i) => (
-          <div key={i} className={`tp-msg tp-from-${bubble.from}`}>
-            <p className="tp-b" data-on={i < shown ? "" : undefined} aria-label={bubble.label}>
-              {bubble.body}
-            </p>
-            {typing && i === shown ? (
-              <span className="tp-typing" aria-hidden>
+      <div className="tp-logs">
+        <div className="tp-log tp-ghost" aria-hidden>
+          {CHAT.map((bubble, i) => (
+            <Row key={i} bubble={bubble} />
+          ))}
+        </div>
+        <div className="tp-log tp-live">
+          {CHAT.slice(0, shown).map((bubble, i) => (
+            <Row key={i} bubble={bubble} />
+          ))}
+          {typing ? (
+            <div className="tp-msg tp-from-tex" aria-hidden>
+              <span className="tp-typing">
                 <i />
                 <i />
                 <i />
               </span>
-            ) : null}
-          </div>
-        ))}
+            </div>
+          ) : null}
+        </div>
       </div>
     </section>
   );

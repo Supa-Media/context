@@ -47,12 +47,16 @@ export const TEX_CSS = `
 .tp-chat-top{display:flex;flex-direction:column;align-items:center;gap:4px;padding:16px 0 12px;border-bottom:1px solid var(--rule)}
 .tp-av{width:40px;height:40px;border-radius:50%;background:var(--paper);display:grid;place-items:center}
 .tp-name{font-size:12.5px;color:var(--ink2)}
+.tp-logs{position:relative}
 .tp-log{display:flex;flex-direction:column;gap:6px;padding:16px 14px 0;font-size:15px;line-height:1.35}
+.tp-ghost{visibility:hidden}
+.tp-live{position:absolute;inset:0;justify-content:flex-end;overflow:hidden}
 .tp-msg{position:relative;display:flex}
 .tp-from-me{justify-content:flex-end}
 .tp-from-me+.tp-from-tex,.tp-from-tex+.tp-from-me{margin-top:8px}
-.tp-b{max-width:80%;padding:8px 13px;border-radius:19px;text-wrap:pretty;opacity:0;transform:translateY(6px);transition:opacity .4s ease,transform .4s ease}
-.tp-b[data-on]{opacity:1;transform:none}
+.tp-b{max-width:80%;margin:0;padding:8px 13px;border-radius:19px;text-wrap:pretty}
+.tp-live .tp-msg{animation:tp-in .4s ease both}
+@keyframes tp-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 .tp-from-me .tp-b{background:var(--blue);color:#fff;border-bottom-right-radius:6px}
 .tp-from-tex .tp-b{background:var(--bubble);color:var(--ink);border-bottom-left-radius:6px}
 .tp-f{font-weight:600;white-space:nowrap}
@@ -62,11 +66,11 @@ export const TEX_CSS = `
 .tp-wave{display:flex;gap:2px;align-items:center;height:18px}
 .tp-wave i{display:block;width:2.5px;border-radius:2px;background:rgba(255,255,255,.85)}
 .tp-len{font-size:13px;opacity:.9}
-.tp-typing{position:absolute;left:0;top:0;display:flex;gap:4px;padding:12px 14px;border-radius:19px;border-bottom-left-radius:6px;background:var(--bubble)}
+.tp-typing{display:flex;gap:4px;padding:12px 14px;border-radius:19px;border-bottom-left-radius:6px;background:var(--bubble)}
 .tp-typing i{width:7px;height:7px;border-radius:50%;background:var(--dots);animation:tp-dot 1s infinite}
 .tp-typing i:nth-child(2){animation-delay:.15s}.tp-typing i:nth-child(3){animation-delay:.3s}
 @keyframes tp-dot{0%,60%,100%{opacity:.35}30%{opacity:1}}
-@media (prefers-reduced-motion:reduce){.tp-b{transition:none;transform:none}.tp-typing i{animation:none}}
+@media (prefers-reduced-motion:reduce){.tp-live .tp-msg{animation:none}.tp-typing i{animation:none}}
 
 .tp-foot{width:100%;max-width:560px;margin:0 auto;padding:0 20px 28px;display:flex;flex-wrap:wrap;gap:8px 22px;font-size:14px;color:var(--ink2)}
 .tp-foot a:hover{color:var(--ink)}
@@ -92,5 +96,6 @@ export const TEX_CSS = `
   .tp-tex{width:56px;height:56px}
   .tp-chat-top{padding:12px 0 10px}
 }
+@media (max-width:899px){.tp-sub{text-wrap:balance}}
 @media (max-width:420px){.tp-in .tp-row{flex-direction:column}.tp-field{flex:none}.tp-go{width:100%}}
 `;
