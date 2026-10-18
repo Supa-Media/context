@@ -429,6 +429,21 @@ export const SETTINGS_SECTIONS = [
   },
   {
     /*
+      Which folder does each built-in job (owner, 2026-10-18, "Built-in
+      folder jobs" board 2): Inbox, Projects, Tex and the rest, wherever the
+      person nested them. A context row: the jobs belong to the workspace.
+    */
+    key: "folders",
+    keywords: "built-in folders system folders inbox projects areas resources archive tex clients teams products job import obsidian",
+    scope: "context",
+    label: "Built-in folders",
+    group: null,
+    icon: "folder",
+    personalOnly: false,
+    folded: true,
+  },
+  {
+    /*
       A workspace's own emoji: the pictures `:name:` draws as in its notes.
       A context row because the emoji belong to the workspace, like its icon.
     */

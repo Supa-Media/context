@@ -72,8 +72,8 @@ identifying it as a special system thing, using the original names".
   Projects.
 - **Agents are told** which folder does which job in `orient`'s "System
   folders" lines, one per folder this connection can see: its path now,
-  wherever it is nested, whether it is required (the five main ones) or
-  optional, and one line on what it is for (`apps/mcp/src/orient/systemFolders.js`,
+  wherever it is nested, whether it is needed (the five main ones), made
+  when used (Tex, Website, Meetings) or optional, and one line on what it is for (`apps/mcp/src/orient/systemFolders.js`,
   owner 2026-10-18). A required one the connection cannot find is said as not
   found by this connection, never as absent. The paths are read from the rows
   (`ask: "jobs"` on `/gateway/tree/facts`), and `archive_note` archives into
@@ -97,3 +97,50 @@ again breaks every writer and agent the first time somebody renames one, and
 dropping the default-name rule makes each writer recreate `0-inbox` beside a
 renamed Inbox. `apps/convex/__tests__/nodes/folderJobs.test.ts` and
 `apps/mcp/test/folderRoles.test.mjs` fail if either goes.
+
+## A person, or an AI client, says which folder does a job
+
+Decided by the owner, 2026-10-18, picking every board of "Built-in folder
+jobs": an imported vault (`00 Inbox`, `Work/Projects`, `Reference`) names its
+folders its own way, so a job can no longer come from a root name alone.
+
+- **Three groups, one list** (`packages/shared/src/folderJobInfo.cjs`, read by
+  Settings, the import picker, `orient` and `folder_job` alike): *needed* —
+  Inbox, Projects, Areas, Resources, Archive, one each, which can be handed to
+  another folder and never taken away; *made when used* — Tex and Website;
+  *optional* — Clients, Teams, Products, which can be taken away. The list is
+  fixed: there are no made-up jobs; a folder of a person's own kind explains
+  itself in its `about.md`.
+- **Giving a job moves nothing** (`builtInFolders.setJob`, owner only, as a
+  job decides where everybody's mail and meetings land). The named folder's
+  row takes the job, and the folder that did it keeps its notes but holds
+  `role: "none"` (`NO_JOB`), so its name never claims the job back. Archive
+  stays at the top; Website keeps its name and place; a folder already doing
+  another job is refused. `lib/nodes/folderJobSettings.ts` `decideJobChange`
+  is the whole rule.
+- **Guesses after an import** (`guessFolderJobs`): a folder at most three
+  deep whose name says a job, its own word before another word for it
+  (Reference for Resources, Archives for Archive), shallower first, with the
+  reason shown. A folder a person said does no job is never guessed.
+- **Tex is a job.** Tex's folder can be nested anywhere; Tex keeps reading and
+  writing `tex/...`, carried to the real folder by `canonicalJobPath`. Routines
+  live in Tex's folder (`tex/routines/`), so Routines is part of Tex's line,
+  not a job of its own; the routine scan lists them where Tex's folder is and
+  rows keep naming them `tex/routines/...`. Housekeeping leaves Tex's and the
+  website's folders alone wherever they are.
+- **The Inbox's own folders** (Calendar, Contacts, Email, Forms, Google Chat,
+  iMessage, Meetings, Memories, Sessions) are one line under Inbox, not a line
+  each. Context files into them by name, so they are never renamed or moved
+  (`assertNotProtectedFolder`, the gateway's `protectedFolderRefusal`); they
+  can be trashed, and a person adds notes and folders beside them. Meetings
+  keeps its row job internally and is said on the Inbox's line.
+- **AI clients** use `manage` action `folder_job` `{ job, path | remove }`, a
+  row over `apply_layout`, through the same `giveJob` the app's Settings uses.
+
+What a "simplification" would cost: dropping `NO_JOB` makes a root `Projects`
+the person said is not their Projects folder take the job back the moment the
+other folder moves; letting an editor change jobs lets a member redirect the
+owner's mail. `apps/convex/__tests__/nodes/folderJobSettings.test.ts`,
+`apps/convex/__tests__/routinesTexRoot.test.ts`,
+`apps/mcp/test/workspaceSetup.test.mjs` and
+`apps/mcp/test/orientSystemFolders.test.mjs` fail if either goes.

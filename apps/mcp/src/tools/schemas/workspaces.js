@@ -47,6 +47,15 @@ export function workspaceToolDefinitions() {
             enum: ["clients", "teams", "products", "inbox", "projects", "areas", "resources", "archive"],
             description: "One built-in folder to add.",
           },
+          job: {
+            type: "string",
+            description:
+              "A built-in job (inbox, projects, areas, resources, archive, tex, clients, teams, products): with path, " +
+              "the folder that does it from now on, wherever it is nested (owner only; nothing moves); with remove, " +
+              "take an optional job away; alone, make its folder at the top.",
+          },
+          path: { type: "string", description: "With job: the folder that does it. Archive stays at the top." },
+          remove: { type: "boolean", description: "With job: no folder does this optional job any more." },
         },
         additionalProperties: false,
       },

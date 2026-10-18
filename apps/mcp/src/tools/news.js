@@ -42,6 +42,14 @@ export const TOOL_NEWS = Object.freeze([
   {
     date: "2026-10-18",
     text:
+      "manage action folder_job `{ job, path? , remove? }` chooses which folder does a built-in job, wherever it is nested: " +
+      "`path` gives the job to that folder (owner only; nothing moves), `remove: true` takes an optional one (clients, teams, " +
+      "products) away, and `job` alone makes its folder at the top. Jobs: inbox, projects, areas, resources, archive, tex, " +
+      "clients, teams, products. Use it after an import whose folders orient lists as not found.",
+  },
+  {
+    date: "2026-10-18",
+    text:
       "Every tool takes `person_said`: before anything that lets more people see something (a link, publishing, naming people, " +
       "a visibility change), pass the person's own words asking for it, exactly as they wrote them, with your question first " +
       "if they were answering it. Without words that ask for it, the call is not done and says so; nobody approves anything in an app.",
@@ -181,7 +189,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "9475f8ca";
+export const TOOL_SHAPE = "e292ac06";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

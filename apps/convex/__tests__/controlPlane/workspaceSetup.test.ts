@@ -35,6 +35,7 @@ import type { Id } from "../../_generated/dataModel";
 import { createWorkspace, gatewayPost } from "../fixtures.helpers";
 import { fixture } from "../files/fixtures.helpers";
 import { MANAGED_R2_ACCOUNT_ID_ENV_VAR } from "../../functions/lib/managedStorage";
+import { folderJobsOf } from "../../functions/lib/nodes/folderJobs";
 import { bodyOf, registerClient, seedConnectedClient, token } from "./fixtures.helpers";
 
 // Every test builds a whole bucket-backed workspace first; the first is a cold start.
@@ -306,6 +307,44 @@ describe("/gateway/workspaces/layout", () => {
       });
       expect(body.layout).toBeNull();
     }
+  });
+});
+
+describe("/gateway/workspaces/layout with a job (manage folder_job)", () => {
+  async function nested(w: Awaited<ReturnType<typeof world>>) {
+    await w.t.run(async (ctx) => {
+      const life = await ctx.db.insert("nodes", { workspaceId: w.workspaceId, path: "Life", name: "Life", kind: "folder", observedAt: 1 });
+      await ctx.db.insert("nodes", { workspaceId: w.workspaceId, path: "Life/Customers", name: "Customers", kind: "folder", parentId: life, observedAt: 1 });
+    });
+  }
+  const jobs = (w: Awaited<ReturnType<typeof world>>) => w.t.run(async (ctx) => (await folderJobsOf(ctx.db, w.workspaceId)).jobs);
+
+  test("an owner gives a job to a nested folder and takes it away again; an editor is refused", async () => {
+    const w = await world();
+    await nested(w);
+    const ask = { accessToken: OWNER, expectedWorkspaceId: w.workspaceId, job: "clients" };
+    expect((await post(w.t, "/gateway/workspaces/layout", { ...ask, path: "Life/Customers" })).layout).toEqual({
+      ok: true,
+      job: "clients",
+      folders: ["Life/Customers"],
+    });
+    expect((await jobs(w)).clients).toBe("Life/Customers");
+
+    const editor = await post(w.t, "/gateway/workspaces/layout", { ...ask, accessToken: EDITOR, path: null });
+    expect(editor.layout).toMatchObject({ ok: false, message: expect.stringMatching(/owner/i) });
+    expect((await jobs(w)).clients).toBe("Life/Customers");
+
+    expect((await post(w.t, "/gateway/workspaces/layout", { ...ask, path: null })).layout).toMatchObject({ ok: true });
+    expect((await jobs(w)).clients).toBeNull();
+  });
+
+  test("refusals come back in words: a nested Archive, a needed job taken away, an unknown job", async () => {
+    const w = await world();
+    await nested(w);
+    const ask = (job: string, path: string | null) => post(w.t, "/gateway/workspaces/layout", { accessToken: OWNER, expectedWorkspaceId: w.workspaceId, job, path });
+    expect((await ask("archive", "Life/Customers")).layout).toMatchObject({ ok: false, message: expect.stringMatching(/Archive stays at the top/) });
+    expect((await ask("projects", null)).layout).toMatchObject({ ok: false, message: expect.stringMatching(/Projects is needed/) });
+    expect((await ask("recipes", "Life")).layout).toMatchObject({ ok: false, message: expect.stringMatching(/about\.md/) });
   });
 });
 

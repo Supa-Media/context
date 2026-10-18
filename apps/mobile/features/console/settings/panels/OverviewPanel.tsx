@@ -160,6 +160,22 @@ export function OverviewPanel({
         )}
         <Row divided>
           <Grow>
+            <Text variant="rowTitle">Built-in folders</Text>
+            <Text variant="rowSub" style={styles.sub}>
+              Which folder is your Inbox, Projects, Archive and the rest
+            </Text>
+          </Grow>
+          {onSelect === undefined ? null : (
+            <TextLink
+              label="Manage"
+              accessibilityLabel="Manage which folder does each built-in job"
+              onPress={() => onSelect("folders")}
+              testID="overview-folders-manage"
+            />
+          )}
+        </Row>
+        <Row divided>
+          <Grow>
             <Text variant="rowTitle">Custom emoji</Text>
           </Grow>
           {onSelect === undefined ? null : (

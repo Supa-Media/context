@@ -299,3 +299,48 @@ describe("the business question in the Add a folder sheet", () => {
     expect(added).toEqual(["clients"]);
   });
 });
+
+describe("which folders do these jobs (a workspace with a server)", () => {
+  const answer = {
+    jobs: [
+      { job: "inbox", label: "Inbox", group: "needed", line: "x", path: null, canChange: true, canRemove: false },
+      { job: "projects", label: "Projects", group: "needed", line: "x", path: "1-projects", canChange: true, canRemove: false },
+      { job: "archive", label: "Archive", group: "needed", line: "x", path: null, canChange: true, canRemove: false },
+    ],
+    inboxParts: [],
+    guesses: [{ job: "inbox", path: "00 Inbox", why: "name says Inbox" }],
+    missingNeeded: ["inbox", "archive"],
+    folders: ["00 Inbox", "1-projects"],
+  };
+
+  function served(over: Partial<typeof answer> = {}) {
+    const { files, added } = fakeFiles({ names: ["00 Inbox", "1-projects"] });
+    const given: [string, string | null][] = [];
+    Object.assign(files, {
+      folderJobs: async () => ({ ...answer, ...over }),
+      setFolderJob: async (job: string, path: string | null) => void given.push([job, path]),
+    });
+    return { files, added, given };
+  }
+
+  test("an import's own folder is used for the job its name says, and only the rest are made", async () => {
+    const { files, added, given } = served();
+    let done = false;
+    mount(createElement(MainFoldersNotice, { files, dismiss: () => (done = true) }));
+    await settle();
+    expect(at("browse-main-folders")?.textContent).toContain("Which folders do these jobs?");
+    expect(at("main-folder-line-inbox")?.textContent).toBe("Inbox: 00 Inbox (name says Inbox)");
+    expect(at("main-folder-line-archive")?.textContent).toBe("+ Make Archive");
+    await press("main-folders-add");
+    expect(given).toEqual([["inbox", "00 Inbox"]]);
+    expect(added).toEqual(["archive"]);
+    expect(done).toBe(true);
+  });
+
+  test("a workspace whose folders already do every needed job is not asked", async () => {
+    const { files } = served({ missingNeeded: [] });
+    mount(createElement(MainFoldersNotice, { files, dismiss: () => {} }));
+    await settle();
+    expect(at("browse-main-folders")).toBeNull();
+  });
+});

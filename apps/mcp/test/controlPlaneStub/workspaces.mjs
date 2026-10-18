@@ -54,7 +54,13 @@ export function createWorkspaceRoutes({ grantForAccessToken, coveredContexts, wo
       case "/gateway/workspaces/layout": {
         const cleared = await clear(body);
         if (!cleared) return { layout: null };
-        calls.push({ path, userId: cleared.grant.userId, workspaceId: cleared.entry.workspaceId, template: body.template, role: body.role });
+        calls.push({ path, userId: cleared.grant.userId, workspaceId: cleared.entry.workspaceId, template: body.template, role: body.role, job: body.job, jobPath: body.path });
+        if (body.job !== undefined) {
+          // As `giveJobHandler`: owner only; the real refusals are the control plane's own tests.
+          if (cleared.entry.role !== "owner") return { layout: { ok: false, message: "Only an owner of this workspace can choose which folder does a job." } };
+          if (body.job === "archive" && typeof body.path === "string" && body.path.includes("/")) return { layout: { ok: false, message: "Archive stays at the top of the workspace." } };
+          return { layout: { ok: true, job: body.job, folders: body.path === null ? [] : [body.path] } };
+        }
         if (body.role !== undefined) {
           if (cleared.entry.role !== "owner" && cleared.entry.role !== "editor") return { layout: { ok: false, message: "Adding a folder needs an owner or an editor of this workspace." } };
           return FOLDERS[body.role] ? { layout: { ok: true, folders: [FOLDERS[body.role]] } } : { layout: null };

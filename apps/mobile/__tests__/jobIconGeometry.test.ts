@@ -5,6 +5,8 @@
 import { describe, expect, test } from "@jest/globals";
 import { createHash } from "node:crypto";
 import { ROW_ROLES } from "@context/shared/src/folderRoles.cjs";
+import { TEX_FIGURE_ICON } from "@context/shared/src/folderIcons.cjs";
+import { jobIconMarker, jobOfIcon } from "../features/console/files/jobIcons/marker";
 import {
   DRAWN_JOBS,
   LIST_SIZE_MAX,
@@ -22,8 +24,10 @@ const BOARD_DIGEST = "c5a57a099d8aa9e026f0bc7f1c6939b11124de6662fde2fe0fd03689b3
 const BOARD_ORDER = ["inbox", "projects", "areas", "resources", "archive", "website", "clients", "teams", "products", "meetings"] as const;
 
 describe("drawn job icons", () => {
-  test("every job a folder row can carry has a drawing", () => {
-    expect([...DRAWN_JOBS].sort()).toEqual([...ROW_ROLES].sort());
+  test("every job a folder row can carry has a drawing; Tex's folder draws Tex himself", () => {
+    expect([...DRAWN_JOBS].sort()).toEqual(ROW_ROLES.filter((job) => job !== "tex").sort());
+    expect(jobIconMarker("tex")).toBe(TEX_FIGURE_ICON);
+    expect(jobOfIcon(TEX_FIGURE_ICON)).toBeNull();
   });
 
   test("the paths are the board's, exactly", () => {

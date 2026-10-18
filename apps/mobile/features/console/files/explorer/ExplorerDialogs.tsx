@@ -1,4 +1,5 @@
 import { loadedFolders, type FileBrowser } from "../browser";
+import { FolderJobDialog } from "../FolderJobDialog";
 import type { Dialog } from "../actions";
 import {
   Confirm,
@@ -248,6 +249,8 @@ export function ExplorerDialogs({
         />
       );
     }
+    case "folderJob":
+      return <FolderJobDialog files={files} path={dialog.path} sheet={compact} onClose={onClose} />;
     case "folderIcon":
       return (
         <FolderIconDialog

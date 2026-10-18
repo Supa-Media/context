@@ -27,6 +27,9 @@ import { mailConnectEnabled } from "../googleConnect/config";
 import { hashToken } from "../crypto";
 import { httpsAppOrigin, json, stringField } from "../gatewayAuth";
 import { isLayoutName, layoutStructure } from "../workspaces/layouts";
+import { clearanceOf } from "../clearance";
+import { toConvexError } from "../filesFns/operationErrors";
+import { giveJob, jobFolderPath } from "../../builtInFolders";
 
 const SCOPE_WRITE = "context:write";
 const SCOPE_PRIVATE = "context:private";
@@ -119,6 +122,7 @@ export async function gatewayWorkspacesCreateHandler(ctx: ActionCtx, body: Recor
  * app's "Add a folder" is). Exactly one of the two.
  */
 export async function gatewayWorkspacesLayoutHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
+  if (body.job !== undefined) return await giveJobHandler(ctx, body);
   const template = body.template;
   const role = stringField(body, "role");
   if ((template === undefined) === (role === null)) return json({ layout: null });
@@ -158,6 +162,31 @@ export async function gatewayWorkspacesLayoutHandler(ctx: ActionCtx, body: Recor
     return json({ layout: { ok: true, queued: applied.queued, folders: applied.folders } });
   } catch (error) {
     return json({ layout: refusal(error) });
+  }
+}
+
+/**
+ * `/gateway/workspaces/layout` with `job`: give a built-in folder's job to the
+ * folder at `path`, or take an optional one away (`path` null). Owner only,
+ * as Settings › Built-in folders is (`builtInFolders.setJob`), at the grant's
+ * own tier: a folder the connection cannot see is not found.
+ */
+async function giveJobHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
+  const job = stringField(body, "job");
+  const path = body.path === null ? null : stringField(body, "path");
+  if (job === null || (path === null && body.path !== null)) return json({ layout: null });
+  const cleared = await clear(ctx, body);
+  if (cleared === null) return json({ layout: null });
+  const { entry } = cleared;
+  if (entry.role !== "owner") {
+    return json({ layout: { ok: false, message: "Only an owner of this workspace can choose which folder does a job." } });
+  }
+  try {
+    const clearance = clearanceOf(cleared.readsPrivate ? "private" : "team", entry.grantedNames ?? []);
+    await giveJob(ctx, entry.workspaceId as Id<"workspaces">, clearance, job, jobFolderPath(path));
+    return json({ layout: { ok: true, job, folders: path === null ? [] : [path] } });
+  } catch (error) {
+    return json({ layout: refusal(toConvexError(error)) });
   }
 }
 

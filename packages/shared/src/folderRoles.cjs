@@ -99,17 +99,33 @@ const ROLE_PATTERN = /^(?:\d+-)?([a-z]+)$/i;
 
 /**
  * The jobs a folder ROW can carry in `role`: the eight built-ins, the website
- * folder and the meetings folder, always under these original names.
+ * folder, the meetings folder and Tex's folder, always under these original
+ * names.
  */
-const ROW_ROLES = Object.freeze([...MAIN_ROLES, ...EXTRA_ROLES, "website", "meetings"]);
+const ROW_ROLES = Object.freeze([...MAIN_ROLES, ...EXTRA_ROLES, "website", "meetings", "tex"]);
 
 /** The website folder's name when nothing has moved it (`DEFAULT_WEBSITE_ROOT`). */
 const WEBSITE_FOLDER = "website";
 
-const JOB_LABEL = Object.freeze({ ...ROLE_LABEL, website: "Website", meetings: "Meetings" });
+/**
+ * Tex's folder's name when nothing has moved it: what Tex reads and writes
+ * (`tex/about-me.md`, `tex/routines/`), carried to wherever the folder doing
+ * the job is now by `jobPath` (owner, 2026-10-18).
+ */
+const TEX_FOLDER = "tex";
+
+/**
+ * What a row's `role` holds once a person took a job away from it, or gave it
+ * to another folder: a folder that does no job even though its name says one,
+ * so a root `clients` the person said is not their Clients folder stays theirs
+ * (owner, 2026-10-18, `docs/decisions/app-and-console/folder-jobs.md`).
+ */
+const NO_JOB = "none";
+
+const JOB_LABEL = Object.freeze({ ...ROLE_LABEL, website: "Website", meetings: "Meetings", tex: "Tex" });
 
 /** Where each job is drawn among its siblings when no `order` is set, in steps of ten. */
-const JOB_RANK = Object.freeze({ ...ROLE_RANK, website: 7, meetings: 7 });
+const JOB_RANK = Object.freeze({ ...ROLE_RANK, website: 7, meetings: 7, tex: OWN_FOLDER_RANK });
 
 function isRowRole(value) {
   return typeof value === "string" && ROW_ROLES.includes(value);
@@ -117,10 +133,11 @@ function isRowRole(value) {
 
 /**
  * The job a top-level folder NAME plays: a built-in role (`folderRole`), or
- * `website` for the website folder's own name.
+ * `website` and `tex` for those folders' own names.
  */
 function jobOfName(name) {
   if (name === WEBSITE_FOLDER) return "website";
+  if (name === TEX_FOLDER) return "tex";
   return folderRole(name);
 }
 
@@ -314,13 +331,15 @@ function folderJobs(rows) {
   for (const row of sorted) {
     if (isRowRole(row.role) && jobs[row.role] === null) jobs[row.role] = row.path;
   }
-  const claimed = new Set(sorted.filter((row) => isRowRole(row.role)).map((row) => row.path));
+  // A row that says it does no job (`NO_JOB`) is claimed too: its name gives it none.
+  const claimed = new Set(sorted.filter((row) => isRowRole(row.role) || row.role === NO_JOB).map((row) => row.path));
   const unclaimedRoots = sorted.filter((row) => row.top && !claimed.has(row.path)).map((row) => row.name);
   const byName = rolesIn(unclaimedRoots);
   for (const role of Object.keys(byName)) {
     if (jobs[role] === null && byName[role] !== null) jobs[role] = byName[role];
   }
   if (jobs.website === null && unclaimedRoots.includes(WEBSITE_FOLDER)) jobs.website = WEBSITE_FOLDER;
+  if (jobs.tex === null && unclaimedRoots.includes(TEX_FOLDER)) jobs.tex = TEX_FOLDER;
   return { jobs, roots: sorted.filter((row) => row.top).map((row) => row.name) };
 }
 
@@ -407,6 +426,8 @@ function countByIndexingPriority(paths, isIndexed, extraPending = []) {
 module.exports = {
   ROW_ROLES,
   WEBSITE_FOLDER,
+  TEX_FOLDER,
+  NO_JOB,
   JOB_LABEL,
   isRowRole,
   jobOfName,

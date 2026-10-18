@@ -11,17 +11,19 @@
  */
 
 import { isRowRole, type RowRole } from "@context/shared/src/folderRoles.cjs";
+import { TEX_FIGURE_ICON } from "@context/shared/src/folderIcons.cjs";
+import type { DrawnJob } from "./geometry";
 
 const PREFIX = "context:job:";
 
-/** The marker `iconOf` answers for a folder doing `job`. */
+/** The marker `iconOf` answers for a folder doing `job`. Tex's folder draws Tex, wherever it is nested. */
 export function jobIconMarker(job: RowRole): string {
-  return `${PREFIX}${job}`;
+  return job === "tex" ? TEX_FIGURE_ICON : `${PREFIX}${job}`;
 }
 
-/** The job a marker names, or `null` for an emoji (or anything else). */
-export function jobOfIcon(icon: string | null | undefined): RowRole | null {
+/** The drawn job a marker names, or `null` for an emoji (or anything else). */
+export function jobOfIcon(icon: string | null | undefined): DrawnJob | null {
   if (typeof icon !== "string" || !icon.startsWith(PREFIX)) return null;
   const job = icon.slice(PREFIX.length);
-  return isRowRole(job) ? job : null;
+  return isRowRole(job) && job !== "tex" ? job : null;
 }

@@ -29,6 +29,7 @@ import {
   topLevelRole,
   twinMessage,
 } from "@context/shared/src/folderRoles.cjs";
+import { INBOX_PART_LABEL, isInboxPart, type InboxPart } from "@context/shared/src/folderJobInfo.cjs";
 import { isKeyedStore } from "../noteIds/keyedStore";
 import { treeJobs } from "./treeChecks";
 import { canSee, isPlumbing } from "../privacy";
@@ -109,6 +110,11 @@ async function guardedJob(store: FileStore, path: string, clearance: Clearance):
  *
  * What is inside them is always the person's to move. A path naming no job
  * costs one tree read and no listing.
+ *
+ * The Inbox's own folders (`INBOX_PARTS`: Email, Meetings, ...) are not
+ * renamed or moved either: Context files into them by name. They can still
+ * be trashed, and a person adds notes and folders beside them (owner,
+ * 2026-10-18).
  */
 export async function assertNotProtectedFolder(
   store: FileStore,
@@ -116,6 +122,7 @@ export async function assertNotProtectedFolder(
   clearance: Clearance,
   intent: "move" | "remove",
 ): Promise<void> {
+  if (intent === "move") await assertNotInboxPart(store, path, clearance);
   const job = await guardedJob(store, path, clearance);
   if (job === null) return;
   const label = JOB_LABEL[job as RowRole] ?? path;
@@ -134,6 +141,19 @@ export async function assertNotProtectedFolder(
   throw new FileOpError(
     "PATH_INVALID",
     `${label} is a built-in folder, so it can't be archived or deleted. Rename it or move what's inside it instead.`,
+  );
+}
+
+/** Refuse renaming or moving one of the Inbox's own folders the caller can see. */
+async function assertNotInboxPart(store: FileStore, path: string, clearance: Clearance): Promise<void> {
+  const inbox = (await treeJobs(store))?.jobs.inbox ?? null;
+  if (!isInboxPart(path, inbox)) return;
+  const state = await loadPrivacyState(store);
+  if (!folderVisibleAtScope(path, clearance, state.rules, state.overrides)) return;
+  const label = INBOX_PART_LABEL[baseName(path) as InboxPart];
+  throw new FileOpError(
+    "PATH_INVALID",
+    `${label} is one of the Inbox's own folders: Context files into it, so it stays where it is. You can add your own notes and folders beside it.`,
   );
 }
 

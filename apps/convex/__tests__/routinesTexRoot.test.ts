@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
 import type { FileOperation, OperationResult } from "../functions/lib/filesFns/operationTypes";
-import { routinePathsTouched } from "../functions/lib/routines/changes";
+import { mayTouchNestedRoutines, routinePathsTouched } from "../functions/lib/routines/changes";
 import { MAX_ROUTINES_PER_WORKSPACE } from "../functions/lib/routines/model";
 import { routinePathsOf } from "../functions/lib/routines/sync";
 import { asUser, copyTree } from "./fixtures.helpers";
@@ -148,5 +148,29 @@ describe("which paths are routine paths", () => {
     expect(routinePathsTouched({ kind: "trash", path: "tex" } as FileOperation, written)).toEqual(["tex"]);
     expect(routinePathsTouched({ kind: "write", path: "1-projects/tex/routines/daily/x.md", text: "" } as FileOperation, written)).toEqual([]);
     expect(routinePathsOf(["tex/about-me.md", "tex/routines/once/x.md", "texas/routines/daily/x.md"])).toEqual(["tex/routines/once/x.md"]);
+  });
+});
+
+describe("Tex's folder nested anywhere (owner, 2026-10-18)", () => {
+  test("its routines are scanned where the folder is, and named under tex/ as every reader asks", async () => {
+    const f = await routineFixture();
+    f.backend.seed("Life/Assistant/routines/daily/standup.md", TEX_TEXT);
+    f.backend.seed("Life/Assistant/about-me.md", "# About me\n");
+    // The folder doing Tex's job, as "Use this folder as… Tex" writes it.
+    await f.t.run(async (ctx) => {
+      await ctx.db.insert("nodes", { workspaceId: f.workspaceId, path: "Life/Assistant", name: "Assistant", kind: "folder", role: "tex", observedAt: 1 });
+    });
+    await signal(f.t, { workspaceId: f.workspaceId, userId: f.editor, paths: [TEX_DAILY] });
+    expect((await rows(f.t, f.workspaceId)).map((row) => row.path)).toEqual([TEX_DAILY]);
+  });
+
+  test("a change inside the nested folder's routines is a routine change, named under tex/", () => {
+    const write = { kind: "write", path: "Life/Assistant/routines/daily/standup.md" } as unknown as FileOperation;
+    const result = { kind: "written" } as unknown as OperationResult;
+    expect(routinePathsTouched(write, result)).toEqual([]);
+    expect(mayTouchNestedRoutines(write, result)).toBe(true);
+    expect(routinePathsTouched(write, result, "Life/Assistant")).toEqual([TEX_DAILY]);
+    const other = { kind: "write", path: "Life/Assistant/notes.md" } as unknown as FileOperation;
+    expect(mayTouchNestedRoutines(other, result)).toBe(false);
   });
 });

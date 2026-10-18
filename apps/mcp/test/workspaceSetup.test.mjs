@@ -260,6 +260,36 @@ test("layout goes to the workspace the call addressed, and only an owner chooses
   assert.match(both.text, /one of template or folder/);
 });
 
+test("folder_job gives a job to a folder an owner names, takes one away, or makes it; refusals come back in words", async () => {
+  const nested = await manage(OWNER, "folder_job", { job: "tex", path: "Life/Assistant/" });
+  assert.equal(nested.isError, false, nested.text);
+  assert.match(nested.text, /Life\/Assistant is the Tex folder now. Nothing moved/);
+  assert.deepEqual([setupCalls().at(-1).job, setupCalls().at(-1).jobPath], ["tex", "Life/Assistant"]);
+
+  const removed = await manage(OWNER, "folder_job", { job: "clients", remove: true });
+  assert.match(removed.text, /there is no Clients folder now/);
+  assert.equal(setupCalls().at(-1).jobPath, null);
+
+  const made = await manage(OWNER, "folder_job", { job: "products" });
+  assert.match(made.text, /added 6-products/);
+
+  const archive = await manage(OWNER, "folder_job", { job: "archive", path: "Life/Old" });
+  assert.equal(archive.isError, true);
+  assert.match(archive.text, /Archive stays at the top/);
+
+  const member = await manage(MEMBER, "folder_job", { job: "projects", path: "Work" }, { context: "@homer-team" });
+  assert.equal(member.isError, true);
+
+  const before = setupCalls().length;
+  const unknown = await manage(OWNER, "folder_job", { job: "recipes" });
+  assert.match(unknown.text, /no "recipes" job.*about\.md/);
+  const both = await manage(OWNER, "folder_job", { job: "clients", path: "Work", remove: true });
+  assert.match(both.text, /path or remove, not both/);
+  const tex = await manage(OWNER, "folder_job", { job: "tex" });
+  assert.match(tex.text, /made the first time it is used/);
+  assert.equal(setupCalls().length, before);
+});
+
 test("a stranger cannot lay out or connect through somebody else's workspace", async () => {
   const before = setupCalls().length;
   const layout = await manage(MEMBER, "layout", { template: "para" }, { context: "@homer" });

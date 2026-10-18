@@ -21,6 +21,7 @@ import { MoreCard } from "../settings/panels/MoreCard";
 import { ConnectedAppsCard } from "../settings/AccountSections";
 import { DomainSection } from "../settings/panels/DomainPanel";
 import { EmojiPanel } from "../settings/panels/EmojiPanel";
+import { BuiltInFoldersPanel } from "../settings/panels/BuiltInFoldersPanel";
 import { VaultPanel } from "../settings/panels/VaultPanel";
 import { SettingsStorageChoice, SettingsVaultImport } from "../storage/SettingsStorageChoice";
 import { ActivityPanel } from "../settings/panels/ActivityPanel";
@@ -450,6 +451,8 @@ export function SettingsPane({
       ) : null}
 
       {show("emoji") ? <EmojiPanel sectioned={section !== undefined} /> : null}
+
+      {show("folders") ? <BuiltInFoldersPanel files={data.files} sectioned={section !== undefined} /> : null}
 
       {show("integrations") ? (
       <>

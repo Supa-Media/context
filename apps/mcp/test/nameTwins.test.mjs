@@ -60,3 +60,13 @@ test("only the folder playing a role is locked; its duplicate moves", async () =
   // Alone, a role's folder is locked whether or not it exists yet.
   assert.match(await protectedFolderRefusal(storeOf([]), "private", rules, NONE, "Inbox"), /Inbox is a built-in folder/);
 });
+
+test("the Inbox's own folders stay put; a folder of a person's own in the Inbox moves", async () => {
+  const store = storeOf(["0-inbox/email/a.md", "0-inbox/ideas/b.md", "recipes/email/c.md"]);
+  const rules = [{ prefix: "0-inbox", vis: "team" }, { prefix: "recipes", vis: "team" }];
+  assert.match(await protectedFolderRefusal(store, "private", rules, NONE, "0-inbox/email"), /Email is one of the Inbox's own folders/);
+  assert.match(await protectedFolderRefusal(store, "private", rules, NONE, "0-inbox/google-chat"), /Google Chat is one of the Inbox's own/);
+  assert.equal(await protectedFolderRefusal(store, "private", rules, NONE, "0-inbox/ideas"), null);
+  assert.equal(await protectedFolderRefusal(store, "private", rules, NONE, "recipes/email"), null);
+  assert.equal(await protectedFolderRefusal(store, "private", rules, NONE, "0-inbox/email/2026"), null);
+});

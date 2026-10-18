@@ -11,7 +11,8 @@
  * connection, never as absent.
  */
 
-import { MAIN_ROLES, ROLE_LABEL, compareTopLevelFolders, folderRole } from "../../../../packages/shared/src/folderRoles.cjs";
+import { JOB_LABEL, MAIN_ROLES, compareTopLevelFolders, folderRole } from "../../../../packages/shared/src/folderRoles.cjs";
+import { GROUP_LABEL, INBOX_PARTS, INBOX_PART_LABEL, JOB_GROUP } from "../../../../packages/shared/src/folderJobInfo.cjs";
 
 /** The order jobs are listed in: the main ones, the extras, the website and meetings, Archive last. */
 const JOB_ORDER = Object.freeze([
@@ -22,12 +23,13 @@ const JOB_ORDER = Object.freeze([
   "clients",
   "teams",
   "products",
+  "tex",
   "website",
   "meetings",
   "archive",
 ]);
 
-const LABEL = Object.freeze({ ...ROLE_LABEL, website: "Website", meetings: "Meetings" });
+const LABEL = JOB_LABEL;
 
 /** One line per job: what lands there and what Context does with it. */
 const JOB_LINE = Object.freeze({
@@ -38,13 +40,22 @@ const JOB_LINE = Object.freeze({
   clients: "one folder per client: who they are, what they need, what was promised.",
   teams: "one folder per team or function: what it owns and how it runs.",
   products: "one folder per product: what it is, who it is for, where it is going.",
+  tex: "Tex's own folder: what it knows about the person (about-me.md), its routines (routines/) and its daily notes. A path written as tex/... lands here.",
   website: "the workspace's website; its pages publish from here, so it keeps its name and place.",
   meetings: "where meeting notes and transcripts are saved.",
   archive: "finished, cancelled or superseded work; archive moves notes here, and nothing is deleted.",
 });
 
-/** Whether a workspace must have the folder: the five main ones can be renamed, moved and nested, never removed. */
-const importance = (job) => (MAIN_ROLES.includes(job) ? "required" : "optional");
+/**
+ * Needed (the five main ones: renamed, moved and nested, never removed), made
+ * when used (Tex, Website, Meetings), or optional (owner, 2026-10-18).
+ */
+const importance = (job) => GROUP_LABEL[JOB_GROUP[job]].toLowerCase();
+
+/** The Inbox's own folders, said once on its line rather than a line each (owner, 2026-10-18). */
+const INBOX_OWN =
+  ` Its own folders ${INBOX_PARTS.map((part) => INBOX_PART_LABEL[part]).join(", ")} stay where they are (never rename or move them);` +
+  " add notes and folders beside them.";
 
 const folderName = (folder) => folder.prefix.replace(/\/+$/, "");
 
@@ -72,12 +83,16 @@ export function systemFoldersSection(survey) {
   if (!found.length && !missing.length) return "";
   const lines = ["System folders (find each by the path here, wherever it is nested, never by its usual name):"];
   for (const job of found) {
-    lines.push(`- ${LABEL[job]} \`${paths[job]}/\` — ${importance(job)}: ${JOB_LINE[job]}`);
+    // Meetings in the Inbox's own `meetings` folder are said on the Inbox's line.
+    if (job === "meetings" && typeof paths.inbox === "string" && paths.meetings === `${paths.inbox}/meetings`) continue;
+    const own = job === "inbox" ? INBOX_OWN : "";
+    lines.push(`- ${LABEL[job]} \`${paths[job]}/\` — ${importance(job)}: ${JOB_LINE[job]}${own}`);
   }
   if (missing.length) {
     lines.push(
-      `Required but not found by this connection: ${missing.join(", ")}. ` +
-        '`manage` action `layout` with `folder` adds a missing one.'
+      `Needed but not found by this connection: ${missing.join(", ")}. ` +
+        "`manage` action `folder_job` with `job` and `path` names the folder that does it (an import's own Inbox, say), " +
+        "or `job` alone makes one."
     );
   }
   return lines.join("\n");

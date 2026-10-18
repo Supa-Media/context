@@ -138,6 +138,7 @@ export function settingsPreview(
     case "premium":
     case "website":
     case "emoji":
+    case "folders":
     case "meetings":
       return null;
   }

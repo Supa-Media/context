@@ -91,6 +91,11 @@ export const ACTIONS = {
       take: plain,
     },
     layout: { tool: "apply_layout", summary: "Lay down a workspace's starting folders, or add one built-in folder.", take: plain },
+    folder_job: {
+      tool: "apply_layout",
+      summary: "Choose which folder does a built-in job (path), make its folder, or take an optional job away (remove).",
+      take: (call) => Object.fromEntries(["job", "path", "remove"].filter((key) => call.args?.[key] !== undefined).map((key) => [key, call.args[key]])),
+    },
     connect_google: { tool: "connect_google", summary: "Get the link where the person connects Gmail or Calendar.", take: plain },
     dream_now: { tool: "dream_now", summary: "Start Tex's dream now: it rewrites tex/about-me.md (owner only).", take: plain },
   },
