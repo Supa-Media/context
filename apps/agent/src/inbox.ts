@@ -39,6 +39,7 @@ import { textsFromAnswer } from "./format";
 import { MAX_INBOUND_ATTACHMENTS } from "./inbound";
 import { lineFor, type LineDeps } from "./line";
 import { pruneMedia } from "./media";
+import { isSendblueChat } from "./sendblue";
 import { PICTURE_FAILED, describePart, partsFor, type Media, type OutgoingPicture, type SendPart } from "./outgoing";
 import { COPY, replyTo, TryLater, type Message, type ReplyDeps } from "./reply";
 import { record } from "./simulator";
@@ -81,6 +82,8 @@ export const CHAT_KEY = "chat";
 /** When this sender was last offered the contact card; Linq asks for once a day at most. */
 export const CARD_KEY = "card";
 export const CARD_EVERY_MS = 24 * 60 * 60 * 1000;
+/** A Sendblue chat's card is a message the person sees, so it goes once per chat, not daily. */
+export const cardSentKey = (chatId: string) => `card-sent:${chatId}`;
 export type RememberedChat = { chatId: string; channel?: "simulator"; at: number };
 
 /** How long a text that is only a photo or file waits for its words. */
@@ -185,17 +188,21 @@ function lineDeps(deps: InboxDeps): LineDeps {
 }
 
 /**
- * Share the line's contact card, so Messages names it "Context" with its icon,
- * once a day at most. Linq needs an outbound message in the chat first, which
- * is why this runs after a reply was sent. The time is kept whether or not Linq
+ * Share the line's contact card, so Messages names it with its icon, once a
+ * day at most. Linq needs an outbound message in the chat first, which is why
+ * this runs after a reply was sent. The time is kept whether or not the line
  * accepted it, so a line with no card set up costs one request a day, not one
- * per text.
+ * per text. On Sendblue the card is a .vcf in the chat (`card.ts`), so once it
+ * went it never goes again in that chat.
  */
 async function offerCard(storage: InboxStorage, chatId: string, deps: InboxDeps): Promise<void> {
   const last = await storage.get<number>(CARD_KEY);
   if (last !== undefined && deps.now() - last < CARD_EVERY_MS) return;
+  const once = isSendblueChat(chatId);
+  if (once && (await storage.get<boolean>(cardSentKey(chatId)))) return;
   await storage.put(CARD_KEY, deps.now());
-  await lineFor(lineDeps(deps), chatId).shareContactCard(chatId);
+  const shared = await lineFor(lineDeps(deps), chatId).shareContactCard(chatId);
+  if (once && shared) await storage.put(cardSentKey(chatId), true);
 }
 
 /** Linq clears the typing bubble after about 85 seconds; this renews it sooner. */

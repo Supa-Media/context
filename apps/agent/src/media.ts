@@ -27,6 +27,8 @@ const EXTENSIONS: Record<string, string> = {
   "image/webp": "webp",
   "image/heic": "heic",
   "image/heif": "heif",
+  // Tex's contact card on the dedicated line (`card.ts`).
+  "text/vcard": "vcf",
 };
 export const TOKEN = /^[0-9a-f]{64}$/;
 export const OBJECT_ID = /^[0-9a-f]{64}$/;

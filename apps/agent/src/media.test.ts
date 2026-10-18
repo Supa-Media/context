@@ -21,6 +21,14 @@ describe("hosted pictures", () => {
     expect((await serveMedia(storage, "../seen:x", 2_000)).status).toBe(404);
   });
 
+  it("serves Tex's contact card as a .vcf", async () => {
+    const storage = new MemoryStorage();
+    const url = await hostPicture(storage, "https://agent.example", OBJECT, { name: "Tex.vcf", mediaType: "text/vcard", data: btoa("BEGIN:VCARD") }, 1_000);
+    expect(url).toMatch(/\.vcf$/);
+    const served = await serveMedia(storage, url.slice(-68, -4), 2_000);
+    expect(served.headers.get("content-type")).toBe("text/vcard");
+  });
+
   it("gives a fresh address each time", async () => {
     const storage = new MemoryStorage();
     const a = await hostPicture(storage, "https://agent.example", OBJECT, picture, 1_000);

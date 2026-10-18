@@ -133,6 +133,14 @@ export async function verifySendblueSecret(secret: string, headers: Headers): Pr
   return diff === 0;
 }
 
+/**
+ * A tapback as words: what Messages sends for a reaction ("Loved “…”",
+ * "Laughed at “…”", "Removed a heart from “…”", "Reacted 🎉 to “…”"). Linq
+ * sent reactions as their own event, which was never answered; this keeps a
+ * heart from getting a reply.
+ */
+const TAPBACK = /^(?:Loved|Liked|Disliked|Laughed at|Emphasi[sz]ed|Questioned|Removed an? .{1,40} from|Reacted .{1,16} to) [“"][\s\S]*[”"]$/u;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -164,6 +172,7 @@ export function parseSendblueInbound(payload: unknown): Inbound {
   if (line === undefined) return { kind: "invalid" };
 
   const text = typeof payload.content === "string" ? payload.content.trim() : "";
+  if (TAPBACK.test(text) && !payload.media_url) return { kind: "ignored", reason: "reaction" };
   const attachments: InboundAttachment[] = [];
   if (typeof payload.media_url === "string" && payload.media_url !== "") {
     try {
