@@ -17,7 +17,7 @@
 
 import { describe, expect, test } from "vitest";
 import { api } from "../../_generated/api";
-import type { Id } from "../../_generated/dataModel";
+import type { Doc, Id } from "../../_generated/dataModel";
 import { folderJobsOf } from "../../functions/lib/nodes/folderJobs";
 import { decideJobChange, isRefusal } from "../../functions/lib/nodes/folderJobSettings";
 import { folderJobs } from "@context/shared/src/folderRoles.cjs";
@@ -26,7 +26,7 @@ import { OWNER, fixture, type Fixture } from "./moveFixture.helpers";
 import type { FileStore } from "../../functions/lib/fileOps/store";
 import { assertNotProtectedFolder } from "../../functions/lib/fileOps/nameTwins";
 import { attachTreeListing } from "../../functions/lib/nodes/treeNames";
-import { keyedFixture, rowOf } from "./keyedFixture.helpers";
+import { keyedFixture } from "./keyedFixture.helpers";
 
 /** A live folder row at `path`, its parent row already there. */
 async function addFolder(f: Fixture, path: string, role?: string): Promise<void> {
@@ -50,6 +50,17 @@ async function addFolder(f: Fixture, path: string, role?: string): Promise<void>
       ...(role === undefined ? {} : { role }),
     });
   });
+}
+
+/** The live row at `path`, as the database holds it. */
+async function rowOf(f: Fixture, path: string): Promise<Doc<"nodes">> {
+  const row = await f.t.run(async (ctx) =>
+    await ctx.db
+      .query("nodes")
+      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.ws).eq("path", path))
+      .unique(),
+  );
+  return row!;
 }
 
 async function jobsNow(f: Fixture) {
