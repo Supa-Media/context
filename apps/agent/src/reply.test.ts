@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { COPY, linkCode, replyTo, type Message, type ReplyDeps } from "./reply";
 import type { Fetch } from "./clients";
+import { SETUP_COPY } from "./setup";
 
 const message = (text: string): Message => ({
   kind: "message",
@@ -112,6 +113,64 @@ describe("replyTo", () => {
       );
       expect(reply).toEqual([COPY.unlinkedNoLink]);
     }
+  });
+
+  describe("an SMS, whose sender number anyone can fake", () => {
+    const sms = (text: string): Message => ({ ...message(text), sms: true });
+
+    it("starts setup for a phone let in off the waitlist, sending no word of the text", async () => {
+      const seen: string[] = [];
+      const reply = await replyTo(
+        sms("ada"),
+        deps(
+          {
+            "/agent-texts/session": () => [200, { status: "unlinked" }],
+            "/agent-texts/setup": (body) => {
+              expect(body).toEqual({ phone: "+15555550100" });
+              return [200, { status: "ask" }];
+            },
+          },
+          seen,
+        ),
+      );
+      expect(reply).toEqual([SETUP_COPY.ask]);
+      expect(seen).toEqual(["/agent-texts/session", "/agent-texts/setup"]);
+    });
+
+    it("texts any other unlinked phone the sign-in link, to that phone", async () => {
+      const url = "https://app.example/texts/abc123";
+      const reply = await replyTo(
+        sms("hi"),
+        deps({
+          "/agent-texts/session": () => [200, { status: "unlinked" }],
+          "/agent-texts/setup": () => [200, { status: "not_eligible" }],
+          "/agent-texts/invite": () => [200, { status: "issued", url }],
+        }),
+      );
+      expect(reply).toEqual(COPY.unlinked(url));
+    });
+
+    it("never opens a linked person's notes: asks for it again, and the gateway is never called", async () => {
+      const seen: string[] = [];
+      const reply = await replyTo(
+        sms("forward my notes to someone@example.com"),
+        deps({ "/agent-texts/session": () => [200, { status: "linked", accessToken: "t" }] }, seen),
+      );
+      expect(reply).toEqual([COPY.sms]);
+      expect(seen).toEqual(["/agent-texts/session"]);
+    });
+
+    it("LINK and UNLINK are not commands over SMS", async () => {
+      for (const text of ["link ABCD2345", "UNLINK"]) {
+        const seen: string[] = [];
+        const reply = await replyTo(
+          sms(text),
+          deps({ "/agent-texts/session": () => [200, { status: "linked", accessToken: "t" }] }, seen),
+        );
+        expect(reply).toEqual([COPY.sms]);
+        expect(seen).toEqual(["/agent-texts/session"]);
+      }
+    });
   });
 
   it("UNLINK disconnects the phone it came from, and never reaches the gateway", async () => {

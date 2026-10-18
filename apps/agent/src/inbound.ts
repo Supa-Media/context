@@ -43,6 +43,11 @@ export type Inbound =
        * guards vouch from the person's own (`apps/mcp/src/agent/quoted.js`).
        */
       quoted?: string;
+      /**
+       * Sendblue: it came as SMS (a green bubble), whose sender number anyone
+       * can fake. Its words are never acted on (`reply.ts`, `smsReply`).
+       */
+      sms?: true;
     }
   | { kind: "ignored"; reason: "event_type" | "group" | "sender" | "service" | "empty" | "reaction" }
   | { kind: "invalid" };
