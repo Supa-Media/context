@@ -89,6 +89,8 @@ export const cardOfferedKey = (chatId: string) => `card-offered:${chatId}`;
 /** Set when someone who texted Tex's old Linq line first texts the new one; their first reply there says so. */
 export const NEW_LINE_KEY = "new-line";
 export const NEW_LINE_TEXT = "Tex here, on my new number. Text me here from now on; my contact card is coming so you can save it.";
+/** Set once this sender was texted the new number on the old line (`newLine.ts`); then the new line needs no such line. */
+export const NEW_LINE_TOLD_KEY = "new-line-told";
 /** A Sendblue chat's Name & Photo, once shared; tried again on the next day's offer until it is. */
 export const profileSharedKey = (chatId: string) => `profile-shared:${chatId}`;
 export type RememberedChat = { chatId: string; channel?: "simulator"; at: number };
@@ -124,7 +126,8 @@ export async function accept(
   await storage.put(seenKey(message.eventId), now);
   await storage.put<Pending>(pendingKey(seq), { message, attempts: 0 });
   const previous = await storage.get<RememberedChat>(CHAT_KEY);
-  if (previous && previous.channel !== "simulator" && !isSendblueChat(previous.chatId) && isSendblueChat(message.chatId)) {
+  const told = (await storage.get<number>(NEW_LINE_TOLD_KEY)) !== undefined;
+  if (previous && !told && previous.channel !== "simulator" && !isSendblueChat(previous.chatId) && isSendblueChat(message.chatId)) {
     await storage.put(NEW_LINE_KEY, message.chatId);
   }
   await storage.put<RememberedChat>(CHAT_KEY, {
