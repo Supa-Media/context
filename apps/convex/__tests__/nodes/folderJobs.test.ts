@@ -6,6 +6,10 @@ import { followedPath } from "../../functions/lib/nodes/settingsFollow";
 import { listed, start } from "./moveFixture.helpers";
 import { NOTE_ID, keyedFixture, liveAt, rowOf } from "./keyedFixture.helpers";
 import type { Fixture } from "./moveFixture.helpers";
+import { OWNER } from "./moveFixture.helpers";
+import { memoryStore } from "../storeStub.helpers";
+import type { FileStore } from "../../functions/lib/fileOps/store";
+import { assertNotProtectedFolder } from "../../functions/lib/fileOps/nameTwins";
 
 // Built-in folders keep their job through a rename or a move (owner, 2026-10-18,
 // `docs/decisions/app-and-console/folder-jobs.md`).
@@ -156,5 +160,31 @@ describe("followedPath", () => {
     expect(followedPath("0-inbox", "0-inbox", "Capture")).toBe("Capture");
     expect(followedPath("0-inbox-old/x", "0-inbox", "Capture")).toBeNull();
     expect(followedPath(undefined, "0-inbox", "Capture")).toBeNull();
+  });
+});
+
+describe("what a built-in folder may do", () => {
+  const guarded = async (path: string, intent: "move" | "remove", keyed: boolean) => {
+    const store = memoryStore() as unknown as FileStore & { seed(key: string, body: string): void };
+    store.seed("1-projects/a.md", "# A\n");
+    store.seed("website/index.md", "# Site\n");
+    store.seed("recipes/a.md", "# R\n");
+    Object.defineProperty(store, "workspaceKeyed", { value: async () => keyed });
+    return await assertNotProtectedFolder(store, path, OWNER, intent).then(
+      () => "allowed",
+      (error: Error) => error.message,
+    );
+  };
+
+  test("a main folder can be renamed or moved where notes are kept by id, never removed", async () => {
+    expect(await guarded("1-projects", "move", true)).toBe("allowed");
+    expect(await guarded("1-projects", "move", false)).toMatch(/can't be renamed or moved here yet/);
+    expect(await guarded("1-projects", "remove", true)).toMatch(/can't be archived or deleted/);
+  });
+
+  test("the website folder keeps its name; own folders are free", async () => {
+    expect(await guarded("website", "move", true)).toMatch(/Website keeps its name/);
+    expect(await guarded("recipes", "move", false)).toBe("allowed");
+    expect(await guarded("recipes", "remove", false)).toBe("allowed");
   });
 });

@@ -141,9 +141,9 @@ stop paying.
 ## FIVE RULES THE TOOLS CANNOT TEACH YOU IN TIME
 
 1. **Their folders are theirs.** Do not assume a layout. Context workspaces
-   have five built-in PARA folders (Inbox, Projects, Areas, Resources, Archive,
-   usually numbered, Archive last) that cannot be renamed or deleted, but a
-   bucket someone organized years before this product may not have them all.
+   have five built-in PARA folders (Inbox, Projects, Areas, Resources, Archive)
+   that cannot be deleted, but people rename, move and nest them, so find each
+   by its job, never by a name like \`0-inbox\`.
    \`orient\` names which folder plays which role and reports the real shape, and
    their front page states their conventions. Follow those, and where they are silent,
    ask rather than invent a filing system for somebody else's notes.

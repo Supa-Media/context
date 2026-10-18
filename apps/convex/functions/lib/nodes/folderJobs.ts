@@ -35,6 +35,11 @@ import {
 } from "@context/shared/src/folderRoles.cjs";
 import { MEETINGS_FOLDER } from "../../../../../packages/meetings/src/paths.js";
 
+function lastSegment(path: string): string {
+  const slash = path.lastIndexOf("/");
+  return slash < 0 ? path : path.slice(slash + 1);
+}
+
 /** Root rows read to decide a name's job: far past any real root, a bound on a loop. */
 const ROOT_ROWS = 2_000;
 
@@ -131,7 +136,11 @@ export async function roleForNewFolder(
   const top = node.parentId === undefined && !node.path.includes("/");
   const named = top ? jobOfName(node.path) : null;
   if (!top) {
-    // One indexed read for every folder made below the root: a meetings folder that exists ends it.
+    // A sweep makes folders by the thousand: only one named as the meetings setting's last segment reads on.
+    const workspace = await db.get(workspaceId as Id<"workspaces">);
+    const setting = typeof workspace?.meetingsFolder === "string" && workspace.meetingsFolder !== "" ? workspace.meetingsFolder : MEETINGS_FOLDER;
+    if (lastSegment(node.path) !== lastSegment(setting.replace(/\/+$/, ""))) return undefined;
+    // One indexed read more: a meetings folder that exists ends it.
     const meetings = await db
       .query("nodes")
       .withIndex("by_workspace_role", (q) => q.eq("workspaceId", workspaceId).eq("role", "meetings"))

@@ -29,8 +29,6 @@ import type { PrivacyState } from "./lib/fileOps/privacyState";
 import type { Visibility } from "./lib/privacy";
 import { checkFolderIcon, visibleFolderIcons } from "./lib/fileOps/folderIcons";
 import { toConvexError } from "./lib/filesFns/operationErrors";
-import { FileOpError } from "./lib/fileOps/errors";
-import { type FolderJobs, jobAt } from "@context/shared/src/folderRoles.cjs";
 import { servedNodesStore } from "./lib/nodes/manifestStore";
 import { NO_BUCKET, servedStoreOrLoading } from "./lib/nodes/treeLoading";
 
@@ -102,13 +100,6 @@ export const set = action({
         hasEmoji: async (name) =>
           (await ctx.runQuery(internal.functions.smallData.emojiLeaf, { workspaceId: args.workspaceId, name })) !== null,
       });
-      // A built-in folder keeps its drawn icon, so its job reads the same whatever it is called (owner, 2026-10-18).
-      if (args.icon !== null) {
-        const jobs = await ctx.runQuery(internal.functions.nodesGateway.folderJobs, { workspaceId: args.workspaceId });
-        if (jobAt(jobs as FolderJobs, path) !== null) {
-          throw new FileOpError("PATH_INVALID", "Built-in folders keep their drawn icon, so they always look like what they do.");
-        }
-      }
     } catch (error) {
       throw toConvexError(error);
     }
