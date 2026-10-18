@@ -72,7 +72,7 @@ export async function runReportGateChecks(check) {
         typeof filed.texts === "string" &&
         filed.texts.includes("Them: find my avocado note") &&
         filed.texts.includes("Tex: I couldn't find a note about avocados.") &&
-        yes.body?.answer === "Done: send a bug report to the Context team.",
+        yes.body?.answer === "Done, I sent a bug report to the Context team.",
     );
 
     model.install([report({ message: "The link in your last text did not open." }), { text: "Written up." }]);
