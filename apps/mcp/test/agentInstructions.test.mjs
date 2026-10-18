@@ -215,6 +215,7 @@ test("an overgrown file is refused, so it cannot crowd out the question", async 
   const system = await systemFor(TOKEN_TEXTS);
   assert.ok(!system.includes(WHO));
   // A bound on the built-in words alone, far under the 40,000 refused: raised
-  // from 5,000 when texted turns were told about their check-ins (heartbeat.js).
-  assert.ok(system.length < 6_000, `system was ${system.length} characters`);
+  // from 5,000 when texted turns were told about their check-ins (heartbeat.js),
+  // and from 6,000 when they were told what a text about their pings means (checkIns.js).
+  assert.ok(system.length < 6_500, `system was ${system.length} characters`);
 });
