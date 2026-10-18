@@ -60,6 +60,7 @@ export type RoutineBarView =
 const WENT_WELL = new Set(["answered", "skipped", "finished"]);
 
 export const WRITER_GONE_WORDS = "Stopped: the writer can't edit here any more";
+export const WRITER_UNKNOWN_WORDS = "Waiting: save it once so it runs as you";
 
 /**
  * The bar for the note at `path` with this text.
@@ -78,11 +79,11 @@ export function routineBarView(options: {
   if (found.kind === "unscheduled") return { kind: "unscheduled", line: found.reason };
   const { settings, problems } = routineSettings(options.text, found.cadence);
   const row = options.row;
-  const stopped = row?.lastOutcome === "writer_gone";
+  const stopped = row?.lastOutcome === "writer_gone" || row?.lastOutcome === "writer_unknown";
   let last: string;
   let mark: LastRunMark = null;
   if (stopped) {
-    last = WRITER_GONE_WORDS;
+    last = row?.lastOutcome === "writer_unknown" ? WRITER_UNKNOWN_WORDS : WRITER_GONE_WORDS;
     mark = "failed";
   } else if (settings.done) {
     // A one-off that has run: the schedule line already says when.
@@ -134,6 +135,8 @@ export function runWords(run: RoutineRun, send: RoutineRow["send"] = "text"): { 
       return { label: "Not texted", detail: "Nobody to text yet. Text the assistant first." };
     case "writer_gone":
       return { label: "Stopped", detail: "The writer can't edit here any more." };
+    case "writer_unknown":
+      return { label: "Waiting", detail: "Nobody was seen writing it. Save it once so it runs as you." };
     default:
       return { label: "Didn't run", detail: null };
   }

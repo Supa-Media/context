@@ -18,7 +18,7 @@
 import { describe, expect, test } from "@jest/globals";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { pauseEdit, routineBarView, runWhen, runWords, WRITER_GONE_WORDS, type RoutineRow } from "../features/console/routines/model";
+import { pauseEdit, routineBarView, runWhen, runWords, WRITER_GONE_WORDS, WRITER_UNKNOWN_WORDS, type RoutineRow } from "../features/console/routines/model";
 import { timeZoneToStore } from "../features/console/routines/TimeZoneSync";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -119,6 +119,18 @@ describe("the bar's words", () => {
       last: WRITER_GONE_WORDS,
       mark: "failed",
       canRun: false,
+    });
+  });
+
+  test("a shared routine nobody was seen writing says it waits for a save, and cannot be run", () => {
+    expect(view(TEXT, row({ lastOutcome: "writer_unknown", nextRunAt: null }))).toMatchObject({
+      last: WRITER_UNKNOWN_WORDS,
+      mark: "failed",
+      canRun: false,
+    });
+    expect(runWords({ at: NOW, outcome: "writer_unknown", text: "" })).toEqual({
+      label: "Waiting",
+      detail: "Nobody was seen writing it. Save it once so it runs as you.",
     });
   });
 

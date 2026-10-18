@@ -66,7 +66,7 @@ export const routineTables = {
     /** Null when paused, when its writer is gone, or when it never runs. */
     nextRunAt: v.union(v.number(), v.null()),
     lastRunAt: v.optional(v.number()),
-    /** A code from `ROUTINE_OUTCOMES` or `writer_gone`. Never text. */
+    /** A code from `ROUTINE_OUTCOMES`, `writer_gone` or `writer_unknown`. Never text. */
     lastOutcome: v.optional(v.string()),
     /** The lease: when a run was handed out, and the id its result names. */
     claimedAt: v.optional(v.number()),

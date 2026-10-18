@@ -20,6 +20,7 @@ import {
   RECONCILE_STALE_MS,
   ROUTINE_SCAN_ROOTS,
   WRITER_GONE,
+  WRITER_UNKNOWN,
   asTexPath,
   effectiveTimeZone,
   isUnderRoutines,
@@ -230,7 +231,8 @@ export async function scanRoutines(
  * last run, and picks the writer: the signal's if they can still write, else
  * the row's if they can still write, else — only for a routine with no row
  * yet — the workspace's owner, marked `fallback` so its `to:` is ignored
- * and only the owner is texted. A row whose writer has gone is left not
+ * and only the owner is texted. A fallback runs only in a personal workspace;
+ * in a shared one it waits (`writer_unknown`) for someone who can write. A row whose writer has gone is left not
  * running (`writer_gone`) until someone who can write saves it: handing it to
  * the owner would run an editor's words with the owner's private reach.
  */
@@ -243,7 +245,8 @@ export async function commitRoutinesHandler(
     writers: Writer[];
   },
 ): Promise<{ upserted: number; deleted: number }> {
-  if ((await ctx.db.get(args.workspaceId)) === null) return { upserted: 0, deleted: 0 };
+  const workspace = await ctx.db.get(args.workspaceId);
+  if (workspace === null) return { upserted: 0, deleted: 0 };
   const now = Date.now();
   const existing = await ctx.db
     .query("routines")
@@ -279,8 +282,17 @@ export async function commitRoutinesHandler(
       upserted += 1;
       continue;
     }
+    // In a shared workspace the owner is not the person a routine nobody was
+    // seen writing belongs to: running it as them texted one person what
+    // another asked for. It waits until someone who can write saves it.
+    const waits = writerSource === "fallback" && !fallsBackToOwner(workspace);
     const zone = effectiveTimeZone(schedule.timeZone, await accountTimeZone(ctx, writer));
-    const nextRunAt = nextRunFor(schedule, zone, now);
+    const nextRunAt = waits ? null : nextRunFor(schedule, zone, now);
+    const outcome = waits
+      ? { lastOutcome: WRITER_UNKNOWN }
+      : row !== undefined && (row.lastOutcome === WRITER_GONE || row.lastOutcome === WRITER_UNKNOWN)
+        ? { lastOutcome: undefined }
+        : {};
     if (row === undefined) {
       await ctx.db.insert("routines", {
         workspaceId: args.workspaceId,
@@ -288,6 +300,7 @@ export async function commitRoutinesHandler(
         writerUserId: writer,
         writerSource,
         nextRunAt,
+        ...outcome,
         updatedAt: now,
       });
     } else {
@@ -296,7 +309,7 @@ export async function commitRoutinesHandler(
         writerUserId: writer,
         writerSource,
         nextRunAt,
-        ...(row.lastOutcome === WRITER_GONE ? { lastOutcome: undefined } : {}),
+        ...outcome,
         updatedAt: now,
       });
     }
@@ -312,6 +325,16 @@ export async function commitRoutinesHandler(
     }
   }
   return { upserted, deleted };
+}
+
+/**
+ * Whether a routine nobody was seen writing may run as the workspace's owner:
+ * only in a personal workspace, whose owner is the one person it is for. In a
+ * shared one any owner or editor could have written it, and its answer would
+ * reach whoever happens to own the workspace.
+ */
+export function fallsBackToOwner(workspace: Pick<Doc<"workspaces">, "kind">): boolean {
+  return workspace.kind === "personal";
 }
 
 /**
