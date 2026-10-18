@@ -83,6 +83,12 @@ export async function startRowTrash(
     return { from: path, to: recorded.to, paths: [recorded.to], queued: moves.length, rowed: true };
   }
   if (recorded !== null || (await ctx.runQuery(internal.functions.nodeRowMoves.rowMoveOverlaps, { workspaceId, from: path, to: path }))) {
+    // "Something there is still moving" is itself something to know: said before the caller's clearance is
+    // read, it tells a `team` caller that a private folder exists and is being moved, where a free name is
+    // refused as not found. The name is judged first, and a caller who may not see it is told that instead.
+    const judged = await loadPrivacyState(store);
+    if (judged.invalid) throw new FileOpError("PRIVACY_MANIFEST_INVALID", "The privacy rules could not be read; the trash was not made.");
+    if (!canSee(path, clearance.scope, judged.rules, judged.overrides, clearance.names)) throw notFound();
     throw refusal("busy", path, true);
   }
   if (plan.kind === null) throw notFound();
