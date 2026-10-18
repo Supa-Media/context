@@ -136,4 +136,27 @@ describe("/gateway/jobs/* image uploads", () => {
     });
     expect(moves).toEqual([]);
   });
+
+  test("it opens while the rows judge privacy, when the held rules carry the rows' version", async () => {
+    // Production since 2026-10-17: the privacy authority is on and the rows
+    // judge, so `nodesPrivacy.authority` answers `accessVersion` beside the
+    // rules. `openGatewayJob`'s return validator once lacked it, so every open
+    // threw after the claim spent the ticket: 503, then 409 on the retry.
+    const { t, aliceWs } = await twoConnectedTenants();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("nodeMigration", { paused: false, privacyAuthority: true, accessSource: "rows", updatedAt: 1 });
+      await ctx.db.insert("nodePrivacy", {
+        workspaceId: aliceWs as Id<"workspaces">,
+        etag: "ctx-1",
+        invalid: false,
+        folders: [],
+        notes: [],
+        observedAt: 1,
+      });
+    });
+    const ticket = (await mint(t, ACCESS_A, aliceWs)).ticket as string;
+    const opened = await open(t, ticket, SHA);
+    expect(opened?.binding).toMatchObject({ workspaceId: aliceWs, bucket: "tenant-a" });
+    expect((opened as { privacy?: { accessVersion?: number } }).privacy?.accessVersion).toEqual(expect.any(Number));
+  });
 });
