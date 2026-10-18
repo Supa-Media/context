@@ -20,6 +20,7 @@ import {
   RECONCILE_STALE_MS,
   ROUTINE_SCAN_ROOTS,
   WRITER_GONE,
+  asTexPath,
   effectiveTimeZone,
   isUnderRoutines,
   frontMatterFromProps,
@@ -29,6 +30,7 @@ import {
 } from "./model";
 import { accountTimeZone, userForActorName, workspaceOwner, writingRole } from "./access";
 import { PROPS_AT_PATHS } from "../nodes/facts";
+import { TEX_FOLDER } from "@context/shared/src/folderRoles.cjs";
 
 type Writer = { path: string; userId: Id<"users"> };
 
@@ -176,8 +178,11 @@ export async function scanRoutines(
   };
   let complete = true;
   const files: string[] = [];
+  // `tex/routines` is listed where Tex's folder is now (owner, 2026-10-18).
+  const tex = (await ctx.runQuery(internal.functions.nodesGateway.folderJobs, { workspaceId })).jobs.tex ?? null;
+  const there = (path: string) => (tex !== null && (path === TEX_FOLDER || path.startsWith(`${TEX_FOLDER}/`)) ? `${tex}${path.slice(TEX_FOLDER.length)}` : path);
   scan: for (const rootPath of ROUTINE_SCAN_ROOTS) {
-    const root = await list(rootPath);
+    const root = await list(there(rootPath));
     if (root.truncated) complete = false;
     for (const folder of root.entries) {
       if (folder.kind !== "folder") continue;
@@ -199,7 +204,8 @@ export async function scanRoutines(
   // are behind its last write waits, and the props landing scan it again.
   const schedules: RoutineSchedule[] = [];
   const waiting: string[] = [];
-  const candidates = files.slice(0, MAX_ROUTINES_PER_WORKSPACE).filter((path) => scheduleFromNote(path, "") !== null);
+  // Rows read the tree at the real path; a routine is named under `tex/` (`asTexPath`).
+  const candidates = files.slice(0, MAX_ROUTINES_PER_WORKSPACE).filter((path) => scheduleFromNote(asTexPath(path, tex), "") !== null);
   for (let at = 0; at < candidates.length; at += PROPS_AT_PATHS) {
     const rows = await ctx.runQuery(internal.functions.nodeFacts.propsNow, {
       workspaceId,
@@ -207,10 +213,10 @@ export async function scanRoutines(
     });
     for (const row of rows) {
       if (!row.current) {
-        waiting.push(row.path);
+        waiting.push(asTexPath(row.path, tex));
         continue;
       }
-      const schedule = scheduleFromNote(row.path, row.sealed ? "" : frontMatterFromProps(row.props));
+      const schedule = scheduleFromNote(asTexPath(row.path, tex), row.sealed ? "" : frontMatterFromProps(row.props));
       if (schedule !== null) schedules.push(schedule);
     }
   }
