@@ -18,6 +18,9 @@
  *   only reaches people who texted it first, and this is the record of that.
  * - `card` holds a timestamp, never text: when this sender was last offered
  *   the line's contact card, so it is offered at most once a day.
+ * - `ready` holds the phone, the chat id and times, never text, while Tex owes
+ *   somebody set up by text the "your notes are ready" text (`ready.ts`); it
+ *   goes when that text is sent, or after twenty minutes.
  * Conversation history is not kept here at all; the gateway keeps it in the
  * person's own bucket.
  *
@@ -35,6 +38,7 @@ import { MAX_INBOUND_ATTACHMENTS } from "./inbound";
 import { PICTURE_FAILED, describePart, partsFor, sendLinqMedia, uploadLinqPicture, type OutgoingPicture, type SendPart } from "./outgoing";
 import { COPY, replyTo, TryLater, type Message, type ReplyDeps } from "./reply";
 import { record } from "./simulator";
+import { oweReadyText } from "./ready";
 
 /** The subset of `DurableObjectStorage` this uses, so tests can pass a Map. */
 export type InboxStorage = {
@@ -43,6 +47,8 @@ export type InboxStorage = {
   delete(key: string): Promise<boolean>;
   list<T>(options: { prefix: string }): Promise<Map<string, T>>;
   setAlarm(scheduledTime: number): Promise<void>;
+  /** When the alarm is set for, if it is; absent in tests that do not need it. */
+  getAlarm?(): Promise<number | null>;
 };
 
 export type InboxDeps = ReplyDeps & { linqApiKey: string; now: () => number };
@@ -202,7 +208,14 @@ export const WORKING_NUDGE_MS = 40_000;
  */
 async function answering(message: Message, deps: InboxDeps, storage: InboxStorage): Promise<SendPart[]> {
   let pictures: OutgoingPicture[] = [];
-  const texts = await answerTexts(message, { ...deps, onPictures: (sent) => void (pictures = sent) }, storage);
+  // Setup started their bucket: Tex owes this chat a text once it is ready (`ready.ts`).
+  const onSetUp = () =>
+    oweReadyText(
+      storage,
+      { phone: message.from, chatId: message.chatId, ...(message.channel === "simulator" ? { channel: "simulator" as const } : {}) },
+      deps.now(),
+    );
+  const texts = await answerTexts(message, { ...deps, onSetUp, onPictures: (sent) => void (pictures = sent) }, storage);
   if (pictures.length === 0) return texts;
   // The simulator has no Linq to upload to; its log says a picture went.
   const upload =

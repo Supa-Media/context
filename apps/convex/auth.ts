@@ -9,6 +9,7 @@ import { scheduleSignupAlert } from "./functions/signupAlerts";
 import { scheduleXConversion } from "./functions/xConversions";
 import { scheduleMetaConversion } from "./functions/metaConversions";
 import { checkCode } from "./functions/phoneCodes";
+import { SIGN_IN_CODE_LENGTH, checkLinkCode } from "./functions/textSignIn";
 
 // Before the providers are built, because they read `DEV_OTP_BYPASS` while
 // they are being built. See `functions/lib/otpBypass.ts` for why this is a
@@ -61,9 +62,13 @@ export const { auth, signIn, signOut, store, isAuthenticated } = createSupaAuth(
     findUserByPhone: (ctx, phone) => ctx.runMutation(internal.functions.phoneSignIn.signInUser, { phone }) as never,
     mayCheck: (ctx, phone) => ctx.runMutation(internal.functions.phoneSignIn.spendCheck, { phone }),
     // Context texts its own codes (`functions/phoneCodes.ts`), so it checks them too.
-    check: (phone, code, ctx) => phone === APP_REVIEW_PHONE
-      ? Promise.resolve(appReviewPhoneEnabled() && code === "000000" ? "approved" as const : "wrong" as const)
-      : checkCode(ctx as never, phone, code),
+    // A ten-digit code comes only from opening a link Tex texted
+    // (`functions/textSignIn.ts`) and is checked against those alone.
+    check: async (phone, code, ctx) => {
+      if (phone === APP_REVIEW_PHONE) return appReviewPhoneEnabled() && code === "000000" ? "approved" : "wrong";
+      if (code.length === SIGN_IN_CODE_LENGTH) return await checkLinkCode(ctx as never, phone, code);
+      return await checkCode(ctx as never, phone, code);
+    },
   },
   resend: {
     fromAddress: process.env.AUTH_EMAIL_FROM ?? "auth@context.com",

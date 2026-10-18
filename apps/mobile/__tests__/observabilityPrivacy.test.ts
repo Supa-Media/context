@@ -28,6 +28,7 @@ describe("observability privacy boundary", () => {
     expect(clean).toContain("/invite/:token");
     expect(redactTelemetryText("https://context.lc/join/referral-secret")).toBe("https://context.lc/join/:token");
     expect(redactTelemetryText("https://context.lc/texts/texted-link-secret")).toBe("https://context.lc/texts/:token");
+    expect(redactTelemetryText("https://context.lc/signin/texted-sign-in-secret")).toBe("https://context.lc/signin/:token");
   });
 
   test("redacts sensitive keys recursively without deleting useful diagnostics", () => {
@@ -173,6 +174,7 @@ describe("observability privacy boundary", () => {
     ["/console/@supa/settings", "/console/:context/settings"],
     ["/invite/a-real-capability", "/invite/:token"],
     ["/texts/a-texted-sign-in-link", "/texts/:token"],
+    ["/signin/a-texted-sign-in-link", "/signin/:token"],
     ["/join/a-referral-capability", "/join/:token"],
     ["/s/a-share-capability", "/s/:token"],
     ["/connect/google", "/connect/google"],

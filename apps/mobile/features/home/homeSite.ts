@@ -295,6 +295,7 @@ export const APP_SEGMENTS: ReadonlySet<string> = new Set([
   "preview",
   "privacy",
   "s",
+  "signin",
   "stop-new-email",
   "support",
   "terms",

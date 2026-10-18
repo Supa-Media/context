@@ -3,6 +3,7 @@ import { accept, CARD_EVERY_MS, drain, MAX_ANSWER_ATTEMPTS, MAX_PENDING, MAX_SEN
 import { COPY, type Message } from "./reply";
 import type { Fetch } from "./clients";
 import { MemoryStorage } from "./memoryStorage.testing";
+import { READY_FIRST_MS, READY_KEY } from "./ready";
 
 const msg = (eventId: string, text = "hi"): Message => ({
   kind: "message",
@@ -29,6 +30,7 @@ function deps(opts: {
   progress?: string[];
   agentStatus?: () => number;
   sessionStatus?: () => number;
+  setup?: unknown;
 }): InboxDeps {
   const fetcher = (async (url: string, init: RequestInit) => {
     const path = new URL(url).pathname;
@@ -54,7 +56,7 @@ function deps(opts: {
       return Response.json(opts.unlinked ? { status: "unlinked" } : { status: "linked", accessToken: "t" });
     }
     // A phone nobody may set up by text (`setup.ts`) gets the sign-in link.
-    if (path === "/agent-texts/setup") return Response.json({ status: "not_eligible" });
+    if (path === "/agent-texts/setup") return Response.json(opts.setup ?? { status: "not_eligible" });
     if (path === "/agent-texts/invite") {
       return Response.json({ status: "issued", url: "https://app.example/texts/abc123" });
     }
@@ -340,5 +342,24 @@ describe("inbox", () => {
       "https://live.example/s/abc",
       "answer to log in to chatgpt for me",
     ]);
+  });
+});
+
+describe("setting up by text", () => {
+  it("owes the chat the ready text once setup starts a bucket, and arms the alarm for it", async () => {
+    const storage = new MemoryStorage();
+    const sent: Sent[] = [];
+    await accept(storage, msg("e1", "ada"), 1_000);
+    await drain(storage, deps({ sent, unlinked: true, now: 5_000, setup: { status: "set_up", handle: "ada", storage: "on_the_way" } }));
+    expect(sent).toHaveLength(1);
+    expect(await storage.get(READY_KEY)).toMatchObject({ phone: "+15555550100", chatId: "chat_1", since: 5_000 });
+    expect(storage.alarms).toContain(5_000 + READY_FIRST_MS);
+  });
+
+  it("owes nothing when no bucket was started", async () => {
+    const storage = new MemoryStorage();
+    await accept(storage, msg("e1", "ada"), 1_000);
+    await drain(storage, deps({ sent: [], unlinked: true, now: 5_000, setup: { status: "set_up", handle: "ada", storage: "none" } }));
+    expect(await storage.get(READY_KEY)).toBeUndefined();
   });
 });

@@ -89,7 +89,7 @@ export const SETUP_COPY = {
   setUp: (handle: string, storage: "on_the_way" | "none", linked = true) => {
     const where = linked ? "at the link below" : "in the Context app";
     return storage === "on_the_way"
-      ? `You're all set, @${handle}. I'm getting your notes ready, which takes a couple of minutes. Then text me "ready" and we'll connect your email, so I can get to know you. Your workspace is ${where}. If this isn't you, text UNLINK.`
+      ? `You're all set, @${handle}. I'm getting your notes ready, which takes a couple of minutes. I'll text you when it's done. If this isn't you, text UNLINK.`
       : `You're all set, @${handle}. One more step before I can keep notes for you: open your workspace ${where} and connect storage. If this isn't you, text UNLINK.`;
   },
 };
@@ -106,6 +106,8 @@ export function setupReply(answer: Exclude<SetupAnswer, { status: "not_eligible"
       if (answer.reason === "reserved") return [SETUP_COPY.reserved(answer.handle)];
       return [SETUP_COPY.format];
     case "set_up":
+      // Notes on the way: the text that follows carries the link that signs them in (`ready.ts`).
+      if (answer.storage === "on_the_way") return [SETUP_COPY.setUp(answer.handle, answer.storage)];
       return answer.url === undefined
         ? [SETUP_COPY.setUp(answer.handle, answer.storage, false)]
         : [SETUP_COPY.setUp(answer.handle, answer.storage), answer.url];

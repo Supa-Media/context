@@ -284,6 +284,8 @@ const ROUTES: Record<string, Coverage> = {
   "invite/index.tsx": { kind: "screen", mount: () => createElement(InviteListScreen) },
   "invite/[token].tsx": { kind: "screen", mount: () => createElement(InviteScreen) },
   "s/[token].tsx": { kind: "screen", mount: () => createElement(ShareScreen) },
+  // No token is mocked, so the texted sign-in link is spent and paints a bare `Redirect`.
+  "signin/[token].tsx": { kind: "gate", mount: () => createElement(requireRoute("signin/[token].tsx")) },
   "texts/[token].tsx": { kind: "screen", mount: () => createElement(requireRoute("texts/[token].tsx")) },
   "vault/[token].tsx": { kind: "screen", mount: () => createElement(requireRoute("vault/[token].tsx")) },
   "tex/[handle].tsx": { kind: "screen", mount: () => createElement(requireRoute("tex/[handle].tsx")) },
@@ -346,6 +348,7 @@ const ROUTES: Record<string, Coverage> = {
   "invite/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("invite/_layout.tsx")) },
   "(auth)/join/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("(auth)/join/_layout.tsx")) },
   "s/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("s/_layout.tsx")) },
+  "signin/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("signin/_layout.tsx")) },
   "texts/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("texts/_layout.tsx")) },
   "vault/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("vault/_layout.tsx")) },
   "tex/_layout.tsx": { kind: "gate", mount: () => createElement(requireRoute("tex/_layout.tsx")) },

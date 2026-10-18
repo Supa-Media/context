@@ -759,6 +759,16 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     marker: "the link an owner pasted into a chat",
   },
   {
+    route: "/signin/[token]",
+    file: "app/signin/[token].tsx",
+    reachable: false,
+    reason:
+      "The sign-in link Tex texts once the notes of somebody set up by text " +
+      "are ready. The token exists in that one text message and nowhere in " +
+      "the app, and it signs in only the phone it was texted to.",
+    marker: "the link Tex texts once a texted setup's notes are ready",
+  },
+  {
     route: "/texts/[token]",
     file: "app/texts/[token].tsx",
     reachable: false,

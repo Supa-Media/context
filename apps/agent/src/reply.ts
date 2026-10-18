@@ -52,6 +52,8 @@ export type ReplyDeps = {
   onProgress?: (text: string) => Promise<void>;
   /** Converts a photo the model cannot read (`attachments.ts`); absent, it is described instead. */
   images?: ImagesLike;
+  /** Told when setup started a bucket, so the ready text is owed (`ready.ts`); absent, none is. */
+  onSetUp?: () => Promise<void>;
   /** Handed the pictures an answer texts back (`outgoing.ts`); absent, they are not sent. */
   onPictures?: (pictures: OutgoingPicture[]) => void;
   /**
@@ -105,7 +107,7 @@ export const COPY = {
    * `unavailable`, which reads as broken on the first try.
    */
   noStorage:
-    "Your notes aren't ready for me yet. If you just signed up, they're still being set up, so text me again in a couple of minutes. Otherwise, reconnect your storage in Context.",
+    "Your notes aren't ready for me yet. If you just signed up, they're still being set up, and I'll text you as soon as they're ready. Otherwise, reconnect your storage in Context.",
 };
 
 export function linkCode(text: string): string | null {
@@ -158,6 +160,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
         message.from,
         handleCandidate(message.text),
       );
+      if (setup.status === "set_up" && setup.storage === "on_the_way") await deps.onSetUp?.();
       if (setup.status !== "not_eligible") return setupReply(setup);
       const invite = await requestLinkInvite(
         deps.fetch,

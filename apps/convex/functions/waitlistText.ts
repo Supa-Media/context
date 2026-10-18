@@ -41,9 +41,19 @@ export function admittedText(signInUrl: string, texLine: string | null = null): 
   if (texLine !== null) {
     // One call to action: the sign-in link started a different setup from
     // texting Tex, which confused new people (onboarding test, 2026-10-17).
-    return `You're in! Text Tex at ${texLine} and Tex will set you up.`;
+    return `You're in! Text Tex at ${readableLine(texLine)} and Tex will set you up.`;
   }
   return `You're in! Context is ready for you. Sign in with this phone number at ${signInUrl}`;
+}
+
+/**
+ * Tex's number as people write it, country code first so a phone draws it as
+ * a number to tap (Dev2, 2026-10-18): `+1 (555) 555-0199` for a North American
+ * number, the E.164 form for any other.
+ */
+export function readableLine(e164: string): string {
+  const us = /^\+1(\d{3})(\d{3})(\d{4})$/.exec(e164);
+  return us === null ? e164 : `+1 (${us[1]}) ${us[2]}-${us[3]}`;
 }
 
 export const textFacts = internalQuery({

@@ -577,6 +577,7 @@ describe("every route is reachable, or says why not", () => {
       "/preview/onboarding",
       "/preview/onboarding/[step]",
       "/s/[token]",
+      "/signin/[token]",
       "/stop-new-email",
       "/tex/[handle]",
       "/texts/[token]",

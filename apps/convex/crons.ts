@@ -185,6 +185,12 @@ crons.interval(
 );
 
 crons.interval(
+  "sweep expired sign-in links Tex texted",
+  { hours: 1 },
+  internal.functions.textSignIn.purgeExpired,
+);
+
+crons.interval(
   "sweep text setups nobody finished",
   { hours: 1 },
   internal.functions.textSetup.purgeTextSetups,
