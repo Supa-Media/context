@@ -22,7 +22,7 @@
  */
 
 import { MAIN_ROLES, isMainFolder, isProtectedFolder, topLevelRole, type RowRole } from "@context/shared/src/folderRoles.cjs";
-import { folderPlace, jobOfPath, type JobListings } from "./jobIcons/folderJobs";
+import { folderPlace, isTwinPath, jobOfPath, type JobListings } from "./jobIcons/folderJobs";
 import type { MenuContext } from "./menu";
 import type { MenuItem } from "./menuItem";
 import { makeItem } from "./menuMake";
@@ -66,12 +66,13 @@ export function folderMenuFacts(
     canShare?: boolean;
   },
   descending = false,
-): Pick<MenuContext, "topLevelFolders" | "jobOf" | "folderPlace" | "canSetJob"> {
+): Pick<MenuContext, "topLevelFolders" | "jobOf" | "isTwin" | "folderPlace" | "canSetJob"> {
   const { listings } = files;
   const topLevelFolders = rootFolderNames(listings);
   return {
     ...(topLevelFolders === undefined ? {} : { topLevelFolders }),
     jobOf: (path: string) => jobOfPath(listings, path),
+    isTwin: (path: string) => isTwinPath(listings, path),
     // Owner only, as Share is (`canShare`): a job decides where everybody's mail lands.
     canSetJob: files.canShare === true && files.setFolderJob !== undefined,
     ...(files.moveFolder === undefined

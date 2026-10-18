@@ -372,6 +372,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Moving to the trash is a queued move](./app-and-console/queued-trash.md) (2026-10-14)
 - [The staff console's AI tab is the `ai/` folder of `@context-lc`](./app-and-console/admin-ai.md) (2026-10-16)
 - [Built-in folders are found by their job, not their name](./app-and-console/folder-jobs.md) (2026-10-18)
+- [Archive keeps the workspace's shape](./app-and-console/folder-jobs.md#archive-keeps-the-workspaces-shape) (2026-10-18)
 - [Experiments, case groups and how sure a score is](./app-and-console/admin-ai.md#experiments-case-groups-and-how-sure-a-score-is-boards-17-22) (2026-10-16)
 - [Names, existence and front matter come only from the tree; a rename rewrites the heading inside the move](./app-and-console/one-name.md) (2026-10-14)
 - [The bucket catches up behind the tree on its own, within five hours](./app-and-console/storage-move-engine.md#the-bucket-catches-up-behind-the-tree-on-its-own-within-five-hours) (2026-10-14)

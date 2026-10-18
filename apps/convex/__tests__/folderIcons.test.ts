@@ -179,7 +179,7 @@ describe("with no control plane, the file is the record (a self-hosted gateway, 
     const archived = await archivePath(store, { path: "recipes", clearance: OWNER, now: NOW });
     const icons = stored(store);
     expect(Object.values(icons)).toEqual(["🍳"]);
-    expect(Object.keys(icons)[0]).toMatch(/^9-archive\/.+\/recipes$/);
+    expect(Object.keys(icons)[0]).toBe("9-archive/recipes");
     expect(archived.paths.every((path) => path.startsWith("9-archive/"))).toBe(true);
   });
 

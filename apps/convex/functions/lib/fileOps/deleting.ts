@@ -1,12 +1,12 @@
 /**
- * Archiving, trashing, restoring and permanently deleting.
+ * Trashing, restoring and permanently deleting (archiving is `archiving.ts`).
  *
  * Split out of `lib/fileOps.ts`, which re-exports it; that file's header holds
  * the rules every operation keeps.
  */
 
 import { isEncryptedNote } from "../noteEncryption";
-import { canSee, isPlumbing, visibilityOf, archiveRoot, archiveRoots, insideArchive } from "../privacy";
+import { canSee, isPlumbing } from "../privacy";
 import { type Clearance } from "../clearance";
 import {
   eligible as collaborationEligible,
@@ -16,14 +16,13 @@ import {
 } from "@context/collaboration";
 import { LIST_PAGE_CAP, FOLDER_OPERATION_CAP, TRASH_ROOT, type FileStore } from "./store";
 import { assertNotProtectedFolder } from "./nameTwins";
-import { treeJobs } from "./treeChecks";
 import { FileOpError, notFound } from "./errors";
 import { requirePath, timestampSlug } from "./paths";
 import { dropFolderIcons } from "@context/shared/src/folderIcons.cjs";
 import { loadPrivacyState } from "./privacyState";
 import { assertWritablePath } from "./writing";
 import { keysUnder, namesExtending, historyKeysFor, isFolder } from "./walk";
-import { createAbsent, fileInTree, filesInTree } from "./treeChecks";
+import { createAbsent, filesInTree } from "./treeChecks";
 import { type MoveResult, movePath } from "./moving";
 import { forgetPrivacy } from "./privacyRewrite";
 import { isKeyedStore, KEYED_REFUSAL } from "../noteIds/keyedStore";
@@ -37,102 +36,8 @@ const KEYED_PERMANENT_REFUSAL =
   "Permanent delete is not available in a keyed workspace yet. Move it to the trash instead, which keeps it restorable. Nothing was changed.";
 
 /* -------------------------------------------------------------------------- */
-/*                            archiving and deleting                          */
+/*                            trashing and deleting                           */
 /* -------------------------------------------------------------------------- */
-
-/**
- * Archive: move into `<this context's archive>/<timestamp>/<original path>`.
- *
- * This is the destructive-looking action people should reach for, and it is
- * **not destructive** — the file is intact, its original path is preserved
- * inside the archive path, and moving it back restores it exactly. The
- * timestamp segment means archiving the same note twice never collides.
- *
- * Same destination shape the gateway's `archive_note` uses, **and now the same
- * destination**, which it was not. Both were written against a literal
- * `4-archive`; the gateway refused a context that did not declare one, and
- * this created it regardless. So on a `company`-preset workspace — a layout
- * whose archive is `5-archive`, and the default for a shared context — Claude
- * refused to archive and the console quietly opened a second archive beside
- * the real one, in a bucket the owner also sees in Obsidian. One resolver
- * (`archiveRoot`) now answers for both, and this path adopts the gateway's
- * refusal rather than its own invention: a context with no archive folder is
- * told so, instead of being given one nobody chose.
- */
-export async function archivePath(
-  store: FileStore,
-  options: {
-    path: string;
-    clearance: Clearance;
-    now: number;
-    /** The version this archive was asked about. See `movePath`. */
-    expectedEtag?: string;
-  },
-): Promise<MoveResult> {
-  const path = requirePath(options.path);
-  await assertNotProtectedFolder(store, path, options.clearance, "remove");
-  // Ahead of the destination rather than after it: which folder this context
-  // archives into is a fact about its manifest, so the manifest is read first
-  // and the same state answers the visibility check below.
-  const state = await loadPrivacyState(store);
-  // The folder doing the Archive's job wins, whatever it is called now (`folderJobs.ts`); the rules' archive
-  // names are still the archives a note may already be in.
-  const archiveJob = (await treeJobs(store))?.jobs.archive ?? null;
-  const roots = [...new Set([...(archiveJob === null ? [] : [archiveJob]), ...archiveRoots(state.rules)])];
-  const archive = archiveJob ?? archiveRoot(state.rules);
-  // Every archive it has, not the one we would write to: a note already in
-  // `5-archive/` must not be moved into `4-archive/` because the resolver
-  // preferred the latter.
-  if (insideArchive(path, roots)) {
-    throw new FileOpError("PATH_INVALID", "That is already in the archive.");
-  }
-  if (archive === null) {
-    throw new FileOpError(
-      "ARCHIVE_UNAVAILABLE",
-      "This context has no archive folder, and archiving will not create one — its layout is yours. Move this to wherever you keep inactive material, or add an archive folder to privacy.md.",
-    );
-  }
-  // A free destination, because `movePath` refuses to merge onto an existing
-  // folder and archiving a child and then its parent inside the same
-  // millisecond lands the second one on top of the first. The stamp is
-  // server-generated and never caller-chosen, so disambiguating it discloses
-  // nothing and keeps "never merges" true rather than carving an exception into
-  // it. Archiving twice in one millisecond is a scripted or concurrent caller,
-  // not a person clicking twice.
-  const stamp = timestampSlug(options.now);
-  let destination = `${archive}/${stamp}/${path}`;
-  // Asked of the tree (`treeChecks.ts`); `movePath` writes the destination
-  // conditionally where the store can, so a name the tree missed is refused.
-  for (let attempt = 2; attempt <= 100; attempt += 1) {
-    if (!(await isFolder(store, destination)) && !(await fileInTree(store, destination))) break;
-    destination = `${archive}/${stamp}-${attempt}/${path}`;
-  }
-
-  // Archiving is a move, so it inherits the destination rule — and on the
-  // scaffold's defaults the archive is private, which means a team caller
-  // cannot archive. That is right: archiving a shared note into a private
-  // archive takes it away from everybody else, irreversibly for the person who
-  // did it. The gateway's `archive_note` has always refused it.
-  //
-  // What it must not do is inherit the *message*. "That file does not exist"
-  // about a note the caller is looking at explains nothing and points at the
-  // wrong thing. Naming the folder discloses nothing they do not already hold:
-  // whether it is shared is visible in their own root listing.
-  if (options.clearance.scope !== "private" && visibilityOf(destination, state.rules) !== "team") {
-    throw new FileOpError(
-      "ARCHIVE_UNAVAILABLE",
-      `Archiving needs access to ${archive}, which has not been shared with you. Ask the owner to share it, or move this somewhere you can both see.`,
-    );
-  }
-
-  return await movePath(store, {
-    from: path,
-    to: destination,
-    clearance: options.clearance,
-    now: options.now,
-    ...(options.expectedEtag === undefined ? {} : { expectedEtag: options.expectedEtag }),
-  });
-}
 
 /**
  * A trash the tree can draw at once, queued by the credential barrier

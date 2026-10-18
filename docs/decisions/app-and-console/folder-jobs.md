@@ -144,3 +144,46 @@ owner's mail. `apps/convex/__tests__/nodes/folderJobSettings.test.ts`,
 `apps/convex/__tests__/routinesTexRoot.test.ts`,
 `apps/mcp/test/workspaceSetup.test.mjs` and
 `apps/mcp/test/orientSystemFolders.test.mjs` fail if either goes.
+
+## Archive keeps the workspace's shape
+
+Decided by the owner, 2026-10-18 ("yes to all" on the archive-mirror boards,
+taking boards 6, 7 and 10 as recommended): a
+project archived from `Projects/launch` lands at `Archive/Projects/launch`,
+beside every project archived before it, and no longer under a folder named
+for the millisecond (`Archive/2026-10-15T22-16-49-545Z/...`).
+
+- **One destination rule** (`packages/shared/src/archiveMirror.cjs`
+  `archiveDestination`), used by the console's archive
+  (`lib/fileOps/archiving.ts`), the gateway's `archive_note` and the
+  restore path (`restoreTarget`, which still reads a leading date folder on
+  an old archive).
+- **Nothing is overwritten.** A folder whose name is already in Archive is
+  merged into; a note whose name is taken arrives numbered, `plan (2).md`
+  (`mergeInto`, `firstFreePath`). Numbering can say a same-named note the
+  caller cannot see exists in Archive, the same disclosure the date folder's
+  suffix made.
+- **Built-in folders have marked twins.** The folder in Archive standing for
+  a built-in one (`Archive/Projects`) carries `nodes.archiveOf`, the job's
+  original name, set when something is archived into it
+  (`lib/nodes/archiveTwins.ts`). When the built-in folder is renamed or moved,
+  its twin moves the same way inside Archive, keeping its id (folder onto
+  folder merges; `lib/nodes/archiveFollow.ts`, run after the keyed move at the
+  owner's clearance, its files added to the move's answer so links follow).
+  An ordinary folder renamed after its things were archived keeps its old
+  name in Archive. The app draws a twin as its job's drawing in grey with a
+  small Archive badge, and offers it neither Restore nor Archive.
+- **Archive stays at the top level** and can be renamed, never nested
+  (`archive_stays`); **a built-in folder, or a folder holding one, never goes
+  into Archive** (`built_in_archived`); what is inside them can.
+- **A one-time tidy** (`functions/archiveTidy.ts`, hourly over keyed
+  workspaces) empties each old date folder into the matching place, one date
+  folder a pass, merging and numbering the same way. Nothing is deleted.
+
+What a "simplification" would cost: dropping the twin follow strands a
+renamed Projects' archived projects under the old name, so Restore puts them
+back into a folder that no longer exists; letting a built-in folder into
+Archive archives everybody's mail. `apps/convex/__tests__/nodes/archiveMirror.test.ts`,
+`apps/convex/__tests__/files/archiveTidy.test.ts`,
+`apps/mcp/test/archiveMirror.test.mjs` and
+`apps/mcp/test/archiveNoteMirror.test.mjs` fail if either goes.

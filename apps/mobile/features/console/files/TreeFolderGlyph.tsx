@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, View, type GestureResponderEvent } from "react-n
 import { Icon } from "../../design/components/Icon";
 import { EmojiGlyph } from "../emoji/EmojiGlyph";
 import { JobIcon } from "./jobIcons/JobIcon";
-import { jobOfIcon } from "./jobIcons/marker";
+import { jobOfIcon, twinJobOfIcon } from "./jobIcons/marker";
 import { pointerType, radii } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 
@@ -56,6 +56,9 @@ export function TreeFolderGlyph({
   const ref = useRef<View>(null);
   const job = jobOfIcon(icon);
   if (job !== null) return <JobIcon job={job} size={16} testID="tree-folder-job" />;
+  // Archive's copy of a built-in folder: drawn, like the folder it mirrors, so no picker either.
+  const twin = twinJobOfIcon(icon);
+  if (twin !== null) return <JobIcon job={twin} size={16} archived testID="tree-folder-twin" />;
   const plain = <Icon name={note ? "file" : "folder"} size={14} color={colors.chromeMuted} />;
   const glyph =
     icon === null ? (

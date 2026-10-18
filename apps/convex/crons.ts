@@ -116,6 +116,15 @@ crons.interval("arm Tex's first housekeeping", { hours: 24 }, internal.functions
 crons.interval("empty the trash", { hours: 24 }, internal.functions.trash.emptyDue, {});
 
 /**
+ * Tidy Archive's old date folders into the places they match (`functions/archiveTidy.ts`, owner
+ * 2026-10-18). It moves notes inside the customer's own Archive, on a clock, so it re-asks at the moment
+ * it acts: what is in each date folder, where the built-in folders are now, and what is already in
+ * Archive are all read inside the move, at the owner's clearance, and nothing is overwritten or deleted.
+ * Once no date folder is left it reads one row per workspace and returns.
+ */
+crons.interval("tidy Archive's date folders", { hours: 1 }, internal.functions.archiveTidy.catchUp, {});
+
+/**
  * Grant founding Premium to accounts still owed it (`lib/billing/founding.ts`),
  * so accounts made before it shipped do not wait for the next sign-up. Once
  * the hundred are granted it returns at its first read.

@@ -185,6 +185,8 @@ export type FileOperation =
   | { kind: "contextMoveForget"; paths: string[] }
   | { kind: "duplicate"; path: string }
   | { kind: "archive"; path: string; expectedEtag?: string }
+  /** The one-time tidy of Archive's date folders into its matching places (`fileOps/archiving.ts`); owner only. */
+  | { kind: "archiveTidy" }
   | { kind: "trash"; path: string; expectedEtag?: string }
   | { kind: "restoreTrash"; from: string; to: string }
   /** A trashed note's text, read-only, at the key its trail names (`fileOps/trashedReading.ts`); run by the barrier. */

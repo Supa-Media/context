@@ -31,6 +31,7 @@ export interface JobEntry {
   name: string;
   role?: string | null;
   order?: number | null;
+  archiveOf?: string | null;
 }
 
 export interface JobListing<Entry extends JobEntry = JobEntry> {
@@ -64,6 +65,20 @@ export function loadedJobs(listings: JobListings): Map<string, RowRole> {
   return jobs;
 }
 
+/**
+ * Each loaded folder in Archive that is the archive copy of a built-in folder
+ * (`archiveOf`, `lib/nodes/archiveTwins.ts`), by the job it mirrors.
+ */
+export function loadedTwins(listings: JobListings): Map<string, RowRole> {
+  const twins = new Map<string, RowRole>();
+  for (const listing of Object.values(listings)) {
+    for (const entry of listing?.entries ?? []) {
+      if (entry.kind === "folder" && isRowRole(entry.archiveOf)) twins.set(entry.path, entry.archiveOf);
+    }
+  }
+  return twins;
+}
+
 function parentOf(path: string): string {
   const slash = path.lastIndexOf("/");
   return slash < 0 ? "" : path.slice(0, slash);
@@ -78,6 +93,12 @@ export function jobOfPath(listings: JobListings, path: string): RowRole | null |
   const listing = listings[parent];
   if (listing === undefined) return undefined;
   return listingJobs(parent, listing).get(path) ?? null;
+}
+
+/** Whether the folder at `path` is a built-in folder's archive copy, as its loaded listing says. */
+export function isTwinPath(listings: JobListings, path: string): boolean {
+  const entry = listings[parentOf(path)]?.entries.find((candidate) => candidate.path === path);
+  return entry?.kind === "folder" && isRowRole(entry.archiveOf);
 }
 
 /**

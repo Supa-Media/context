@@ -100,6 +100,11 @@ export function treeChangeOfResult(operation: FileOperation, result: unknown): T
   if (operation.kind === "addBuiltInFolder" && landed?.kind === "folderCreated" && typeof landed.path === "string") {
     return { paths: [landed.path], narrows: false };
   }
+  // The tidy moved things around inside Archive (`tidyArchive`), and its answer names the Archive.
+  const tidied = result as { kind?: unknown; from?: unknown; paths?: unknown } | null | undefined;
+  if (operation.kind === "archiveTidy" && tidied?.kind === "moved" && typeof tidied.from === "string" && tidied.from !== "") {
+    return Array.isArray(tidied.paths) && tidied.paths.length > 0 ? { paths: [tidied.from], narrows: true } : null;
+  }
   return null;
 }
 
