@@ -15,6 +15,7 @@
  */
 
 import { splitMessageAnchor } from "../../search/commsIndex.js";
+import { EMAIL_ID_PREFIX } from "../emailRead.js";
 
 const CHATGPT = /chatgpt|openai/i;
 
@@ -77,6 +78,16 @@ export function translateSearch(call, app = {}) {
   if (isChatGpt(app) && open.args === undefined) {
     return { name: "search", arguments: { query: call.query }, action: "notes" };
   }
+  // Their email: synced first, then Gmail for what the notes do not hold.
+  if (open.args?.email === true) {
+    return target("search", open.args, {
+      name: "search_email",
+      action: "email",
+      fixed: { query: call.query },
+      copy: ["account", "limit"],
+      consumed: ["email"],
+    });
+  }
   return target("search", open.args ?? {}, {
     name: "search_notes",
     action: "notes",
@@ -116,6 +127,9 @@ export function translateFetch(call, app = {}) {
   if (Object.hasOwn(KEYWORDS, id)) {
     const { name, action, copy } = KEYWORDS[id];
     return target(label, a, { name, action, copy });
+  }
+  if (id.startsWith(EMAIL_ID_PREFIX)) {
+    return target(label, a, { name: "read_email", action: "email", fixed: { id } });
   }
   if (id.startsWith("proposals:")) {
     const proposalId = id.slice("proposals:".length).trim();

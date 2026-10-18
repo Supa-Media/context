@@ -560,3 +560,36 @@ whole-day rule, the ceiling, byte-identity with the forward pass, retry writes
 nothing) and `apps/convex/__tests__/googleSyncLoop/recentImport.test.ts` (who
 is owed one, once, the next pass is forward, attempts run out, the backfill is
 still refused).
+
+### A pass fetches only the mail it has not seen
+
+Found on 2026-10-18, when a personal mailbox stopped on Google's rate limit.
+A channel-day note is rebuilt whole from the day's list query, and the pass
+used to fetch every listed message in full to rebuild it. With push making
+passes frequent, one busy day re-downloaded itself on every new message, and
+drafts and spam (which are not in the note) still woke a rebuild.
+
+So (`apps/mcp/src/communications/gmail/`):
+
+- **A disposable per-day cache** at
+  `.context/communications/gmail/messages/<fnv(slug)>/<date>.json` holds the
+  normalized events of the last fourteen days. A pass fetches only ids it has
+  neither cached nor already fetched to learn their date, and renders from the
+  cache. It is a derivative: a missing, stale-versioned or unreadable cache is
+  an empty one, and the note rendered from it is byte-identical to one built
+  without it.
+- **History is filtered by label.** A `messagesAdded` record in SPAM, TRASH or
+  DRAFT, or outside the connection's folders (INBOX, SENT), touches no day.
+- **Rate limits are waited out, briefly.** A 429, or a 403
+  `rateLimitExceeded`/`userRateLimitExceeded`, is retried twice (2s, 8s, or
+  `Retry-After` up to 20s). Daily and project quota errors are not retried.
+- **A rate-limited product backs off alone.** `GOOGLE_RATE_LIMITED`,
+  `GOOGLE_UNAVAILABLE` and `GOOGLE_SYNC_TIMEOUT` on one product set that
+  product's `retryAt` on the failure ladder (15 minutes doubling to 6 hours)
+  and leave the account healthy, so Calendar and Chat keep syncing and the
+  console does not say "Stopped" over a limit that lifts by itself. Push marks
+  on a backing-off product do not make the account due.
+
+A new message now costs about a dozen quota units rather than the whole day's
+messages. Tests: `apps/mcp/test/gmailSync/messageCache.test.mjs`,
+`apps/convex/__tests__/googleSyncLoop/productBackoff.test.ts`.

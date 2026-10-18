@@ -57,7 +57,7 @@ export function fuseEverywhere(lists, most = EVERYWHERE_HITS) {
 }
 
 /** Word search and search by meaning in one workspace, as `search_notes` has always asked. */
-function searchOne(store, scope, rules, overrides, query, prefix, embed) {
+export function searchOne(store, scope, rules, overrides, query, prefix, embed) {
   return searchBothWays(
     store,
     () => searchVisibleNotes(store, scope, rules, overrides, query, prefix),

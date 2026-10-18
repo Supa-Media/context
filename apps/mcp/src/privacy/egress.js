@@ -27,7 +27,7 @@ import { normalizePath } from "../notes/paths.js";
  * wrote: a mailbox day, a contact page built from senders' own claims, a
  * meeting's transcript.
  */
-export const UNTRUSTED_READS = new Set(["read_channel_day", "read_contact", "read_meeting"]);
+export const UNTRUSTED_READS = new Set(["read_channel_day", "read_contact", "read_meeting", "search_email", "read_email"]);
 
 /**
  * Tools whose results carry names, counts and settings, never a note's words.

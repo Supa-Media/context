@@ -124,6 +124,7 @@ const FETCH_IDS = [
   "- a note path, e.g. `1-projects/togather/status.md`: that note",
   "- a folder path ending in `/`, e.g. `1-projects/`: lists it",
   "- `meetings:`, `messages:`, `contacts:`, `activity:`, `changes:`, `proposals:` (and `proposals:<id>`), `links:`, `vault:`, `plugins:`, `access:`: each kind, listed or read by id",
+  "- `email:<address>/<id>`, from `search` with args `{ email: true }`: one email read from their Gmail, for mail not synced into their notes",
 ].join("\n");
 
 /** The whole manual: the six tools, every action, and the fetch ids. */

@@ -58,6 +58,8 @@ export const SUCCEEDED = {
   lastAttemptAt: undefined,
   lastFailureCode: undefined,
   lastFailure: undefined,
+  retryAt: undefined,
+  failures: undefined,
 } as const;
 
 /**
@@ -67,7 +69,13 @@ export const SUCCEEDED = {
 export function productTurnPatch(
   connection: Doc<"googleConnections">,
   product: "gmail" | "calendar" | "chat" | undefined,
-  turn: { lastAttemptAt: number; lastFailureCode?: string; lastFailure?: string },
+  turn: {
+    lastAttemptAt: number;
+    lastFailureCode?: string;
+    lastFailure?: string;
+    retryAt?: number;
+    failures?: number;
+  },
 ): Partial<Pick<Doc<"googleConnections">, "gmail" | "calendar" | "chat">> {
   if (product === undefined) return {};
   if (product === "gmail") return connection.gmail ? { gmail: { ...connection.gmail, ...turn } } : {};

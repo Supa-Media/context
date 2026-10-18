@@ -42,6 +42,13 @@ export const TOOL_NEWS = Object.freeze([
   {
     date: "2026-10-18",
     text:
+      "search with `args: { email: true }` searches the person's email: their synced mail notes first, then their Gmail itself for " +
+      "mail from before the mailbox was connected or since its last sync. A Gmail result's id is `email:<address>/<id>`; fetch it " +
+      "to read that email. Their own personal workspace, with private access, only.",
+  },
+  {
+    date: "2026-10-18",
+    text:
       "manage action folder_job `{ job, path? , remove? }` chooses which folder does a built-in job, wherever it is nested: " +
       "`path` gives the job to that folder (owner only; nothing moves), `remove: true` takes an optional one (clients, teams, " +
       "products) away, and `job` alone makes its folder at the top. Jobs: inbox, projects, areas, resources, archive, tex, " +
@@ -189,7 +196,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "e292ac06";
+export const TOOL_SHAPE = "64f12c6b";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

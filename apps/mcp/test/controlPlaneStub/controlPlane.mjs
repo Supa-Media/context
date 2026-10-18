@@ -984,6 +984,7 @@ export function createControlPlaneStub(options = {}) {
     siteCalls,
     vaultCalls,
     emailCalls: email.calls,
+    mailReadCalls: email.mailCalls,
     calendarCalls: calendar.calls,
     workspaceSetupCalls: workspaceSetup.calls,
     accessTokens,

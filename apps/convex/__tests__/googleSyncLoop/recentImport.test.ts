@@ -225,8 +225,13 @@ describe("the import, end to end", { timeout: 30_000 }, () => {
 
   test("a failing import spends its attempts, then Gmail syncs forward without it", async () => {
     const { t, workspaceId, connectionId, backend } = await pendingConnection("4000");
+    // Each attempt as if Gmail's own backoff had run out (`retryAt`).
+    const backoffOver = async () => {
+      const row = await readConnection(t, connectionId);
+      await patchConnection(t, connectionId, { gmail: { ...row.gmail!, retryAt: undefined }, syncStartedAt: Date.now() });
+    };
     for (let attempt = 1; attempt <= RECENT_IMPORT_MAX_ATTEMPTS; attempt += 1) {
-      await patchConnection(t, connectionId, { syncStartedAt: Date.now() });
+      await backoffOver();
       vi.stubGlobal("fetch", googleAndBucket({ backend, messages: MAILBOX, listStatus: 500 }).fetchImpl);
       const result = await runPass(t, workspaceId, connectionId);
       expect(result).toMatchObject({ status: "failed" });
@@ -234,7 +239,7 @@ describe("the import, end to end", { timeout: 30_000 }, () => {
     }
     expect((await readConnection(t, connectionId)).gmail?.recentImport?.status).toBe("abandoned");
 
-    await patchConnection(t, connectionId, { syncStartedAt: Date.now() });
+    await backoffOver();
     const forward = googleAndBucket({ backend, messages: MAILBOX, history: { messageIds: [], historyId: "4100" } });
     vi.stubGlobal("fetch", forward.fetchImpl);
     await runPass(t, workspaceId, connectionId);
