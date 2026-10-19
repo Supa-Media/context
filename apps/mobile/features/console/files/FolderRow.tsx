@@ -20,7 +20,7 @@ import { displayName } from "./paths";
 import type { SyncMark } from "./pendingMarks";
 import { useRowInteractions } from "./rowInteractions";
 import { SyncMarkDot, withSyncMark } from "./SyncMarkDot";
-import { isGroupVisibility } from "./types";
+import { isGroupVisibility, isListToken } from "./types";
 import { RowOpeningBar, useStillOpening } from "./RowOpening";
 import { isItem, RowExtraLead, RowExtraTrail, useRowExtra, useRowTrailShows } from "./folderPage/rowExtras";
 import type { FileEntry } from "./types";
@@ -312,7 +312,9 @@ export function FolderRow({
           accessibilityLabel={
             row.visibility === "team"
               ? "shared"
-              : isGroupVisibility(row.visibility)
+              : isListToken(row.visibility)
+                ? "shared with the people on its list"
+                : isGroupVisibility(row.visibility)
                 ? `shared with ${row.visibility}`
                 : "private"
           }

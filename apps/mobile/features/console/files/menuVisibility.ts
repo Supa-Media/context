@@ -3,7 +3,7 @@ import type { MenuItem } from "./menuItem";
 import { makeItem } from "./menuMake";
 import { baseName, folderLabel, parentPath } from "./paths";
 import type { TreeRow } from "./tree";
-import type { Visibility } from "./types";
+import { type Visibility, visibilityLabel } from "./types";
 
 /**
  * Private / Team, plus "Follow folder" for a file.
@@ -34,7 +34,7 @@ import type { Visibility } from "./types";
  */
 function followDetail(path: string, inherited: Visibility): string {
   const folder = parentPath(path);
-  return `Currently ${inherited} — from ${folder === "" ? "this context" : folderLabel(baseName(folder))}.`;
+  return `Currently ${visibilityLabel(inherited)} — from ${folder === "" ? "this context" : folderLabel(baseName(folder))}.`;
 }
 
 export function visibilityGroup(

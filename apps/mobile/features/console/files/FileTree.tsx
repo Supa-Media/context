@@ -18,7 +18,7 @@ import { AgentMark, withAgentMark } from "../agents/AgentMark";
 import type { AgentMarkKind } from "../agents/agentActivity";
 import type { TreeRow } from "./tree";
 import type { DropZone } from "./treeDrop";
-import type { Visibility } from "./types";
+import { type Visibility, visibilityLabel } from "./types";
 
 /**
  * The folder tree.
@@ -515,7 +515,7 @@ function VisibilityControl({
       style={[styles.markerLabel, row.marker === "team" && styles.markerTeam]}
       numberOfLines={1}
     >
-      {row.marker}
+      {row.marker === undefined ? null : visibilityLabel(row.marker)}
     </Text>
   );
 
@@ -543,13 +543,14 @@ function VisibilityControl({
 /** What a screen reader hears. Says the state *and* what pressing would do. */
 export function describeVisibility(row: TreeRow): string {
   const next: Visibility = row.marker === "team" ? "private" : "team";
+  const word = row.marker === undefined ? undefined : visibilityLabel(row.marker);
   if (row.kind === "folder") {
-    return `${row.label} folder default is ${row.marker}. Change it to ${next}.`;
+    return `${row.label} folder default is ${word}. Change it to ${next}.`;
   }
   if (row.marker === undefined) {
     return `${row.label} follows its folder. Give it its own visibility.`;
   }
-  return `${row.label} is ${row.marker}, unlike its folder. Change it to ${next}.`;
+  return `${row.label} is ${word}, unlike its folder. Change it to ${next}.`;
 }
 
 /*

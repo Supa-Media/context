@@ -30,6 +30,20 @@ export type Visibility = "private" | "team" | `@${string}`;
  */
 export type SettableVisibility = "private" | "team";
 
+/**
+ * Whether a visibility is a row's own list token (`@#<noteId>`, `lib/nodes/rowAccess.ts`): a note or folder held to
+ * the people it is shared with, members or named. It has group shape so the engine can compare it, but it is an id,
+ * never a name anybody typed, so nothing may print it.
+ */
+export function isListToken(visibility: Visibility): boolean {
+  return visibility.startsWith("@#");
+}
+
+/** The short word for a visibility on a marker or pill: the tier, the group's name, or `shared` for a list token. */
+export function visibilityLabel(visibility: Visibility): string {
+  return isListToken(visibility) ? "shared" : visibility;
+}
+
 /** Whether a visibility names a group rather than one of the two tiers. */
 export function isGroupVisibility(visibility: Visibility): visibility is `@${string}` {
   return visibility !== "private" && visibility !== "team";
