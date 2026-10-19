@@ -697,6 +697,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A phone let in off the waitlist is set up by text, handle first (2026-10-17)](./texting-assistant/onboarding.md)
 - [A bug filed by text goes to the team only on the person's YES, texts included (2026-10-17)](./texting-assistant/bug-reports.md)
 - [A texted write answers with the note's link, and an ask sounds like a person (2026-10-18)](./texting-assistant/note-links.md)
+- [Tex makes pictures: graphics as a page, photos with Nano Banana 2 Lite (2026-10-19)](./texting-assistant/pictures.md)
 - Staging has a texts simulator, and nothing else does
 - An answer reads like a text, and the typing bubble shows while it works
 - [Earlier turns are words only, and the model is told so (2026-10-09)](./texting-assistant/history.md)

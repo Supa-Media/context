@@ -122,6 +122,8 @@ export function aiGatewayConfig(env) {
   return {
     gatewayId,
     url: `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayId}/anthropic/v1/messages`,
+    // The same gateway's other providers hang off this (`pictureMaker.js`: Google's image model).
+    base: `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayId}`,
     token,
     creditKey: typeof creditKey === "string" && creditKey.length >= 20 && creditKey.length <= 512 ? creditKey : null,
   };
@@ -150,7 +152,7 @@ export function gatewayMetadata(metadata) {
   return entries.length > 0 ? Object.fromEntries(entries) : null;
 }
 
-function metadataHeader(metadata) {
+export function metadataHeader(metadata) {
   const labels = gatewayMetadata(metadata);
   return labels ? { "cf-aig-metadata": JSON.stringify(labels) } : {};
 }

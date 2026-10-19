@@ -45,7 +45,8 @@ const SENDABLE_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/w
 export const PICTURES_LINE =
   "You can text them pictures: write [picture N] on its own line for picture N a tool result showed you " +
   "(open a note's picture with fetch and image first), or [picture <https address>] for a web image whose address " +
-  "you read in a tool result. It goes as a photo after your words.";
+  "you read in a tool result. It goes as a photo after your words. To make one, send draw_picture draws a graphic " +
+  "(a poster, an invite, a chart) from a page you write, and send make_picture makes or edits a photo (them in an outfit, a scene).";
 
 function webAddress(value) {
   if (value.length > MAX_URL_LENGTH) return null;
@@ -107,14 +108,21 @@ export function outgoingPictures({ enabled, question = "" }) {
         }
         return "";
       }
-      const url = webAddress(ref);
-      if (url !== null && (text.includes(ref) || text.includes(url))) pictures.push({ url });
+      if (vouches(ref)) pictures.push({ url: webAddress(ref) });
       return "";
     });
     return { answer: stripped.replace(/\n{3,}/g, "\n\n").trim(), pictures };
   };
 
-  return { wrap, take };
+  /** Picture N a tool showed this turn, for a tool that builds on it (`pictureMaker.js`). */
+  const picture = (n) => (Number.isInteger(n) && n >= 1 ? (seen[n - 1] ?? null) : null);
+  /** Whether a web address was read in a tool result or written by the person this turn: the rule `take` applies. */
+  const vouches = (ref) => {
+    const url = webAddress(ref);
+    return url !== null && (text.includes(ref) || text.includes(url));
+  };
+
+  return { wrap, take, picture, vouches };
 }
 
 /** The line the saved conversation keeps for what was sent, so "what was that picture?" has an answer. */
