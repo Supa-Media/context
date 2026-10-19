@@ -63,8 +63,8 @@ import { NO_MODEL, deliverSupervision, prepareSupervision, withMailAgent } from 
 import { LONG_MAX_ROUNDS, LONG_TOOL_BUDGET_MS, progressChannel } from "./progress.js";
 import { markUntrusted, newLedger } from "../privacy/egress.js";
 import { transcriptionForwarder } from "../ingestion/transcription.js";
-import { outgoingPictures, sentPicturesLine } from "./outgoingPictures.js";
-import { pictureMaker, withPictureMaker } from "./pictureMaker.js";
+import { sentPicturesLine } from "./outgoingPictures.js";
+import { turnPictures, withPictureMaker } from "./pictureMaker.js";
 import { disarmTexting, withdrawPending } from "../tools/approvals.js";
 import { askedWith, quotedOf } from "./quoted.js";
 import { textedAsk } from "./textedApprovals.js";
@@ -498,21 +498,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       })
     : null;
 
-  // Pictures a texted answer sends back (`outgoingPictures.js`): a text from their phone only.
-  const outgoing = outgoingPictures({ enabled: session.actorClientId === TEXTS_CLIENT_ID, question });
-  // Pictures Tex draws or makes (`pictureMaker.js`), for the same turns: they go out the same way.
-  const maker =
-    session.actorClientId === TEXTS_CLIENT_ID
-      ? pictureMaker(env, {
-          gateway: aiGatewayConfig(env),
-          attachments,
-          outgoing,
-          store,
-          keep: conversation === "texts",
-          meter: (usage, failed, model) => meter(usage, failed, model, false),
-          metadata: { workspace: String(session.workspaceId), client: "texts" },
-        })
-      : null;
+  const texted = session.actorClientId === TEXTS_CLIENT_ID; // Pictures sent back, drawn or made: a text only (`pictureMaker.js`).
+  const { outgoing, maker } = turnPictures(env, { texted, question, attachments, store, keep: conversation === "texts", meter, workspaceId: session.workspaceId });
   try {
     const turn = await runTurn({
       question: askedWith(question, quoted),
@@ -524,22 +511,18 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
         ...textingWriting,
         ...(skills?.tools ?? []),
         ...(delegation?.tools ?? []),
-        ...(supervision?.mail.tools ?? []),
-        ...(maker?.tools ?? []),
+        ...(supervision?.mail.tools ?? []), ...(maker?.tools ?? []),
       ],
       // THE ONE DISPATCHER, AND IT IS THE CLIENT'S (`callToolForSession`): its routing and every
       // per-call scope refusal. An agent that reached past it would be a second, untested authority.
       onModel: (model) => void (store.usageModel = model),
       callTool: outgoing.wrap(
-        withPictureMaker(
-          maker,
-          withAttachmentImages(
+        withPictureMaker(maker, withAttachmentImages(
           attachments,
-            withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withSkills(skills, withNoteLinks(textingAwareCallTool(dispatch, textingWriting), noteLinking)))),
-          ),
-        ),
+          withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withSkills(skills, withNoteLinks(textingAwareCallTool(dispatch, textingWriting), noteLinking)))),
+        )),
       ),
-      pictures: session.actorClientId === TEXTS_CLIENT_ID,
+      pictures: texted,
       attachments,
       env,
       providerOptions: {

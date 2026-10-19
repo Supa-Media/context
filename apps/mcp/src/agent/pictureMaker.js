@@ -42,8 +42,9 @@
  * picture): a picture from a note stays in the turn that was allowed to see it.
  */
 
-import { metadataHeader } from "./aiGateway.js";
+import { aiGatewayConfig, metadataHeader } from "./aiGateway.js";
 import { IMAGE_TYPES } from "./attachments.js";
+import { outgoingPictures } from "./outgoingPictures.js";
 
 export const DRAW_TOOL = "draw_picture";
 export const MAKE_TOOL = "make_picture";
@@ -257,6 +258,28 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
     has: (name) => (name === DRAW_TOOL && shots !== null) || (name === MAKE_TOOL && gateway !== null),
     call: (name, args) => (name === DRAW_TOOL ? draw(args) : make(args)),
   };
+}
+
+/**
+ * One `/agent` turn's pictures: what its answer may text back
+ * (`outgoingPictures`) and, on a text from their phone, the tools that make
+ * them. `meter` is the turn's own; the image model's spend is reported as a
+ * part of the turn, not a turn of its own.
+ */
+export function turnPictures(env, { texted, question, attachments, store, keep, meter, workspaceId }) {
+  const outgoing = outgoingPictures({ enabled: texted, question });
+  const maker = texted
+    ? pictureMaker(env, {
+        gateway: aiGatewayConfig(env),
+        attachments,
+        outgoing,
+        store,
+        keep,
+        meter: (usage, failed, model) => meter(usage, failed, model, false),
+        metadata: { workspace: String(workspaceId), client: "texts" },
+      })
+    : null;
+  return { outgoing, maker };
 }
 
 export function withPictureMaker(maker, callTool) {
