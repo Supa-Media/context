@@ -13,6 +13,7 @@ import type { QueryCtx } from "../../../_generated/server";
 import { defaultGoogleDestinationFolder, mailConnectEnabled } from "../../googleConnect";
 import { calendarConnectEnabled } from "../../calendarConnect";
 import { nextProductToSync, syncableProductsOf } from "../googleSchedule";
+import { REPAIR_DAYS_PER_PASS } from "./repairDays";
 
 export const googleForwardSyncJobArgs = {
   workspaceId: v.id("workspaces"),
@@ -36,6 +37,7 @@ export const googleForwardSyncJobReturns = v.union(
     attachmentRetentionDays: v.optional(v.union(v.number(), v.literal("forever"))),
     historyId: v.optional(v.string()),
     recentImport: v.optional(v.boolean()),
+    repairDays: v.optional(v.array(v.string())),
   }),
   v.object({
     kind: v.literal("run"),
@@ -234,5 +236,9 @@ export async function googleForwardSyncJobHandler(
     // Owed only where the first Gmail connect marked it; its last failed
     // attempt marks it `abandoned` (`googleConnect/recentImport.ts`).
     ...(gmail.recentImport?.status === "pending" ? { recentImport: true } : {}),
+    // The window repair waits for the import, then rides the forward pass a few days at a time.
+    ...(gmail.recentImport?.status !== "pending" && (gmail.repairDays?.length ?? 0) > 0
+      ? { repairDays: gmail.repairDays!.slice(0, REPAIR_DAYS_PER_PASS) }
+      : {}),
   };
 }

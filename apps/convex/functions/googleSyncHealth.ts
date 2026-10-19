@@ -17,6 +17,7 @@ import { internalQuery, type QueryCtx } from "../_generated/server";
 import { calendarConnectEnabled } from "./calendarConnect";
 import { mailConnectEnabled } from "./googleConnect";
 import { isDue, productBackingOff, SYNC_STALL_MS, syncableProductsOf } from "./lib/googleSchedule";
+import { HEARTBEAT_LEASE_MS } from "./lib/heartbeats/model";
 
 /** The sweep's own batch size (`googleSync.ts`). */
 const SWEEP_BATCH = 50;
@@ -46,6 +47,18 @@ async function checkInState(ctx: QueryCtx, workspaceId: Id<"workspaces">, now: n
   if (beat.nextBeatAt === null) return "waitingForText";
   if (beat.nextBeatAt <= now) return "overdue";
   return beat.nextBeatAt - now < HOUR ? "dueWithinHour" : "dueLater";
+}
+
+/** Every check-in row, as counts: how the last one ended, how long ago it looked, whether one is running now. */
+async function checkIns(ctx: QueryCtx, now: number): Promise<Record<string, number>> {
+  const counts: Record<string, number> = {};
+  for (const beat of await ctx.db.query("texHeartbeats").take(DUE_SCAN)) {
+    bump(counts, `lastOutcome:${beat.lastOutcome ?? "none"}`);
+    const since = beat.lastBeatAt === undefined ? Infinity : now - beat.lastBeatAt;
+    bump(counts, since < HOUR ? "lookedUnder1h" : since < 6 * HOUR ? "looked1to6h" : since < 24 * HOUR ? "looked6to24h" : "lookedOver24h");
+    if (beat.claimedAt !== undefined && now - beat.claimedAt < HEARTBEAT_LEASE_MS) bump(counts, "runningNow");
+  }
+  return counts;
 }
 
 export const report = internalQuery({
@@ -95,6 +108,8 @@ export const report = internalQuery({
     const rows = await ctx.db.query("googleConnections").take(DUE_SCAN);
     const live = rows.filter((row) => row.disconnectedAt === undefined);
     const gmailIdle: Record<string, number> = {};
+    const gmailIdleWhy: Record<string, number> = {};
+    const gmailQuotaUsed: Record<string, number> = {};
       const gmailFailure: Record<string, number> = {};
     const gmailWroteLastHour: Record<string, number> = {};
     // For a mailbox that wrote lately: whether its owner's check-in was brought forward and ran (`lib/heartbeats/mail.ts`).
@@ -110,7 +125,12 @@ export const report = internalQuery({
       if (row.push?.pending !== undefined && Object.keys(row.push.pending).length > 0) pushPending += 1;
       if (!row.products.includes("gmail") || row.gmail === undefined) continue;
       const idle = row.gmail.lastSyncedAt === undefined ? Infinity : now - row.gmail.lastSyncedAt;
-      bump(gmailIdle, idle < 15 * 60 * 1000 ? "under15m" : idle < HOUR ? "15mTo1h" : idle < 6 * HOUR ? "1to6h" : idle < 24 * HOUR ? "6to24h" : "over24h");
+      const idleKey = idle < 15 * 60 * 1000 ? "under15m" : idle < HOUR ? "15mTo1h" : idle < 6 * HOUR ? "1to6h" : idle < 24 * HOUR ? "6to24h" : "over24h";
+      bump(gmailIdle, idleKey);
+      // Which failure each idle mailbox is stuck on, and how much of its lifetime quota is spent.
+      if (idleKey !== "under15m") bump(gmailIdleWhy, `${idleKey}:${row.gmail.lastFailureCode ?? row.errorCode ?? "noFailure"}`);
+      const used = Math.min(1, (row.syncBytesWritten ?? 0) / Math.max(1, row.gmail.quotaBytes));
+      bump(gmailQuotaUsed, used < 0.5 ? "under50pct" : used < 0.9 ? "50to90pct" : "90to100pct");
       // Whether its passes wrote anything into the bucket lately, from the pass's own audit row.
       const wrote = (
         await ctx.db
@@ -138,9 +158,12 @@ export const report = internalQuery({
       staleClaims,
       pushPending,
       gmailIdle,
+      gmailIdleWhy,
+      gmailQuotaUsed,
       gmailFailure,
       gmailWroteLastHour,
       checkInAfterMail,
+      checkIns: await checkIns(ctx, now),
       health: Object.fromEntries(
         Object.entries(
           live.reduce<Record<string, number>>((counts, row) => {

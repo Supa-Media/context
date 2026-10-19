@@ -25,9 +25,9 @@ import { normalizePath } from "../notes/paths.js";
 /**
  * Tools whose results are, by construction, words people other than the person
  * wrote: a mailbox day, a contact page built from senders' own claims, a
- * meeting's transcript.
+ * meeting's transcript, a stored file's words (most are attachments).
  */
-export const UNTRUSTED_READS = new Set(["read_channel_day", "read_contact", "read_meeting", "search_email", "read_email"]);
+export const UNTRUSTED_READS = new Set(["read_channel_day", "read_contact", "read_meeting", "search_email", "read_email", "read_file"]);
 
 /**
  * Tools whose results carry names, counts and settings, never a note's words.

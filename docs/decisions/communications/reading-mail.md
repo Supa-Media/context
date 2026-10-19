@@ -33,6 +33,18 @@ One search answers both halves, in that order
    `fetch` of one (`read_email`) reads that message's body, capped at 20,000
    characters.
 
+**Attachments are read, not only listed** (asked by the owner, 2026-10-19:
+"Tex needs to be able to read attachments, otherwise it's not useful"). Two
+routes, one converter. A synced attachment the sync stored beside its day
+note is a file in the bucket, and `fetch` of its path (`read_file`,
+`apps/mcp/src/tools/readFile.js`) returns its words. Any other email's
+attachment is read from Gmail's own copy: `fetch` of `email:<address>/<id>`
+with `args: { attachment: n }` asks the control plane for that attachment's
+bytes (up to 10 MB, over the same clearance and rate limit as a read). Both
+turn the bytes into Markdown with Workers AI's `toMarkdown` at request time
+and keep nothing: the file is the record and its words are a derivative.
+Both are `UNTRUSTED_READS`, since a file's words are its author's.
+
 **Who may read.** Only the owner of the personal workspace the mailbox is
 connected to, through a grant holding `context:private`
 (`functions/personMail.ts`, one mutation with the rate limit). An editor or
@@ -54,4 +66,6 @@ What a simplification costs: searching Gmail whole doubles every synced
 message's cost and returns the same mail twice; searching Gmail first spends
 quota on what the notes already answer. Tests:
 `apps/convex/__tests__/personMail.test.ts` (clearance, outside-sync query,
-nothing stored), `apps/mcp/test/emailRead.test.mjs` (order, tiers, taint).
+nothing stored, attachment bytes), `apps/mcp/test/emailRead.test.mjs` (order,
+tiers, taint, attachment words), `apps/mcp/test/readFile.test.mjs` (a stored
+file's words, refused alike when hidden or missing).

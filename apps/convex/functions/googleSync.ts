@@ -97,6 +97,7 @@ import {
 import { settlePushAfterPass } from "./lib/googlePush/pending";
 import { productTurnPatch, recordedDestinations, SUCCEEDED } from "./lib/googleConnect/rowPatches";
 import { nextRecentImport } from "./lib/googleConnect/recentImport";
+import { remainingRepairDays } from "./lib/googleSync/repairDays";
 import * as forwardSyncJob from "./lib/googleSync/forwardSyncJob";
 import { pushedFirst, queueWorkspaceSweep } from "./lib/googleSync/drain";
 import { lookSoonForMail } from "./lib/heartbeats/mail";
@@ -365,6 +366,8 @@ export const recordGoogleForwardSyncPass = internalMutation({
         v.object({ outcome: v.literal("failed") }),
       ),
     ),
+    /** The window repair's days this pass rebuilt (`gmailDayRepair.ts`); only a finished pass sends them. */
+    repairedDays: v.optional(v.array(v.string())),
     errorCode: v.optional(v.string()),
     error: v.optional(v.string()),
     /** Google's reason word for the failure, when it gave one (`classifyForwardSyncError`). */
@@ -526,6 +529,7 @@ export const recordGoogleForwardSyncPass = internalMutation({
           retryAt: undefined,
           failures: undefined,
           recentImport: nextRecentImport(connection.gmail.recentImport, args.recentImport, now),
+          repairDays: remainingRepairDays(connection.gmail.repairDays, args.repairedDays),
         }
       : connection.gmail;
     const chat = product === "chat" && connection.chat
@@ -558,7 +562,8 @@ export const recordGoogleForwardSyncPass = internalMutation({
       succeeded and the connection is healthy from here on.
     */
     const gap = args.gapDetected === true;
-    const catchUp = args.catchUp === true;
+    // Repair days still owed keep the row due, like a walk that ran out of pages.
+    const catchUp = args.catchUp === true || (product === "gmail" && (gmail?.repairDays?.length ?? 0) > 0);
     const pushed = await settlePushAfterPass(ctx, connection, product, now, catchUp);
     const productCompletedAt = syncableProductsOf(connection).map((candidate) => {
       if (candidate === product) return now;

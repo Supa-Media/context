@@ -9,6 +9,7 @@ import { MINUTE, enableMailSync, patchConnection, readConnection, scenario } fro
  * SABOTAGE RECORD
  *   returning the due rows themselves                -> "names nobody" failed
  *   dropping the claimed-recently test               -> "a running pass" failed
+ *   dropping the idle-by-failure count              -> "a stopped mailbox" failed
  */
 describe("the Google sync health report", () => {
   beforeEach(() => enableMailSync());
@@ -27,6 +28,19 @@ describe("the Google sync health report", () => {
     expect(text).not.toContain(s.connectionId);
     expect(text).not.toContain(row.address);
     expect(text).not.toContain(s.workspaceId);
+  });
+
+  test("a stopped mailbox says how long and why, and how full its quota is", async () => {
+    const s = await scenario();
+    const row = await readConnection(s.t, s.connectionId);
+    await patchConnection(s.t, s.connectionId, {
+      gmail: { ...row.gmail!, lastSyncedAt: Date.now() - 30 * 60 * 60 * 1000, lastFailureCode: "MAIL_QUOTA_EXCEEDED", quotaBytes: 1000 },
+      syncBytesWritten: 995,
+      health: "error",
+      errorCode: "MAIL_QUOTA_EXCEEDED",
+    });
+    const report = await s.t.query(internal.functions.googleSyncHealth.report, {});
+    expect(report).toMatchObject({ gmailIdleWhy: { "over24h:MAIL_QUOTA_EXCEEDED": 1 }, gmailQuotaUsed: { "90to100pct": 1 } });
   });
 
   test("a running pass is counted as claimed, not claimable", async () => {
@@ -57,5 +71,25 @@ describe("the Google sync health report", () => {
       await ctx.db.insert("texHeartbeats", { userId, workspaceId: s.workspaceId, nextBeatAt: Date.now() + 10 * MINUTE, updatedAt: Date.now() });
     });
     expect(await s.t.query(internal.functions.googleSyncHealth.report, {})).toMatchObject({ checkInAfterMail: { dueWithinHour: 1 } });
+  });
+
+  test("every check-in says how its last one ended, and whether one is running, as counts", async () => {
+    const s = await scenario();
+    const now = Date.now();
+    await s.t.run(async (ctx) => {
+      const userId = (await ctx.db.get(s.connectionId))!.boundBy;
+      await ctx.db.insert("texHeartbeats", {
+        userId,
+        workspaceId: s.workspaceId,
+        nextBeatAt: now + 10 * MINUTE,
+        lastBeatAt: now - 20 * MINUTE,
+        lastOutcome: "failed",
+        claimedAt: now - MINUTE,
+        updatedAt: now,
+      });
+    });
+    expect(await s.t.query(internal.functions.googleSyncHealth.report, {})).toMatchObject({
+      checkIns: { "lastOutcome:failed": 1, lookedUnder1h: 1, runningNow: 1 },
+    });
   });
 });

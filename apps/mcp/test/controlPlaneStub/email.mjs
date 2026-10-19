@@ -29,8 +29,9 @@ export function createEmailRoute(clearedEditor, flags) {
 
   /**
    * `/gateway/email/search` and `/gateway/email/read` (`gatewayRoutes/personMail.ts`):
-   * `mailboxes` and `mailResults` answer a search, `mailMessage` a read, and
-   * `mailRefusal` refuses both. The real clearance is proved in Convex.
+   * `mailboxes` and `mailResults` answer a search, `mailMessage` a read,
+   * `mailAttachment` a read naming an attachment, and `mailRefusal` refuses
+   * them all. The real clearance is proved in Convex.
    */
   const mailCalls = [];
   async function mail(path, body) {
@@ -40,6 +41,10 @@ export function createEmailRoute(clearedEditor, flags) {
     else if (flags.mailRefusal) answer = { ok: false, refused: flags.mailRefusal };
     else if (path === "/gateway/email/search") {
       answer = { ok: true, results: flags.mailResults ?? [], mailboxes: flags.mailboxes ?? [] };
+    } else if (body.attachment !== undefined) {
+      answer = flags.mailMessage && flags.mailAttachment
+        ? { ok: true, message: flags.mailMessage, attachment: flags.mailAttachment }
+        : { ok: false, refused: "not_found" };
     } else answer = flags.mailMessage ? { ok: true, message: flags.mailMessage } : { ok: false, refused: "not_found" };
     const { accessToken: _token, ...rest } = body;
     mailCalls.push({ path, body: rest, answer });
