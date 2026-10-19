@@ -42,7 +42,6 @@ import {
   earlierTextsTool,
   historyIsTainted,
   readConversation,
-  shownHistory,
 } from "./conversation.js";
 import {
   loadRoutine,
@@ -66,7 +65,8 @@ import { transcriptionForwarder } from "../ingestion/transcription.js";
 import { sentPicturesLine } from "./outgoingPictures.js";
 import { turnPictures, withPictureMaker } from "./pictureMaker.js";
 import { disarmTexting, withdrawPending } from "../tools/approvals.js";
-import { askedWith, quotedOf } from "./quoted.js";
+import { askedWith, quotedOf, reactedLine, reactedOf, tapbackLine } from "./quoted.js";
+import { threadPrompt, threadView } from "./threadView.js";
 import { textedAsk } from "./textedApprovals.js";
 import { settleTextedText } from "./textedSettle.js";
 
@@ -196,6 +196,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     Only `runTurn` sees the two together, and the quote is marked there.
   */
   const quoted = quotedOf(session.actorClientId === TEXTS_CLIENT_ID ? body : null);
+  // Tapbacks left since their last text, kept by the Worker and named here (`quoted.js`).
+  const reacted = reactedOf(session.actorClientId === TEXTS_CLIENT_ID ? body : null);
 
   // A texted yes or no settles a pending approval before any model runs (`textedSettle.js`).
   if (session.actorClientId === TEXTS_CLIENT_ID) {
@@ -371,8 +373,9 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     falls back.
   */
   const production = await readProductionSetup(store, session, { texting });
-  // What of the conversation this turn is shown: the setup's `history:`, else the default.
-  const shown = shownHistory(history, production?.history ?? SHOWN_HISTORY_TURNS);
+  // What of the conversation this turn is shown: the setup's `history:`, else the default; a text typed in a thread, that thread (`threadView.js`).
+  const inThread = threadView(history, quoted, production?.history ?? SHOWN_HISTORY_TURNS);
+  const shown = inThread.shown;
   // A previous answer written after a read from outside still carries it.
   if (historyIsTainted(shown)) markUntrusted(ledger);
   if (attachments.length > 0) markUntrusted(ledger); // a forwarded PDF is someone else's words, like a page
@@ -503,7 +506,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   const { outgoing, maker } = await turnPictures(env, { texted, question, attachments, store, keep: conversation === "texts", meter, workspaceId: session.workspaceId });
   try {
     const turn = await runTurn({
-      question: askedWith(question, quoted),
+      question: [reactedLine(reacted), askedWith(question, quoted)].filter(Boolean).join("\n\n"),
       place: body.place ?? null,
       // A turn that edits directly is not also handed proposals: they have no
       // screen on a phone, and two ways to change a note is one too many.
@@ -540,6 +543,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       },
       web,
       history: shown,
+      threadNote: threadPrompt(inThread),
       local: earlier,
       // What Tex keeps about them and its open jobs, in their own workspace (`aboutMe.js`, `jobs.js`), on a texted turn.
       ...(texting ? await readTexNotes(dispatch) : {}),
@@ -619,10 +623,12 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
 
     if (conversation !== null && !turn.exhausted) {
       try {
-        const saved = [question, attachmentsLine(attachments)].filter(Boolean).join("\n"); // names only, never bytes
+        const saved = [reactedLine(reacted), tapbackLine(quoted) || question, attachmentsLine(attachments)].filter(Boolean).join("\n"); // names only, never bytes
         await appendConversation(store, conversation, history, saved, [answer, sentPicturesLine(pictures)].filter(Boolean).join("\n"), {
           tainted: ledger.untrusted,
           tools: turn.steps.filter((step) => step.ok).map((step) => step.tool),
+          thread: inThread.thread,
+          theirs: session.actorClientId === TEXTS_CLIENT_ID,
         });
       } catch {
         // The answer is still owed. A history that failed to save costs the

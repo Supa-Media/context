@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { hashToken } from "../functions/lib/crypto";
-import { HEARTBEAT_CLIENT_ID, nextBeatAfter } from "../functions/lib/heartbeats/model";
+import { HEARTBEAT_CLIENT_ID, QUIET_WAIT_MS, nextBeatAfter } from "../functions/lib/heartbeats/model";
 import { RETRY_AFTER_MS } from "../functions/lib/attention/model";
 import { asUser, createUser, createWorkspace, gatewayPost, setupTest } from "./fixtures.helpers";
 
@@ -254,6 +254,24 @@ describe("hearing back", () => {
     const reclaimed = await row(t, userId);
     await result(t, again!.runId, "failed");
     expect((await row(t, userId))!.nextBeatAt).toBe(reclaimed!.nextBeatAt);
+  });
+
+  test("a check-in that found them mid-conversation looks again once the chat has been quiet, every time", async () => {
+    const t = setupTest();
+    const { userId } = await linked(t);
+    await text(t);
+    for (let round = 0; round < 2; round += 1) {
+      await makeDue(t, userId);
+      const [beat] = await due(t);
+      const claimed = await row(t, userId);
+      const before = Date.now();
+      await result(t, beat!.runId, "busy");
+      const after = await row(t, userId);
+      // Nothing was looked at, so the next look reads the same changes.
+      expect(after!.lastBeatAt).toBeUndefined();
+      expect(after!.nextBeatAt!).toBeGreaterThanOrEqual(Math.min(before + QUIET_WAIT_MS, claimed!.nextBeatAt!));
+      expect(after!.nextBeatAt!).toBeLessThanOrEqual(Math.min(Date.now() + QUIET_WAIT_MS, claimed!.nextBeatAt!));
+    }
   });
 
   test("no model, or no chat to text into, waits for the next text", async () => {

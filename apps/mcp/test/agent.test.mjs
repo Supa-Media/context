@@ -89,6 +89,7 @@ import {
   GATEWAY_WIRE_MODEL,
   systemText,
 } from "./agentModelFixture.mjs";
+import { conversationText, conversationTurns } from "./agentConversationFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-agent.test";
 const TOKEN_OWNER = `cat_agent_owner_${"0".repeat(24)}`;
@@ -512,7 +513,7 @@ export async function runAgentChecks(check) {
     );
     check(
       "the conversation is kept in the customer's own bucket",
-      bucket.has(".context/agent/conversations/texts.json"),
+      conversationTurns(bucket).length > 0 && [...bucket.keys()].some((key) => key.startsWith(".context/agent/events/")),
     );
 
     // A turn that looked something up says so to the next one, by tool name
@@ -525,7 +526,7 @@ export async function runAgentChecks(check) {
     ]);
     await ask(env, TOKEN_OWNER, { question: "Where is the launch?", conversation: "texts" });
     await ask(env, TOKEN_OWNER, { question: "Are you sure?", conversation: "texts" });
-    const saved = bucket.get(".context/agent/conversations/texts.json")?.body ?? "";
+    const saved = conversationText(bucket);
     check(
       "a texted answer keeps the names of the tools it used, never their arguments",
       saved.includes('"tools":["search_notes"]') && !saved.includes("launch venue"),
@@ -568,7 +569,7 @@ export async function runAgentChecks(check) {
     check(
       "a read-only grant gets no history and writes none",
       !JSON.stringify(model.requests[0]?.body?.messages ?? []).includes("When is the launch?") &&
-        !bucket.get(".context/agent/conversations/texts.json")?.body?.includes("Read-only question"),
+        !conversationText(bucket).includes("Read-only question"),
     );
 
     model.requests.length = 0;

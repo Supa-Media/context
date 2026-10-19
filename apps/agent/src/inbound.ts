@@ -13,6 +13,8 @@
  * room other people are in. Groups arrive with shared workspaces, deliberately.
  */
 
+import type { Reaction, Tapback } from "./reactions";
+
 /** Longest text forwarded to the agent. The gateway caps a question at 8000. */
 export const MAX_INBOUND_TEXT = 4000;
 
@@ -62,7 +64,13 @@ export type Inbound =
        * can fake. Its words are never acted on (`reply.ts`, `smsReply`).
        */
       sms?: true;
+      /** A tapback that is answered (`reactions.ts`): which one; `quoted` holds the words it was on. */
+      tapback?: Tapback;
+      /** Tapbacks noted since their last text, told to this one's turn (`reactions.ts`). */
+      reacted?: Reaction[];
     }
+  /** Sendblue: a tapback on a text, read from its words (`reactions.ts`). */
+  | { kind: "reaction"; eventId: string; chatId: string; from: string; messageId: string; reaction: Reaction }
   | { kind: "ignored"; reason: "event_type" | "group" | "sender" | "service" | "empty" | "reaction" }
   | { kind: "invalid" };
 

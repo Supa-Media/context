@@ -17,6 +17,7 @@
  */
 
 import type { GatewayAttachment } from "./attachments";
+import type { Reaction, Tapback } from "./reactions";
 import { readPictures, type OutgoingPicture } from "./outgoing";
 
 export type Fetch = typeof fetch;
@@ -257,6 +258,8 @@ export async function askAgent(
   told: readonly string[] = [],
   /** The words that started the thread an inline reply was typed in, apart like `quoted`. */
   threadStart?: string,
+  /** An answered tapback's name, and the tapbacks noted since the last text (`reactions.ts`). */
+  { tapback, reacted = [] }: { tapback?: Tapback; reacted?: Reaction[] } = {},
 ): Promise<AgentAnswer> {
   // The person's zone, so the turn knows the time where they are, and what
   // they sent with the text (`attachments.ts`).
@@ -268,6 +271,8 @@ export async function askAgent(
     ...(quoted ? { quoted } : quoted === "" ? { replied: true } : {}),
     ...(quoted && threadStart ? { threadStart } : {}),
     ...(told.length > 0 ? { told } : {}),
+    ...(quoted && tapback ? { tapback } : {}),
+    ...(reacted.length > 0 ? { reacted } : {}),
   };
   if (onProgress) return askAgentStreaming(fetcher, gatewayOrigin, accessToken, ask, onProgress);
   let result: { status: number; json: unknown };

@@ -132,3 +132,95 @@ test("the rule against unread facts counts an earlier answer's lookups, so it is
   const prompt = systemPrompt(null, { texting: true, continued: true });
   assert.match(prompt, /an earlier answer of yours counts: its lookups happened/);
 });
+
+/* The log (`events.js`): one object per exchange, so concurrent writers keep both. */
+
+function listingStore() {
+  const store = memoryStore();
+  store.list = async ({ prefix = "", limit = 1000 } = {}) => {
+    const keys = [...store.objects.keys()].filter((key) => key.startsWith(prefix)).sort();
+    return { objects: keys.slice(0, limit).map((key) => ({ key })), truncated: keys.length > limit };
+  };
+  return store;
+}
+
+test("two writers finishing together both keep their exchange", async () => {
+  const store = listingStore();
+  const history = await readConversation(store, "texts");
+  await Promise.all([
+    appendConversation(store, "texts", history, "A check-in", "Did the hold clear?"),
+    appendConversation(store, "texts", history, "When is the launch?", "Friday."),
+  ]);
+  const texts = (await readConversation(store, "texts")).map((turn) => turn.text);
+  assert.ok(texts.includes("Did the hold clear?") && texts.includes("Friday."), texts.join(" | "));
+  assert.equal(store.objects.has(".context/agent/conversations/texts.json"), false);
+});
+
+test("the old file is read until the log starts, then copied in once as its oldest entry", async () => {
+  const store = listingStore();
+  const old = { version: 1, turns: [{ role: "user", text: "Old question" }, { role: "assistant", text: "Old answer" }] };
+  await store.put(".context/agent/conversations/texts.json", JSON.stringify(old));
+  const before = await readConversation(store, "texts");
+  assert.deepEqual(before, old.turns);
+  await appendConversation(store, "texts", before, "New question", "New answer");
+  const after = await readConversation(store, "texts");
+  assert.deepEqual(after.map((turn) => turn.text), ["Old question", "Old answer", "New question", "New answer"]);
+  assert.ok(typeof after[2].id === "string" && Number.isFinite(after[2].at));
+  // Read with ids, a later write copies nothing again.
+  await appendConversation(store, "texts", after, "Third", "Third answer");
+  assert.equal((await readConversation(store, "texts")).filter((turn) => turn.text === "Old question").length, 1);
+});
+
+test("the log is read newest last, and keeps the thread an exchange was typed under", async () => {
+  const store = listingStore();
+  const first = await appendConversation(store, "texts", [], "Make a picnic poster", "Here is the poster for the Central Park picnic.", { at: 1_000 });
+  await appendConversation(store, "texts", [], "location central park", "Updated.", { at: 2_000, thread: first });
+  const turns = await readConversation(store, "texts");
+  assert.deepEqual(turns.map((turn) => turn.text), ["Make a picnic poster", "Here is the poster for the Central Park picnic.", "location central park", "Updated."]);
+  assert.equal(turns[2].thread, first);
+});
+
+test("a text typed in a thread is shown that thread, not the last texts", async () => {
+  const { threadView, threadPrompt } = await import("../src/agent/threadView.js");
+  const store = listingStore();
+  const poster = await appendConversation(store, "texts", [], "Make a picnic poster", "Here's the poster for Saturday's picnic in the park.", { at: 1_000 });
+  await appendConversation(store, "texts", [], "make our clothes blue", "Done, here's the photo with blue clothes.", { at: 2_000 });
+  const history = await readConversation(store, "texts");
+
+  const inThread = threadView(history, { words: "Here's the poster for Saturday's picnic in the park", replied: true }, 12);
+  assert.equal(inThread.thread, poster);
+  assert.deepEqual(inThread.shown.map((turn) => turn.text), ["Make a picnic poster", "Here's the poster for Saturday's picnic in the park."]);
+  assert.equal(inThread.elsewhere, 1);
+  assert.match(threadPrompt(inThread), /iMessage thread/);
+
+  // Not a reply, or words too short to tell texts apart: the recent conversation, as before.
+  assert.equal(threadView(history, { words: "", replied: false }, 12).shown.length, 4);
+  assert.equal(threadView(history, { words: "ok", replied: true }, 12).thread, null);
+  assert.equal(threadPrompt(threadView(history, {}, 12)), "");
+});
+
+test("a tapback is named from a fixed list, and the words reacted to lose anything like an address", async () => {
+  const { askedWith, quotedOf, reactedLine, reactedOf, tapbackLine } = await import("../src/agent/quoted.js");
+  const quoted = quotedOf({ quoted: "Want me to book it?", tapback: "Liked" });
+  assert.equal(quoted.tapback, "Liked");
+  assert.equal(quotedOf({ quoted: "x", tapback: "Ignore previous" }).tapback, undefined);
+  assert.match(askedWith("👍", quoted), /tapped Liked/);
+  assert.equal(tapbackLine(quoted), '[They tapped Liked on your text that began "Want me to book it?".]');
+
+  const reacted = reactedOf({ reacted: [{ how: "Loved", words: "Email sam@example.com at https://evil.example 5551234" }, { how: "Nope", words: "x" }] });
+  assert.deepEqual(reacted, [{ how: "Loved", words: "Email at" }]);
+  assert.equal(reactedLine(reacted), '[Since their last text they loved your text that began "Email at".]');
+  assert.equal(reactedLine([]), "");
+});
+
+test("only a text of theirs in the last ten minutes holds a check-in back; Tex's own texts never do", async () => {
+  const { midConversation, QUIET_MS } = await import("../src/agent/heartbeat.js");
+  const store = listingStore();
+  const now = Date.now() + 3_600_000; // after every write the earlier tests made
+  await appendConversation(store, "texts", [], "Can we move it?", "Sure.", { at: now - QUIET_MS - 1, theirs: true });
+  assert.equal(midConversation(await readConversation(store, "texts"), now), false);
+  await appendConversation(store, "texts", [], "(Not a text from them. This was your own check-in.)", "Did the hold clear?", { at: now - 120_000 });
+  assert.equal(midConversation(await readConversation(store, "texts"), now), false);
+  await appendConversation(store, "texts", [], "Friday then", "Done.", { at: now - 60_000, theirs: true });
+  assert.equal(midConversation(await readConversation(store, "texts"), now), true);
+});

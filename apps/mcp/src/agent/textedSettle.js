@@ -62,7 +62,7 @@ export async function settleTextedText(store, session, { dispatch, question, has
 async function remember(store, conversation, question, answer) {
   if (conversation === null) return;
   try {
-    await appendConversation(store, conversation, await readConversation(store, conversation), question, answer);
+    await appendConversation(store, conversation, await readConversation(store, conversation), question, answer, { theirs: true });
   } catch {
     // The reply is still owed; a history that failed to save costs the next turn some context.
   }

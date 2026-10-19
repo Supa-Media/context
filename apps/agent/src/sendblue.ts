@@ -21,6 +21,7 @@
 import { MAX_REPLY_TEXT, ServiceError, type Fetch } from "./clients";
 import { CARD_VERSION } from "./card";
 import { MAX_INBOUND_ATTACHMENTS, MAX_INBOUND_TEXT, type Inbound, type InboundAttachment } from "./inbound";
+import { readTapback } from "./reactions";
 
 /** The base address docs.sendblue.com names for every call. */
 export const SENDBLUE_API = "https://api.sendblue.com";
@@ -398,7 +399,12 @@ export function parseSendblueInbound(payload: unknown): Inbound {
   if (ours === undefined) return { kind: "invalid" };
 
   const text = typeof payload.content === "string" ? payload.content.trim() : "";
-  if (TAPBACK.test(text) && !payload.media_url) return { kind: "ignored", reason: "reaction" };
+  if (TAPBACK.test(text) && !payload.media_url) {
+    // A tapback is noted or answered (`reactions.ts`); one taken back is dropped.
+    const reaction = readTapback(text);
+    if (reaction === null) return { kind: "ignored", reason: "reaction" };
+    return { kind: "reaction", eventId: `sendblue:${handle}`, chatId: sendblueChatId(ours, from), from, messageId: handle, reaction };
+  }
   const attachments: InboundAttachment[] = [];
   if (typeof payload.media_url === "string" && payload.media_url !== "") {
     try {

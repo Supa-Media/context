@@ -28,7 +28,9 @@ export type HeartbeatOutcome =
   | "no_chat"
   | "failed"
   | "daily_limit"
-  | "no_provider";
+  | "no_provider"
+  /** They were texting with Tex: the control plane looks again once the chat is quiet. */
+  | "busy";
 
 /** `attention`: a claim for the pings the person's agents asked for, which the gateway texts as they are, with no look. */
 export type DueHeartbeat = {
@@ -50,7 +52,7 @@ export const HEARTBEAT_CONCURRENCY = 2;
 const MAX_DUE_HEARTBEATS = 50;
 const MAX_PHONES = 10;
 
-const SILENT = new Set(["quiet", "nothing_new", "paused"]);
+const SILENT = new Set(["quiet", "nothing_new", "paused", "busy"]);
 const nonEmpty = (value: unknown): value is string => typeof value === "string" && value.length > 0;
 
 export type HeartbeatDeps = {

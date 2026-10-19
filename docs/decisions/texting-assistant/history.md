@@ -86,7 +86,8 @@ the last few texts (`apps/mcp/src/agent/quoted.js`). How each reply's words
 came out is logged as `sendblue_reply_context` (an outcome word, never the
 words or a number), because a lost quote was otherwise invisible. The day's
 transcript shows the quote above the person's words. Spanish tapbacks
-("Le gustó “…”") are dropped like English ones.
+("Le gustó “…”") are read like English ones, and since 2026-10-19 a tapback
+is answered or noted rather than dropped ([runtime](./runtime.md)).
 
 The thread an inline reply was typed in decides its topic, not whatever was
 texted last. Seen 2026-10-19: "location central park", typed in the picnic
