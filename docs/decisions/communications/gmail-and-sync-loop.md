@@ -555,6 +555,14 @@ the first bill they see" is the scoping note's own sentence.
   those days, like the reconcile of today and yesterday, so it is a repair of
   days Context already covered and not the backfill #388 removed; a row that
   still owes days is not queued again.
+- **Reads on one token are spaced, so a backlog cannot trip the per-user
+  limit.** A pass that fetched a long history walk or a repaired day older
+  than the message cache back to back hit Google's per-user rate limit, failed
+  after its retries, and began again on the next pass: one mailbox stayed
+  rate-limited for over a day without catching up (2026-10-19). `gmailFetch`
+  now waits `gmailRetry.minGapMs` (50 ms) between calls on one access token,
+  about 100 quota units a second against Google's 250, and a limit that still
+  trips gets a third retry of 30 seconds.
 - **One pass, inside the one credential barrier.** The import runs in
   `runFileOperation` on Gmail's turn, in place of that turn's forward pass,
   using the token the pass already minted and the scope the connect already

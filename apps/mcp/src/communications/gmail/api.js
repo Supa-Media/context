@@ -64,16 +64,36 @@ export class GmailHistoryExpiredError extends GmailApiError {
  * Google's own advice for `rateLimitExceeded`, `userRateLimitExceeded` and a
  * 429 is to back off and try again; a pass that gave up on the first one
  * stopped the whole account for fifteen minutes or more over a limit measured
- * in seconds. Two retries, honouring `Retry-After` up to a bound, then the
+ * in seconds. Three retries, honouring `Retry-After` up to a bound, then the
  * pass fails and the sweep's backoff takes over. `dailyLimitExceeded` and
  * `quotaExceeded` are not retried: waiting seconds does not refill a day.
  * Mutable only so the tests can make the waits instant.
  */
 export const gmailRetry = {
-  delaysMs: [2_000, 8_000],
-  maxRetryAfterMs: 20_000,
+  delaysMs: [2_000, 8_000, 30_000],
+  maxRetryAfterMs: 30_000,
+  /**
+   * The least time between two calls on one access token. Google's per-user
+   * limit is 250 quota units a second and a message read costs five, so a
+   * pass that read a backlog back to back (a long history walk, a repaired
+   * day older than the message cache) ran into it, failed after its retries,
+   * and started over on the next pass: a mailbox that never caught up
+   * (production, 2026-10-19). Twenty calls a second stays well under it.
+   */
+  minGapMs: 50,
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 };
+
+/** When each access token last called Gmail, for `minGapMs`. Bounded: a token lives an hour. */
+const lastCallAt = new Map();
+
+async function pace(accessToken) {
+  const now = Date.now();
+  const wait = (lastCallAt.get(accessToken) ?? -Infinity) + gmailRetry.minGapMs - now;
+  if (lastCallAt.size > 200) lastCallAt.clear();
+  lastCallAt.set(accessToken, now + Math.max(0, wait));
+  if (wait > 0) await gmailRetry.sleep(wait);
+}
 
 const RETRYABLE_REASONS = new Set(["rateLimitExceeded", "userRateLimitExceeded"]);
 
@@ -96,6 +116,8 @@ export async function gmailFetch(fetchImpl, accessToken, path, params) {
     for (const each of Array.isArray(value) ? value : [value]) url.searchParams.append(key, String(each));
   }
   for (let attempt = 0; ; attempt += 1) {
+    // A retry has already waited its seconds.
+    if (attempt === 0) await pace(accessToken);
     const response = await fetchImpl(url.toString(), {
       headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
     });

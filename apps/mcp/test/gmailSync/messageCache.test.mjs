@@ -165,7 +165,7 @@ export async function runGmailMessageCacheChecks(check) {
       }
       return createFixtureGmail({ messages: [message("r1", 9)] }).fetchImpl(url);
     };
-    const got = await getMessage({ fetchImpl: flaky, accessToken: "tok", id: "r1" });
+    const got = await getMessage({ fetchImpl: flaky, accessToken: "retry-tok", id: "r1" });
     check("A 429 IS WAITED OUT AND RETRIED, FOR AS LONG AS RETRY-AFTER SAYS", got.id === "r1" && sleeps.length === 1 && sleeps[0] === 3000);
 
     let tries = 0;
@@ -174,7 +174,18 @@ export async function runGmailMessageCacheChecks(check) {
       return jsonResponse({ error: { errors: [{ reason: "userRateLimitExceeded" }] } }, 403);
     };
     const stubborn = await getMessage({ fetchImpl: always, accessToken: "tok", id: "x" }).catch((error) => error);
-    check("a limit that does not lift fails the call after two retries", tries === 3 && stubborn?.status === 403 && stubborn?.reason === "userRateLimitExceeded");
+    check("a limit that does not lift fails the call after three retries", tries === 4 && stubborn?.status === 403 && stubborn?.reason === "userRateLimitExceeded");
+
+    // -- calls on one token are spaced, so a backlog does not trip the per-user limit --
+    sleeps.length = 0;
+    const paced = createFixtureGmail({ messages: [message("p1", 9)] });
+    await getMessage({ fetchImpl: paced.fetchImpl, accessToken: "pace-tok", id: "p1" });
+    await getMessage({ fetchImpl: paced.fetchImpl, accessToken: "pace-tok", id: "p1" });
+    await getMessage({ fetchImpl: paced.fetchImpl, accessToken: "other-tok", id: "p1" });
+    check(
+      "BACK-TO-BACK CALLS ON ONE TOKEN WAIT THEIR GAP; ANOTHER TOKEN DOES NOT WAIT FOR IT",
+      sleeps.length === 1 && sleeps[0] > 0 && sleeps[0] <= gmailRetry.minGapMs,
+    );
 
     let daily = 0;
     const spent = async () => {
