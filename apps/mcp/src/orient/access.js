@@ -1,5 +1,16 @@
 /** How `orient` and `scope_info` describe what this connection may reach. Moved verbatim out of `src/index.js`. */
 
+import { PINNED_CONTEXT_NAME } from "./globalNote.js";
+
+/**
+ * What `team` means in the pinned workspace, said beside its row: the pin opens that tier to every signed-in
+ * Context account (docs/decisions/privacy-and-sharing/all-context-users.md), so an agent writing there must not
+ * read "team notes" as the members' alone. A note for the members only is private plus the members grant, which
+ * the owner sets in the share dialog.
+ */
+export const PINNED_TEAM_LINE =
+  "there, team notes are open to every signed-in Context account, not just its members, so keep anything sensitive out of them";
+
 /**
  * What an agent may do in one of the other contexts, where it will read it.
  *
@@ -31,6 +42,11 @@
  * confident attempt that fails.
  */
 export function accessSentence(entry) {
+  const sentence = reachSentence(entry);
+  return entry?.name === PINNED_CONTEXT_NAME ? `${sentence}; ${PINNED_TEAM_LINE}` : sentence;
+}
+
+function reachSentence(entry) {
   const owner = entry?.role === "owner";
   const notes = owner && entry?.tier === "private" ? "private notes" : "team notes";
   if (entry?.canWrite) {
