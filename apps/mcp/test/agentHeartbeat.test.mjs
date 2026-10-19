@@ -197,6 +197,11 @@ function unitChecks(check) {
     asked.startsWith("SETUP-WORDS") && !asked.includes("glances at what changed") && asked.includes("- todo.md (1m ago)") &&
       asked.includes("Only text me about rent.") && asked.trim().endsWith("exactly SKIP and nothing else."),
   );
+  const builtIn = heartbeatQuestion({ changed: [{ key: "todo.md", at: since }], now: since + 60_000, texted: [] });
+  check(
+    "a check-in texts like a person: short, and never a note path",
+    builtIn.includes("one or two short sentences") && builtIn.includes("never a note path") && !builtIn.includes("which note it is in"),
+  );
   check("the day's log is dated in their zone", heartbeatPath(Date.UTC(2026, 9, 17, 3, 0), "America/New_York") === "tex/heartbeat/2026-10-16.md");
 }
 
