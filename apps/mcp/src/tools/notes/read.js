@@ -1,7 +1,12 @@
 /** `list_notes` and `read_note`. */
 
 import { canSee, effectiveVisibility } from "../../privacy/engine.js";
-import { eligible as collaborationEligible, supported as collaborationSupported, readDocument as readCollaborationDocument } from "@context/collaboration";
+import {
+  eligible as collaborationEligible,
+  supported as collaborationSupported,
+  readDocument as readCollaborationDocument,
+  readDocumentIfStarted,
+} from "@context/collaboration";
 import { describeDrawing, isDrawingPath, parseDrawing } from "../../../../../packages/drawings/src/excalidraw.js";
 import { drawingEmbedLine } from "../../notes/embeds.js";
 import { encryptedNoteRefusal, openStoredNote } from "../../notes/sealing.js";
@@ -129,7 +134,17 @@ export async function toolReadNote(store, scope, rules, overrides, pathArg) {
   let collaboration = null;
   if (!opened.encrypted && collaborationSupported(store) && collaborationEligible(path, opened.text)) {
     try {
-      collaboration = await readCollaborationDocument(store, path);
+      // A caller that only reads (`store.readsStartNoDocument`, set per
+      // request: Tex's check-in) starts no document: a note nothing has edited
+      // together is its Markdown, served with the Markdown's etag, which
+      // `write_note` still merges from. Starting one costs a first read ~15
+      // storage calls, the most of any part of it. Every other caller starts
+      // one here, because `set_visibility`, the moves and `set_encryption`
+      // compare the etag they are handed with the document's.
+      collaboration =
+        store.readsStartNoDocument === true
+          ? await readDocumentIfStarted(store, path)
+          : await readCollaborationDocument(store, path);
     } catch {
       // Once a supported store has initialized collaboration state, the
       // engine's materialized text is authoritative. Serving the raw object

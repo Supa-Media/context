@@ -232,3 +232,22 @@ repairs share one follow-up read.
 contracts on every push; the daily browser run (`apps/mcp/test/browser/verifyEditor.mjs`,
 `collaboration.yml`) holds a
 silent handshake and a silently dead socket against the real gateway.
+
+## A reader that only looks starts no document
+
+Reading a note through `read_note` normally starts its collaboration document
+(head, state, seed revision) so the etag the caller gets back is the
+document's; `set_visibility`, the moves and `set_encryption` compare against
+that etag. Starting one costs about 15 storage calls, most of a first read. A
+caller that only reads (Tex's check-in, `store.readsStartNoDocument`) is
+instead served a note with no collaboration state as its Markdown, with the
+Markdown's etag (`readDocumentIfStarted`). A later `write_note` against that
+etag still merges: the write starts the document over the Markdown as it then
+is, and its starting etag is the one the reader was given.
+
+Why: on 2026-10-19 check-ins that read many changed inbox notes ran out of
+their Worker invocation's subrequests before writing their own log, so texts
+went out with no log entry and could be repeated. Widening this to every
+reader needs those etag comparisons to accept the starting etag too.
+`apps/mcp/test/readNoteCost.test.mjs` counts a check-in's reads and fails if a
+read starts a document or costs more than 11 subrequests.

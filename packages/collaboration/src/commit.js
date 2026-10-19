@@ -19,7 +19,7 @@ import {
   hasPendingDependencies,
   snapshotOf,
 } from "./ydoc.js";
-import { makeResult, writeRevision } from "./records.js";
+import { makeResult, readHead, writeRevision } from "./records.js";
 import { finalizePending, ready } from "./load.js";
 
 /** Read the current Yjs snapshot and the Markdown etag it materializes. */
@@ -31,6 +31,28 @@ export async function readDocument(store, path) {
     throw fail("DEPENDENCY_PENDING", "accepted Yjs updates are waiting for missing dependencies");
   }
   return makeResult(loaded.state, loaded.revision);
+}
+
+/**
+ * `readDocument` for a reader that only looks: the document when this path
+ * already has collaboration state, or `null` when it has none, without
+ * creating any. A note nothing has edited collaboratively has no head, and
+ * its Markdown is then the only state there is, so a reader may serve it as
+ * it is. Starting a document is ~15 storage calls (head, state, seed revision,
+ * re-reads to refuse races), which a caller that only reads need not pay: a
+ * check-in that read 35 inbox notes spent ~500 of its invocation's
+ * subrequests seeding documents nobody would edit.
+ *
+ * A later write still works against the Markdown etag that reader was given:
+ * the write starts the document over the Markdown as it then is, and its
+ * `legacyRawEtag` is that same etag (`replaceText`), so an unchanged base
+ * merges and a changed one is a conflict, as it would have been.
+ */
+export async function readDocumentIfStarted(store, path) {
+  requireSupported(store);
+  if (!eligible(path, "")) throw fail("INELIGIBLE_DOCUMENT", "document is not eligible for collaboration");
+  if ((await readHead(store, path)) === null) return null;
+  return readDocument(store, path);
 }
 
 export async function commitSnapshot(store, path, loaded, documentId, nextDoc) {
