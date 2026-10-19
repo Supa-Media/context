@@ -207,7 +207,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       session.timeZone,
       attachments,
       // Somebody else's words, kept apart from the person's (`apps/mcp/src/agent/quoted.js`).
-      message.quoted,
+      message.quoted ?? (message.threaded ? "" : undefined),
       deps.told,
     );
     if (answer.kind === "answer") {

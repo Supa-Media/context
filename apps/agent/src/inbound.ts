@@ -44,6 +44,12 @@ export type Inbound =
        */
       quoted?: string;
       /**
+       * Sendblue: it was an inline reply, so Tex answers inside the same
+       * thread (`line.ts`, `sendText`'s `replyTo`), and is told it was a reply
+       * even when the replied-to words could not be read.
+       */
+      threaded?: true;
+      /**
        * Sendblue: it came as SMS (a green bubble), whose sender number anyone
        * can fake. Its words are never acted on (`reply.ts`, `smsReply`).
        */

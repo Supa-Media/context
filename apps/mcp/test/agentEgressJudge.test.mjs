@@ -218,6 +218,20 @@ export async function runAgentEgressJudgeChecks(check) {
       /vouch for nothing/.test(shown) && /yes, share sixth with the team/.test(shown) && !/\u201d\)/.test(shown),
     );
 
+    // A reply whose words the Worker could not read is still told as a reply.
+    model.install([{ text: "Trying the Oct 30 price again." }]);
+    before = model.requests.length;
+    await request(env, TOKEN_TEXTS, "/agent", { question: "try again", conversation: "texts", replied: true });
+    const unread = JSON.stringify(model.requests[before]?.messages ?? []);
+    check(
+      "a reply whose words could not be read is still told as a reply to an earlier message",
+      /replying inline to an earlier message in this thread, but its words could not be read/.test(unread) && /They said: try again/.test(unread),
+    );
+    model.install([{ text: "Hi." }]);
+    before = model.requests.length;
+    await request(env, TOKEN_TEXTS, "/agent", { question: "hello there", conversation: "texts" });
+    check("a plain text is not told it is a reply", !/replying/.test(JSON.stringify(model.requests[before]?.messages ?? [])));
+
     /* ---------------- the judge's own inputs ---------------- */
 
     check(

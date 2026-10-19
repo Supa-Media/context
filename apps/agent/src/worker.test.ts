@@ -162,8 +162,25 @@ describe("worker", () => {
         vi.unstubAllGlobals();
       }
       expect(asked).toEqual(["https://api.sendblue.com/api/v2/messages/mh_0"]);
-      expect(queued[0]).toMatchObject({ text: "yes", quoted: "Want me to book it?" });
+      expect(queued[0]).toMatchObject({ text: "yes", quoted: "Want me to book it?", threaded: true });
       expect(queued[0]).not.toHaveProperty("replyTo");
+    });
+
+    it("an inline reply is queued as one even when its words can't be read", async () => {
+      const { env: e, queued } = sbEnv();
+      e.SENDBLUE_API_KEY_ID = "kid";
+      e.SENDBLUE_API_SECRET = "ksecret";
+      const logged: string[] = [];
+      vi.spyOn(console, "log").mockImplementation((line: string) => void logged.push(line));
+      vi.stubGlobal("fetch", async () => new Response(null, { status: 404 }));
+      try {
+        expect((await worker.fetch(post(inbound({ content: "try again", reply_to: { message_handle: "mh_0" } }), SB_SECRET), e)).status).toBe(200);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+      expect(queued[0]).toMatchObject({ text: "try again", threaded: true });
+      expect(queued[0]).not.toHaveProperty("quoted");
+      expect(logged.some((line) => line.includes('"sendblue_reply_context"') && line.includes('"unread"'))).toBe(true);
     });
 
     it("refuses a wrong or missing secret, and everything when ours is not set", async () => {

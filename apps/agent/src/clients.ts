@@ -249,7 +249,8 @@ export async function askAgent(
   /**
    * The words an inline reply answers, sent apart from the question: they are
    * somebody else's, and `question` is what the gateway's guards vouch from
-   * (`apps/mcp/src/agent/quoted.js`).
+   * (`apps/mcp/src/agent/quoted.js`). An empty string is a reply whose words
+   * could not be read, sent as `replied` so the turn still knows it was one.
    */
   quoted?: string,
   /** The fixed texts sent since the last turn, by name, for its history (`told.ts`). */
@@ -262,7 +263,7 @@ export async function askAgent(
     conversation: "texts",
     ...(timeZone ? { timeZone } : {}),
     ...(attachments.length > 0 ? { attachments } : {}),
-    ...(quoted ? { quoted } : {}),
+    ...(quoted ? { quoted } : quoted === "" ? { replied: true } : {}),
     ...(told.length > 0 ? { told } : {}),
   };
   if (onProgress) return askAgentStreaming(fetcher, gatewayOrigin, accessToken, ask, onProgress);

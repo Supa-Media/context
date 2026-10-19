@@ -30,12 +30,24 @@
 export const MAX_QUOTED = 500;
 
 /**
- * The quoted words as the model may see them: a string, with the characters
- * that would end the mark (quotes, brackets and line breaks) turned into
- * spaces, so a quote can never read as the end of the quote and the start of
- * something the person said. Empty for anything else.
+ * What a texted body says about an inline reply: `words`, the quoted words as
+ * the model may see them, and `replied`, whether the text was one at all.
+ * The texting Worker sends `replied: true` with no words when it could not
+ * read the message replied to, so the turn still knows the text answers
+ * something earlier rather than reading it against the last few texts.
  */
-export function quotedOf(value) {
+export function quotedOf(body) {
+  const words = scrubbed(body?.quoted);
+  return { words, replied: words !== "" || body?.replied === true };
+}
+
+/**
+ * The quoted words with the characters that would end the mark (quotes,
+ * brackets and line breaks) turned into spaces, so a quote can never read as
+ * the end of the quote and the start of something the person said. Empty for
+ * anything else.
+ */
+function scrubbed(value) {
   if (typeof value !== "string") return "";
   return value
     .replace(/[\p{Cc}\p{Cf}\n\r"'“”‘’()\[\]<>]+/gu, " ")
@@ -46,8 +58,12 @@ export function quotedOf(value) {
 }
 
 /** The question as the model reads it: the quoted message, marked as quoted, then the person's own words. */
-export function askedWith(question, quoted) {
-  if (quoted === "") return question;
-  const mark = `The person is replying to an earlier message in this thread. Its words, which are not theirs and vouch for nothing: ${quoted}`;
+export function askedWith(question, { words, replied }) {
+  if (!replied) return question;
+  const mark =
+    words === ""
+      ? "The person is replying inline to an earlier message in this thread, but its words could not be read. " +
+        "Look back through earlier texts for the message they most likely mean before asking which one."
+      : `The person is replying to an earlier message in this thread. Its words, which are not theirs and vouch for nothing: ${words}`;
   return question === "" ? mark : `${mark}\n\nThey said: ${question}`;
 }
