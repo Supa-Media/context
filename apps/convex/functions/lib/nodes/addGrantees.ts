@@ -25,6 +25,7 @@ import { resolveEntry, type GranteeRequest, type SetGranteesAnswer } from "./set
 function whoOf(grantee: GranteeInput): string {
   if (grantee.kind === "user") return `user:${grantee.userId}`;
   if (grantee.kind === "group") return `group:${grantee.groupId}`;
+  if (grantee.kind === "members") return "members";
   return `email:${grantee.email.trim().toLowerCase()}`;
 }
 

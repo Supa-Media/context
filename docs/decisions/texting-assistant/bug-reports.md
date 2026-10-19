@@ -45,10 +45,11 @@ team notes, so the note is written only where nobody reaching it through the
 pin can read it: the path is checked at `team` scope first, and a folder
 opened to the team gets nothing and the person is told it did not send. Each report
 is then shared with the context's real team (decided by the owner, 2026-10-19:
-"bug reports should be team accessible"): `shareWithTeam` names every member
-with a real membership row on the note, to view, at base `private`. That is
-never the `team` tier, which in the pinned context is every account, so the
-pin's readers still see nothing. A deployment with no pinned context
+"bug reports should be team accessible"): `shareWithTeam` grants the note, to
+view, at base `private`, to the built-in `members` grantee, held by exactly the
+people with a real membership row (`lib/nodes/rowAccess.ts`), so someone who
+joins later reads earlier reports too. That is never the `team` tier, which in
+the pinned context is every account, so the pin's readers still see nothing. A deployment with no pinned context
 (a self-hosted one) sends the report to Sentry as before, `texts.txt`
 attached.
 

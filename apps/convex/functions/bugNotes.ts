@@ -18,8 +18,8 @@
  * The team still reads every report (decided by the owner, 2026-10-19: "bug
  * reports should be team accessible"). "Team" there means the context's real
  * members, never the `team` tier, which the pin opens to every account: so
- * `shareWithTeam` names each real member on the note, as the owner would by
- * hand, and the note stays private to everyone else.
+ * `shareWithTeam` grants the note to the built-in `members` grantee, and it
+ * stays private to everyone else.
  */
 
 import { ConvexError, v } from "convex/values";
@@ -30,7 +30,7 @@ import { usernameOf } from "./lib/adminFns/people";
 import { bugFolder, bugNotePath, renderBugNote } from "./lib/feedback/bugNote";
 import { accessSourceOf } from "./lib/nodes/accessBackfill";
 import { folderJobsOf } from "./lib/nodes/folderJobs";
-import { MAX_GRANTEES, setAccessRow } from "./lib/nodes/setAccess";
+import { setAccessRow } from "./lib/nodes/setAccess";
 import { pinnedContextWorkspace } from "./lib/pinnedContext";
 import { getMembership } from "./lib/workspaceAuth";
 
@@ -50,33 +50,30 @@ export const destination = internalQuery({
 });
 
 /**
- * Name every real member of the context on one report, to view. Owners read
- * it already and pin readers are never named. Only where the access rows
- * judge: a list lives on a row, so elsewhere there is nothing to name and the
- * note stays owner-only. False only for a change that was refused. Granted
- * under the first owner's name, since naming people is the owner's.
+ * Open one report to every real member of the context, to view, through the
+ * built-in `members` grantee (`lib/nodes/rowAccess.ts`): it follows the member
+ * list, so someone who joins later reads earlier reports too, and a pin reader
+ * never holds it. Only where the access rows judge: a list lives on a row, so
+ * elsewhere the note stays owner-only. False only for a change that was
+ * refused. Granted under the first owner's name, since a list is the owner's.
  */
 export const shareWithTeam = internalMutation({
   args: { workspaceId: v.id("workspaces"), path: v.string() },
   returns: v.boolean(),
   handler: async (ctx, { workspaceId, path }) => {
     if ((await accessSourceOf(ctx.db)) !== "rows") return true;
-    const members = await ctx.db
-      .query("workspaceMembers")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-      .collect();
-    const owner = members.find((member) => member.role === "owner");
+    const owner = (
+      await ctx.db
+        .query("workspaceMembers")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .collect()
+    ).find((member) => member.role === "owner");
     if (owner === undefined) return false;
-    const grantees = members
-      .filter((member) => member.role !== "owner")
-      .slice(0, MAX_GRANTEES)
-      .map((member) => ({ kind: "user" as const, userId: member.userId, role: "view" as const }));
-    if (grantees.length === 0) return true;
     const answer = await setAccessRow(ctx, {
       workspaceId,
       path,
       base: "private",
-      grantees,
+      grantees: [{ kind: "members", role: "view" }],
       actor: { userId: owner.userId, role: "owner" },
     });
     return answer.ok;

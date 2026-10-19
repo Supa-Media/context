@@ -28,7 +28,7 @@ import { PrivacyOverrides } from "./engine.js";
 /**
  * @typedef {"member" | "guest"} Audience
  * @typedef {"view" | "edit"} Role
- * @typedef {{ kind: "user" | "group" | "email", id: string, role: Role }} Grantee
+ * @typedef {{ kind: "user" | "group" | "email" | "members", id: string, role: Role }} Grantee
  * @typedef {{
  *   path: string,
  *   noteId: string,
@@ -36,7 +36,7 @@ import { PrivacyOverrides } from "./engine.js";
  *   base?: "private" | "team",
  *   grantees: Grantee[],
  * }} AccessRow
- * @typedef {{ userId?: string, emails?: readonly string[], groupIds?: readonly string[] }} Caller
+ * @typedef {{ userId?: string, emails?: readonly string[], groupIds?: readonly string[], member?: boolean }} Caller
  * @typedef {{ prefix: string, vis: string }} PrivacyRule
  * @typedef {{ rules: PrivacyRule[], overrides: PrivacyOverrides }} RenderedAccess
  */
@@ -144,7 +144,8 @@ export function accessNamesFor(caller, rows) {
       const held =
         (grantee.kind === "user" && caller.userId !== undefined && grantee.id === caller.userId) ||
         (grantee.kind === "email" && emails.has(grantee.id.trim().toLowerCase())) ||
-        (grantee.kind === "group" && groups.has(grantee.id));
+        (grantee.kind === "group" && groups.has(grantee.id)) ||
+        (grantee.kind === "members" && caller.member === true);
       if (!held) continue;
       names.add(viewNameFor(row.noteId));
       if (grantee.role === "edit") names.add(editNameFor(row.noteId));
