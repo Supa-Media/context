@@ -1,12 +1,11 @@
 /**
  * Tex answers inside an iMessage thread (docs.sendblue.com, iMessage inline
- * replies): a reply the person sent inline is answered in that thread, and so
- * is one that newer texts have since passed, so each answer reads next to
- * what it answers.
+ * replies): every answer goes in the thread of the text it answers, inline
+ * reply or not, so each answer reads next to what it answers.
  *
  * Sabotage record (applied, run, observed failing, reverted):
  *  1. `threadFor` returning undefined → "an inline reply is answered inside its
- *     thread" fails.
+ *     thread" and "a plain text is answered inside its thread too" fail.
  *  2. `sendMessage` throwing on a refused threaded send instead of sending it
  *     plain → "a thread Sendblue refuses still gets the answer" fails.
  *  3. `index.ts` not setting `threaded` → "an inline reply is queued as one"
@@ -83,16 +82,15 @@ describe("Tex answers inside iMessage threads", () => {
     expect(answers(calls).map((c) => c.body.reply_to)).toEqual([{ message_handle: "mh_r" }]);
   });
 
-  it("a plain text gets a plain answer", async () => {
+  it("a plain text is answered inside its thread too", async () => {
     const storage = new MemoryStorage();
-    await accept(storage, message("mh_p", "hi"), 1_000);
+    await accept(storage, message("mh_p", "Make me a poster for a picnic on sunday"), 1_000);
     const calls: Call[] = [];
     await drain(storage, deps(fake(calls)));
-    expect(answers(calls)).toHaveLength(1);
-    expect(answers(calls)[0].body).not.toHaveProperty("reply_to");
+    expect(answers(calls).map((c) => c.body.reply_to)).toEqual([{ message_handle: "mh_p" }]);
   });
 
-  it("an answer that newer texts have passed goes under the text it answers", async () => {
+  it("each of several texts is answered under its own message", async () => {
     const storage = new MemoryStorage();
     await accept(storage, message("mh_a", "first"), 1_000);
     await accept(storage, message("mh_b", "second"), 1_000);
@@ -100,7 +98,7 @@ describe("Tex answers inside iMessage threads", () => {
     await drain(storage, deps(fake(calls)));
     expect(answers(calls).map((c) => [c.body.content, c.body.reply_to])).toEqual([
       ["answer to first", { message_handle: "mh_a" }],
-      ["answer to second", undefined],
+      ["answer to second", { message_handle: "mh_b" }],
     ]);
   });
 

@@ -177,7 +177,7 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
       // send repeats nothing Linq already accepted; `sent` does the same on
       // a line without keys.
       const line = lineFor(lineDeps(deps), item.message.chatId);
-      const thread = await threadFor(storage, item.message);
+      const thread = threadFor(item.message);
       for (const [index, part] of reply.entries()) {
         if (index < sent) continue;
         if (item.message.channel === "simulator") {
@@ -209,17 +209,14 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
 }
 
 /**
- * The person's message an answer goes inside the thread of, so a reply reads
- * next to what it answers: one they sent as an inline reply, or one that
- * newer texts from them have since passed (the answer would otherwise land
- * under the wrong question). Otherwise none, and the answer is a plain text.
+ * The person's message an answer goes inside the thread of: always the one it
+ * answers, so every answer reads next to its question, as people expect from
+ * an assistant in iMessage (decided by the owner, 2026-10-19). None only in the
+ * simulator, which has no threads.
  */
-async function threadFor(storage: InboxStorage, message: Message): Promise<string | undefined> {
+function threadFor(message: Message): string | undefined {
   if (message.channel === "simulator" || !message.messageId) return undefined;
-  if (message.threaded) return message.messageId;
-  // This one is still stored until it is sent, so more than one means a newer text waits.
-  const waiting = await storage.list<Pending>({ prefix: "pending:" });
-  return waiting.size > 1 ? message.messageId : undefined;
+  return message.messageId;
 }
 
 function lineDeps(deps: InboxDeps): LineDeps {
@@ -363,8 +360,8 @@ async function answerTexts(message: Message, deps: InboxDeps, storage: InboxStor
         if (simulator) await record(storage, "in", text, deps.now());
         else {
           const line = lineFor(lineDeps(deps), message.chatId);
-          // An inline reply's progress lines go into its thread, like its answer.
-          await line.sendText(message.chatId, text, `progress:${message.eventId}:${index}`, message.threaded ? message.messageId : undefined);
+          // Progress lines go into the thread of the message, like its answer.
+          await line.sendText(message.chatId, text, `progress:${message.eventId}:${index}`, threadFor(message));
           // Sending a text clears the bubble; the task is still going.
           await line.startTyping(message.chatId);
         }
