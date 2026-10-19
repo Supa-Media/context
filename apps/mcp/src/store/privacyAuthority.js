@@ -125,6 +125,11 @@ function renderForReading(fileText, rules) {
 /** The rules already parsed, when they hold a row token; `undefined` otherwise, and the text is parsed as always. */
 function preParsedOf(rules) {
   if (!hasRowToken(rules)) return undefined;
+  return parsedRules(rules);
+}
+
+/** The held rules in the shape `loadPrivacyState` takes from `PRE_PARSED_RULES`. */
+function parsedRules(rules) {
   const overrides = new PrivacyOverrides();
   for (const note of rules.notes) overrides.set(note.path, note.visibility);
   return { rules: rules.folders.map((folder) => ({ prefix: folder.prefix, vis: folder.visibility })), overrides };
@@ -200,20 +205,30 @@ export function withPrivacyAuthority(store, authority) {
     return answer;
   };
 
-  const render = async () => {
+  /**
+   * `forReading`: held rules the file's parser would refuse (a row token, but also a row the file cannot
+   * spell: a non-Markdown note, a `#` in a name, a dot folder) are served already parsed rather than thrown.
+   * Throwing there failed every read of the workspace (@shyoh, 2026-10-19). An export still refuses them.
+   */
+  const render = async ({ forReading = false } = {}) => {
     const rules = held;
     // Rows mode: the rows are the truth and there is no `privacy.md` (notes-by-id), so the bucket is not asked
     // for its prose. Every search and every listing reads the rules through here, once per workspace.
     const file = typeof rules.accessVersion === "number" ? null : await store.get(PRIVACY_KEY);
     const fileText = file === null ? null : await file.text();
-    const text = hasRowToken(rules) ? renderForReading(fileText, rules) : renderWithRules(fileText, rules);
-    return { text, file, rules };
+    if (hasRowToken(rules)) return { text: renderForReading(fileText, rules), file, rules, preParsed: preParsedOf(rules) };
+    try {
+      return { text: renderWithRules(fileText, rules), file, rules, preParsed: undefined };
+    } catch (error) {
+      if (!forReading) throw error;
+      return { text: renderForReading(fileText, rules), file, rules, preParsed: parsedRules(rules) };
+    }
   };
 
   wrapped.get = async (key, ...rest) => {
     if (key !== PRIVACY_KEY || held === null) return await store.get(key, ...rest);
-    const { text, file, rules } = await render();
-    return objectFor(text, rules.etag, file, preParsedOf(rules));
+    const { text, file, rules, preParsed } = await render({ forReading: true });
+    return objectFor(text, rules.etag, file, preParsed);
   };
 
   if (typeof store.head === "function") {

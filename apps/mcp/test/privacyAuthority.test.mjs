@@ -312,3 +312,27 @@ test("recording what the rules already say asks nothing of the authority or the 
     await assert.rejects(persistExactVisibility(store, "0-inbox/held.md", "team", folder));
   }
 });
+
+/*
+  @shyoh, 2026-10-19: every read of one workspace failed with "Your bucket did
+  not complete that request". The held rules named a row the file's parser
+  refuses (a non-Markdown note, a `#` in a name, a dot folder), so rendering
+  privacy.md for a read threw "would not read back" and took every read with
+  it. A read serves the held rules as they are; only a write of the file
+  still refuses rules it could not read back.
+
+  Sabotage: render reads through `renderWithRules` again and this fails.
+*/
+test("held rules the file cannot spell still read, exactly as held", async () => {
+  const rules = held(
+    [["1-projects", "team"], [".obsidian", "private"]],
+    [["1-projects/cat.png", "private"], ["1-projects/C# notes.md", "private"]],
+  );
+  const store = withPrivacyAuthority(new MemoryStore(), fakeAuthority(rules));
+  const state = await loadPrivacyState(store);
+  assert.equal(canSee("1-projects/plan.md", "team", state.rules, state.overrides), true);
+  assert.equal(canSee("1-projects/cat.png", "team", state.rules, state.overrides), false);
+  assert.equal(canSee("1-projects/C# notes.md", "team", state.rules, state.overrides), false);
+  assert.equal(effectiveVisibility(".obsidian/app.json", state.rules, state.overrides), "private");
+  assert.match(await (await store.get(PRIVACY_KEY)).text(), /BEGIN BRAIN PRIVACY RULES/);
+});
