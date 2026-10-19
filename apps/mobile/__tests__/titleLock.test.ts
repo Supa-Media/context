@@ -137,11 +137,15 @@ describe("a note with no heading gets one on its first edit", () => {
     expect(apply(state, { changes: { from: 5, insert: "!" } }).doc.toString()).toBe("# intro\n\nHello!\n");
   });
 
-  test("typing into an empty note makes what is typed the title", () => {
+  // Reported 2026-10-19: a quick note could not be written in, because
+  // everything typed into it became its title and renamed it.
+  test("typing into an empty note is its body, under its name", () => {
     const state = editor("");
     const next = apply(state, { changes: { from: 0, insert: "W" }, selection: { anchor: 1 } });
-    expect(next.doc.toString()).toBe("# W");
-    expect(next.selection.main.head).toBe(3);
+    expect(next.doc.toString()).toBe("# plan\n\nW");
+    expect(next.selection.main.head).toBe(9);
+    const blank = editor("\n\n", NOTE, 2);
+    expect(apply(blank, { changes: { from: 2, insert: "W" } }).doc.toString()).toBe("\n\n# plan\n\nW");
   });
 
   test("somebody typing a heading by hand gets to finish it", () => {
