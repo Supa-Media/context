@@ -31,6 +31,7 @@ import {
   CHECK_IN_QUESTION,
   NOTHING_NEW_WORDS,
   changedSince,
+  newsFirst,
   checkInText,
   heartbeatCallTool,
   heartbeatPath,
@@ -144,6 +145,28 @@ function unitChecks(check) {
   check(
     "a look sees the notes changed since the last one, newest first, never Tex's own output or plumbing",
     JSON.stringify(changed.map((note) => note.key)) === JSON.stringify(["1-projects/launch.md", "tex/transcripts/2026-10-17.md"]),
+  );
+  const now = Date.parse("2026-10-19T16:11:00Z");
+  const ordered = newsFirst(
+    [
+      { key: "0-inbox/contacts/someone.md", at: now - 1_000 },
+      { key: "0-inbox/google-chat/2026/09/2026-09-25.md", at: now - 2_000 },
+      { key: "1-projects/launch.md", at: now - 3_000 },
+      { key: "0-inbox/email/me/2026/10/2026-10-19.md", at: now - 60 * 60 * 1000 },
+      { key: "0-inbox/google-chat/2026/10/2026-10-18.md", at: now - 2 * 60 * 60 * 1000 },
+    ],
+    now,
+  );
+  check(
+    "today's mail comes before weeks of rewritten chat days and contact pages, newest first within each",
+    JSON.stringify(ordered.map((note) => note.key)) ===
+      JSON.stringify([
+        "1-projects/launch.md",
+        "0-inbox/email/me/2026/10/2026-10-19.md",
+        "0-inbox/google-chat/2026/10/2026-10-18.md",
+        "0-inbox/contacts/someone.md",
+        "0-inbox/google-chat/2026/09/2026-09-25.md",
+      ]),
   );
   const paused = readSettings("---\npaused: true\n---\nOnly deadlines, please.\n");
   const open = readSettings("Only text me about deadlines.");

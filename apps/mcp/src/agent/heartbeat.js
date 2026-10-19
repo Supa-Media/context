@@ -114,6 +114,30 @@ export function changedSince(entries, since) {
   return changed.sort((a, b) => b.at - a.at || a.key.localeCompare(b.key));
 }
 
+/** A dated note (`…/2026-10-19.md`) older than this is a rewrite of the past, not news. */
+const RECENT_DAY_MS = 2 * DAY_MS;
+const DATED = /(\d{4}-\d{2}-\d{2})[^/]*\.md$/i;
+
+/**
+ * The changed notes in the order a look should see them: news first, newest
+ * first, then what a sync rewrote in bulk. A re-import that rewrites weeks of
+ * chat days and a contact page per sender is newer than this morning's mail,
+ * and the shown list is cut at `MAX_CHANGED_SHOWN`, so newest-first alone
+ * buried Google's verification email below forty rewritten chat days
+ * (production, 2026-10-19, the 12:11 look). A note dated more than two days
+ * before `now`, and a contact page, go after everything else.
+ */
+export function newsFirst(changed, now) {
+  const later = (key) => {
+    if (key.toLowerCase().startsWith("0-inbox/contacts/")) return true;
+    const dated = DATED.exec(key);
+    if (dated === null) return false;
+    const day = Date.parse(`${dated[1]}T00:00:00Z`);
+    return Number.isFinite(day) && day < now - RECENT_DAY_MS;
+  };
+  return [...changed.filter((note) => !later(note.key)), ...changed.filter((note) => later(note.key))];
+}
+
 /**
  * `tex/heartbeat.md` read as settings: paused, and the person's own words.
  * A note that is missing or can't be read is the defaults.
@@ -219,7 +243,7 @@ export function heartbeatQuestion({ changed, now, texted, instructions = null, t
   return [
     words,
     "## This look",
-    `Notes changed since you last looked, newest first:\n${shown.map((note) => `- ${note.key} (${age(note.at, now)})`).join("\n")}` +
+    `Notes changed since you last looked, newest first, with older days a sync rewrote and contact pages last:\n${shown.map((note) => `- ${note.key} (${age(note.at, now)})`).join("\n")}` +
       (more > 0 ? `\n- (+${more} more)` : ""),
     texted.length > 0
       ? `What your check-ins already texted them lately. Never send any of these again, or anything that says the same:\n${texted.map((line) => `- ${line}`).join("\n")}`
@@ -328,7 +352,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
     // What changed can't be told while the tree is loading: tried again at the next slot, from the same point.
     return json({ error: "tree_unavailable" }, 503);
   }
-  const changed = changedSince(entries, since);
+  const changed = newsFirst(changedSince(entries, since), Date.now());
   // A look that runs no model still leaves its line in the day's log.
   const skipped = (words) => {
     const now = Date.now();
