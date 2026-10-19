@@ -23,7 +23,8 @@ export const nodeAccessTables = {
   nodeAccess: defineTable({
     workspaceId: v.id("workspaces"),
     nodeId: v.id("nodes"),
-    granteeKind: v.union(v.literal("user"), v.literal("group"), v.literal("email")),
+    // `members`: every real member of the workspace (`lib/nodes/rowAccess.ts`), no id field.
+    granteeKind: v.union(v.literal("user"), v.literal("group"), v.literal("email"), v.literal("members")),
     granteeUserId: v.optional(v.id("users")),
     granteeGroupId: v.optional(v.id("workspaceGroups")),
     granteeEmail: v.optional(v.string()),
@@ -101,7 +102,7 @@ export const nodeAccessTables = {
           base: v.optional(v.union(v.literal("private"), v.literal("team"))),
           grantees: v.array(
             v.object({
-              kind: v.union(v.literal("user"), v.literal("group"), v.literal("email")),
+              kind: v.union(v.literal("user"), v.literal("group"), v.literal("email"), v.literal("members")),
               id: v.string(),
               role: v.union(v.literal("view"), v.literal("edit")),
             }),

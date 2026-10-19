@@ -11,6 +11,7 @@
  *  - the destination, or any path a moved row would take, is held by a live row;
  *  - any file under the name has no key (its flip is not finished);
  *  - another keyed move still moving overlaps either name (`busy`, `rowMoveChunks.ts`);
+ *  - it would nest the Archive, or put a built-in folder into it (`archiveTwins.ts`);
  *  - the name and the live rows under it are more than `maxRows`, unless the
  *    caller asked for a chunked move (`chunk`): then the folder's root moves
  *    here and the rows beneath follow a page at a time (`rowMoveChunks.ts`).
@@ -45,6 +46,7 @@ import { MAIN_ROLES, type MainRole, jobOfName } from "@context/shared/src/folder
 import { claimJobBeforeMove, jobOfRow, roleForNewFolder } from "./folderJobs";
 import { followFolderSettings } from "./settingsFollow";
 import { beginChunkedMove, overlapsRowMove } from "./rowMoveChunks";
+import { type ArchiveRefusal, archiveMoveRefusal } from "./archiveTwins";
 
 /**
  * Live rows one row move renames in one transaction, the name itself included.
@@ -63,7 +65,8 @@ export type RowMoveRefusal =
   | "too_large"
   | "rules_changed"
   | "changed"
-  | "invalid";
+  | "invalid"
+  | ArchiveRefusal;
 
 export type RowMoveAnswer =
   | {
@@ -194,6 +197,11 @@ export async function applyRowMove(
   // One move per subtree at a time: a name another keyed move is still carrying is not settled.
   if (await overlapsRowMove(ctx.db, ws, from, to)) return refuse("busy");
   const root = subtree.root;
+  // Archive stays at the top, and a built-in folder never goes into it (`archiveTwins.ts`).
+  if (!trash) {
+    const fenced = await archiveMoveRefusal(ctx.db, ws, root, to);
+    if (fenced !== null) return refuse(fenced);
+  }
   if (subtree.over) {
     if (args.chunk === undefined || root.kind !== "folder" || args.expectedEtag !== undefined) return refuse("too_large");
     return await beginChunkedMove(ctx, { workspaceId: ws, root, from, to, now, trash, privacyEtag: args.privacyEtag, clearance: args.chunk, mirror });

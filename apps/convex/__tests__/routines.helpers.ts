@@ -1,5 +1,5 @@
 /**
- * A shared workspace with routine notes in an in-memory bucket, and the three
+ * A workspace (personal unless asked) with routine notes in an in-memory bucket, and the three
  * doors routines use: the gateway's signal, and the texting Worker's due and
  * result calls. Every person has a personal workspace, whose slug is their
  * handle, so `to: @handle` resolves the way the product resolves it.
@@ -48,7 +48,7 @@ export function stubBuckets(...backends: MemoryS3[]): void {
 }
 
 export async function routineFixture(
-  options: { slug?: string; bucket?: string; stub?: boolean } = {},
+  options: { slug?: string; bucket?: string; stub?: boolean; kind?: "personal" | "shared" } = {},
 ): Promise<RoutineFixture> {
   const slug = options.slug ?? "studio";
   const t = setupTest();
@@ -60,7 +60,8 @@ export async function routineFixture(
   await createWorkspace(t, editor, `${slug}-bo`);
   await createWorkspace(t, member, `${slug}-cy`);
   await createWorkspace(t, stranger, `${slug}-dee`);
-  const workspaceId = await createWorkspace(t, owner, slug, { kind: "shared" });
+  // Personal by default: routines run nowhere else (owner, 2026-10-18).
+  const workspaceId = await createWorkspace(t, owner, slug, { kind: options.kind ?? "personal" });
   await addMember(t, workspaceId, editor, "editor", owner);
   await addMember(t, workspaceId, member, "member", owner);
   const backend = seededBucket(options.bucket ?? FAKE_STORAGE.bucket);

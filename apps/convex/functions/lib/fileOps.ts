@@ -101,8 +101,8 @@ export {
 export type { ContextMoveImport } from "./fileOps/contextMoveImport";
 export type { ReferenceRewrite } from "./fileOps/references";
 export { copyPath, duplicatePath } from "./fileOps/copying";
+export { archivePath } from "./fileOps/archiving";
 export {
-  archivePath,
   trashPath,
   restoreTrashedPath,
   DELETE_CONFIRMATION,

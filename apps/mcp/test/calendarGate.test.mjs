@@ -41,7 +41,7 @@ export async function runCalendarGateChecks(check) {
         controlPlane.calendarCalls[0].check === true &&
         Array.isArray(asked.body?.verbatim) &&
         asked.body.verbatim[0] ===
-          "Here's the change I'd make:\n\nAdd to your Google Calendar:\nDentist\nFrom 2026-10-20T15:00:00-04:00\nTo 2026-10-20T16:00:00-04:00\n\nReply YES to make it now, or NO to drop it.",
+          "Here's the change I'd make:\n\nAdd to your Google Calendar:\nDentist\nFrom 2026-10-20T15:00:00-04:00\nTo 2026-10-20T16:00:00-04:00\n\nLook good? Just say yes and I'll make the change.",
     );
 
     let before = model.requests.length;
@@ -60,7 +60,7 @@ export async function runCalendarGateChecks(check) {
       model.requests.length === before &&
         changes().length === 1 &&
         JSON.stringify(changes()[0].change) === JSON.stringify(readCalendarChange(CREATE).change) &&
-        yes.body?.answer === 'Done: add "Dentist" to your calendar.',
+        yes.body?.answer === 'Done, I added "Dentist" to your calendar.',
     );
 
     controlPlane.flags.calendarAddress = null;

@@ -72,6 +72,7 @@ export {
   listAllMessageIds,
   getMessage,
   getMessageOrNull,
+  getMessageHeaders,
   getProfileHistoryId,
   listHistoryPage,
   listAllHistory,

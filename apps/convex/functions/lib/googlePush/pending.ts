@@ -8,6 +8,7 @@
 import { internal } from "../../../_generated/api";
 import type { Doc } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
+import { productBackingOff } from "../googleSchedule";
 
 export type PushProduct = "gmail" | "calendar" | "chat";
 
@@ -44,7 +45,9 @@ export async function markPushPending(
   const pending: Pending = { ...(row.push?.pending ?? {}) };
   const alreadyPending = pending[product] !== undefined;
   pending[product] = now;
-  const failing = (row.syncFailures ?? 0) > 0;
+  // The account's own backoff, or this product's (`retryAt`): a notification
+  // is no reason to ask Google again before either ends.
+  const failing = (row.syncFailures ?? 0) > 0 || productBackingOff(row, product, now);
   const earliest = Math.max(now, (row.lastSyncAt ?? 0) + PUSH_MIN_GAP_MS);
   const nextSyncAt =
     failing || (row.nextSyncAt !== undefined && row.nextSyncAt <= earliest) ? row.nextSyncAt : earliest;

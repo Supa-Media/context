@@ -85,7 +85,9 @@ test("the full list stays compact", () => {
   // stale client; look at it before raising the bound. Raised to 12,500 on
   // 2026-10-17 for `notify_me`: the list stood at 11,976 with 54 tools, and
   // one more tool's line is about 220 characters however short its summary.
-  assert.ok(liveToolListSection(toolDefinitions()).length < 12_500);
+  // Raised to 13,000 on 2026-10-18 for `search_email` and `read_email`: the
+  // list stood at 12,372 with 59 tools, and the two added about 220.
+  assert.ok(liveToolListSection(toolDefinitions()).length < 13_000);
 });
 
 /* -------------------------------------------------------------------------- */

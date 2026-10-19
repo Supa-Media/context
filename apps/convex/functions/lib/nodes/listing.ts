@@ -201,6 +201,7 @@ async function withFolderJobs(
       ...entry,
       ...(role === null ? {} : { role }),
       ...(typeof row?.order === "number" ? { order: row.order } : {}),
+      ...(isRowRole(row?.archiveOf) ? { archiveOf: row.archiveOf } : {}),
     };
   });
   entries.sort((a, b) => compareListingEntries(folder, a, b));

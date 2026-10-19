@@ -56,7 +56,9 @@ const ROUTINE_HELP =
   "A one-off needs its date and time: at: 2026-10-15 9:00 am; it texts once, then is marked done: and stays as a record. " +
   "Other optional lines at the top, between --- lines: " +
   "at: 7:30 am, on: weekdays (or Fridays, or a day of the month for monthly), send: text | note | both, " +
-  "to: @handle (default: the writer), until: <when to stop>, paused: yes. " +
+  "until: <when to stop>, paused: yes. " +
+  // The owner, 2026-10-18: routines are personal. One texts only the person who wrote it, and one in a shared workspace never runs.
+  "A routine texts only the person who wrote it, and runs only in their own personal workspace, never in a shared one. " +
   "The body is plain instructions for the assistant, written as the person asked. " +
   // The owner, 2026-10-14: a reply that restated the whole reminder read like a chatbot; a friend says "Will do."
   "After saving, answer the way a friend would: \"Will do.\" or \"Sure.\" Name the time only when you picked it, " +

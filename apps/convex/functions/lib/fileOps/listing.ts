@@ -47,6 +47,8 @@ export interface FileEntry {
   role?: string;
   /** A folder's place among its siblings, when somebody set one (`nodes.order`). */
   order?: number;
+  /** On a folder in Archive: the built-in folder it is the archive copy of (`nodes.archiveOf`). */
+  archiveOf?: string;
 }
 
 export interface FolderListing {

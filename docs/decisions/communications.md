@@ -150,3 +150,11 @@ Moved to [No email leaves without the person's yes to that exact copy](./communi
 ### No calendar change is made without the person's yes to that exact change
 
 Moved to [No calendar change is made without the person's yes to that exact change](./communications/calendar-writes.md#no-calendar-change-is-made-without-the-persons-yes-to-that-exact-change).
+
+### Synced mail first, then Gmail for what the sync does not hold
+
+Moved to [Synced mail first, then Gmail for what the sync does not hold](./communications/reading-mail.md#synced-mail-first-then-gmail-for-what-the-sync-does-not-hold).
+
+### A pass fetches only the mail it has not seen
+
+Moved to [A pass fetches only the mail it has not seen](./communications/gmail-and-sync-loop.md#a-pass-fetches-only-the-mail-it-has-not-seen).

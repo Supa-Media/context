@@ -26,6 +26,7 @@ import { aiGatewayConfig } from "./aiGateway.js";
 import { mailCheckerFor } from "./mailChecker.js";
 import { browserOwner } from "./browserProviders.js";
 import { texViewerUrl } from "../http/texComputer.js";
+import { appOriginOf, withNoteLinks } from "./noteLinks.js";
 import { computerFor, webSession } from "./computer.js";
 import { searcherFor } from "./search.js";
 import { decisionEngine } from "./decide.js";
@@ -303,6 +304,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   // answers go out as iMessages, and only they are written for one. A
   // routine's answer is a text too, when it says anything.
   const texting = session.actorClientId === TEXTS_CLIENT_ID || runner;
+  // A texted write answers with the note's link, so Tex can text it (`noteLinks.js`).
+  const noteLinking = { origin: session.actorClientId === TEXTS_CLIENT_ID ? appOriginOf(env) : null, contexts: store.contexts };
   // A text has the MCP's own write tools (`textingWrites.js`, the owner,
   // 2026-10-08); a routine's own run never may.
   const textingWriting = textingWriteTools(offered, { texting: session.actorClientId === TEXTS_CLIENT_ID });
@@ -520,7 +523,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       callTool: outgoing.wrap(
         withAttachmentImages(
           attachments,
-          withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withSkills(skills, textingAwareCallTool(dispatch, textingWriting)))),
+          withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withSkills(skills, withNoteLinks(textingAwareCallTool(dispatch, textingWriting), noteLinking)))),
         ),
       ),
       pictures: session.actorClientId === TEXTS_CLIENT_ID,

@@ -20,6 +20,8 @@ import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { ROW_MOVE_MAX, applyRowMove, subtreeOf } from "./lib/nodes/rowMove";
 import { ROW_MOVE_LEASE_MS, ROW_MOVE_SETTLE_MS, moveRowPage, overlapsRowMove, rowMoveOf } from "./lib/nodes/rowMoveChunks";
 import { internal } from "../_generated/api";
+import { folderJobsOf } from "./lib/nodes/folderJobs";
+import { markArchiveTwins, twinsToFollow } from "./lib/nodes/archiveTwins";
 
 const refusalValidator = v.union(
   v.literal("not_keyed"),
@@ -32,6 +34,8 @@ const refusalValidator = v.union(
   v.literal("rules_changed"),
   v.literal("changed"),
   v.literal("invalid"),
+  v.literal("archive_stays"),
+  v.literal("built_in_archived"),
 );
 
 /** Whether the workspace is keyed. Read by the trash, which has no row form yet. */
@@ -74,6 +78,60 @@ export const plan = internalQuery({
       tooLarge: subtree.over,
     };
   },
+});
+
+/**
+ * What Archive asks of a move of `from` to `to` (`lib/nodes/archiveTwins.ts`), read before it lands: the
+ * folder doing the Archive's job, and the twins in Archive that must follow the built-in folders it moves.
+ */
+export const archivePlan = internalQuery({
+  args: { workspaceId: v.id("workspaces"), from: v.string(), to: v.string() },
+  returns: v.object({
+    archive: v.union(v.string(), v.null()),
+    twins: v.array(v.object({ from: v.string(), to: v.string(), role: v.string() })),
+  }),
+  handler: async (ctx, { workspaceId, from, to }) => ({
+    archive: (await folderJobsOf(ctx.db, workspaceId)).jobs.archive,
+    twins: await twinsToFollow(ctx.db, workspaceId, from, to),
+  }),
+});
+
+/** What lives at `path` now: a live file, a live folder, or nothing. For an Archive merge (`mergeInto`). */
+export const kindAt = internalQuery({
+  args: { workspaceId: v.id("workspaces"), path: v.string() },
+  returns: v.union(v.literal("file"), v.literal("folder"), v.null()),
+  handler: async (ctx, { workspaceId, path }) => {
+    const row = await ctx.db
+      .query("nodes")
+      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
+      .unique();
+    return row === null || row.goneAt !== undefined ? null : row.kind;
+  },
+});
+
+/** The names of the live rows directly in the folder at `path`, sorted. For an Archive merge (`mergeInto`). */
+export const childNames = internalQuery({
+  args: { workspaceId: v.id("workspaces"), path: v.string() },
+  returns: v.array(v.string()),
+  handler: async (ctx, { workspaceId, path }) => {
+    const folder = await ctx.db
+      .query("nodes")
+      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
+      .unique();
+    if (folder === null || folder.goneAt !== undefined || folder.kind !== "folder") return [];
+    const rows = await ctx.db
+      .query("nodes")
+      .withIndex("by_parent_name", (q) => q.eq("workspaceId", workspaceId).eq("parentId", folder._id))
+      .take(ROW_MOVE_MAX);
+    return rows.filter((row) => row.goneAt === undefined).map((row) => row.name).sort();
+  },
+});
+
+/** Mark the folders on the way to `path`, just archived, that mirror a built-in folder (`markArchiveTwins`). */
+export const markTwins = internalMutation({
+  args: { workspaceId: v.id("workspaces"), path: v.string() },
+  returns: v.array(v.string()),
+  handler: async (ctx, { workspaceId, path }) => await markArchiveTwins(ctx, workspaceId, path),
 });
 
 const batchMoveValidator = v.object({

@@ -76,7 +76,7 @@ export function emailCopy(email) {
   ].join("\n");
 }
 
-/** One line for the approvals list and the "Done:" reply. */
+/** One line for the approvals list and the "Done, I …" reply (`agent/doneLine.js`). */
 export function emailSummary(email) {
   const others = email.to.length + email.cc.length - 1;
   const who = others > 0 ? `${email.to[0]} and ${others} more` : email.to[0];

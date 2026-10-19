@@ -82,14 +82,14 @@ export async function runEmailGateChecks(check) {
         pending().length === 1 &&
         asked.body?.asked === 1 &&
         (asked.body?.answer ?? "").includes(
-          "Here is the email I'd send:\n\nFrom: seyi@gmail.example\nTo: jo@example.com\nSubject: Re: Thursday\n\nHi Jo,\n\nThursday at 3 works for me.\n\nSeyi\n\nReply YES to send it now",
+          "Here's the email I'd send:\n\nFrom: seyi@gmail.example\nTo: jo@example.com\nSubject: Re: Thursday\n\nHi Jo,\n\nThursday at 3 works for me.\n\nSeyi\n\nLook good? Just say yes and I'll send it",
         ),
     );
     check(
       "the ask is texted exactly as written, apart from the answer's formatting",
       Array.isArray(asked.body?.verbatim) &&
         asked.body.verbatim.length === 1 &&
-        asked.body.verbatim[0].startsWith("Here is the email I'd send:") &&
+        asked.body.verbatim[0].startsWith("Here's the email I'd send:") &&
         (asked.body?.answer ?? "").endsWith(asked.body.verbatim[0]),
     );
     check(
@@ -112,7 +112,7 @@ export async function runEmailGateChecks(check) {
         model.requests.length === before &&
         sends().length === 1 &&
         JSON.stringify(sends()[0].email) === JSON.stringify({ from: "seyi@gmail.example", to: EMAIL.to, cc: [], subject: EMAIL.subject, body: EMAIL.body }) &&
-        /^Done: send an email to jo@example\.com, "Re: Thursday"\.$/.test(yes.body?.answer ?? "") &&
+        /^Done, I sent an email to jo@example\.com, "Re: Thursday"\.$/.test(yes.body?.answer ?? "") &&
         pending().length === 0,
     );
 

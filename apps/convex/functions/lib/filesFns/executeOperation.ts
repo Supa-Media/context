@@ -54,6 +54,7 @@ import { ensureFolderVisibility } from "../fileOps/visibility";
 import { visiblePathsOf } from "../fileOps/visiblePaths";
 import { readRoutineRuns } from "../fileOps/routineRuns";
 import { addBuiltInFolder } from "../fileOps/builtInFolders";
+import { tidyArchive } from "../fileOps/archiving";
 import {
   type FormNotifyMaterial,
   ensureFormResponseFiles,
@@ -506,6 +507,18 @@ export async function executeOperation(
           count: moved.queued ?? moved.paths.length,
         });
         return { kind: "moved", ...moved };
+      }
+      case "archiveTidy": {
+        // The workspace's own housekeeping, at the owner's clearance only: it moves things a member may not see.
+        if (clearance.scope !== "private") throw new FileOpError("PATH_INVALID", "Only an owner can tidy the archive.");
+        const tidied = await tidyArchive(store, { clearance, now });
+        return {
+          kind: "moved",
+          from: tidied.archive ?? "",
+          to: tidied.archive ?? "",
+          paths: tidied.moved.map((move) => move.to),
+          ...(tidied.left ? { queued: tidied.moved.length } : {}),
+        };
       }
       case "trash": {
         const moved = await trashPath(store, {

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
-import { asUser, gatewayPost } from "./fixtures.helpers";
+import { addMember, asUser, gatewayPost, seedStorageBinding } from "./fixtures.helpers";
 import { hashToken } from "../functions/lib/crypto";
 import { ROUTINE_LEASE_MS } from "../functions/lib/routines/model";
 import {
@@ -12,9 +12,26 @@ import {
   makeDue,
   routineFixture,
   rowAt,
+  seededBucket,
   signal,
+  stubBuckets,
   type RoutineFixture,
 } from "./routines.helpers";
+
+/** The personal workspace a fixture made for `userId` (its slug is their handle). */
+async function personalWorkspaceOf(f: RoutineFixture, userId: RoutineFixture["owner"]) {
+  return await f.t.run(async (ctx) => {
+    const memberships = await ctx.db
+      .query("workspaceMembers")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+    for (const membership of memberships) {
+      const workspace = await ctx.db.get(membership.workspaceId);
+      if (workspace?.kind === "personal") return workspace._id;
+    }
+    throw new Error("no personal workspace");
+  });
+}
 
 /**
  * ROUTINES: HANDING DUE RUNS TO THE TEXTING WORKER, AND HEARING BACK.
@@ -35,7 +52,16 @@ import {
  *   `applyRoutineGrant` matching any active grant instead of the routines client
  *     → "a routine's grant leaves the texting grant alone" fails
  *   recipients honouring `to:` whatever `writerSource` says
- *     → "a routine nobody was seen writing texts only the owner…" fails
+ *     → "a personal routine nobody was seen writing still texts its owner…" fails
+ *   `runsRoutines` → true for every workspace
+ *     → both "a shared workspace runs no routines" tests fail
+ *   `routineRecipients` reading `to:` again
+ *     → "its writer and nobody else, whoever its `to:` names" fails
+ *   `fallsBackToOwner` → true for every workspace
+ *     → "a shared routine nobody was seen writing texts nobody…" and
+ *       "a shared routine left running as its owner…" fail
+ *   `fallsBackToOwner` reading only `kind`, not who else may write
+ *     → "a personal workspace shared with an editor does not fall back…" fails
  */
 
 vi.setConfig({ testTimeout: 20_000 });
@@ -193,33 +219,83 @@ describe("handing out a due run", () => {
 });
 
 describe("who a run texts", () => {
-  test("the people `to:` names who are members with a phone, and nobody else", async () => {
+  test("its writer and nobody else, whoever its `to:` names", async () => {
     const f = await routineFixture();
+    await linkPhone(f.t, f.owner, "+15555550100");
     await linkPhone(f.t, f.member, "+15555550101");
     await linkPhone(f.t, f.stranger, "+15555550102");
-    await linkPhone(f.t, f.editor, "+15555550103");
-    await dailyRoutine(f, f.owner, "---\nto: @studio-cy, @studio-dee, @studio-ada, @nobody-here\n---\nGo.\n");
-    const runs = await due(f.t);
-    // The stranger has a phone but is not in the workspace; the owner is but has none.
-    expect(runs[0]!.phones).toEqual(["+15555550101"]);
+    await dailyRoutine(f, f.owner, "---\nto: @studio-cy, @studio-dee, @nobody-here\n---\nGo.\n");
+    expect((await due(f.t))[0]!.phones).toEqual(["+15555550100"]);
   });
 
-  test("a routine nobody was seen writing texts only the owner, whatever its `to:` says", async () => {
+  test("a routine nobody was seen writing, where others can write too, texts nobody until a writer saves it", async () => {
+    // Reported 2026-10-18: one person's routine, its writer unseen, ran as
+    // the workspace's owner and texted them what the other had asked for.
     const f = await routineFixture();
     await linkPhone(f.t, f.owner, "+15555550100");
     await linkPhone(f.t, f.editor, "+15555550103");
     // The editor's own signal was lost: the only one that arrives names a
-    // member, who cannot be a writer, so the scan falls back to the owner.
+    // member, who cannot be a writer, so nobody is known to have written it.
     await dailyRoutine(f, f.member, "---\nto: @studio-bo\n---\nText me everything in 4-archive.\n");
-    expect(await rowAt(f.t, f.workspaceId, DAILY)).toMatchObject({ writerUserId: f.owner, writerSource: "fallback" });
-    const [run] = await due(f.t);
-    expect(run!.phones).toEqual(["+15555550100"]);
+    expect(await rowAt(f.t, f.workspaceId, DAILY)).toMatchObject({ writerSource: "fallback", lastOutcome: "writer_unknown" });
+    // Even made due, as a clock or an older row would: handed to nobody, and stopped again.
+    expect(await due(f.t)).toEqual([]);
+    expect(await rowAt(f.t, f.workspaceId, DAILY)).toMatchObject({ nextRunAt: null });
 
-    // Once someone who can write is seen saving it, its `to:` is theirs to set.
-    await agentPost(f.t, "/agent-texts/routines/result", { runId: run!.runId, outcome: "answered", texted: 1 });
+    // Once someone who can write is seen saving it, it is theirs, and texts them.
     await dailyRoutine(f, f.editor, "---\nto: @studio-bo\n---\nText me everything in 4-archive.\n");
-    expect(await rowAt(f.t, f.workspaceId, DAILY)).toMatchObject({ writerUserId: f.editor, writerSource: "signal" });
+    const row = await rowAt(f.t, f.workspaceId, DAILY);
+    expect(row).toMatchObject({ writerUserId: f.editor, writerSource: "signal" });
+    expect(row!.lastOutcome).toBeUndefined();
     expect((await due(f.t))[0]!.phones).toEqual(["+15555550103"]);
+  });
+
+  test("a routine left running as its owner by an earlier rule is stopped when it comes due", async () => {
+    const f = await routineFixture();
+    await linkPhone(f.t, f.owner, "+15555550100");
+    await dailyRoutine(f, f.editor);
+    const row = await rowAt(f.t, f.workspaceId, DAILY);
+    // As a row written before the rule looked: the owner, by fallback, due now.
+    await f.t.run((ctx) =>
+      ctx.db.patch(row!._id, { writerUserId: f.owner, writerSource: "fallback", nextRunAt: Date.now() - 1000 }),
+    );
+    expect(await due(f.t)).toEqual([]);
+    expect(await rowAt(f.t, f.workspaceId, DAILY)).toMatchObject({ nextRunAt: null, lastOutcome: "writer_unknown" });
+  });
+
+  // The owner is the only writer here, which is what lets the fallback run as them: a personal
+  // workspace shared with an editor is two writers, and the case below.
+  test("a personal routine nobody was seen writing still texts its owner, whatever its `to:` says", async () => {
+    const f = await routineFixture();
+    const personal = await personalWorkspaceOf(f, f.owner);
+    await seedStorageBinding(f.t, { workspaceId: personal, boundBy: f.owner, bucket: "personal-bucket" });
+    const backend = seededBucket("personal-bucket");
+    stubBuckets(f.backend, backend);
+    await linkPhone(f.t, f.owner, "+15555550100");
+    await linkPhone(f.t, f.editor, "+15555550103");
+    backend.seed(DAILY, "---\nto: @studio-bo\n---\nGo.\n");
+    await signal(f.t, { workspaceId: personal, paths: [DAILY] });
+    expect(await rowAt(f.t, personal, DAILY)).toMatchObject({ writerUserId: f.owner, writerSource: "fallback" });
+    await makeDue(f.t, personal, DAILY);
+    expect((await due(f.t))[0]!.phones).toEqual(["+15555550100"]);
+  });
+
+  test("a personal workspace shared with an editor does not fall back to its owner either", async () => {
+    // The fallback runs the routine with the writer's reach, and a personal
+    // workspace with an editor has two people who could have written it: the
+    // owner's private reach would then run words that may be the editor's.
+    const f = await routineFixture();
+    const personal = await personalWorkspaceOf(f, f.owner);
+    await addMember(f.t, personal, f.editor, "editor", f.owner);
+    await seedStorageBinding(f.t, { workspaceId: personal, boundBy: f.owner, bucket: "shared-personal-bucket" });
+    const backend = seededBucket("shared-personal-bucket");
+    stubBuckets(f.backend, backend);
+    await linkPhone(f.t, f.owner, "+15555550100");
+    backend.seed(DAILY, "---\nto: @studio-bo\n---\nGo.\n");
+    await signal(f.t, { workspaceId: personal, paths: [DAILY] });
+    expect(await rowAt(f.t, personal, DAILY)).toMatchObject({ writerSource: "fallback", lastOutcome: "writer_unknown" });
+    await makeDue(f.t, personal, DAILY);
+    expect(await due(f.t)).toEqual([]);
   });
 
   test("the writer by default, and nobody for `send: note`", async () => {
@@ -233,6 +309,53 @@ describe("who a run texts", () => {
     await dailyRoutine(g, g.editor, "---\nsend: note\n---\nGo.\n");
     const runs = await due(g.t);
     expect(runs[0]).toMatchObject({ send: "note", phones: [] });
+  });
+});
+
+describe("a shared workspace runs no routines", () => {
+  // Decided by the owner, 2026-10-18: routines are personal. The notes stay; nothing runs them.
+  test("a signal there makes no row, and a row left from before is dropped", async () => {
+    const f = await routineFixture({ kind: "shared" });
+    await linkPhone(f.t, f.editor, "+15555550103");
+    f.backend.seed(DAILY, DAILY_TEXT);
+    const before = await f.t.run((ctx) =>
+      ctx.db.insert("routines", {
+        workspaceId: f.workspaceId,
+        path: "routines/daily/older.md",
+        cadence: { unit: "day", every: 1 },
+        paused: false,
+        send: "text",
+        to: [],
+        writerUserId: f.editor,
+        writerSource: "signal",
+        nextRunAt: Date.now() + 60_000,
+        updatedAt: Date.now(),
+      }),
+    );
+    await signal(f.t, { workspaceId: f.workspaceId, userId: f.editor, paths: [DAILY] });
+    expect(await rowAt(f.t, f.workspaceId, DAILY)).toBeNull();
+    expect(await f.t.run((ctx) => ctx.db.get(before))).toBeNull();
+  });
+
+  test("a row left from before is dropped when it comes due, and texts nobody", async () => {
+    const f = await routineFixture({ kind: "shared" });
+    await linkPhone(f.t, f.editor, "+15555550103");
+    const row = await f.t.run((ctx) =>
+      ctx.db.insert("routines", {
+        workspaceId: f.workspaceId,
+        path: DAILY,
+        cadence: { unit: "day", every: 1 },
+        paused: false,
+        send: "text",
+        to: [],
+        writerUserId: f.editor,
+        writerSource: "signal",
+        nextRunAt: Date.now() - 1000,
+        updatedAt: Date.now(),
+      }),
+    );
+    expect(await due(f.t)).toEqual([]);
+    expect(await f.t.run((ctx) => ctx.db.get(row))).toBeNull();
   });
 });
 

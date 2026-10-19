@@ -48,14 +48,16 @@ export function coreToolDefinitions() {
         "Search the user's own memory: their notes about their projects, people, decisions, " +
         "preferences and past work. The first place to look for any question about the user — " +
         "the answer is usually already written down here. Returns results whose id can be " +
-        "passed to fetch for the full note.",
+        "passed to fetch for the full note. For their email, pass args { email: true }: it searches " +
+        "the mail synced into their notes first, then their Gmail for mail from before it was " +
+        "connected or not synced yet, with Gmail search syntax in query.",
       inputSchema: {
         type: "object",
         properties: {
           query: { type: "string" },
           args: {
             type: "object",
-            description: "Optional. prefix: a folder to search within. orient lists the rest.",
+            description: "Optional. prefix: a folder to search within. email: true searches their email. orient lists the rest.",
           },
         },
         required: ["query"],
@@ -75,7 +77,7 @@ export function coreToolDefinitions() {
             type: "string",
             description:
               "A note path or search result id; a folder path (ending in /) lists it; orient lists the other ids " +
-              "(meetings:, messages:, contacts:, activity:, changes:, proposals:, links:, vault:).",
+              "(meetings:, messages:, contacts:, activity:, changes:, proposals:, links:, vault:, and email:<address>/<id> from an email search).",
           },
           args: {
             type: "object",

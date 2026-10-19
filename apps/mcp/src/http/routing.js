@@ -58,6 +58,9 @@ export function attachLinkCalls(store, session, controlPlane, env) {
     value: {
       check: (email) => controlPlane.sendPersonEmail(session.accessToken, session.workspaceId, email, { check: true }),
       send: (email) => controlPlane.sendPersonEmail(session.accessToken, session.workspaceId, email),
+      // Their mail read live from Gmail (`tools/emailRead.js`), for what the notes do not hold.
+      search: (search) => controlPlane.personMailSearch(session.accessToken, session.workspaceId, search),
+      read: (address, id) => controlPlane.personMailRead(session.accessToken, session.workspaceId, address, id),
     },
     enumerable: false,
     writable: false,

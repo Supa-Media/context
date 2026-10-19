@@ -21,6 +21,24 @@ export function jobIconMarker(job: RowRole): string {
   return job === "tex" ? TEX_FIGURE_ICON : `${PREFIX}${job}`;
 }
 
+const TWIN_PREFIX = "context:archive-of:";
+
+/**
+ * The marker `iconOf` answers for a folder in Archive that mirrors `job`
+ * (`archiveOf`): the job's drawing in grey with Archive's box on it. Tex's
+ * folder has no drawing of its own, so its copy draws as a plain folder.
+ */
+export function twinIconMarker(job: RowRole): string | null {
+  return job === "tex" ? null : `${TWIN_PREFIX}${job}`;
+}
+
+/** The job an Archive copy's marker mirrors, or `null` for anything else. */
+export function twinJobOfIcon(icon: string | null | undefined): DrawnJob | null {
+  if (typeof icon !== "string" || !icon.startsWith(TWIN_PREFIX)) return null;
+  const job = icon.slice(TWIN_PREFIX.length);
+  return isRowRole(job) && job !== "tex" ? job : null;
+}
+
 /** The drawn job a marker names, or `null` for an emoji (or anything else). */
 export function jobOfIcon(icon: string | null | undefined): DrawnJob | null {
   if (typeof icon !== "string" || !icon.startsWith(PREFIX)) return null;

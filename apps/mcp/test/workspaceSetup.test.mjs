@@ -198,11 +198,11 @@ test("Tex asks by text before claiming a handle, and the texted YES claims it", 
   ]);
   const asked = await text("make me a workspace called Woodshop, @woodshop");
   assert.match(asked, /I need your OK: claim the handle @woodshop/);
-  assert.match(asked, /Reply YES/);
+  assert.match(asked, /Should I go ahead\?/);
   assert.equal(claims(), before, "a turn that read nothing still waits: the handle is permanent");
 
   const yes = await text("YES");
-  assert.match(yes, /^Done: claim the handle @woodshop/);
+  assert.match(yes, /^Done, I claimed the handle @woodshop/);
   assert.equal(claims(), before + 1);
   assert.equal(setupCalls().at(-1).slug, "woodshop");
 });

@@ -177,6 +177,8 @@ export interface MenuContext {
    * `topLevelFolders` decides by name. See `menuBuiltIn.ts`.
    */
   jobOf?: (path: string) => RowRole | null | undefined;
+  /** Whether a folder is a built-in folder's copy in Archive (`archiveOf`): Archive's shape, never restored or archived. */
+  isTwin?: (path: string) => boolean;
   /**
    * Where a folder sits among its sibling folders as drawn, for Move up and
    * Move down, or `null` when it cannot move among them (alone, or not
@@ -407,6 +409,7 @@ function pageItems(context: MenuContext, row: TreeRow): MenuItem[] {
   if (row.readOnly) return entryItems(context, [row]);
   if (!context.canEdit) return joinGroups([pinGroup(context, row), downloadGroup(context, row)]);
   const archived = restoreTargetFor(row.path) !== null;
+  const twin = context.isTwin?.(row.path) === true;
   const job = rowJob(row, context);
   const locks = builtInLocks(job);
   return joinGroups([
@@ -441,11 +444,9 @@ function pageItems(context: MenuContext, row: TreeRow): MenuItem[] {
     downloadGroup(context, row),
     locks.kept
       ? keptItems(context, "Archive folder")
-      : [
-          archived
-            ? makeItem(context, "restore", "Restore folder")
-            : makeItem(context, "archive", "Archive folder"),
-        ],
+      : twin
+        ? []
+        : [archived ? makeItem(context, "restore", "Restore folder") : makeItem(context, "archive", "Archive folder")],
   ]);
 }
 
@@ -525,8 +526,8 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
    * Restore replaces archive for anything already in the archive
    * (`9-archive/`, or `4-archive/` in older workspaces), because
    * for something that is already put away the recoverable action is undoing
-   * it. `restoreTargetFor` reads the original path back out of the timestamped
-   * folder, so this is a string question with a definite answer rather than a
+   * it. `restoreTargetFor` reads the original path back out of Archive's shape
+   * (past an old archive's date folder): a string question with a definite answer, not a
    * guess — and it returns `null` for everything else, which is what keeps
    * "Restore" off an ordinary note.
    *
@@ -534,6 +535,7 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
    * where it came from.
    */
   const archived = rows.every((row) => restoreTargetFor(row.path) !== null);
+  const twins = rows.some((row) => context.isTwin?.(row.path) === true);
   // What a built-in folder may not do (`menuBuiltIn.ts`). In a selection one
   // poisons that verb for the whole lot, like a read-only row does.
   const jobs = rows.map((row) => rowJob(row, context));
@@ -663,9 +665,9 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
         ? []
         : keptItems(context)
       : [
-          archived
+          ...(twins ? [] : [archived
             ? makeItem(context, "restore", single === null ? `Restore ${items(count)}` : "Restore")
-            : makeItem(context, "archive", single === null ? `Archive ${items(count)}` : "Archive"),
+            : makeItem(context, "archive", single === null ? `Archive ${items(count)}` : "Archive")]),
           // Deleting is an immediate move into the archive-backed trash. The toast
           // offers Undo, so there is no confirmation dialog or ellipsis.
           makeItem(

@@ -63,15 +63,20 @@ describe("a scan reads both roots", () => {
       cadence: { unit: "day", every: 1 },
       at: { hour: 6, minute: 15 },
     });
-    // The old one is untouched by the new root: found with no signal, it runs as the owner, as before.
-    expect(await rowAt(f.t, f.workspaceId, DAILY)).toMatchObject({ writerUserId: f.owner, at: { hour: 7, minute: 30 } });
+    // The old one is untouched by the new root: found with no signal in a
+    // shared workspace, it waits for someone who can write, as before this root.
+    expect(await rowAt(f.t, f.workspaceId, DAILY)).toMatchObject({
+      writerSource: "fallback",
+      lastOutcome: "writer_unknown",
+      at: { hour: 7, minute: 30 },
+    });
     // Metadata only, in the new root as in the old.
     expect(JSON.stringify(found)).not.toContain("Tex's own routine says");
 
     await makeDue(f.t, f.workspaceId, TEX_DAILY);
     await makeDue(f.t, f.workspaceId, DAILY);
     const runs = await due(f.t);
-    expect(runs.map((run) => run.path).sort()).toEqual([DAILY, TEX_DAILY]);
+    expect(runs.map((run) => run.path)).toEqual([TEX_DAILY]);
   });
 
   test("a move from routines/ to tex/routines/ is picked up like any move", async () => {

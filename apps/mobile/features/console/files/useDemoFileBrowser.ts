@@ -24,9 +24,9 @@ import type { FileBrowser } from "./browser";
 import { editorReducer, emptyEditor } from "./editor";
 import { knownNotePaths } from "./paths";
 import { shownIcon } from "./folderIcons";
-import { archiveFolder, inboxFolder, loadedJobs, projectsFolder } from "./jobIcons/folderJobs";
+import { archiveFolder, inboxFolder, loadedJobs, loadedTwins, projectsFolder } from "./jobIcons/folderJobs";
 import { setJobFoldersNow } from "./jobIcons/jobFoldersNow";
-import { jobIconMarker } from "./jobIcons/marker";
+import { jobIconMarker, twinIconMarker } from "./jobIcons/marker";
 import type { OpenNote } from "./types";
 
 /** The note at a path in this tree, or `null` when it is a folder. */
@@ -132,6 +132,7 @@ export function useStaticFileBrowser(tree: DemoContextTree, contextId: string | 
     setJobFoldersNow({ inbox: inboxFolder(tree.listings), projects: projectsFolder(tree.listings), archive: archiveFolder(tree.listings) });
     return loadedJobs(tree.listings);
   }, [tree]);
+  const twins = useMemo(() => loadedTwins(tree.listings), [tree]);
 
   return useMemo(
     () => ({
@@ -267,7 +268,9 @@ export function useStaticFileBrowser(tree: DemoContextTree, contextId: string | 
       // A built-in folder draws its job's icon, as in the real console (`useFolderJobs`).
       iconOf: (path: string) => {
         const job = jobs.get(path);
-        return job === undefined ? shownIcon(tree.icons ?? {}, path) : jobIconMarker(job);
+        if (job !== undefined) return jobIconMarker(job);
+        const twin = twins.get(path);
+        return (twin === undefined ? null : twinIconMarker(twin)) ?? shownIcon(tree.icons ?? {}, path);
       },
       setIcon: async () => {},
       // The landing page has no bucket to add a folder to; its sheet is never offered.

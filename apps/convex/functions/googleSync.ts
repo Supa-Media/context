@@ -90,6 +90,8 @@ import {
   lastTurnAtFor,
   syncIntervalMinutesOf,
   syncableProductsOf,
+  isProductTransient,
+  productBackingOff,
 } from "./lib/googleSchedule";
 import { settlePushAfterPass } from "./lib/googlePush/pending";
 import { productTurnPatch, recordedDestinations, SUCCEEDED } from "./lib/googleConnect/rowPatches";
@@ -389,6 +391,48 @@ export const recordGoogleForwardSyncPass = internalMutation({
       return { accepted: true };
     }
 
+    if (args.status === "failed" && args.product !== undefined && isProductTransient(args.errorCode)) {
+      /*
+        ONE SERVICE'S LIMIT IS NOT THE ACCOUNT'S FAILURE.
+
+        Google rate-limiting Gmail used to mark the whole account `error` and
+        put Calendar and Chat on the account's backoff with it, so the card
+        said "Stopped" over a limit that lifts by itself and a reconnect would
+        not fix. The product backs off on its own ladder now; the account
+        stays healthy and its siblings keep their turns.
+      */
+      const product = connection[args.product];
+      const productFailures = (product?.failures ?? 0) + 1;
+      const retryAt = now + failureBackoffMs(intervalMs, productFailures, args.connectionId);
+      const turn = productTurnPatch(connection, args.product, {
+        lastAttemptAt: now,
+        lastFailureCode: args.errorCode,
+        lastFailure: error ?? "This service did not sync.",
+        retryAt,
+        failures: productFailures,
+      });
+      if (args.recentImport !== undefined && connection.gmail) {
+        const gmail = turn.gmail ?? connection.gmail;
+        turn.gmail = { ...gmail, recentImport: nextRecentImport(gmail.recentImport, args.recentImport, now) };
+      }
+      const siblingsCanRun = syncableProductsOf(connection).some(
+        (candidate) => candidate !== args.product && !productBackingOff(connection, candidate, now),
+      );
+      await ctx.db.patch(args.connectionId, {
+        ...turn,
+        syncStartedAt: undefined,
+        lastSyncAt: now,
+        nextSyncAt: siblingsCanRun ? now + intervalMs : retryAt,
+        syncCatchUp: undefined,
+        syncBytesWritten: (connection.syncBytesWritten ?? 0) + (args.bytesWritten ?? 0),
+        lastSyncFailureAt: now,
+        lastSyncFailureCode: args.errorCode,
+        lastSyncFailure: error ?? "This service did not sync.",
+        updatedAt: now,
+      });
+      return { accepted: true };
+    }
+
     if (args.status === "failed") {
       const failures = (connection.syncFailures ?? 0) + 1;
       /*
@@ -464,6 +508,8 @@ export const recordGoogleForwardSyncPass = internalMutation({
           lastAttemptAt: args.baseline === true ? now : undefined,
           lastFailureCode: undefined,
           lastFailure: undefined,
+          retryAt: undefined,
+          failures: undefined,
           recentImport: nextRecentImport(connection.gmail.recentImport, args.recentImport, now),
         }
       : connection.gmail;

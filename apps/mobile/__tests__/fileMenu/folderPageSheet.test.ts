@@ -20,6 +20,7 @@ import { actionTargetOf, runMenuAction } from "../../features/console/files/acti
  *  4. `tagsGroup` without the tags as its value.     → "Tags sits after Pin, saying the folder's tags"
  *  5. Select notes offered without `selectable`.     → "Select notes, only where the page can pick rows"
  *  6. `runMenuAction` dropping the `tags` arm.        → "Tags opens the folder's Tags sheet; Select notes asks the page"
+ *  7. `pageItems` / `rowItems` ignoring `isTwin`.     → "a built-in folder's copy in Archive offers neither Restore nor Archive"
  */
 describe("a phone folder page's ••• sheet", () => {
   const page = (path = "clients") => ({ kind: "page" as const, row: dir(path) });
@@ -74,6 +75,17 @@ describe("a phone folder page's ••• sheet", () => {
     const sheet = ids(menu(page("4-archive/2026-09-30T10-00-00-000Z/clients"), pins));
     expect(sheet).toContain("restore");
     expect(sheet).not.toContain("archive");
+  });
+
+  test("a built-in folder's copy in Archive offers neither Restore nor Archive", () => {
+    const isTwin = (path: string) => path === "4-archive/1-projects";
+    for (const target of [page("4-archive/1-projects"), { kind: "row" as const, row: dir("4-archive/1-projects") }]) {
+      const sheet = ids(menu(target, { ...pins, isTwin }));
+      expect(sheet).not.toContain("restore");
+      expect(sheet).not.toContain("archive");
+    }
+    // A project inside it is still put away, and restores.
+    expect(ids(menu(page("4-archive/1-projects/launch"), { ...pins, isTwin }))).toContain("restore");
   });
 
   test("a reader gets only what writes nothing", () => {

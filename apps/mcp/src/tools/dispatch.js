@@ -16,6 +16,7 @@ import {
 import { toolCreateLink, toolListLinks, toolRevokeLink } from "./links.js";
 import { toolReportProblem } from "./reportProblem.js";
 import { toolSendEmail } from "./email.js";
+import { toolReadEmail, toolSearchEmail } from "./emailRead.js";
 import { toolCalendarEvent } from "./calendarWrite.js";
 import { toolApplyLayout, toolConnectGoogle, toolCreateWorkspace } from "./workspaces.js";
 import { toolDreamNow } from "./dreamNow.js";
@@ -274,6 +275,10 @@ async function runTool(name, args, store, scope) {
       return toolReportProblem(store, args);
     case "send_email":
       return toolSendEmail(store, args);
+    case "search_email":
+      return toolSearchEmail(store, scope, rules, overrides, args);
+    case "read_email":
+      return toolReadEmail(store, args);
     case "calendar_event":
       return toolCalendarEvent(store, args);
     case "create_workspace":
