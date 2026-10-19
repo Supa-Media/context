@@ -237,7 +237,32 @@ export const HEARTBEAT_INSTRUCTIONS = [
  * What the check-in is asked to do: the setup's words (`instructions`) or the
  * built-in ones, then this look's facts, then the one answer the gateway reads.
  */
-export function heartbeatQuestion({ changed, now, texted, instructions = null, theirs = "" }) {
+/** How many of the last texts with them a look is shown, and how much of each. */
+const RECENT_TEXTS_SHOWN = 10;
+const RECENT_TEXT_CHARS = 400;
+
+/**
+ * The last texts with them (the `texts` conversation the texting assistant
+ * answers from), as a look reads them: their words, and yours, with your own
+ * check-ins marked. Dev, 2026-10-19, nudged at 3:02 pm about a hold Tex had
+ * flagged at 1:12 and talked through with them at 1:23: "does it not check?
+ * ... why isn't there continuity in the chat".
+ */
+export function recentTextLines(history) {
+  const lines = [];
+  const turns = Array.isArray(history) ? history.slice(-RECENT_TEXTS_SHOWN * 2) : [];
+  for (let i = 0; i < turns.length; i += 1) {
+    const turn = turns[i];
+    if (turn.role === "user" && turn.text === CHECK_IN_QUESTION) continue;
+    const checkIn = turn.role === "assistant" && turns[i - 1]?.text === CHECK_IN_QUESTION;
+    const said = turn.text.replace(/\s+/g, " ").trim();
+    const clipped = said.length > RECENT_TEXT_CHARS ? `${said.slice(0, RECENT_TEXT_CHARS - 1)}…` : said;
+    lines.push(`${turn.role === "user" ? "Them" : checkIn ? "You (a check-in)" : "You"}: ${clipped}`);
+  }
+  return lines.slice(-RECENT_TEXTS_SHOWN);
+}
+
+export function heartbeatQuestion({ changed, now, texted, recent = [], instructions = null, theirs = "" }) {
   const shown = changed.slice(0, MAX_CHANGED_SHOWN);
   const more = changed.length - shown.length;
   const words = typeof instructions === "string" && instructions.trim() !== "" ? instructions.trim() : HEARTBEAT_INSTRUCTIONS;
@@ -248,6 +273,11 @@ export function heartbeatQuestion({ changed, now, texted, instructions = null, t
       (more > 0 ? `\n- (+${more} more)` : ""),
     texted.length > 0
       ? `What your check-ins already texted them lately. Never send any of these again, or anything that says the same:\n${texted.map((line) => `- ${line}`).join("\n")}`
+      : "",
+    recent.length > 0
+      ? "Your last texts with them, oldest first. Anything already said here is not news: never text it again. " +
+        "If what you found continues one of these, pick up from where it was left (what they asked, what you offered), never start it over with a new offer.\n" +
+        recent.join("\n")
       : "",
     theirs ? `Their own instructions for check-ins, from ${HEARTBEAT_SETTINGS_PATH}:\n${theirs}` : "",
     `Answer with the text to send them, or, if nothing is worth a text, exactly ${SKIP_WORD} and nothing else.`,
@@ -391,6 +421,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
   }
 
   const texted = textedLines(await recentLogs(dispatch, started, timeZone));
+  const conversation = await readConversation(store, "texts");
   const events = [];
   const offered = await grantedToolsFor(session, store);
   // The check-in's setup note (`ai/production/heartbeat.md`): its words, and its
@@ -407,6 +438,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
         changed,
         now: started,
         texted,
+        recent: recentTextLines(conversation),
         instructions: setup?.prompt ?? null,
         theirs: settings.instructions,
       }),
@@ -458,7 +490,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
   if (text) {
     // Their reply to it is answered with the check-in in front of the turn (`conversation.js`).
     try {
-      await appendConversation(store, "texts", await readConversation(store, "texts"), CHECK_IN_QUESTION, text, {
+      await appendConversation(store, "texts", conversation, CHECK_IN_QUESTION, text, {
         tools: (turn?.steps ?? []).filter((step) => step.ok).map((step) => step.tool),
       });
     } catch {
