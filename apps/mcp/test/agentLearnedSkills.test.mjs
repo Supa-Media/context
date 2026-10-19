@@ -22,6 +22,7 @@ import { after, before, beforeEach, test } from "node:test";
 
 import worker from "../src/index.js";
 import {
+  LEARNED_SKILL_PATH,
   MAX_LEARNED_SKILLS,
   READ_LEARNED_SKILL_TOOL,
   indexEntry,
@@ -29,10 +30,12 @@ import {
   retireUnusedSkills,
   skillNamesIn,
   skillWriteRefusal,
+  touchesSkills,
   unusedSkills,
   withLearnedSkills,
   withUsed,
 } from "../src/agent/learnedSkills.js";
+import { normalizePath } from "../src/notes/paths.js";
 import { MIN_STEPS, looksLikeCorrection, recoveredFromFailure, reflectCallTool, reflectReason } from "../src/agent/reflect.js";
 import { protectedReason } from "../src/agent/housekeepingGuard.js";
 import { dreamEntry } from "../src/agent/dream.js";
@@ -210,6 +213,10 @@ test("a tainted turn can't write a skill, by any tool or any spelling of the pat
     ["write_note", { path: "Tex/Skills/evil.md", content: skill("evil") }],
     ["write_note", { path: "/tex/skills/evil.md", content: skill("evil") }],
     ["write_note", { path: "@maya/tex/skills/evil.md", content: skill("evil") }],
+    // `normalizePath` collapses repeated slashes, so these reach the folder too.
+    ["write_note", { path: "tex//skills/evil.md", content: skill("evil") }],
+    ["write_note", { path: "tex///skills/evil.md", content: skill("evil") }],
+    ["move_note", { source: "1-projects/evil.md", destination: "tex//skills/evil.md" }],
     ["move_note", { source: "1-projects/evil.md", destination: "tex/skills/evil.md" }],
     ["move_notes", { moves: [{ source: "1-projects/evil.md", destination: "tex/skills/evil.md" }] }],
     ["move_folder", { source: "1-projects/tex-copy", destination: "tex" }],
@@ -229,6 +236,44 @@ test("a tainted turn can't write a skill, by any tool or any spelling of the pat
   assert.ok(isRefused(await call("remember", { note: "tex/skills/good.md", fact: "x" })), "only whole-note writes reach a skill");
   assert.ok(!isRefused(await call("archive_note", { path: "tex/skills/good.md" })));
   assert.deepEqual(passed, ["write_note", "archive_note"]);
+});
+
+test("no spelling the guard lets through reaches the skills folder", () => {
+  /*
+    THE GUARD AND THE STORE MUST AGREE ABOUT WHAT A SKILL IS.
+
+    `withLearnedSkills` tests the raw argument; `normalizePath` runs after it,
+    at the one door every path-taking tool arrives through, and rewrites the
+    string — it strips leading slashes and **collapses repeated ones**. So
+    enumerating spellings is not enough: what has to hold is that nothing the
+    guard waves through can normalize into `tex/skills/`.
+  */
+  const spellings = [
+    "tex/skills/evil.md",
+    "/tex/skills/evil.md",
+    "//tex/skills/evil.md",
+    "tex//skills/evil.md",
+    "tex///skills/evil.md",
+    "tex/skills//evil.md",
+    "./tex/skills/evil.md",
+    "  tex//skills/evil.md  ",
+    "TEX//skills/evil.md",
+    "tex//skills/evil.md/",
+  ];
+  // Another workspace's skills folder is guarded too, however it is reached:
+  // the session's router reads `@maya/tex/…` as that workspace's path.
+  for (const spelling of ["@maya/tex/skills/evil.md", "/@maya/tex/skills/evil.md", "@maya/tex//skills/evil.md", "tex", "tex/", "/tex//"]) {
+    assert.ok(touchesSkills(spelling), spelling);
+  }
+  for (const spelling of ["1-projects/tex/skills/a.md", "texts/skills/a.md", "tex-notes/skills/a.md"]) {
+    assert.ok(!touchesSkills(spelling), `${spelling} is not a skill path`);
+  }
+
+  for (const spelling of spellings) {
+    const normalized = normalizePath(spelling);
+    if (normalized === null || !LEARNED_SKILL_PATH.test(normalized)) continue;
+    assert.ok(touchesSkills(spelling), `${JSON.stringify(spelling)} becomes ${JSON.stringify(normalized)} and must be guarded`);
+  }
 });
 
 /* ---------------- upkeep ---------------- */

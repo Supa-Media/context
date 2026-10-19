@@ -60,12 +60,31 @@ export const learnedSkillPath = (name) => `${LEARNED_SKILLS_FOLDER}/${name}.md`;
  * Whether `path` is under `tex/skills/` (or is `tex/`), however it is cased or prefixed,
  * including with a workspace in front (`@maya/tex/skills/…`), which the
  * session's router reads as that workspace's path.
+ *
+ * COMPARED BY SEGMENT, LIKE `isPlumbing`, BECAUSE THE STORE DOES NOT SEE THIS
+ * STRING. This guard reads the raw argument; `normalizePath` runs after it, at
+ * the one door every path-taking tool arrives through, and rewrites the string
+ * on the way — it strips leading slashes and **collapses repeated ones**. A
+ * prefix test on the raw spelling therefore answered "not a skill" for
+ * `tex//skills/evil.md`, which the store then wrote to `tex/skills/evil.md`:
+ * the guard and its consumer were comparing different strings, so a turn that
+ * had read somebody else's words could leave a skill behind after all.
+ * Empty and `.` segments are dropped for that reason. `..` is left alone: a
+ * path carrying one is refused outright by `normalizePath`, so resolving it
+ * here would be guessing at a rule this guard does not own.
  */
 export function touchesSkills(path) {
   if (typeof path !== "string") return false;
-  const p = path.trim().replace(/^(?:\.\/|\/)+/, "").replace(/^@[^/]*\/+/, "").toLowerCase();
+  const segments = path
+    .trim()
+    // Leading slashes first, then a workspace in front of them, as before.
+    .replace(/^(?:\.\/|\/)+/, "")
+    .replace(/^@[^/]*\/+/, "")
+    .toLowerCase()
+    .split("/")
+    .filter((segment) => segment !== "" && segment !== ".");
   // `tex` itself too: a folder moved to `tex` could land a `skills/` of its own there.
-  return p.replace(/\/+$/, "") === "tex" || p === LEARNED_SKILLS_FOLDER || p.startsWith(`${LEARNED_SKILLS_FOLDER}/`);
+  return segments[0] === "tex" && (segments.length === 1 || segments[1] === "skills");
 }
 
 /** Characters that end or bend a line: never in a `when` line. */
