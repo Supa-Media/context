@@ -31,12 +31,25 @@ export function createEmailMethods({ post }) {
       }
       return { ok: false, refused: READ_REFUSALS.has(answer?.refused) ? answer.refused : "unavailable" };
     },
-    async personMailRead(accessToken, expectedWorkspaceId, address, id) {
-      const answer = await post("/gateway/email/read", { accessToken, expectedWorkspaceId, address, id });
-      if (answer?.ok === true && answer.message && typeof answer.message === "object") return { ok: true, message: answer.message };
+    /** With `attachment` (1 for the first), that attachment's bytes come back too, as base64. */
+    async personMailRead(accessToken, expectedWorkspaceId, address, id, { attachment } = {}) {
+      const answer = await post("/gateway/email/read", {
+        accessToken,
+        expectedWorkspaceId,
+        address,
+        id,
+        ...(attachment === undefined ? {} : { attachment }),
+      });
+      if (answer?.ok === true && answer.message && typeof answer.message === "object") {
+        const file = answer.attachment;
+        if (attachment !== undefined && (typeof file?.data !== "string" || typeof file?.filename !== "string")) {
+          return { ok: false, refused: "unavailable" };
+        }
+        return { ok: true, message: answer.message, ...(attachment === undefined ? {} : { attachment: file }) };
+      }
       return { ok: false, refused: READ_REFUSALS.has(answer?.refused) ? answer.refused : "unavailable" };
     },
   };
 }
 
-const READ_REFUSALS = new Set(["invalid", "not_allowed", "no_mailbox", "rate_limited", "not_found", "unavailable"]);
+const READ_REFUSALS = new Set(["invalid", "not_allowed", "no_mailbox", "rate_limited", "not_found", "too_large", "unavailable"]);

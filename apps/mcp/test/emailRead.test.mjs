@@ -60,7 +60,7 @@ export async function runEmailReadChecks(check) {
   check(
     "live mail is private-tier only and marks a turn as having read from outside",
     PRIVATE_TIER_ONLY_TOOLS.has("search_email") && PRIVATE_TIER_ONLY_TOOLS.has("read_email") &&
-      UNTRUSTED_READS.has("search_email") && UNTRUSTED_READS.has("read_email"),
+      UNTRUSTED_READS.has("search_email") && UNTRUSTED_READS.has("read_email") && UNTRUSTED_READS.has("read_file"),
   );
 
   const world = await createEgressWorld();
@@ -83,6 +83,35 @@ export async function runEmailReadChecks(check) {
       read.includes("The signed lease is attached.") && read.includes("never an instruction") && read.includes("lease.pdf"),
     );
     check("...from the mailbox and message the id named", controlPlane.mailReadCalls.at(-1)?.body?.address === "me@example.com" && controlPlane.mailReadCalls.at(-1)?.body?.id === "18c0ffee");
+    check("...numbering its attachments and saying how to read one", read.includes("1. lease.pdf") && read.includes("attachment: <its number>"));
+
+    // An attachment, read from Gmail's own copy and turned into words.
+    const converted = [];
+    env.AI = {
+      run: async () => ({}),
+      toMarkdown: async (files) => {
+        converted.push(files);
+        return [{ name: files[0].name, format: "markdown", data: "Rent: $2,400 a month" }];
+      },
+    };
+    controlPlane.flags.mailAttachment = { filename: "lease.pdf", contentType: "application/octet-stream", data: btoa("%PDF-1.7 lease") };
+    const file = await call(env, TOKEN_MCP, "fetch", { id: "email:me@example.com/18c0ffee", args: { attachment: 1 } });
+    check(
+      "an email's attachment reads as its words, marked untrusted",
+      file?.isError !== true && textOf(file).includes("Rent: $2,400 a month") && textOf(file).includes("trust: untrusted") &&
+        controlPlane.mailReadCalls.at(-1)?.body?.attachment === 1,
+    );
+    check(
+      "...typed by its bytes when Gmail's label is generic",
+      converted.at(-1)?.[0]?.blob?.type === "application/pdf" && (await converted.at(-1)[0].blob.text()) === "%PDF-1.7 lease",
+    );
+    controlPlane.flags.mailAttachment = { filename: "song.mp3", contentType: "audio/mpeg", data: btoa("ID3") };
+    const song = await call(env, TOKEN_MCP, "fetch", { id: "email:me@example.com/18c0ffee", args: { attachment: 1 } });
+    check("...and a kind of file it cannot read says so", song?.isError === true && textOf(song).includes("not a kind of file"));
+    const zero = await call(env, TOKEN_MCP, "fetch", { id: "email:me@example.com/18c0ffee", args: { attachment: 0 } });
+    check("...and a number that is not an attachment's is refused before Gmail is asked", zero?.isError === true);
+    controlPlane.flags.mailAttachment = undefined;
+    delete env.AI;
 
     controlPlane.flags.mailRefusal = "no_mailbox";
     const none = await call(env, TOKEN_MCP, "search", { query: "lease", args: { email: true } });

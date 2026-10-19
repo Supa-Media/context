@@ -39,6 +39,7 @@ function gmail() {
     queries.push(parsed.searchParams.get("q") ?? `${parsed.pathname}?${parsed.searchParams.get("format")}`);
     const json = (body: unknown) => new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
     if (parsed.pathname === "/gmail/v1/users/me/messages") return json({ messages: [{ id: "m1", threadId: "t1" }] });
+    if (parsed.pathname === "/gmail/v1/users/me/messages/m1/attachments/att1") return json({ data: b64("%PDF-1.7 lease"), size: 14 });
     const headers = [
       { name: "From", value: "Jo <jo@example.invalid>" },
       { name: "To", value: "alice@gmail.example" },
@@ -49,7 +50,15 @@ function gmail() {
       threadId: "t1",
       internalDate: String(Date.parse("2024-03-02T10:00:00Z")),
       snippet: "Attached is the signed lease &amp; keys",
-      payload: { mimeType: "text/plain", headers, body: { data: b64("The signed lease is attached."), size: 29 } },
+      payload: {
+        mimeType: "multipart/mixed",
+        headers,
+        parts: [
+          { mimeType: "text/plain", body: { data: b64("The signed lease is attached."), size: 29 } },
+          { mimeType: "application/pdf", filename: "lease.pdf", body: { attachmentId: "att1", size: 14 } },
+          { mimeType: "application/pdf", filename: "huge.pdf", body: { attachmentId: "att2", size: 30 * 1024 * 1024 } },
+        ],
+      },
     });
   });
   return queries;
@@ -122,6 +131,22 @@ describe("reading a person's own mail live", () => {
       await gatewayPost(t, "/gateway/email/read", { accessToken: ACCESS_A, expectedWorkspaceId: aliceWs, address: "Alice@Gmail.example", id: "m1" }),
     );
     expect(answer).toMatchObject({ ok: true, message: { id: "m1", subject: "The lease", body: "The signed lease is attached." } });
+    const stored = JSON.stringify(await t.run(async (ctx) => ({ limits: await ctx.db.query("rateLimits").collect(), audit: await ctx.db.query("auditEvents").collect() })));
+    expect(stored).not.toContain("lease");
+  });
+
+  test("a read naming an attachment carries its bytes back from Gmail, and keeps none of them", async () => {
+    const queries = gmail();
+    const { t, aliceWs } = await connected();
+    const read = (attachment: unknown) =>
+      gatewayPost(t, "/gateway/email/read", { accessToken: ACCESS_A, expectedWorkspaceId: aliceWs, address: "alice@gmail.example", id: "m1", attachment });
+    const answer = await bodyOf(await read(1));
+    expect(answer).toMatchObject({ ok: true, attachment: { filename: "lease.pdf", contentType: "application/pdf", data: btoa("%PDF-1.7 lease") } });
+    expect(queries.some((query) => query.startsWith("/gmail/v1/users/me/messages/m1/attachments/att1"))).toBe(true);
+    expect(await bodyOf(await read(2))).toEqual({ ok: false, refused: "too_large" });
+    expect(await bodyOf(await read(3))).toEqual({ ok: false, refused: "not_found" });
+    expect(await bodyOf(await read(0))).toEqual({ ok: false, refused: "invalid" });
+    expect(await bodyOf(await read("1"))).toEqual({ ok: false, refused: "invalid" });
     const stored = JSON.stringify(await t.run(async (ctx) => ({ limits: await ctx.db.query("rateLimits").collect(), audit: await ctx.db.query("auditEvents").collect() })));
     expect(stored).not.toContain("lease");
   });
