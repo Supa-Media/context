@@ -44,7 +44,7 @@ import { lineFor, type LineDeps } from "./line";
 import { pruneMedia } from "./media";
 import { CARD_VERSION } from "./card";
 import { isSendblueChat } from "./sendblue";
-import { PICTURE_FAILED, describePart, partsFor, type Media, type OutgoingPicture, type SendPart } from "./outgoing";
+import { PICTURE_FAILED, describePart, partsFor, shrinkPicture, type Media, type OutgoingPicture, type SendPart } from "./outgoing";
 import { replyTo, TryLater, type Message, type ReplyDeps } from "./reply";
 import { record } from "./simulator";
 import { oweReadyText } from "./ready";
@@ -328,8 +328,8 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
   const upload =
     message.channel === "simulator"
       ? async (): Promise<Media> => ({ attachment_id: "simulator" })
-      : (picture: { name: string; mediaType: string; data: string }) =>
-          lineFor(lineDeps(deps), message.chatId).uploadPicture(picture);
+      : async (picture: { name: string; mediaType: string; data: string }) =>
+          lineFor(lineDeps(deps), message.chatId).uploadPicture(await shrinkPicture(deps.images, picture));
   return await partsFor(texts, pictures, upload);
 }
 

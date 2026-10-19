@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { accept, drain, type InboxDeps } from "./inbox";
-import { PICTURE_FAILED, readPictures } from "./outgoing";
+import { PICTURE_FAILED, readPictures, SHRINK_OVER_BYTES, shrinkPicture } from "./outgoing";
+import type { ImagesLike } from "./attachments";
 import type { Fetch } from "./clients";
 import type { Message } from "./reply";
 import { MemoryStorage } from "./memoryStorage.testing";
@@ -122,5 +123,47 @@ describe("pictures Tex texts back", () => {
         "nope",
       ]),
     ).toEqual([{ name: "picture", mediaType: "image/png", data: PNG }]);
+  });
+});
+
+describe("shrinking a big photo before it goes", () => {
+  const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
+  const big = { name: "picture-1.png", mediaType: "image/png", data: btoa("x".repeat(SHRINK_OVER_BYTES + 3)) };
+  const imagesAnswering = (body: Uint8Array, seen: unknown[] = []): ImagesLike => ({
+    input: () =>
+      ({
+        transform: (t: unknown) => {
+          seen.push(t);
+          return { output: async (o: unknown) => (seen.push(o), { response: () => new Response(body) }) };
+        },
+      }) as unknown as ReturnType<ImagesLike["input"]>,
+  });
+
+  it("turns a photo over the limit into a JPEG", async () => {
+    // The image model's PNGs ran past where a picture is kept for sending
+    // (Dev's blue-clothes edit, 2026-10-19).
+    const seen: unknown[] = [];
+    const out = await shrinkPicture(imagesAnswering(JPEG, seen), big);
+    expect(out).toEqual({ name: "picture-1.jpg", mediaType: "image/jpeg", data: btoa(String.fromCharCode(...JPEG)) });
+    expect(seen).toEqual([{ width: 2048, height: 2048, fit: "scale-down" }, { format: "image/jpeg", quality: 85 }]);
+  });
+
+  it("leaves a small picture, a GIF, a failed conversion, and a line with no binding alone", async () => {
+    const small = { name: "poster.png", mediaType: "image/png", data: btoa("small") };
+    expect(await shrinkPicture(imagesAnswering(JPEG), small)).toBe(small);
+    const gif = { ...big, mediaType: "image/gif" };
+    expect(await shrinkPicture(imagesAnswering(JPEG), gif)).toBe(gif);
+    expect(await shrinkPicture(imagesAnswering(new Uint8Array([1, 2, 3])), big)).toBe(big);
+    const throwing = { input: () => { throw new Error("no"); } } as unknown as ImagesLike;
+    expect(await shrinkPicture(throwing, big)).toBe(big);
+    expect(await shrinkPicture(undefined, big)).toBe(big);
+  });
+
+  it("sends the shrunk JPEG, not the PNG", async () => {
+    const w = world({ pictures: [big] });
+    w.deps.images = imagesAnswering(JPEG);
+    await answer(w);
+    const create = w.calls.find((call) => call.url.endsWith("/attachments"));
+    expect(create?.body).toMatchObject({ filename: "picture-1.jpg", content_type: "image/jpeg", size_bytes: JPEG.length });
   });
 });
