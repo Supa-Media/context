@@ -93,6 +93,7 @@ async function rowsChange(
     tier?: "private" | "team";
     group?: string;
     members?: boolean;
+    accounts?: boolean;
   },
 ): Promise<VisibilityOperationResult> {
   if (change.kind === "note" && !change.path.endsWith(".md")) {
@@ -125,10 +126,17 @@ async function rowsChange(
  * refused with `team` (a request error), and refused where `privacy.md` is the truth, rather than written as a
  * plain `private` that would shut the members out without saying so.
  */
-function refuseMembersWithout(rows: boolean, args: { visibility: string; members?: boolean }): void {
-  if (args.members !== true) return;
-  if (args.visibility !== "private") {
+function refuseMembersWithout(rows: boolean, args: { visibility: string; members?: boolean; accounts?: boolean }): void {
+  if (args.members !== true && args.accounts !== true) return;
+  if (args.members === true && args.accounts === true) {
+    throw new ConvexError({ code: "INVALID", message: "A note is shared with members or with every account, not both." });
+  }
+  if (args.members === true && args.visibility !== "private") {
     throw new ConvexError({ code: "INVALID", message: "Members is written as private plus every member." });
+  }
+  // All Context users is `team` plus every signed-in account, and only the pinned workspace takes it (`setAccess`).
+  if (args.accounts === true && args.visibility !== "team") {
+    throw new ConvexError({ code: "INVALID", message: "All Context users is written as team plus every account." });
   }
   if (!rows) {
     throw new ConvexError({ code: "NOT_ROWS_MODE", message: "Sharing with members only is not available here yet." });
@@ -184,6 +192,7 @@ export async function setNoteVisibilityHandler(
     path: string;
     visibility: Infer<typeof visibilityValidator>;
     members?: boolean;
+    accounts?: boolean;
   },
 ): Promise<Extract<OperationResult, { kind: "visibility" }>> {
   const actorUserId = await callerId(ctx);
@@ -203,6 +212,7 @@ export async function setNoteVisibilityHandler(
       kind: "note",
       tier: args.visibility,
       ...(args.members === true ? { members: true } : {}),
+      ...(args.accounts === true ? { accounts: true } : {}),
     });
     await recordRowsVisibilityLine(ctx, {
       workspaceId: args.workspaceId,
@@ -376,6 +386,7 @@ export async function setDirectoryVisibilityHandler(
     path: string;
     visibility: Infer<typeof visibilityValidator>;
     members?: boolean;
+    accounts?: boolean;
   },
 ): Promise<Extract<OperationResult, { kind: "visibility" }>> {
   const actorUserId = await callerId(ctx);
@@ -395,6 +406,7 @@ export async function setDirectoryVisibilityHandler(
       kind: "folder",
       tier: args.visibility,
       ...(args.members === true ? { members: true } : {}),
+      ...(args.accounts === true ? { accounts: true } : {}),
     });
     await recordRowsVisibilityLine(ctx, {
       workspaceId: args.workspaceId,

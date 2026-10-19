@@ -19,9 +19,17 @@
  *     report becomes a note there, texts included, and nothing goes to Sentry"
  *     fails.
  *  4. `fileBugNote` not calling `shareWithTeam`. → "every real member reads
- *     each report, a later one included, and a pin reader does not" fails.
- *  5. `shareWithTeam` setting base `team`. → the same test fails: the pin
- *     reader reads it.
+ *     each report, a later one included, and a pin reader does not" and
+ *     "once the pinned workspace has moved, a report is base team" fail.
+ *  5. `shareWithTeam` setting base `team` before the move. → "every real
+ *     member reads each report, a later one included, and a pin reader does
+ *     not" fails: the pin reader, still reading `team`, reads it.
+ *  5b. `shareWithTeam` keeping the old private + members position after the
+ *     move. → "once the pinned workspace has moved, a report is base team"
+ *     fails: a member's MCP connection, holding no names, cannot read it.
+ *  5c. `destination` handing `pinReaders: []` after the move. → "once the
+ *     pinned workspace has moved, a folder opened to every account still
+ *     refuses a report" fails: the check is judged as a member.
  *  6. `accessNamesFor` holding `members` for any caller. → not caught here,
  *     since `grantedNamesFor` gives a non-member no names before it looks;
  *     "a members grant reaches a real member, never a guest or someone
@@ -53,6 +61,7 @@ import {
   copyTree,
   createUser,
   createWorkspace,
+  drainScheduled,
   gatewayPost,
   seedStorageBinding,
   type TestConvex,
@@ -111,6 +120,12 @@ async function world(rules: "para" | "team-everywhere" = "para") {
     await ctx.db.insert("names", { name: "alice-handle", kind: "user", userId: alice, claimedBy: alice, claimedAt: Date.now() });
   });
   return { ...tenants, staff, pinned };
+}
+
+/** The pinned workspace's move to "team means members" (`functions/pinnedAccounts.ts`), run to its end. */
+async function movePinned(t: TestConvex) {
+  await t.mutation(internal.functions.pinnedAccounts.start, {});
+  await drainScheduled(t);
 }
 
 /** Production's shape: the access rows judge, as in `shareFollowsNoteId.test.ts`. */
@@ -203,13 +218,13 @@ describe("bug reports by text, as notes in the pinned context", () => {
     expect(sentry).toEqual([]);
   });
 
-  test("judged by the access rows, it files privately and refuses a folder opened to the team", async () => {
+  test("judged by the access rows, it files privately and refuses a folder opened to every account", async () => {
     const { t, pinned, staff } = await world();
     await judgedByRows(t, pinned);
     expect((await report(t, { message: "rows first", texts: TEXTS })).report).not.toBeNull();
     expect(bugs(await notesIn(t, pinned))).toHaveLength(1);
 
-    await asUser(t, staff).action(api.functions.files.setDirectoryVisibility, { workspaceId: pinned, path: "areas", visibility: "team" });
+    await asUser(t, staff).action(api.functions.files.setDirectoryVisibility, { workspaceId: pinned, path: "areas", visibility: "team", accounts: true });
     expect(await report(t, { message: "rows second", texts: TEXTS })).toEqual({ report: null, refused: "unavailable" });
     expect(bugs(await notesIn(t, pinned))).toHaveLength(1);
   });
@@ -246,6 +261,71 @@ describe("bug reports by text, as notes in the pinned context", () => {
       return row?.access?.base;
     });
     expect(base).toBe("private");
+  });
+
+  test("once the pinned workspace has moved, a report is base team: every real member reads it, a pin reader does not", async () => {
+    const { t, pinned, staff, alice } = await world();
+    await judgedByRows(t, pinned);
+    await movePinned(t);
+    const member = await createUser(t, "moved@example.invalid");
+    await addMember(t, pinned, member, "member", staff);
+    expect((await report(t, { message: "after the move", texts: TEXTS })).report).not.toBeNull();
+    const [path] = bugs(await notesIn(t, pinned));
+
+    const sees = async (userId: Id<"users">) => {
+      const { scope, grantedNames } = await t.query(internal.functions.files.authorizeFileAccess, {
+        actorUserId: userId,
+        workspaceId: pinned,
+        minimum: "member",
+      });
+      const seen = await t.action(internal.functions.files.runFileOperation, {
+        workspaceId: pinned,
+        scope,
+        grantedNames,
+        operation: { kind: "visiblePaths", paths: [path!] },
+      });
+      return seen.kind === "visiblePaths" && seen.paths.length === 1;
+    };
+    expect(await sees(member)).toBe(true);
+    // An ordinary MCP connection of a member holds no names at all, and reads it too: that is the point of `team`.
+    const seen = await t.action(internal.functions.files.runFileOperation, {
+      workspaceId: pinned,
+      scope: "team",
+      operation: { kind: "visiblePaths", paths: [path!] },
+    });
+    expect(seen.kind === "visiblePaths" && seen.paths).toEqual([path]);
+    expect(await sees(alice)).toBe(false);
+    const state = await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("nodes")
+        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", pinned).eq("path", path!))
+        .unique();
+      const grants = await ctx.db.query("nodeAccess").withIndex("by_node", (q) => q.eq("nodeId", row!._id)).collect();
+      const audited = (await ctx.db.query("auditEvents").withIndex("by_workspace", (q) => q.eq("workspaceId", pinned)).collect())
+        .filter((event) => event.action === "access.base");
+      return { base: row?.access?.base, grants: grants.length, audited: audited.map((event) => event.actorClientId) };
+    });
+    expect(state).toEqual({ base: "team", grants: 0, audited: ["context_texts"] });
+  });
+
+  test("once the pinned workspace has moved, a folder opened to every account still refuses a report", async () => {
+    const { t, pinned, staff } = await world();
+    await judgedByRows(t, pinned);
+    await movePinned(t);
+    expect((await report(t, { message: "first", texts: TEXTS })).report).not.toBeNull();
+    await asUser(t, staff).action(api.functions.files.setDirectoryVisibility, { workspaceId: pinned, path: "areas", visibility: "team", accounts: true });
+    expect(await report(t, { message: "opened", texts: TEXTS })).toEqual({ report: null, refused: "unavailable" });
+    expect(bugs(await notesIn(t, pinned))).toHaveLength(1);
+  });
+
+  test("once the pinned workspace has moved, a folder open to the members alone takes a report", async () => {
+    const { t, pinned, staff } = await world();
+    await judgedByRows(t, pinned);
+    await movePinned(t);
+    expect((await report(t, { message: "first", texts: TEXTS })).report).not.toBeNull();
+    await asUser(t, staff).action(api.functions.files.setDirectoryVisibility, { workspaceId: pinned, path: "areas", visibility: "team" });
+    expect((await report(t, { message: "members only", texts: TEXTS })).report).not.toBeNull();
+    expect(bugs(await notesIn(t, pinned))).toHaveLength(2);
   });
 
   test("naming the team is audited as Tex acting, not as the owner naming people by hand", async () => {
@@ -324,7 +404,7 @@ describe("the note itself", () => {
  * reachable through the gateway route.
  */
 describe("a report that is filed but cannot be shared", () => {
-  const where = { workspaceId: "w1" as Id<"workspaces">, folder: "areas/tex-bugs/user", handle: null, team: false };
+  const where = { workspaceId: "w1" as Id<"workspaces">, folder: "areas/tex-bugs/user", handle: null, team: false, pinReaders: [] };
 
   function stub(runMutation: () => Promise<boolean>) {
     const written: string[] = [];

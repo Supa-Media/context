@@ -480,3 +480,13 @@ export const chaosScoreValidator = v.object({
   longNotes: v.array(v.object({ path: v.string(), lines: v.number() })),
   folder: v.union(chaosFolderValidator, v.null()),
 });
+
+/**
+ * The share dialog's built-in positions, beside a tier write (`setNoteVisibility`, `setDirectoryVisibility`;
+ * `docs/decisions/privacy-and-sharing/all-context-users.md`). Rows mode only.
+ *
+ *  - `members`, with `private`: Members (every real member); in the pinned workspace written as its pin readers read
+ *    it then (`nodesAccess.consoleAccess`).
+ *  - `accounts`, with `team`: All Context users (every signed-in account). The pinned workspace only.
+ */
+export const builtInGrantArgs = { members: v.optional(v.boolean()), accounts: v.optional(v.boolean()) };

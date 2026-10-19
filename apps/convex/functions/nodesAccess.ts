@@ -14,6 +14,7 @@
 
 import { v } from "convex/values";
 import { internalMutation, internalQuery, mutation, query, type MutationCtx } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
 import { addGranteesHandler } from "./lib/nodes/addGrantees";
 import { granteeRequestValidator, setGranteesAnswerValidator, setGranteesHandler } from "./lib/nodes/setGrantees";
 import { shareListHandler, shareListValidator } from "./lib/nodes/shareList";
@@ -21,7 +22,9 @@ import { accessSourceOf, resolveHandle } from "./lib/nodes/accessBackfill";
 import { scanAccessRows } from "./lib/nodes/accessRows";
 import { livePending } from "./lib/nodes/pendingAccess";
 import { narrowRowForMove, pendPrivateArrivals, setAccessRow, type SetAccessAnswer, type GranteeInput } from "./lib/nodes/setAccess";
-import { listForTier } from "./lib/nodes/membersPosition";
+import { listForTier, type BuiltIn } from "./lib/nodes/membersPosition";
+import { pinnedContextWorkspace } from "./lib/pinnedContext";
+import { pinReadersAreGuests } from "./lib/pinnedReaders";
 import { renderAccess } from "./lib/nodes/rowAccess";
 import { visibilityOf, type Visibility } from "./lib/privacy";
 import { exportAccessStateOf } from "./lib/nodes/exportAccessRows";
@@ -149,10 +152,13 @@ export const setAccess = internalMutation({
  * person (`group`, a name) replaces the row's list with that one grant, at
  * base `private`, which is how a rule names somebody.
  *
- * `members` with tier `private` is the dialog's Members position: base
- * `private` plus the built-in members grant, everybody else on the list kept.
- * Any other tier clears that grant (`lib/nodes/membersPosition.ts`), so
- * Restricted means owners and the people named, and nothing hidden.
+ * `accounts` with tier `team` is the dialog's All Context users position in
+ * the pinned workspace: base `team` plus the built-in accounts grant. Members
+ * there is plain `team`; `members` (base `private` plus the built-in members
+ * grant) is how it was written before, and is still taken. Any other tier
+ * clears both built-in grants (`lib/nodes/membersPosition.ts`), so Restricted
+ * means owners and the people named, and nothing hidden. Everybody else on the
+ * list is kept.
  */
 export const consoleAccess = internalMutation({
   args: {
@@ -163,6 +169,7 @@ export const consoleAccess = internalMutation({
     tier: v.optional(v.union(v.literal("private"), v.literal("team"))),
     group: v.optional(v.string()),
     members: v.optional(v.boolean()),
+    accounts: v.optional(v.boolean()),
   },
   returns: v.union(
     v.object({ ok: v.literal(true), path: v.string(), visibility: v.string(), inherited: v.string(), exception: v.boolean() }),
@@ -194,15 +201,15 @@ export const consoleAccess = internalMutation({
           ? [{ kind: "group", groupId: grant.groupId, role: "view" }]
           : [{ kind: "user", userId: grant.userId, role: "view" }];
     } else {
-      const members = args.members === true;
-      const tier = members ? "private" : args.tier ?? "private";
+      const position = await positionOf(ctx, args);
+      const tier = position.tier;
       visibility = tier;
-      // The list a tier writes: kept as it is (`undefined`), or rebuilt with the members grant set or cleared.
+      // The list a tier writes: kept as it is (`undefined`), or rebuilt with a built-in grant set or cleared.
       const own = (await ctx.db
         .query("nodeAccess")
         .withIndex("by_node", (q) => q.eq("nodeId", exists._id))
         .collect()).filter((grant) => grant.source !== "share");
-      grantees = listForTier(own, members);
+      grantees = listForTier(own, position.builtIn);
       // Back to inheriting only for a note with no list of its own: `inherit` clears the list, and a person
       // named on a note keeps it when the rest of the workspace is let in or shut out.
       const listed = (grantees ?? own).length > 0;
@@ -221,6 +228,28 @@ export const consoleAccess = internalMutation({
     };
   },
 });
+
+/**
+ * The tier and built-in grant a console tier write means (`lib/nodes/membersPosition.ts`). `accounts` is All Context
+ * users: base `team` plus the accounts grant, refused by the write outside the pinned workspace. `members` is the
+ * old Members request, base `private` plus the members grant, still taken from an app that sends it; in the pinned
+ * workspace it is written as plain `team` once the pin readers read as guests. A plain `team` in the pinned workspace
+ * is Members now, written the old way until then.
+ */
+async function positionOf(
+  ctx: MutationCtx,
+  args: { workspaceId: Id<"workspaces">; tier?: "private" | "team"; members?: boolean; accounts?: boolean },
+): Promise<{ tier: "private" | "team"; builtIn: BuiltIn }> {
+  if (args.accounts === true) return { tier: "team", builtIn: "accounts" };
+  const tier = args.tier ?? "private";
+  if (args.members !== true && tier !== "team") return { tier, builtIn: null };
+  const pinned = await pinnedContextWorkspace(ctx);
+  const here = pinned !== null && pinned._id === args.workspaceId;
+  // In the pinned workspace both spellings of Members end up the same, as the pin readers read now: plain `team`
+  // once they are guests (an older app still sends `members`), the old position until then.
+  if (here) return (await pinReadersAreGuests(ctx.db)) ? { tier: "team", builtIn: null } : { tier: "private", builtIn: "members" };
+  return args.members === true ? { tier: "private", builtIn: "members" } : { tier, builtIn: null };
+}
 
 /**
  * Before a move in rows mode: a folder that would widen into its new parent

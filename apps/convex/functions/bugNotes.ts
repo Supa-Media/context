@@ -10,16 +10,18 @@
  * Sentry as every other report does.
  *
  * `fileBugNote` writes it, and only where nobody reaching the context through
- * the pin can read it: every account on the deployment reads the pinned
- * context's team notes, so a report there at `team` would hand one person's
- * texts to everyone. Checked before the write, never after, and refused rather
- * than written when the folder has been opened up.
+ * the pin can read it: a report a pin reader could open would hand one
+ * person's texts to every account. Checked before the write, never after, at
+ * the clearance every pin reader holds (`lib/pinnedReaders.ts`), and refused
+ * rather than written when the folder has been opened to All Context users.
  *
- * The team still reads every report (decided by the owner, 2026-10-19: "bug
- * reports should be team accessible"). "Team" there means the context's real
- * members, never the `team` tier, which the pin opens to every account: so
- * `shareWithTeam` grants the note to the built-in `members` grantee, and it
- * stays private to everyone else.
+ * The team reads every report (decided by the owner, 2026-10-19: "bug reports
+ * should be team accessible"). `team` there means the context's real members,
+ * as everywhere, so `shareWithTeam` sets the note's base to `team` and gives
+ * it no `accounts` grant. Until the pinned workspace's migration has run a pin
+ * reader still reads `team` (`functions/pinnedAccounts.ts`), so until then the
+ * note is granted to the built-in `members` grantee at base `private`, which
+ * a pin reader never holds, as it was on 2026-10-19.
  */
 
 import { ConvexError, v } from "convex/values";
@@ -32,32 +34,48 @@ import { bugFolder, bugNotePath, renderBugNote } from "./lib/feedback/bugNote";
 import { accessSourceOf } from "./lib/nodes/accessBackfill";
 import { folderJobsOf } from "./lib/nodes/folderJobs";
 import { setAccessRow } from "./lib/nodes/setAccess";
+import { recordAudit } from "./lib/audit";
 import { pinnedContextWorkspace } from "./lib/pinnedContext";
+import { guestNamesIn, pinReadersAreGuests } from "./lib/pinnedReaders";
 import { getMembership } from "./lib/workspaceAuth";
 
 export const destination = internalQuery({
   args: { userId: v.id("users") },
   returns: v.union(
     v.null(),
-    v.object({ workspaceId: v.id("workspaces"), folder: v.string(), handle: v.union(v.string(), v.null()), team: v.boolean() }),
+    v.object({
+      workspaceId: v.id("workspaces"),
+      folder: v.string(),
+      handle: v.union(v.string(), v.null()),
+      team: v.boolean(),
+      pinReaders: v.array(v.string()),
+    }),
   ),
   handler: async (ctx, { userId }) => {
     const pinned = await pinnedContextWorkspace(ctx);
     if (pinned === null) return null;
     const team = (await getMembership(ctx, pinned._id, userId)) !== null;
     const areas = (await folderJobsOf(ctx.db, pinned._id)).jobs.areas ?? null;
-    return { workspaceId: pinned._id, folder: bugFolder(areas, team), handle: await usernameOf(ctx, userId), team };
+    return {
+      workspaceId: pinned._id,
+      folder: bugFolder(areas, team),
+      handle: await usernameOf(ctx, userId),
+      team,
+      // What every pin reader holds there: the clearance the report must stay out of (`fileBugNote`).
+      pinReaders: await guestNamesIn(ctx, pinned._id),
+    };
   },
 });
 
 /**
- * Open one report to every real member of the context, to view, through the
- * built-in `members` grantee (`lib/nodes/rowAccess.ts`): it follows the member
- * list, so someone who joins later reads earlier reports too, and a pin reader
- * never holds it. Only where the access rows judge: a list lives on a row, so
+ * Open one report to every real member of the context, to view: base `team`,
+ * which follows the member list, so someone who joins later reads earlier
+ * reports too, and which a pin reader never reads (`lib/pinnedReaders.ts`).
+ * Before the migration, base `private` and the built-in `members` grantee
+ * instead (see the module comment). Only where the access rows judge:
  * elsewhere the note stays owner-only. False only for a change that was
- * refused. Granted under the first owner's name, since a list is the owner's,
- * and audited as Tex acting under it rather than as the owner's own hand.
+ * refused. Made under the first owner's name, since a note's access is the
+ * owner's, and audited as Tex acting under it rather than as their own hand.
  */
 export const shareWithTeam = internalMutation({
   args: { workspaceId: v.id("workspaces"), path: v.string() },
@@ -71,14 +89,26 @@ export const shareWithTeam = internalMutation({
         .collect()
     ).find((member) => member.role === "owner");
     if (owner === undefined) return false;
-    const answer = await setAccessRow(ctx, {
+    const actor = { userId: owner.userId, role: "owner" as const, clientId: TEXTS_CLIENT_ID };
+    if (!(await pinReadersAreGuests(ctx.db))) {
+      const legacy = await setAccessRow(ctx, { workspaceId, path, base: "private", grantees: [{ kind: "members", role: "view" }], actor });
+      return legacy.ok;
+    }
+    const answer = await setAccessRow(ctx, { workspaceId, path, base: "team", grantees: [], actor });
+    if (!answer.ok) return false;
+    // A base is not a list, so `setAccessRow` records nothing for it; the trail still says Tex opened this one.
+    const row = await ctx.db
+      .query("nodes")
+      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
+      .unique();
+    await recordAudit(ctx, {
       workspaceId,
-      path,
-      base: "private",
-      grantees: [{ kind: "members", role: "view" }],
-      actor: { userId: owner.userId, role: "owner", clientId: TEXTS_CLIENT_ID },
+      actorUserId: actor.userId,
+      actorClientId: actor.clientId,
+      action: "access.base",
+      details: { nodeId: String(row?._id ?? ""), base: "team" },
     });
-    return answer.ok;
+    return true;
   },
 });
 
@@ -87,6 +117,8 @@ export interface BugDestination {
   folder: string;
   handle: string | null;
   team: boolean;
+  /** The names every pin reader holds there (`guestNamesIn`); `[]` before the migration, when they read `team`. */
+  pinReaders: string[];
 }
 
 /**
@@ -101,10 +133,11 @@ export async function fileBugNote(
   const path = bugNotePath(where.folder, report);
   const workspaceId: Id<"workspaces"> = where.workspaceId;
   try {
+    // As a pin reader sees it: a guest's names and rules once they read as guests, plain `team` before.
     const seen = await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId,
       scope: "team",
-      grantedNames: [],
+      grantedNames: where.pinReaders,
       operation: { kind: "visiblePaths", paths: [path] },
     });
     if (seen.kind !== "visiblePaths" || seen.paths.length > 0) {
