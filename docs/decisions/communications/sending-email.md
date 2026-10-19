@@ -92,6 +92,32 @@ released by the next bare "yes" (found by Codex re-reviewing #1826). A record
 that can be neither disarmed nor dropped is reported, and the person is told
 to reply NO. Tests: `emailGate.test.mjs` sabotages 13 to 15.
 
+### A draft saved in the person's Gmail needs no yes
+
+Decided by the owner on 2026-10-19 (asked why Tex could send but not save a
+draft, then "yes" to building it). `send` action `email_draft`
+(`save_email_draft`) saves one email in the person's own Gmail Drafts and
+sends nothing, so it runs at once: nothing reaches anyone until the person
+opens Gmail and sends it themselves, which is the yes. It needs Gmail's
+`gmail.compose` scope, asked of testers beside `gmail.send`
+(`TESTER_WRITE_SCOPES`); a tester reconnects Google once to grant it. Google
+has no drafts-only scope and `gmail.compose` can also send, so the control
+plane sends only through a connection that granted `gmail.send`, and uses
+`gmail.compose` for drafts alone (`claimPersonEmail` with `draft: true`,
+`POST /gateway/email/draft`). Drafts spend none of the sending limits and
+have their own: ten an hour, fifty a day, no per-recipient limit since
+nobody receives one. Audit says `save_email_draft` with the recipient count,
+never who or what. Gmail sync skips the `DRAFT` label, so a saved draft never
+comes back as a mail note.
+
+**What a simplification would cost.** Holding drafts for a yes asks the person
+to approve something that does nothing. Sending through a `gmail.compose`
+connection would let the draft permission become a send permission the
+person never granted as one. `apps/convex/__tests__/personEmailDraft.test.ts`
+fails if a send-only connection saves a draft, a draft hits the send
+endpoint, or a draft spends the sending limits; `apps/mcp/test/emailDraft.test.mjs`
+fails if a draft is held or routed to the send route.
+
 ### What is deliberately not built
 
 Attachments, HTML bodies, scheduled sends, and sending from a shared

@@ -159,6 +159,12 @@ export const CREDENTIAL_HTTP_ROUTES = new Set([
   // their hourly and daily limits, after the gateway's send-review gate.
   // `__tests__/personEmail.test.ts` carries the behavioural half.
   "http.gatewayPersonEmail",
+  // The same route saving a draft (`/gateway/email/draft`, owner 2026-10-19):
+  // the same two proofs and the same sender resolution, but only a connection
+  // whose consent granted `gmail.compose`, and the token is spent on one
+  // request to Gmail's drafts endpoint. A draft reaches nobody; inside the
+  // person's draft limits. `__tests__/personEmailDraft.test.ts`.
+  "http.gatewayPersonEmailDraft",
   // The person's own Google Calendar (`/gateway/calendar/event`, owner
   // 2026-10-17: calendar changes for testers). The same argument as the
   // Gmail route above: gateway secret plus the person's live write grant;

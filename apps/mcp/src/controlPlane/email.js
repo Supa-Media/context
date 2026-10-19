@@ -17,6 +17,12 @@ export function createEmailMethods({ post }) {
       if (answer?.ok === true && typeof answer.from === "string") return { ok: true, from: answer.from };
       return { ok: false, refused: REFUSALS.has(answer?.refused) ? answer.refused : "unavailable" };
     },
+    /** The same email saved as a draft in their Gmail, sent to nobody (`tools/email.js`). */
+    async savePersonEmailDraft(accessToken, expectedWorkspaceId, email) {
+      const answer = await post("/gateway/email/draft", { accessToken, expectedWorkspaceId, email });
+      if (answer?.ok === true && typeof answer.from === "string") return { ok: true, from: answer.from };
+      return { ok: false, refused: REFUSALS.has(answer?.refused) ? answer.refused : "unavailable" };
+    },
     /** The person's own mail, read live for what their notes do not hold (`tools/emailRead.js`). */
     async personMailSearch(accessToken, expectedWorkspaceId, search) {
       const answer = await post("/gateway/email/search", { accessToken, expectedWorkspaceId, ...search });

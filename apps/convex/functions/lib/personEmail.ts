@@ -16,14 +16,21 @@
  * subject or the body (non-negotiable #1, metadata only).
  */
 
-/** The Gmail permission a connection must have granted before it sends. */
-export { GMAIL_SEND_SCOPE } from "./googleOAuth";
+/** The Gmail permissions a connection must have granted before it sends, or saves a draft. */
+export { GMAIL_COMPOSE_SCOPE, GMAIL_SEND_SCOPE } from "./googleOAuth";
 
 /** Most emails one person's AIs may send in a day, and in an hour. */
 export const PERSON_EMAIL_DAILY_LIMIT = 20;
 export const PERSON_EMAIL_HOURLY_LIMIT = 5;
 /** Most emails to one address in a day, so an AI cannot pester somebody. */
 export const PERSON_EMAIL_RECIPIENT_DAILY_LIMIT = 3;
+/**
+ * Most drafts one person's AIs may save in an hour, and in a day. A draft
+ * reaches nobody, so it spends none of the sending limits and has no
+ * per-recipient one; these only stop a loop filling the Drafts folder.
+ */
+export const PERSON_EMAIL_DRAFT_HOURLY_LIMIT = 10;
+export const PERSON_EMAIL_DRAFT_DAILY_LIMIT = 50;
 /** Most addresses on one email, To and Cc together. */
 export const PERSON_EMAIL_MAX_RECIPIENTS = 10;
 export const PERSON_EMAIL_MAX_SUBJECT = 200;
@@ -128,6 +135,14 @@ export function personEmailPolicies(userId: string, recipientHashes: string[]) {
       windowMs: DAY_MS,
       refusal: "recipient_limit" as const,
     })),
+  ];
+}
+
+/** The counters one saved draft spends. */
+export function personEmailDraftPolicies(userId: string) {
+  return [
+    { key: `person_email.draft_hour:${userId}`, limit: PERSON_EMAIL_DRAFT_HOURLY_LIMIT, windowMs: HOUR_MS, refusal: "hourly_limit" as const },
+    { key: `person_email.draft_day:${userId}`, limit: PERSON_EMAIL_DRAFT_DAILY_LIMIT, windowMs: DAY_MS, refusal: "daily_limit" as const },
   ];
 }
 

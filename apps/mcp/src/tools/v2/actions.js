@@ -110,6 +110,11 @@ export const ACTIONS = {
       summary: "Send one email as the person through their Gmail, once they say yes to that exact email.",
       take: plain,
     },
+    email_draft: {
+      tool: "save_email_draft",
+      summary: "Save one email as a draft in the person's Gmail, for them to send; nothing is sent.",
+      take: plain,
+    },
     notify: {
       tool: "notify_me",
       summary: "Have Tex text the person now: they asked to be told, or it is an emergency. Their settings may hold it.",

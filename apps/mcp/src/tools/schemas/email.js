@@ -9,8 +9,8 @@ export function emailToolDefinitions() {
         "the person is shown this exact email and must say yes to it, and any change is a new email they are asked about again. " +
         "Write the whole email first (to, subject, body as they would send it) from what the person asked for; for a reply, " +
         "use the sender's address from the email in their inbox and start the subject with Re:. Don't repeat the whole email " +
-        "in your answer; Context shows it to them. Only when the person asked for this email; if they only asked for a draft, " +
-        "give them the draft instead. At most 10 addresses, 5 emails an hour, 20 a day, and 3 a day to one address.",
+        "in your answer; Context shows it to them. Only when the person asked for this email to go; if they asked for a draft, " +
+        "use save_email_draft instead. At most 10 addresses, 5 emails an hour, 20 a day, and 3 a day to one address.",
       inputSchema: {
         type: "object",
         properties: {
@@ -27,6 +27,31 @@ export function emailToolDefinitions() {
         additionalProperties: false,
       },
       annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+    },
+    {
+      name: "save_email_draft",
+      title: "Save an email draft",
+      description:
+        "Save one plain-text email as a draft in the person's own Gmail, for them to read, change and send from Gmail themselves. " +
+        "Nothing is sent and nobody else sees it, so it runs at once. Use it when the person asks for a draft, or to write an email " +
+        "for them to finish. Write the whole email (to, subject, body); for a reply, use the sender's address and start the subject with Re:. " +
+        "At most 10 addresses, 10 drafts an hour and 50 a day.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          to: { type: "array", items: { type: "string" }, description: "Plain email addresses, like jo@example.com." },
+          cc: { type: "array", items: { type: "string" }, description: "Optional plain email addresses." },
+          subject: { type: "string", description: "One line, up to 200 characters." },
+          body: { type: "string", description: "The email's plain text." },
+          from: {
+            type: "string",
+            description: "Optional: which of the person's connected Gmail addresses keeps the draft. Left out, their first one that can.",
+          },
+        },
+        required: ["to", "subject", "body"],
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     },
     {
       name: "search_email",

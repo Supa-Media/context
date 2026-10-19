@@ -40,6 +40,14 @@ import { unlistedArgumentAdvice } from "./liveList.js";
  */
 export const TOOL_NEWS = Object.freeze([
   {
+    date: "2026-10-19",
+    newTool: true,
+    text:
+      "send `email_draft` (save_email_draft `{ to, cc?, subject, body, from? }`) saves one email as a draft in the person's own Gmail " +
+      "for them to send themselves. Nothing is sent, so it runs at once with no yes. Use it when they ask for a draft; until their Gmail " +
+      "allows drafts it says so, and you give them the draft to copy.",
+  },
+  {
     date: "2026-10-18",
     text:
       "search with `args: { email: true }` searches the person's email: their synced mail notes first, then their Gmail itself for " +
@@ -196,7 +204,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "64f12c6b";
+export const TOOL_SHAPE = "95724501";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

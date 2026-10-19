@@ -230,6 +230,15 @@ test("send email is send_email with its args as they are", () => {
   });
 });
 
+test("send email_draft is save_email_draft with its args as they are", () => {
+  const args = { to: ["jo@example.com"], subject: "Hi", body: "Hello" };
+  assert.deepEqual(translated("send", { action: "email_draft", args }), {
+    name: "save_email_draft",
+    arguments: args,
+    v2: { tool: "send", action: "email_draft" },
+  });
+});
+
 test("send notify is notify_me with its args as they are", () => {
   const args = { message: "It is in production.", urgency: "asked", why: "They asked to hear." };
   assert.deepEqual(translated("send", { action: "notify", args }), {
@@ -374,7 +383,7 @@ test("every row of ACTIONS names a tool, and every row is covered above", () => 
   const covered = new Set([
     ...["write.save", "write.comment", "write.mail", "write.upload", "write.remember", "write.propose", "write.answer", "write.update_answer", "write.retract_answer", "write.vote", "write.save_session", "write.report_problem"],
     ...MANAGE.map(([action]) => `manage.${action}`),
-    ...["manage.website", "send.api", "send.email", "send.calendar", "send.notify"],
+    ...["manage.website", "send.api", "send.email", "send.email_draft", "send.calendar", "send.notify"],
   ]);
   assert.deepEqual(rows.filter((row) => !covered.has(row)), []);
   assert.deepEqual([...covered].filter((row) => !rows.includes(row)), []);

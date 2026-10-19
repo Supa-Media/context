@@ -847,6 +847,11 @@ export const gatewayPersonEmail = gatewayRoute(personEmail.gatewayPersonEmailHan
 
 http.route({ path: "/gateway/email/send", method: "POST", handler: gatewayPersonEmail });
 
+// One email saved as a draft in the token's person's Gmail; it reaches nobody.
+export const gatewayPersonEmailDraft = gatewayRoute(personEmail.gatewayPersonEmailDraftHandler, 128_000);
+
+http.route({ path: "/gateway/email/draft", method: "POST", handler: gatewayPersonEmailDraft });
+
 // The person's own mail, read live for what their synced notes do not hold.
 export const gatewayPersonMailSearch = gatewayRoute(personMail.gatewayPersonMailSearchHandler);
 export const gatewayPersonMailRead = gatewayRoute(personMail.gatewayPersonMailReadHandler);
