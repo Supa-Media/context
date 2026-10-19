@@ -48,7 +48,12 @@ answer.
 
 **The log.** Every look that ran a model is written to
 `tex/heartbeat/YYYY-MM-DD.md`: the notes it looked at, `**Texted:** …` or
-"stayed quiet", and every step it took in the transcript's format. A text is
+"stayed quiet", and every step it took in the transcript's format. A look
+that stopped before the model (nothing changed, the model refused, today's
+questions used up, no model reachable) leaves one line saying which, and so
+does a housekeeping run refused the model (owner, 2026-10-19: "We should be
+able to track the skipped runs"), so an empty-looking day still shows each
+slot ran. A paused look writes nothing. A text is
 also appended to the texting conversation, so the person's reply ("how did you
 know?") is answered with the check-in in front of the turn. The control plane
 hears an outcome code (`texted`, `quiet`, `nothing_new`, `paused`, `no_chat`,

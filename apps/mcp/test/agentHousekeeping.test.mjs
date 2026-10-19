@@ -38,6 +38,7 @@
  */
 
 import worker from "../src/index.js";
+import { SKIPPED_WORDS } from "../src/agent/jobLog.js";
 import { HOUSEKEEPING_INSTRUCTIONS, housekeepingPath, housekeepingQuestion, chaosFrom, summaryLine } from "../src/agent/housekeeping.js";
 import { housekeepingCallTool, protectedReason, undoLine } from "../src/agent/housekeepingGuard.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
@@ -371,6 +372,17 @@ export async function runAgentHousekeepingChecks(check) {
     check(
       "a run gets more rounds than a texted turn's eight",
       long.status === 200 && long.body?.outcome === "unchanged" && model.requests.length - sent === 13 && log().includes("already in order"),
+    );
+
+    /* ---------------- no model to run ---------------- */
+
+    const modelRequests = model.requests.length;
+    controlPlane.setBuiltinVerdict("ws_house", { allowed: false, reason: "daily_cap" });
+    const capped = await ask(env, TOKEN_HOUSE, run);
+    controlPlane.setBuiltinVerdict("ws_house", BUILTIN_ALLOWED);
+    check(
+      "a run past today's cap runs no model and says so in the day's log",
+      capped.status === 429 && model.requests.length === modelRequests && log().includes(`_${SKIPPED_WORDS.daily_limit}_`),
     );
 
     /* ---------------- the client does nothing else ---------------- */

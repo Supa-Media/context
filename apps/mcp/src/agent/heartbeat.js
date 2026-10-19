@@ -23,7 +23,8 @@
  *      answers one short text, or exactly SKIP. Most looks should be SKIP.
  *   4. The gateway writes the look to `tex/heartbeat/YYYY-MM-DD.md`: what it
  *      looked at, what it texted or that it stayed quiet, and every step it
- *      took, so "how did you know?" has its answer in their own notes. A text
+ *      took, so "how did you know?" has its answer in their own notes. A
+ *      look that ran no model gets one line saying why. A text
  *      is also added to the texting conversation, so their reply to it has
  *      the check-in in front of it.
  *
@@ -40,14 +41,14 @@ import { deliverAttention } from "./attention.js";
 import { TRANSCRIPTS_FOLDER, eventLines } from "./transcript.js";
 import { DREAMS_FOLDER } from "./dream.js";
 import { ABOUT_ME_PATH } from "./aboutMe.js";
-import { AgentRefusal, openProvider, runTurn } from "./turn.js";
+import { openProvider, runTurn } from "./turn.js";
 import { BUILTIN_PROVIDER, builtinModel, canRunBuiltin } from "./builtin.js";
 import { PRODUCTION_HEARTBEAT_PATH, readJobSetup } from "./production.js";
 import { aiGatewayConfig } from "./aiGateway.js";
 import { ProviderError } from "./providers.js";
 import { SKIP_WORD } from "./routine.js";
 import { appendConversation, readConversation } from "./conversation.js";
-import { appendLogEntry, builtinMeter, clock, dayOf, longDate, readWithEtag } from "./jobLog.js";
+import { appendLogEntry, builtinMeter, clock, dayOf, logSkipped, longDate, readWithEtag, refusedRun } from "./jobLog.js";
 import { actorFor, contextsFor } from "../context/identity.js";
 import { callToolForSession } from "../tools/session.js";
 import { grantedToolsFor } from "./sixTools.js";
@@ -249,6 +250,9 @@ export function heartbeatEntry({ now, timeZone, changed, model, text, events, ou
   return `${lines.join("\n")}\n`;
 }
 
+/** What a look with nothing changed leaves in the day's log (`jobLog.js` `logSkipped`). */
+export const NOTHING_NEW_WORDS = "Nothing changed since the last look, so it read nothing and ran no model.";
+
 /** The bodies of the last few days' logs, best effort. */
 async function recentLogs(dispatch, now, timeZone) {
   const logs = [];
@@ -315,15 +319,22 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
     return json({ error: "tree_unavailable" }, 503);
   }
   const changed = changedSince(entries, since);
+  // A look that runs no model still leaves its line in the day's log.
+  const skipped = (words) => {
+    const now = Date.now();
+    return logSkipped(dispatch, { path: heartbeatPath(now, timeZone), heading: heading(now, timeZone), now, timeZone, words });
+  };
   // Nothing changed since the last look: nothing to look at, and no model turn spent.
-  if (changed.length === 0) return json({ outcome: "nothing_new" });
+  if (changed.length === 0) {
+    await skipped(NOTHING_NEW_WORDS);
+    return json({ outcome: "nothing_new" });
+  }
 
   try {
     await openProvider(controlPlane, session, undefined, env);
   } catch (error) {
-    if (error instanceof AgentRefusal && error.code === "daily_limit") return json({ error: "daily_limit" }, 429);
-    if (error instanceof AgentRefusal) return json({ error: error.code }, 409);
-    return json({ error: "model_unavailable" }, 503);
+    const refused = await refusedRun(error, skipped);
+    return json(refused.body, refused.status);
   }
 
   const texted = textedLines(await recentLogs(dispatch, started, timeZone));

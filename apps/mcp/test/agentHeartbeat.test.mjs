@@ -4,7 +4,8 @@
  * The check-in client's turn looks at the notes changed since the last look,
  * reads what matters, and answers one text or SKIP. It reads and does nothing
  * else, a look with nothing changed costs no model turn, `tex/heartbeat.md`
- * can pause it, and every look is logged in `tex/heartbeat/<day>.md`.
+ * can pause it, and every look is logged in `tex/heartbeat/<day>.md`, one
+ * that ran no model as a line saying why.
  *
  * ## Sabotage record
  *
@@ -20,12 +21,15 @@
  *     → "paused in tex/heartbeat.md, it reads nothing and runs no model" fails.
  *  4. `http/route.js` sending the check-in client to the ordinary turn.
  *     → "only the check-in client checks in" fails.
+ *  5. `handleHeartbeat` returning nothing_new without logging it (2026-10-19).
+ *     → "a look with nothing changed still leaves a line…" fails.
  */
 
 import worker from "../src/index.js";
 import { transcriptPath } from "../src/agent/transcript.js";
 import {
   CHECK_IN_QUESTION,
+  NOTHING_NEW_WORDS,
   changedSince,
   checkInText,
   heartbeatCallTool,
@@ -34,6 +38,7 @@ import {
   readSettings,
   textedLines,
 } from "../src/agent/heartbeat.js";
+import { SKIPPED_WORDS } from "../src/agent/jobLog.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
@@ -338,6 +343,23 @@ export async function runAgentHeartbeatChecks(check) {
     check(
       "nothing changed since the last look is nothing_new, with no model turn",
       nothing.status === 200 && nothing.body?.outcome === "nothing_new" && model.requests.length === before,
+    );
+    check(
+      "a look with nothing changed still leaves a line in the day's log, saying why it ran no model",
+      log().includes(`_${NOTHING_NEW_WORDS}_`) && (log().match(/^## /gm) ?? []).length === 3,
+    );
+
+    /* ---------------- no model to run ---------------- */
+
+    controlPlane.setBuiltinVerdict("ws_beat", { allowed: false, reason: "not_premium" });
+    const refusedLook = await ask(env, TOKEN_BEAT, beat());
+    controlPlane.setBuiltinVerdict("ws_beat", { allowed: false, reason: "daily_cap" });
+    const capped = await ask(env, TOKEN_BEAT, beat());
+    controlPlane.setBuiltinVerdict("ws_beat", BUILTIN_ALLOWED);
+    check(
+      "a look refused the model, or past today's cap, says so in the day's log and runs no model",
+      refusedLook.status === 409 && capped.status === 429 && model.requests.length === before &&
+        log().includes(`_${SKIPPED_WORDS.no_provider}_`) && log().includes(`_${SKIPPED_WORDS.daily_limit}_`),
     );
 
     /* ---------------- their instructions ---------------- */
