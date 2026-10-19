@@ -7,6 +7,7 @@ import {
   FAKE_STORAGE,
 } from "../fixtures.helpers";
 import { encryptSecret, requireKeyset } from "../../functions/lib/crypto";
+import { GMAIL_PASS_HISTORY_PAGES } from "../../functions/lib/filesFns/gmailDayStore";
 import { readDocument, replaceText } from "@context/collaboration";
 import { S3Store } from "../../../mcp/src/store/s3.js";
 import { withLogicalDelete, isLogicalDeleteMarker } from "../../../mcp/src/store/logicalDelete.js";
@@ -569,8 +570,8 @@ describe("one pass, end to end, through the credential barrier", () => {
 
   test("a walk that runs out of pages stores the record boundary, not the head", async () => {
     const { t, workspaceId, connectionId, backend } = await endToEnd({ historyId: "1000" });
-    // Fifty-one pages against a fifty-page walk: the client stops one short of
-    // the end, and every page has claimed the mailbox head all along.
+    // Fifty-one pages, more than one pass walks: the client stops short of the
+    // end, and every page has claimed the mailbox head all along.
     const pages = Array.from({ length: 51 }, (_, index) => ({
       recordId: String(1100 + index),
     }));
@@ -580,13 +581,23 @@ describe("one pass, end to end, through the credential barrier", () => {
     const result = await runPass(t, workspaceId, connectionId);
 
     expect(result).toMatchObject({ status: "synced", truncated: true });
+    /*
+      A cursor weeks behind is drained a few pages a pass. Walking all fifty in
+      one pass meant fetching up to five thousand messages before anything was
+      saved, so one rate limit late in the pass threw the whole of it away, and
+      the next pass asked Gmail the same question again (2026-10-19: a mailbox
+      stuck on its September cursor).
+    */
+    const historyCalls = google.calls.filter((path) => path === "/gmail/v1/users/me/history");
+    expect(historyCalls).toHaveLength(GMAIL_PASS_HISTORY_PAGES);
+    expect(GMAIL_PASS_HISTORY_PAGES).toBeLessThanOrEqual(5);
     const row = await readConnection(t, connectionId);
     /*
-      The head would say "caught up" while fifty-one pages of history had been
-      read and everything behind them skipped forever. The last record actually
-      walked says where to resume, and the row says there is more.
+      The head would say "caught up" while pages of history had been read and
+      everything behind them skipped forever. The last record actually walked
+      says where to resume, and the row says there is more.
     */
-    expect(row.gmail?.historyId).toBe("1149");
+    expect(row.gmail?.historyId).toBe(String(1100 + GMAIL_PASS_HISTORY_PAGES - 1));
     expect(row.gmail?.historyId).not.toBe("999999");
     expect(row.syncCatchUp).toBe(true);
     expect(row.nextSyncAt).toBeLessThanOrEqual(Date.now());
@@ -612,7 +623,7 @@ describe("one pass, end to end, through the credential barrier", () => {
 
   test("a truncated walk with no record boundary fails visibly instead of spinning forever", async () => {
     const { t, workspaceId, connectionId, backend } = await endToEnd({ historyId: "1000" });
-    const pages = Array.from({ length: 51 }, () => ({}));
+    const pages = Array.from({ length: GMAIL_PASS_HISTORY_PAGES + 1 }, () => ({}));
     const google = googleAndBucket({ backend, history: { pages, historyId: "999999" } });
     vi.stubGlobal("fetch", google.fetchImpl);
 

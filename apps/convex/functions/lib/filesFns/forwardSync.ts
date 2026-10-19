@@ -70,7 +70,7 @@ import {
   timeoutFetch,
   writeSharedCalendarDay,
 } from "./forwardSyncSupport";
-import { gmailDayStore, reconcileDays } from "./gmailDayStore";
+import { GMAIL_PASS_HISTORY_PAGES, gmailDayStore, reconcileDays } from "./gmailDayStore";
 import { runGmailRecentImport } from "./gmailRecentImport";
 import type { OperationResult } from "./operationTypes";
 import { ensureGooglePush } from "../googlePush/ensure";
@@ -494,6 +494,7 @@ async function runMintedPass(
     startHistoryId: job.historyId,
     folder: job.destinationFolder,
     reconcileDates: [...reconcileDays(Date.now()), ...(job.repairDays ?? [])],
+    maxHistoryPages: GMAIL_PASS_HISTORY_PAGES,
     // The same nonce the backfill used, so a day rewritten by either path
     // keeps its message anchors — see `packages/communications/src/note.js`.
     nonce: `gmail:${job.connectionId}`,
