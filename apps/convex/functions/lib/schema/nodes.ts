@@ -163,13 +163,8 @@ export const nodeTables = {
     files: v.number(),
     /** A fixed, path-free label for a failing pass (never a raw storage error). */
     error: v.optional(v.string()),
-    /**
-     * Notes whose text alone changed (a save in the editor), gathered for a
-     * few seconds and then re-checked together (`nodes.queueEdits`), so a
-     * typing pause is not a bucket listing each.
-     */
+    /** Retired: the gathered edits live on `nodeTreeEdits` now. Read once by `flushEdits`, never written. */
     edits: v.optional(v.array(v.string())),
-    /** When the gathered `edits` are due to be re-checked; set while a flush is scheduled. */
     editsDueAt: v.optional(v.number()),
     /** The last parity check: how many paths disagreed with the bucket, over every clearance checked. */
     parity: v.optional(
@@ -180,6 +175,20 @@ export const nodeTables = {
         privacyMatches: v.boolean(),
       }),
     ),
+  }).index("by_workspace", ["workspaceId"]),
+
+  /**
+   * Notes whose text alone changed (a save in the editor), gathered for a few
+   * seconds and then re-checked together (`nodes.queueEdits`), so a typing
+   * pause is not a bucket listing each. Its own row, not a field of
+   * `nodeTrees`: every folder listing and feed head reads the tree's row, and
+   * a write to it on every save re-ran each of them for every open app.
+   */
+  nodeTreeEdits: defineTable({
+    workspaceId: v.id("workspaces"),
+    edits: v.array(v.string()),
+    /** When the gathered `edits` are due to be re-checked; set while a flush is scheduled. */
+    editsDueAt: v.optional(v.number()),
   }).index("by_workspace", ["workspaceId"]),
 
   /**

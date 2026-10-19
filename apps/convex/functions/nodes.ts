@@ -566,45 +566,62 @@ export const queueEdits = internalMutation({
   handler: async (ctx, { workspaceId, files }): Promise<null> => {
     const row = await treeRowQuery(ctx, workspaceId);
     if (row === null || row.status === "unsupported") return null;
-    const held = new Set(row.edits ?? []);
+    const queue = await editQueueOf(ctx, workspaceId);
+    const held = new Set(queue?.edits ?? []);
     for (const file of files) {
       const path = nodePath(file);
       if (path !== null) held.add(path);
     }
     if (held.size > NODE_TOUCH_PATHS) {
       // Too many to re-check by name: the cron's next sweep lists them all.
-      await ctx.db.patch(row._id, { dirty: true, edits: undefined, editsDueAt: undefined });
+      await ctx.db.patch(row._id, { dirty: true });
+      if (queue !== null) await ctx.db.delete(queue._id);
       return null;
     }
     const now = Date.now();
-    const scheduled = row.editsDueAt !== undefined && now - row.editsDueAt < NODE_EDIT_LOST_MS;
+    const scheduled = queue?.editsDueAt !== undefined && now - queue.editsDueAt < NODE_EDIT_LOST_MS;
     // Already held and already due: nothing to write.
-    if (scheduled && held.size === (row.edits ?? []).length) return null;
+    if (scheduled && held.size === (queue?.edits ?? []).length) return null;
     if (!scheduled) {
       await ctx.scheduler.runAfter(NODE_EDIT_SETTLE_MS, internal.functions.nodes.flushEdits, { workspaceId });
     }
-    await ctx.db.patch(row._id, {
-      edits: [...held],
-      ...(scheduled ? {} : { editsDueAt: now + NODE_EDIT_SETTLE_MS }),
-    });
+    const fields = { edits: [...held], ...(scheduled ? {} : { editsDueAt: now + NODE_EDIT_SETTLE_MS }) };
+    if (queue === null) await ctx.db.insert("nodeTreeEdits", { workspaceId, ...fields });
+    else await ctx.db.patch(queue._id, fields);
     return null;
   },
 });
 
-/** The gathered edits' re-check (`queueEdits`): takes them off the row and schedules one `nodesTouch`. */
+/** The workspace's gathered edits, or null when none are waiting. */
+async function editQueueOf(ctx: { db: DatabaseReader }, workspaceId: Id<"workspaces">) {
+  return await ctx.db
+    .query("nodeTreeEdits")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .unique();
+}
+
+/**
+ * The gathered edits' re-check (`queueEdits`): takes them off their row and
+ * schedules one `nodesTouch`. Edits a tree row still holds from before they
+ * had their own row are taken too, once.
+ */
 export const flushEdits = internalMutation({
   args: { workspaceId: v.id("workspaces") },
   returns: v.null(),
   handler: async (ctx, { workspaceId }): Promise<null> => {
+    const queue = await editQueueOf(ctx, workspaceId);
+    const files = new Set(queue?.edits ?? []);
+    if (queue !== null) await ctx.db.delete(queue._id);
     const row = await treeRowQuery(ctx, workspaceId);
-    if (row === null) return null;
-    const files = row.edits ?? [];
-    await ctx.db.patch(row._id, { edits: undefined, editsDueAt: undefined });
-    if (files.length === 0) return null;
+    if (row !== null && (row.edits !== undefined || row.editsDueAt !== undefined)) {
+      for (const file of row.edits ?? []) files.add(file);
+      await ctx.db.patch(row._id, { edits: undefined, editsDueAt: undefined });
+    }
+    if (row === null || files.size === 0) return null;
     await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
       workspaceId,
       scope: "private",
-      operation: { kind: "nodesTouch", paths: [], files },
+      operation: { kind: "nodesTouch", paths: [], files: [...files] },
     });
     return null;
   },

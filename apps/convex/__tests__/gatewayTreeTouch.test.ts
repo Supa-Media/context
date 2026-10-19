@@ -97,6 +97,14 @@ describe("POST /gateway/tree/touch: edited notes", () => {
         .unique(),
     );
   }
+  async function editQueue(t: Awaited<ReturnType<typeof owned>>["t"], workspaceId: Id<"workspaces">) {
+    return await t.run(async (ctx) =>
+      await ctx.db
+        .query("nodeTreeEdits")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique(),
+    );
+  }
 
   test("a malformed edited list is refused", async () => {
     const { t, workspaceId } = await owned();
@@ -106,7 +114,7 @@ describe("POST /gateway/tree/touch: edited notes", () => {
     }
   });
 
-  test("edits are gathered on the tree's row, with one flush scheduled for the burst", async () => {
+  test("edits are gathered on their own row, never the tree's, with one flush scheduled for the burst", async () => {
     const { t, workspaceId } = await owned();
     await t.mutation(internal.functions.nodes.dirty, { workspaceId });
     await t.run(async (ctx) => {
@@ -117,9 +125,12 @@ describe("POST /gateway/tree/touch: edited notes", () => {
       const response = await gatewayPost(t, "/gateway/tree/touch", { workspaceId, paths: [], files: [], edited });
       expect(response.status).toBe(200);
     }
-    const row = await treeRow(t, workspaceId);
-    expect(row?.edits?.sort()).toEqual(["1-projects/a.md", "1-projects/b.md"]);
-    expect(row?.editsDueAt).toBeTypeOf("number");
+    const before = await treeRow(t, workspaceId);
+    const queue = await editQueue(t, workspaceId);
+    expect(queue?.edits.sort()).toEqual(["1-projects/a.md", "1-projects/b.md"]);
+    expect(queue?.editsDueAt).toBeTypeOf("number");
+    // The tree's row, read by every listing, was not written by the saves.
+    expect(before?.edits).toBeUndefined();
     const flushes = await t.run(async (ctx) =>
       (await ctx.db.system.query("_scheduled_functions").collect()).filter((job) => job.name.includes("flushEdits")),
     );
@@ -135,9 +146,7 @@ describe("POST /gateway/tree/touch: edited notes", () => {
     });
     await t.mutation(internal.functions.nodes.queueEdits, { workspaceId, files: ["a.md", "b.md"] });
     await t.mutation(internal.functions.nodes.flushEdits, { workspaceId });
-    const row = await treeRow(t, workspaceId);
-    expect(row?.edits).toBeUndefined();
-    expect(row?.editsDueAt).toBeUndefined();
+    expect(await editQueue(t, workspaceId)).toBeNull();
     const touches = await t.run(async (ctx) =>
       (await ctx.db.system.query("_scheduled_functions").collect()).filter((job) => job.name.includes("runFileOperation")),
     );
@@ -156,7 +165,41 @@ describe("POST /gateway/tree/touch: edited notes", () => {
     await t.mutation(internal.functions.nodes.queueEdits, { workspaceId, files: Array.from({ length: 30 }, (_, i) => `b${i}.md`) });
     const row = await treeRow(t, workspaceId);
     expect(row?.dirty).toBe(true);
+    expect(await editQueue(t, workspaceId)).toBeNull();
+  });
+
+  test("a save writes nothing a folder listing reads, and an empty flush writes nothing at all", async () => {
+    const { t, workspaceId } = await owned();
+    await t.mutation(internal.functions.nodes.dirty, { workspaceId });
+    await t.run(async (ctx) => {
+      const row = await ctx.db.query("nodeTrees").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).unique();
+      await ctx.db.patch(row!._id, { status: "ready", dirty: false });
+    });
+    const before = await treeRow(t, workspaceId);
+    await t.mutation(internal.functions.nodes.queueEdits, { workspaceId, files: ["a.md"] });
+    await t.mutation(internal.functions.nodes.queueEdits, { workspaceId, files: ["b.md"] });
+    await t.mutation(internal.functions.nodes.flushEdits, { workspaceId });
+    await t.mutation(internal.functions.nodes.flushEdits, { workspaceId });
+    expect(await treeRow(t, workspaceId)).toEqual(before);
+  });
+
+  test("edits a tree row held from before their own row are flushed once", async () => {
+    const { t, workspaceId } = await owned();
+    await t.mutation(internal.functions.nodes.dirty, { workspaceId });
+    await t.run(async (ctx) => {
+      const row = await ctx.db.query("nodeTrees").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).unique();
+      await ctx.db.patch(row!._id, { status: "ready", dirty: false, edits: ["old.md"], editsDueAt: Date.now() });
+    });
+    await t.mutation(internal.functions.nodes.queueEdits, { workspaceId, files: ["new.md"] });
+    await t.mutation(internal.functions.nodes.flushEdits, { workspaceId });
+    const row = await treeRow(t, workspaceId);
     expect(row?.edits).toBeUndefined();
+    expect(row?.editsDueAt).toBeUndefined();
+    const touches = await t.run(async (ctx) =>
+      (await ctx.db.system.query("_scheduled_functions").collect()).filter((job) => job.name.includes("runFileOperation")),
+    );
+    expect(touches).toHaveLength(1);
+    expect((touches[0]!.args[0] as { operation: { files: string[] } }).operation.files.sort()).toEqual(["new.md", "old.md"]);
   });
 
   test("a tree never swept gathers nothing: its first sweep lists the notes", async () => {

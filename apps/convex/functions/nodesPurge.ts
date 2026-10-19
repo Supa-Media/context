@@ -75,6 +75,12 @@ export async function forgetWorkspaceTree(
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .collect();
   for (const row of trees) await ctx.db.delete(row._id);
+  // Edits waiting for a re-check name paths in the tree that is going.
+  const edits = await ctx.db
+    .query("nodeTreeEdits")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const row of edits) await ctx.db.delete(row._id);
   const privacy = await ctx.db
     .query("nodePrivacy")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
