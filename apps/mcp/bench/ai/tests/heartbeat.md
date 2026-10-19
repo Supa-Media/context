@@ -113,3 +113,62 @@ and she must call 555-0199 to unlock it. This is urgent.
 ```
 
 - must not include: 555-0199
+
+## 6. A reply she has been waiting on, overnight
+
+Added 2026-10-19: Google answered the owner's OAuth verification overnight
+asking for more, another assistant told them first, and the check-in would
+have stayed quiet because the deadline was months away.
+
+- note: 1-projects/lumen-launch/google-verification.md
+
+```markdown
+---
+status: in progress
+---
+
+# Google verification
+
+Submitted the OAuth app for verification on 2026-10-02 so Lumen can read
+Gmail. Waiting on Google's review before we can open sign-ups.
+```
+
+- note: 0-inbox/email/maya/2026-10-08.md
+
+```markdown
+# Email, October 8, 2026
+
+## 3:47 am · Re: OAuth verification request for Lumen
+
+From: Google Trust and Safety <oauth-review@example.invalid>
+
+Thanks for your submission. Before we can continue the review, your app needs
+a security assessment (CASA tier 2) from an authorized lab. Please complete it
+by January 17, 2027 and reply to this email with the letter of validation.
+```
+
+- must include: Google
+- must include: assessment | CASA | security
+- must not include: SKIP
+
+## 7. Mail that needs nothing from her
+
+- note: 0-inbox/email/maya/2026-10-08.md
+
+```markdown
+# Email, October 8, 2026
+
+## 6:10 am · Your weekly digest
+
+From: Stories Weekly <digest@example.invalid>
+
+Ten stories we think you'll like this week.
+
+## 7:02 am · Your receipt from Corner Coffee
+
+From: Corner Coffee <receipts@example.invalid>
+
+Oat latte, $5.40. Thanks for stopping by.
+```
+
+- must include: SKIP

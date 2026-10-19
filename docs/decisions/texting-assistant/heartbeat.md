@@ -28,8 +28,11 @@ never counts, or every look would wake the next. Nothing changed is
 `nothing_new` and runs no model. Otherwise a model is shown the changed paths,
 what earlier check-ins already texted (from the last three days' logs), and
 the person's own instructions, and looks for an ask in a recent transcript Tex
-did not fully deliver, a deadline in the next day or two, or a to-do it can
-help with now. It answers one short text or exactly `SKIP`; most looks should
+did not fully deliver, a new email or message that needs them to act or reply
+(added 2026-10-19, after Google answered the owner's OAuth verification
+overnight and another assistant told them first: its deadline was months out,
+so none of the other three caught it), a deadline in the next day or two, or a
+to-do it can help with now. Mail that needs nothing from them is not a text. It answers one short text or exactly `SKIP`; most looks should
 be `SKIP`.
 
 **What it may touch.** Reads only: `read_note`, `list_notes` and
