@@ -28,7 +28,7 @@ import { callerId, resolveFileAccess } from "./lib/filesFns/access";
 import { treeChangesValidator } from "./lib/filesFns/validators";
 import type { TreeChangesResult } from "./lib/filesFns/operationTypes";
 import { treeServesNow } from "./lib/nodes/listing";
-import { readerMirror } from "./lib/nodes/readerRules";
+import { readerMirror, readerView } from "./lib/nodes/readerRules";
 import { rulesForReaders } from "./lib/nodes/readerRules";
 import { accessSourceOf } from "./lib/nodes/accessBackfill";
 import { accessVersionOf } from "./lib/nodes/accessRows";
@@ -102,7 +102,7 @@ export const head = query({
     const actorUserId = await callerId(ctx);
     const { scope, grantedNames } = await resolveFileAccess(ctx, { actorUserId, workspaceId, minimum: "member" });
     if (!(await treeServesNow(ctx.db, workspaceId))) return null;
-    const mirror = await readerMirror(ctx, workspaceId);
+    const { mirror, judged } = await readerView(ctx, workspaceId);
     const moves = await feedMoves(ctx, workspaceId);
     const privacy = await feedPrivacy(ctx, workspaceId, mirror, moves);
     if (privacy === null) return null;
@@ -112,7 +112,7 @@ export const head = query({
       .order("desc")
       .take(NODE_HEAD_SCAN);
     const skip = (path: string) => underPendingMove(path, moves);
-    const told = newestTold(newest, clearanceOf(scope, grantedNames), await rulesForReaders(ctx, workspaceId), skip);
+    const told = newestTold(newest, clearanceOf(scope, grantedNames), judged, skip);
     return { token: `${privacy}|${told ?? ""}` };
   },
 });
