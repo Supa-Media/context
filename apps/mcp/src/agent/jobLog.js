@@ -63,6 +63,11 @@ function refusalWords(result) {
  * never with the entry's or the note's words.
  */
 export async function appendLogEntry(dispatch, path, entry, heading) {
+  return (await appendLogEntryWhy(dispatch, path, entry, heading)) === null;
+}
+
+/** `appendLogEntry`, answering null when the entry landed and otherwise why it didn't, in the refusal's leading words. */
+export async function appendLogEntryWhy(dispatch, path, entry, heading) {
   let why = "unreadable";
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const current = await readWithEtag(dispatch, path);
@@ -80,11 +85,11 @@ export async function appendLogEntry(dispatch, path, entry, heading) {
       threw = error;
       return null;
     });
-    if (written && written.isError !== true) return true;
+    if (written && written.isError !== true) return null;
     why = threw !== null ? `threw ${threw?.name ?? "error"}` : written ? refusalWords(written) : "no answer";
   }
   console.log(JSON.stringify({ event: "job_log", outcome: "not_written", folder: path.split("/").slice(0, -1).join("/"), why }));
-  return false;
+  return why;
 }
 
 /**
