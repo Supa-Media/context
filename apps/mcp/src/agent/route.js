@@ -37,6 +37,7 @@ import { grantedToolsFor } from "./sixTools.js";
 import {
   SHOWN_HISTORY_TURNS,
   appendConversation,
+  rememberRoutineText,
   conversationPath,
   earlierTextsTool,
   historyIsTainted,
@@ -204,6 +205,9 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       now: received,
       timeZone: readTimeZone(body.timeZone),
       defer: (work) => deferred(store, work),
+      // Kept on the same terms as a model turn's history, below, with the Worker's fixed texts (`told`).
+      conversation: conversationPath(body.conversation) !== null && hasScope(session, SCOPE_WRITE) ? body.conversation : null,
+      told: body.told,
     });
     if (settled !== null) return json(settled);
   }
@@ -565,7 +569,10 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
         A routine that texts the person is a message they may answer with a bare
         "ok" or "yes", and that answer is to it, not to an ask raised before it.
       */
-      if (ran.text && routine.settings.send !== "note") await disarmTexting(store, { userId: session.actorUserId });
+      if (ran.text && routine.settings.send !== "note") {
+        await disarmTexting(store, { userId: session.actorUserId });
+        await rememberRoutineText(store, routine, ran.text, ledger.untrusted);
+      }
       // A routine whose `until:` came true stops itself, recoverably.
       if (ran.outcome === "finished" && routine.cadence.unit !== "once") {
         await stopRoutine(dispatch, routine.path);

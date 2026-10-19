@@ -45,6 +45,7 @@ import { PICTURE_FAILED, describePart, partsFor, type Media, type OutgoingPictur
 import { COPY, replyTo, TryLater, type Message, type ReplyDeps } from "./reply";
 import { record } from "./simulator";
 import { oweReadyText } from "./ready";
+import { clearTold, noteTold, owedTold } from "./told";
 
 /** The subset of `DurableObjectStorage` this uses, so tests can pass a Map. */
 export type InboxStorage = {
@@ -295,7 +296,20 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
       { phone: message.from, chatId: message.chatId, ...(message.channel === "simulator" ? { channel: "simulator" as const } : {}) },
       deps.now(),
     );
-  const texts = await answerTexts(message, { ...deps, onSetUp, onPictures: (sent) => void (pictures = sent) }, storage);
+  // Fixed texts sent outside a turn, owed to the next turn's history (`told.ts`).
+  const told = await owedTold(storage);
+  const texts = await answerTexts(
+    message,
+    {
+      ...deps,
+      onSetUp,
+      told,
+      onTold: (sent) => noteTold(storage, sent),
+      onToldDelivered: () => clearTold(storage, told),
+      onPictures: (sent) => void (pictures = sent),
+    },
+    storage,
+  );
   if (pictures.length === 0) return texts;
   // The simulator has no Linq to upload to; its log says a picture went.
   const upload =

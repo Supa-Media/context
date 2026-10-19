@@ -11,6 +11,7 @@ import {
   READY_KEY,
   type ReadyDeps,
 } from "./ready";
+import { owedTold } from "./told";
 
 /**
  * THE TEXT TEX OWES SOMEBODY SET UP BY TEXT, ONCE THEIR NOTES ARE READY
@@ -71,6 +72,8 @@ describe("the ready text", () => {
     expect(sent.map((s) => s.text)).toEqual([READY_COPY.ready, LINK]);
     expect(sent.every((s) => s.chatId === "chat_1")).toBe(true);
     expect(await storage.get(READY_KEY)).toBeUndefined();
+    // The next turn's history is owed it, by name only: no link is kept (`told.ts`).
+    expect(await owedTold(storage)).toEqual(["ready"]);
 
     now += READY_EVERY_MS;
     await checkReady(storage, d);
@@ -107,6 +110,7 @@ describe("the ready text", () => {
     await checkReady(storage, d);
     expect(sent.map((s) => s.text)).toEqual([READY_COPY.late]);
     expect(await storage.get(READY_KEY)).toBeUndefined();
+    expect(await owedTold(storage)).toEqual(["ready_late"]);
   });
 
   it("keeps waiting through a control plane that is down", async () => {

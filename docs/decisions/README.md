@@ -694,6 +694,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A texted write answers with the note's link, and an ask sounds like a person (2026-10-18)](./texting-assistant/note-links.md)
 - Staging has a texts simulator, and nothing else does
 - An answer reads like a text, and the typing bubble shows while it works
+- [Earlier turns are words only, and the model is told so (2026-10-09)](./texting-assistant/history.md)
+- [Every text Tex sends reaches the history, not only a model's answers (2026-10-19)](./texting-assistant/history.md)
 - Every agent turn is logged by name and duration, never by text
 - The autofill vault lives sealed in the person's bucket
 - [A login is sealed in the workspace's own bucket, and only the fill step opens it](./texting-assistant/vault.md)

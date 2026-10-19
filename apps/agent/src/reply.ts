@@ -37,6 +37,7 @@ import {
 } from "./clients";
 import { prepareAttachments, type ImagesLike } from "./attachments";
 import { handleCandidate, setupReply, textSetup } from "./setup";
+import type { Told } from "./told";
 import { textsFromAnswer } from "./format";
 import type { OutgoingPicture } from "./outgoing";
 import type { Inbound } from "./inbound";
@@ -62,6 +63,14 @@ export type ReplyDeps = {
   images?: ImagesLike;
   /** Told when setup started a bucket, so the ready text is owed (`ready.ts`); absent, none is. */
   onSetUp?: () => Promise<void>;
+  /**
+   * The fixed texts sent outside a turn that the next turn's history is owed
+   * (`told.ts`): named to the gateway with the next text, and `onToldDelivered`
+   * once a turn answered with them. `onTold` notes a setup that finished.
+   */
+  told?: Told[];
+  onTold?: (told: Told) => Promise<void>;
+  onToldDelivered?: () => Promise<void>;
   /** Handed the pictures an answer texts back (`outgoing.ts`); absent, they are not sent. */
   onPictures?: (pictures: OutgoingPicture[]) => void;
   /**
@@ -171,6 +180,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
         message.sms ? undefined : handleCandidate(message.text),
       );
       if (setup.status === "set_up" && setup.storage === "on_the_way") await deps.onSetUp?.();
+      if (setup.status === "set_up") await deps.onTold?.("setup");
       if (setup.status !== "not_eligible") return setupReply(setup);
       const invite = await requestLinkInvite(
         deps.fetch,
@@ -198,8 +208,10 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       attachments,
       // Somebody else's words, kept apart from the person's (`apps/mcp/src/agent/quoted.js`).
       message.quoted,
+      deps.told,
     );
     if (answer.kind === "answer") {
+      await deps.onToldDelivered?.();
       if (answer.pictures.length > 0) deps.onPictures?.(answer.pictures);
       if (!answer.text) return [];
       // What the person is asked to approve goes out exactly as the gateway

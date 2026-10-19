@@ -206,3 +206,66 @@ export function wordsOfTurn(history, question) {
   const lastAnswer = [...history].reverse().find((turn) => turn.role === "assistant")?.text ?? "";
   return `${lastAnswer ? `Assistant: ${lastAnswer.slice(-1_000)}\nPerson: ` : ""}${question}`;
 }
+
+/*
+  The fixed texts the texting Worker sends with no model (`apps/agent/src/
+  told.ts`): setting somebody up, and saying their notes are ready. Named by
+  the Worker with the next text, and written here in the gateway's own words,
+  never the Worker's and never the link, so the next turn knows what "Done"
+  answers (@context-lc tex-bugs, 2026-10-19: "Done with what? I don't have
+  anything earlier in this chat").
+*/
+const TOLD_QUESTION = "(Not a text from them. Context sent this text by itself, with no model.)";
+export const TOLD = {
+  setup:
+    "They texted Context's number and were set up by text: they picked their handle, and their account and personal workspace were made. " +
+    "I told them their notes take a couple of minutes to get ready and that I'd text when they were.",
+  ready:
+    "Your notes are ready. I asked them to connect Google so I can get to know them from their email, with a link that signs them in " +
+    "(it asks for an email to protect their account, then they tap Connect Google; Google warns it hasn't verified Context, so tap Advanced, then Go to Context), " +
+    "and to text me when it's done. That is step 1 of the onboarding skill; their next text is most likely about it.",
+  ready_late: "Their notes were taking longer than usual to set up, so I told them to text me in a few minutes.",
+};
+const MAX_TOLD = 5;
+
+/** The fixed texts named in a request, known names only, in order; at most a few. */
+export function readTold(value) {
+  if (!Array.isArray(value)) return [];
+  return value.filter((name) => typeof name === "string" && Object.hasOwn(TOLD, name)).slice(0, MAX_TOLD);
+}
+
+/**
+ * Write the named fixed texts into a conversation, oldest first, before the
+ * turn reads it. Best effort: a history that failed to save costs the turn
+ * some context, never its answer.
+ */
+export async function appendTold(store, name, told) {
+  const path = conversationPath(name);
+  if (path === null || told.length === 0) return;
+  const turns = told.flatMap((key) => [
+    { role: "user", text: TOLD_QUESTION },
+    { role: "assistant", text: TOLD[key] },
+  ]);
+  try {
+    await store.put(path, JSON.stringify({ version: 1, turns: trimHistory([...(await readConversation(store, name)), ...turns]) }));
+  } catch {
+    // See above.
+  }
+}
+
+/**
+ * A routine's text goes in the texting conversation, so a reply to it ("move
+ * it to Tuesday") reaches a turn that knows what it answers, under a line
+ * saying what it was, the way a check-in's is (`heartbeat.js`). Only a text to
+ * its writer alone: that is whose conversation this is. Best effort: the text
+ * has already gone.
+ */
+export async function rememberRoutineText(store, routine, text, tainted) {
+  if (Array.isArray(routine.settings.to) && routine.settings.to.length > 0) return;
+  const line = `(Not a text from them. Your routine ${routine.path} ran on its schedule and you texted them what follows.)`;
+  try {
+    await appendConversation(store, "texts", await readConversation(store, "texts"), line, text, { tainted });
+  } catch {
+    // See above.
+  }
+}

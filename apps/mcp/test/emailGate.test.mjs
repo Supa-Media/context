@@ -36,6 +36,8 @@
  * 12. `textedAsk` returning an ask that holds no email as prose (no
  *     `verbatim`, no cap). → `an ask holding no email is texted whole too, or
  *     withdrawn rather than cut` fails.
+ * 12b. `RELEASED_YES` dropped from `strictYes`. → `a yes that says to send
+ *     it ("Yes, send it") sends the email` fails.
  * 13. The gates raising holds armed (`armed: false` dropped in `emailGate`).
  *     → `a hold is armed only once its ask goes out whole` fails.
  * 14. `textedAsk` arming before its length check. → `an ask too long to send
@@ -192,6 +194,26 @@ export async function runEmailGateChecks(check) {
     check(
       'an "ok" to an email is not a yes: it goes to the model and disarms the email',
       sends().length === before && /Reply YES/.test(okay.body?.answer ?? ""),
+    );
+    for (const left of await approvals()) await request(env, TOKEN_CONSOLE, "/approvals", { id: left.id, action: "deny" });
+
+    model.install([{ toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "Re: said so" } }] }, verdict("yes"), { text: "Drafted." }]);
+    await ask(env, TOKEN_TEXTS, "email Jo that it's fine");
+    before = sends().length;
+    const sendIt = await ask(env, TOKEN_TEXTS, "Yes, send it");
+    check(
+      'a yes that says to send it ("Yes, send it") sends the email',
+      sends().length === before + 1 && sends().at(-1).email.subject === "Re: said so" && /^Done, I sent an email/.test(sendIt.body?.answer ?? ""),
+    );
+    model.install([{ toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "Re: changed" } }] }, verdict("yes"), { text: "Drafted." }]);
+    await ask(env, TOKEN_TEXTS, "email Jo that it's fine");
+    model.install([{ text: "Who should it go to?" }]);
+    before = sends().length;
+    const turnsBefore = model.requests.length;
+    const changed = await ask(env, TOKEN_TEXTS, "yes but send it to Sam");
+    check(
+      "a yes that changes the email is not a yes: it goes to the model and nothing is sent",
+      sends().length === before && model.requests.length === turnsBefore + 1 && /Who should it go to/.test(changed.body?.answer ?? ""),
     );
     for (const left of await approvals()) await request(env, TOKEN_CONSOLE, "/approvals", { id: left.id, action: "deny" });
 
