@@ -33,6 +33,7 @@ describe("an unvetted failure", () => {
       detail: null,
       verb: "GET",
       status: 403,
+      at: expect.any(Array),
     });
   });
 
@@ -57,7 +58,23 @@ describe("an unvetted failure", () => {
     );
     expect(described).not.toMatch(/secret-plans|example|<Error>/);
     const odd = describeFailure({ name: "x y <script>", code: "anything", message: 42 });
-    expect(odd).toEqual({ kind: "other", name: null, code: null, detail: null, verb: null, status: null });
+    expect(odd).toEqual({ kind: "other", name: null, code: null, detail: null, verb: null, status: null, at: [] });
+  });
+
+  test("says where a plain error was thrown, and never the stack's message line", () => {
+    const error = new Error("cannot read notes/secret-plans.md");
+    error.stack = [
+      "Error: cannot read notes/secret-plans.md",
+      "    at renderForReading (../../apps/mcp/src/store/privacyAuthority.js:120:11)",
+      "    at async readFile (../../apps/convex/functions/lib/fileOps/reading.ts:74:17)",
+      "    at notes/secret-plans.md with spaces and (junk)",
+    ].join("\n");
+    const { at } = describeFailure(error);
+    expect(at).toEqual([
+      "at renderForReading (../../apps/mcp/src/store/privacyAuthority.js:120:11)",
+      "at async readFile (../../apps/convex/functions/lib/fileOps/reading.ts:74:17)",
+    ]);
+    expect(JSON.stringify(at)).not.toMatch(/secret-plans/);
   });
 
   test("a vetted refusal is not logged", () => {
