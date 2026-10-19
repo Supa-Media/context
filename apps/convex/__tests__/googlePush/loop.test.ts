@@ -47,6 +47,26 @@ describe("push feeds the forward sync loop", () => {
     expect((await sweep(t)).started).toBe(1);
   });
 
+  test("a second notification before the pass writes nothing, and one after its claim is kept", async () => {
+    const { t, connectionId } = await scenario();
+    await patchConnection(t, connectionId, { push: { gmail: { address: "person@example.invalid" } } });
+    await t.mutation(internal.functions.googlePush.pokeFromPubsub, { gmailAddress: "person@example.invalid" });
+    const first = await readConnection(t, connectionId);
+    expect(first.push?.pending?.gmail).toBeTypeOf("number");
+
+    await t.mutation(internal.functions.googlePush.pokeFromPubsub, { gmailAddress: "person@example.invalid" });
+    expect(await readConnection(t, connectionId)).toEqual(first);
+
+    // A pass claimed the mark: the next notification is news to it, and is recorded.
+    const claimedAt = first.push!.pending!.gmail! + 1;
+    await patchConnection(t, connectionId, { syncStartedAt: claimedAt });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(claimedAt + 1000);
+    await t.mutation(internal.functions.googlePush.pokeFromPubsub, { gmailAddress: "person@example.invalid" });
+    expect((await readConnection(t, connectionId)).push?.pending?.gmail).toBe(claimedAt + 1000);
+    vi.useRealTimers();
+  });
+
   test("the job runs the product Google named, not the least recently synced one", async () => {
     const { t, workspaceId, connectionId } = await scenario();
     const row = await readConnection(t, connectionId);

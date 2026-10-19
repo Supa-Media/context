@@ -52,7 +52,29 @@ export async function rulesForReaders(ctx: QueryCtx, workspaceId: Id<"workspaces
  */
 export async function readerMirror(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<PrivacyMirror | null> {
   if ((await accessSourceOf(ctx.db)) !== "rows") return await readMirror(ctx.db, workspaceId);
-  const { rules, overrides } = await rowRules(ctx, workspaceId);
+  return rowsMirror(await rowRules(ctx, workspaceId));
+}
+
+/**
+ * `readerMirror` and `rulesForReaders` together, from one read of the rules. A
+ * reader that needs both (a folder listing, a feed head) reruns on every change
+ * it depends on, and the access snapshot it reads is one document that can be
+ * large, so it is read once rather than twice.
+ */
+export async function readerView(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+): Promise<{ mirror: PrivacyMirror | null; judged: Rules }> {
+  if ((await accessSourceOf(ctx.db)) === "rows") {
+    const judged = await rowRules(ctx, workspaceId);
+    return { mirror: rowsMirror(judged), judged };
+  }
+  const mirror = await readMirror(ctx.db, workspaceId);
+  return { mirror, judged: await mirrorRules(mirror) };
+}
+
+/** The mirror view of the rows' member rules (`readerMirror`). */
+function rowsMirror({ rules, overrides }: Rules): PrivacyMirror {
   const folders = rules
     .map((rule) => ({ prefix: rule.prefix, visibility: rule.vis as string }))
     .sort((a, b) => (a.prefix < b.prefix ? -1 : a.prefix > b.prefix ? 1 : 0));

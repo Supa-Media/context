@@ -82,6 +82,22 @@ export async function runPresenceRelayV2SpeculativeUpdateChecks(check) {
         liveRecipient.frames().every((frame) => frame.d !== "REVG"),
     );
 
+    const aloneRuntime = fakeRoomRuntime();
+    const aloneRoom = new RelayRoom(aloneRuntime.state, async () => ({ sender: true, recipients: new Set() }));
+    const aloneSender = fakeSocket();
+    aloneSender.serializeAttachment(relayAttachment("alone-sender", "grant-alone", "client-alone"));
+    aloneRuntime.open.push(aloneSender);
+    for (const d of ["QUJD", "REVG", "R0hJ"]) {
+      await aloneRoom.webSocketMessage(aloneSender, JSON.stringify({
+        t: "live", documentId: "doc-live", d, accessToken: liveToken,
+      }));
+    }
+    check(
+      "keystrokes with nobody else in the note are authorized once, not once each",
+      aloneRoom.authorizations.length === 1 && aloneRoom.authorizations[0].recipients.length === 0 &&
+        aloneSender.closed.length === 0 && (await aloneRoom.readLog()).length === 0,
+    );
+
     const burstRuntime = fakeRoomRuntime();
     let activeAuthorizations = 0;
     let maximumAuthorizations = 0;

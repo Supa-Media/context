@@ -39,6 +39,7 @@ async function seed(t: ReturnType<typeof convexTest>, workspaceId: Id<"workspace
     await ctx.db.insert("nodeFactState", { workspaceId, ready: true, seq: 1 });
     await ctx.db.insert("nodeChaosDays", { workspaceId, day: "2026-10-01", all: 40, team: 20 });
     await ctx.db.insert("nodeTrees", { workspaceId, status: "ready", dirty: false, files, sweptAt: 1 });
+    await ctx.db.insert("nodeTreeEdits", { workspaceId, edits: ["notes/00000.md"], editsDueAt: 1 });
     await ctx.db.insert("nodePrivacy", { workspaceId, invalid: false, folders: [], notes: [], observedAt: 1 });
   });
 }
@@ -48,7 +49,9 @@ async function counts(t: ReturnType<typeof convexTest>, workspaceId: Id<"workspa
     const ctx = raw as unknown as MutationCtx;
       return {
       nodes: (await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId)).collect()).length,
-      trees: (await ctx.db.query("nodeTrees").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect()).length,
+      trees:
+        (await ctx.db.query("nodeTrees").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect()).length +
+        (await ctx.db.query("nodeTreeEdits").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect()).length,
     privacy: (await ctx.db.query("nodePrivacy").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).collect()).length,
       links: (await ctx.db.query("nodeLinks").withIndex("by_workspace_source", (q) => q.eq("workspaceId", workspaceId)).collect()).length,
       facts:
@@ -77,7 +80,7 @@ describe("nodesPurge", () => {
     await t.finishAllScheduledFunctions(vi.runAllTimers);
 
     expect(await counts(t, moved)).toEqual({ nodes: 0, trees: 0, privacy: 0, links: 0, facts: 0 });
-    expect(await counts(t, other)).toEqual({ nodes: 3, trees: 1, privacy: 1, links: 3, facts: 2 });
+    expect(await counts(t, other)).toEqual({ nodes: 3, trees: 2, privacy: 1, links: 3, facts: 2 });
   });
 
   test("an empty tree is forgotten without scheduling anything", async () => {

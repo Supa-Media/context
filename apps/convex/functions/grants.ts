@@ -657,10 +657,12 @@ export const resolveGrantByRefreshToken = internalQuery({
   },
 });
 
+export const TOUCH_GRANT_EVERY_MS = 5 * 60 * 1000;
+
 /**
- * Stamp `lastUsedAt`. Powers the "last seen 3 minutes ago" line next to a
- * connected client, which is how a person notices a client they do not
- * recognize is active.
+ * Stamp `lastUsedAt`: the "last seen 3 minutes ago" line by which a person
+ * notices a client they do not recognize. At most every five minutes: every
+ * gateway request resolves a session, and each stamp re-ran every owner's grant list.
  */
 export const touchGrant = internalMutation({
   args: { grantId: v.id("oauthGrants") },
@@ -668,7 +670,9 @@ export const touchGrant = internalMutation({
   handler: async (ctx, args) => {
     const grant = await ctx.db.get(args.grantId);
     if (grant === null || grant.status !== "active") return null;
-    await ctx.db.patch(args.grantId, { lastUsedAt: Date.now() });
+    const now = Date.now();
+    if (grant.lastUsedAt !== undefined && now - grant.lastUsedAt < TOUCH_GRANT_EVERY_MS) return null;
+    await ctx.db.patch(args.grantId, { lastUsedAt: now });
     return null;
   },
 });

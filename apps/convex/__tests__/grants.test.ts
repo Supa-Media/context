@@ -8,7 +8,7 @@
 
 import { describe, expect, test } from "vitest";
 import { api, internal } from "../_generated/api";
-import { MAX_CONSOLE_GRANTS_RETURNED, MAX_GRANTS_RETURNED } from "../functions/grants";
+import { MAX_CONSOLE_GRANTS_RETURNED, MAX_GRANTS_RETURNED, TOUCH_GRANT_EVERY_MS } from "../functions/grants";
 import { CONSOLE_CLIENT_ID } from "../functions/agentGrant";
 import { MAX_ACCESS_TOKEN_TTL_MS } from "../functions/lib/consentScopes";
 import {
@@ -617,6 +617,19 @@ describe("touchGrant (internal)", () => {
     expect(
       grants.find((g) => g.clientId === "claude")?.lastUsedAt,
     ).toBeGreaterThan(0);
+  });
+
+  test("stamps at most once every five minutes", async () => {
+    const { t, claude } = await threeClients();
+    const recent = Date.now() - 60_000;
+    await t.run((ctx) => ctx.db.patch(claude, { lastUsedAt: recent }));
+    await t.mutation(internal.functions.grants.touchGrant, { grantId: claude });
+    expect((await t.run((ctx) => ctx.db.get(claude)))?.lastUsedAt).toBe(recent);
+
+    const stale = Date.now() - TOUCH_GRANT_EVERY_MS - 1;
+    await t.run((ctx) => ctx.db.patch(claude, { lastUsedAt: stale }));
+    await t.mutation(internal.functions.grants.touchGrant, { grantId: claude });
+    expect((await t.run((ctx) => ctx.db.get(claude)))?.lastUsedAt).toBeGreaterThan(stale);
   });
 
   test("does not resurrect a revoked grant", async () => {
