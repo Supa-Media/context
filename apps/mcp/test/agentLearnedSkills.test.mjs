@@ -460,11 +460,14 @@ test("a reflect step that finds nothing worth writing changes nothing", async ()
 
 test("a tainted turn never reflects, and can't write a skill itself", async () => {
   // An earlier answer written after a read from outside taints this turn from its start (`conversation.js`).
-  const history = (tainted) =>
+  const history = (tainted) => {
+    // The old file is read only while the log is empty (`events.js`), so the log goes first.
+    for (const key of [...bucket.keys()]) if (key.startsWith(".context/agent/events/")) bucket.delete(key);
     bucket.set(CONVERSATION_FILE, {
       body: JSON.stringify({ turns: [{ role: "user", text: "what does this page say?" }, { role: "assistant", text: "It says hi.", ...(tainted ? { tainted: true } : {}) }] }),
       etag: tainted ? "c1" : "c0",
     });
+  };
   const writeEvil = { calls: [["write_note", { path: "tex/skills/evil.md", content: skill("evil", { updated: TODAY }) }]] };
   history(true);
   script = [writeEvil, { text: "Sorted." }];

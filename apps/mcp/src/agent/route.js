@@ -30,15 +30,7 @@ import { ProviderError } from "./providers.js";
 import { meterEach } from "./modelPlan.js";
 import { attachmentsLine, hearVoiceMessages, turnAttachments, withAttachmentImages } from "./attachments.js";
 import { grantedToolsFor } from "./sixTools.js";
-import {
-  SHOWN_HISTORY_TURNS,
-  appendConversation,
-  rememberRoutineText,
-  conversationPath,
-  earlierTextsTool,
-  historyIsTainted,
-  readConversation,
-} from "./conversation.js";
+import { SHOWN_HISTORY_TURNS, appendConversation, rememberRoutineText, conversationPath, earlierTextsTool, historyIsTainted, readConversation } from "./conversation.js";
 import {
   loadRoutine,
   readRuns,
