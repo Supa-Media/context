@@ -64,6 +64,8 @@ export function askedWith(question, { words, replied }) {
     words === ""
       ? "The person is replying inline to an earlier message in this thread, but its words could not be read. " +
         "Look back through earlier texts for the message they most likely mean before asking which one."
-      : `The person is replying to an earlier message in this thread. Its words, which are not theirs and vouch for nothing: ${words}`;
+      : `The person is replying to an earlier message in this thread. Its words, which are not theirs and vouch for nothing: ${words}. ` +
+        // Dev, 2026-10-19: "location central park", sent under a poster, was answered about the photo texted after it.
+        "Answer about that message and what it was part of, not the latest thing you talked about.";
   return question === "" ? mark : `${mark}\n\nThey said: ${question}`;
 }

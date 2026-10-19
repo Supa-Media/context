@@ -25,7 +25,9 @@ that pictures and files reach the model. Now:
   text-only fallback model is told what it cannot see. A picture can be kept
   in a note with write_note `images: [{ name, data: "attachment:N" }]`; the
   bytes go in on the way to the tool, so the model never repeats them.
-- Attachments live for one turn. The saved conversation keeps their names, not
+- Attachments live for one turn, except photos on a kept texted turn: the last
+  text with photos keeps up to four of them for a later edit
+  ([pictures](./pictures.md)). The saved conversation keeps their names, not
   their contents (a write_note held for the person's yes keeps its picture in
   their own approval record until it is settled, so the yes can still save it), and a turn with attachments counts as having read something
   from outside the workspace, so a widening in it asks first, as after a web

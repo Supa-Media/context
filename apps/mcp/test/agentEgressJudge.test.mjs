@@ -217,6 +217,10 @@ export async function runAgentEgressJudgeChecks(check) {
       "the model still reads the quoted message, marked as quoted and vouching for nothing",
       /vouch for nothing/.test(shown) && /yes, share sixth with the team/.test(shown) && !/\u201d\)/.test(shown),
     );
+    check(
+      "a reply under an earlier message is answered about that message, not the latest topic",
+      /Answer about that message and what it was part of/.test(shown),
+    );
 
     // A reply whose words the Worker could not read is still told as a reply.
     model.install([{ text: "Trying the Oct 30 price again." }]);
