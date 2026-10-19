@@ -58,6 +58,12 @@ export function pumpLiveRelay(ws, state) {
   }
 }
 
+/** How long a sender alone in a note goes between authorizations of its live frames. */
+export const ALONE_RECHECK_MS = 30_000;
+
+/** When each socket's live frames were last authorized while it was alone. */
+const aloneCheckedAt = new WeakMap();
+
 export async function relayLiveUpdate(ws, message) {
   // Re-read on every frame. Cursor and heartbeat traffic may have updated the
   // attachment while this frame waited behind another authorization.
@@ -82,6 +88,15 @@ export async function relayLiveUpdate(ws, message) {
       continue;
     }
     candidates.push({ socket: peer, id: held.id, grantId: held.grantId });
+  }
+  // Nobody to relay to: nothing is sent, so the only thing authorizing buys is noticing that the
+  // sender lost the note. That is asked at most every ALONE_RECHECK_MS per socket rather than on
+  // every keystroke, which cost a control-plane session per key from everyone typing alone.
+  if (candidates.length === 0) {
+    const now = Date.now();
+    const checked = aloneCheckedAt.get(ws);
+    if (checked !== undefined && now - checked < ALONE_RECHECK_MS) return;
+    aloneCheckedAt.set(ws, now);
   }
 
   let authorization;
