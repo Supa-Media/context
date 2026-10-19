@@ -45,14 +45,14 @@ import { isGroupVisibility } from "./types";
 import { scopeOf } from "./scope";
 import { sharesFor } from "./shares";
 import { displayName } from "./shareDialog/copy";
-import { GeneralAccess } from "./shareDialog/GeneralAccess";
+import { GeneralAccess, type Confirming } from "./shareDialog/GeneralAccess";
 import { HowSharingWorks } from "./shareDialog/HowSharingWorks";
 import { LinkOptions } from "./shareDialog/LinkOptions";
 import { moreItems } from "./shareDialog/moreItems";
 import { isPersonShare, PeopleSection, type ShowMenu } from "./shareDialog/PeopleSection";
 import type { CopyTarget, ShareDialogProps } from "./shareDialog/props";
 import { RecipientPicker } from "./shareDialog/RecipientPicker";
-import { addGrant, type GrantWrite } from "./shareDialog/grants";
+import { addGrant, hasMembers, peopleOf, type GrantWrite } from "./shareDialog/grants";
 import { domainRow, grantLine, pickOf, reachingOf } from "./shareDialog/grantMode";
 import { GrantRows } from "./shareDialog/GrantRows";
 import { contextHandle } from "../privacy/audience";
@@ -103,7 +103,7 @@ export function ShareDialog({
   const [problem, setProblem] = useState<string | null>(null);
   const [making, setMaking] = useState<{ label: string; picked: string[] } | null>(null);
   const [makeProblem, setMakeProblem] = useState<string | null>(null);
-  const [confirming, setConfirming] = useState(false);
+  const [confirming, setConfirming] = useState<Confirming>(null);
   const [menu, setMenu] = useState<OpenMenu | null>(null);
   const [help, setHelp] = useState(false);
 
@@ -161,15 +161,21 @@ export function ShareDialog({
       ? groups?.find((entry) => `@${entry.name}` === shown.visibility)
       : undefined;
   /*
+    The members grant, with base `private`, is the Members position: read off the list before anything else, so a
+    note every member can open is never drawn as Restricted or as a group.
+  */
+  const membersGranted = grants !== undefined && hasMembers(grants.list);
+  const scope = shown === undefined ? "private" : scopeOf(shown.visibility, openLink !== undefined, membersGranted);
+  /*
     Who this note reaches, computed ONCE and read by the list, the members
     line and the suggestions, so the three cannot disagree about who has it.
+    Members reaches who `team` reaches in any other workspace: every member.
   */
   const rows =
     shown === undefined
       ? []
-      : accessRows(shown.visibility, shown.exception, shown.members, entryKind, group?.liveCount);
+      : accessRows(scope === "members" ? "team" : shown.visibility, shown.exception, shown.members, entryKind, group?.liveCount);
   const owners = (access?.members ?? []).filter((member) => member.role === "owner");
-  const scope = shown === undefined ? "private" : scopeOf(shown.visibility, openLink !== undefined);
   const handle = contextHandle(context.slug);
   /*
     With a list, who already has it is who the list names (and the owners): a member who reads it through the
@@ -212,7 +218,7 @@ export function ShareDialog({
     });
   };
 
-  const people = (mine ?? []).filter(isPersonShare).length + (grants?.list.grantees.length ?? 0);
+  const people = (mine ?? []).filter(isPersonShare).length + (grants === undefined ? 0 : peopleOf(grants.list).length);
   const raw = folderLabel(baseName(path));
   const name = displayName(raw);
 
@@ -303,11 +309,15 @@ export function ShareDialog({
                     ? undefined
                     : {
                         busy: grants.saving,
-                        line: (picked, role) => grantLine(picked, role, handle),
+                        line: (picked, role) => grantLine(picked, role, handle, context.everyAccount === true),
                         onGrant: (picked, role) => {
                           const pick = pickOf(picked);
                           if (pick !== null) write(addGrant(grants.list, pick, role));
-                          else if (picked.kind === "domain" && scope === "private") onSetScope?.(scope, "team");
+                          // A domain lets its people in as members. In the pinned workspace `team` is every account,
+                          // so the members' own position is the one that opens it to them, and nobody else.
+                          else if (picked.kind === "domain" && scope === "private") {
+                            onSetScope?.(scope, context.everyAccount === true ? "members" : "team");
+                          }
                         },
                       }
                 }
@@ -360,6 +370,7 @@ export function ShareDialog({
                   showMenu={showMenu}
                   onSetScope={onSetScope}
                   onRemovalRoute={onRemovalRoute}
+                  membersWritable={grants !== undefined}
                 >
                   {linkOptions}
                 </GeneralAccess>
@@ -374,7 +385,7 @@ export function ShareDialog({
               </Text>
             )}
 
-            {confirming ? (
+            {confirming !== null ? (
               <View style={{ height: compact ? 34 : 16 }} />
             ) : (
               <View style={[styles.foot, compact && styles.footCompact]}>

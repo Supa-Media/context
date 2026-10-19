@@ -8,15 +8,30 @@ import { audienceName, contextHandle, type AudienceContext } from "../../privacy
 import type { AccessRow } from "../access";
 import { baseName, folderLabel } from "../paths";
 import type { NoteScope } from "../scope";
-import { scopeLabels } from "../scope";
+import { audiencePositions, scopeLabels } from "../scope";
 import { Avatar } from "./Avatar";
-import { goingPublicLine, displayName, scopeLine } from "./copy";
+import { allUsersConfirmLine, ALL_USERS_TAG, goingPublicLine, displayName, scopeLine } from "./copy";
 import { MenuTrigger } from "./MenuTrigger";
 import type { ShowMenu } from "./PeopleSection";
 import type { ShareDialogProps } from "./props";
 import { makeStyles } from "./styles";
 
-const SCOPE_ICON: Record<NoteScope, IconName> = { private: "lock", team: "people", anyone: "globe" };
+const SCOPE_ICON: Record<NoteScope, IconName> = { private: "lock", members: "people", team: "people", anyone: "globe" };
+
+/** A widening that asks first, in place: a public link, or All Context users in the pinned workspace. */
+export type Confirming = "anyone" | "team" | null;
+
+/**
+ * Whether picking `to` from `from` asks first. Going public always does. In the pinned workspace, where `team` is
+ * every signed-in Context account and signing up is open, reaching it from Restricted or Members does too. Leaving
+ * it, or reaching it from a link (a narrowing), never asks.
+ */
+export function asksFirst(from: NoteScope, to: NoteScope, everyAccount: boolean): Confirming {
+  if (to === from) return null;
+  if (to === "anyone") return "anyone";
+  if (to === "team" && everyAccount && (from === "private" || from === "members")) return "team";
+  return null;
+}
 
 /** The folder a path sits in, named the way the tree names it. */
 function parentName(path: string): string | undefined {
@@ -56,6 +71,7 @@ export function GeneralAccess({
   showMenu,
   onSetScope,
   onRemovalRoute,
+  membersWritable = false,
   children,
 }: {
   path: string;
@@ -69,12 +85,14 @@ export function GeneralAccess({
   memberRows: readonly AccessRow[];
   /** How many people this was handed to by name. */
   people: number;
-  confirming: boolean;
-  setConfirming: Dispatch<SetStateAction<boolean>>;
+  confirming: Confirming;
+  setConfirming: Dispatch<SetStateAction<Confirming>>;
   menuId: string | null;
   showMenu: ShowMenu;
   onSetScope: ShareDialogProps["onSetScope"];
   onRemovalRoute: ShareDialogProps["onRemovalRoute"];
+  /** Whether the Members position can be written here: the note's own list is loaded (`grants`). */
+  membersWritable?: boolean;
   /** The link's own options, drawn under the line when a link exists. */
   children?: ReactNode;
 }) {
@@ -83,23 +101,28 @@ export function GeneralAccess({
   const [showMembers, setShowMembers] = useState(false);
   const triggerRef = useRef<View>(null);
   const labels = scopeLabels(context);
-  const group = access.visibility !== "team" && access.visibility !== "private";
+  const everyAccount = context.everyAccount === true;
+  // A members grant is the Members position, decided before a note's other names could read as a group.
+  const group = scope !== "members" && access.visibility !== "team" && access.visibility !== "private";
   /*
     Everyone in the workspace, counted: owners are members too. `undefined`
     while the membership is loading, which the line says as "Every member".
   */
   const memberCount = access.members?.length;
-  const shown: NoteScope = confirming ? "anyone" : scope;
+  const shown: NoteScope = confirming ?? scope;
+  // The "reaches past this workspace" look: a link, and All Context users in the pinned workspace.
+  const wide = shown === "anyone" || (shown === "team" && everyAccount);
   const line = (position: NoteScope) =>
     scopeLine(position, context, { kind: entryKind, memberCount, people });
 
   const pick = (position: NoteScope) => {
     if (position === scope || onSetScope === undefined) return;
-    if (position === "anyone") {
-      setConfirming(true);
+    const ask = asksFirst(scope, position, everyAccount);
+    if (ask !== null) {
+      setConfirming(ask);
       return;
     }
-    setConfirming(false);
+    setConfirming(null);
     onSetScope(scope, position);
   };
 
@@ -108,11 +131,11 @@ export function GeneralAccess({
       {
         id: "audience",
         title: `Who can open ${name}`,
-        items: (["private", "team", "anyone"] as const).map((position) => ({
+        items: audiencePositions({ everyAccount, membersWritable, scope }).map((position) => ({
           id: position,
           label: labels[position].label,
           detail: line(position),
-          icon: SCOPE_ICON[position],
+          icon: position === "team" && everyAccount ? "group" : SCOPE_ICON[position],
           checked: position === scope,
           testID: `share-audience-${position}`,
           onPress: () => pick(position),
@@ -140,13 +163,13 @@ export function GeneralAccess({
           style={[
             styles.tile,
             compact && styles.tileCompact,
-            shown === "anyone" && styles.tileLive,
+            wide && styles.tileLive,
           ]}
         >
           <Icon
-            name={group ? "lock" : SCOPE_ICON[shown]}
+            name={group ? "lock" : shown === "team" && everyAccount ? "group" : SCOPE_ICON[shown]}
             size={18}
-            color={shown === "anyone" ? colors.accent : colors.text2}
+            color={wide ? colors.accent : colors.text2}
           />
         </View>
         <View style={styles.rowMain}>
@@ -172,12 +195,15 @@ export function GeneralAccess({
           )}
 
           <Text variant="meta" style={[styles.meta, compact && styles.metaCompact]}>
-            {confirming
+            {confirming === "anyone"
               ? "Not public yet"
-              : group
-                ? "Only owners and the group above can open it"
-                : line(scope)}
-            {!confirming && scope === "team" && memberRows.length > 0 ? (
+              : confirming === "team"
+                ? "Not open to them yet"
+                : group
+                  ? "Only owners and the group above can open it"
+                  : line(scope)}
+            {/* Who the members are, where they are who it reaches: never under All Context users. */}
+            {confirming === null && (scope === "members" || (scope === "team" && !everyAccount)) && memberRows.length > 0 ? (
               <Text
                 variant="meta"
                 style={[styles.link, compact && styles.metaCompact]}
@@ -190,8 +216,21 @@ export function GeneralAccess({
             ) : null}
           </Text>
 
+          {/*
+            All Context users says its reach in the tag's place: the reach matters more than where the setting came
+            from, and two stacked tags would be clunky. Neutral, as the folder tag is: no new hue for a warning.
+          */}
+          {confirming === null && scope === "team" && everyAccount ? (
+            <View style={styles.tag} testID="share-all-users-note">
+              <Icon name="info" size={14} color={colors.muted} />
+              <Text variant="meta" style={styles.meta}>
+                {ALL_USERS_TAG}
+              </Text>
+            </View>
+          ) : null}
+
           {/* A public link is its own grant; "from the folder" would misread it. */}
-          {inherited && !confirming && scope !== "anyone" && !(entryKind === "folder" && folder === undefined) ? (
+          {inherited && confirming === null && scope !== "anyone" && !(scope === "team" && everyAccount) && !(entryKind === "folder" && folder === undefined) ? (
             <View style={styles.tag} testID="share-inherited">
               <Icon name="folder" size={14} color={colors.muted} />
               <Text variant="meta" style={styles.meta}>
@@ -204,35 +243,39 @@ export function GeneralAccess({
         </View>
       </View>
 
-      {!confirming ? null : (
-        <View style={styles.confirm} testID="share-confirm-public">
+      {confirming === null ? null : (
+        <View style={styles.confirm} testID={confirming === "team" ? "share-confirm-all-users" : "share-confirm-public"}>
           <Text variant="meta" style={[styles.confirmText, compact && styles.metaCompact]}>
-            {goingPublicLine(name, entryKind)}
+            {confirming === "team"
+              ? allUsersConfirmLine(name, entryKind, contextHandle(context.slug), memberCount)
+              : goingPublicLine(name, entryKind)}
           </Text>
           <View style={styles.confirmActions}>
             <Pressable
               accessibilityLabel="Cancel"
               style={[styles.footButton, styles.smallButton, styles.ghostButton]}
-              onPress={() => setConfirming(false)}
+              onPress={() => setConfirming(null)}
             >
               <Text style={[styles.footLabel, { color: colors.text2 }]}>Cancel</Text>
             </Pressable>
             <Pressable
-              accessibilityLabel="Create link"
-              testID="share-confirm-public-yes"
+              accessibilityLabel={confirming === "team" ? "Open to all users" : "Create link"}
+              testID={confirming === "team" ? "share-confirm-all-users-yes" : "share-confirm-public-yes"}
               style={[styles.footButton, styles.smallButton, styles.footPrimary]}
               onPress={() => {
-                setConfirming(false);
-                onSetScope?.(scope, "anyone");
+                setConfirming(null);
+                onSetScope?.(scope, confirming);
               }}
             >
-              <Text style={[styles.footLabel, styles.footPrimaryLabel]}>Create link</Text>
+              <Text style={[styles.footLabel, styles.footPrimaryLabel]}>
+                {confirming === "team" ? "Open to all users" : "Create link"}
+              </Text>
             </Pressable>
           </View>
         </View>
       )}
 
-      {showMembers && scope === "team" && !confirming ? (
+      {showMembers && (scope === "members" || (scope === "team" && !everyAccount)) && confirming === null ? (
         <View style={[compact ? styles.indentCompact : styles.indent, styles.subList]} testID="share-members">
           {memberRows.map((row) => {
             const id = `row:${row.key}`;
@@ -290,7 +333,7 @@ export function GeneralAccess({
         </View>
       ) : null}
 
-      {confirming || children === undefined ? null : children}
+      {confirming !== null || children === undefined ? null : children}
     </View>
   );
 }

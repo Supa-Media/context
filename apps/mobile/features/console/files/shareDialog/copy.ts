@@ -32,7 +32,15 @@ export function scopeLine(
       ? "Anyone with the link can open what is inside, without signing in"
       : "Anyone can read it, and the notes it links to, without signing in";
   }
-  if (scope === "team") {
+  if (scope === "team" && context.everyAccount === true) {
+    // The pinned workspace: the pin opens `team` to every signed-in account. Contrasts with the link's
+    // "without signing in", and fits the desktop menu without a widow.
+    return options.kind === "folder"
+      ? "Anyone signed in to Context can open everything inside, unless a note says otherwise"
+      : "Anyone signed in to Context can open it";
+  }
+  // Members says what `team` says everywhere else: the members, counted.
+  if (scope === "team" || scope === "members") {
     const who =
       options.memberCount === undefined
         ? `Every member of ${contextHandle(context.slug)}`
@@ -60,3 +68,27 @@ export function goingPublicLine(name: string, kind: "file" | "folder"): string {
     : `Anyone with the link will be able to read ${name} and the notes it links to, without signing in. You can turn it off anytime.`;
 }
 
+
+/** Under All Context users on the row, in the neutral tag shape: the reach, said plainly, with no new hue. */
+export const ALL_USERS_TAG = "Not just members. Keep anything sensitive out.";
+
+/**
+ * Picking All Context users from Restricted or Members, said once, in place: the shape of `goingPublicLine`.
+ * `memberCount` is `undefined` while the membership loads, and the sentence names the workspace instead.
+ */
+export function allUsersConfirmLine(
+  name: string,
+  kind: "file" | "folder",
+  handle: string,
+  memberCount?: number,
+): string {
+  const tail = "Signing up is open to all, so keep anything sensitive out.";
+  if (kind === "folder") {
+    return `Anyone signed in to Context will be able to open everything in ${name}, including notes added later. ${tail}`;
+  }
+  const who =
+    memberCount === undefined
+      ? `members of ${handle}`
+      : `the ${memberCount} ${memberCount === 1 ? "member" : "members"}`;
+  return `Anyone signed in to Context will be able to open ${name}, not just ${who}. ${tail}`;
+}

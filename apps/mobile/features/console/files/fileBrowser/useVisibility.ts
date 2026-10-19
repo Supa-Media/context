@@ -17,7 +17,8 @@ import { useCallback, useEffect } from "react";
 import { onBucketWrite } from "../bucketWrites";
 import { ancestorsOf, parentPath } from "../paths";
 import { findEntry } from "../tree";
-import { type SettableVisibility, isGroupVisibility } from "../types";
+import { isGroupVisibility } from "../types";
+import type { ScopeVisibility } from "../scope";
 import type { BrowserStateValues } from "./useBrowserState";
 import type { FileActionsValues } from "./useFileActions";
 import type { ListingsValues } from "./useListings";
@@ -63,7 +64,8 @@ export function useVisibility(deps: VisibilityDeps) {
     async (
       path: string,
       kind: "file" | "folder",
-      visibility: SettableVisibility,
+      /** A tier, or `members`: base `private` plus every real member (`scope.ts`), which the rows hold. */
+      visibility: ScopeVisibility,
     ): Promise<boolean> => {
       /*
         The backstop, beside the one in `setScope`.
@@ -77,18 +79,25 @@ export function useVisibility(deps: VisibilityDeps) {
         held back is published to the whole workspace.
       */
       const current = findEntry(listings, path)?.visibility;
-      if (current !== undefined && isGroupVisibility(current)) {
+      // A note's own token (`@#<noteId>`, a note with a list) is not a group: the server keeps the list on a tier
+      // write, and Members moves through here (`scopeGuard`).
+      if (current !== undefined && isGroupVisibility(current) && !current.startsWith("@#")) {
         setNotice(
           `${path} is shared with ${current}. Changing that is not something this control can do.`,
         );
         return false;
       }
+      // Members is written as private plus every member; any other tier clears that grant on the server.
+      const args =
+        visibility === "members"
+          ? { workspaceId: workspaceId!, path, visibility: "private" as const, members: true }
+          : { workspaceId: workspaceId!, path, visibility };
       return await run(async () => {
         if (kind === "folder") {
-          await setDirectoryVisibility({ workspaceId: workspaceId!, path, visibility });
+          await setDirectoryVisibility(args);
           return { touched: [path], cascadeFrom: path };
         }
-        await setNoteVisibility({ workspaceId: workspaceId!, path, visibility });
+        await setNoteVisibility(args);
         return { touched: [path] };
       });
     },

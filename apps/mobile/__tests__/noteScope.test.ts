@@ -122,7 +122,8 @@ describe("what a move actually does", () => {
         let visibility: "private" | "team" = from === "private" ? "private" : "team";
         let link = from === "anyone";
         for (const step of stepsTo(from, to)) {
-          if (step.kind === "visibility") visibility = step.to;
+          // Members is a private row (`allContextUsers.test.ts` replays it); these three never reach it.
+          if (step.kind === "visibility") visibility = step.to === "team" ? "team" : "private";
           else link = step.on;
         }
         expect(scopeOf(visibility, link)).toBe(to);

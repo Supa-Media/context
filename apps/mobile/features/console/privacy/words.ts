@@ -66,6 +66,14 @@ export function contextKindOf(kind: string | null | undefined): ContextKind | nu
  * currently in it.
  */
 export function visibilityWord(visibility: Visibility): string {
+  return visibilityWordIn(visibility, false);
+}
+
+/**
+ * The pill's word in a workspace that may be the pinned one. Its own function, not a second argument to
+ * `visibilityWord`, because that one is handed to `map`, which would pass an index as the flag.
+ */
+export function visibilityWordIn(visibility: Visibility, everyAccount: boolean): string {
   // "Everyone" and "Restricted", the short forms of what `audience.ts` spells
   // out. A pill sits beside a folder in a list where the context is already
   // named at the top of the panel, so it does not repeat the handle — but it
@@ -73,9 +81,16 @@ export function visibilityWord(visibility: Visibility): string {
   // moment the share sheet started saying "Everyone in @supa" and "Restricted".
   // Two words for one question is how an owner ends up asking what the
   // difference is between them.
-  if (visibility === "team") return "Everyone";
+  // In the pinned workspace `team` is every signed-in account (`audience.ts`, `everyAccount`), and "Everyone"
+  // beside a folder there would read as everyone on People.
+  if (visibility === "team") return everyAccount ? "All users" : "Everyone";
   if (visibility === "private") return "Restricted";
   return visibility;
+}
+
+/** Who `team` reaches, in the words the default lines use: every account in the pinned workspace. */
+function teamReach(everyAccount: boolean): string {
+  return everyAccount ? "anyone signed in to Context, not just the people on People" : "everyone on People";
 }
 
 /**
@@ -86,22 +101,22 @@ export function visibilityWord(visibility: Visibility): string {
  * every folder nobody has written a rule for — including the one somebody adds
  * next month, which is the part worth saying out loud.
  */
-export function rootDefaultLine(visibility: Visibility): string {
+export function rootDefaultLine(visibility: Visibility, everyAccount = false): string {
   if (isGroupVisibility(visibility)) {
     return `A note at the top of this workspace, and any folder nobody has given a rule — including one added tomorrow — is readable by ${visibility} and nobody else.`;
   }
   return visibility === "team"
-    ? "A note at the top of this workspace, and any folder nobody has given a rule, is readable by everyone on People."
+    ? `A note at the top of this workspace, and any folder nobody has given a rule, is readable by ${teamReach(everyAccount)}.`
     : "A note at the top of this workspace, and any folder nobody has given a rule — including one added tomorrow — is restricted.";
 }
 
 /** What a folder's default does to the notes inside it. */
-export function folderDefaultLine(visibility: Visibility): string {
+export function folderDefaultLine(visibility: Visibility, everyAccount = false): string {
   if (isGroupVisibility(visibility)) {
     return `Every note in here is readable by ${visibility}, and by nobody else in this workspace, unless it is named otherwise.`;
   }
   return visibility === "team"
-    ? "Every note in here is readable by everyone on People, unless it is held back by name."
+    ? `Every note in here is readable by ${teamReach(everyAccount)}, unless it is held back by name.`
     : "Every note in here is restricted to this workspace's owners, unless it is shared by name.";
 }
 
@@ -132,7 +147,18 @@ export function privateMeans(kind: ContextKind | null, viewerIsOwner: boolean): 
 }
 
 /** What `team` reaches — the sentence that must never drift towards "public". */
-export function teamMeans(kind: ContextKind | null, viewerIsOwner: boolean): string {
+export function teamMeans(kind: ContextKind | null, viewerIsOwner: boolean, everyAccount = false): string {
+  /*
+    The pinned workspace: the pin hands every signed-in account its `team` tier, and signing up is open, so "the
+    named list on People, and nobody else" would be the understatement this module exists to forbid.
+  */
+  if (everyAccount) {
+    return (
+      "Anyone signed in to Context, not just the members on People: every account reads this workspace's team " +
+      "notes, and signing up is open to all, so keep anything sensitive out of them. Never shown to anyone who " +
+      "is not signed in, and not indexed. To keep a note to the members, share it with Members."
+    );
+  }
   /* Whose invitations they are — see `privateMeans` for the reader this splits for. */
   const who =
     kind === "shared"
@@ -236,11 +262,11 @@ export function noExceptionsLine(visibility: Visibility): string {
  * is still the strong version: what it warns about is a default that also
  * governs whatever lands in the folder next.
  */
-export function widenWarning(name: string): string {
+export function widenWarning(name: string, everyAccount = false): string {
   return (
-    `Press again to open ${name} to everyone. Everything in it follows the new default and becomes ` +
-    "readable by everyone on People — except a note held back by name, and a subfolder with " +
-    "a rule of its own. Notes added to it later follow it too."
+    `Press again to open ${name} to ${everyAccount ? "every Context account" : "everyone"}. Everything in it ` +
+    `follows the new default and becomes readable by ${teamReach(everyAccount)} — except a note held back by ` +
+    "name, and a subfolder with a rule of its own. Notes added to it later follow it too."
   );
 }
 

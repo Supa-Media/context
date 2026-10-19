@@ -55,7 +55,8 @@ describe("what a press writes", () => {
     expect(ownCopy(inherited)).toEqual({ base: "team", grantees: LIST.grantees.map((entry) =>
       entry.kind === "group" ? { groupId: entry.groupId, role: entry.role }
         : entry.kind === "user" ? { userId: entry.userId, role: entry.role }
-          : { email: entry.email, role: entry.role }) });
+          : entry.kind === "email" ? { email: entry.email, role: entry.role }
+            : { members: true, role: entry.role }) });
   });
 
   test("a group is added by its name, and re-adding somebody changes their role rather than listing them twice", () => {

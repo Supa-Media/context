@@ -14,6 +14,7 @@ import {
   removeGrant,
   roleLabel,
   setRole,
+  peopleOf,
   type GrantEntry,
   type GrantWrite,
 } from "./grants";
@@ -134,7 +135,7 @@ export function GrantRows({
             {`Everyone the folder is shared with can open this ${list.kind === "folder" ? "folder" : "note"}. Change the folder and this follows.`}
           </Text>
         </View>
-        {list.grantees.map((entry) => row(entry, false))}
+        {peopleOf(list).map((entry) => row(entry, false))}
         <Pressable
           accessibilityLabel="Give this its own list"
           role="button"
@@ -151,7 +152,8 @@ export function GrantRows({
 
   return (
     <>
-      {list.grantees.map((entry) => row(entry, true))}
+      {/* The members grant is the General access line's Members position, never a row here. */}
+      {peopleOf(list).map((entry) => row(entry, true))}
       {parent === null || (list.base === null && list.grantees.length === 0) ? null : (
         <Text
           variant="meta"

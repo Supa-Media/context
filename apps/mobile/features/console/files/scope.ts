@@ -22,11 +22,21 @@ import type { SettableVisibility, Visibility } from "./types";
 import {
   audienceDetail,
   audienceName,
+  membersDetail,
+  membersName,
   type AudienceContext,
 } from "../privacy/audience";
 
-/** The three positions, widest last. */
-export type NoteScope = "private" | "team" | "anyone";
+/**
+ * The positions, widest last. `members` is base `private` plus the built-in members grantee: in the pinned
+ * workspace, where `team` is every signed-in Context account, it is the position that means the people actually
+ * invited (`docs/decisions/privacy-and-sharing/all-context-users.md`). Elsewhere it reaches what `team` reaches, and
+ * is offered only to show a note already set that way (`audiencePositions`).
+ */
+export type NoteScope = "private" | "members" | "team" | "anyone";
+
+/** The step a visibility move writes: a tier, or the Members position (private plus every member). */
+export type ScopeVisibility = SettableVisibility | "members";
 
 /**
  * What the control shows, from the manifest's answer and whether a live
@@ -41,14 +51,31 @@ export type NoteScope = "private" | "team" | "anyone";
  * something they have not. The stale row is harmless and invisible; taking it
  * back is what pressing through to `private` already does.
  */
-export function scopeOf(visibility: Visibility, hasOpenLink: boolean): NoteScope {
+export function scopeOf(visibility: Visibility, hasOpenLink: boolean, membersGranted = false): NoteScope {
   // A group rule lands here as "private", which is the right POSITION for this
   // three-way control — it is not team, and the step out of it is a deliberate
   // widening the owner presses. It is not the right WORD, and this function
   // does not produce one: `visibilityWord` names the group, and the two must
   // not be confused. A control position is not a label.
-  if (visibility !== "team") return "private";
+  //
+  // A members grant on a private row is the Members position, read before anything that would call it
+  // Restricted: drawing a note every member can open as "owners only" understates who has it.
+  if (visibility !== "team") return membersGranted ? "members" : "private";
   return hasOpenLink ? "anyone" : "team";
+}
+
+/**
+ * Which positions the audience menu offers, widest last. Members in the pinned workspace, where the list can be
+ * written (`setGrantees` and the rows: the share dialog's `grants`); anywhere a note is already there, so its
+ * position is never drawn as one it is not.
+ */
+export function audiencePositions(options: {
+  everyAccount: boolean;
+  membersWritable: boolean;
+  scope: NoteScope;
+}): NoteScope[] {
+  const members = options.scope === "members" || (options.everyAccount && options.membersWritable);
+  return members ? ["private", "members", "team", "anyone"] : ["private", "team", "anyone"];
 }
 
 /**
@@ -60,7 +87,7 @@ export function scopeOf(visibility: Visibility, hasOpenLink: boolean): NoteScope
  * detail; see below.
  */
 export type ScopeStep =
-  | { kind: "visibility"; to: SettableVisibility }
+  | { kind: "visibility"; to: ScopeVisibility }
   | { kind: "openLink"; on: boolean };
 
 /**
@@ -83,22 +110,19 @@ export type ScopeStep =
  */
 export function stepsTo(from: NoteScope, to: NoteScope): ScopeStep[] {
   if (from === to) return [];
-  if (to === "private") {
-    return [
-      ...(from === "anyone" ? ([{ kind: "openLink", on: false }] as ScopeStep[]) : []),
-      { kind: "visibility", to: "private" },
-    ];
+  const closeLink: ScopeStep[] = from === "anyone" ? [{ kind: "openLink", on: false }] : [];
+  // Below `team` (Restricted, Members) the row is private: reaching `team` or a link writes the tier first.
+  const narrow = from === "private" || from === "members";
+  if (to === "private" || to === "members") {
+    return [...closeLink, { kind: "visibility", to }];
   }
   if (to === "team") {
-    return [
-      ...(from === "anyone" ? ([{ kind: "openLink", on: false }] as ScopeStep[]) : []),
-      ...(from === "private" ? ([{ kind: "visibility", to: "team" }] as ScopeStep[]) : []),
-    ];
+    return [...closeLink, ...(narrow ? ([{ kind: "visibility", to: "team" }] as ScopeStep[]) : [])];
   }
-  // `anyone`. Reached from `team` by the cycle; from `private` it also has to
+  // `anyone`. Reached from `team` by the cycle; from below it also has to
   // publish, which the cycle never asks for but a caller could.
   return [
-    ...(from === "private" ? ([{ kind: "visibility", to: "team" }] as ScopeStep[]) : []),
+    ...(narrow ? ([{ kind: "visibility", to: "team" }] as ScopeStep[]) : []),
     { kind: "openLink", on: true },
   ];
 }
@@ -127,6 +151,10 @@ export function scopeLabels(
     private: {
       label: audienceName("private", context),
       detail: audienceDetail("private", context),
+    },
+    members: {
+      label: membersName(context),
+      detail: membersDetail(context),
     },
     team: {
       label: audienceName("team", context),
