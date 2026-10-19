@@ -21,6 +21,7 @@ test/agentFillLogin.test.mjs
 test/agentHandoff.test.mjs
 test/agentInstructions.test.mjs
 test/agentJobs.test.mjs
+test/jobLogAppend.test.mjs
 test/agentLocalNow.test.mjs
 test/agentOpenWebBrowse.test.mjs
 test/agentProduction.test.mjs
