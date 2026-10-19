@@ -16,6 +16,7 @@
 
 import { splitMessageAnchor } from "../../search/commsIndex.js";
 import { EMAIL_ID_PREFIX } from "../emailRead.js";
+import { readableFileType } from "../readFile.js";
 
 const CHATGPT = /chatgpt|openai/i;
 
@@ -129,7 +130,7 @@ export function translateFetch(call, app = {}) {
     return target(label, a, { name, action, copy });
   }
   if (id.startsWith(EMAIL_ID_PREFIX)) {
-    return target(label, a, { name: "read_email", action: "email", fixed: { id } });
+    return target(label, a, { name: "read_email", action: "email", fixed: { id }, copy: ["attachment"] });
   }
   if (id.startsWith("proposals:")) {
     const proposalId = id.slice("proposals:".length).trim();
@@ -157,6 +158,11 @@ export function translateFetch(call, app = {}) {
       return target(label, a, { name: "read_contact", action: "contact", fixed: { path: note }, copy: ["activity"] });
     }
     return target(label, a, { name: "read_note", action: "note", fixed: { path: note }, copy: ["mail"] });
+  }
+
+  // A stored file (a PDF an email carried, a spreadsheet): its words.
+  if (readableFileType(id) !== null) {
+    return target(label, a, { name: "read_file", action: "file", fixed: { path: id } });
   }
 
   // A folder: named with a trailing slash, or without one. Empty is everything.

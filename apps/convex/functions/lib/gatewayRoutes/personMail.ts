@@ -11,8 +11,13 @@
  * and after its last pass, because the gateway has already searched the
  * notes for everything in between.
  *
- * Read body `{ accessToken, expectedWorkspaceId, address, id }` answers
+ * Read body `{ accessToken, expectedWorkspaceId, address, id, attachment? }` answers
  * `{ ok: true, message: { address, id, threadId, date, from, to, subject, body, attachments } }`.
+ * With `attachment` (1 for the message's first), the answer also carries that
+ * attachment's bytes, `attachment: { filename, contentType, data }` (base64),
+ * for the gateway to read its words: Gmail's own copy, so an attachment the
+ * sync never stored can still be read. Over `MAX_ATTACHMENT_BYTES` is
+ * `too_large`.
  *
  * Either answers `{ ok: false, refused }`. Nothing read here is stored or
  * logged: a log line carries an outcome and a count, never an address, a
@@ -26,6 +31,7 @@ import { hashToken } from "../crypto";
 import { json, stringField } from "../gatewayAuth";
 import {
   GmailApiError,
+  getAttachmentBytes,
   getMessageHeaders,
   getMessageOrNull,
   gmailMessageToEvent,
@@ -41,6 +47,19 @@ export const MAX_MAIL_BODY = 20_000;
 /** The overlap kept at the sync's newer edge, for a message that landed just before a pass. */
 const EDGE_OVERLAP_MS = 60 * 60 * 1000;
 const MESSAGE_ID = /^[A-Za-z0-9_-]{1,64}$/;
+/** The most one attachment read carries back: the gateway reads files up to 10 MB (`tools/readFile.js`). */
+export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+const MAX_ATTACHMENT_INDEX = 100;
+
+type EventAttachment = { filename?: string; contentType?: string; size?: number; attachmentId?: string };
+
+function base64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let at = 0; at < bytes.length; at += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
+  }
+  return btoa(binary);
+}
 
 type Mailbox = {
   connectionId: Id<"googleConnections">;
@@ -166,8 +185,12 @@ export async function gatewayPersonMailReadHandler(ctx: ActionCtx, body: Record<
   const expected = stringField(body, "expectedWorkspaceId");
   const address = addressField(body);
   const id = typeof body.id === "string" ? body.id : "";
+  const wanted = body.attachment;
   if (accessToken === null || expected === null) return json({ ok: false, refused: "not_allowed" });
   if (!address || !MESSAGE_ID.test(id)) return json({ ok: false, refused: "invalid" });
+  if (wanted !== undefined && (!Number.isInteger(wanted) || (wanted as number) < 1 || (wanted as number) > MAX_ATTACHMENT_INDEX)) {
+    return json({ ok: false, refused: "invalid" });
+  }
 
   const claimed = await claim(ctx, accessToken, expected, address);
   if (!claimed.ok) {
@@ -188,9 +211,26 @@ export async function gatewayPersonMailReadHandler(ctx: ActionCtx, body: Record<
   const event = gmailMessageToEvent(message, { mailboxSlug: "live" });
   const format = (entry: { name?: string; address?: string }) =>
     entry?.name ? `${entry.name} <${entry.address ?? ""}>` : (entry?.address ?? "");
-  log({ route: "read", outcome: "ok" });
+  const attachments: EventAttachment[] = event.attachments ?? [];
+  let attachment: { filename: string; contentType: string; data: string } | undefined;
+  if (wanted !== undefined) {
+    const chosen = attachments[(wanted as number) - 1];
+    if (!chosen?.attachmentId) return json({ ok: false, refused: "not_found" });
+    if (Number.isFinite(chosen.size) && (chosen.size as number) > MAX_ATTACHMENT_BYTES) return json({ ok: false, refused: "too_large" });
+    let bytes: Uint8Array;
+    try {
+      bytes = await getAttachmentBytes({ fetchImpl: timeoutFetch, accessToken: token, messageId: id, attachmentId: chosen.attachmentId });
+    } catch (error) {
+      log({ route: "attachment", outcome: "gmail_error", status: error instanceof GmailApiError ? error.status : 0 });
+      return json({ ok: false, refused: error instanceof GmailApiError && error.status === 404 ? "not_found" : "unavailable" });
+    }
+    if (bytes.length > MAX_ATTACHMENT_BYTES) return json({ ok: false, refused: "too_large" });
+    attachment = { filename: chosen.filename ?? "attachment", contentType: chosen.contentType ?? "", data: base64(bytes) };
+  }
+  log({ route: attachment ? "attachment" : "read", outcome: "ok" });
   return json({
     ok: true,
+    ...(attachment ? { attachment } : {}),
     message: {
       address: mailbox.address,
       id: event.messageId,
@@ -201,7 +241,7 @@ export async function gatewayPersonMailReadHandler(ctx: ActionCtx, body: Record<
       subject: event.subject,
       body: String(event.body ?? "").slice(0, MAX_MAIL_BODY),
       truncated: String(event.body ?? "").length > MAX_MAIL_BODY,
-      attachments: (event.attachments ?? []).map((attachment: { filename?: string; contentType?: string; size?: number }) => ({
+      attachments: attachments.map((attachment) => ({
         filename: attachment.filename,
         contentType: attachment.contentType,
         ...(Number.isFinite(attachment.size) ? { size: attachment.size } : {}),

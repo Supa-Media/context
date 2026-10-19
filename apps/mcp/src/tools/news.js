@@ -41,6 +41,13 @@ import { unlistedArgumentAdvice } from "./liveList.js";
 export const TOOL_NEWS = Object.freeze([
   {
     date: "2026-10-19",
+    text:
+      "fetch with a file's path (a PDF, Word, Excel, CSV or picture file a note links, such as an email attachment under " +
+      "`0-inbox/email/<mailbox>/attachments/`) returns the words in the file, marked untrusted. Older clients can call read_file `{ path }`. " +
+      "fetch an `email:<address>/<id>` id with `args: { attachment: 1 }` reads that email's first attachment straight from Gmail.",
+  },
+  {
+    date: "2026-10-19",
     newTool: true,
     text:
       "send `email_draft` (save_email_draft `{ to, cc?, subject, body, from? }`) saves one email as a draft in the person's own Gmail " +
@@ -204,7 +211,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "95724501";
+export const TOOL_SHAPE = "abb3a541";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;
