@@ -48,7 +48,7 @@ import { aiGatewayConfig } from "./aiGateway.js";
 import { ProviderError } from "./providers.js";
 import { SKIP_WORD } from "./routine.js";
 import { appendConversation, readConversation } from "./conversation.js";
-import { appendLogEntry, builtinMeter, clock, dayOf, logSkipped, longDate, readWithEtag, refusedRun } from "./jobLog.js";
+import { appendLogEntryWhy, builtinMeter, clock, dayOf, logSkipped, longDate, readWithEtag, refusedRun } from "./jobLog.js";
 import { actorFor, contextsFor } from "../context/identity.js";
 import { callToolForSession } from "../tools/session.js";
 import { grantedToolsFor } from "./sixTools.js";
@@ -285,6 +285,16 @@ export function heartbeatEntry({ now, timeZone, changed, model, text, events, ou
   return `${lines.join("\n")}\n`;
 }
 
+/** A look's outcome alone, for when its whole entry could not be written (`why`: the refusal's leading words). */
+export function shortEntry({ now, timeZone, text, outcome, why }) {
+  const said = text
+    ? `**Texted:** ${text.replace(/\s*\n+\s*/g, " ")}`
+    : outcome === "failed"
+      ? "_The check-in did not finish._"
+      : "_Stayed quiet: nothing worth a text._";
+  return `## ${clock(now, timeZone)}\n\n${said}\n\n_The rest of this look couldn't be written to the log (${why})._\n`;
+}
+
 /** What a look with nothing changed leaves in the day's log (`jobLog.js` `logSkipped`). */
 /** What a look that could not list the workspace leaves in the day's log. */
 export const TREE_UNAVAILABLE_WORDS = "Couldn't list what changed, so it read nothing; it tries again in a few minutes.";
@@ -434,7 +444,12 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
   const outcome = !finished ? "failed" : text ? "speak" : "quiet";
   const now = Date.now();
   const entry = heartbeatEntry({ now, timeZone, changed, model: turn?.model ?? null, text, events, outcome });
-  const logged = await appendLogEntry(dispatch, heartbeatPath(now, timeZone), entry, heading(now, timeZone));
+  const path = heartbeatPath(now, timeZone);
+  let why = await appendLogEntryWhy(dispatch, path, entry, heading(now, timeZone));
+  // The full entry didn't land: its outcome still does, in a few words, so the
+  // next look knows what was texted and the person can see why the rest is missing.
+  if (why !== null) why = await appendLogEntryWhy(dispatch, path, shortEntry({ now, timeZone, text, outcome, why }), heading(now, timeZone));
+  const logged = why === null;
   if (text) {
     // Their reply to it is answered with the check-in in front of the turn (`conversation.js`).
     try {
