@@ -4,13 +4,7 @@
  */
 
 import { actorFor, contextsFor } from "../context/identity.js";
-import {
-  AgentRefusal,
-  agentTools,
-  MAX_QUESTION_LENGTH,
-  openProvider,
-  runTurn,
-} from "./turn.js";
+import { AgentRefusal, agentTools, MAX_QUESTION_LENGTH, openProvider, runTurn } from "./turn.js";
 import { callToolForSession } from "../tools/session.js";
 import { DEFAULT_TIME_ZONE, readTimeZone } from "./localNow.js";
 import { readTexNotes } from "./jobs.js";
@@ -196,8 +190,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     Only `runTurn` sees the two together, and the quote is marked there.
   */
   const quoted = quotedOf(session.actorClientId === TEXTS_CLIENT_ID ? body : null);
-  // Tapbacks left since their last text, kept by the Worker and named here (`quoted.js`).
-  const reacted = reactedOf(session.actorClientId === TEXTS_CLIENT_ID ? body : null);
+  const reacted = reactedOf(session.actorClientId === TEXTS_CLIENT_ID ? body : null); // tapbacks since their last text
 
   // A texted yes or no settles a pending approval before any model runs (`textedSettle.js`).
   if (session.actorClientId === TEXTS_CLIENT_ID) {
@@ -374,8 +367,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   */
   const production = await readProductionSetup(store, session, { texting });
   // What of the conversation this turn is shown: the setup's `history:`, else the default; a text typed in a thread, that thread (`threadView.js`).
-  const inThread = threadView(history, quoted, production?.history ?? SHOWN_HISTORY_TURNS);
-  const shown = inThread.shown;
+  const { shown, ...inThread } = threadView(history, quoted, production?.history ?? SHOWN_HISTORY_TURNS);
   // A previous answer written after a read from outside still carries it.
   if (historyIsTainted(shown)) markUntrusted(ledger);
   if (attachments.length > 0) markUntrusted(ledger); // a forwarded PDF is someone else's words, like a page
@@ -627,8 +619,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
         await appendConversation(store, conversation, history, saved, [answer, sentPicturesLine(pictures)].filter(Boolean).join("\n"), {
           tainted: ledger.untrusted,
           tools: turn.steps.filter((step) => step.ok).map((step) => step.tool),
-          thread: inThread.thread,
-          theirs: session.actorClientId === TEXTS_CLIENT_ID,
+          thread: inThread.thread, theirs: session.actorClientId === TEXTS_CLIENT_ID,
         });
       } catch {
         // The answer is still owed. A history that failed to save costs the
