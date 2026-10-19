@@ -22,7 +22,7 @@ describe("the Google sync health report", () => {
       nextSyncAt: Date.now() - MINUTE,
     });
     const report = await s.t.query(internal.functions.googleSyncHealth.report, {});
-    expect(report).toMatchObject({ liveRows: 1, dueRows: 1, sweepBatch: { claimable: 1 }, gmailIdle: { "1to6h": 1 } });
+    expect(report).toMatchObject({ liveRows: 1, dueRows: 1, sweepBatch: { claimable: 1 }, gmailIdle: { "1to6h": 1 }, gmailWroteLastHour: { none: 1 } });
     const text = JSON.stringify(report);
     expect(text).not.toContain(s.connectionId);
     expect(text).not.toContain(row.address);

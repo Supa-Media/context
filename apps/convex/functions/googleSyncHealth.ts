@@ -74,7 +74,8 @@ export const report = internalQuery({
     const rows = await ctx.db.query("googleConnections").take(DUE_SCAN);
     const live = rows.filter((row) => row.disconnectedAt === undefined);
     const gmailIdle: Record<string, number> = {};
-    const gmailFailure: Record<string, number> = {};
+      const gmailFailure: Record<string, number> = {};
+    const gmailWroteLastHour: Record<string, number> = {};
     let openClaims = 0;
     let staleClaims = 0;
     let pushPending = 0;
@@ -86,7 +87,15 @@ export const report = internalQuery({
       if (row.push?.pending !== undefined && Object.keys(row.push.pending).length > 0) pushPending += 1;
       if (!row.products.includes("gmail") || row.gmail === undefined) continue;
       const idle = row.gmail.lastSyncedAt === undefined ? Infinity : now - row.gmail.lastSyncedAt;
-      bump(gmailIdle, idle < HOUR ? "under1h" : idle < 6 * HOUR ? "1to6h" : idle < 24 * HOUR ? "6to24h" : "over24h");
+      bump(gmailIdle, idle < 15 * 60 * 1000 ? "under15m" : idle < HOUR ? "15mTo1h" : idle < 6 * HOUR ? "1to6h" : idle < 24 * HOUR ? "6to24h" : "over24h");
+      // Whether its passes wrote anything into the bucket lately, from the pass's own audit row.
+      const wrote = (
+        await ctx.db
+          .query("auditEvents")
+          .withIndex("by_workspace_at", (q) => q.eq("workspaceId", row.workspaceId).gte("at", now - HOUR))
+          .take(500)
+      ).filter((event) => event.action === "google_sync_wrote" && event.details?.connectionId === row._id && event.details?.product === "gmail");
+      bump(gmailWroteLastHour, wrote.length === 0 ? "none" : wrote.length < 4 ? "1to3" : "4plus");
       if (row.gmail.lastFailureCode !== undefined) bump(gmailFailure, row.gmail.lastFailureCode);
       if (productBackingOff(row, "gmail", now)) bump(gmailFailure, "backingOffNow");
     }
@@ -101,6 +110,7 @@ export const report = internalQuery({
       pushPending,
       gmailIdle,
       gmailFailure,
+      gmailWroteLastHour,
       health: Object.fromEntries(
         Object.entries(
           live.reduce<Record<string, number>>((counts, row) => {
