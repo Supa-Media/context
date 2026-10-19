@@ -542,6 +542,9 @@ the first bill they see" is the scoping note's own sentence.
   repair` workflow, sets every live connection's import back to `pending`
   unless it finished after `GMAIL_DAY_REPAIR_CUTOFF`, so a second run changes
   nothing. It is still the fifty, still whole days, and still nobody's button.
+  The same run ends any Gmail rate-limit wait longer than fifteen minutes that
+  is not a daily quota: those were set on the old ladder (up to six hours) and
+  would have held a row past its own repair.
 - **One pass, inside the one credential barrier.** The import runs in
   `runFileOperation` on Gmail's turn, in place of that turn's forward pass,
   using the token the pass already minted and the scope the connect already

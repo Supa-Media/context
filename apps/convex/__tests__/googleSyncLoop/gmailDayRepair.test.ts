@@ -11,6 +11,9 @@ import { MINUTE, enableMailSync, patchConnection, readConnection, scenario } fro
  * SABOTAGE RECORD
  *   dropping the cutoff check            -> "runs once" failed: a repaired row was re-armed
  *   dropping the disconnected check      -> "a disconnected row" failed
+ *   dropping the over-the-cap check      -> "a short wait" failed: a 10-minute wait was cut
+ *   dropping the daily-reason check      -> "a daily quota wait" failed
+ *   re-arming from the row as read       -> "re-arms" failed: the old wait came back
  */
 describe("the Gmail day repair", () => {
   beforeEach(() => enableMailSync());
@@ -23,7 +26,7 @@ describe("the Gmail day repair", () => {
       nextSyncAt: Date.now() + 60 * MINUTE,
     });
     const counts = await s.t.mutation(internal.functions.gmailDayRepair.rearmRecentImports, {});
-    expect(counts).toEqual({ rearmed: 1, alreadyPending: 0, repairedSinceFix: 0, truncated: false });
+    expect(counts).toEqual({ rearmed: 1, alreadyPending: 0, repairedSinceFix: 0, waitsShortened: 0, truncated: false });
     const after = await readConnection(s.t, s.connectionId);
     expect(after.gmail?.recentImport).toEqual({ status: "pending", attempts: 0 });
     expect(after.nextSyncAt!).toBeLessThanOrEqual(Date.now());
@@ -71,5 +74,53 @@ describe("the Gmail day repair", () => {
     });
     expect(await s.t.mutation(internal.functions.gmailDayRepair.rearmRecentImports, {})).toMatchObject({ rearmed: 0 });
     expect((await readConnection(s.t, s.connectionId)).gmail?.recentImport).toEqual(finished);
+  });
+
+  describe("a rate-limit wait set on the old ladder", () => {
+    async function waiting(retryInMs: number, lastFailureReason?: string, completedAt = GMAIL_DAY_REPAIR_CUTOFF + MINUTE) {
+      const s = await scenario();
+      const row = await readConnection(s.t, s.connectionId);
+      const recentImport = { status: "done" as const, attempts: 0, completedAt, messages: 50 };
+      await patchConnection(s.t, s.connectionId, {
+        gmail: {
+          ...row.gmail!,
+          recentImport,
+          lastFailureCode: "GOOGLE_RATE_LIMITED",
+          ...(lastFailureReason === undefined ? {} : { lastFailureReason }),
+          retryAt: Date.now() + retryInMs,
+        },
+        nextSyncAt: Date.now() + retryInMs,
+      });
+      return s;
+    }
+
+    test("is ended now, and the row is due", async () => {
+      const s = await waiting(4 * 60 * MINUTE);
+      expect(await s.t.mutation(internal.functions.gmailDayRepair.rearmRecentImports, {})).toMatchObject({ waitsShortened: 1 });
+      const after = await readConnection(s.t, s.connectionId);
+      expect(after.gmail!.retryAt!).toBeLessThanOrEqual(Date.now());
+      expect(after.nextSyncAt!).toBeLessThanOrEqual(Date.now());
+      expect(after.gmail!.lastFailureCode).toBe("GOOGLE_RATE_LIMITED");
+    });
+
+    test("is ended on a row the repair also re-arms", async () => {
+      const s = await waiting(4 * 60 * MINUTE, undefined, 1);
+      expect(await s.t.mutation(internal.functions.gmailDayRepair.rearmRecentImports, {})).toMatchObject({ rearmed: 1, waitsShortened: 1 });
+      const after = await readConnection(s.t, s.connectionId);
+      expect(after.gmail!.retryAt!).toBeLessThanOrEqual(Date.now());
+      expect(after.gmail!.recentImport).toEqual({ status: "pending", attempts: 0 });
+    });
+
+    test("a short wait the new ladder set is kept", async () => {
+      const s = await waiting(10 * MINUTE, "rateLimitExceeded");
+      expect(await s.t.mutation(internal.functions.gmailDayRepair.rearmRecentImports, {})).toMatchObject({ waitsShortened: 0 });
+      expect((await readConnection(s.t, s.connectionId)).gmail!.retryAt!).toBeGreaterThan(Date.now() + 5 * MINUTE);
+    });
+
+    test("a daily quota wait is kept", async () => {
+      const s = await waiting(4 * 60 * MINUTE, "dailyLimitExceeded");
+      expect(await s.t.mutation(internal.functions.gmailDayRepair.rearmRecentImports, {})).toMatchObject({ waitsShortened: 0 });
+      expect((await readConnection(s.t, s.connectionId)).gmail!.retryAt!).toBeGreaterThan(Date.now() + 60 * MINUTE);
+    });
   });
 });
