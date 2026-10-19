@@ -39,4 +39,23 @@ describe("the Google sync health report", () => {
     const report = await s.t.query(internal.functions.googleSyncHealth.report, {});
     expect(report).toMatchObject({ sweepBatch: { claimedRecently: 1 }, openClaims: 1 });
   });
+
+  test("a mailbox that wrote says where its owner's check-in stands", async () => {
+    const s = await scenario();
+    await s.t.mutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
+      connectionId: s.connectionId,
+      product: "gmail",
+      status: "synced",
+      historyId: "200",
+      daysTouched: 1,
+      bytesWritten: 100,
+    });
+    const report = await s.t.query(internal.functions.googleSyncHealth.report, {});
+    expect(report).toMatchObject({ gmailWroteLastHour: { "1to3": 1 }, checkInAfterMail: { noCheckIns: 1 } });
+    await s.t.run(async (ctx) => {
+      const userId = (await ctx.db.get(s.connectionId))!.boundBy;
+      await ctx.db.insert("texHeartbeats", { userId, workspaceId: s.workspaceId, nextBeatAt: Date.now() + 10 * MINUTE, updatedAt: Date.now() });
+    });
+    expect(await s.t.query(internal.functions.googleSyncHealth.report, {})).toMatchObject({ checkInAfterMail: { dueWithinHour: 1 } });
+  });
 });
