@@ -18,10 +18,14 @@
  *  3. The gateway route sending texting reports to Sentry again. → "a texted
  *     report becomes a note there, texts included, and nothing goes to Sentry"
  *     fails.
- *  4. `fileBugNote` not calling `shareWithTeam`. → "the context's real
- *     members are named on each report, and nobody else" fails.
- *  5. `shareWithTeam` setting base `team`. → the same test fails: every
- *     account would read it through the pin.
+ *  4. `fileBugNote` not calling `shareWithTeam`. → "every real member reads
+ *     each report, a later one included, and a pin reader does not" fails.
+ *  5. `shareWithTeam` setting base `team`. → the same test fails: the pin
+ *     reader reads it.
+ *  6. `accessNamesFor` holding `members` for any caller. → not caught here,
+ *     since `grantedNamesFor` gives a non-member no names before it looks;
+ *     "a members grant reaches a real member, never a guest or someone
+ *     outside" in `nodes/rowAccess.test.ts` fails instead.
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -32,6 +36,7 @@ vi.setConfig({ testTimeout: 30_000 });
 import { api, internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import { bugFolder, bugNotePath, renderBugNote } from "../../functions/lib/feedback/bugNote";
+import { grantedNamesFor } from "../../functions/lib/grantedNames";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
 import { renderPrivacyManifest } from "../../functions/lib/scaffold";
 import { memoryS3, type MemoryS3 } from "../storeStub.helpers";
@@ -202,36 +207,38 @@ describe("bug reports by text, as notes in the pinned context", () => {
     expect(bugs(await notesIn(t, pinned))).toHaveLength(1);
   });
 
-  test("the context's real members are named on each report, and nobody else", async () => {
+  test("every real member reads each report, a later one included, and a pin reader does not", async () => {
     const { t, pinned, staff, alice } = await world();
     await judgedByRows(t, pinned);
-    const member = await createUser(t, "member@example.invalid");
-    await addMember(t, pinned, member, "member", staff);
+    const early = await createUser(t, "early@example.invalid");
+    await addMember(t, pinned, early, "member", staff);
     expect((await report(t, { message: "shared with the team", texts: TEXTS })).report).not.toBeNull();
     const [path] = bugs(await notesIn(t, pinned));
+    const late = await createUser(t, "late@example.invalid");
+    await addMember(t, pinned, late, "member", staff);
 
-    const named = await t.run(async (ctx) => {
+    const sees = async (userId: Id<"users">) => {
+      const names = await t.run((ctx) => grantedNamesFor(ctx, pinned, userId));
+      const seen = await t.action(internal.functions.files.runFileOperation, {
+        workspaceId: pinned,
+        scope: "team",
+        grantedNames: names,
+        operation: { kind: "visiblePaths", paths: [path!] },
+      });
+      return seen.kind === "visiblePaths" && seen.paths.length === 1;
+    };
+    expect(await sees(early)).toBe(true);
+    expect(await sees(late)).toBe(true);
+    // Alice reaches the pinned context through the pin alone: no membership, no names.
+    expect(await sees(alice)).toBe(false);
+    const base = await t.run(async (ctx) => {
       const row = await ctx.db
         .query("nodes")
         .withIndex("by_workspace_path", (q) => q.eq("workspaceId", pinned).eq("path", path!))
         .unique();
-      const grants = await ctx.db
-        .query("nodeAccess")
-        .withIndex("by_node", (q) => q.eq("nodeId", row!._id))
-        .collect();
-      return { base: row!.access?.base, users: grants.map((grant) => [grant.granteeUserId, grant.role]) };
+      return row?.access?.base;
     });
-    expect(named).toEqual({ base: "private", users: [[member, "view"]] });
-    expect(named.users.some(([user]) => user === alice || user === staff)).toBe(false);
-
-    // Still nothing for a reader through the pin, who holds no name.
-    const seen = await t.action(internal.functions.files.runFileOperation, {
-      workspaceId: pinned,
-      scope: "team",
-      grantedNames: [],
-      operation: { kind: "visiblePaths", paths: [path!] },
-    });
-    expect(seen).toMatchObject({ kind: "visiblePaths", paths: [] });
+    expect(base).toBe("private");
   });
 
   test("another AI's report still goes to Sentry", async () => {

@@ -45,6 +45,7 @@ export async function exportAccessStateOf(ctx: QueryCtx, workspaceId: Id<"worksp
 /** How a grantee is written in the list: `@handle`, `group name`, or the address. */
 async function labelOf(ctx: QueryCtx, grantee: Grantee): Promise<string> {
   if (grantee.kind === "email") return grantee.id;
+  if (grantee.kind === "members") return "every member";
   if (grantee.kind === "group") {
     const group = await ctx.db.get(grantee.id as Id<"workspaceGroups">);
     return group === null ? "group (removed)" : `group ${group.name}`;

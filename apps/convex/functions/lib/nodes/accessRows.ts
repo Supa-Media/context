@@ -25,6 +25,7 @@ function granteeOf(grant: Doc<"nodeAccess">): Grantee | null {
   if (grant.granteeKind === "email" && grant.granteeEmail !== undefined) {
     return { kind: "email", id: grant.granteeEmail, role: grant.role };
   }
+  if (grant.granteeKind === "members") return { kind: "members", id: "members", role: grant.role };
   return null;
 }
 

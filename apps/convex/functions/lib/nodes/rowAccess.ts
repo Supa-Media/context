@@ -34,8 +34,13 @@ import { PrivacyOverrides, type PrivacyRule, type Visibility } from "../privacy"
 export type Audience = "member" | "guest";
 export type Role = "view" | "edit";
 
+/**
+ * `members` is every person with a real membership in the row's workspace,
+ * held by nobody else: not an outsider, and not someone who reaches the pinned
+ * context through the pin alone (`lib/pinnedContext.ts`). Its `id` is unused.
+ */
 export interface Grantee {
-  kind: "user" | "group" | "email";
+  kind: "user" | "group" | "email" | "members";
   id: string;
   role: Role;
 }
@@ -58,6 +63,8 @@ export interface Caller {
   userId?: string;
   emails?: readonly string[];
   groupIds?: readonly string[];
+  /** A real member of the workspace whose rows these are. */
+  member?: boolean;
 }
 
 export interface RenderedAccess {
@@ -140,7 +147,8 @@ export function accessNamesFor(caller: Caller, rows: readonly AccessRow[]): stri
       const held =
         (grantee.kind === "user" && caller.userId !== undefined && grantee.id === caller.userId) ||
         (grantee.kind === "email" && emails.has(grantee.id.trim().toLowerCase())) ||
-        (grantee.kind === "group" && groups.has(grantee.id));
+        (grantee.kind === "group" && groups.has(grantee.id)) ||
+        (grantee.kind === "members" && caller.member === true);
       if (!held) continue;
       names.add(viewNameFor(row.noteId));
       if (grantee.role === "edit") names.add(editNameFor(row.noteId));

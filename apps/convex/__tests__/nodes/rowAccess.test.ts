@@ -132,6 +132,16 @@ describe("grants resolve through names, and only through them", () => {
     expect(reader(rows, "member", NOBODY)("2-areas/deal.md")).toBe(false);
   });
 
+  test("a members grant reaches a real member, never a guest or someone outside", () => {
+    const open: AccessRow[] = [
+      { path: "2-areas/bug.md", noteId: NOTE_PAY, kind: "file", base: "private", grantees: [{ kind: "members", id: "members", role: "view" }] },
+    ];
+    expect(reader(open, "member", { userId: "user-ana", member: true })("2-areas/bug.md")).toBe(true);
+    expect(reader(open, "member", ANA)("2-areas/bug.md")).toBe(false);
+    expect(reader(open, "guest", ANA)("2-areas/bug.md")).toBe(false);
+    expect(reader(open, "member", NOBODY)("2-areas/bug.md")).toBe(false);
+  });
+
   test("an email grant matches case-insensitively", () => {
     expect(reader(rows, "guest", { emails: ["partner@example.test"] })("2-areas/deal.md")).toBe(true);
     expect(reader(rows, "guest", { emails: ["stranger@example.test"] })("2-areas/deal.md")).toBe(false);

@@ -120,7 +120,7 @@ export async function grantedNamesFor(
   if ((await accessSourceOf(ctx.db)) === "rows") {
     // An email grant matches only an address this account alone holds (`ownedConfirmedEmailsOf`).
     const emails = await ownedConfirmedEmailsOf(ctx, userId);
-    for (const name of accessNamesFor({ userId, groupIds, emails }, await accessRowsOf(ctx, workspaceId))) {
+    for (const name of accessNamesFor({ userId, groupIds, emails, member: true }, await accessRowsOf(ctx, workspaceId))) {
       names.add(name.slice(1));
     }
   }

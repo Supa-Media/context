@@ -41,7 +41,9 @@ export const MAX_GRANTEES = 100;
 export type GranteeInput =
   | { kind: "user"; userId: Id<"users">; role: Role }
   | { kind: "group"; groupId: Id<"workspaceGroups">; role: Role }
-  | { kind: "email"; email: string; role: Role };
+  | { kind: "email"; email: string; role: Role }
+  /** Every real member of the workspace (`rowAccess.ts`). */
+  | { kind: "members"; role: Role };
 
 /** Who asks. Changing a list is the owner's; a base alone may be an editor's (`/gateway/privacy` checks the grant). */
 export interface Actor {
@@ -74,7 +76,7 @@ function keyOf(grant: { granteeKind: string; granteeUserId?: string; granteeGrou
 }
 
 interface Wanted {
-  kind: "user" | "group" | "email";
+  kind: "user" | "group" | "email" | "members";
   granteeUserId?: Id<"users">;
   granteeGroupId?: Id<"workspaceGroups">;
   granteeEmail?: string;
@@ -94,6 +96,8 @@ async function wantedOf(ctx: MutationCtx, workspaceId: Id<"workspaces">, grantee
     if (grantee.kind === "user") {
       if ((await ctx.db.get(grantee.userId)) === null) return null;
       wanted = { kind: "user", granteeUserId: grantee.userId, role: grantee.role };
+    } else if (grantee.kind === "members") {
+      wanted = { kind: "members", role: grantee.role };
     } else if (grantee.kind === "group") {
       const group = await ctx.db.get(grantee.groupId);
       if (group === null || group.workspaceId !== workspaceId) return null;

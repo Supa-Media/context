@@ -112,6 +112,10 @@ const ROW_SETS: Record<string, AccessRow[]> = {
     },
     { path: "2-areas/hr", noteId: FOLDER_HR, kind: "folder", base: "team", grantees: [] },
   ],
+  "a note open to every member, in a private folder": [
+    { path: "2-areas/hr", noteId: FOLDER_HR, kind: "folder", base: "private", grantees: [] },
+    { path: "2-areas/hr/bug.md", noteId: NOTE_DEAL, kind: "file", base: "private", grantees: [{ kind: "members", id: "members", role: "view" }] },
+  ],
 };
 
 interface Who {
@@ -123,7 +127,7 @@ interface Who {
 
 const CALLERS: Who[] = [
   { name: "owner", audience: "member", scope: "private", caller: { userId: "user-owner" } },
-  { name: "member", audience: "member", scope: "team", caller: { userId: "user-member" } },
+  { name: "member", audience: "member", scope: "team", caller: { userId: "user-member", member: true } },
   {
     name: "listed member",
     audience: "member",
