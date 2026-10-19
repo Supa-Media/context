@@ -89,6 +89,8 @@ export class CollaborationError extends Error {
 export function supported(store: ContextStore | unknown): boolean;
 export function eligible(path: string, text?: string): boolean;
 export function readDocument(store: ContextStore, path: string): Promise<DocumentResult>;
+/** The document when the path already has collaboration state; `null`, creating nothing, when it has none. */
+export function readDocumentIfStarted(store: ContextStore, path: string): Promise<DocumentResult | null>;
 export function commitUpdate(store: ContextStore, path: string, input: CommitUpdateInput): Promise<DocumentResult>;
 export function replaceText(store: ContextStore, path: string, input: ReplaceTextInput): Promise<DocumentResult>;
 export function sealDocument(store: ContextStore, path: string, input: SealDocumentInput): Promise<SealDocumentResult>;
