@@ -32,8 +32,15 @@ did not fully deliver, a new email or message that needs them to act or reply
 (added 2026-10-19, after Google answered the owner's OAuth verification
 overnight and another assistant told them first: its deadline was months out,
 so none of the other three caught it), a deadline in the next day or two, or a
-to-do it can help with now. Mail that needs nothing from them is not a text. It answers one short text or exactly `SKIP`; most looks should
-be `SKIP`.
+to-do it can help with now, and also for two plans that collide and for something confirmed
+or promised with a next step it could take (added 2026-10-19, from texts
+another assistant sent the owner that they wanted Tex to send too). Mail that
+needs nothing from them is not a text. When there is a next step, the text ends
+by offering that one step as a yes-or-no question, never a menu, and never takes
+it: a look can only read, and the person's yes in the texting conversation is
+the go-ahead. For something that will come again (receipt requests, a weekly
+report) it also offers to handle it as a routine. It answers a short text or
+exactly `SKIP`; most looks should be `SKIP`.
 
 **What it may touch.** Reads only: `read_note`, `list_notes` and
 `search_notes`, in the person's own workspace. Any write, move, visibility

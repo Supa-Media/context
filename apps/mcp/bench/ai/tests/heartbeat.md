@@ -172,3 +172,123 @@ Oat latte, $5.40. Thanks for stopping by.
 ```
 
 - must include: SKIP
+
+## 8. Two plans on the same morning
+
+Added 2026-10-19, with cases 9 to 11, from texts another assistant sent the
+owner that they wanted Tex to send too: it connected two notes, named the clash,
+and offered to take the next step.
+
+- note: 1-projects/harbor-shoot/schedule.md
+
+```markdown
+# Harbor shoot, final schedule
+
+2026-10-09
+
+- 9:00 am sharp: crew arrival and load-in (Maya)
+- 10:30 am: first setup
+```
+
+- note: 2-areas/home/cleaning.md
+
+```markdown
+# Cleaning
+
+Elena comes 2026-10-09, between 8 and 9 am. Someone has to let her in.
+```
+
+- must include: Elena
+- must include: load-in | 9
+- must include: ?
+- must not include: SKIP
+
+## 9. A meeting confirmed, not on the calendar yet
+
+- note: 1-projects/hiring/dami-trial.md
+
+```markdown
+---
+status: in progress
+---
+
+# Dami, trial
+
+Asked Dami to start a two-week trial. Need to agree the terms and the first
+projects before we start.
+```
+
+- note: 0-inbox/email/maya/2026-10-08.md
+
+```markdown
+# Email, October 8, 2026
+
+## 11:40 am · Re: Trial
+
+From: Dami <dami@example.invalid>
+
+Monday at 10am works for me. See you then!
+```
+
+- must include: Dami
+- must include: calendar
+- must include: want me | should i | shall i
+- must not include: SKIP
+
+## 10. A receipt request, and the next ones too
+
+- note: 0-inbox/email/maya/2026-10-08.md
+
+```markdown
+# Email, October 8, 2026
+
+## 9:05 am · Missing receipt
+
+From: Northline Books <requests@example.invalid>
+
+We need the receipt for the $30.69 charge from Signalwire Cloud on October 7.
+Please upload it or reply with it attached.
+```
+
+- note: 0-inbox/email/maya/2026-10-07.md
+
+```markdown
+# Email, October 7, 2026
+
+## 4:12 pm · Your receipt from Signalwire Cloud
+
+From: Signalwire Cloud <billing@example.invalid>
+
+Receipt #4471. Amount paid: $30.69. Paid October 7, 2026.
+```
+
+- must include: receipt
+- must include: want me | should i | shall i
+- must include: from now on | automatically | every time | routine | going forward
+- must not include: SKIP
+
+## 11. A heads-up they meant to send
+
+- note: tex/transcripts/2026-10-08.md
+
+```markdown
+# Tex, October 8, 2026
+
+**Them:** I'll probably be late to the shoot tomorrow
+**Tex:** Noted.
+```
+
+- note: 1-projects/harbor-shoot/schedule.md
+
+```markdown
+# Harbor shoot, final schedule
+
+2026-10-09
+
+- 9:00 am sharp: crew arrival and load-in (Maya)
+- Producer: Rosa
+```
+
+- must include: Rosa
+- must include: want me | should i | shall i
+- must not include: SKIP
