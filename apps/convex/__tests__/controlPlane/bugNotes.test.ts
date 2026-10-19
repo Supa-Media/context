@@ -18,6 +18,10 @@
  *  3. The gateway route sending texting reports to Sentry again. → "a texted
  *     report becomes a note there, texts included, and nothing goes to Sentry"
  *     fails.
+ *  4. `fileBugNote` not calling `shareWithTeam`. → "the context's real
+ *     members are named on each report, and nobody else" fails.
+ *  5. `shareWithTeam` setting base `team`. → the same test fails: every
+ *     account would read it through the pin.
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -196,6 +200,38 @@ describe("bug reports by text, as notes in the pinned context", () => {
     await asUser(t, staff).action(api.functions.files.setDirectoryVisibility, { workspaceId: pinned, path: "areas", visibility: "team" });
     expect(await report(t, { message: "rows second", texts: TEXTS })).toEqual({ report: null, refused: "unavailable" });
     expect(bugs(await notesIn(t, pinned))).toHaveLength(1);
+  });
+
+  test("the context's real members are named on each report, and nobody else", async () => {
+    const { t, pinned, staff, alice } = await world();
+    await judgedByRows(t, pinned);
+    const member = await createUser(t, "member@example.invalid");
+    await addMember(t, pinned, member, "member", staff);
+    expect((await report(t, { message: "shared with the team", texts: TEXTS })).report).not.toBeNull();
+    const [path] = bugs(await notesIn(t, pinned));
+
+    const named = await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("nodes")
+        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", pinned).eq("path", path!))
+        .unique();
+      const grants = await ctx.db
+        .query("nodeAccess")
+        .withIndex("by_node", (q) => q.eq("nodeId", row!._id))
+        .collect();
+      return { base: row!.access?.base, users: grants.map((grant) => [grant.granteeUserId, grant.role]) };
+    });
+    expect(named).toEqual({ base: "private", users: [[member, "view"]] });
+    expect(named.users.some(([user]) => user === alice || user === staff)).toBe(false);
+
+    // Still nothing for a reader through the pin, who holds no name.
+    const seen = await t.action(internal.functions.files.runFileOperation, {
+      workspaceId: pinned,
+      scope: "team",
+      grantedNames: [],
+      operation: { kind: "visiblePaths", paths: [path!] },
+    });
+    expect(seen).toMatchObject({ kind: "visiblePaths", paths: [] });
   });
 
   test("another AI's report still goes to Sentry", async () => {

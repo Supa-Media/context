@@ -14,15 +14,23 @@
  * context's team notes, so a report there at `team` would hand one person's
  * texts to everyone. Checked before the write, never after, and refused rather
  * than written when the folder has been opened up.
+ *
+ * The team still reads every report (decided by the owner, 2026-10-19: "bug
+ * reports should be team accessible"). "Team" there means the context's real
+ * members, never the `team` tier, which the pin opens to every account: so
+ * `shareWithTeam` names each real member on the note, as the owner would by
+ * hand, and the note stays private to everyone else.
  */
 
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { internalQuery, type ActionCtx } from "../_generated/server";
+import { internalMutation, internalQuery, type ActionCtx } from "../_generated/server";
 import { usernameOf } from "./lib/adminFns/people";
 import { bugFolder, bugNotePath, renderBugNote } from "./lib/feedback/bugNote";
+import { accessSourceOf } from "./lib/nodes/accessBackfill";
 import { folderJobsOf } from "./lib/nodes/folderJobs";
+import { MAX_GRANTEES, setAccessRow } from "./lib/nodes/setAccess";
 import { pinnedContextWorkspace } from "./lib/pinnedContext";
 import { getMembership } from "./lib/workspaceAuth";
 
@@ -41,6 +49,40 @@ export const destination = internalQuery({
   },
 });
 
+/**
+ * Name every real member of the context on one report, to view. Owners read
+ * it already and pin readers are never named. Only where the access rows
+ * judge: a list lives on a row, so elsewhere there is nothing to name and the
+ * note stays owner-only. False only for a change that was refused. Granted
+ * under the first owner's name, since naming people is the owner's.
+ */
+export const shareWithTeam = internalMutation({
+  args: { workspaceId: v.id("workspaces"), path: v.string() },
+  returns: v.boolean(),
+  handler: async (ctx, { workspaceId, path }) => {
+    if ((await accessSourceOf(ctx.db)) !== "rows") return true;
+    const members = await ctx.db
+      .query("workspaceMembers")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+      .collect();
+    const owner = members.find((member) => member.role === "owner");
+    if (owner === undefined) return false;
+    const grantees = members
+      .filter((member) => member.role !== "owner")
+      .slice(0, MAX_GRANTEES)
+      .map((member) => ({ kind: "user" as const, userId: member.userId, role: "view" as const }));
+    if (grantees.length === 0) return true;
+    const answer = await setAccessRow(ctx, {
+      workspaceId,
+      path,
+      base: "private",
+      grantees,
+      actor: { userId: owner.userId, role: "owner" },
+    });
+    return answer.ok;
+  },
+});
+
 export interface BugDestination {
   workspaceId: Id<"workspaces">;
   folder: string;
@@ -53,7 +95,7 @@ export interface BugDestination {
  * readable through the pin (nothing written) or the bucket refused it.
  */
 export async function fileBugNote(
-  ctx: Pick<ActionCtx, "runAction">,
+  ctx: Pick<ActionCtx, "runAction" | "runMutation">,
   where: BugDestination,
   report: { message: string; texts?: string; eventId: string; now: number },
 ): Promise<boolean> {
@@ -76,6 +118,10 @@ export async function fileBugNote(
       actorName: null,
       operation: { kind: "write", path, text: renderBugNote({ ...report, handle: where.handle, team: where.team }) },
     });
+    // The report is filed either way; a team that cannot see it yet is a log line, not a lost report.
+    if (!(await ctx.runMutation(internal.functions.bugNotes.shareWithTeam, { workspaceId, path }))) {
+      console.error("bug_note_not_shared", { workspaceId });
+    }
     return true;
   } catch (error) {
     // Never the report's words: only that it did not land.
