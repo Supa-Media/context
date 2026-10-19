@@ -5,7 +5,8 @@
  *
  * Sabotage (run by hand, each must fail a test here):
  *  - replace the list instead of adding (drop the held grants from the merge): "the people already named stay" fails;
- *  - let an editor's grant through: "an editor cannot name anybody" fails.
+ *  - let an editor's grant through: "an editor cannot name anybody" fails;
+ *  - drop the `members` case from `granteeInputOf` (`setAccess.ts`): "a members grant stays" fails.
  */
 
 import { describe, expect, test, vi } from "vitest";
@@ -49,6 +50,18 @@ describe("an AI client adds people to one note, after the person's yes", () => {
       ].sort(),
     );
     expect(JSON.stringify(await readByNoteId(w, w.kola, await noteIdOf(w, PLAN)))).toContain(PLAN_MARKER);
+  });
+
+  test("a members grant stays when somebody is added", async () => {
+    const w = await world();
+    await setListFor(w, PLAN, [{ kind: "members", role: "view" }]);
+    await w.t.mutation(internal.functions.nodesAccess.addGrantees, {
+      workspaceId: w.ws,
+      path: PLAN,
+      entries: [{ email: "x@example.invalid", role: "view" }],
+      actor: { userId: w.owner, role: "owner" },
+    });
+    expect((await grantsOn(w, PLAN)).map((grant) => grant.granteeKind).sort()).toEqual(["email", "members"]);
   });
 
   test("naming somebody already on the list changes their role and adds no second grant", async () => {

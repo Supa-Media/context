@@ -92,6 +92,7 @@ async function rowsChange(
     kind: "note" | "folder";
     tier?: "private" | "team";
     group?: string;
+    members?: boolean;
   },
 ): Promise<VisibilityOperationResult> {
   if (change.kind === "note" && !change.path.endsWith(".md")) {
@@ -117,6 +118,21 @@ async function rowsChange(
     inherited: answer.inherited as Visibility,
     exception: answer.exception,
   };
+}
+
+/**
+ * Members (`members: true`) is base `private` plus the built-in members grantee, which only the rows can hold:
+ * refused with `team` (a request error), and refused where `privacy.md` is the truth, rather than written as a
+ * plain `private` that would shut the members out without saying so.
+ */
+function refuseMembersWithout(rows: boolean, args: { visibility: string; members?: boolean }): void {
+  if (args.members !== true) return;
+  if (args.visibility !== "private") {
+    throw new ConvexError({ code: "INVALID", message: "Members is written as private plus every member." });
+  }
+  if (!rows) {
+    throw new ConvexError({ code: "NOT_ROWS_MODE", message: "Sharing with members only is not available here yet." });
+  }
 }
 
 /**
@@ -167,6 +183,7 @@ export async function setNoteVisibilityHandler(
     workspaceId: Id<"workspaces">;
     path: string;
     visibility: Infer<typeof visibilityValidator>;
+    members?: boolean;
   },
 ): Promise<Extract<OperationResult, { kind: "visibility" }>> {
   const actorUserId = await callerId(ctx);
@@ -175,9 +192,18 @@ export async function setNoteVisibilityHandler(
     workspaceId: args.workspaceId,
     minimum: "owner",
   });
+  const rows = await rowsOn(ctx);
+  refuseMembersWithout(rows, args);
   let result: VisibilityOperationResult;
-  if (await rowsOn(ctx)) {
-    result = await rowsChange(ctx, { workspaceId: args.workspaceId, actorUserId, path: args.path, kind: "note", tier: args.visibility });
+  if (rows) {
+    result = await rowsChange(ctx, {
+      workspaceId: args.workspaceId,
+      actorUserId,
+      path: args.path,
+      kind: "note",
+      tier: args.visibility,
+      ...(args.members === true ? { members: true } : {}),
+    });
     await recordRowsVisibilityLine(ctx, {
       workspaceId: args.workspaceId,
       action: "visibility.note",
@@ -349,6 +375,7 @@ export async function setDirectoryVisibilityHandler(
     workspaceId: Id<"workspaces">;
     path: string;
     visibility: Infer<typeof visibilityValidator>;
+    members?: boolean;
   },
 ): Promise<Extract<OperationResult, { kind: "visibility" }>> {
   const actorUserId = await callerId(ctx);
@@ -357,9 +384,18 @@ export async function setDirectoryVisibilityHandler(
     workspaceId: args.workspaceId,
     minimum: "owner",
   });
+  const rows = await rowsOn(ctx);
+  refuseMembersWithout(rows, args);
   let result: VisibilityOperationResult;
-  if (await rowsOn(ctx)) {
-    result = await rowsChange(ctx, { workspaceId: args.workspaceId, actorUserId, path: args.path, kind: "folder", tier: args.visibility });
+  if (rows) {
+    result = await rowsChange(ctx, {
+      workspaceId: args.workspaceId,
+      actorUserId,
+      path: args.path,
+      kind: "folder",
+      tier: args.visibility,
+      ...(args.members === true ? { members: true } : {}),
+    });
     await recordRowsVisibilityLine(ctx, {
       workspaceId: args.workspaceId,
       action: "visibility.folder",

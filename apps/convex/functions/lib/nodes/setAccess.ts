@@ -45,6 +45,25 @@ export type GranteeInput =
   /** Every real member of the workspace (`rowAccess.ts`). */
   | { kind: "members"; role: Role };
 
+/**
+ * One grant already on a row, as the grantee a list write takes back: a write that rebuilds a list from what is
+ * there must carry every kind, `members` included, or it drops that grant without anybody asking. `null` for a
+ * grant missing the id its kind needs.
+ */
+export function granteeInputOf(grant: Doc<"nodeAccess">): GranteeInput | null {
+  if (grant.granteeKind === "user" && grant.granteeUserId !== undefined) {
+    return { kind: "user", userId: grant.granteeUserId, role: grant.role };
+  }
+  if (grant.granteeKind === "group" && grant.granteeGroupId !== undefined) {
+    return { kind: "group", groupId: grant.granteeGroupId, role: grant.role };
+  }
+  if (grant.granteeKind === "email" && grant.granteeEmail !== undefined) {
+    return { kind: "email", email: grant.granteeEmail, role: grant.role };
+  }
+  if (grant.granteeKind === "members") return { kind: "members", role: grant.role };
+  return null;
+}
+
 /** Who asks. Changing a list is the owner's; a base alone may be an editor's (`/gateway/privacy` checks the grant). */
 export interface Actor {
   userId: Id<"users">;

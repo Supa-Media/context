@@ -2,7 +2,8 @@
  * The owner's list on one row, named by the people and groups they choose (`nodesAccess.setGrantees`).
  *
  * Each entry names exactly one of: a handle (`@name`, a group of this workspace or one of its members), a
- * group's id, or an email (anyone, inside the workspace or not, with an account or not).
+ * group's id, an email (anyone, inside the workspace or not, with an account or not), or `members` (every real
+ * member of this workspace, never a pin reader: the dialog's Members position).
  * The list replaces the row's list (`setAccessRow`); the row's base is kept as it is.
  *
  * ## One refusal for every way a grantee can fail to resolve
@@ -28,9 +29,11 @@ import { accessSourceOf, resolveHandle, type Grant } from "./accessBackfill";
 import { setAccessRow, MAX_GRANTEES, type GranteeInput, type Role } from "./setAccess";
 import { getMembership, requireWorkspaceRole } from "../workspaceAuth";
 
-/** One entry the owner names. Exactly one of `handle`, `userId`, `groupId` or `email`. */
+/** One entry the owner names. Exactly one of `handle`, `userId`, `groupId`, `email` or `members`. */
 export interface GranteeRequest {
   handle?: string;
+  /** Every real member of this workspace (`rowAccess.ts`): the share dialog's Members position, with base `private`. */
+  members?: true;
   /** A person by id: a member of this workspace, or someone a list here already names (`userHeldHere`). */
   userId?: string;
   groupId?: string;
@@ -62,6 +65,7 @@ export const granteeRequestValidator = v.object({
   userId: v.optional(v.string()),
   groupId: v.optional(v.string()),
   email: v.optional(v.string()),
+  members: v.optional(v.literal(true)),
   role: v.union(v.literal("view"), v.literal("edit")),
 });
 
@@ -76,6 +80,8 @@ export async function resolveEntry(
   cache: Map<string, Grant | null>,
 ): Promise<GranteeInput | null> {
   const { role } = entry;
+  // Nobody to resolve: the grant names this workspace's own membership, whoever is in it when a note is read.
+  if (entry.members === true) return { kind: "members", role };
   if (entry.handle !== undefined) {
     // A handle is a name, never an address: `parseInvitee` decides which, and an address is not a handle.
     const parsed = parseInvitee(entry.handle);
@@ -157,7 +163,7 @@ export async function setGranteesHandler(
   if (args.base === "inherit" && args.grantees.length > 0) return { ok: false, code: "INVALID" };
   for (const entry of args.grantees) {
     // Exactly one way of naming a grantee. A shape error is a request error, and says nothing about who exists.
-    const named = [entry.handle, entry.userId, entry.groupId, entry.email].filter((field) => field !== undefined).length;
+    const named = [entry.handle, entry.userId, entry.groupId, entry.email, entry.members].filter((field) => field !== undefined).length;
     if (named !== 1) return { ok: false, code: "INVALID" };
   }
 

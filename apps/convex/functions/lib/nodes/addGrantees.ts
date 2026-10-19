@@ -18,7 +18,7 @@ import type { Id } from "../../../_generated/dataModel";
 import type { MutationCtx } from "../../../_generated/server";
 import type { Grant } from "./accessBackfill";
 import { accessSourceOf } from "./accessBackfill";
-import { MAX_GRANTEES, setAccessRow, type GranteeInput } from "./setAccess";
+import { granteeInputOf, MAX_GRANTEES, setAccessRow, type GranteeInput } from "./setAccess";
 import { resolveEntry, type GranteeRequest, type SetGranteesAnswer } from "./setGrantees";
 
 /** Who a grantee is, whatever role they hold: two entries for one person are one entry. */
@@ -68,14 +68,7 @@ export async function addGranteesHandler(
     .collect();
   for (const grant of held) {
     if (grant.source === "share") continue;
-    const kept: GranteeInput | null =
-      grant.granteeKind === "user" && grant.granteeUserId !== undefined
-        ? { kind: "user", userId: grant.granteeUserId, role: grant.role }
-        : grant.granteeKind === "group" && grant.granteeGroupId !== undefined
-          ? { kind: "group", groupId: grant.granteeGroupId, role: grant.role }
-          : grant.granteeKind === "email" && grant.granteeEmail !== undefined
-            ? { kind: "email", email: grant.granteeEmail, role: grant.role }
-            : null;
+    const kept = granteeInputOf(grant);
     if (kept !== null) merged.set(whoOf(kept), kept);
   }
   for (const grantee of added) merged.set(whoOf(grantee), grantee);

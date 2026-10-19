@@ -294,6 +294,22 @@ describe("the console lists the pinned context", () => {
     expect(rows[0]!.pinned).toBeUndefined();
   });
 
+  test("everybody's row says its team tier is every account, the real members' rows included", async () => {
+    const t = setupTest();
+    const { pinnedId, staff } = await seedPinnedContext(t);
+    const sayo = await createUser(t, "sayo@example.invalid");
+    await createWorkspace(t, sayo, "sayo");
+    const pinRow = (await asUser(t, sayo).query(api.functions.workspaces.listMyWorkspaces, {})).find(
+      (w) => w.workspaceId === pinnedId,
+    );
+    const staffRows = await asUser(t, staff).query(api.functions.workspaces.listMyWorkspaces, {});
+    // The share dialog is the owner's, and the owner is a real member: the flag cannot be the pin's alone.
+    expect(pinRow?.everyAccountReadsTeam).toBe(true);
+    expect(staffRows.find((w) => w.workspaceId === pinnedId)).toMatchObject({ role: "owner", everyAccountReadsTeam: true });
+    expect(staffRows.find((w) => w.workspaceId === pinnedId)?.pinned).toBeUndefined();
+    expect(staffRows.find((w) => w.slug === "staff-personal")?.everyAccountReadsTeam).toBeUndefined();
+  });
+
   test("an account with nothing of its own still reaches only the pin", async () => {
     const t = setupTest();
     await seedPinnedContext(t);

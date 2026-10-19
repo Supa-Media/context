@@ -21,6 +21,7 @@ import { accessSourceOf, resolveHandle } from "./lib/nodes/accessBackfill";
 import { scanAccessRows } from "./lib/nodes/accessRows";
 import { livePending } from "./lib/nodes/pendingAccess";
 import { narrowRowForMove, pendPrivateArrivals, setAccessRow, type SetAccessAnswer, type GranteeInput } from "./lib/nodes/setAccess";
+import { listForTier } from "./lib/nodes/membersPosition";
 import { renderAccess } from "./lib/nodes/rowAccess";
 import { visibilityOf, type Visibility } from "./lib/privacy";
 import { exportAccessStateOf } from "./lib/nodes/exportAccessRows";
@@ -147,6 +148,11 @@ export const setAccess = internalMutation({
  * is removed in the rules; a folder's tier is always written. A group or a
  * person (`group`, a name) replaces the row's list with that one grant, at
  * base `private`, which is how a rule names somebody.
+ *
+ * `members` with tier `private` is the dialog's Members position: base
+ * `private` plus the built-in members grant, everybody else on the list kept.
+ * Any other tier clears that grant (`lib/nodes/membersPosition.ts`), so
+ * Restricted means owners and the people named, and nothing hidden.
  */
 export const consoleAccess = internalMutation({
   args: {
@@ -156,6 +162,7 @@ export const consoleAccess = internalMutation({
     kind: v.union(v.literal("note"), v.literal("folder")),
     tier: v.optional(v.union(v.literal("private"), v.literal("team"))),
     group: v.optional(v.string()),
+    members: v.optional(v.boolean()),
   },
   returns: v.union(
     v.object({ ok: v.literal(true), path: v.string(), visibility: v.string(), inherited: v.string(), exception: v.boolean() }),
@@ -187,14 +194,18 @@ export const consoleAccess = internalMutation({
           ? [{ kind: "group", groupId: grant.groupId, role: "view" }]
           : [{ kind: "user", userId: grant.userId, role: "view" }];
     } else {
-      const tier = args.tier ?? "private";
+      const members = args.members === true;
+      const tier = members ? "private" : args.tier ?? "private";
       visibility = tier;
-      // Back to inheriting only for a note with no list of its own: `inherit` clears the list, and a person
-      // named on a note keeps it when the rest of the workspace is let in or shut out.
-      const listed = (await ctx.db
+      // The list a tier writes: kept as it is (`undefined`), or rebuilt with the members grant set or cleared.
+      const own = (await ctx.db
         .query("nodeAccess")
         .withIndex("by_node", (q) => q.eq("nodeId", exists._id))
-        .collect()).some((grant) => grant.source !== "share");
+        .collect()).filter((grant) => grant.source !== "share");
+      grantees = listForTier(own, members);
+      // Back to inheriting only for a note with no list of its own: `inherit` clears the list, and a person
+      // named on a note keeps it when the rest of the workspace is let in or shut out.
+      const listed = (grantees ?? own).length > 0;
       base = args.kind === "note" && tier === inherited && !listed ? "inherit" : tier;
     }
 
