@@ -68,3 +68,12 @@ Probe (`.github/workflows/image-model-probe.yml`) showed Gemini 2.5 Flash
 Image answering through the same gateway, at about 3.9 cents a picture, still
 under the 5-cent target. Run the probe with the 3.1 model id to see when it
 is covered, then switch `IMAGE_MODEL` back.
+
+**A photo outlives its text (2026-10-19).** Dev's "try again", one text after
+a failed "make our clothes blue", got "send the photo again": attachments lived
+for one turn. Now the last text with photos keeps up to four of them in the
+person's bucket at `.context/agent/conversations/texts-photos.json`, written
+before the turn runs, and `earlier-photo:N` names them. Only a kept texted
+turn writes it, and the next text with photos replaces it. The saved
+conversation still holds names only. Test: "a photo from an earlier text is
+still there" in `agentPictureMaker.test.mjs`.

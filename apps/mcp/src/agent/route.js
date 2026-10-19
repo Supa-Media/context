@@ -500,7 +500,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     : null;
 
   const texted = session.actorClientId === TEXTS_CLIENT_ID; // Pictures sent back, drawn or made: a text only (`pictureMaker.js`).
-  const { outgoing, maker } = turnPictures(env, { texted, question, attachments, store, keep: conversation === "texts", meter, workspaceId: session.workspaceId });
+  const { outgoing, maker } = await turnPictures(env, { texted, question, attachments, store, keep: conversation === "texts", meter, workspaceId: session.workspaceId });
   try {
     const turn = await runTurn({
       question: askedWith(question, quoted),

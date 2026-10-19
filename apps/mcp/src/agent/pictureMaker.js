@@ -41,6 +41,11 @@
  * (`conversation.js`), and `last-picture` brings them all back. It is kept
  * only when every source was theirs (a photo they sent, or an earlier kept
  * picture): a picture from a note stays in the turn that was allowed to see it.
+ *
+ * The photos themselves are kept too: the last text that came with photos
+ * keeps up to four of them, beside the picture, and `earlier-photo:N` brings
+ * them back. Dev, 2026-10-19: a photo sent with "make our clothes blue" was
+ * gone by "try again", one text later, and Tex asked for it again.
  */
 
 import { aiGatewayConfig, metadataHeader } from "./aiGateway.js";
@@ -56,6 +61,8 @@ const MODEL_ID = /^gemini-[a-z0-9.-]{1,60}$/;
 
 /** Where the last made picture is kept: a plumbing path in the person's bucket, like the conversation. */
 export const KEPT_PICTURE_PATH = ".context/agent/conversations/texts-picture.json";
+/** Where the photos of their last text with photos are kept, for the texts after it. */
+export const KEPT_PHOTOS_PATH = ".context/agent/conversations/texts-photos.json";
 
 export const MAX_SOURCES = 4;
 const MAX_KEPT_SOURCES = 2;
@@ -68,9 +75,9 @@ const MAX_ALLOWED = 40;
 const IMAGE_TIMEOUT_MS = 60_000;
 const ASPECTS = ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"];
 
-const REF = /^(?:(attachment|picture):(\d{1,2})|(last-picture))$/;
+const REF = /^(?:(attachment|picture|earlier-photo):(\d{1,2})|(last-picture))$/;
 /** A reference where a page loads a picture: in quotes or a CSS `url()`. */
-const INLINE_REF = /(["'(])\s*(attachment:\d{1,2}|picture:\d{1,2}|last-picture)\s*(["')])/g;
+const INLINE_REF = /(["'(])\s*(attachment:\d{1,2}|picture:\d{1,2}|earlier-photo:\d{1,2}|last-picture)\s*(["')])/g;
 const ADDRESS = /https:\/\/[^\s"'()<>\\]+/g;
 
 const DRAW_DEFINITION = {
@@ -78,7 +85,7 @@ const DRAW_DEFINITION = {
   description:
     "Make a graphic: a poster, flyer, invite, card, menu, chart, quote, meme, infographic or anything mostly text, shapes and layout. " +
     "Write one complete HTML page with inline CSS (and SVG if useful) sized to exactly width x height; it is photographed and handed back as a picture to text them. " +
-    'Put pictures in with src="attachment:N" (a photo they sent), "picture:N" (one a tool showed this turn), "last-picture" (the last one make_picture made), ' +
+    'Put pictures in with src="attachment:N" (a photo they sent), "picture:N" (one a tool showed this turn), "earlier-photo:N" (one they sent in an earlier text), "last-picture" (the last one make_picture made), ' +
     "or an https image address you read in a tool result this turn; no other address loads. Google Fonts load; scripts don't run. " +
     "Photos of people, clothes and real scenes go to make_picture instead.",
   inputSchema: {
@@ -98,7 +105,8 @@ const MAKE_DEFINITION = {
   name: MAKE_TOOL,
   description:
     "Generate or edit a photo-like picture with an image model (about 4 cents each): \"show me in this dress\", a product shot, a scene, changing a photo. " +
-    "Pass from: their photos ('attachment:N'), pictures a tool showed this turn ('picture:N'), and 'last-picture' to keep editing the last one you made, " +
+    "Pass from: their photos ('attachment:N' with this text, 'earlier-photo:N' from their last text with photos, so \"try again\" needs no resend), " +
+    "pictures a tool showed this turn ('picture:N'), and 'last-picture' to keep editing the last one you made, " +
     "so the same person and outfit carry over. Say in the prompt which picture is which, describe the whole picture wanted, and what must stay the same.",
   inputSchema: {
     type: "object",
@@ -141,6 +149,35 @@ async function readKept(store) {
   }
 }
 
+/** The photos of their last text with photos, newest text only. A broken file is none. */
+async function readPhotos(store) {
+  try {
+    const object = await store.get(KEPT_PHOTOS_PATH);
+    if (!object) return [];
+    const parsed = JSON.parse(await object.text());
+    return (Array.isArray(parsed?.photos) ? parsed.photos : []).map(asPicture).filter(Boolean).slice(0, MAX_SOURCES);
+  } catch {
+    return [];
+  }
+}
+
+/** Keep this text's photos for the texts after it. Not kept costs a later edit a resend, never this answer. */
+export async function keepPhotos(store, attachments) {
+  const photos = [];
+  let size = 0;
+  for (const photo of attachments.map(asPicture).filter(Boolean).slice(0, MAX_SOURCES)) {
+    if (size + photo.data.length > MAX_KEPT_CHARS) break;
+    size += photo.data.length;
+    photos.push(photo);
+  }
+  if (photos.length === 0) return;
+  try {
+    await store.put(KEPT_PHOTOS_PATH, JSON.stringify({ version: 1, photos }));
+  } catch {
+    // As above.
+  }
+}
+
 /**
  * One texted turn's picture tools, or null when the deployment can make
  * neither. `gateway` is `aiGatewayConfig(env)`, without which there is no
@@ -153,6 +190,7 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
   if (typeof gateway?.base !== "string") gateway = null;
   const model = imageModel(env);
   let kept; // undefined until read
+  let earlier; // likewise
 
   const tools = [...(shots ? [DRAW_DEFINITION] : []), ...(gateway ? [MAKE_DEFINITION] : [])];
   if (tools.length === 0) return null;
@@ -171,6 +209,12 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
       return last ? { pictures: [last.made, ...last.sources], theirs: true, last } : null;
     }
     const n = Number(m[2]);
+    if (m[1] === "earlier-photo") {
+      // A text with photos of its own names them as attachment:N; its kept copy is those same photos.
+      if (earlier === undefined) earlier = attachments.some((a) => asPicture(a)) ? [] : await readPhotos(store);
+      const picture = earlier[n - 1] ?? null;
+      return picture ? { pictures: [picture], theirs: true } : null;
+    }
     if (m[1] === "attachment") {
       const picture = asPicture(attachments[n - 1]);
       return picture ? { pictures: [picture], theirs: true } : null;
@@ -218,7 +262,7 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
     const carried = [];
     for (const ref of refs) {
       const found = await resolve(ref);
-      if (found === null) return say(`There is no ${String(ref).slice(0, 40)} to work from. Use attachment:N, picture:N or last-picture.`, true);
+      if (found === null) return say(`There is no ${String(ref).slice(0, 40)} to work from. Use attachment:N, earlier-photo:N, picture:N or last-picture.`, true);
       theirs &&= found.theirs;
       sources.push(...found.pictures);
       // What the picture is kept with: the photos behind it, never an earlier result of them.
@@ -267,7 +311,7 @@ export function pictureMaker(env, { gateway = null, attachments = [], outgoing, 
  * them. `meter` is the turn's own; the image model's spend is reported as a
  * part of the turn, not a turn of its own.
  */
-export function turnPictures(env, { texted, question, attachments, store, keep, meter, workspaceId }) {
+export async function turnPictures(env, { texted, question, attachments, store, keep, meter, workspaceId }) {
   const outgoing = outgoingPictures({ enabled: texted, question });
   const maker = texted
     ? pictureMaker(env, {
@@ -280,6 +324,8 @@ export function turnPictures(env, { texted, question, attachments, store, keep, 
         metadata: { workspace: String(workspaceId), client: "texts" },
       })
     : null;
+  // Kept before the turn runs, so a later "try again" has them whatever this turn does.
+  if (maker !== null && keep) await keepPhotos(store, attachments);
   return { outgoing, maker };
 }
 

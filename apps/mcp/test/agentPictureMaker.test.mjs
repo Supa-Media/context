@@ -24,7 +24,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { outgoingPictures } from "../src/agent/outgoingPictures.js";
-import { DRAW_TOOL, KEPT_PICTURE_PATH, MAKE_TOOL, callImageModel, pictureMaker, withPictureMaker } from "../src/agent/pictureMaker.js";
+import { DRAW_TOOL, KEPT_PHOTOS_PATH, KEPT_PICTURE_PATH, MAKE_TOOL, callImageModel, pictureMaker, turnPictures, withPictureMaker } from "../src/agent/pictureMaker.js";
 
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 const GATEWAY = { base: "https://gateway.ai.cloudflare.com/v1/acct/gw", token: "t".repeat(32) };
@@ -142,6 +142,28 @@ test("the next edit gets the last picture and the photo it came from", async () 
   const kept = JSON.parse(store.objects.get(KEPT_PICTURE_PATH));
   assert.equal(kept.made.data, "U0VDT05E");
   assert.deepEqual(kept.sources.map((p) => p.data), ["UEVSU09O"], "the original photo stays with it");
+});
+
+test("a photo from an earlier text is still there for \"try again\"", async () => {
+  // Dev, 2026-10-19: the edit failed, "try again" came next, and Tex asked for the photo again.
+  const store = memoryStore();
+  const meter = async () => {};
+  const env = { AI_GATEWAY_ACCOUNT_ID: "a".repeat(32), AI_GATEWAY_ID: "gw", AI_GATEWAY_TOKEN: "t".repeat(32) };
+  const first = await turnPictures(env, { texted: true, question: "make our clothes blue", attachments: [photo("R1JPVVA=")], store, keep: true, meter, workspaceId: "w" });
+  assert.ok(first.maker && store.objects.has(KEPT_PHOTOS_PATH), "the photo is kept when it arrives, before any tool runs");
+
+  const model = imageModel();
+  const next = pictureMaker({}, { gateway: GATEWAY, outgoing: outgoingPictures({ enabled: true }), store, keep: true, fetchImpl: model.fetchImpl });
+  const result = await next.call(MAKE_TOOL, { prompt: "Make their clothes blue.", from: ["earlier-photo:1"] });
+  assert.equal(result.content[0].type, "image");
+  assert.equal(model.calls[0].body.contents[0].parts[0].inlineData.data, "R1JPVVA=");
+  const kept = JSON.parse(store.objects.get(KEPT_PICTURE_PATH));
+  assert.deepEqual(kept.sources.map((p) => p.data), ["R1JPVVA="], "and the edit keeps it as the source of the next one");
+
+  // A text that is not kept (the app's own turns) keeps no photo.
+  const other = memoryStore();
+  await turnPictures(env, { texted: true, question: "x", attachments: [photo("QQ==")], store: other, keep: false, meter, workspaceId: "w" });
+  assert.equal(other.objects.has(KEPT_PHOTOS_PATH), false);
 });
 
 test("a picture made from a note's picture is not kept for the next text", async () => {
