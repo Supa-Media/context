@@ -16,7 +16,7 @@
  *      and its body is extra instructions ("only text me about deadlines").
  *   2. The gateway, not the model, lists the notes changed since the last
  *      look. Nothing changed is `nothing_new` and costs no model turn. Tex's
- *      own job output (`tex/heartbeat/`, `tex/dreams/`, `tex/housekeeping/`, `tex/about-me.md`)
+ *      own job output (`tex/heartbeat/`, `tex/dreams/`, `tex/housekeeping/`, `tex/skills/`, `tex/about-me.md`)
  *      never counts as a change, or each look would wake the next.
  *   3. A model may read their notes, in their own workspace only, and nothing
  *      else: no write, no move, no visibility, no web, no other workspace. It
@@ -41,6 +41,7 @@ import { deliverAttention } from "./attention.js";
 import { TRANSCRIPTS_FOLDER, eventLines } from "./transcript.js";
 import { DREAMS_FOLDER } from "./dream.js";
 import { ABOUT_ME_PATH } from "./aboutMe.js";
+import { LEARNED_SKILLS_FOLDER } from "./learnedSkills.js";
 import { openProvider, runTurn } from "./turn.js";
 import { BUILTIN_PROVIDER, builtinModel, canRunBuiltin } from "./builtin.js";
 import { PRODUCTION_HEARTBEAT_PATH, readJobSetup } from "./production.js";
@@ -79,7 +80,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const HEARTBEAT_READS = new Set(["read_note", "list_notes", "search_notes"]);
 
 /** Tex's own job output, which never counts as something that changed. */
-const OWN_OUTPUT = [`${HEARTBEAT_FOLDER}/`, `${DREAMS_FOLDER}/`, "tex/housekeeping/", `${ATTENTION_FOLDER}/`];
+const OWN_OUTPUT = [`${HEARTBEAT_FOLDER}/`, `${DREAMS_FOLDER}/`, "tex/housekeeping/", `${ATTENTION_FOLDER}/`, `${LEARNED_SKILLS_FOLDER}/`];
 const OWN_NOTES = new Set([ABOUT_ME_PATH, HEARTBEAT_SETTINGS_PATH, ATTENTION_SETTINGS_PATH]);
 
 /** The words a check-in's text is kept under in the texting conversation, in place of a question. */

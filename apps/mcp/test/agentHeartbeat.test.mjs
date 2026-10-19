@@ -139,6 +139,8 @@ function unitChecks(check) {
       { key: "tex/dreams/2026-10-17.md", uploaded: at("2026-10-17T12:30:00Z") },
       { key: "tex/housekeeping/2026-10-17.md", uploaded: at("2026-10-17T12:30:00Z") },
       { key: "tex/about-me.md", uploaded: at("2026-10-17T12:30:00Z") },
+      { key: "tex/skills/book-a-table.md", uploaded: at("2026-10-17T12:30:00Z") },
+      { key: "tex/skills/retired/old-way.md", uploaded: at("2026-10-17T12:30:00Z") },
       { key: "tex/heartbeat.md", uploaded: at("2026-10-17T12:30:00Z") },
       { key: ".context/agent/x.md", uploaded: at("2026-10-17T12:30:00Z") },
       { key: "files/photo.png", uploaded: at("2026-10-17T12:30:00Z") },

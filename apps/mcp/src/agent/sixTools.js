@@ -51,9 +51,10 @@ export const ASSISTANT_SEND_ACTIONS = {
   make_picture: { tool: "make_picture", summary: "Generate or edit a photo with an image model, to text them. Make it first; guess what they left out.", take: own },
 };
 
-/** `fetch` ids only the assistant has: its skills (`skills.js`) and the conversation's earlier texts. */
+/** `fetch` ids only the assistant has: its skills (`skills.js`, `learnedSkills.js`) and the conversation's earlier texts. */
 const ASSISTANT_FETCH_IDS = [
   { prefix: "skill:", tool: "read_skill", args: (rest) => ({ name: rest }) },
+  { prefix: "learned:", tool: "read_learned_skill", args: (rest) => ({ name: rest }) }, // `learnedSkills.js`
   { prefix: "texts:", tool: "earlier_texts", args: () => ({}) },
 ];
 
@@ -114,6 +115,8 @@ function fetchTool(base, held) {
     const names = skills.inputSchema?.properties?.name?.enum ?? [];
     extra.push(`skill:<name> reads one of your skills in full (${names.join(", ")}). ${firstParagraph(skills.description)}`);
   }
+  const learned = held.get("read_learned_skill");
+  if (learned) extra.push(`learned:<name> reads a skill you wrote yourself. ${firstParagraph(learned.description)}`);
   if (held.has("earlier_texts")) {
     extra.push(`texts: reads this conversation's earlier texts. ${firstParagraph(held.get("earlier_texts").description)}`);
   }
