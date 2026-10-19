@@ -218,7 +218,8 @@ export type AgentAnswer =
    * `verbatim`: parts of `text` the gateway needs texted exactly as written,
    * never reformatted (an email the person is asked to approve). Absent when none.
    */
-  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; verbatim?: string[] }
+  /** `steered`: the event ids of texts sent while it ran that the turn took in (`inbox.ts`). */
+  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; verbatim?: string[]; steered?: string[] }
   | { kind: "no_model" }
   | { kind: "daily_limit" }
   /** The gateway could not start the turn (503: nothing ran), so asking again is safe. */
@@ -258,8 +259,12 @@ export async function askAgent(
   told: readonly string[] = [],
   /** The words that started the thread an inline reply was typed in, apart like `quoted`. */
   threadStart?: string,
-  /** An answered tapback's name, and the tapbacks noted since the last text (`reactions.ts`). */
-  { tapback, reacted = [] }: { tapback?: Tapback; reacted?: Reaction[] } = {},
+  /**
+   * An answered tapback's name, the tapbacks noted since the last text
+   * (`reactions.ts`), and the name of this turn, which texts sent while it
+   * runs are steered into (`apps/mcp/src/agent/steer.js`).
+   */
+  { tapback, reacted = [], turn }: { tapback?: Tapback; reacted?: Reaction[]; turn?: string } = {},
 ): Promise<AgentAnswer> {
   // The person's zone, so the turn knows the time where they are, and what
   // they sent with the text (`attachments.ts`).
@@ -273,6 +278,7 @@ export async function askAgent(
     ...(told.length > 0 ? { told } : {}),
     ...(quoted && tapback ? { tapback } : {}),
     ...(reacted.length > 0 ? { reacted } : {}),
+    ...(turn ? { turn } : {}),
   };
   if (onProgress) return askAgentStreaming(fetcher, gatewayOrigin, accessToken, ask, onProgress);
   let result: { status: number; json: unknown };
@@ -304,7 +310,14 @@ function agentAnswer(status: number, json: unknown): AgentAnswer {
   const pictures = readPictures(body.pictures);
   if (status === 200 && typeof body.answer === "string" && (body.answer.trim() || pictures.length > 0)) {
     const verbatim = readVerbatim(body.verbatim, body.answer);
-    return { kind: "answer", text: body.answer.trim(), pictures, ...(verbatim.length > 0 ? { verbatim } : {}) };
+    const steered = Array.isArray(body.steered) ? body.steered.filter((id): id is string => typeof id === "string").slice(0, 5) : [];
+    return {
+      kind: "answer",
+      text: body.answer.trim(),
+      pictures,
+      ...(verbatim.length > 0 ? { verbatim } : {}),
+      ...(steered.length > 0 ? { steered } : {}),
+    };
   }
   if (status === 409) return { kind: "no_model" };
   if (status === 429) return { kind: "daily_limit" };
@@ -330,7 +343,7 @@ async function askAgentStreaming(
   fetcher: Fetch,
   gatewayOrigin: string,
   accessToken: string,
-  ask: { question: string; conversation: string; timeZone?: string; attachments?: GatewayAttachment[] },
+  ask: { question: string; conversation: string },
   onProgress: (text: string) => Promise<void>,
 ): Promise<AgentAnswer> {
   const abort = new AbortController();

@@ -142,3 +142,5 @@ test/agentPictureMaker.test.mjs
 test/readFile.test.mjs
 test/readNoteCost.test.mjs
 test/agentLearnedSkills.test.mjs
+test/agentSteer.test.mjs
+test/agentMemoryNudge.test.mjs

@@ -55,6 +55,7 @@ import { turnPictures, withPictureMaker } from "./pictureMaker.js";
 import { disarmTexting, withdrawPending } from "../tools/approvals.js";
 import { askedWith, quotedOf, reactedLine, reactedOf, tapbackLine } from "./quoted.js";
 import { threadPrompt, threadView } from "./threadView.js";
+import { steerFor, steeredLine } from "./steer.js";
 import { textedAsk } from "./textedApprovals.js";
 import { settleTextedText } from "./textedSettle.js";
 
@@ -185,6 +186,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   */
   const quoted = quotedOf(session.actorClientId === TEXTS_CLIENT_ID ? body : null);
   const reacted = reactedOf(session.actorClientId === TEXTS_CLIENT_ID ? body : null); // tapbacks since their last text
+  const steer = steerFor(store, session, body); // texts sent while it works (`steer.js`)
 
   // A texted yes or no settles a pending approval before any model runs (`textedSettle.js`).
   if (session.actorClientId === TEXTS_CLIENT_ID) {
@@ -531,7 +533,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       },
       web,
       history: shown,
-      threadNote: threadPrompt(inThread),
+      threadNote: threadPrompt(inThread), steer,
       local: earlier,
       // What Tex keeps about them and its open jobs, in their own workspace (`aboutMe.js`, `jobs.js`), on a texted turn.
       ...(texting ? await readTexNotes(dispatch) : {}),
@@ -608,12 +610,13 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     const handoff = opened?.browser?.handoffLine() ?? null;
     const sent = handoff === null ? answer : `${answer}\n\n${handoff}`;
     if (transcript !== null) await afterAnswer(transcript.finish({ answer, outcome: turn.exhausted ? "exhausted" : "answered" }));
+    if (steer !== null) await afterAnswer(steer.clear());
     // A hard job, written down for next time (`reflect.js`): after the answer, never on a tainted turn.
     await afterAnswer(afterTextedTurn({ env, controlPlane, store, session, offered, question, turn, tainted: ledger.untrusted === true, learned, canWrite: textingWriting.some((tool) => tool.name === "write_note"), timeZone }));
 
     if (conversation !== null && !turn.exhausted) {
       try {
-        const saved = [reactedLine(reacted), tapbackLine(quoted) || question, attachmentsLine(attachments)].filter(Boolean).join("\n"); // names only, never bytes
+        const saved = [reactedLine(reacted), tapbackLine(quoted) || question, attachmentsLine(attachments), steeredLine(steer?.words ?? [])].filter(Boolean).join("\n"); // names only, never bytes
         await appendConversation(store, conversation, history, saved, [answer, sentPicturesLine(pictures)].filter(Boolean).join("\n"), {
           tainted: ledger.untrusted,
           tools: turn.steps.filter((step) => step.ok).map((step) => step.tool),
@@ -630,6 +633,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       // How many held calls the answer's last line asks about, so a caller that
       // plays the person (the bench) knows a YES is awaited; zero on a clean turn.
       asked: ledger.asked.length,
+      ...(steer !== null && steer.taken.length > 0 ? { steered: steer.taken } : {}), // the Worker drops these from its queue
       ...(verbatim.length > 0 ? { verbatim } : {}),
       ...(pictures.length > 0 ? { pictures } : {}),
       provider: turn.provider,
