@@ -49,23 +49,41 @@ export async function readWithEtag(dispatch, path) {
   }
 }
 
+/** A tool refusal's leading words ("conflict", "permission denied"): never the note text a conflict carries. */
+function refusalWords(result) {
+  const text = (Array.isArray(result?.content) ? result.content : []).map((part) => part?.text ?? "").join("\n");
+  return text.split(/[:\n(]/, 1)[0].trim().slice(0, 60) || "refused";
+}
+
 /**
  * Write `entry` after whatever the day's log already holds, starting it with
  * `heading` when it does not exist. Best effort; a log that can't be read is
- * never overwritten.
+ * never overwritten. A read or write that fails is tried once more, and a log
+ * that still could not be written says why in the Worker's log (`job_log`),
+ * never with the entry's or the note's words.
  */
 export async function appendLogEntry(dispatch, path, entry, heading) {
+  let why = "unreadable";
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const current = await readWithEtag(dispatch, path);
-    if (current === null) return false;
+    if (current === null) {
+      why = "unreadable";
+      continue;
+    }
     const before = current.missing ? heading : current.body;
+    let threw = null;
     const written = await dispatch("write_note", {
       path,
       content: `${before.replace(/\n*$/, "\n\n")}${entry}`,
       ...(current.missing ? {} : { expected_etag: current.etag }),
-    }).catch(() => null);
+    }).catch((error) => {
+      threw = error;
+      return null;
+    });
     if (written && written.isError !== true) return true;
+    why = threw !== null ? `threw ${threw?.name ?? "error"}` : written ? refusalWords(written) : "no answer";
   }
+  console.log(JSON.stringify({ event: "job_log", outcome: "not_written", folder: path.split("/").slice(0, -1).join("/"), why }));
   return false;
 }
 
