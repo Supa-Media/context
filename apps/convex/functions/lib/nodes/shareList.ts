@@ -47,6 +47,11 @@ export const shareEntryValidator = v.union(
    * the dialog's Members position; the dialog never draws it as a person on the list.
    */
   v.object({ kind: v.literal("members"), role: roleValidator, count: v.number() }),
+  /**
+   * Every signed-in Context account (`rowAccess.ts`), the dialog's All Context users with base `team`. Only the
+   * pinned workspace can hold one; like `members`, never drawn as a person on the list.
+   */
+  v.object({ kind: v.literal("accounts"), role: roleValidator }),
 );
 
 export const shareListValidator = v.union(
@@ -139,6 +144,8 @@ async function entriesOf(
       out.push({ kind: "email", email: grant.granteeEmail, role: grant.role });
     } else if (grant.granteeKind === "members") {
       out.push({ kind: "members", role: grant.role, count: await memberCountOf(ctx, workspace._id) });
+    } else if (grant.granteeKind === "accounts") {
+      out.push({ kind: "accounts", role: grant.role });
     }
   }
   return out;

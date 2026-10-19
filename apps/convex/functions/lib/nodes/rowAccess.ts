@@ -38,9 +38,15 @@ export type Role = "view" | "edit";
  * `members` is every person with a real membership in the row's workspace,
  * held by nobody else: not an outsider, and not someone who reaches the pinned
  * context through the pin alone (`lib/pinnedContext.ts`). Its `id` is unused.
+ *
+ * `accounts` is every signed-in Context account, the share dialog's "All
+ * Context users". It is honoured in the pinned workspace only: `accessRowsOf`
+ * drops it from every other workspace's rows before they reach this module,
+ * and `setAccess` refuses to write it there
+ * (`docs/decisions/privacy-and-sharing/all-context-users.md`). Its `id` is unused.
  */
 export interface Grantee {
-  kind: "user" | "group" | "email" | "members";
+  kind: "user" | "group" | "email" | "members" | "accounts";
   id: string;
   role: Role;
 }
@@ -65,6 +71,11 @@ export interface Caller {
   groupIds?: readonly string[];
   /** A real member of the workspace whose rows these are. */
   member?: boolean;
+  /**
+   * A signed-in Context account: holds an `accounts` grant. Harmless to set anywhere, since outside the pinned
+   * workspace the rows carry no such grant (`accessRowsOf`).
+   */
+  account?: boolean;
 }
 
 export interface RenderedAccess {
@@ -148,7 +159,8 @@ export function accessNamesFor(caller: Caller, rows: readonly AccessRow[]): stri
         (grantee.kind === "user" && caller.userId !== undefined && grantee.id === caller.userId) ||
         (grantee.kind === "email" && emails.has(grantee.id.trim().toLowerCase())) ||
         (grantee.kind === "group" && groups.has(grantee.id)) ||
-        (grantee.kind === "members" && caller.member === true);
+        (grantee.kind === "members" && caller.member === true) ||
+        (grantee.kind === "accounts" && caller.account === true);
       if (!held) continue;
       names.add(viewNameFor(row.noteId));
       if (grantee.role === "edit") names.add(editNameFor(row.noteId));
