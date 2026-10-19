@@ -19,12 +19,17 @@ import { accessSourceOf } from "./accessBackfill";
 import { accessRowsOf, accessVersionOf } from "./accessRows";
 import { mirrorRules, type Rules } from "./log";
 import { readMirror } from "./privacyMirror";
-import { renderAccess } from "./rowAccess";
+import { renderAccess, type Audience } from "./rowAccess";
 import type { PrivacyMirror } from "./table";
 
-/** The rules the access rows give a member, as `renderAccess` renders them. */
-async function rowRules(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<Rules> {
-  const { rules, overrides } = renderAccess(await accessRowsOf(ctx, workspaceId), "member");
+/**
+ * The rules the access rows give an audience, as `renderAccess` renders them. A member's unless the reader's names
+ * say they read as a guest (`lib/pinnedReaders.ts`, `audienceOfNames`): somebody who reaches the pinned workspace
+ * through the pin. Every function below takes that audience, and a reader that does not pass one gets the member's
+ * rules, under which a guest's names see no `team` note at all (`READS_AS_GUEST`): fewer notes, never more.
+ */
+async function rowRules(ctx: QueryCtx, workspaceId: Id<"workspaces">, audience: Audience): Promise<Rules> {
+  const { rules, overrides } = renderAccess(await accessRowsOf(ctx, workspaceId), audience);
   return { rules, overrides };
 }
 
@@ -33,9 +38,13 @@ async function rowRules(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<R
  * `accessSource`. In `file` and `shadow` this is exactly what readers judged
  * by before the switch existed.
  */
-export async function rulesForReaders(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<Rules> {
+export async function rulesForReaders(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+  audience: Audience = "member",
+): Promise<Rules> {
   const source = await accessSourceOf(ctx.db);
-  if (source === "rows") return await rowRules(ctx, workspaceId);
+  if (source === "rows") return await rowRules(ctx, workspaceId, audience);
   return await mirrorRules(await readMirror(ctx.db, workspaceId));
 }
 
@@ -50,9 +59,13 @@ export async function rulesForReaders(ctx: QueryCtx, workspaceId: Id<"workspaces
  *
  * Writers and parity checks keep `readMirror`: they are about the file, not about who may see something.
  */
-export async function readerMirror(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<PrivacyMirror | null> {
+export async function readerMirror(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+  audience: Audience = "member",
+): Promise<PrivacyMirror | null> {
   if ((await accessSourceOf(ctx.db)) !== "rows") return await readMirror(ctx.db, workspaceId);
-  return rowsMirror(await rowRules(ctx, workspaceId));
+  return rowsMirror(await rowRules(ctx, workspaceId, audience));
 }
 
 /**
@@ -64,9 +77,10 @@ export async function readerMirror(ctx: QueryCtx, workspaceId: Id<"workspaces">)
 export async function readerView(
   ctx: QueryCtx,
   workspaceId: Id<"workspaces">,
+  audience: Audience = "member",
 ): Promise<{ mirror: PrivacyMirror | null; judged: Rules }> {
   if ((await accessSourceOf(ctx.db)) === "rows") {
-    const judged = await rowRules(ctx, workspaceId);
+    const judged = await rowRules(ctx, workspaceId, audience);
     return { mirror: rowsMirror(judged), judged };
   }
   const mirror = await readMirror(ctx.db, workspaceId);

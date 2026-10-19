@@ -31,6 +31,7 @@
  * website scan, Publish included, lists the tree too (`docs/decisions/websites.md`).
  */
 
+import { audienceOfNames } from "../pinnedReaders";
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
@@ -68,7 +69,8 @@ export async function treeReadAnswer(ctx: ActionCtx, args: ReadArgs): Promise<Op
   const operation = args.operation;
   if (operation.kind === "list") return await oneFolder(ctx, args);
   if (operation.kind === "manifest") return await manifestPage(ctx, args, clearance);
-  const served = await servedStoreOrLoading(ctx, args.workspaceId);
+  // A pin reader is judged by a guest's rules (`lib/pinnedReaders.ts`).
+  const served = await servedStoreOrLoading(ctx, args.workspaceId, audienceOfNames(args.grantedNames));
   if (operation.kind === "folderNotes") return await folderNotes(ctx, args.workspaceId, served, operation, clearance);
   if (operation.kind === "chaosScore") return await chaosScore(ctx, args.workspaceId, served, operation, clearance);
   const store = operation.kind === "workspaceGraph" ? await withLinks(ctx, args.workspaceId, served) : served;
@@ -113,7 +115,7 @@ async function manifestPage(ctx: ActionCtx, args: ReadArgs, clearance: Clearance
   const start = first
     ? await ctx.runQuery(internal.functions.nodesFeed.walkStart, { workspaceId: args.workspaceId, now: Date.now() }).catch(() => null)
     : null;
-  const served = await servedStoreOrLoading(ctx, args.workspaceId);
+  const served = await servedStoreOrLoading(ctx, args.workspaceId, audienceOfNames(args.grantedNames));
   const result = await run(served, clearance, args.operation, args.workspaceId);
   return { ...result, source: "nodes", ...(start === null ? {} : start) } as OperationResult;
 }

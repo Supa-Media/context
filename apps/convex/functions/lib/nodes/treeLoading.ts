@@ -16,6 +16,7 @@
  * token and has one (`sweep.ts`).
  */
 
+import type { Audience } from "./rowAccess";
 import { ConvexError } from "convex/values";
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
@@ -97,13 +98,17 @@ export function notServed(readiness: TreeReadiness | "unbound"): Error {
  * than open the bucket. Throws `TREE_LOADING` (after starting the copy) while
  * the first copy has not finished.
  */
-export async function servedStoreOrLoading(ctx: ActionCtx, workspaceId: Id<"workspaces">): Promise<FileStore> {
-  const served = await servedNodesStore(ctx, workspaceId, NO_BUCKET);
+export async function servedStoreOrLoading(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  audience: Audience = "member",
+): Promise<FileStore> {
+  const served = await servedNodesStore(ctx, workspaceId, NO_BUCKET, audience);
   if (served !== null) return served;
   const readiness = await readinessAndKick(ctx, workspaceId);
   // Served between the two reads: ask once more rather than say "loading" about a tree that is there.
   if (readiness === "served") {
-    const again = await servedNodesStore(ctx, workspaceId, NO_BUCKET);
+    const again = await servedNodesStore(ctx, workspaceId, NO_BUCKET, audience);
     if (again !== null) return again;
   }
   throw notServed(readiness === "served" ? "loading" : readiness);

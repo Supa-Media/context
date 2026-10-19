@@ -134,10 +134,10 @@ describe("gatewayReadClearance", () => {
   const ws = "ws_1" as Id<"workspaces">;
   test("private only for an owner whose grant asked for it", () => {
     const owner = [{ workspaceId: ws, role: "owner" }];
-    expect(gatewayReadClearance({ scopes: ["context:read", "context:private"], workspaces: owner }, ws)).toEqual({ workspaceId: ws, scope: "private" });
-    expect(gatewayReadClearance({ scopes: ["context:read"], workspaces: owner }, ws)).toEqual({ workspaceId: ws, scope: "team" });
+    expect(gatewayReadClearance({ scopes: ["context:read", "context:private"], workspaces: owner }, ws)).toEqual({ workspaceId: ws, scope: "private", names: [], audience: "member" });
+    expect(gatewayReadClearance({ scopes: ["context:read"], workspaces: owner }, ws)).toEqual({ workspaceId: ws, scope: "team", names: [], audience: "member" });
     const editor = [{ workspaceId: ws, role: "editor" }];
-    expect(gatewayReadClearance({ scopes: ["context:read", "context:private"], workspaces: editor }, ws)).toEqual({ workspaceId: ws, scope: "team" });
+    expect(gatewayReadClearance({ scopes: ["context:read", "context:private"], workspaces: editor }, ws)).toEqual({ workspaceId: ws, scope: "team", names: [], audience: "member" });
   });
   test("no read scope, or a context outside the grant's set, reads nothing", () => {
     const owner = [{ workspaceId: ws, role: "owner" }];

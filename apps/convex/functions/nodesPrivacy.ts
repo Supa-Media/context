@@ -30,9 +30,12 @@ import { accessDerived, accessSourceOf, backfillAccess, deriveAccess, deriveAcce
 import { accessVersionOf } from "./lib/nodes/accessRows";
 import { accessParityPage } from "./lib/nodes/accessParity";
 import { rulesForReaders } from "./lib/nodes/readerRules";
+import type { Audience } from "./lib/nodes/rowAccess";
 
 const folders = v.array(v.object({ prefix: v.string(), visibility: v.string() }));
 const notes = v.array(v.object({ path: v.string(), visibility: v.string() }));
+/** Who the rules are rendered for: a member, or a guest (a pin reader, `lib/pinnedReaders.ts`). Member when absent. */
+const audienceValidator = v.union(v.literal("member"), v.literal("guest"));
 const heldValidator = v.object({ etag: v.string(), folders, notes, accessVersion: v.optional(v.number()) });
 
 /**
@@ -44,9 +47,10 @@ async function heldFor(
   ctx: QueryCtx,
   workspaceId: Id<"workspaces">,
   row: Doc<"nodePrivacy"> & { etag: string },
+  audience: Audience,
 ): Promise<HeldRules & { accessVersion?: number }> {
   if ((await accessSourceOf(ctx.db)) !== "rows") return heldRules(row);
-  const rendered = await rulesForReaders(ctx, workspaceId);
+  const rendered = await rulesForReaders(ctx, workspaceId, audience);
   return {
     etag: row.etag,
     folders: rendered.rules.map((rule) => ({ prefix: rule.prefix, visibility: rule.vis })),
@@ -57,26 +61,26 @@ async function heldFor(
 
 /** The rules, while they are this workspace's authority; `null` while `privacy.md` is. */
 export const authority = internalQuery({
-  args: { workspaceId: v.id("workspaces") },
+  args: { workspaceId: v.id("workspaces"), audience: v.optional(audienceValidator) },
   returns: v.union(v.null(), heldValidator),
-  handler: async (ctx, { workspaceId }) => {
+  handler: async (ctx, { workspaceId, audience }) => {
     const row = await ctx.db
       .query("nodePrivacy")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
       .unique();
-    return isAuthority(row, await privacyAuthorityOn(ctx.db)) ? await heldFor(ctx, workspaceId, row) : null;
+    return isAuthority(row, await privacyAuthorityOn(ctx.db)) ? await heldFor(ctx, workspaceId, row, audience ?? "member") : null;
   },
 });
 
 /** The rules Convex readers judge by (`lib/nodes/readerRules.ts`), as plain values a query can return. */
 export const readerRules = internalQuery({
-  args: { workspaceId: v.id("workspaces") },
+  args: { workspaceId: v.id("workspaces"), audience: v.optional(audienceValidator) },
   returns: v.object({
     rules: v.array(v.object({ prefix: v.string(), vis: v.string() })),
     overrides: v.array(v.object({ path: v.string(), vis: v.string() })),
   }),
-  handler: async (ctx, { workspaceId }) => {
-    const held = await rulesForReaders(ctx, workspaceId);
+  handler: async (ctx, { workspaceId, audience }) => {
+    const held = await rulesForReaders(ctx, workspaceId, audience ?? "member");
     return {
       rules: held.rules.map((rule) => ({ prefix: rule.prefix, vis: rule.vis })),
       overrides: [...held.overrides].map(([path, vis]) => ({ path, vis })),
@@ -120,7 +124,7 @@ export const write = internalMutation({
     const row = await rowOf(ctx, args.workspaceId);
     if (!isAuthority(row, await privacyAuthorityOn(ctx.db))) return null;
     if (args.expected !== null && args.expected !== row.etag) {
-      return { current: await heldFor(ctx, args.workspaceId, row) };
+      return { current: await heldFor(ctx, args.workspaceId, row, "member") };
     }
     const now = Date.now();
     const etag = newRulesVersion(now, Math.random);

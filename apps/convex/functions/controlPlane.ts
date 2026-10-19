@@ -44,6 +44,7 @@
  * `scripts/check-exit-is-ungated.mjs` scans alongside this file.
  */
 
+import { audienceOfNames } from "./lib/pinnedReaders";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import {
@@ -167,7 +168,7 @@ export const openStorageBinding = internalAction({
   handler: async (ctx, args): Promise<OpenedGatewayBinding | null> => {
     const session: {
       workspaceId: Id<"workspaces">;
-      workspaces: Array<{ workspaceId: Id<"workspaces"> }>;
+      workspaces: Array<{ workspaceId: Id<"workspaces">; grantedNames?: string[] }>;
     } | null = await ctx.runQuery(
       internal.functions.controlPlane.resolveGrantByAccessToken,
       { hashedAccessToken: args.hashedAccessToken },
@@ -446,6 +447,8 @@ export const openStorageBinding = internalAction({
       rotation,
       noteCap,
       managedEncryption,
+      // A pin reader's rules are rendered for a guest (`lib/pinnedReaders.ts`), from the names the grant resolved to.
+      ...(audienceOfNames(covered.grantedNames) === "guest" ? { audience: "guest" as const } : {}),
     };
   },
 });

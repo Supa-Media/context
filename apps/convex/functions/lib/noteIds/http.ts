@@ -40,7 +40,7 @@
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
-import { NO_NAMES } from "../clearance";
+import { clearanceOf } from "../clearance";
 import { loadPrivacyState } from "../fileOps";
 import { hashToken } from "../crypto";
 import { badRequest, json, stringField } from "../gatewayAuth";
@@ -101,13 +101,14 @@ export async function gatewayNoteIdsLookupHandler(ctx: ActionCtx, body: Record<s
       expectedWorkspaceId: workspaceId,
     });
     if (reader === null) return json(NOT_SERVED);
-    const served = await servedNodesStore(ctx, reader.workspaceId, NO_BUCKET);
+    // A pin reader is judged by a guest's rules and names (`lib/pinnedReaders.ts`).
+    const served = await servedNodesStore(ctx, reader.workspaceId, NO_BUCKET, reader.audience);
     if (served === null) return json(NOT_SERVED);
     const state = await loadPrivacyState(served);
     if (state.invalid) return json(NOT_SERVED);
     // A path the reader may not see is answered as a path with no row in `copies`: its copy is not named to them.
     const distinct = [...new Set(paths)];
-    const seen = distinct.filter((path) => canSee(path, reader.scope, state.rules, state.overrides, NO_NAMES));
+    const seen = distinct.filter((path) => canSee(path, reader.scope, state.rules, state.overrides, clearanceOf(reader.scope, reader.names).names));
     const found =
       seen.length === 0 ? [] : await ctx.runQuery(internal.functions.noteIds.copiesFor, { workspaceId: reader.workspaceId, paths: seen });
     const noted = await ctx.runQuery(internal.functions.noteIdsKeyed.notesFor, { workspaceId: reader.workspaceId, paths: distinct });
@@ -272,7 +273,8 @@ export async function gatewayNoteIdsResolveHandler(ctx: ActionCtx, body: Record<
       expectedWorkspaceId: workspaceId,
     });
     if (reader === null) return json(NOT_SERVED);
-    const served = await servedNodesStore(ctx, reader.workspaceId, NO_BUCKET);
+    // A pin reader is judged by a guest's rules and names (`lib/pinnedReaders.ts`).
+    const served = await servedNodesStore(ctx, reader.workspaceId, NO_BUCKET, reader.audience);
     if (served === null) return json(NOT_SERVED);
     const state = await loadPrivacyState(served);
     if (state.invalid) return json(NOT_SERVED);
@@ -283,7 +285,7 @@ export async function gatewayNoteIdsResolveHandler(ctx: ActionCtx, body: Record<
     // Every id asked for is answered; an id with no visible row answers null.
     const paths: Record<string, string | null> = Object.fromEntries(noteIds.map((noteId) => [noteId, null]));
     for (const { noteId, path } of found) {
-      if (canSee(path, reader.scope, state.rules, state.overrides, NO_NAMES)) paths[noteId] = path;
+      if (canSee(path, reader.scope, state.rules, state.overrides, clearanceOf(reader.scope, reader.names).names)) paths[noteId] = path;
     }
     return json({ paths });
   } catch {

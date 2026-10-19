@@ -30,6 +30,7 @@ import type { TreeChangesResult } from "./lib/filesFns/operationTypes";
 import { treeServesNow } from "./lib/nodes/listing";
 import { readerMirror, readerView } from "./lib/nodes/readerRules";
 import { rulesForReaders } from "./lib/nodes/readerRules";
+import { audienceOfNames } from "./lib/pinnedReaders";
 import { accessSourceOf } from "./lib/nodes/accessBackfill";
 import { accessVersionOf } from "./lib/nodes/accessRows";
 import type { PrivacyMirror } from "./lib/nodes/table";
@@ -102,7 +103,7 @@ export const head = query({
     const actorUserId = await callerId(ctx);
     const { scope, grantedNames } = await resolveFileAccess(ctx, { actorUserId, workspaceId, minimum: "member" });
     if (!(await treeServesNow(ctx.db, workspaceId))) return null;
-    const { mirror, judged } = await readerView(ctx, workspaceId);
+    const { mirror, judged } = await readerView(ctx, workspaceId, audienceOfNames(grantedNames));
     const moves = await feedMoves(ctx, workspaceId);
     const privacy = await feedPrivacy(ctx, workspaceId, mirror, moves);
     if (privacy === null) return null;
@@ -158,7 +159,10 @@ export const changes = internalQuery({
       minimum: "member",
     });
     if (!(await treeServesNow(ctx.db, args.workspaceId))) return null;
-    const mirror = await readerMirror(ctx, args.workspaceId);
+    // A pin reader's rules are a guest's (`lib/pinnedReaders.ts`). Their version differs from the one `walkStart`
+    // hands out, so a pin reader's catch-up always walks: slower, never wider.
+    const audience = audienceOfNames(grantedNames);
+    const mirror = await readerMirror(ctx, args.workspaceId, audience);
     const moves = await feedMoves(ctx, args.workspaceId);
     const privacy = await feedPrivacy(ctx, args.workspaceId, mirror, moves);
     const manifestUsable = mirror !== null && mirror.etag !== undefined && !mirror.invalid;
@@ -195,7 +199,7 @@ export const changes = internalQuery({
       );
     }
     const clearance = clearanceOf(scope, grantedNames);
-    const rules = await rulesForReaders(ctx, args.workspaceId);
+    const rules = await rulesForReaders(ctx, args.workspaceId, audience);
     const page = judgeRows({
       rows,
       current,

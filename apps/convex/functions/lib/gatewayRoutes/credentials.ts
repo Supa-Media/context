@@ -89,7 +89,12 @@ export async function gatewayBindingHandler(
   // (`nodesPrivacy.ts`); absent while `privacy.md` is. The workspace is the
   // one the grant opened, never one the request named.
   const privacy = await ctx
-    .runQuery(internal.functions.nodesPrivacy.authority, { workspaceId: opened.binding.workspaceId as Id<"workspaces"> })
+    .runQuery(internal.functions.nodesPrivacy.authority, {
+      workspaceId: opened.binding.workspaceId as Id<"workspaces">,
+      // A pin reader holds the rows as a guest sees them (`lib/pinnedReaders.ts`), so every read the gateway
+      // judges by these rules, listing and search included, gives them the notes open to All Context users only.
+      ...(opened.audience === "guest" ? { audience: "guest" as const } : {}),
+    })
     .catch(() => null);
   // The id-copy switch (`functions/noteIds.ts`): `"ids"` only while reads use the id keys, absent otherwise.
   // Unlike the two above this is not caught: a switch the gateway cannot read must not be guessed at.

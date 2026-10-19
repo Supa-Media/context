@@ -177,6 +177,8 @@ export interface OpenedGatewayBinding {
    * a customer owns. `docs/decisions/storage-and-credentials/managed-encryption.md`.
    */
   managedEncryption?: { mode: "migrating" | "encrypted" | "decrypting" };
+  /** `guest` for a pin reader, whose rules are rendered for a guest (`lib/pinnedReaders.ts`). Absent otherwise. */
+  audience?: "guest";
 }
 
 /**

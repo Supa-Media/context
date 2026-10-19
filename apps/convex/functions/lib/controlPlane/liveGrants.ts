@@ -14,6 +14,7 @@ import { TOKEN_HASH_PATTERN } from "../crypto";
 import { grantedNamesFor } from "../grantedNames";
 import { getMembership } from "../workspaceAuth";
 import { pinnedContextRow } from "../pinnedContext";
+import { pinReaderNames } from "../pinnedReaders";
 import { CONSOLE_CLIENT_ID } from "../../agentGrant";
 
 /** What a live grant resolves to. Shared by the session and binding routes. */
@@ -220,11 +221,11 @@ export async function contextsForGrant(
     new Set(rows.map((row) => row.workspaceId)),
   );
   if (pinned !== null) {
-    rows.push(
-      includeGrantedNames
-        ? { ...pinned, grantedNames: [] }
-        : pinned,
-    );
+    // The pin reader's guest names go to every client, not only the console's: they are what makes the gateway
+    // read the pinned workspace as a guest (`lib/pinnedReaders.ts`), and without them an AI client would be
+    // judged as a member. None before the migration, as there always were none here.
+    const names = (await pinReaderNames(ctx, pinned.workspaceId, live.grant.userId)) ?? [];
+    rows.push(names.length === 0 ? pinned : { ...pinned, grantedNames: names });
   }
 
   return rows;

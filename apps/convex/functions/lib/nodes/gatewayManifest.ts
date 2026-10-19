@@ -36,7 +36,9 @@ import { v } from "convex/values";
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx, QueryCtx } from "../../../_generated/server";
-import { NO_NAMES } from "../clearance";
+import { NO_NAMES, clearanceOf } from "../clearance";
+import { audienceOfNames } from "../pinnedReaders";
+import type { Audience } from "./rowAccess";
 import { contextsForGrant, resolveLiveGrant } from "../controlPlane/liveGrants";
 import { TOKEN_HASH_PATTERN, hashToken } from "../crypto";
 import { json } from "../gatewayAuth";
@@ -60,7 +62,7 @@ export const GATEWAY_PATH_LENGTH = 1024;
 
 export interface GatewayReader {
   scopes: string[];
-  workspaces: Array<{ workspaceId: Id<"workspaces">; role: string }>;
+  workspaces: Array<{ workspaceId: Id<"workspaces">; role: string; grantedNames?: string[] }>;
 }
 
 /**
@@ -70,23 +72,34 @@ export interface GatewayReader {
  * the gateway's `visibilityTierForGrant` (`apps/mcp/src/session.js`): an
  * owner whose grant carries `context:private` reads privately, and everybody
  * else reads as the team. A grant without `context:read` reads nothing.
+ *
+ * `names` are a pin reader's guest names (`lib/pinnedReaders.ts`), as `contextsForGrant` carries them, and none
+ * for anybody else, as before. Every route that judges by this clearance passes
+ * them on, or a pin reader would be judged as a member of the team; `audience` says which rules they are judged by.
  */
 export function gatewayReadClearance(
   reader: GatewayReader,
   expectedWorkspaceId: string,
-): { workspaceId: Id<"workspaces">; scope: "private" | "team" } | null {
+): { workspaceId: Id<"workspaces">; scope: "private" | "team"; names: string[]; audience: Audience } | null {
   if (!reader.scopes.includes("context:read")) return null;
   const covered = reader.workspaces.find((entry) => entry.workspaceId === expectedWorkspaceId);
   if (covered === undefined) return null;
   const scope = covered.role === "owner" && reader.scopes.includes("context:private") ? "private" : "team";
-  return { workspaceId: covered.workspaceId, scope };
+  const audience = audienceOfNames(covered.grantedNames);
+  // Only a guest's names: these routes judged every other reader with none, and still do.
+  return { workspaceId: covered.workspaceId, scope, names: audience === "guest" ? (covered.grantedNames ?? []) : [], audience };
 }
 
 export const readClearanceArgs = { hashedAccessToken: v.string(), expectedWorkspaceId: v.string() };
 
 export const readClearanceReturns = v.union(
   v.null(),
-  v.object({ workspaceId: v.id("workspaces"), scope: v.union(v.literal("private"), v.literal("team")) }),
+  v.object({
+    workspaceId: v.id("workspaces"),
+    scope: v.union(v.literal("private"), v.literal("team")),
+    names: v.array(v.string()),
+    audience: v.union(v.literal("member"), v.literal("guest")),
+  }),
 );
 
 export async function readClearanceHandler(ctx: QueryCtx, args: ObjectType<typeof readClearanceArgs>) {
@@ -133,12 +146,13 @@ export async function gatewayManifestPage(
   ctx: ActionCtx,
   workspaceId: Id<"workspaces">,
   scope: "private" | "team",
-  options: { cursor?: string; folder?: string },
+  options: { cursor?: string; folder?: string; names?: readonly string[] },
 ): Promise<GatewayManifestPage> {
-  const store = await servedNodesStore(ctx, workspaceId, NO_BUCKET);
+  const names = options.names ?? [];
+  const store = await servedNodesStore(ctx, workspaceId, NO_BUCKET, audienceOfNames(names));
   if (store === null) return (await readinessAndKick(ctx, workspaceId)) === "loading" ? STILL_LOADING : NOT_SERVED;
   const manifest = await syncManifest(store, {
-    clearance: { scope, names: NO_NAMES },
+    clearance: names.length === 0 ? { scope, names: NO_NAMES } : clearanceOf(scope, names),
     pageEntries: GATEWAY_PAGE_ENTRIES,
     ...(options.cursor === undefined ? {} : { cursor: options.cursor }),
     ...(options.folder === undefined ? {} : { folder: options.folder }),
@@ -189,6 +203,7 @@ async function manifestFor(ctx: ActionCtx, body: Record<string, unknown>): Promi
     });
     if (reader === null) return NOT_SERVED;
     return await gatewayManifestPage(ctx, reader.workspaceId, reader.scope, {
+      names: reader.names,
       ...(cursor.value === undefined || cursor.value === "" ? {} : { cursor: cursor.value }),
       ...(folder.value === undefined ? {} : { folder: folder.value }),
     });
