@@ -3,7 +3,7 @@
 # the Worker keeps from the model by design. See scripts/image-model-probe.mjs.
 #
 # Manual only: it reads production's gateway token and spends one picture
-# (about 3 cents).
+# (about 4 cents).
 name: Image Model Probe
 
 on:
@@ -12,7 +12,7 @@ on:
       model:
         description: "Gemini image model id"
         required: false
-        default: "gemini-3.1-flash-lite-image"
+        default: "gemini-2.5-flash-image"
 
 permissions:
   contents: read
@@ -33,4 +33,5 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+          package-manager-cache: false
       - run: node scripts/image-model-probe.mjs

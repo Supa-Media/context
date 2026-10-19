@@ -12,7 +12,7 @@
  */
 
 const { AI_GATEWAY_ACCOUNT_ID: account, AI_GATEWAY_ID: gateway, AI_GATEWAY_TOKEN: token } = process.env;
-const model = process.env.IMAGE_MODEL || "gemini-3.1-flash-lite-image";
+const model = process.env.IMAGE_MODEL || "gemini-2.5-flash-image";
 if (!account || !gateway || !token) throw new Error("AI_GATEWAY_ACCOUNT_ID, AI_GATEWAY_ID and AI_GATEWAY_TOKEN are required");
 if (!/^gemini-[a-z0-9.-]{1,60}$/.test(model)) throw new Error("IMAGE_MODEL must be a Gemini model id");
 

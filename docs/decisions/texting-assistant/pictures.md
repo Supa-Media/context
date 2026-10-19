@@ -1,4 +1,4 @@
-# Tex makes pictures: graphics as a page, photos with Nano Banana 2 Lite (2026-10-19)
+# Tex makes pictures: graphics as a page, photos with Nano Banana (2026-10-19)
 
 The owner asked for "a decently capable and cheap image generation
 capability": graphics made the way Claude makes them, as a page that is then
@@ -11,11 +11,11 @@ cheaper image model that stays consistent, under 5 cents a picture. Tex has two
   browser context and returns a PNG (`infra/site-shots/src/render.ts`, POST
   `/render`).
 - **`make_picture`** takes a prompt and up to four pictures to work from. It
-  calls Google's Gemini 3.1 Flash-Lite Image (Nano Banana 2 Lite), about
-  $0.034 for a 1K picture. The call goes through the AI Gateway we already use,
-  on Unified Billing, with no Google key and `cf-aig-collect-log: false`. The
-  meter prices it as `google/gemini-3.1-flash-lite-image`. `AGENT_IMAGE_MODEL`
-  can name another Gemini image model.
+  calls Google's Gemini 2.5 Flash Image (Nano Banana), about $0.039 for a 1K
+  picture. The call goes through the AI Gateway we already use, on Unified
+  Billing, with no Google key and `cf-aig-collect-log: false`. The meter prices
+  it as `google/gemini-2.5-flash-image`. `AGENT_IMAGE_MODEL` can name another
+  Gemini image model.
 
 Both hand back an image block inside the turn's `outgoingPictures` dispatcher,
 so the picture is numbered and texted with `[picture N]` like any other. Both
@@ -59,3 +59,12 @@ on Sunday" came back as questions about the time and place. Tex now makes a
 first picture in the same turn, guessing what was left out, and offers to
 change it (`PICTURES_LINE` in `outgoingPictures.js`; checked in
 `agentOutgoingPictures.test.mjs`).
+
+**Nano Banana, not Nano Banana 2 Lite, for now (2026-10-19).** The first photo
+edit in production failed: Unified Billing does not cover Gemini 3.1
+Flash-Lite Image yet, so the gateway sent it to Google without a key and
+Google answered 403 "Method doesn't allow unregistered callers". Image Model
+Probe (`.github/workflows/image-model-probe.yml`) showed Gemini 2.5 Flash
+Image answering through the same gateway, at about 3.9 cents a picture, still
+under the 5-cent target. Run the probe with the 3.1 model id to see when it
+is covered, then switch `IMAGE_MODEL` back.

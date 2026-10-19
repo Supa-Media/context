@@ -9,12 +9,13 @@
  *   pixels (the owner's own read), so it writes one HTML page and the
  *   screenshot Worker photographs it (`infra/site-shots/src/render.ts`).
  * - **`make_picture`: photos.** "Show me how I look in this dress." Google's
- *   Gemini 3.1 Flash-Lite Image (Nano Banana 2 Lite), about 3.4 cents a 1K
- *   picture, through the same Cloudflare AI Gateway every other model call
- *   uses, on Unified Billing, so there is no new vendor or key
- *   (`aiGateway.js`). Chosen 2026-10-19 over Seedream 5.0 Lite (same price, a
- *   new vendor), GPT Image 2 low (0.6 cents, faces drift) and FLUX.2 klein
- *   (1 cent, four references, weaker identity).
+ *   Gemini 2.5 Flash Image (Nano Banana), about 3.9 cents a 1K picture,
+ *   through the same Cloudflare AI Gateway every other model call uses, on
+ *   Unified Billing, so there is no new vendor or key (`aiGateway.js`). Gemini
+ *   3.1 Flash-Lite Image was chosen first (2026-10-19, over Seedream 5.0
+ *   Lite, GPT Image 2 low and FLUX.2 klein), but Unified Billing does not
+ *   cover it yet: Google answers 403 "unregistered callers", as Image Model
+ *   Probe (`scripts/image-model-probe.mjs`) showed in production.
  *
  * Both hand their picture back as an image block, inside the turn's
  * `outgoingPictures` dispatcher, so it is numbered and texted like any other.
@@ -50,7 +51,7 @@ export const DRAW_TOOL = "draw_picture";
 export const MAKE_TOOL = "make_picture";
 
 /** Google's model id, overridable per deployment by `AGENT_IMAGE_MODEL`. */
-export const IMAGE_MODEL = "gemini-3.1-flash-lite-image";
+export const IMAGE_MODEL = "gemini-2.5-flash-image";
 const MODEL_ID = /^gemini-[a-z0-9.-]{1,60}$/;
 
 /** Where the last made picture is kept: a plumbing path in the person's bucket, like the conversation. */
@@ -96,7 +97,7 @@ const DRAW_DEFINITION = {
 const MAKE_DEFINITION = {
   name: MAKE_TOOL,
   description:
-    "Generate or edit a photo-like picture with an image model (about 3 cents each): \"show me in this dress\", a product shot, a scene, changing a photo. " +
+    "Generate or edit a photo-like picture with an image model (about 4 cents each): \"show me in this dress\", a product shot, a scene, changing a photo. " +
     "Pass from: their photos ('attachment:N'), pictures a tool showed this turn ('picture:N'), and 'last-picture' to keep editing the last one you made, " +
     "so the same person and outfit carry over. Say in the prompt which picture is which, describe the whole picture wanted, and what must stay the same.",
   inputSchema: {

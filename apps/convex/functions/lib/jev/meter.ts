@@ -38,7 +38,8 @@ export const MODEL_USD_PER_MTOK: ReadonlyMap<string, ModelUsdPerMtok> = new Map(
   ["@cf/zai-org/glm-4.7-flash", { input: 0.06, output: 0.4, cacheRead: 0.06, cacheWrite: 0.06 }],
   ["anthropic/claude-haiku-5-5", { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 }],
   // Tex's make_picture (`apps/mcp/src/agent/pictureMaker.js`): Google's list price, 2026-10-19.
-  // A 1K picture is 1,120 output tokens, about $0.034.
+  // A 1K picture is 1,290 output tokens on 2.5 Flash Image, about $0.039; 1,120 on 3.1 Flash-Lite, $0.034.
+  ["google/gemini-2.5-flash-image", { input: 0.3, output: 30, cacheRead: 0.03, cacheWrite: 0.3 }],
   ["google/gemini-3.1-flash-lite-image", { input: 0.25, output: 30, cacheRead: 0.25, cacheWrite: 0.25 }],
 ]);
 
