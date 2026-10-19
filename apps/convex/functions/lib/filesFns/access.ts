@@ -16,7 +16,7 @@ import type { TreeChange } from "../treeAnnounce";
 import { type WorkspaceRole, requireWorkspaceAccess, requireWorkspaceRole } from "../workspaceAuth";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { grantedNamesFor } from "../grantedNames";
-import { reachesPinnedContext } from "../pinnedContext";
+import { pinReaderNames } from "../pinnedReaders";
 import type { FileOperation } from "./operationTypes";
 import { type MemberWrite, memberMayWrite } from "./memberWrite";
 
@@ -149,22 +149,23 @@ export async function resolveFileAccess(
     // `requireWorkspaceAccess` throws the same error for "not a member" and
     // "no such workspace", so catching it would mean guessing which one this
     // was. Asking the narrower question first needs no guess.
-    if (await reachesPinnedContext(ctx, args.workspaceId, args.actorUserId)) {
+    const pinned = await pinReaderNames(ctx, args.workspaceId, args.actorUserId);
+    if (pinned !== null) {
       /*
-        A PINNED CONTEXT REACHES NO NAMED RULE, AND THAT IS DELIBERATE.
+        A PIN READER READS AS A GUEST.
 
-        The pin is *reach* rather than membership — its own decision says so
-        — and `grantedNamesFor` answers from `workspaceMembers`, which a
-        pinned reader has no row in. So they read at `team` and a folder
-        named to a group is absent, which is the same answer they get for a
-        private one. Widening this would mean deciding that a pin confers
-        group membership, which nobody has decided and which no audit row
-        would record.
+        The pin is *reach* rather than membership, and `team` here means the
+        workspace's real members, as everywhere (`lib/pinnedReaders.ts`). So a
+        pin reader holds the guest names: the token of every row open to All
+        Context users, and `READS_AS_GUEST`, which every reader of these names
+        renders the rows for a guest by and which shuts `team` to them. Before
+        the migration has run the list is empty and they read at `team`, as
+        they did. No group's name and no person's grant reaches them here.
       */
       return {
         role: PINNED_CONTEXT_ROLE,
         scope: scopeForRole(PINNED_CONTEXT_ROLE),
-        grantedNames: [],
+        grantedNames: pinned,
         // A pinned reader is read-only, so there is nothing for a name to
         // appear beside. See `personalNameFor`.
         actorName: null,

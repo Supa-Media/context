@@ -121,7 +121,14 @@ export function useShareScope(deps: ShareScopeDeps) {
   const scopePresses = useRef(createPressQueue<NoteScope>());
 
   const setScope = useCallback(
-    (path: string, kind: "file" | "folder", from: NoteScope, to: NoteScope) => {
+    (
+      path: string,
+      kind: "file" | "folder",
+      from: NoteScope,
+      to: NoteScope,
+      /** The pinned workspace, where `team` is All Context users (`scope.ts`). */
+      offersAllUsers = false,
+    ) => {
       void scopePresses.current.run(path, async ({ live, carried }) => {
         /*
           The one guard for every surface that drives this control.
@@ -169,8 +176,10 @@ export function useShareScope(deps: ShareScopeDeps) {
           where the live state and the screen agree by construction and the
           caller has already resolved a group rule into a position.
         */
+        // In the pinned workspace a listing's `team` is Members or All Context users, which only the row's list
+        // tells apart: that press starts from what the dialog showed, as a listed row's does.
         const liveScope =
-          current === undefined || scopeGuard(current) === "listed"
+          current === undefined || scopeGuard(current) === "listed" || (offersAllUsers && current === "team")
             ? undefined
             : scopeOf(
                 current,
@@ -180,13 +189,13 @@ export function useShareScope(deps: ShareScopeDeps) {
               );
         const start = carried ?? liveScope ?? from;
         let reached = start;
-        for (const step of stepsTo(start, to)) {
+        for (const step of stepsTo(start, to, offersAllUsers)) {
           // Somebody has pressed again. Stop rather than write for a position
           // nobody is asking for any more; the newer press computes from here.
           if (!live()) return reached;
           if (step.kind === "visibility") {
             if (!(await setVisibility(path, kind, step.to))) return reached;
-            reached = step.to === "team" ? "team" : step.to === "members" ? "members" : "private";
+            reached = step.to === "team" || step.to === "accounts" ? "team" : step.to === "members" ? "members" : "private";
             continue;
           }
           if (step.on) {

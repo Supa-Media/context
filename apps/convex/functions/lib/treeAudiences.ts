@@ -1,4 +1,5 @@
 import {
+  READS_AS_GUEST,
   GROUP_SCOPE_PATTERN,
   effectiveVisibility,
   isPlumbing,
@@ -58,7 +59,10 @@ export function treeAudiences(
 /** The audiences a caller reads, from their clearance. See `treeAudiences`. */
 export function audiencesOf(scope: "private" | "team", grantedNames: readonly string[]): string[] {
   if (scope === "private") return ["private"];
-  return ["team", ...grantedNames.map((name) => `@${name}`)];
+  const names = grantedNames.map((name) => `@${name}`);
+  // A guest is not told about `team` paths (`READS_AS_GUEST`); a row's token is never an audience, so a change to
+  // a note open to every account reaches them at the next periodic walk instead. Late, never a disclosure.
+  return names.includes(READS_AS_GUEST) ? names : ["team", ...names];
 }
 
 /** What `markTreeChanged` accepts as one audience. */

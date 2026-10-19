@@ -19,6 +19,7 @@ import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { storeForBinding } from "../../../../mcp/src/store/factory.js";
 import { withPrivacyAuthority } from "../../../../mcp/src/store/privacyAuthority.js";
+import { audienceOfNames } from "../pinnedReaders";
 import { storePrivacyAuthority } from "../nodes/storeAuthority";
 import { attachSmallData } from "../smallData/attach";
 import { consoleIdLayoutHooks } from "../noteIds/consoleLayer";
@@ -88,6 +89,16 @@ const PRIVACY_WRITE_OPERATIONS = new Set([
 
 /** Operations that rearrange notes inside one context: never refused by the note cap. */
 const RELOCATING_OPERATIONS = new Set(["move", "archive", "archiveTidy", "trash"]);
+
+/**
+ * Which rules the operation's store holds: a pin reader's are a guest's (`lib/pinnedReaders.ts`). A pass that keeps
+ * a search index is the workspace's, not the caller's, so it is judged by a member's rules whoever scheduled it:
+ * an index built from a guest's rules would file every team note under the wrong tier for every member.
+ */
+const INDEX_PASSES = new Set(["maintainIndex", "projectIndex", "pruneIndex", "projectMeaning"]);
+function readerAudience(args: { grantedNames?: string[]; operation: { kind: string } }): "member" | "guest" {
+  return INDEX_PASSES.has(args.operation.kind) ? "member" : audienceOfNames(args.grantedNames);
+}
 
 export async function runFileOperationHandler(
   ctx: ActionCtx,
@@ -458,7 +469,7 @@ export async function runFileOperationHandler(
   // `privacy.md` decided by the rules held as the authority, where they are
   // (phase 3, `lib/nodes/privacyAuthority.ts`). Every read and write of it
   // below goes through this, the console's and the gateway's alike.
-  store = withPrivacyAuthority(store as never, await storePrivacyAuthority(ctx, args.workspaceId)) as unknown as FileStore;
+  store = withPrivacyAuthority(store as never, await storePrivacyAuthority(ctx, args.workspaceId, readerAudience(args))) as unknown as FileStore;
   // The forwarding ledger and the icons from Convex (`lib/smallData/attach.ts`): their bucket files are never read back.
   attachSmallData(ctx, args.workspaceId, store);
 

@@ -59,11 +59,11 @@ export function pickOf(row: Recipient): GrantPick | null {
 }
 
 /** The sentence beside Share, for this pick at this role. */
-export function grantLine(row: Recipient, role: GrantRole, handle: string, everyAccount = false): string {
+export function grantLine(row: Recipient, role: GrantRole, handle: string, offersAllUsers = false): string {
   const verb = role === "edit" ? "edit" : "read";
   if (row.kind === "domain") {
     // In the pinned workspace a domain lets people in as members (`ShareDialog` picks Members, never All users).
-    return `${everyAccount ? "Every member of" : "Everyone in"} ${handle} will be able to open it, including everyone who signs in with a ${row.domain} email.`;
+    return `${offersAllUsers ? "Every member of" : "Everyone in"} ${handle} will be able to open it, including everyone who signs in with a ${row.domain} email.`;
   }
   if (row.kind === "group") return `Everyone in the group can ${verb} this. You can take it back.`;
   if (row.kind === "invite") {

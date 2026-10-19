@@ -11,6 +11,7 @@
 
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { QueryCtx } from "../../../_generated/server";
+import { pinnedContextWorkspace } from "../pinnedContext";
 import { withPendingPrivate } from "./pendingAccess";
 import type { AccessRow, Grantee } from "./rowAccess";
 import { movingRowMoves, withMovingAccess } from "./rowMoveChunks";
@@ -26,6 +27,7 @@ function granteeOf(grant: Doc<"nodeAccess">): Grantee | null {
     return { kind: "email", id: grant.granteeEmail, role: grant.role };
   }
   if (grant.granteeKind === "members") return { kind: "members", id: "members", role: grant.role };
+  if (grant.granteeKind === "accounts") return { kind: "accounts", id: "accounts", role: grant.role };
   return null;
 }
 
@@ -97,5 +99,24 @@ export async function accessRowsOf(ctx: QueryCtx, workspaceId: Id<"workspaces">)
   // A folder moving in pages is judged by the same rules at both its names (`rowMoveChunks.ts`).
   const moving = withMovingAccess(rows, await movingRowMoves(ctx.db, workspaceId));
   // A private access waiting for its row closes the path before the row exists (`pendingAccess.ts`).
-  return withPendingPrivate(moving, state?.pending, Date.now());
+  return await withAccountsHonoured(ctx, workspaceId, withPendingPrivate(moving, state?.pending, Date.now()));
+}
+
+/**
+ * The rows with every `accounts` grant taken out, unless this is the pinned workspace. "Every signed-in Context
+ * account" is that one workspace's level and nobody else's (non-negotiable #5): a grant of it anywhere else, however
+ * it got there, opens nothing and gives nobody a name. A row left with neither a base nor a list carried no
+ * setting of its own and is dropped, as `scanAccessRows` drops one. One extra read only where such a grant exists.
+ */
+export async function withAccountsHonoured(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+  rows: AccessRow[],
+): Promise<AccessRow[]> {
+  if (!rows.some((row) => row.grantees.some((grantee) => grantee.kind === "accounts"))) return rows;
+  const pinned = await pinnedContextWorkspace(ctx);
+  if (pinned !== null && pinned._id === workspaceId) return rows;
+  return rows
+    .map((row) => ({ ...row, grantees: row.grantees.filter((grantee) => grantee.kind !== "accounts") }))
+    .filter((row) => row.base !== undefined || row.grantees.length > 0);
 }

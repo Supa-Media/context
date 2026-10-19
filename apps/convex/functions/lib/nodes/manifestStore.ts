@@ -14,6 +14,7 @@
  * unchanged `syncManifest` decides what the caller sees with `canSee`.
  */
 
+import type { Audience } from "./rowAccess";
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
@@ -159,8 +160,9 @@ export async function servedNodesStore(
   ctx: ActionCtx,
   workspaceId: Id<"workspaces">,
   base: FileStore,
+  audience: Audience = "member",
 ): Promise<FileStore | null> {
-  const served = await ctx.runQuery(internal.functions.nodes.served, { workspaceId });
+  const served = await ctx.runQuery(internal.functions.nodes.served, { workspaceId, audience });
   if (served === null) return null;
   const listed: NodePage = async (after, limit) => {
     const result = await ctx.runQuery(internal.functions.nodes.listLive, {

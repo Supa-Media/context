@@ -27,6 +27,7 @@ import type { MutationCtx } from "../../../_generated/server";
 import { recordAudit } from "../audit";
 import { effectiveVisibility, visibilityOf, narrowerVisibility, type Visibility } from "../privacy";
 import { refreshSnapshot } from "./accessBackfill";
+import { pinnedContextWorkspace } from "../pinnedContext";
 import { scanAccessRows } from "./accessRows";
 import { livePending, PENDING_MAX } from "./pendingAccess";
 import { renderAccess } from "./rowAccess";
@@ -43,7 +44,9 @@ export type GranteeInput =
   | { kind: "group"; groupId: Id<"workspaceGroups">; role: Role }
   | { kind: "email"; email: string; role: Role }
   /** Every real member of the workspace (`rowAccess.ts`). */
-  | { kind: "members"; role: Role };
+  | { kind: "members"; role: Role }
+  /** Every signed-in Context account (`rowAccess.ts`): written in the pinned workspace only (`wantedOf`). */
+  | { kind: "accounts"; role: Role };
 
 /**
  * One grant already on a row, as the grantee a list write takes back: a write that rebuilds a list from what is
@@ -61,6 +64,7 @@ export function granteeInputOf(grant: Doc<"nodeAccess">): GranteeInput | null {
     return { kind: "email", email: grant.granteeEmail, role: grant.role };
   }
   if (grant.granteeKind === "members") return { kind: "members", role: grant.role };
+  if (grant.granteeKind === "accounts") return { kind: "accounts", role: grant.role };
   return null;
 }
 
@@ -102,7 +106,7 @@ function keyOf(grant: { granteeKind: string; granteeUserId?: string; granteeGrou
 }
 
 interface Wanted {
-  kind: "user" | "group" | "email" | "members";
+  kind: "user" | "group" | "email" | "members" | "accounts";
   granteeUserId?: Id<"users">;
   granteeGroupId?: Id<"workspaceGroups">;
   granteeEmail?: string;
@@ -113,6 +117,10 @@ interface Wanted {
  * The grantees as rows: each id must be real here (a group of this workspace,
  * a user who exists), and an email is normalized. `null` for a grantee that
  * resolves to nothing, which is refused as one.
+ *
+ * `accounts` resolves only in the pinned workspace. Anywhere else "every signed-in Context account" would be a
+ * setting that publishes a note to anyone who signs up, which non-negotiable #5 rules out, so it resolves to
+ * nothing there and the whole write is refused (`docs/decisions/privacy-and-sharing/all-context-users.md`).
  */
 async function wantedOf(ctx: MutationCtx, workspaceId: Id<"workspaces">, grantees: GranteeInput[]): Promise<Wanted[] | null> {
   const out: Wanted[] = [];
@@ -124,6 +132,11 @@ async function wantedOf(ctx: MutationCtx, workspaceId: Id<"workspaces">, grantee
       wanted = { kind: "user", granteeUserId: grantee.userId, role: grantee.role };
     } else if (grantee.kind === "members") {
       wanted = { kind: "members", role: grantee.role };
+    } else if (grantee.kind === "accounts") {
+      const pinned = await pinnedContextWorkspace(ctx);
+      // Read only: a sign-up must never be enough to change a note.
+      if (pinned === null || pinned._id !== workspaceId || grantee.role !== "view") return null;
+      wanted = { kind: "accounts", role: grantee.role };
     } else if (grantee.kind === "group") {
       const group = await ctx.db.get(grantee.groupId);
       if (group === null || group.workspaceId !== workspaceId) return null;

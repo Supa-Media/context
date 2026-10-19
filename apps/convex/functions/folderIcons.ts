@@ -14,6 +14,8 @@
  * holds, which may be none; asking starts the import.
  */
 
+import { audienceOfNames } from "./lib/pinnedReaders";
+import type { Audience } from "./lib/nodes/rowAccess";
 import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { nameSaysSomething, suggestIconFor } from "@context/shared/src/iconSuggest";
@@ -45,8 +47,8 @@ async function clearanceFor(ctx: ActionCtx, workspaceId: Id<"workspaces">, minim
 }
 
 /** The rules icons are judged by: the ones readers judge by (`lib/nodes/readerRules.ts`), in the shape `loadPrivacyState` gave. */
-async function judgedState(ctx: ActionCtx, workspaceId: Id<"workspaces">): Promise<PrivacyState> {
-  const held = await ctx.runQuery(internal.functions.nodesPrivacy.readerRules, { workspaceId });
+async function judgedState(ctx: ActionCtx, workspaceId: Id<"workspaces">, audience: Audience): Promise<PrivacyState> {
+  const held = await ctx.runQuery(internal.functions.nodesPrivacy.readerRules, { workspaceId, audience });
   return {
     rules: held.rules.map((rule) => ({ prefix: rule.prefix, vis: rule.vis as Visibility })),
     overrides: new Map(held.overrides.map((note): [string, Visibility] => [note.path, note.vis as Visibility])),
@@ -66,7 +68,8 @@ async function visible(
   await ctx.runMutation(internal.functions.smallData.request, { workspaceId }).catch(() => {});
   const tree = await servedNodesStore(ctx, workspaceId, NO_BUCKET);
   if (tree === null) return [];
-  const state = await judgedState(ctx, workspaceId);
+  // A pin reader's icons are judged by a guest's rules (`lib/pinnedReaders.ts`).
+  const state = await judgedState(ctx, workspaceId, audienceOfNames(clearance.names));
   const held = await ctx.runQuery(internal.functions.smallData.icons, { workspaceId });
   const icons = visibleFolderIcons(Object.fromEntries(held.map(({ path, icon }) => [path, icon])), { clearance, state });
   return Object.entries(icons).map(([path, icon]) => ({ path, icon }));
@@ -95,7 +98,7 @@ export const set = action({
         path: args.path,
         icon: args.icon,
         clearance,
-        state: await judgedState(ctx, args.workspaceId),
+        state: await judgedState(ctx, args.workspaceId, "member"),
         tree,
         hasEmoji: async (name) =>
           (await ctx.runQuery(internal.functions.smallData.emojiLeaf, { workspaceId: args.workspaceId, name })) !== null,

@@ -64,7 +64,7 @@ export function useVisibility(deps: VisibilityDeps) {
     async (
       path: string,
       kind: "file" | "folder",
-      /** A tier, or `members`: base `private` plus every real member (`scope.ts`), which the rows hold. */
+      /** A tier, `members` or `accounts` (All Context users), which the rows hold (`scope.ts`). */
       visibility: ScopeVisibility,
     ): Promise<boolean> => {
       /*
@@ -87,11 +87,14 @@ export function useVisibility(deps: VisibilityDeps) {
         );
         return false;
       }
-      // Members is written as private plus every member; any other tier clears that grant on the server.
+      // Members is sent as private plus every member, which the server writes as the pinned workspace's pin
+      // readers read it then; All Context users as team plus every account. Any other tier clears both grants.
       const args =
         visibility === "members"
           ? { workspaceId: workspaceId!, path, visibility: "private" as const, members: true }
-          : { workspaceId: workspaceId!, path, visibility };
+          : visibility === "accounts"
+            ? { workspaceId: workspaceId!, path, visibility: "team" as const, accounts: true }
+            : { workspaceId: workspaceId!, path, visibility };
       return await run(async () => {
         if (kind === "folder") {
           await setDirectoryVisibility(args);

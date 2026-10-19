@@ -391,6 +391,18 @@ export function hasOverride(overrides, key) {
 }
 
 /**
+ * The name a caller holds when they read a workspace as a guest: somebody who reaches the pinned workspace through
+ * the pin alone. Mirrors `READS_AS_GUEST` in `apps/convex/functions/lib/privacy.ts`, where the reasoning is. It
+ * narrows, never widens: `team` is not open to a holder of it, so a guest handed a member's rules sees no team note.
+ */
+export const READS_AS_GUEST = "@#reads-as-guest";
+
+/** Whether these names say their holder reads as a guest (`READS_AS_GUEST`). */
+export function readsAsGuest(names) {
+  return names !== undefined && names !== null && typeof names.has === "function" && names.has(READS_AS_GUEST);
+}
+
+/**
  * May this caller see this key at all?
  *
  * ## A group is reached by the grant, never by the role
@@ -410,7 +422,7 @@ export function canSee(key, scope, rules, overrides, grantedGroups) {
   if (isPlumbing(key)) return false; // plumbing is not part of the note surface for any tool
   if (scope === "private") return true;
   const visibility = effectiveVisibility(key, rules, overrides);
-  if (visibility === "team") return true;
+  if (visibility === "team") return !readsAsGuest(grantedGroups);
   if (visibility === "private") return false;
   return grantedGroups !== undefined && grantedGroups.has(visibility);
 }

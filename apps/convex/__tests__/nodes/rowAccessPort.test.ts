@@ -12,11 +12,14 @@
  *
  * Sabotage: make the JS `accessNamesFor` hand a folder grant to every
  * descendant's token (a list merging into its ancestor's) and the parity
- * tests on the folder-list and nested-list shapes fail here.
+ * tests on the folder-list and nested-list shapes fail here. Drop the
+ * `accounts` case from the JS `accessNamesFor` and "the pinned workspace ...:
+ * pin reader" fails; let the JS `canSee` answer `team` for the guest mark and
+ * "the guest mark shuts team in both engines" fails.
  */
 
 import { describe, expect, test } from "vitest";
-import { canSee as tsCanSee, type Scope } from "../../functions/lib/privacy";
+import { READS_AS_GUEST, canSee as tsCanSee, type Scope } from "../../functions/lib/privacy";
 import { clearanceOf } from "../../functions/lib/clearance";
 import {
   accessNamesFor as tsAccessNamesFor,
@@ -43,6 +46,8 @@ const FOLDER_ROOT_TEAM = ID(8);
 const NOTE_DEAL = ID(9);
 const FOLDER_DEEP = ID(10);
 const NOTE_DEEP = ID(11);
+const FOLDER_GUIDES = ID(12);
+const NOTE_MEMBERS = ID(13);
 
 const user = (id: string, role: "view" | "edit" = "view") => ({ kind: "user" as const, id, role });
 const email = (id: string, role: "view" | "edit" = "view") => ({ kind: "email" as const, id, role });
@@ -116,6 +121,10 @@ const ROW_SETS: Record<string, AccessRow[]> = {
     { path: "2-areas/hr", noteId: FOLDER_HR, kind: "folder", base: "private", grantees: [] },
     { path: "2-areas/hr/bug.md", noteId: NOTE_DEAL, kind: "file", base: "private", grantees: [{ kind: "members", id: "members", role: "view" }] },
   ],
+  "the pinned workspace: a folder open to every account, and a team note inside it that is not": [
+    { path: "guides", noteId: FOLDER_GUIDES, kind: "folder", base: "team", grantees: [{ kind: "accounts", id: "accounts", role: "view" }] },
+    { path: "guides/members.md", noteId: NOTE_MEMBERS, kind: "file", base: "team", grantees: [] },
+  ],
 };
 
 interface Who {
@@ -140,6 +149,8 @@ const CALLERS: Who[] = [
     scope: "team",
     caller: { userId: "user-kola", emails: ["Partner@Example.test"] },
   },
+  // Somebody reaching the pinned workspace through the pin alone (`lib/pinnedReaders.ts`).
+  { name: "pin reader", audience: "guest", scope: "team", caller: { userId: "user-sayo", account: true } },
 ];
 
 const PROBES = [
@@ -162,6 +173,8 @@ const PROBES = [
   "2-areas/clients-old/x.md",
   "2-areas/deal.md",
   "2-areas/other/x.md",
+  "guides/start.md",
+  "guides/members.md",
 ];
 
 describe("the gateway's row renderer agrees with the control plane's", () => {
@@ -185,6 +198,32 @@ describe("the gateway's row renderer agrees with the control plane's", () => {
       });
     }
   }
+});
+
+describe("the guest mark (`READS_AS_GUEST`)", () => {
+  test("shuts team in both engines, even under a member's rules", () => {
+    const rows = ROW_SETS["the pinned workspace: a folder open to every account, and a team note inside it that is not"];
+    const ts = tsRenderAccess(rows, "member");
+    const js = jsRenderAccess(rows, "member");
+    for (const probe of ["guides/start.md", "guides/members.md"]) {
+      expect(tsCanSee(probe, "team", ts.rules, ts.overrides, new Set([READS_AS_GUEST]))).toBe(false);
+      expect(jsCanSee(probe, "team", js.rules, js.overrides, new Set([READS_AS_GUEST]))).toBe(false);
+      // Without it, a member's rules open both: the mark is what closes them.
+      expect(tsCanSee(probe, "team", ts.rules, ts.overrides, new Set())).toBe(true);
+      expect(jsCanSee(probe, "team", js.rules, js.overrides, new Set())).toBe(true);
+    }
+  });
+
+  test("a pin reader holds the folder open to every account, and not the team note inside it", () => {
+    const rows = ROW_SETS["the pinned workspace: a folder open to every account, and a team note inside it that is not"];
+    const guest = jsRenderAccess(rows, "guest");
+    const names = new Set([READS_AS_GUEST, ...jsAccessNamesFor({ account: true }, rows)]);
+    expect(jsCanSee("guides/start.md", "team", guest.rules, guest.overrides, names)).toBe(true);
+    expect(jsCanSee("guides/members.md", "team", guest.rules, guest.overrides, names)).toBe(false);
+    // A real member reads both.
+    const member = jsRenderAccess(rows, "member");
+    expect(jsCanSee("guides/members.md", "team", member.rules, member.overrides, new Set())).toBe(true);
+  });
 });
 
 describe("the parity table is not vacuous", () => {

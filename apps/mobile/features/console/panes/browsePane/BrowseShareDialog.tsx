@@ -179,7 +179,7 @@ export function BrowseShareDialog({
       entryKind={selected.kind}
       onSetScope={
         files.canSetVisibility
-          ? (from, to) => files.setScope(sharing, selected.kind, from, to)
+          ? (from, to) => files.setScope(sharing, selected.kind, from, to, current?.offersAllContextUsers === true)
           : undefined
       }
       groupSlug={current?.slug}
@@ -192,8 +192,8 @@ export function BrowseShareDialog({
         current?.slug,
         current?.kind,
         capabilitiesForRole(current?.role).isOwner,
-        // The pinned workspace: `team` there is every signed-in Context account.
-        current?.everyAccountReadsTeam === true,
+        // The pinned workspace, whose dialog offers All Context users beside Members.
+        current?.offersAllContextUsers === true,
       )}
       onCreateGroup={
         data.groups?.actions === undefined

@@ -447,11 +447,12 @@ export const teamShareable = internalQuery({
  * "still loading", never "ask the bucket".
  */
 export const served = internalQuery({
-  args: { workspaceId: v.id("workspaces") },
+  // `guest`: the rules a pin reader is judged by (`lib/pinnedReaders.ts`). A member's when absent.
+  args: { workspaceId: v.id("workspaces"), audience: v.optional(v.union(v.literal("member"), v.literal("guest"))) },
   returns: v.union(v.null(), v.object({ mirror: v.union(v.null(), mirrorValidator) })),
-  handler: async (ctx, { workspaceId }) => {
+  handler: async (ctx, { workspaceId, audience }) => {
     if (!(await treeServesNow(ctx.db, workspaceId))) return null;
-    return { mirror: await readerMirror(ctx, workspaceId) };
+    return { mirror: await readerMirror(ctx, workspaceId, audience ?? "member") };
   },
 });
 

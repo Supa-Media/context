@@ -2,7 +2,128 @@
 
 _See `docs/decisions/README.md` for the index._
 
-### In the pinned workspace, `team` is shown as "All Context users" (decided by the owner, 2026-10-19)
+### In the pinned workspace, `team` means its members, and All Context users is its own grant (decided by the owner, 2026-10-19)
+
+**This supersedes the decision below, made the same morning.** That one kept
+the data as it was and changed the words: `team` in `@context-lc` was read by
+every account through the pin, so the console called it All Context users and
+added Members (base `private` plus a `members` grant) for the people actually
+invited. The owner then decided that `team` must mean real members there, as in
+every other workspace, and that "All Context users" is a level of its own.
+
+**Why the morning's version was not enough.** It left two meanings of `team`,
+one of them close to public, and its Members position did not work where it
+mattered: an ordinary MCP grant carries no granted names (`contextsForGrant`
+hands them to the console's client only), so a `members` grant hid a note from
+every member's AI client. In production the Areas folder, which holds the `ai/`
+notes a benchmark runner reads through MCP, was set to Members and went dark for
+that runner.
+
+**What the data means now.**
+
+| Position (pinned workspace) | Data |
+|---|---|
+| Restricted | base `private` |
+| Members of @context-lc | base `team` (a row written the morning's way, base `private` plus the `members` grantee, reads the same) |
+| All Context users | base `team` plus the built-in `accounts` grantee, view only |
+| Anyone with the link | a share row |
+
+**The `accounts` grantee** (`Grantee.kind "accounts"` in `lib/nodes/rowAccess.ts`
+and its gateway port) is held by a caller marked `account: true`: every
+signed-in account, members included. It is honoured in the pinned workspace
+(`pinnedContextWorkspace`) and nowhere else: `wantedOf` in `lib/nodes/setAccess.ts`
+refuses to write it anywhere else and refuses `edit`, and `withAccountsHonoured`
+in `lib/nodes/accessRows.ts` drops one that reached the table some other way, so
+it grants nothing on read either. **This is the one exception to
+non-negotiable #5's "every grantee is a person"**: a grant to every account,
+behind a free sign-up, close to public. It is allowed in exactly one workspace,
+which staff own, and the dialog confirms it in place before it is written.
+
+**A pin reader reads as a guest** (`lib/pinnedReaders.ts`). Somebody who
+reaches `@context-lc` through the pin alone has no membership row, so they are
+cleared the way an outsider is: the rows rendered for guests, where `team` never
+appears, and as names the tokens of the rows granted to `accounts`. Beside those
+they hold `#reads-as-guest`, carried in `grantedNames` because every read path
+already carries those from where a caller is resolved to where a path is judged:
+`resolveFileAccess` (console reads, listings, the feed, forms, search),
+`contextsForGrant` (every MCP session, for every client, not only the console's),
+`openStorageBinding` (the binding then hands the gateway a guest's rules), and
+`gatewayReadClearance` (the gateway's tree routes). The mark does two jobs: it
+says which rendering to judge by (`audienceOfNames`), and `canSee` shuts `team`
+to whoever holds it even where a reader was handed a member's rules, so a read
+path that missed the change fails closed rather than open. A real member keeps
+`team`, holds the `accounts` names too, and so reads every note but a private
+one; their MCP connection reads `team` with no names at all.
+
+**The bug reports are members only.** `bugNotes.shareWithTeam` writes a report at
+base `team`, and still refuses to write into a folder a pin reader could read,
+judged by the guest names (`guestNamesIn`).
+
+**Nothing goes dark: the switch waits for the migration.** Every row that was
+`team` was readable by every account, and reading pin readers as guests before
+those rows carry the `accounts` grant would shut every account out of the
+guides, the forms and the website. So pin readers read exactly as before until
+`nodeMigration.pinnedAccountsAt` is set, and `functions/pinnedAccounts.ts` sets
+it. **It runs on its own after a deploy**: nobody can run a Convex function by
+hand here and a deploy runs nothing after itself, so the cron that keeps every
+tree current (`nodesMigration.keepCurrent`, every fifteen minutes) calls
+`pinnedAccounts.startIfDue`. That starts a pass when rows mode is on, the
+pinned workspace exists, the move has not finished (`pinnedAccountsDoneAt`) and
+no pass is in flight (`pinnedAccountsPageAt`, stamped by every page, within the
+last thirty minutes). Once it has finished each tick reads one row and stops; a
+deployment with no pinned workspace is left exactly as it is; a chain that
+stopped goes quiet and is started again from the pass the switch says is next.
+Staging gets it first because staging is deployed first.
+
+It pages the pinned workspace's rows (each page its own transaction): first every
+live base-`team` row outside the Areas folder's `tex-bugs/` gets the `accounts`
+view grant, and the last page of that pass sets the switch in the same
+transaction; then every row in the morning's Members position, notes and folders
+alike, becomes base `team` with the `members` grant removed. It is idempotent and
+can be started again. Until the switch flips, the console writes Members the
+morning's way (`positionOf` in `functions/nodesAccess.ts`), which the second pass
+converts, so nothing written in the window reaches every account by accident.
+Between the deploy and the first cron tick (at most fifteen minutes, plus the
+run itself), a plain `team` row is drawn as Members although pin readers still
+read it, as they did that morning.
+
+**What a "simplification" would cost.**
+
+- Reading pin readers at `team` again, or dropping the mark from their names:
+  every account reads every members' note, the bug reports included. Fails:
+  `apps/convex/__tests__/pinnedReaders.test.ts` ("sees the All Context users notes
+  and nothing else", "an MCP session carries the guest mark", "the binding hands
+  the gateway a guest's rules", "the gateway's tree manifest").
+- Letting `team` through for the mark in `canSee`: any read path judged by a
+  member's rules opens every team note to a pin reader. Fails:
+  `apps/convex/__tests__/nodes/rowAccessPort.test.ts` ("the guest mark") and
+  `apps/mcp/test/privacy/readsAsGuest.test.mjs`.
+- Honouring `accounts` anywhere: a setting that publishes a note to every
+  account, in any workspace. Fails: `apps/convex/__tests__/nodes/accountsGrantee.test.ts`.
+- Starting the move only by hand, or without the in-flight check: it never runs
+  here, or the cron starts a second pass beside the first every tick. Fails:
+  `apps/convex/__tests__/pinnedAccountsCron.test.ts`.
+- Flipping the switch before the grants, or skipping folders in the second pass:
+  the guides go dark for every account, or a member's MCP client cannot read under
+  a folder that was Members. Fails: `apps/convex/__tests__/pinnedAccountsMigration.test.ts`,
+  `pinnedReaders.test.ts` ("an ordinary MCP session ... reads a note under the
+  folder that was in the Members position").
+- Filing bug reports the morning's way after the switch, or judging the
+  pre-write check as a member: a member's AI cannot read them, or a report lands
+  where every account reads it. Fails: `apps/convex/__tests__/controlPlane/bugNotes.test.ts`
+  ("once the pinned workspace has moved ...").
+- Calling `team` All Context users in the console again: the owner is told a
+  members' note reaches every account. Fails:
+  `apps/mobile/__tests__/allContextUsers.test.ts` ("team is the members"),
+  `allContextUsersDialog.test.ts` ("plain team is Members").
+- An AI told that team notes in `@context-lc` reach every account. Fails:
+  `apps/mcp/test/pinnedTeamWords.test.mjs`.
+
+### Superseded: in the pinned workspace, `team` is shown as "All Context users" (decided by the owner, 2026-10-19, morning)
+
+_Superseded the same day by the decision above. Kept for the reasoning; the
+flag it names is now `offersAllContextUsers`, and the data it describes is no
+longer what the positions write._
 
 **What `team` already reaches there.** `@context-lc` is the pinned workspace
 (`packages/shared/src/pinnedContext.ts`, `apps/convex/functions/lib/pinnedContext.ts`):

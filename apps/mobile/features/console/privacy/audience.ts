@@ -44,10 +44,11 @@
  * speaking; the file is untouched, and so is `Scope`, which stays two-valued.
  *
  * **Nothing here widens anything.** `team` still means the named people in this
- * workspace and nothing else. Saying so in words that can be checked against
- * the People list is the entire change. The one workspace where that is not
- * what `team` reaches is the pinned one, which every account reads at `team`
- * through the pin: there it is named "All Context users" (`everyAccount`).
+ * workspace and nothing else, in the pinned workspace too (decided by the
+ * owner, 2026-10-19). Saying so in words that can be checked against the
+ * People list is the entire change. What the pinned workspace has besides is
+ * a grant, All Context users (`offersAllUsers`), which the share dialog offers
+ * as its own position and which is never a word for `team`.
  *
  * Pure, and that is the rule rather than a preference: `words.ts` records that
  * a sabotage sweep of this console held every guard expressed as a pure module
@@ -74,12 +75,12 @@ export interface AudienceContext {
   /** Whether the person reading this owns the context. */
   viewerIsOwner: boolean;
   /**
-   * Whether every signed-in Context account reads this workspace's `team` tier: the pinned workspace, which the
-   * pin opens to everyone at `team` (`docs/decisions/privacy-and-sharing/all-context-users.md`). There `team` is
-   * named **All Context users**, and **Members of @slug** (base `private` plus the built-in members grantee) is the
-   * position that means the people actually invited. Absent is false: every other workspace reads as it did.
+   * Whether the share dialog offers **All Context users** here: the pinned workspace, where a note can be opened
+   * to every signed-in Context account by the built-in `accounts` grant
+   * (`docs/decisions/privacy-and-sharing/all-context-users.md`). Its `team` is its members, as everywhere, and is
+   * named **Members of @slug** in that dialog. Absent is false: every other workspace reads as it did.
    */
-  everyAccount?: boolean;
+  offersAllUsers?: boolean;
 }
 
 /** `@supa`, or a form that is true when the name has not arrived. */
@@ -101,9 +102,7 @@ export function audienceName(
   context: AudienceContext,
   liveCount?: number,
 ): string {
-  if (visibility === "team") {
-    return context.everyAccount === true ? "All Context users" : `Everyone in ${contextHandle(context.slug)}`;
-  }
+  if (visibility === "team") return `Everyone in ${contextHandle(context.slug)}`;
   if (visibility === "private") return "Restricted";
   if (isListToken(visibility)) return "Shared";
   return liveCount === undefined
@@ -128,13 +127,6 @@ export function audienceDetail(
   context: AudienceContext,
 ): string {
   if (visibility === "team") {
-    // Never "nobody outside it" here: the pin opens this tier to every account, and signing up is open to all.
-    if (context.everyAccount === true) {
-      return (
-        `Anyone signed in to Context, not just the members of ${contextHandle(context.slug)}. Signing up is open ` +
-        "to all, so treat it as close to public. Never shown to anyone who is not signed in, and not indexed."
-      );
-    }
     return `Every member of ${contextHandle(context.slug)}, and nobody outside it. Not public, and not indexed.`;
   }
   if (visibility === "private") {
@@ -208,17 +200,32 @@ export function audienceContextOf(
   slug: string | null | undefined,
   kind: string | null | undefined,
   viewerIsOwner: boolean,
-  everyAccount = false,
+  offersAllUsers = false,
 ): AudienceContext {
   return {
     slug: slug ?? null,
     kind: kind === "personal" || kind === "shared" ? kind : null,
     viewerIsOwner,
-    everyAccount,
+    offersAllUsers,
   };
 }
 
-/** The Members position's name: base `private` plus every real member, never the pin's readers. */
+/** The All Context users position's name: base `team` plus the built-in `accounts` grant (`offersAllUsers`). */
+export const ALL_USERS_NAME = "All Context users";
+
+/** Who the All Context users position reaches, in a sentence. Never "nobody outside it": signing up is open to all. */
+export function allUsersDetail(context: AudienceContext): string {
+  return (
+    `Anyone signed in to Context, not just the members of ${contextHandle(context.slug)}. Signing up is open ` +
+    "to all, so treat it as close to public. Never shown to anyone who is not signed in, and not indexed."
+  );
+}
+
+/**
+ * The Members position's name. In the pinned workspace it is base `team`, as Everyone in @slug is anywhere else; a
+ * row written before 2026-10-19 holds it as base `private` plus the built-in members grantee, read the same way.
+ * Never the pin's readers.
+ */
 export function membersName(context: AudienceContext): string {
   return `Members of ${contextHandle(context.slug)}`;
 }

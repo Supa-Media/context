@@ -46,7 +46,6 @@
 
 import { internal } from "../../../_generated/api";
 import type { ActionCtx } from "../../../_generated/server";
-import { NO_NAMES } from "../clearance";
 import { hashToken } from "../crypto";
 import { loadPrivacyState } from "../fileOps";
 import { json } from "../gatewayAuth";
@@ -118,12 +117,14 @@ async function factsFor(ctx: ActionCtx, body: Record<string, unknown>): Promise<
       expectedWorkspaceId: expected,
     });
     if (reader === null) return NOT_SERVED;
-    const served = await servedNodesStore(ctx, reader.workspaceId, NO_BUCKET);
+    const served = await servedNodesStore(ctx, reader.workspaceId, NO_BUCKET, reader.audience);
     // Still on its first copy (now started): said so to this reader, never answered from the bucket.
     if (served === null) return (await readinessAndKick(ctx, reader.workspaceId)) === "loading" ? STILL_LOADING : NOT_SERVED;
     const state = await loadPrivacyState(served);
     if (state.invalid) return NOT_SERVED;
-    const visible = (path: string) => canSee(path, reader.scope, state.rules, state.overrides, NO_NAMES);
+    // A pin reader's guest names (`lib/pinnedReaders.ts`); none for an ordinary connection.
+    const clearance = clearanceOf(reader.scope, reader.names);
+    const visible = (path: string) => canSee(path, reader.scope, state.rules, state.overrides, clearance.names);
 
     if (body.ask === "links") {
       const found = await ctx.runQuery(internal.functions.nodeFacts.candidates, {
@@ -142,7 +143,6 @@ async function factsFor(ctx: ActionCtx, body: Record<string, unknown>): Promise<
       // A workspace whose ledger has not been imported yet starts that; it answers from what Convex holds.
       await ctx.runMutation(internal.functions.smallData.request, { workspaceId: reader.workspaceId }).catch(() => {});
       const ledger = await ctx.runQuery(internal.functions.smallData.ledger, { workspaceId: reader.workspaceId });
-      const clearance = clearanceOf(reader.scope);
       const sees = (path: string, kind: "note" | "folder") =>
         kind === "folder" ? folderVisibleAtScope(path, clearance, state.rules, state.overrides) : visible(path);
       const forwarding = [];
@@ -154,7 +154,6 @@ async function factsFor(ctx: ActionCtx, body: Record<string, unknown>): Promise<
     }
 
     if (body.ask === "jobs") {
-      const clearance = clearanceOf(reader.scope);
       const sees = (path: string) => folderVisibleAtScope(path, clearance, state.rules, state.overrides);
       const found = await ctx.runQuery(internal.functions.nodesGateway.folderJobs, { workspaceId: reader.workspaceId });
       const jobs: Record<string, string | null> = {};

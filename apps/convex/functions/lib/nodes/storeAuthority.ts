@@ -8,6 +8,7 @@ import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import type { HeldRules } from "./privacyAuthority";
+import type { Audience } from "./rowAccess";
 
 type Rules = Pick<HeldRules, "folders" | "notes">;
 
@@ -25,11 +26,13 @@ const rulesOnly = (change: Rules): Rules => ({
   notes: change.notes.map((rule) => ({ path: rule.path, visibility: rule.visibility })),
 });
 
+/** `audience` is the caller's (`audienceOfNames`): a pin reader holds the rules a guest is judged by. */
 export async function storePrivacyAuthority(
   ctx: ActionCtx,
   workspaceId: Id<"workspaces">,
+  audience: Audience = "member",
 ): Promise<StorePrivacyAuthority> {
-  const rules = await ctx.runQuery(internal.functions.nodesPrivacy.authority, { workspaceId });
+  const rules = await ctx.runQuery(internal.functions.nodesPrivacy.authority, { workspaceId, audience });
   return {
     rules,
     write: (change) =>

@@ -62,6 +62,8 @@ export const openStorageBindingReturns = v.union(
     rotation: v.optional(keyRotationValidator),
     noteCap: v.optional(v.number()),
     managedEncryption: v.optional(managedEncryptionSiblingValidator),
+    /** `guest` for a pin reader: the binding's rules are rendered for a guest (`lib/pinnedReaders.ts`). */
+    audience: v.optional(v.literal("guest")),
   }),
 );
 

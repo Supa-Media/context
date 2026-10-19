@@ -143,7 +143,7 @@ async function runForm(
     can see the form's note at all: `resolveForm` refuses one they cannot,
     with the same "does not exist" every other read gives.
   */
-  const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+  const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
     actorUserId,
     workspaceId: args.workspaceId,
     minimum: "member",
@@ -156,6 +156,8 @@ async function runForm(
   const result = await ctx.runAction(internal.functions.files.runFileOperation, {
     workspaceId: args.workspaceId,
     scope,
+    // The names decide which forms a pin reader can see: those open to All Context users (`lib/pinnedReaders.ts`).
+    grantedNames,
     operation: {
       kind: "form" as const,
       path: args.path,

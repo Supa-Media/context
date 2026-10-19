@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { PressRow } from "../../../design/components/Button";
 import { Card, Row } from "../../../design/components/Card";
@@ -32,7 +32,7 @@ import {
   rootDefaultLine,
   teamMeans,
   truncatedLine,
-  visibilityWordIn,
+  visibilityWord,
   widenWarning,
 } from "../../privacy/words";
 import { selectedContext, type ConsoleData } from "../../types";
@@ -88,13 +88,6 @@ import { isFilteredView } from "../../visibility";
  * copy of the one operation that rewrites the whole access map is a second
  * thing to keep honest. This says which state the reader is in.
  */
-/**
- * Whether this is the pinned workspace, whose `team` every signed-in Context account reads
- * (`ConsoleContext.everyAccountReadsTeam`). A context rather than a prop through every row, so no row can be drawn
- * without it: each sentence about `team` reads it here.
- */
-const EveryAccount = createContext(false);
-
 export function PrivacyPanel({ data }: { data: ConsoleData }) {
   const styles = useThemedStyles(makeStyles);
   const files = data.files;
@@ -110,7 +103,6 @@ export function PrivacyPanel({ data }: { data: ConsoleData }) {
   */
   const role = current?.role;
   const viewerIsOwner = capabilitiesForRole(role).isOwner;
-  const everyAccount = current?.everyAccountReadsTeam === true;
 
   /**
    * The folders opened *here*, separate from the tree's own `expanded`.
@@ -214,7 +206,6 @@ export function PrivacyPanel({ data }: { data: ConsoleData }) {
   */
 
   return (
-    <EveryAccount.Provider value={everyAccount}>
     <View>
       <Text variant="noteTitle" style={styles.sectionHead}>
         Who sees each folder
@@ -284,8 +275,8 @@ export function PrivacyPanel({ data }: { data: ConsoleData }) {
             {privateMeans(kind, viewerIsOwner)}
           </Text>
           <Text variant="rowSub">
-            <Text variant="check">{everyAccount ? "All Context users. " : "Everyone here. "}</Text>
-            {teamMeans(kind, viewerIsOwner, everyAccount)}
+            <Text variant="check">Everyone here. </Text>
+            {teamMeans(kind, viewerIsOwner)}
           </Text>
           <Text variant="rowSub">
             {files.canSetVisibility
@@ -293,7 +284,7 @@ export function PrivacyPanel({ data }: { data: ConsoleData }) {
               : "A folder's setting covers every note in it that is not named on its own line. Only an owner of this workspace can change one."}
           </Text>
           {root.state === "ready" ? (
-            <Text variant="rowSub">{rootDefaultLine(root.folderDefault, everyAccount)}</Text>
+            <Text variant="rowSub">{rootDefaultLine(root.folderDefault)}</Text>
           ) : null}
           <Text variant="rowSub">{linkExceptionLine()}</Text>
           <Text variant="foot">{manifestFootLine()}</Text>
@@ -306,7 +297,6 @@ export function PrivacyPanel({ data }: { data: ConsoleData }) {
         </Text>
       ) : null}
     </View>
-    </EveryAccount.Provider>
   );
 }
 
@@ -327,7 +317,6 @@ function Choice({
   accessibilityLabel?: string;
 }) {
   const styles = useThemedStyles(makeStyles);
-  const everyAccount = useContext(EveryAccount);
   /* A group is neither word: drawn as its own name, lit, with nothing to press. */
   if (visibility !== "team" && visibility !== "private") {
     return (
@@ -343,7 +332,7 @@ function Choice({
   const owners = visibility === "private";
   const sides = [
     { key: "private", label: "Only owners", on: owners },
-    { key: "team", label: pressLabel && owners ? pressLabel : everyAccount ? "All users" : "Everyone here", on: !owners },
+    { key: "team", label: pressLabel && owners ? pressLabel : "Everyone here", on: !owners },
   ] as const;
   return (
     <View style={styles.choice} role="radiogroup">
@@ -379,7 +368,6 @@ function Choice({
 /** A padlock and the word, which are the same state said twice. */
 function VisibilityPill({ visibility }: { visibility: Visibility }) {
   const colors = useColors();
-  const everyAccount = useContext(EveryAccount);
   return (
     <Pill
       leading={
@@ -390,7 +378,7 @@ function VisibilityPill({ visibility }: { visibility: Visibility }) {
         />
       }
     >
-      {visibilityWordIn(visibility, everyAccount)}
+      {visibilityWord(visibility)}
     </Pill>
   );
 }
@@ -420,8 +408,7 @@ function FolderBlock({
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
-  const everyAccount = useContext(EveryAccount);
-  const reach = everyAccount ? "every Context account" : "everyone on People";
+  const reach = "everyone on People";
   const isOpen = opened.has(row.path);
   const control = folderControl(files.canSetVisibility, row);
   const setVisibility = files.setVisibility;
@@ -483,7 +470,7 @@ function FolderBlock({
         <Hint style={StyleSheet.flatten([styles.hint, depth > 0 ? styles.nested : null])}>
           {/* Announced when it appears, not only drawn — it is the warning. */}
           <Text variant="hint" role="status">
-            {widenWarning(row.name, everyAccount)}
+            {widenWarning(row.name)}
           </Text>
         </Hint>
       ) : null}

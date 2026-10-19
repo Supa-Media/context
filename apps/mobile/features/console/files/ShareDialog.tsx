@@ -52,7 +52,7 @@ import { moreItems } from "./shareDialog/moreItems";
 import { isPersonShare, PeopleSection, type ShowMenu } from "./shareDialog/PeopleSection";
 import type { CopyTarget, ShareDialogProps } from "./shareDialog/props";
 import { RecipientPicker } from "./shareDialog/RecipientPicker";
-import { addGrant, hasMembers, peopleOf, type GrantWrite } from "./shareDialog/grants";
+import { addGrant, hasAccounts, hasMembers, peopleOf, type GrantWrite } from "./shareDialog/grants";
 import { domainRow, grantLine, pickOf, reachingOf } from "./shareDialog/grantMode";
 import { GrantRows } from "./shareDialog/GrantRows";
 import { contextHandle } from "../privacy/audience";
@@ -162,10 +162,13 @@ export function ShareDialog({
       : undefined;
   /*
     The members grant, with base `private`, is the Members position: read off the list before anything else, so a
-    note every member can open is never drawn as Restricted or as a group.
+    note every member can open is never drawn as Restricted or as a group. In the pinned workspace the accounts grant
+    tells All Context users from Members, which is plain `team` there.
   */
   const membersGranted = grants !== undefined && hasMembers(grants.list);
-  const scope = shown === undefined ? "private" : scopeOf(shown.visibility, openLink !== undefined, membersGranted);
+  const accountsGranted = context.offersAllUsers === true && grants !== undefined ? hasAccounts(grants.list) : undefined;
+  const scope =
+    shown === undefined ? "private" : scopeOf(shown.visibility, openLink !== undefined, membersGranted, accountsGranted);
   /*
     Who this note reaches, computed ONCE and read by the list, the members
     line and the suggestions, so the three cannot disagree about who has it.
@@ -309,14 +312,14 @@ export function ShareDialog({
                     ? undefined
                     : {
                         busy: grants.saving,
-                        line: (picked, role) => grantLine(picked, role, handle, context.everyAccount === true),
+                        line: (picked, role) => grantLine(picked, role, handle, context.offersAllUsers === true),
                         onGrant: (picked, role) => {
                           const pick = pickOf(picked);
                           if (pick !== null) write(addGrant(grants.list, pick, role));
-                          // A domain lets its people in as members. In the pinned workspace `team` is every account,
-                          // so the members' own position is the one that opens it to them, and nobody else.
+                          // A domain lets its people in as members, so the members' position opens it to them: in the
+                          // pinned workspace that is Members, never All Context users.
                           else if (picked.kind === "domain" && scope === "private") {
-                            onSetScope?.(scope, context.everyAccount === true ? "members" : "team");
+                            onSetScope?.(scope, context.offersAllUsers === true ? "members" : "team");
                           }
                         },
                       }

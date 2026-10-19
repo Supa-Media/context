@@ -4,14 +4,18 @@
 
 /**
  * The share dialog in the pinned workspace (`docs/decisions/privacy-and-sharing/all-context-users.md`): General
- * access offers Restricted, Members of @context-lc, All Context users and Anyone with the link, widest last; a members
- * grant reads as Members (never Restricted, never a group, never a person on People); and picking All Context users
- * from below asks first, in place. Ordinary workspaces keep their three positions.
+ * access offers Restricted, Members of @context-lc, All Context users and Anyone with the link, widest last. Members
+ * is base `team` there (and a row written before 2026-10-19, base `private` plus the members grant, reads the same);
+ * All Context users is base `team` plus the accounts grant. Neither built-in grant is ever a person on People, and
+ * picking All Context users from below asks first, in place. Ordinary workspaces keep their three positions.
  *
  * Sabotage (run by hand, each must fail a test here):
  *  - pass `membersGranted` as false in `ShareDialog` (a members grant read as Restricted): "a members grant is the
  *    Members position" fails;
  *  - drop the members entry in `requestOf` (`grants.ts`): "adding somebody keeps the members grant" fails;
+ *  - drop the accounts entry in `requestOf`: "adding somebody keeps the accounts grant" fails;
+ *  - pass no `accountsGranted` in `ShareDialog`: "plain team is Members" fails;
+ *  - draw the accounts grant on People (`peopleOf`): "never a person on People, the accounts grant either" fails;
  *  - draw every list entry in `GrantRows` (`list.grantees` for `peopleOf`): "never a person on People" fails;
  *  - drop the `team` case from `asksFirst`: "All Context users asks first" fails;
  *  - ask on every `team` pick: "narrowing a link to it never asks" fails.
@@ -48,7 +52,7 @@ const MEMBERS_LIST: GrantList = {
   grantees: [{ kind: "members", role: "view", count: 4 }],
 };
 
-const LC = { slug: "context-lc", kind: "shared", viewerIsOwner: true, everyAccount: true };
+const LC = { slug: "context-lc", kind: "shared", viewerIsOwner: true, offersAllUsers: true };
 
 function mount(list: GrantList, overrides: Record<string, unknown> = {}) {
   const save = jest.fn(async (_write: GrantWrite, _version: number) => null as string | null);
@@ -111,6 +115,17 @@ function positions(): string[] {
 }
 
 const TEAM_LIST: GrantList = { ...MEMBERS_LIST, base: "team", tier: "team", grantees: [] };
+const ACCOUNTS_LIST: GrantList = { ...TEAM_LIST, grantees: [{ kind: "accounts", role: "view" }] };
+const TEAM_ACCESS = { access: { visibility: "team", exception: false, members: MEMBERS } };
+
+describe("plain team is Members", () => {
+  test("named Members of @context-lc, counted, never All Context users", () => {
+    mount(TEAM_LIST, TEAM_ACCESS);
+    expect(text("share-audience")).toContain("Members of @context-lc");
+    expect(text("share-access")).toContain("All 4 members can open it");
+    expect(byId("share-all-users-note")).toBeNull();
+  });
+});
 
 describe("a members grant is the Members position", () => {
   test("named Members of @context-lc, counted, and never drawn as Restricted or a group", () => {
@@ -126,6 +141,23 @@ describe("a members grant is the Members position", () => {
     mount(MEMBERS_LIST);
     expect(byId("share-grant-members")).toBeNull();
     expect(document.body.textContent).not.toContain("Every member");
+  });
+
+  test("never a person on People, the accounts grant either", () => {
+    mount(ACCOUNTS_LIST, TEAM_ACCESS);
+    expect(byId("share-grant-accounts")).toBeNull();
+    expect(document.body.textContent).not.toContain("Anyone signed in to Context, ");
+  });
+
+  test("adding somebody keeps the accounts grant", async () => {
+    const { save } = mount(ACCOUNTS_LIST, TEAM_ACCESS);
+    type("pat@example.test");
+    press(byId("share-suggest-pat@example.test"));
+    await act(async () => press(byId("share-submit")));
+    expect(save).toHaveBeenCalledWith(
+      { base: "team", grantees: [{ accounts: true, role: "view" }, { email: "pat@example.test", role: "view" }] },
+      7,
+    );
   });
 
   test("adding somebody keeps the members grant", async () => {
@@ -160,7 +192,7 @@ describe("the menu", () => {
 
 describe("All Context users", () => {
   test("the row says the reach, with the neutral tag in place of the folder's", () => {
-    mount(TEAM_LIST, { access: { visibility: "team", exception: false, members: MEMBERS } });
+    mount(ACCOUNTS_LIST, TEAM_ACCESS);
     expect(text("share-audience")).toContain("All Context users");
     expect(text("share-access")).toContain("Anyone signed in to Context can open it");
     expect(text("share-all-users-note")).toBe("Not just members. Keep anything sensitive out.");
@@ -182,7 +214,7 @@ describe("All Context users", () => {
   });
 
   test("leaving it never asks", () => {
-    const { onSetScope } = mount(TEAM_LIST, { access: { visibility: "team", exception: false, members: MEMBERS } });
+    const { onSetScope } = mount(ACCOUNTS_LIST, TEAM_ACCESS);
     press(byId("share-audience"));
     press(byId("share-audience-members"));
     expect(onSetScope).toHaveBeenCalledWith("team", "members");

@@ -25,6 +25,7 @@ import { migrationPaused } from "./lib/nodes/pause";
 import { NODE_SWEEP_LEASE_MS, nodeSweepDue, type NodeTreeState } from "./lib/nodes/table";
 import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { requestSmallDataSync } from "./lib/smallData/state";
+import { startIfDue } from "./pinnedAccounts";
 
 /**
  * Which migration phase this deployment runs. Phase 3: the privacy rules held
@@ -329,6 +330,8 @@ export const keepCurrent = internalMutation({
     // Each workspace's icons, emoji and forwarding: imported once, and their files written where owed.
     for (const workspaceId of await liveBoundWorkspaces(ctx)) await requestSmallDataSync(ctx, workspaceId);
     if (await migrationPaused(ctx.db)) return { started: 0 };
+    // The pinned workspace's one-off move to "team means members", started here after a deploy (`pinnedAccounts.ts`).
+    await startIfDue(ctx);
     const started = await startDueSweeps(ctx);
     await startDueFactFills(ctx);
     return { started };

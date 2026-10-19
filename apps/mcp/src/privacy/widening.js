@@ -47,8 +47,6 @@ function widest(audiences) {
  * @param {object} args the arguments, `context` already stripped
  * @param {object} options
  * @param {string|null} options.into the other workspace addressed, as `@name`, or null
- * @param {boolean} [options.teamIsEveryAccount] the workspace acted in is the pinned one, whose `team` every
- *   signed-in Context account reads: the summary says so instead of "the team"
  * @param {boolean} [options.writes] the tool changes something (it is not read-only
  *   and not a planning tool): addressed into another workspace it is a widening
  *   whatever else it does, so a write tool this file has never heard of cannot
@@ -60,8 +58,8 @@ function widest(audiences) {
  *   another workspace the caller belongs to: no link, no publication, nobody
  *   named. The judge (`judge.js`) lets those run unjudged, as they ran with no gate.
  */
-export async function wideningOf(name, args, { into = null, privacy, writes = false, teamIsEveryAccount = false }) {
-  const found = await classify(name, args, { into, privacy, team: teamIsEveryAccount ? EVERY_ACCOUNT : "the team" });
+export async function wideningOf(name, args, { into = null, privacy, writes = false }) {
+  const found = await classify(name, args, { into, privacy });
   const a = args && typeof args === "object" ? args : {};
   const elsewhere = typeof into === "string" && into !== "";
   const widening =
@@ -72,14 +70,7 @@ export async function wideningOf(name, args, { into = null, privacy, writes = fa
   return widening === null ? null : { ...widening, summary: oneLine(widening.summary) };
 }
 
-/**
- * Who `team` is in the pinned workspace (`@context-lc`): the pin opens that tier to every signed-in account
- * (docs/decisions/privacy-and-sharing/all-context-users.md), so the judge, and the person it is read to, are told
- * that rather than "the team".
- */
-const EVERY_ACCOUNT = "every signed-in Context account";
-
-async function classify(name, args, { into, privacy, team = "the team" }) {
+async function classify(name, args, { into, privacy }) {
   const a = args && typeof args === "object" ? args : {};
   if (a.dry_run === true) return null;
   const elsewhere = typeof into === "string" && into !== "";
@@ -131,7 +122,7 @@ async function classify(name, args, { into, privacy, team = "the team" }) {
       // and the gate supplies the flag only for a call that carried it, so an
       // approval given for an image address cannot publish the note as well.
       if (a.visibility === "team" && a.confirm_team_publish === true && (await nowReads(a.path)) !== "team") {
-        facets.push({ audience: "team", summary: `make ${a.path} visible to ${team}`, publishes: true });
+        facets.push({ audience: "team", summary: `make ${a.path} visible to the team`, publishes: true });
       }
       return facets.length === 0
         ? null
@@ -159,7 +150,7 @@ async function classify(name, args, { into, privacy, team = "the team" }) {
     case "set_visibility": {
       const facets = [];
       if (a.visibility === "team" && (await nowReads(a.path)) !== "team") {
-        facets.push({ audience: "team", summary: `make ${a.path} visible to ${team}`, publishes: true });
+        facets.push({ audience: "team", summary: `make ${a.path} visible to the team`, publishes: true });
       }
       const people = parsePeople(a.people);
       if (people !== null) facets.push({ audience: "outside", summary: `let ${describePeople(people)} open ${a.path}` });
@@ -187,7 +178,7 @@ async function classify(name, args, { into, privacy, team = "the team" }) {
             summary:
               a.visibility === "inherit"
                 ? `let the folder ${a.path} follow its parent's visibility`
-                : `make the folder ${a.path} visible to ${team}`,
+                : `make the folder ${a.path} visible to the team`,
           }
         : null;
     }
@@ -197,7 +188,7 @@ async function classify(name, args, { into, privacy, team = "the team" }) {
         return { audience: "team", summary: `save this conversation into ${into}`, publishes, elsewhereOnly: !publishes };
       }
       if (a.visibility === "team" || a.visibility === "public") {
-        return { audience: "team", summary: `save this conversation where ${team} can read it`, publishes: true };
+        return { audience: "team", summary: "save this conversation where the team can read it", publishes: true };
       }
       return null;
     /*

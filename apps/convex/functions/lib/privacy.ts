@@ -577,6 +577,23 @@ export function isPlumbing(key: string): boolean {
 }
 
 /**
+ * The name a caller holds when they read a workspace as a guest: somebody who reaches the pinned workspace through
+ * the pin alone (`lib/pinnedReaders.ts`). Shaped like a row token (`@#…`), so it passes every boundary a grant name
+ * does and can never be a group's name; no row's id is spelled with these letters, so no row token equals it.
+ *
+ * It narrows, never widens: `team` is not open to a holder of it. A guest's rules are rendered for guests
+ * (`renderAccess(rows, "guest")`), where `team` never appears, so this changes nothing where the reader was given
+ * the right rules. It is the backstop for a reader that was handed a member's rules with a guest's names: that one
+ * sees no `team` note rather than every one of them. Mirrored in `apps/mcp/src/privacy/engine.js`.
+ */
+export const READS_AS_GUEST = "@#reads-as-guest";
+
+/** Whether these names say their holder reads as a guest (`READS_AS_GUEST`). */
+export function readsAsGuest(names: ReadonlySet<string> | undefined): boolean {
+  return names !== undefined && names.has(READS_AS_GUEST);
+}
+
+/**
  * The one question that matters: may this caller see this key at all?
  *
  * `privacy.md` is visible only at `private` scope — it is the access map, and
@@ -610,7 +627,7 @@ export function canSee(
   if (isPlumbing(key)) return false;
   if (scope === "private") return true;
   const visibility = effectiveVisibility(key, rules, overrides);
-  if (visibility === "team") return true;
+  if (visibility === "team") return !readsAsGuest(grantedGroups);
   if (visibility === "private") return false;
   return grantedGroups !== undefined && grantedGroups.has(visibility);
 }

@@ -13,6 +13,7 @@ import {
   effectiveVisibility,
   foldPath,
   isPlumbing,
+  readsAsGuest,
   visibilityOf,
 } from "../privacy";
 import { type Clearance } from "../clearance";
@@ -85,8 +86,10 @@ export function folderVisibleAtScope(
   // absent from the tree: reachable only by somebody who already knew its name,
   // which is the failure `folderVisibleAtScope`'s own nested-rule scan exists
   // to prevent.
+  // `team` is not a guest's, as in `canSee` (`READS_AS_GUEST`).
+  const team = !readsAsGuest(clearance.names);
   const reaches = (visibility: Visibility) =>
-    visibility === "team" || clearance.names.has(visibility);
+    (visibility === "team" && team) || clearance.names.has(visibility);
   if (reaches(visibilityOf(folderPath, rules))) return true;
   for (const [path, visibility] of overrides) {
     if (reaches(visibility) && path.startsWith(`${folderPath}/`)) return true;

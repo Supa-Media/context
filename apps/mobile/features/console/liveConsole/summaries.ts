@@ -37,8 +37,8 @@ export interface WorkspaceSummary {
   icon?: { kind: "photo"; leaf: string } | { kind: "emoji"; emoji: string };
   /** The pinned context. See `ConsoleContext.pinned` for what it changes here. */
   pinned?: boolean;
-  /** The pinned workspace, for its members too. See `ConsoleContext.everyAccountReadsTeam`. */
-  everyAccountReadsTeam?: boolean;
+  /** The pinned workspace, for its members too. See `ConsoleContext.offersAllContextUsers`. */
+  offersAllContextUsers?: boolean;
 }
 
 /**

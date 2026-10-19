@@ -504,6 +504,15 @@ export const nodeTables = {
      * Nothing reads it yet: absent or `file` is the only behaviour today.
      */
     accessSource: v.optional(v.union(v.literal("file"), v.literal("shadow"), v.literal("rows"))),
+    /**
+     * When the pinned workspace's `team` rows were given the `accounts` grant (`functions/pinnedAccounts.ts`).
+     * From then on a pin reader reads as a guest (`lib/pinnedReaders.ts`); until then, at `team` as before.
+     */
+    pinnedAccountsAt: v.optional(v.number()),
+    /** When a page of that migration last ran: a pass is in flight while this is recent (`PINNED_ACCOUNTS_IN_FLIGHT_MS`). */
+    pinnedAccountsPageAt: v.optional(v.number()),
+    /** When its second pass finished: from then on the cron that starts it reads this one row and stops. */
+    pinnedAccountsDoneAt: v.optional(v.number()),
     updatedAt: v.number(),
     updatedBy: v.optional(v.id("users")),
   }),

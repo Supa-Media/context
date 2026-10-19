@@ -20,6 +20,8 @@
 
 import type { SettableVisibility, Visibility } from "./types";
 import {
+  ALL_USERS_NAME,
+  allUsersDetail,
   audienceDetail,
   audienceName,
   membersDetail,
@@ -28,15 +30,20 @@ import {
 } from "../privacy/audience";
 
 /**
- * The positions, widest last. `members` is base `private` plus the built-in members grantee: in the pinned
- * workspace, where `team` is every signed-in Context account, it is the position that means the people actually
- * invited (`docs/decisions/privacy-and-sharing/all-context-users.md`). Elsewhere it reaches what `team` reaches, and
- * is offered only to show a note already set that way (`audiencePositions`).
+ * The positions, widest last (`docs/decisions/privacy-and-sharing/all-context-users.md`). In the pinned workspace
+ * (`offersAllUsers`) `members` is Members of @slug, base `team` (or, written before 2026-10-19, base `private` plus
+ * the built-in members grantee), and `team` is All Context users, base `team` plus the built-in `accounts` grant.
+ * Elsewhere `team` is Everyone in @slug, and `members` (base `private` plus the members grantee) reaches the same
+ * people and is offered only to show a note already set that way (`audiencePositions`).
  */
 export type NoteScope = "private" | "members" | "team" | "anyone";
 
-/** The step a visibility move writes: a tier, or the Members position (private plus every member). */
-export type ScopeVisibility = SettableVisibility | "members";
+/**
+ * The step a visibility move writes: a tier, the Members position, or All Context users (`accounts`, the pinned
+ * workspace only: base `team` plus the accounts grant). The server writes Members in the pinned workspace as the
+ * pin readers read it then (`nodesAccess.consoleAccess`), and as base `private` plus every member elsewhere.
+ */
+export type ScopeVisibility = SettableVisibility | "members" | "accounts";
 
 /**
  * What the control shows, from the manifest's answer and whether a live
@@ -51,7 +58,13 @@ export type ScopeVisibility = SettableVisibility | "members";
  * something they have not. The stale row is harmless and invisible; taking it
  * back is what pressing through to `private` already does.
  */
-export function scopeOf(visibility: Visibility, hasOpenLink: boolean, membersGranted = false): NoteScope {
+export function scopeOf(
+  visibility: Visibility,
+  hasOpenLink: boolean,
+  membersGranted = false,
+  /** In the pinned workspace: whether the row carries the accounts grant, `undefined` while its list loads. */
+  accountsGranted?: boolean,
+): NoteScope {
   // A group rule lands here as "private", which is the right POSITION for this
   // three-way control — it is not team, and the step out of it is a deliberate
   // widening the owner presses. It is not the right WORD, and this function
@@ -61,7 +74,10 @@ export function scopeOf(visibility: Visibility, hasOpenLink: boolean, membersGra
   // A members grant on a private row is the Members position, read before anything that would call it
   // Restricted: drawing a note every member can open as "owners only" understates who has it.
   if (visibility !== "team") return membersGranted ? "members" : "private";
-  return hasOpenLink ? "anyone" : "team";
+  if (hasOpenLink) return "anyone";
+  // The pinned workspace: `team` without the accounts grant is Members. While the list loads it reads as All
+  // Context users, the wider of the two, so a note is never drawn as reaching fewer people than it does.
+  return accountsGranted === false ? "members" : "team";
 }
 
 /**
@@ -70,11 +86,11 @@ export function scopeOf(visibility: Visibility, hasOpenLink: boolean, membersGra
  * position is never drawn as one it is not.
  */
 export function audiencePositions(options: {
-  everyAccount: boolean;
+  offersAllUsers: boolean;
   membersWritable: boolean;
   scope: NoteScope;
 }): NoteScope[] {
-  const members = options.scope === "members" || (options.everyAccount && options.membersWritable);
+  const members = options.scope === "members" || (options.offersAllUsers && options.membersWritable);
   return members ? ["private", "members", "team", "anyone"] : ["private", "team", "anyone"];
 }
 
@@ -108,23 +124,24 @@ export type ScopeStep =
  * straight from private to the internet in one press is the accident worth
  * making impossible.
  */
-export function stepsTo(from: NoteScope, to: NoteScope): ScopeStep[] {
+export function stepsTo(from: NoteScope, to: NoteScope, offersAllUsers = false): ScopeStep[] {
   if (from === to) return [];
   const closeLink: ScopeStep[] = from === "anyone" ? [{ kind: "openLink", on: false }] : [];
-  // Below `team` (Restricted, Members) the row is private: reaching `team` or a link writes the tier first.
+  // Below `team` (Restricted, Members) the row is private, or in the pinned workspace has no accounts grant:
+  // reaching `team` or a link writes the tier first.
   const narrow = from === "private" || from === "members";
+  // In the pinned workspace `team` is All Context users, which is a grant as well as a tier.
+  const wide: ScopeStep = { kind: "visibility", to: offersAllUsers ? "accounts" : "team" };
   if (to === "private" || to === "members") {
     return [...closeLink, { kind: "visibility", to }];
   }
   if (to === "team") {
-    return [...closeLink, ...(narrow ? ([{ kind: "visibility", to: "team" }] as ScopeStep[]) : [])];
+    // From a link in the pinned workspace the row may be Members with a link, so the grant is written either way.
+    return [...closeLink, ...(narrow || (offersAllUsers && from === "anyone") ? [wide] : [])];
   }
   // `anyone`. Reached from `team` by the cycle; from below it also has to
   // publish, which the cycle never asks for but a caller could.
-  return [
-    ...(narrow ? ([{ kind: "visibility", to: "team" }] as ScopeStep[]) : []),
-    { kind: "openLink", on: true },
-  ];
+  return [...(narrow ? [wide] : []), { kind: "openLink", on: true }];
 }
 
 /**
@@ -156,10 +173,10 @@ export function scopeLabels(
       label: membersName(context),
       detail: membersDetail(context),
     },
-    team: {
-      label: audienceName("team", context),
-      detail: audienceDetail("team", context),
-    },
+    team:
+      context.offersAllUsers === true
+        ? { label: ALL_USERS_NAME, detail: allUsersDetail(context) }
+        : { label: audienceName("team", context), detail: audienceDetail("team", context) },
     anyone: {
       label: "Anyone with the link",
       detail: "No account needed. Anybody holding the link can read it.",
