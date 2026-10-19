@@ -42,7 +42,8 @@ jobs:
 
       - name: Window repair
         if: ${{ inputs.since != '' }}
-        run: npx convex run functions/gmailDayRepair:queueDayRepair "{\"since\": \"$SINCE\"}"
+        run: |
+          npx convex run functions/gmailDayRepair:queueDayRepair "{\"since\":\"$SINCE\"}"
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
           SINCE: ${{ inputs.since }}
