@@ -55,30 +55,46 @@ export async function syncDayFromGmail(options) {
   }
   const events = [];
   let fetched = 0;
-  for (const id of ids) {
-    const cached = cache.events.get(id);
-    if (cached !== undefined) {
-      events.push(cached);
-      continue;
+  try {
+    for (const id of ids) {
+      const cached = cache.events.get(id);
+      if (cached !== undefined) {
+        events.push(cached);
+        continue;
+      }
+      // A message listed a moment ago and gone by the time it is fetched is
+      // ordinary in a live mailbox — the owner deleted it, or a filter moved it
+      // to Trash, between the two calls. The day is regenerated from whatever
+      // Gmail still has, which is exactly what "the day is always the complete,
+      // current query result" means; it is not a reason to abandon the day.
+      let message = known.get(id);
+      if (message === undefined) {
+        fetched += 1;
+        message = await getMessageOrNull({
+          fetchImpl: options.fetchImpl,
+          accessToken: options.accessToken,
+          id,
+        });
+      }
+      if (message === null) continue;
+      // Through JSON, the same as a cached event, so a day renders the same
+      // bytes whether its events were fetched this pass or remembered.
+      events.push(JSON.parse(JSON.stringify(gmailMessageToEvent(message, { mailboxSlug: options.mailboxSlug }))));
     }
-    // A message listed a moment ago and gone by the time it is fetched is
-    // ordinary in a live mailbox — the owner deleted it, or a filter moved it
-    // to Trash, between the two calls. The day is regenerated from whatever
-    // Gmail still has, which is exactly what "the day is always the complete,
-    // current query result" means; it is not a reason to abandon the day.
-    let message = known.get(id);
-    if (message === undefined) {
-      fetched += 1;
-      message = await getMessageOrNull({
-        fetchImpl: options.fetchImpl,
-        accessToken: options.accessToken,
-        id,
+  } catch (error) {
+    // Google stopped this day part-way (a rate limit, say). Keep what was
+    // fetched, so the retry asks only for the rest instead of starting over
+    // and meeting the same limit at the same message. A partial cache is
+    // safe: it only says which messages need no fetch, and the note is still
+    // rendered from the day's whole list.
+    if (caching && fetched > 0) {
+      const kept = new Map(cache.events);
+      for (const event of events) kept.set(event.messageId, event);
+      await writeDayCache(options.store, options.mailboxSlug, options.date, serializeDayCache(options.date, [...kept.values()]), {
+        existed: cache.existed,
       });
     }
-    if (message === null) continue;
-    // Through JSON, the same as a cached event, so a day renders the same
-    // bytes whether its events were fetched this pass or remembered.
-    events.push(JSON.parse(JSON.stringify(gmailMessageToEvent(message, { mailboxSlug: options.mailboxSlug }))));
+    throw error;
   }
   // Serialized before `syncOneDay`, which annotates attachments in place.
   const cacheText = caching ? serializeDayCache(options.date, events) : null;

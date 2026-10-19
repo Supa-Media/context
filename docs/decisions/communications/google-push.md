@@ -90,3 +90,38 @@ delivery to a `.convex.site` address without domain verification, and the
 exact shape of Workspace Events' lifecycle attributes should be checked
 against the first real account, and this section corrected rather than
 worked around.
+
+### A workspace's passes run back to back, and a pushed one goes first
+
+Found on 2026-10-19: with push working, a person's new mail still took up to
+an hour to land. The sweep runs one pass per workspace at a time (the
+shared-writer lock that keeps two accounts' Chat and Calendar days from
+racing), one product per pass, and only the five-minute cron started the next
+one. A person with three accounts, each with Gmail, Calendar and Chat, had
+nine product turns sharing one pass every five minutes. A notification's sweep
+30 seconds later usually found the lock held and did nothing, and the next
+cron tick served whichever row the index offered first, which was a routine
+poll rather than the account Google had just told us about.
+
+So (`apps/convex/functions/lib/googleSync/drain.ts`):
+
+- **When a pass reports, its workspace's next due pass starts at once.**
+  `recordGoogleForwardSyncPass` queues a sweep if any row in that workspace is
+  due by the sweep's own tests: not claimed, `nextSyncAt` reached, and
+  `isDue`. The chain ends when nothing is due. A row that is only draining a
+  backlog (`syncCatchUp`) does not count, so a long catch-up keeps the cron's
+  pace and Gmail's quota is not spent pass after pass.
+- **The sweep serves pushed connections first.** A row with a pending mark on
+  a product that is not backing off goes ahead of rows that are due only by
+  the interval.
+- **A day Google stops part-way resumes where it stopped.** When a fetch
+  throws in the middle of a day (a rate limit), the messages already fetched
+  are written to the day's cache before the error goes up. Without this, a day
+  with more messages than one burst of quota would fail at the same message
+  on every retry and never land.
+
+What a simplification costs: dropping the queue puts the workspace back on one
+pass per five minutes; dropping the ordering makes a push wait behind every
+due poll in its workspace. Tests:
+`apps/convex/__tests__/googleSyncLoop/workspaceDrain.test.ts`,
+`apps/mcp/test/gmailSync/messageCache.test.mjs`.

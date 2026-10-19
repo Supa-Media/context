@@ -158,3 +158,7 @@ Moved to [Synced mail first, then Gmail for what the sync does not hold](./commu
 ### A pass fetches only the mail it has not seen
 
 Moved to [A pass fetches only the mail it has not seen](./communications/gmail-and-sync-loop.md#a-pass-fetches-only-the-mail-it-has-not-seen).
+
+### A workspace's passes run back to back, and a pushed one goes first
+
+Moved to [A workspace's passes run back to back, and a pushed one goes first](./communications/google-push.md#a-workspaces-passes-run-back-to-back-and-a-pushed-one-goes-first).
