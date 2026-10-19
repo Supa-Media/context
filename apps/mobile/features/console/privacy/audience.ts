@@ -57,7 +57,7 @@
  * publishes something, only quieter.
  */
 
-import { isGroupVisibility, type Visibility } from "../files/types";
+import { isGroupVisibility, isListToken, type Visibility } from "../files/types";
 import type { ContextKind } from "./words";
 
 /**
@@ -105,6 +105,7 @@ export function audienceName(
     return context.everyAccount === true ? "All Context users" : `Everyone in ${contextHandle(context.slug)}`;
   }
   if (visibility === "private") return "Restricted";
+  if (isListToken(visibility)) return "Shared";
   return liveCount === undefined
     ? visibility
     : `${visibility} (${liveCount} ${liveCount === 1 ? "person" : "people"})`;
@@ -146,6 +147,9 @@ export function audienceDetail(
         : "This context's owner only.";
     }
     return "Owners of this context only.";
+  }
+  if (isListToken(visibility)) {
+    return "Only the people it is shared with, and this context's owners.";
   }
   return `Only ${visibility}, and this context's owners. Nobody else in ${contextHandle(context.slug)}.`;
 }

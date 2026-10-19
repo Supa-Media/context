@@ -34,7 +34,7 @@
  * their co-lead — which is why the manifest and `index.md` say it too.
  */
 
-import { isGroupVisibility, type Visibility } from "../files/types";
+import { isGroupVisibility, isListToken, type Visibility } from "../files/types";
 import type { PrivacyNoteRow } from "./map";
 
 /**
@@ -85,7 +85,14 @@ export function visibilityWordIn(visibility: Visibility, everyAccount: boolean):
   // beside a folder there would read as everyone on People.
   if (visibility === "team") return everyAccount ? "All users" : "Everyone";
   if (visibility === "private") return "Restricted";
+  // A row's own list (`@#<noteId>`) is an id; the people on it are in the share dialog.
+  if (isListToken(visibility)) return "Shared";
   return visibility;
+}
+
+/** Who a group-shaped visibility reaches, inside a sentence: the group's name, or the list a token stands for. */
+function readers(visibility: Visibility): string {
+  return isListToken(visibility) ? "the people it is shared with" : visibility;
 }
 
 /** Who `team` reaches, in the words the default lines use: every account in the pinned workspace. */
@@ -103,7 +110,7 @@ function teamReach(everyAccount: boolean): string {
  */
 export function rootDefaultLine(visibility: Visibility, everyAccount = false): string {
   if (isGroupVisibility(visibility)) {
-    return `A note at the top of this workspace, and any folder nobody has given a rule — including one added tomorrow — is readable by ${visibility} and nobody else.`;
+    return `A note at the top of this workspace, and any folder nobody has given a rule — including one added tomorrow — is readable by ${readers(visibility)} and nobody else.`;
   }
   return visibility === "team"
     ? `A note at the top of this workspace, and any folder nobody has given a rule, is readable by ${teamReach(everyAccount)}.`
@@ -113,7 +120,7 @@ export function rootDefaultLine(visibility: Visibility, everyAccount = false): s
 /** What a folder's default does to the notes inside it. */
 export function folderDefaultLine(visibility: Visibility, everyAccount = false): string {
   if (isGroupVisibility(visibility)) {
-    return `Every note in here is readable by ${visibility}, and by nobody else in this workspace, unless it is named otherwise.`;
+    return `Every note in here is readable by ${readers(visibility)}, and by nobody else in this workspace, unless it is named otherwise.`;
   }
   return visibility === "team"
     ? `Every note in here is readable by ${teamReach(everyAccount)}, unless it is held back by name.`
