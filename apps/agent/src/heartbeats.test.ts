@@ -21,7 +21,7 @@ function harness(opts: {
 }) {
   const calls: { path: string; auth: string | null; body: any }[] = [];
   const results: { runId: string; outcome: string }[] = [];
-  const texts: { phone: string; text: string; key: string }[] = [];
+  const texts: { phone: string; text: string; key: string; continues?: string }[] = [];
   const logs: Record<string, unknown>[] = [];
   const fetcher = (async (url: string, init: RequestInit) => {
     const path = new URL(url).pathname;
@@ -46,8 +46,8 @@ function harness(opts: {
       controlPlaneOrigin: configured ? "https://cp.example.invalid" : undefined,
       workerSecret: "worker-secret",
       gatewayOrigin: "https://gw.example.invalid",
-      textPhone: async (phone, text, key) => {
-        texts.push({ phone, text, key });
+      textPhone: async (phone, text, key, continues) => {
+        texts.push({ phone, text, key, ...(continues !== undefined ? { continues } : {}) });
         return opts.texted ? opts.texted(phone) : "texted";
       },
       log: (entry) => logs.push(entry),
@@ -80,6 +80,21 @@ describe("a tick of check-ins", () => {
     ]);
     // The control plane's calls carry the Worker's secret, never a check-in's grant.
     for (const call of h.calls.filter((c) => c.path !== "/agent")) expect(call.auth).toBe("Bearer worker-secret");
+  });
+
+  it("a look that continues an earlier text hands its words on with the text, to go under it", async () => {
+    const h = harness({
+      heartbeats: [beat("c", { phones: ["+15550004"] }), beat("dd", { phones: ["+15550005"] })],
+      gateway: (token) =>
+        token === "grant_c"
+          ? Response.json({ outcome: "speak", answer: "The hold ends at 5. Want me to reply?", continues: "The lane hold expires at 5 PM today." })
+          : Response.json({ outcome: "speak", answer: "Rent is due Friday.", continues: "  " }),
+    });
+    await h.run();
+    expect([...h.texts].sort((x, y) => x.phone.localeCompare(y.phone))).toEqual([
+      { phone: "+15550004", text: "The hold ends at 5. Want me to reply?", key: "heartbeat:c:+15550004", continues: "The lane hold expires at 5 PM today." },
+      { phone: "+15550005", text: "Rent is due Friday.", key: "heartbeat:dd:+15550005" },
+    ]);
   });
 
   it("a claim for the person's pings asks the gateway for those, and texts them like a check-in", async () => {

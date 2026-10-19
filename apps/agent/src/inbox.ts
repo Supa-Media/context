@@ -21,6 +21,9 @@
  *   an hour, while Sendblue fetches it (`media.ts`).
  * - `card` holds a timestamp, never text: when this sender was last offered
  *   the line's contact card, so it is offered at most once a day.
+ * - `threads` holds the handles of the last thirty texts in a Sendblue chat,
+ *   theirs and Tex's, each with a salted hash of its opening words, never
+ *   text, so a check-in that continues one goes under it (`threads.ts`).
  * - `ready` holds the phone, the chat id and times, never text, while Tex owes
  *   somebody set up by text the "your notes are ready" text (`ready.ts`); it
  *   goes when that text is sent, or after twenty minutes.
@@ -46,6 +49,7 @@ import { COPY, replyTo, TryLater, type Message, type ReplyDeps } from "./reply";
 import { record } from "./simulator";
 import { oweReadyText } from "./ready";
 import { clearTold, noteTold, owedTold } from "./told";
+import { rememberText } from "./threads";
 
 /** The subset of `DurableObjectStorage` this uses, so tests can pass a Map. */
 export type InboxStorage = {
@@ -129,6 +133,7 @@ export async function accept(
   await storage.put("seq", seq);
   await storage.put(seenKey(message.eventId), now);
   await storage.put<Pending>(pendingKey(seq), { message, attempts: 0 });
+  await rememberText(storage, message.chatId, message.messageId, message.text, now);
   const previous = await storage.get<RememberedChat>(CHAT_KEY);
   const told = (await storage.get<number>(NEW_LINE_TOLD_KEY)) !== undefined;
   if (previous && !told && previous.channel !== "simulator" && !isSendblueChat(previous.chatId) && isSendblueChat(message.chatId)) {
@@ -185,7 +190,10 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
           continue;
         }
         const key = index === 0 ? `reply:${item.message.eventId}` : `reply:${item.message.eventId}:${index}`;
-        if (typeof part === "string") await line.sendText(item.message.chatId, part, key, thread);
+        if (typeof part === "string") {
+          const handle = await line.sendText(item.message.chatId, part, key, thread);
+          await rememberText(storage, item.message.chatId, handle, part, deps.now());
+        }
         else await sendPicture(deps, item.message.chatId, part.media, key, thread);
         sent = index + 1;
       }

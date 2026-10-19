@@ -12,9 +12,10 @@
  * compared in constant time, and a redelivered message is answered once
  * because the inbox dedupes on its `message_handle`.
  *
- * No response body is ever logged or echoed: it can quote the message. Two
+ * No response body is ever logged or echoed: it can quote the message. Three
  * bodies are read: a replied-to message, only when it is in this person's
- * own chat (`repliedToText`), and the line's Name & Photo state.
+ * own chat (`repliedToText`), the line's Name & Photo state, and an accepted
+ * send's `message_handle` (nothing else of it).
  */
 
 import { MAX_REPLY_TEXT, ServiceError, type Fetch } from "./clients";
@@ -114,29 +115,68 @@ function chatOf(chatId: string): { number: string; from_number: string } {
 }
 
 /**
+ * A send's `message_handle`, read from a 2xx body only and only that field
+ * (an error body can quote the request): the handle a later check-in can be
+ * threaded under (`threads.ts`). Undefined when the body has none.
+ */
+async function sendCall(fetcher: Fetch, keys: SendblueKeys, body: Record<string, unknown>): Promise<{ status: number; handle?: string }> {
+  let response: Response;
+  try {
+    response = await fetcher(`${SENDBLUE_API}/api/send-message`, {
+      method: "POST",
+      headers: { ...headersOf(keys), "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+  } catch {
+    throw new ServiceError("sendblue", null);
+  }
+  if (response.status < 200 || response.status >= 300) {
+    await response.body?.cancel();
+    return { status: response.status };
+  }
+  let handle: unknown;
+  try {
+    const parsed: unknown = await response.json();
+    handle = isRecord(parsed) ? (isRecord(parsed.data) ? parsed.data.message_handle : parsed.message_handle) : undefined;
+  } catch {
+    handle = undefined;
+  }
+  return typeof handle === "string" && handle !== "" ? { status: response.status, handle } : { status: response.status };
+}
+
+/**
  * One message, inside the thread of the message `replyTo` names when given
  * (docs: iMessage inline replies). Sendblue refuses a reply it can't thread
  * with a 400 and sends nothing then (an older line, a target it no longer
  * holds), so a refused threaded send goes again as a plain message: a reply
  * outside the thread beats no reply.
  */
-async function sendMessage(fetcher: Fetch, keys: SendblueKeys, chatId: string, body: Record<string, unknown>, replyTo?: string): Promise<void> {
+async function sendMessage(
+  fetcher: Fetch,
+  keys: SendblueKeys,
+  chatId: string,
+  body: Record<string, unknown>,
+  replyTo?: string,
+): Promise<string | undefined> {
   const plain = { ...chatOf(chatId), ...body };
-  let status: number;
+  let sent: { status: number; handle?: string };
   if (replyTo) {
-    status = await call(fetcher, keys, "/api/send-message", { ...plain, reply_to: { message_handle: replyTo } });
-    if (status !== 400) {
-      if (status < 200 || status >= 300) throw new ServiceError("sendblue", status);
-      return;
+    sent = await sendCall(fetcher, keys, { ...plain, reply_to: { message_handle: replyTo } });
+    if (sent.status !== 400) {
+      if (sent.status < 200 || sent.status >= 300) throw new ServiceError("sendblue", sent.status);
+      return sent.handle;
     }
-    logRefused("sendblue_thread", status);
+    logRefused("sendblue_thread", sent.status);
   }
-  status = await call(fetcher, keys, "/api/send-message", plain);
-  if (status < 200 || status >= 300) throw new ServiceError("sendblue", status);
+  sent = await sendCall(fetcher, keys, plain);
+  if (sent.status < 200 || sent.status >= 300) throw new ServiceError("sendblue", sent.status);
+  return sent.handle;
 }
 
-export async function sendSendblueText(fetcher: Fetch, keys: SendblueKeys, chatId: string, text: string, replyTo?: string): Promise<void> {
-  await sendMessage(fetcher, keys, chatId, { content: text.slice(0, MAX_REPLY_TEXT) }, replyTo);
+/** One text; its `message_handle` when Sendblue's answer names one. */
+export async function sendSendblueText(fetcher: Fetch, keys: SendblueKeys, chatId: string, text: string, replyTo?: string): Promise<string | undefined> {
+  return await sendMessage(fetcher, keys, chatId, { content: text.slice(0, MAX_REPLY_TEXT) }, replyTo);
 }
 
 /** Send one picture by its https address, which Sendblue fetches. */
