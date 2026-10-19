@@ -63,7 +63,8 @@ import { NO_MODEL, deliverSupervision, prepareSupervision, withMailAgent } from 
 import { LONG_MAX_ROUNDS, LONG_TOOL_BUDGET_MS, progressChannel } from "./progress.js";
 import { markUntrusted, newLedger } from "../privacy/egress.js";
 import { transcriptionForwarder } from "../ingestion/transcription.js";
-import { outgoingPictures, sentPicturesLine } from "./outgoingPictures.js";
+import { sentPicturesLine } from "./outgoingPictures.js";
+import { turnPictures, withPictureMaker } from "./pictureMaker.js";
 import { disarmTexting, withdrawPending } from "../tools/approvals.js";
 import { askedWith, quotedOf } from "./quoted.js";
 import { textedAsk } from "./textedApprovals.js";
@@ -497,8 +498,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       })
     : null;
 
-  // Pictures a texted answer sends back (`outgoingPictures.js`): a text from their phone only.
-  const outgoing = outgoingPictures({ enabled: session.actorClientId === TEXTS_CLIENT_ID, question });
+  const texted = session.actorClientId === TEXTS_CLIENT_ID; // Pictures sent back, drawn or made: a text only (`pictureMaker.js`).
+  const { outgoing, maker } = turnPictures(env, { texted, question, attachments, store, keep: conversation === "texts", meter, workspaceId: session.workspaceId });
   try {
     const turn = await runTurn({
       question: askedWith(question, quoted),
@@ -510,18 +511,18 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
         ...textingWriting,
         ...(skills?.tools ?? []),
         ...(delegation?.tools ?? []),
-        ...(supervision?.mail.tools ?? []),
+        ...(supervision?.mail.tools ?? []), ...(maker?.tools ?? []),
       ],
       // THE ONE DISPATCHER, AND IT IS THE CLIENT'S (`callToolForSession`): its routing and every
       // per-call scope refusal. An agent that reached past it would be a second, untested authority.
       onModel: (model) => void (store.usageModel = model),
       callTool: outgoing.wrap(
-        withAttachmentImages(
+        withPictureMaker(maker, withAttachmentImages(
           attachments,
           withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withSkills(skills, withNoteLinks(textingAwareCallTool(dispatch, textingWriting), noteLinking)))),
-        ),
+        )),
       ),
-      pictures: session.actorClientId === TEXTS_CLIENT_ID,
+      pictures: texted,
       attachments,
       env,
       providerOptions: {
@@ -553,7 +554,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       maxRounds: production?.maxSteps ?? undefined,
       // A browser call can open a page and settle it (`infra/site-shots`
       // budgets 17 s); the default would cut a slow one short and lose it.
-      toolTimeouts: { browse: 30_000, fill_login: 30_000 },
+      toolTimeouts: { browse: 30_000, fill_login: 30_000, draw_picture: 40_000, make_picture: 70_000 },
       ...(channel !== null ? { progress: channel, roundCap: LONG_MAX_ROUNDS, toolBudgetMs: LONG_TOOL_BUDGET_MS } : {}),
     });
     // The question's browser, if it opened one, is not left running.

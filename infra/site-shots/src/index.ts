@@ -34,6 +34,9 @@
  *   Either with `provider: "browserbase"` drives the person's Browserbase
  *   browser instead (./browserbaseRoute.ts); that path holds the Worker's
  *   one secret, the Browserbase key, which never leaves this Worker.
+ *   POST /render  `{ html, width?, height?, allow? }` → `{ png, width, height,
+ *                 blocked }`: a page the texting assistant wrote, as a
+ *                 picture, reaching only the addresses in `allow` (./render.ts)
  *   POST /view/frame `{ owner }`, /view/input `{ owner, action }`: the
  *   person's own look at, and hands on, that browser, for the Context app's
  *   `/tex/<handle>` page through the gateway (./view.ts). They find a
@@ -51,6 +54,7 @@ import { browseOnBrowserbase } from "./browserbaseRoute";
 import { viewOnBrowserbase } from "./view";
 import { BROWSE_GOTO_TIMEOUT_MS, parseBrowseRequest, runSteps, type BrowsePage } from "./browse";
 import type { Browser, BrowserContext } from "@cloudflare/puppeteer";
+import { parseRenderRequest, render, type RenderBrowser } from "./render";
 import { parseShootRequest, shoot, type BrowserLike, type PageLike } from "./shoot";
 
 interface Env extends BrowserbaseEnv {
@@ -81,6 +85,25 @@ export default {
     }
     if (request.method === "POST" && (url.pathname === "/view/frame" || url.pathname === "/view/input")) {
       return await viewOnBrowserbase(env, url.pathname, await request.json().catch(() => null));
+    }
+    if (request.method === "POST" && url.pathname === "/render") {
+      const parsed = parseRenderRequest(await request.json().catch(() => null));
+      if (parsed === null) return json({ error: "a page of HTML and a size within bounds are required" }, 400);
+      let browser: BrowserLike;
+      try {
+        browser = await warmContext(env);
+      } catch (error) {
+        return launchFailed(error);
+      }
+      const started = Date.now();
+      try {
+        const result = await render(browser as unknown as RenderBrowser, parsed);
+        // Sizes and timing only: never the page or an address.
+        console.log(JSON.stringify({ event: "site_shots_render", width: parsed.width, height: parsed.height, blocked: result.blocked.length, ms: Date.now() - started }));
+        return json(result);
+      } catch {
+        return json({ error: "that page could not be drawn" }, 502);
+      }
     }
     if (request.method !== "POST" || (url.pathname !== "/shoot" && url.pathname !== "/read")) {
       return new Response(null, { status: 404 });

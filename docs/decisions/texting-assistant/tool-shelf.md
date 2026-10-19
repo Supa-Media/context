@@ -20,8 +20,8 @@ tool the turn holds, and a dream narrows further by naming its one action
 (`grants: { write: ["save"] }`). A call to one of the six is translated into its
 carrying tool and must then pass the turn's allowlist; an action outside the
 grant is refused before anything is dispatched. Tex's own abilities are actions
-no connected app is granted: `send` browse, open_page, search_web, fill_login
-and progress, and `fetch` ids `skill:<name>` and `texts:`. The older names stay
+no connected app is granted: `send` browse, open_page, search_web, fill_login,
+progress, draw_picture and make_picture ([pictures](./pictures.md)), and `fetch` ids `skill:<name>` and `texts:`. The older names stay
 callable as themselves, as on the MCP, so a setup note or an earlier turn that
 names `write_note` still works; a setup's `core_tools` is no longer read.
 

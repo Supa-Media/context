@@ -138,4 +138,5 @@ test/attention.test.mjs
 test/vaultSharing.test.mjs
 test/pinnedTeamWords.test.mjs
 test/privacy/readsAsGuest.test.mjs
+test/agentPictureMaker.test.mjs
 test/readFile.test.mjs
