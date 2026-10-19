@@ -31,6 +31,9 @@ import {
   runPass,
 } from "./fixtures.helpers";
 
+/** A forward pass: history, then today's and yesterday's day lists (`reconcileDays`); no message is fetched. */
+const FORWARD_PASS = ["/gmail/v1/users/me/history", "/gmail/v1/users/me/messages", "/gmail/v1/users/me/messages"];
+
 const PENDING = { status: "pending" as const, attempts: 0 };
 
 /** Sixty messages over three days, the newest on 2026-10-16. */
@@ -178,7 +181,7 @@ describe("the import, end to end", { timeout: 30_000 }, () => {
     vi.stubGlobal("fetch", next.fetchImpl);
     await runPass(t, workspaceId, connectionId);
 
-    expect(next.calls).toEqual(["/gmail/v1/users/me/history"]);
+    expect(next.calls).toEqual(FORWARD_PASS);
     expect((await readConnection(t, connectionId)).gmail?.historyId).toBe("4100");
     expect(backend.snapshot()).toEqual(before);
   });
@@ -190,7 +193,7 @@ describe("the import, end to end", { timeout: 30_000 }, () => {
 
     await runPass(t, workspaceId, connectionId);
 
-    expect(google.calls).toEqual(["/gmail/v1/users/me/history"]);
+    expect(google.calls).toEqual(FORWARD_PASS);
     expect(dayNotes(backend.snapshot())).toEqual([]);
   });
 
@@ -243,7 +246,7 @@ describe("the import, end to end", { timeout: 30_000 }, () => {
     const forward = googleAndBucket({ backend, messages: MAILBOX, history: { messageIds: [], historyId: "4100" } });
     vi.stubGlobal("fetch", forward.fetchImpl);
     await runPass(t, workspaceId, connectionId);
-    expect(forward.calls).toEqual(["/gmail/v1/users/me/history"]);
+    expect(forward.calls).toEqual(FORWARD_PASS);
     expect((await readConnection(t, connectionId)).gmail?.historyId).toBe("4100");
   });
 

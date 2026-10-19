@@ -70,7 +70,7 @@ import {
   timeoutFetch,
   writeSharedCalendarDay,
 } from "./forwardSyncSupport";
-import { gmailDayStore } from "./gmailDayStore";
+import { gmailDayStore, reconcileDays } from "./gmailDayStore";
 import { runGmailRecentImport } from "./gmailRecentImport";
 import type { OperationResult } from "./operationTypes";
 import { ensureGooglePush } from "../googlePush/ensure";
@@ -492,6 +492,7 @@ async function runMintedPass(
     folders: job.folders,
     startHistoryId: job.historyId,
     folder: job.destinationFolder,
+    reconcileDates: reconcileDays(Date.now()),
     // The same nonce the backfill used, so a day rewritten by either path
     // keeps its message anchors — see `packages/communications/src/note.js`.
     nonce: `gmail:${job.connectionId}`,
@@ -515,10 +516,7 @@ async function runMintedPass(
   });
 
   if (result.gapDetected) {
-    const historyId = await getProfileHistoryId({
-      fetchImpl: timeoutFetch,
-      accessToken: accessToken,
-    });
+    const historyId = await getProfileHistoryId({ fetchImpl: timeoutFetch, accessToken });
     await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
       connectionId: job.connectionId,
       status: "synced",

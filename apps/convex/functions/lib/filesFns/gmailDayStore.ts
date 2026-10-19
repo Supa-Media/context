@@ -85,3 +85,14 @@ export function gmailDayStore(store: FileStore, folder: string | undefined): Fil
     capabilities: store.capabilities,
   };
 }
+
+/**
+ * The days every Gmail pass rebuilds whether or not history named them: today
+ * and yesterday, UTC, as the day notes are. A day frozen before #1923, or one
+ * whose write a pass lost, catches up on the next pass instead of waiting for
+ * mail to land on it; an unchanged day re-renders identical and is not written.
+ */
+export function reconcileDays(now: number): string[] {
+  const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+  return [day(now - 24 * 60 * 60 * 1000), day(now)];
+}
