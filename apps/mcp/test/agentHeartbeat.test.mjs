@@ -36,6 +36,7 @@ import {
   heartbeatCallTool,
   heartbeatPath,
   heartbeatQuestion,
+  recentTextLines,
   readSettings,
   textedLines,
 } from "../src/agent/heartbeat.js";
@@ -201,6 +202,24 @@ function unitChecks(check) {
   check(
     "a check-in texts like a person: short, and never a note path",
     builtIn.includes("one or two short sentences") && builtIn.includes("never a note path") && !builtIn.includes("which note it is in"),
+  );
+  const recent = recentTextLines([
+    { role: "user", text: CHECK_IN_QUESTION },
+    { role: "assistant", text: "The lane hold expires at 5 PM today. Want me to draft a reply?" },
+    { role: "user", text: "what's the Oct 30 pricing" },
+    { role: "assistant", text: "It's in a PDF I can't open." },
+  ]);
+  check(
+    "a look sees the last texts with them, its own check-ins marked, and is told to continue rather than repeat",
+    JSON.stringify(recent) ===
+      JSON.stringify([
+        "You (a check-in): The lane hold expires at 5 PM today. Want me to draft a reply?",
+        "Them: what's the Oct 30 pricing",
+        "You: It's in a PDF I can't open.",
+      ]) &&
+      heartbeatQuestion({ changed: [{ key: "todo.md", at: since }], now: since + 60_000, texted: [], recent }).includes(
+        "never start it over with a new offer.\nYou (a check-in): The lane hold",
+      ),
   );
   check("the day's log is dated in their zone", heartbeatPath(Date.UTC(2026, 9, 17, 3, 0), "America/New_York") === "tex/heartbeat/2026-10-16.md");
 }
