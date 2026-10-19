@@ -12,7 +12,8 @@
  */
 
 import { v } from "convex/values";
-import { internalQuery } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
+import { internalQuery, type QueryCtx } from "../_generated/server";
 import { calendarConnectEnabled } from "./calendarConnect";
 import { mailConnectEnabled } from "./googleConnect";
 import { isDue, productBackingOff, SYNC_STALL_MS, syncableProductsOf } from "./lib/googleSchedule";
@@ -25,6 +26,25 @@ const HOUR = 60 * 60 * 1000;
 
 function bump(counts: Record<string, number>, key: string) {
   counts[key] = (counts[key] ?? 0) + 1;
+}
+
+/** Where a workspace's check-in stands, as one of a few fixed words. */
+async function checkInState(ctx: QueryCtx, workspaceId: Id<"workspaces">, now: number): Promise<string> {
+  const beat = await ctx.db
+    .query("texHeartbeats")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .first();
+  if (beat === null) return "noCheckIns";
+  const ran = (
+    await ctx.db
+      .query("auditEvents")
+      .withIndex("by_workspace_at", (q) => q.eq("workspaceId", workspaceId).gte("at", now - HOUR))
+      .take(500)
+  ).some((event) => event.action === "heartbeat.run");
+  if (ran) return "ranLastHour";
+  if (beat.nextBeatAt === null) return "waitingForText";
+  if (beat.nextBeatAt <= now) return "overdue";
+  return beat.nextBeatAt - now < HOUR ? "dueWithinHour" : "dueLater";
 }
 
 export const report = internalQuery({
@@ -76,6 +96,8 @@ export const report = internalQuery({
     const gmailIdle: Record<string, number> = {};
       const gmailFailure: Record<string, number> = {};
     const gmailWroteLastHour: Record<string, number> = {};
+    // For a mailbox that wrote lately: whether its owner's check-in was brought forward and ran (`lib/heartbeats/mail.ts`).
+    const checkInAfterMail: Record<string, number> = {};
     let openClaims = 0;
     let staleClaims = 0;
     let pushPending = 0;
@@ -96,6 +118,7 @@ export const report = internalQuery({
           .take(500)
       ).filter((event) => event.action === "google_sync_wrote" && event.details?.connectionId === row._id && event.details?.product === "gmail");
       bump(gmailWroteLastHour, wrote.length === 0 ? "none" : wrote.length < 4 ? "1to3" : "4plus");
+      if (wrote.length > 0) bump(checkInAfterMail, await checkInState(ctx, row.workspaceId, now));
       if (row.gmail.lastFailureCode !== undefined) bump(gmailFailure, row.gmail.lastFailureCode);
       if (productBackingOff(row, "gmail", now)) bump(gmailFailure, "backingOffNow");
     }
@@ -111,6 +134,7 @@ export const report = internalQuery({
       gmailIdle,
       gmailFailure,
       gmailWroteLastHour,
+      checkInAfterMail,
       health: Object.fromEntries(
         Object.entries(
           live.reduce<Record<string, number>>((counts, row) => {
