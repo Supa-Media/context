@@ -28,9 +28,10 @@ export const HEARTBEAT_CLIENT_NAME = "Tex, checking in";
  * When in their day it looks, in their own time zone: waking hours only, and
  * no more than three times. A text from a check-in is a text they did not ask
  * for, so it never arrives at night. A check-in that texted goes on to the
- * next slot like any other, so a person hears from check-ins at most three
- * times a day, one per slot (the owner, 2026-10-19: "let's do 3 text a day
- * and if we need to reduce it we can"). Decided here, not by the model.
+ * next slot like any other; new mail can bring a look forward (`mail.ts`),
+ * and a person hears from check-ins at most `MAX_CHECK_IN_TEXTS_A_DAY` times
+ * a day (the owner, 2026-10-19: "let's do 3 text a day and if we need to
+ * reduce it we can"). Decided here, not by the model.
  */
 export const BEAT_TIMES = [
   { hour: 10, minute: 0 },
