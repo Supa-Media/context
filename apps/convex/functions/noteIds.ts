@@ -21,7 +21,7 @@ import { isPlumbing } from "./lib/privacy";
 import { cleanupViewOf, cleanupViewValidator, type CleanupView } from "./noteIdsCleanup";
 import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { copyStateOf, planGroup, renameSnapshotId, sharedGroupsPage } from "./lib/noteIds/sharedIds";
-import { beginCopyPass, copyRowOf, ensureCopyRow, idCopyPaused, leaseHeld, nodeAt } from "./lib/noteIds/state";
+import { beginCopyPass, copyPassOwed, copyRowOf, ensureCopyRow, idCopyPaused, leaseHeld, nodeAt } from "./lib/noteIds/state";
 import { boundWorkspaces, liveBoundWorkspaces, staffOnly } from "./nodesMigration";
 
 const statusValidator = v.union(v.literal("idle"), v.literal("copying"), v.literal("done"), v.literal("failed"));
@@ -421,8 +421,10 @@ export const diagnoseAll = mutation({
 });
 
 /**
- * The cron (`crons.ts`): a finished pass starts again, so edits are caught,
- * and a pass whose chain stopped is picked up once its lease has lapsed. A
+ * The cron (`crons.ts`): a finished pass starts again once the tree changed
+ * since it began (`copyPassOwed`), so edits are caught without reading every
+ * unchanged tree again, and a pass whose chain stopped is picked up once its
+ * lease has lapsed. A
  * failed pass is not retried here; staff restart it. Does nothing while paused.
  */
 export const keepCurrent = internalMutation({
@@ -435,6 +437,7 @@ export const keepCurrent = internalMutation({
     for (const workspaceId of await liveBoundWorkspaces(ctx)) {
       const row = await copyRowOf(ctx.db, workspaceId);
       if (row?.status === "done") {
+        if (!(await copyPassOwed(ctx.db, row, now))) continue;
         if (await beginCopyPass(ctx, workspaceId, { force: false })) started += 1;
       } else if (row?.status === "copying" && !leaseHeld(row, now)) {
         await ctx.scheduler.runAfter(0, internal.functions.noteIdsCopy.run, { workspaceId, runId: row.runId });
