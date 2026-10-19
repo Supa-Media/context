@@ -53,3 +53,9 @@ every source was theirs: a photo they sent, or the picture kept before. A
 picture made from a note's picture is not kept, so it stays in the turn that
 was allowed to see the note. Tests: `apps/mcp/test/agentPictureMaker.test.mjs`
 and `infra/site-shots/src/render.test.ts`.
+
+**Make first, then ask (owner, 2026-10-19).** "Make me a poster for a picnic
+on Sunday" came back as questions about the time and place. Tex now makes a
+first picture in the same turn, guessing what was left out, and offers to
+change it (`PICTURES_LINE` in `outgoingPictures.js`; checked in
+`agentOutgoingPictures.test.mjs`).

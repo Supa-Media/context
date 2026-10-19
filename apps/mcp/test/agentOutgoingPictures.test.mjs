@@ -119,6 +119,9 @@ test("a texted turn is told it can send pictures", async () => {
     assert.ok(!("pictures" in asked.body));
     const system = JSON.stringify(world.model.requests.at(-1).system);
     assert.ok(system.includes(PICTURES_LINE.slice(0, 60)), "the prompt says pictures can be sent");
+    // Dev, 2026-10-19: "make me a poster for a picnic on sunday" came back as
+    // questions about the time and place. A picture is made first, then changed.
+    assert.match(system, /Asked for a picture, make one now/);
   } finally {
     world.restore();
   }

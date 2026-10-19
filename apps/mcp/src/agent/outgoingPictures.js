@@ -45,8 +45,9 @@ const SENDABLE_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/w
 export const PICTURES_LINE =
   "You can text them pictures: write [picture N] on its own line for picture N a tool result showed you " +
   "(open a note's picture with fetch and image first), or [picture <https address>] for a web image whose address " +
-  "you read in a tool result. It goes as a photo after your words. To make one, send draw_picture draws a graphic " +
-  "(a poster, an invite, a chart) from a page you write, and send make_picture makes or edits a photo (them in an outfit, a scene).";
+  "you read in a tool result. It goes as a photo after your words. To make one, send draw_picture (a poster, an invite, " +
+  "a chart, from a page you write) or make_picture (a photo: them in an outfit, a scene). Asked for a picture, make one " +
+  "now, guessing what they left out, then offer changes; don't ask first.";
 
 function webAddress(value) {
   if (value.length > MAX_URL_LENGTH) return null;
