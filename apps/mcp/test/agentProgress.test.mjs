@@ -17,7 +17,9 @@ import {
   MAX_GATEWAY_TEXTS,
   MAX_PROGRESS_CHARS,
   MAX_PROGRESS_TEXTS,
+  PROGRESS_PROMPT,
   PROGRESS_TOOL,
+  PROGRESS_TOOL_DEFINITION,
   progressChannel,
   streamTurn,
   wantsProgress,
@@ -76,6 +78,15 @@ function turn(ai, overrides = {}) {
 }
 
 const offered = (ai, n = 0) => [...shown((ai.calls[n].input.tools ?? []).map((tool) => ({ name: tool.function?.name ?? tool.name, description: tool.function?.description ?? tool.description })))];
+
+test("Tex is never told to text that it is on it, only real milestones", () => {
+  // Dev, 2026-10-19, of "On it. This one takes a few steps, so I'll text you
+  // when it's done.": "I don't want to see it ever again".
+  for (const words of [PROGRESS_PROMPT, PROGRESS_TOOL_DEFINITION.description]) {
+    assert.doesNotMatch(words, /first to say you're on it|first call send with action progress/);
+    assert.match(words, /Never (to say|send a line saying) you're on it/);
+  }
+});
 
 test("a streamed turn offers text_progress, sends it to the person and never to the MCP", async () => {
   const said = [];

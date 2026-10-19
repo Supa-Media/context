@@ -60,9 +60,10 @@ export function wantsProgress(request) {
 export const PROGRESS_TOOL_DEFINITION = {
   name: PROGRESS_TOOL,
   description:
-    "Text the person one short line now, while you keep working: what you are about to do or what you just found " +
-    "(\"Opening ChatGPT now.\", \"Signed in. Adding the connector.\"). Use it on a task that takes several steps, " +
-    "first to say you're on it and then at real milestones. Never for a question you can answer straight away, " +
+    "Text the person one short line now, while you keep working: something real you just found or did " +
+    "(\"Signed in. Adding the connector.\"), or a link they must open. Use it only at real milestones of a task that " +
+    "takes several steps. Never to say you're on it, that it will take a while, or that you'll text when it's done " +
+    "(the person called that the most useless text they get), never for a question you can answer straight away, " +
     "never to ask a question (ask in your answer and stop), and never with the final answer, which is your reply.",
   inputSchema: {
     type: "object",
@@ -73,9 +74,10 @@ export const PROGRESS_TOOL_DEFINITION = {
 };
 
 export const PROGRESS_PROMPT =
-  "\n\nThis can be a long task over text. If it will take more than a couple of steps (opening websites, filling " +
-  "forms, working through several notes), first call send with action progress, args { text }, one short line saying what you're doing, " +
-  "then again at real milestones, and finish with the result as your reply. Don't send progress for a quick question.";
+  "\n\nThis can be a long task over text. If it takes more than a couple of steps (opening websites, filling " +
+  "forms, working through several notes), you may call send with action progress, args { text }, one short line at a real " +
+  "milestone, and finish with the result as your reply. Never send a line saying you're on it, that it takes a few steps, " +
+  "or that you'll text when it's done: say nothing until you have something. Don't send progress for a quick question.";
 
 /**
  * The progress tool for one turn, around `send(text)` (which writes a line to

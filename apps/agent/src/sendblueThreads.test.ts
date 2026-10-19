@@ -14,7 +14,7 @@
  *     inside a thread is about that thread" fails.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { askAgent, type Fetch } from "./clients";
 import { accept, drain, type InboxDeps } from "./inbox";
 import { MemoryStorage } from "./memoryStorage.testing";
@@ -182,6 +182,32 @@ describe("Tex answers inside iMessage threads", () => {
     expect(agent[0]).toMatchObject({ quoted: "swap them in", threadStart: "Make me a poster" });
     await askAgent(fake([], agent), "https://gw.example", "t", "hi", undefined, undefined, [], "", [], "Make me a poster");
     expect(agent[1]).not.toHaveProperty("threadStart");
+  });
+
+  it("a long turn sends no fixed 'on it' text while it works", async () => {
+    // Dev, 2026-10-19, of "On it. This one takes a few steps, so I'll text you
+    // when it's done.": "I don't want to see it ever again".
+    vi.useFakeTimers();
+    try {
+      const storage = new MemoryStorage();
+      await accept(storage, message("mh_long", "plan my week"), 1_000);
+      const calls: Call[] = [];
+      let finish = () => {};
+      const slow = (async (url: string, init: RequestInit) => {
+        if (new URL(url).pathname === "/agent") await new Promise<void>((done) => (finish = done));
+        return fake(calls)(url, init);
+      }) as unknown as Fetch;
+      const draining = drain(storage, deps(slow));
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      expect(calls.filter((c) => c.path === "/api/send-message")).toEqual([]);
+      finish();
+      await vi.advanceTimersByTimeAsync(1_000);
+      await draining;
+      const words = calls.filter((c) => c.path === "/api/send-message" && typeof c.body.content === "string");
+      expect(words.map((c) => c.body.content)).toEqual(["answer to plan my week"]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("never answers a Spanish tapback", () => {
