@@ -755,6 +755,10 @@ describe("one pass, end to end, through the credential barrier", () => {
       }
       // Nothing that failed advanced the cursor.
       expect(row.gmail?.historyId).toBe("1000");
+      // Which limit reaches the row, so its wait fits it (`productBackoffMs`).
+      if (expected === "GOOGLE_RATE_LIMITED" && "reason" in detail) {
+        expect(row.gmail?.lastFailureReason).toBe(detail.reason);
+      }
     },
   );
 

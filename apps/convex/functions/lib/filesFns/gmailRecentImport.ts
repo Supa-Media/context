@@ -76,7 +76,7 @@ export async function runGmailRecentImport(
       attachmentRetentionDays: job.attachmentRetentionDays,
     });
   } catch (error) {
-    const { code, message } = classifyForwardSyncError(error);
+    const { code, message, reason } = classifyForwardSyncError(error);
     logForwardSyncFailure(job, code, error);
     await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
       connectionId: job.connectionId,
@@ -84,6 +84,7 @@ export async function runGmailRecentImport(
       status: "failed",
       errorCode: code,
       error: message,
+      ...(reason === undefined ? {} : { errorReason: reason }),
       recentImport: { outcome: "failed" },
     });
     return failed(job, 0, 0, code);

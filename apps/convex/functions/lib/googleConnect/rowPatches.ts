@@ -58,6 +58,7 @@ export const SUCCEEDED = {
   lastAttemptAt: undefined,
   lastFailureCode: undefined,
   lastFailure: undefined,
+  lastFailureReason: undefined,
   retryAt: undefined,
   failures: undefined,
 } as const;
@@ -73,6 +74,7 @@ export function productTurnPatch(
     lastAttemptAt: number;
     lastFailureCode?: string;
     lastFailure?: string;
+    lastFailureReason?: string;
     retryAt?: number;
     failures?: number;
   },

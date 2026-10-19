@@ -21,7 +21,8 @@ import { isDue, productBackingOff, SYNC_STALL_MS, syncableProductsOf } from "./l
 const SWEEP_BATCH = 50;
 /** How far past the batch to count due rows, so a backlog's size is visible. */
 const DUE_SCAN = 1_000;
-const HOUR = 60 * 60 * 1000;
+const MINUTE = 60 * 1000;
+const HOUR = 60 * MINUTE;
 
 function bump(counts: Record<string, number>, key: string) {
   counts[key] = (counts[key] ?? 0) + 1;
@@ -97,7 +98,12 @@ export const report = internalQuery({
       ).filter((event) => event.action === "google_sync_wrote" && event.details?.connectionId === row._id && event.details?.product === "gmail");
       bump(gmailWroteLastHour, wrote.length === 0 ? "none" : wrote.length < 4 ? "1to3" : "4plus");
       if (row.gmail.lastFailureCode !== undefined) bump(gmailFailure, row.gmail.lastFailureCode);
-      if (productBackingOff(row, "gmail", now)) bump(gmailFailure, "backingOffNow");
+      if (row.gmail.lastFailureReason !== undefined) bump(gmailFailure, `reason:${row.gmail.lastFailureReason}`);
+      if (productBackingOff(row, "gmail", now)) {
+        bump(gmailFailure, "backingOffNow");
+        const wait = row.gmail.retryAt! - now;
+        bump(gmailFailure, wait < 5 * MINUTE ? "retryIn:under5m" : wait < HOUR ? "retryIn:5mTo1h" : "retryIn:over1h");
+      }
     }
 
     return {

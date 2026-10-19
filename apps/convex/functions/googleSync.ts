@@ -92,6 +92,7 @@ import {
   syncableProductsOf,
   isProductTransient,
   productBackingOff,
+  productBackoffMs,
 } from "./lib/googleSchedule";
 import { settlePushAfterPass } from "./lib/googlePush/pending";
 import { productTurnPatch, recordedDestinations, SUCCEEDED } from "./lib/googleConnect/rowPatches";
@@ -366,6 +367,8 @@ export const recordGoogleForwardSyncPass = internalMutation({
     ),
     errorCode: v.optional(v.string()),
     error: v.optional(v.string()),
+    /** Google's reason word for the failure, when it gave one (`classifyForwardSyncError`). */
+    errorReason: v.optional(v.string()),
   },
   returns: v.object({ accepted: v.boolean() }),
   handler: async (ctx, args): Promise<{ accepted: boolean }> => {
@@ -409,11 +412,14 @@ export const recordGoogleForwardSyncPass = internalMutation({
       */
       const product = connection[args.product];
       const productFailures = (product?.failures ?? 0) + 1;
-      const retryAt = now + failureBackoffMs(intervalMs, productFailures, args.connectionId);
+      // Only a plain word is kept: it is printed by the public health report.
+      const reason = args.errorReason !== undefined && /^[A-Za-z]{1,64}$/.test(args.errorReason) ? args.errorReason : undefined;
+      const retryAt = now + productBackoffMs(args.errorCode, reason, intervalMs, productFailures, args.connectionId);
       const turn = productTurnPatch(connection, args.product, {
         lastAttemptAt: now,
         lastFailureCode: args.errorCode,
         lastFailure: error ?? "This service did not sync.",
+        lastFailureReason: reason,
         retryAt,
         failures: productFailures,
       });
@@ -516,6 +522,7 @@ export const recordGoogleForwardSyncPass = internalMutation({
           lastAttemptAt: args.baseline === true ? now : undefined,
           lastFailureCode: undefined,
           lastFailure: undefined,
+          lastFailureReason: undefined,
           retryAt: undefined,
           failures: undefined,
           recentImport: nextRecentImport(connection.gmail.recentImport, args.recentImport, now),

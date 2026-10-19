@@ -596,6 +596,15 @@ So (`apps/mcp/src/communications/gmail/`):
   and leave the account healthy, so Calendar and Chat keep syncing and the
   console does not say "Stopped" over a limit that lifts by itself. Push marks
   on a backing-off product do not make the account due.
+- **A per-minute limit waits minutes, not the ladder** (2026-10-19). Google
+  counts `rateLimitExceeded` and `userRateLimitExceeded` (and a 429 with no
+  reason) per second or minute, so they wait one minute, doubling to a quarter
+  hour; only `dailyLimitExceeded` and `quotaExceeded` keep the long ladder
+  (`productBackoffMs`). The ladder had held a rate-limited mailbox for fifteen
+  and then thirty minutes, and an email that arrived at 15:42 reached its day
+  at 16:12. Google's reason word is kept on the product as
+  `lastFailureReason` and counted by the health report, so the next lag says
+  which limit it was. Test: `rateLimitBackoff.test.ts`.
 
 A new message now costs about a dozen quota units rather than the whole day's
 messages. Tests: `apps/mcp/test/gmailSync/messageCache.test.mjs`,
