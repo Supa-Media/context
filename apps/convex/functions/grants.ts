@@ -657,17 +657,12 @@ export const resolveGrantByRefreshToken = internalQuery({
   },
 });
 
-/** How stale `lastUsedAt` may be before a request stamps it again. */
 export const TOUCH_GRANT_EVERY_MS = 5 * 60 * 1000;
 
 /**
- * Stamp `lastUsedAt`. Powers the "last seen 3 minutes ago" line next to a
- * connected client, which is how a person notices a client they do not
- * recognize is active.
- *
- * At most once every five minutes per grant. Every gateway request resolves a
- * session (a typing collaborator does several a second), and each stamp re-ran
- * every subscribed grant list in every owner's open app.
+ * Stamp `lastUsedAt`: the "last seen 3 minutes ago" line by which a person
+ * notices a client they do not recognize. At most every five minutes: every
+ * gateway request resolves a session, and each stamp re-ran every owner's grant list.
  */
 export const touchGrant = internalMutation({
   args: { grantId: v.id("oauthGrants") },
