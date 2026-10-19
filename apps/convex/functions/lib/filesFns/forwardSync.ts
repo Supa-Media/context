@@ -487,7 +487,7 @@ async function runMintedPass(
   const result = await runIncrementalSync({
     store: days,
     fetchImpl: timeoutFetch,
-    accessToken: accessToken,
+    accessToken,
     mailboxSlug: job.mailboxSlug,
     address: job.address,
     folders: job.folders,
@@ -503,11 +503,10 @@ async function runMintedPass(
      *
      * `renderDay` defaults `updated` to the latest message's own `sentAt`
      * precisely so that re-rendering an unchanged day is byte-identical, and
-     * `syncOneDay` forwards whatever `now` a caller passes straight through
-     * to it. The backfill removed by #388 passed a wall clock, which was
-     * survivable for a one-shot import and is not for a pass that runs every
-     * few minutes: every touched day would get a new `updated`, a new write,
-     * and a new etag, forever — churn wearing the costume of sync activity.
+     * `syncOneDay` passes any `now` straight to it. The backfill removed by
+     * #388 passed a wall clock, survivable for a one-shot import and not for a
+     * pass every few minutes: every touched day would get a new `updated`, a
+     * new write and a new etag, forever.
      * Attachment retention is measured against a real wall clock inside
      * `syncOneDay` regardless, so nothing here loses a clock it needed.
      */
