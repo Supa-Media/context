@@ -255,6 +255,8 @@ export async function askAgent(
   quoted?: string,
   /** The fixed texts sent since the last turn, by name, for its history (`told.ts`). */
   told: readonly string[] = [],
+  /** The words that started the thread an inline reply was typed in, apart like `quoted`. */
+  threadStart?: string,
 ): Promise<AgentAnswer> {
   // The person's zone, so the turn knows the time where they are, and what
   // they sent with the text (`attachments.ts`).
@@ -264,6 +266,7 @@ export async function askAgent(
     ...(timeZone ? { timeZone } : {}),
     ...(attachments.length > 0 ? { attachments } : {}),
     ...(quoted ? { quoted } : quoted === "" ? { replied: true } : {}),
+    ...(quoted && threadStart ? { threadStart } : {}),
     ...(told.length > 0 ? { told } : {}),
   };
   if (onProgress) return askAgentStreaming(fetcher, gatewayOrigin, accessToken, ask, onProgress);

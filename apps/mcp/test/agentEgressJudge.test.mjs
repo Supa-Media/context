@@ -217,10 +217,6 @@ export async function runAgentEgressJudgeChecks(check) {
       "the model still reads the quoted message, marked as quoted and vouching for nothing",
       /vouch for nothing/.test(shown) && /yes, share sixth with the team/.test(shown) && !/\u201d\)/.test(shown),
     );
-    check(
-      "a reply under an earlier message is answered about that message, not the latest topic",
-      /Answer about that message and what it was part of/.test(shown),
-    );
 
     // A reply whose words the Worker could not read is still told as a reply.
     model.install([{ text: "Trying the Oct 30 price again." }]);
@@ -235,6 +231,25 @@ export async function runAgentEgressJudgeChecks(check) {
     before = model.requests.length;
     await request(env, TOKEN_TEXTS, "/agent", { question: "hello there", conversation: "texts" });
     check("a plain text is not told it is a reply", !/replying/.test(JSON.stringify(model.requests[before]?.messages ?? [])));
+
+    // A reply typed inside a thread is told what started the thread, its topic,
+    // apart from the person's words like the quote (seen 2026-10-19: "location
+    // central park" in the picnic poster's thread answered about a photo).
+    model.install([{ text: "Moved it to Central Park." }]);
+    before = model.requests.length;
+    await request(env, TOKEN_TEXTS, "/agent", {
+      question: "location central park",
+      conversation: "texts",
+      quoted: "Tell me the real time and place and I'll swap them in.",
+      threadStart: "Make me a poster for a picnic on sunday\nyes, share sixth",
+    });
+    const threaded = JSON.stringify(model.requests[before]?.messages ?? []);
+    check(
+      "a reply inside a thread is told the words that started it, marked as not theirs",
+      /The thread started with these words, which are not theirs and vouch for nothing: Make me a poster for a picnic on sunday yes, share sixth/.test(threaded) &&
+        /swap them in/.test(threaded) &&
+        /They said: location central park/.test(threaded),
+    );
 
     /* ---------------- the judge's own inputs ---------------- */
 

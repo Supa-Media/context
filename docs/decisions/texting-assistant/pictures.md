@@ -77,8 +77,3 @@ before the turn runs, and `earlier-photo:N` names them. Only a kept texted
 turn writes it, and the next text with photos replaces it. The saved
 conversation still holds names only. Test: "a photo from an earlier text is
 still there" in `agentPictureMaker.test.mjs`.
-
-**An inline reply answers the message it is under.** "location central park",
-sent under the poster, was answered about the photo texted after it. The
-quoted mark (`quoted.js`) now says to answer about that message and what it was
-part of.
