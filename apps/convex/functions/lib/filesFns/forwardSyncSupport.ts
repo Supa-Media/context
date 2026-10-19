@@ -78,6 +78,8 @@ export type ForwardSyncJob =
       historyId?: string;
       /** This pass is the first-connect import of the fifty most recent messages. */
       recentImport?: boolean;
+      /** Older days this pass rebuilds for the window repair (`gmailDayRepair.ts`). */
+      repairDays?: string[];
     }
   | {
       kind: "run";

@@ -107,7 +107,7 @@ export function failureBackoffMs(
  * Google's reasons for a limit that is counted per day, not per second or
  * minute: waiting minutes would only meet it again, so these keep the ladder.
  */
-const DAILY_LIMIT_REASONS: ReadonlySet<string> = new Set(["dailyLimitExceeded", "quotaExceeded"]);
+export const DAILY_LIMIT_REASONS: ReadonlySet<string> = new Set(["dailyLimitExceeded", "quotaExceeded"]);
 
 /** The first wait after a per-second or per-minute limit. */
 export const RATE_LIMIT_BACKOFF_MS = 60 * 1000;
