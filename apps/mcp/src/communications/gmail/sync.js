@@ -227,7 +227,12 @@ export async function runIncrementalSync(options) {
   // move the cursor", which the caller must honour.
   const resumeFrom = history.truncated ? history.lastRecordId : history.historyId;
 
-  if (history.messageIds.size === 0) {
+  // Days rebuilt whether or not history named them (`reconcileDates`): a day
+  // whose note fell behind Gmail catches up on the next pass rather than on
+  // the next message that lands on it. An unchanged day re-renders
+  // byte-identical and is not written.
+  const reconcile = (options.reconcileDates ?? []).filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date));
+  if (history.messageIds.size === 0 && reconcile.length === 0) {
     return {
       gapDetected: false,
       daysTouched: [],
@@ -266,7 +271,7 @@ export async function runIncrementalSync(options) {
   const daysTouched = [];
   const used = options.bytesAlreadyUsed ?? 0;
   const contacts = await openContactLookup(options.store, { root: options.root });
-  for (const date of [...affectedDates].sort()) {
+  for (const date of [...new Set([...affectedDates, ...reconcile])].sort()) {
     const remaining = options.quotaBytes - used - bytesWritten;
     if (remaining <= 0) {
       quotaExceeded = true;
@@ -290,7 +295,8 @@ export async function runIncrementalSync(options) {
       contacts,
       known,
     });
-    daysTouched.push(date);
+    // A reconciled day counts only when it caught something up.
+    if (affectedDates.has(date) || result.bytesWritten > 0) daysTouched.push(date);
     bytesWritten += result.bytesWritten;
     if (result.quotaExceeded) {
       quotaExceeded = true;
@@ -301,7 +307,7 @@ export async function runIncrementalSync(options) {
   // this pass already holds; the next message brings one back. Last, so this
   // pass's own drafts count as activity. Never throws.
   // `docs/decisions/communications/contacts-and-chat.md`.
-  await contacts.sweepDormant({ now: options.dormancyNow });
+  if (history.messageIds.size > 0) await contacts.sweepDormant({ now: options.dormancyNow });
   // A cache: a run that threw before here only costs the next one a rebuild.
   await contacts.save();
   return {

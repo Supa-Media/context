@@ -610,4 +610,10 @@ the message cache, the manifest and Contact pages keep the plain store. A
 "simplification" back to raw writes freezes every opened day again. Test:
 `apps/convex/__tests__/googleSyncLoop/gmailCollaboration.test.ts`.
 
-A day frozen before this fix is rebuilt the next time history touches it.
+Every forward pass also rebuilds today and yesterday (UTC, as the day notes
+are) whether or not history named them (`reconcileDays`), so a day frozen
+before this fix, or one whose write a pass lost, catches up on the next pass
+rather than waiting for mail to land on it. It costs two day-list queries a
+pass; an unchanged day re-renders byte-identical and is not written, and a
+reconciled day counts as touched only when it wrote. Older frozen days are
+rebuilt the next time history touches them.

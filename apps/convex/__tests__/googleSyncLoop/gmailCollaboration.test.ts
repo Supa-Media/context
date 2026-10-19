@@ -14,6 +14,8 @@ import { enableMailSync, googleAndBucket, endToEnd, runPass } from "./fixtures.h
  * SABOTAGE RECORD
  *   passing the plain store to the Gmail pass (no `gmailDayStore`) -> failed:
  *   the day read back held only "Quarterly numbers"
+ *   passing no `reconcileDates` from the forward pass -> "a day that fell
+ *   behind" failed: nothing rebuilt the day without new history
  */
 describe("a Gmail day with a collaboration document", () => {
   beforeEach(() => enableMailSync());
@@ -43,5 +45,34 @@ describe("a Gmail day with a collaboration document", () => {
     const day = (await readDocument(store, path)).text;
     expect(day).toContain("Quarterly numbers");
     expect(day).toContain("Board follow-up");
+  });
+
+  test("a day that fell behind catches up on a pass with no new history", async () => {
+    const { t, workspaceId, connectionId, backend } = await endToEnd({ historyId: "1000" });
+    await t.run(async (ctx) => {
+      const binding = (await ctx.db.query("storageBindings").first())!;
+      await ctx.db.patch(binding._id, {
+        capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
+      });
+    });
+    // Yesterday, UTC: always inside the days a pass reconciles, whatever the hour.
+    const date = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const first = { id: "msg-1", date: `${date}T10:00:00.000Z`, subject: "Quarterly numbers", text: "Attached." };
+    const second = { id: "msg-2", date: `${date}T11:00:00.000Z`, subject: "Board follow-up", text: "Next steps." };
+    vi.stubGlobal("fetch", googleAndBucket({ backend, history: { messageIds: ["msg-1"], historyId: "1100" }, messages: [first] }).fetchImpl);
+    await runPass(t, workspaceId, connectionId);
+
+    const store = withLogicalDelete(new S3Store({ ...FAKE_STORAGE, forcePathStyle: true, fetchImpl: backend.fetchImpl }));
+    const path = `0-inbox/email/person-at-example-invalid/${date.slice(0, 4)}/${date.slice(5, 7)}/${date}.md`;
+    expect((await readDocument(store, path)).text).toContain("Quarterly numbers");
+
+    // msg-2's history was spent by a pass whose write was lost (before #1923):
+    // the cursor is past it, so no history will ever name it again.
+    vi.stubGlobal(
+      "fetch",
+      googleAndBucket({ backend, history: { messageIds: [], historyId: "1200" }, messages: [first, second] }).fetchImpl,
+    );
+    await runPass(t, workspaceId, connectionId);
+    expect((await readDocument(store, path)).text).toContain("Board follow-up");
   });
 });
