@@ -18,16 +18,17 @@
  *  - drop the people already listed in `listForTier`: "keeps everybody else on the list" fails;
  *  - let `members` through in file mode in `setNoteVisibilityHandler`: "refused outside rows mode" fails;
  *  - mark only the pin's row `everyAccountReadsTeam` in `lib/workspaces/list.ts`, not a real member's:
- *    `pinnedContext.test.ts` "everybody's row says its team tier is every account" fails.
+ *    "everybody's row says its team tier is every account" fails.
  */
 
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
+import { PINNED_CONTEXT_SLUG } from "@context/shared";
 import { api, internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import schema from "../../schema";
 import { convexTest } from "convex-test";
 import { modules } from "../../test.setup";
-import { asUser, addMember, captureError, createWorkspace, errorCode } from "../fixtures.helpers";
+import { asUser, addMember, captureError, createUser, createWorkspace, errorCode, setupTest } from "../fixtures.helpers";
 import { fixture as filesFixture } from "../files/fixtures.helpers";
 
 const makeTest = () => convexTest(schema, modules);
@@ -199,5 +200,31 @@ describe("the console's note verb", () => {
       }),
     );
     expect(errorCode(error)).toBe("INVALID");
+  });
+});
+
+describe("the console says where team reaches every account", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  test("everybody's row says its team tier is every account, the real members' rows included", async () => {
+    const t = setupTest();
+    // The pinned workspace as it really is: shared, created by an address the deployment trusts.
+    vi.stubEnv("ADMIN_EMAILS", "staff@example.invalid");
+    const staff = await createUser(t, "staff@example.invalid");
+    await createWorkspace(t, staff, "staff-personal");
+    const pinnedId = await createWorkspace(t, staff, PINNED_CONTEXT_SLUG, { kind: "shared", displayName: "Context" });
+    const sayo = await createUser(t, "sayo@example.invalid");
+    await createWorkspace(t, sayo, "sayo");
+    const pinRow = (await asUser(t, sayo).query(api.functions.workspaces.listMyWorkspaces, {})).find(
+      (w) => w.workspaceId === pinnedId,
+    );
+    const staffRows = await asUser(t, staff).query(api.functions.workspaces.listMyWorkspaces, {});
+    // The share dialog is the owner's, and the owner is a real member: the flag cannot be the pin's alone.
+    expect(pinRow?.everyAccountReadsTeam).toBe(true);
+    expect(staffRows.find((w) => w.workspaceId === pinnedId)).toMatchObject({ role: "owner", everyAccountReadsTeam: true });
+    expect(staffRows.find((w) => w.workspaceId === pinnedId)?.pinned).toBeUndefined();
+    expect(staffRows.find((w) => w.slug === "staff-personal")?.everyAccountReadsTeam).toBeUndefined();
   });
 });
