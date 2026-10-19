@@ -110,8 +110,6 @@ export const COPY = {
   unlinkedNoLink:
     "Hi, I'm Tex, your Context assistant. Text me again in a little while and I'll send you a link to connect your account.",
   unlinkDone: "Done. This phone is no longer connected to your Context. Text me anytime to connect again.",
-  /** Sent once when a task has run a while without a word, so silence never reads as broken. */
-  working: "On it. This one takes a few steps, so I'll text you when it's done.",
   unlinkNothing: "This phone isn't connected to any account.",
   noModel:
     "I can't answer right now. Please text me again in a little while.",

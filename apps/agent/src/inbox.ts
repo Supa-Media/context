@@ -45,7 +45,7 @@ import { pruneMedia } from "./media";
 import { CARD_VERSION } from "./card";
 import { isSendblueChat } from "./sendblue";
 import { PICTURE_FAILED, describePart, partsFor, type Media, type OutgoingPicture, type SendPart } from "./outgoing";
-import { COPY, replyTo, TryLater, type Message, type ReplyDeps } from "./reply";
+import { replyTo, TryLater, type Message, type ReplyDeps } from "./reply";
 import { record } from "./simulator";
 import { oweReadyText } from "./ready";
 import { clearTold, noteTold, owedTold } from "./told";
@@ -287,13 +287,6 @@ export const TYPING_REFRESH_MS = 55_000;
 export const TYPING_AGAIN_MS = 1_500;
 
 /**
- * How long a turn may run without a word before the person is told it is a
- * longer one (`COPY.working`), once. A quick answer is back well before it; a
- * task that is already texting its progress never sees it.
- */
-export const WORKING_NUDGE_MS = 40_000;
-
-/**
  * Mark the text read and work out the reply with the typing bubble showing,
  * as a person would, texting any progress the turn reports on the way
  * (`apps/mcp/src/agent/progress.js`).
@@ -384,15 +377,14 @@ async function answerTexts(message: Message, deps: InboxDeps, storage: InboxStor
   const onProgress = async (text: string) => {
     for (const part of textsFromAnswer(text)) await say(part);
   };
-  const nudge = setTimeout(() => {
-    if (progressSent === 0) void say(COPY.working);
-  }, WORKING_NUDGE_MS);
+  // No fixed "this takes a while" text: a long turn shows the bubble until it
+  // has something to say (Dev, 2026-10-19: "most useless message ... I don't
+  // want to see it ever again").
 
   if (simulator) {
     try {
       return await replyTo(message, { ...deps, onProgress });
     } finally {
-      clearTimeout(nudge);
       await chain;
     }
   }
@@ -412,7 +404,6 @@ async function answerTexts(message: Message, deps: InboxDeps, storage: InboxStor
   try {
     return await replyTo(message, { ...deps, onProgress });
   } finally {
-    clearTimeout(nudge);
     clearTimeout(again);
     clearInterval(timer);
     await renewal;

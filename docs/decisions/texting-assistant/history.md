@@ -102,3 +102,15 @@ words (`apps/mcp/src/agent/quoted.js`).
 Tests: `apps/agent/src/sendblueThreads.test.ts`, `worker.test.ts` ("an inline
 reply is queued as one even when its words can't be read"),
 `agentEgressJudge.test.mjs` and `agentTranscript.test.mjs`.
+
+### No "on it" texts
+
+Asked by Dev, 2026-10-19, of "On it. This one takes a few steps, so I'll text
+you when it's done.": "Most useless message from Tex ever. I don't want to see
+it ever again." The Worker's fixed text after 40 seconds of silence is gone
+(`apps/agent/src/inbox.ts`), and the progress tool and prompt
+(`apps/mcp/src/agent/progress.js`) no longer ask the model to say it is on it:
+a long turn shows the typing bubble until it has something, and progress lines
+are for real milestones (a sign-in link, a step done) only. Tests: "a long turn
+sends no fixed 'on it' text while it works" (`sendblueThreads.test.ts`) and
+"Tex is never told to text that it is on it" (`agentProgress.test.mjs`).
