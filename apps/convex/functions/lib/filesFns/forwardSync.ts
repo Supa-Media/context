@@ -70,6 +70,7 @@ import {
   timeoutFetch,
   writeSharedCalendarDay,
 } from "./forwardSyncSupport";
+import { gmailDayStore } from "./gmailDayStore";
 import { runGmailRecentImport } from "./gmailRecentImport";
 import type { OperationResult } from "./operationTypes";
 import { ensureGooglePush } from "../googlePush/ensure";
@@ -454,13 +455,12 @@ async function runMintedPass(
 ): Promise<ForwardSyncResult> {
   if (job.product === "chat") return await runGoogleChatForwardSync(ctx, store, job, accessToken);
   if (job.product === "calendar") return await runGoogleCalendarForwardSync(ctx, store, job, accessToken);
-  if (job.recentImport === true) return await runGmailRecentImport(ctx, store, job, accessToken);
+  // An opened day is rewritten through its collaboration document, or the next read undoes it.
+  const days = gmailDayStore(store, job.destinationFolder);
+  if (job.recentImport === true) return await runGmailRecentImport(ctx, days, job, accessToken);
 
   if (job.historyId === undefined) {
-    const historyId = await getProfileHistoryId({
-      fetchImpl: timeoutFetch,
-      accessToken: accessToken,
-    });
+    const historyId = await getProfileHistoryId({ fetchImpl: timeoutFetch, accessToken });
     await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
       connectionId: job.connectionId,
       status: "synced",
@@ -484,7 +484,7 @@ async function runMintedPass(
   }
 
   const result = await runIncrementalSync({
-    store,
+    store: days,
     fetchImpl: timeoutFetch,
     accessToken: accessToken,
     mailboxSlug: job.mailboxSlug,

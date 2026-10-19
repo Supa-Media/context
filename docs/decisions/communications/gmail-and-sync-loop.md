@@ -593,3 +593,21 @@ So (`apps/mcp/src/communications/gmail/`):
 A new message now costs about a dozen quota units rather than the whole day's
 messages. Tests: `apps/mcp/test/gmailSync/messageCache.test.mjs`,
 `apps/convex/__tests__/googleSyncLoop/productBackoff.test.ts`.
+
+### A Gmail day is rewritten through its collaboration document
+
+Found on 2026-10-19, when a personal mailbox's days kept only their first
+hours of mail while every pass reported success. A day note someone has
+opened has a collaboration document, and every read is materialized from it:
+Markdown changed outside collaboration is repaired back to the document's text.
+The Gmail pass wrote the Markdown alone, so the next read undid each pass.
+
+So a Gmail pass writes its day notes through `gmailDayStore`
+(`apps/convex/functions/lib/filesFns/gmailDayStore.ts`): an existing day is
+read from, and replaced through, its collaboration document, as Calendar days
+(`writeSharedCalendarDay`) and every save already are. A day not yet written,
+the message cache, the manifest and Contact pages keep the plain store. A
+"simplification" back to raw writes freezes every opened day again. Test:
+`apps/convex/__tests__/googleSyncLoop/gmailCollaboration.test.ts`.
+
+A day frozen before this fix is rebuilt the next time history touches it.
