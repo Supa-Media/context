@@ -162,3 +162,7 @@ Moved to [A pass fetches only the mail it has not seen](./communications/gmail-a
 ### A workspace's passes run back to back, and a pushed one goes first
 
 Moved to [A workspace's passes run back to back, and a pushed one goes first](./communications/google-push.md#a-workspaces-passes-run-back-to-back-and-a-pushed-one-goes-first).
+
+### A Gmail day is rewritten through its collaboration document
+
+Moved to [A Gmail day is rewritten through its collaboration document](./communications/gmail-and-sync-loop.md#a-gmail-day-is-rewritten-through-its-collaboration-document).

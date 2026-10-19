@@ -549,6 +549,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Testers only until Google's review (owner, 2026-10-17)
 - Synced mail first, then Gmail for what the sync does not hold (owner, 2026-10-18)
 - A pass fetches only the mail it has not seen
+- A Gmail day is rewritten through its collaboration document
 
 ## [The desktop shell](./desktop.md)
 
