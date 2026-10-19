@@ -710,6 +710,6 @@ export async function executeOperation(
       }
     }
   } catch (error) {
-    throw toConvexError(error);
+    throw toConvexError(error, workspaceId);
   }
 }
