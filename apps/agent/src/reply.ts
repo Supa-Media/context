@@ -80,6 +80,12 @@ export type ReplyDeps = {
    * went wrong. Never for a turn that started: its tools may have run.
    */
   retry?: boolean;
+  /**
+   * Names the turn, so a text sent while it runs can join it (`inbox.ts`):
+   * `onSession` is handed the session the turn runs as, and `onSteered` the
+   * texts it took in, once it answered. Absent, a text waits its turn.
+   */
+  steer?: { turn: string; onSession: (accessToken: string) => void; onSteered: (ids: string[]) => Promise<void> };
 };
 
 /** Thrown, with `retry`, when nothing ran and the text can be answered again later. */
@@ -196,6 +202,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
     const attachments = message.attachments?.length
       ? await prepareAttachments(message.attachments, { fetch: deps.fetch, images: deps.images })
       : [];
+    deps.steer?.onSession(session.accessToken);
     const answer = await askAgent(
       deps.fetch,
       deps.gatewayOrigin,
@@ -208,10 +215,11 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       message.quoted ?? (message.threaded ? "" : undefined),
       deps.told,
       message.threadStart,
-      { tapback: message.tapback, reacted: message.reacted },
+      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn },
     );
     if (answer.kind === "answer") {
       await deps.onToldDelivered?.();
+      if (answer.steered) await deps.steer?.onSteered(answer.steered);
       if (answer.pictures.length > 0) deps.onPictures?.(answer.pictures);
       if (!answer.text) return [];
       // What the person is asked to approve goes out exactly as the gateway

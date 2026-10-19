@@ -54,6 +54,7 @@ import { oweReadyText } from "./ready";
 import { clearTold, noteTold, owedTold } from "./told";
 import { rememberText } from "./threads";
 import { answers, clearReactions, noteReaction, notedReactions, tapbackText } from "./reactions";
+import { startTurn, steerInto } from "./steer";
 import type { Inbound } from "./inbound";
 
 /** The subset of `DurableObjectStorage` this uses, so tests can pass a Map. */
@@ -153,6 +154,8 @@ export async function accept(
   // words for a photo still on its way.
   const wait = pending.size > 0 ? 0 : mediaOnly(message) ? MEDIA_WAIT_MS : wordsOnly(message) ? TEXT_WAIT_MS : 0;
   await storage.setAlarm(now + wait);
+  // Words sent while Tex works on the text before join that job (`steer.ts`).
+  await steerInto(storage, message, pending.size);
   return "queued";
 }
 
@@ -338,10 +341,13 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
   const told = await owedTold(storage);
   // Tapbacks left since their last text, told to this turn (`reactions.ts`).
   const reacted = await notedReactions(storage, deps.now());
+  // Texts this turn takes in while it runs are answered by it, not again (`steer.ts`).
+  const { steer, end } = startTurn(storage, message, deps, (ids) => dropSteered(storage, ids));
   const texts = await answerTexts(
     reacted.length > 0 ? { ...message, reacted } : message,
     {
       ...deps,
+      steer,
       onSetUp,
       told,
       onTold: (sent) => noteTold(storage, sent),
@@ -349,7 +355,7 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
       onPictures: (sent) => void (pictures = sent),
     },
     storage,
-  );
+  ).finally(end);
   await clearReactions(storage, reacted);
   if (pictures.length === 0) return texts;
   // The simulator has no Linq to upload to; its log says a picture went.
@@ -359,6 +365,14 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
       : async (picture: { name: string; mediaType: string; data: string }) =>
           lineFor(lineDeps(deps), message.chatId).uploadPicture(await shrinkPicture(deps.images, picture));
   return await partsFor(texts, pictures, upload);
+}
+
+/** Drop the queued texts a turn took in as it ran; they were answered with it. */
+async function dropSteered(storage: InboxStorage, ids: string[]): Promise<void> {
+  const pending = await storage.list<Pending>({ prefix: "pending:" });
+  for (const [key, item] of pending) {
+    if (item.reply === undefined && ids.includes(item.message.eventId)) await storage.delete(key);
+  }
 }
 
 /**

@@ -274,6 +274,8 @@ export async function runTurn(options) {
     history = [],
     // Gateway words saying the history is one iMessage thread's (`threadView.js`).
     threadNote = "",
+    // Texts sent while it works, taken after each tool round (`steer.js`).
+    steer = null,
     web = null,
     texting = false,
     // Whether its answer can text pictures back (`outgoingPictures.js`): a text from their phone.
@@ -642,6 +644,11 @@ export async function runTurn(options) {
         text: toolResultText(result) || "(no result)",
         isError: result?.isError === true,
       });
+    }
+    const steered = steer === null ? null : await steer.next();
+    if (steered !== null) {
+      messages.push({ role: "user", text: steered });
+      tell({ kind: "steered", text: steer.words.at(-1) ?? "" });
     }
   }
 

@@ -90,3 +90,38 @@ chat, which were the two failures the queue was for. Routines and dreams
 still run beside a text; neither writes what a text reads except through the
 log. If a third collision shows up, the queue is the next step, keyed by the
 account, and nothing here forecloses it.
+
+## A text sent while Tex works joins that job
+
+Decided by Dev, 2026-10-19, picking Hermes's "steer" mode over its default
+of stopping and starting again: "oh and make it Friday", sent while Tex is
+booking, belongs to the booking. The texting Worker names each turn it asks
+for (`turn`). A words-only text that arrives while that turn runs, with
+nothing else queued ahead, is sent to `POST /agent/steer` and still queued.
+The running turn reads it after its next tool round, as the person's own
+words beside that round's results (`apps/mcp/src/agent/steer.js`); its
+answer lists the texts it took (`steered`) and the Worker drops them from
+its queue. A text the turn never saw is answered on its own, as before. A
+reply, a tapback or a photo is never steered: each carries words the guards
+keep apart. Steered words arrive after the turn's guards were set from its
+first text, so they vouch for nothing those guards allow. They wait in the
+person's bucket under `.context/agent/steer/<turn>/` until the turn ends,
+and the turn clears its own folder. The access token the Worker steers with
+is held in memory for the turn only, never in Durable Object storage.
+
+Tests: `apps/agent/src/steer.test.ts` and `apps/mcp/test/agentSteer.test.mjs`.
+
+## Every ten texts, Tex saves what it learned
+
+Decided by Dev, 2026-10-19, after reading Hermes, whose memory nudge fires
+every 10 user turns: Tex was told on every turn to keep `tex/about-me.md`
+current and often didn't, so a fact from the morning waited for the night's
+dream. After a texted turn has answered, once 10 of the person's texts have
+come since the last nudge, one small built-in-model turn reads them and may
+write `tex/about-me.md` once (`apps/mcp/src/agent/memoryNudge.js`, run from
+`reflect.js`). It sees only untainted exchanges, and can read and write that
+one note in their own workspace and nothing else. The count is the time of
+the newest text the last nudge saw, in `.context/agent/memory-nudge.json`;
+the first turn after this shipped only starts it.
+
+Tests: `apps/mcp/test/agentMemoryNudge.test.mjs`.

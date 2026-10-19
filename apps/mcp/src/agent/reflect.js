@@ -29,6 +29,7 @@ import { ProviderError } from "./providers.js";
 import { builtinMeter, dayOf } from "./jobLog.js";
 import { callToolForSession } from "../tools/session.js";
 import { newLedger } from "../privacy/egress.js";
+import { memoryNudge } from "./memoryNudge.js";
 import {
   LEARNED_SKILL_PATH,
   MAX_LEARNED_BODY_CHARS,
@@ -160,8 +161,9 @@ function log(session, fields) {
 }
 
 /**
- * After a turn has answered: stamp the learned skills it read, then reflect
- * when the turn qualifies (`reflectReason`). Never throws, never texts.
+ * After a turn has answered: stamp the learned skills it read, reflect when
+ * the turn qualifies (`reflectReason`), and nudge the memory every 10 texts
+ * (`memoryNudge.js`). Never throws, never texts.
  *
  * @param {object} options
  * @param {{index: Array, used: Set<string>} | null} options.learned the turn's `learnedSkillSession`
@@ -175,7 +177,16 @@ export async function afterTextedTurn({ env, controlPlane, store, session, offer
     const today = dayOf(now, timeZone);
     const used = [...(learned?.used ?? [])];
     if (used.length > 0) await stampUsed(dispatch, used, today);
+    await reflect({ env, controlPlane, session, offered, question, turn, tainted, learned, canWrite, texted, dispatch, used, today });
+    // Every 10 texts, what was learned goes to about-me now, not at the dream (`memoryNudge.js`).
+    await memoryNudge({ env, controlPlane, store, session, offered, dispatch, now });
+  } catch (error) {
+    log(session ?? {}, { outcome: "failed", code: error?.name === "TypeError" ? "type" : "error" });
+  }
+}
 
+async function reflect({ env, controlPlane, session, offered, question, turn, tainted, learned, canWrite, texted, dispatch, used, today }) {
+  try {
     const reason = reflectReason({ texted, canWrite, tainted, exhausted: turn?.exhausted === true, steps: turn?.steps, question });
     if (reason === null) return;
     const model = builtinModel(env);

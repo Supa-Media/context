@@ -65,6 +65,7 @@ import { toolSuggestDestination } from "../routing/suggestDestination.js";
 import { PINNED_CONTEXT_NAME } from "../orient/globalNote.js";
 import { PRODUCTION_MEETING_SUMMARIES_PATH, readJobSetupWith } from "../agent/production.js";
 import { handleTryIt } from "../agent/tryIt.js";
+import { handleSteer } from "../agent/steer.js";
 import { withSearchPassesHeld } from "../search/heldPasses.js";
 import { MOVER_PAGE_PATH, handleMoverPage } from "../moves/mover.js";
 import { IMAGE_UPLOAD_PATH, attachImageUploads, handleImageUpload } from "../notes/imageUploads.js";
@@ -220,6 +221,7 @@ export async function route(request, env, ctx) {
       path === "/inbox" ||
       path === "/agent" ||
       path === "/agent/try" ||
+      path === "/agent/steer" ||
       path === "/collaboration" ||
       approvalsRoute ||
       meetingRoute
@@ -653,6 +655,8 @@ export async function route(request, env, ctx) {
       }
       // The console's Try it box (`agent/tryIt.js`): one read-only turn on a
       // setup an @context-lc editor picked, then a judge turn on its rules.
+      // A text sent while a texted turn runs, for that turn to take in (`agent/steer.js`).
+      if (path === "/agent/steer") return await handleSteer(request, store, session);
       if (path === "/agent/try") return await withSearchPassesHeld(store, () => handleTryIt(request, env, store, session, controlPlane));
       if (approvalsRoute) return await handleApprovals(request, store, session);
 

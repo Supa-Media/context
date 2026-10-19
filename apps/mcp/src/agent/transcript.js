@@ -157,6 +157,10 @@ export function eventLines(event) {
       const outcome = event.held ? "held for their yes" : event.ok ? "ok" : `failed${event.reason ? ` (${event.reason})` : ""}`;
       return `- \`${event.name}\` \`${argsLine(event.args)}\` → ${outcome}, ${seconds(event.ms)}\n`;
     }
+    case "steered": {
+      const text = cut(event.text, MAX_SAID_CHARS);
+      return text ? `**They texted, while Tex worked:** ${text}\n` : null;
+    }
     case "model":
       return event.model ? `_Answering on ${event.model}${event.reason ? `, ${event.reason}` : ""}._\n` : null;
     default:
