@@ -438,7 +438,7 @@ describe("the staff surface", () => {
     expect(resumed).toEqual({ started: 1 });
   });
 
-  test("the cron leaves a finished pass alone while paused, and starts it again when not", async () => {
+  test("the cron leaves a finished pass alone while paused, and starts it again when the tree changed", async () => {
     const t = tester();
     const ws = await boundWorkspace(t, "cron");
     const store = bucket({ "1-projects/a.md": "# A\n" });
@@ -447,6 +447,32 @@ describe("the staff surface", () => {
     await t.run((ctx) => ctx.db.insert("noteIdLayout", { paused: true, mode: "paths", updatedAt: Date.now() }));
     expect(await t.mutation(internal.functions.noteIds.keepCurrent, {})).toEqual({ started: 0 });
     await t.run((ctx) => ctx.db.query("noteIdLayout").first().then((row) => ctx.db.patch(row!._id, { paused: false })));
+    // Nothing changed since the pass began: reading the whole tree again would find nothing.
+    expect(await t.mutation(internal.functions.noteIds.keepCurrent, {})).toEqual({ started: 0 });
+    store.seed("1-projects/b.md", "# B\n");
+    await observeBucket(t, ws, store);
+    expect(await t.mutation(internal.functions.noteIds.keepCurrent, {})).toEqual({ started: 1 });
+  });
+
+  test("the cron reads no tree whose rows are all keyed, and retries failed files hourly", async () => {
+    const t = tester();
+    const ws = await boundWorkspace(t, "cronkeyed");
+    const store = bucket({ "1-projects/a.md": "# A\n" });
+    await observeBucket(t, ws, store);
+    await runPass(chain(t, ws, store));
+    const row = (await pass(chain(t, ws, store)))!;
+    await t.run((ctx) => ctx.db.patch(row._id, { keyedAt: 1, keyedDoneAt: 2 }));
+    store.seed("1-projects/b.md", "# B\n");
+    await observeBucket(t, ws, store);
+    expect(await t.mutation(internal.functions.noteIds.keepCurrent, {})).toEqual({ started: 0 });
+
+    // Not keyed, nothing changed, but files the last pass failed: tried again once an hour has passed.
+    await t.run(async (ctx) => {
+      const head = await ctx.db.query("nodeLog").order("desc").first();
+      await ctx.db.patch(row._id, { keyedAt: undefined, keyedDoneAt: undefined, passSeq: head!.seq, failed: 1, updatedAt: Date.now() });
+    });
+    expect(await t.mutation(internal.functions.noteIds.keepCurrent, {})).toEqual({ started: 0 });
+    await t.run((ctx) => ctx.db.patch(row._id, { updatedAt: Date.now() - 2 * 60 * 60 * 1000 }));
     expect(await t.mutation(internal.functions.noteIds.keepCurrent, {})).toEqual({ started: 1 });
   });
 

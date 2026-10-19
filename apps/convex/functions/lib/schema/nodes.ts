@@ -418,6 +418,12 @@ export const nodeTables = {
     /** A page in flight holds the pass; another one waits. */
     leaseAt: v.optional(v.number()),
     /**
+     * The change log's newest `seq` when this pass began (`beginCopyPass`). The
+     * cron starts a finished pass again only once the log has moved past it, so
+     * an unchanged tree is not read again every fifteen minutes.
+     */
+    passSeq: v.optional(v.number()),
+    /**
      * The workspace's flip to keyed rows started at this time (`keys` mode).
      * With the switch at `keys`, this makes the workspace keyed for good
      * (`lib/noteIds/keyedState.ts`): no bucket listing adopts a row from it.
