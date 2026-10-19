@@ -77,3 +77,12 @@ before the turn runs, and `earlier-photo:N` names them. Only a kept texted
 turn writes it, and the next text with photos replaces it. The saved
 conversation still holds names only. Test: "a photo from an earlier text is
 still there" in `agentPictureMaker.test.mjs`.
+
+**A made photo is bigger than one stored value (2026-10-19).** Dev's blue
+edit was made and then answered "I couldn't send that picture just now".
+Sendblue fetches a picture by address, so the agent Worker keeps its bytes in
+the sender's Durable Object for half an hour (`apps/agent/src/media.ts`), and
+a stored value there is capped at 2 MB; the image model's photos run past it.
+The bytes are now kept in pieces under that cap, up to 8 MB in all, and are
+pruned together. Test: "keeps a photo bigger than one stored value" in
+`apps/agent/src/media.test.ts`.
