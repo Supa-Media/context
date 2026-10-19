@@ -88,6 +88,17 @@ words or a number), because a lost quote was otherwise invisible. The day's
 transcript shows the quote above the person's words. Spanish tapbacks
 ("Le gustó “…”") are dropped like English ones.
 
+The thread an inline reply was typed in decides its topic, not whatever was
+texted last. Seen 2026-10-19: "location central park", typed in the picnic
+poster's thread, arrived with Sendblue naming the person's previous text, "try
+again" from the photo thread, as its parent, and Tex answered about the photo.
+So the Worker also reads `thread_originator`, the message that started the
+thread (`threadContext` in `apps/agent/src/sendblue.ts`): a parent that sits
+in another thread is dropped (logged `other_thread`) and the thread's first
+message stands in for it, and when both are readable and differ the turn gets
+the thread's start as `threadStart`, marked like the quote as somebody else's
+words (`apps/mcp/src/agent/quoted.js`).
+
 Tests: `apps/agent/src/sendblueThreads.test.ts`, `worker.test.ts` ("an inline
 reply is queued as one even when its words can't be read"),
 `agentEgressJudge.test.mjs` and `agentTranscript.test.mjs`.

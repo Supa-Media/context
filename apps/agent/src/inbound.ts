@@ -36,6 +36,8 @@ export type Inbound =
       attachments?: InboundAttachment[];
       /** Sendblue: the handle of the message an inline reply answers. Resolved to `quoted`, then dropped, before queueing. */
       replyTo?: string;
+      /** Sendblue: the handle of the message that started the thread the reply was typed in. Dropped with `replyTo`. */
+      threadRoot?: string;
       /**
        * The words of the message this one replies to. Sent to `/agent` apart
        * from the question and never folded into it: the message picked may be
@@ -43,6 +45,12 @@ export type Inbound =
        * guards vouch from the person's own (`apps/mcp/src/agent/quoted.js`).
        */
       quoted?: string;
+      /**
+       * The words that started the thread an inline reply was typed in, when
+       * that is not the message it answers: the thread's topic. Somebody
+       * else's words too, carried like `quoted`.
+       */
+      threadStart?: string;
       /**
        * Sendblue: it was an inline reply, so Tex answers inside the same
        * thread (`line.ts`, `sendText`'s `replyTo`), and is told it was a reply
