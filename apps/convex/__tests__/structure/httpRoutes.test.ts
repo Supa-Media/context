@@ -156,6 +156,7 @@ describe("the gateway's HTTP routes", () => {
     "/gateway/search-timing": "gatewaySearchTiming",
     "/gateway/feedback": "gatewayFeedback",
     "/gateway/email/send": "gatewayPersonEmail",
+    "/gateway/email/draft": "gatewayPersonEmailDraft",
     "/gateway/calendar/event": "gatewayCalendarWrite",
     "/gateway/clients/register": "gatewayClientsRegister",
     "/gateway/clients/get": "gatewayClientsGet",

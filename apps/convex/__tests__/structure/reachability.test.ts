@@ -305,6 +305,8 @@ describe("no public function can reach a storage secret", () => {
         // token for one send and spends it on one request to Gmail; the token
         // is never returned. See its CREDENTIAL_HTTP_ROUTES entry.
         "http.gatewayPersonEmail",
+        // The same, saving a draft: `/gateway/email/draft`.
+        "http.gatewayPersonEmailDraft",
         // THE PERSON'S OWN CALENDAR. `/gateway/calendar/event`, the same
         // shape as the Gmail route; see its CREDENTIAL_HTTP_ROUTES entry.
         "http.gatewayCalendarWrite",
