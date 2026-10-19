@@ -12,6 +12,8 @@ import { openTranscript } from "./transcript.js";
 import { wireTraceEntry } from "./turnLog.js";
 import { readProductionSetup, readProductionSkill } from "./production.js";
 import { skillSession, withSkills } from "./skills.js";
+import { openLearnedSkills, withLearnedSkills } from "./learnedSkills.js";
+import { afterTextedTurn } from "./reflect.js";
 import { searchSettingsOf } from "../search/settings.js";
 import { json } from "../http/responses.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
@@ -383,6 +385,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   const skills = skillSession(production?.skills ?? [], (path) => readProductionSkill(store, session, path), {
     onRead: (body) => opened?.vouch(body),
   });
+  // Skills Tex wrote itself (`learnedSkills.js`): an index on a text, read on request, never vouched for.
+  const learned = await openLearnedSkills(dispatch, { texted: session.actorClientId === TEXTS_CLIENT_ID, contexts: store.contexts });
   // A text that can write may hand a sub-project to another agent (`delegate.js`), as the person.
   const home = store.contexts.find((entry) => entry.current)?.name ?? null;
   const delegation =
@@ -505,7 +509,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       tools: [
         ...agentTools(offered).filter((tool) => textingWriting.length === 0 || tool.name !== "propose_note"),
         ...textingWriting,
-        ...(skills?.tools ?? []),
+        ...(skills?.tools ?? []), ...(learned?.tools ?? []),
         ...(delegation?.tools ?? []),
         ...(supervision?.mail.tools ?? []), ...(maker?.tools ?? []),
       ],
@@ -515,7 +519,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       callTool: outgoing.wrap(
         withPictureMaker(maker, withAttachmentImages(
           attachments,
-          withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withSkills(skills, withNoteLinks(textingAwareCallTool(dispatch, textingWriting), noteLinking)))),
+          withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withLearnedSkills(learned, withSkills(skills, withNoteLinks(textingAwareCallTool(dispatch, textingWriting), noteLinking)), { tainted: () => ledger.untrusted === true, dispatch }))),
         )),
       ),
       pictures: texted,
@@ -612,6 +616,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     const handoff = opened?.browser?.handoffLine() ?? null;
     const sent = handoff === null ? answer : `${answer}\n\n${handoff}`;
     if (transcript !== null) await afterAnswer(transcript.finish({ answer, outcome: turn.exhausted ? "exhausted" : "answered" }));
+    // A hard job, written down for next time (`reflect.js`): after the answer, never on a tainted turn.
+    await afterAnswer(afterTextedTurn({ env, controlPlane, store, session, offered, question, turn, tainted: ledger.untrusted === true, learned, canWrite: textingWriting.some((tool) => tool.name === "write_note"), timeZone }));
 
     if (conversation !== null && !turn.exhausted) {
       try {

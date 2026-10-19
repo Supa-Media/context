@@ -18,7 +18,9 @@
  *      500-line cap every write to it has. It may read their notes and write
  *      that one note, and nothing else: no other note, no other workspace, no
  *      visibility, no link, no web, no text to anyone.
- *   3. The gateway reads the note again and writes `tex/dreams/YYYY-MM-DD.md`:
+ *   3. The gateway, by date and never by the model, moves each learned skill
+ *      unused for 60 days to `tex/skills/retired/` (`learnedSkills.js`).
+ *   4. The gateway reads the note again and writes `tex/dreams/YYYY-MM-DD.md`:
  *      the lines it added and removed, the model's own account of why, and
  *      every step it took (its thinking and tool calls, never a tool's result),
  *      the same way a day's transcript is written.
@@ -42,6 +44,7 @@ import { grantedToolsFor } from "./sixTools.js";
 import { newLedger } from "../privacy/egress.js";
 import { json } from "../http/responses.js";
 import { appendLogEntry, builtinMeter, clock, dayOf, longDate } from "./jobLog.js";
+import { RETIRED_SKILLS_FOLDER, UNUSED_SKILL_DAYS, retireUnusedSkills } from "./learnedSkills.js";
 
 /** The dream runner's first-party client (`apps/convex/functions/lib/dreams/model.ts`). Decided by the grant. */
 export const DREAMS_CLIENT_ID = "context_dreams";
@@ -203,7 +206,7 @@ function heading(now, timeZone) {
 const asCode = (line) => `\`${line.replace(/`/g, "'")}\``;
 
 /** One dream's part of the night's log. */
-export function dreamEntry({ now, timeZone, transcripts, model, changes, why, events, outcome }) {
+export function dreamEntry({ now, timeZone, transcripts, model, changes, why, events, outcome, retired = [] }) {
   const lines = [`## ${clock(now, timeZone)}`, ""];
   lines.push(
     transcripts.length > 0
@@ -218,6 +221,10 @@ export function dreamEntry({ now, timeZone, transcripts, model, changes, why, ev
   } else {
     for (const line of changes.added) lines.push(`- Added ${asCode(line)}`);
     for (const line of changes.removed) lines.push(`- Removed ${asCode(line)}`);
+  }
+  if (retired.length > 0) {
+    lines.push("", "### Skills retired", "", `_Unused for ${UNUSED_SKILL_DAYS} days, moved to \`${RETIRED_SKILLS_FOLDER}/\`; move one back to use it again._`, "");
+    for (const name of retired) lines.push(`- ${asCode(name)}`);
   }
   const said = String(why ?? "").trim();
   if (said) lines.push("", "### Why", "", said.length > MAX_WHY_CHARS ? `${said.slice(0, MAX_WHY_CHARS)}…` : said);
@@ -275,6 +282,8 @@ export async function handleDream(request, env, store, session, controlPlane) {
     return json({ error: "model_unavailable" }, 503);
   }
 
+  // Learned skills nobody used in 60 days leave the index, by date and never by the model (`learnedSkills.js`).
+  const retired = await retireUnusedSkills(dispatch, started);
   const events = [];
   const offered = await grantedToolsFor(session, store);
   // The dream's setup note (`ai/production/dream.md`): its words, and its model
@@ -334,6 +343,7 @@ export async function handleDream(request, env, store, session, controlPlane) {
     why: turn?.answer ?? "",
     events,
     outcome,
+    retired,
   });
   const logged = await writeLog(dispatch, dreamPath(now, timeZone), entry, { now, timeZone });
   console.log(
@@ -346,6 +356,7 @@ export async function handleDream(request, env, store, session, controlPlane) {
       transcripts: transcripts.length,
       added: changes.added.length,
       removed: changes.removed.length,
+      retired: retired.length,
       logged,
       ms: now - started,
     }),
