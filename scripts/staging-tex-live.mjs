@@ -4,8 +4,9 @@
  * Proves what a person texting Tex gets, on the deployed Workers rather than
  * fakes: the seeded alpha@supa.media persona links a fictional 555-01XX number
  * (the simulator's only numbers) with a code from the app's own action, then
- * texts a quick question, a long task, a browser task and a vault request,
- * and the run reads the replies the way the simulator page does. The long
+ * texts a quick question, a long task, a browser task, two pictures and a
+ * vault request, and the run reads the replies the way the simulator page
+ * does. The long
  * task must come back with more than one text (progress, then the result) and
  * never "Something went wrong".
  *
@@ -146,6 +147,17 @@ try {
   );
   assert.ok(browsed.some((reply) => /1815/.test(reply)), `browsing reply: ${browsed.join(" | ")}`);
   pass("Tex drives a browser: types into a site's search and reads the result");
+
+  // Pictures (docs/decisions/texting-assistant/pictures.md): a graphic is a
+  // page the screenshot Worker photographs, a photo is Google's image model
+  // through the AI Gateway. The simulator logs each picture sent as
+  // "[picture]".
+  const drawn = await text("Make me a simple poster for a picnic this Saturday at noon in the park.", { timeoutMs: 4 * 60_000 });
+  assert.ok(drawn.some((reply) => /^\[picture/.test(reply)), `poster reply: ${drawn.join(" | ")}`);
+  pass("Tex draws a poster and texts it as a picture");
+  const made = await text("Make me a photo of an orange cat wearing a yellow raincoat.", { timeoutMs: 4 * 60_000 });
+  assert.ok(made.some((reply) => /^\[picture/.test(reply)), `photo reply: ${made.join(" | ")}`);
+  pass("Tex makes a photo with the image model and texts it");
 
   // The vault (docs/decisions/texting-assistant/vault.md): a login is saved
   // by the person on a signed-in page, never by text, so asking Tex to keep
