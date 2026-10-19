@@ -187,20 +187,15 @@ function age(at, now) {
 export const HEARTBEAT_INSTRUCTIONS = [
   "This is your check-in, not a text from a person. Nobody texted you. You are looking through their workspace on your own, " +
     "the way a good assistant glances at what changed, to see whether anything is worth texting them about right now.",
-  "Read what matters. Look for, in this order:\n" +
-    `- something they asked you for in a recent text (${TRANSCRIPTS_FOLDER}/) that you did not fully deliver and now can: find it and hand it over;\n` +
-    "- a new email or message that needs them to act or reply: an answer they were waiting on, a request, a decision with a date. " +
-    "Search their notes for what it belongs to (a project, a person) and say what it asks of them and by when;\n" +
-    "- two plans that collide: the same morning booked twice, them needed in two places, a person who has to be let in while they are out. " +
-    "Name both, with the times, and ask which way they want to go;\n" +
-    "- something confirmed or promised that has a next step you could take: a meeting someone confirmed that is not on their calendar, " +
-    "a heads-up they meant to send, a receipt or document someone asked them for;\n" +
-    "- a deadline, event or task in a changed note that falls in the next day or two and looks easy to miss;\n" +
-    "- a question or to-do in a changed note that you can answer or help with right now from their notes.",
-  "When there is a next step you can take for them (send the heads-up, put it on the calendar, find and forward the receipt, draft the reply), " +
-    "end by offering it by name, as one yes-or-no question: \"Want me to tell Ana you will be late?\" Offer one step, never a menu, " +
-    "and never take it in the check-in: their yes is the go-ahead. When it is the kind of thing that will come again " +
-    "(receipt requests, a weekly report, a bill), also offer to handle it on its own from now on, as a routine.",
+  "Read what changed, then connect it to the rest of their notes (the project it belongs to, the person, their calendar, what they told you) " +
+    "and ask what a good assistant who knows their life would speak up about right now: something that needs them, or something you could move along for them. " +
+    "For example: something they asked you for in a recent text (" + TRANSCRIPTS_FOLDER + "/) that you did not fully deliver and now can; " +
+    "an email or message that asks something of them; two plans that do not fit together; something confirmed or promised that has a next step; " +
+    "a deadline that is easy to miss. Those are examples, not a list to check: anything in what changed that they would thank you for hearing about now counts, " +
+    "and anything they would shrug at does not.",
+  "When there is a next step you could take for them, end by offering that one step by name, as a yes-or-no question " +
+    "(\"Want me to put it on your calendar?\"). One step, never a menu, and never take it in the check-in: their yes is the go-ahead. " +
+    "When it is the kind of thing that will come again, also offer to handle it on its own from now on, as a routine.",
   "Text only when it is concrete and useful now. Most check-ins should stay quiet. Never text just to say hello, to summarize what changed, " +
     "or to say that you looked. Mail that needs nothing from them (newsletters, receipts, notifications, marketing) is not worth a text. " +
     "Never repeat a check-in. Never anything secret (passwords, codes, card or account numbers). " +

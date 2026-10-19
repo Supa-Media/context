@@ -26,8 +26,11 @@ export const heartbeatTables = {
     nextBeatAt: v.union(v.number(), v.null()),
     /** When the last finished check-in started, so the next one looks only at what came after. */
     lastBeatAt: v.optional(v.number()),
-    /** When a check-in last reached their phone: at most one a day. */
+    /** When a check-in last reached their phone. */
     lastTextedAt: v.optional(v.number()),
+    /** The local day (`YYYY-MM-DD`) `textedCount` is for: check-in texts that reached them that day. */
+    textedDay: v.optional(v.string()),
+    textedCount: v.optional(v.number()),
     /** A code from `HEARTBEAT_OUTCOMES`. Never text. */
     lastOutcome: v.optional(v.string()),
     /** The lease: when a check-in was handed out, and the id its result names. */
@@ -52,6 +55,7 @@ export const heartbeatTables = {
     updatedAt: v.number(),
   })
     .index("by_user", ["userId"])
+    .index("by_workspace", ["workspaceId"])
     .index("by_nextBeatAt", ["nextBeatAt"])
     .index("by_attentionDueAt", ["attentionDueAt"])
     .index("by_run_id", ["runId"]),

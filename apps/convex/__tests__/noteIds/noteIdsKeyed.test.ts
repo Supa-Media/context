@@ -16,7 +16,9 @@
  *    the write;
  *  - `recordKeyed` and `removeKeyed` act only on a live keyed row whose
  *    `storageKey` is the key given;
- *  - a write's time is never taken from the future (clamped to the server's).
+ *  - a write's time is never taken from the future (clamped to the server's);
+ *  - a keyed write that changes the note is its upload time (`uploaded`), so
+ *    "changed since" readers see it; the same bytes again move nothing.
  *
  * Sabotage (temporary local edits, reverted): each guard named in the test
  * titles, removed one at a time, makes its case fail.
@@ -338,6 +340,23 @@ describe("recordKeyed and removeKeyed: only a keyed row, at its own key", () => 
     });
     expect(recorded).toBe(true);
     expect(await rowAt(t, ws, PLAIN)).toMatchObject({ etag: "k2", size: 40, storageKey: `notes/${A}.md` });
+  });
+
+  test("a keyed write is the note's upload time, so the tree's updatedAt moves when the note changes", async () => {
+    // Production, 2026-10-19: a keyed write cleared `uploaded`, so Tex's check-in
+    // read every synced email day as unchanged and said "nothing changed".
+    const t = tester();
+    const ws = await boundWorkspace(t, "record-uploaded");
+    await keyedWorkspace(t, ws);
+    await adopt(t, ws, PLAIN, A, { etag: "k1", at: 100 });
+    expect(await rowAt(t, ws, PLAIN)).toMatchObject({ uploaded: 100 });
+    const record = (etag: string, at: number) =>
+      t.mutation(internal.functions.noteIdsKeyed.recordKeyed, { workspaceId: ws, path: PLAIN, key: `notes/${A}.md`, etag, size: 40, at });
+    expect(await record("k2", 300)).toBe(true);
+    expect(await rowAt(t, ws, PLAIN)).toMatchObject({ etag: "k2", uploaded: 300 });
+    // The same bytes written again are no change.
+    expect(await record("k2", 400)).toBe(true);
+    expect(await rowAt(t, ws, PLAIN)).toMatchObject({ etag: "k2", uploaded: 300 });
   });
 
   test("recordKeyed refuses a key that is not the row's storageKey, an unkeyed row and a path with no row", async () => {

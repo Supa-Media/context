@@ -98,6 +98,7 @@ import { productTurnPatch, recordedDestinations, SUCCEEDED } from "./lib/googleC
 import { nextRecentImport } from "./lib/googleConnect/recentImport";
 import * as forwardSyncJob from "./lib/googleSync/forwardSyncJob";
 import { pushedFirst, queueWorkspaceSweep } from "./lib/googleSync/drain";
+import { lookSoonForMail } from "./lib/heartbeats/mail";
 
 /** Connections one sweep may start, bounded like every other sweep here. */
 const SWEEP_BATCH = 50;
@@ -588,6 +589,10 @@ export const recordGoogleForwardSyncPass = internalMutation({
         : {}),
       updatedAt: now,
     });
+    // Mail that landed brings the owner's next check-in forward (`lib/heartbeats/mail.ts`).
+    if (product === "gmail" && args.baseline !== true && args.recentImport === undefined && (args.daysTouched ?? 0) > 0) {
+      await lookSoonForMail(ctx, { workspaceId: connection.workspaceId, now });
+    }
 
     /*
       A PASS THAT WROTE INTO SOMEBODY'S BUCKET LEAVES A ROW SAYING SO.

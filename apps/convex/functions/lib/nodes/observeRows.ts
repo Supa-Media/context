@@ -141,8 +141,12 @@ async function applySeamRow(
   if (existing !== null && existing.goneAt === undefined) {
     if (!isKeyed(existing) || existing.noteId !== keyed.noteId) return "taken";
     if (existing.observedAt > at) return undefined;
-    const fields = { etag: row.etag, size: row.size, uploaded: row.uploaded, observedAt: at };
     const changed = existing.etag !== row.etag || existing.size !== row.size;
+    // A seam write names no upload time; the write is it. Without this a keyed
+    // write cleared `uploaded`, and the manifest's `updatedAt` with it, so
+    // nothing reading "changed since" (Tex's check-in) ever saw a keyed note change.
+    const uploaded = row.uploaded ?? (changed ? at : existing.uploaded);
+    const fields = { etag: row.etag, size: row.size, uploaded, observedAt: at };
     await table.patch(existing.id, fields);
     if (changed) await table.logChange?.(path, false);
     cache.set(path, { ...existing, ...fields });
@@ -164,7 +168,7 @@ async function applySeamRow(
       kind: "file",
       etag: row.etag,
       size: row.size,
-      uploaded: row.uploaded,
+      uploaded: row.uploaded ?? at,
       observedAt: at,
       noteId: keyed.noteId,
       storageKey: keyed.storageKey,
@@ -177,7 +181,7 @@ async function applySeamRow(
       kind: "file",
       etag: row.etag,
       size: row.size,
-      uploaded: row.uploaded,
+      uploaded: row.uploaded ?? at,
       observedAt: at,
       noteId: keyed.noteId,
       storageKey: keyed.storageKey,
@@ -192,7 +196,7 @@ async function applySeamRow(
     storageKey: keyed.storageKey,
     etag: row.etag,
     size: row.size,
-    uploaded: row.uploaded,
+    uploaded: row.uploaded ?? at,
     observedAt: at,
     goneAt: undefined,
     idCopy: undefined,

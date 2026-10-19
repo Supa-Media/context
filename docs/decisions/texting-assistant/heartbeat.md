@@ -10,13 +10,25 @@ routine fired, or never (a dream texts nobody).
 (`BEAT_TIMES`, `apps/convex/functions/lib/heartbeats/model.ts`), never at
 night. One `texHeartbeats` row per person holds the next slot; a claim moves
 it to the following slot at once, so a check-in whose result is lost is simply
-followed by the next. **At most three texted check-ins a day**, one per slot:
-a check-in that texted goes on to the next slot like any other (the owner,
+followed by the next. **At most three texted check-ins a day**
+(`MAX_CHECK_IN_TEXTS_A_DAY`, counted per local day on the row; the owner,
 2026-10-19, "let's do 3 text a day and if we need to reduce it we can",
 replacing the first rule of one a day, which waited 12 hours after a text).
-That is decided by the control plane, never by the model. A check-in refused for want
-of a model (not Premium) or with no chat to text into waits for the person's
+After the third, the next look is tomorrow's first slot. That is decided by
+the control plane, never by the model. A check-in refused for want of a model (not Premium) or with no chat to text into waits for the person's
 next text; a daily sweep gives a first one to everyone with a linked phone.
+
+**New mail brings a look forward** (`lib/heartbeats/mail.ts`; the owner,
+2026-10-19, choosing "Yes, on new mail" after Google's 3:47 am email waited
+for the 10:00 slot while another assistant texted about it at once). A Gmail
+pass that wrote mail (not a baseline, not the first-connect import) moves the
+person's next look to two minutes away by day, so a burst is one look, or to
+08:00 their time when it lands at night (22:00 to 08:00, the same night as
+attention pings). Looks started by mail come at most an hour after the last
+look started, since each runs the model, and none once today's texts are used
+up. It only ever moves a look earlier, and the look is the ordinary check-in:
+the model still decides whether the mail is worth a text.
+
 Each claim asks again whether the phone is linked and not paused and whether
 the person still owns the personal workspace, mints a 15-minute grant for the
 `context_heartbeat` client (never the texting grant), and is audited as
@@ -29,19 +41,17 @@ output (`tex/heartbeat/`, `tex/dreams/`, `tex/about-me.md`, `tex/heartbeat.md`)
 never counts, or every look would wake the next. Nothing changed is
 `nothing_new` and runs no model. Otherwise a model is shown the changed paths,
 what earlier check-ins already texted (from the last three days' logs), and
-the person's own instructions, and looks for an ask in a recent transcript Tex
-did not fully deliver, a new email or message that needs them to act or reply
-(added 2026-10-19, after Google answered the owner's OAuth verification
-overnight and another assistant told them first: its deadline was months out,
-so none of the other three caught it), a deadline in the next day or two, or a
-to-do it can help with now, and also for two plans that collide and for something confirmed
-or promised with a next step it could take (added 2026-10-19, from texts
-another assistant sent the owner that they wanted Tex to send too). Mail that
-needs nothing from them is not a text. When there is a next step, the text ends
-by offering that one step as a yes-or-no question, never a menu, and never takes
-it: a look can only read, and the person's yes in the texting conversation is
-the go-ahead. For something that will come again (receipt requests, a weekly
-report) it also offers to handle it as a routine. It answers a short text or
+the person's own instructions, and asked to connect what changed to the rest
+of their notes and speak up only about what needs them or what it could move
+along for them. The prompt gives examples (an ask Tex did not fully deliver,
+mail that asks something of them, plans that collide, something confirmed with
+a next step, a deadline easy to miss) and says they are examples, not a list
+(the owner, 2026-10-19: the cases are not exhaustive, so the prompt must not
+enumerate them). Mail that needs nothing from them is not a text. When there is
+a next step, the text ends by offering that one step as a yes-or-no question,
+never a menu, and never takes it: a look can only read, and the person's yes in
+the texting conversation is the go-ahead. For something that will come again
+it also offers to handle it as a routine. It answers a short text or
 exactly `SKIP`; most looks should be `SKIP`.
 
 **What it may touch.** Reads only: `read_note`, `list_notes` and

@@ -28,7 +28,8 @@ import {
   isHeartbeatOutcome,
   nextBeatAfter,
 } from "./model";
-import { MAX_DELIVERY_TRIES, RETRY_AFTER_MS } from "../attention/model";
+import { MAX_DELIVERY_TRIES, RETRY_AFTER_MS, localDay } from "../attention/model";
+import { MAX_CHECK_IN_TEXTS_A_DAY, firstBeatTomorrow, textsOn } from "./mail";
 
 /** Write is for the gateway's own log of the look (`tex/heartbeat/`); the model is read-only there. */
 const HEARTBEAT_SCOPES = [SCOPE_READ, SCOPE_WRITE, SCOPE_PRIVATE];
@@ -171,16 +172,21 @@ export async function recordHeartbeatResultHandler(
   }
   const zone = await zoneOf(ctx, row.userId);
   const texted = args.outcome === "texted";
+  const today = localDay(now, zone);
+  const textedToday = textsOn(row, today) + (texted ? 1 : 0);
+  // Today's texts used up: nothing more until tomorrow's first slot, mail included (`mail.ts`).
   const nextBeatAt = WAIT_FOR_TEXT_OUTCOMES.has(args.outcome)
     ? null
-    : (row.nextBeatAt ?? nextBeatAfter(zone, now));
+    : texted && textedToday >= MAX_CHECK_IN_TEXTS_A_DAY
+      ? (firstBeatTomorrow(zone, now) ?? nextBeatAfter(zone, now))
+      : (row.nextBeatAt ?? nextBeatAfter(zone, now));
   await ctx.db.patch(row._id, {
     lastOutcome: args.outcome,
     claimedAt: undefined,
     runId: undefined,
     // From when it started: anything changed during it is looked at by the next one.
     ...(LOOKED_OUTCOMES.has(args.outcome) ? { lastBeatAt: row.claimedAt ?? now } : {}),
-    ...(texted ? { lastTextedAt: now } : {}),
+    ...(texted ? { lastTextedAt: now, textedDay: today, textedCount: textedToday } : {}),
     nextBeatAt,
     updatedAt: now,
   });
