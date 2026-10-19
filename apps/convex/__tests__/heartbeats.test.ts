@@ -11,7 +11,8 @@ import { asUser, createUser, createWorkspace, gatewayPost, setupTest } from "./f
  * Through the real `/agent-texts/session` and `/agent-texts/heartbeats/*`
  * routes. Check-ins fall on three daytime slots in the person's zone; a claim
  * hands out a grant on their personal workspace for the check-in client alone
- * and their own phones; one that texted waits until tomorrow.
+ * and their own phones; one that texted goes on to the next slot, so a
+ * person hears from check-ins at most three times a day.
  */
 /*
  * ## Sabotage record
@@ -20,8 +21,9 @@ import { asUser, createUser, createWorkspace, gatewayPost, setupTest } from "./f
  *
  *   `nextBeatAfter` ignoring the slots and answering `afterMs + 1h`
  *     → "a check-in falls on a daytime slot in their zone" fails
- *   `recordHeartbeatResultHandler` not pushing a texted check-in past AFTER_TEXT_MS
- *     → "a check-in that texted waits until tomorrow" fails
+ *   `recordHeartbeatResultHandler` pushing a texted check-in past the next slot
+ *     (the old 12-hour wait, re-applied 2026-10-19)
+ *     → "a check-in that texted goes on at the next slot" fails
  *   `claimDueHeartbeatsHandler` handing out every phone link instead of the person's own
  *     → "a check-in texts only the person's own phone" fails
  *   `texJobWorkspace` not asking for the phone link
@@ -218,17 +220,18 @@ describe("hearing back", () => {
     expect(next!.since).toBe(claimedAt);
   });
 
-  test("a check-in that texted waits until tomorrow", async () => {
+  test("a check-in that texted goes on at the next slot", async () => {
     const t = setupTest();
     const { userId } = await linked(t);
     await text(t);
     await makeDue(t, userId);
     const [beat] = await due(t);
+    const claimed = await row(t, userId);
     await result(t, beat!.runId, "texted");
     const after = await row(t, userId);
     expect(after!.lastTextedAt).toBeGreaterThan(0);
-    expect(after!.nextBeatAt!).toBe(nextBeatAfter("America/New_York", after!.lastTextedAt! + 12 * HOUR));
-    expect(after!.nextBeatAt! - after!.lastTextedAt!).toBeGreaterThan(12 * HOUR);
+    expect(after!.nextBeatAt!).toBe(claimed!.nextBeatAt!);
+    expect(after!.nextBeatAt!).toBe(nextBeatAfter("America/New_York", claimed!.claimedAt!));
   });
 
   test("a check-in that failed goes on at the next slot and reads the same changes again", async () => {

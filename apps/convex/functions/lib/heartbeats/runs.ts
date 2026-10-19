@@ -17,7 +17,6 @@ import { personalWorkspaceOf } from "../../textLinks";
 import { accountTimeZone } from "../routines/access";
 import { effectiveTimeZone } from "../routines/model";
 import {
-  AFTER_TEXT_MS,
   HEARTBEAT_CLIENT_ID,
   HEARTBEAT_CLIENT_NAME,
   HEARTBEAT_GRANT_TTL_MS,
@@ -174,9 +173,7 @@ export async function recordHeartbeatResultHandler(
   const texted = args.outcome === "texted";
   const nextBeatAt = WAIT_FOR_TEXT_OUTCOMES.has(args.outcome)
     ? null
-    : texted
-      ? nextBeatAfter(zone, now + AFTER_TEXT_MS)
-      : (row.nextBeatAt ?? nextBeatAfter(zone, now));
+    : (row.nextBeatAt ?? nextBeatAfter(zone, now));
   await ctx.db.patch(row._id, {
     lastOutcome: args.outcome,
     claimedAt: undefined,

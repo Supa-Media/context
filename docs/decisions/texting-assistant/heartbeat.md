@@ -10,9 +10,11 @@ routine fired, or never (a dream texts nobody).
 (`BEAT_TIMES`, `apps/convex/functions/lib/heartbeats/model.ts`), never at
 night. One `texHeartbeats` row per person holds the next slot; a claim moves
 it to the following slot at once, so a check-in whose result is lost is simply
-followed by the next. **At most one texted check-in a day**: after one, the
-next look waits 12 hours, which always lands past the day's last slot. That is
-decided by the control plane, never by the model. A check-in refused for want
+followed by the next. **At most three texted check-ins a day**, one per slot:
+a check-in that texted goes on to the next slot like any other (the owner,
+2026-10-19, "let's do 3 text a day and if we need to reduce it we can",
+replacing the first rule of one a day, which waited 12 hours after a text).
+That is decided by the control plane, never by the model. A check-in refused for want
 of a model (not Premium) or with no chat to text into waits for the person's
 next text; a daily sweep gives a first one to everyone with a linked phone.
 Each claim asks again whether the phone is linked and not paused and whether
