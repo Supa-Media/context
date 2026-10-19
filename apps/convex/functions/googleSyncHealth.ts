@@ -108,6 +108,8 @@ export const report = internalQuery({
     const rows = await ctx.db.query("googleConnections").take(DUE_SCAN);
     const live = rows.filter((row) => row.disconnectedAt === undefined);
     const gmailIdle: Record<string, number> = {};
+    const gmailIdleWhy: Record<string, number> = {};
+    const gmailQuotaUsed: Record<string, number> = {};
       const gmailFailure: Record<string, number> = {};
     const gmailWroteLastHour: Record<string, number> = {};
     // For a mailbox that wrote lately: whether its owner's check-in was brought forward and ran (`lib/heartbeats/mail.ts`).
@@ -123,7 +125,12 @@ export const report = internalQuery({
       if (row.push?.pending !== undefined && Object.keys(row.push.pending).length > 0) pushPending += 1;
       if (!row.products.includes("gmail") || row.gmail === undefined) continue;
       const idle = row.gmail.lastSyncedAt === undefined ? Infinity : now - row.gmail.lastSyncedAt;
-      bump(gmailIdle, idle < 15 * 60 * 1000 ? "under15m" : idle < HOUR ? "15mTo1h" : idle < 6 * HOUR ? "1to6h" : idle < 24 * HOUR ? "6to24h" : "over24h");
+      const idleKey = idle < 15 * 60 * 1000 ? "under15m" : idle < HOUR ? "15mTo1h" : idle < 6 * HOUR ? "1to6h" : idle < 24 * HOUR ? "6to24h" : "over24h";
+      bump(gmailIdle, idleKey);
+      // Which failure each idle mailbox is stuck on, and how much of its lifetime quota is spent.
+      if (idleKey !== "under15m") bump(gmailIdleWhy, `${idleKey}:${row.gmail.lastFailureCode ?? row.errorCode ?? "noFailure"}`);
+      const used = Math.min(1, (row.syncBytesWritten ?? 0) / Math.max(1, row.gmail.quotaBytes));
+      bump(gmailQuotaUsed, used < 0.5 ? "under50pct" : used < 0.9 ? "50to90pct" : "90to100pct");
       // Whether its passes wrote anything into the bucket lately, from the pass's own audit row.
       const wrote = (
         await ctx.db
@@ -151,6 +158,8 @@ export const report = internalQuery({
       staleClaims,
       pushPending,
       gmailIdle,
+      gmailIdleWhy,
+      gmailQuotaUsed,
       gmailFailure,
       gmailWroteLastHour,
       checkInAfterMail,
