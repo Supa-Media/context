@@ -24,8 +24,9 @@ import {
 export type Picture = { name: string; mediaType: string; data: string };
 
 export interface Line {
-  sendText(chatId: string, text: string, idempotencyKey: string): Promise<void>;
-  sendMedia(chatId: string, media: Media, idempotencyKey: string): Promise<void>;
+  /** `replyTo` names the person's message to answer inside the thread of, where the line can (Sendblue); Linq ignores it. */
+  sendText(chatId: string, text: string, idempotencyKey: string, replyTo?: string): Promise<void>;
+  sendMedia(chatId: string, media: Media, idempotencyKey: string, replyTo?: string): Promise<void>;
   /** A picture's bytes made sendable: an uploaded attachment, or an address the line fetches. */
   uploadPicture(picture: Picture): Promise<Media>;
   startTyping(chatId: string): Promise<void>;
@@ -70,11 +71,11 @@ function sendblueLine(deps: LineDeps): Line {
     return deps.sendblue;
   };
   return {
-    sendText: (chatId, text) => sendSendblueText(fetch, keys(), chatId, text),
-    sendMedia: async (chatId, media) => {
+    sendText: (chatId, text, _key, replyTo) => sendSendblueText(fetch, keys(), chatId, text, replyTo),
+    sendMedia: async (chatId, media, _key, replyTo) => {
       // Only an address: an uploaded attachment id is Linq's.
       if (!("url" in media)) throw new ServiceError("sendblue", 400);
-      await sendSendblueMedia(fetch, keys(), chatId, media.url);
+      await sendSendblueMedia(fetch, keys(), chatId, media.url, replyTo);
     },
     uploadPicture: async (picture) => {
       if (!deps.hostPicture) throw new ServiceError("sendblue", null);

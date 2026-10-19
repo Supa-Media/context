@@ -194,7 +194,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     outgoing pictures, the sharing judge and the Mail checker all vouch from.
     Only `runTurn` sees the two together, and the quote is marked there.
   */
-  const quoted = session.actorClientId === TEXTS_CLIENT_ID ? quotedOf(body.quoted) : "";
+  const quoted = quotedOf(session.actorClientId === TEXTS_CLIENT_ID ? body : null);
 
   // A texted yes or no settles a pending approval before any model runs (`textedSettle.js`).
   if (session.actorClientId === TEXTS_CLIENT_ID) {
@@ -492,6 +492,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
         now: received,
         timeZone,
         question,
+        quoted: quoted.words,
         attachments,
         routine: runner ? routine.path : null,
       })

@@ -64,3 +64,28 @@ it released", "a reply to a routine's text reaches a turn that has that
 text", "a text after the ready text reaches a turn that knows Tex asked them
 to connect Google"; `told.test.ts`, `reply.test.ts`, `ready.test.ts` for the
 Worker's half.
+
+### Tex answers inside the iMessage thread it was asked in
+
+Asked by Dev, 2026-10-19: Tex answered an inline "try again" with "Try what
+again?", and should answer inside threads "so we can follow the thoughts", as
+Instinct does. On Sendblue, an inline reply is answered with `reply_to` naming
+the person's own message, so the answer and its progress lines land in that
+thread; an answer that newer texts from the person have since passed goes
+under the text it answers too (`threadFor` in `apps/agent/src/inbox.ts`). A
+threaded send Sendblue refuses (400: an older line, a target it no longer
+holds) goes again as a plain text, since a reply outside the thread beats
+none. Routines and check-ins answer no one message and stay plain.
+
+The turn is always told a text was a reply: with the replied-to words when
+they can be read (`repliedToText`), and with `replied: true` when they can't,
+so the model looks back for the message rather than reading the reply against
+the last few texts (`apps/mcp/src/agent/quoted.js`). How each reply's words
+came out is logged as `sendblue_reply_context` (an outcome word, never the
+words or a number), because a lost quote was otherwise invisible. The day's
+transcript shows the quote above the person's words. Spanish tapbacks
+("Le gustó “…”") are dropped like English ones.
+
+Tests: `apps/agent/src/sendblueThreads.test.ts`, `worker.test.ts` ("an inline
+reply is queued as one even when its words can't be read"),
+`agentEgressJudge.test.mjs` and `agentTranscript.test.mjs`.

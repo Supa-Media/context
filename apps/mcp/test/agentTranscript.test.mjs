@@ -114,6 +114,18 @@ test("a turn is in the note before it is answered, then whole after", async () =
   assert.doesNotMatch(body, /working_/);
 });
 
+test("an inline reply shows the message it answers above the person's words", async () => {
+  const store = fakeNotes();
+  const t = openTranscript(store.callTool, { now: NOW, timeZone: "UTC", question: "try again", quoted: "The Oct 30 price isn't in your notes." });
+  await t.finish({ answer: "Looking for the Oct 30 price again." });
+  const body = store.notes.get("tex/transcripts/2026-10-15.md").body;
+  assert.match(body, /> ↩︎ Replying to: The Oct 30 price isn't in your notes\.\n\n\*\*Them:\*\* try again/);
+  const plain = fakeNotes();
+  const u = openTranscript(plain.callTool, { now: NOW, timeZone: "UTC", question: "hi" });
+  await u.finish({ answer: "Hi." });
+  assert.doesNotMatch(plain.notes.get("tex/transcripts/2026-10-15.md").body, /Replying to/);
+});
+
 // A 1×1 PNG.
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 

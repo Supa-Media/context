@@ -113,18 +113,35 @@ function chatOf(chatId: string): { number: string; from_number: string } {
   return { number: chat.phone, from_number: chat.line };
 }
 
-export async function sendSendblueText(fetcher: Fetch, keys: SendblueKeys, chatId: string, text: string): Promise<void> {
-  const status = await call(fetcher, keys, "/api/send-message", {
-    ...chatOf(chatId),
-    content: text.slice(0, MAX_REPLY_TEXT),
-  });
+/**
+ * One message, inside the thread of the message `replyTo` names when given
+ * (docs: iMessage inline replies). Sendblue refuses a reply it can't thread
+ * with a 400 and sends nothing then (an older line, a target it no longer
+ * holds), so a refused threaded send goes again as a plain message: a reply
+ * outside the thread beats no reply.
+ */
+async function sendMessage(fetcher: Fetch, keys: SendblueKeys, chatId: string, body: Record<string, unknown>, replyTo?: string): Promise<void> {
+  const plain = { ...chatOf(chatId), ...body };
+  let status: number;
+  if (replyTo) {
+    status = await call(fetcher, keys, "/api/send-message", { ...plain, reply_to: { message_handle: replyTo } });
+    if (status !== 400) {
+      if (status < 200 || status >= 300) throw new ServiceError("sendblue", status);
+      return;
+    }
+    logRefused("sendblue_thread", status);
+  }
+  status = await call(fetcher, keys, "/api/send-message", plain);
   if (status < 200 || status >= 300) throw new ServiceError("sendblue", status);
 }
 
+export async function sendSendblueText(fetcher: Fetch, keys: SendblueKeys, chatId: string, text: string, replyTo?: string): Promise<void> {
+  await sendMessage(fetcher, keys, chatId, { content: text.slice(0, MAX_REPLY_TEXT) }, replyTo);
+}
+
 /** Send one picture by its https address, which Sendblue fetches. */
-export async function sendSendblueMedia(fetcher: Fetch, keys: SendblueKeys, chatId: string, url: string): Promise<void> {
-  const status = await call(fetcher, keys, "/api/send-message", { ...chatOf(chatId), media_url: url });
-  if (status < 200 || status >= 300) throw new ServiceError("sendblue", status);
+export async function sendSendblueMedia(fetcher: Fetch, keys: SendblueKeys, chatId: string, url: string, replyTo?: string): Promise<void> {
+  await sendMessage(fetcher, keys, chatId, { media_url: url }, replyTo);
 }
 
 /** The "…" bubble. Best effort and quick; never throws. */
@@ -220,14 +237,27 @@ export type ProfileShared = "shared" | "refreshed" | "not_yet";
  */
 export async function repliedToText(fetcher: Fetch, keys: SendblueKeys, handle: string, chatId: string): Promise<string | null> {
   const chat = parseSendblueChat(chatId);
-  if (chat === null || handle === "" || handle.length > 200) return null;
+  if (chat === null || handle === "" || handle.length > 200) return replyContext("invalid");
   const parent = await getJson(fetcher, keys, `/api/v2/messages/${encodeURIComponent(handle)}`);
-  if (parent === null || parent.number !== chat.phone) return null;
-  if (typeof parent.group_id === "string" && parent.group_id !== "") return null;
-  const ours = parent.is_outbound === true ? parent.from_number : parent.to_number;
-  if (ours !== chat.line && parent.sendblue_number !== chat.line) return null;
+  if (parent === null) return replyContext("unread");
+  // The person's side of the message: `number`, or, when a reply leaves it
+  // out, whichever end of it is not the line.
+  const outbound = parent.is_outbound === true;
+  const theirs = parent.number ?? (outbound ? parent.to_number : parent.from_number);
+  if (theirs !== chat.phone) return replyContext("other_chat");
+  if (typeof parent.group_id === "string" && parent.group_id !== "") return replyContext("other_chat");
+  const ours = outbound ? parent.from_number : parent.to_number;
+  if (ours !== chat.line && parent.sendblue_number !== chat.line) return replyContext("other_chat");
   const content = typeof parent.content === "string" ? parent.content.trim() : "";
-  return content === "" ? null : content.slice(0, MAX_QUOTED_TEXT);
+  if (content === "") return replyContext("no_words");
+  replyContext("quoted");
+  return content.slice(0, MAX_QUOTED_TEXT);
+}
+
+/** How an inline reply's words came out, never the words or the numbers: Tex losing a reply's context is otherwise invisible. */
+function replyContext(outcome: "invalid" | "unread" | "other_chat" | "no_words" | "quoted"): null {
+  console.log(JSON.stringify({ event: "sendblue_reply_context", outcome }));
+  return null;
 }
 
 /**
@@ -252,9 +282,12 @@ export async function verifySendblueSecret(secret: string, headers: Headers): Pr
  * A tapback as words: what Messages sends for a reaction ("Loved “…”",
  * "Laughed at “…”", "Removed a heart from “…”", "Reacted 🎉 to “…”"). Linq
  * sent reactions as their own event, which was never answered; this keeps a
- * heart from getting a reply.
+ * heart from getting a reply. Messages writes it in the sender's language, so
+ * the Spanish ones are here too ("Le gustó “…”" reached Tex as a text,
+ * 2026-10-19).
  */
-const TAPBACK = /^(?:Loved|Liked|Disliked|Laughed at|Emphasi[sz]ed|Questioned|Removed an? .{1,40} from|Reacted .{1,16} to) [“"][\s\S]*[”"]$/u;
+const TAPBACK =
+  /^(?:Loved|Liked|Disliked|Laughed at|Emphasi[sz]ed|Questioned|Removed an? .{1,40} from|Reacted .{1,16} to|Le encantó|Le gustó|No le gustó) [“"][\s\S]*[”"]$/u;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

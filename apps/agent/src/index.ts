@@ -136,10 +136,12 @@ export default {
     logWebhook(line, "accepted");
 
     // An inline reply carries the words it answers, read from Sendblue now, before it waits in the queue.
+    // It is answered inside the same thread, and the turn is told it was a reply even when the words can't be read.
     const { replyTo, ...message } = inbound;
     const keys = sendblueKeys(env.SENDBLUE_API_KEY_ID, env.SENDBLUE_API_SECRET);
-    if (replyTo !== undefined && keys !== null) {
-      const quoted = await repliedToText((input, init) => fetch(input, init), keys, replyTo, message.chatId);
+    if (replyTo !== undefined) {
+      message.threaded = true;
+      const quoted = keys === null ? null : await repliedToText((input, init) => fetch(input, init), keys, replyTo, message.chatId);
       if (quoted !== null) message.quoted = quoted;
     }
 

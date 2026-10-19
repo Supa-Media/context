@@ -177,6 +177,7 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
       // send repeats nothing Linq already accepted; `sent` does the same on
       // a line without keys.
       const line = lineFor(lineDeps(deps), item.message.chatId);
+      const thread = await threadFor(storage, item.message);
       for (const [index, part] of reply.entries()) {
         if (index < sent) continue;
         if (item.message.channel === "simulator") {
@@ -184,8 +185,8 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
           continue;
         }
         const key = index === 0 ? `reply:${item.message.eventId}` : `reply:${item.message.eventId}:${index}`;
-        if (typeof part === "string") await line.sendText(item.message.chatId, part, key);
-        else await sendPicture(deps, item.message.chatId, part.media, key);
+        if (typeof part === "string") await line.sendText(item.message.chatId, part, key, thread);
+        else await sendPicture(deps, item.message.chatId, part.media, key, thread);
         sent = index + 1;
       }
       await storage.delete(key);
@@ -205,6 +206,20 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
   }
   await pruneSeen(storage, deps.now());
   await pruneMedia(storage, deps.now());
+}
+
+/**
+ * The person's message an answer goes inside the thread of, so a reply reads
+ * next to what it answers: one they sent as an inline reply, or one that
+ * newer texts from them have since passed (the answer would otherwise land
+ * under the wrong question). Otherwise none, and the answer is a plain text.
+ */
+async function threadFor(storage: InboxStorage, message: Message): Promise<string | undefined> {
+  if (message.channel === "simulator" || !message.messageId) return undefined;
+  if (message.threaded) return message.messageId;
+  // This one is still stored until it is sent, so more than one means a newer text waits.
+  const waiting = await storage.list<Pending>({ prefix: "pending:" });
+  return waiting.size > 1 ? message.messageId : undefined;
 }
 
 function lineDeps(deps: InboxDeps): LineDeps {
@@ -325,14 +340,14 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
  * becomes a sentence saying so rather than a reply retried until dropped; a
  * failure that is not a refusal is retried with the reply.
  */
-async function sendPicture(deps: InboxDeps, chatId: string, media: Media, key: string) {
+async function sendPicture(deps: InboxDeps, chatId: string, media: Media, key: string, thread?: string) {
   const line = lineFor(lineDeps(deps), chatId);
   try {
-    await line.sendMedia(chatId, media, key);
+    await line.sendMedia(chatId, media, key, thread);
   } catch (error) {
     const status = (error as { status?: number | null }).status;
     if (typeof status !== "number" || status < 400 || status >= 500 || status === 429) throw error;
-    await line.sendText(chatId, PICTURE_FAILED, `${key}:failed`);
+    await line.sendText(chatId, PICTURE_FAILED, `${key}:failed`, thread);
   }
 }
 
@@ -348,7 +363,8 @@ async function answerTexts(message: Message, deps: InboxDeps, storage: InboxStor
         if (simulator) await record(storage, "in", text, deps.now());
         else {
           const line = lineFor(lineDeps(deps), message.chatId);
-          await line.sendText(message.chatId, text, `progress:${message.eventId}:${index}`);
+          // An inline reply's progress lines go into its thread, like its answer.
+          await line.sendText(message.chatId, text, `progress:${message.eventId}:${index}`, message.threaded ? message.messageId : undefined);
           // Sending a text clears the bubble; the task is still going.
           await line.startTyping(message.chatId);
         }
@@ -414,6 +430,7 @@ async function fold(storage: InboxStorage, pending: Map<string, Pending>): Promi
       next.message = {
         ...next.message,
         ...(next.message.quoted ?? item.message.quoted ? { quoted: next.message.quoted ?? item.message.quoted } : {}),
+        ...(next.message.threaded ?? item.message.threaded ? { threaded: true as const } : {}),
         attachments: [...(item.message.attachments ?? []), ...(next.message.attachments ?? [])].slice(0, MAX_INBOUND_ATTACHMENTS),
       };
       await storage.put<Pending>(entries[index + 1][0], next);

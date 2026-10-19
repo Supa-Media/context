@@ -271,11 +271,12 @@ function writtenEtag(result) {
  * @param {number} options.now when the text arrived
  * @param {string} [options.timeZone] theirs; the day and the times are in it
  * @param {string} options.question what they sent, or the routine's name
+ * @param {string} [options.quoted] the words of the message an inline reply answers (`quoted.js`)
  * @param {object[]} [options.attachments] what they sent, as `attachments.js` reads it (voice messages heard)
  * @param {string|null} [options.routine] the routine's path, when this is one's run
  * @param {() => number} [options.clock]
  */
-export function openTranscript(callTool, { now, timeZone, question, attachments = [], routine = null, clock: tick = Date.now }) {
+export function openTranscript(callTool, { now, timeZone, question, quoted: repliedTo = "", attachments = [], routine = null, clock: tick = Date.now }) {
   const id = `${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const events = [];
   let ending = null;
@@ -284,9 +285,11 @@ export function openTranscript(callTool, { now, timeZone, question, attachments 
   let running = null;
   let sent = { items: [], pictures: [], lost: new Set() }; // filled before the first write
 
+  // An inline reply shows what it answers, so the log reads as the thread did.
+  const replyingTo = repliedTo === "" ? "" : `${quoted(`↩︎ Replying to: ${cut(repliedTo, MAX_SAID_CHARS)}`)}\n\n`;
   const opening =
     routine === null
-      ? `**Them:** ${cut(question, MAX_SAID_CHARS) || "_(no words)_"}\n`
+      ? `${replyingTo}**Them:** ${cut(question, MAX_SAID_CHARS) || "_(no words)_"}\n`
       : `**Routine** \`${routine}\` ran.\n`;
 
   function part() {
