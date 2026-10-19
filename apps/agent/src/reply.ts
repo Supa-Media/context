@@ -208,6 +208,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       message.quoted ?? (message.threaded ? "" : undefined),
       deps.told,
       message.threadStart,
+      { tapback: message.tapback, reacted: message.reacted },
     );
     if (answer.kind === "answer") {
       await deps.onToldDelivered?.();

@@ -44,12 +44,12 @@ import { ATTENTION_PROMPT } from "../src/agent/checkIns.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { fullToolList } from "./fullToolList.mjs";
+import { conversationTurns } from "./agentConversationFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-attention.test";
 const TOKEN_OWNER = `cat_attention_owner_${"0".repeat(20)}`;
 const TOKEN_EDITOR = `cat_attention_editor_${"0".repeat(19)}`;
 const TOKEN_BEAT = `cat_attention_beat_${"0".repeat(21)}`;
-const CONVERSATION = ".context/agent/conversations/texts.json";
 const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET };
 
 /* ---------------- the pure parts ---------------- */
@@ -270,7 +270,7 @@ test("the check-in's claim texts what is waiting, and the reply has it in front 
   assert.equal(delivered.body.outcome, "speak");
   assert.equal(delivered.body.answer, "Claude Code: The attention agent is in production.");
   assert.match(log(), /· asked · texted /);
-  const conversation = JSON.parse(bucket.get(CONVERSATION)?.body ?? "{}");
+  const conversation = { turns: conversationTurns(bucket) };
   assert.equal(conversation.turns?.at(-2)?.text, ATTENTION_QUESTION);
   assert.equal(conversation.turns?.at(-1)?.tainted, true, "an agent chose these words");
 });

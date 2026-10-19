@@ -27,6 +27,9 @@
  * - `ready` holds the phone, the chat id and times, never text, while Tex owes
  *   somebody set up by text the "your notes are ready" text (`ready.ts`); it
  *   goes when that text is sent, or after twenty minutes.
+ * - `reactions` holds up to five tapbacks not answered, each with the words
+ *   it was on, for at most a day, until the next text's turn is told them
+ *   (`reactions.ts`).
  * Conversation history is not kept here at all; the gateway keeps it in the
  * person's own bucket.
  *
@@ -50,6 +53,8 @@ import { record } from "./simulator";
 import { oweReadyText } from "./ready";
 import { clearTold, noteTold, owedTold } from "./told";
 import { rememberText } from "./threads";
+import { answers, clearReactions, noteReaction, notedReactions, tapbackText } from "./reactions";
+import type { Inbound } from "./inbound";
 
 /** The subset of `DurableObjectStorage` this uses, so tests can pass a Map. */
 export type InboxStorage = {
@@ -151,6 +156,25 @@ export async function accept(
   return "queued";
 }
 
+/**
+ * A tapback (`reactions.ts`): one that answers something is queued as a text,
+ * its words sent apart as the quote; any other is noted for the next turn.
+ */
+export async function react(
+  storage: InboxStorage,
+  inbound: Extract<Inbound, { kind: "reaction" }>,
+  now: number,
+): Promise<"queued" | "duplicate" | "full" | "noted"> {
+  const { reaction, kind: _kind, ...message } = inbound;
+  if (answers(reaction)) {
+    return accept(storage, { kind: "message", ...message, text: tapbackText(reaction.how), quoted: reaction.words, tapback: reaction.how }, now);
+  }
+  if ((await storage.get<number>(seenKey(inbound.eventId))) !== undefined) return "duplicate";
+  await storage.put(seenKey(inbound.eventId), now);
+  await noteReaction(storage, reaction, now);
+  return "noted";
+}
+
 /** Answer everything pending, oldest first. Called from the alarm. */
 export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<void> {
   const pending = await fold(storage, await storage.list<Pending>({ prefix: "pending:" }));
@@ -223,7 +247,8 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
  * simulator, which has no threads.
  */
 function threadFor(message: Message): string | undefined {
-  if (message.channel === "simulator" || !message.messageId) return undefined;
+  // A tapback's answer goes plain: under the tapback it would read as a reply to an emoji.
+  if (message.channel === "simulator" || !message.messageId || message.tapback) return undefined;
   return message.messageId;
 }
 
@@ -311,8 +336,10 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
     );
   // Fixed texts sent outside a turn, owed to the next turn's history (`told.ts`).
   const told = await owedTold(storage);
+  // Tapbacks left since their last text, told to this turn (`reactions.ts`).
+  const reacted = await notedReactions(storage, deps.now());
   const texts = await answerTexts(
-    message,
+    reacted.length > 0 ? { ...message, reacted } : message,
     {
       ...deps,
       onSetUp,
@@ -323,6 +350,7 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
     },
     storage,
   );
+  await clearReactions(storage, reacted);
   if (pictures.length === 0) return texts;
   // The simulator has no Linq to upload to; its log says a picture went.
   const upload =

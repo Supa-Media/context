@@ -272,6 +272,8 @@ export async function runTurn(options) {
     env,
     providerOptions = {},
     history = [],
+    // Gateway words saying the history is one iMessage thread's (`threadView.js`).
+    threadNote = "",
     web = null,
     texting = false,
     // Whether its answer can text pictures back (`outgoingPictures.js`): a text from their phone.
@@ -386,6 +388,7 @@ export async function runTurn(options) {
       continued: history.length > 0,
       used: usedTools(history),
     }) +
+    threadNote +
     webPrompt(webNames) +
     (progress ? PROGRESS_PROMPT : "") +
     (aboutMe === null ? "" : aboutMePrompt(aboutMe, { edits: tools.some((tool) => tool.name === "write_note") })) +

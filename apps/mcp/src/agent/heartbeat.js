@@ -360,6 +360,20 @@ export function shortEntry({ now, timeZone, text, outcome, why }) {
 /** What a look that could not list the workspace leaves in the day's log. */
 export const TREE_UNAVAILABLE_WORDS = "Couldn't list what changed, so it read nothing; it tries again in a few minutes.";
 export const NOTHING_NEW_WORDS = "Nothing changed since the last look, so it read nothing and ran no model.";
+export const BUSY_WORDS = "They were texting with you, so it read nothing; it looks again once the chat has been quiet for ten minutes.";
+
+/** How long the chat must have been quiet before a check-in looks (the owner, 2026-10-19). */
+export const QUIET_MS = 10 * 60 * 1000;
+
+/**
+ * Whether they are mid-conversation: a text of theirs kept less than
+ * `QUIET_MS` ago. Tex's own texts (a check-in, a routine) never count, or a
+ * check-in would hold back the next. Only the log (`events.js`) knows when an
+ * exchange was; a check-in reading the old file goes ahead as before.
+ */
+export function midConversation(conversation, now) {
+  return conversation.some((turn) => turn.theirs === true && Number.isFinite(turn.at) && now - turn.at < QUIET_MS);
+}
 
 /** The bodies of the last few days' logs, best effort. */
 async function recentLogs(dispatch, now, timeZone) {
@@ -444,6 +458,14 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
     return json({ outcome: "nothing_new" });
   }
 
+  // A check-in never lands in the middle of a chat: the control plane asks again once it has gone quiet.
+  // Only the last few: each exchange is a read, and a look's reads are counted (above).
+  const conversation = await readConversation(store, "texts", { entries: RECENT_TEXTS_SHOWN });
+  if (midConversation(conversation, Date.now())) {
+    await skipped(BUSY_WORDS);
+    return json({ outcome: "busy" });
+  }
+
   try {
     await openProvider(controlPlane, session, undefined, env);
   } catch (error) {
@@ -452,7 +474,6 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
   }
 
   const texted = textedLines(await recentLogs(dispatch, started, timeZone));
-  const conversation = await readConversation(store, "texts");
   const events = [];
   const offered = await grantedToolsFor(session, store);
   // The check-in's setup note (`ai/production/heartbeat.md`): its words, and its

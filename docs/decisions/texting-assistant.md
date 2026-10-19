@@ -213,6 +213,9 @@ Tex's own jobs, each with its record:
   thinking and tool calls, daily in their own `tex/transcripts/`.
 - [Dreams](./texting-assistant/dreams.md): nightly, brings `tex/about-me.md`
   up to date from the day's transcripts, logged in `tex/dreams/`.
+- [Runtime](./texting-assistant/runtime.md): the conversation as a log of
+  exchanges, a thread's texts read that thread, tapbacks answered or noted,
+  check-ins wait for ten quiet minutes.
 - [Heartbeat](./texting-assistant/heartbeat.md): three looks a day, one text at most.
 - [Attention](./texting-assistant/attention.md): agents ask Tex to text them; `tex/attention.md` decides. [Bug reports](./texting-assistant/bug-reports.md) by text go, texts included, only on their YES.
 - [Housekeeping](./texting-assistant/housekeeping.md): archives, merges and folds to lower the

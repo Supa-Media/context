@@ -107,10 +107,16 @@ describe("sendblue webhook", () => {
     expect(parseSendblueInbound("nope")).toEqual({ kind: "invalid" });
   });
 
-  it("never answers a tapback that arrives as words", () => {
-    for (const content of ["Loved “see you at 6”", "Laughed at “ha”", 'Emphasized "ok"', "Removed a heart from “x”", "Reacted 🎉 to “done”"]) {
-      expect(parseSendblueInbound(received({ content }))).toEqual({ kind: "ignored", reason: "reaction" });
+  it("reads a tapback that arrives as words as a reaction, never a text", () => {
+    for (const [content, how, words] of [
+      ["Loved “see you at 6”", "Loved", "see you at 6"],
+      ["Laughed at “ha”", "Laughed at", "ha"],
+      ['Emphasized "ok"', "Emphasized", "ok"],
+      ["Reacted 🎉 to “done”", "Reacted", "done"],
+    ]) {
+      expect(parseSendblueInbound(received({ content }))).toMatchObject({ kind: "reaction", reaction: { how, words } });
     }
+    expect(parseSendblueInbound(received({ content: "Removed a heart from “x”" }))).toEqual({ kind: "ignored", reason: "reaction" });
     expect(parseSendblueInbound(received({ content: "Loved the movie" }))).toMatchObject({ kind: "message" });
     expect(parseSendblueInbound(received({ content: "Liked “x” but why?" }))).toMatchObject({ kind: "message" });
   });

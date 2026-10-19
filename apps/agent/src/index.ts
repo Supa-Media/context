@@ -23,8 +23,8 @@
  * grant, exactly as it does for any other connected client.
  */
 
-import { parseInbound } from "./inbound";
-import { accept, drain, type InboxDeps } from "./inbox";
+import { parseInbound, type Inbound } from "./inbound";
+import { accept, drain, react, type InboxDeps } from "./inbox";
 import { checkReady } from "./ready";
 import type { Message } from "./reply";
 import { runDueRoutines, textRoutine, type PhoneTexted } from "./routines";
@@ -134,6 +134,13 @@ export default {
       return new Response(null, { status: 200 });
     }
     logWebhook(line, "accepted");
+
+    // A tapback is answered or noted by the sender's queue (`reactions.ts`), never read from Sendblue.
+    if (inbound.kind === "reaction") {
+      const stub = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(inbound.from));
+      const result = await stub.fetch("https://inbox/react", { method: "POST", body: JSON.stringify(inbound) });
+      return new Response(null, { status: result.ok ? 200 : 503 });
+    }
 
     // An inline reply carries the words it answers, read from Sendblue now, before it waits in the queue.
     // It is answered inside the same thread, and the turn is told it was a reply even when the words can't be read.
@@ -314,6 +321,10 @@ export class SenderInbox implements DurableObject {
         now: () => Date.now(),
       });
       return Response.json({ told });
+    }
+    if (path === "/react") {
+      const inbound = (await request.json()) as Extract<Inbound, { kind: "reaction" }>;
+      return Response.json({ outcome: await react(this.state.storage, inbound, Date.now()) });
     }
     if (path.startsWith("/media/")) {
       if (request.method !== "GET") return new Response(null, { status: 405 });

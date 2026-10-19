@@ -210,7 +210,7 @@ describe("Tex answers inside iMessage threads", () => {
     }
   });
 
-  it("never answers a Spanish tapback", () => {
+  it("reads a Spanish tapback as a reaction, never a text", () => {
     const base = {
       content: "Le gustó “Want me to put Friday on your calendar?”",
       is_outbound: false,
@@ -222,8 +222,8 @@ describe("Tex answers inside iMessage threads", () => {
       service: "iMessage",
       group_id: "",
     };
-    expect(parseSendblueInbound(base)).toEqual({ kind: "ignored", reason: "reaction" });
-    expect(parseSendblueInbound({ ...base, content: "Le encantó “x”" })).toEqual({ kind: "ignored", reason: "reaction" });
+    expect(parseSendblueInbound(base)).toMatchObject({ kind: "reaction", reaction: { how: "Liked", words: "Want me to put Friday on your calendar?" } });
+    expect(parseSendblueInbound({ ...base, content: "Le encantó “x”" })).toMatchObject({ kind: "reaction", reaction: { how: "Loved", words: "x" } });
     expect(parseSendblueInbound({ ...base, content: "Le gustó la película" })).toMatchObject({ kind: "message" });
   });
 });

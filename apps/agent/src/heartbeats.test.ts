@@ -169,6 +169,7 @@ describe("one look", () => {
     expect(await look(Response.json({ outcome: "speak", answer: "x" }))).toEqual({ outcome: "speak", answer: "x" });
     expect(await look(Response.json({ outcome: "speak", answer: "  " }))).toEqual({ outcome: "failed" });
     expect(await look(Response.json({ outcome: "nothing_new" }))).toEqual({ outcome: "nothing_new" });
+    expect(await look(Response.json({ outcome: "busy" }))).toEqual({ outcome: "busy" });
     expect(await look(Response.json({ outcome: "paused" }))).toEqual({ outcome: "paused" });
     expect(await look(Response.json({ outcome: "texted" }))).toEqual({ outcome: "failed" });
     expect(await look(Response.json({}, { status: 409 }))).toEqual({ outcome: "no_provider" });

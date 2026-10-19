@@ -21,6 +21,7 @@
  */
 
 import { getWithLegacyFallback } from "../storageLayout.js";
+import { eventsSupported, importLegacy, readEventTurns, writeExchange } from "./events.js";
 
 /** The conversations a caller may name. A name is never a path. */
 const CONVERSATIONS = {
@@ -102,25 +103,43 @@ export function trimHistory(turns, { turns: most = MAX_HISTORY_TURNS, chars: roo
   return kept;
 }
 
+/** A kept turn as a turn reads it: the words, and only the marks this module writes. */
+function keptTurn({ role, text, tainted, tools, id, at, thread, theirs }) {
+  const names = toolNames(tools);
+  return {
+    role,
+    text,
+    ...(tainted === true ? { tainted: true } : {}),
+    ...(names.length > 0 ? { tools: names } : {}),
+    ...(role === "user" && typeof id === "string" ? { id } : {}),
+    ...(role === "user" && Number.isFinite(at) ? { at } : {}),
+    ...(role === "user" && typeof thread === "string" ? { thread } : {}),
+    ...(role === "user" && theirs === true ? { theirs: true } : {}),
+  };
+}
+
+/** The old whole-file history, as it was before the log (`events.js`). */
+async function readFile(store, path) {
+  const object = await getWithLegacyFallback(store, path);
+  if (!object) return [];
+  const parsed = JSON.parse(await object.text());
+  return Array.isArray(parsed?.turns) ? parsed.turns.filter(isTurn) : [];
+}
+
 /**
- * Read a conversation. An absent or unreadable file is an empty conversation:
- * this is a convenience, and a corrupt file must not stop the person getting
- * an answer.
+ * Read a conversation: the log's newest exchanges (`events.js`), at most
+ * `entries` of them when a caller needs only the last few (each is a read),
+ * or the old file while the log is empty. An absent or unreadable history is an empty
+ * conversation: this is a convenience, and a corrupt file must not stop the
+ * person getting an answer.
  */
-export async function readConversation(store, name) {
+export async function readConversation(store, name, { entries } = {}) {
   const path = conversationPath(name);
   if (path === null) return [];
   try {
-    const object = await getWithLegacyFallback(store, path);
-    if (!object) return [];
-    const parsed = JSON.parse(await object.text());
-    const turns = Array.isArray(parsed?.turns) ? parsed.turns.filter(isTurn) : [];
-    return trimHistory(
-      turns.map(({ role, text, tainted, tools }) => {
-        const names = toolNames(tools);
-        return { role, text, ...(tainted === true ? { tainted: true } : {}), ...(names.length > 0 ? { tools: names } : {}) };
-      }),
-    );
+    const logged = eventsSupported(store) ? await readEventTurns(store, entries) : null;
+    const turns = logged === null ? await readFile(store, path) : logged.filter(isTurn);
+    return trimHistory(turns.map(keptTurn));
   } catch {
     return [];
   }
@@ -179,21 +198,33 @@ export function historyIsTainted(history) {
 }
 
 /**
- * Append one question and its answer, keeping the file within bounds.
- * `tainted` marks an answer written by a turn that read from outside the
- * workspace (`historyIsTainted`); it ages out with the turn. `tools` is the
- * names of the tools the answer used.
+ * Append one question and its answer. `tainted` marks an answer written by a
+ * turn that read from outside the workspace (`historyIsTainted`); it ages out
+ * with the turn. `tools` is the names of the tools the answer used, `thread`
+ * the exchange the question was typed under (`threadView.js`), `theirs` that
+ * the person sent the question (a check-in waits for those to go quiet).
+ *
+ * With a log (`events.js`) the exchange is one new object and `history` only
+ * says whether the old file still has to be copied in: a history read from it
+ * has no ids. A store with no listing keeps the old whole file.
  */
-export async function appendConversation(store, name, history, question, answer, { tainted = false, tools = [] } = {}) {
+export async function appendConversation(store, name, history, question, answer, { tainted = false, tools = [], thread = null, at = Date.now(), theirs = false } = {}) {
   const path = conversationPath(name);
-  if (path === null) return;
+  if (path === null) return null;
   const names = toolNames(tools);
+  if (eventsSupported(store)) {
+    if (history.length > 0 && !history.some((turn) => typeof turn.id === "string")) {
+      await importLegacy(store, history.map(({ role, text, tainted: marked, tools: used }) => keptTurn({ role, text, tainted: marked, tools: used })));
+    }
+    return await writeExchange(store, { at, question, answer, tainted, tools: names, thread, theirs });
+  }
   const turns = trimHistory([
     ...history,
     { role: "user", text: question },
     { role: "assistant", text: answer, ...(tainted ? { tainted: true } : {}), ...(names.length > 0 ? { tools: names } : {}) },
   ]);
   await store.put(path, JSON.stringify({ version: 1, turns }));
+  return null;
 }
 
 /**
@@ -242,12 +273,12 @@ export function readTold(value) {
 export async function appendTold(store, name, told) {
   const path = conversationPath(name);
   if (path === null || told.length === 0) return;
-  const turns = told.flatMap((key) => [
-    { role: "user", text: TOLD_QUESTION },
-    { role: "assistant", text: TOLD[key] },
-  ]);
   try {
-    await store.put(path, JSON.stringify({ version: 1, turns: trimHistory([...(await readConversation(store, name)), ...turns]) }));
+    const at = Date.now();
+    for (const [index, key] of told.entries()) {
+      // Read again each time: the old whole file is rewritten by each append.
+      await appendConversation(store, name, await readConversation(store, name), TOLD_QUESTION, TOLD[key], { at: at + index });
+    }
   } catch {
     // See above.
   }
