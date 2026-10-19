@@ -43,7 +43,12 @@ export async function markPushPending(
   if (row.disconnectedAt !== undefined || !row.products.includes(product)) return;
   if (row.health === "reconnect_required") return;
   const pending: Pending = { ...(row.push?.pending ?? {}) };
-  const alreadyPending = pending[product] !== undefined;
+  const markedAt = pending[product];
+  const alreadyPending = markedAt !== undefined;
+  // Already marked, and no pass has claimed the mark yet: the pass that claims it covers this
+  // notification too, so there is nothing to write. A busy mailbox notifies many times a minute,
+  // and each write re-ran every query that reads the connection.
+  if (markedAt !== undefined && (row.syncStartedAt === undefined || markedAt > row.syncStartedAt)) return;
   pending[product] = now;
   // The account's own backoff, or this product's (`retryAt`): a notification
   // is no reason to ask Google again before either ends.
