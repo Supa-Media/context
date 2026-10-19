@@ -109,7 +109,7 @@ export async function runAgentEgressTextingChecks(check) {
     const shown = JSON.stringify(model.requests.at(-1) ?? {});
     check(
       "the next turn sees the texted YES and what it released",
-      shown.includes("Yes!") && shown.includes("Done: claim the handle @woodshop"),
+      shown.includes("Yes!") && shown.includes("Done, I claimed the handle @woodshop"),
     );
 
     model.install([claim("pottery"), { text: "Want @pottery?" }]);

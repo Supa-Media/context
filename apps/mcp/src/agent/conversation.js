@@ -234,7 +234,11 @@ export function readTold(value) {
   return value.filter((name) => typeof name === "string" && Object.hasOwn(TOLD, name)).slice(0, MAX_TOLD);
 }
 
-/** Write the named fixed texts into a conversation, oldest first, before the turn reads it. */
+/**
+ * Write the named fixed texts into a conversation, oldest first, before the
+ * turn reads it. Best effort: a history that failed to save costs the turn
+ * some context, never its answer.
+ */
 export async function appendTold(store, name, told) {
   const path = conversationPath(name);
   if (path === null || told.length === 0) return;
@@ -242,5 +246,26 @@ export async function appendTold(store, name, told) {
     { role: "user", text: TOLD_QUESTION },
     { role: "assistant", text: TOLD[key] },
   ]);
-  await store.put(path, JSON.stringify({ version: 1, turns: trimHistory([...(await readConversation(store, name)), ...turns]) }));
+  try {
+    await store.put(path, JSON.stringify({ version: 1, turns: trimHistory([...(await readConversation(store, name)), ...turns]) }));
+  } catch {
+    // See above.
+  }
+}
+
+/**
+ * A routine's text goes in the texting conversation, so a reply to it ("move
+ * it to Tuesday") reaches a turn that knows what it answers, under a line
+ * saying what it was, the way a check-in's is (`heartbeat.js`). Only a text to
+ * its writer alone: that is whose conversation this is. Best effort: the text
+ * has already gone.
+ */
+export async function rememberRoutineText(store, routine, text, tainted) {
+  if (Array.isArray(routine.settings.to) && routine.settings.to.length > 0) return;
+  const line = `(Not a text from them. Your routine ${routine.path} ran on its schedule and you texted them what follows.)`;
+  try {
+    await appendConversation(store, "texts", await readConversation(store, "texts"), line, text, { tainted });
+  } catch {
+    // See above.
+  }
 }

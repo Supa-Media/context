@@ -203,7 +203,7 @@ export async function runEmailGateChecks(check) {
     const sendIt = await ask(env, TOKEN_TEXTS, "Yes, send it");
     check(
       'a yes that says to send it ("Yes, send it") sends the email',
-      sends().length === before + 1 && sends().at(-1).email.subject === "Re: said so" && /^Done: send an email/.test(sendIt.body?.answer ?? ""),
+      sends().length === before + 1 && sends().at(-1).email.subject === "Re: said so" && /^Done, I sent an email/.test(sendIt.body?.answer ?? ""),
     );
     model.install([{ toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "Re: changed" } }] }, verdict("yes"), { text: "Drafted." }]);
     await ask(env, TOKEN_TEXTS, "email Jo that it's fine");

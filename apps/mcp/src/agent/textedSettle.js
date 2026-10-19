@@ -19,10 +19,12 @@
 import { disarmTexting } from "../tools/approvals.js";
 import { approvalVerdict, settleByText } from "./textedApprovals.js";
 import { openTranscript } from "./transcript.js";
-import { appendConversation, readConversation } from "./conversation.js";
+import { appendConversation, appendTold, readConversation, readTold } from "./conversation.js";
 
 /** What a texted turn is answered with before any model runs, or null to go on to one. */
-export async function settleTextedText(store, session, { dispatch, question, hasAttachments, now, timeZone, defer, conversation = null }) {
+export async function settleTextedText(store, session, { dispatch, question, hasAttachments, now, timeZone, defer, conversation = null, told }) {
+  // The Worker's fixed texts since the last turn go in the history first (`conversation.js` `TOLD`).
+  if (conversation !== null) await appendTold(store, conversation, readTold(told));
   const verdict = hasAttachments ? null : approvalVerdict(question); // a yes with a photo is about the photo
   if (verdict !== null) {
     const settled = await settleByText(store, session, verdict, question);
