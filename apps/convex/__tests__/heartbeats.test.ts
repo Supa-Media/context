@@ -3,6 +3,7 @@ import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { hashToken } from "../functions/lib/crypto";
 import { HEARTBEAT_CLIENT_ID, nextBeatAfter } from "../functions/lib/heartbeats/model";
+import { RETRY_AFTER_MS } from "../functions/lib/attention/model";
 import { asUser, createUser, createWorkspace, gatewayPost, setupTest } from "./fixtures.helpers";
 
 /**
@@ -234,16 +235,25 @@ describe("hearing back", () => {
     expect(after!.nextBeatAt!).toBe(nextBeatAfter("America/New_York", claimed!.claimedAt!));
   });
 
-  test("a check-in that failed goes on at the next slot and reads the same changes again", async () => {
+  test("a check-in that failed is tried again soon, once, and reads the same changes again", async () => {
     const t = setupTest();
     const { userId } = await linked(t);
     await text(t);
     await makeDue(t, userId);
     const [beat] = await due(t);
+    const claimed = await row(t, userId);
+    const before = Date.now();
     await result(t, beat!.runId, "failed");
     const after = await row(t, userId);
     expect(after!.lastBeatAt).toBeUndefined();
-    expect(after!.nextBeatAt!).toBeGreaterThan(Date.now());
+    expect(after!.nextBeatAt!).toBeGreaterThan(before);
+    expect(after!.nextBeatAt!).toBeLessThanOrEqual(Math.min(Date.now() + RETRY_AFTER_MS, claimed!.nextBeatAt!));
+    // Failing again waits for the slot.
+    await makeDue(t, userId);
+    const [again] = await due(t);
+    const reclaimed = await row(t, userId);
+    await result(t, again!.runId, "failed");
+    expect((await row(t, userId))!.nextBeatAt).toBe(reclaimed!.nextBeatAt);
   });
 
   test("no model, or no chat to text into, waits for the next text", async () => {

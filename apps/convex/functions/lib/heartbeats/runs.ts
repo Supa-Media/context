@@ -180,6 +180,11 @@ export async function recordHeartbeatResultHandler(
     : texted && textedToday >= MAX_CHECK_IN_TEXTS_A_DAY
       ? (firstBeatTomorrow(zone, now) ?? nextBeatAfter(zone, now))
       : (row.nextBeatAt ?? nextBeatAfter(zone, now));
+  // A look that failed (the tree still loading, the gateway unreachable) is tried again soon, once, rather
+  // than at the next slot hours later; a second failure in a row waits for the slot.
+  const retry = args.outcome === "failed" && row.lastOutcome !== "failed" && nextBeatAt !== null
+    ? Math.min(nextBeatAt, now + RETRY_AFTER_MS)
+    : nextBeatAt;
   await ctx.db.patch(row._id, {
     lastOutcome: args.outcome,
     claimedAt: undefined,
@@ -187,7 +192,7 @@ export async function recordHeartbeatResultHandler(
     // From when it started: anything changed during it is looked at by the next one.
     ...(LOOKED_OUTCOMES.has(args.outcome) ? { lastBeatAt: row.claimedAt ?? now } : {}),
     ...(texted ? { lastTextedAt: now, textedDay: today, textedCount: textedToday } : {}),
-    nextBeatAt,
+    nextBeatAt: retry,
     updatedAt: now,
   });
   await endTexJobGrant(ctx, { clientId: HEARTBEAT_CLIENT_ID, userId: row.userId, workspaceId: row.workspaceId, now });

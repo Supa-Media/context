@@ -285,6 +285,8 @@ export function heartbeatEntry({ now, timeZone, changed, model, text, events, ou
 }
 
 /** What a look with nothing changed leaves in the day's log (`jobLog.js` `logSkipped`). */
+/** What a look that could not list the workspace leaves in the day's log. */
+export const TREE_UNAVAILABLE_WORDS = "Couldn't list what changed, so it read nothing; it tries again in a few minutes.";
 export const NOTHING_NEW_WORDS = "Nothing changed since the last look, so it read nothing and ran no model.";
 
 /** The bodies of the last few days' logs, best effort. */
@@ -345,19 +347,20 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
   const settings = readSettings(settingsNote?.body ?? "");
   if (settings.paused) return json({ outcome: "paused" });
 
-  let entries;
-  try {
-    entries = await servedListingStore(store).treeEntries();
-  } catch {
-    // What changed can't be told while the tree is loading: tried again at the next slot, from the same point.
-    return json({ error: "tree_unavailable" }, 503);
-  }
-  const changed = newsFirst(changedSince(entries, since), Date.now());
   // A look that runs no model still leaves its line in the day's log.
   const skipped = (words) => {
     const now = Date.now();
     return logSkipped(dispatch, { path: heartbeatPath(now, timeZone), heading: heading(now, timeZone), now, timeZone, words });
   };
+  let entries;
+  try {
+    entries = await servedListingStore(store).treeEntries();
+  } catch {
+    // What changed can't be told while the tree is loading: tried again soon, from the same point.
+    await skipped(TREE_UNAVAILABLE_WORDS);
+    return json({ error: "tree_unavailable" }, 503);
+  }
+  const changed = newsFirst(changedSince(entries, since), Date.now());
   // Nothing changed since the last look: nothing to look at, and no model turn spent.
   if (changed.length === 0) {
     await skipped(NOTHING_NEW_WORDS);
