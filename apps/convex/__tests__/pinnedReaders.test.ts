@@ -23,8 +23,8 @@
  *     notes and nothing else" fails: the pin reader reads every team note.
  *  2. `canSee` letting `team` through for `READS_AS_GUEST` (`lib/privacy.ts`). → caught in `nodes/accountsGrantee.test.ts`
  *     ("the guest mark shuts team even under a member's rules"), since every path here renders a guest's rules.
- *  3. `readerAudience` answering `member` for every pass (`fileOperationBarrier.ts`). → "sees the All Context users
- *     notes and nothing else" fails: the guide is hidden, since a member's rules render it `team`.
+ *  3. `readerAudience` answering `member` for every pass (`fileOperationBarrier.ts`). → "reads a guide's body"
+ *     fails: the guide is hidden, since a member's rules render it `team` and the mark shuts that.
  *  4. `listFolderFromNodes` reading a member's view for everybody (`lib/nodes/listing.ts`). → "the listing" fails.
  *  5. `openStorageBinding` dropping `audience` (`controlPlane.ts`). → "the binding hands the gateway a guest's
  *     rules" fails.
@@ -37,7 +37,7 @@
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
-import { asUser, gatewayPost } from "./fixtures.helpers";
+import { asUser, captureError, errorCode, gatewayPost } from "./fixtures.helpers";
 import { indexBucket } from "./blendedSearch.helpers";
 import { READS_AS_GUEST_NAME } from "../functions/lib/pinnedReaders";
 import {
@@ -94,6 +94,18 @@ describe("after the migration, a pin reader", () => {
     expect(clearance.scope).toBe("team");
     expect(clearance.grantedNames).toContain(READS_AS_GUEST_NAME);
     expect(await visibleToPerson(w, w.sayo)).toEqual(OPEN_TO_ACCOUNTS);
+  });
+
+  test("reads a guide's body, and is told every other note does not exist", async () => {
+    const w = await pinnedWorld();
+    await migrate(w);
+    const { scope, grantedNames } = await clearanceOf(w, w.sayo);
+    const read = (path: string) =>
+      w.t.action(internal.functions.files.runFileOperation, { workspaceId: w.pinned, scope, grantedNames, operation: { kind: "read", path } });
+    expect(JSON.stringify(await read(GUIDE))).toContain(WORD);
+    for (const path of [PLAN, SECRET, BENCH, OLD_BUG]) {
+      expect(errorCode(await captureError(() => read(path))), path).toBe("FILE_NOT_FOUND");
+    }
   });
 
   test("the listing shows them the guides and no other folder's notes", async () => {

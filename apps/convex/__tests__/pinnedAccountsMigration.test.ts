@@ -18,14 +18,17 @@
  *  2. `membersToTeam` skipping folders (`row.kind !== "file"`). → "notes and folders alike" fails, and so does
  *     `pinnedReaders.test.ts` "an ordinary MCP session ... reads a note under the folder".
  *  3. `flipSwitch` called on the first page instead of the last. → "the switch waits for the last page" fails.
- *  4. `grantAccounts` not checking for an existing grant. → "a second run changes nothing" fails.
+ *  4. `grantAccounts` not checking for an existing grant. → "a row that already has its grant gets no second one"
+ *     fails.
+ *  6. `page` running the first pass after the switch. → "the first pass run again after the switch grants nothing"
+ *     fails: the members' rows the second pass made get the accounts grant.
  *  5. `page` paging every workspace's rows instead of the pinned one's. → "no other workspace" fails.
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
-import { createUser, createWorkspace } from "./fixtures.helpers";
+import { createUser, createWorkspace, drainScheduled } from "./fixtures.helpers";
 import { GUIDE, OLD_BUG, PLAN, migrate, pinnedWorld, setRow, type PinnedWorld } from "./pinnedReaders.helpers";
 
 vi.setConfig({ testTimeout: 60_000 });
@@ -127,6 +130,22 @@ describe("running it again", () => {
     expect(await migrate(w)).toBe("started: members");
     expect(await everyGrant(w)).toEqual(grants);
     expect(await switchAt(w)).toBe(flipped);
+  });
+
+  test("the first pass run again after the switch grants nothing, so a members' row stays members only", async () => {
+    const w = await pinnedWorld();
+    await migrate(w);
+    const grants = await everyGrant(w);
+    await w.t.mutation(internal.functions.pinnedAccounts.page, { phase: "accounts", after: null });
+    await drainScheduled(w.t);
+    expect(await everyGrant(w)).toEqual(grants);
+  });
+
+  test("a row that already has its grant gets no second one", async () => {
+    const w = await pinnedWorld();
+    await setRow(w, "guides", "team", [{ kind: "accounts", role: "view" }]);
+    await migrate(w);
+    expect(await grantsOn(w, "guides")).toEqual(["accounts:view"]);
   });
 
   test("one row a page ends where one big page does", async () => {

@@ -28,8 +28,8 @@
  *     move. → "once the pinned workspace has moved, a report is base team"
  *     fails: a member's MCP connection, holding no names, cannot read it.
  *  5c. `destination` handing `pinReaders: []` after the move. → "once the
- *     pinned workspace has moved, a folder opened to every account still
- *     refuses a report" fails: the check is judged as a member.
+ *     pinned workspace has moved, a folder open to the members alone takes a
+ *     report" fails: judged as a member, the members' folder reads as open.
  *  6. `accessNamesFor` holding `members` for any caller. → not caught here,
  *     since `grantedNamesFor` gives a non-member no names before it looks;
  *     "a members grant reaches a real member, never a guest or someone

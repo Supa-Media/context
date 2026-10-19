@@ -56,6 +56,8 @@ export const page = internalMutation({
   returns: v.null(),
   handler: async (ctx, { phase, after, pageSize }): Promise<null> => {
     if ((await accessSourceOf(ctx.db)) !== "rows") return null;
+    // The first pass after the switch would grant every account the rows the second pass has made members-only.
+    if (phase === "accounts" && (await switchRow(ctx))?.pinnedAccountsAt !== undefined) return null;
     const pinned = await pinnedContextWorkspace(ctx);
     if (pinned === null) {
       if (phase === "accounts") await flipSwitch(ctx);
