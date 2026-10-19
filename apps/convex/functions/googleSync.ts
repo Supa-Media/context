@@ -97,6 +97,7 @@ import { settlePushAfterPass } from "./lib/googlePush/pending";
 import { productTurnPatch, recordedDestinations, SUCCEEDED } from "./lib/googleConnect/rowPatches";
 import { nextRecentImport } from "./lib/googleConnect/recentImport";
 import * as forwardSyncJob from "./lib/googleSync/forwardSyncJob";
+import { pushedFirst, queueWorkspaceSweep } from "./lib/googleSync/drain";
 
 /** Connections one sweep may start, bounded like every other sweep here. */
 const SWEEP_BATCH = 50;
@@ -227,7 +228,10 @@ export const sweepDueGoogleSyncs = internalMutation({
       .take(SWEEP_BATCH);
 
     let started = 0;
-    for (const row of rows) {
+    // A connection Google just told us about goes ahead of routine polls
+    // (`lib/googleSync/drain.ts`): the shared-writer lock lets one pass per
+    // workspace run, and that pass should be the one somebody is waiting for.
+    for (const row of pushedFirst(rows, now)) {
       // The index range already excludes these. An index is a poor place to
       // trust an invariant that lives on another field — the same belt
       // `sweepStalledBackfills` wears over `optedIn`. Unreachable while the
@@ -388,6 +392,7 @@ export const recordGoogleForwardSyncPass = internalMutation({
         syncCatchUp: undefined,
         updatedAt: now,
       });
+      await queueWorkspaceSweep(ctx, connection.workspaceId);
       return { accepted: true };
     }
 
@@ -430,6 +435,7 @@ export const recordGoogleForwardSyncPass = internalMutation({
         lastSyncFailure: error ?? "This service did not sync.",
         updatedAt: now,
       });
+      await queueWorkspaceSweep(ctx, connection.workspaceId);
       return { accepted: true };
     }
 
@@ -493,6 +499,7 @@ export const recordGoogleForwardSyncPass = internalMutation({
         lastSyncFailure: error ?? "This Google account did not sync.",
         updatedAt: now,
       });
+      await queueWorkspaceSweep(ctx, connection.workspaceId);
       return { accepted: true };
     }
 
@@ -611,6 +618,7 @@ export const recordGoogleForwardSyncPass = internalMutation({
         },
       });
     }
+    await queueWorkspaceSweep(ctx, connection.workspaceId);
     return { accepted: true };
   },
 });

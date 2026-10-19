@@ -9,7 +9,8 @@
 //   - a cache that cannot be trusted is ignored, never believed;
 //   - an incremental pass fetches each new message once, not twice;
 //   - a draft, spam or archived message in history costs nothing;
-//   - Google's "slow down" is retried, its "out for the day" is not.
+//   - Google's "slow down" is retried, its "out for the day" is not;
+//   - a day Google stops part-way keeps what it fetched, so the retry resumes.
 //
 // SABOTAGE RECORD
 //   syncDayFromGmail ignores the cache (always fetches)          -> 2 checks failed
@@ -19,6 +20,7 @@
 //   listHistoryPage keeps every messageAdded                    -> 1 check failed
 //   gmailFetch stops retrying                                   -> 2 checks failed
 //   gmailFetch retries dailyLimitExceeded                       -> 1 check failed
+//   a day stopped part-way keeps nothing it fetched             -> 1 check failed
 
 import { gmailRetry } from "../../src/communications/gmail/api.js";
 import { messageCachePath, MESSAGE_CACHE_VERSION } from "../../src/communications/gmail/messageCache.js";
@@ -181,6 +183,24 @@ export async function runGmailMessageCacheChecks(check) {
     };
     await getMessage({ fetchImpl: spent, accessToken: "tok", id: "x" }).catch(() => undefined);
     check("a daily limit is not retried: seconds do not refill a day", daily === 1);
+
+    // -- a day Google stops part-way resumes where it stopped ---------------
+    const busy = [message("b1", 8), message("b2", 9), message("b3", 10), message("b4", 11)];
+    const limited = createFixtureGmail({ messages: busy });
+    const stopsAtB3 = async (url) =>
+      String(url).includes("/messages/b3?")
+        ? jsonResponse({ error: { errors: [{ reason: "dailyLimitExceeded" }] } }, 403)
+        : limited.fetchImpl(url);
+    const busyStore = createMemoryStore();
+    const stopped = await syncDayFromGmail(dayOptions(busyStore, { fetchImpl: stopsAtB3 })).catch((error) => error);
+    const resumed = createFixtureGmail({ messages: busy });
+    await syncDayFromGmail(dayOptions(busyStore, resumed));
+    check(
+      "A DAY GOOGLE STOPS PART-WAY RESUMES WHERE IT STOPPED, NOT FROM ITS FIRST MESSAGE",
+      stopped?.status === 403 &&
+        gets(resumed.calls).length === 2 &&
+        gets(resumed.calls).every((call) => call.includes("/b3?") || call.includes("/b4?")),
+    );
   } finally {
     gmailRetry.sleep = realSleep;
   }

@@ -534,6 +534,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The forward sync loop: a pull, on a floor of five minutes
 - A first connect reads the last fifty messages, and that is not a backfill (owner, 2026-10-17)
 - Push makes a pass due sooner; the loop still does everything
+- A workspace's passes run back to back, and a pushed one goes first
 - What is deliberately not built
 - iMessage reads `chat.db` in place, through the one binary every Mac already has
 - The destination rule is shared, so the field can say something before Save
