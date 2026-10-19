@@ -4,11 +4,18 @@
 # Manual only. It prints counts from `functions/gmailDayRepair.ts:rearmRecentImports`,
 # which answers with counts and never a row id, an address or a workspace:
 # this repository is public, and so is this job's log. Running it again
-# changes nothing once the re-armed imports have finished.
+# changes nothing once the re-armed imports have finished. With `since`, it
+# also queues the window repair (`queueDayRepair`, owner, 2026-10-19), which
+# answers with counts too.
 name: Gmail day repair
 
 on:
   workflow_dispatch:
+    inputs:
+      since:
+        description: "Also rebuild every day from this UTC date (YYYY-MM-DD) to today, in every mailbox. Empty: the last fifty only."
+        required: false
+        default: ""
 
 jobs:
   repair:
@@ -32,3 +39,10 @@ jobs:
         run: npx convex run functions/gmailDayRepair:rearmRecentImports
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+
+      - name: Window repair
+        if: ${{ inputs.since != '' }}
+        run: npx convex run functions/gmailDayRepair:queueDayRepair "{\"since\": \"$SINCE\"}"
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          SINCE: ${{ inputs.since }}

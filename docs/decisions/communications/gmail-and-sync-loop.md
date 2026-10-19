@@ -545,6 +545,16 @@ the first bill they see" is the scoping note's own sentence.
   The same run ends any Gmail rate-limit wait longer than fifteen minutes that
   is not a daily quota: those were set on the old ladder (up to six hours) and
   would have held a row past its own repair.
+- **The window repair, also run once by us.** Fifty messages reached only two
+  days back on a busy mailbox, so the owner asked the same day for every day
+  since a date. `gmailDayRepair:queueDayRepair` (the same workflow, with
+  `since`) gives each live Gmail row a `repairDays` list, never further back
+  than `REPAIR_MAX_DAYS`; each forward pass adds `REPAIR_DAYS_PER_PASS` of
+  them to the days it reconciles, a finished pass clears the ones it rebuilt,
+  and the row stays due until none are owed. It reads what Gmail holds now for
+  those days, like the reconcile of today and yesterday, so it is a repair of
+  days Context already covered and not the backfill #388 removed; a row that
+  still owes days is not queued again.
 - **One pass, inside the one credential barrier.** The import runs in
   `runFileOperation` on Gmail's turn, in place of that turn's forward pass,
   using the token the pass already minted and the scope the connect already

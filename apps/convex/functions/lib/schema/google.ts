@@ -202,6 +202,13 @@ export const googleTables = {
             messages: v.optional(v.number()),
           }),
         ),
+        /**
+         * Days (`YYYY-MM-DD`, UTC) the owner's one-time window repair still
+         * owes this mailbox (`functions/gmailDayRepair.ts`). Each pass rebuilds
+         * a few of them alongside today and yesterday, and a pass that
+         * finishes clears the ones it rebuilt. Dates only, never content.
+         */
+        repairDays: v.optional(v.array(v.string())),
         ...productAttemptFields,
       }),
     ),

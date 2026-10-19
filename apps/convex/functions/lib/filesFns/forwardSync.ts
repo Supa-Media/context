@@ -493,7 +493,7 @@ async function runMintedPass(
     folders: job.folders,
     startHistoryId: job.historyId,
     folder: job.destinationFolder,
-    reconcileDates: reconcileDays(Date.now()),
+    reconcileDates: [...reconcileDays(Date.now()), ...(job.repairDays ?? [])],
     // The same nonce the backfill used, so a day rewritten by either path
     // keeps its message anchors — see `packages/communications/src/note.js`.
     nonce: `gmail:${job.connectionId}`,
@@ -616,6 +616,7 @@ async function runMintedPass(
     daysTouched: result.daysTouched.length,
     bytesWritten: result.bytesWritten,
     catchUp: truncated,
+    ...(job.repairDays === undefined ? {} : { repairedDays: job.repairDays }),
   });
   return {
     kind: "googleForwardSync",
