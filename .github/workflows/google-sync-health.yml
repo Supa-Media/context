@@ -1,0 +1,33 @@
+# Ask production why the Google sweep is or is not starting passes.
+#
+# Manual only. It prints counts from `functions/googleSyncHealth.ts:report`,
+# which answers with numbers and our own status codes and never a row id, an
+# address or a person's timestamp: this repository is public, and so is this
+# job's log.
+name: Google sync health
+
+on:
+  workflow_dispatch:
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Report
+        run: npx convex run functions/googleSyncHealth:report
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
