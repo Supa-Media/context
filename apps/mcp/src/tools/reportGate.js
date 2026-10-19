@@ -13,8 +13,8 @@
  *      alone, no texts, and `share_texts` is refused.
  *   2. By text, the call is held as a pending approval whose record carries
  *      the whole report and says whether their texts go with it. Only a
- *      literal YES releases it (`agent/textedApprovals.js`); any other text
- *      disarms it.
+ *      YES releases it, or a yes that says to send it ("yes, file it",
+ *      `agent/textedApprovals.js`); any other text disarms it.
  *   3. The approved replay sends it. Only that replay reads the texts, off
  *      the person's own conversation file, never from anything the model
  *      wrote: the model can say whether they go, never what they say.
@@ -96,7 +96,7 @@ export async function reportGate(supplied, { store, session }) {
   return {
     ...toolError(
       "Not sent yet: the person will be shown this exact report and asked to reply YES to send it. " +
-        "Say in a line that you wrote it up, without repeating it. Don't call this again in this turn.",
+        "Say in a line that you wrote it up, without repeating it or asking for their yes: the next text shows it and asks. Don't call this again in this turn.",
     ),
     held: true,
   };

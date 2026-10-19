@@ -29,8 +29,10 @@ what happens to the draft (`apps/mcp/src/tools/emailGate.js`):
    long for one text (2,500 characters) is never asked about by text. A texted turn asks about one
    email at most, and an ask holding an email that would outgrow one text
    (other asks beside it included) is withdrawn rather than cut. Only a
-   literal YES within half an hour sends it, settled before any model runs;
-   "ok", "sure" or any other text disarms it, even when that text settles
+   YES within half an hour sends it, or a yes that says to send it ("yes
+   please", "yes, send it", "ok send it"; the owner, 2026-10-19), settled
+   before any model runs, from a fixed list anchored at both ends so "yes but
+   send it to Sam" is not one; a bare "ok", "sure" or any other text disarms it, even when that text settles
    something else asked beside it, so a changed draft is a new ask. An email that named no
    sender is held with the mailbox it was shown from, and refused rather than
    sent from another if that mailbox is gone. Another AI's email is approved

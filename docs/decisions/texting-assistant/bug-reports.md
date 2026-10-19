@@ -17,9 +17,11 @@ same Sentry destination, nothing of it stored by us. By text it takes
 `report_problem` from the texting assistant is held by `reportGate.js`, one of
 the `HELD_GATES` that run before the deployment's `EGRESS_APPROVALS = "off"`,
 like an email or a calendar change. The person is texted the report word for
-word, told whether their texts go with it, and only a literal YES sends it
-(`YES_ONLY` in `agent/textedApprovals.js`); "ok" is not a yes, and any other
-text disarms the ask. A report by text is at most 2,000 characters, so the ask
+word, told whether their texts go with it, and only a YES sends it
+(`YES_ONLY` in `agent/textedApprovals.js`), or a yes that says to send it:
+"yes please", "yes, file it", "ok send it" (decided by the owner, 2026-10-19:
+"these all count as yes"). A bare "ok" is not a yes, "yes but change X" is
+more than one, and any other text disarms the ask. A report by text is at most 2,000 characters, so the ask
 fits one text whole.
 
 **The model says whether the texts go, never what they say.** Only the

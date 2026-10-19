@@ -315,7 +315,7 @@ export async function runAgentRoutineChecks(check) {
         runsOf("daily/morning-brief")[0].text.startsWith("1. Ship the map"),
     );
     check(
-      "a routine never writes into the texting conversation",
+      "a routine that texts other people never writes into the texting conversation",
       bucket.get(".context/agent/conversations/texts.json") === undefined,
     );
 

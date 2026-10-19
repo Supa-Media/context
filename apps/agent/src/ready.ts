@@ -18,6 +18,7 @@ import { post, record as asRecord, ServiceError, type Fetch } from "./clients";
 import type { InboxStorage } from "./inbox";
 import { lineFor, type LineDeps } from "./line";
 import { record } from "./simulator";
+import { noteTold } from "./told";
 
 export const READY_KEY = "ready";
 /** The first look, about when a new bucket usually answers. */
@@ -28,7 +29,7 @@ export const READY_GIVE_UP_MS = 20 * 60_000;
 
 export const READY_COPY = {
   ready:
-    "You're good to go! Want to connect your Google, so I can get to know you from your email? Tap this, add your email, then tap Connect Google. Google will say it hasn't verified Context yet. That's expected: tap Advanced, then Go to Context. Text me when it's done.",
+    "You're good to go! Want to connect your Google, so I can get to know you from your email? Open the link below. It signs you in and asks for an email to protect your account, then tap Connect Google. Google will say it hasn't verified Context yet. That's expected: tap Advanced, then Go to Context. Text me when it's done.",
   late: "Your notes are taking longer than usual to set up. Text me in a few minutes and we'll pick up from there.",
 };
 
@@ -97,6 +98,8 @@ export async function checkReady(storage: InboxStorage, deps: ReadyDeps): Promis
     await armBy(storage, nextAt);
     return;
   }
+  // The next turn's history is owed this text, by name (`told.ts`).
+  await noteTold(storage, answer.status === "ready" ? "ready" : "ready_late");
   await storage.delete(READY_KEY);
 }
 

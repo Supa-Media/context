@@ -252,6 +252,8 @@ export async function askAgent(
    * (`apps/mcp/src/agent/quoted.js`).
    */
   quoted?: string,
+  /** The fixed texts sent since the last turn, by name, for its history (`told.ts`). */
+  told: readonly string[] = [],
 ): Promise<AgentAnswer> {
   // The person's zone, so the turn knows the time where they are, and what
   // they sent with the text (`attachments.ts`).
@@ -261,6 +263,7 @@ export async function askAgent(
     ...(timeZone ? { timeZone } : {}),
     ...(attachments.length > 0 ? { attachments } : {}),
     ...(quoted ? { quoted } : {}),
+    ...(told.length > 0 ? { told } : {}),
   };
   if (onProgress) return askAgentStreaming(fetcher, gatewayOrigin, accessToken, ask, onProgress);
   let result: { status: number; json: unknown };

@@ -19,15 +19,17 @@
 import { disarmTexting } from "../tools/approvals.js";
 import { approvalVerdict, settleByText } from "./textedApprovals.js";
 import { openTranscript } from "./transcript.js";
+import { appendConversation, readConversation } from "./conversation.js";
 
 /** What a texted turn is answered with before any model runs, or null to go on to one. */
-export async function settleTextedText(store, session, { dispatch, question, hasAttachments, now, timeZone, defer }) {
+export async function settleTextedText(store, session, { dispatch, question, hasAttachments, now, timeZone, defer, conversation = null }) {
   const verdict = hasAttachments ? null : approvalVerdict(question); // a yes with a photo is about the photo
   if (verdict !== null) {
     const settled = await settleByText(store, session, verdict, question);
     if (settled !== null) {
       // The yes and what it released go in today's transcript too (`transcript.js`), after the reply.
       await defer(openTranscript(dispatch, { now, timeZone, question }).finish({ answer: settled }));
+      await remember(store, conversation, question, settled);
       return { answer: settled, provider: "gateway", model: "none", steps: [] };
     }
   }
@@ -47,4 +49,19 @@ export async function settleTextedText(store, session, { dispatch, question, has
     };
   }
   return null;
+}
+
+/**
+ * The yes and what it released go in the conversation too, as any answered
+ * text does (`route.js`). Left out, the next turn never saw them: it said a
+ * bug report filed on that yes was "still waiting", and filed it again
+ * (@context-lc tex-bugs, 2026-10-18 and 2026-10-19). Best effort, as there.
+ */
+async function remember(store, conversation, question, answer) {
+  if (conversation === null) return;
+  try {
+    await appendConversation(store, conversation, await readConversation(store, conversation), question, answer);
+  } catch {
+    // The reply is still owed; a history that failed to save costs the next turn some context.
+  }
 }

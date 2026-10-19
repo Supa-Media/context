@@ -36,6 +36,8 @@ import { grantedToolsFor } from "./sixTools.js";
 import {
   SHOWN_HISTORY_TURNS,
   appendConversation,
+  appendTold,
+  readTold,
   conversationPath,
   earlierTextsTool,
   historyIsTainted,
@@ -196,6 +198,11 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
 
   // A texted yes or no settles a pending approval before any model runs (`textedSettle.js`).
   if (session.actorClientId === TEXTS_CLIENT_ID) {
+    // The Worker's fixed texts since the last turn go in the history first (`conversation.js` `TOLD`).
+    const told = readTold(body.told);
+    if (told.length > 0 && conversationPath(body.conversation) !== null && hasScope(session, SCOPE_WRITE)) {
+      await appendTold(store, body.conversation, told).catch(() => {});
+    }
     const settled = await settleTextedText(store, session, {
       dispatch,
       question,
@@ -203,6 +210,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       now: received,
       timeZone: readTimeZone(body.timeZone),
       defer: (work) => deferred(store, work),
+      // Kept on the same terms as a model turn's history, below.
+      conversation: conversationPath(body.conversation) !== null && hasScope(session, SCOPE_WRITE) ? body.conversation : null,
     });
     if (settled !== null) return json(settled);
   }
@@ -562,7 +571,12 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
         A routine that texts the person is a message they may answer with a bare
         "ok" or "yes", and that answer is to it, not to an ask raised before it.
       */
-      if (ran.text && routine.settings.send !== "note") await disarmTexting(store, { userId: session.actorUserId });
+      if (ran.text && routine.settings.send !== "note") {
+        await disarmTexting(store, { userId: session.actorUserId });
+        // Only a text to its writer alone: that is whose conversation this is.
+        const others = Array.isArray(routine.settings.to) && routine.settings.to.length > 0;
+        if (!others) await rememberRoutineText(store, routine.path, ran.text, ledger.untrusted);
+      }
       // A routine whose `until:` came true stops itself, recoverably.
       if (ran.outcome === "finished" && routine.cadence.unit !== "once") {
         await stopRoutine(dispatch, routine.path);
@@ -672,6 +686,24 @@ async function deferred(store, work) {
     store.defer(work);
   } catch {
     await work;
+  }
+}
+
+/** The question line a routine's text is kept under, the way a check-in's is (`heartbeat.js`). */
+function routineTextLine(path) {
+  return `(Not a text from them. Your routine ${path} ran on its schedule and you texted them what follows.)`;
+}
+
+/**
+ * A routine's text goes in the texting conversation, so a reply to it ("move
+ * it to Tuesday") reaches a turn that knows what it answers. Best effort: the
+ * text has already gone.
+ */
+async function rememberRoutineText(store, path, text, tainted) {
+  try {
+    await appendConversation(store, "texts", await readConversation(store, "texts"), routineTextLine(path), text, { tainted });
+  } catch {
+    // A history that failed to save costs the next turn some context, not this run.
   }
 }
 

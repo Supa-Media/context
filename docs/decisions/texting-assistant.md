@@ -199,6 +199,31 @@ Tests
 of the tools it used, and nothing else about them", "a texted answer keeps the
 names of the tools it used, never their arguments".
 
+### Every text Tex sends reaches the history, not only a model's answers (2026-10-19)
+
+The history used to be written only after a model turn, so the next turn never
+saw the texts Tex sent any other way: setting somebody up and saying their
+notes are ready (`apps/agent/src/setup.ts`, `ready.ts`), a texted YES or NO
+and what it released (`textedSettle.js`), and a routine's text. Live, a person
+who connected Google and texted "Done" was asked "Done with what?", and a bug
+report filed on a YES was offered again and filed twice (@context-lc
+tex-bugs, 2026-10-19). Now each is written: a settled verdict as its own turn;
+a routine's text to its writer alone under a "(Not a text from them…)" line,
+as a check-in's is (a routine whose `to:` names others writes nothing, since
+the conversation is the writer's); and the Worker's fixed texts by **name
+only** (`told: ["setup", "ready"]` on the next `/agent` call, `told.ts`),
+which the gateway turns into its own fixed lines (`TOLD` in
+`conversation.js`). The Worker never sends their words and the link never
+reaches a model; an unknown name is dropped.
+
+**What a simplification would cost:** dropping any one brings back a turn
+that answers a reply to a text it cannot see. Tests
+(`agentEgressTexting.test.mjs`): "the next turn sees the texted YES and what
+it released", "a reply to a routine's text reaches a turn that has that
+text", "a text after the ready text reaches a turn that knows Tex asked them
+to connect Google"; `told.test.ts`, `reply.test.ts`, `ready.test.ts` for the
+Worker's half.
+
 ### Every agent turn is logged by name and duration, never by text
 
 The owner, 2026-10-07: "make sure that we are logging these things so that

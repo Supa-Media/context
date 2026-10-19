@@ -21,11 +21,18 @@
  *     failed before the person saw it is not left waiting for a yes`.
  * 20. A routine's text not disarming asks. → `an ok to a routine's text does
  *     not release an ask raised before it`.
+ * 22. `rememberRoutineText` not called in `route.js`. → `a reply to a
+ *     routine's text reaches a turn that has that text`.
+ * 23. `appendTold` not called in `route.js`. → `a text after the ready text
+ *     reaches a turn that knows Tex asked them to connect Google`.
+ * 21. `remember` not called in `textedSettle.js`. → `the next turn sees
+ *     the texted YES and what it released`.
  */
 
 import { ask, request, toolReplies, createEgressWorld } from "./agentEgressFixtures.mjs";
 import { TOKEN_CONSOLE, TOKEN_TEXTS, TOKEN_ROUTINE } from "./agentEgressFixtures.mjs";
 import { approvalVerdict } from "../src/agent/textedApprovals.js";
+import { TOLD } from "../src/agent/conversation.js";
 
 export async function runAgentEgressTextingChecks(check) {
   const world = await createEgressWorld();
@@ -50,6 +57,20 @@ export async function runAgentEgressTextingChecks(check) {
     check(
       "a texted share runs at once, even after a page read",
       shared.status === 200 && teamVisible("2-areas/fourth.md") && pending().length === 0 && !/Reply YES/.test(shared.body?.answer ?? ""),
+    );
+
+    /* ---------------- the Worker's own texts reach the history ---------------- */
+
+    model.install([{ text: "Google's connected. Reading your mail now." }]);
+    await request(env, TOKEN_TEXTS, "/agent", { question: "Done", conversation: "texts", told: ["setup", "ready", "../secret", "made up"] });
+    const afterReady = JSON.stringify(model.requests.at(-1) ?? {});
+    check(
+      "a text after the ready text reaches a turn that knows Tex asked them to connect Google",
+      afterReady.includes(TOLD.ready) && afterReady.includes(TOLD.setup) && afterReady.indexOf(TOLD.ready) < afterReady.lastIndexOf("Done"),
+    );
+    check(
+      "only the gateway's own fixed lines are written, never a name it does not know",
+      !afterReady.includes("../secret") && !afterReady.includes("made up"),
     );
 
     /* ---------------- a handle claim asks ---------------- */
@@ -84,6 +105,11 @@ export async function runAgentEgressTextingChecks(check) {
     check(
       "a YES with nothing waiting is an ordinary text for the model",
       idleYes.status === 200 && model.requests.length === before + 1 && /yes what/.test(idleYes.body?.answer ?? ""),
+    );
+    const shown = JSON.stringify(model.requests.at(-1) ?? {});
+    check(
+      "the next turn sees the texted YES and what it released",
+      shown.includes("Yes!") && shown.includes("Done: claim the handle @woodshop"),
     );
 
     model.install([claim("pottery"), { text: "Want @pottery?" }]);
@@ -122,6 +148,12 @@ export async function runAgentEgressTextingChecks(check) {
         approvalVerdict("  Go ahead! ") === "approve" &&
         approvalVerdict("Nope.") === "deny" &&
         approvalVerdict("yes, and also move it") === null &&
+        approvalVerdict("Yes file it") === "approve" &&
+        approvalVerdict("yes please") === "approve" &&
+        approvalVerdict("Yes, send it!") === "approve" &&
+        approvalVerdict("send it") === "approve" &&
+        approvalVerdict("yes but send it to Sam") === null &&
+        approvalVerdict("ok thanks") === null &&
         approvalVerdict("I said no last time") === null &&
         approvalVerdict("") === null,
     );
@@ -157,6 +189,11 @@ export async function runAgentEgressTextingChecks(check) {
         model.requests.length === before + 1 &&
         !claimed("ninth-co") &&
         !/^Done/.test(okToBrief.body?.answer ?? ""),
+    );
+    const afterBrief = JSON.stringify(model.requests.at(-1) ?? {});
+    check(
+      "a reply to a routine's text reaches a turn that has that text",
+      afterBrief.includes("Nothing changed since yesterday.") && afterBrief.includes("Your routine routines/daily/brief.md ran"),
     );
     await sweep();
 

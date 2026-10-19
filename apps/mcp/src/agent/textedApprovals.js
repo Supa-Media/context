@@ -14,9 +14,27 @@ import { armForText, disarmRecords, listPending, replayAsAsked, settlePending, w
 const YES = /^\s*(?:yes|yes please|yep|yeah|yup|ok|okay|sure|do it|go ahead|go for it|confirm|confirmed|approve|approved|allow|y)\s*[.!]*\s*$/i;
 const NO = /^\s*(?:no|nope|no thanks|don'?t|cancel|stop|deny|denied|never ?mind|forget it|drop it|n)\s*[.!]*\s*$/i;
 
+/*
+  A yes said the way people say it (Dev, 2026-10-19: "yes, send it, yes, file
+  it, yes, please. These all count as yes"): a yes word followed only by
+  phrases that release what was shown, or one of those phrases alone. A fixed
+  list, anchored at both ends, so "yes but send it to Sam" is still more than
+  a yes and goes to the model.
+*/
+// Each says to go ahead. Courtesies alone ("ok thanks", "great") are an
+// acknowledgement, not a send, so they are left out on purpose.
+const RELEASE =
+  String.raw`(?:please|send it|send them|send that|send|file it|file that|file|do it|go ahead|go for it|make the change|book it|add it|` +
+  String.raw`looks good|sounds good)`;
+const SEP = String.raw`[\s,.!-]+`;
+const RELEASED_YES = new RegExp(
+  String.raw`^\s*(?:(?:yes|yep|yeah|yup|ok|okay|sure|y)(?:${SEP}${RELEASE})+|(?:send it|send them|file it|send that|file that)(?:${SEP}${RELEASE})*)\s*[.!]*\s*$`,
+  "i",
+);
+
 export function approvalVerdict(text) {
   if (typeof text !== "string") return null;
-  if (YES.test(text)) return "approve";
+  if (YES.test(text) || RELEASED_YES.test(text)) return "approve";
   if (NO.test(text)) return "deny";
   return null;
 }
@@ -92,8 +110,13 @@ function clean(text) {
   return text.replace(/[\u0000-\u0008\u000b-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, "");
 }
 
-/** An email, a calendar change or a bug report goes only on the word it asked for: "ok" or "sure" is not a yes. */
+/**
+ * An email, a calendar change or a bug report goes only on the word it asked
+ * for, or a yes that says to send it: "yes", "yes please", "yes, file it",
+ * "ok send it". A bare "ok" or "sure" is not a yes.
+ */
 const EMAIL_YES = /^\s*yes\s*[.!]*\s*$/i;
+const strictYes = (text) => EMAIL_YES.test(text) || RELEASED_YES.test(text);
 const YES_ONLY = new Set([EMAIL_TOOL, CALENDAR_TOOL, REPORT_TOOL]);
 
 /**
@@ -112,7 +135,7 @@ export async function settleByText(store, session, verdict, texted = "") {
   const notYes = [];
   for (const entry of [...waiting].reverse()) {
     const { record } = entry;
-    if (verdict === "approve" && YES_ONLY.has(record.tool) && !EMAIL_YES.test(texted)) {
+    if (verdict === "approve" && YES_ONLY.has(record.tool) && !strictYes(texted)) {
       notYes.push(entry);
       continue;
     }
