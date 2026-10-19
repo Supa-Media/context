@@ -10,9 +10,11 @@ routine fired, or never (a dream texts nobody).
 (`BEAT_TIMES`, `apps/convex/functions/lib/heartbeats/model.ts`), never at
 night. One `texHeartbeats` row per person holds the next slot; a claim moves
 it to the following slot at once, so a check-in whose result is lost is simply
-followed by the next. **At most one texted check-in a day**: after one, the
-next look waits 12 hours, which always lands past the day's last slot. That is
-decided by the control plane, never by the model. A check-in refused for want
+followed by the next. **At most three texted check-ins a day**, one per slot:
+a check-in that texted goes on to the next slot like any other (the owner,
+2026-10-19, "let's do 3 text a day and if we need to reduce it we can",
+replacing the first rule of one a day, which waited 12 hours after a text).
+That is decided by the control plane, never by the model. A check-in refused for want
 of a model (not Premium) or with no chat to text into waits for the person's
 next text; a daily sweep gives a first one to everyone with a linked phone.
 Each claim asks again whether the phone is linked and not paused and whether
@@ -28,9 +30,19 @@ never counts, or every look would wake the next. Nothing changed is
 `nothing_new` and runs no model. Otherwise a model is shown the changed paths,
 what earlier check-ins already texted (from the last three days' logs), and
 the person's own instructions, and looks for an ask in a recent transcript Tex
-did not fully deliver, a deadline in the next day or two, or a to-do it can
-help with now. It answers one short text or exactly `SKIP`; most looks should
-be `SKIP`.
+did not fully deliver, a new email or message that needs them to act or reply
+(added 2026-10-19, after Google answered the owner's OAuth verification
+overnight and another assistant told them first: its deadline was months out,
+so none of the other three caught it), a deadline in the next day or two, or a
+to-do it can help with now, and also for two plans that collide and for something confirmed
+or promised with a next step it could take (added 2026-10-19, from texts
+another assistant sent the owner that they wanted Tex to send too). Mail that
+needs nothing from them is not a text. When there is a next step, the text ends
+by offering that one step as a yes-or-no question, never a menu, and never takes
+it: a look can only read, and the person's yes in the texting conversation is
+the go-ahead. For something that will come again (receipt requests, a weekly
+report) it also offers to handle it as a routine. It answers a short text or
+exactly `SKIP`; most looks should be `SKIP`.
 
 **What it may touch.** Reads only: `read_note`, `list_notes` and
 `search_notes`, in the person's own workspace. Any write, move, visibility

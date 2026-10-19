@@ -27,21 +27,16 @@ export const HEARTBEAT_CLIENT_NAME = "Tex, checking in";
 /**
  * When in their day it looks, in their own time zone: waking hours only, and
  * no more than three times. A text from a check-in is a text they did not ask
- * for, so it never arrives at night.
+ * for, so it never arrives at night. A check-in that texted goes on to the
+ * next slot like any other, so a person hears from check-ins at most three
+ * times a day, one per slot (the owner, 2026-10-19: "let's do 3 text a day
+ * and if we need to reduce it we can"). Decided here, not by the model.
  */
 export const BEAT_TIMES = [
   { hour: 10, minute: 0 },
   { hour: 14, minute: 0 },
   { hour: 18, minute: 0 },
 ] as const;
-
-/**
- * After a check-in that texted, the next look waits this long: past the
- * day's last slot (18:00 + 12h lands after midnight, and 10:00 + 12h after
- * 18:00), so a person hears from a check-in at most once a day. Decided here,
- * not by the model, whatever it thinks is worth saying.
- */
-export const AFTER_TEXT_MS = 12 * 60 * 60 * 1000;
 
 /** How long a handed-out check-in holds its row, and how long its grant lives. */
 export const HEARTBEAT_LEASE_MS = 15 * 60 * 1000;
