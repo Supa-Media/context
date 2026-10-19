@@ -17,6 +17,7 @@ import { internalQuery, type QueryCtx } from "../_generated/server";
 import { calendarConnectEnabled } from "./calendarConnect";
 import { mailConnectEnabled } from "./googleConnect";
 import { isDue, productBackingOff, SYNC_STALL_MS, syncableProductsOf } from "./lib/googleSchedule";
+import { HEARTBEAT_LEASE_MS } from "./lib/heartbeats/model";
 
 /** The sweep's own batch size (`googleSync.ts`). */
 const SWEEP_BATCH = 50;
@@ -46,6 +47,18 @@ async function checkInState(ctx: QueryCtx, workspaceId: Id<"workspaces">, now: n
   if (beat.nextBeatAt === null) return "waitingForText";
   if (beat.nextBeatAt <= now) return "overdue";
   return beat.nextBeatAt - now < HOUR ? "dueWithinHour" : "dueLater";
+}
+
+/** Every check-in row, as counts: how the last one ended, how long ago it looked, whether one is running now. */
+async function checkIns(ctx: QueryCtx, now: number): Promise<Record<string, number>> {
+  const counts: Record<string, number> = {};
+  for (const beat of await ctx.db.query("texHeartbeats").take(DUE_SCAN)) {
+    bump(counts, `lastOutcome:${beat.lastOutcome ?? "none"}`);
+    const since = beat.lastBeatAt === undefined ? Infinity : now - beat.lastBeatAt;
+    bump(counts, since < HOUR ? "lookedUnder1h" : since < 6 * HOUR ? "looked1to6h" : since < 24 * HOUR ? "looked6to24h" : "lookedOver24h");
+    if (beat.claimedAt !== undefined && now - beat.claimedAt < HEARTBEAT_LEASE_MS) bump(counts, "runningNow");
+  }
+  return counts;
 }
 
 export const report = internalQuery({
@@ -141,6 +154,7 @@ export const report = internalQuery({
       gmailFailure,
       gmailWroteLastHour,
       checkInAfterMail,
+      checkIns: await checkIns(ctx, now),
       health: Object.fromEntries(
         Object.entries(
           live.reduce<Record<string, number>>((counts, row) => {

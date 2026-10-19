@@ -58,4 +58,24 @@ describe("the Google sync health report", () => {
     });
     expect(await s.t.query(internal.functions.googleSyncHealth.report, {})).toMatchObject({ checkInAfterMail: { dueWithinHour: 1 } });
   });
+
+  test("every check-in says how its last one ended, and whether one is running, as counts", async () => {
+    const s = await scenario();
+    const now = Date.now();
+    await s.t.run(async (ctx) => {
+      const userId = (await ctx.db.get(s.connectionId))!.boundBy;
+      await ctx.db.insert("texHeartbeats", {
+        userId,
+        workspaceId: s.workspaceId,
+        nextBeatAt: now + 10 * MINUTE,
+        lastBeatAt: now - 20 * MINUTE,
+        lastOutcome: "failed",
+        claimedAt: now - MINUTE,
+        updatedAt: now,
+      });
+    });
+    expect(await s.t.query(internal.functions.googleSyncHealth.report, {})).toMatchObject({
+      checkIns: { "lastOutcome:failed": 1, lookedUnder1h: 1, runningNow: 1 },
+    });
+  });
 });
