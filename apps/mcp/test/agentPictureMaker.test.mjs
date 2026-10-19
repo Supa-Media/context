@@ -117,14 +117,14 @@ test("make_picture asks Google's model through the gateway, on its token, with n
   });
   const result = await maker.call(MAKE_TOOL, { prompt: "Picture 1 is me, picture 2 a dress: me wearing it.", from: ["attachment:1", "attachment:2"], aspect_ratio: "3:4" });
   const [sent] = model.calls;
-  assert.equal(sent.url, `${GATEWAY.base}/google-ai-studio/v1beta/models/gemini-3.1-flash-lite-image:generateContent`);
+  assert.equal(sent.url, `${GATEWAY.base}/google-ai-studio/v1beta/models/gemini-2.5-flash-image:generateContent`);
   assert.equal(sent.headers["cf-aig-authorization"], `Bearer ${GATEWAY.token}`);
   assert.equal(sent.headers["cf-aig-collect-log"], "false");
   assert.equal(Object.keys(sent.headers).some((h) => /goog|api-key/i.test(h)), false);
   assert.deepEqual(sent.body.contents[0].parts.map((p) => p.inlineData?.data ?? p.text), ["UEVSU09O", "RFJFU1M=", "Picture 1 is me, picture 2 a dress: me wearing it."]);
   assert.deepEqual(sent.body.generationConfig, { responseModalities: ["TEXT", "IMAGE"], imageConfig: { aspectRatio: "3:4" } });
   assert.deepEqual(result.content[0], { type: "image", data: "TUFERQ==", mimeType: "image/png" });
-  assert.deepEqual(metered, [[{ input: 300, output: 1120 }, false, "google/gemini-3.1-flash-lite-image", false]]);
+  assert.deepEqual(metered, [[{ input: 300, output: 1120 }, false, "google/gemini-2.5-flash-image", false]]);
 });
 
 test("the next edit gets the last picture and the photo it came from", async () => {
