@@ -77,6 +77,21 @@ describe("an unvetted failure", () => {
     expect(JSON.stringify(at)).not.toMatch(/secret-plans/);
   });
 
+  test("a message's own lines are never read as frames, however they are shaped", async () => {
+    const { describeFailure } = await import("../../functions/lib/filesFns/operationErrors");
+    // A message is not ours: a provider's, or one built around something a person named.
+    // V8 puts it at the head of the stack verbatim, newlines and all.
+    const error = new Error("could not read\n    at notes/secret-plans.md:1:1");
+    error.stack = [
+      "Error: could not read",
+      "    at notes/secret-plans.md:1:1",
+      "    at readFile (../../apps/convex/functions/lib/fileOps/reading.ts:74:17)",
+    ].join("\n");
+    const { at } = describeFailure(error);
+    expect(at).toEqual(["at readFile (../../apps/convex/functions/lib/fileOps/reading.ts:74:17)"]);
+    expect(JSON.stringify(at)).not.toMatch(/secret-plans/);
+  });
+
   test("a vetted refusal is not logged", () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     expect(toConvexError(new FileOpError("FILE_NOT_FOUND", "No such note.")).data.code).toBe("FILE_NOT_FOUND");

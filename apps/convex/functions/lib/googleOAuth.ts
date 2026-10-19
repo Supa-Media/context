@@ -153,7 +153,12 @@ export const CALENDAR_WRITE_SCOPE = "https://www.googleapis.com/auth/calendar.ev
  * (decided by the owner, 2026-10-17: "it should work for testing accounts
  * before we need it approved"). An unverified app may ask its test users for
  * any scope; everyone else's consent screen stays the read-only one Google is
- * reviewing. Every write still waits for the person's yes to the exact copy.
+ * reviewing.
+ *
+ * A write that reaches somebody waits for the person's yes to the exact copy.
+ * `GMAIL_COMPOSE_SCOPE` is the one that does not: a draft saved with it is
+ * read by nobody until the person sends it from Gmail themselves
+ * (`docs/decisions/communications/sending-email.md`).
  */
 export const TESTER_WRITE_SCOPES: Partial<Record<GoogleProduct, readonly string[]>> = {
   gmail: [GMAIL_SEND_SCOPE, GMAIL_COMPOSE_SCOPE],

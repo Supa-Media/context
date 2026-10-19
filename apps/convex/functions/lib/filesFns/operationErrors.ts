@@ -104,13 +104,22 @@ export function describeFailure(error: unknown): {
 /**
  * Where it was thrown: the top stack frames, each a function name and a
  * source location in this repository's own code. A plain `Error` from our
- * code (kind `other`, @shyoh again) says nothing else. The stack's first line
- * repeats the message, so only lines shaped exactly like a frame are kept.
+ * code (kind `other`, @shyoh again) says nothing else. The message leads the
+ * stack and never reaches the log: its lines are dropped by count, because a
+ * multi-line message can carry a line shaped exactly like a frame, and only
+ * lines shaped like one are kept from what is left.
  */
-function framesOf(shaped: { stack?: unknown } | null): string[] {
+function framesOf(shaped: { stack?: unknown; message?: unknown } | null): string[] {
   const stack = typeof shaped?.stack === "string" ? shaped.stack : "";
-  return stack
-    .split("\n")
+  const lines = stack.split("\n");
+  // The message leads the stack and is not ours — a provider's words, or words built around
+  // something a person named — and it may hold newlines. Its own lines are dropped by count
+  // rather than by shape, since a line inside a message can be shaped exactly like a frame.
+  const message = typeof shaped?.message === "string" ? shaped.message : "";
+  const head = message.split("\n");
+  const led = message !== "" && (lines[0] ?? "").includes(head[0]!);
+  return lines
+    .slice(led ? head.length : 0)
     .map((line) => line.trim())
     .filter((line) => /^at (?:[\w$.<>\[\] ]{1,80} \()?[\w./@:-]{1,200}:\d+:\d+\)?$/.test(line))
     .slice(0, 6);
