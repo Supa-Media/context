@@ -75,12 +75,13 @@ export function gmailDayStore(store: FileStore, folder: string | undefined): Fil
     }
   };
 
-  return new Proxy(store, {
-    get(target, property, receiver) {
-      if (property === "get") return get;
-      if (property === "put") return put;
-      const member = Reflect.get(target, property, receiver);
-      return typeof member === "function" ? member.bind(target) : member;
-    },
-  });
+  // Spelled out rather than a Proxy: the HTTP route check must resolve every member statically.
+  return {
+    get,
+    put,
+    list: (options) => store.list(options),
+    delete: (key, options) => store.delete(key, options),
+    ...(store.head === undefined ? {} : { head: (key: string) => store.head!(key) }),
+    capabilities: store.capabilities,
+  };
 }
