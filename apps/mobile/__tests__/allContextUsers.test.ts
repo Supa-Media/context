@@ -1,71 +1,75 @@
 /**
- * ALL CONTEXT USERS: what `team` is called in the pinned workspace, and the Members position beside it.
+ * ALL CONTEXT USERS: a grant in the pinned workspace, beside Members, and never a word for `team`.
  *
- * `@context-lc` is read by every signed-in Context account through the pin, at `team`
- * (`docs/decisions/privacy-and-sharing/all-context-users.md`). So there, and only there, every sentence that
- * describes `team` must say it reaches anyone signed in to Context: `words.ts` forbids understating reach, and
- * "Everyone in @context-lc" or "the named list on People, and nobody else" would. Members (base `private` plus the
- * built-in members grantee) is the position that means the people actually invited.
+ * `team` in `@context-lc` means its real members, as in every workspace (decided by the owner, 2026-10-19;
+ * `docs/decisions/privacy-and-sharing/all-context-users.md`). Opening a note to every signed-in Context account is
+ * the built-in `accounts` grant, which the share dialog offers as All Context users. So the share dialog keeps its
+ * four positions there (Restricted / Members of @context-lc / All Context users / Anyone with the link), Members is
+ * base `team`, All Context users is base `team` plus the accounts grant, and every sentence about `team` itself says
+ * what it says in any workspace.
  *
  * Ordinary workspaces are unchanged, and the second half of each block pins that.
  *
  * Sabotage (run by hand, each must fail a test here):
- *  - drop the `everyAccount` branch in `audienceName`: "team is All Context users" fails;
- *  - drop it in `teamMeans`, `rootDefaultLine`, `folderDefaultLine`, `widenWarning` or `visibilityWordIn`:
- *    "every sentence about team says every account" fails;
+ *  - bring back the `offersAllUsers` branch in `audienceName`: "team is the members" fails;
+ *  - bring it back in `teamMeans`, `rootDefaultLine`, `folderDefaultLine`, `widenWarning` or `visibilityWord`:
+ *    "every sentence about team says the members" fails;
+ *  - drop the `offersAllUsers` branch in `scopeLabels`: "the final copy" fails;
+ *  - make `scopeOf` ignore the accounts grant: "team without the accounts grant is Members" fails;
+ *  - make `stepsTo` write plain `team` for All Context users: "every move ends where it asked, in the pinned
+ *    workspace" fails;
  *  - make `scopeOf` ignore the members grant (treat it as Restricted): "a members grant is the Members position" fails;
  *  - drop the visibility step from `stepsTo("members", "anyone")`: "every move ends where it asked" fails.
  */
 
 import { describe, expect, test } from "@jest/globals";
-import { audienceDetail, audienceName, audienceContextOf, type AudienceContext } from "../features/console/privacy/audience";
 import {
-  folderDefaultLine,
-  rootDefaultLine,
-  teamMeans,
-  visibilityWord,
-  visibilityWordIn,
-  widenWarning,
-} from "../features/console/privacy/words";
+  ALL_USERS_NAME,
+  allUsersDetail,
+  audienceDetail,
+  audienceName,
+  audienceContextOf,
+  type AudienceContext,
+} from "../features/console/privacy/audience";
+import { folderDefaultLine, rootDefaultLine, teamMeans, visibilityWord, widenWarning } from "../features/console/privacy/words";
 import { audiencePositions, scopeLabels, scopeOf, stepsTo, type NoteScope } from "../features/console/files/scope";
 import { allUsersConfirmLine, ALL_USERS_TAG, scopeLine } from "../features/console/files/shareDialog/copy";
 
-const lc: AudienceContext = { slug: "context-lc", kind: "shared", viewerIsOwner: true, everyAccount: true };
+const lc: AudienceContext = { slug: "context-lc", kind: "shared", viewerIsOwner: true, offersAllUsers: true };
 const acme: AudienceContext = { slug: "acme", kind: "shared", viewerIsOwner: true };
 
-describe("in the pinned workspace, team is all Context users", () => {
-  test("team is All Context users, and its detail says anyone signed in, not just members", () => {
-    expect(audienceName("team", lc)).toBe("All Context users");
-    const detail = audienceDetail("team", lc);
-    expect(detail).toContain("Anyone signed in to Context");
-    expect(detail).toContain("not just");
-    expect(detail).not.toContain("nobody outside");
+describe("in the pinned workspace, team is the members", () => {
+  test("team is the members, and its detail says nobody outside it", () => {
+    expect(audienceName("team", lc)).toBe("Everyone in @context-lc");
+    expect(audienceDetail("team", lc)).toContain("nobody outside it");
+    expect(audienceDetail("team", lc)).not.toContain("signed in to Context");
   });
 
-  test("every sentence about team says every account", () => {
-    for (const line of [
-      teamMeans("shared", true, true),
-      rootDefaultLine("team", true),
-      folderDefaultLine("team", true),
-      widenWarning("Roadmap", true),
-    ]) {
-      expect(line).toContain("signed in to Context");
-      expect(line).not.toContain("nobody else");
+  test("every sentence about team says the members", () => {
+    for (const line of [teamMeans("shared", true), rootDefaultLine("team"), folderDefaultLine("team"), widenWarning("Roadmap")]) {
+      expect(line).not.toContain("signed in to Context");
     }
-    expect(visibilityWordIn("team", true)).toBe("All users");
-    // `map` hands an index as the second argument; the one-argument form can never read it as the flag.
+    expect(teamMeans("shared", true)).toContain("the named list on People, and nobody else");
+    // `map` hands an index as the second argument; the one-argument form can never read it as a flag.
     expect((["private", "team", "team"] as const).map(visibilityWord)).toEqual(["Restricted", "Everyone", "Everyone"]);
   });
 
+  test("All Context users says anyone signed in, not just the members", () => {
+    expect(ALL_USERS_NAME).toBe("All Context users");
+    const detail = allUsersDetail(lc);
+    expect(detail).toContain("Anyone signed in to Context");
+    expect(detail).toContain("not just the members of @context-lc");
+    expect(detail).not.toContain("nobody outside");
+  });
+
   test("the derivation carries the flag, and leaves it off by default", () => {
-    expect(audienceContextOf("context-lc", "shared", true, true).everyAccount).toBe(true);
-    expect(audienceContextOf("acme", "shared", true).everyAccount).toBe(false);
+    expect(audienceContextOf("context-lc", "shared", true, true).offersAllUsers).toBe(true);
+    expect(audienceContextOf("acme", "shared", true).offersAllUsers).toBe(false);
   });
 
   test("an ordinary workspace keeps every sentence it had", () => {
     expect(audienceName("team", acme)).toBe("Everyone in @acme");
     expect(audienceDetail("team", acme)).toContain("nobody outside it");
-    expect(teamMeans("shared", true)).toContain("the named list on People, and nobody else");
     expect(rootDefaultLine("team")).toContain("everyone on People");
     expect(folderDefaultLine("team")).toContain("everyone on People");
     expect(widenWarning("Roadmap")).toContain("everyone on People");
@@ -78,18 +82,18 @@ describe("the audience menu, one line per position, widest last", () => {
     scopeLine(scope, context, { kind: "file", memberCount, people: 0 });
 
   test("four positions in the pinned workspace, three elsewhere", () => {
-    expect(audiencePositions({ everyAccount: true, membersWritable: true, scope: "private" })).toEqual([
+    expect(audiencePositions({ offersAllUsers: true, membersWritable: true, scope: "private" })).toEqual([
       "private",
       "members",
       "team",
       "anyone",
     ]);
-    expect(audiencePositions({ everyAccount: false, membersWritable: true, scope: "team" })).toEqual(["private", "team", "anyone"]);
+    expect(audiencePositions({ offersAllUsers: false, membersWritable: true, scope: "team" })).toEqual(["private", "team", "anyone"]);
   });
 
   test("Members is not offered where the list cannot be written, but a note already there still shows it", () => {
-    expect(audiencePositions({ everyAccount: true, membersWritable: false, scope: "team" })).not.toContain("members");
-    expect(audiencePositions({ everyAccount: false, membersWritable: true, scope: "members" })).toContain("members");
+    expect(audiencePositions({ offersAllUsers: true, membersWritable: false, scope: "team" })).not.toContain("members");
+    expect(audiencePositions({ offersAllUsers: false, membersWritable: true, scope: "members" })).toContain("members");
   });
 
   test("the final copy", () => {
@@ -133,6 +137,16 @@ describe("the Members position", () => {
     expect(scopeOf("team", false, true)).toBe("team");
   });
 
+  test("team without the accounts grant is Members in the pinned workspace, and All Context users with it", () => {
+    expect(scopeOf("team", false, false, false)).toBe("members");
+    expect(scopeOf("team", false, false, true)).toBe("team");
+    // While the list loads it reads as the wider of the two.
+    expect(scopeOf("team", false, false, undefined)).toBe("team");
+    expect(scopeOf("team", true, false, false)).toBe("anyone");
+    // A row written the old way is still Members.
+    expect(scopeOf("private", false, true, false)).toBe("members");
+  });
+
   test("every move ends where it asked, members included", () => {
     const scopes: NoteScope[] = ["private", "members", "team", "anyone"];
     for (const from of scopes) {
@@ -151,5 +165,38 @@ describe("the Members position", () => {
         if (link) expect(base).toBe("team");
       }
     }
+  });
+});
+
+describe("the pinned workspace's moves", () => {
+  /** What the server writes for each step there once the pin readers read as guests (`nodesAccess.consoleAccess`). */
+  test("every move ends where it asked, in the pinned workspace", () => {
+    const scopes: NoteScope[] = ["private", "members", "team", "anyone"];
+    for (const from of scopes) {
+      for (const to of scopes) {
+        let base: "private" | "team" = from === "private" ? "private" : "team";
+        let accounts = from === "team";
+        let link = from === "anyone";
+        for (const step of stepsTo(from, to, true)) {
+          if (step.kind === "visibility") {
+            // Plain `team` is never written there by this control: it would be Members, which `members` says.
+            expect(step.to).not.toBe("team");
+            base = step.to === "private" ? "private" : "team";
+            accounts = step.to === "accounts";
+          } else link = step.on;
+        }
+        expect([from, to, scopeOf(base, link, false, accounts)]).toEqual([from, to, to]);
+        if (link) expect(base).toBe("team");
+      }
+    }
+  });
+
+  test("All Context users from a link writes the grant, since the link may sit on Members", () => {
+    expect(stepsTo("anyone", "team", true)).toEqual([
+      { kind: "openLink", on: false },
+      { kind: "visibility", to: "accounts" },
+    ]);
+    // Elsewhere a link is always over `team` already.
+    expect(stepsTo("anyone", "team")).toEqual([{ kind: "openLink", on: false }]);
   });
 });

@@ -322,8 +322,8 @@ export function useLiveConsoleData(): ConsoleData {
     would answer `WORKSPACE_NOT_FOUND` for a pinned reader.
 
     **`useFileBrowser` deliberately keeps the real id.** Reading notes is the
-    one thing the pin opens — `authorizeFileAccess` grants it at `member`,
-    `team` — and it is the only reason to have the context in the list at all.
+    one thing the pin opens — `authorizeFileAccess` grants it at `member`, as
+    a guest — and it is the only reason to have the context in the list at all.
 
     One lever rather than a `pinned` argument threaded through eleven hooks: a
     hook that needs the row and was not told about the flag is a failing

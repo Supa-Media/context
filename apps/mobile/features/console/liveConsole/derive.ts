@@ -100,7 +100,7 @@ export function consoleContextsFrom(
     // the console carry a megabyte per workspace.
     icon: workspace.icon,
     pinned: workspace.pinned,
-    everyAccountReadsTeam: workspace.everyAccountReadsTeam,
+    offersAllContextUsers: workspace.offersAllContextUsers,
   }));
 }
 

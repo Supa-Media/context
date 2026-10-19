@@ -1,7 +1,8 @@
 /**
- * The share dialog's Members position: a row's base `private` plus the built-in `members` grantee
- * (`docs/decisions/privacy-and-sharing/all-context-users.md`). In the pinned workspace that is how a note is kept
- * to the people actually invited, because `team` there reaches every Context account through the pin.
+ * The built-in `members` grantee with a base `private`: the share dialog's Members position as #1912 wrote it
+ * (`docs/decisions/privacy-and-sharing/all-context-users.md`). Since 2026-10-19 `team` in the pinned workspace is its
+ * members, so Members is written there as plain `team` (`nodes/accountsGrantee.test.ts`); the grantee stays, for
+ * the rows written that way and for any app that sends it, and these pin how it is read and written.
  *
  *  - `shareList` reports the grant, with the live member count, so the dialog can tell Members from Restricted.
  *  - `setGrantees` takes it (`{ members: true }`) and keeps it when the dialog sends a list back.
@@ -17,8 +18,8 @@
  *    "All Context users clears it" fail;
  *  - drop the people already listed in `listForTier`: "keeps everybody else on the list" fails;
  *  - let `members` through in file mode in `setNoteVisibilityHandler`: "refused outside rows mode" fails;
- *  - mark only the pin's row `everyAccountReadsTeam` in `lib/workspaces/list.ts`, not a real member's:
- *    "everybody's row says its team tier is every account" fails.
+ *  - mark only the pin's row `offersAllContextUsers` in `lib/workspaces/list.ts`, not a real member's:
+ *    "everybody's row offers All Context users" fails.
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -203,12 +204,12 @@ describe("the console's note verb", () => {
   });
 });
 
-describe("the console says where team reaches every account", () => {
+describe("the console says where All Context users is offered", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
   });
 
-  test("everybody's row says its team tier is every account, the real members' rows included", async () => {
+  test("everybody's row offers All Context users, the real members' rows included", async () => {
     const t = setupTest();
     // The pinned workspace as it really is: shared, created by an address the deployment trusts.
     vi.stubEnv("ADMIN_EMAILS", "staff@example.invalid");
@@ -222,9 +223,9 @@ describe("the console says where team reaches every account", () => {
     );
     const staffRows = await asUser(t, staff).query(api.functions.workspaces.listMyWorkspaces, {});
     // The share dialog is the owner's, and the owner is a real member: the flag cannot be the pin's alone.
-    expect(pinRow?.everyAccountReadsTeam).toBe(true);
-    expect(staffRows.find((w) => w.workspaceId === pinnedId)).toMatchObject({ role: "owner", everyAccountReadsTeam: true });
+    expect(pinRow?.offersAllContextUsers).toBe(true);
+    expect(staffRows.find((w) => w.workspaceId === pinnedId)).toMatchObject({ role: "owner", offersAllContextUsers: true });
     expect(staffRows.find((w) => w.workspaceId === pinnedId)?.pinned).toBeUndefined();
-    expect(staffRows.find((w) => w.slug === "staff-personal")?.everyAccountReadsTeam).toBeUndefined();
+    expect(staffRows.find((w) => w.slug === "staff-personal")?.offersAllContextUsers).toBeUndefined();
   });
 });

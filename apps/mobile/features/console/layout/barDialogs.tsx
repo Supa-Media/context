@@ -90,8 +90,8 @@ export function consoleBarDialogs({
           current?.slug,
           current?.kind,
           capabilitiesForRole(current?.role).isOwner,
-          // The pinned workspace: `team` there is every signed-in Context account.
-          current?.everyAccountReadsTeam === true,
+          // The pinned workspace, whose dialog offers All Context users beside Members.
+          current?.offersAllContextUsers === true,
         ),
         onCreateGroup:
           data.groups?.actions === undefined

@@ -324,7 +324,7 @@ describe("the top row ends in one group, and it is the note's", () => {
     openShare(app);
     openAudience(app);
     app.press(sheet("share-audience-private"));
-    expect(moved).toEqual([[NOTE, "file", "team", "private"]]);
+    expect(moved).toEqual([[NOTE, "file", "team", "private", false]]);
   });
 
   /**
@@ -349,7 +349,7 @@ describe("the top row ends in one group, and it is the note's", () => {
     expect(moved).toEqual([]);
 
     app.press(sheet("share-confirm-public-yes"));
-    expect(moved).toEqual([[NOTE, "file", "team", "anyone"]]);
+    expect(moved).toEqual([[NOTE, "file", "team", "anyone", false]]);
   });
 
   /**

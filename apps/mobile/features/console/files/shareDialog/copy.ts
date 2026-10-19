@@ -32,8 +32,8 @@ export function scopeLine(
       ? "Anyone with the link can open what is inside, without signing in"
       : "Anyone can read it, and the notes it links to, without signing in";
   }
-  if (scope === "team" && context.everyAccount === true) {
-    // The pinned workspace: the pin opens `team` to every signed-in account. Contrasts with the link's
+  if (scope === "team" && context.offersAllUsers === true) {
+    // The pinned workspace's All Context users: every signed-in account. Contrasts with the link's
     // "without signing in", and fits the desktop menu without a widow.
     return options.kind === "folder"
       ? "Anyone signed in to Context can open everything inside, unless a note says otherwise"

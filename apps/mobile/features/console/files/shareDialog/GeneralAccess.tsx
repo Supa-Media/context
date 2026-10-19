@@ -22,14 +22,14 @@ const SCOPE_ICON: Record<NoteScope, IconName> = { private: "lock", members: "peo
 export type Confirming = "anyone" | "team" | null;
 
 /**
- * Whether picking `to` from `from` asks first. Going public always does. In the pinned workspace, where `team` is
- * every signed-in Context account and signing up is open, reaching it from Restricted or Members does too. Leaving
- * it, or reaching it from a link (a narrowing), never asks.
+ * Whether picking `to` from `from` asks first. Going public always does. In the pinned workspace, where the `team`
+ * position is All Context users (every signed-in account, and signing up is open), reaching it from Restricted or
+ * Members does too. Leaving it, or reaching it from a link, never asks.
  */
-export function asksFirst(from: NoteScope, to: NoteScope, everyAccount: boolean): Confirming {
+export function asksFirst(from: NoteScope, to: NoteScope, offersAllUsers: boolean): Confirming {
   if (to === from) return null;
   if (to === "anyone") return "anyone";
-  if (to === "team" && everyAccount && (from === "private" || from === "members")) return "team";
+  if (to === "team" && offersAllUsers && (from === "private" || from === "members")) return "team";
   return null;
 }
 
@@ -101,7 +101,7 @@ export function GeneralAccess({
   const [showMembers, setShowMembers] = useState(false);
   const triggerRef = useRef<View>(null);
   const labels = scopeLabels(context);
-  const everyAccount = context.everyAccount === true;
+  const offersAllUsers = context.offersAllUsers === true;
   // A members grant is the Members position, decided before a note's other names could read as a group.
   const group = scope !== "members" && access.visibility !== "team" && access.visibility !== "private";
   /*
@@ -111,13 +111,13 @@ export function GeneralAccess({
   const memberCount = access.members?.length;
   const shown: NoteScope = confirming ?? scope;
   // The "reaches past this workspace" look: a link, and All Context users in the pinned workspace.
-  const wide = shown === "anyone" || (shown === "team" && everyAccount);
+  const wide = shown === "anyone" || (shown === "team" && offersAllUsers);
   const line = (position: NoteScope) =>
     scopeLine(position, context, { kind: entryKind, memberCount, people });
 
   const pick = (position: NoteScope) => {
     if (position === scope || onSetScope === undefined) return;
-    const ask = asksFirst(scope, position, everyAccount);
+    const ask = asksFirst(scope, position, offersAllUsers);
     if (ask !== null) {
       setConfirming(ask);
       return;
@@ -131,11 +131,11 @@ export function GeneralAccess({
       {
         id: "audience",
         title: `Who can open ${name}`,
-        items: audiencePositions({ everyAccount, membersWritable, scope }).map((position) => ({
+        items: audiencePositions({ offersAllUsers, membersWritable, scope }).map((position) => ({
           id: position,
           label: labels[position].label,
           detail: line(position),
-          icon: position === "team" && everyAccount ? "group" : SCOPE_ICON[position],
+          icon: position === "team" && offersAllUsers ? "group" : SCOPE_ICON[position],
           checked: position === scope,
           testID: `share-audience-${position}`,
           onPress: () => pick(position),
@@ -167,7 +167,7 @@ export function GeneralAccess({
           ]}
         >
           <Icon
-            name={group ? "lock" : shown === "team" && everyAccount ? "group" : SCOPE_ICON[shown]}
+            name={group ? "lock" : shown === "team" && offersAllUsers ? "group" : SCOPE_ICON[shown]}
             size={18}
             color={wide ? colors.accent : colors.text2}
           />
@@ -203,7 +203,7 @@ export function GeneralAccess({
                   ? "Only owners and the group above can open it"
                   : line(scope)}
             {/* Who the members are, where they are who it reaches: never under All Context users. */}
-            {confirming === null && (scope === "members" || (scope === "team" && !everyAccount)) && memberRows.length > 0 ? (
+            {confirming === null && (scope === "members" || (scope === "team" && !offersAllUsers)) && memberRows.length > 0 ? (
               <Text
                 variant="meta"
                 style={[styles.link, compact && styles.metaCompact]}
@@ -220,7 +220,7 @@ export function GeneralAccess({
             All Context users says its reach in the tag's place: the reach matters more than where the setting came
             from, and two stacked tags would be clunky. Neutral, as the folder tag is: no new hue for a warning.
           */}
-          {confirming === null && scope === "team" && everyAccount ? (
+          {confirming === null && scope === "team" && offersAllUsers ? (
             <View style={styles.tag} testID="share-all-users-note">
               <Icon name="info" size={14} color={colors.muted} />
               <Text variant="meta" style={styles.meta}>
@@ -230,7 +230,7 @@ export function GeneralAccess({
           ) : null}
 
           {/* A public link is its own grant; "from the folder" would misread it. */}
-          {inherited && confirming === null && scope !== "anyone" && !(scope === "team" && everyAccount) && !(entryKind === "folder" && folder === undefined) ? (
+          {inherited && confirming === null && scope !== "anyone" && !(scope === "team" && offersAllUsers) && !(entryKind === "folder" && folder === undefined) ? (
             <View style={styles.tag} testID="share-inherited">
               <Icon name="folder" size={14} color={colors.muted} />
               <Text variant="meta" style={styles.meta}>
@@ -275,7 +275,7 @@ export function GeneralAccess({
         </View>
       )}
 
-      {showMembers && (scope === "members" || (scope === "team" && !everyAccount)) && confirming === null ? (
+      {showMembers && (scope === "members" || (scope === "team" && !offersAllUsers)) && confirming === null ? (
         <View style={[compact ? styles.indentCompact : styles.indent, styles.subList]} testID="share-members">
           {memberRows.map((row) => {
             const id = `row:${row.key}`;

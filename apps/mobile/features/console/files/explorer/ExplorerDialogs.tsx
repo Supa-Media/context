@@ -382,7 +382,7 @@ export function ExplorerDialogs({
           onSetScope={
             files.canSetVisibility
               ? (from, to) =>
-                  files.setScope(dialog.path, entryKind, from, to)
+                  files.setScope(dialog.path, entryKind, from, to, access?.audience?.offersAllUsers === true)
               : undefined
           }
           onRemovalRoute={access?.removalRouteFor?.(dialog.path, entryKind)}

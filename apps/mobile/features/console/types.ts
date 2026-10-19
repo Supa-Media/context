@@ -130,12 +130,12 @@ export interface ConsoleContext {
   pinned?: boolean;
   /**
    * True on the pinned workspace for everyone, its real members and owners
-   * included (`listMyWorkspaces`): there `team` is read by every signed-in
-   * Context account, so every sentence about it says "All Context users"
-   * (`privacy/audience.ts`, `everyAccount`). Not `pinned`, which a real
+   * included (`listMyWorkspaces`): its share dialog offers All Context users,
+   * the `accounts` grant, beside Members of @slug, which is its `team`
+   * (`privacy/audience.ts`, `offersAllUsers`). Not `pinned`, which a real
    * member's row never carries.
    */
-  everyAccountReadsTeam?: boolean;
+  offersAllContextUsers?: boolean;
 }
 
 /**

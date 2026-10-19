@@ -601,7 +601,7 @@ export interface FileBrowser extends BesideEditing, TrashedEditing {
    * what the single lock control uses. Collapsing them would put the ordering
    * rule `stepsTo` states inside a call site.
    */
-  setScope: (path: string, kind: "file" | "folder", from: NoteScope, to: NoteScope) => void;
+  setScope: (path: string, kind: "file" | "folder", from: NoteScope, to: NoteScope, offersAllUsers?: boolean) => void;
   /**
    * The notes that currently have a link anybody can open.
    *

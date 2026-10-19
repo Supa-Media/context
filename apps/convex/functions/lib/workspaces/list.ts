@@ -54,8 +54,8 @@ export async function listMyWorkspacesHandler(
       setupRetired: membership.setupRetiredAt !== undefined,
       joinedAt: membership.joinedAt,
       createdAt: workspace.createdAt,
-      // A real member of the pinned workspace keeps their role and no `pinned`, but its `team` still reaches everyone.
-      ...(pinned !== null && workspace._id === pinned._id ? { everyAccountReadsTeam: true } : {}),
+      // A real member of the pinned workspace keeps their role and no `pinned`, and its dialog offers All Context users.
+      ...(pinned !== null && workspace._id === pinned._id ? { offersAllContextUsers: true } : {}),
     });
   }
   summaries.sort((a, b) => a.createdAt - b.createdAt);
@@ -90,7 +90,7 @@ export async function listMyWorkspacesHandler(
       joinedAt: pinned.createdAt,
       createdAt: pinned.createdAt,
       pinned: true,
-      everyAccountReadsTeam: true,
+      offersAllContextUsers: true,
     });
   }
 
