@@ -7,7 +7,8 @@
  *       ├─▶ control plane: whose check-in is due? (each with its own grant and phones)
  *       ├─▶ gateway /agent {heartbeat}: look, as that person; a text or nothing
  *       │     (or, flagged `attention`, the pings their agents asked for, as they are)
- *       ├─▶ SenderInbox for each of their phones: text it, in the chat it last texted from
+ *       ├─▶ SenderInbox for each of their phones: text it, in the chat it last texted from,
+ *       │     under the earlier text the look said it continues, when that one is found
  *       └─▶ control plane: the outcome, as a code
  *
  * The text goes from the gateway to the person's own phone through here and
@@ -40,7 +41,7 @@ export type DueHeartbeat = {
 };
 
 /** What the gateway's look came to: a text to send, or an outcome with nothing to say. */
-export type Looked = { outcome: "speak"; answer: string } | { outcome: Exclude<HeartbeatOutcome, "texted" | "no_chat"> };
+export type Looked = { outcome: "speak"; answer: string; continues?: string } | { outcome: Exclude<HeartbeatOutcome, "texted" | "no_chat"> };
 
 /** A look reads a few notes and may take several rounds; the gateway bounds each one. */
 const HEARTBEAT_TIMEOUT_MS = 180_000;
@@ -57,8 +58,8 @@ export type HeartbeatDeps = {
   controlPlaneOrigin: string | undefined;
   workerSecret: string | undefined;
   gatewayOrigin: string | undefined;
-  /** Text one phone, through that phone's own inbox. */
-  textPhone: (phone: string, text: string, idempotencyKey: string) => Promise<PhoneTexted>;
+  /** Text one phone, through that phone's own inbox; under the earlier text it `continues`, when the inbox finds it. */
+  textPhone: (phone: string, text: string, idempotencyKey: string, continues?: string) => Promise<PhoneTexted>;
   log: (entry: Record<string, unknown>) => void;
 };
 
@@ -97,7 +98,8 @@ export async function runHeartbeat(fetcher: Fetch, gatewayOrigin: string, beat: 
   const body = record(result.json);
   if (result.status === 200) {
     if (body.outcome === "speak" && typeof body.answer === "string" && body.answer.trim() !== "") {
-      return { outcome: "speak", answer: body.answer };
+      const continues = typeof body.continues === "string" && body.continues.trim() !== "" ? body.continues : undefined;
+      return continues === undefined ? { outcome: "speak", answer: body.answer } : { outcome: "speak", answer: body.answer, continues };
     }
     if (typeof body.outcome === "string" && SILENT.has(body.outcome)) return { outcome: body.outcome as "quiet" };
     return { outcome: "failed" };
@@ -113,7 +115,7 @@ async function runOne(beat: DueHeartbeat, deps: HeartbeatDeps, gateway: string):
   const results: PhoneTexted[] = [];
   for (const phone of beat.phones) {
     try {
-      results.push(await deps.textPhone(phone, looked.answer, `heartbeat:${beat.runId}:${phone}`));
+      results.push(await deps.textPhone(phone, looked.answer, `heartbeat:${beat.runId}:${phone}`, looked.continues));
     } catch {
       results.push("failed");
     }

@@ -37,6 +37,8 @@ import {
   heartbeatPath,
   heartbeatQuestion,
   recentTextLines,
+  recentTexts,
+  continuesFrom,
   readSettings,
   textedLines,
 } from "../src/agent/heartbeat.js";
@@ -213,14 +215,41 @@ function unitChecks(check) {
     "a look sees the last texts with them, its own check-ins marked, and is told to continue rather than repeat",
     JSON.stringify(recent) ===
       JSON.stringify([
-        "You (a check-in): The lane hold expires at 5 PM today. Want me to draft a reply?",
-        "Them: what's the Oct 30 pricing",
-        "You: It's in a PDF I can't open.",
+        "[1] You (a check-in): The lane hold expires at 5 PM today. Want me to draft a reply?",
+        "[2] Them: what's the Oct 30 pricing",
+        "[3] You: It's in a PDF I can't open.",
       ]) &&
       heartbeatQuestion({ changed: [{ key: "todo.md", at: since }], now: since + 60_000, texted: [], recent }).includes(
-        "never start it over with a new offer.\nYou (a check-in): The lane hold",
+        "start your answer with [continues N]",
+      ) &&
+      heartbeatQuestion({ changed: [{ key: "todo.md", at: since }], now: since + 60_000, texted: [], recent }).includes(
+        "the marker is never shown to them.\n[1] You (a check-in): The lane hold",
       ),
   );
+  // Sabotage record (applied, run, observed failing, reverted): `continuesFrom`
+  // leaving the marker on, `handleHeartbeat` reading `turn.answer` past it, the
+  // response leaving out `continues`, and an unknown number falling back to the
+  // last shown text each fail checks below or in "continuing a text".
+  const shown = recentTexts([
+    { role: "user", text: "what's the   Oct 30\npricing" },
+    { role: "assistant", text: "It's in a PDF I can't open." },
+  ]);
+  const picked = continuesFrom("[continues 1] Found it: $40 a lane.", shown);
+  const spaced = continuesFrom("  [Continues 2]\nStill can't open it.", shown);
+  check(
+    "a look's [continues N] comes off its text and names the whole text of that shown line",
+    picked.answer === "Found it: $40 a lane." && picked.continues === "what's the   Oct 30\npricing" &&
+      spaced.answer === "Still can't open it." && spaced.continues === "It's in a PDF I can't open.",
+  );
+  const unknown = continuesFrom("[continues 3] Found it.", shown);
+  const zero = continuesFrom("[continues 0] Found it.", shown);
+  const inside = continuesFrom("Found it. [continues 1]", shown);
+  check(
+    "a marker that names no shown line is dropped, still never sent; one not at the start is no marker",
+    unknown.answer === "Found it." && unknown.continues === null && zero.answer === "Found it." && zero.continues === null &&
+      inside.answer === "Found it. [continues 1]" && inside.continues === null && continuesFrom("[continues 1] Hi", []).continues === null,
+  );
+  check("a marked SKIP is still a quiet look", checkInText(continuesFrom("[continues 1] SKIP", shown).answer) === null);
   check("the day's log is dated in their zone", heartbeatPath(Date.UTC(2026, 9, 17, 3, 0), "America/New_York") === "tex/heartbeat/2026-10-16.md");
 }
 
@@ -417,6 +446,35 @@ export async function runAgentHeartbeatChecks(check) {
     check(
       "their own instructions in tex/heartbeat.md reach the look",
       JSON.stringify(model.requests.at(-1)).includes("Only text me about deadlines."),
+    );
+
+    /* ---------------- continuing a text ---------------- */
+
+    const earlier = JSON.parse(bucket.get(CONVERSATION)?.body ?? "{}").turns ?? [];
+    const lastShown = recentTexts(earlier);
+    model.install([{ text: `[continues ${lastShown.length}] Still want me to save that image to your branding folder?` }]);
+    const continued = await ask(env, TOKEN_BEAT, beat());
+    const afterTurns = JSON.parse(bucket.get(CONVERSATION)?.body ?? "{}").turns ?? [];
+    check(
+      "a look that continues a text answers without the marker, and names that text's whole words as continues",
+      continued.status === 200 && continued.body?.outcome === "speak" &&
+        continued.body?.answer === "Still want me to save that image to your branding folder?" &&
+        continued.body?.continues === lastShown.at(-1)?.text && typeof continued.body?.continues === "string",
+    );
+    check(
+      "the marker is kept out of the day's log and the texting conversation",
+      !log().includes("[continues") && log().includes("**Texted:** Still want me to save that image") &&
+        afterTurns.at(-1)?.text === "Still want me to save that image to your branding folder?",
+    );
+    check(
+      "the look was shown its last texts numbered, and told how to mark one",
+      JSON.stringify(model.requests.at(-1)).includes("[continues N]") && JSON.stringify(model.requests.at(-1)).includes("[1] "),
+    );
+    model.install([{ text: "[continues 99] Your rent is due Friday." }]);
+    const unnamed = await ask(env, TOKEN_BEAT, beat());
+    check(
+      "a marker naming no shown text sends the text plain, without the marker",
+      unnamed.status === 200 && unnamed.body?.answer === "Your rent is due Friday." && unnamed.body?.continues === undefined,
     );
 
     /* ---------------- paused ---------------- */

@@ -81,6 +81,19 @@ know?") is answered with the check-in in front of the turn. The control plane
 hears an outcome code (`texted`, `quiet`, `nothing_new`, `paused`, `no_chat`,
 `failed`, `daily_limit`, `no_provider`) and nothing else.
 
+**In the thread it continues.** A look is shown the last ten texts with the
+person, numbered, and a check-in that picks one of them up starts its answer
+with `[continues N]` (Dev, 2026-10-19: "even if it should be in the same
+thread, why isn't there continuity in the chat"). The gateway strips the
+marker before the text is logged, kept or sent, and returns that turn's words
+as `continues`; a number that names no shown text is dropped. The texting
+Worker's inbox keeps, per Sendblue chat, the `message_handle` of the last
+thirty texts (the person's, and Tex's own, read from Sendblue's send response)
+with a salted hash of each one's opening words, never the words, and sends the
+check-in as an inline reply under the newest one `continues` begins like. No
+match, a Linq chat, or a thread Sendblue refuses (400) is a plain text, as
+before. Tests: `apps/agent/src/threads.test.ts`.
+
 **Room for more jobs.** The control plane's grant, client and "still linked
 and owned" checks live in `functions/lib/texJobs.ts`, and the gateway's day log
 and meter in `apps/mcp/src/agent/jobLog.js`, shared by dreams and check-ins. A
