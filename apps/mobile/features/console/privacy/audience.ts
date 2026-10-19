@@ -45,7 +45,9 @@
  *
  * **Nothing here widens anything.** `team` still means the named people in this
  * workspace and nothing else. Saying so in words that can be checked against
- * the People list is the entire change.
+ * the People list is the entire change. The one workspace where that is not
+ * what `team` reaches is the pinned one, which every account reads at `team`
+ * through the pin: there it is named "All Context users" (`everyAccount`).
  *
  * Pure, and that is the rule rather than a preference: `words.ts` records that
  * a sabotage sweep of this console held every guard expressed as a pure module
@@ -71,6 +73,13 @@ export interface AudienceContext {
   kind: ContextKind | null;
   /** Whether the person reading this owns the context. */
   viewerIsOwner: boolean;
+  /**
+   * Whether every signed-in Context account reads this workspace's `team` tier: the pinned workspace, which the
+   * pin opens to everyone at `team` (`docs/decisions/privacy-and-sharing/all-context-users.md`). There `team` is
+   * named **All Context users**, and **Members of @slug** (base `private` plus the built-in members grantee) is the
+   * position that means the people actually invited. Absent is false: every other workspace reads as it did.
+   */
+  everyAccount?: boolean;
 }
 
 /** `@supa`, or a form that is true when the name has not arrived. */
@@ -92,7 +101,9 @@ export function audienceName(
   context: AudienceContext,
   liveCount?: number,
 ): string {
-  if (visibility === "team") return `Everyone in ${contextHandle(context.slug)}`;
+  if (visibility === "team") {
+    return context.everyAccount === true ? "All Context users" : `Everyone in ${contextHandle(context.slug)}`;
+  }
   if (visibility === "private") return "Restricted";
   return liveCount === undefined
     ? visibility
@@ -116,6 +127,13 @@ export function audienceDetail(
   context: AudienceContext,
 ): string {
   if (visibility === "team") {
+    // Never "nobody outside it" here: the pin opens this tier to every account, and signing up is open to all.
+    if (context.everyAccount === true) {
+      return (
+        `Anyone signed in to Context, not just the members of ${contextHandle(context.slug)}. Signing up is open ` +
+        "to all, so treat it as close to public. Never shown to anyone who is not signed in, and not indexed."
+      );
+    }
     return `Every member of ${contextHandle(context.slug)}, and nobody outside it. Not public, and not indexed.`;
   }
   if (visibility === "private") {
@@ -186,10 +204,22 @@ export function audienceContextOf(
   slug: string | null | undefined,
   kind: string | null | undefined,
   viewerIsOwner: boolean,
+  everyAccount = false,
 ): AudienceContext {
   return {
     slug: slug ?? null,
     kind: kind === "personal" || kind === "shared" ? kind : null,
     viewerIsOwner,
+    everyAccount,
   };
+}
+
+/** The Members position's name: base `private` plus every real member, never the pin's readers. */
+export function membersName(context: AudienceContext): string {
+  return `Members of ${contextHandle(context.slug)}`;
+}
+
+/** Who the Members position reaches, in a sentence. */
+export function membersDetail(context: AudienceContext): string {
+  return `Every member of ${contextHandle(context.slug)}, and the people named on it. Nobody who only signed in to Context.`;
 }

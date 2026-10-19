@@ -28,6 +28,7 @@ export async function listMyWorkspacesHandler(
     .withIndex("by_user", (q) => q.eq("userId", userId))
     .take(MAX_WORKSPACES_RETURNED);
 
+  const pinned = await pinnedContextWorkspace(ctx);
   const summaries: WorkspaceSummaryRow[] = [];
   for (const membership of memberships) {
     const workspace = await ctx.db.get(membership.workspaceId);
@@ -53,11 +54,12 @@ export async function listMyWorkspacesHandler(
       setupRetired: membership.setupRetiredAt !== undefined,
       joinedAt: membership.joinedAt,
       createdAt: workspace.createdAt,
+      // A real member of the pinned workspace keeps their role and no `pinned`, but its `team` still reaches everyone.
+      ...(pinned !== null && workspace._id === pinned._id ? { everyAccountReadsTeam: true } : {}),
     });
   }
   summaries.sort((a, b) => a.createdAt - b.createdAt);
 
-  const pinned = await pinnedContextWorkspace(ctx);
   if (
     pinned !== null &&
     !summaries.some((summary) => summary.workspaceId === pinned._id)
@@ -88,6 +90,7 @@ export async function listMyWorkspacesHandler(
       joinedAt: pinned.createdAt,
       createdAt: pinned.createdAt,
       pinned: true,
+      everyAccountReadsTeam: true,
     });
   }
 

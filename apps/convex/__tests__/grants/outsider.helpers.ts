@@ -174,7 +174,7 @@ export async function noteIdOf(w: World, path: string, workspace = w.ws): Promis
 export async function setListFor(
   w: World,
   path: string,
-  grantees: { kind: "user"; userId: Id<"users">; role: "view" | "edit" }[],
+  grantees: ({ kind: "user"; userId: Id<"users">; role: "view" | "edit" } | { kind: "members"; role: "view" | "edit" })[],
   workspace = w.ws,
 ): Promise<void> {
   const result = await w.t.run(async (ctx) =>

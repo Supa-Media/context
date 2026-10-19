@@ -186,7 +186,7 @@ export function useShareScope(deps: ShareScopeDeps) {
           if (!live()) return reached;
           if (step.kind === "visibility") {
             if (!(await setVisibility(path, kind, step.to))) return reached;
-            reached = step.to === "team" ? "team" : "private";
+            reached = step.to === "team" ? "team" : step.to === "members" ? "members" : "private";
             continue;
           }
           if (step.on) {

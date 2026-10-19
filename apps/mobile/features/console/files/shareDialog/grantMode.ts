@@ -15,7 +15,7 @@ export function reachingOf(list: GrantList, ownerIds: readonly string[]) {
   for (const entry of list.grantees) {
     if (entry.kind === "user") users.add(entry.userId);
     else if (entry.kind === "group") groups.add(entry.name);
-    else emails.add(entry.email.toLowerCase());
+    else if (entry.kind === "email") emails.add(entry.email.toLowerCase());
   }
   return { reachingUserIds: users, reachingGroups: groups, reachingEmails: emails };
 }
@@ -59,10 +59,11 @@ export function pickOf(row: Recipient): GrantPick | null {
 }
 
 /** The sentence beside Share, for this pick at this role. */
-export function grantLine(row: Recipient, role: GrantRole, handle: string): string {
+export function grantLine(row: Recipient, role: GrantRole, handle: string, everyAccount = false): string {
   const verb = role === "edit" ? "edit" : "read";
   if (row.kind === "domain") {
-    return `Everyone in ${handle} will be able to open it, including everyone who signs in with a ${row.domain} email.`;
+    // In the pinned workspace a domain lets people in as members (`ShareDialog` picks Members, never All users).
+    return `${everyAccount ? "Every member of" : "Everyone in"} ${handle} will be able to open it, including everyone who signs in with a ${row.domain} email.`;
   }
   if (row.kind === "group") return `Everyone in the group can ${verb} this. You can take it back.`;
   if (row.kind === "invite") {

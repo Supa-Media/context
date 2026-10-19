@@ -708,6 +708,8 @@ export const setNoteVisibility = action({
     workspaceId: v.id("workspaces"),
     path: v.string(),
     visibility: visibilityValidator,
+    /** With `private`: the share dialog's Members position (base `private` plus every real member). Rows mode only. */
+    members: v.optional(v.boolean()),
   },
   returns: visibilityResultValidator,
   handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "visibility" }>> => await setNoteVisibilityHandler(ctx, args),
@@ -750,6 +752,8 @@ export const setDirectoryVisibility = action({
     workspaceId: v.id("workspaces"),
     path: v.string(),
     visibility: visibilityValidator,
+    /** With `private`: the share dialog's Members position (base `private` plus every real member). Rows mode only. */
+    members: v.optional(v.boolean()),
   },
   returns: visibilityResultValidator,
   handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "visibility" }>> => await setDirectoryVisibilityHandler(ctx, args),

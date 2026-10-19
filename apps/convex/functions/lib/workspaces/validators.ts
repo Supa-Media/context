@@ -93,4 +93,14 @@ export const workspaceSummary = v.object({
    * owns or edits that workspace sees their real role and no flag.
    */
   pinned: v.optional(v.boolean()),
+  /**
+   * True on the pinned workspace for everyone who lists it, its real members
+   * included: there, `team` is read by every signed-in Context account through
+   * the pin, so the console names it "All Context users" rather than "Everyone
+   * in @slug" (`docs/decisions/privacy-and-sharing/all-context-users.md`).
+   *
+   * Not `pinned`, which is reach without membership and is absent on a real
+   * member's row: the share dialog is the owner's, and the owner is a member.
+   */
+  everyAccountReadsTeam: v.optional(v.boolean()),
 });

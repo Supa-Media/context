@@ -192,6 +192,8 @@ export function BrowseShareDialog({
         current?.slug,
         current?.kind,
         capabilitiesForRole(current?.role).isOwner,
+        // The pinned workspace: `team` there is every signed-in Context account.
+        current?.everyAccountReadsTeam === true,
       )}
       onCreateGroup={
         data.groups?.actions === undefined

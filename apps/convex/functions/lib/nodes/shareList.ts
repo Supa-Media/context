@@ -42,6 +42,11 @@ export const shareEntryValidator = v.union(
     role: roleValidator,
   }),
   v.object({ kind: v.literal("email"), email: v.string(), role: roleValidator }),
+  /**
+   * Every real member of the workspace (`rowAccess.ts`), with how many there are now. With base `private` it is
+   * the dialog's Members position; the dialog never draws it as a person on the list.
+   */
+  v.object({ kind: v.literal("members"), role: roleValidator, count: v.number() }),
 );
 
 export const shareListValidator = v.union(
@@ -87,6 +92,15 @@ function ancestorsOf(path: string): string[] {
   return out;
 }
 
+/** How many real members the workspace has: the people a `members` grant reaches. Pin readers are not counted. */
+async function memberCountOf(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<number> {
+  const rows = await ctx.db
+    .query("workspaceMembers")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  return rows.length;
+}
+
 async function entriesOf(
   ctx: QueryCtx,
   workspace: Doc<"workspaces">,
@@ -123,6 +137,8 @@ async function entriesOf(
       });
     } else if (grant.granteeKind === "email" && grant.granteeEmail !== undefined) {
       out.push({ kind: "email", email: grant.granteeEmail, role: grant.role });
+    } else if (grant.granteeKind === "members") {
+      out.push({ kind: "members", role: grant.role, count: await memberCountOf(ctx, workspace._id) });
     }
   }
   return out;

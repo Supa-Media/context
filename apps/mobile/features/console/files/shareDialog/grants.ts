@@ -15,7 +15,13 @@ export type GrantRole = "view" | "edit";
 export type GrantEntry =
   | { kind: "user"; userId: string; label: string; detail?: string; member: boolean; role: GrantRole }
   | { kind: "group"; groupId: string; name: string; label: string; count: number; role: GrantRole }
-  | { kind: "email"; email: string; role: GrantRole };
+  | { kind: "email"; email: string; role: GrantRole }
+  /**
+   * Every real member of the workspace, and nobody who only reaches it through the pin. Not a person on the list:
+   * with base `private` it is the General access line's Members position, and People never draws it
+   * (`peopleOf`). Every write below sends it back, so editing the list never drops it.
+   */
+  | { kind: "members"; role: GrantRole; count: number };
 
 /** A row's list as the dialog reads it. */
 export interface GrantList {
@@ -37,7 +43,8 @@ export type GrantRequest =
   | { userId: string; role: GrantRole }
   | { groupId: string; role: GrantRole }
   | { handle: string; role: GrantRole }
-  | { email: string; role: GrantRole };
+  | { email: string; role: GrantRole }
+  | { members: true; role: GrantRole };
 
 /** What the dialog writes: a list and its base, in one call. */
 export interface GrantWrite {
@@ -55,11 +62,23 @@ export type GrantPick =
 export function grantKey(entry: GrantEntry): string {
   if (entry.kind === "user") return `user:${entry.userId}`;
   if (entry.kind === "group") return `group:${entry.groupId}`;
+  if (entry.kind === "members") return "members";
   return `email:${entry.email.toLowerCase()}`;
+}
+
+/** The entries People draws: everybody on the list but the members grant, which is a General access position. */
+export function peopleOf(list: GrantList): GrantEntry[] {
+  return list.grantees.filter((entry) => entry.kind !== "members");
+}
+
+/** Whether the list carries the members grant: with base `private`, the Members position (`scopeOf`). */
+export function hasMembers(list: GrantList): boolean {
+  return list.grantees.some((entry) => entry.kind === "members");
 }
 
 /** The name a row shows. */
 export function grantLabel(entry: GrantEntry): string {
+  if (entry.kind === "members") return "Every member";
   return entry.kind === "email" ? entry.email : entry.label;
 }
 
@@ -69,6 +88,7 @@ export function grantDetail(entry: GrantEntry, handle: string): string {
     return entry.count === 0 ? "Group, nobody in it yet" : `Group, ${entry.count} ${entry.count === 1 ? "person" : "people"}`;
   }
   if (entry.kind === "email") return "Invited by email";
+  if (entry.kind === "members") return `Everyone in ${handle}, ${entry.count} ${entry.count === 1 ? "member" : "members"}`;
   if (!entry.member) return `Not in ${handle}`;
   return entry.detail ?? `In ${handle}`;
 }
@@ -80,6 +100,7 @@ export function roleLabel(role: GrantRole): string {
 function requestOf(entry: GrantEntry): GrantRequest {
   if (entry.kind === "user") return { userId: entry.userId, role: entry.role };
   if (entry.kind === "group") return { groupId: entry.groupId, role: entry.role };
+  if (entry.kind === "members") return { members: true, role: entry.role };
   return { email: entry.email, role: entry.role };
 }
 

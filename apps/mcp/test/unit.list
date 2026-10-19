@@ -135,3 +135,4 @@ test/dreamNow.test.mjs
 bench/test/promote.test.mjs
 test/attention.test.mjs
 test/vaultSharing.test.mjs
+test/pinnedTeamWords.test.mjs
