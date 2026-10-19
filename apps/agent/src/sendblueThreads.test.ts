@@ -10,6 +10,8 @@
  *     plain → "a thread Sendblue refuses still gets the answer" fails.
  *  3. `index.ts` not setting `threaded` → "an inline reply is queued as one"
  *     fails (worker.test.ts).
+ *  4. `threadContext` keeping a parent from another thread → "a reply typed
+ *     inside a thread is about that thread" fails.
  */
 
 import { describe, expect, it } from "vitest";
@@ -17,7 +19,7 @@ import { askAgent, type Fetch } from "./clients";
 import { accept, drain, type InboxDeps } from "./inbox";
 import { MemoryStorage } from "./memoryStorage.testing";
 import type { Message } from "./reply";
-import { parseSendblueInbound, repliedToText, sendblueChatId, sendSendblueText } from "./sendblue";
+import { parseSendblueInbound, repliedToText, sendblueChatId, sendSendblueText, threadContext } from "./sendblue";
 
 const LINE = "+15555550199";
 const PHONE = "+15555550100";
@@ -128,6 +130,58 @@ describe("Tex answers inside iMessage threads", () => {
     expect(await repliedToText(answering, KEYS, "mh_0", CHAT)).toBe("Want me to book it?");
     const stranger = (async () => Response.json({ data: { ...parent, to_number: "+15555550111" } })) as unknown as Fetch;
     expect(await repliedToText(stranger, KEYS, "mh_0", CHAT)).toBeNull();
+  });
+
+  it("a reply typed inside a thread is about that thread, even when Sendblue names a parent from another", async () => {
+    // Seen 2026-10-19: "location central park", typed in the picnic poster's
+    // thread, came with the person's last text in the photo thread as parent.
+    const messages: Record<string, Record<string, unknown>> = {
+      mh_poster: { content: "Make me a poster for a picnic on sunday", from_number: PHONE, to_number: LINE, number: PHONE, group_id: "" },
+      mh_swap: { content: "Tell me the real time and place", from_number: LINE, to_number: PHONE, is_outbound: true, group_id: "", thread_originator: { message_handle: "mh_poster" } },
+      mh_retry: { content: "try again", from_number: PHONE, to_number: LINE, number: PHONE, group_id: "", thread_originator: { message_handle: "mh_photo" } },
+      mh_bare: { content: "sounds good", from_number: PHONE, to_number: LINE, number: PHONE, group_id: "" },
+    };
+    const sendblue = (async (url: string) => {
+      const handle = decodeURIComponent(new URL(url).pathname.split("/").pop() ?? "");
+      return messages[handle] ? Response.json({ data: messages[handle] }) : new Response("{}", { status: 404 });
+    }) as unknown as Fetch;
+    expect(await threadContext(sendblue, KEYS, "mh_retry", "mh_poster", CHAT)).toEqual({ quoted: "Make me a poster for a picnic on sunday" });
+    expect(await threadContext(sendblue, KEYS, "mh_swap", "mh_poster", CHAT)).toEqual({
+      quoted: "Tell me the real time and place",
+      threadStart: "Make me a poster for a picnic on sunday",
+    });
+    // A parent that says nothing of its thread is kept, beside the thread's start.
+    expect(await threadContext(sendblue, KEYS, "mh_bare", "mh_poster", CHAT)).toEqual({
+      quoted: "sounds good",
+      threadStart: "Make me a poster for a picnic on sunday",
+    });
+    expect(await threadContext(sendblue, KEYS, "mh_poster", "mh_poster", CHAT)).toEqual({ quoted: "Make me a poster for a picnic on sunday" });
+    expect(await threadContext(sendblue, KEYS, "mh_swap", undefined, CHAT)).toEqual({ quoted: "Tell me the real time and place" });
+    expect(await threadContext(sendblue, KEYS, "mh_gone", "mh_poster", CHAT)).toEqual({ quoted: "Make me a poster for a picnic on sunday" });
+    expect(await threadContext(sendblue, KEYS, "mh_gone", "mh_lost", CHAT)).toEqual({});
+  });
+
+  it("carries the thread an inline reply was typed in, and sends its start to the turn", async () => {
+    const inbound = {
+      content: "location central park",
+      is_outbound: false,
+      message_handle: "mh_loc",
+      from_number: PHONE,
+      number: PHONE,
+      to_number: LINE,
+      sendblue_number: LINE,
+      service: "iMessage",
+      group_id: "",
+      reply_to: { message_handle: "mh_retry", part_index: 0 },
+      thread_originator: { message_handle: "mh_poster" },
+    };
+    expect(parseSendblueInbound(inbound)).toMatchObject({ replyTo: "mh_retry", threadRoot: "mh_poster" });
+    expect(parseSendblueInbound({ ...inbound, reply_to: undefined })).not.toHaveProperty("threadRoot");
+    const agent: Record<string, unknown>[] = [];
+    await askAgent(fake([], agent), "https://gw.example", "t", "location central park", undefined, undefined, [], "swap them in", [], "Make me a poster");
+    expect(agent[0]).toMatchObject({ quoted: "swap them in", threadStart: "Make me a poster" });
+    await askAgent(fake([], agent), "https://gw.example", "t", "hi", undefined, undefined, [], "", [], "Make me a poster");
+    expect(agent[1]).not.toHaveProperty("threadStart");
   });
 
   it("never answers a Spanish tapback", () => {

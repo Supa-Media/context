@@ -34,7 +34,7 @@ import { runDueHousekeeping } from "./housekeeping";
 import type { Picture } from "./line";
 import { hostPicture, OBJECT_ID, ORIGIN_KEY, serveMedia, workerOrigin } from "./media";
 import { bearerMatches, parseTellRequest, tellEveryone, tellNewLine, type Told } from "./newLine";
-import { parseSendblueInbound, repliedToText, sendblueKeys, verifySendblueSecret } from "./sendblue";
+import { parseSendblueInbound, sendblueKeys, threadContext, verifySendblueSecret } from "./sendblue";
 import { verifyLinqSignature } from "./signature";
 import { handleSimulator, SIMULATOR_PATH, simulatorEnabled, simulatorInbox } from "./simulator";
 import { SIMULATOR_PAGE } from "./simulatorPage";
@@ -137,12 +137,11 @@ export default {
 
     // An inline reply carries the words it answers, read from Sendblue now, before it waits in the queue.
     // It is answered inside the same thread, and the turn is told it was a reply even when the words can't be read.
-    const { replyTo, ...message } = inbound;
+    const { replyTo, threadRoot, ...message } = inbound;
     const keys = sendblueKeys(env.SENDBLUE_API_KEY_ID, env.SENDBLUE_API_SECRET);
     if (replyTo !== undefined) {
       message.threaded = true;
-      const quoted = keys === null ? null : await repliedToText((input, init) => fetch(input, init), keys, replyTo, message.chatId);
-      if (quoted !== null) message.quoted = quoted;
+      if (keys !== null) Object.assign(message, await threadContext((input, init) => fetch(input, init), keys, replyTo, threadRoot, message.chatId));
     }
 
     const stub = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(inbound.from));

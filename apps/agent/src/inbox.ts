@@ -435,6 +435,7 @@ async function fold(storage: InboxStorage, pending: Map<string, Pending>): Promi
       next.message = {
         ...next.message,
         ...(next.message.quoted ?? item.message.quoted ? { quoted: next.message.quoted ?? item.message.quoted } : {}),
+        ...(next.message.threadStart ?? item.message.threadStart ? { threadStart: next.message.threadStart ?? item.message.threadStart } : {}),
         ...(next.message.threaded ?? item.message.threaded ? { threaded: true as const } : {}),
         attachments: [...(item.message.attachments ?? []), ...(next.message.attachments ?? [])].slice(0, MAX_INBOUND_ATTACHMENTS),
       };

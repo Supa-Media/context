@@ -209,6 +209,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       // Somebody else's words, kept apart from the person's (`apps/mcp/src/agent/quoted.js`).
       message.quoted ?? (message.threaded ? "" : undefined),
       deps.told,
+      message.threadStart,
     );
     if (answer.kind === "answer") {
       await deps.onToldDelivered?.();
