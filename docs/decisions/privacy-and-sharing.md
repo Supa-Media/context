@@ -164,6 +164,6 @@ Moved to [Blocking is per recipient, and a report is never an oracle](./privacy-
 
 Moved to [The share dialog writes a list and its base together](./privacy-and-sharing/share-dialog-lists.md#the-share-dialog-writes-a-list-and-its-base-together-and-a-domain-is-never-a-grantee-2026-10-17).
 
-### In the pinned workspace, `team` is shown as "All Context users"
+### In the pinned workspace, `team` means its members, and All Context users is its own grant
 
-Moved to [In the pinned workspace, `team` is shown as "All Context users"](./privacy-and-sharing/all-context-users.md#in-the-pinned-workspace-team-is-shown-as-all-context-users-decided-by-the-owner-2026-10-19).
+Moved to [In the pinned workspace, `team` means its members, and All Context users is its own grant](./privacy-and-sharing/all-context-users.md#in-the-pinned-workspace-team-means-its-members-and-all-context-users-is-its-own-grant-decided-by-the-owner-2026-10-19). It supersedes "`team` is shown as All Context users", from the same morning.

@@ -511,6 +511,17 @@ that skipped the membership check would answer `team` and hide every private
 note from the people who wrote it. A sabotage sweep found nothing covering that
 case; two tests were added for it.
 
+**Reach is not the members' tier either** (decided by the owner, 2026-10-19).
+The pin used to hand its readers the `team` tier, so every `team` note in
+`@context-lc` was every account's. Now `team` there is its members, as anywhere,
+and a pin reader reads as a guest: only the notes the owner opened to All
+Context users, the built-in `accounts` grant. The pin still decides *that* they
+reach the workspace and at which role; what they may read there is decided the
+way an outsider's is, carried in the names `contextsForGrant` and
+`authorizeFileAccess` hand out (`lib/pinnedReaders.ts`). Why, the migration
+that made it safe to switch, and the tests:
+[All Context users](../privacy-and-sharing/all-context-users.md).
+
 **There is no opt-out**, decided with the cost stated: pinned means pinned. It
 needs no code, because `leaveWorkspace` deletes a membership row and there is
 none — it answers `{ left: false }` and the context is still there. If that ever
