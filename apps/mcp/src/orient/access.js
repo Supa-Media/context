@@ -3,13 +3,14 @@
 import { PINNED_CONTEXT_NAME } from "./globalNote.js";
 
 /**
- * What `team` means in the pinned workspace, said beside its row: the pin opens that tier to every signed-in
- * Context account (docs/decisions/privacy-and-sharing/all-context-users.md), so an agent writing there must not
- * read "team notes" as the members' alone. A note for the members only is private plus the members grant, which
- * the owner sets in the share dialog.
+ * What the pinned workspace holds besides its members' notes, said beside its row. `team` there is its members, as
+ * everywhere (decided by the owner, 2026-10-19; docs/decisions/privacy-and-sharing/all-context-users.md); a note the
+ * owner opened to All Context users is readable by every signed-in account as well, and only those reach an account
+ * that is not a member. An agent told only "team notes" would not know the second kind exists, and one that
+ * remembered the line this replaced would think every team note reached everybody.
  */
 export const PINNED_TEAM_LINE =
-  "there, team notes are open to every signed-in Context account, not just its members, so keep anything sensitive out of them";
+  "there, team notes are its members' alone, and only the notes the owner opened to All Context users are readable by every signed-in Context account";
 
 /**
  * What an agent may do in one of the other contexts, where it will read it.

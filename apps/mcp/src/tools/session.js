@@ -40,7 +40,6 @@ import { createPending, findPending, takeDone } from "./approvals.js";
 import { HELD_GATES } from "./heldGates.js";
 import { wordsOfTurn } from "../agent/conversation.js";
 import { wideningOf } from "../privacy/widening.js";
-import { PINNED_CONTEXT_NAME } from "../orient/globalNote.js";
 import { loadPrivacyState } from "../privacy/state.js";
 import { PrivacyOverrides } from "../privacy/engine.js";
 import { recordChange } from "../activity/record.js";
@@ -179,8 +178,6 @@ async function judgedGate(name, suppliedName, args, { store, session, target, ta
   const widening = await wideningOf(name, args, {
     into,
     writes,
-    // In `@context-lc` the pin opens `team` to every account, and the judge is told that, not "the team".
-    teamIsEveryAccount: typeof target.workspaceSlug === "string" && `@${target.workspaceSlug}` === PINNED_CONTEXT_NAME,
     // The exact-note overrides are the owner's alone, so a team-tier caller is
     // measured without them, as `scope_info` shows that tier the folder rules.
     privacy: async () => {
