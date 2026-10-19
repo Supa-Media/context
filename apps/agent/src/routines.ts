@@ -31,6 +31,7 @@ import { textsFromAnswer } from "./format";
 import { CHAT_KEY, type InboxStorage, type RememberedChat } from "./inbox";
 import { lineFor, type LineDeps } from "./line";
 import { record } from "./simulator";
+import { rememberText, threadUnder } from "./threads";
 
 /** Runs worked on at once in one tick. */
 export const ROUTINE_CONCURRENCY = 4;
@@ -143,12 +144,14 @@ export type RoutineTextDeps = LineDeps & {
 
 /**
  * Text this sender a routine's answer, in the chat they last texted from,
- * split the way a reply is. Nothing is stored: the answer exists here only
- * for as long as the send takes.
+ * split the way a reply is, under the earlier text it `continues` when that
+ * one is remembered (a check-in's). The answer itself is not stored: only
+ * each sent text's handle and a salted hash of its opening words
+ * (`threads.ts`).
  */
 export async function textRoutine(
   storage: InboxStorage,
-  body: { text: string; idempotencyKey: string },
+  body: { text: string; idempotencyKey: string; continues?: string },
   deps: RoutineTextDeps,
 ): Promise<PhoneTexted> {
   const chat = await storage.get<RememberedChat>(CHAT_KEY);
@@ -159,15 +162,20 @@ export async function textRoutine(
     for (const text of texts) await record(storage, "in", text, deps.now());
     return "texted";
   }
+  // A check-in that continues an earlier text goes as a reply under it (`threads.ts`); a thread Sendblue refuses goes plain (`sendblue.ts`).
+  const thread = await threadUnder(storage, chat.chatId, body.continues);
+  if (body.continues !== undefined) console.log(JSON.stringify({ event: "check_in_thread", outcome: thread ? "found" : "no_match" }));
   let sent = 0;
   try {
     for (const [index, text] of texts.entries()) {
-      await lineFor(deps, chat.chatId).sendText(
+      const handle = await lineFor(deps, chat.chatId).sendText(
         chat.chatId,
         text,
         index === 0 ? body.idempotencyKey : `${body.idempotencyKey}:${index}`,
+        thread,
       );
       sent++;
+      await rememberText(storage, chat.chatId, handle, text, deps.now());
     }
   } catch {
     // The first text is the answer; a link that followed it failing does

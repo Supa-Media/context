@@ -359,7 +359,7 @@ describe("worker", () => {
       expect(reported).toEqual([{ runId: "r1", outcome: "answered", texted: 1 }]);
     });
 
-    it("texts a check-in to the person's own phone through its inbox", async () => {
+    it("texts a check-in to the person's own phone through its inbox, with the text it continues", async () => {
       const inboxCalls: { name: string; url: string; body: unknown }[] = [];
       const reported: unknown[] = [];
       const { env: e } = env();
@@ -382,14 +382,14 @@ describe("worker", () => {
           });
         }
         if (path === "/agent-texts/housekeeping/due") return Response.json({ runs: [] });
-        if (path === "/agent") return Response.json({ outcome: "speak", answer: "Found it." });
+        if (path === "/agent") return Response.json({ outcome: "speak", answer: "Found it.", continues: "can you find it?" });
         reported.push(JSON.parse(String(init.body)));
         return Response.json({ status: "recorded" });
       });
       vi.spyOn(console, "log").mockImplementation(() => {});
       await tick(e);
       expect(inboxCalls).toEqual([
-        { name: "+15555550100", url: "https://inbox/routine-text", body: { text: "Found it.", idempotencyKey: "heartbeat:b1:+15555550100" } },
+        { name: "+15555550100", url: "https://inbox/routine-text", body: { text: "Found it.", idempotencyKey: "heartbeat:b1:+15555550100", continues: "can you find it?" } },
       ]);
       expect(reported).toEqual([{ runId: "b1", outcome: "texted" }]);
     });

@@ -172,7 +172,7 @@ export default {
         controlPlaneOrigin: env.CONTROL_PLANE_ORIGIN,
         workerSecret: env.AGENT_WORKER_SECRET,
         gatewayOrigin: env.GATEWAY_ORIGIN,
-        textPhone: (phone, text, idempotencyKey) => textPhone(env, phone, text, idempotencyKey),
+        textPhone: (phone, text, idempotencyKey, continues) => textPhone(env, phone, text, idempotencyKey, continues),
         log: (entry) => console.log(JSON.stringify(entry)),
       }),
     );
@@ -255,12 +255,12 @@ async function newLine(request: Request, env: Env): Promise<Response> {
   return counts === null ? new Response(null, { status: 502 }) : Response.json({ dryRun: asked.dryRun, ...counts });
 }
 
-/** Ask one phone's inbox to text it a routine's answer. */
-async function textPhone(env: Env, phone: string, text: string, idempotencyKey: string): Promise<PhoneTexted> {
+/** Ask one phone's inbox to text it a routine's answer, or a check-in under the text it `continues`. */
+async function textPhone(env: Env, phone: string, text: string, idempotencyKey: string, continues?: string): Promise<PhoneTexted> {
   const stub = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(phone));
   const response = await stub.fetch(ROUTINE_TEXT_URL, {
     method: "POST",
-    body: JSON.stringify({ text, idempotencyKey }),
+    body: JSON.stringify({ text, idempotencyKey, ...(continues !== undefined ? { continues } : {}) }),
   });
   if (!response.ok) return "failed";
   const { status } = (await response.json()) as { status?: unknown };
@@ -288,13 +288,13 @@ export class SenderInbox implements DurableObject {
       );
     }
     if (path === "/routine-text") {
-      const body = (await request.json()) as { text?: unknown; idempotencyKey?: unknown };
+      const body = (await request.json()) as { text?: unknown; idempotencyKey?: unknown; continues?: unknown };
       if (typeof body.text !== "string" || typeof body.idempotencyKey !== "string") {
         return new Response(null, { status: 400 });
       }
       const status = await textRoutine(
         this.state.storage,
-        { text: body.text, idempotencyKey: body.idempotencyKey },
+        { text: body.text, idempotencyKey: body.idempotencyKey, ...(typeof body.continues === "string" ? { continues: body.continues } : {}) },
         {
           fetch: (input, init) => fetch(input, init),
           linqApiKey: this.env.LINQ_API_KEY,

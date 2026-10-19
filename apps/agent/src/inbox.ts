@@ -21,6 +21,9 @@
  *   an hour, while Sendblue fetches it (`media.ts`).
  * - `card` holds a timestamp, never text: when this sender was last offered
  *   the line's contact card, so it is offered at most once a day.
+ * - `threads` holds the handles of the last thirty texts in a Sendblue chat,
+ *   theirs and Tex's, each with a salted hash of its opening words, never
+ *   text, so a check-in that continues one goes under it (`threads.ts`).
  * - `ready` holds the phone, the chat id and times, never text, while Tex owes
  *   somebody set up by text the "your notes are ready" text (`ready.ts`); it
  *   goes when that text is sent, or after twenty minutes.
@@ -46,6 +49,7 @@ import { COPY, replyTo, TryLater, type Message, type ReplyDeps } from "./reply";
 import { record } from "./simulator";
 import { oweReadyText } from "./ready";
 import { clearTold, noteTold, owedTold } from "./told";
+import { rememberText } from "./threads";
 
 /** The subset of `DurableObjectStorage` this uses, so tests can pass a Map. */
 export type InboxStorage = {
@@ -129,6 +133,7 @@ export async function accept(
   await storage.put("seq", seq);
   await storage.put(seenKey(message.eventId), now);
   await storage.put<Pending>(pendingKey(seq), { message, attempts: 0 });
+  await rememberText(storage, message.chatId, message.messageId, message.text, now);
   const previous = await storage.get<RememberedChat>(CHAT_KEY);
   const told = (await storage.get<number>(NEW_LINE_TOLD_KEY)) !== undefined;
   if (previous && !told && previous.channel !== "simulator" && !isSendblueChat(previous.chatId) && isSendblueChat(message.chatId)) {
@@ -177,7 +182,7 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
       // send repeats nothing Linq already accepted; `sent` does the same on
       // a line without keys.
       const line = lineFor(lineDeps(deps), item.message.chatId);
-      const thread = await threadFor(storage, item.message);
+      const thread = threadFor(item.message);
       for (const [index, part] of reply.entries()) {
         if (index < sent) continue;
         if (item.message.channel === "simulator") {
@@ -185,7 +190,10 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
           continue;
         }
         const key = index === 0 ? `reply:${item.message.eventId}` : `reply:${item.message.eventId}:${index}`;
-        if (typeof part === "string") await line.sendText(item.message.chatId, part, key, thread);
+        if (typeof part === "string") {
+          const handle = await line.sendText(item.message.chatId, part, key, thread);
+          await rememberText(storage, item.message.chatId, handle, part, deps.now());
+        }
         else await sendPicture(deps, item.message.chatId, part.media, key, thread);
         sent = index + 1;
       }
@@ -209,17 +217,14 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
 }
 
 /**
- * The person's message an answer goes inside the thread of, so a reply reads
- * next to what it answers: one they sent as an inline reply, or one that
- * newer texts from them have since passed (the answer would otherwise land
- * under the wrong question). Otherwise none, and the answer is a plain text.
+ * The person's message an answer goes inside the thread of: always the one it
+ * answers, so every answer reads next to its question, as people expect from
+ * an assistant in iMessage (decided by the owner, 2026-10-19). None only in the
+ * simulator, which has no threads.
  */
-async function threadFor(storage: InboxStorage, message: Message): Promise<string | undefined> {
+function threadFor(message: Message): string | undefined {
   if (message.channel === "simulator" || !message.messageId) return undefined;
-  if (message.threaded) return message.messageId;
-  // This one is still stored until it is sent, so more than one means a newer text waits.
-  const waiting = await storage.list<Pending>({ prefix: "pending:" });
-  return waiting.size > 1 ? message.messageId : undefined;
+  return message.messageId;
 }
 
 function lineDeps(deps: InboxDeps): LineDeps {
@@ -363,8 +368,8 @@ async function answerTexts(message: Message, deps: InboxDeps, storage: InboxStor
         if (simulator) await record(storage, "in", text, deps.now());
         else {
           const line = lineFor(lineDeps(deps), message.chatId);
-          // An inline reply's progress lines go into its thread, like its answer.
-          await line.sendText(message.chatId, text, `progress:${message.eventId}:${index}`, message.threaded ? message.messageId : undefined);
+          // Progress lines go into the thread of the message, like its answer.
+          await line.sendText(message.chatId, text, `progress:${message.eventId}:${index}`, threadFor(message));
           // Sending a text clears the bubble; the task is still going.
           await line.startTyping(message.chatId);
         }

@@ -24,8 +24,11 @@ import {
 export type Picture = { name: string; mediaType: string; data: string };
 
 export interface Line {
-  /** `replyTo` names the person's message to answer inside the thread of, where the line can (Sendblue); Linq ignores it. */
-  sendText(chatId: string, text: string, idempotencyKey: string, replyTo?: string): Promise<void>;
+  /**
+   * `replyTo` names the message to answer inside the thread of, where the line can (Sendblue); Linq ignores it.
+   * Resolves to the sent text's handle when the line gives one (Sendblue), to thread a later text under it.
+   */
+  sendText(chatId: string, text: string, idempotencyKey: string, replyTo?: string): Promise<string | undefined>;
   sendMedia(chatId: string, media: Media, idempotencyKey: string, replyTo?: string): Promise<void>;
   /** A picture's bytes made sendable: an uploaded attachment, or an address the line fetches. */
   uploadPicture(picture: Picture): Promise<Media>;
@@ -53,7 +56,10 @@ export function lineFor(deps: LineDeps, chatId: string): Line {
 function linqLine(deps: LineDeps): Line {
   const { fetch, linqApiKey: key } = deps;
   return {
-    sendText: (chatId, text, idempotencyKey) => sendLinqText(fetch, key, chatId, text, idempotencyKey),
+    sendText: async (chatId, text, idempotencyKey) => {
+      await sendLinqText(fetch, key, chatId, text, idempotencyKey);
+      return undefined;
+    },
     sendMedia: (chatId, media, idempotencyKey) => sendLinqMedia(fetch, key, chatId, media, idempotencyKey),
     uploadPicture: async (picture) => ({ attachment_id: await uploadLinqPicture(fetch, key, picture) }),
     startTyping: (chatId) => startLinqTyping(fetch, key, chatId),

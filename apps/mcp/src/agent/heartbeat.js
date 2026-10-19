@@ -237,7 +237,62 @@ export const HEARTBEAT_INSTRUCTIONS = [
  * What the check-in is asked to do: the setup's words (`instructions`) or the
  * built-in ones, then this look's facts, then the one answer the gateway reads.
  */
-export function heartbeatQuestion({ changed, now, texted, instructions = null, theirs = "" }) {
+/** How many of the last texts with them a look is shown, and how much of each. */
+const RECENT_TEXTS_SHOWN = 10;
+const RECENT_TEXT_CHARS = 400;
+
+/**
+ * The last texts with them (the `texts` conversation the texting assistant
+ * answers from), as a look reads them: their words, and yours, with your own
+ * check-ins marked. Dev, 2026-10-19, nudged at 3:02 pm about a hold Tex had
+ * flagged at 1:12 and talked through with them at 1:23: "does it not check?
+ * ... why isn't there continuity in the chat".
+ */
+export function recentTextLines(history) {
+  return recentTexts(history).map((shown) => shown.line);
+}
+
+/**
+ * The same last texts, each with its line as shown (numbered from 1, so the
+ * look can say which one it continues) and the turn's whole text, which goes
+ * back to the texting Worker as `continues` so the check-in is sent as a
+ * reply under that text in the person's iMessage chat (Dev, 2026-10-19:
+ * "even if it should be in the same thread, why isn't there continuity").
+ */
+export function recentTexts(history) {
+  const shown = [];
+  const turns = Array.isArray(history) ? history.slice(-RECENT_TEXTS_SHOWN * 2) : [];
+  for (let i = 0; i < turns.length; i += 1) {
+    const turn = turns[i];
+    if (typeof turn?.text !== "string") continue;
+    if (turn.role === "user" && turn.text === CHECK_IN_QUESTION) continue;
+    const checkIn = turn.role === "assistant" && turns[i - 1]?.text === CHECK_IN_QUESTION;
+    const said = turn.text.replace(/\s+/g, " ").trim();
+    const clipped = said.length > RECENT_TEXT_CHARS ? `${said.slice(0, RECENT_TEXT_CHARS - 1)}…` : said;
+    shown.push({ who: turn.role === "user" ? "Them" : checkIn ? "You (a check-in)" : "You", said: clipped, text: turn.text });
+  }
+  return shown.slice(-RECENT_TEXTS_SHOWN).map((item, index) => ({ line: `[${index + 1}] ${item.who}: ${item.said}`, text: item.text }));
+}
+
+/** How a look names the text it continues: `[continues 3]` at the very start of its answer. */
+const CONTINUES_MARKER = /^\s*\[\s*continues\s+(\d{1,3})\s*\]\s*/i;
+/** The Worker matches on a text's opening words, so this much of it is enough. */
+const MAX_CONTINUES_CHARS = 1_000;
+
+/**
+ * The look's answer with its `[continues N]` marker taken off (it is never
+ * sent, logged or kept), and the whole text of the shown line it names, or
+ * null: no marker, or a number that names no shown line.
+ */
+export function continuesFrom(answer, recent) {
+  const said = String(answer ?? "");
+  const match = CONTINUES_MARKER.exec(said);
+  if (match === null) return { answer: said, continues: null };
+  const picked = Array.isArray(recent) ? recent[Number(match[1]) - 1] : undefined;
+  return { answer: said.slice(match[0].length), continues: typeof picked?.text === "string" ? picked.text.slice(0, MAX_CONTINUES_CHARS) : null };
+}
+
+export function heartbeatQuestion({ changed, now, texted, recent = [], instructions = null, theirs = "" }) {
   const shown = changed.slice(0, MAX_CHANGED_SHOWN);
   const more = changed.length - shown.length;
   const words = typeof instructions === "string" && instructions.trim() !== "" ? instructions.trim() : HEARTBEAT_INSTRUCTIONS;
@@ -248,6 +303,12 @@ export function heartbeatQuestion({ changed, now, texted, instructions = null, t
       (more > 0 ? `\n- (+${more} more)` : ""),
     texted.length > 0
       ? `What your check-ins already texted them lately. Never send any of these again, or anything that says the same:\n${texted.map((line) => `- ${line}`).join("\n")}`
+      : "",
+    recent.length > 0
+      ? "Your last texts with them, oldest first. Anything already said here is not news: never text it again. " +
+        "If what you found continues one of these, pick up from where it was left (what they asked, what you offered), never start it over with a new offer, " +
+        "and start your answer with [continues N], N being that text's number, so your text goes as a reply under it; the marker is never shown to them.\n" +
+        recent.join("\n")
       : "",
     theirs ? `Their own instructions for check-ins, from ${HEARTBEAT_SETTINGS_PATH}:\n${theirs}` : "",
     `Answer with the text to send them, or, if nothing is worth a text, exactly ${SKIP_WORD} and nothing else.`,
@@ -391,6 +452,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
   }
 
   const texted = textedLines(await recentLogs(dispatch, started, timeZone));
+  const conversation = await readConversation(store, "texts");
   const events = [];
   const offered = await grantedToolsFor(session, store);
   // The check-in's setup note (`ai/production/heartbeat.md`): its words, and its
@@ -400,6 +462,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
   const model = chosen ?? builtinModel(env);
   const meter = builtinMeter(controlPlane, session, model, started);
 
+  const shownRecent = recentTexts(conversation);
   let turn = null;
   try {
     turn = await runTurn({
@@ -407,6 +470,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
         changed,
         now: started,
         texted,
+        recent: shownRecent.map((shown) => shown.line),
         instructions: setup?.prompt ?? null,
         theirs: settings.instructions,
       }),
@@ -445,7 +509,9 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
   if (turn !== null) await meter(turn.usage, false, turn.model);
 
   const finished = turn !== null && !turn.exhausted;
-  const text = finished ? checkInText(turn.answer) : null;
+  // `[continues N]` comes off before anything reads the answer: never texted, logged or kept.
+  const marked = finished ? continuesFrom(turn.answer, shownRecent) : { answer: "", continues: null };
+  const text = finished ? checkInText(marked.answer) : null;
   const outcome = !finished ? "failed" : text ? "speak" : "quiet";
   const now = Date.now();
   const entry = heartbeatEntry({ now, timeZone, changed, model: turn?.model ?? null, text, events, outcome });
@@ -458,7 +524,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
   if (text) {
     // Their reply to it is answered with the check-in in front of the turn (`conversation.js`).
     try {
-      await appendConversation(store, "texts", await readConversation(store, "texts"), CHECK_IN_QUESTION, text, {
+      await appendConversation(store, "texts", conversation, CHECK_IN_QUESTION, text, {
         tools: (turn?.steps ?? []).filter((step) => step.ok).map((step) => step.tool),
       });
     } catch {
@@ -478,5 +544,6 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
     }),
   );
   if (outcome === "failed") return json({ error: "model_unavailable", outcome }, 502);
-  return json(text ? { outcome, answer: text } : { outcome });
+  if (!text) return json({ outcome });
+  return json(marked.continues !== null ? { outcome, answer: text, continues: marked.continues } : { outcome, answer: text });
 }

@@ -17,6 +17,11 @@
  *     read from their notes is texted back" fails (no picture 1 exists).
  *   `PICTURES_LINE` left out of the texting prompt → "a texted turn is told
  *     it can send pictures" fails.
+ *   `wrap` keeping a result's words whole → "a tool repeating what the model
+ *     gave it does not vouch the address in it" fails.
+ *   `withoutGiven` cutting an address that merely starts with one given →
+ *     "an address read before the model used it stays vouched when a tool
+ *     repeats it" fails.
  */
 
 import assert from "node:assert/strict";
@@ -135,4 +140,42 @@ test("a texted turn is told it can send pictures", async () => {
   } finally {
     world.restore();
   }
+});
+
+test("a tool repeating what the model gave it does not vouch the address in it", async () => {
+  const outgoing = outgoingPictures({ enabled: true, question: "make me a poster" });
+  // Tools restate what they were handed ("there is no X to work from"). That
+  // echo is the model's own words coming back, so an address it assembled
+  // this turn would otherwise become one "the turn read" and go out carrying
+  // whatever the turn had just learnt.
+  const call = outgoing.wrap(async (name, args) => ({
+    content: [{ type: "text", text: `There is no ${args.from} to work from.` }],
+    isError: true,
+  }));
+  await call("make_picture", { from: "https://e.gg/?d=0415550123" });
+  assert.equal(outgoing.vouches("https://e.gg/?d=0415550123"), false);
+
+  // Echoed back shortened, or in another case, it is still the model's.
+  const clipped = outgoing.wrap(async (name, args) => ({
+    content: [{ type: "text", text: `no such picture: ${String(args.from).slice(0, 26).toUpperCase()}` }],
+  }));
+  await clipped("make_picture", { from: "https://e.gg/?d=0415550123-and-padding-to-cut" });
+  assert.equal(outgoing.vouches("HTTPS://E.GG/?D=0415550123"), false);
+
+  const { pictures } = outgoing.take("Here.\n[picture https://e.gg/?d=0415550123]\n[picture HTTPS://E.GG/?D=0415550123]");
+  assert.deepEqual(pictures, []);
+});
+
+test("an address read before the model used it stays vouched when a tool repeats it", async () => {
+  const outgoing = outgoingPictures({ enabled: true });
+  const read = outgoing.wrap(async () => ({ content: [{ type: "text", text: "Logo at https://cdn.example.com/logo.png and https://cdn.example.com/dog.png" }] }));
+  await read("read_note", {});
+  const browsed = outgoing.wrap(async (name, args) => ({ content: [{ type: "text", text: `could not open ${args.url}` }] }));
+  await browsed("browse", { url: "https://cdn.example.com/logo.png" });
+  assert.equal(outgoing.vouches("https://cdn.example.com/logo.png"), true, "it was read before it was passed");
+  assert.equal(outgoing.vouches("https://cdn.example.com/dog.png"), true, "a sibling address the page itself named is untouched");
+
+  const page = outgoing.wrap(async (name, args) => ({ content: [{ type: "text", text: `${args.url} shows https://cdn.example.com/logo.png/large.webp` }] }));
+  await page("browse", { url: "https://cdn.example.com/logo.png" });
+  assert.equal(outgoing.vouches("https://cdn.example.com/logo.png/large.webp"), true, "what the fetched page named under it is the page's own words");
 });

