@@ -139,7 +139,7 @@ export async function setRow(
   if (!result.ok) throw new Error(`setAccessRow refused ${path}: ${result.code}`);
 }
 
-/** Run the migration to its end, as staff run it: `npx convex run functions/pinnedAccounts:start`. */
+/** Run the migration to its end, as the cron starts it after a deploy (`pinnedAccounts.startIfDue`). */
 export async function migrate(w: PinnedWorld, pageSize?: number): Promise<string> {
   const started = await w.t.mutation(internal.functions.pinnedAccounts.start, pageSize === undefined ? {} : { pageSize });
   await drainScheduled(w.t);

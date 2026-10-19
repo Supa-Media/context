@@ -1,8 +1,8 @@
 /**
  * The pinned workspace's move to "team means members" (decided by the owner, 2026-10-19;
- * `docs/decisions/privacy-and-sharing/all-context-users.md`). Staff run it once per deployment, staging first:
- *
- *     npx convex run functions/pinnedAccounts:start
+ * `docs/decisions/privacy-and-sharing/all-context-users.md`). It runs on its own after a deploy: the cron that keeps
+ * every tree current (`nodesMigration.keepCurrent`, every fifteen minutes) calls `startIfDue`, which starts it once
+ * rows mode is on and the pinned workspace exists, and does nothing once it has finished. Nobody runs it by hand.
  *
  * Until it has run, pin readers read `@context-lc` at `team`, as they always did (`lib/pinnedReaders.ts`). It walks
  * the pinned workspace's rows in two passes, each page its own transaction, each page scheduling the next:
@@ -16,7 +16,10 @@
  *  2. **Every row in the old Members position** (base `private` plus the built-in `members` grant, notes and folders
  *     alike) becomes base `team` with that grant removed: the same people, and now also every MCP connection of a
  *     member, which holds no granted names and so never held the members grant's token. Only after the switch,
- *     because before it `team` was still every account's.
+ *     because before it `team` was still every account's. Its last page sets `pinnedAccountsDoneAt`.
+ *
+ * Every page stamps `pinnedAccountsPageAt`, so the cron starts no second pass beside one in flight; a chain that
+ * stopped (a dropped scheduled function) goes quiet and is started again from the pass the switch says is next.
  *
  * Idempotent: a row that already has its grant, or is no longer in the old position, is passed over, so a rerun,
  * or a run that was interrupted and started again, changes nothing that is done. A deployment with no pinned
@@ -32,6 +35,9 @@ import { accessSourceOf, refreshSnapshot } from "./lib/nodes/accessBackfill";
 import { folderJobsOf } from "./lib/nodes/folderJobs";
 import { pinnedContextWorkspace } from "./lib/pinnedContext";
 
+/** A pass whose last page ran this recently is in flight: the cron leaves it alone. Two cron periods. */
+export const PINNED_ACCOUNTS_IN_FLIGHT_MS = 30 * 60 * 1000;
+
 /** Rows one page reads. Each can write a grant or a patch and a delete or two, well inside one transaction. */
 export const PINNED_ACCOUNTS_PAGE = 200;
 
@@ -42,12 +48,38 @@ type Phase = "accounts" | "members";
 export const start = internalMutation({
   args: { pageSize: v.optional(v.number()) },
   returns: v.string(),
-  handler: async (ctx, { pageSize }): Promise<string> => {
-    if ((await accessSourceOf(ctx.db)) !== "rows") return "not in rows mode: nothing to move";
-    const phase: Phase = (await switchRow(ctx))?.pinnedAccountsAt === undefined ? "accounts" : "members";
-    await ctx.scheduler.runAfter(0, internal.functions.pinnedAccounts.page, { phase, after: null, pageSize });
-    return `started: ${phase}`;
-  },
+  handler: async (ctx, { pageSize }): Promise<string> => await startPass(ctx, pageSize),
+});
+
+async function startPass(ctx: MutationCtx, pageSize?: number): Promise<string> {
+  if ((await accessSourceOf(ctx.db)) !== "rows") return "not in rows mode: nothing to move";
+  const row = await switchRow(ctx);
+  const phase: Phase = row?.pinnedAccountsAt === undefined ? "accounts" : "members";
+  // Stamped now, not when the page runs: a second tick before then must see this pass in flight.
+  if (row !== null) await ctx.db.patch(row._id, { pinnedAccountsPageAt: Date.now() });
+  await ctx.scheduler.runAfter(0, internal.functions.pinnedAccounts.page, { phase, after: null, pageSize });
+  return `started: ${phase}`;
+}
+
+/**
+ * The cron's hook (`nodesMigration.keepCurrent`): start a pass when one is owed. One `nodeMigration` read when there
+ * is nothing to do, which is every tick after the move has finished. Owed means rows mode, not finished, no pass in
+ * flight, and a pinned workspace to move: a deployment with none is left exactly as it is.
+ */
+export async function startIfDue(ctx: MutationCtx, now = Date.now()): Promise<boolean> {
+  const row = await switchRow(ctx);
+  if (row === null || row.accessSource !== "rows" || row.pinnedAccountsDoneAt !== undefined) return false;
+  if (row.pinnedAccountsPageAt !== undefined && now - row.pinnedAccountsPageAt < PINNED_ACCOUNTS_IN_FLIGHT_MS) return false;
+  if ((await pinnedContextWorkspace(ctx)) === null) return false;
+  await startPass(ctx);
+  return true;
+}
+
+/** The same hook as its own function, for tests and for a staff tool that wants to nudge it. */
+export const startIfDueNow = internalMutation({
+  args: {},
+  returns: v.boolean(),
+  handler: async (ctx): Promise<boolean> => await startIfDue(ctx),
 });
 
 /** One page of one pass, scheduling the next; the last page of the first pass flips the switch. */
@@ -70,6 +102,7 @@ export const page = internalMutation({
         after === null ? q.eq("workspaceId", pinned._id) : q.eq("workspaceId", pinned._id).gt("path", after),
       )
       .take(size);
+    await stamp(ctx, { pinnedAccountsPageAt: Date.now() });
     const bugs = await bugRootOf(ctx, pinned._id);
     let changed = false;
     for (const row of rows) {
@@ -87,6 +120,8 @@ export const page = internalMutation({
     if (phase === "accounts") {
       await flipSwitch(ctx);
       await ctx.scheduler.runAfter(0, internal.functions.pinnedAccounts.page, { phase: "members", after: null, pageSize });
+    } else {
+      await stamp(ctx, { pinnedAccountsDoneAt: Date.now() });
     }
     return null;
   },
@@ -137,6 +172,11 @@ async function membersToTeam(ctx: MutationCtx, row: Doc<"nodes">): Promise<boole
 
 async function switchRow(ctx: MutationCtx): Promise<Doc<"nodeMigration"> | null> {
   return await ctx.db.query("nodeMigration").first();
+}
+
+async function stamp(ctx: MutationCtx, fields: Partial<Pick<Doc<"nodeMigration">, "pinnedAccountsPageAt" | "pinnedAccountsDoneAt">>) {
+  const row = await switchRow(ctx);
+  if (row !== null) await ctx.db.patch(row._id, fields);
 }
 
 /** From now on a pin reader reads as a guest (`lib/pinnedReaders.ts`). Set once; a rerun keeps the first time. */

@@ -64,9 +64,16 @@ judged by the guest names (`guestNamesIn`).
 those rows carry the `accounts` grant would shut every account out of the
 guides, the forms and the website. So pin readers read exactly as before until
 `nodeMigration.pinnedAccountsAt` is set, and `functions/pinnedAccounts.ts` sets
-it. Staff run it once per deployment, staging first, after the deploy:
-
-    npx convex run functions/pinnedAccounts:start
+it. **It runs on its own after a deploy**: nobody can run a Convex function by
+hand here and a deploy runs nothing after itself, so the cron that keeps every
+tree current (`nodesMigration.keepCurrent`, every fifteen minutes) calls
+`pinnedAccounts.startIfDue`. That starts a pass when rows mode is on, the
+pinned workspace exists, the move has not finished (`pinnedAccountsDoneAt`) and
+no pass is in flight (`pinnedAccountsPageAt`, stamped by every page, within the
+last thirty minutes). Once it has finished each tick reads one row and stops; a
+deployment with no pinned workspace is left exactly as it is; a chain that
+stopped goes quiet and is started again from the pass the switch says is next.
+Staging gets it first because staging is deployed first.
 
 It pages the pinned workspace's rows (each page its own transaction): first every
 live base-`team` row outside the Areas folder's `tex-bugs/` gets the `accounts`
@@ -76,9 +83,9 @@ alike, becomes base `team` with the `members` grant removed. It is idempotent an
 can be started again. Until the switch flips, the console writes Members the
 morning's way (`positionOf` in `functions/nodesAccess.ts`), which the second pass
 converts, so nothing written in the window reaches every account by accident.
-Between the deploy and the run, a plain `team` row is drawn as Members although
-pin readers still read it, as they did that morning; the run is the release's
-last step for that reason.
+Between the deploy and the first cron tick (at most fifteen minutes, plus the
+run itself), a plain `team` row is drawn as Members although pin readers still
+read it, as they did that morning.
 
 **What a "simplification" would cost.**
 
@@ -93,6 +100,9 @@ last step for that reason.
   `apps/mcp/test/privacy/readsAsGuest.test.mjs`.
 - Honouring `accounts` anywhere: a setting that publishes a note to every
   account, in any workspace. Fails: `apps/convex/__tests__/nodes/accountsGrantee.test.ts`.
+- Starting the move only by hand, or without the in-flight check: it never runs
+  here, or the cron starts a second pass beside the first every tick. Fails:
+  `apps/convex/__tests__/pinnedAccountsCron.test.ts`.
 - Flipping the switch before the grants, or skipping folders in the second pass:
   the guides go dark for every account, or a member's MCP client cannot read under
   a folder that was Members. Fails: `apps/convex/__tests__/pinnedAccountsMigration.test.ts`,
