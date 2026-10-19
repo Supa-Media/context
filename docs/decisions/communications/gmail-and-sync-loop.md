@@ -535,6 +535,13 @@ the first bill they see" is the scoping note's own sentence.
   this existed keep what they had, which for the last of those is nothing.
   There is no button, no window to pick and no "sync more", and
   `startGoogleSyncRun` and `runGoogleGmailBackfill` refuse exactly as before.
+- **One exception, run once by us: the frozen-day repair.** Before #1923 an
+  opened day note kept only what it held when first opened, so days older than
+  the two #1926 rebuilds stayed short. The owner chose "Repair now" on
+  2026-10-19: `gmailDayRepair:rearmRecentImports`, run by the manual `Gmail day
+  repair` workflow, sets every live connection's import back to `pending`
+  unless it finished after `GMAIL_DAY_REPAIR_CUTOFF`, so a second run changes
+  nothing. It is still the fifty, still whole days, and still nobody's button.
 - **One pass, inside the one credential barrier.** The import runs in
   `runFileOperation` on Gmail's turn, in place of that turn's forward pass,
   using the token the pass already minted and the scope the connect already
@@ -589,6 +596,15 @@ So (`apps/mcp/src/communications/gmail/`):
   and leave the account healthy, so Calendar and Chat keep syncing and the
   console does not say "Stopped" over a limit that lifts by itself. Push marks
   on a backing-off product do not make the account due.
+- **A per-minute limit waits minutes, not the ladder** (2026-10-19). Google
+  counts `rateLimitExceeded` and `userRateLimitExceeded` (and a 429 with no
+  reason) per second or minute, so they wait one minute, doubling to a quarter
+  hour; only `dailyLimitExceeded` and `quotaExceeded` keep the long ladder
+  (`productBackoffMs`). The ladder had held a rate-limited mailbox for fifteen
+  and then thirty minutes, and an email that arrived at 15:42 reached its day
+  at 16:12. Google's reason word is kept on the product as
+  `lastFailureReason` and counted by the health report, so the next lag says
+  which limit it was. Test: `rateLimitBackoff.test.ts`.
 
 A new message now costs about a dozen quota units rather than the whole day's
 messages. Tests: `apps/mcp/test/gmailSync/messageCache.test.mjs`,

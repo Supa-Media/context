@@ -103,6 +103,37 @@ export function failureBackoffMs(
   return Math.max(intervalMs, ladder) + spreadMs(connectionId);
 }
 
+/**
+ * Google's reasons for a limit that is counted per day, not per second or
+ * minute: waiting minutes would only meet it again, so these keep the ladder.
+ */
+const DAILY_LIMIT_REASONS: ReadonlySet<string> = new Set(["dailyLimitExceeded", "quotaExceeded"]);
+
+/** The first wait after a per-second or per-minute limit. */
+export const RATE_LIMIT_BACKOFF_MS = 60 * 1000;
+
+/**
+ * How long a product waits after this failure. A rate limit Google counts per
+ * second or per minute (or a 429 with no reason) lifts within a minute, so it
+ * climbs from one minute and stops at the quarter hour the ladder starts at:
+ * on production (2026-10-19) the ladder held a rate-limited mailbox for
+ * fifteen and then thirty minutes, with its pushes for new mail waiting
+ * behind it. Everything else takes `failureBackoffMs`.
+ */
+export function productBackoffMs(
+  code: string | undefined,
+  reason: string | undefined,
+  intervalMs: number,
+  failures: number,
+  connectionId: string,
+): number {
+  if (code !== "GOOGLE_RATE_LIMITED" || (reason !== undefined && DAILY_LIMIT_REASONS.has(reason))) {
+    return failureBackoffMs(intervalMs, failures, connectionId);
+  }
+  const step = Math.max(0, Math.min(Math.floor(failures) - 1, 8));
+  return Math.min(SYNC_FAILURE_BACKOFF_MS, RATE_LIMIT_BACKOFF_MS * 2 ** step) + spreadMs(connectionId);
+}
+
 /** Up to a minute, stable for one connection, different between connections. */
 function spreadMs(connectionId: string): number {
   let hash = 0;

@@ -1,0 +1,34 @@
+# Re-arm every live Gmail connection's last-fifty import once, to repair the
+# days that froze before #1923 (owner, 2026-10-19: "Repair now").
+#
+# Manual only. It prints counts from `functions/gmailDayRepair.ts:rearmRecentImports`,
+# which answers with counts and never a row id, an address or a workspace:
+# this repository is public, and so is this job's log. Running it again
+# changes nothing once the re-armed imports have finished.
+name: Gmail day repair
+
+on:
+  workflow_dispatch:
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Repair
+        run: npx convex run functions/gmailDayRepair:rearmRecentImports
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}

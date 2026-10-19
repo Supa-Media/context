@@ -121,13 +121,14 @@ export async function failForwardSync(
   error: string,
   /** The product whose turn failed, so its siblings get the next one. */
   product?: ForwardSyncProduct,
+  errorReason?: string,
 ): Promise<ForwardSyncResult> {
   await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
     connectionId,
     status: "failed",
     errorCode,
     error,
-    ...(product === undefined ? {} : { product }),
+    ...(product === undefined ? {} : { product }), ...(errorReason === undefined ? {} : { errorReason }),
   });
   return {
     kind: "googleForwardSync",
@@ -650,9 +651,9 @@ async function forwardSyncFailed(
       job.product,
     );
   }
-  const { code, message } = classifyForwardSyncError(error);
+  const { code, message, reason } = classifyForwardSyncError(error);
   logForwardSyncFailure(job, code, error);
-  return await failForwardSync(ctx, job.connectionId, code, message, job.product);
+  return await failForwardSync(ctx, job.connectionId, code, message, job.product, reason);
 }
 
 export async function runGoogleGmailBackfill(

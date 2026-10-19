@@ -42,6 +42,9 @@ describe("a product Google rate-limited backs off on its own", () => {
       status: "failed",
       errorCode: "GOOGLE_RATE_LIMITED",
       error: "Google rate-limited this mailbox. The next scheduled pass will try again.",
+      // A daily quota: the long ladder these tests are about. A per-minute limit
+      // waits minutes instead (`rateLimitBackoff.test.ts`).
+      errorReason: "dailyLimitExceeded",
     });
     return await readConnection(s.t, s.connectionId);
   }
