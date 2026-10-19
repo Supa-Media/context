@@ -49,6 +49,13 @@ export type GranteeInput =
 export interface Actor {
   userId: Id<"users">;
   role: "owner" | "editor" | "member";
+  /**
+   * The OAuth client that acted, where the change is made under somebody's
+   * authority rather than by their own hand (`bugNotes.shareWithTeam` names
+   * the team under the owner). Audited beside them, so the trail does not
+   * read as a grant they sat down and made.
+   */
+  clientId?: string;
 }
 
 export interface SetAccessArgs {
@@ -269,6 +276,7 @@ export async function setAccessRow(ctx: MutationCtx, args: SetAccessArgs): Promi
     await recordAudit(ctx, {
       workspaceId,
       actorUserId: actor.userId,
+      actorClientId: actor.clientId,
       action: "access.list",
       details: {
         nodeId: String(row._id),

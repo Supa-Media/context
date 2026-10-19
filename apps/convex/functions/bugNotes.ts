@@ -27,6 +27,7 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery, type ActionCtx } from "../_generated/server";
 import { usernameOf } from "./lib/adminFns/people";
+import { TEXTS_CLIENT_ID } from "./lib/feedback/agentReport";
 import { bugFolder, bugNotePath, renderBugNote } from "./lib/feedback/bugNote";
 import { accessSourceOf } from "./lib/nodes/accessBackfill";
 import { folderJobsOf } from "./lib/nodes/folderJobs";
@@ -55,7 +56,8 @@ export const destination = internalQuery({
  * list, so someone who joins later reads earlier reports too, and a pin reader
  * never holds it. Only where the access rows judge: a list lives on a row, so
  * elsewhere the note stays owner-only. False only for a change that was
- * refused. Granted under the first owner's name, since a list is the owner's.
+ * refused. Granted under the first owner's name, since a list is the owner's,
+ * and audited as Tex acting under it rather than as the owner's own hand.
  */
 export const shareWithTeam = internalMutation({
   args: { workspaceId: v.id("workspaces"), path: v.string() },
@@ -74,7 +76,7 @@ export const shareWithTeam = internalMutation({
       path,
       base: "private",
       grantees: [{ kind: "members", role: "view" }],
-      actor: { userId: owner.userId, role: "owner" },
+      actor: { userId: owner.userId, role: "owner", clientId: TEXTS_CLIENT_ID },
     });
     return answer.ok;
   },
@@ -116,8 +118,14 @@ export async function fileBugNote(
       operation: { kind: "write", path, text: renderBugNote({ ...report, handle: where.handle, team: where.team }) },
     });
     // The report is filed either way; a team that cannot see it yet is a log line, not a lost report.
-    if (!(await ctx.runMutation(internal.functions.bugNotes.shareWithTeam, { workspaceId, path }))) {
-      console.error("bug_note_not_shared", { workspaceId });
+    // Its own catch: outside one, a throw here is read as "not sent", which releases the person's
+    // budget and asks them to send the same texts again, though the note already holds them.
+    try {
+      if (!(await ctx.runMutation(internal.functions.bugNotes.shareWithTeam, { workspaceId, path }))) {
+        console.error("bug_note_not_shared", { workspaceId });
+      }
+    } catch (error) {
+      console.error("bug_note_not_shared", { workspaceId, code: error instanceof ConvexError ? (error.data as { code?: string })?.code : "unknown" });
     }
     return true;
   } catch (error) {

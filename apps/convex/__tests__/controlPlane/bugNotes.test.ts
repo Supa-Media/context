@@ -26,6 +26,12 @@
  *     since `grantedNamesFor` gives a non-member no names before it looks;
  *     "a members grant reaches a real member, never a guest or someone
  *     outside" in `nodes/rowAccess.test.ts` fails instead.
+ *  7. `fileBugNote` sharing inside its own try again. → "a grant that throws
+ *     leaves the report filed, not reported as unsent" fails: the report is
+ *     called unsent though the note holds the person's texts.
+ *  8. `setAccessRow` dropping the actor's `clientId` from the audit row. →
+ *     "naming the team is audited as Tex acting, not as the owner naming
+ *     people by hand" fails.
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -35,6 +41,7 @@ vi.setConfig({ testTimeout: 30_000 });
 
 import { api, internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
+import { fileBugNote } from "../../functions/bugNotes";
 import { bugFolder, bugNotePath, renderBugNote } from "../../functions/lib/feedback/bugNote";
 import { grantedNamesFor } from "../../functions/lib/grantedNames";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
@@ -241,6 +248,25 @@ describe("bug reports by text, as notes in the pinned context", () => {
     expect(base).toBe("private");
   });
 
+  test("naming the team is audited as Tex acting, not as the owner naming people by hand", async () => {
+    const { t, pinned, staff } = await world();
+    await judgedByRows(t, pinned);
+    const member = await createUser(t, "auditor@example.invalid");
+    await addMember(t, pinned, member, "member", staff);
+    expect((await report(t, { message: "audited", texts: TEXTS })).report).not.toBeNull();
+
+    const listed = await t.run(async (ctx) =>
+      (await ctx.db
+        .query("auditEvents")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", pinned))
+        .collect()).filter((event) => event.action === "access.list"),
+    );
+    expect(listed).toHaveLength(1);
+    // The owner is the authority the grant is made under; the client is who acted.
+    expect(listed[0]!.actorUserId).toEqual(staff);
+    expect(listed[0]!.actorClientId).toEqual("context_texts");
+  });
+
   test("another AI's report still goes to Sentry", async () => {
     const { t, pinned, grantA } = await world();
     await t.run((ctx) => ctx.db.patch(grantA, { clientId: "client-not-texts" }));
@@ -289,5 +315,46 @@ describe("the note itself", () => {
     // The texts' four backticks are inside a five-backtick fence.
     expect(note).toContain("`````text\nThem: ````\nTex: [click](https://example.invalid)\n`````");
     expect(note).toContain("````text\n![x](https://tracker.example.invalid/p.png) broke\n```\n# not a heading\n````");
+  });
+});
+
+/**
+ * `fileBugNote` on its own, with the control plane stubbed: the sharing step
+ * is the last thing it does, and what it does when that step fails is not
+ * reachable through the gateway route.
+ */
+describe("a report that is filed but cannot be shared", () => {
+  const where = { workspaceId: "w1" as Id<"workspaces">, folder: "areas/tex-bugs/user", handle: null, team: false };
+
+  function stub(runMutation: () => Promise<boolean>) {
+    const written: string[] = [];
+    return {
+      written,
+      ctx: {
+        runAction: async (_ref: unknown, args: { operation: { kind: string; path?: string } }) => {
+          if (args.operation.kind === "visiblePaths") return { kind: "visiblePaths", paths: [] };
+          written.push(args.operation.path ?? "");
+          return { kind: "ok" };
+        },
+        runMutation,
+      },
+    };
+  }
+
+  test("a refused grant leaves the report filed", async () => {
+    const { ctx, written } = stub(async () => false);
+    expect(await fileBugNote(ctx as never, where, { message: "refused", eventId: "abcdef", now: 0 })).toBe(true);
+    expect(written).toHaveLength(1);
+  });
+
+  test("a grant that throws leaves the report filed, not reported as unsent", async () => {
+    const { ctx, written } = stub(async () => {
+      throw new Error("the members could not be read");
+    });
+    // The note with the person's texts is already in the bucket. Calling that
+    // "not sent" releases their budget, tells them to try again, and files a
+    // second copy of the same texts.
+    expect(await fileBugNote(ctx as never, where, { message: "threw", eventId: "abcdef", now: 0 })).toBe(true);
+    expect(written).toHaveLength(1);
   });
 });
