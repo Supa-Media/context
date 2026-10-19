@@ -460,10 +460,7 @@ async function runMintedPass(
   if (job.recentImport === true) return await runGmailRecentImport(ctx, days, job, accessToken);
 
   if (job.historyId === undefined) {
-    const historyId = await getProfileHistoryId({
-      fetchImpl: timeoutFetch,
-      accessToken: accessToken,
-    });
+    const historyId = await getProfileHistoryId({ fetchImpl: timeoutFetch, accessToken });
     await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
       connectionId: job.connectionId,
       status: "synced",
