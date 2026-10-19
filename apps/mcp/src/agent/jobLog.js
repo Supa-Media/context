@@ -6,6 +6,7 @@
  */
 
 import { wallClock } from "../../../../packages/shared/src/routines.cjs";
+import { AgentRefusal } from "./turn.js";
 
 const pad = (value) => String(value).padStart(2, "0");
 
@@ -66,6 +67,49 @@ export async function appendLogEntry(dispatch, path, entry, heading) {
     if (written && written.isError !== true) return true;
   }
   return false;
+}
+
+/**
+ * Why a run ended before its model ran, as its day's log says it. Every run
+ * that reaches the gateway leaves a line (owner, 2026-10-19: "We should be
+ * able to track the skipped runs"), so a day with nothing else in its log
+ * still shows the job ran and why it stopped.
+ */
+export const SKIPPED_WORDS = {
+  no_provider: "Skipped: the built-in model isn't available to this account.",
+  daily_limit: "Skipped: today's questions are used up.",
+  model_unavailable: "Skipped: the model couldn't be reached. The next run tries again.",
+};
+
+/** One skipped run's part of the day's log: the time and why. */
+export function skippedEntry(now, timeZone, words) {
+  return `## ${clock(now, timeZone)}\n\n_${words}_\n`;
+}
+
+/** Log a run that ran no model. Best effort: a log that can't be written never changes the run's answer. */
+export async function logSkipped(dispatch, { path, heading, now, timeZone, words }) {
+  try {
+    await appendLogEntry(dispatch, path, skippedEntry(now, timeZone, words), heading);
+  } catch {
+    // The outcome still reaches the control plane.
+  }
+}
+
+/**
+ * The refusal `openProvider` threw, as the run's answer, logged first:
+ * `daily_limit` (429), any other refusal (409), or no model reachable (503).
+ */
+export async function refusedRun(error, log) {
+  if (error instanceof AgentRefusal && error.code === "daily_limit") {
+    await log(SKIPPED_WORDS.daily_limit);
+    return { status: 429, body: { error: "daily_limit" } };
+  }
+  if (error instanceof AgentRefusal) {
+    await log(SKIPPED_WORDS.no_provider);
+    return { status: 409, body: { error: error.code } };
+  }
+  await log(SKIPPED_WORDS.model_unavailable);
+  return { status: 503, body: { error: "model_unavailable" } };
 }
 
 /** Report a turn's built-in usage to the control plane. A meter that can't be reached costs a report, never the turn. */

@@ -31,7 +31,7 @@
 
 import { DEFAULT_TIME_ZONE, readTimeZone } from "./localNow.js";
 import { eventLines } from "./transcript.js";
-import { AgentRefusal, openProvider, runTurn } from "./turn.js";
+import { openProvider, runTurn } from "./turn.js";
 import { BUILTIN_PROVIDER, builtinModel, canRunBuiltin } from "./builtin.js";
 import { PRODUCTION_HOUSEKEEPING_PATH, readJobSetup } from "./production.js";
 import { aiGatewayConfig } from "./aiGateway.js";
@@ -42,7 +42,7 @@ import { callToolForSession } from "../tools/session.js";
 import { grantedToolsFor } from "./sixTools.js";
 import { newLedger } from "../privacy/egress.js";
 import { json } from "../http/responses.js";
-import { appendLogEntry, builtinMeter, clock, dayOf, longDate } from "./jobLog.js";
+import { appendLogEntry, builtinMeter, clock, dayOf, logSkipped, longDate, refusedRun } from "./jobLog.js";
 import { factJobs } from "../tree/facts.js";
 import { HOUSEKEEPING_GRANTS, housekeepingCallTool, housekeepingTools, undoLine } from "./housekeepingGuard.js";
 
@@ -206,9 +206,12 @@ export async function handleHousekeeping(request, env, store, session, controlPl
   try {
     await openProvider(controlPlane, session, undefined, env);
   } catch (error) {
-    if (error instanceof AgentRefusal && error.code === "daily_limit") return json({ error: "daily_limit" }, 429);
-    if (error instanceof AgentRefusal) return json({ error: error.code }, 409);
-    return json({ error: "model_unavailable" }, 503);
+    // A run that never reached the model still leaves its line in the day's log.
+    const refused = await refusedRun(error, (words) => {
+      const now = Date.now();
+      return logSkipped(dispatch, { path: housekeepingPath(now, timeZone), heading: heading(now, timeZone), now, timeZone, words });
+    });
+    return json(refused.body, refused.status);
   }
 
   const events = [];
