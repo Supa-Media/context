@@ -8,11 +8,18 @@
  * this connection's own token, holds the limits and sends it
  * (`apps/convex/functions/lib/gatewayRoutes/personEmail.ts`). Nothing of the
  * email is written anywhere by this side.
+ *
+ * `save_email_draft` (`send · email_draft`) saves the same email as a draft
+ * in the person's Gmail instead. It reaches nobody until the person sends it
+ * from Gmail themselves, so nothing holds it for a yes; the control plane
+ * still picks the connection (one that granted `gmail.compose`) and holds the
+ * draft limits.
  */
 
 import { toolError, toolText } from "./results.js";
 
 export const EMAIL_TOOL = "send_email";
+export const EMAIL_DRAFT_TOOL = "save_email_draft";
 
 /** Kept equal to `apps/convex/functions/lib/personEmail.ts`, which checks again. */
 export const MAX_RECIPIENTS = 10;
@@ -88,7 +95,7 @@ export const REFUSED = {
   invalid: "Not sent: the email was not valid.",
   not_allowed: "Not sent: this connection cannot send email as the person.",
   no_sender:
-    "Not sent: the person has no Gmail connected that Context may send from. Context can't send email yet; give them the draft to copy and send themselves.",
+    "Not sent: the person has no Gmail connected that Context may send from. Context can't send email yet; save it as a draft with save_email_draft, or give them the draft to copy and send themselves.",
   hourly_limit: "Not sent: the person has sent 5 emails through Context this hour. Try again later.",
   daily_limit: "Not sent: the person has sent 20 emails through Context today. Try again tomorrow.",
   recipient_limit: "Not sent: the person has already emailed one of these addresses 3 times today through Context.",
@@ -108,4 +115,32 @@ export async function toolSendEmail(store, args) {
   }
   if (answer?.ok === true) return toolText(`Sent from ${answer.from} to ${[...read.email.to, ...read.email.cc].join(", ")}.`);
   return toolError(REFUSED[answer?.refused] ?? REFUSED.unavailable);
+}
+
+/** What each refusal of a draft tells the model. */
+export const DRAFT_REFUSED = {
+  invalid: "Not saved: the draft was not valid.",
+  not_allowed: "Not saved: this connection cannot save drafts in the person's Gmail.",
+  no_sender:
+    "Not saved: the person has no Gmail connected that Context may save drafts in. Give them the draft to copy instead.",
+  hourly_limit: "Not saved: 10 drafts were saved through Context this hour. Give them this one to copy instead.",
+  daily_limit: "Not saved: 50 drafts were saved through Context today. Give them this one to copy instead.",
+  not_configured: "Not saved: this Context deployment does not save drafts.",
+  unavailable: "Not saved: Gmail did not take the draft just now. It can be tried again.",
+};
+
+export async function toolSaveEmailDraft(store, args) {
+  const read = readEmail(args);
+  if (read.error) return toolError(`Not saved: ${read.error}`);
+  if (typeof store?.email?.draft !== "function") return toolError(DRAFT_REFUSED.not_configured);
+  let answer;
+  try {
+    answer = await store.email.draft(read.email);
+  } catch {
+    return toolError(DRAFT_REFUSED.unavailable);
+  }
+  if (answer?.ok === true) {
+    return toolText(`Saved as a draft in ${answer.from}'s Gmail, to ${[...read.email.to, ...read.email.cc].join(", ")}. Nothing was sent; they send it from Gmail when they are ready.`);
+  }
+  return toolError(DRAFT_REFUSED[answer?.refused] ?? DRAFT_REFUSED.unavailable);
 }

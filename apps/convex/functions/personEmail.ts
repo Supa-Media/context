@@ -8,6 +8,10 @@
  * spends nothing. With `spend: false` it only answers whether the email would
  * go, which the gateway asks before it puts the email to the person, so they
  * are never asked to approve something the limits would refuse.
+ *
+ * With `draft: true` it is a draft saved in the person's Gmail instead: the
+ * connection must have granted `gmail.compose`, the draft limits are spent in
+ * place of the sending ones, and the audit says a draft was saved.
  */
 
 import { v } from "convex/values";
@@ -16,7 +20,7 @@ import type { MutationCtx } from "../_generated/server";
 import { recordAudit } from "./lib/audit";
 import { ownedPersonalWorkspace } from "./lib/accountSetup";
 import { editorClearanceForGatewayHandler } from "./lib/controlPlane/session";
-import { GMAIL_SEND_SCOPE, personEmailPolicies } from "./lib/personEmail";
+import { GMAIL_COMPOSE_SCOPE, GMAIL_SEND_SCOPE, personEmailDraftPolicies, personEmailPolicies } from "./lib/personEmail";
 import type { RateLimitPolicy } from "./lib/rateLimit";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
 
@@ -47,6 +51,8 @@ export const claimPersonEmail = internalMutation({
     /** The connected address to send from, lowercased; null for the first that can. */
     from: v.union(v.string(), v.null()),
     spend: v.boolean(),
+    /** Save it as a draft in their Gmail rather than send it. */
+    draft: v.optional(v.boolean()),
   },
   returns: v.union(
     v.object({ ok: v.literal(true), from: v.string(), connectionId: v.id("googleConnections") }),
@@ -61,7 +67,9 @@ export const claimPersonEmail = internalMutation({
     });
     if (cleared === null) return { ok: false as const, refused: "not_allowed" as const };
     // A person's mail is connected to their personal workspace, and only a
-    // connection whose consent granted sending may send.
+    // connection whose consent granted sending may send (composing, for a draft).
+    const draft = args.draft === true;
+    const scope = draft ? GMAIL_COMPOSE_SCOPE : GMAIL_SEND_SCOPE;
     const personal = await ownedPersonalWorkspace(ctx, cleared.actorUserId);
     // Only from the person's own workspace: an editor grant on a shared one
     // must not reach the mail of whoever holds it.
@@ -76,7 +84,7 @@ export const claimPersonEmail = internalMutation({
       (row) =>
         row.disconnectedAt === undefined &&
         row.products.includes("gmail") &&
-        row.scopes.includes(GMAIL_SEND_SCOPE) &&
+        row.scopes.includes(scope) &&
         (args.from === null || row.address.toLowerCase() === args.from),
     );
     if (sender === undefined) return { ok: false as const, refused: "no_sender" as const };
@@ -84,7 +92,7 @@ export const claimPersonEmail = internalMutation({
     if (hashes.length === 0 || hashes.some((hash) => !/^[0-9a-f]{64}$/.test(hash))) {
       return { ok: false as const, refused: "not_allowed" as const };
     }
-    const policies = personEmailPolicies(cleared.actorUserId, hashes);
+    const policies = draft ? personEmailDraftPolicies(cleared.actorUserId) : personEmailPolicies(cleared.actorUserId, hashes);
     for (const policy of policies) {
       if (!(await hasRoom(ctx, policy))) return { ok: false as const, refused: policy.refusal };
     }
@@ -98,7 +106,7 @@ export const claimPersonEmail = internalMutation({
       workspaceId: personal._id,
       actorUserId: cleared.actorUserId,
       actorClientId: cleared.clientId,
-      action: "send_email",
+      action: draft ? "save_email_draft" : "send_email",
       // How many it went to, never to whom or what it said.
       details: { recipients: hashes.length },
     });

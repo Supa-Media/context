@@ -12,7 +12,7 @@
 import { describe, expect, test, vi } from "vitest";
 import { api } from "../../_generated/api";
 import { asUser } from "../fixtures.helpers";
-import { CALENDAR_WRITE_SCOPE, GMAIL_SEND_SCOPE, scopesForConnect } from "../../functions/lib/googleOAuth";
+import { CALENDAR_WRITE_SCOPE, GMAIL_COMPOSE_SCOPE, GMAIL_SEND_SCOPE, scopesForConnect } from "../../functions/lib/googleOAuth";
 import { isGoogleWriteTester } from "../../functions/lib/googleWriteTesters";
 import { REDIRECT, enableAllGoogleConnect, personalScenario } from "./fixtures.helpers";
 
@@ -32,17 +32,20 @@ describe("Google write scopes", () => {
   test("a person who is not staff is asked for read scopes only", async () => {
     const scopes = await askedScopes(null);
     expect(scopes).not.toContain(GMAIL_SEND_SCOPE);
+    expect(scopes).not.toContain(GMAIL_COMPOSE_SCOPE);
     expect(scopes).not.toContain(CALENDAR_WRITE_SCOPE);
   });
 
-  test("staff are asked for Gmail send and Calendar writes with the products they chose", async () => {
+  test("staff are asked for Gmail send, Gmail drafts and Calendar writes with the products they chose", async () => {
     const scopes = await askedScopes("owner@example.invalid");
     expect(scopes).toContain(GMAIL_SEND_SCOPE);
+    expect(scopes).toContain(GMAIL_COMPOSE_SCOPE);
     expect(scopes).toContain(CALENDAR_WRITE_SCOPE);
   });
 
   test("a write scope comes only with its own product", () => {
     expect(scopesForConnect(["calendar"], true)).not.toContain(GMAIL_SEND_SCOPE);
+    expect(scopesForConnect(["calendar"], true)).not.toContain(GMAIL_COMPOSE_SCOPE);
     expect(scopesForConnect(["gmail"], true)).not.toContain(CALENDAR_WRITE_SCOPE);
     expect(scopesForConnect(["chat"], true).some((scope) => scope === GMAIL_SEND_SCOPE || scope === CALENDAR_WRITE_SCOPE)).toBe(false);
   });

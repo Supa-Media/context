@@ -539,6 +539,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Rate limits live in the control plane, and are all-or-none
 - Mail goes out through the person's own Gmail, and waits for Google (owner, 2026-10-17)
 - A hold is armed for a texted yes only once its ask goes out whole
+- A draft saved in the person's Gmail needs no yes (owner, 2026-10-19)
 - No calendar change is made without the person's yes to that exact change (owner, 2026-10-17)
 - A move or a cancel names the event by its title and start, and must match one
 - Never an event with guests

@@ -93,9 +93,10 @@ export const IDENTITY_SCOPES = ["openid", "https://www.googleapis.com/auth/useri
 
 /**
  * `gmail.readonly` is the whole point and is a **restricted** scope (see
- * above). Read-only, on purpose and forever: v1 never sends, replies,
- * archives, deletes, or marks read — see the "What is deliberately not
- * built" section of `docs/decisions/communications.md`.
+ * above). Reading is all everyone is asked for; sending and saving drafts
+ * are tester-only write scopes below (`TESTER_WRITE_SCOPES`) until Google has
+ * reviewed them. Nothing archives, deletes, or marks read — see the "What is
+ * deliberately not built" section of `docs/decisions/communications.md`.
  */
 export const GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"] as const;
 
@@ -136,6 +137,13 @@ export function scopesForProducts(products: readonly GoogleProduct[]): string[] 
 
 /** Sending one email the person approved (`docs/decisions/communications/sending-email.md`). Sensitive. */
 export const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
+/**
+ * Saving a draft in the person's own Gmail (`sending-email.md`). Restricted,
+ * and broader than it needs to be (Google has no drafts-only scope: compose
+ * also sends), so Context's own code sends only on `GMAIL_SEND_SCOPE` and uses
+ * this one for drafts alone.
+ */
+export const GMAIL_COMPOSE_SCOPE = "https://www.googleapis.com/auth/gmail.compose";
 /** Adding, moving and cancelling events the person approved (`calendar-writes.md`). Sensitive. */
 export const CALENDAR_WRITE_SCOPE = "https://www.googleapis.com/auth/calendar.events";
 
@@ -148,7 +156,7 @@ export const CALENDAR_WRITE_SCOPE = "https://www.googleapis.com/auth/calendar.ev
  * reviewing. Every write still waits for the person's yes to the exact copy.
  */
 export const TESTER_WRITE_SCOPES: Partial<Record<GoogleProduct, readonly string[]>> = {
-  gmail: [GMAIL_SEND_SCOPE],
+  gmail: [GMAIL_SEND_SCOPE, GMAIL_COMPOSE_SCOPE],
   calendar: [CALENDAR_WRITE_SCOPE],
 };
 

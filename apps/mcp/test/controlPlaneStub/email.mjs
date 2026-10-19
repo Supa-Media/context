@@ -5,22 +5,25 @@
  * as the stub's flags say: `emailSender` is the address that may send (null
  * for none, which is every real connection until Google adds `gmail.send`),
  * and `emailRefusal` answers every send and check with that word instead.
+ * `/gateway/email/draft` answers the same way off `emailDrafter`, the address
+ * whose Gmail may keep drafts, and its calls carry `draft: true`.
  */
 
 export function createEmailRoute(clearedEditor, flags) {
   /** Every call: the email, whether it was a check, and what was answered. */
   const calls = [];
 
-  async function send(body) {
+  async function send(body, draft = false) {
     const cleared = await clearedEditor(body);
+    const sender = draft ? flags.emailDrafter : flags.emailSender;
     let answer;
     if (!cleared) answer = { ok: false, refused: "not_allowed" };
     else if (flags.emailRefusal) answer = { ok: false, refused: flags.emailRefusal };
-    else if (!flags.emailSender) answer = { ok: false, refused: "no_sender" };
+    else if (!sender) answer = { ok: false, refused: "no_sender" };
     // Only a mailbox the person connected sends, as the real route checks.
-    else if (body.email?.from && body.email.from !== flags.emailSender) answer = { ok: false, refused: "no_sender" };
-    else answer = { ok: true, from: flags.emailSender };
-    calls.push({ accessToken: body.accessToken, email: body.email, check: body.check === true, answer });
+    else if (body.email?.from && body.email.from !== sender) answer = { ok: false, refused: "no_sender" };
+    else answer = { ok: true, from: sender };
+    calls.push({ accessToken: body.accessToken, email: body.email, check: body.check === true, ...(draft ? { draft } : {}), answer });
     return answer;
   }
 
@@ -46,6 +49,7 @@ export function createEmailRoute(clearedEditor, flags) {
   /** The route's answer, or undefined for a path that is not this one. */
   async function handle(path, body) {
     if (path === "/gateway/email/send") return await send(body);
+    if (path === "/gateway/email/draft") return await send(body, true);
     if (path === "/gateway/email/search" || path === "/gateway/email/read") return await mail(path, body);
     return undefined;
   }
