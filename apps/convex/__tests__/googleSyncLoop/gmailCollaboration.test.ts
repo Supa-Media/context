@@ -3,6 +3,9 @@ import { FAKE_STORAGE } from "../fixtures.helpers";
 import { readDocument } from "@context/collaboration";
 import { S3Store } from "../../../mcp/src/store/s3.js";
 import { withLogicalDelete } from "../../../mcp/src/store/logicalDelete.js";
+import { isKeyedWorkspace } from "../../../mcp/src/store/idLayout.js";
+import { gmailDayStore } from "../../functions/lib/filesFns/gmailDayStore";
+import type { FileStore } from "../../functions/lib/fileOps";
 import { enableMailSync, googleAndBucket, endToEnd, runPass } from "./fixtures.helpers";
 
 /**
@@ -16,6 +19,8 @@ import { enableMailSync, googleAndBucket, endToEnd, runPass } from "./fixtures.h
  *   the day read back held only "Quarterly numbers"
  *   passing no `reconcileDates` from the forward pass -> "a day that fell
  *   behind" failed: nothing rebuilt the day without new history
+ *   returning a plain object of get/put/list/delete from `gmailDayStore` ->
+ *   "keeps the store's seams" failed: a keyed workspace read as unkeyed
  */
 describe("a Gmail day with a collaboration document", () => {
   beforeEach(() => enableMailSync());
@@ -74,5 +79,24 @@ describe("a Gmail day with a collaboration document", () => {
     );
     await runPass(t, workspaceId, connectionId);
     expect((await readDocument(store, path)).text).toContain("Board follow-up");
+  });
+
+  test("the day store keeps the store's seams", async () => {
+    // Contact lookup asks the store it is handed whether the workspace is keyed; the
+    // day store must answer as the store does, attached (non-enumerable) seams included.
+    const base = {
+      get: async () => null,
+      put: async () => ({ etag: "e" }),
+      list: async () => ({ objects: [], truncated: false }),
+      delete: async () => undefined,
+      capabilities: { conditionalWrite: true, conditionalCreate: true },
+      keyedWorkspace: async () => true,
+    } as unknown as FileStore;
+    const attached = () => "attached";
+    Object.defineProperty(base, "treeListing", { value: attached, enumerable: false });
+
+    const days = gmailDayStore(base, "0-inbox/email/person");
+    expect(await isKeyedWorkspace(days)).toBe(true);
+    expect((days as unknown as { treeListing: unknown }).treeListing).toBe(attached);
   });
 });

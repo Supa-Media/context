@@ -75,15 +75,11 @@ export function gmailDayStore(store: FileStore, folder: string | undefined): Fil
     }
   };
 
-  // Spelled out rather than a Proxy: the HTTP route check must resolve every member statically.
-  return {
-    get,
-    put,
-    list: (options) => store.list(options),
-    delete: (key, options) => store.delete(key, options),
-    ...(store.head === undefined ? {} : { head: (key: string) => store.head!(key) }),
-    capabilities: store.capabilities,
-  };
+  // Inherits the rest, so the store's seams (`keyedWorkspace`, attached tree reads) still answer.
+  const days = Object.create(store) as FileStore;
+  days.get = get;
+  days.put = put;
+  return days;
 }
 
 /**
