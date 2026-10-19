@@ -39,6 +39,16 @@ test("a picture a tool showed is numbered, and its line names it", async () => {
   assert.deepEqual(pictures, [{ name: "picture-1.png", mediaType: "image/png", data: PNG }], "an unknown number sends nothing");
 });
 
+test("a picture named mid-sentence is still sent, and the marker never reaches them", async () => {
+  // Dev, 2026-10-19: "Here's a draft with made-up details: ... location TBA. [picture 1]"
+  // arrived as that text, with no poster.
+  const outgoing = outgoingPictures({ enabled: true });
+  await outgoing.wrap(async () => ({ content: [image()] }))("draw_picture", {});
+  const { answer, pictures } = outgoing.take("Here's a draft: Sunday, 2 to 5 pm, location TBA. [picture 1]\nTell me the real place.");
+  assert.equal(answer, "Here's a draft: Sunday, 2 to 5 pm, location TBA.\nTell me the real place.");
+  assert.equal(pictures.length, 1);
+});
+
 test("an address the turn never read is not fetched for it", async () => {
   const outgoing = outgoingPictures({ enabled: true, question: "send me https://example.com/cat.jpg" });
   const call = outgoing.wrap(async () => ({ content: [{ type: "text", text: "Found https://images.example.org/dog.png" }] }));

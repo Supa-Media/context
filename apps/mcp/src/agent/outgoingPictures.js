@@ -38,7 +38,10 @@ const MAX_SEEN_TEXT = 400_000;
 /** Linq's own ceiling for an address it fetches. */
 const MAX_URL_LENGTH = 2000;
 
-const PICTURE_LINE = /^[ \t]*\[picture[ \t]+([^\]\s]+)[ \t]*\][ \t]*$/gim;
+// Anywhere in the answer, not only on a line of its own: a model that ends a
+// sentence with "[picture 1]" still means the picture, and the person must
+// never see the marker (Dev, 2026-10-19).
+const PICTURE_LINE = /[ \t]*\[picture[ \t]+([^\]\s]+)[ \t]*\]/gi;
 const SENDABLE_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif"]);
 
 /** What the model is told on a texted turn, so it never says it can't. */
