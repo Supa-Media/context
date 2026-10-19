@@ -82,8 +82,9 @@ export function describeFailure(error: unknown): {
   detail: string | null;
   verb: string | null;
   status: number | null;
+  at: string[];
 } {
-  const shaped = (error ?? null) as { name?: unknown; code?: unknown; detail?: unknown; message?: unknown } | null;
+  const shaped = (error ?? null) as { name?: unknown; code?: unknown; detail?: unknown; message?: unknown; stack?: unknown } | null;
   const word = (value: unknown, pattern: RegExp): string | null =>
     typeof value === "string" && pattern.test(value) ? value : null;
   const message = typeof shaped?.message === "string" ? shaped.message : "";
@@ -96,5 +97,21 @@ export function describeFailure(error: unknown): {
     detail: encryption ? word(shaped?.detail, /^[a-z ]{1,60}$/) : null,
     verb: s3?.[1] ?? null,
     status: s3 === null ? null : Number(s3[2]),
+    at: framesOf(shaped),
   };
+}
+
+/**
+ * Where it was thrown: the top stack frames, each a function name and a
+ * source location in this repository's own code. A plain `Error` from our
+ * code (kind `other`, @shyoh again) says nothing else. The stack's first line
+ * repeats the message, so only lines shaped exactly like a frame are kept.
+ */
+function framesOf(shaped: { stack?: unknown } | null): string[] {
+  const stack = typeof shaped?.stack === "string" ? shaped.stack : "";
+  return stack
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => /^at (?:[\w$.<>\[\] ]{1,80} \()?[\w./@:-]{1,200}:\d+:\d+\)?$/.test(line))
+    .slice(0, 6);
 }
