@@ -47,7 +47,10 @@ const MAX_SEEN_TEXT = 400_000;
 /** Linq's own ceiling for an address it fetches. */
 const MAX_URL_LENGTH = 2000;
 
-const PICTURE_LINE = /^[ \t]*\[picture[ \t]+([^\]\s]+)[ \t]*\][ \t]*$/gim;
+// Anywhere in the answer, not only on a line of its own: a model that ends a
+// sentence with "[picture 1]" still means the picture, and the person must
+// never see the marker (Dev, 2026-10-19).
+const PICTURE_LINE = /[ \t]*\[picture[ \t]+([^\]\s]+)[ \t]*\]/gi;
 /** Any https address, wherever it sits in a block of text or in a tool's arguments. */
 const ADDRESS = /https:\/\/[^\s"'()<>\\]+/gi;
 /** The most addresses one call's arguments are checked against: an argument may be a whole page. */
@@ -58,8 +61,9 @@ const SENDABLE_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/w
 export const PICTURES_LINE =
   "You can text them pictures: write [picture N] on its own line for picture N a tool result showed you " +
   "(open a note's picture with fetch and image first), or [picture <https address>] for a web image whose address " +
-  "you read in a tool result. It goes as a photo after your words. To make one, send draw_picture draws a graphic " +
-  "(a poster, an invite, a chart) from a page you write, and send make_picture makes or edits a photo (them in an outfit, a scene).";
+  "you read in a tool result. It goes as a photo after your words. To make one, send draw_picture (a poster, an invite, " +
+  "a chart, from a page you write) or make_picture (a photo: them in an outfit, a scene). Asked for a picture, make one " +
+  "now, guessing what they left out, then offer changes; don't ask first.";
 
 /**
  * One tool result's words, with every address this same call carried in cut

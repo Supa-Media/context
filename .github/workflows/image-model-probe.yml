@@ -1,0 +1,36 @@
+# Asks Tex's image model (make_picture) for one made-up picture through the
+# production AI Gateway and prints the status and the provider's error, which
+# the Worker keeps from the model by design. See scripts/image-model-probe.mjs.
+#
+# Manual only: it reads production's gateway token and spends one picture
+# (about 3 cents).
+name: Image Model Probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "Gemini image model id"
+        required: false
+        default: "gemini-3.1-flash-lite-image"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Ask for one picture
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 5
+    env:
+      AI_GATEWAY_ACCOUNT_ID: ${{ secrets.AI_GATEWAY_ACCOUNT_ID }}
+      AI_GATEWAY_ID: ${{ secrets.AI_GATEWAY_ID }}
+      AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
+      IMAGE_MODEL: ${{ inputs.model }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: node scripts/image-model-probe.mjs
