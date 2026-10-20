@@ -27,6 +27,8 @@ import { SITES_DOMAIN } from "@context/shared";
  */
 const REFUSED_SUFFIXES = [
   "context.lc",
+  // Tex's own domain, which serves the same app (`infra/router/src/texHost.ts`).
+  "tex.lc",
   // Every name here is a workspace's own address (`sitesDomain.ts`).
   SITES_DOMAIN,
   "localhost",

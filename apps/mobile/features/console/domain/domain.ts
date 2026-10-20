@@ -328,7 +328,7 @@ export function cleanDomainInput(raw: string): string {
 
 export function domainShapeProblem(cleaned: string): string | null {
   if (cleaned === "") return null;
-  if (cleaned === "context.lc" || cleaned.endsWith(".context.lc")) {
+  if (["context.lc", "tex.lc"].some((ours) => cleaned === ours || cleaned.endsWith(`.${ours}`))) {
     return "That address is ours. Use a domain you own.";
   }
   const labels = cleaned.split(".");

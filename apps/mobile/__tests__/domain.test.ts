@@ -50,6 +50,9 @@ describe("what somebody types", () => {
 
   test("our own domain and nonsense get a hint under the field", () => {
     expect(domainShapeProblem("staging.context.lc")).toContain("ours");
+    expect(domainShapeProblem("tex.lc")).toContain("ours");
+    expect(domainShapeProblem("www.tex.lc")).toContain("ours");
+    expect(domainShapeProblem("mytex.lc")).toBeNull();
     expect(domainShapeProblem("acme")).toContain("doesn't look like a domain");
     expect(domainShapeProblem("docs.acme.com")).toBeNull();
     expect(domainShapeProblem("")).toBeNull();
