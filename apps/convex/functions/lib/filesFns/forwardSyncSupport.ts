@@ -107,6 +107,13 @@ export type ForwardSyncJob =
 
 export type ForwardSyncResult = Extract<OperationResult, { kind: "googleForwardSync" }>;
 
+const GMAIL_RATE_LIMIT_REASONS = new Set([
+  "dailyLimitExceeded",
+  "rateLimitExceeded",
+  "userRateLimitExceeded",
+  "quotaExceeded",
+]);
+
 /**
  * One Google API failure, by what it means for the person.
  *
@@ -135,6 +142,18 @@ function googleApiFailure(
   }
   if (error.status === 403) return { code: "GOOGLE_ACCESS_REFUSED", message: messages.refused };
   return { code: "GOOGLE_UNAVAILABLE", message: messages.unavailable };
+}
+
+/**
+ * Did Google refuse the access token itself (a 401 from any product)? The
+ * pass then drops the cached token so the next mint refreshes instead of
+ * reusing the refused one until it expires (`forwardSyncFailed`).
+ */
+export function accessTokenRefused(error: unknown): boolean {
+  return (
+    (error instanceof GmailApiError || error instanceof CalendarApiError || error instanceof ChatApiError) &&
+    (error as { status?: number }).status === 401
+  );
 }
 
 export type ForwardSyncProduct = "gmail" | "calendar" | "chat";
@@ -255,18 +274,36 @@ export function classifyForwardSyncError(error: unknown): { code: string; messag
     });
   }
   if (error instanceof GmailApiError) {
-    const status = error.status;
-    if (status !== 401 && status !== 403 && status !== 429 && status < 500) {
+    const reason = typeof error.reason === "string" ? error.reason : undefined;
+    const googleStatus = typeof error.googleStatus === "string" ? error.googleStatus : undefined;
+    if (
+      error.status === 429 ||
+      (error.status === 403 &&
+        (GMAIL_RATE_LIMIT_REASONS.has(reason ?? "") || googleStatus === "RESOURCE_EXHAUSTED"))
+    ) {
       return {
-        code: `GMAIL_HTTP_${status}`,
-        message: `Gmail answered with ${status}. The next scheduled pass will try again.`,
+        code: "GOOGLE_RATE_LIMITED",
+        message: "Google rate-limited this mailbox. The next scheduled pass will try again.",
+        // Which limit, so a daily quota is not retried in minutes (`productBackoffMs`).
+        ...(reason === undefined ? {} : { reason }),
       };
     }
-    return googleApiFailure(error, {
-      refused: "Google refused access to this mailbox. Reconnect the account and approve Gmail access.",
-      limited: "Google rate-limited this mailbox. The next scheduled pass will try again.",
-      unavailable: "Google did not answer reliably. The next scheduled pass will try again.",
-    });
+    if (error.status === 401 || error.status === 403) {
+      return {
+        code: "GOOGLE_ACCESS_REFUSED",
+        message: "Google refused access to this mailbox. Reconnect the account and approve Gmail access.",
+      };
+    }
+    if (error.status >= 500) {
+      return {
+        code: "GOOGLE_UNAVAILABLE",
+        message: "Google did not answer reliably. The next scheduled pass will try again.",
+      };
+    }
+    return {
+      code: `GMAIL_HTTP_${error.status}`,
+      message: `Gmail answered with ${error.status}. The next scheduled pass will try again.`,
+    };
   }
   if (
     error instanceof Error &&

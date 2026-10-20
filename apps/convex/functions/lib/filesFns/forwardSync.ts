@@ -63,6 +63,7 @@ import {
   CalendarTimezoneMismatchError,
   classifyForwardSyncError,
   ForwardSyncStorageError,
+  accessTokenRefused,
   logForwardSyncFailure,
   type ForwardSyncJob,
   type ForwardSyncProduct,
@@ -670,7 +671,7 @@ async function forwardSyncFailed(
   logForwardSyncFailure(job, code, error);
   // Google refused the access token itself: forget it, so the next pass
   // mints a fresh one rather than reusing the refused one until it expires.
-  if (code === "GOOGLE_TOKEN_REJECTED") {
+  if (accessTokenRefused(error)) {
     await ctx.runMutation(internal.functions.googleConnect.dropCachedAccessToken, { connectionId: job.connectionId });
   }
   return await failForwardSync(ctx, job.connectionId, code, message, job.product, reason);

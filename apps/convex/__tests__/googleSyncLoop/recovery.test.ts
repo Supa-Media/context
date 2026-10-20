@@ -67,7 +67,7 @@ describe("a refresh Google could not answer is not a reconnect", () => {
     expired by itself. Sabotage: drop the `dropCachedAccessToken` call from
     `forwardSyncFailed`, and the row still holds the refused token.
   */
-  test("a 401 drops the cached access token and is not an account failure", async () => {
+  test("a Gmail 401 drops the cached access token", async () => {
     const { t, workspaceId, connectionId, backend } = await endToEnd({ historyId: "1000" });
     const google = googleAndBucket({ backend });
     vi.stubGlobal("fetch", async (input: URL | RequestInfo, init: RequestInit = {}) => {
@@ -76,12 +76,32 @@ describe("a refresh Google could not answer is not a reconnect", () => {
       return await google.fetchImpl(input, init);
     });
 
+    expect(await runPass(t, workspaceId, connectionId)).toMatchObject({ status: "failed" });
+    const row = await readConnection(t, connectionId);
+    expect(row.encryptedAccessToken).toBeUndefined();
+    expect(row.accessTokenExpiresAt).toBeUndefined();
+  });
+
+  test("a Calendar 401 drops the cached token and is not an account failure", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-12T16:00:00.000Z"));
+    const { t, workspaceId, connectionId, backend } = await endToEnd();
+    await patchConnection(t, connectionId, {
+      products: ["calendar"],
+      gmail: undefined,
+      calendar: { scopes: ["https://www.googleapis.com/auth/calendar.events.readonly"] },
+    });
+    vi.stubGlobal("fetch", async (input: URL | RequestInfo, init: RequestInit = {}) => {
+      const url = new URL(typeof input === "string" ? input : String(input));
+      if (url.hostname === "www.googleapis.com") return json({ error: { code: 401, message: "expired" } }, 401);
+      return await backend.fetchImpl(input, init);
+    });
+
     const result = await runPass(t, workspaceId, connectionId);
 
     expect(result).toMatchObject({ status: "failed", errorCode: "GOOGLE_TOKEN_REJECTED" });
     const row = await readConnection(t, connectionId);
     expect(row.encryptedAccessToken).toBeUndefined();
-    expect(row.accessTokenExpiresAt).toBeUndefined();
     expect(row.health).toBe("active");
     expect(row.lastSyncFailure).not.toContain("Reconnect");
   });
@@ -139,7 +159,6 @@ describe("Calendar and Chat rate limits stay their own product's", () => {
   test.each([
     ["Calendar", new CalendarApiError(401, "primary")],
     ["Chat", new ChatApiError("expired", "UNAVAILABLE", 401)],
-    ["Gmail", new GmailApiError(401, "expired")],
   ])("a %s 401 is a refused token the next pass replaces", (_, error) => {
     const { code, message } = classifyForwardSyncError(error);
     expect(code).toBe("GOOGLE_TOKEN_REJECTED");
