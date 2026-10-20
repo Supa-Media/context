@@ -26,6 +26,7 @@
 import { parseInbound, type Inbound } from "./inbound";
 import { accept, drain, react, type InboxDeps } from "./inbox";
 import { checkReady } from "./ready";
+import { checkGmail } from "./gmailWatch";
 import type { Message } from "./reply";
 import { runDueRoutines, textRoutine, type PhoneTexted } from "./routines";
 import { runDueDreams } from "./dreams";
@@ -342,6 +343,7 @@ export class SenderInbox implements DurableObject {
   async alarm(): Promise<void> {
     await drain(this.state.storage, this.deps());
     await checkReady(this.state.storage, this.deps());
+    await checkGmail(this.state.storage, this.deps());
   }
 
   private deps(): InboxDeps {

@@ -145,6 +145,22 @@ export async function agentTextsReadyHandler(
   return json({ status: "ready", url: `${origin}${SIGN_IN_LINK_ROUTE}/${token}` });
 }
 
+/**
+ * `POST /agent-texts/gmail` — `{ phone }` → `{ status: "waiting" | "gone" }`
+ * or `{ status: "connected", address, main }`: whether the Gmail Tex asked
+ * for in the "notes are ready" text has connected, so the Worker can say so
+ * itself (Dev2, 2026-10-20). The address is the person's own, texted only to
+ * their own phone.
+ */
+export async function agentTextsGmailHandler(
+  ctx: ActionCtx,
+  body: Record<string, unknown>,
+): Promise<Response> {
+  const phone = stringField(body, "phone");
+  if (phone === null) return badRequest();
+  return json(await ctx.runQuery(internal.functions.texHome.gmailFor, { phone }));
+}
+
 /** `POST /agent-texts/unlink` — `{ phone }` → `{ status: "unlinked" | "not_linked" }`. */
 export async function agentTextsUnlinkHandler(
   ctx: ActionCtx,

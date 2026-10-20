@@ -103,4 +103,71 @@ export const DELIBERATELY_UNREACHABLE: readonly RouteReachability[] = [
       "a link signs in or joins the waitlist at `/login`, which is reachable.",
     marker: "the link in a friend's invite email",
   },
+  {
+    route: "/signin/[token]",
+    file: "app/signin/[token].tsx",
+    reachable: false,
+    reason:
+      "The sign-in link Tex texts once the notes of somebody set up by text " +
+      "are ready. The token exists in that one text message and nowhere in " +
+      "the app, and it signs in only the phone it was texted to.",
+    marker: "the link Tex texts once a texted setup's notes are ready",
+  },
+  {
+    route: "/texts/[token]",
+    file: "app/texts/[token].tsx",
+    reachable: false,
+    reason:
+      "The link the texting assistant sends a phone nobody has linked. The " +
+      "token exists in that one text message and nowhere in the app, and the " +
+      "page only means something to the person holding that phone.",
+    marker: "the link the texting assistant sends a phone nobody has",
+  },
+  {
+    route: "/text",
+    file: "app/text.tsx",
+    reachable: false,
+    reason:
+      "Where somebody signed in on tex.lc lands: Tex's number to text, and the console under it. " +
+      "Reached from tex.lc's sign-up and sign-in, never from the app.",
+    marker: "tex.lc's page for somebody signed in",
+  },
+  {
+    route: "/add-gmail",
+    file: "app/(app)/add-gmail.tsx",
+    reachable: false,
+    reason:
+      "The link Tex texts for another Gmail. It exists in that text message; in the app the same " +
+      "connect is Settings › Connected apps.",
+    marker: "the link Tex texts for another Gmail",
+  },
+  {
+    route: "/waitlist",
+    file: "app/waitlist.tsx",
+    reachable: false,
+    reason:
+      "Where somebody who joined Tex's waitlist on tex.lc stands, read with the receipt their browser " +
+      "was handed at joining: reached from tex.lc's landing and sign-up, never from the app.",
+    marker: "where somebody who joined the waitlist stands",
+  },
+  {
+    route: "/vault/[token]",
+    file: "app/vault/[token].tsx",
+    reachable: false,
+    reason:
+      "The private link Tex texts when it needs a login saved or shared. The " +
+      "token exists in that one text message, and the page opens only for the " +
+      "signed-in person who asked for it.",
+    marker: "the private link Tex texts when it needs a login",
+  },
+  {
+    route: "/tex/[handle]",
+    file: "app/tex/[handle].tsx",
+    reachable: false,
+    reason:
+      "The person's own view of the browser Tex drives for them. Tex texts " +
+      "the address when they must sign in somewhere, and the page opens only " +
+      "for the signed-in owner of that handle.",
+    marker: "the page Tex texts when they have to sign in somewhere",
+  },
 ];

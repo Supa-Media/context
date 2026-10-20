@@ -178,18 +178,23 @@ export async function toolConnectGoogle(store, args) {
   const answer = await calls.connectGoogle(args.kind);
   if (answer === null || answer.ok !== true || typeof answer.url !== "string") return refused(answer);
   const what = args.kind === "gmail" ? "Gmail" : "Google Calendar";
+  // Gmail opens its own page with one Connect Gmail button (2026-10-20);
+  // Calendar opens Connected apps.
+  const press =
+    args.kind === "gmail"
+      ? "Send it to them: they open it, tap Connect Gmail, and pick the Gmail in Google's sign-in. "
+      : "Send it to them: they open it, press Connect Google, and sign in to Google (it connects Google Calendar with the rest). " +
+        // An account already listed has no Connect Google button: it has a
+        // Reconnect beside it, or Reconnect with Google in its ••• menu (2026-10-20).
+        "To reconnect a Google account that is already listed there, they press Reconnect beside it, or the ••• next to it " +
+        "and then Reconnect with Google, not Connect Google. ";
   return toolText(
     `Link to connect ${what}: ${answer.url}\n` +
-      `Send it to them: they open it, press Connect Google, and sign in to Google (it connects ${what} with the rest). ` +
-      // An account already listed has no Connect Google button: it has a
-      // Reconnect beside it, or Reconnect with Google in its ••• menu (2026-10-20).
-      "To reconnect a Google account that is already listed there, they press Reconnect beside it, or the ••• next to it " +
-      "and then Reconnect with Google, not Connect Google. " +
+      press +
       // Someone set up by text has never signed in to the app: the page asks for
-      // their phone (a texted code) and, for an account a phone made, their email once.
+      // their phone (a texted code) if this browser isn't signed in.
       "If they aren't signed in to Context in that browser, it first asks for their phone number and texts them a " +
-      "code, and the first time it asks for their email too (it emails a code). Say so in one line, so it doesn't " +
-      "surprise them. Only they can finish that sign-in; it takes them a couple of minutes. " +
+      "code. Say so in one line, so it doesn't surprise them. " +
       // Google has not verified the app yet (Dev2, 2026-10-18), so its consent
       // screen warns before it asks for access.
       "Google then warns that it hasn't verified Context: tell them that's expected, and to tap Advanced, then " +

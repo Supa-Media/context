@@ -98,6 +98,7 @@ import {
   refuseAttempt,
   requireMailConnectEnabled,
 } from "./lib/googleConnect/config";
+import { adoptVerifiedAddress } from "./lib/googleConnect/mainEmail";
 import {
   defaultGoogleDestinationFolder,
   normalizeDestinationFolder,
@@ -494,6 +495,7 @@ export const exchangeAndBind = internalAction({
       return null;
     }
 
+    await adoptVerifiedAddress(ctx, args.boundBy, tokens);
     const taken: string[] = await ctx.runQuery(internal.functions.googleConnect.listMailboxSlugs, {
       workspaceId: args.workspaceId,
     });
@@ -554,6 +556,7 @@ export const exchangeAndBindGoogle = internalAction({
     const encryptedAccessToken = await encryptSecret(tokens.accessToken, keyset, context);
 
     if (args.products.includes("gmail")) {
+      await adoptVerifiedAddress(ctx, args.boundBy, tokens);
       const taken: string[] = await ctx.runQuery(internal.functions.googleConnect.listMailboxSlugs, {
         workspaceId: args.workspaceId,
       });

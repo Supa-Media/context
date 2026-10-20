@@ -349,15 +349,23 @@ describe("/gateway/workspaces/layout with a job (manage folder_job)", () => {
 });
 
 describe("/gateway/workspaces/connect-google", () => {
-  test("the owner of a personal workspace gets the app's Connected apps page, never Google's URL", async () => {
+  test("the owner of a personal workspace gets the app's own page, never Google's URL", async () => {
     vi.stubEnv("MAIL_CONNECT_ENABLED", "true");
+    vi.stubEnv("CALENDAR_CONNECT_ENABLED", "true");
     const w = await world();
-    const body = await post(w.t, "/gateway/workspaces/connect-google", {
+    const gmail = await post(w.t, "/gateway/workspaces/connect-google", {
       accessToken: OWNER,
       expectedWorkspaceId: w.workspaceId,
       kind: "gmail",
     });
-    expect(body.google).toEqual({
+    // Gmail has its one-button page (Dev2, 2026-10-20); Calendar keeps Connected apps.
+    expect(gmail.google).toEqual({ ok: true, url: "https://app.context.invalid/add-gmail" });
+    const calendar = await post(w.t, "/gateway/workspaces/connect-google", {
+      accessToken: OWNER,
+      expectedWorkspaceId: w.workspaceId,
+      kind: "calendar",
+    });
+    expect(calendar.google).toEqual({
       ok: true,
       url: "https://app.context.invalid/console/@atlas?settings=integrations",
     });

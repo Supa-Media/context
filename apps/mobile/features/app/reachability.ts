@@ -759,55 +759,6 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     marker: "the link an owner pasted into a chat",
   },
   {
-    route: "/signin/[token]",
-    file: "app/signin/[token].tsx",
-    reachable: false,
-    reason:
-      "The sign-in link Tex texts once the notes of somebody set up by text " +
-      "are ready. The token exists in that one text message and nowhere in " +
-      "the app, and it signs in only the phone it was texted to.",
-    marker: "the link Tex texts once a texted setup's notes are ready",
-  },
-  {
-    route: "/texts/[token]",
-    file: "app/texts/[token].tsx",
-    reachable: false,
-    reason:
-      "The link the texting assistant sends a phone nobody has linked. The " +
-      "token exists in that one text message and nowhere in the app, and the " +
-      "page only means something to the person holding that phone.",
-    marker: "the link the texting assistant sends a phone nobody has",
-  },
-  {
-    route: "/waitlist",
-    file: "app/waitlist.tsx",
-    reachable: false,
-    reason:
-      "Where somebody who joined Tex's waitlist on tex.lc stands, read with the receipt their browser " +
-      "was handed at joining: reached from tex.lc's landing and sign-up, never from the app.",
-    marker: "where somebody who joined the waitlist stands",
-  },
-  {
-    route: "/vault/[token]",
-    file: "app/vault/[token].tsx",
-    reachable: false,
-    reason:
-      "The private link Tex texts when it needs a login saved or shared. The " +
-      "token exists in that one text message, and the page opens only for the " +
-      "signed-in person who asked for it.",
-    marker: "the private link Tex texts when it needs a login",
-  },
-  {
-    route: "/tex/[handle]",
-    file: "app/tex/[handle].tsx",
-    reachable: false,
-    reason:
-      "The person's own view of the browser Tex drives for them. Tex texts " +
-      "the address when they must sign in somewhere, and the page opens only " +
-      "for the signed-in owner of that handle.",
-    marker: "the page Tex texts when they have to sign in somewhere",
-  },
-  {
     route: "/[handle]",
     file: "app/[handle]/index.tsx",
     reachable: false,

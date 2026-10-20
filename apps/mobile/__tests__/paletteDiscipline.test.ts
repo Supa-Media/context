@@ -30,6 +30,10 @@ const EXEMPT = new Map<string, string>([
   ["#FEBC2E", "macOS window minimise pip"],
   ["#28C840", "macOS window zoom pip"],
   ["#000", "a shadow's ink, not a hue. See the note below about warming it."],
+  ["#EA4335", "Google's G, red: Google's brand mark on Connect Gmail, which its guidelines say not to recolour"],
+  ["#4285F4", "Google's G, blue"],
+  ["#FBBC05", "Google's G, yellow"],
+  ["#34A853", "Google's G, green"],
   ["#FFFFFF", "DrawingView's paper: white in both themes on purpose — what is inside the frame is the customer's drawing, not our chrome"],
 ]);
 

@@ -13,7 +13,7 @@
 import type { InboxStorage } from "./inbox";
 
 export const TOLD_KEY = "told";
-export type Told = "setup" | "ready" | "ready_late";
+export type Told = "setup" | "ready" | "ready_late" | "gmail_main" | "gmail";
 const MOST = 5;
 
 /** Owe the next turn this text. */

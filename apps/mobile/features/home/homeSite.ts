@@ -281,6 +281,7 @@ export function noteLinkHref(path: string): string {
  * the preview card.
  */
 export const APP_SEGMENTS: ReadonlySet<string> = new Set([
+  "add-gmail",
   "admin",
   "authorize",
   "connect",
@@ -300,6 +301,7 @@ export const APP_SEGMENTS: ReadonlySet<string> = new Set([
   "support",
   "terms",
   "tex",
+  "text",
   "texts",
   "vault",
   "waitlist",

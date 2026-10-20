@@ -256,10 +256,16 @@ export const TOLD = {
     "They texted Context's number and were set up by text: they picked their handle, and their account and personal workspace were made. " +
     "I told them their notes take a couple of minutes to get ready and that I'd text when they were.",
   ready:
-    "Your notes are ready. I asked them to connect Google so I can get to know them from their email, with a link that signs them in " +
-    "(it asks for an email to protect their account, then they tap Connect Google; Google warns it hasn't verified Context, so tap Advanced, then Go to Context), " +
-    "and to text me when it's done. That is step 1 of the onboarding skill; their next text is most likely about it.",
+    "Your notes are ready. I asked them to connect their personal Gmail, the one they check most, with a link that signs them in " +
+    "and opens Connect Gmail; that Gmail becomes their main email on Context. When it connects, Context texts them by itself. " +
+    "That is step 1 of the onboarding skill; their next text is most likely about it.",
   ready_late: "Their notes were taking longer than usual to set up, so I told them to text me in a few minutes.",
+  gmail_main:
+    "Their personal Gmail connected and is now their main email on Context. I told them so, said I'm reading their mail, " +
+    "and asked whether they have any other Gmails, like for work or a side project. Their next text most likely answers that.",
+  gmail:
+    "Their Gmail connected (not as their main email: they already had one, or another Context account holds that address). I said I'm reading " +
+    "their mail, and asked whether they have any other Gmails, like for work or a side project. Their next text most likely answers that.",
 };
 const MAX_TOLD = 5;
 

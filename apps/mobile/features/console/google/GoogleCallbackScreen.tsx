@@ -11,6 +11,8 @@ import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { CONSOLE_ROUTE } from "../../auth/redirect";
 import { completeGoogleCallback } from "./completeGoogleCallback";
 import { googleE2ECompletionSecret, parseGoogleCallback, takeGoogleCompletionSecret } from "./google";
+import { GmailDone } from "../../auth/gmailFirst/GmailDone";
+import { forgetGmailFirst, readGmailFirst } from "../../auth/gmailFirst/gmailFirst";
 
 export function GoogleCallbackScreen() {
   const styles = useThemedStyles(makeStyles);
@@ -32,6 +34,11 @@ export function GoogleCallbackScreen() {
   const [status, setStatus] = useState<"working" | "done" | "failed">(
     callback.kind === "ready" ? "working" : "failed",
   );
+  // Sent by a Gmail-first page: answered in its words once done (`GmailDone`).
+  const [gmailFirst] = useState(readGmailFirst);
+  useEffect(() => {
+    if (status !== "working") forgetGmailFirst();
+  }, [status]);
 
   useEffect(() => {
     if (started.current || callback.kind !== "ready") return;
@@ -68,6 +75,8 @@ export function GoogleCallbackScreen() {
         : status === "working"
           ? "The connection is finishing on our side."
           : "This Google connection expired, failed, or was opened in a different browser. Start it again from settings.";
+
+  if (status === "done" && gmailFirst !== null) return <GmailDone mode={gmailFirst} />;
 
   return (
     <View style={styles.ground}>

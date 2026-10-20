@@ -34,6 +34,7 @@ export const FEEDBACK_LIMITS = {
  * which walks the route tree and fails on a static route missing from here.
  */
 export const ROUTE_SEGMENTS: ReadonlySet<string> = new Set([
+  "add-gmail",
   "admin",
   "authorize",
   "cli",
@@ -62,6 +63,7 @@ export const ROUTE_SEGMENTS: ReadonlySet<string> = new Set([
   "support",
   "terms",
   "tex",
+  "text",
   "texts",
   "vault",
   "waitlist",

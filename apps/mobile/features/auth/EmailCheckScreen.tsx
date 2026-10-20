@@ -16,14 +16,16 @@ import { CodeBoxes, OTP_LENGTH } from "./CodeBoxes";
 
 export const EMAIL_CHECK_TITLE = "What's your email?";
 export const EMAIL_CHECK_WHY =
-  "This email protects your account. Big changes and getting back in go through it, so a stolen phone number can't take your account. You'll keep signing in with your phone.";
+  "It becomes your main email on Context: invitations go to it, and it gets you back in if you lose your phone. We'll send it a code to check it's yours.";
 /** The backup email is optional and lives in Settings › Account (Dev2, 2026-10-12). */
 export const EMAIL_CHECK_BACKUP = "You can add a backup email any time in Settings › Account.";
 
 /**
  * Asked once of an account a phone made (a number staff let in from the
  * waitlist, Dev2 2026-10-09), before anything else it sees: the address mail
- * and invitations go to, confirmed with a mailed code. Drawn by
+ * and invitations go to, confirmed with a mailed code. Since 2026-10-20 the
+ * gate leads with Gmail (`gmailFirst/EmailGate.tsx`) and this is "Type an
+ * email instead", with `onUseGmail` going back; drawn by
  * `app/(app)/_layout.tsx` in place of every route, like the phone check.
  *
  * An address that already has its own Context account means the person was
@@ -31,7 +33,7 @@ export const EMAIL_CHECK_BACKUP = "You can add a backup email any time in Settin
  * and all (`functions/signInEmails.ts`, "moved"), and they sign in again with
  * the phone to land there.
  */
-export function EmailCheckScreen() {
+export function EmailCheckScreen({ onUseGmail }: { onUseGmail?: () => void } = {}) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const router = useRouter();
@@ -121,9 +123,11 @@ export function EmailCheckScreen() {
               <Text variant="rowSub" style={styles.body}>
                 {EMAIL_CHECK_WHY}
               </Text>
-              <Text variant="foot" style={styles.backup}>
-                {EMAIL_CHECK_BACKUP}
-              </Text>
+              {onUseGmail ? null : (
+                <Text variant="foot" style={styles.backup}>
+                  {EMAIL_CHECK_BACKUP}
+                </Text>
+              )}
               <View style={styles.field}>
                 <TextField
                   label="Email"
@@ -179,6 +183,11 @@ export function EmailCheckScreen() {
                 trailing={spinner}
                 testID="email-check-send"
               />
+              {onUseGmail ? (
+                <Text variant="foot" role="link" style={styles.link} onPress={onUseGmail} testID="email-check-use-gmail">
+                  Connect Gmail instead
+                </Text>
+              ) : null}
             </View>
           ) : (
             <>

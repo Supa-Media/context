@@ -30,8 +30,8 @@ describe("the gate", () => {
     expect(gate).toBeGreaterThan(source.indexOf('decision.action === "redirect"'));
     expect(gate).toBeLessThan(source.indexOf("needsOnboarding({"));
     expect(source).toContain("<PhoneCheckScreen");
-    // An account a phone made is asked for its email once, right after.
-    expect(source.indexOf("<EmailCheckScreen")).toBeGreaterThan(gate);
+    // An account a phone made is asked for its email once, right after: Gmail first (2026-10-20).
+    expect(source.indexOf("<EmailGate")).toBeGreaterThan(gate);
     expect(source).toContain("needsEmail === true");
   });
 });

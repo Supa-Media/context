@@ -455,9 +455,10 @@ export function SettingsPane({
         Apps and mail that add to your notes.
       </PanelHead>
 
-      <ConnectedAppsCard data={data} onConnectAgent={onConnectAgent} />
-
+      {/* Mail and calendar first, above the AI connections (Dev2, 2026-10-20). */}
       <SourcesPanel data={data} />
+
+      <ConnectedAppsCard data={data} onConnectAgent={onConnectAgent} />
 
       <MoreCard onSelect={onSelect} />
       </>

@@ -150,18 +150,13 @@ jest.mock("@convex-dev/auth/react", () => ({
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const { LoginScreen } = require("../features/auth/LoginScreen") as typeof import("../features/auth/LoginScreen");
-const { ConsentScreen } =
-  require("../features/consent/ConsentScreen") as typeof import("../features/consent/ConsentScreen");
-const { AdminChrome } =
-  require("../features/admin/AdminPane") as typeof import("../features/admin/AdminPane");
-const { WelcomeChrome } =
-  require("../features/onboarding/WelcomeScreen") as typeof import("../features/onboarding/WelcomeScreen");
-const { CreateWorkspaceChrome } =
-  require("../features/workspace/CreateWorkspaceScreen") as typeof import("../features/workspace/CreateWorkspaceScreen");
-const { InviteScreen } =
-  require("../features/invite/InviteScreen") as typeof import("../features/invite/InviteScreen");
-const { InviteListScreen } =
-  require("../features/invite/InviteListScreen") as typeof import("../features/invite/InviteListScreen");
+const { ConsentScreen } = require("../features/consent/ConsentScreen") as typeof import("../features/consent/ConsentScreen");
+const { AdminChrome } = require("../features/admin/AdminPane") as typeof import("../features/admin/AdminPane");
+const { WelcomeChrome } = require("../features/onboarding/WelcomeScreen") as typeof import("../features/onboarding/WelcomeScreen");
+const { CreateWorkspaceChrome } = require("../features/workspace/CreateWorkspaceScreen") as typeof import("../features/workspace/CreateWorkspaceScreen");
+const { InviteScreen } = require("../features/invite/InviteScreen") as typeof import("../features/invite/InviteScreen");
+const { InviteListScreen } = require("../features/invite/InviteListScreen") as typeof import("../features/invite/InviteListScreen");
+const { GmailFirstScreen } = require("../features/auth/gmailFirst/GmailFirstScreen") as typeof import("../features/auth/gmailFirst/GmailFirstScreen");
 const { ShareScreen } = require("../features/share/ShareScreen") as typeof import("../features/share/ShareScreen");
 const { WebsitePage } = require("../features/site/website/WebsitePage") as typeof import("../features/site/website/WebsitePage");
 // The handle routes only resolve an address; this is the page they then draw.
@@ -169,17 +164,13 @@ function websitePage(): ReactElement {
   const page = { kind: "page", siteName: "Seyi", routePath: "/", audience: "public", title: "Home" } as const;
   return createElement(WebsitePage, { name: "Seyi", view: { ...page, description: null, markdown: "# Home\n\nHello.", navigation: [] }, navigate: () => {}, signIn: () => {} });
 }
-const { GoogleCallbackScreen } =
-  require("../features/console/google/GoogleCallbackScreen") as typeof import("../features/console/google/GoogleCallbackScreen");
-const { CliConnectedScreen } =
-  require("../features/cli/CliConnectedScreen") as typeof import("../features/cli/CliConnectedScreen");
-const { EditorRegion } =
-  require("../features/console/EditorRegion") as typeof import("../features/console/EditorRegion");
+const { GoogleCallbackScreen } = require("../features/console/google/GoogleCallbackScreen") as typeof import("../features/console/google/GoogleCallbackScreen");
+const { CliConnectedScreen } = require("../features/cli/CliConnectedScreen") as typeof import("../features/cli/CliConnectedScreen");
+const { EditorRegion } = require("../features/console/EditorRegion") as typeof import("../features/console/EditorRegion");
 const { AppFrame } = require("../features/app/AppFrame") as typeof import("../features/app/AppFrame");
 const { SAFE_AREA_MARK, Screen, ScreenScroll } =
   require("../features/app/Screen") as typeof import("../features/app/Screen");
-const { NoteEditor } =
-  require("../features/console/files/NoteEditor") as typeof import("../features/console/files/NoteEditor");
+const { NoteEditor } = require("../features/console/files/NoteEditor") as typeof import("../features/console/files/NoteEditor");
 const { editorReducer, emptyEditor } =
   require("../features/console/files/editor") as typeof import("../features/console/files/editor");
 const { layout } = require("../features/design/tokens") as typeof import("../features/design/tokens");
@@ -227,7 +218,7 @@ const ROUTES: Record<string, Coverage> = {
   */
   "(home)/_layout.tsx": { kind: "framed" },
   "(home)/index.tsx": { kind: "gate", mount: () => createElement(requireRoute("(home)/index.tsx")) },
-  ...Object.fromEntries(["privacy.tsx", "support.tsx", "terms.tsx", "not-me.tsx", "stop-new-email.tsx", "waitlist.tsx"].map((file) => [file, { kind: "screen" as const, mount: () => createElement(requireRoute(file)) }])),
+  ...Object.fromEntries(["privacy.tsx", "support.tsx", "terms.tsx", "not-me.tsx", "stop-new-email.tsx", "waitlist.tsx", "text.tsx"].map((file) => [file, { kind: "screen" as const, mount: () => createElement(requireRoute(file)) }])),
   "authorize.tsx": { kind: "screen", mount: () => createElement(ConsentScreen) },
   "(auth)/login.tsx": { kind: "screen", mount: () => createElement(LoginScreen) },
   /*
@@ -247,6 +238,8 @@ const ROUTES: Record<string, Coverage> = {
     exactly this reason — "so the chrome can be rendered, and looked at, without
     a session or a Convex deployment behind it".
   */
+  // The Gmail page `/add-gmail` draws once its query of the person's Gmails answers.
+  "(app)/add-gmail.tsx": { kind: "screen", mount: () => createElement(GmailFirstScreen, { mode: "another", workspaceId: "ws", mainEmail: "ada@example.com" }) },
   "(app)/welcome.tsx": {
     kind: "screen",
     mount: () =>

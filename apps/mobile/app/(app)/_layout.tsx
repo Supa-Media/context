@@ -10,7 +10,7 @@ import { RecordingBar } from "../../features/meetings/components/RecordingBar";
 import { StrandedBar } from "../../features/meetings/components/StrandedBar";
 import { FeedbackHost } from "../../features/feedback/FeedbackHost";
 import { PhoneCheckScreen } from "../../features/auth/PhoneCheckScreen";
-import { EmailCheckScreen } from "../../features/auth/EmailCheckScreen";
+import { EmailGate } from "../../features/auth/gmailFirst/EmailGate";
 import { DomainJoin } from "../../features/auth/DomainJoin";
 import { domainJoinFor, type JoinableWorkspace } from "../../features/auth/domainJoin";
 import { ToastHost } from "../../features/design/components/Toast";
@@ -258,9 +258,9 @@ export default function AppLayout() {
   /*
     An account a phone made (a number staff let in from the waitlist) has no
     email yet: asked once, right after, so mail and invitations reach them
-    (`functions/signInEmails.ts`).
+    (`functions/signInEmails.ts`). Gmail first since 2026-10-20.
   */
-  if (phoneAnswer?.needsEmail === true) return <EmailCheckScreen />;
+  if (phoneAnswer?.needsEmail === true) return <EmailGate />;
 
   /*
     A link to a workspace this person's email domain opens (board s4): join

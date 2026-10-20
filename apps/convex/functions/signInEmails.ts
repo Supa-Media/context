@@ -299,36 +299,74 @@ export const consumeCode = internalMutation({
     }
     await ctx.db.delete(row._id);
     await requireProofToAddEmail(ctx, userId);
+    return await attachProvenEmail(ctx, userId, email, { mayMove: true });
+  },
+});
 
-    const standing = await standingOf(ctx, userId, email);
-    if (standing.kind === "mine") return "added";
-    if (standing.kind === "blocked") {
-      const into = await moveTarget(ctx, userId, standing);
-      if (into === null) return "has_own_workspace";
-      const me = (await ctx.db.get(userId))!;
-      // The empty phone account closes into the one that had the address,
-      // and its phone, proven by the code that made it, goes along.
-      await foldIn(ctx, userId, into);
-      await ctx.db.patch(into, { phone: me.phone, phoneVerificationTime: me.phoneVerificationTime });
-      return "moved";
-    }
-    if (standing.kind === "other") await foldIn(ctx, standing.otherId, userId);
-    // Folding may already have brought this address over.
-    if ((await standingOf(ctx, userId, email)).kind !== "mine") {
-      await ctx.db.insert("signInEmails", { userId, email, addedAt: Date.now() });
-    }
-    // An account made by a phone has no mail address yet: this is it.
-    const me = await ctx.db.get(userId);
-    if (me !== null && me.email === undefined) {
-      const attached = await ctx.db
-        .query("signInEmails")
-        .withIndex("by_email", (q) => q.eq("email", email))
-        .filter((q) => q.eq(q.field("userId"), userId))
-        .first();
-      if (attached !== null) await ctx.db.delete(attached._id);
-      await ctx.db.patch(userId, { email, emailVerificationTime: Date.now() });
-    }
-    return "added";
+/**
+ * Attach `email`, already proven to be this person's, to `userId`: by a
+ * mailed code, or by Google signing them in to it. The first address of an
+ * account a phone made becomes its mail address. `mayMove` lets an empty phone
+ * account fold into the one that already holds the address (the code path);
+ * Google's path never moves, because the Gmail it proved is being bound to
+ * this account's own workspace at the same moment.
+ */
+async function attachProvenEmail(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  email: string,
+  { mayMove }: { mayMove: boolean },
+): Promise<"added" | "moved" | "has_own_workspace"> {
+  const standing = await standingOf(ctx, userId, email);
+  if (standing.kind === "mine") return "added";
+  if (standing.kind === "blocked") {
+    const into = mayMove ? await moveTarget(ctx, userId, standing) : null;
+    if (into === null) return "has_own_workspace";
+    const me = (await ctx.db.get(userId))!;
+    // The empty phone account closes into the one that had the address,
+    // and its phone, proven by the code that made it, goes along.
+    await foldIn(ctx, userId, into);
+    await ctx.db.patch(into, { phone: me.phone, phoneVerificationTime: me.phoneVerificationTime });
+    return "moved";
+  }
+  if (standing.kind === "other") await foldIn(ctx, standing.otherId, userId);
+  // Folding may already have brought this address over.
+  if ((await standingOf(ctx, userId, email)).kind !== "mine") {
+    await ctx.db.insert("signInEmails", { userId, email, addedAt: Date.now() });
+  }
+  // An account made by a phone has no mail address yet: this is it.
+  const me = await ctx.db.get(userId);
+  if (me !== null && me.email === undefined) {
+    const attached = await ctx.db
+      .query("signInEmails")
+      .withIndex("by_email", (q) => q.eq("email", email))
+      .filter((q) => q.eq(q.field("userId"), userId))
+      .first();
+    if (attached !== null) await ctx.db.delete(attached._id);
+    await ctx.db.patch(userId, { email, emailVerificationTime: Date.now() });
+  }
+  return "added";
+}
+
+/**
+ * The Gmail somebody connects first becomes their main email, when their
+ * account has none yet (Dev2, 2026-10-20: "the first should be a primary
+ * personal gmail and then use that email as the primary email"). Google
+ * signing them in to the address is the proof a mailed code would be, so
+ * nothing is mailed. Only ever the first address: an account with one already
+ * is `skipped`, and an address another account holds is `has_own_workspace`,
+ * the Gmail still connected for mail but not made the main email.
+ */
+export const adoptGoogleAddress = internalMutation({
+  args: { userId: v.id("users"), email: v.string() },
+  returns: v.union(v.literal("added"), v.literal("skipped"), v.literal("has_own_workspace")),
+  handler: async (ctx, { userId, email }) => {
+    const user = await ctx.db.get(userId);
+    if (user === null || user.email !== undefined || (await attachedEmailsOf(ctx, userId)).length > 0) return "skipped";
+    const parsed = parseInvitee(email);
+    if (!parsed.ok || parsed.invitee.kind !== "email") return "skipped";
+    const outcome = await attachProvenEmail(ctx, userId, parsed.invitee.value, { mayMove: false });
+    return outcome === "moved" ? "skipped" : outcome;
   },
 });
 
