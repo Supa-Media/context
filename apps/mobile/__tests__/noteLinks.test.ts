@@ -38,6 +38,8 @@ import { knownNotePaths, mergeLinkPaths } from "../features/console/files/paths"
 
 const NOTE = "1-projects/persistence/overview.md";
 const KNOWN = [NOTE, "2-products/context-lc/overview.md", "3-resources/unique.md"];
+/** Two `overview.md`s, neither nearer `NOTE` than the other. */
+const TIED = ["2-products/context-lc/overview.md", "3-resources/overview.md", "3-resources/unique.md"];
 
 const linksIn = (text: string, paths: readonly string[] = KNOWN) =>
   noteLinksIn(text, { path: NOTE, paths });
@@ -120,10 +122,34 @@ describe("what deliberately does not", () => {
   });
 
   test("a bare name the paths on hand cannot settle", () => {
-    // Two notes answer to `overview`, so there is no destination to open. A
-    // link drawn here would be a control that does nothing.
-    expect(linksIn("[[overview]]")).toEqual([]);
+    // Two notes equally far away answer to `overview`, so there is no
+    // destination to open. A link drawn here would be a control that does nothing.
+    expect(linksIn("[[overview]]", TIED)).toEqual([]);
     expect(linksIn("[[nothing-like-this]]")).toEqual([]);
+  });
+
+  /**
+   * The owner's `[[task-lyrics]]`, 2026-10-20: every project folder has a
+   * `task-lyrics.md`, and the one beside the overview is the one it means.
+   * Reverting to "exactly one note or nothing" fails this.
+   */
+  test("a bare name several notes carry opens the nearest one", () => {
+    const projects = [
+      "1-projects/nnenna/overview.md",
+      "1-projects/nnenna/task-lyrics.md",
+      "1-projects/mari/task-lyrics.md",
+      "1-projects/nnenna/drafts/notes.md",
+      "1-projects/nnenna/drafts/notes-old.md",
+      "1-projects/mari/notes.md",
+    ];
+    const from = (path: string, text: string) => noteLinksIn(text, { path, paths: projects }).map((span) => span.path);
+    expect(from("1-projects/nnenna/overview.md", "[[task-lyrics]]")).toEqual(["1-projects/nnenna/task-lyrics.md"]);
+    expect(from("1-projects/mari/plan.md", "[[task-lyrics]]")).toEqual(["1-projects/mari/task-lyrics.md"]);
+    // Not in its own folder, but deeper down its own branch: still the nearest.
+    expect(from("1-projects/nnenna/overview.md", "[[notes]]")).toEqual(["1-projects/nnenna/drafts/notes.md"]);
+    // From above both projects, neither is nearer: a guess, so nothing.
+    expect(from("1-projects/index.md", "[[task-lyrics]]")).toEqual([]);
+    expect(unresolvedNoteLinksIn("[[task-lyrics]]", { path: "1-projects/nnenna/overview.md", paths: projects })).toEqual([]);
   });
 
   test("…and one they can", () => {
@@ -345,8 +371,8 @@ describe("bare names, matched loosely", () => {
     expect(text.slice(8, 15)).toBe("[[Eve]]");
   });
 
-  test("so does one two notes answer to", () => {
-    expect(unresolvedNoteLinksIn("[[overview]]", { path: NOTE, paths: KNOWN })).toHaveLength(1);
+  test("so does one two notes equally far away answer to", () => {
+    expect(unresolvedNoteLinksIn("[[overview]]", { path: NOTE, paths: TIED })).toHaveLength(1);
   });
 
   test("paths, web links and embeds are never listed", () => {

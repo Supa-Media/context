@@ -405,13 +405,16 @@ export function styleOf(file: string): LinkStyle {
  * The note a link points at, or `null` for anything this module will not touch.
  *
  * `byName` maps a note's basename (without `.md`) to every path carrying it,
- * and is only consulted for a bare target — see the module comment for why an
- * ambiguous one resolves to nothing rather than to a guess.
+ * and is only consulted for a bare target. Several notes carrying the name
+ * resolve to the nearest one (`nearestNamed`); a tie is a guess and resolves to
+ * nothing. `strict` keeps the older rule, exactly one note or nothing, for
+ * rewriting links on a move (see the module comment).
  */
 export function resolveLink(
   link: Pick<Link, "kind" | "target">,
   fromPath: string,
   byName?: ReadonlyMap<string, string[]>,
+  options: { strict?: boolean } = {},
 ): string | null {
   const target = link.target.trim();
   if (target === "" || target.startsWith("#") || isExternal(target)) return null;
@@ -425,7 +428,9 @@ export function resolveLink(
   if (style === "bare") {
     const name = decoded.replace(/\.md$/, "");
     const candidates = byName?.get(name) ?? looselyNamed(byName, name);
-    return candidates?.length === 1 ? candidates[0] : null;
+    if (candidates === undefined || candidates.length === 0) return null;
+    if (candidates.length === 1) return candidates[0]!;
+    return options.strict === true ? null : nearestNamed(candidates, fromPath);
   }
 
   const base = style === "relative" ? dirOf(fromPath).split("/") : [];
@@ -549,7 +554,7 @@ export function rewriteLinks(
   let changed = 0;
 
   for (const link of links) {
-    const resolved = resolveLink(link, fromPath, byName);
+    const resolved = resolveLink(link, fromPath, byName, { strict: true });
     if (resolved === null) continue;
     const destination = renames.get(resolved) ?? resolved;
     // The referrer stayed put and the target stayed put: nothing to say.
@@ -595,6 +600,39 @@ function looselyNamed(
     if (looseName(candidate) === wanted) found.push(...paths);
   }
   return found.length === 0 ? undefined : found;
+}
+
+/**
+ * Of several notes carrying one name, the one nearest the note linking: the
+ * one in its own folder, else the one whose folder shares the most of its
+ * path, and `null` when two are equally near. So `[[task-lyrics]]` in
+ * `1-projects/nnenna/overview.md` opens `1-projects/nnenna/task-lyrics.md`
+ * even though every project has a `task-lyrics.md`, while two sibling
+ * projects' copies seen from `1-projects/` stay a guess (decided by the owner,
+ * 2026-10-20). The graph (`namedTarget`) and the search index already read a
+ * bare name beside the note first. The twin of `nearestNamed` in
+ * `apps/mcp/src/links.js`.
+ */
+function nearestNamed(candidates: readonly string[], fromPath: string): string | null {
+  const from = dirOf(fromPath).split("/").filter((segment) => segment !== "");
+  let best: string | null = null;
+  let bestScore = -1;
+  let tied = false;
+  for (const candidate of candidates) {
+    const folder = dirOf(candidate).split("/").filter((segment) => segment !== "");
+    let shared = 0;
+    while (shared < from.length && shared < folder.length && from[shared] === folder[shared]) shared += 1;
+    // Sharing the whole of the linking note's folder and no more is its own folder.
+    const score = shared === from.length && folder.length === from.length ? Number.MAX_SAFE_INTEGER : shared;
+    if (score > bestScore) {
+      best = candidate;
+      bestScore = score;
+      tied = false;
+    } else if (score === bestScore) {
+      tied = true;
+    }
+  }
+  return tied ? null : best;
 }
 
 function looseName(name: string): string {

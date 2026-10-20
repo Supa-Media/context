@@ -188,8 +188,27 @@ export async function runLinkChecks(check) {
 
     check("a bare name with exactly one note is resolved", resolve("unique-name") === "3-resources/unique-name.md");
     check(
-      "a bare name two notes answer to is left alone",
-      resolveLink({ kind: "wiki", target: "overview" }, NOTE, indexByName([NOTE, "2-products/x/overview.md"])) === null
+      "a bare name two notes equally far away answer to is left alone",
+      resolveLink({ kind: "wiki", target: "overview" }, NOTE, indexByName(["3-resources/overview.md", "2-products/x/overview.md"])) === null
+    );
+    // The owner's `[[task-lyrics]]` (2026-10-20): every project has one, and the one beside the note is meant.
+    const lyrics = indexByName(["1-projects/nnenna/task-lyrics.md", "1-projects/mari/task-lyrics.md"]);
+    check(
+      "a bare name several notes carry resolves to the one in the linking note's folder",
+      resolveLink({ kind: "wiki", target: "task-lyrics" }, "1-projects/nnenna/overview.md", lyrics) === "1-projects/nnenna/task-lyrics.md"
+    );
+    check(
+      "…and to nothing from a folder neither is nearer",
+      resolveLink({ kind: "wiki", target: "task-lyrics" }, "1-projects/index.md", lyrics) === null
+    );
+    check(
+      "a move still rewrites a bare name only when one note carries it",
+      rewriteLinks("[[task-lyrics]]", {
+        fromPath: "1-projects/nnenna/overview.md",
+        toPath: "1-projects/nnenna/overview.md",
+        renames: new Map([["1-projects/nnenna/task-lyrics.md", "1-projects/nnenna/lyrics-task.md"]]),
+        byName: lyrics,
+      }) === null
     );
     check("a bare name nothing answers to is left alone", resolve("nothing-here") === null);
 
@@ -337,7 +356,7 @@ export async function runLinkChecks(check) {
     );
 
     check(
-      "a bare link is followed only when one note answers to the name",
+      "a move rewrites a bare link only when one note answers to the name",
       rewrite("[[overview]]", { renames: moved, names: ["2-products/context-lc/overview.md"] })?.text ===
         "[[readme]]" &&
         rewrite("[[overview]]", { renames: moved, names: [...names] }) === null

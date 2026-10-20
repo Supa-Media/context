@@ -406,15 +406,46 @@ export function styleOf(file) {
  * The note a link points at, or `null` for anything this module will not touch.
  *
  * `byName` maps a note's basename (without `.md`) to every path carrying it,
- * and is only consulted for a bare target — see the module comment for why an
- * ambiguous one resolves to nothing rather than to a guess.
+ * and is only consulted for a bare target. Several notes carrying the name
+ * resolve to the nearest one (`nearestNamed`); a tie is a guess and resolves to
+ * nothing. `strict` keeps the older rule, exactly one note or nothing, for
+ * rewriting links on a move (see the module comment).
  */
-export function resolveLink(link, fromPath, byName) {
+export function resolveLink(link, fromPath, byName, options = {}) {
   const target = linkTargetOf(link, fromPath);
   if (target === null) return null;
   if (target.kind === "path") return target.path;
   const candidates = byName?.get(target.name) ?? looselyNamed(byName, target.name);
-  return candidates?.length === 1 ? candidates[0] : null;
+  if (candidates === undefined || candidates === null || candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0];
+  return options.strict === true ? null : nearestNamed(candidates, fromPath);
+}
+
+/**
+ * Of several notes carrying one name, the one nearest the note linking: the
+ * one in its own folder, else the one whose folder shares the most of its
+ * path, and `null` when two are equally near (decided by the owner,
+ * 2026-10-20). The twin of `nearestNamed` in `packages/shared/src/links.ts`.
+ */
+function nearestNamed(candidates, fromPath) {
+  const from = dirOf(fromPath).split("/").filter((segment) => segment !== "");
+  let best = null;
+  let bestScore = -1;
+  let tied = false;
+  for (const candidate of candidates) {
+    const folder = dirOf(candidate).split("/").filter((segment) => segment !== "");
+    let shared = 0;
+    while (shared < from.length && shared < folder.length && from[shared] === folder[shared]) shared += 1;
+    const score = shared === from.length && folder.length === from.length ? Number.MAX_SAFE_INTEGER : shared;
+    if (score > bestScore) {
+      best = candidate;
+      bestScore = score;
+      tied = false;
+    } else if (score === bestScore) {
+      tied = true;
+    }
+  }
+  return tied ? null : best;
 }
 
 /**
@@ -584,7 +615,7 @@ export function rewriteLinks(text, { fromPath, toPath, renames, byName, forwardT
   let changed = 0;
 
   for (const link of links) {
-    const resolved = resolveLink(link, fromPath, byName);
+    const resolved = resolveLink(link, fromPath, byName, { strict: true });
     if (resolved === null) continue;
     const moved = renames.get(resolved) ?? resolved;
     const followed = forwardTarget?.(moved) ?? moved;
