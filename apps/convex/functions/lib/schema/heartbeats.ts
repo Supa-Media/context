@@ -52,6 +52,17 @@ export const heartbeatTables = {
     attentionTextedAt: v.optional(v.number()),
     /** Deliveries in a row that failed; the waiting pings are given up after a few. */
     attentionTries: v.optional(v.number()),
+    /**
+     * Which of their mailboxes' states a check-in has told them about, and
+     * when (`lib/mailHealth/`): a mailbox that needs reconnecting is said once
+     * a day, not at every look. `mailRaising` is what the running check-in is
+     * about to say; it becomes a notice only when that check-in texted. A
+     * connection id and a state word each, never an address or mail.
+     */
+    mailNotices: v.optional(
+      v.array(v.object({ connectionId: v.id("googleConnections"), state: v.string(), at: v.number() })),
+    ),
+    mailRaising: v.optional(v.array(v.object({ connectionId: v.id("googleConnections"), state: v.string() }))),
     updatedAt: v.number(),
   })
     .index("by_user", ["userId"])

@@ -159,9 +159,9 @@ describe("an account is one row", () => {
       connections: [connection({
         gmail: {
           backfillDays: 0, folders: ["inbox"], destinationFolder: "0-inbox/email/person",
-          destinationPath: "x", historyCursorReady: true, lastSyncedAt: 1, lastFailure: "Google rate-limited this mailbox.",
+          destinationPath: "x", historyCursorReady: true, lastSyncedAt: Date.now() - 60_000, lastFailure: "Google rate-limited this mailbox.",
         },
-        calendar: { destinationFolder: "0-inbox/calendar", destinationPath: "x", syncCursorReady: true, lastSyncedAt: 1 },
+        calendar: { destinationFolder: "0-inbox/calendar", destinationPath: "x", syncCursorReady: true, lastSyncedAt: Date.now() - 60_000 },
       })],
       actions,
     }));
@@ -178,7 +178,7 @@ describe("where connected data appears", () => {
       connections: [connection({
         calendar: {
           destinationFolder: "0-inbox/calendar", destinationPath: "0-inbox/calendar/YYYY-MM-DD.md",
-          syncCursorReady: true, lastSyncedAt: Date.parse("2026-10-15T12:00:00Z"),
+          syncCursorReady: true, lastSyncedAt: Date.now() - 60_000,
         },
         chat: { destinationFolder: "hidden-chat-folder", destinationPath: "x", cursorCount: 0 },
         syncServices: { gmail: true, calendar: true, chat: false },
@@ -250,9 +250,68 @@ describe("the account's health belongs to the account", () => {
     expect(accountStatus(stale)).toEqual({ tone: "crit", text: "Google wants you to sign in again." });
   });
 
-  test("...and any other failure keeps the server's own sentence, because it names the reason", () => {
+  test("...and any other failure keeps the server's own sentence, and retries without them", () => {
     const failed = connection({ syncStatus: "error", lastError: "Google refused this mailbox." });
-    expect(accountStatus(failed)).toEqual({ tone: "crit", text: "Google refused this mailbox." });
+    expect(accountStatus(failed)).toEqual({ tone: "warn", text: "Google refused this mailbox. Retrying on its own." });
+    expect(accountStatus(connection({ syncStatus: "error" }))).toEqual({
+      tone: "warn",
+      text: "Not syncing right now; retrying on its own.",
+    });
+  });
+
+  test("a full mailbox is the person's to fix, and says so without offering a reconnect", () => {
+    const full = connection({ syncStatus: "error", errorCode: "MAIL_QUOTA_EXCEEDED", lastError: "This connection reached its storage quota." });
+    expect(accountStatus(full)).toEqual({ tone: "crit", text: "Email storage is full, so new mail isn't being saved." });
+    const screen = render(createElement(GoogleConnectionsCard, { connections: [full], actions }));
+    expect(screen.container.querySelector('[data-testid^="reconnect-google-"]')).toBeNull();
+    screen.unmount();
+  });
+
+  test("an account with no successful pass for hours says when it last synced, never 'Up to date'", () => {
+    const now = Date.parse("2026-10-20T18:00:00Z");
+    const at = now - 9 * 60 * 60 * 1000;
+    const quiet = connection({
+      syncServices: { gmail: true, calendar: false, chat: false },
+      gmail: {
+        backfillDays: 0, folders: ["inbox"], destinationFolder: "0-inbox/email/person",
+        destinationPath: "x", historyCursorReady: true, lastSyncedAt: at,
+      },
+    });
+    expect(accountStatus(quiet, now)).toEqual({ tone: "warn", text: "Not synced since 9 hours ago." });
+    // Five hours is not yet stale: a slow afternoon of mail, not a broken sync.
+    expect(accountStatus({ ...quiet, gmail: { ...quiet.gmail!, lastSyncedAt: now - 5 * 60 * 60 * 1000 } }, now).tone).toBe("ok");
+  });
+
+  test("...naming the service when only one of them stopped, even while it is failing", () => {
+    const now = Date.parse("2026-10-20T18:00:00Z");
+    const stale = connection({
+      syncStatus: "error",
+      lastError: "Google is briefly unavailable.",
+      syncServices: { gmail: true, calendar: true, chat: false },
+      gmail: {
+        backfillDays: 0, folders: ["inbox"], destinationFolder: "0-inbox/email/person",
+        destinationPath: "x", historyCursorReady: true, lastSyncedAt: now - 3 * 24 * 60 * 60 * 1000,
+      },
+      calendar: { destinationFolder: "0-inbox/calendar", destinationPath: "x", syncCursorReady: true, lastSyncedAt: now - 60_000 },
+    });
+    expect(accountStatus(stale, now)).toEqual({ tone: "warn", text: "Email not synced since 3 days ago." });
+  });
+
+  test("a stale account's row has no Reconnect: only Google refusing the grant offers one", () => {
+    const screen = render(createElement(GoogleConnectionsCard, {
+      connections: [connection({
+        syncStatus: "error",
+        gmail: {
+          backfillDays: 0, folders: ["inbox"], destinationFolder: "0-inbox/email/person",
+          destinationPath: "x", historyCursorReady: true, lastSyncedAt: Date.now() - 10 * 60 * 60 * 1000,
+        },
+      })],
+      actions,
+    }));
+    expect(screen.text()).toContain("Email not synced since 10 hours ago.");
+    expect(screen.text()).not.toContain("Up to date");
+    expect(screen.container.querySelector('[data-testid^="reconnect-google-"]')).toBeNull();
+    screen.unmount();
   });
 
   test("a service that stopped reaches the row by name, never as green 'Syncing'", () => {

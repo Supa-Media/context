@@ -31,6 +31,7 @@ import { chaosSection } from "../chaos/orient.js";
 import { HOW_TO_WORK, inToolNames } from "./howToWork.js";
 import { actionManual, actionNames, findAction, toolsManual } from "./manual.js";
 import { connectedBlock, openOnce, surveyOf, surveyOtherContexts } from "./workspaces.js";
+import { orientMailSection, readMailHealth } from "../agent/mailHealth.js";
 
 export { ORIENT_OTHER_WORKSPACE_WAIT_MS, surveyOtherContexts } from "./workspaces.js";
 
@@ -147,7 +148,7 @@ async function overview(store, scope, rules, overrides) {
   const open = openOnce(store);
   // When the app's copy is behind, the reconnect steps: read before anything else is awaited.
   const news = toolNewsSection(store.actor?.toolsListedAt, undefined, appOf(store));
-  const [survey, page, procedure, privateIndex, pendingProposals, globalNote, others] = await Promise.all([
+  const [survey, page, procedure, privateIndex, pendingProposals, globalNote, others, mailboxes] = await Promise.all([
     surveyOf(store, store, scope, rules, overrides),
     frontParagraphOf(store, scope, rules, overrides),
     readSaveProcedure(store, scope, rules, overrides),
@@ -161,6 +162,8 @@ async function overview(store, scope, rules, overrides) {
     // Alongside the connected workspace's own work rather than after it: each
     // other workspace is a control-plane round trip and bucket reads of its own.
     surveyOtherContexts(store, open.openContext),
+    // Their own mailboxes, said only when one needs them (`agent/mailHealth.js`); the control plane answers the owner alone.
+    scope === "private" && currentEntryOf(store)?.kind !== "shared" ? readMailHealth(store) : Promise.resolve([]),
   ]);
 
   const parts = [CONTEXT_INTRO];
@@ -202,6 +205,8 @@ async function overview(store, scope, rules, overrides) {
         (procedure.text ? `\n${procedure.text}` : "")
     );
   }
+  const mail = orientMailSection(mailboxes, Date.now(), { v2 });
+  if (mail) parts.push(mail);
   if (scope === "private" && pendingProposals.length) {
     parts.push(
       say(

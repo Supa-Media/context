@@ -40,7 +40,8 @@ against the same daily cap.
 **What it does** (`apps/mcp/src/agent/heartbeat.js`). The gateway, not the
 model, lists the notes changed since the last look from the tree. Tex's own
 output (`tex/heartbeat/`, `tex/dreams/`, `tex/about-me.md`, `tex/heartbeat.md`)
-never counts, or every look would wake the next. Nothing changed is
+never counts, or every look would wake the next. Nothing changed, and no
+mailbox owed a word ([mail health](../communications/mail-health.md)), is
 `nothing_new` and runs no model. Otherwise a model is shown the changed paths,
 what earlier check-ins already texted (from the last three days' logs), and
 the person's own instructions, and asked to connect what changed to the rest

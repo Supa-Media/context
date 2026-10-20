@@ -71,6 +71,7 @@ import { runAgentDelegateRouteChecks } from "./agentDelegateRoute.test.mjs";
 import { runAgentTranscriptChecks } from "./agentTranscriptRoute.test.mjs";
 import { runAgentDreamChecks } from "./agentDream.test.mjs";
 import { runAgentHeartbeatChecks } from "./agentHeartbeat.test.mjs";
+import { runAgentMailHealthChecks } from "./agentMailHealth.test.mjs";
 import { runAgentHousekeepingChecks } from "./agentHousekeeping.test.mjs";
 import { runAgentEgressChecks } from "./agentEgress.test.mjs";
 import { runAgentEgressTextingChecks } from "./agentEgressTexting.test.mjs";
@@ -174,6 +175,8 @@ await suite("runAgentDelegateRouteChecks", () => runAgentDelegateRouteChecks(che
 await suite("runAgentTranscriptChecks", () => runAgentTranscriptChecks(check));
 await suite("runAgentDreamChecks", () => runAgentDreamChecks(check));
 await suite("runAgentHeartbeatChecks", () => runAgentHeartbeatChecks(check));
+// A broken mailbox bubbles up through check-ins, routines and orient.
+await suite("runAgentMailHealthChecks", () => runAgentMailHealthChecks(check));
 await suite("runAgentHousekeepingChecks", () => runAgentHousekeepingChecks(check));
 // The egress gate: a widening tool call waits for a person, outside the model.
 await suite("runAgentEgressChecks", () => runAgentEgressChecks(check));
