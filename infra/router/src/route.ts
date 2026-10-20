@@ -61,6 +61,7 @@ import {
 } from "./preview";
 import { handleSiteFrom, siteCardFrom } from "./preview/sites";
 import { downloadFor } from "./download";
+export { downloadResponse } from "./download";
 import { iconFor, ROBOTS_PATH, type IconName } from "./icons";
 import { isTexHost, TEX_APEX, TEX_CARD_PATH, TEX_WWW_HOST, texPreviewFor } from "./texHost";
 

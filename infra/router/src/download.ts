@@ -27,3 +27,8 @@ export function downloadFor(pathname: string): string | null {
   const path = pathname.length > 1 && pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
   return Object.hasOwn(DOWNLOADS, path) ? DOWNLOADS[path] : null;
 }
+
+/** Temporary and uncached, unlike the Worker's host redirect: the address is ours to repoint. */
+export function downloadResponse(location: string): Response {
+  return new Response(null, { status: 302, headers: { Location: location, "Cache-Control": "no-store" } });
+}
