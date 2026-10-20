@@ -8,24 +8,33 @@
  * cross once, to be sent, and are kept by neither side.
  */
 
-const REFUSALS = new Set(["invalid", "not_allowed", "no_sender", "hourly_limit", "daily_limit", "recipient_limit", "not_configured", "unavailable", "reply_not_found"]);
+/**
+ * Longer than the control plane's own Gmail calls (a token refresh, a reply's
+ * headers, the send, each bounded there), so the gateway never gives up on a
+ * send that then goes out, and an AI told "not sent" never sends it twice. A
+ * search or read has one short retry there and fails over to the notes here.
+ */
+const SEND_TIMEOUT_MS = 45_000;
+const READ_TIMEOUT_MS = 25_000;
+
+const REFUSALS = new Set(["invalid", "not_allowed", "no_sender", "hourly_limit", "daily_limit", "recipient_limit", "not_configured", "unavailable", "reply_not_found", "reconnect_required"]);
 
 export function createEmailMethods({ post }) {
   return {
     async sendPersonEmail(accessToken, expectedWorkspaceId, email, { check = false } = {}) {
-      const answer = await post("/gateway/email/send", { accessToken, expectedWorkspaceId, email, check });
+      const answer = await post("/gateway/email/send", { accessToken, expectedWorkspaceId, email, check }, { timeoutMs: SEND_TIMEOUT_MS });
       if (answer?.ok === true && typeof answer.from === "string") return { ok: true, from: answer.from };
       return { ok: false, refused: REFUSALS.has(answer?.refused) ? answer.refused : "unavailable" };
     },
     /** The same email saved as a draft in their Gmail, sent to nobody (`tools/email.js`). */
     async savePersonEmailDraft(accessToken, expectedWorkspaceId, email) {
-      const answer = await post("/gateway/email/draft", { accessToken, expectedWorkspaceId, email });
+      const answer = await post("/gateway/email/draft", { accessToken, expectedWorkspaceId, email }, { timeoutMs: SEND_TIMEOUT_MS });
       if (answer?.ok === true && typeof answer.from === "string") return { ok: true, from: answer.from };
       return { ok: false, refused: REFUSALS.has(answer?.refused) ? answer.refused : "unavailable" };
     },
     /** The person's own mail, read live for what their notes do not hold (`tools/emailRead.js`). */
     async personMailSearch(accessToken, expectedWorkspaceId, search) {
-      const answer = await post("/gateway/email/search", { accessToken, expectedWorkspaceId, ...search });
+      const answer = await post("/gateway/email/search", { accessToken, expectedWorkspaceId, ...search }, { timeoutMs: READ_TIMEOUT_MS });
       // Which mailboxes Gmail did not search, and why, so their synced notes can answer instead.
       const named = (list) => (Array.isArray(list) ? list.filter((entry) => typeof entry?.address === "string" && typeof entry?.folder === "string") : []);
       const reconnect = named(answer?.reconnect);
@@ -48,7 +57,7 @@ export function createEmailMethods({ post }) {
         address,
         id,
         ...(attachment === undefined ? {} : { attachment }),
-      });
+      }, { timeoutMs: READ_TIMEOUT_MS });
       if (answer?.ok === true && answer.message && typeof answer.message === "object") {
         const file = answer.attachment;
         if (attachment !== undefined && (typeof file?.data !== "string" || typeof file?.filename !== "string")) {

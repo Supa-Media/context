@@ -122,6 +122,8 @@ export const REFUSED = {
   recipient_limit: "Not sent: the person has already emailed one of these addresses 3 times today through Context.",
   not_configured: "Not sent: this Context deployment does not send email.",
   reply_not_found: "Not sent: Gmail no longer has the email this replies to, or it has no thread to reply in. Search for it again.",
+  reconnect_required:
+    "Not sent: the Gmail it would go from needs reconnecting, because Google stopped honouring its sign-in. Tell the person; they reconnect it with manage connect_google.",
   unavailable: "Not sent: Gmail did not take the email just now. Nothing was sent; it can be asked for again.",
 };
 
@@ -149,6 +151,8 @@ export const DRAFT_REFUSED = {
   daily_limit: "Not saved: 50 drafts were saved through Context today. Give them this one to copy instead.",
   not_configured: "Not saved: this Context deployment does not save drafts.",
   reply_not_found: "Not saved: Gmail no longer has the email this replies to. Search for it again.",
+  reconnect_required:
+    "Not saved: that Gmail needs reconnecting, because Google stopped honouring its sign-in. Tell the person; they reconnect it with manage connect_google.",
   unavailable: "Not saved: Gmail did not take the draft just now. It can be tried again.",
 };
 

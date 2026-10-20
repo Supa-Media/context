@@ -81,9 +81,22 @@ control plane or a log line (logs carry an outcome and counts). This is what
 makes it compatible with [non-negotiable 1](../../../CLAUDE.md): the control
 plane relays a message body for one request and holds none.
 
-**Bounded.** 120 live reads per person per hour, searches and opened messages
-together. Gmail's own quota is per mailbox and far above that; the ceiling is
-there so a looping model cannot spend the sync's share of it.
+**Bounded.** 300 live reads per person per hour, searches and opened messages
+together (raised from 120 on 2026-10-20, since Tex, check-ins, routines and
+every connected AI share it, and the person should never meet it in a normal
+day; past it, search answers from the synced notes). Gmail's own quota is per
+mailbox and far above that; the ceiling is there so a looping model cannot
+spend the sync's share of it.
+
+**Live calls wait briefly.** A live search, read, attachment or reply's
+headers retries Gmail's rate limit once, after at most half a second
+(`LIVE_RETRY_MS`), not the sync's 2, 8 and 30 seconds; mailboxes are searched
+at once and a mailbox's headers fetched at once. The gateway waits 25 seconds
+for a search or read and 45 for a send, longer than the control plane's own
+bounded Gmail calls, so a send never goes out after the AI was told it failed
+(2026-10-20; `personMail.test.ts`, "a live search waits on Gmail's rate limit
+once…"). A sender whose sign-in stopped working is skipped for one that works,
+or refused as `reconnect_required` (`personEmail.test.ts`).
 
 What a simplification costs: searching Gmail whole doubles every synced
 message's cost and returns the same mail twice; searching Gmail first spends

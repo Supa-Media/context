@@ -94,7 +94,9 @@ async function personEmail(ctx: ActionCtx, body: Record<string, unknown>, draft:
   try {
     const raw = gmailRaw(email, claimed.from, thread);
     const message = thread ? { raw, threadId: thread.threadId } : { raw };
-    const response = await fetch(draft ? GMAIL_DRAFTS_ENDPOINT : GMAIL_SEND_ENDPOINT, {
+    // Bounded, inside the gateway's own wait, so a send never completes
+    // after the AI was told it failed and asks again (2026-10-20).
+    const response = await timeoutFetch(draft ? GMAIL_DRAFTS_ENDPOINT : GMAIL_SEND_ENDPOINT, {
       method: "POST",
       headers: { Authorization: `Bearer ${minted.accessToken}`, "Content-Type": "application/json" },
       body: JSON.stringify(draft ? { message } : message),

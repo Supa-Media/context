@@ -31,6 +31,7 @@ import { hashToken } from "../crypto";
 import { json, stringField } from "../gatewayAuth";
 import {
   GmailApiError,
+  LIVE_RETRY_MS,
   getAttachmentBytes,
   getMessageHeaders,
   getMessageOrNull,
@@ -147,42 +148,52 @@ export async function gatewayPersonMailSearchHandler(ctx: ActionCtx, body: Recor
   // answers are taken in turn: filling the limit from the first mailbox left
   // a person's other Gmails unsearched (2026-10-20).
   const share = Math.ceil(limit / Math.max(claimed.mailboxes.length, 1));
-  const perMailbox: Array<Array<Record<string, string>>> = [];
+  // Mailboxes at once, and a mailbox's headers at once, each with one short
+  // retry: a person is waiting, and the gateway gives up on the whole search
+  // at its timeout. A mailbox that fails is named, and its notes answer.
   const unanswered: string[] = [];
-  for (const mailbox of claimed.mailboxes) {
-    const found: Array<Record<string, string>> = [];
-    perMailbox.push(found);
-    const token = await tokenFor(ctx, mailbox);
-    if (token === null) {
-      unanswered.push(mailbox.address);
-      continue;
-    }
-    try {
-      const q = body.outsideSync === true ? outsideSyncQuery(query, mailbox) : query;
-      const { ids } = await listMessageIds({ fetchImpl: timeoutFetch, accessToken: token, query: q, pageToken: undefined, maxResults: share });
-      for (const id of ids) {
-        const message = await getMessageHeaders({ fetchImpl: timeoutFetch, accessToken: token, id }).catch((error: unknown) => {
-          if (error instanceof GmailApiError && error.status === 404) return null;
-          throw error;
-        });
-        if (message === null) continue;
-        const headers = message?.payload?.headers ?? [];
-        found.push({
-          address: mailbox.address,
-          id: String(message.id ?? id),
-          threadId: String(message.threadId ?? ""),
-          date: dateOf(message),
-          from: headerValue(headers, "From"),
-          to: headerValue(headers, "To"),
-          subject: headerValue(headers, "Subject"),
-          snippet: unescapeSnippet(message.snippet),
-        });
+  const perMailbox: Array<Array<Record<string, string>>> = await Promise.all(
+    claimed.mailboxes.map(async (mailbox: Mailbox): Promise<Array<Record<string, string>>> => {
+      const token = await tokenFor(ctx, mailbox);
+      if (token === null) {
+        unanswered.push(mailbox.address);
+        return [];
       }
-    } catch (error) {
-      unanswered.push(mailbox.address);
-      log({ route: "search", outcome: "gmail_error", status: error instanceof GmailApiError ? error.status : 0 });
-    }
-  }
+      try {
+        const q = body.outsideSync === true ? outsideSyncQuery(query, mailbox) : query;
+        const live = { fetchImpl: timeoutFetch, accessToken: token, delaysMs: LIVE_RETRY_MS };
+        const { ids } = await listMessageIds({ ...live, query: q, pageToken: undefined, maxResults: share });
+        const messages = await Promise.all(
+          ids.map((id: string) =>
+            getMessageHeaders({ ...live, id }).catch((error: unknown) => {
+              if (error instanceof GmailApiError && error.status === 404) return null;
+              throw error;
+            }),
+          ),
+        );
+        return messages.flatMap((message, at) => {
+          if (message === null) return [];
+          const headers = message?.payload?.headers ?? [];
+          return [
+            {
+              address: mailbox.address,
+              id: String(message.id ?? ids[at]),
+              threadId: String(message.threadId ?? ""),
+              date: dateOf(message),
+              from: headerValue(headers, "From"),
+              to: headerValue(headers, "To"),
+              subject: headerValue(headers, "Subject"),
+              snippet: unescapeSnippet(message.snippet),
+            },
+          ];
+        });
+      } catch (error) {
+        unanswered.push(mailbox.address);
+        log({ route: "search", outcome: "gmail_error", status: error instanceof GmailApiError ? error.status : 0 });
+        return [];
+      }
+    }),
+  );
   const results: Array<Record<string, string>> = [];
   for (let turn = 0; results.length < limit && perMailbox.some((found) => turn < found.length); turn += 1) {
     for (const found of perMailbox) if (turn < found.length && results.length < limit) results.push(found[turn]!);
@@ -222,7 +233,7 @@ export async function gatewayPersonMailReadHandler(ctx: ActionCtx, body: Record<
   if (token === null) return json({ ok: false, refused: "unavailable" });
   let message;
   try {
-    message = await getMessageOrNull({ fetchImpl: timeoutFetch, accessToken: token, id });
+    message = await getMessageOrNull({ fetchImpl: timeoutFetch, accessToken: token, id, delaysMs: LIVE_RETRY_MS });
   } catch (error) {
     log({ route: "read", outcome: "gmail_error", status: error instanceof GmailApiError ? error.status : 0 });
     return json({ ok: false, refused: "unavailable" });
@@ -239,7 +250,7 @@ export async function gatewayPersonMailReadHandler(ctx: ActionCtx, body: Record<
     if (Number.isFinite(chosen.size) && (chosen.size as number) > MAX_ATTACHMENT_BYTES) return json({ ok: false, refused: "too_large" });
     let bytes: Uint8Array;
     try {
-      bytes = await getAttachmentBytes({ fetchImpl: timeoutFetch, accessToken: token, messageId: id, attachmentId: chosen.attachmentId });
+      bytes = await getAttachmentBytes({ fetchImpl: timeoutFetch, accessToken: token, messageId: id, attachmentId: chosen.attachmentId, delaysMs: LIVE_RETRY_MS });
     } catch (error) {
       log({ route: "attachment", outcome: "gmail_error", status: error instanceof GmailApiError ? error.status : 0 });
       return json({ ok: false, refused: error instanceof GmailApiError && error.status === 404 ? "not_found" : "unavailable" });

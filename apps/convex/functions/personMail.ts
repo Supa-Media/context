@@ -19,7 +19,7 @@ import { defaultGoogleDestinationFolder } from "./lib/googleConnect/validation";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
 
 /** Live reads per person per hour: searches and opened messages together. */
-export const PERSON_MAIL_READS_PER_HOUR = 120;
+export const PERSON_MAIL_READS_PER_HOUR = 300;
 
 const mailbox = v.object({
   connectionId: v.id("googleConnections"),

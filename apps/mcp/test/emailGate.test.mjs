@@ -302,6 +302,13 @@ export async function runEmailGateChecks(check) {
       "an email the limits would refuse is never put to the person",
       pending().length === 0 && JSON.stringify(model.requests.at(-1)?.messages ?? []).includes("5 emails through Context this hour"),
     );
+    controlPlane.flags.emailRefusal = "reconnect_required";
+    model.install([{ toolCalls: [{ name: "send_email", args: EMAIL }] }, { text: "Your Gmail needs reconnecting." }]);
+    await ask(env, TOKEN_TEXTS, "send Jo the thursday email");
+    check(
+      "an email from a Gmail needing reconnecting is never put to the person, and the AI is told to tell them",
+      pending().length === 0 && JSON.stringify(model.requests.at(-1)?.messages ?? []).includes("needs reconnecting"),
+    );
     controlPlane.flags.emailRefusal = null;
 
     controlPlane.flags.emailSender = null;

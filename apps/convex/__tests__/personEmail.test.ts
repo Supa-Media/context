@@ -19,7 +19,8 @@
  * `replyHeadersOf` let a forged header through, failing "a thread's headers
  * become headers only when each is one plain message id"; sending a reply
  * when its message was not found (2026-10-20) failed "a reply to an email the
- * mailbox does not hold sends nothing".
+ * mailbox does not hold sends nothing". Choosing the sender without its
+ * health failed "a Gmail whose sign-in stopped working never sends…".
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -261,6 +262,18 @@ describe("sending an email as the person", () => {
     const { t, aliceWs } = await connected();
     expect(await send(t, ACCESS_A, aliceWs, { email: { ...EMAIL, from: FROM, replyTo: "18gone" } })).toEqual({ ok: false, refused: "reply_not_found" });
     expect(sent).toHaveLength(0);
+  });
+
+  test("a Gmail whose sign-in stopped working never sends: another one does, or the person is told to reconnect", async () => {
+    const sent = gmail();
+    const { t, aliceWs, alice } = await connected();
+    const first = await t.run(async (ctx) => (await ctx.db.query("googleConnections").collect())[0]!._id);
+    await t.run((ctx) => ctx.db.patch(first, { health: "reconnect_required" }));
+    expect(await send(t, ACCESS_A, aliceWs)).toEqual({ ok: false, refused: "reconnect_required" });
+    expect(sent).toHaveLength(0);
+    await connectGmail(t, aliceWs, alice, { address: "alice.work@gmail.example" });
+    expect(await send(t, ACCESS_A, aliceWs)).toEqual({ ok: true, from: "alice.work@gmail.example" });
+    expect(sent).toHaveLength(1);
   });
 
   test("a Gmail failure is reported, not called sent", async () => {

@@ -68,6 +68,7 @@ export type PersonEmailRefusal =
   | "not_allowed"
   | "no_sender"
   | "reply_not_found"
+  | "reconnect_required"
   | "hourly_limit"
   | "daily_limit"
   | "recipient_limit"
