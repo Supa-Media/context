@@ -29,6 +29,7 @@ export function PanelBeside({
   panel,
   pageWidth,
   wide,
+  mainWidth = null,
   style,
   children,
 }: {
@@ -38,12 +39,14 @@ export function PanelBeside({
   pageWidth: number;
   /** A Board, which takes the whole page beside the panel rather than keeping the note's measure. */
   wide: boolean;
+  /** The Board's own width while the panel is closed, kept when the panel lies over it; null for none. */
+  mainWidth?: number | null;
   style: StyleProp<ViewStyle>;
   children: ReactNode;
 }) {
   const styles = useThemedStyles(makeStyles);
   const screen = useWindowDimensions();
-  const peek = panel === null ? null : peekLayout(pageWidth > 0 ? pageWidth : screen.width, noteColumnWidth, wide);
+  const peek = panel === null ? null : peekLayout(pageWidth > 0 ? pageWidth : screen.width, noteColumnWidth, wide, mainWidth);
   if (panel === null || peek === null) {
     return (
       <View style={style}>

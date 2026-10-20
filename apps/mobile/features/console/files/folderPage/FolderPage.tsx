@@ -341,13 +341,15 @@ export function FolderPage({
       : { read: async () => "", save: (text) => setLede(createTarget, text, { create: true }) };
   const problem = loaded.problem ?? tidyProblem ?? tasks.controls?.problem ?? null;
   const peeking = panel.path;
+  // The Board's width on a wide page, centred on the column; the panel keeps it when it lies over the Board.
+  const wideBoard = compact || pageWidth <= 0 || view !== "board" ? null : boardWidth(columnCount, bands.length, pageWidth);
   // Drawn at the width the peek gives it (`PanelBeside`).
   const beside =
     peeking !== null && peeking === about
       ? (width: number) => (
           <AboutPanel
             path={peeking}
-            title={summary?.heading ?? fallbackTitle}
+            title={summary?.title ?? fallbackTitle}
             source={host.source}
             width={width}
             onNavigate={onSelect}
@@ -439,9 +441,9 @@ export function FolderPage({
         />
       ) : null}
       {sheet !== null && sheet === about ? (
-        <AboutSheet path={sheet} title={summary?.heading ?? fallbackTitle} source={host.source} onOpenNote={onSelect} onClose={() => setSheet(null)} />
+        <AboutSheet path={sheet} title={summary?.title ?? fallbackTitle} source={host.source} onOpenNote={onSelect} onClose={() => setSheet(null)} />
       ) : null}
-      <PanelBeside panel={beside} pageWidth={pageWidth} wide={view === "board"} style={styles.contents}>
+      <PanelBeside panel={beside} pageWidth={pageWidth} wide={view === "board"} mainWidth={wideBoard} style={styles.contents}>
         {view === "list" ? (
           tracks ? (
             <RowExtrasProvider extras={extras} edit={rowEdit}>
@@ -462,7 +464,7 @@ export function FolderPage({
               Nothing here is a task yet. Give something a status and it shows here.
             </Text>
           ) : (
-            <View style={compact || pageWidth <= 0 || beside !== null ? undefined : [styles.wide, { width: boardWidth(columnCount, bands.length, pageWidth) }]}>
+            <View style={wideBoard === null || beside !== null ? undefined : [styles.wide, { width: wideBoard }]}>
               <FolderBoard bands={bands} compact={compact} now={now} actions={actions} parked={parked} />
             </View>
           )

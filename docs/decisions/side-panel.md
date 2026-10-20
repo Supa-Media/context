@@ -58,7 +58,10 @@ panel — a subtask, a note — opens it here, and the crumb goes back up.
   least 480pt) and the panel both fit, the panel is beside it, into the room
   at the right first; where they do not, the list keeps its width and the
   panel lies over its right side with a shadow, rather than squeezing both or
-  not opening (`peekLayout`). On the web it stays in view while the list
+  not opening (`peekLayout`). A Board wider than the note's measure keeps
+  its own width and place when the panel lies over it: Dev saw Read more on
+  a projects Board snap the Board right, onto the measure, before the panel
+  covered it (2026-10-20; `taskPanelModel.test.ts`). On the web it stays in view while the list
   scrolls, and scrolls itself. On a phone pressing a row opens its page as it
   always did: a panel over a phone's list is the page with less room.
 - **Opening it folds the file tree away; closing it brings the tree back
