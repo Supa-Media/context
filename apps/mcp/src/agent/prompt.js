@@ -6,6 +6,7 @@
  */
 
 import { PICTURES_LINE } from "./outgoingPictures.js";
+import { NOTE_LINK_LINE } from "./noteLinks.js";
 
 /** The longest any one field of the ambient place may be. A path, not a page. */
 const MAX_PLACE_FIELD = 512;
@@ -142,6 +143,7 @@ export function systemPrompt(
         ...GROUND_RULES,
         // A fact about this build, so a production setup's own words keep it too.
         ...(pictures ? [PICTURES_LINE] : []),
+        NOTE_LINK_LINE,
         ...(production ? [] : ["", ...TEXTING_STYLE]),
       ]
     : [
