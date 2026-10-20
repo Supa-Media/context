@@ -22,6 +22,7 @@ import { withinSharedFolder } from "./paths";
 import { stripComments } from "@context/shared/src/comments.cjs";
 import { anonymousSafe, notAuthenticated, shareUnavailable } from "./errors";
 import type { readShortLinkArgs, readSharedNoteArgs } from "./validators";
+import type { DomainAccess } from "./domainAccess";
 
 /**
  * Read a note through a share.
@@ -79,6 +80,7 @@ export async function readSharedNoteHandler(
   openToAnyone: boolean;
   collecting: boolean;
   editableInContext: string | null;
+  domainAccess: DomainAccess;
 }> {
   // The session is read, not required, and the order is the whole change. A session
   // is *usually* required and is not always: an unlisted link's reader never
@@ -269,6 +271,7 @@ export async function readSharedNoteHandler(
       openToAnyone: grant.openToAnyone,
       collecting: grant.collecting,
       editableInContext: grant.editableInContext,
+      domainAccess: grant.domainAccess,
     };
   }
 
@@ -282,6 +285,7 @@ export async function readSharedNoteHandler(
     openToAnyone: grant.openToAnyone,
     collecting: grant.collecting,
     editableInContext: grant.editableInContext,
+    domainAccess: grant.domainAccess,
   };
 }
 
@@ -315,6 +319,7 @@ async function readWithinSharedFolder(
     openToAnyone: boolean;
     collecting: boolean;
     editableInContext: string | null;
+    domainAccess: DomainAccess;
   },
   requested: string,
   actorUserId: Id<"users"> | null,
@@ -328,6 +333,7 @@ async function readWithinSharedFolder(
   openToAnyone: boolean;
   collecting: boolean;
   editableInContext: string | null;
+  domainAccess: DomainAccess;
 }> {
   const shared = {
     entryPath: grant.entryPath,
@@ -335,6 +341,7 @@ async function readWithinSharedFolder(
     openToAnyone: grant.openToAnyone,
     collecting: grant.collecting,
     editableInContext: grant.editableInContext,
+    domainAccess: grant.domainAccess,
   };
 
   // A note, if it is one. Tried first because it is the cheaper answer and the
@@ -551,6 +558,7 @@ export async function readShortLinkHandler(
   openToAnyone: boolean;
   collecting: boolean;
   editableInContext: string | null;
+  domainAccess: DomainAccess;
 }> {
   // A website file owns its public path before the compatibility link does.
   // Re-check here as well as in the address resolver so a client cannot race

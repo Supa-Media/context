@@ -11,6 +11,7 @@
 
 import { v } from "convex/values";
 import { gatewayLinkSummary } from "./gatewayLinks";
+import { domainAccessValidator } from "./domainAccess";
 
 export const createLinkShareArgs = {
   workspaceId: v.id("workspaces"),
@@ -77,6 +78,8 @@ export const readShortLinkReturns = v.object({
   openToAnyone: v.boolean(),
   collecting: v.boolean(),
   editableInContext: v.union(v.string(), v.null()),
+  /** The email domain a reader could join through (`./domainAccess.ts`). */
+  domainAccess: domainAccessValidator,
 });
 
 export const gatewayCreateLinkArgs = {
@@ -212,4 +215,6 @@ export const readSharedNoteReturns = v.object({
    * who could already have got there by opening their console.
    */
   editableInContext: v.union(v.string(), v.null()),
+  /** The email domain a reader could join through (`./domainAccess.ts`). */
+  domainAccess: domainAccessValidator,
 });

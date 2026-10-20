@@ -19,6 +19,7 @@ import { grantedItemValidator, grantedItemsFor, itemKey } from "./grantedInbox";
 import { shareableRules, sharedNoteTitle, sharerName } from "./inboxTitle";
 import { MAX_SHARES_RETURNED, isLive, shareStillStands } from "./standing";
 import { liveEntryOf } from "./entryNote";
+import { domainAccessFor, domainAccessValidator } from "./domainAccess";
 
 export const resolveShareArgs = { token: v.string() };
 
@@ -291,6 +292,8 @@ export const authorizeShareReadReturns = v.union(
      * that leads to a refusal.
      */
     editableInContext: v.union(v.string(), v.null()),
+    /** The email domain a reader could join through to edit (`./domainAccess.ts`). */
+    domainAccess: domainAccessValidator,
   }),
 );
 
@@ -356,5 +359,7 @@ export async function authorizeShareReadHandler(
     addressedToPerson:
       share.recipientKind === "name" || share.recipientKind === "email",
     editableInContext,
+    domainAccess:
+      editableInContext === null ? await domainAccessFor(ctx, share.workspaceId, args.actorUserId) : null,
   };
 }

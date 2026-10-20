@@ -244,6 +244,14 @@ export interface SharedNote {
    * somebody's context to a stranger holding a link.
    */
   editableInContext: string | null;
+  /**
+   * The email domain this note's workspace is open to, for a reader who is
+   * not in it: `canEdit` when joining that way edits, and `joinSlug` only for
+   * a signed-in reader who holds an address there. Decided by the server
+   * (`convex/functions/lib/shares/domainAccess.ts`); it never names the
+   * workspace to anybody else.
+   */
+  domainAccess: { domain: string; canEdit: boolean; joinSlug: string | null } | null;
 }
 
 export type ShareResult = SharedNote | Error | undefined;
