@@ -35,7 +35,10 @@ what happens to the draft (`apps/mcp/src/tools/emailGate.js`):
    please", "yes, send it", "ok send it"; the owner, 2026-10-19), settled
    before any model runs, from a fixed list anchored at both ends so "yes but
    send it to Sam" is not one; a bare "ok", "sure" or any other text disarms it, even when that text settles
-   something else asked beside it, so a changed draft is a new ask. An email that named no
+   something else asked beside it, so a changed draft is a new ask. The turn
+   that text starts is told which ask it set aside, and that nothing went, so
+   it makes the call again with any change rather than saying the email is
+   still waiting (a held send was lost that way on 2026-10-20). An email that named no
    sender is held with the mailbox it was shown from, and refused rather than
    sent from another if that mailbox is gone. Another AI's email is approved
    in the app, which shows the whole email above its buttons.
@@ -49,7 +52,7 @@ nobody can take back, not a widening.
 person said so" puts the decision in the busiest context there is. Letting
 the checker's "yes" send makes a model the approval. Both are the failure the
 owner named. `apps/mcp/test/emailGate.test.mjs` fails if the hold, the
-switch order, the checker's "no", the caller check or the disarm is removed
+switch order, the checker's "no", the caller check, the disarm or the set-aside line is removed
 (its sabotage record lists each).
 
 ### Rate limits live in the control plane, and are all-or-none
