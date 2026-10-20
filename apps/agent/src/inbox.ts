@@ -209,7 +209,11 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
       // send repeats nothing Linq already accepted; `sent` does the same on
       // a line without keys.
       const line = lineFor(lineDeps(deps), item.message.chatId);
-      const thread = threadFor(item.message);
+      // A text already overtaken by another is answered in its thread, so the answer can't read as one to the newer text.
+      const overtaken = [...(await storage.list<Pending>({ prefix: "pending:" }))].some(
+        ([other, waiting]) => other !== key && waiting.message.chatId === item.message.chatId,
+      );
+      const thread = threadFor(item.message, overtaken);
       for (const [index, part] of reply.entries()) {
         if (index < sent) continue;
         if (item.message.channel === "simulator") {
@@ -244,15 +248,18 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
 }
 
 /**
- * The person's message an answer goes inside the thread of: always the one it
- * answers, so every answer reads next to its question, as people expect from
- * an assistant in iMessage (decided by the owner, 2026-10-19). None only in the
- * simulator, which has no threads.
+ * The person's message an answer goes inside the thread of, or none: Tex
+ * matches how it was texted (decided by the owner, 2026-10-20). A text typed
+ * inside a thread is answered there; a plain text is answered plainly, unless
+ * a newer text overtook it, when its thread keeps the answer next to its
+ * question. Answering every text in its own thread (2026-10-19) put a whole
+ * conversation under an unrelated check-in, because each answer landed in
+ * whatever thread its text was in.
  */
-function threadFor(message: Message): string | undefined {
+function threadFor(message: Message, overtaken = false): string | undefined {
   // A tapback's answer goes plain: under the tapback it would read as a reply to an emoji.
   if (message.channel === "simulator" || !message.messageId || message.tapback) return undefined;
-  return message.messageId;
+  return message.threaded || overtaken ? message.messageId : undefined;
 }
 
 function lineDeps(deps: InboxDeps): LineDeps {
@@ -412,7 +419,7 @@ async function answerTexts(message: Message, deps: InboxDeps, storage: InboxStor
         if (simulator) await record(storage, "in", text, deps.now());
         else {
           const line = lineFor(lineDeps(deps), message.chatId);
-          // Progress lines go into the thread of the message, like its answer.
+          // Progress lines go where the answer will, as far as can be told yet.
           await line.sendText(message.chatId, text, `progress:${message.eventId}:${index}`, threadFor(message));
           // Sending a text clears the bubble; the task is still going.
           await line.startTyping(message.chatId);

@@ -1,11 +1,13 @@
 /**
- * Tex answers inside an iMessage thread (docs.sendblue.com, iMessage inline
- * replies): every answer goes in the thread of the text it answers, inline
- * reply or not, so each answer reads next to what it answers.
+ * Tex answers the way it was texted (docs.sendblue.com, iMessage inline
+ * replies; the owner, 2026-10-20): a text typed inside a thread is answered
+ * there, a plain text plainly, and a text a newer one overtook in its thread,
+ * so the answer reads next to what it answers.
  *
  * Sabotage record (applied, run, observed failing, reverted):
  *  1. `threadFor` returning undefined → "an inline reply is answered inside its
- *     thread" and "a plain text is answered inside its thread too" fail.
+ *     thread" and "a text a newer one overtook…" fail; returning the handle
+ *     always → "a plain text is answered plainly" fails (2026-10-20).
  *  2. `sendMessage` throwing on a refused threaded send instead of sending it
  *     plain → "a thread Sendblue refuses still gets the answer" fails.
  *  3. `index.ts` not setting `threaded` → "an inline reply is queued as one"
@@ -84,15 +86,15 @@ describe("Tex answers inside iMessage threads", () => {
     expect(answers(calls).map((c) => c.body.reply_to)).toEqual([{ message_handle: "mh_r" }]);
   });
 
-  it("a plain text is answered inside its thread too", async () => {
+  it("a plain text is answered plainly, never inside a thread", async () => {
     const storage = new MemoryStorage();
     await accept(storage, message("mh_p", "Make me a poster for a picnic on sunday"), 1_000);
     const calls: Call[] = [];
     await drain(storage, deps(fake(calls)));
-    expect(answers(calls).map((c) => c.body.reply_to)).toEqual([{ message_handle: "mh_p" }]);
+    expect(answers(calls).map((c) => c.body.reply_to)).toEqual([undefined]);
   });
 
-  it("each of several texts is answered under its own message", async () => {
+  it("a text a newer one overtook is answered in its thread, and the newest plainly", async () => {
     const storage = new MemoryStorage();
     await accept(storage, message("mh_a", "first"), 1_000);
     await accept(storage, message("mh_b", "second"), 1_000);
@@ -100,7 +102,7 @@ describe("Tex answers inside iMessage threads", () => {
     await drain(storage, deps(fake(calls)));
     expect(answers(calls).map((c) => [c.body.content, c.body.reply_to])).toEqual([
       ["answer to first", { message_handle: "mh_a" }],
-      ["answer to second", { message_handle: "mh_b" }],
+      ["answer to second", undefined],
     ]);
   });
 

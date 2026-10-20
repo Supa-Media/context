@@ -305,13 +305,9 @@ describe("sendblue sending", () => {
       "/api/v2/contact-sharing/share",
     ]);
     expect(calls[6].body).toEqual({ fromNumber: LINE, toNumber: PHONE });
-    expect(calls[2].body).toEqual({ number: PHONE, from_number: LINE, content: "answer to q", reply_to: { message_handle: "sendblue:mh_1" } });
-    expect(calls[3].body).toEqual({
-      number: PHONE,
-      from_number: LINE,
-      media_url: "https://agent.example/media/abc/def.png",
-      reply_to: { message_handle: "sendblue:mh_1" },
-    });
+    // A plain text is answered plainly (`threadFor`).
+    expect(calls[2].body).toEqual({ number: PHONE, from_number: LINE, content: "answer to q" });
+    expect(calls[3].body).toEqual({ number: PHONE, from_number: LINE, media_url: "https://agent.example/media/abc/def.png" });
     expect(calls[4].body).toEqual({ number: PHONE, from_number: LINE, media_url: "https://agent.example/media/abc/card.vcf" });
     expect(hosted).toEqual(["p.png", "Tex.vcf"]);
   });

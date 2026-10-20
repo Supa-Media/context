@@ -69,12 +69,16 @@ Worker's half.
 
 Asked by Dev, 2026-10-19: Tex answered an inline "try again" with "Try what
 again?", and should answer inside threads "so we can follow the thoughts", as
-Instinct does. On Sendblue, every answer is sent with `reply_to` naming the
-person's message it answers, inline reply or not, so the answer and its
-progress lines land in that thread (`threadFor` in `apps/agent/src/inbox.ts`).
+Instinct does. On Sendblue, an answer is sent with `reply_to` naming the
+person's message it answers when that message was itself typed in a thread
+(below), so the answer and its progress lines land in that thread (`threadFor` in `apps/agent/src/inbox.ts`).
 The first version threaded only inline replies and answers that newer texts
 had passed; Dev expected a plain "make me a poster" to be answered in its
-thread too, so since 2026-10-19 the rule is always. A
+thread too, so on 2026-10-19 the rule became always. That put a whole email
+exchange under an unrelated check-in the same night, each answer landing in
+whatever thread its text was in, so since 2026-10-20 (Dev's choice) Tex
+matches how it was texted: a text typed inside a thread is answered there, a
+plain text plainly, and a text a newer one overtook in its own thread. A
 threaded send Sendblue refuses (400: an older line, a target it no longer
 holds) goes again as a plain text, since a reply outside the thread beats
 none. Routines and check-ins answer no one message and stay plain.
