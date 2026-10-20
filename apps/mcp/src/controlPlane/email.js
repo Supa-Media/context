@@ -17,6 +17,14 @@
 const SEND_TIMEOUT_MS = 45_000;
 const READ_TIMEOUT_MS = 25_000;
 
+/**
+ * An attachment read carries the file as base64: up to the control plane's
+ * 10 MiB file limit, about 14 MB once encoded, plus the email. Held to the
+ * 256 KB every other answer is, any PDF over about 190 KB came back "Gmail did
+ * not answer" (a venue's agreement, 2026-10-20).
+ */
+export const ATTACHMENT_RESPONSE_BYTE_CAP = 15_000_000;
+
 const REFUSALS = new Set(["invalid", "not_allowed", "no_sender", "hourly_limit", "daily_limit", "recipient_limit", "not_configured", "unavailable", "reply_not_found", "reconnect_required"]);
 
 export function createEmailMethods({ post }) {
@@ -57,7 +65,7 @@ export function createEmailMethods({ post }) {
         address,
         id,
         ...(attachment === undefined ? {} : { attachment }),
-      }, { timeoutMs: READ_TIMEOUT_MS });
+      }, { timeoutMs: READ_TIMEOUT_MS, ...(attachment === undefined ? {} : { maxBytes: ATTACHMENT_RESPONSE_BYTE_CAP }) });
       if (answer?.ok === true && answer.message && typeof answer.message === "object") {
         const file = answer.attachment;
         if (attachment !== undefined && (typeof file?.data !== "string" || typeof file?.filename !== "string")) {

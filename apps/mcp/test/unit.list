@@ -147,3 +147,4 @@ test/agentLearnedSkills.test.mjs
 test/agentSteer.test.mjs
 test/agentMemoryNudge.test.mjs
 test/deployedOrigins.test.mjs
+test/emailAttachmentCap.test.mjs

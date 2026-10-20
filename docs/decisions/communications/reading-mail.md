@@ -67,6 +67,10 @@ bytes (up to 10 MB, over the same clearance and rate limit as a read). Both
 turn the bytes into Markdown with Workers AI's `toMarkdown` at request time
 and keep nothing: the file is the record and its words are a derivative.
 Both are `UNTRUSTED_READS`, since a file's words are its author's.
+The gateway accepts that answer up to 15 MB (`ATTACHMENT_RESPONSE_BYTE_CAP`),
+not the 256 KB every other control-plane answer is held to; under that cap
+any PDF over about 190 KB read as "Gmail did not answer" (2026-10-20), and
+`apps/mcp/test/emailAttachmentCap.test.mjs` fails if it returns.
 
 **Who may read.** Only the owner of the personal workspace the mailbox is
 connected to, through a grant holding `context:private`
