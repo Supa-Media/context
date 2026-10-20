@@ -23,12 +23,12 @@ const RULES: readonly Rule[] = [
   { test: /\b(awesome|amazing|let'?s go|yay|so excited|can'?t wait|love (it|this))\b|🎉|🔥/i, emoji: ["🤩"] },
   {
     test: /\b(flyer|poster|logo|design|draw|sketch|picture|photo|image|pic|illustrat\w*|colou?rs?|blue|red|green|anime|cartoon)\b/i,
-    emoji: ["🎨", "🧑‍🎨"],
+    emoji: ["🎨", "🧑\u200D🎨"],
   },
-  { test: /\b(code|coding|bug|website|site|deploy|app|api|script|github|domain|dns)\b/i, emoji: ["👨‍💻"] },
+  { test: /\b(code|coding|bug|website|site|deploy|app|api|script|github|domain|dns)\b/i, emoji: ["👨\u200D💻"] },
   {
     test: /\b(find|look (up|for|into)|search|track down|dig up|where('?s| is| did)|check (again|on|if|whether))\b/i,
-    emoji: ["🔎", "🕵️‍♂️"],
+    emoji: ["🔎", "🕵️\u200D♂️"],
   },
   { test: /\?\s*$|^(what|why|how|when|who|which|should|could|would|is|are|do|does|can)\b/i, emoji: ["🤔"] },
 ];

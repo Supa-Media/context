@@ -8,13 +8,13 @@ describe("the tapback fits the text", () => {
   });
 
   it("looks when they ask to find something, and thinks on a question", () => {
-    expect(["🔎", "🕵️‍♂️"]).toContain(ackEmoji("can you find the lucky strike email"));
+    expect(["🔎", "🕵️\u200D♂️"]).toContain(ackEmoji("can you find the lucky strike email"));
     expect(ackEmoji("what time is dinner on friday?")).toBe("🤔");
   });
 
   it("paints for a picture, codes for a site, and laughs along", () => {
-    expect(["🎨", "🧑‍🎨"]).toContain(ackEmoji("make me a flyer for the picnic"));
-    expect(ackEmoji("the website is down")).toBe("👨‍💻");
+    expect(["🎨", "🧑\u200D🎨"]).toContain(ackEmoji("make me a flyer for the picnic"));
+    expect(ackEmoji("the website is down")).toBe("👨\u200D💻");
     expect(["😭", "😅"]).toContain(ackEmoji("lmao ok"));
     expect(ackEmoji("let's go, the deposit came in")).toBe("🤩");
   });
