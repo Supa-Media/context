@@ -12,7 +12,8 @@
  * or an owner check cannot differ between the app and an agent.
  */
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
+import type { Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery } from "../_generated/server";
 import { recordAudit } from "./lib/audit";
 import { startFreeManagedHandler } from "./lib/billing/freeManaged";
@@ -21,6 +22,17 @@ import { checkAvailability } from "./lib/nameClaims";
 import { describeRejection } from "./lib/names";
 import { createWorkspaceHandler } from "./lib/workspaces/create";
 import { applyStructureHandler } from "./lib/workspaces/structure";
+import { inviteMemberHandler } from "./lib/invitations/invite";
+
+const invitation = v.object({
+  /** A `@name`, a bare name, or an email address. */
+  invitee: v.string(),
+  /** Never `owner`, as `inviteMember`'s own validator. */
+  role: v.union(v.literal("editor"), v.literal("member")),
+});
+
+/** The most people one agent call invites, so one held yes covers a short, readable list. */
+export const MAX_INVITES_PER_CALL = 10;
 
 /** Whether a name is free to claim, in the words the app's name field uses. */
 export const checkName = internalQuery({
@@ -58,6 +70,8 @@ export const createShared = internalMutation({
     actorClientId: v.string(),
     slug: v.string(),
     displayName: v.string(),
+    /** People to invite into it in the same transaction, so one yes makes the workspace and asks them in. */
+    invitations: v.optional(v.array(invitation)),
   },
   returns: v.object({
     workspaceId: v.id("workspaces"),
@@ -81,6 +95,9 @@ export const createShared = internalMutation({
       action: "workspace.created",
       details: { kind: "shared", storage },
     });
+    if (args.invitations !== undefined && args.invitations.length > 0) {
+      await inviteAll(ctx, args.actorUserId, args.actorClientId, created.workspaceId, args.invitations);
+    }
     return { ...created, storage };
   },
 });
@@ -96,3 +113,42 @@ export const applyLayout = internalMutation({
   returns: v.object({ queued: v.boolean(), template: v.string(), folders: v.array(v.string()) }),
   handler: async (ctx, { actorUserId, ...args }) => await applyStructureHandler(ctx, actorUserId, args),
 });
+
+/**
+ * Invitations to a shared workspace, as the person a grant resolved to: the
+ * app's own `inviteMemberHandler`, so the owner check, the string rules, the
+ * rate limit and the pending cap are the app's. All or none: a refusal for one
+ * string rolls back the rest, so a held yes never half-runs.
+ *
+ * `null`, as `inviteMember` returns, whoever the strings turn out to name: the
+ * agent learns nothing about who exists that the app's invite box would not
+ * tell its owner.
+ */
+export const invite = internalMutation({
+  args: {
+    actorUserId: v.id("users"),
+    actorClientId: v.string(),
+    workspaceId: v.id("workspaces"),
+    invitations: v.array(invitation),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await inviteAll(ctx, args.actorUserId, args.actorClientId, args.workspaceId, args.invitations);
+    return null;
+  },
+});
+
+async function inviteAll(
+  ctx: Parameters<typeof inviteMemberHandler>[0],
+  actorUserId: Id<"users">,
+  actorClientId: string,
+  workspaceId: Id<"workspaces">,
+  invitations: { invitee: string; role: "editor" | "member" }[],
+): Promise<void> {
+  if (invitations.length > MAX_INVITES_PER_CALL) {
+    throw new ConvexError({ code: "TOO_MANY_INVITATIONS", message: `Invite at most ${MAX_INVITES_PER_CALL} people at a time.` });
+  }
+  for (const { invitee, role } of invitations) {
+    await inviteMemberHandler(ctx, actorUserId, { workspaceId, invitee, role }, { actorClientId });
+  }
+}
