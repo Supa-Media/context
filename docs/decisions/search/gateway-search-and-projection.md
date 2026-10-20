@@ -51,7 +51,7 @@ the bug this whole feature exists to remove** — a console that reports absence
 for a bucket nothing has read yet is worse than the message it replaced, and the
 palette carries the same rule for a search that is still running or that failed.
 
-### Fast search is on for every workspace, free and Premium, and an owner can turn it off
+### Fast search is on for every workspace, with no switch
 
 Decided by the owner on 2026-10-08: "lets do fast search for all". It reverses
 the section below for fast search, as search by meaning already had
@@ -70,9 +70,12 @@ the words missed.
   last day at once, because each copy spends the account's shared Cloudflare
   request budget and a broken credential must fail a handful rather than
   everyone. `FAST_SEARCH_ROLLOUT=disabled` on the deployment stops it.
-- **The owner's off sticks.** Off still deletes the database, and the row now
-  ends at `off` (`optedOut`) instead of being deleted, so the rollout never
-  turns it back on; only the owner can. A storage disconnect keeps an owner's
+- **There is no off switch (decided by the owner, 2026-10-20: "remove the fast
+  search triggers etc, fast search on by default for everyone").** The console
+  offers no control, and the rollout turns a finished `off` back on, an
+  owner's earlier one included. Before that date the owner's off stuck; the
+  `disable` mutation still exists for the release machinery and its tests,
+  and an off made through it lasts until the next sweep. A storage disconnect keeps an owner's
   off and otherwise removes the row, so a reconnected workspace is picked up
   again. Deleting the workspace keeps nothing.
 
