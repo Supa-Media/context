@@ -199,6 +199,65 @@ test("a text typed in a thread is shown that thread, not the last texts", async 
   assert.equal(threadPrompt(threadView(history, {}, 12)), "");
 });
 
+test("a reply that starts a thread under a plain text is shown what led up to that text", async () => {
+  // Dev, 2026-10-20: replying "send this email now" to Tex's plain "Got it, I won't
+  // contact Luciana" showed the model that one exchange, never the draft before it.
+  const { threadView, threadPrompt } = await import("../src/agent/threadView.js");
+  const store = listingStore();
+  await appendConversation(store, "texts", [], "Make a picnic poster", "Here's the poster.", { at: 1_000 });
+  await appendConversation(store, "texts", [], "email her we'd like Oct 30", "Here's the email I'd send: Hi Luciana, we'd like Oct 30.", { at: 2_000 });
+  await appendConversation(store, "texts", [], "actually don't ask about the hold", "Got it, I won't contact Luciana about the hold.", { at: 3_000 });
+  const history = await readConversation(store, "texts");
+
+  const view = threadView(history, { words: "Got it, I won't contact Luciana about the hold.", replied: true }, 12);
+  assert.notEqual(view.thread, null);
+  assert.ok(view.shown.some((turn) => turn.text.includes("Here's the email I'd send")), "the draft before the replied-to text is shown");
+  assert.equal(view.shown.at(-1).text, "Got it, I won't contact Luciana about the hold.");
+  assert.match(threadPrompt(view), /earlier_texts/, "the turn is told it can read further back");
+
+  // Bounded by the shown turns: the thread's own exchanges win over the lead-in.
+  assert.equal(threadView(history, { words: "Got it, I won't contact Luciana about the hold.", replied: true }, 2).shown.length, 2);
+});
+
+test("a thread is shown its own texts past a setup's short history", async () => {
+  // Dev, 2026-10-20: production's history is four turns, so in the bowling thread the
+  // draft email ("yeah send") was cut and only the cc question and its answer were shown.
+  const { threadView } = await import("../src/agent/threadView.js");
+  const store = listingStore();
+  const hold = await appendConversation(store, "texts", [], "(Not a text from them. This was your own check-in.)", "Lucky Strike's courtesy hold on your Nov 6 lanes expires at 5 pm today.", { at: 1_000 });
+  await appendConversation(store, "texts", [], "make a flyer", "Here's the flyer.", { at: 2_000 });
+  await appendConversation(store, "texts", [], "email her we'd like Oct 30", "Here's the email I'd send: Hi Luciana.", { at: 3_000, thread: hold });
+  await appendConversation(store, "texts", [], "yeah send", "Which David?", { at: 4_000, thread: hold });
+  await appendConversation(store, "texts", [], "david walker", "Is this the David Walker at Fount?", { at: 5_000, thread: hold });
+  await appendConversation(store, "texts", [], "it's a kingdomcity email", "Got it, I won't contact Luciana about the hold.", { at: 6_000, thread: hold });
+  const history = await readConversation(store, "texts");
+
+  const view = threadView(history, { words: "Got it, I won't contact Luciana about the hold.", start: "Lucky Strike's courtesy hold on your Nov 6 lanes expires at 5 pm today.", replied: true }, 4);
+  assert.equal(view.thread, hold);
+  assert.ok(view.shown.some((turn) => turn.text === "Here's the email I'd send: Hi Luciana."), "the draft up the thread is shown");
+  assert.ok(!view.shown.some((turn) => turn.text === "Here's the flyer."), "nothing from outside the thread");
+  assert.equal(view.shown.length, 10);
+  // A setup that shows no history still shows none.
+  assert.equal(threadView(history, { words: "Got it, I won't contact Luciana about the hold.", start: "Lucky Strike's courtesy hold on your Nov 6 lanes expires at 5 pm today.", replied: true }, 0).shown.length, 0);
+});
+
+test("a thread's lead-in never includes what was texted after the thread began", async () => {
+  const { threadView } = await import("../src/agent/threadView.js");
+  const store = listingStore();
+  await appendConversation(store, "texts", [], "what's on Friday", "Dinner at 7.", { at: 1_000 });
+  const poster = await appendConversation(store, "texts", [], "Make a picnic poster", "Here's the poster for Saturday's picnic in the park.", { at: 2_000 });
+  await appendConversation(store, "texts", [], "make our clothes blue", "Done, blue clothes.", { at: 3_000 });
+  await appendConversation(store, "texts", [], "location central park", "Moved it to Central Park.", { at: 4_000, thread: poster });
+  const history = await readConversation(store, "texts");
+
+  const view = threadView(history, { words: "Here's the poster for Saturday's picnic in the park", replied: true }, 12);
+  assert.deepEqual(
+    view.shown.map((turn) => turn.text),
+    ["what's on Friday", "Dinner at 7.", "Make a picnic poster", "Here's the poster for Saturday's picnic in the park.", "location central park", "Moved it to Central Park."],
+  );
+  assert.equal(view.elsewhere, 1);
+});
+
 test("a tapback is named from a fixed list, and the words reacted to lose anything like an address", async () => {
   const { askedWith, quotedOf, reactedLine, reactedOf, tapbackLine } = await import("../src/agent/quoted.js");
   const quoted = quotedOf({ quoted: "Want me to book it?", tapback: "Liked" });
