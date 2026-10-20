@@ -31,6 +31,7 @@ import {
 } from "./model";
 import { MAX_DELIVERY_TRIES, RETRY_AFTER_MS, localDay } from "../attention/model";
 import { MAX_CHECK_IN_TEXTS_A_DAY, firstBeatTomorrow, textsOn } from "./mail";
+import { liveNotices } from "../mailHealth/model";
 
 /** Write is for the gateway's own log of the look (`tex/heartbeat/`); the model is read-only there. */
 const HEARTBEAT_SCOPES = [SCOPE_READ, SCOPE_WRITE, SCOPE_PRIVATE];
@@ -136,7 +137,7 @@ export async function claimDueHeartbeatsHandler(
       row._id,
       attention
         ? { claimedAt: now, runId, runKind: "attention", attentionDueAt: null, updatedAt: now }
-        : { claimedAt: now, runId, runKind: undefined, nextBeatAt: nextBeatAfter(timeZone, now), updatedAt: now },
+        : { claimedAt: now, runId, runKind: undefined, nextBeatAt: nextBeatAfter(timeZone, now), mailRaising: undefined, updatedAt: now },
     );
     await recordAudit(ctx, {
       workspaceId,
@@ -196,6 +197,11 @@ export async function recordHeartbeatResultHandler(
     // From when it started: anything changed during it is looked at by the next one.
     ...(LOOKED_OUTCOMES.has(args.outcome) ? { lastBeatAt: row.claimedAt ?? now } : {}),
     ...(texted ? { lastTextedAt: now, textedDay: today, textedCount: textedToday } : {}),
+    // What it raised about their mailboxes counts as told only once it reached them (`lib/mailHealth/`).
+    ...(texted && (row.mailRaising?.length ?? 0) > 0
+      ? { mailNotices: [...liveNotices(row.mailNotices, now), ...row.mailRaising!.map((raised) => ({ ...raised, at: now }))] }
+      : {}),
+    mailRaising: undefined,
     nextBeatAt: retry,
     updatedAt: now,
   });
