@@ -87,13 +87,14 @@ export function WorkspaceStorageStepBody({
 
   if (managed?.mode === "settling") {
     return <ManagedSettling
-      state={{ paid: managed.paid, free: managed.startedFree, stagingFreeStorage: managed.status?.stagingFreeStorage,
+      state={{ paid: managed.paid, free: managed.startedFree || !managed.selling, stagingFreeStorage: managed.status?.stagingFreeStorage,
         storageReady: connectState.kind === "connected", slow: managed.slow, failure: managed.provisionFailure }}
       contextName={`@${slug}`} onUseOwnStorage={managed.back} onRetry={managed.retry}
     />;
   }
 
-  if (managed !== null && managed.mode === "confirm" && managed.status !== null) {
+  // The confirm screen is a payment step: dormant while nothing is sold.
+  if (managed !== null && managed.mode === "confirm" && managed.status !== null && managed.selling) {
     return (
       <ManagedConfirm
         status={managed.status}
@@ -123,9 +124,9 @@ export function WorkspaceStorageStepBody({
       ) : (
         <StorageChoice
           connect={connect}
-          free={managed?.free ? { cap: managed.free.cap, onChoose: managed.startFree } : undefined}
+          ours={managed?.ours ?? undefined}
           managed={
-            managed === null || !managed.available
+            managed === null || !managed.selling || managed.paid || !managed.available
               ? undefined
               : { price: managed.price, stagingFreeStorage: managed.status?.stagingFreeStorage, onChoose: managed.choose }
           }

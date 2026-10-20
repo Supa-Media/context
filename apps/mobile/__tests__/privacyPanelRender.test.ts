@@ -33,6 +33,7 @@ jest.mock("convex/react", () => ({
   useAction: () => async () => {
     throw new Error("not used in this test");
   },
+  useConvex: () => undefined,
 }));
 
 jest.mock("react-native-safe-area-context", () => ({

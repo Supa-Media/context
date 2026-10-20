@@ -105,6 +105,15 @@ export interface SettingsSectionSpec {
    */
   pendingOnly?: boolean;
   /**
+   * Absent unless this deployment sells something.
+   *
+   * Context is free (decided by the owner, 2026-10-20), so the Plan row is
+   * absent: nothing on the list is about money. The row and its panel are
+   * kept rather than deleted, so turning pricing back on brings them back;
+   * the caller hands over `premium: true` only when billing says it sells.
+   */
+  pricedOnly?: boolean;
+  /**
    * Not a row of its own: reached from a row on another page, and by search.
    *
    * The settings cleanup of 2026-10-10 (the owner: "very cluttered … a lot of
@@ -368,6 +377,7 @@ export const SETTINGS_SECTIONS = [
     group: null,
     icon: "card",
     personalOnly: false,
+    pricedOnly: true,
   },
   {
     key: "storage",
@@ -578,6 +588,8 @@ export function settingsSectionsFor(
     // answer. Same shape, different question: one asks what the product
     // offers, this asks what is true for this person right now.
     if (section.pendingOnly === true && shown[section.key] !== true) return false;
+    // And the row about money, absent while nothing is sold.
+    if (section.pricedOnly === true && shown[section.key] !== true) return false;
     // Account sections belong to the person, not to whichever context they
     // happen to have open, so a context's kind never removes one.
     if (section.scope === "account") return true;

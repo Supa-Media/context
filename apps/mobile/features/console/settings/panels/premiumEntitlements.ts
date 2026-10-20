@@ -41,7 +41,7 @@ export interface EntitlementRow {
  * What Premium can include as a tick box. Managed storage is the only one.
  *
  * Fast search used to be the second box here. Since 2026-10-08 it is on for
- * every workspace, free or paid, and is switched under Storage & search, so it
+ * every workspace, free or paid, with no switch anywhere (2026-10-20), so it
  * is not a Premium choice and has no box. The plan's `selected.fastSearch` flag
  * is still read below, because the control plane still refuses an empty
  * selection by counting it.

@@ -16,8 +16,8 @@ import { formatBytes, premiumStateOf, type PremiumStatus } from "./premium";
  * switches.
  *
  * Fast search is no longer part of Premium. Since 2026-10-08 it is on for every
- * workspace, free or paid, and the owner can still switch it off under Storage
- * & search, so it is not listed here at all.
+ * workspace, free or paid, with no switch anywhere (2026-10-20), so it is not
+ * listed here at all.
  */
 export interface IncludeRow {
   key: "notes" | "domain";

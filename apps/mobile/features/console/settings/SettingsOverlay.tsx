@@ -1,5 +1,6 @@
 import { ScrollView, StyleSheet, useWindowDimensions } from "react-native";
 import { useState } from "react";
+import { useConvex } from "convex/react";
 import { Overlay } from "../../design/components/Overlay";
 import { Text } from "../../design/components/Text";
 
@@ -8,6 +9,7 @@ import { useThemedStyles, type Colors } from "../../design/theme";
 import { SettingsPane } from "../panes/SettingsPane";
 import { AccountSection } from "./AccountSections";
 import { SettingsList } from "./SettingsList";
+import { SellingSource } from "./liveRowValues";
 import { atName } from "../format";
 import type { CheckoutOutcome } from "@context/shared";
 import { selectedContext, type ConsoleData } from "../types";
@@ -110,11 +112,23 @@ export function SettingsOverlay({
     default section through `active` below, the same way a section this
     context does not have already does.
   */
+  /*
+    And Plan is absent unless this deployment sells (`SellingSource`): Context
+    is free (decided by the owner, 2026-10-20). A stale `?settings=premium`
+    therefore lands on the default section, like any other absent one. The
+    one exception is a return from Stripe (`returned`), from a checkout opened
+    before the switch: somebody who has just paid is owed the panel that
+    acknowledges it.
+  */
+  const client = useConvex();
+  const [selling, setSelling] = useState(false);
+  const sellingKnowable = !data.demo && client !== undefined && current !== null;
   const sections = settingsSectionsFor(
     current?.kind === "personal" || current?.kind === "shared" ? current.kind : null,
     {
       plugins: showPluginsSection(data),
       invitations: (data.invitations?.length ?? 0) > 0,
+      premium: (sellingKnowable && selling) || returned !== null,
     },
   );
 
@@ -201,6 +215,11 @@ export function SettingsOverlay({
     </ScrollView>
   );
 
+  const sellingSource =
+    sellingKnowable && current !== null ? (
+      <SellingSource workspaceId={current.id} onSelling={setSelling} />
+    ) : null;
+
   if (compact) {
     return (
       <Overlay
@@ -223,6 +242,7 @@ export function SettingsOverlay({
         onDismiss={onDismiss}
         testID="settings-overlay"
       >
+        {sellingSource}
         {listing ? list : content}
       </Overlay>
     );
@@ -244,6 +264,7 @@ export function SettingsOverlay({
       onDismiss={onDismiss}
       testID="settings-overlay"
     >
+      {sellingSource}
       {content}
     </Overlay>
   );

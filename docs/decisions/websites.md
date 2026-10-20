@@ -443,8 +443,9 @@ product, and a signed-out visitor gets Sign in.
 
 _Approved by the owner with the phone redesign, 2026-09-27._
 
-`/pricing` is the homepage's Pricing page. It used to be the not-found screen,
-and Share handed out `/?page=pricing`. A clean address reaches the app through
+`/pricing` was the homepage's Pricing page (retired 2026-10-20, when Context
+became free: the router now answers it with a 301 to `/`). It used to be the
+not-found screen, and Share handed out `/?page=pricing`. A clean address reaches the app through
 the `app/[handle]` routes (the only dynamic top-level route), which redirect a
 name that is not an `@handle` to `/?page=<name>` on the web, so a visit stays
 one homepage and moving between pages is a change of `?page=` on one screen —

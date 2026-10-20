@@ -196,7 +196,7 @@ export const supportContent: LegalPageContent = {
     {
       title: "Your account and your notes",
       body: [
-        "To download every note as plain Markdown folders, use Download everything in Settings. It is free on every plan, and it still works after you cancel.",
+        "To download every note as plain Markdown folders, use Download everything in Settings. It is free, always.",
         "To delete your account, open Settings, then Profile, then Delete account.",
         "For privacy questions or data requests, see the Privacy Policy or email the same address.",
       ],

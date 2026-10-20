@@ -7,50 +7,33 @@ import { Text } from "../../design/components/Text";
 import { radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { PaneHead } from "../ConsoleShell";
-import { noteHref, settingsHref } from "../nav";
+import { noteHref } from "../nav";
 import {
   countLabel,
   emptyMessage,
   folderOf,
   noteworthySources,
   scopeLabel,
+  slowSearchRows,
   toggleScope,
-  upsellRows,
   type BlendedResult,
-  type UpsellRow,
-  type UpsellTarget,
+  type SlowSearchRow,
 } from "./results";
 import { MEANING_ONLY_LABEL } from "../files/palette";
 import { useBlendedSearch, type BlendedDeviceSearch } from "./useBlendedSearch";
 import { useFieldFont } from "../../design/fieldFont";
 
 /**
- * One row of the upsell: what to say about a context that answered the slow
- * way, and — only where there is a press an owner can act on — a button that
- * opens the settings section that changes it.
- *
- * A row rather than a `PressRow`: most rows here have nothing to press
- * (`href` is `null` for a member watching another owner's "off", and for a
- * context that is merely `preparing`), and a row that is not a control must
- * not look like one.
- *
- * The label comes off the row rather than being fixed here, so the press says
- * what it does ("Turn it on") rather than a generic "Open settings".
+ * One context that answered the slow way, said in a line. Not a control:
+ * fast search is on for every workspace, so there is nothing to press.
  */
-function UpsellRowView({ row, onOpen }: { row: UpsellRow; onOpen: (href: string) => void }) {
+function SlowSearchRowView({ row }: { row: SlowSearchRow }) {
   const styles = useThemedStyles(makeStyles);
   return (
     <View style={styles.nudgeRow} testID={`search-upsell-${row.slug}`}>
       <Text variant="rowSub" style={styles.nudgeText}>
         {row.message}
       </Text>
-      {row.href === null || row.action === null ? null : (
-        <Button
-          label={row.action}
-          onPress={() => onOpen(row.href as string)}
-          testID={`search-upsell-open-${row.slug}`}
-        />
-      )}
     </View>
   );
 }
@@ -88,12 +71,12 @@ function UpsellRowView({ row, onOpen }: { row: UpsellRow; onOpen: (href: string)
  * chip off returns to "all your contexts" rather than searching nothing — see
  * `toggleScope`.
  *
- * ## The upsell is under the results, never instead of them
+ * ## The slow note is under the results, never instead of them
  *
  * Every context somebody belongs to is searched; the ones without a hosted
- * index answer from their own bucket, which is slower. That is worth saying and
- * worth offering to change, and the place for both is **beneath answers the
- * page has already given**. This page used to draw the offer in place of the
+ * index yet answer from their own bucket, which is slower. That is worth
+ * saying, and the place for it is **beneath answers the page has already
+ * given**. This page used to draw the offer in place of the
  * results — four lines naming a setting, over a search that had looked at
  * nothing — which is how a working product came to read as a broken one.
  */
@@ -146,30 +129,19 @@ export function SearchPane({
   const { state, results, answer, contexts } = search;
   const notes = useMemo(() => noteworthySources(answer), [answer]);
   /*
-    The upsell's rows, built once from the contexts that answered the slow way.
-
-    `settingsHref` to the Storage & search section, where the owner's switch is.
-    Fast search is on for every workspace unless its owner turned it off, so
-    there is no other place this offer could send somebody.
+    The slow note's rows, built once from the contexts that answered the slow
+    way. Shown under a settled answer: a sentence about how a search was
+    served, beside no search, is a sentence about nothing.
   */
-  const upsell = useMemo(
-    () => upsellRows(contexts, (slug, target: UpsellTarget) => settingsHref(slug, target)),
-    [contexts],
-  );
-  /*
-    Shown under a settled answer, and under every slow context in it rather
-    than only the ones with a press behind them — see `upsellRows`. It waits
-    for the answer because a sentence about how a search was served, beside no
-    search, is a sentence about nothing.
-  */
-  const showUpsell =
-    upsell.length > 0 &&
+  const slow = useMemo(() => slowSearchRows(contexts), [contexts]);
+  const showSlow =
+    slow.length > 0 &&
     state !== "idle" &&
     state !== "searching" &&
     state !== "failed" &&
     // An answer from the device was not searched from anybody's bucket, fast
-    // or slow, and an offer to make that faster would describe a search that
-    // did not happen.
+    // or slow, and a note about that would describe a search that did not
+    // happen.
     search.notice === null;
 
   const open = useCallback(
@@ -372,19 +344,15 @@ export function SearchPane({
         ) : null}
 
         {/*
-          The offer, at the bottom of the answer it is an offer about.
-
-          Below "Load more" on purpose: reading the results and asking for more
-          of them is the thing somebody came here to do, and an upgrade prompt
-          between a list and its own "more" button is an interruption of the
-          one task the page has. Down here it is what a person reaches after
-          the answer, which is also when "that took a moment" is a thought they
-          have actually had.
+          The note, at the bottom of the answer it is about, below "Load more":
+          reading the results and asking for more of them is what somebody came
+          here to do. Down here it is what a person reaches after the answer,
+          which is also when "that took a moment" is a thought they have had.
         */}
-        {showUpsell ? (
+        {showSlow ? (
           <View style={styles.upsell} testID="search-upsell">
-            {upsell.map((row) => (
-              <UpsellRowView key={row.workspaceId} row={row} onOpen={onOpen} />
+            {slow.map((row) => (
+              <SlowSearchRowView key={row.workspaceId} row={row} />
             ))}
           </View>
         ) : null}

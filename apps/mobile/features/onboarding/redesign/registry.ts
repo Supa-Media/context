@@ -24,7 +24,6 @@ import { ForkStep } from "./ForkStep";
 import { BootstrapStep } from "./BootstrapStep";
 import { BOOTSTRAP_PROMPT } from "../agents";
 import { ToolsLiveStep, type LiveEvent } from "./ToolsLiveStep";
-import { PaymentStep } from "./PaymentStep";
 import { DryRunStep } from "./DryRunStep";
 import { dryRunReport } from "../dryRun";
 import { PointAtBucket } from "../steps/PointAtBucket";
@@ -41,7 +40,6 @@ export type PreviewKey =
   | "bootstrap"
   | "tools-live-waiting"
   | "tools-live-connected"
-  | "payment"
   | "dry-run"
   | "point-at-bucket"
   | "setup-widget"
@@ -109,7 +107,7 @@ export const PREVIEWS: readonly PreviewEntry[] = [
     key: "fork",
     title: "A-04 · Fork",
     Component: ForkStep as ComponentType<Record<string, unknown>>,
-    props: { offer: { kind: "free", cap: 1000 }, onPickManaged: noop, onPickBYO: noop },
+    props: { offer: { kind: "free" }, onPickManaged: noop, onPickBYO: noop },
   },
   {
     key: "connections",
@@ -134,12 +132,6 @@ export const PREVIEWS: readonly PreviewEntry[] = [
     title: "A-07 · Tools live (connected)",
     Component: ToolsLiveStep as ComponentType<Record<string, unknown>>,
     props: { state: "connected", events: MOCK_EVENTS, onContinue: noop },
-  },
-  {
-    key: "payment",
-    title: "A-08 · Payment nudge",
-    Component: PaymentStep as ComponentType<Record<string, unknown>>,
-    props: { used: 1000, cap: 1000, monthly: "$5 / mo", ceiling: "50 GB", onLevelUp: noop, onBringOwn: noop },
   },
   {
     key: "dry-run",

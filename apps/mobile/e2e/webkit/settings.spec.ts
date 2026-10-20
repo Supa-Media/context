@@ -356,7 +356,9 @@ test.describe("at a pointer width", () => {
  * file's header shipped past a green suite.
  *
  * The fixture reads `?checkout=` exactly as `(app)/console/_layout.tsx` does,
- * and hands it to the same overlay.
+ * and hands it to the same overlay. Context is free now (2026-10-20), so the
+ * Plan row is listed only for such a return, from a checkout opened before the
+ * switch; the rest of the priced path is dormant.
  */
 test.describe("back from Stripe", () => {
   test("the payment is acknowledged before the plan has caught up", async ({ page }) => {
@@ -398,14 +400,16 @@ test.describe("back from Stripe", () => {
     await expect(notice).toContainText("No payment was taken");
   });
 
-  test("an ordinary visit shows no such notice", async ({ page }) => {
-    // The negative, in a browser: a section reached without a return URL must
-    // not tell somebody anything about a payment they did not make.
+  test("an ordinary visit has no Plan row at all", async ({ page }) => {
+    // The negative, in a browser: Context is free (2026-10-20), so without a
+    // return URL the list has nothing about money on it, and nothing tells
+    // somebody about a payment they did not make.
     await openConsole(page);
     await tap(page, ACCOUNT_MENU);
     await page.getByTestId(ACCOUNT_SETTINGS).tap();
-    await page.getByTestId("settings-section-premium").tap();
-    await expect(page.getByTestId("premium-title")).toBeVisible();
+    await expect(page.getByTestId("settings-overlay")).toBeVisible();
+    await expect(page.getByTestId("settings-section-storage")).toBeVisible();
+    await expect(page.getByTestId("settings-section-premium")).toHaveCount(0);
     await expect(page.getByTestId("premium-checkout-return")).toHaveCount(0);
   });
 });

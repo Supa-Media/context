@@ -3,23 +3,22 @@
  */
 
 /**
- * THE SEARCH PAGE, MOUNTED: THE WAY OUT, AND THE OFFER.
+ * THE SEARCH PAGE, MOUNTED: THE WAY OUT, AND THE SLOW NOTE.
  *
- * `consoleSearchPage.test.ts` holds the pure rules (`upsellMessage`,
- * `upsellRows`, `upsellTarget`, `worthUpselling`); what only exists inside the
- * component is *where* the offer appears, *what a press on it does*, and that
- * there is a way off the page at all — and this file exists because the last
+ * `consoleSearchPage.test.ts` holds the pure rules (`slowSearchMessage`,
+ * `slowSearchRows`); what only exists inside the component is *where* the
+ * note appears, that it offers nothing to press (fast search is on for
+ * everyone since 2026-10-20), and that there is a way off the page at all — and this file exists because the last
  * one was missing in shipped code. A phone draws no rail and no bottom toolbar
  * on an app-level pane, so the page had exactly one exit: the context strip,
  * whose pill for the context you are in deselected a note and navigated
  * nowhere. You could walk into Search and not walk out.
  *
- * The offer is the other half of the same complaint. This page used to search
+ * The note is the other half of the same complaint. This page used to search
  * only the contexts with a hosted index and apologise to everybody else —
- * `state: "no-contexts"` over four contexts full of notes — with no upgrade
- * offered anywhere in the apology. It searches everything now, slowly where it
- * must, and the offer sits under the results as an offer rather than instead of
- * them.
+ * `state: "no-contexts"` over four contexts full of notes. It searches
+ * everything now, slowly where it must, and the note sits under the results
+ * rather than instead of them.
  *
  * `useBlendedSearch` is mocked rather than driven through Convex: the hook's
  * own contract (debounce, staleness, the timeout race) is `blendedSearchHook`'s
@@ -201,44 +200,40 @@ describe("the way out", () => {
 });
 
 describe("a context with no hosted index is searched, not apologised for", () => {
-  test("its results are on the page, and the offer is underneath them", async () => {
-    const { text, onOpen } = mount(baseView());
+  test("its results are on the page, and the note is underneath them, with nothing to press", () => {
+    const { text } = mount(baseView());
 
     // Results first — this is the whole change. The page used to draw four
     // lines of apology in their place.
     expect(text()).toContain("Review cycle");
-    expect(text()).toContain("was searched from your own bucket");
-    expect(text()).toContain("Fast search makes it instant");
-
-    await press("search-upsell-open-my-workspace");
-    expect(onOpen).toHaveBeenCalledWith("/console/@my-workspace?settings=storage");
+    expect(text()).toContain("was searched from its own bucket");
+    // Fast search is on for everyone (2026-10-20): no offer, no switch.
+    expect(text()).not.toContain("Turn it on");
+    expect(text()).not.toContain("Fast search makes it instant");
+    expect(document.body.querySelector('[data-testid="search-upsell"]')).not.toBeNull();
+    expect(
+      document.body.querySelector('[data-testid="search-upsell-my-workspace"] button, [data-testid="search-upsell-my-workspace"] [role="button"]'),
+    ).toBeNull();
   });
 
-  test("a context whose hosted index is unavailable is searched from its bucket, with no press and no Premium", () => {
-    // Fast search is not part of Premium, so an unavailable index is not an
-    // upsell: it says the search read the bucket, and offers nothing to press.
+  test("a context whose hosted index is unavailable is searched from its bucket, with no Premium", () => {
     const { text } = mount(
       baseView({ contexts: [context({ fastSearch: "unavailable" })] }),
     );
     expect(text()).toContain("was searched from its own bucket, which is slower.");
     expect(text()).not.toContain("Premium");
     expect(text()).not.toContain("Fast search");
-    expect(
-      document.body.querySelector('[data-testid="search-upsell-open-my-workspace"]'),
-    ).toBeNull();
   });
 
-  test("somebody else's context says whose decision it is, with nothing to press", () => {
+  test("somebody else's context reads the same, and asks nobody to turn anything on", () => {
     const { text } = mount(
       baseView({
         contexts: [context({ slug: "team-workspace", owner: false })],
         results: [{ ...hit, slug: "team-workspace" }],
       }),
     );
-    expect(text()).toContain("Its owner can turn fast search on");
-    expect(
-      document.body.querySelector('[data-testid="search-upsell-open-team-workspace"]'),
-    ).toBeNull();
+    expect(text()).toContain("@team-workspace was searched from its own bucket");
+    expect(text()).not.toContain("turn fast search on");
   });
 
   test("a context still building its index says so honestly, with nothing to press", () => {
@@ -247,17 +242,14 @@ describe("a context with no hosted index is searched, not apologised for", () =>
     );
     expect(text()).toContain("still being built");
     expect(text()).not.toContain("Nothing matches");
-    expect(
-      document.body.querySelector('[data-testid="search-upsell-open-big-workspace"]'),
-    ).toBeNull();
   });
 
-  test("nothing slow means no offer at all", () => {
+  test("nothing slow means no note at all", () => {
     mount(baseView({ contexts: [context({ search: "fast", fastSearch: "on" })] }));
     expect(document.body.querySelector('[data-testid="search-upsell"]')).toBeNull();
   });
 
-  test("the offer waits for an answer rather than riding a half-typed query", () => {
+  test("the note waits for an answer rather than riding a half-typed query", () => {
     mount(baseView({ state: "searching", results: [] }));
     expect(document.body.querySelector('[data-testid="search-upsell"]')).toBeNull();
   });

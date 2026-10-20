@@ -81,13 +81,11 @@ export function DomainSection({
   workspaceId,
   handle,
   demo,
-  onOpenPremium,
 }: {
   sectioned: boolean;
   workspaceId: string | null;
   handle: string;
   demo: boolean;
-  onOpenPremium?: () => void;
 }) {
   /*
     `useConvex` returns `undefined` with no provider in the tree: the landing
@@ -118,9 +116,9 @@ export function DomainSection({
         </>
       ) : null}
       {fixed !== null ? (
-        <DomainPanel view={fixed} handle={handle} onOpenPremium={onOpenPremium} />
+        <DomainPanel view={fixed} handle={handle} />
       ) : (
-        <LiveDomainPanel workspaceId={workspaceId} handle={handle} onOpenPremium={onOpenPremium} />
+        <LiveDomainPanel workspaceId={workspaceId} handle={handle} />
       )}
     </>
   );
@@ -139,14 +137,12 @@ function DomainIntro() {
 function LiveDomainPanel({
   workspaceId,
   handle,
-  onOpenPremium,
 }: {
   workspaceId: string | null;
   handle: string;
-  onOpenPremium?: () => void;
 }) {
   const view = useDomain(workspaceId);
-  return <DomainPanel view={view} handle={handle} onOpenPremium={onOpenPremium} />;
+  return <DomainPanel view={view} handle={handle} />;
 }
 
 /**
@@ -161,12 +157,10 @@ function LiveDomainPanel({
 export function DomainPanel({
   view,
   handle,
-  onOpenPremium,
 }: {
   view: DomainPanelView;
   /** The workspace's own handle, for the "Links … open at context.lc/@…" line. */
   handle: string;
-  onOpenPremium?: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const { settings, actions } = view;
@@ -196,7 +190,7 @@ export function DomainPanel({
   return (
     <View>
       {domain !== null ? (
-        <DomainCard domain={domain} actions={actions} view={view} onOpenPremium={onOpenPremium} />
+        <DomainCard domain={domain} actions={actions} view={view} />
       ) : !settings.paying && Platform.OS !== "web" ? (
         <Card><Text variant="rowTitle">No domain connected</Text>
           <Text variant="rowSub">{`Links from this workspace open at context.lc/@${handle}/…`}</Text>
@@ -212,9 +206,6 @@ export function DomainPanel({
                   : "With Premium, shared links can open at an address you own. An owner can turn on Premium."}
               </Text>
             </Grow>
-            {actions !== undefined && onOpenPremium !== undefined ? (
-              <Button variant="mini" label="See Premium" onPress={onOpenPremium} />
-            ) : null}
           </Row>
         </Card>
       ) : actions !== undefined ? (
@@ -324,12 +315,10 @@ function DomainCard({
   domain,
   actions,
   view,
-  onOpenPremium,
 }: {
   domain: DomainView;
   actions?: DomainActions;
   view: DomainPanelView;
-  onOpenPremium?: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const pill = domainPill(domain);
@@ -391,13 +380,10 @@ function DomainCard({
 
       {domain.status === "suspended" ? (
         <Notice tone="neutral" style={styles.block}>
-          <Text variant="rowTitle">{Platform.OS === "web" ? "Paused while Premium is off" : "Domain paused"}</Text>
+          <Text variant="rowTitle">Domain paused</Text>
           <Text variant="rowSub" style={styles.sub}>
-            {`${domain.hostname} isn't serving right now. Your links still work at context.lc, and nothing has been deleted.${Platform.OS === "web" ? " Turn Premium back on and it comes straight back." : ""}`}
+            {`${domain.hostname} isn't serving right now. Your links still work at context.lc, and nothing has been deleted.`}
           </Text>
-          {Platform.OS === "web" && owner && onOpenPremium !== undefined ? (
-            <Button variant="mini" label="Open Premium" onPress={onOpenPremium} style={styles.noticeButton} />
-          ) : null}
         </Notice>
       ) : null}
 
@@ -545,6 +531,5 @@ const makeStyles = (_colors: Colors) =>
     checkLine: { marginTop: 13 },
     removeRow: { marginTop: 13 },
     grow: { flex: 1 },
-    noticeButton: { marginTop: 10, alignSelf: "flex-start" },
     intro: { marginTop: 26, marginBottom: 12 },
   });

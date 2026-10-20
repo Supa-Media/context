@@ -64,7 +64,9 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
+/** A deployment that sells: the priced path, dormant while Context is free. */
 const status: PremiumStatus = {
+  free: false,
   status: "none",
   selected: { managedStorage: true, fastSearch: false },
   active: { managedStorage: false, fastSearch: false },
@@ -96,6 +98,8 @@ function offer(over: Partial<ManagedOffer> = {}): ManagedOffer {
     startedFree: false,
     startFree: () => {},
     startingFree: false,
+    ours: null,
+    selling: true,
     ...over,
   };
 }
@@ -126,7 +130,31 @@ function mount(managed: ManagedOffer | null): HTMLElement {
   return container;
 }
 
-describe("the bucket step of a new workspace", () => {
+describe("the bucket step of a new workspace, while Context is free", () => {
+  const free = (over: Partial<ManagedOffer> = {}) =>
+    offer({ status: { ...status, free: true }, selling: false, ours: { onChoose: () => {} }, ...over });
+
+  test("offers storage we run first, with no price, and no priced card", () => {
+    const container = mount(free());
+    const order = [...container.querySelectorAll("[data-testid]")]
+      .map((node) => node.getAttribute("data-testid"))
+      .filter((id) => id !== null && id.startsWith("choose-"));
+    expect(order).toEqual(["choose-ours", "choose-own-storage"]);
+    expect(container.textContent).not.toMatch(/\$\d|Premium|Free storage|1,000 notes/);
+  });
+
+  test("pressing it starts the bucket, and never a confirm screen", () => {
+    let started = 0;
+    const container = mount(free({ ours: { onChoose: () => (started += 1) } }));
+    act(() => (container.querySelector('[data-testid="choose-ours"]') as HTMLElement).click());
+    expect(started).toBe(1);
+    // A stale confirm mode is not drawn either: it is a payment step.
+    const confirm = mount(free({ mode: "confirm" }));
+    expect(confirm.textContent).not.toContain("$5 a month");
+  });
+});
+
+describe("the bucket step of a new workspace, where the deployment sells", () => {
   test("offers storage we run, at the price, beside the one they bring", () => {
     const container = mount(offer());
     const card = container.querySelector('[data-testid="choose-managed"]');

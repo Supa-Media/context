@@ -16,6 +16,7 @@ import {
   wouldEmptyRequiredSelection,
 } from "../console/settings/panels/premiumEntitlements";
 import { foundingAtNoCharge } from "../console/settings/panels/founding";
+import { isSelling } from "../console/settings/panels/selling";
 import type { ManagedConfirmState } from "./steps/ManagedConfirm";
 
 /**
@@ -108,6 +109,20 @@ export interface ManagedOffer {
   startFree: () => void;
   /** The free start has been asked for and has not answered yet. */
   startingFree: boolean;
+  /**
+   * Storage we run, as the one offer with no price on it: the free start
+   * where this owner may take it, or the bucket a plan that is already active
+   * starts with no confirm screen (there is nothing left to pay). `null`
+   * where neither would go through. Offered on every platform: nothing is
+   * sold by pressing it.
+   */
+  ours: { onChoose: () => void } | null;
+  /**
+   * Whether this deployment sells (`isSelling`). Only then are the priced
+   * card and the confirm screen behind it drawn; while Context is free they
+   * stay dormant.
+   */
+  selling: boolean;
 }
 
 export function useManagedOffer(options: {
@@ -273,6 +288,41 @@ export function useManagedOffer(options: {
       .finally(() => setStartingFree(false));
   }, [convex, startingFree, workspaceId]);
 
+  /*
+    An active plan (a founder, a subscription still being wound down) is
+    refused the free start, and has nothing to confirm: choosing our storage
+    on a paying plan is the selection itself, the same write `choose` makes,
+    and the server starts the bucket from it. Then the settling screen, as
+    after a free start.
+  */
+  const startOnActivePlan = useCallback(() => {
+    if (workspaceId === null) return;
+    setFailure(undefined);
+    void convex
+      .mutation(api.functions.billing.setEntitlements, {
+        workspaceId,
+        managedStorage: true,
+        fastSearch: status?.selected.fastSearch ?? false,
+      })
+      .then(() => setMode("settling"))
+      .catch(() => setFailure("That did not go through. Check your connection and try again."));
+  }, [convex, status?.selected.fastSearch, workspaceId]);
+
+  const freeTier =
+    status?.freeManagedAvailable === true && status.freeManagedEligible === true
+      ? { cap: status.freeManagedNoteCap ?? 1000 }
+      : null;
+  const selling = isSelling(status);
+  const ours =
+    freeTier !== null
+      ? { onChoose: startFree }
+      : status !== null &&
+          status.status === "active" &&
+          status.canManage &&
+          status.managedStorageAvailable === true
+        ? { onChoose: startOnActivePlan }
+        : null;
+
   const sessionState: ManagedConfirmState =
     session?.status === "failed"
       ? "failed"
@@ -305,12 +355,11 @@ export function useManagedOffer(options: {
     toggle,
     proceed,
     retry,
-    free:
-      status?.freeManagedAvailable === true && status.freeManagedEligible === true
-        ? { cap: status.freeManagedNoteCap ?? 1000 }
-        : null,
+    free: freeTier,
     startedFree: status?.freeManaged === true,
     startFree,
     startingFree,
+    ours,
+    selling,
   };
 }

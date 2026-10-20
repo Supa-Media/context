@@ -3,12 +3,13 @@
  *
  * The owner decided on 2026-10-08 ("lets do fast search for all") that every
  * workspace gets the fast index, free plan included, and the owner can still
- * switch it off. What is asserted: the rollout reaches every workspace with
- * storage a few at a time, never turns back on what an owner turned off, and
+ * switch it off. On 2026-10-20 the owner removed the switch ("fast search on by
+ * default for everyone"). What is asserted: the rollout reaches every workspace
+ * with storage a few at a time, turns back on what an owner had turned off, and
  * a storage disconnect or a deleted workspace leaves the right thing behind.
  *
  * Sabotage record (temporary local edits, reverted):
- *   `autoEnableHandler` not checking for an existing row → "an owner's off is never turned back on…" fails
+ *   `autoEnableHandler` skipping a finished off           → "an owner's earlier off is turned back on…" fails
  *   `forgetIndexHandler` deleting an opted-out row        → "off deletes the database and keeps the row…" fails
  *   the in-flight count ignored                           → "a few at a time…" and "recent failures…" fail
  *   `releaseForStorage` ignoring `optedOut`               → "a storage disconnect keeps an owner's off" fails
@@ -137,7 +138,7 @@ describe("the rollout", () => {
     expect(await row(t, waiting.workspaceId)).toBeNull();
   });
 
-  test("an owner's off is never turned back on by the rollout", async () => {
+  test("an owner's earlier off is turned back on: there is no switch any more (2026-10-20)", async () => {
     const t = deployment();
     const declined = await workspace(t, "declined");
     // Off before the rollout ever reached it.
@@ -148,10 +149,9 @@ describe("the rollout", () => {
     expect((await row(t, declined.workspaceId))?.status).toBe("off");
 
     for (let lap = 0; lap < 3; lap += 1) await sweep(t);
-    const kept = await row(t, declined.workspaceId);
-    expect(kept?.status).toBe("off");
-    expect(kept?.optedIn).toBe(false);
-    expect(kept?.optedOut).toBe(true);
+    const back = await row(t, declined.workspaceId);
+    expect(back?.optedIn).toBe(true);
+    expect(back?.optedOut).toBeUndefined();
   });
 
   test("the brake stops it", async () => {
@@ -164,7 +164,7 @@ describe("the rollout", () => {
 });
 
 describe("the owner's switch", () => {
-  test("off deletes the database and keeps the row, so it stays off; on builds it again", async () => {
+  test("off deletes the database and keeps the row; the rollout builds it again", async () => {
     const t = deployment();
     const { owner, workspaceId } = await workspace(t, "switch");
     await seedRow(t, workspaceId, { status: "ready", notesIndexed: 12, notesPending: 0 });
@@ -180,14 +180,10 @@ describe("the owner's switch", () => {
     expect(kept?.notesIndexed).toBeUndefined();
 
     await sweep(t);
-    expect((await row(t, workspaceId))?.status).toBe("off");
-
-    const on = await asUser(t, owner).mutation(api.functions.fastSearch.enable, { workspaceId });
-    expect(on.state).toBe("preparing");
     const back = await row(t, workspaceId);
+    expect(back?.status).toBe("provisioning");
     expect(back?.optedIn).toBe(true);
     expect(back?.optedOut).toBeUndefined();
-    expect(back?.optedInBy).toBe(owner);
   });
 
   test("a storage disconnect keeps an owner's off, and drops a row Context made", async () => {

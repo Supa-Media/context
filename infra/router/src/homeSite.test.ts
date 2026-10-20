@@ -14,6 +14,7 @@ import {
   homePagePathOf,
   injectHomeSnapshot,
   parseHomeSnapshot,
+  retiredHomePageRedirect,
   type HomeSnapshot,
 } from "./homeSite";
 // The app's source, read as plain text: importing it (even with Vite's `?raw`)
@@ -115,6 +116,39 @@ describe("the homepage's HTML", () => {
   it("a page's own address carries the site", async () => {
     const html = await (await get("/Legal/privacy")).text();
     expect(carried(html)).toEqual(SITE);
+  });
+
+  /*
+    Context is free (2026-10-20) and the Pricing page is gone. Its address
+    moves to the welcome page for good, for people and crawlers alike, and
+    asks nothing of Convex or the app on the way.
+  */
+  it.each(["/pricing", "/pricing/", "/Pricing"])("%s moves to / for good", async (path) => {
+    const response = await get(path);
+    expect(response.status).toBe(301);
+    expect(response.headers.get("Location")).toBe("https://context.lc/");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("a crawler asking for /pricing is moved too", async () => {
+    const response = (await worker.fetch(
+      new Request("https://context.lc/pricing", { headers: { "User-Agent": "Googlebot/2.1" } }),
+      ENV,
+      CTX,
+    )) as Response;
+    expect(response.status).toBe(301);
+    expect(response.headers.get("Location")).toBe("https://context.lc/");
+  });
+
+  it("only the retired address moves: /pricing-typo and a POST are left alone", async () => {
+    expect(retiredHomePageRedirect(new Request("https://context.lc/pricing", { method: "POST" }), new URL("https://context.lc/pricing"))).toBeNull();
+    expect(retiredHomePageRedirect(new Request("https://context.lc/pricing-typo"), new URL("https://context.lc/pricing-typo"))).toBeNull();
+    expect(retiredHomePageRedirect(new Request("https://context.lc/pricing/plans"), new URL("https://context.lc/pricing/plans"))).toBeNull();
+  });
+
+  it("tex.lc has no Pricing page to retire", async () => {
+    const response = await get("/pricing", "tex.lc");
+    expect(response.status).not.toBe(301);
   });
 
   it("a name the site has no page for is left as it came", async () => {

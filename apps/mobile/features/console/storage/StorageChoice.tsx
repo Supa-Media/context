@@ -16,15 +16,22 @@ import type { ConnectFormValues } from "./connect";
 export function StorageChoice({
   connect,
   onCancel,
-  free,
+  ours,
   managed,
 }: {
   connect: (values: ConnectFormValues) => Promise<{ status: string }>;
   /** Present when this is replacing a binding rather than making the first one. */
   onCancel?: () => void;
-  /** The no-card managed tier, when the control plane says this owner may start it. */
-  free?: { cap: number; onChoose: () => void };
-  /** Absent unless billing says this deployment can provision the storage. */
+  /**
+   * Storage we run, when this owner can start it here. One offer: no price,
+   * no cap, no tier. First, because it is the path with nothing to set up.
+   */
+  ours?: { onChoose: () => void };
+  /**
+   * The priced card. Dormant while Context is free: callers pass it only when
+   * billing says this deployment sells (`isSelling`), so turning pricing back
+   * on brings it back unchanged.
+   */
   managed?: { price: string; founding?: boolean; stagingFreeStorage?: boolean; onChoose: () => void };
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -34,6 +41,15 @@ export function StorageChoice({
   return (
     <View style={styles.stack}>
       <View style={styles.cards}>
+        {ours === undefined ? null : (
+          <ChoiceCard
+            testID="choose-ours"
+            title="Storage we run"
+            sub="We set up a bucket for this workspace and keep it running. Nothing to configure, and you can download every note any time."
+            selected={false}
+            onPress={ours.onChoose}
+          />
+        )}
         <ChoiceCard
           testID="choose-own-storage"
           title="Bring your own storage"
@@ -44,17 +60,6 @@ export function StorageChoice({
             setBucketOpen(false);
           }}
         />
-        {free === undefined ? null : (
-          <ChoiceCard
-            testID="choose-free"
-            title="Free storage"
-            sub={`${free.cap.toLocaleString("en-US")} notes, no time limit. Context sets up the bucket and keeps it running. No card required.`}
-            badge="Free"
-            badgeTone="ok"
-            selected={false}
-            onPress={free.onChoose}
-          />
-        )}
         {Platform.OS !== "web" || managed === undefined ? null : (
           /*
             The badge is the number and the sub says what kind of number it is.

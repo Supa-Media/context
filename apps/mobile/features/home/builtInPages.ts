@@ -7,7 +7,7 @@
  * Each is written as a website page (frontmatter for title and menu order),
  * the same format as the files in `website/`, which is where the homepage is
  * edited. `homeSite.test.ts` keeps these honest where honesty is checkable (no
- * em dashes, the price the checkout charges, every page parses as a website
+ * em dashes, every page parses as a website
  * page).
  */
 export const BUILT_IN_PAGES: Readonly<Record<string, string>> = {
@@ -33,9 +33,9 @@ You're reading a workspace in Context right now. The pages in the sidebar are no
 
 ## Yours to keep
 
-- Your notes live in a bucket dedicated to your workspace. The one copy we keep, for Fast Search, is off until you turn it on.
+- Your notes live in a bucket dedicated to your workspace. The one copy we keep is a search index, rebuilt from your notes whenever it is needed.
 - Every note is a real file in a real folder. Open it in Obsidian or any text editor.
-- Leaving is free on every plan. Download everything, or hand over the bucket.
+- Leaving is free. Download everything as plain folders, or hand over the bucket.
 `,
   "how-it-works": `---
 title: How it works
@@ -115,7 +115,7 @@ Bring your own bucket on Cloudflare R2, AWS S3 or anything compatible, and Conte
 
 ## Leaving is free
 
-Download everything, or hand the bucket to storage of your own. It works the same on both plans, and it still works after you cancel. Cancelling puts a workspace back on the free plan. It never deletes anything.
+Download everything as plain folders, or hand the bucket to storage of your own. Both are free, always, and neither one deletes anything.
 
 Search indexes are copies we can rebuild from your files. They are never the only copy of anything.
 `,
@@ -141,36 +141,9 @@ Each folder has a default, and a single note can differ from its folder. The rul
 
 An AI tool can read exactly what the person who connected it can read, and nothing more. Your private notes never reach a teammate's AI.
 `,
-  "pricing": `---
-title: Pricing
-nav: 5
----
-
-# Pricing
-
-Free on your own storage. $5 a month per workspace on ours.
-
-## Free
-
-Connect your own bucket on R2, S3 or anything compatible. You pay your storage provider, and you pay us nothing.
-
-- Every feature, every AI tool
-- An email address that saves messages into your inbox folder
-- Self-host the whole thing if you like
-
-## Managed, $5 a month per workspace
-
-We create the bucket and pay for it. Early tester price, held for as long as you keep it.
-
-- Everything in Free
-- Up to 50 GB of storage, with nothing to set up
-- Fast Search, which keeps a rebuildable copy of your text in a database we run
-
-[<kbd>Join the waitlist</kbd>](/login)
-`,
   "open-source": `---
 title: Open source
-nav: 6
+nav: 5
 ---
 
 # Open source

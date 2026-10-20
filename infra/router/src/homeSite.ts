@@ -106,6 +106,28 @@ const NOT_PAGES = new Set([
 ]);
 
 /**
+ * Homepage addresses that no longer have a page, and where they go instead.
+ *
+ * `/pricing` was the Pricing page until Context became free (decided by the
+ * owner, 2026-10-20). Old links and search results land on the welcome page
+ * rather than on a shell that says the page is missing. Permanent, so search
+ * engines drop the old address.
+ */
+const RETIRED_HOME_PAGES: Readonly<Record<string, string>> = { "/pricing": "/" };
+
+/** A 301 for a retired homepage address, or `null` for every other request. */
+export function retiredHomePageRedirect(request: Request, url: URL): Response | null {
+  if (request.method !== "GET" && request.method !== "HEAD") return null;
+  const path = url.pathname.replace(/\/+$/, "").toLowerCase();
+  const target = RETIRED_HOME_PAGES[path];
+  if (target === undefined) return null;
+  return new Response(null, {
+    status: 301,
+    headers: { Location: new URL(target, url).toString() },
+  });
+}
+
+/**
  * The homepage page a document's path may be — `/`, or a clean page address
  * such as `/pricing` that the app opens as that page — or `null` for a path
  * that is an app screen, somebody's website (`/@handle`), or a file.

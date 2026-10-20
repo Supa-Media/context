@@ -9,11 +9,9 @@ import {
   scopeIds,
   scopeLabel,
   slowContexts,
+  slowSearchMessage,
+  slowSearchRows,
   toggleScope,
-  upsellAction,
-  upsellMessage,
-  upsellRows,
-  upsellTarget,
   type BlendedAnswer,
   type SearchableContext,
 } from "../features/console/search/results";
@@ -289,18 +287,14 @@ describe("the scope", () => {
   });
 });
 
-describe("the upsell, beside a search that worked", () => {
-  const href = (slug: string, target: "storage") =>
-    `/console/@${slug}/settings?settings=${target}`;
-
+describe("a slow answer, said beside a search that worked", () => {
   test("every sentence says the context WAS searched", () => {
-    // The regression this whole change is about. The old wording — "Fast
-    // search is off for @slug." — was written for a page that had searched
-    // nothing, and said over results from that same context it reads as a
-    // warning about answers somebody is looking at.
+    // The old wording — "Fast search is off for @slug." — was written for a
+    // page that had searched nothing, and said over results from that same
+    // context it reads as a warning about answers somebody is looking at.
     for (const state of ["off", "preparing", "failed", "unavailable"] as const) {
       for (const owner of [true, false]) {
-        const message = upsellMessage(context({ fastSearch: state, owner }));
+        const message = slowSearchMessage(context({ fastSearch: state, owner }));
         expect(message).toContain("@quiet-context");
         expect(message).not.toContain("nothing was searched");
         expect(message).not.toContain("Nothing");
@@ -308,85 +302,58 @@ describe("the upsell, beside a search that worked", () => {
     }
   });
 
-  test("an owner reads what to press; a member reads who to ask", () => {
-    const owned = upsellMessage(context({ owner: true, fastSearch: "off" }));
-    const shared = upsellMessage(context({ owner: false, fastSearch: "off" }));
-    expect(owned).toContain("your own bucket");
-    expect(owned).toContain("Fast search makes it instant");
-    expect(shared).toContain("Its owner can turn fast search on");
+  test("nobody is asked to turn anything on: fast search is on for everyone", () => {
+    // Decided by the owner, 2026-10-20: the server turns it on, so no sentence
+    // here is an offer, for an owner or a member, in any state.
+    for (const state of ["off", "preparing", "failed", "unavailable"] as const) {
+      for (const owner of [true, false]) {
+        const message = slowSearchMessage(context({ fastSearch: state, owner }));
+        expect(message).not.toMatch(/turn|makes it instant|try again|Premium/i);
+      }
+    }
+    expect(slowSearchMessage(context({ owner: true, fastSearch: "off" }))).toContain(
+      "searched from its own bucket, which is slower",
+    );
   });
 
-  test("an unavailable index is not an offer: no press, and no Premium anywhere", () => {
-    // Fast search is on for every workspace and is not part of Premium, so the
-    // only press left is the owner's switch under Storage & search.
-    expect(upsellTarget(context({ owner: true, fastSearch: "unavailable" }))).toBeNull();
-    expect(upsellTarget(context({ owner: true, fastSearch: "off" }))).toBe("storage");
-    expect(upsellTarget(context({ owner: true, fastSearch: "failed" }))).toBe("storage");
-    const message = upsellMessage(context({ owner: true, fastSearch: "unavailable" }));
-    expect(message).toContain("searched from its own bucket, which is slower");
-    expect(message).not.toContain("Premium");
-    expect(upsellAction(context({ owner: true, fastSearch: "unavailable" }))).toBeNull();
-  });
-
-  test("still indexing is never read as nothing there, for owner or member alike", () => {
+  test("still indexing is never read as nothing there", () => {
     // The rule `noteworthySources` states for a source mid-search: an index
-    // that has not caught up has not answered anything. Here it has — from the
-    // bucket — and there is nothing to press either way.
-    const message = upsellMessage(context({ owner: true, fastSearch: "preparing" }));
-    expect(message).toContain("still being built");
-    expect(upsellTarget(context({ owner: true, fastSearch: "preparing" }))).toBeNull();
-  });
-
-  test("a failed provision tells an owner to retry and a member who to wait on", () => {
-    expect(upsellMessage(context({ owner: true, fastSearch: "failed" }))).toContain(
-      "could not be prepared",
+    // that has not caught up has not answered anything. Here it has, from the
+    // bucket.
+    expect(slowSearchMessage(context({ owner: true, fastSearch: "preparing" }))).toContain(
+      "still being built",
     );
-    expect(upsellMessage(context({ owner: false, fastSearch: "failed" }))).toContain(
-      "Only its owner can try again",
+    expect(slowSearchMessage(context({ owner: false, fastSearch: "failed" }))).toContain(
+      "could not be prepared, so this search read its bucket",
     );
   });
 
-  test("only an owner staring at off or failed gets a press — never a member, never mid-backfill, never unavailable", () => {
-    const rows = upsellRows(
-      [
-        context({ workspaceId: "w1", slug: "mine-off", owner: true, fastSearch: "off" }),
-        context({ workspaceId: "w2", slug: "mine-failed", owner: true, fastSearch: "failed" }),
-        context({ workspaceId: "w3", slug: "mine-preparing", owner: true, fastSearch: "preparing" }),
-        context({ workspaceId: "w4", slug: "theirs-off", owner: false, fastSearch: "off" }),
-        context({ workspaceId: "w5", slug: "mine-unpaid", owner: true, fastSearch: "unavailable" }),
-      ],
-      href,
-    );
-
-    const hrefFor = (slug: string) => rows.find((row) => row.slug === slug)?.href;
-    expect(hrefFor("mine-off")).toBe("/console/@mine-off/settings?settings=storage");
-    expect(hrefFor("mine-failed")).toBe("/console/@mine-failed/settings?settings=storage");
-    expect(hrefFor("mine-unpaid")).toBeNull();
-    expect(hrefFor("mine-preparing")).toBeNull();
-    expect(hrefFor("theirs-off")).toBeNull();
-    // A row with no press still says its sentence — "this one was slow, and it
-    // is not your switch" is the honest caption on somebody else's context.
-    expect(rows.find((row) => row.slug === "theirs-off")?.message).toContain("slower");
-    expect(rows.map((row) => row.workspaceId)).toEqual(["w1", "w2", "w3", "w4", "w5"]);
+  test("a row is a sentence and nothing to press", () => {
+    const rows = slowSearchRows([
+      context({ workspaceId: "w1", slug: "mine-off", owner: true, fastSearch: "off" }),
+      context({ workspaceId: "w2", slug: "theirs-off", owner: false, fastSearch: "off" }),
+    ]);
+    expect(rows.map((row) => Object.keys(row).sort())).toEqual([
+      ["message", "slug", "workspaceId"],
+      ["message", "slug", "workspaceId"],
+    ]);
+    expect(rows.map((row) => row.workspaceId)).toEqual(["w1", "w2"]);
   });
 
-  test("a context already on the fast index is not in the upsell at all", () => {
+  test("a context already on the fast index is not in the list at all", () => {
     const mixed = [
       context({ workspaceId: "w1", slug: "fast-one", search: "fast", fastSearch: "on" }),
       context({ workspaceId: "w2", slug: "slow-one", owner: true, fastSearch: "off" }),
     ];
     expect(slowContexts(mixed).map((row) => row.slug)).toEqual(["slow-one"]);
-    expect(upsellRows(mixed, href).map((row) => row.slug)).toEqual(["slow-one"]);
+    expect(slowSearchRows(mixed).map((row) => row.slug)).toEqual(["slow-one"]);
   });
 
-  test("a slow context gets its row whether or not the reader can act on it", () => {
-    // What a person can do about a fact is not what decides whether they are
-    // told it: a member reading a slow answer with no switch to throw is
-    // exactly the reader most owed the sentence explaining the wait.
-    const theirs = upsellRows([context({ owner: false, fastSearch: "off" })], href);
+  test("a slow context gets its row whether or not the reader owns it", () => {
+    // A member reading a slow answer is exactly the reader most owed the
+    // sentence explaining the wait.
+    const theirs = slowSearchRows([context({ owner: false, fastSearch: "off" })]);
     expect(theirs).toHaveLength(1);
-    expect(theirs[0]!.href).toBeNull();
-    expect(theirs[0]!.action).toBeNull();
     expect(theirs[0]!.message).toContain("slower");
   });
 });

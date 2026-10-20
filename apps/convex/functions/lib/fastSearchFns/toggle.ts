@@ -66,9 +66,10 @@ export async function enableHandler(
 
 /**
  * "On for everyone" asking for one workspace (decided by the owner,
- * 2026-10-08). It only ever creates a row: any row at all, an owner's `off`
- * above all, means somebody already decided, and Context does not decide over
- * them. Returns whether it scheduled a provision.
+ * 2026-10-08). Since 2026-10-20 there is no switch ("fast search on by
+ * default for everyone", the owner): an owner's earlier `off` is turned back
+ * on too, once its release has finished. A row that is on, being built, or
+ * still releasing is left alone. Returns whether it scheduled a provision.
  */
 export async function autoEnableHandler(
   ctx: MutationCtx,
@@ -77,10 +78,11 @@ export async function autoEnableHandler(
   const workspace = await ctx.db.get(args.workspaceId);
   if (workspace === null || !fastSearchEntitled(workspace)) return { scheduled: false };
   const existing = await bindingFor(ctx, args.workspaceId);
-  // A row from the retired generation never serves and is nobody's decision
-  // under this one, unless it records an owner's off.
+  // A row from the retired generation never serves; a finished `off` is no
+  // longer anybody's lasting choice.
   const legacy = existing !== null && existing.generation !== FAST_SEARCH_GENERATION;
-  if (existing !== null && !(legacy && existing.optedOut !== true)) return { scheduled: false };
+  const off = existing !== null && existing.optedIn !== true && existing.status === "off";
+  if (existing !== null && !legacy && !off) return { scheduled: false };
   await turnOn(ctx, args.workspaceId, existing, undefined);
   return { scheduled: true };
 }

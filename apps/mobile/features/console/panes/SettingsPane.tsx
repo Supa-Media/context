@@ -12,7 +12,6 @@ import { PanelHead } from "../settings/panels/PanelHead";
 import { atName } from "../format";
 import { SourcesPanel } from "../settings/panels/SourcesPanel";
 import { MeetingsPanel } from "../settings/panels/MeetingsPanel";
-import { FastSearchCard } from "../search/FastSearchCard";
 import { MeaningSearchCardView } from "../search/MeaningSearchCard";
 import type { CheckoutOutcome } from "@context/shared";
 import { OverviewPanel } from "../settings/panels/OverviewPanel";
@@ -186,7 +185,6 @@ export function SettingsPane({
             workspaceId={actions.workspaceId}
             contextName={current == null ? "this context" : `@${current.slug}`}
             connect={actions.connect}
-            onOpenPremium={onSelect === undefined ? undefined : () => onSelect("premium")}
           />
         ) : (
           <Card>
@@ -210,7 +208,6 @@ export function SettingsPane({
             return result;
           }}
           onCancel={() => setSwitchingBack(false)}
-          onOpenPremium={onSelect === undefined ? undefined : () => onSelect("premium")}
         />
       ) : moving && actions && storage.managed !== true ? (
         <ConnectForm
@@ -282,7 +279,6 @@ export function SettingsPane({
                 workspaceId={actions.workspaceId}
                 contextName={current == null ? "this context" : `@${current.slug}`}
                 connect={actions.connect}
-                onOpenPremium={onSelect === undefined ? undefined : () => onSelect("premium")}
               />
             </View>
           ) : null}
@@ -370,23 +366,23 @@ export function SettingsPane({
       ) : null}
 
       {/*
-        The index, under the bucket it is built from. It is always on now, so
-        this only says so; an owner whose context predates that can still turn
-        it on from the card. An index is a disposable derivative of the files
-        (CLAUDE.md #3), which is why it sits under them.
+        Search by meaning, under the bucket its index is built from. An index
+        is a disposable derivative of the files (CLAUDE.md #3), which is why it
+        sits under them. Fast search has no block here any more: it is on for
+        every workspace (decided by the owner, 2026-10-20), so there is nothing
+        to decide, and its progress shows where a person reads the files.
       */}
-      <Text variant="noteTitle" style={styles.searchHead}>
-        Search
-      </Text>
-      <FastSearchCard view={data.fastSearch} demo={data.demo} />
       {data.meaningSearch === undefined || data.demo ? null : (
-        <View style={styles.meaning}>
+        <>
+          <Text variant="noteTitle" style={styles.searchHead}>
+            Search
+          </Text>
           <MeaningSearchCardView
             status={data.meaningSearch.status}
             demo={false}
             onSet={data.meaningSearch.set}
           />
-        </View>
+        </>
       )}
       <EncryptionKeysBlock action={data.advanced.keyExport} demo={data.demo} />
 
@@ -446,8 +442,7 @@ export function SettingsPane({
 
       {show("website") ? (
       <DomainSection sectioned={section !== undefined} workspaceId={data.files.contextId ?? null}
-        handle={current?.slug.replace(/^@/, "") ?? ""} demo={data.demo}
-        onOpenPremium={onSelect === undefined ? undefined : () => onSelect("premium")} />
+        handle={current?.slug.replace(/^@/, "") ?? ""} demo={data.demo} />
       ) : null}
 
       {show("emoji") ? <EmojiPanel sectioned={section !== undefined} /> : null}
@@ -562,7 +557,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   notice: { marginTop: 15 },
   /** The same 24pt gap the vault importer above it takes from the card. */
   migration: { marginTop: 24 },
-  meaning: { marginTop: 12 },
   noticeBody: { flex: 1, minWidth: 0 },
   okText: { color: colors.okText },
   warnText: { color: colors.warnText },

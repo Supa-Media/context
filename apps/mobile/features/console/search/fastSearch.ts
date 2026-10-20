@@ -1,64 +1,31 @@
 /**
- * Fast search, in a context's settings: the states, the copy, and the guard
- * that decides whether a control is offered at all.
+ * Fast search, as the console reads it: the states, and how far the index has
+ * got.
  *
- * ## One thing this copy could not say until 2026-09-06
- *
- * That searches are answered from the copy. They were not: the gateway
- * provisioned the database, filled it, and reported progress on it, and then
- * answered every search from the R2 index anyway, because nothing imported
- * `search/d1/query.js`. The card was scrupulous about the consent and silent
- * about the benefit, which was the only honest thing it could be — an owner
- * was consenting to a copy of their private notes in exchange for nothing.
- *
- * The reader exists now (`fastSearchAnswer` in the gateway), so the `on` and
- * `off` blurbs say what the switch buys as well as what it costs. If the read
- * path is ever removed, these two sentences become false and
- * `fastSearchSettings.test.ts` is what says so.
+ * Fast search is on for every workspace (decided by the owner, 2026-10-20;
+ * `docs/decisions/search/gateway-search-and-projection.md`). The server turns
+ * it on, so the console offers no switch and no "turn it on": what is left
+ * here is passive, the state off the wire and the progress the files foot and
+ * the top bar draw while an index is being built.
  *
  * The backend contract is
  *
  *   fastSearch.status({ workspaceId })
  *     -> { state, canChange, notesIndexed?, notesPending?, error?, optedInAt? }
- *   fastSearch.enable({ workspaceId })   // owner-only
- *   fastSearch.disable({ workspaceId })  // owner-only; no console control, search is always on
  *
- * and the two mutations are owner-only while the query is readable by any
- * member — knowing how a context's search is served is not privileged, and
- * deciding it is. `canChange` is the server's own answer to the second
- * question, which is why nothing here re-derives it from a role.
- *
- * With one limit: the backfill counters come back only to an OWNER. They are
- * not how search is served, they are a count of the notes, and the index
- * counts private ones a member may not read. The server drops them; this file
- * never has to know whose they are.
- *
- * ## What the switch actually does, which is why the copy is not "make search
- * faster"
- *
- * Turning it on puts a **derived copy of this context's note text, private
- * notes included, in a database Supa Media owns** — that is the whole of what
- * an owner is consenting to, and `docs/decisions/search.md` is emphatic that
- * off-by-default exists because the alternative is making that choice on
- * somebody else's behalf. The off-to-on sentence may not be left out of the
- * card, so it lives here rather than inline in JSX where an edit could quietly
- * drop it. Search is always on now, so the console no longer offers the way
- * back to off; the server still has `disable` for the rare case it is needed.
+ * readable by any member: knowing how a context's search is served is not
+ * privileged. With one limit: the backfill counters come back only to an
+ * OWNER. They are a count of the notes, and the index counts private ones a
+ * member may not read. The server drops them; this file never has to know
+ * whose they are.
  *
  * Nothing here claims the canonical notes move: they stay in the customer's
- * bucket either way (CLAUDE.md, non-negotiable 1), and the index is a
- * disposable derivative (non-negotiable 3).
+ * bucket (CLAUDE.md, non-negotiable 1), and the index is a disposable
+ * derivative (non-negotiable 3).
  *
- * ## Off is a working state
- *
- * Every "off" sentence has to read as a working product rather than a missing
- * feature, because it is one: search reads the bucket index while a context is
- * off. A card that draws `off` as a warning teaches people to
- * turn on a copy of their private notes to clear a badge.
- *
- * Pure, and free of React, so the awkward cases — a state this build has never
- * heard of, a count nobody has measured, an action offered to somebody the
- * server would refuse — are pinned by tests rather than found on a phone.
+ * Pure, and free of React, so the awkward cases (a state this build has never
+ * heard of, a count nobody has measured) are pinned by tests rather than
+ * found on a phone.
  */
 
 export const FAST_SEARCH_STATES = [
@@ -119,21 +86,19 @@ export interface FastSearchStatus {
 }
 
 /**
- * What the settings card renders.
+ * What the console reads: how this context's search is served, for the index
+ * progress the files foot and the top bar draw. There is no control: fast
+ * search is on for every workspace (decided by the owner, 2026-10-20), and the
+ * server turns it on, so nothing here offers a press.
  *
  * `status === null` is "not asked, or not answered yet", and is deliberately
  * not a synthesised `off`: a console that reads a pending subscription as
  * "off" tells an owner their index is gone every time the page reloads, which
  * is the same class of bug `ConsoleData.storage` keeps three values for.
- *
- * `enable` is **absent** rather than disabled for anybody the server would
- * refuse — the rule `StorageActions` states and this follows.
  */
 export interface FastSearchView {
   status: FastSearchStatus | null;
   loading: boolean;
-  /** Absent for anybody the server would refuse. There is no turn-off: fast search is always on. */
-  enable?: () => Promise<void>;
 }
 
 /**
@@ -151,123 +116,6 @@ export function fastSearchStateOf(raw: unknown): FastSearchState {
     ? (raw as FastSearchState)
     : "unavailable";
 }
-
-/**
- * Which control the card draws, and the only place that decides.
- *
- * Three conditions, all of them load-bearing:
- *
- *  - the status has landed — there is nothing honest to offer before it;
- *  - `canChange`, which is the server's answer and not a role guessed here;
- *  - the action exists, which is how the demo console and a non-owner end up
- *    with a card that reads and a card that acts being the same component.
- *
- * There is no way back to off from here. Fast search is always on; a context
- * that was switched off before still gets "enable" so its owner can turn it on.
- *
- * `failed` gets `retry` rather than `enable` because the row is already opted
- * in: pressing it re-runs the provision, and a button labelled "Turn on" over
- * a switch that is already on is a lie about what the press does.
- */
-export function fastSearchControl(view: FastSearchView): "none" | "enable" | "retry" {
-  const status = view.status;
-  if (status === null || !status.canChange) return "none";
-  switch (status.state) {
-    case "off":
-      return view.enable === undefined ? "none" : "enable";
-    case "failed":
-      return view.enable === undefined ? "none" : "retry";
-    case "on":
-    case "preparing":
-    case "unavailable":
-      return "none";
-  }
-}
-
-/**
- * The heading and the paragraph for each state.
- *
- * `off` and `on` both have to say what the copy *is* and where it lives,
- * because that is the decision being taken and reversed. `preparing` says
- * search still works, which is true and is the difference between a person
- * waiting calmly and a person pressing the switch again.
- */
-export function describeFastSearch(state: FastSearchState): {
-  title: string;
-  blurb: string;
-} {
-  switch (state) {
-    case "off":
-      return {
-        title: "Fast search is off",
-        blurb:
-          "Searches read your own bucket, which is slower. Turn it on and your searches are answered from a copy of every note's text, private notes included, in a database Supa Media runs. Your notes stay in your own bucket.",
-      };
-    case "preparing":
-      return {
-        title: "Preparing the index",
-        blurb:
-          "The database is being created and your notes are being copied into it. Search keeps working from your own bucket until it is ready.",
-      };
-    case "on":
-      return {
-        title: "Fast search is on",
-        blurb:
-          "Searches are answered from a copy of your notes, private notes included, in a database Supa Media runs.",
-      };
-    case "failed":
-      return {
-        title: "The index could not be prepared",
-        blurb:
-          "Search is still served from your own bucket, so nothing has stopped working. Try again, and if it keeps failing the deployment's Cloudflare credentials are the place to look.",
-      };
-    case "unavailable":
-      return {
-        title: "Fast search is not available here",
-        blurb:
-          "This context cannot use the hosted index. Search is served from your own bucket, which is the product as it already is.",
-      };
-  }
-}
-
-/** The status chip beside the heading, or `null` where a chip would be noise. */
-export function fastSearchPill(
-  state: FastSearchState,
-): { label: string; tone: "ok" | "warn" | "neutral" } | null {
-  switch (state) {
-    case "on":
-      return { label: "On", tone: "ok" };
-    case "preparing":
-      return { label: "Preparing", tone: "neutral" };
-    case "failed":
-      return { label: "Failed", tone: "warn" };
-    // `off` and `unavailable` are working states, and a chip on a working
-    // state is a badge somebody clears by turning on a copy of their notes.
-    case "off":
-    case "unavailable":
-      return null;
-  }
-}
-
-/**
- * "1,284 notes indexed · 12 waiting", or `null` when nobody has counted.
- *
- * Absent stays absent, exactly as `ConsoleStorage`'s measurements do. The
- * "waiting" half is dropped at zero rather than printed, because `· 0 waiting`
- * reads as a queue that is stuck rather than one that is empty.
- */
-export function indexedLabel(status: FastSearchStatus | null): string | null {
-  if (status === null || status.notesIndexed === undefined) return null;
-  const indexed = `${status.notesIndexed.toLocaleString("en-US")} ${
-    status.notesIndexed === 1 ? "note" : "notes"
-  } indexed`;
-  const pending = status.notesPending ?? 0;
-  return pending > 0 ? `${indexed} · ${pending.toLocaleString("en-US")} waiting` : indexed;
-}
-
-/* -------------------------------------------------------------------------- */
-/*                          how much of it is indexed                          */
-/* -------------------------------------------------------------------------- */
 
 /**
  * How far through the backfill this context is, as something a surface can
@@ -306,11 +154,8 @@ export function indexedLabel(status: FastSearchStatus | null): string | null {
  *
  * ## Off has no percentage, and that is not an omission
  *
- * `off` and `unavailable` have no index, so there is no proportion of one.
- * They also draw no chip, for the reason `fastSearchPill` gives: a badge on a
- * working state is something people clear by turning on a copy of their
- * private notes. `0% indexed` beside "Fast search is off" would be that badge
- * with a number in it.
+ * `off` and `unavailable` have no index, so there is no proportion of one,
+ * and a working state carries no badge.
  */
 export type IndexProgress =
   /** An index exists and this context has nothing to put in it. */
@@ -418,7 +263,7 @@ export function indexProgress(status: FastSearchStatus | null): IndexProgress | 
   };
 }
 
-/** 1284 → "1,284". The same grouping `indexedLabel` uses. */
+/** 1284 → "1,284". */
 function group(n: number): string {
   return n.toLocaleString("en-US");
 }
@@ -426,8 +271,7 @@ function group(n: number): string {
 /**
  * What every surface draws, or `null` where every surface draws nothing.
  *
- * Shaped like `describeFastSearch` — one call, all the words — and it is one
- * function rather than arithmetic at each call site for a narrower reason than
+ * One call, all the words, and it is one function rather than arithmetic at each call site for a narrower reason than
  * tidiness. Three surfaces rounding the same ratio three ways would show a
  * person `62%` in the settings card, `63%` in the status bar and `61%` under
  * the file tree for one context at one moment, and the first thing anybody

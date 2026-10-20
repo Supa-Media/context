@@ -48,8 +48,9 @@ export interface ManagedSettlingState {
   paid: boolean;
   stagingFreeStorage?: boolean;
   /**
-   * The free managed tier: nothing was charged and nothing is being confirmed,
-   * so no line on this screen may mention a payment.
+   * Nothing was charged and nothing is being confirmed (the free start, or any
+   * start while Context is free), so no line on this screen may mention a
+   * payment.
    */
   free?: boolean;
   /** Storage exists and answers. */
@@ -120,13 +121,17 @@ export function ManagedSettling({
     );
   }
 
+  /*
+    Nothing was charged on the free path, so it has no first step to report:
+    a "no card" line is a line about money, and Context has none to mention.
+  */
   const steps: Array<{ label: string; state: "done" | "working" | "waiting" }> = [
-    {
-      label: free
-        ? "Free workspace — no card"
-        : state.stagingFreeStorage ? "Free staging storage" : state.paid ? "Payment confirmed" : "Confirming your payment",
-      state: paid ? "done" : "working",
-    },
+    ...(free
+      ? []
+      : [{
+          label: state.stagingFreeStorage ? "Free staging storage" : state.paid ? "Payment confirmed" : "Confirming your payment",
+          state: (paid ? "done" : "working") as "done" | "working",
+        }]),
     {
       label: "Creating your storage",
       state: state.storageReady ? "done" : paid ? "working" : "waiting",
@@ -140,9 +145,11 @@ export function ManagedSettling({
   return (
     <View>
       <View style={styles.head}>
-        <Pill tone="ok" leading={<Dot tone="ok" />}>
-          {free ? "Free" : state.stagingFreeStorage ? "Staging" : "Paid"}
-        </Pill>
+        {free ? null : (
+          <Pill tone="ok" leading={<Dot tone="ok" />}>
+            {state.stagingFreeStorage ? "Staging" : "Paid"}
+          </Pill>
+        )}
         <Text variant="rowTitle" role="status">
           {state.slow
             ? "Still working"

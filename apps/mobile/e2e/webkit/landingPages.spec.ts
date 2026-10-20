@@ -128,7 +128,7 @@ test("the website's pages, its home page too, are still the console's frame", as
   await page.goto("/?page=index");
   await expect(page.locator(".cm-content").first()).toContainText("Notes for your team", { timeout: 15_000 });
   await expect(page.locator("[data-landing]")).toHaveCount(0);
-  await page.goto("/?page=pricing");
-  await expect(page.locator(".cm-content").first()).toContainText("Pricing", { timeout: 15_000 });
+  await page.goto("/?page=your-files");
+  await expect(page.locator(".cm-content").first()).toContainText("Your files", { timeout: 15_000 });
   await expect(page.locator("[data-landing]")).toHaveCount(0);
 });

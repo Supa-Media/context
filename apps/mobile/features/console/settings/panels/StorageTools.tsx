@@ -130,9 +130,8 @@ function KeyExportCard({
 
   /**
    * Held during the export by `working`, which this sets synchronously — the
-   * contract `useArming` documents for a synchronous `run`. Mirrors
-   * `FastSearchCard`'s `run`: fire, then settle from whichever branch the
-   * promise takes.
+   * contract `useArming` documents for a synchronous `run`: fire, then settle
+   * from whichever branch the promise takes.
    */
   const run = () => {
     if (action === undefined) return;

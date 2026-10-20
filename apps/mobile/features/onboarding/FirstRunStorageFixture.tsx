@@ -27,8 +27,14 @@ import { managedFailureCopy, type PremiumStatus } from "../console/settings/pane
  * fixture is, and never present in a real export.
  */
 
-/** A plan as `billing.status` would answer it for a context about to upgrade. */
+/**
+ * A plan as `billing.status` would answer it for a context about to upgrade,
+ * on a deployment that sells. Context is free (2026-10-20) and this priced
+ * walk is dormant; the fixture keeps it laid out in a real engine so turning
+ * pricing back on does not bring back a layout nobody has looked at.
+ */
 const FIXTURE_STATUS: PremiumStatus = {
+  free: false,
   status: "none",
   selected: { managedStorage: true, fastSearch: false },
   active: { managedStorage: false, fastSearch: false },
@@ -82,6 +88,8 @@ export function FirstRunStorageFixture({
     startedFree: false,
     startFree: () => {},
     startingFree: false,
+    ours: null,
+    selling: true,
   };
 
   return (

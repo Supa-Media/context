@@ -26,7 +26,7 @@ export function PointAtBucket({
   onPickFree,
 }: {
   connect: (values: ConnectFormValues) => Promise<{ status: string }>;
-  /** Present only where this deployment offers the free bucket to this owner. */
+  /** Present only where this owner can start a bucket we run instead. */
   onPickFree?: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -80,7 +80,7 @@ export function PointAtBucket({
               onPress={onPickFree}
               testID="point-at-bucket-free"
             >
-              Start on our free bucket instead (1,000 notes, no time limit)
+              Start on a bucket we run instead
             </Text>
           ) : null}
         </View>

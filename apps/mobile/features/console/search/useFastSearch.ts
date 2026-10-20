@@ -1,5 +1,5 @@
-import { useCallback, useMemo } from "react";
-import { useConvex, useQueries, type RequestForQueries } from "convex/react";
+import { useMemo } from "react";
+import { useQueries, type RequestForQueries } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import {
@@ -10,18 +10,14 @@ import {
 } from "./fastSearch";
 
 /**
- * Fast search for the selected context, wired to the control plane.
+ * Fast search for the selected context, read from the control plane.
  *
- * `fastSearch.status` is readable by any member and answers `canChange`
- * itself, so this hook subscribes for everybody and lets the server decide who
- * is offered a switch. That is deliberately not the shape `useIngestionSettings`
- * has: the ingestion allow-list is an owner's correspondent list and the read
- * is owner-only, while "how is this context's search served" is a fact its
- * members may know.
- *
- * The one mutation the console offers, `enable`, is owner-only, so it is attached
- * **only** when the server said `canChange` — absent, never disabled, the rule
- * `StorageActions` states. There is no `disable`: fast search is always on.
+ * `fastSearch.status` is readable by any member, so this hook subscribes for
+ * everybody. That is deliberately not the shape `useIngestionSettings` has:
+ * the ingestion allow-list is an owner's correspondent list and the read is
+ * owner-only, while "how is this context's search served" is a fact its
+ * members may know. It is read only: fast search is on for every workspace
+ * and the server turns it on, so the console sends nothing.
  *
  * `useQueries` rather than `useQuery`, for the reason `useLiveConsoleData`
  * gives at length: a failed `useQuery` re-throws during render, and a settings
@@ -31,7 +27,6 @@ import {
 export function useFastSearch(options: {
   workspaceId: Id<"workspaces"> | null;
 }): FastSearchView {
-  const convex = useConvex();
   const { workspaceId } = options;
   const asking = shouldReadFastSearch({ workspaceId });
 
@@ -50,11 +45,6 @@ export function useFastSearch(options: {
 
   const results = useQueries(spec);
 
-  const enable = useCallback(async () => {
-    if (workspaceId === null) return;
-    await convex.mutation(api.functions.fastSearch.enable, { workspaceId });
-  }, [convex, workspaceId]);
-
   const raw = results.status;
   const answered = raw !== undefined && !(raw instanceof Error) && raw !== null;
   const status: FastSearchStatus | null = answered
@@ -67,13 +57,10 @@ export function useFastSearch(options: {
       }
     : null;
 
-  const canChange = status !== null && status.canChange;
-
   return {
     status,
-    // A query that threw is not "still loading" — the card says so once rather
-    // than spinning at somebody forever.
+    // A query that threw is not "still loading": nothing spins at somebody
+    // forever over a status that will never come.
     loading: asking && raw === undefined,
-    enable: canChange ? enable : undefined,
   };
 }

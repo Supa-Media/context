@@ -28,12 +28,13 @@ for (const os of ["ios", "android"] as const) {
       expect(host.textContent).not.toMatch(/upgrade|website|desktop|\$5/i);
       act(() => root.render(createElement(StorageChoice, {
         connect: async () => ({ status: "bound" }),
-        free: { cap: 1000, onChoose: jest.fn() },
+        ours: { onChoose: jest.fn() },
         managed: { price: "$5 a month", onChoose: jest.fn() },
       })));
-      expect(host.querySelector('[data-testid="choose-managed-storage"]')).toBeNull();
+      expect(host.querySelector('[data-testid="choose-managed"]')).toBeNull();
       expect(host.textContent).not.toContain("$5");
-      expect(host.textContent).toContain("Free storage");
+      // Nothing is sold by it, so storage we run is offered on a phone too.
+      expect(host.textContent).toContain("Storage we run");
     } finally {
       act(() => root.unmount());
       Object.defineProperty(Platform, "OS", { configurable: true, value: before });
@@ -65,7 +66,7 @@ test("native Premium retains its storage recovery", async () => {
   }
 });
 
-test("native shared-workspace creation can start free managed storage", () => {
+test("native shared-workspace creation can start storage we run", () => {
   const before = Platform.OS;
   Object.defineProperty(Platform, "OS", { configurable: true, value: "ios" });
   const host = document.createElement("div");
@@ -75,15 +76,15 @@ test("native shared-workspace creation can start free managed storage", () => {
     available: false, price: "$5 a month", status: null, mode: "choose", session: "choosing",
     paid: false, slow: false, choose: jest.fn(), back: jest.fn(), toggle: jest.fn(),
     proceed: jest.fn(), retry: jest.fn(), free: { cap: 1000 }, startedFree: false,
-    startFree, startingFree: false,
+    startFree, startingFree: false, ours: { onChoose: startFree }, selling: false,
   };
   const props = { connectState: { kind: "idle" as const }, workspaceId: "workspace", slug: "demo",
     connect: async () => ({ status: "bound" }), managed, onSkip: jest.fn(), onContinuePast: jest.fn() };
   try {
     act(() => root.render(createElement(WorkspaceStorageStepBody, props)));
-    expect(host.textContent).toContain("Free storage");
+    expect(host.textContent).toContain("Storage we run");
     expect(host.textContent).not.toContain("$5");
-    act(() => (host.querySelector('[data-testid="choose-free"]') as HTMLElement).click());
+    act(() => (host.querySelector('[data-testid="choose-ours"]') as HTMLElement).click());
     expect(startFree).toHaveBeenCalledTimes(1);
     act(() => root.render(createElement(WorkspaceStorageStepBody, { ...props, managed: { ...managed, mode: "settling", startedFree: true } })));
     expect(host.textContent).toContain("Creating your bucket");
