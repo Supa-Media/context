@@ -21,6 +21,8 @@
  *     the hour...` fails.
  *  3. `search_email` removed from PRIVATE_TIER_ONLY_TOOLS. → `a team-scope
  *     connection is not offered...` fails.
+ *  7. The any-word retry dropped from `toolSearchEmail`. → `a long search
+ *     Gmail found nothing for is asked again...` fails.
  *  4. `read_email` removed from UNTRUSTED_READS. → `an email read live marks the
  *     texted turn as having read from outside` fails.
  */
@@ -69,6 +71,25 @@ export async function runEmailReadChecks(check) {
     controlPlane.flags.mailboxes = [{ address: "me@example.com", folder: "0-inbox/email/me-at-example-com" }];
     controlPlane.flags.mailResults = [LIVE];
     controlPlane.flags.mailMessage = { ...LIVE, body: "Hi,\n\nThe signed lease is attached.\n\nJo", attachments: [{ filename: "lease.pdf", contentType: "application/pdf" }] };
+
+    // Gmail wants every word; a long list of them is asked again for any of them.
+    controlPlane.flags.mailResults = (query) => (query.startsWith("{") ? [LIVE] : []);
+    let before = controlPlane.mailReadCalls.length;
+    const loose = textOf(await call(env, TOKEN_MCP, "search", { query: "Jo signed lease 2024 Brooklyn", args: { email: true } }));
+    const queries = controlPlane.mailReadCalls.slice(before).map((entry) => entry.body.query);
+    check(
+      "a long search Gmail found nothing for is asked again for any of its words, and says so",
+      JSON.stringify(queries) === JSON.stringify(["Jo signed lease 2024 Brooklyn", "{signed lease Brooklyn}"]) &&
+        loose.includes("No email had every one of those words") &&
+        loose.includes("email:me@example.com/18c0ffee"),
+    );
+    before = controlPlane.mailReadCalls.length;
+    await call(env, TOKEN_MCP, "search", { query: "from:jo@example.com lease", args: { email: true } });
+    check(
+      "a search with Gmail operators, or of a word or two, is never loosened",
+      controlPlane.mailReadCalls.slice(before).length === 1,
+    );
+    controlPlane.flags.mailResults = [LIVE];
 
     const callsBefore = controlPlane.mailReadCalls.length;
     const searched = textOf(await call(env, TOKEN_MCP, "search", { query: "publish", args: { email: true } }));
