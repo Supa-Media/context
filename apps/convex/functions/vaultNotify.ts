@@ -59,12 +59,12 @@ export const claimGivenMail = internalMutation({
 export function givenMail(giver: string, handle: string, level: "use" | "see"): { subject: string; text: string } {
   const what =
     level === "see"
-      ? "Your AIs can use it through Context, and you can open it to see it."
-      : "Your AIs can use it through Context. You won't see its value, and neither will they.";
+      ? "You can use it and see it. Your AI tools can sign in with it for you, and you can open it in Context to see it."
+      : "You can use it. Your AI tools sign in with it for you; you won't see its value, and neither will they.";
   return {
-    subject: `${giver} gave you a key in @${handle}`,
+    subject: `${giver} shared a key with you in @${handle}`,
     text:
-      `${giver} gave you a key in the @${handle} vault.\n\n` +
+      `${giver} shared a key with you in the @${handle} vault.\n\n` +
       `${what}\n\n` +
       `See it in Settings › Vault:\n${appOrigin()}/console/${handle}?settings=vault\n\n` +
       `You're getting this because you're a member of @${handle}.\n`,
