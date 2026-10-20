@@ -120,9 +120,9 @@ export async function attachPage(cdp: CdpTransport): Promise<AttachedPage> {
   return { send, evaluate, settle };
 }
 
-/** Attach to the browser's first page and drive it as a `BrowsePage`. */
-export async function cdpPage(cdp: CdpTransport): Promise<BrowsePage> {
-  const { send, evaluate, settle } = await attachPage(cdp);
+/** Attach to the browser's first page (or use `attached`) and drive it as a `BrowsePage`. */
+export async function cdpPage(cdp: CdpTransport, attached?: AttachedPage): Promise<BrowsePage> {
+  const { send, evaluate, settle } = attached ?? (await attachPage(cdp));
 
   async function focus(selector: string): Promise<void> {
     const found = await evaluate<boolean>(`(() => {

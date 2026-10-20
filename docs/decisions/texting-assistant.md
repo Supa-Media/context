@@ -467,7 +467,8 @@ typing rule is lifted and the step and page budgets raised:
 
 **Browserbase, and handing the browser to the person.** Decided by the owner
 the same day: Browserbase is the browser, stateless (no Contexts,
-`recordSession: false`). It sits in `infra/site-shots`
+`recordSession: false`); since 2026-10-20 its sign-ins are kept in the
+person's own vault instead ([vault](./texting-assistant/vault.md)). It sits in `infra/site-shots`
 (`src/browserbase.ts`), which holds its key, and switches on by itself once
 `BROWSERBASE_API_KEY` and `BROWSERBASE_PROJECT_ID` are set; until then that
 Worker answers 501 and Cloudflare's browser is used. A Browserbase browser

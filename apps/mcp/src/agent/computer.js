@@ -80,12 +80,13 @@ const PROVIDERS = {
  * self-hosted gateway without Browser Rendering, or an unknown provider name).
  * `owner` is the person's browser tag (`browserOwner`), which lets `browse`
  * find their Browserbase browser again in a later question; `viewer` is the
- * page they take it over on (`texViewerUrl`), the only link a handoff texts.
+ * page they take it over on (`texViewerUrl`), the only link a handoff texts;
+ * `jar` keeps their sign-ins between browsers (`browserJar.js`).
  */
-export function computerFor(env, { owner = null, viewer = null } = {}) {
+export function computerFor(env, { owner = null, viewer = null, jar = null } = {}) {
   const name = typeof env?.AGENT_COMPUTER === "string" && env.AGENT_COMPUTER ? env.AGENT_COMPUTER : "cloudflare";
   const make = Object.prototype.hasOwnProperty.call(PROVIDERS, name) ? PROVIDERS[name] : null;
-  return make ? make(env, { owner, viewer }) : null;
+  return make ? make(env, { owner, viewer, jar }) : null;
 }
 
 /**
