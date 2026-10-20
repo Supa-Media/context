@@ -178,6 +178,7 @@ import type * as functions_vaultNotify from "../functions/vaultNotify.js";
 import type * as functions_vaultMove from "../functions/vaultMove.js";
 import type * as functions_featureSwitches from "../functions/featureSwitches.js";
 import type * as functions_waitlist from "../functions/waitlist.js";
+import type * as functions_waitlistStatus from "../functions/waitlistStatus.js";
 import type * as functions_waitlistText from "../functions/waitlistText.js";
 import type * as functions_waitlistTex from "../functions/waitlistTex.js";
 import type * as functions_signupAlerts from "../functions/signupAlerts.js";
@@ -368,6 +369,7 @@ declare const fullApi: ApiFromModules<{
   "functions/vaultMove": typeof functions_vaultMove;
   "functions/featureSwitches": typeof functions_featureSwitches;
   "functions/waitlist": typeof functions_waitlist;
+  "functions/waitlistStatus": typeof functions_waitlistStatus;
   "functions/waitlistText": typeof functions_waitlistText;
   "functions/waitlistTex": typeof functions_waitlistTex;
   "functions/signupAlerts": typeof functions_signupAlerts;

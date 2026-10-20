@@ -40,6 +40,8 @@ export const waitlistRowValidator = v.object({
   joinedAt: v.number(),
   source: v.string(),
   useFor: v.union(v.string(), v.null()),
+  /** When the answer was last written from the status page, or `null`. */
+  useForAt: v.union(v.number(), v.null()),
   admittedAt: v.union(v.number(), v.null()),
   /** The landing page (`/a` to `/c`) the person saw before joining, if recorded. */
   landing: v.optional(v.string()),
@@ -55,21 +57,55 @@ export const landingCountsValidator = v.array(
   v.object({ landing: v.string(), campaign: v.optional(v.string()), joined: v.number(), admitted: v.number() }),
 );
 
+/**
+ * Narrowing the list by the "what would you use it for?" answers, so staff can
+ * pick who goes first when many are waiting (Tex launch, 2026-10-20). `search`
+ * matches inside an answer, any case; `answered` keeps rows with an answer.
+ */
+export interface WaitlistFilter {
+  search?: string;
+  answered?: boolean;
+}
+
+/**
+ * Rows read to answer a filtered listing, newest first. A filter has to look
+ * past the newest page to find its matches; this bounds how far. Past it the
+ * answer says `capped`, and the console says it searched the newest ones.
+ */
+export const WAITLIST_FILTER_SCAN = 4_000;
+/** The longest search kept; anything past it is cut, not refused. */
+const SEARCH_MAX = 100;
+
+export const waitlistFilterValidator = v.object({
+  /** Rows that matched among those read. */
+  matches: v.number(),
+  /** True when more rows exist than `WAITLIST_FILTER_SCAN` let it read. */
+  capped: v.boolean(),
+});
+
 export async function listWaitlistHandler(
   ctx: QueryCtx,
   status: Doc<"waitlist">["status"],
+  filter: WaitlistFilter = {},
 ) {
-  const rows = await ctx.db
+  const needle = (filter.search ?? "").trim().slice(0, SEARCH_MAX).toLowerCase();
+  const filtering = needle.length > 0 || filter.answered === true;
+  const scanned = await ctx.db
     .query("waitlist")
     .withIndex("by_status_joinedAt", (q) => q.eq("status", status))
     .order("desc")
-    .take(WAITLIST_PAGE + 1);
+    .take(filtering ? WAITLIST_FILTER_SCAN + 1 : WAITLIST_PAGE + 1);
+  const capped = filtering && scanned.length > WAITLIST_FILTER_SCAN;
+  const matching = filtering
+    ? scanned.slice(0, WAITLIST_FILTER_SCAN).filter((row) => answerMatches(row, needle))
+    : scanned;
+  const rows = matching.slice(0, WAITLIST_PAGE);
   const counts = {
     waiting: await countStatus(ctx, "waiting"),
     admitted: await countStatus(ctx, "admitted"),
   };
   return {
-    rows: rows.slice(0, WAITLIST_PAGE).map((row) => ({
+    rows: rows.map((row) => ({
       id: row._id,
       email: row.email ?? null,
       phone: row.phone ?? null,
@@ -77,13 +113,21 @@ export async function listWaitlistHandler(
       joinedAt: row.joinedAt,
       source: row.source,
       useFor: row.useFor ?? null,
+      useForAt: row.useForAt ?? null,
       admittedAt: row.admittedAt ?? null,
       landing: row.landing,
       ...campaignField(row),
     })),
-    more: rows.length > WAITLIST_PAGE,
+    more: matching.length > WAITLIST_PAGE,
     counts,
+    ...(filtering ? { filter: { matches: matching.length, capped } } : {}),
   };
+}
+
+/** Either filter needs an answer to look at, so a row without one never matches. */
+function answerMatches(row: Doc<"waitlist">, needle: string): boolean {
+  const answer = row.useFor?.toLowerCase();
+  return answer !== undefined && answer.includes(needle);
 }
 
 /** A floor past the ceiling, like the census: `10000` means "at least". */
