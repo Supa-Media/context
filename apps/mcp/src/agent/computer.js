@@ -39,6 +39,7 @@
 import { BROWSE_TOOL, browserSession } from "./browse.js";
 import { FILL_LOGIN_TOOL, fillLoginTool } from "./fillLogin.js";
 import { siteShotsComputer } from "./browserProviders.js";
+import { browserJar } from "./browserJar.js";
 import { decisionTokens } from "./decide.js";
 import { MAX_SEARCHES_PER_TURN, cleanQuery } from "./search.js";
 import { OpenableAddresses } from "./trustedSites.js";
@@ -81,9 +82,11 @@ const PROVIDERS = {
  * `owner` is the person's browser tag (`browserOwner`), which lets `browse`
  * find their Browserbase browser again in a later question; `viewer` is the
  * page they take it over on (`texViewerUrl`), the only link a handoff texts;
- * `jar` keeps their sign-ins between browsers (`browserJar.js`).
+ * `store` is the turn's, where their sign-ins are kept between browsers
+ * (`browserJar.js`).
  */
-export function computerFor(env, { owner = null, viewer = null, jar = null } = {}) {
+export function computerFor(env, { owner = null, viewer = null, store = null } = {}) {
+  const jar = store === null ? null : browserJar(store);
   const name = typeof env?.AGENT_COMPUTER === "string" && env.AGENT_COMPUTER ? env.AGENT_COMPUTER : "cloudflare";
   const make = Object.prototype.hasOwnProperty.call(PROVIDERS, name) ? PROVIDERS[name] : null;
   return make ? make(env, { owner, viewer, jar }) : null;
