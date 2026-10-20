@@ -11,7 +11,7 @@ import { markUntrusted, mightWiden, newLedger, oneLine, recordRead } from "../sr
 
 test("anything from outside the workspace marks the turn", () => {
   const content = { content: [{ type: "text", text: "hello" }] };
-  for (const name of ["read_channel_day", "read_contact", "read_meeting"]) {
+  for (const name of ["read_channel_day", "read_contact", "read_meeting", "read_image"]) {
     const ledger = newLedger();
     recordRead(ledger, { name, args: {}, result: content });
     assert.equal(ledger.untrusted, true, name);

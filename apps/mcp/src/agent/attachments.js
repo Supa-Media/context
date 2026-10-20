@@ -25,7 +25,11 @@
  * the bytes are put in on the way to the tool.
  *
  * Attachments live only for the turn. The saved conversation keeps their names
- * (`attachmentsLine`), never their contents.
+ * (`attachmentsLine`), never their contents. A picture today's transcript
+ * stored (`transcript.js`) is named with where it is, so a later text ("it
+ * took me here") can look at it again with read_image rather than every turn
+ * carrying its bytes (Dev, 2026-10-20: "not keep the photo itself in the
+ * history, but definitely a link to it").
  */
 
 /** The most attachments one question may carry; iMessage sends a few photos at once, not dozens. */
@@ -226,9 +230,15 @@ export function plainAttachmentText(attachments, text) {
  */
 export const MAX_SAVED_VOICE_CHARS = 2000;
 
-export function attachmentsLine(attachments) {
+export function attachmentsLine(attachments, kept = []) {
   if (attachments.length === 0) return "";
-  const line = `[Sent with this text: ${attachments.map((attachment) => attachment.name).join(", ")}. Seen only on that turn.]`;
+  const where = new Map(kept.map((picture) => [picture.index, picture]));
+  const names = attachments.map((attachment, index) => {
+    const picture = where.get(index);
+    return picture ? `${attachment.name} (image ${picture.leaf} in ${picture.note})` : attachment.name;
+  });
+  const again = where.size > 0 ? " read_image with that note and image shows it again." : "";
+  const line = `[Sent with this text: ${names.join(", ")}. Seen only on that turn.${again}]`;
   const said = attachments
     .filter((attachment) => attachment.heard)
     .map((attachment) => `[Voice message ${attachment.name}: "${attachment.text.slice(0, MAX_SAVED_VOICE_CHARS)}"]`);

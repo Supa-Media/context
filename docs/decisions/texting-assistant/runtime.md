@@ -54,6 +54,25 @@ cut while the cc question after it was kept, PR #1986).
 Tests: "a text typed in a thread is shown that thread, not the last texts",
 "a thread is shown its own texts past a setup's short history".
 
+## A photo is kept as a link, and Tex can look again (2026-10-20)
+
+A texted photo was seen on its own turn only, and the history kept just its
+name, so "i reconnected and it took me here" a text later had nothing to
+point at. Dev: "it should probably not keep the photo itself in the history,
+but definitely a link to it to reference to save tokens". The history line
+now names where today's transcript stored the picture (`attachmentsLine`,
+from `transcript.kept()`), and `read_image` with that note and image shows it
+again. A tool result's pictures now reach the model inside the tool's answer
+(`toolResultImages`, `anthropicMessages`; at most two per result), where they
+had been dropped to words; a words-only model is told a picture is there that
+it cannot see. Reading a stored picture taints the turn, as a texted one
+does: the model may read words in it (`UNTRUSTED_READS`).
+
+Tests: "the saved conversation points at a stored picture, never its bytes"
+and "a picture read back with read_image is shown to the model in the tool's
+answer" (`agentTranscriptRoute.test.mjs`), "a picture in a tool's answer is
+shown to a model that sees, and named to one that does not".
+
 ## Tapbacks are answered or noted, never dropped
 
 A tapback arrives as words ("Liked “Want me to book it?”"), and every one was

@@ -28,6 +28,9 @@
  *     daily cap spends no transcription" fails.
  *   `attachmentsLine` dropping the `heard` lines → the same check fails on
  *     the saved conversation.
+ *   `anthropicMessages` sending a tool's answer as its words only → "a
+ *     picture in a tool's answer is shown to a model that sees…" fails, and
+ *     so does the transcript route's read_image check (2026-10-20).
  */
 
 import assert from "node:assert/strict";
@@ -87,7 +90,8 @@ test("the saved conversation names what was sent, never its bytes", async () => 
     const keys = world.objectsUnder(".context/");
     assert.ok(keys.includes(KEPT_PHOTOS_PATH));
     const saved = keys.filter((key) => key !== KEPT_PHOTOS_PATH).map((key) => String(world.bucket.get(key)?.body ?? "")).join("\n");
-    assert.match(saved, /look\\n\[Sent with this text: meme\.png\. Seen only on that turn\.\]/);
+    // The picture is named with where today's transcript keeps it, so a later text can look again.
+    assert.match(saved, /look\\n\[Sent with this text: meme\.png \(image upload-[0-9a-f]{16}\.png in tex\/transcripts\/\d{4}-\d{2}-\d{2}\.md\)\. Seen only on that turn\. read_image with that note and image shows it again\.\]/);
     assert.doesNotMatch(saved, new RegExp(PNG.slice(0, 40).replace(/[+/]/g, "\\$&")));
   } finally {
     world.restore();
@@ -273,4 +277,18 @@ test("voice messages: no service, silence, and the 8 MB ceiling", async () => {
   assert.equal(joined.text, "One. Two.");
   const big = "A".repeat(Math.ceil((8.1 * 1024 * 1024) / 3) * 4);
   assert.throws(() => readAttachments([{ name: "a.caf", mediaType: "audio/x-caf", data: big }]), /8 MB/);
+});
+
+test("a picture in a tool's answer is shown to a model that sees, and named to one that does not", () => {
+  const messages = [
+    { role: "assistant", toolCalls: [{ id: "t1", name: "read_image", args: {} }] },
+    { role: "tool", id: "t1", name: "read_image", text: "The image.", images: [{ mediaType: "image/png", data: PNG }] },
+  ];
+  const shown = anthropicMessages(messages).at(-1).content[0];
+  assert.deepEqual(shown.content, [
+    { type: "text", text: "The image." },
+    { type: "image", source: { type: "base64", media_type: "image/png", data: PNG } },
+  ]);
+  const named = openAiMessages("", messages).at(-1).content;
+  assert.match(named, /^The image\.\n\[A picture in this result; you cannot see pictures on this model/);
 });

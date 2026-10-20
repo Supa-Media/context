@@ -193,6 +193,23 @@ export function toolResultText(result) {
   return `${text.slice(0, MAX_TOOL_RESULT_CHARS)}\n\n[truncated: the full result was ${text.length} characters]`;
 }
 
+/** The most pictures one tool result shows the model, and how big each may be (Anthropic's own ceiling). */
+const MAX_RESULT_IMAGES = 2;
+const MAX_RESULT_IMAGE_CHARS = Math.ceil((5_000_000 * 4) / 3);
+const RESULT_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
+
+/**
+ * The pictures an MCP tool result carries (`read_image`, a drawn picture), so
+ * the model sees what it asked to look at rather than only the words beside it.
+ */
+export function toolResultImages(result) {
+  const content = Array.isArray(result?.content) ? result.content : [];
+  return content
+    .filter((part) => part?.type === "image" && typeof part.data === "string" && RESULT_IMAGE_TYPES.has(part.mimeType) && part.data.length <= MAX_RESULT_IMAGE_CHARS)
+    .slice(0, MAX_RESULT_IMAGES)
+    .map((part) => ({ mediaType: part.mimeType, data: part.data }));
+}
+
 /** The one refusal for "there is no model this turn may spend". */
 function noModel() {
   return new AgentRefusal("no_provider", "No model is available for this turn.");
@@ -642,6 +659,7 @@ export async function runTurn(options) {
         id: call.id,
         name: made.name,
         text: toolResultText(result) || "(no result)",
+        images: toolResultImages(result),
         // A held call reaches the model as what it is, waiting for the person, never as an
         // error: read as one, "Not sent yet" became "the email didn't go through" and a
         // second, different copy of the email texted beside the one held (Dev, 2026-10-19).

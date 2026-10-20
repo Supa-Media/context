@@ -25,9 +25,11 @@ import { normalizePath } from "../notes/paths.js";
 /**
  * Tools whose results are, by construction, words people other than the person
  * wrote: a mailbox day, a contact page built from senders' own claims, a
- * meeting's transcript, a stored file's words (most are attachments).
+ * meeting's transcript, a stored file's words (most are attachments), and a
+ * stored picture, which a model now sees and may read words in (a texted
+ * screenshot, an email's image) the way a texted one taints its own turn.
  */
-export const UNTRUSTED_READS = new Set(["read_channel_day", "read_contact", "read_meeting", "search_email", "read_email", "read_file"]);
+export const UNTRUSTED_READS = new Set(["read_channel_day", "read_contact", "read_meeting", "search_email", "read_email", "read_file", "read_image"]);
 
 /**
  * Tools whose results carry names, counts and settings, never a note's words.

@@ -19,6 +19,10 @@
  *     → "a texted picture is stored in the workspace's images and shown…" fails.
  *  3. The transcript dispatching under the turn's own egress ledger.
  *     → "reading today's transcript to append to it never makes a widening ask" fails.
+ *  5. `route.js` calling `attachmentsLine` without the transcript's kept pictures (2026-10-20).
+ *     → "the saved conversation points at a stored picture, never its bytes" fails.
+ *  6. `anthropicMessages` dropping a tool result's images (2026-10-20).
+ *     → "a picture read back with read_image is shown to the model in the tool's answer" fails.
  */
 
 import worker from "../src/index.js";
@@ -200,6 +204,29 @@ export async function runAgentTranscriptChecks(check) {
     check(
       "a texted picture is stored in the workspace's images and shown in the transcript",
       pictured.status === 200 && leaf !== undefined && bucket.get(`${IMAGE_PREFIX}${leaf}`) !== undefined,
+    );
+    const note = transcriptPath(Date.now(), "UTC");
+    const kept = [...bucket.entries()]
+      .filter(([key]) => key.startsWith(".context/agent/events/"))
+      .map(([, object]) => String(object.body))
+      .join("\n");
+    check(
+      "the saved conversation points at a stored picture, never its bytes",
+      leaf !== undefined && kept.includes(`IMG_7.png (image ${leaf} in ${note})`) && kept.includes("read_image") && !kept.includes(PNG.slice(0, 40)),
+    );
+
+    // "it took me here", a text later: the picture is looked at again, and the model is shown it.
+    model.install([{ toolCalls: [{ name: "read_image", args: { note, image: leaf } }] }, { text: "Same page." }]);
+    const again = await ask(env, TOKEN_TEXTS, { question: "it took me here", conversation: "texts", timeZone: "UTC" });
+    const shown = model.requests
+      .at(-1)
+      ?.messages?.flatMap((message) => (Array.isArray(message.content) ? message.content : []))
+      .find((block) => block.type === "tool_result");
+    check(
+      "a picture read back with read_image is shown to the model in the tool's answer",
+      again.status === 200 &&
+        Array.isArray(shown?.content) &&
+        shown.content.some((block) => block.type === "image" && block.source?.type === "base64" && block.source.data.length > 0),
     );
 
     /* ---------------- another client ---------------- */
