@@ -43,6 +43,14 @@ export const CONTEXT_MOVE_LANES = 6;
 export const CONTEXT_MOVE_BYTE_BUDGET = 16 * 1024 * 1024;
 /** How long a pass waits before trying again when the mover did not answer. */
 export const CONTEXT_MOVE_RETRY_MS = 30 * 1000;
+/**
+ * Notes a move may find edited mid-move, and take back and carry again, before
+ * it stops. An open editor saving while its note moves is the usual one: its
+ * copy goes, the batch is listed again, and the latest text is what arrives.
+ * The pause gives the edit a moment to settle before the next read.
+ */
+export const CONTEXT_MOVE_CONFLICT_RETRIES = 5;
+export const CONTEXT_MOVE_CONFLICT_PAUSE_MS = 1_000;
 
 type Skip = { path: string; reason: "encrypted" | "too_large" };
 type Access = { scope: "private" | "team"; grantedNames: string[] };
@@ -63,7 +71,27 @@ export type MoverPass = {
   failed?: string;
   /** Set when the pass should run again later rather than now. */
   retry?: boolean;
+  /** Edits met mid-move that the pass took back and carried again. */
+  conflicts?: number;
 };
+
+/** Words for a move that kept meeting edits, never a provider's text. */
+export const CONFLICT_STOPPED =
+  "A note changed while it was being moved, so the move stopped. Everything already moved is in the new context; run it again to finish.";
+
+/**
+ * A batch met an edit: its copy is already taken back. Within the move's
+ * budget the batch is listed and carried again after a pause; past it, the
+ * move stops and says so.
+ */
+export async function absorbConflict(pass: MoverPass, conflictsLeft: number): Promise<boolean> {
+  const used = pass.conflicts ?? 0;
+  if (used >= conflictsLeft) return false;
+  pass.conflicts = used + 1;
+  pass.remaining = true;
+  await new Promise((resolve) => setTimeout(resolve, CONTEXT_MOVE_CONFLICT_PAUSE_MS));
+  return true;
+}
 
 const under = (path: string, root: string) => path === root || path.startsWith(`${root}/`);
 const overlaps = (path: string, move: { from: string; to: string }) =>
@@ -77,7 +105,7 @@ function stoppedMessage(code: ContextMoveFailureCode | string): string {
     case "NOTE_CAP_REACHED":
       return "The context you are moving into is full, so the move stopped. Everything already moved is there; make room or level it up, then run it again.";
     case "CONFLICT":
-      return "A note changed while it was being moved, so the move stopped. Everything already moved is in the new context; run it again to finish.";
+      return CONFLICT_STOPPED;
     default:
       return "The move could not be completed. Nothing further was moved.";
   }
@@ -97,6 +125,7 @@ export async function carryOnMover(
     skipped: Skip[];
     origin: string;
     batches: number;
+    conflictsLeft: number;
   },
 ): Promise<MoverPass> {
   const { row, skipped } = input;
@@ -169,7 +198,11 @@ export async function carryOnMover(
       for (const entry of carried.landed) pass.movedBytes += entry.bytes;
     }
     if (skipped.length > CONTEXT_MOVE_SKIP_CAP) return { ...pass, failed: skipCapMessage() };
-    if (carried.conflicts.length > 0) return { ...pass, failed: stoppedMessage("CONFLICT") };
+    if (carried.conflicts.length > 0 || carried.failure?.code === "CONFLICT") {
+      // The mover took each edited note's copy back; listed again, the batch carries the edit.
+      if (await absorbConflict(pass, input.conflictsLeft)) continue;
+      return { ...pass, failed: CONFLICT_STOPPED };
+    }
     if (carried.failure !== null) return { ...pass, failed: stoppedMessage(carried.failure.code) };
   }
   return pass;

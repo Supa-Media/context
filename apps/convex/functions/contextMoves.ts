@@ -76,7 +76,7 @@ import {
   query,
 } from "../_generated/server";
 import { carryHere } from "./lib/contextMoveBatches";
-import { CONTEXT_MOVE_RETRY_MS, type MoverPass, carryOnMover } from "./lib/contextMoveMover";
+import { CONTEXT_MOVE_CONFLICT_RETRIES, CONTEXT_MOVE_RETRY_MS, type MoverPass, carryOnMover } from "./lib/contextMoveMover";
 import { storageMoverOrigin } from "./lib/storageMover";
 import { requireWorkspaceRole, workspaceNotFound } from "./lib/workspaceAuth";
 import { authorizeMove, messageOf, normalizeMovePath, TOO_MANY_PASSES } from "./lib/contextMoveAuthorize";
@@ -462,9 +462,15 @@ export const recordMoveProgress = internalMutation({
  * apart from a slow one.
  */
 export const advanceContextMove = internalAction({
-  args: { moveId: v.id("contextMoves"), passesLeft: v.number() },
+  args: {
+    moveId: v.id("contextMoves"),
+    passesLeft: v.number(),
+    /** Edits met mid-move this move may still carry again (`CONTEXT_MOVE_CONFLICT_RETRIES`); a fresh budget when absent. */
+    conflictsLeft: v.optional(v.number()),
+  },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
+    const conflictsLeft = args.conflictsLeft ?? CONTEXT_MOVE_CONFLICT_RETRIES;
     const row = await ctx.runQuery(internal.functions.contextMoves.readMove, {
       moveId: args.moveId,
     });
@@ -474,6 +480,7 @@ export const advanceContextMove = internalAction({
     let movedObjects = 0;
     let movedBytes = 0;
     let remaining = true;
+    let conflictsUsed = 0;
 
     const stop = async (
       status: "complete" | "failed",
@@ -598,10 +605,12 @@ export const advanceContextMove = internalAction({
           skipped,
           origin,
           batches: BATCHES_PER_PASS,
+          conflictsLeft,
         });
       } catch (error) {
         return await stop("failed", messageOf(error));
       }
+      conflictsUsed = pass.conflicts ?? 0;
       movedObjects = pass.movedObjects;
       movedBytes = pass.movedBytes;
       remaining = pass.remaining;
@@ -618,12 +627,14 @@ export const advanceContextMove = internalAction({
         await ctx.scheduler.runAfter(CONTEXT_MOVE_RETRY_MS, internal.functions.contextMoves.advanceContextMove, {
           moveId: args.moveId,
           passesLeft: args.passesLeft - 1,
+          conflictsLeft: conflictsLeft - conflictsUsed,
         });
         return null;
       }
     } else {
       try {
-        const pass = await carryHere(ctx, { row, source, destination, skipped, batches: BATCHES_PER_PASS });
+        const pass = await carryHere(ctx, { row, source, destination, skipped, batches: BATCHES_PER_PASS, conflictsLeft });
+        conflictsUsed = pass.conflicts ?? 0;
         movedObjects = pass.movedObjects;
         movedBytes = pass.movedBytes;
         remaining = pass.remaining;
@@ -647,6 +658,7 @@ export const advanceContextMove = internalAction({
       await ctx.scheduler.runAfter(0, internal.functions.contextMoves.advanceContextMove, {
         moveId: args.moveId,
         passesLeft: args.passesLeft - 1,
+        conflictsLeft: conflictsLeft - conflictsUsed,
       });
       return null;
     }
