@@ -36,14 +36,18 @@ export interface SiteBinding {
 /**
  * Is this one of our own hostnames, served by the ordinary routing table?
  *
- * Everything under `context.lc`, a `workers.dev` preview, and local
- * development. Anything else that reaches this Worker arrived through the
- * Cloudflare for SaaS fallback, which only routes hostnames we registered.
+ * Everything under `context.lc`, Tex's two hostnames (`tex.lc` and
+ * `www.tex.lc`, by name — not `*.tex.lc`; see `texHost.ts`), a `workers.dev`
+ * preview, and local development. Anything else that reaches this Worker
+ * arrived through the Cloudflare for SaaS fallback, which only routes
+ * hostnames we registered.
  */
 export function isPlatformHost(hostname: string): boolean {
   const host = hostname.toLowerCase();
   return (
     host === "context.lc" ||
+    host === "tex.lc" ||
+    host === "www.tex.lc" ||
     host.endsWith(".context.lc") ||
     host.endsWith(".workers.dev") ||
     host === "localhost" ||

@@ -7,15 +7,26 @@
   //     export in Workers Static Assets (or, for a link-preview crawler,
   //     server-rendered meta tags). Paths are never rewritten.
   //   - www.context.lc -> 301 https://context.lc<path><search>
+  //   - tex.lc (Tex, the texting assistant): the same web app, Convex proxy
+  //     and console as the apex, path for path; only robots.txt, crawler
+  //     cards and the homepage snapshot differ (src/texHost.ts).
+  //   - www.tex.lc -> 301 https://tex.lc<path><search>
   //
   // Worker code and the web export are deployed and rolled back together.
   //
   // CUSTOM DOMAINS ARE NOT ATTACHED HERE. This file intentionally has no
-  // top-level "routes"/"route" key. `context.lc` and `www.context.lc` are
-  // attached to this Worker as Custom Domains in the Cloudflare dashboard by
-  // the account owner, because that requires the zone to already be on
-  // Cloudflare DNS — something a CI deploy cannot do and should not silently
-  // try to. Same convention as events-os's infra/router.
+  // top-level "routes"/"route" key, in either environment. Every hostname is
+  // attached as a Custom Domain in the Cloudflare dashboard by the account
+  // owner, because that requires the zone to already be on Cloudflare DNS —
+  // something a CI deploy cannot do and should not silently try to. Same
+  // convention as events-os's infra/router. The complete list, by hand:
+  //
+  //   context-router           context.lc, www.context.lc, tex.lc, www.tex.lc
+  //   context-router-staging   staging.context.lc, tex-staging.context.lc
+  //
+  // Attach exactly these names. src/texHost.ts and src/site.ts recognise Tex
+  // by exact hostname, so a `*.tex.lc` route would not make a new subdomain
+  // Tex — it would hand it to the customer-domain branch, which 404s it.
   //
   // `mcp.context.lc` belongs to a DIFFERENT Worker (the MCP gateway in
   // apps/mcp). Do not attach it here: customer storage credentials should not

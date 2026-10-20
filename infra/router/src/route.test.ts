@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { GENERIC_PREVIEW, previewFor } from "./preview";
 import { route } from "./route";
+import { TEX_GENERIC_PREVIEW, TEX_HOME_PREVIEW, TEX_WAITLIST_PREVIEW } from "./texHost";
 
 function at(url: string, userAgent?: string) {
   return route(new URL(url), userAgent);
@@ -322,5 +323,89 @@ describe("route: a short link's card is an image, not a page", () => {
       origin: "https://context.lc",
       prefix: "/@seyi",
     });
+  });
+});
+
+describe("route: Tex's hosts are the apex, path for path", () => {
+  it.each(["/", "/console/@x/a?note=b", "/x?y=1"])(
+    "www.tex.lc%s folds onto https://tex.lc, path and query kept",
+    (path) => {
+      expect(at(`https://www.tex.lc${path}`)).toEqual({
+        kind: "redirect",
+        location: `https://tex.lc${path}`,
+      });
+      // A crawler too, so the card it caches is the apex's.
+      expect(at(`https://www.tex.lc${path}`, SLACKBOT_UA)).toMatchObject({ kind: "redirect" });
+    },
+  );
+
+  it.each(["tex.lc", "tex-staging.context.lc"])("%s proxies a console deep link unchanged", (host) => {
+    expect(at(`https://${host}/console/@x/a?note=b`, BROWSER_UA)).toEqual({
+      kind: "proxy",
+      upstream: "expo",
+      path: "/console/@x/a?note=b",
+    });
+  });
+
+  it.each(["tex.lc", "tex-staging.context.lc"])("%s sends auth to Convex unchanged", (host) => {
+    expect(at(`https://${host}/api/auth/signin/x?redirectTo=%2F`)).toEqual({
+      kind: "proxy",
+      upstream: "convex",
+      path: "/api/auth/signin/x?redirectTo=%2F",
+    });
+  });
+
+  it("the apex's machine routes answer the same on tex.lc", () => {
+    expect(at("https://tex.lc/_expo/static/js/web/entry-abc.js", SLACKBOT_UA)).toEqual({
+      kind: "proxy",
+      upstream: "expo",
+      path: "/_expo/static/js/web/entry-abc.js",
+      cache: "immutable",
+    });
+    expect(at("https://tex.lc/og/card.png", SLACKBOT_UA)).toEqual({ kind: "og-card" });
+    expect(at("https://tex.lc/favicon.ico", SLACKBOT_UA)).toEqual({ kind: "icon", name: "ico" });
+    for (const path of ["/invite/abc", "/s/abc", "/signin?email=a"]) {
+      expect(at(`https://tex.lc${path}`, BROWSER_UA)).toEqual({ kind: "proxy", upstream: "expo", path });
+    }
+  });
+
+  it("the Tex card is served on both apexes", () => {
+    expect(at("https://tex.lc/og/tex-card.png", SLACKBOT_UA)).toEqual({ kind: "tex-card" });
+    expect(at("https://context.lc/og/tex-card.png", BROWSER_UA)).toEqual({ kind: "tex-card" });
+  });
+
+  it("robots.txt is Tex's on a Tex host and the apex's on context.lc", () => {
+    expect(at("https://tex.lc/robots.txt")).toEqual({ kind: "robots", tex: true });
+    expect(at("https://tex-staging.context.lc/robots.txt")).toEqual({ kind: "robots", tex: true });
+    expect(at("https://context.lc/robots.txt")).toEqual({ kind: "robots" });
+  });
+
+  it("a crawler on a Tex host gets Tex's frozen cards, and context.lc keeps its own", () => {
+    expect(at("https://tex.lc/", SLACKBOT_UA)).toEqual({ kind: "preview", meta: TEX_HOME_PREVIEW });
+    expect(at("https://tex.lc/waitlist?id=1", SLACKBOT_UA)).toEqual({
+      kind: "preview",
+      meta: TEX_WAITLIST_PREVIEW,
+      robotsHeader: "noindex, nofollow",
+    });
+    for (const path of ["/login", "/@nobody", "/console/@x/a", "/whatever"]) {
+      expect(at(`https://tex.lc${path}`, SLACKBOT_UA)).toEqual({
+        kind: "preview",
+        meta: TEX_GENERIC_PREVIEW,
+        robotsHeader: "noindex, nofollow",
+      });
+    }
+    expect(at("https://context.lc/", SLACKBOT_UA)).toEqual({ kind: "preview", meta: previewFor("/") });
+    expect(at("https://context.lc/whatever", SLACKBOT_UA)).toEqual({ kind: "preview", meta: GENERIC_PREVIEW });
+  });
+
+  it("paths with their own preview logic keep it on a Tex host", () => {
+    const token = "a".repeat(64);
+    expect(at(`https://tex.lc/s/${token}`, SLACKBOT_UA)).toEqual({ kind: "share-preview", token });
+    expect(at("https://tex.lc/@seyi/intake", SLACKBOT_UA)).toMatchObject({ kind: "site-preview" });
+  });
+
+  it("is never a wildcard: another tex.lc subdomain is not Tex", () => {
+    expect(at("https://app.tex.lc/", SLACKBOT_UA)).toEqual({ kind: "preview", meta: previewFor("/") });
+    expect(at("https://app.tex.lc/robots.txt")).toEqual({ kind: "robots" });
   });
 });

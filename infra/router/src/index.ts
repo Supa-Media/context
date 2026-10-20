@@ -23,6 +23,10 @@ import { originFor, readOrigin, VAR_NAME } from "./upstream";
 // a crawler is guaranteed to fetch should not depend on an upstream that might
 // be mid-deploy. See og-card.source.html for how the image is produced.
 import ogCard from "./og-card.png";
+// Tex's card, bundled the same way and for the same reason. See
+// og-tex-card.source.html and texHost.ts.
+import texCard from "./og-tex-card.png";
+import { isTexHost, TEX_ROBOTS_TXT } from "./texHost";
 
 export interface Env {
   /** Optional legacy upstream for self-hosted configurations without Static Assets. */
@@ -48,7 +52,14 @@ export default {
     if (simulator !== null) return await simulator;
     if (isSitePageRequest(url)) return await sitePageResponse(request, url, readOrigin(env.CONVEX_ORIGIN), ctx);
     const decision = route(url, request.headers.get("User-Agent"));
-    if (decision.kind === "proxy" && decision.upstream === "expo" && isHomeDocument(request, url)) {
+    // Not on a Tex host: tex.lc's `/` is the Tex landing, which the app draws
+    // from the hostname, and context.lc's website has no business in it.
+    if (
+      decision.kind === "proxy" &&
+      decision.upstream === "expo" &&
+      !isTexHost(url.hostname) &&
+      isHomeDocument(request, url)
+    ) {
       return await withHomeSite(() => respond(decision, request, env, ctx), env, readOrigin(env.CONVEX_ORIGIN), ctx, url);
     }
     return await respond(decision, request, env, ctx);
@@ -78,6 +89,12 @@ async function respond(
             // something else. It is inert HTML with no script of its own.
             "X-Content-Type-Options": "nosniff",
             "Referrer-Policy": "no-referrer",
+            // Tex's noindex cards (`/waitlist`, and every unlisted path) say
+            // it in a header as well, for a crawler that has not parsed the
+            // body. A constant from texHost.ts, never request data.
+            ...(decision.robotsHeader === undefined
+              ? {}
+              : { "X-Robots-Tag": decision.robotsHeader }),
           },
         });
 
@@ -189,11 +206,14 @@ async function respond(
         // would need a purge to correct a bad card.
         return staticAsset(ogCard, "image/png");
 
+      case "tex-card":
+        return staticAsset(texCard, "image/png");
+
       case "icon":
         return iconResponse(decision.name);
 
       case "robots":
-        return robotsResponse();
+        return robotsResponse(decision.tex ? TEX_ROBOTS_TXT : undefined);
 
       case "redirect":
         // Deterministic (host-only) redirects are safe to cache. A plain
