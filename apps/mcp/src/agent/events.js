@@ -24,8 +24,14 @@
 export const EVENTS_PREFIX = ".context/agent/events/";
 const NEWEST = 9_999_999_999_999;
 export const LEGACY_KEY = `${EVENTS_PREFIX}${NEWEST}-legacy.json`;
-/** The most entries one read lists: enough for the kept history's forty turns, two per exchange. */
-export const READ_ENTRIES = 24;
+/**
+ * The most entries one read lists. The kept history is bounded by characters
+ * (`conversation.js`), so entries are read newest first, a batch at a time,
+ * and reading stops once that many characters are in hand: a chat of short
+ * texts reads more of them, one of long answers fewer.
+ */
+export const READ_ENTRIES = 150;
+const READ_BATCH = 25;
 /** An exchange's id: its key's leaf without `.json`. */
 const ID = /^\d{13}-[a-z0-9]{1,16}$/;
 
@@ -104,7 +110,7 @@ async function readEntry(store, key) {
  * answer, the question carrying the exchange's `id`, `at` and `thread`.
  * Null when the log is empty, so the caller can read the old file instead.
  */
-export async function readEventTurns(store, entries = READ_ENTRIES) {
+export async function readEventTurns(store, entries = READ_ENTRIES, { chars = Infinity } = {}) {
   const most = Math.max(1, Math.min(READ_ENTRIES, entries));
   const page = await store.list({ prefix: EVENTS_PREFIX, limit: most });
   const keys = (page?.objects ?? [])
@@ -113,10 +119,19 @@ export async function readEventTurns(store, entries = READ_ENTRIES) {
     .sort()
     .slice(0, most);
   if (keys.length === 0) return null;
-  const read = await Promise.all(keys.map((key) => readEntry(store, key)));
+  // Keys sort newest first: read a batch at a time until the character budget is spent.
+  const read = [];
+  let held = 0;
+  for (let at = 0; at < keys.length && held <= chars; at += READ_BATCH) {
+    const batch = await Promise.all(keys.slice(at, at + READ_BATCH).map((key) => readEntry(store, key)));
+    for (const entry of batch) {
+      read.push(entry);
+      held += entryChars(entry);
+    }
+  }
   const turns = [];
-  // Keys sort newest first; turns go oldest first.
-  for (let i = keys.length - 1; i >= 0; i -= 1) {
+  // Turns go oldest first.
+  for (let i = read.length - 1; i >= 0; i -= 1) {
     const entry = read[i];
     if (entry === null || typeof entry !== "object") continue;
     if (entry.legacy === true && Array.isArray(entry.turns)) {
@@ -141,4 +156,10 @@ export async function readEventTurns(store, entries = READ_ENTRIES) {
     });
   }
   return turns;
+}
+
+function entryChars(entry) {
+  if (entry === null || typeof entry !== "object") return 0;
+  if (entry.legacy === true && Array.isArray(entry.turns)) return entry.turns.reduce((n, turn) => n + String(turn?.text ?? "").length, 0);
+  return String(entry.question ?? "").length + String(entry.answer ?? "").length;
 }

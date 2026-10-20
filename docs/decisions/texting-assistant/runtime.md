@@ -46,7 +46,13 @@ reads them (`threadView.js`). Its own exchange is kept with the root's id.
 Words only pick which of the person's own kept exchanges to show; a root that
 cannot be found leaves the turn the whole recent conversation, as before.
 
-Test: "a text typed in a thread is shown that thread, not the last texts".
+A thread is shown at least the default window of its own exchanges whatever a
+setup's `history:` says, and, in what that window leaves, the texts that led
+up to its root (2026-10-20: at four turns the bowling thread's draft email was
+cut while the cc question after it was kept, PR #1986).
+
+Tests: "a text typed in a thread is shown that thread, not the last texts",
+"a thread is shown its own texts past a setup's short history".
 
 ## Tapbacks are answered or noted, never dropped
 

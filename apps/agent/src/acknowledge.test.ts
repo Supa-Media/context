@@ -1,5 +1,5 @@
 /**
- * A text still being worked on gets a thumbs-up tapback (`ACKNOWLEDGE_AFTER_MS`),
+ * A text still being worked on gets a tapback that fits it (`ACKNOWLEDGE_AFTER_MS`, `ackEmoji.ts`),
  * because Sendblue's typing bubble is best effort: on 2026-10-19 Dev saw "Read"
  * and nothing else for two minutes.
  *
@@ -7,6 +7,7 @@
  *  1. No `setTimeout` for the tapback → "a long turn gets one thumbs-up" fails.
  *  2. `clearTimeout(acknowledge)` dropped → "a quick answer gets no tapback" fails.
  *  3. The tapback not followed by the bubble → "...and the bubble again" fails.
+ *  4. `ackEmoji` always 👍 → "a text that is upset with Tex gets a sorry face" fails (2026-10-20).
  */
 
 import { describe, expect, it, vi } from "vitest";
@@ -93,12 +94,12 @@ async function answered(text: Message, ms: number, reactionStatus = 200): Promis
 const reactions = (calls: Call[]) => calls.filter((c) => c.path === "/api/send-reaction");
 
 describe("a text Tex is still working on is acknowledged", () => {
-  it("a long turn gets one thumbs-up on the text, and the bubble again", async () => {
+  it("a long turn gets one tapback on the text, and the bubble again", async () => {
     const calls = await answered(message("mh_long", "email her"), 3 * 60_000);
     // Sending the tapback can clear the bubble, so it is asked for again at once.
     const early = await answered(message("mh_early", "email her"), ACKNOWLEDGE_AFTER_MS + 5_000);
     expect(early.filter((c) => c.path === "/api/send-typing-indicator")).toHaveLength(3);
-    expect(reactions(calls).map((c) => c.body)).toEqual([{ from_number: LINE, message_handle: "mh_long", reaction: "like" }]);
+    expect(reactions(calls).map((c) => c.body)).toEqual([{ from_number: LINE, message_handle: "mh_long", reaction: "👀" }]);
     const at = calls.findIndex((c) => c.path === "/api/send-reaction");
     expect(calls[at + 1]?.path).toBe("/api/send-typing-indicator");
     // Read and the bubble come first, the tapback only once the turn has run a while.
@@ -116,9 +117,14 @@ describe("a text Tex is still working on is acknowledged", () => {
     expect(reactions(calls)).toEqual([]);
   });
 
-  it("a refused tapback still gets the answer", async () => {
+  it("a text that is upset with Tex gets a sorry face, never a thumbs-up", async () => {
+    const calls = await answered(message("mh_upset", "did you see anything I said in this thread at all??? are you dumb???"), 60_000);
+    expect(["☹️", "😔"]).toContain(reactions(calls)[0]?.body.reaction);
+  });
+
+  it("a refused emoji falls back to a thumbs-up, and the answer still goes", async () => {
     const calls = await answered(message("mh_refused", "email her"), 60_000, 422);
-    expect(reactions(calls)).toHaveLength(1);
+    expect(reactions(calls).map((c) => c.body.reaction)).toEqual(["👀", "like"]);
     expect(calls.some((c) => c.path === "/api/send-message" && c.body.content === "answer to email her")).toBe(true);
   });
 });

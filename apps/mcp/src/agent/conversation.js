@@ -29,15 +29,18 @@ const CONVERSATIONS = {
 };
 
 /*
-  What the file keeps, and what a turn is shown of it by default. Kept longer
-  than shown (the owner, 2026-10-14: "we should still keep running history",
-  without "all of that bloat" on every text): a setup's `history:` line says
-  how much a turn sees, and `earlier_texts` reads the rest when a text needs it.
+  What is kept, and what a turn is shown of it by default. Bounded by
+  characters, not by a count of texts: a count cut the draft email out of the
+  thread it was texted in ("send this email now", Dev, 2026-10-20), and the
+  owner chose the whole history over a cap that day. A turn is shown
+  everything kept up to about twenty thousand tokens; `earlier_texts` reads
+  the rest that is kept, and every day's texts are in `tex/transcripts/`.
+  A setup's `history:` line can still narrow what a turn is shown.
 */
-export const MAX_HISTORY_TURNS = 40;
-export const MAX_HISTORY_CHARS = 40_000;
-export const SHOWN_HISTORY_TURNS = 12;
-export const SHOWN_HISTORY_CHARS = 12_000;
+export const MAX_HISTORY_TURNS = 300;
+export const MAX_HISTORY_CHARS = 120_000;
+export const SHOWN_HISTORY_TURNS = MAX_HISTORY_TURNS;
+export const SHOWN_HISTORY_CHARS = 80_000;
 
 export const EARLIER_TEXTS = "earlier_texts";
 
@@ -137,7 +140,7 @@ export async function readConversation(store, name, { entries } = {}) {
   const path = conversationPath(name);
   if (path === null) return [];
   try {
-    const logged = eventsSupported(store) ? await readEventTurns(store, entries) : null;
+    const logged = eventsSupported(store) ? await readEventTurns(store, entries, { chars: MAX_HISTORY_CHARS }) : null;
     const turns = logged === null ? await readFile(store, path) : logged.filter(isTurn);
     return trimHistory(turns.map(keptTurn));
   } catch {
@@ -145,10 +148,10 @@ export async function readConversation(store, name, { entries } = {}) {
   }
 }
 
-/** A setup's `history:` value: a whole number 0-40, `undefined` when absent, null when invalid. */
+/** A setup's `history:` value: a whole number 0-300, `undefined` when absent, null when invalid. */
 export function readHistoryTurns(value) {
   if (value === undefined) return undefined;
-  if (typeof value !== "string" || !/^\d{1,2}$/.test(value)) return null;
+  if (typeof value !== "string" || !/^\d{1,3}$/.test(value)) return null;
   const turns = Number(value);
   return turns <= MAX_HISTORY_TURNS ? turns : null;
 }
@@ -162,7 +165,8 @@ export const EARLIER_TEXTS_DEFINITION = {
   name: EARLIER_TEXTS,
   description:
     "Read your earlier texts with this person, oldest first: what they said and what you answered. " +
-    "Use it when a text refers to something said before that isn't in front of you (\"like I said\", \"that place\", \"the second one\").",
+    "Use it when a text refers to something said before that isn't in front of you (\"like I said\", \"that place\", \"the second one\"). " +
+    "Older than that, every day's texts are in tex/transcripts/<date>.md.",
   inputSchema: { type: "object", properties: {} },
 };
 
@@ -277,7 +281,7 @@ export async function appendTold(store, name, told) {
     const at = Date.now();
     for (const [index, key] of told.entries()) {
       // Read again each time: the old whole file is rewritten by each append.
-      await appendConversation(store, name, await readConversation(store, name), TOLD_QUESTION, TOLD[key], { at: at + index });
+      await appendConversation(store, name, await readConversation(store, name, { entries: 1 }), TOLD_QUESTION, TOLD[key], { at: at + index });
     }
   } catch {
     // See above.
@@ -295,7 +299,7 @@ export async function rememberRoutineText(store, routine, text, tainted) {
   if (Array.isArray(routine.settings.to) && routine.settings.to.length > 0) return;
   const line = `(Not a text from them. Your routine ${routine.path} ran on its schedule and you texted them what follows.)`;
   try {
-    await appendConversation(store, "texts", await readConversation(store, "texts"), line, text, { tainted });
+    await appendConversation(store, "texts", await readConversation(store, "texts", { entries: 1 }), line, text, { tainted });
   } catch {
     // See above.
   }

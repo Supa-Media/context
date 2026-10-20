@@ -180,6 +180,31 @@ test("the log is read newest last, and keeps the thread an exchange was typed un
   assert.equal(turns[2].thread, first);
 });
 
+test("a turn is shown every kept text up to the character budget, not a count", async () => {
+  // The owner, 2026-10-20: "why can't it just see everything? arbitrary cutoffs don't work".
+  const { shownHistory } = await import("../src/agent/conversation.js");
+  const store = listingStore();
+  for (let i = 0; i < 60; i++) await appendConversation(store, "texts", [], `question ${i}`, `answer ${i}`, { at: 1_000 + i });
+  const history = await readConversation(store, "texts");
+  assert.equal(history.length, 120);
+  assert.equal(history[0].text, "question 0");
+  assert.equal(shownHistory(history).length, 120);
+});
+
+test("the log is read a batch at a time until the character budget is spent", async () => {
+  const store = listingStore();
+  const get = store.get.bind(store);
+  let gets = 0;
+  store.get = async (key) => ((gets += 1), get(key));
+  const long = "x".repeat(4_000);
+  for (let i = 0; i < 100; i++) await appendConversation(store, "texts", [], `question ${i}`, long, { at: 1_000 + i });
+  gets = 0;
+  const history = await readConversation(store, "texts");
+  assert.ok(gets < 100, `read ${gets} of 100 entries`);
+  assert.ok(history.reduce((n, turn) => n + turn.text.length, 0) <= MAX_HISTORY_CHARS);
+  assert.equal(history.at(-2).text, "question 99", "the newest exchange is always kept");
+});
+
 test("a text typed in a thread is shown that thread, not the last texts", async () => {
   const { threadView, threadPrompt } = await import("../src/agent/threadView.js");
   const store = listingStore();
