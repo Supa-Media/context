@@ -5,6 +5,9 @@
  * Body `{ accessToken, expectedWorkspaceId, email: { from?, to, cc?, subject, body, replyTo? }, check? }`.
  * `replyTo` is the Gmail id of a message in the `from` mailbox; the email is
  * sent inside that message's thread (In-Reply-To, References, threadId).
+ * Without it, a subject starting "Re:" joins the newest thread in that
+ * mailbox with the same subject and one of its recipients
+ * (`lib/personEmailThread.ts`), or goes as a new email.
  * Answers `{ ok: true, from }` (with `check`, nothing is sent) or
  * `{ ok: false, refused }`.
  *
@@ -28,6 +31,7 @@ import { json, stringField } from "../gatewayAuth";
 import { gmailRaw, readPersonEmail, recipientLimitKey, recipientsOf, replyHeadersOf, type ReplyThread } from "../personEmail";
 import { getReplyHeaders } from "../../../../mcp/src/communications/gmailSync.js";
 import { timeoutFetch } from "../filesFns/forwardSyncSupport";
+import { findReplyThread } from "../personEmailThread";
 
 const GMAIL_SEND_ENDPOINT = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send";
 const GMAIL_DRAFTS_ENDPOINT = "https://gmail.googleapis.com/gmail/v1/users/me/drafts";
@@ -90,6 +94,10 @@ async function personEmail(ctx: ActionCtx, body: Record<string, unknown>, draft:
       log({ outcome: "reply_not_found", draft });
       return json({ ok: false, refused: "reply_not_found" });
     }
+  } else {
+    // "Re:" with no thread named joins the one it answers, if the mailbox has it.
+    thread = await findReplyThread(timeoutFetch, minted.accessToken, email);
+    if (thread !== null) log({ outcome: "thread_found", draft });
   }
   try {
     const raw = gmailRaw(email, claimed.from, thread);

@@ -160,11 +160,23 @@ Gmail no longer has, or one with no usable Message-ID, refuses as
 says it is a reply in the thread, and the yes covers `in_reply_to` with the
 rest of the call.
 
+The AI often has no id to pass: it came from a search in an earlier turn, or
+the search missed. On 2026-10-20 Tex was asked to reply in a venue's thread and
+sent "RE: Welcome…" as a new email. So an email with no `in_reply_to` whose
+subject starts "Re:" is matched against the sending mailbox
+(`apps/convex/functions/lib/personEmailThread.ts`): the newest message, not a
+draft, trashed or spam, whose subject is the same once prefixes are stripped
+and which one of this email's recipients sent or received. It joins that
+thread; no match sends it as a new email, as asked. The match reads only the
+sender's own mail and only a thread a recipient is already on, and changes
+nothing the person approved but the threading headers.
+
 **What a simplification would cost.** Sending a reply that was not found as
 a new email would make the thread question silent again. Copying Gmail's
 headers unchecked would let a crafted Message-ID add a Bcc.
 `apps/convex/__tests__/personEmail.test.ts` fails if a forged Message-ID
-passes, a missing message sends, or a reply leaves its thread;
+passes, a missing message sends, a reply leaves its thread, or a "Re:" email
+with no id stays out of its thread or joins one with a different subject;
 `apps/mcp/test/emailGate.test.mjs` fails if a reply sends from another mailbox.
 
 ### What is deliberately not built
