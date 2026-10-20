@@ -385,10 +385,10 @@ export function TabStrip({
         onScroll={(event: NativeSyntheticEvent<NativeScrollEvent>) => {
           const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
           viewport.current.offset = contentOffset.x;
-          setEdges({
-            before: contentOffset.x > 1,
-            after: contentOffset.x + layoutMeasurement.width < contentSize.width - 1,
-          });
+          const before = contentOffset.x > 1;
+          const after = contentOffset.x + layoutMeasurement.width < contentSize.width - 1;
+          // Unchanged most frames, and a new object would re-render every tab.
+          setEdges((was) => (was.before === before && was.after === after ? was : { before, after }));
         }}
         scrollEventThrottle={16}
       >
