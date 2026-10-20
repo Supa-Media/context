@@ -40,6 +40,18 @@ export async function getConnectionForSyncHandler(
   };
 }
 
+/**
+ * The `reconnect_required` causes a refresh that works disproves: Google's
+ * `invalid_grant` (`GRANT_REVOKED`), and the pass code that used to overwrite
+ * it on the row (`GOOGLE_RECONNECT_REQUIRED`, before the failed-pass branch
+ * of `recordGoogleForwardSyncPass` kept the cause). Never `SCOPES_INCOMPLETE`:
+ * a missing permission is the person's to give.
+ */
+export const REFRESHABLE_RECONNECT_CODES: ReadonlySet<string> = new Set([
+  "GRANT_REVOKED",
+  "GOOGLE_RECONNECT_REQUIRED",
+]);
+
 export const cacheAccessTokenArgs = {
   connectionId: v.id("googleConnections"),
   encryptedAccessToken: v.string(),
@@ -54,11 +66,28 @@ export async function cacheAccessTokenHandler(
 ) {
   const connection = await ctx.db.get(args.connectionId);
   if (connection === null || connection.disconnectedAt !== undefined) return null;
+  const now = Date.now();
+  /*
+    A REFRESH THAT WORKED DISPROVES A REVOKED GRANT.
+
+    `markReconnectRequired` sets `GRANT_REVOKED` on one `invalid_grant`, and
+    the sync gate then skipped the row until a fresh connect, so one spurious
+    refusal stopped a mailbox for good. Google just accepted this grant, so
+    the row is healthy and due now. Only those codes: `SCOPES_INCOMPLETE` is a
+    permission the person has to give, which no refresh can.
+  */
+  const recovered = connection.health === "reconnect_required" && REFRESHABLE_RECONNECT_CODES.has(connection.errorCode ?? "");
   await ctx.db.patch(args.connectionId, {
     encryptedAccessToken: args.encryptedAccessToken,
     accessTokenExpiresAt: args.accessTokenExpiresAt,
-    updatedAt: Date.now(),
+    ...(recovered
+      ? { health: "active" as const, lastError: undefined, errorCode: undefined, syncFailures: undefined, nextSyncAt: now }
+      : {}),
+    updatedAt: now,
   });
+  if (recovered) {
+    console.log(JSON.stringify({ event: "google.grant_recovered", connectionId: args.connectionId }));
+  }
   return null;
 }
 

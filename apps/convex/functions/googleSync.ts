@@ -506,7 +506,12 @@ export const recordGoogleForwardSyncPass = internalMutation({
             ? ("reconnect_required" as const)
             : ("error" as const),
         lastError: error ?? "This Google account did not sync.",
-        errorCode: args.errorCode ?? "GOOGLE_SYNC_FAILED",
+        // And so does its cause: `GRANT_REVOKED` is what the daily re-check
+        // (`googleReconnect.ts`) looks for, and `SCOPES_INCOMPLETE` what it skips.
+        errorCode:
+          connection.health === "reconnect_required" && connection.errorCode !== undefined
+            ? connection.errorCode
+            : (args.errorCode ?? "GOOGLE_SYNC_FAILED"),
         lastSyncFailureAt: now,
         lastSyncFailureCode: args.errorCode ?? "GOOGLE_SYNC_FAILED",
         lastSyncFailure: error ?? "This Google account did not sync.",
