@@ -166,3 +166,7 @@ Moved to [A workspace's passes run back to back, and a pushed one goes first](./
 ### A Gmail day is rewritten through its collaboration document
 
 Moved to [A Gmail day is rewritten through its collaboration document](./communications/gmail-and-sync-loop.md#a-gmail-day-is-rewritten-through-its-collaboration-document).
+
+### A broken mailbox is said only when the person must act, and a long silence once (owner, 2026-10-20)
+
+In [A broken mailbox is said only when the person must act, and a long silence once](./communications/mail-health.md#a-broken-mailbox-is-said-only-when-the-person-must-act-and-a-long-silence-once-owner-2026-10-20).
