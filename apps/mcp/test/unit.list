@@ -148,3 +148,4 @@ test/agentSteer.test.mjs
 test/agentMemoryNudge.test.mjs
 test/deployedOrigins.test.mjs
 test/pdfLinks.test.mjs
+test/pdfPage.test.mjs

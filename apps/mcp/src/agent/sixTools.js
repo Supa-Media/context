@@ -160,6 +160,10 @@ export function sixToolsOver(granted, grants = null) {
     if (name === "write" || name === "manage" || name === "send") {
       const action = name === "write" && (call.action === undefined || call.action === "") ? "save" : call.action;
       if (typeof action === "string" && !allowedActions[name].has(action)) {
+        // Called on the wrong family (write { action: "progress" }): run it where it lives,
+        // under that family's own grants, rather than fail a step the turn may take.
+        const home = ["write", "manage", "send"].find((family) => family !== name && allowedActions[family].has(action));
+        if (home) return resolve(home, call);
         const list = [...allowedActions[name]].join(", ") || "none";
         return { error: `${name} has no action "${action.slice(0, 40)}" for you. Yours: ${list}.` };
       }

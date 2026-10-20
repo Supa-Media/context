@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_REDIRECTS, fetchPage, fromMarkdown, htmlToText } from "./fetchText";
+import { MAX_PDF_BYTES, MAX_REDIRECTS, fetchPage, fromMarkdown, htmlToText } from "./fetchText";
 import { MAX_LINKS, MAX_TEXT_CHARS } from "./read";
 
 type Reply = { status?: number; type?: string; body?: string; location?: string; throws?: boolean };
@@ -90,6 +90,27 @@ const ARTICLE = `<!doctype html><html><head><title>Pricing | Example</title></he
   <main><article><h1>Pricing</h1>
   ${"<p>Pro is $12 a month and includes everything a small team needs to get started with shared notes.</p>".repeat(6)}
   </article></main><footer>Cookie banner</footer></body></html>`;
+
+describe("a PDF at the address", () => {
+  it("is handed on whole for the gateway to read, since a browser shows it with no text", async () => {
+    const pdf = "%PDF-1.4\n1 0 obj << /URI (https://pay.example/x) >> endobj\n%%EOF";
+    const { impl } = fakeFetch({ "https://race.example/map.pdf": { type: "application/pdf", body: pdf } });
+    const page = await fetchPage("https://race.example/map.pdf", impl);
+    expect(page?.via).toBe("file");
+    expect(page?.text).toBe("");
+    expect(page?.file?.type).toBe("application/pdf");
+    expect(atob(page!.file!.data)).toBe(pdf);
+  });
+
+  it("is not handed on when it is not a PDF after all, or is over the size the gateway reads", async () => {
+    const { impl } = fakeFetch({
+      "https://a.example/fake.pdf": { type: "application/pdf", body: "<html>not a pdf</html>" },
+      "https://a.example/huge.pdf": { type: "application/pdf", body: `%PDF-${"x".repeat(MAX_PDF_BYTES)}` },
+    });
+    expect(await fetchPage("https://a.example/fake.pdf", impl)).toBeNull();
+    expect(await fetchPage("https://a.example/huge.pdf", impl)).toBeNull();
+  });
+});
 
 describe("ordinary HTML, without a browser", () => {
   it("reads the main text and every public link on the page", async () => {

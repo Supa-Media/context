@@ -81,3 +81,19 @@ Tests: `infra/site-shots/src/browse.test.ts` ("clicks what shows the words it
 names…", "looks at the page as a picture…") and `agentBrowse.test.mjs` ("a
 look hands the model the page as a picture, with its size"). The hand-cursor
 numbering needs a layout, so it was checked in real Chromium by hand.
+
+## A PDF on the web is read like a file (2026-10-20)
+
+A browser shows a PDF as a viewer with no text, so a race's course map texted
+as a link reached Tex as nothing ("I can't show the map", 2026-10-17), and so
+would any invoice, menu or form that is a PDF. The screenshot Worker's fast
+path now hands a PDF of up to 10 MB on whole (`fetchText.ts`, `via: "file"`),
+and the gateway reads it as `read_file` does, its words through `fileWords`
+and its links through `pdfLinks`, which become links the turn may follow
+(`pdfPage`, `browserProviders.js`). The bytes never reach the model. Tests:
+`fetchText.test.ts` ("a PDF at the address"), `test/pdfPage.test.mjs`.
+
+An action called on the wrong one of the six (`write { action: "progress" }`,
+seen twice) runs under the family that has it, with that family's grants,
+instead of failing (`sixTools.js`; "an action called on the wrong one of the
+six runs where it lives, never wider").
