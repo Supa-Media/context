@@ -60,3 +60,24 @@ MCP client holding alice's grant is refused"), `apps/mcp/test/agentHandoff.test.
 ("the handoff text is short: their own /tex/<handle> page and the site, never
 the browser's link") and `infra/site-shots/src/view.test.ts` ("finds a
 browser and never starts one").
+
+## A click a person could make, the page's code aside (2026-10-20)
+
+Tex coded a Public Worship charge up to Chapter OS's category picker and
+stopped: the picker's options were boxes with a click handler and no role, so
+a reading numbered none of them, a click had to name a number, and the arrow
+keys were not allowed. It handed the browser over and blamed the page. Dev:
+"if a human can do it, tex should be able to do it as well".
+
+So a reading also numbers the outermost box the hand cursor starts on (never
+one wrapping something already numbered) and the ARIA roles a custom picker
+uses; a click may name the words on the thing (`text`), or a point on a
+`look`, which hands the model the page as a JPEG of what is on screen, in its
+own pixels (the browser divides by the device pixel ratio). Press takes the
+arrows and Space. Clicking stays unlimited, as above; a look is a page the
+model reads like any other, so it carries no more trust than its words.
+
+Tests: `infra/site-shots/src/browse.test.ts` ("clicks what shows the words it
+names…", "looks at the page as a picture…") and `agentBrowse.test.mjs` ("a
+look hands the model the page as a picture, with its size"). The hand-cursor
+numbering needs a layout, so it was checked in real Chromium by hand.

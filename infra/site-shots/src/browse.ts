@@ -44,15 +44,20 @@ export const MAX_STEPS = 10;
 /** The most text and elements one reading hands back. */
 export const MAX_BROWSE_TEXT = 12_000;
 export const MAX_ELEMENTS = 80;
+/** How many of the page's elements a reading looks at for something to number; past it a page is read as far as here. */
+export const MAX_SCANNED = 5_000;
 const MAX_TYPED = 500;
 
 export type Step =
   | { do: "goto"; url: string }
   | { do: "click"; ref: number }
+  | { do: "click"; text: string }
+  | { do: "click"; x: number; y: number }
+  | { do: "look" }
   | { do: "type"; ref: number; text: string; enter: boolean; onlyOn: string[] | null }
   | { do: "fill"; ref: number; value: string; origin: string; field: "username" | "password" }
   | { do: "select"; ref: number; option: string }
-  | { do: "press"; key: "Enter" | "Tab" | "Escape" }
+  | { do: "press"; key: Key }
   | { do: "back" }
   | { do: "scroll"; direction: "down" | "up" }
   | { do: "read" };
@@ -72,6 +77,8 @@ export interface Reading {
   text: string;
   truncated: boolean;
   elements: Element[];
+  /** After a `look`: what the page shows, a JPEG, and its size in its own pixels, the space a click's x and y are in. */
+  shot?: { data: string; width: number; height: number };
 }
 
 export interface StepResult {
@@ -90,11 +97,25 @@ export interface BrowsePage {
   select(selector: string, ...values: string[]): Promise<string[]>;
   goBack(options: { timeout: number }): Promise<unknown>;
   keyboard: { press(key: string): Promise<void> };
+  mouse: { click(x: number, y: number): Promise<void> };
+  screenshot(options: { type: "jpeg"; quality: number; encoding: "base64"; fullPage: false }): Promise<string | Uint8Array>;
   waitForNetworkIdle(options: { idleTime: number; timeout: number }): Promise<void>;
 }
 
 const SESSION_ID = /^[A-Za-z0-9-]{8,80}$/;
-const KEYS = new Set(["Enter", "Tab", "Escape"]);
+/**
+ * The keys a step may press. The arrows and Space work a menu or a list the
+ * page built itself, the way a person moves through one without a mouse.
+ */
+export const KEYS = ["Enter", "Tab", "Escape", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Space"] as const;
+export type Key = (typeof KEYS)[number];
+const KEY_SET = new Set<string>(KEYS);
+/** The most words a click-by-words step may name: a button's or an option's, not a paragraph. */
+const MAX_CLICK_TEXT = 200;
+/** A point on a look's picture, in its pixels. */
+const MAX_POINT = 10_000;
+/** How a look's picture is taken: enough to read a form's words, small enough for a model's turn. */
+export const LOOK_QUALITY = 60;
 
 /**
  * `{ session?, steps }`, or null. Anything malformed refuses the whole call: a
@@ -129,7 +150,12 @@ function parseStep(item: unknown): Step | null {
       return url === null ? null : { do: "goto", url };
     }
     case "click":
-      return ref === null ? null : { do: "click", ref };
+      if (ref !== null) return { do: "click", ref };
+      if (s.x !== undefined || s.y !== undefined) {
+        const point = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= MAX_POINT;
+        return point(s.x) && point(s.y) ? { do: "click", x: s.x as number, y: s.y as number } : null;
+      }
+      return typeof s.text === "string" && s.text.trim().length > 0 && s.text.length <= MAX_CLICK_TEXT ? { do: "click", text: s.text.trim() } : null;
     case "type": {
       if (ref === null || typeof s.text !== "string" || s.text.length > MAX_TYPED) return null;
       let onlyOn: string[] | null = null;
@@ -148,13 +174,15 @@ function parseStep(item: unknown): Step | null {
     case "select":
       return ref === null || typeof s.option !== "string" || s.option.length > 200 ? null : { do: "select", ref, option: s.option };
     case "press":
-      return typeof s.key === "string" && KEYS.has(s.key) ? { do: "press", key: s.key as "Enter" | "Tab" | "Escape" } : null;
+      return typeof s.key === "string" && KEY_SET.has(s.key) ? { do: "press", key: s.key as Key } : null;
     case "back":
       return { do: "back" };
     case "scroll":
       return s.direction === "up" || s.direction === "down" ? { do: "scroll", direction: s.direction } : null;
     case "read":
       return { do: "read" };
+    case "look":
+      return { do: "look" };
     default:
       return null;
   }
@@ -208,15 +236,29 @@ export const SNAPSHOT_SOURCE = `(() => {
       clean(el.getAttribute("name")) || clean(el.value && el.type === "submit" ? el.value : "");
   };
   const elements = [];
-  const query = "a[href], button, input:not([type=hidden]), textarea, select, [role=button], [role=link], [role=checkbox], [role=tab], [role=menuitem], [contenteditable=true]";
-  for (const el of document.querySelectorAll(query)) {
+  const query = "a[href], button, input:not([type=hidden]), textarea, select, summary, [onclick], [tabindex]:not([tabindex='-1']), " +
+    "[role=button], [role=link], [role=checkbox], [role=radio], [role=switch], [role=tab], [role=menuitem], [role=menuitemradio], " +
+    "[role=menuitemcheckbox], [role=option], [role=combobox], [role=treeitem], [contenteditable=true]";
+  const pointer = (el) => !!el && getComputedStyle(el).cursor === "pointer";
+  /*
+    What a page made clickable without saying so: a box with only a click
+    handler, styled with the hand cursor (a custom picker's options). Numbered
+    once, at the outermost box the hand starts on, and never when it wraps
+    something already numbered by what it is.
+  */
+  const clickable = (el) => pointer(el) && !pointer(el.parentElement) && !el.querySelector(query);
+  const all = document.body ? document.body.querySelectorAll("*") : [];
+  for (let i = 0; i < all.length && i < ${MAX_SCANNED}; i++) {
+    const el = all[i];
     if (elements.length >= ${MAX_ELEMENTS}) break;
+    const named = el.matches(query);
+    if (!named && !clickable(el)) continue;
     if (!visible(el) || el.disabled) continue;
     const ref = elements.length + 1;
     el.setAttribute("data-tex-ref", String(ref));
     const tag = el.tagName.toLowerCase();
     const type = (el.getAttribute("type") || "").toLowerCase();
-    const kind = tag === "input" ? "input " + (type || "text") : tag === "a" ? "link" : el.getAttribute("role") || tag;
+    const kind = tag === "input" ? "input " + (type || "text") : tag === "a" ? "link" : el.getAttribute("role") || (named ? tag : "clickable");
     const item = { ref, kind, label: labelOf(el) };
     if (tag === "a") item.href = el.href;
     if (tag === "input" && (type === "checkbox" || type === "radio")) item.checked = el.checked;
@@ -230,6 +272,45 @@ export const SNAPSHOT_SOURCE = `(() => {
 })()`;
 
 const selector = (ref: number) => `[data-tex-ref="${ref}"]`;
+const BY_WORDS = `[data-tex-words]`;
+
+/**
+ * Mark the element that shows `words`, for a click: the smallest visible one
+ * whose own text is exactly those words (any case and spacing), else the
+ * smallest that starts with them. A picker's option or a box with only a
+ * click handler has no number in a reading, and the words on it are what a
+ * person would point at.
+ */
+export function wordsSource(words: string): string {
+  return `(() => {
+  for (const el of document.querySelectorAll("${BY_WORDS}")) el.removeAttribute("data-tex-words");
+  const norm = (s) => (s || "").replace(/\\s+/g, " ").trim().toLowerCase();
+  const want = norm(${JSON.stringify(words)});
+  if (!want) return false;
+  const visible = (el) => {
+    const box = el.getBoundingClientRect();
+    if (box.width < 1 || box.height < 1) return false;
+    const style = getComputedStyle(el);
+    return style.visibility !== "hidden" && style.display !== "none";
+  };
+  let exact = null, starts = null;
+  const all = document.body ? document.body.querySelectorAll("*") : [];
+  for (let i = 0; i < all.length && i < ${MAX_SCANNED}; i++) {
+    const el = all[i];
+    const tag = el.tagName;
+    if (tag === "SCRIPT" || tag === "STYLE" || tag === "HTML" || tag === "BODY") continue;
+    const text = norm(el.innerText || el.getAttribute("aria-label") || el.value);
+    if (!text || text.length > ${MAX_CLICK_TEXT * 2}) continue;
+    const size = el.querySelectorAll("*").length;
+    if (text === want && (!exact || size <= exact.size) && visible(el)) exact = { el, size };
+    else if (!exact && text.startsWith(want) && (!starts || text.length < starts.length) && visible(el)) starts = { el, length: text.length };
+  }
+  const found = exact ? exact.el : starts ? starts.el : null;
+  if (!found) return false;
+  found.setAttribute("data-tex-words", "1");
+  return true;
+})()`;
+}
 
 async function settle(page: BrowsePage): Promise<void> {
   await page.waitForNetworkIdle({ idleTime: 400, timeout: SETTLE_MS }).catch(() => undefined);
@@ -336,7 +417,35 @@ export async function runSteps(
       break;
     }
   }
-  return { ran, page: await snapshot(page) };
+  const reading = await snapshot(page);
+  if (ran.some((r) => r.do === "look" && r.ok)) {
+    const shot = await look(page).catch(() => null);
+    if (shot !== null) reading.shot = shot;
+  }
+  return { ran, page: reading };
+}
+
+/** How many of the page's own pixels make one CSS pixel: a look's picture is in the former, the mouse in the latter. */
+async function pixelRatio(page: BrowsePage): Promise<{ ratio: number; width: number; height: number }> {
+  const view = await page.evaluate<{ ratio?: unknown; width?: unknown; height?: unknown }>(
+    "({ ratio: window.devicePixelRatio, width: window.innerWidth, height: window.innerHeight })",
+  );
+  const ratio = typeof view?.ratio === "number" && view.ratio > 0 && view.ratio <= 4 ? view.ratio : 1;
+  const size = (v: unknown) => (typeof v === "number" && v > 0 ? Math.round(v * ratio) : 0);
+  return { ratio, width: size(view?.width), height: size(view?.height) };
+}
+
+/** The page as a person sees it now, the part on screen. */
+async function look(page: BrowsePage): Promise<{ data: string; width: number; height: number }> {
+  const { width, height } = await pixelRatio(page);
+  const raw = await page.screenshot({ type: "jpeg", quality: LOOK_QUALITY, encoding: "base64", fullPage: false });
+  let data = typeof raw === "string" ? raw : "";
+  if (typeof raw !== "string") {
+    let binary = "";
+    for (let i = 0; i < raw.length; i += 0x8000) binary += String.fromCharCode(...raw.subarray(i, i + 0x8000));
+    data = btoa(binary);
+  }
+  return { data, width, height };
 }
 
 async function runStep(page: BrowsePage, step: Step): Promise<StepResult> {
@@ -348,6 +457,7 @@ async function runStep(page: BrowsePage, step: Step): Promise<StepResult> {
       await settle(page);
       return ok;
     case "read":
+    case "look":
       return ok;
     case "back":
       await page.goBack({ timeout: BROWSE_GOTO_TIMEOUT_MS });
@@ -361,6 +471,21 @@ async function runStep(page: BrowsePage, step: Step): Promise<StepResult> {
       await settle(page);
       return ok;
     case "click":
+      if ("x" in step) {
+        // A point on the last look's picture: what a person would tap, whatever the page says it is.
+        const { ratio } = await pixelRatio(page);
+        await page.mouse.click(step.x / ratio, step.y / ratio);
+        await settle(page);
+        return ok;
+      }
+      if ("text" in step) {
+        if (!(await page.evaluate<boolean>(wordsSource(step.text)))) {
+          return { do: "click", ok: false, reason: "nothing on the page shows those words; read the page again" };
+        }
+        await page.click(BY_WORDS);
+        await settle(page);
+        return ok;
+      }
       if (!(await exists(page, step.ref))) return missing;
       await page.click(selector(step.ref));
       await settle(page);

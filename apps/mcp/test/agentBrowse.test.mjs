@@ -56,7 +56,9 @@ function fakeComputer({ url = "https://shop.example.com/", links = [] } = {}) {
           ? { do: "fill", ok: false, reason: "origin mismatch" }
           : { do: step.do, ok: true },
       );
-      return { session: "sess-0001-fake", ran, page: reading(at) };
+      const page = reading(at);
+      if (steps.some((step) => step.do === "look")) page.shot = { data: "SHOTDATA", width: 1280, height: 860 };
+      return { session: "sess-0001-fake", ran, page };
     },
     async closeBrowser(session) {
       closed.push(session);
@@ -67,6 +69,32 @@ function fakeComputer({ url = "https://shop.example.com/", links = [] } = {}) {
 const textOf = (result) => result.content.map((c) => c.text).join("\n");
 
 export async function runAgentBrowseChecks(check) {
+  /* ---------------- a click a person could make (Dev, 2026-10-20) ---------------- */
+
+  {
+    const computer = fakeComputer();
+    const web = webSession(computer, "code my charge on shop.example.com");
+    await web.call(BROWSE_TOOL, { steps: [{ do: "goto", url: "https://shop.example.com/" }] });
+    const byWords = await web.call(BROWSE_TOOL, { steps: [{ do: "click", text: " Education " }, { do: "press", key: "ArrowDown" }] });
+    check(
+      "a click names the words on what has no number, and the arrows reach the browser",
+      !byWords.isError && JSON.stringify(computer.calls.at(-1).steps) === JSON.stringify([{ do: "click", text: "Education" }, { do: "press", key: "ArrowDown" }]),
+    );
+    const looked = await web.call(BROWSE_TOOL, { steps: [{ do: "look" }] });
+    const picture = looked.content.find((c) => c.type === "image");
+    check(
+      "a look hands the model the page as a picture, with its size",
+      picture?.data === "SHOTDATA" && picture.mimeType === "image/jpeg" && textOf(looked).includes("1280 by 860 pixels"),
+    );
+    const before = computer.calls.length;
+    const atPoint = await web.call(BROWSE_TOOL, { steps: [{ do: "click", x: 412, y: 233 }] });
+    check("a click at a point on the picture reaches the browser", !atPoint.isError && JSON.stringify(computer.calls.at(-1).steps) === JSON.stringify([{ do: "click", x: 412, y: 233 }]));
+    const nothing = await web.call(BROWSE_TOOL, { steps: [{ do: "click" }] });
+    check("a click that names nothing is refused before the browser", nothing.isError === true && computer.calls.length === before + 1);
+    const read = await web.call(BROWSE_TOOL, { steps: [{ do: "read" }] });
+    check("a plain reading carries no picture", !read.content.some((c) => c.type === "image"));
+  }
+
   /* ---------------- the address guard still holds ---------------- */
 
   {

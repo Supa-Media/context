@@ -57,12 +57,32 @@ export const MAX_STEPS_PER_TURN = 40;
 export const MAX_STEPS_PER_TURN_OPEN_WEB = 400;
 
 const MAX_ELEMENTS_SHOWN = 80;
+/** A look's picture, at most, as base64: the model API's own ceiling for one picture. */
+const MAX_SHOT_CHARS = Math.ceil((5_000_000 * 4) / 3);
 const MAX_TEXT_SHOWN = 8_000;
 
-const MODEL_STEPS = new Set(["goto", "click", "type", "select", "press", "back", "scroll", "read", "handoff"]);
+const MODEL_STEPS = new Set(["goto", "click", "type", "select", "press", "back", "scroll", "read", "look", "handoff"]);
 
 /** The steps that act on one element of the last reading, by its number. */
-const REF_STEPS = new Set(["click", "type", "select"]);
+const REF_STEPS = new Set(["type", "select"]);
+
+/** The keys a press step may name (`infra/site-shots/src/browse.ts`, KEYS). */
+const KEYS = ["Enter", "Tab", "Escape", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Space"];
+
+/*
+  A CLICK BY NUMBER, BY WORDS OR AT A POINT (Dev, 2026-10-20: "if a human can
+  do it, tex should be able to do it as well"). Chapter OS's category picker
+  was boxes with a click handler and nothing saying they were buttons, so a
+  reading numbered none of them and Tex handed the person its browser. A
+  click may now name the words on the thing, or a point on a look's picture,
+  which is what a person taps whatever the page's code calls it.
+*/
+function clickTarget(step) {
+  if (Number.isInteger(step.ref)) return { ref: step.ref };
+  if (typeof step.text === "string" && step.text.trim()) return { text: step.text.trim().slice(0, 200) };
+  if (Number.isFinite(step.x) && Number.isFinite(step.y)) return { x: step.x, y: step.y };
+  return null;
+}
 
 /*
   THE ELEMENT NUMBER, HOWEVER IT WAS WRITTEN. Golden tasks gh-66 (2026-10-18):
@@ -100,6 +120,9 @@ export const BROWSE_DEFINITION = {
   description:
     "Use a web browser to do things on a site: open a page, click, type, choose options, go back, scroll. " +
     "Each reading numbers what you can press or type into, like [7]; steps name those numbers as ref. " +
+    "When what you need has no number (a picker or a menu the page drew itself), click it by the words it shows (text), " +
+    "or take a look step, which shows you the page as a picture, and click at x and y on that picture, in its pixels. " +
+    "A person can press anything they can see, so you can too: never tell them the page can't be clicked before you have looked. " +
     "Pass several steps in one call (fill a form and press its button); the call stops early if the page changes. " +
     ADDRESS_RULE +
     TYPING_RULE +
@@ -117,10 +140,12 @@ export const BROWSE_DEFINITION = {
             do: { type: "string", enum: [...MODEL_STEPS] },
             url: { type: "string", description: "goto: the address." },
             ref: { type: "integer", description: "click, type, select: the element's number from the last reading." },
-            text: { type: "string", description: "type: what to type." },
+            text: { type: "string", description: "type: what to type. click: the words on what to click, when it has no number." },
+            x: { type: "number", description: "click: a point on the last look's picture, in its pixels, from the left." },
+            y: { type: "number", description: "click: the same point, from the top." },
             enter: { type: "boolean", description: "type: press Enter afterwards." },
             option: { type: "string", description: "select: the option's words." },
-            key: { type: "string", enum: ["Enter", "Tab", "Escape"], description: "press: the key." },
+            key: { type: "string", enum: KEYS, description: "press: the key." },
             direction: { type: "string", enum: ["down", "up"], description: "scroll: which way." },
           },
           required: ["do"],
@@ -278,7 +303,13 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
         if (REF_STEPS.has(step.do) && !Number.isInteger(step.ref)) {
           return textResult(`A ${step.do} step needs ref: the element's number from the last reading, like 3 for [3].`, true);
         }
-        if (step.do === "handoff") {
+        if (step.do === "click") {
+          const target = clickTarget(step);
+          if (target === null) {
+            return textResult("A click step needs ref (a number from the reading), text (the words on it), or x and y (a point on a look's picture).", true);
+          }
+          planned.push({ do: "click", ...target });
+        } else if (step.do === "handoff") {
           if (computer.canHandOff?.() !== true) {
             return textResult("This browser can't be handed to the person. Tell them what to do on the site themselves.", true);
           }
@@ -349,7 +380,16 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
           : handoff
             ? "\n\nThe link to this browser could not be made. Tell the person what to do on the site themselves."
             : "";
-      return textResult(readingText(done.reading, done.ran) + told, done.ran.some((r) => !r.ok));
+      const result = textResult(readingText(done.reading, done.ran) + told, done.ran.some((r) => !r.ok));
+      // A look's picture, after the words: what the page shows, for a click at a point on it.
+      const shot = done.reading.shot;
+      if (typeof shot?.data === "string" && shot.data.length > 0 && shot.data.length <= MAX_SHOT_CHARS) {
+        result.content.push(
+          { type: "image", data: shot.data, mimeType: "image/jpeg" },
+          { type: "text", text: `That picture is ${shot.width} by ${shot.height} pixels: click at x and y in those pixels.` },
+        );
+      }
+      return result;
     },
 
     /** The take-over link a handoff made this question and has not texted yet, for the gateway's reply. */

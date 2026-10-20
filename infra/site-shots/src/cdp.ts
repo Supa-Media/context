@@ -75,7 +75,7 @@ export async function connectCdp(wsUrl: string, fetcher: typeof fetch = fetch): 
   };
 }
 
-const KEY_CODES: Record<string, number> = { Enter: 13, Tab: 9, Escape: 27 };
+const KEY_CODES: Record<string, number> = { Enter: 13, Tab: 9, Escape: 27, ArrowDown: 40, ArrowUp: 38, ArrowLeft: 37, ArrowRight: 39, Space: 32 };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -169,10 +169,24 @@ export async function cdpPage(cdp: CdpTransport): Promise<BrowsePage> {
       async press(key) {
         const code = KEY_CODES[key];
         if (code === undefined) throw new Error("no such key");
-        const text = key === "Enter" ? "\r" : undefined;
-        await send("Input.dispatchKeyEvent", { type: "keyDown", key, code: key, windowsVirtualKeyCode: code, ...(text ? { text } : {}) });
-        await send("Input.dispatchKeyEvent", { type: "keyUp", key, code: key, windowsVirtualKeyCode: code });
+        const text = key === "Enter" ? "\r" : key === "Space" ? " " : undefined;
+        // A key's name as the page reads it in `event.key`: Space is a blank, every other is its own name.
+        const named = key === "Space" ? " " : key;
+        await send("Input.dispatchKeyEvent", { type: "keyDown", key: named, code: key, windowsVirtualKeyCode: code, ...(text ? { text } : {}) });
+        await send("Input.dispatchKeyEvent", { type: "keyUp", key: named, code: key, windowsVirtualKeyCode: code });
       },
+    },
+    mouse: {
+      async click(x, y) {
+        for (const type of ["mouseMoved", "mousePressed", "mouseReleased"]) {
+          await send("Input.dispatchMouseEvent", { type, x, y, button: "left", clickCount: 1 });
+        }
+      },
+    },
+    async screenshot({ quality }) {
+      const shot = await send<{ data?: unknown }>("Page.captureScreenshot", { format: "jpeg", quality });
+      if (typeof shot?.data !== "string") throw new Error("no picture");
+      return shot.data;
     },
     async waitForNetworkIdle({ timeout }) {
       await settle(timeout);

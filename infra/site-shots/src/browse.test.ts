@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SNAPSHOT_SOURCE, offLimits, onSite, parseBrowseRequest, runSteps, snapshot, type BrowsePage } from "./browse";
+import { SNAPSHOT_SOURCE, offLimits, onSite, parseBrowseRequest, runSteps, snapshot, wordsSource, type BrowsePage } from "./browse";
 
 /**
  * A page with a few numbered elements. `navigate` maps a ref to the address a
@@ -14,6 +14,8 @@ function fakePage(start = "https://shop.example.com/") {
     navigate: {} as Record<number, string>,
     refs: new Set([1, 2, 3, 4]),
     types: { 1: "text", 2: "password" } as Record<number, string>,
+    points: [] as Array<[number, number]>,
+    ratio: 2,
   };
   const url = () => new URL(state.href);
   const page: BrowsePage = {
@@ -34,6 +36,7 @@ function fakePage(start = "https://shop.example.com/") {
           ],
         } as T;
       }
+      if (source.includes("devicePixelRatio")) return { ratio: state.ratio, width: 640, height: 430 } as T;
       if (source.includes("location.hostname")) return { href: state.href, host: url().hostname, origin: url().origin } as T;
       const exists = source.match(/^!!document\.querySelector\('\[data-tex-ref="(\d+)"\]'\)$/);
       if (exists) return state.refs.has(Number(exists[1])) as T;
@@ -60,6 +63,14 @@ function fakePage(start = "https://shop.example.com/") {
     },
     async goBack() {},
     keyboard: { async press() {} },
+    mouse: {
+      async click(x, y) {
+        state.points.push([x, y]);
+      },
+    },
+    async screenshot() {
+      return "SHOT";
+    },
     async waitForNetworkIdle() {},
   };
   return { page, state };
@@ -186,5 +197,70 @@ describe("runSteps", () => {
     const clicked = await runSteps(byClick.page, [{ do: "click", ref: 3 }, { do: "click", ref: 3 }]);
     expect(clicked.ran).toEqual([{ do: "click", ok: false, reason: "that page is off limits" }]);
     expect(byClick.state.href).toBe("about:blank");
+  });
+
+  /*
+    Chapter OS's category picker, 2026-10-20: its options are boxes with a
+    click handler and no role, so a reading numbered none of them and Tex said
+    its browser could not press them. The reading now numbers a hand-cursor
+    box (checked in real Chromium by hand: SNAPSHOT_SOURCE needs a layout),
+    and a click can name the words on the thing instead of a number.
+  */
+  it("clicks what shows the words it names, and says so when nothing does", async () => {
+    const { page } = fakePage();
+    const clicked: string[] = [];
+    let shown = true;
+    const byWords: BrowsePage = {
+      ...page,
+      async evaluate<T>(source: string) {
+        if (source === wordsSource("Education")) return shown as T;
+        return page.evaluate<T>(source);
+      },
+      async click(selector) {
+        clicked.push(selector);
+      },
+    };
+    const found = await runSteps(byWords, [{ do: "click", text: "Education" }]);
+    expect(found.ran).toEqual([{ do: "click", ok: true }]);
+    expect(clicked).toEqual(["[data-tex-words]"]);
+    shown = false;
+    const absent = await runSteps(byWords, [{ do: "click", text: "Education" }, { do: "read" }]);
+    expect(absent.ran).toEqual([{ do: "click", ok: false, reason: "nothing on the page shows those words; read the page again" }]);
+    expect(clicked).toHaveLength(1);
+  });
+
+  it("takes a click by words, the arrows and Space, and nothing longer or stranger", () => {
+    expect(parseBrowseRequest({ steps: [{ do: "click", text: "  Education " }] })?.steps).toEqual([{ do: "click", text: "Education" }]);
+    expect(parseBrowseRequest({ steps: [{ do: "click", text: "" }] })).toBeNull();
+    expect(parseBrowseRequest({ steps: [{ do: "click", text: "x".repeat(201) }] })).toBeNull();
+    for (const key of ["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Space"]) {
+      expect(parseBrowseRequest({ steps: [{ do: "press", key }] })?.steps).toEqual([{ do: "press", key }]);
+    }
+    expect(parseBrowseRequest({ steps: [{ do: "press", key: "Control" }] })).toBeNull();
+  });
+
+  it("numbers a box only the hand cursor marks, once and never around a link", () => {
+    expect(SNAPSHOT_SOURCE).toContain('getComputedStyle(el).cursor === "pointer"');
+    expect(SNAPSHOT_SOURCE).toContain("!pointer(el.parentElement) && !el.querySelector(query)");
+    expect(SNAPSHOT_SOURCE).toContain("[role=option]");
+  });
+
+  /* Dev, 2026-10-20: "if a human can do it, tex should be able to do it as well". */
+  it("looks at the page as a picture, and clicks a point on it in the picture's own pixels", async () => {
+    const { page, state } = fakePage();
+    const seen = await runSteps(page, [{ do: "look" }]);
+    expect(seen.page.shot).toEqual({ data: "SHOT", width: 1280, height: 860 });
+    const plain = await runSteps(page, [{ do: "read" }]);
+    expect(plain.page.shot).toBeUndefined();
+    const tapped = await runSteps(page, [{ do: "click", x: 400, y: 300 }]);
+    expect(tapped.ran).toEqual([{ do: "click", ok: true }]);
+    expect(state.points).toEqual([[200, 150]]);
+  });
+
+  it("takes a point inside the picture and refuses one that is not a number", () => {
+    expect(parseBrowseRequest({ steps: [{ do: "look" }, { do: "click", x: 12.5, y: 40 }] })?.steps).toEqual([{ do: "look" }, { do: "click", x: 12.5, y: 40 }]);
+    expect(parseBrowseRequest({ steps: [{ do: "click", x: -1, y: 40 }] })).toBeNull();
+    expect(parseBrowseRequest({ steps: [{ do: "click", x: "10", y: 40 }] })).toBeNull();
+    expect(parseBrowseRequest({ steps: [{ do: "click", x: 10 }] })).toBeNull();
   });
 });
