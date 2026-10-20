@@ -78,7 +78,11 @@ thread too, so on 2026-10-19 the rule became always. That put a whole email
 exchange under an unrelated check-in the same night, each answer landing in
 whatever thread its text was in, so since 2026-10-20 (Dev's choice) Tex
 matches how it was texted: a text typed inside a thread is answered there, a
-plain text plainly, and a text a newer one overtook in its own thread. A
+plain text plainly, and a text a newer one overtook in its own thread. A new
+topic gets a thread of its own (Dev, 2026-10-20): a plain text after 15
+quiet minutes (`NEW_TOPIC_AFTER_MS`) is answered in a thread under it. The
+quiet spell stands in for "a new topic"; a change of subject mid-conversation
+is answered plainly. A
 threaded send Sendblue refuses (400: an older line, a target it no longer
 holds) goes again as a plain text, since a reply outside the thread beats
 none. Routines and check-ins answer no one message and stay plain.

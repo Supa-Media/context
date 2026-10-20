@@ -1,13 +1,15 @@
 /**
  * Tex answers the way it was texted (docs.sendblue.com, iMessage inline
  * replies; the owner, 2026-10-20): a text typed inside a thread is answered
- * there, a plain text plainly, and a text a newer one overtook in its thread,
- * so the answer reads next to what it answers.
+ * there, a new topic (a plain text after a quiet spell) in a thread under
+ * it, any other plain text plainly, and a text a newer one overtook in its
+ * thread, so the answer reads next to what it answers.
  *
  * Sabotage record (applied, run, observed failing, reverted):
  *  1. `threadFor` returning undefined → "an inline reply is answered inside its
  *     thread" and "a text a newer one overtook…" fail; returning the handle
- *     always → "a plain text is answered plainly" fails (2026-10-20).
+ *     always → "a plain text in a running conversation…" fails; ignoring
+ *     `newTopic` → "a plain text after a quiet spell starts a topic…" fails.
  *  2. `sendMessage` throwing on a refused threaded send instead of sending it
  *     plain → "a thread Sendblue refuses still gets the answer" fails.
  *  3. `index.ts` not setting `threaded` → "an inline reply is queued as one"
@@ -18,7 +20,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { askAgent, type Fetch } from "./clients";
-import { accept, drain, type InboxDeps } from "./inbox";
+import { accept, CHAT_KEY, drain, NEW_TOPIC_AFTER_MS, type InboxDeps } from "./inbox";
 import { MemoryStorage } from "./memoryStorage.testing";
 import type { Message } from "./reply";
 import { parseSendblueInbound, repliedToText, sendblueChatId, sendSendblueText, threadContext } from "./sendblue";
@@ -86,12 +88,22 @@ describe("Tex answers inside iMessage threads", () => {
     expect(answers(calls).map((c) => c.body.reply_to)).toEqual([{ message_handle: "mh_r" }]);
   });
 
-  it("a plain text is answered plainly, never inside a thread", async () => {
+  it("a plain text in a running conversation is answered plainly", async () => {
     const storage = new MemoryStorage();
-    await accept(storage, message("mh_p", "Make me a poster for a picnic on sunday"), 1_000);
+    await storage.put(CHAT_KEY, { chatId: CHAT, at: 1_000 - NEW_TOPIC_AFTER_MS + 1 });
+    await accept(storage, message("mh_p", "and make it blue"), 1_000);
     const calls: Call[] = [];
     await drain(storage, deps(fake(calls)));
     expect(answers(calls).map((c) => c.body.reply_to)).toEqual([undefined]);
+  });
+
+  it("a plain text after a quiet spell starts a topic, answered in a thread under it", async () => {
+    const storage = new MemoryStorage();
+    await storage.put(CHAT_KEY, { chatId: CHAT, at: 1_000 - NEW_TOPIC_AFTER_MS });
+    await accept(storage, message("mh_t", "Make me a poster for a picnic on sunday"), 1_000);
+    const calls: Call[] = [];
+    await drain(storage, deps(fake(calls)));
+    expect(answers(calls).map((c) => c.body.reply_to)).toEqual([{ message_handle: "mh_t" }]);
   });
 
   it("a text a newer one overtook is answered in its thread, and the newest plainly", async () => {

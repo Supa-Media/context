@@ -90,6 +90,8 @@ export const MAX_PENDING = 20;
  * simulator's own chats are marked, so a routine there lands in its log.
  */
 export const CHAT_KEY = "chat";
+/** A plain text after this long without one from the person starts a new topic, answered in a thread under it. */
+export const NEW_TOPIC_AFTER_MS = 15 * 60 * 1000;
 
 /** When this sender was last offered the contact card; Linq asks for once a day at most. */
 export const CARD_KEY = "card";
@@ -135,12 +137,15 @@ export async function accept(
   const pending = await storage.list<Pending>({ prefix: "pending:" });
   if (pending.size >= MAX_PENDING) return "full";
 
+  const previous = await storage.get<RememberedChat>(CHAT_KEY);
+  // A plain text after a quiet spell starts a topic (`threadFor`).
+  const quiet = previous === undefined || previous.chatId !== message.chatId || now - previous.at >= NEW_TOPIC_AFTER_MS;
+  if (quiet && !message.threaded && !message.tapback) message = { ...message, newTopic: true };
   const seq = ((await storage.get<number>("seq")) ?? 0) + 1;
   await storage.put("seq", seq);
   await storage.put(seenKey(message.eventId), now);
   await storage.put<Pending>(pendingKey(seq), { message, attempts: 0 });
   await rememberText(storage, message.chatId, message.messageId, message.text, now);
-  const previous = await storage.get<RememberedChat>(CHAT_KEY);
   const told = (await storage.get<number>(NEW_LINE_TOLD_KEY)) !== undefined;
   if (previous && !told && previous.channel !== "simulator" && !isSendblueChat(previous.chatId) && isSendblueChat(message.chatId)) {
     await storage.put(NEW_LINE_KEY, message.chatId);
@@ -249,17 +254,19 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
 
 /**
  * The person's message an answer goes inside the thread of, or none: Tex
- * matches how it was texted (decided by the owner, 2026-10-20). A text typed
- * inside a thread is answered there; a plain text is answered plainly, unless
- * a newer text overtook it, when its thread keeps the answer next to its
- * question. Answering every text in its own thread (2026-10-19) put a whole
- * conversation under an unrelated check-in, because each answer landed in
- * whatever thread its text was in.
+ * matches how it was texted, and a new topic gets a thread of its own
+ * (decided by the owner, 2026-10-20). A text typed inside a thread is
+ * answered there; a plain text that starts a topic (`newTopic`: the first
+ * after a quiet spell) opens a thread under it; any other plain text is
+ * answered plainly, unless a newer text overtook it, when its thread keeps
+ * the answer next to its question. Answering every text in its own thread
+ * (2026-10-19) put a whole conversation under an unrelated check-in, because
+ * each answer landed in whatever thread its text was in.
  */
 function threadFor(message: Message, overtaken = false): string | undefined {
   // A tapback's answer goes plain: under the tapback it would read as a reply to an emoji.
   if (message.channel === "simulator" || !message.messageId || message.tapback) return undefined;
-  return message.threaded || overtaken ? message.messageId : undefined;
+  return message.threaded || message.newTopic || overtaken ? message.messageId : undefined;
 }
 
 function lineDeps(deps: InboxDeps): LineDeps {
@@ -498,6 +505,7 @@ async function fold(storage: InboxStorage, pending: Map<string, Pending>): Promi
         ...(next.message.quoted ?? item.message.quoted ? { quoted: next.message.quoted ?? item.message.quoted } : {}),
         ...(next.message.threadStart ?? item.message.threadStart ? { threadStart: next.message.threadStart ?? item.message.threadStart } : {}),
         ...(next.message.threaded ?? item.message.threaded ? { threaded: true as const } : {}),
+        ...(next.message.newTopic ?? item.message.newTopic ? { newTopic: true as const } : {}),
         attachments: [...(item.message.attachments ?? []), ...(next.message.attachments ?? [])].slice(0, MAX_INBOUND_ATTACHMENTS),
       };
       await storage.put<Pending>(entries[index + 1][0], next);
