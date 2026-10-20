@@ -21,12 +21,16 @@
  * when its message was not found (2026-10-20) failed "a reply to an email the
  * mailbox does not hold sends nothing". Choosing the sender without its
  * health failed "a Gmail whose sign-in stopped working never sends…".
+ * Dropping the `findReplyThread` call failed both "Re:" tests; dropping its
+ * exact-subject check threaded "Re: Welcome" into "Welcome to the team",
+ * failing 'a "Re:" email whose subject matches no message…'.
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { createWorkspace, gatewayPost, seedGoogleConnection, seedStorageBinding } from "./fixtures.helpers";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { ACCESS_A, ACCESS_B, bodyOf, token, twoConnectedTenants } from "./controlPlane/fixtures.helpers";
+import { replyThreadQuery } from "../functions/lib/personEmailThread";
 import { GMAIL_COMPOSE_SCOPE, GMAIL_SEND_SCOPE, PERSON_EMAIL_HOURLY_LIMIT, PERSON_EMAIL_RECIPIENT_DAILY_LIMIT, gmailRaw, readPersonEmail, recipientLimitKey, replyHeadersOf } from "../functions/lib/personEmail";
 
 const realFetch = globalThis.fetch;
@@ -54,11 +58,15 @@ const ANSWERED = {
  * message, decoded, with the threadId it was sent in. A metadata read answers
  * from `messages` by id, or 404.
  */
-function gmail(status = 200, messages: Record<string, unknown> = { [ANSWERED.id]: ANSWERED }) {
+function gmail(status = 200, messages: Record<string, unknown> = { [ANSWERED.id]: ANSWERED }, found: string[] = [], searched: string[] = []) {
   const sent: Array<{ auth: string | null; message: string; threadId?: string; url: string }> = [];
   vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     if (!url.startsWith("https://gmail.googleapis.com/")) return await realFetch(input, init);
+    if ((init?.method ?? "GET") === "GET" && new URL(url).pathname.endsWith("/users/me/messages")) {
+      searched.push(new URL(url).searchParams.get("q") ?? "");
+      return new Response(JSON.stringify({ messages: found.map((id) => ({ id })) }));
+    }
     if ((init?.method ?? "GET") === "GET") {
       const id = decodeURIComponent(new URL(url).pathname.split("/").at(-1) ?? "");
       return Object.hasOwn(messages, id) ? new Response(JSON.stringify(messages[id])) : new Response("{}", { status: 404 });
@@ -255,6 +263,29 @@ describe("sending an email as the person", () => {
     expect(sent[0]!.url).toContain("/drafts");
     expect(sent[0]!.threadId).toBe(ANSWERED.threadId);
     expect(sent[0]!.message).toContain("In-Reply-To: <second@mail.example.invalid>");
+  });
+
+  test('a "Re:" email with no thread named joins the thread it answers', async () => {
+    const searched: string[] = [];
+    const sent = gmail(200, { [ANSWERED.id]: ANSWERED }, [ANSWERED.id], searched);
+    const { t, aliceWs } = await connected();
+    expect(await send(t, ACCESS_A, aliceWs, { email: { ...EMAIL, from: FROM, subject: "RE: welcome" } })).toEqual({ ok: true, from: FROM });
+    expect(searched).toEqual(['subject:"welcome" {from:jo@example.invalid OR to:jo@example.invalid OR cc:jo@example.invalid} -in:draft -in:trash -in:spam']);
+    expect(sent[0]!.threadId).toBe(ANSWERED.threadId);
+    expect(sent[0]!.message).toContain("In-Reply-To: <second@mail.example.invalid>");
+  });
+
+  test('a "Re:" email whose subject matches no message, or that is not a reply, goes as a new email', async () => {
+    const searched: string[] = [];
+    const other = { ...ANSWERED, id: "18other", payload: { headers: [...ANSWERED.payload.headers.slice(0, 2), { name: "Subject", value: "Welcome to the team" }] } };
+    const sent = gmail(200, { [other.id]: other }, [other.id], searched);
+    const { t, aliceWs } = await connected();
+    expect((await send(t, ACCESS_A, aliceWs, { email: { ...EMAIL, from: FROM, subject: "Re: Welcome" } })).ok).toBe(true);
+    expect((await send(t, ACCESS_A, aliceWs, { email: { ...EMAIL, from: FROM } })).ok).toBe(true);
+    expect(searched).toHaveLength(1);
+    expect(sent.map((mail) => mail.threadId)).toEqual([undefined, undefined]);
+    expect(sent[0]!.message).not.toContain("In-Reply-To");
+    expect(replyThreadQuery({ subject: "Re: Welcome", to: ["a}OR{b@example.invalid"], cc: [] })).toBeNull();
   });
 
   test("a reply to an email the mailbox does not hold sends nothing", async () => {
