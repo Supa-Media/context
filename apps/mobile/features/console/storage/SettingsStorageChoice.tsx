@@ -22,13 +22,11 @@ export function SettingsStorageChoice({
   contextName,
   connect,
   onCancel,
-  onOpenPremium,
 }: {
   workspaceId: string;
   contextName: string;
   connect: StorageActions["connect"];
   onCancel?: () => void;
-  onOpenPremium?: () => void;
 }) {
   const client = useConvex();
   if (client === undefined) {
@@ -40,7 +38,6 @@ export function SettingsStorageChoice({
       contextName={contextName}
       connect={connect}
       onCancel={onCancel}
-      onOpenPremium={onOpenPremium}
     />
   );
 }
@@ -50,13 +47,11 @@ function SettingsStorageChoiceLive({
   contextName,
   connect,
   onCancel,
-  onOpenPremium,
 }: {
   workspaceId: Id<"workspaces">;
   contextName: string;
   connect: StorageActions["connect"];
   onCancel?: () => void;
-  onOpenPremium?: () => void;
 }) {
   const managed = useManagedOffer({ workspaceId, returned: null, origin: "settings" });
 
@@ -66,7 +61,7 @@ function SettingsStorageChoiceLive({
         state={{
           paid: managed.paid,
           stagingFreeStorage: managed.status?.stagingFreeStorage,
-          free: managed.startedFree,
+          free: managed.startedFree || !managed.selling,
           storageReady: managed.status?.managedProvisioning === "ready",
           slow: managed.slow,
           failure: managed.provisionFailure,
@@ -78,7 +73,8 @@ function SettingsStorageChoiceLive({
     );
   }
 
-  if (managed.mode === "confirm" && managed.status !== null) {
+  // The confirm screen is a payment step: dormant while nothing is sold.
+  if (managed.mode === "confirm" && managed.status !== null && managed.selling) {
     return (
       <ManagedConfirm
         status={managed.status}
@@ -96,24 +92,11 @@ function SettingsStorageChoiceLive({
     <StorageChoice
       connect={connect}
       onCancel={onCancel}
-      free={managed.free === null ? undefined : {
-        cap: managed.free.cap,
-        onChoose: managed.startFree,
-      }}
-      managed={!managed.available ? undefined : {
+      ours={managed.ours ?? undefined}
+      managed={!managed.selling || managed.paid || !managed.available ? undefined : {
         price: managed.price,
         founding: managed.founding,
-        onChoose: () => {
-          if (managed.paid) {
-            if (managed.status?.selected.managedStorage) onOpenPremium?.();
-            else {
-              managed.toggle("managedStorage", true);
-              onOpenPremium?.();
-            }
-            return;
-          }
-          managed.choose();
-        },
+        onChoose: managed.choose,
       }}
     />
   );

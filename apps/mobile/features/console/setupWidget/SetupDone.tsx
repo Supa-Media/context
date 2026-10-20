@@ -77,9 +77,8 @@ export function SetupDone({
       <View style={styles.exit} testID="setup-done-exit">
         <Text style={styles.exitTitle}>Take everything with you</Text>
         <Text style={styles.exitBody}>
-          Every note is a plain Markdown file. Any folder downloads as a .zip from Files — free,
-          today and after you cancel. Managed storage can move every file to your own bucket from
-          Settings → Storage.
+          Every note is a plain Markdown file. Any folder downloads as a .zip from Files, free, any
+          time. Storage we run can move every file to your own bucket from Settings → Storage.
         </Text>
       </View>
 

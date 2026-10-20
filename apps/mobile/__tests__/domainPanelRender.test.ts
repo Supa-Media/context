@@ -4,9 +4,9 @@
  * Settings › Website (the domain card), mounted in every state it can be in.
  *
  * What this holds: an owner sees the records and every control, a member sees
- * the address and no control at all (absent, not disabled), a free workspace
- * gets a quiet pointer to Premium and no form, and the removal warning says
- * that nothing is deleted. The copy itself is held in `domain.test.ts`.
+ * the address and no control at all (absent, not disabled), a domain paused
+ * before Context became free (2026-10-20) says so plainly with no button and
+ * no Premium, and the removal warning says that nothing is deleted. The copy itself is held in `domain.test.ts`.
  */
 
 import { Platform } from "react-native";
@@ -30,11 +30,11 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-function mount(view: DomainPanelView, onOpenPremium?: () => void): HTMLElement {
-  return mountWithRerender(view, onOpenPremium).container;
+function mount(view: DomainPanelView): HTMLElement {
+  return mountWithRerender(view).container;
 }
 
-function mountWithRerender(view: DomainPanelView, onOpenPremium?: () => void) {
+function mountWithRerender(view: DomainPanelView) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
@@ -44,7 +44,7 @@ function mountWithRerender(view: DomainPanelView, onOpenPremium?: () => void) {
   });
   const render = (next: DomainPanelView) =>
     act(() => {
-      root.render(createElement(DomainPanel, { view: next, handle: "acme", onOpenPremium }));
+      root.render(createElement(DomainPanel, { view: next, handle: "acme" }));
     });
   render(view);
   return { container, render };
@@ -111,10 +111,11 @@ describe("DomainPanel", () => {
     expect(root.textContent).not.toContain("Only an owner");
   });
 
-  test("a free workspace gets a quiet pointer to Premium, and no form", () => {
-    const root = mount({ settings: settings({ paying: false }), failed: false, homepageChoices: [], actions: actions() }, () => {});
+  test("a workspace without the feature on (dormant while Context is free) gets no form and nothing to press", () => {
+    const root = mount({ settings: settings({ paying: false }), failed: false, homepageChoices: [], actions: actions() });
     expect(byTest(root, "domain-input")).toBeNull();
-    expect(root.textContent).toContain("See Premium");
+    expect(root.textContent).not.toContain("See Premium");
+    expect(root.querySelectorAll("button, [role=button]").length).toBe(0);
     expect(root.textContent).not.toMatch(/\$\d/);
   });
 
@@ -263,7 +264,13 @@ describe("DomainPanel", () => {
       actions: actions(),
     });
     expect(byTest(root, "domain-pill")?.textContent).toBe("Paused");
-    expect(root.textContent).toContain("nothing has been deleted");
+    expect(root.textContent).toContain("Domain paused");
+    expect(root.textContent).toContain(
+      "isn't serving right now. Your links still work at context.lc, and nothing has been deleted.",
+    );
+    // Context is free: no plan to turn back on, and no button that opens one.
+    expect(root.textContent).not.toMatch(/Premium|turn.*back on/i);
+    expect(root.textContent).not.toContain("Open Premium");
   });
 
   test("a deployment without domains says so and offers nothing", () => {
@@ -331,12 +338,12 @@ describe("DomainPanel", () => {
 });
 
 for (const os of ["ios", "android"] as const) {
-  test(`${os} shows domain status without paid offers or reactivation instructions`, () => {
+  test(`${os} shows domain status without paid offers or reactivation instructions, as the web does`, () => {
     const before = Platform.OS;
     Object.defineProperty(Platform, "OS", { configurable: true, value: os });
     try {
       for (const domain of [null, pending({ status: "suspended" })]) {
-        const root = mount({ settings: settings({ paying: false, domain }), failed: false, homepageChoices: [], actions: actions() }, jest.fn());
+        const root = mount({ settings: settings({ paying: false, domain }), failed: false, homepageChoices: [], actions: actions() });
         expect(root.textContent).not.toMatch(/Premium|turn.*back on/i);
         expect(root.querySelector('[data-testid="domain-upsell"]')).toBeNull();
         expect(root.textContent).toContain(domain === null ? "No domain connected" : "Domain paused");

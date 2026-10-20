@@ -2,17 +2,6 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "@jest/globals";
 import { parseWebsitePage } from "@context/shared";
-import {
-  MANAGED_STORAGE_CEILING_BYTES,
-  PREMIUM_CURRENCY,
-  PREMIUM_INTERVAL,
-  PREMIUM_PRICE_CENTS,
-} from "@context/convex/functions/lib/premium";
-import {
-  EARLY_TESTER_PRICE_SHORT,
-  formatBytes,
-  formatPrice,
-} from "../features/console/settings/panels/premium";
 import { BUILT_IN_PAGES } from "../features/home/builtInPages";
 import {
   APP_SEGMENTS,
@@ -122,35 +111,36 @@ describe("the copy claims only what the product keeps", () => {
     expect(offenders).toEqual([]);
   });
 
-  test("where the front page promises where notes live, it names Fast Search's copy", () => {
+  test("where the front page promises where notes live, it names the search index's copy", () => {
     // CLAUDE.md non-negotiable #2: the per-context search database is ours, and
-    // Fast Search puts note text in it. The storage promise carries that.
+    // fast search (on for everyone since 2026-10-20) puts note text in it. The
+    // storage promise carries that.
     const promise = page("index").split("\n").filter((line) => /bucket dedicated to your workspace/i.test(line));
     expect(promise).toHaveLength(1);
-    expect(promise[0]).toMatch(/fast search/i);
+    expect(promise[0]).toMatch(/search index/i);
   });
 });
 
-describe("pricing states what the checkout charges", () => {
-  const pricing = page("pricing");
-  const [free, managed] = pricing.split(/^## Managed/m) as [string, string];
-
-  test("the price and the ceiling are the control plane's", () => {
-    const price = formatPrice({ priceCents: PREMIUM_PRICE_CENTS, currency: PREMIUM_CURRENCY, interval: PREMIUM_INTERVAL });
-    expect(price).toBe("$5 a month");
-    expect(pricing).toContain(`${price} per workspace`);
-    expect(managed).toContain(formatBytes(MANAGED_STORAGE_CEILING_BYTES));
-    // No other figure beside the real one.
-    expect(pricing.match(/\$\s?\d+/g)).toEqual(["$5", "$5"]);
+describe("Context is free, and the site says nothing else (2026-10-20)", () => {
+  test("there is no Pricing page, and the menu closes up behind it", () => {
+    expect(BUILT_IN_SITE.some((site) => /pric/i.test(site.routePath) || /pric/i.test(site.title))).toBe(false);
+    const navs = Object.values(BUILT_IN_PAGES)
+      .map((markdown) => /^nav: (\d+)$/m.exec(markdown)?.[1])
+      .filter((nav): nav is string => nav !== undefined)
+      .map(Number)
+      .sort((a, b) => a - b);
+    expect(navs).toEqual(navs.map((_, index) => index));
   });
 
-  test("the early-tester framing is the product's sentence", () => {
-    expect(managed).toContain(EARLY_TESTER_PRICE_SHORT);
+  test("no page names a price, a plan or a cancellation", () => {
+    for (const [stem, markdown] of Object.entries(BUILT_IN_PAGES)) {
+      expect([stem, markdown.match(/\$\s?\d|per month|a month|Premium|free plan|every plan|both plans|after you cancel|1,000 notes/gi)]).toEqual([stem, null]);
+    }
   });
 
-  test("email capture is on the free side, because it is free", () => {
-    expect(free).toMatch(/email address/i);
-    expect(managed).not.toMatch(/email/i);
+  test("leaving is still promised, free, on the front page and on Your files", () => {
+    expect(page("index")).toContain("Leaving is free. Download everything as plain folders, or hand over the bucket.");
+    expect(page("your-files")).toContain("Both are free, always, and neither one deletes anything.");
   });
 });
 

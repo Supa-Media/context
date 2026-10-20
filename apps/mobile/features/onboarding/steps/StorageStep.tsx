@@ -97,7 +97,7 @@ export function StorageStepBody({
         state={{
           paid: managed.paid,
           stagingFreeStorage: managed.status?.stagingFreeStorage,
-          free: managed.startedFree,
+          free: managed.startedFree || !managed.selling,
           storageReady,
           slow: managed.slow,
           failure: managed.provisionFailure,
@@ -109,7 +109,8 @@ export function StorageStepBody({
     );
   }
 
-  if (managed !== null && managed.mode === "confirm" && managed.status !== null) {
+  // The confirm screen is a payment step: dormant while nothing is sold.
+  if (managed !== null && managed.mode === "confirm" && managed.status !== null && managed.selling) {
     return (
       <ManagedConfirm
         status={managed.status}
@@ -148,8 +149,9 @@ export function StorageStepBody({
       ) : (
         <StorageChoice
           connect={connect}
+          ours={managed?.ours ?? undefined}
           managed={
-            managed === null || !managed.available
+            managed === null || !managed.selling || managed.paid || !managed.available
               ? undefined
               : { price: managed.price, founding: managed.founding, stagingFreeStorage: managed.status?.stagingFreeStorage, onChoose: managed.choose }
           }

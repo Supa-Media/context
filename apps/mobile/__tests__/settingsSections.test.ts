@@ -68,7 +68,7 @@ describe("the order and the grouping", () => {
     }
   });
 
-  test("eight listed rows; five pages live behind a row on another page", () => {
+  test("seven listed rows; five pages live behind a row on another page", () => {
     /*
       The owner called the fifteen-row list cluttered (2026-10-10). Feedback,
       Activity, Meetings and Emoji keep their pages and their keys —
@@ -78,7 +78,8 @@ describe("the order and the grouping", () => {
       `invitations` appears only while an invitation is pending.
       Vault is the eighth row, drawn in the sidebar on the board the owner
       approved as drawn (2026-10-16): the keys an AI may use are looked for
-      by name, not behind another page.
+      by name, not behind another page. Plan is listed only where something
+      is sold (`pricedOnly`): Context is free (2026-10-20).
     */
     const all = settingsSectionsFor("personal");
     expect(all.filter((section) => !isFoldedSection(section)).map((section) => section.key)).toEqual([
@@ -87,16 +88,20 @@ describe("the order and the grouping", () => {
       "sharing",
       "integrations",
       "vault",
-      "premium",
       "storage",
       "website",
     ]);
+    expect(
+      settingsSectionsFor("personal", { premium: true })
+        .filter((section) => !isFoldedSection(section))
+        .map((section) => section.key),
+    ).toContain("premium");
     expect(all.filter(isFoldedSection).map((section) => section.key).sort()).toEqual(
       ["activity", "emoji", "feedback", "folders", "meetings"],
     );
     expect(
       settingsSectionsFor("personal", { invitations: true }).map((section) => section.key),
-    ).toHaveLength(14);
+    ).toHaveLength(13);
   });
 
   test("every section sits under a heading somebody can answer", () => {
@@ -332,7 +337,8 @@ describe("searching the list", () => {
     ["light", "profile"],
     /*
       Nobody types "premium" — they type what they are trying to do, and none
-      of these words are on the row. "storage limit" is the one worth keeping:
+      of these words are on the row. Asked of a deployment that sells: while
+      Context is free the row is absent and these find nothing, which is true. "storage limit" is the one worth keeping:
       the 50 GB ceiling is a Premium fact and the Storage section cannot answer
       it, so a person hunting for it must not be sent to the bucket screen.
     */
@@ -343,10 +349,16 @@ describe("searching the list", () => {
     ["storage limit", "premium"],
     ["upgrade", "premium"],
   ])("%p opens %p", (query, key) => {
-    const hits = matchSettingsSections(settingsSectionsFor("personal"), query).map(
+    const hits = matchSettingsSections(settingsSectionsFor("personal", { premium: true }), query).map(
       (section) => section.key,
     );
     expect(hits).toContain(key);
+  });
+
+  test("while Context is free, money words find nothing", () => {
+    for (const query of ["billing", "upgrade", "invoice", "cancel subscription"]) {
+      expect(matchSettingsSections(settingsSectionsFor("personal"), query).map((section) => section.key)).not.toContain("premium");
+    }
   });
 
   test("and 'invite' opens Invitations, but only while one is waiting", () => {

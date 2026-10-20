@@ -18,7 +18,8 @@ import { formatBytes, formatPrice, type PremiumStatus } from "./premium";
 export function freeTierUsage(
   status: PremiumStatus | null,
 ): { used: number; cap: number; full: boolean } | null {
-  if (status === null || typeof status.noteCap !== "number") return null;
+  // Context is free: no cap is drawn, whatever a stale status still carries.
+  if (status === null || status.free === true || typeof status.noteCap !== "number") return null;
   const used = typeof status.notes === "number" ? status.notes : 0;
   return { used, cap: status.noteCap, full: used >= status.noteCap };
 }

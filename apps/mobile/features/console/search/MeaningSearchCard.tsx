@@ -20,10 +20,9 @@ import {
 } from "./meaningSearch";
 
 /**
- * Search by meaning, in a workspace's settings, under fast search.
+ * Search by meaning, in a workspace's settings, under its storage.
  *
- * `FastSearchCard`'s control, for its reason: turning on is one press, turning
- * off arms first, because off deletes what took a backfill to build. Only an
+ * Turning on is one press, turning off arms first, because off deletes what took a backfill to build. Only an
  * owner gets the switch (`onSet` is absent otherwise); a member reads the
  * state alone. Its data comes from `useMeaningSearch`.
  */

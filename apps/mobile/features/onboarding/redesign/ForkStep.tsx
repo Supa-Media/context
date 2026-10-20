@@ -11,13 +11,14 @@ import { FOUNDING_NOTES_LINE, FOUNDING_PRICE_LINE } from "../../console/settings
 /**
  * What "Start fresh" can offer, decided by the control plane — never assumed.
  *
- * `free` where this deployment offers the free managed tier and this owner may
- * start it; `paid` where it can only sell managed storage; `null` where it can
- * do neither (a self-hoster, or production while the free tier is switched
- * off), in which case the only card is bringing what you have.
+ * `free` where this owner can start a bucket we run, with nothing to pay;
+ * `paid` only where the deployment sells managed storage (dormant while
+ * Context is free, decided by the owner 2026-10-20); `null` where it can do
+ * neither (a self-hoster), in which case the only card is bringing what you
+ * have.
  */
 export type ForkOffer =
-  | { kind: "free"; cap: number }
+  | { kind: "free" }
   | { kind: "paid"; price: string; founding?: boolean }
   | null;
 
@@ -75,7 +76,7 @@ export function ForkStep({
             <Text style={styles.cardTitle}>Start fresh</Text>
             <Text variant="rowSub" style={styles.cardBody}>
               {offer.kind === "free"
-                ? `Five folders to get you going, on our free bucket · ${offer.cap.toLocaleString("en-US")} notes. No countdown.`
+                ? "Five folders to get you going, on a bucket we run for you."
                 : offer.founding === true
                   ? `Five folders to get you going, on a bucket we run for you. ${FOUNDING_PRICE_LINE} ${FOUNDING_NOTES_LINE}`
                   : `Five folders to get you going, on a bucket we run for you · ${offer.price}. You see what it covers before anything is charged.`}
@@ -141,12 +142,11 @@ export function ForkStep({
       {explaining && offer !== null ? (
         <Text variant="rowSub" style={styles.difference} testID="welcome-fork-explained">
           {offer.kind === "free"
-            ? "Start fresh keeps your notes in a bucket we run, free up to "
-            : "Start fresh keeps your notes in a bucket we run and bill for, "}
-          {offer.kind === "free" ? `${offer.cap.toLocaleString("en-US")} notes. ` : ""}
-          Bringing your own keeps them in storage you already pay for, with no note limit. Either
-          way they are plain Markdown files, you can download all of them at any time, and you can
-          move between the two later from Settings → Storage.
+            ? "Start fresh keeps your notes in a bucket we run. "
+            : "Start fresh keeps your notes in a bucket we run and bill for. "}
+          Bringing your own keeps them in storage you already have. Either way they are plain
+          Markdown files, you can download all of them at any time, and you can move between the
+          two later from Settings → Storage.
         </Text>
       ) : null}
     </View>

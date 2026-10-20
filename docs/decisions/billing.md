@@ -29,6 +29,19 @@ to `on` by hand brings back the paid model this file describes. The Convex
 suite runs with it on so that model stays proven; `pricingOff.test.ts` proves
 the free one.
 
+**The console, while free, removes rather than rewords.** The Plan row is
+`pricedOnly` and listed only when `billing.status` says `free: false`
+(`isSelling`), so a stale `?settings=premium` lands on General; storage we
+run is one card ("Storage we run", no price, no cap, ours first) offered on
+every platform, since nothing is sold by pressing it; the confirm screen, the
+"Free" pill and the "no card" step are never drawn; the note-limit chip and
+nudge read `free` as no cap even if a stale status still carries one; a
+domain paused before the switch says so with no button; and the homepage's
+Pricing page is gone, its `/pricing` address a 301 to `/` at the router. The
+priced card, the Plan panel and the confirm screen are kept dormant behind
+`isSelling` and keep their `free: false` tests; `contextIsFree.test.ts` proves
+the free world, against a deployment that sells as its control.
+
 **Custom domains are safe through the cancellation** because the domain sweep
 reads `premiumFeaturesOn`: the switch ships to production before any
 subscription is cancelled, so no domain is released when a plan stops paying.

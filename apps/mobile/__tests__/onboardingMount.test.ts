@@ -423,7 +423,7 @@ describe("the redesigned steps, wired", () => {
     };
     const harness = mountOnboarding(results);
     await claimSeyi(harness);
-    expect(harness.current().forkOffer).toEqual({ kind: "free", cap: 1000 });
+    expect(harness.current().forkOffer).toEqual({ kind: "free" });
 
     await harness.act(() => harness.current().pickManaged());
     const names = harness.calls.map((call) => call.name);

@@ -39,12 +39,12 @@ test("Home reaches every page, and Back walks the pages a visitor opened", async
   await expect(page.getByRole("button", { name: "Browse files" })).toHaveCount(0);
 
   await openFromHome(page, "How it works");
-  await openFromHome(page, "Pricing");
-  await expect(page).toHaveURL(/\?page=pricing$/);
+  await openFromHome(page, "Your files");
+  await expect(page).toHaveURL(/\?page=your-files$/);
 
   // The browser's own Back stays inside one visit, a page at a time.
   await page.goBack();
-  await expect(page).not.toHaveURL(/\?page=pricing$/);
+  await expect(page).not.toHaveURL(/\?page=your-files$/);
   await expect(page).toHaveURL(/^[^?]*\/(\?page=[a-z-]+)?$/);
 });
 

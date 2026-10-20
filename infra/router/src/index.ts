@@ -14,7 +14,7 @@ import { downloadResponse, route, type RouteDecision } from "./route";
 import { isPlatformHost } from "./site";
 import { siteResponse } from "./siteWorker";
 import { siteCardResponse, sitePreviewResponse } from "./siteCards";
-import { isHomeDocument, withHomeSite } from "./homeSite";
+import { isHomeDocument, retiredHomePageRedirect, withHomeSite } from "./homeSite";
 import { textsSimulatorResponse } from "./textsSimulator";
 import { iconResponse, robotsResponse, staticAsset } from "./icons";
 import { originFor, readOrigin, VAR_NAME } from "./upstream";
@@ -54,12 +54,12 @@ export default {
     const decision = route(url, request.headers.get("User-Agent"));
     // Not on a Tex host: tex.lc's `/` is the Tex landing, which the app draws
     // from the hostname, and context.lc's website has no business in it.
-    if (
-      decision.kind === "proxy" &&
-      decision.upstream === "expo" &&
-      !isTexHost(url.hostname) &&
-      isHomeDocument(request, url)
-    ) {
+    const homeHost = !isTexHost(url.hostname);
+    const appDocument = decision.kind === "preview" || (decision.kind === "proxy" && decision.upstream === "expo");
+    // A retired homepage address (`/pricing`) moves for a person and a crawler alike.
+    const retired = appDocument && homeHost ? retiredHomePageRedirect(request, url) : null;
+    if (retired !== null) return retired;
+    if (decision.kind === "proxy" && decision.upstream === "expo" && homeHost && isHomeDocument(request, url)) {
       return await withHomeSite(() => respond(decision, request, env, ctx), env, readOrigin(env.CONVEX_ORIGIN), ctx, url);
     }
     return await respond(decision, request, env, ctx);

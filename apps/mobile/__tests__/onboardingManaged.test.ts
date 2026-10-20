@@ -66,7 +66,9 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
+/** A deployment that sells: the priced path, dormant while Context is free. */
 const status: PremiumStatus = {
+  free: false,
   status: "none",
   selected: { managedStorage: true, fastSearch: false },
   active: { managedStorage: false, fastSearch: false },
@@ -98,6 +100,8 @@ function offer(over: Partial<ManagedOffer> = {}): ManagedOffer {
     startedFree: false,
     startFree: () => {},
     startingFree: false,
+    ours: null,
+    selling: true,
     ...over,
   };
 }
@@ -130,7 +134,7 @@ function mount(managed: ManagedOffer | null, storageReady = false): HTMLElement 
 }
 
 describe("offering storage we keep", () => {
-  test("an owner who skipped first run can still start the free tier from the shared chooser", () => {
+  test("an owner who skipped first run can still start storage we run from the shared chooser", () => {
     let started = 0;
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -146,18 +150,30 @@ describe("offering storage we keep", () => {
       root.render(
         createElement(StorageChoice, {
           connect: async () => ({ status: "ok" }),
-          free: { cap: 1000, onChoose: () => (started += 1) },
+          ours: { onChoose: () => (started += 1) },
         }),
       );
     });
 
-    const card = container.querySelector('[data-testid="choose-free"]') as HTMLElement;
+    const card = container.querySelector('[data-testid="choose-ours"]') as HTMLElement;
     expect(card).not.toBeNull();
-    expect(card.textContent ?? "").toContain("Free storage");
-    expect(card.textContent ?? "").toContain("1,000 notes");
-    expect(card.textContent ?? "").toContain("No card");
+    expect(card.textContent ?? "").toContain("Storage we run");
+    expect(card.textContent ?? "").toContain("download every note any time");
+    // One offer: no price, no cap, no tier (Context is free, 2026-10-20).
+    expect(card.textContent ?? "").not.toMatch(/\$\d|Free storage|1,000 notes|No card|Premium/);
     act(() => card.click());
     expect(started).toBe(1);
+  });
+
+  test("while Context is free, the first-run step offers ours first and never a price", () => {
+    const container = mount(
+      offer({ status: { ...status, free: true }, selling: false, ours: { onChoose: () => {} } }),
+    );
+    const order = [...container.querySelectorAll("[data-testid]")]
+      .map((node) => node.getAttribute("data-testid"))
+      .filter((id) => id !== null && id.startsWith("choose-"));
+    expect(order).toEqual(["choose-ours", "choose-own-storage"]);
+    expect(container.textContent ?? "").not.toMatch(/\$\d|Premium/);
   });
 
   test("a deployment that cannot provide it does not offer it", () => {

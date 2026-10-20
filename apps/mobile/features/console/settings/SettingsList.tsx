@@ -86,15 +86,16 @@ export function SettingsList({
   /*
     Plan and Website read subscriptions, so they come from a component mounted
     only where there is a client (see `PremiumPanel` for the same split). The
-    demo console has none, and shows the free plan and no website, which is
-    what its own panels say.
+    demo console has none, and shows no website, which is what its own panel
+    says.
   */
   const client = useConvex();
   const [live, setLive] = useState<LiveRowValues>({});
   const onValues = useCallback((next: LiveRowValues) => setLive(next), []);
   const subscribing = !data.demo && client !== undefined && current !== null;
   const value = (key: SettingsSectionKey): string | null => {
-    if (key === "premium") return data.demo ? "Free" : (live.premium ?? null);
+    // Plan is only listed where something is sold (`pricedOnly`), never in the demo.
+    if (key === "premium") return live.premium ?? null;
     if (key === "website") return data.demo ? "Off" : (live.website ?? null);
     return settingsPreview(key, data);
   };

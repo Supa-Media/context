@@ -349,19 +349,21 @@ export function useOnboarding(
   }, [clearTimer, connectState.kind, go, layOutFreshBucket, step, submitted]);
 
   // ── Step 2 ──────────────────────────────────────────────────────────────────
+  // Storage we run, with no price, wherever it can be started; the priced
+  // offer only where this deployment sells (dormant while Context is free).
   const forkOffer: ForkOffer =
-    managed.free !== null
-      ? { kind: "free", cap: managed.free.cap }
-      : managed.available
+    managed.ours !== null
+      ? { kind: "free" }
+      : managed.selling && managed.available
         ? { kind: "paid", price: managed.price, founding: managed.founding }
         : null;
 
   const pickManaged = useCallback(() => {
     setRoute("managed");
-    if (managed.free !== null) {
-      // No confirmation screen for a free bucket: nothing is charged, so
-      // there is nothing to confirm. The start lands on the settling screen.
-      managed.startFree();
+    if (managed.ours !== null) {
+      // No confirmation screen: nothing is charged, so there is nothing to
+      // confirm. The start lands on the settling screen.
+      managed.ours.onChoose();
       return;
     }
     managed.choose();

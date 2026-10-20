@@ -41,7 +41,7 @@ export const TAKE_IT_WITH_YOU = {
   title: "Take your workspace with you",
   body:
     "Move everything to a bucket you own, as plain files any app can open. " +
-    "Free, and it still works after you cancel.",
+    "Free, always.",
   move: "Move to my own bucket",
   download: "Download everything (.zip)",
   notOwner: "Only an owner of this workspace can move its storage. Anyone can download what they can read.",

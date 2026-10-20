@@ -43,8 +43,8 @@
  * This page did not believe it, and what it drew instead is the reason this
  * paragraph is here: an account with no Premium context got a page with a
  * search field, four lines of apology, and no way to search anything. The
- * upsell below is what that apology is *for* — an offer beside a working
- * search, never instead of one.
+ * note below says the same thing beside a working search, never instead of
+ * one.
  */
 
 /** One blended result, as the control plane sends it. */
@@ -102,13 +102,13 @@ export interface SearchableContext {
   displayName: string;
   /** `"fast"` from a hosted index, `"slow"` from the context's own bucket. */
   search: "fast" | "slow";
-  /** Why it is not fast, in the settings card's own words. `"on"` when it is. */
+  /** Why it is not fast. `"on"` when it is. */
   fastSearch: "off" | "preparing" | "on" | "failed" | "unavailable";
   /** Whether this viewer may change that. */
   owner: boolean;
 }
 
-/** The contexts answering the slow way — what the upsell is built from. */
+/** The contexts answering the slow way — what the slow-search note is built from. */
 export function slowContexts(
   contexts: readonly SearchableContext[],
 ): SearchableContext[] {
@@ -324,95 +324,44 @@ export function noteworthySources(answer: BlendedAnswer | null): {
 }
 
 /* -------------------------------------------------------------------------- */
-/*                        the upsell, beside a working search                 */
+/*                   a slow answer, said beside a working search              */
 /* -------------------------------------------------------------------------- */
 
 /*
-  Fast search is not part of Premium. Since 2026-10-08 it is on for every
-  workspace, free or paid, and since 2026-10-10 the console has no off switch,
-  only "Turn on" on the Storage page for a workspace an owner turned off before.
-  So nothing in this section sells it: the only offer is "turn it on", and a context whose hosted index is unavailable is said
-  to be searched from its own bucket, with no press at all.
+  Fast search is on for every workspace (decided by the owner, 2026-10-20), and
+  the server turns it on: nothing in this section offers a press. What is left
+  is a sentence under the results for a context that answered from its own
+  bucket, so a moment's wait is explained rather than left to look broken.
 */
 
 /**
- * A row of the upsell: one context that answered the slow way, what to say
- * about it, and — only where there is something to press — where that press
- * goes.
+ * One context that answered the slow way, and what to say about it.
  *
- * **This is an offer beside a working search, never a reason there is none.**
- * The rows it replaced were an apology for a page that had searched nothing;
- * these sit under results the same page has already produced, and the
- * difference is the whole point of the change they belong to.
- *
- * `href` is deliberately absent rather than disabled for a context nobody can
- * act on right now: the fix is an offer, never a control offered to somebody
- * it would refuse.
+ * **A note beside a working search, never a reason there is none**, and never
+ * a control: there is nothing to turn on.
  */
-export interface UpsellRow {
+export interface SlowSearchRow {
   workspaceId: string;
   slug: string;
   message: string;
-  /** What the press says it will do — absent wherever `href` is null. */
-  action: string | null;
-  /** A settings pane that already exists — never a switch drawn here. */
-  href: string | null;
 }
 
 /**
- * Where an upsell row's press goes, by what is actually in the way.
+ * The sentence for one context that answered from its own bucket.
  *
- * One destination: the Storage page, where an owner turns fast search on. A
- * context whose hosted index is `unavailable` has nothing to turn on, so it
- * gets no press.
+ * Every one of them says the search **worked**, because it did. `preparing`
+ * is the index on its way (the server turns it on for every workspace), and
+ * `off` is the moment before that, so neither asks anybody to do anything.
  */
-export type UpsellTarget = "storage";
-
-export function upsellTarget(context: SearchableContext): UpsellTarget | null {
-  if (!context.owner) return null;
+export function slowSearchMessage(context: SearchableContext): string {
   switch (context.fastSearch) {
+    case "unavailable":
     case "off":
-    case "failed":
-      return "storage";
-    // Nothing to press. A backfill in progress is not sped up by opening its
-    // settings, a context whose index is unavailable has no switch to open, and
-    // a context already serving is not in this list at all.
-    case "unavailable":
-    case "preparing":
-    case "on":
-      return null;
-  }
-}
-
-/**
- * The sentence for one context that answered from its own bucket, in the
- * second person where the viewer can act and the third where only an owner can.
- *
- * Every one of them says the search **worked**, because it did. The old
- * wording ("Fast search is off for @slug.") was written for a page where that
- * meant the context had not been searched; said over a list of results from
- * that same context it would read as a warning about answers a person is
- * looking at.
- *
- * `preparing` reuses the settings card's own word for "opted in and not yet
- * actually serving" (`describeFastSearch`'s "Preparing the index") rather than
- * inventing "backfilling" as a second name for the same thing — one context
- * cannot be "backfilling" here and "preparing" on its own settings screen.
- */
-export function upsellMessage(context: SearchableContext): string {
-  switch (context.fastSearch) {
-    case "unavailable":
       return `@${context.slug} was searched from its own bucket, which is slower.`;
-    case "off":
-      return context.owner
-        ? `@${context.slug} was searched from your own bucket, which is slower. Fast search makes it instant.`
-        : `@${context.slug} was searched from its own bucket, which is slower. Its owner can turn fast search on.`;
     case "preparing":
       return `@${context.slug}'s fast index is still being built, so this search read its bucket.`;
     case "failed":
-      return context.owner
-        ? `@${context.slug}'s fast index could not be prepared, so this search read your bucket.`
-        : `@${context.slug}'s fast index could not be prepared. Only its owner can try again.`;
+      return `@${context.slug}'s fast index could not be prepared, so this search read its bucket.`;
     case "on":
       // Not reachable: a context serving from the hosted index is never in
       // this list. Named rather than defaulted so a sixth state cannot arrive
@@ -421,44 +370,15 @@ export function upsellMessage(context: SearchableContext): string {
   }
 }
 
-/** The press's own label, or `null` where there is nothing to press. */
-export function upsellAction(context: SearchableContext): string | null {
-  switch (upsellTarget(context)) {
-    case "storage":
-      return "Turn it on";
-    case null:
-      return null;
-  }
-}
-
 /**
- * The upsell's rows, built from the contexts that answered the slow way — the
- * server's own list, so a workspace the viewer is not a member of cannot
- * appear here any more than it can in the scope.
- *
- * `href` comes from the caller rather than being built here, because the two
- * destinations are settings sections this console already routes to and a
- * second copy of those URLs is a second thing to keep in step.
- *
- * **Every slow context gets a row, press or no press.** A row nobody can act
- * on is still worth saying — it is what explains why an answer took a moment,
- * and withholding it from the people who cannot change it would leave exactly
- * them with an unexplained slow page. `noteworthySources` already draws its
- * `indexing` row on the same rule, and for the same reason: what a person can
- * do about a fact is not what decides whether they are told it.
+ * The rows, built from the contexts that answered the slow way — the server's
+ * own list, so a workspace the viewer is not a member of cannot appear here
+ * any more than it can in the scope.
  */
-export function upsellRows(
-  contexts: readonly SearchableContext[],
-  href: (slug: string, target: UpsellTarget) => string,
-): UpsellRow[] {
-  return slowContexts(contexts).map((context) => {
-    const target = upsellTarget(context);
-    return {
-      workspaceId: context.workspaceId,
-      slug: context.slug,
-      message: upsellMessage(context),
-      action: upsellAction(context),
-      href: target === null ? null : href(context.slug, target),
-    };
-  });
+export function slowSearchRows(contexts: readonly SearchableContext[]): SlowSearchRow[] {
+  return slowContexts(contexts).map((context) => ({
+    workspaceId: context.workspaceId,
+    slug: context.slug,
+    message: slowSearchMessage(context),
+  }));
 }

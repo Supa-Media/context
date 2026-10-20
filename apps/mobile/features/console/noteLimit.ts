@@ -24,13 +24,16 @@ export const NOTE_LIMIT_WARN_FRACTION = 0.9;
 /**
  * The count to draw, or `null` for none.
  *
- * `null` for a context with no cap (paying, or on a bucket of its own), for a
- * member (the count is the owner's, and so is the decision it prompts), for a
- * count nobody has taken, and below nine tenths of the cap.
+ * `null` while Context is free (`free`, decided by the owner 2026-10-20: no
+ * note limit anywhere, whatever a stale status still carries), for a context
+ * with no cap (paying, or on a bucket of its own), for a member (the count is
+ * the owner's, and so is the decision it prompts), for a count nobody has
+ * taken, and below nine tenths of the cap.
  */
 export function noteLimitFrom(
-  status: { noteCap?: number; notes?: number } | null | undefined,
+  status: { free?: boolean; noteCap?: number; notes?: number } | null | undefined,
 ): NoteLimit | null {
+  if (status?.free === true) return null;
   const cap = status?.noteCap;
   const used = status?.notes;
   if (typeof cap !== "number" || cap <= 0 || typeof used !== "number") return null;
@@ -68,8 +71,8 @@ export function useNoteLimit(
   const status =
     raw === undefined || raw === null || raw instanceof Error
       ? null
-      : (raw as { noteCap?: number; notes?: number });
-  const capped = typeof status?.noteCap === "number";
+      : (raw as { free?: boolean; noteCap?: number; notes?: number });
+  const capped = status?.free !== true && typeof status?.noteCap === "number";
 
   const refresh = useMutation(api.functions.billing.refreshNoteCount);
   useEffect(() => {

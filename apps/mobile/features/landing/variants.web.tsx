@@ -17,7 +17,7 @@ const PROSE = [
   "Most AI starts from zero. You explain the project again, paste in the same notes, and then copy the answer somewhere your team will see it.",
   "Context keeps your notes in one place that you, your team and your AI tools all use. Claude, ChatGPT, Codex, Cursor and Gemini CLI connect with one sign‑in. They can find and read the notes you can see, and write back where your role allows.",
   "Every workspace has its own people and its own privacy. A private note stays private, from people and from AIs: an assistant can't read a note you can't, or write somewhere you can't.",
-  "Every note is a plain Markdown file. We run the storage for free up to 1,000 notes, or you can plug in your own. Either way you can download everything, any time, on every plan.",
+  "Every note is a plain Markdown file. We run the storage for you, or you can plug in your own. Either way you can download everything, any time, for free.",
   "And you can watch it happen. The map shows who is in which note, what each AI is reading, and what changed today.",
 ];
 

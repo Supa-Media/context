@@ -50,6 +50,8 @@ export interface PremiumEntitlements {
 
 /** What `billing.status` hands back. */
 export interface PremiumStatus {
+  /** Context is free (2026-10-20): nothing is sold. Read through `isSelling`. */
+  free?: boolean;
   status: string;
   selected: PremiumEntitlements;
   active: PremiumEntitlements;

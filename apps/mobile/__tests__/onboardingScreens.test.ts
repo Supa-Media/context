@@ -278,7 +278,7 @@ describe("the fork (A-04)", () => {
     );
 
   test("two cards and one way on: “Take me to the console →”", () => {
-    const view = fork({ kind: "free", cap: 1000 });
+    const view = fork({ kind: "free" });
     expect(view.byId("welcome-fork-fresh")?.textContent).toContain("Start fresh");
     expect(view.byId("welcome-fork-own")?.textContent).toContain("I already have notes");
     expect(view.byId("welcome-fork-primary")?.textContent).toBe("Take me to the console →");
@@ -287,16 +287,22 @@ describe("the fork (A-04)", () => {
     view.unmount();
   });
 
-  test("the fresh card names the cap it enforces, and no figure nothing meters", () => {
-    const view = fork({ kind: "free", cap: 1000 });
-    expect(view.text).toContain("1,000 notes");
-    expect(view.text).not.toMatch(/MB|GB|&nbsp;/);
+  test("the fresh card names no cap, no price and no figure: Context is free", () => {
+    const view = fork({ kind: "free" });
+    expect(view.byId("welcome-fork-fresh")?.textContent).toContain(
+      "Five folders to get you going, on a bucket we run for you.",
+    );
+    expect(view.text).not.toMatch(/notes\. No countdown|1,000|\$\d|free bucket|MB|GB|&nbsp;/);
+    view.press("welcome-fork-difference");
+    const explained = view.byId("welcome-fork-explained")?.textContent ?? "";
+    expect(explained).toContain("Start fresh keeps your notes in a bucket we run. Bringing your own keeps them in storage you already have.");
+    expect(explained).not.toMatch(/free up to|note limit|pay for/);
     view.unmount();
   });
 
   test("the primary starts fresh; the other card goes to the bucket track", () => {
     const picks: string[] = [];
-    const view = fork({ kind: "free", cap: 1000 }, picks);
+    const view = fork({ kind: "free" }, picks);
     view.press("welcome-fork-primary");
     view.press("welcome-fork-own");
     expect(picks).toEqual(["fresh", "own"]);
@@ -321,7 +327,7 @@ describe("the fork (A-04)", () => {
   });
 
   test("“What is the difference?” opens a sentence rather than another screen", () => {
-    const view = fork({ kind: "free", cap: 1000 });
+    const view = fork({ kind: "free" });
     expect(view.byId("welcome-fork-explained")).toBeNull();
     view.press("welcome-fork-difference");
     expect(view.byId("welcome-fork-explained")?.textContent).toMatch(/plain Markdown/);
