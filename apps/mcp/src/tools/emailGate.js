@@ -19,7 +19,7 @@
  *      for, or one whose recipient, words or timing differ from what they said.
  *   4. The call is held as a pending approval whose record carries the whole
  *      email, which the person reads before their YES. A texted YES within
- *      half an hour releases it; any other text disarms it, so a changed
+ *      twelve hours releases it; any other text disarms it, so a changed
  *      draft is a new ask. Another AI's email is answered in the app.
  *
  * Only the replay of an approved record (`session.egress.approved`) passes
@@ -123,11 +123,10 @@ export async function emailGate(supplied, { store, session, target }) {
     }
   }
 
-  const caveat =
-    checked === null || checked.verdict === "yes"
-      ? ""
-      : `\n\n(Mail checker: ${checked.reason || "it could not tell whether you asked for this one"}.)`;
-  const detail = `${emailCopy({ ...email, from: email.from ?? room.from })}${caveat}`;
+  // An unsure or unchecked email is still put to the person, as the email
+  // alone: the checker's reason is a model's guess, and texted beside the
+  // copy it read as part of the email (2026-10-19).
+  const detail = emailCopy({ ...email, from: email.from ?? room.from });
   // The person may allow only what they read, so a copy the record would cut is never asked about.
   if (detail.length > DETAIL_CAP) return toolError("Not sent: this email is too long to show the person whole. Shorten it.");
   if (texting && detail.length > TEXTED_COPY_CAP) {

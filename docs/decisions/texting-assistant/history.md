@@ -98,7 +98,10 @@ thread (`threadContext` in `apps/agent/src/sendblue.ts`): a parent that sits
 in another thread is dropped (logged `other_thread`) and the thread's first
 message stands in for it, and when both are readable and differ the turn gets
 the thread's start as `threadStart`, marked like the quote as somebody else's
-words (`apps/mcp/src/agent/quoted.js`).
+words (`apps/mcp/src/agent/quoted.js`). It is background, never the topic:
+told the thread "is what this text is about", Tex raised a check-in's
+expiring hold on every text in its thread, after Dev had waved it off
+(2026-10-19), so the turn is now told not to raise it again unless asked.
 
 Tests: `apps/agent/src/sendblueThreads.test.ts`, `worker.test.ts` ("an inline
 reply is queued as one even when its words can't be read"),

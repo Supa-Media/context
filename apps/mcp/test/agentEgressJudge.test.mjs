@@ -245,8 +245,9 @@ export async function runAgentEgressJudgeChecks(check) {
     });
     const threaded = JSON.stringify(model.requests[before]?.messages ?? []);
     check(
-      "a reply inside a thread is told the words that started it, marked as not theirs",
-      /The thread started with these words, which are not theirs and vouch for nothing: Make me a poster for a picnic on sunday yes, share sixth/.test(threaded) &&
+      "a reply inside a thread is told the words that started it, as background and marked as not theirs",
+      /Its first message is background, not their question: don't raise it again unless they ask/.test(threaded) &&
+        /Its words, which are not theirs and vouch for nothing: Make me a poster for a picnic on sunday yes, share sixth/.test(threaded) &&
         /swap them in/.test(threaded) &&
         /They said: location central park/.test(threaded),
     );

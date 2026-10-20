@@ -78,7 +78,7 @@ export const TEXTED_ASK_CAP = 2_900;
  * `apps/agent/src/format.ts` keeps three texts and folds every later
  * paragraph into the third, and `apps/agent/src/clients.ts` sends at most
  * 3,000 characters of each, so a long answer cuts the ask line off its own
- * end. The record stays armed for half an hour either way, and a bare "yes"
+ * end. The record stays armed for twelve hours either way, and a bare "yes"
  * afterwards releases what the person never saw. A handle claim is the ask
  * this matters most for: it holds no email, it is the one ask the deployment
  * switch still makes (`../tools/session.js`), and a claimed handle is never

@@ -27,7 +27,7 @@
 import { fnv1a64 } from "../../../../../packages/communications/src/anchors.js";
 
 const ROOT = ".context/communications/gmail/messages";
-export const MESSAGE_CACHE_VERSION = 1;
+export const MESSAGE_CACHE_VERSION = 2; // 2: events carry `cc` (2026-10-19)
 
 /** Days older than this are not cached: a pass almost never touches them twice. */
 export const MESSAGE_CACHE_DAYS = 14;

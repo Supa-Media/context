@@ -146,6 +146,7 @@ export function gmailMessageToEvent(message, options) {
     subject: headerValue(headers, "Subject"),
     from,
     to: parseAddressList(headerValue(headers, "To")),
+    cc: parseAddressList(headerValue(headers, "Cc")),
     body: text,
     attachments,
     // A mailing list or a bulk sender: never a reason to start a contact page

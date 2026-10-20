@@ -28,11 +28,14 @@ export { APPROVALS_PREFIX, DONE_PREFIX, PENDING_PREFIX };
 
 /**
  * A person has a day to answer in the app; a result waits an hour to be
- * collected. An ask on the texting thread lives half an hour: a bare "yes"
- * texted tomorrow must not run what was asked about today.
+ * collected. An ask on the texting thread listens for a yes until anything
+ * else is texted either way (`disarmTexting`: their next text, a routine, a
+ * check-in), so a yes always answers the last thing Tex asked. Twelve hours
+ * is only the ceiling: half an hour lost a "yeah send" sent 51 minutes later
+ * (2026-10-19), while a "yes" texted tomorrow still must not run today's ask.
  */
 export const PENDING_TTL_MS = 24 * 60 * 60 * 1000;
-export const TEXTING_TTL_MS = 30 * 60 * 1000;
+export const TEXTING_TTL_MS = 12 * 60 * 60 * 1000;
 export const DONE_TTL_MS = 60 * 60 * 1000;
 /** The longest `detail` a record keeps: an email's copy, headers and all. */
 export const DETAIL_CAP = 24_000;
@@ -137,7 +140,7 @@ export async function createPending(
     },
     tier: tier === "private" ? "private" : "team",
     scopes: Array.isArray(scopes) ? scopes.filter((scope) => typeof scope === "string") : [],
-    // Raised for a texted ask, a record keeps that ask's half-hour life, but
+    // Raised for a texted ask, a record keeps that ask's twelve-hour life, but
     // is armed for a yes only when `armed` (`armForText`).
     texting: texting === true && armed === true,
     ...(texting === true && armed === true ? { texting_until: now + TEXTING_TTL_MS } : {}),

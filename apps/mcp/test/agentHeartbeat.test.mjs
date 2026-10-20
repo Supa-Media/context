@@ -23,6 +23,8 @@
  *     → "only the check-in client checks in" fails.
  *  5. `handleHeartbeat` returning nothing_new without logging it (2026-10-19).
  *     → "a look with nothing changed still leaves a line…" fails.
+ *  6. The check-in's `disarmTexting` removed (2026-10-19).
+ *     → "a texted check-in stops an older ask listening…" fails.
  */
 
 import worker from "../src/index.js";
@@ -45,6 +47,7 @@ import {
   textedLines,
 } from "../src/agent/heartbeat.js";
 import { SKIPPED_WORDS } from "../src/agent/jobLog.js";
+import { PENDING_PREFIX } from "../src/tools/approvalKeys.js";
 import { UNTRUSTED_READS } from "../src/privacy/egress.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
@@ -385,11 +388,30 @@ export async function runAgentHeartbeatChecks(check) {
       },
       { text: "Found the Tex branding image you asked for, in your branding notes:\nhttps://example.invalid/tex-chaos-scale.png" },
     ]);
+    // An email still waiting for their texted yes, from before the check-in.
+    const waiting = `${PENDING_PREFIX}2026-10-19-waiting.json`;
+    bucket.set(waiting, {
+      body: JSON.stringify({
+        id: "waiting",
+        tool: "send_email",
+        key: "k",
+        actor: { userId: "user_beat" },
+        texting: true,
+        texting_until: Date.now() + HOUR_MS,
+        created_at: Date.now(),
+        expires_at: Date.now() + HOUR_MS,
+      }),
+      etag: "p1",
+    });
     const found = await ask(env, TOKEN_BEAT, beat());
     check(
       "a check-in that finds an unfinished ask answers it as a text",
       found.status === 200 && found.body?.outcome === "speak" &&
         found.body?.answer?.includes("https://example.invalid/tex-chaos-scale.png"),
+    );
+    check(
+      "a texted check-in stops an older ask listening, so a yes to the check-in releases nothing",
+      JSON.parse(bucket.get(waiting)?.body ?? "{}").texting === false,
     );
     check("a check-in can't write, whatever it is told", bucket.get("todo.md")?.body === "# To do\n\n- Pay rent\n");
     const written = log();

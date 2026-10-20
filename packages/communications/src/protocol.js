@@ -132,6 +132,7 @@ export const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
  * @property {string} subject   May be empty; may be attacker-chosen.
  * @property {{name?: string, address?: string, providerUserId?: string}} from
  * @property {Array<{name?: string, address?: string, providerUserId?: string}>} [to]
+ * @property {Array<{name?: string, address?: string}>} [cc]  Email only.
  * @property {string} body      The normalized text. Always fenced when rendered.
  * @property {Array<{filename?: string, contentType?: string, size?: number}>} [attachments]
  */

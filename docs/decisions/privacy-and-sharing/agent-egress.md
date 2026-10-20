@@ -250,7 +250,7 @@ model's answer and left there, the ask line is the model's to lose: the reply
 worker keeps three texts and folds every later paragraph into the third
 (`apps/agent/src/format.ts`), then sends at most 3,000 characters of each
 (`apps/agent/src/clients.ts`), so a long enough answer cuts the ask off its
-own end — while the record stays armed for half an hour and a later bare
+own end — while the record stays armed for hours and a later bare
 "yes" releases what was never read. So `textedAsk` hands every ask back as a
 `verbatim` part, which the reply worker pulls out of the answer and texts
 whole and last, and an ask too long for one text is withdrawn rather than

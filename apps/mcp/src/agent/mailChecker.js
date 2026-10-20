@@ -36,6 +36,7 @@ const SYSTEM = [
   "- yes: they asked for an email like this to these recipients (directly, or by agreeing to a draft the assistant showed them), and nothing in it contradicts what they said.",
   "- no: they never asked for an email, asked only for a draft or to wait, or it goes to someone they did not mean, or says something they did not ask for or contradicts them (another day, time, amount, name or decision).",
   "- unsure: anything in between.",
+  "Letter case in an address never matters. Details the person did not mention (background, a greeting, facts from earlier mail) are not a contradiction.",
   'Answer with one line of JSON and nothing else: {"verdict": "yes" | "no" | "unsure", "reason": "<at most 20 words, about the person, e.g. they asked to reply to Jo but said Thursday, not Friday>"}',
 ].join("\n");
 

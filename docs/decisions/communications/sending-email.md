@@ -20,8 +20,10 @@ what happens to the draft (`apps/mcp/src/tools/emailGate.js`):
    things: the person's recent texts with what Tex texted back, and the draft.
    It never sees the email being answered, a note, a page or a tool result, so
    nothing a stranger wrote reaches it. "No" (a recipient, words or timing the
-   person did not ask for) refuses before the person is bothered; "unsure" is
-   shown beside the email; a checker that cannot run marks it unchecked.
+   person did not ask for) refuses before the person is bothered; "unsure",
+   or a checker that cannot run, still puts the email to the person, and the
+   checker's reason is never texted (2026-10-19: beside the copy it read as
+   part of the email, and it was wrong).
 4. **The call is held as a pending approval carrying the whole email.** The
    copy is texted exactly as written, outside the reply's formatting (which
    drops links and lines) and in a text of its own, as every ask now is
@@ -29,7 +31,7 @@ what happens to the draft (`apps/mcp/src/tools/emailGate.js`):
    long for one text (2,500 characters) is never asked about by text. A texted turn asks about one
    email at most, and an ask holding an email that would outgrow one text
    (other asks beside it included) is withdrawn rather than cut. Only a
-   YES within half an hour sends it, or a yes that says to send it ("yes
+   YES within twelve hours, before anything else is texted either way, sends it, or a yes that says to send it ("yes
    please", "yes, send it", "ok send it"; the owner, 2026-10-19), settled
    before any model runs, from a fixed list anchored at both ends so "yes but
    send it to Sam" is not one; a bare "ok", "sure" or any other text disarms it, even when that text settles
