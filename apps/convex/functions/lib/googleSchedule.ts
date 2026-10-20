@@ -166,7 +166,23 @@ export const PRODUCT_TRANSIENT_CODES: ReadonlySet<string> = new Set([
   "GOOGLE_RATE_LIMITED",
   "GOOGLE_UNAVAILABLE",
   "GOOGLE_SYNC_TIMEOUT",
+  // The access token was refused; the pass dropped it and the next one refreshes.
+  "GOOGLE_TOKEN_REJECTED",
 ]);
+
+/**
+ * The bytes counted against a connection's write quota so far.
+ *
+ * Counted as growth since 2026-10-20 (`writeDayPart`). A counter from before
+ * that (no `syncBytesBasis`) holds every rewrite of today's note since the
+ * account connected, which is how a busy mailbox reached a lifetime ceiling
+ * it had never really used and stopped for good. It starts again at zero:
+ * the quota is a ceiling against runaway writes, and an undercount there is
+ * a mailbox that keeps working, not one that loses mail.
+ */
+export function syncBytesUsed(connection: { syncBytesWritten?: number; syncBytesBasis?: "growth" }): number {
+  return connection.syncBytesBasis === "growth" ? (connection.syncBytesWritten ?? 0) : 0;
+}
 
 export function isProductTransient(code: string | undefined): boolean {
   return code !== undefined && PRODUCT_TRANSIENT_CODES.has(code);

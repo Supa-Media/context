@@ -14,15 +14,19 @@
 // base URL directly. That boundary is what the fixture Chat API server in
 // the test suite stands in for.
 
+import { isGoogleRateLimit, safeGoogleErrorDetails } from "../googleErrorDetails.js";
+
 const CHAT_API_BASE = "https://chat.googleapis.com/v1";
 
 /** A structured error carrying Google's reason, so a caller can branch on it without parsing prose. */
 class ChatApiError extends Error {
-  constructor(message, code, status) {
+  constructor(message, code, status, details = {}) {
     super(message);
     this.name = "ChatApiError";
     this.code = code;
     this.status = status;
+    this.reason = typeof details.reason === "string" ? details.reason : undefined;
+    this.googleStatus = typeof details.googleStatus === "string" ? details.googleStatus : undefined;
   }
 }
 
@@ -34,6 +38,13 @@ async function chatGet({ fetchImpl, path, accessToken, params }) {
   const response = await fetchImpl(url.toString(), {
     headers: { authorization: `Bearer ${accessToken}` },
   });
+  const details = response.ok ? {} : await safeGoogleErrorDetails(response);
+  if (response.status === 403 && isGoogleRateLimit(details)) {
+    // Google asking us to slow down, not a space this grant lost: so
+    // `sync.js` keeps the space's cursor and retries it rather than marking
+    // it unreadable, and the pass reports a rate limit (`RATE_LIMITED`).
+    throw new ChatApiError(`Google Chat API rate-limited ${path}`, "RATE_LIMITED", response.status, details);
+  }
   if (response.status === 403 || response.status === 404) {
     // Chat returns 403 PERMISSION_DENIED for a space this grant can no
     // longer read (membership revoked, scope too narrow) and 404 for one
@@ -42,10 +53,10 @@ async function chatGet({ fetchImpl, path, accessToken, params }) {
     // both normalize to this module's own `PERMISSION_DENIED` code rather
     // than forwarding whatever Google's body happens to say — a caller
     // branches on one string, not on Google's full error-status vocabulary.
-    throw new ChatApiError(`Google Chat API refused ${path}: ${response.status}`, "PERMISSION_DENIED", response.status);
+    throw new ChatApiError(`Google Chat API refused ${path}: ${response.status}`, "PERMISSION_DENIED", response.status, details);
   }
   if (!response.ok) {
-    throw new ChatApiError(`Google Chat API error on ${path}: ${response.status}`, "UNAVAILABLE", response.status);
+    throw new ChatApiError(`Google Chat API error on ${path}: ${response.status}`, "UNAVAILABLE", response.status, details);
   }
   return response.json();
 }

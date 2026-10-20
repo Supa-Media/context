@@ -142,6 +142,19 @@ export async function runCalendarGoogleChecks(check) {
   }
   check("a 404 is an ordinary CalendarApiError, never promoted to a sync-token-expired full resync", threw404 instanceof CalendarApiError && !(threw404 instanceof SyncTokenExpiredError) && threw404.status === 404);
 
+  // A 403 is a rate limit or a refusal by its reason word, so the error has to
+  // carry it: the control plane reads it to keep a limit from stopping the
+  // whole account. Sabotage: drop the details from the throw in
+  // `fetchCalendarPage` and `reason` is undefined here.
+  const limitedFetch = async () =>
+    new Response(JSON.stringify({ error: { code: 403, status: "PERMISSION_DENIED", message: `token ${ACCESS_TOKEN}`, errors: [{ reason: "rateLimitExceeded" }] } }), {
+      status: 403,
+      headers: { "content-type": "application/json" },
+    });
+  const threw403 = await fetchCalendarPage({ fetchImpl: limitedFetch, accessToken: ACCESS_TOKEN, calendarId: "primary" }).catch((error) => error);
+  check("a 403 carries Google's reason word", threw403 instanceof CalendarApiError && threw403.reason === "rateLimitExceeded" && threw403.googleStatus === "PERMISSION_DENIED");
+  check("...and none of the body's prose", !JSON.stringify(threw403).includes(ACCESS_TOKEN) && !String(threw403.message).includes(ACCESS_TOKEN));
+
   /* ------------------------------ fetchAllPages: pagination --------------- */
 
   const pagedServer = createFakeCalendarServer({ pageSize: 2 });

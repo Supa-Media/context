@@ -81,6 +81,13 @@ crons.interval(
 // and on any a mint could not stamp because its note was not in the tree yet.
 crons.interval("stamp share links with their note's id", { hours: 24 }, internal.functions.shares.stampEntryNoteIds, {});
 
+/**
+ * One refresh a day for each Google grant marked revoked, so a single
+ * spurious `invalid_grant` does not stop a mailbox until its owner notices
+ * (`functions/googleReconnect.ts`). A grant missing a permission is not asked.
+ */
+crons.interval("re-check revoked Google grants", { hours: 24 }, internal.functions.googleReconnect.recheckRevokedGrants, {});
+
 crons.interval("arm Tex's first dreams", { hours: 24 }, internal.functions.dreams.armLinkedDreams, {});
 
 /**

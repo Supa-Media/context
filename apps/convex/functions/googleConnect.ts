@@ -65,6 +65,7 @@ import {
   internalQuery,
   mutation,
   query,
+  type ActionCtx,
 } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
@@ -878,59 +879,89 @@ export const mintGoogleAccessToken = internalAction({
   args: { connectionId: v.id("googleConnections") },
   returns: v.union(v.null(), v.object({ accessToken: v.string(), expiresAt: v.number() })),
   handler: async (ctx, args): Promise<{ accessToken: string; expiresAt: number } | null> => {
-    const connection: {
-      workspaceId: Id<"workspaces">;
-      encryptedRefreshToken: string;
-      encryptedAccessToken?: string;
-      accessTokenExpiresAt?: number;
-      disconnectedAt?: number;
-    } | null = await ctx.runQuery(internal.functions.googleConnect.getConnectionForSync, {
-      connectionId: args.connectionId,
-    });
-    if (connection === null || connection.disconnectedAt !== undefined) return null;
-
-    const keyset = requireKeyset();
-    const context = { workspaceId: connection.workspaceId as string };
-
-    // A cached access token good for at least another minute is reused rather
-    // than refreshed on every call — same headroom `storage.ts` gives the
-    // storage access token cache.
-    if (
-      connection.encryptedAccessToken &&
-      connection.accessTokenExpiresAt &&
-      connection.accessTokenExpiresAt > Date.now() + 60_000
-    ) {
-      return {
-        accessToken: await decryptSecret(connection.encryptedAccessToken, keyset, context),
-        expiresAt: connection.accessTokenExpiresAt,
-      };
-    }
-
-    const refreshToken = await decryptSecret(connection.encryptedRefreshToken, keyset, context);
-    let refreshed;
-    try {
-      refreshed = await refreshGoogleToken({
-        clientId: requireGoogleClientId(),
-        clientSecret: readGoogleClientSecret(),
-        refreshToken,
-      });
-    } catch (error) {
-      if (isGoogleReconnectRequired(error)) {
-        await ctx.runMutation(internal.functions.googleConnect.markReconnectRequired, {
-          connectionId: args.connectionId,
-        });
-      }
-      return null;
-    }
-
-    await ctx.runMutation(internal.functions.googleConnect.cacheAccessToken, {
-      connectionId: args.connectionId,
-      encryptedAccessToken: await encryptSecret(refreshed.accessToken, keyset, context),
-      accessTokenExpiresAt: refreshed.expiresAt,
-    });
-    return { accessToken: refreshed.accessToken, expiresAt: refreshed.expiresAt };
+    const outcome = await mintAccessToken(ctx, args.connectionId, false);
+    return outcome.kind === "minted" ? { accessToken: outcome.accessToken, expiresAt: outcome.expiresAt } : null;
   },
 });
+
+/**
+ * The same mint, saying why when there is no token: the sync pass and the
+ * daily re-check of revoked grants need to tell "Google said no" (reconnect)
+ * from "Google did not answer" (try again by itself). `forceRefresh` skips
+ * the cached access token, because only a refresh proves the grant.
+ */
+export const mintGoogleAccessTokenOutcome = internalAction({
+  args: { connectionId: v.id("googleConnections"), forceRefresh: v.optional(v.boolean()) },
+  returns: syncTokens.mintOutcomeValidator,
+  handler: async (ctx, args): Promise<syncTokens.MintOutcome> =>
+    await mintAccessToken(ctx, args.connectionId, args.forceRefresh === true),
+});
+
+async function mintAccessToken(
+  ctx: ActionCtx,
+  connectionId: Id<"googleConnections">,
+  forceRefresh: boolean,
+): Promise<syncTokens.MintOutcome> {
+  const connection: {
+    workspaceId: Id<"workspaces">;
+    encryptedRefreshToken: string;
+    encryptedAccessToken?: string;
+    accessTokenExpiresAt?: number;
+    disconnectedAt?: number;
+  } | null = await ctx.runQuery(internal.functions.googleConnect.getConnectionForSync, { connectionId });
+  if (connection === null || connection.disconnectedAt !== undefined) return { kind: "refused" };
+
+  const keyset = requireKeyset();
+  const context = { workspaceId: connection.workspaceId as string };
+
+  // A cached access token good for at least another minute is reused rather
+  // than refreshed on every call — same headroom `storage.ts` gives the
+  // storage access token cache.
+  if (
+    !forceRefresh &&
+    connection.encryptedAccessToken &&
+    connection.accessTokenExpiresAt &&
+    connection.accessTokenExpiresAt > Date.now() + 60_000
+  ) {
+    return {
+      kind: "minted",
+      accessToken: await decryptSecret(connection.encryptedAccessToken, keyset, context),
+      expiresAt: connection.accessTokenExpiresAt,
+    };
+  }
+
+  const refreshToken = await decryptSecret(connection.encryptedRefreshToken, keyset, context);
+  let refreshed;
+  try {
+    refreshed = await refreshGoogleToken({
+      clientId: requireGoogleClientId(),
+      clientSecret: readGoogleClientSecret(),
+      refreshToken,
+    });
+  } catch (error) {
+    // Only `invalid_grant` is the person's to fix. A 5xx, a 429, a timeout or
+    // a garbled answer is Google's, and lifts by itself.
+    if (isGoogleReconnectRequired(error)) {
+      await ctx.runMutation(internal.functions.googleConnect.markReconnectRequired, { connectionId });
+      return { kind: "reconnect_required" };
+    }
+    if (
+      error instanceof GoogleOAuthError &&
+      (error.errorCode === "GOOGLE_UNAVAILABLE" || error.errorCode === "RESPONSE_UNUSABLE")
+    ) {
+      return { kind: "unavailable" };
+    }
+    return { kind: "refused" };
+  }
+
+  // Caching it also clears a `reconnect_required` the refresh just disproved.
+  await ctx.runMutation(internal.functions.googleConnect.cacheAccessToken, {
+    connectionId,
+    encryptedAccessToken: await encryptSecret(refreshed.accessToken, keyset, context),
+    accessTokenExpiresAt: refreshed.expiresAt,
+  });
+  return { kind: "minted", accessToken: refreshed.accessToken, expiresAt: refreshed.expiresAt };
+}
 
 export const getConnectionForSync = internalQuery({
   args: syncTokens.getConnectionForSyncArgs,
@@ -948,4 +979,10 @@ export const markReconnectRequired = internalMutation({
   args: syncTokens.markReconnectRequiredArgs,
   returns: syncTokens.markReconnectRequiredReturns,
   handler: syncTokens.markReconnectRequiredHandler,
+});
+
+export const dropCachedAccessToken = internalMutation({
+  args: syncTokens.dropCachedAccessTokenArgs,
+  returns: v.null(),
+  handler: syncTokens.dropCachedAccessTokenHandler,
 });

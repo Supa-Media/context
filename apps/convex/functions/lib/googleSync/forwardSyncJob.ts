@@ -12,7 +12,7 @@ import type { ObjectType } from "convex/values";
 import type { QueryCtx } from "../../../_generated/server";
 import { defaultGoogleDestinationFolder, mailConnectEnabled } from "../../googleConnect";
 import { calendarConnectEnabled } from "../../calendarConnect";
-import { nextProductToSync, syncableProductsOf } from "../googleSchedule";
+import { nextProductToSync, syncableProductsOf, syncBytesUsed } from "../googleSchedule";
 import { REPAIR_DAYS_PER_PASS } from "./repairDays";
 
 export const googleForwardSyncJobArgs = {
@@ -229,7 +229,7 @@ export async function googleForwardSyncJobHandler(
       gmail.destinationFolder ?? defaultGoogleDestinationFolder("gmail", gmail.mailboxSlug),
     folders: gmail.folders,
     quotaBytes: gmail.quotaBytes,
-    bytesAlreadyUsed: connection.syncBytesWritten ?? 0,
+    bytesAlreadyUsed: syncBytesUsed(connection),
     attachmentMode: gmail.attachmentMode,
     attachmentRetentionDays: gmail.attachmentRetentionDays,
     historyId: gmail.historyId,

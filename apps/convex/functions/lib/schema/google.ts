@@ -349,6 +349,13 @@ export const googleTables = {
      */
     syncBytesWritten: v.optional(v.number()),
     /**
+     * `"growth"` once `syncBytesWritten` counts what each write added rather
+     * than the whole note it rewrote (`writeDayPart`). Absent is a counter
+     * from before, which `syncBytesUsed` reads as zero and the next pass
+     * restarts.
+     */
+    syncBytesBasis: v.optional(v.literal("growth")),
+    /**
      * Set by disconnect. The row is kept — never deleted outright — so a
      * disconnected connection's sync job can be told apart from one that
      * simply has not synced yet, and so the notes it already wrote are
