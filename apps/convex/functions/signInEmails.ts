@@ -387,15 +387,9 @@ async function mayAttachPersonalGmail(
   user: { _id: Id<"users">; _creationTime: number },
   email: string,
 ): Promise<boolean> {
-  if (!(await needsPersonalEmail(ctx, user._id))) return false;
+  if (!(await needsPersonalEmail(ctx, user))) return false;
   const domain = email.split("@")[1]?.toLowerCase() ?? "";
-  if ((await joinedDomains(ctx, user._id)).has(domain)) return false;
-  return isFreshSingleEmailAccount({
-    createdAt: user._creationTime,
-    now: Date.now(),
-    confirmedCount: (await confirmedEmailsOf(ctx, user._id)).length,
-    attachedCount: 0,
-  });
+  return !(await joinedDomains(ctx, user._id)).has(domain);
 }
 
 /** Confirm the code mailed to the address being added. */

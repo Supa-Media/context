@@ -48,7 +48,7 @@ export const mySetup = query({
       (await joinedThroughDomain(ctx, userId)) && (await ownedPersonalWorkspace(ctx, userId)) === null;
     return {
       needsSetup,
-      needsPersonalEmail: !needsSetup && (await needsPersonalEmail(ctx, userId)),
+      needsPersonalEmail: !needsSetup && (await needsPersonalEmail(ctx, user)),
       email: user.email ?? null,
       suggestedName: suggestedNameFor(user.name, user.email ?? null),
     };

@@ -12,6 +12,8 @@ import type { MutationCtx, QueryCtx } from "../../_generated/server";
 import { checkAvailability } from "./nameClaims";
 import { NAME_MAX_LENGTH } from "./names";
 import { attachedEmailsOf } from "./signInEmails";
+import { confirmedEmailsOf } from "./emailProof";
+import { isFreshSingleEmailAccount } from "./freshSignup";
 
 /** The slug stem for a name with nothing usable in it. */
 const FALLBACK_STEM = "person";
@@ -103,14 +105,30 @@ export async function joinedThroughDomain(ctx: QueryCtx, userId: Id<"users">): P
 }
 
 /**
- * Whether somebody who came in through a work domain still owes a personal
- * email (Dev, 2026-10-20: "they need their number first and then their
- * personal gmail"). Asked after setup makes their own workspace, because
+ * Whether somebody who just came in through a work domain still owes a
+ * personal email (Dev, 2026-10-20: "they need their number first and then
+ * their personal gmail"). Asked after setup makes their own workspace, because
  * connecting Gmail binds to it; `app/(app)/_layout.tsx` holds every page until
  * it is answered.
+ *
+ * Only inside the fresh sign-up window (`freshSignup.ts`), the same window in
+ * which the address goes on without proof, typed or from Google. An older
+ * account with only a work address is never walled off by a step it could not
+ * finish without a code to that address, and is asked in Account settings
+ * instead, as it always was.
  */
-export async function needsPersonalEmail(ctx: QueryCtx, userId: Id<"users">): Promise<boolean> {
-  return (await joinedThroughDomain(ctx, userId)) && (await attachedEmailsOf(ctx, userId)).length === 0;
+export async function needsPersonalEmail(
+  ctx: QueryCtx,
+  user: { _id: Id<"users">; _creationTime: number },
+  now: number = Date.now(),
+): Promise<boolean> {
+  if (!(await joinedThroughDomain(ctx, user._id))) return false;
+  return isFreshSingleEmailAccount({
+    createdAt: user._creationTime,
+    now,
+    confirmedCount: (await confirmedEmailsOf(ctx, user._id)).length,
+    attachedCount: (await attachedEmailsOf(ctx, user._id)).length,
+  });
 }
 
 /** The domains this person joined workspaces through, lower case. */

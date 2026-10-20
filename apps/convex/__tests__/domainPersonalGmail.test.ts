@@ -70,6 +70,18 @@ describe("a domain sign-up's personal Gmail", () => {
     expect(await attached(t, tobi)).toEqual([]);
   });
 
+  test("is owed right after setup, and never walls off an older account", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const t = setupTest();
+    const tobi = await domainJoiner(t);
+    await t.run((ctx) => ctx.db.patch(tobi, { phone: "+15555550111", phoneVerificationTime: Date.now() }));
+    await asUser(t, tobi).mutation(api.functions.accountSetup.finishSetup, { name: "Tobi" });
+    const setup = () => asUser(t, tobi).query(api.functions.accountSetup.mySetup, {});
+    expect(await setup()).toMatchObject({ needsSetup: false, needsPersonalEmail: true });
+    vi.setSystemTime(Date.now() + FRESH_SIGNUP_WINDOW_MS + 60_000);
+    expect(await setup()).toMatchObject({ needsSetup: false, needsPersonalEmail: false });
+  });
+
   test("is not taken for an account that never joined through a domain", async () => {
     const t = setupTest();
     const ada = await createUser(t, "ada@home.example");
