@@ -42,6 +42,10 @@
  *     → `a hold is armed only once its ask goes out whole` fails.
  * 14. `textedAsk` arming before its length check. → `an ask too long to send
  *     stays unarmed even when withdrawing it fails` fails.
+ * 15. `turn.js` passing a held result's `isError` to the model. → `a held
+ *     email reaches the model as waiting for a yes` fails.
+ * 16. `answerWithAsk` not calling `withoutHeldEcho`. → `a held email is texted
+ *     once` fails.
  */
 
 import { ask, call, request, textOf, createEgressWorld, TOKEN_CONSOLE, TOKEN_MCP, TOKEN_ROUTINE, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
@@ -319,6 +323,37 @@ export async function runEmailGateChecks(check) {
     check("a routine never sends email", routine.isError === true && controlPlane.emailCalls.length === before);
     const elsewhere = await call(env, TOKEN_MCP, "send_email", { ...EMAIL, context: "@egress-team" });
     check("send_email takes no context", elsewhere.isError === true && /takes no context/.test(textOf(elsewhere)));
+
+    /* ---------------- one copy of a held email (Dev, 2026-10-19) ---------------- */
+
+    const SATURDAY = { to: ["jo@example.com"], subject: "Re: Saturday", body: "Hi Jo,\n\nWe'd like to go with the Saturday option at 7 pm. Could you send over a link where we can pay the deposit?\n\nThanks,\nSeyi" };
+    model.install([
+      { toolCalls: [{ name: "send_email", args: SATURDAY }] },
+      verdict("yes"),
+      {
+        text:
+          "The email didn't go through on my end, so here it is to send yourself:\n\n" +
+          "To: jo@example.com\nSubject: Re: Saturday\n\n" +
+          "Hi Jo, we'd like to go with the Saturday option at 7 pm. Could you send over a link where we can pay the deposit? Thanks, Seyi\n\n" +
+          "Her quotes were for 6:30, so she may send a new one for 7.",
+      },
+    ]);
+    const once = await ask(env, TOKEN_TEXTS, "email Jo that we'd like Saturday at 7 and ask for a deposit link");
+    const toldModel = JSON.stringify(model.requests.at(-1)?.messages ?? []);
+    check(
+      "a held email reaches the model as waiting for a yes, not as a failed call",
+      toldModel.includes("Held for their YES, and nothing failed") && !toldModel.includes('"is_error":true'),
+    );
+    const onceText = once.body?.answer ?? "";
+    check(
+      "a held email is texted once, in the gateway's copy, and the rest of the answer stays",
+      pending().length === 1 &&
+        onceText.split("deposit").length - 1 === 1 &&
+        onceText.includes("Here's the email I'd send:") &&
+        !onceText.includes("send yourself") &&
+        onceText.startsWith("Her quotes were for 6:30, so she may send a new one for 7."),
+    );
+    await ask(env, TOKEN_TEXTS, "no");
 
   } finally {
     world.restore();

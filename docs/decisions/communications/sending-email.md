@@ -92,6 +92,23 @@ released by the next bare "yes" (found by Codex re-reviewing #1826). A record
 that can be neither disarmed nor dropped is reported, and the person is told
 to reply NO. Tests: `emailGate.test.mjs` sabotages 13 to 15.
 
+### A held email is waiting, never an error, and is texted once (2026-10-19)
+
+On 2026-10-19 Dev asked Tex to email a venue. The gate held the email as
+designed, but the hold came back to the model as an error ("Not sent yet",
+`is_error: true`), and the model read it as a failure: it texted "The email
+didn't go through on my end, so here it is to send yourself" with its own copy
+of the email, and the gateway's ask then texted the held copy, worded
+differently. So a held call now reaches the model as a plain result
+(`turn.js`, `failedCall`), worded "Held for their YES, and nothing failed",
+and `agent/heldEcho.js` drops any paragraph of the answer that is an email
+header block or mostly the held email's words, plus a line introducing it,
+before the ask is added. The person sees one copy: the one a YES sends.
+
+What a simplification would cost: passing `isError` through for a hold brings
+back "didn't go through"; dropping `withoutHeldEcho` brings back two versions
+of one email. `test/emailGate.test.mjs` fails on either.
+
 ### A draft saved in the person's Gmail needs no yes
 
 Decided by the owner on 2026-10-19 (asked why Tex could send but not save a

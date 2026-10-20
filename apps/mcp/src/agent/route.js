@@ -56,7 +56,7 @@ import { disarmTexting, withdrawPending } from "../tools/approvals.js";
 import { askedWith, quotedOf, reactedLine, reactedOf, tapbackLine } from "./quoted.js";
 import { threadPrompt, threadView } from "./threadView.js";
 import { steerFor, steeredLine } from "./steer.js";
-import { textedAsk } from "./textedApprovals.js";
+import { answerWithAsk, textedAsk } from "./textedApprovals.js";
 import { settleTextedText } from "./textedSettle.js";
 
 /**
@@ -599,7 +599,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     const { answer: told, pictures } = outgoing.take(turn.answer);
     // An email's ask is texted exactly as written (`apps/agent/src/reply.ts`), or withdrawn if it would not fit.
     const { ask, verbatim } = await textedAsk(store, session, ledger.asked);
-    const answer = ask === null ? told : `${told}\n\n${ask}`;
+    const answer = answerWithAsk(told, ask, ledger.asked);
     /*
       A browser handed to the person goes out as a link the gateway adds, so
       the model never holds it. The link is their own `/tex/<handle>` page,
