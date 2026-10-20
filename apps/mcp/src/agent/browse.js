@@ -61,7 +61,7 @@ const MAX_ELEMENTS_SHOWN = 80;
 const MAX_SHOT_CHARS = Math.ceil((5_000_000 * 4) / 3);
 const MAX_TEXT_SHOWN = 8_000;
 
-const MODEL_STEPS = new Set(["goto", "click", "type", "select", "press", "back", "scroll", "read", "look", "handoff"]);
+const MODEL_STEPS = new Set(["goto", "click", "type", "select", "press", "back", "scroll", "read", "look", "upload", "handoff"]);
 
 /** The steps that act on one element of the last reading, by its number. */
 const REF_STEPS = new Set(["type", "select"]);
@@ -109,6 +109,14 @@ const HANDOFF_SENTENCE =
 const NO_HANDOFF_SENTENCE =
   "This browser can't be handed to the person, so when they must do something themselves (sign in, a code, a payment), say exactly what to do on the site; never promise them a link to it. ";
 
+/** What an upload step takes, said only when this question can read the person's files. */
+const UPLOAD_SENTENCE =
+  "When a page asks for a file (a receipt, an ID, a photo), attach it yourself with an upload step, never their device's picker: " +
+  "file is a file's path in their notes, a picture's name with note (as the history names a picture they texted), " +
+  "or an email's email: id, with attachment for one of its files; an email with nothing attached is attached as a PDF of the email. " +
+  "ref, if given, is the upload button or box; without it the page's own file box is used. ";
+const NO_UPLOAD_SENTENCE = "";
+
 /** The default description's two rules, and what it says instead when the setup opened the web. */
 const ADDRESS_RULE =
   "goto follows the same rule as send action open_page: an address the person wrote, a search result, a link you saw, or a page on a trusted site your instructions name — its plain path, with nothing of your own written into it. ";
@@ -123,6 +131,7 @@ export const BROWSE_DEFINITION = {
     "When what you need has no number (a picker or a menu the page drew itself), click it by the words it shows (text), " +
     "or take a look step, which shows you the page as a picture, and click at x and y on that picture, in its pixels. " +
     "A person can press anything they can see, so you can too: never tell them the page can't be clicked before you have looked. " +
+    UPLOAD_SENTENCE +
     "Pass several steps in one call (fill a form and press its button); the call stops early if the page changes. " +
     ADDRESS_RULE +
     TYPING_RULE +
@@ -139,7 +148,10 @@ export const BROWSE_DEFINITION = {
           properties: {
             do: { type: "string", enum: [...MODEL_STEPS] },
             url: { type: "string", description: "goto: the address." },
-            ref: { type: "integer", description: "click, type, select: the element's number from the last reading." },
+            ref: { type: "integer", description: "click, type, select: the element's number from the last reading. upload: optional, the upload button or box." },
+            file: { type: "string", description: "upload: a file's path in their notes, a picture's name (with note), or an email: id." },
+            note: { type: "string", description: "upload: the note that shows the picture named in file." },
+            attachment: { type: "integer", description: "upload with an email: id: which of its attachments, 1 for the first. Leave out to attach the email itself as a PDF." },
             text: { type: "string", description: "type: what to type. click: the words on what to click, when it has no number." },
             x: { type: "number", description: "click: a point on the last look's picture, in its pixels, from the left." },
             y: { type: "number", description: "click: the same point, from the top." },
@@ -158,8 +170,9 @@ export const BROWSE_DEFINITION = {
 };
 
 /** This question's browse definition: no handoff sentence without a handoff, no rules under open web. */
-function definitionFor({ handOff, openWeb }) {
+function definitionFor({ handOff, openWeb, uploads }) {
   let description = BROWSE_DEFINITION.description;
+  if (!uploads) description = description.replace(UPLOAD_SENTENCE, NO_UPLOAD_SENTENCE);
   if (!handOff) description = description.replace(HANDOFF_SENTENCE, NO_HANDOFF_SENTENCE);
   if (openWeb) description = description.replace(ADDRESS_RULE + TYPING_RULE, OPEN_WEB_RULES);
   return description === BROWSE_DEFINITION.description ? BROWSE_DEFINITION : { ...BROWSE_DEFINITION, description };
@@ -204,6 +217,9 @@ function readingText(reading, ran) {
     "",
     "What you can press or type into:",
     reading.elements.slice(0, MAX_ELEMENTS_SHOWN).map(elementLine).join("\n") || "(nothing)",
+    ...(Number.isInteger(reading.uploads) && reading.uploads > 0
+      ? ["", `This page takes a file (${reading.uploads === 1 ? "one upload box" : `${reading.uploads} upload boxes`}): an upload step attaches one of the person's.`]
+      : []),
   ].join("\n");
 }
 
@@ -214,7 +230,7 @@ function readingText(reading, ran) {
  * `addresses` is the person's own words this question (see `route.js` on why
  * a routine's are its body, not its prompt).
  */
-export function browserSession(computer, { allowed, addresses, takePages, say = null }) {
+export function browserSession(computer, { allowed, addresses, takePages, say = null, files = null }) {
   const theirWords = new Set(wordsOf(addresses));
   // Exact values a skill read this question vouched for (`vouch` below).
   const vouchedValues = new Set();
@@ -281,7 +297,7 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
   return {
     // Only a browser that can be handed over is described as one (`canHandOff`).
     get definition() {
-      return definitionFor({ handOff: computer.canHandOff?.() === true, openWeb: webIsOpen() });
+      return definitionFor({ handOff: computer.canHandOff?.() === true, openWeb: webIsOpen(), uploads: typeof files === "function" });
     },
 
     async call(args) {
@@ -309,6 +325,16 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
             return textResult("A click step needs ref (a number from the reading), text (the words on it), or x and y (a point on a look's picture).", true);
           }
           planned.push({ do: "click", ...target });
+        } else if (step.do === "upload") {
+          if (typeof files !== "function") return textResult("This browser can't attach files here. Tell the person what to attach on the site.", true);
+          // The person's file is theirs to send where they said, as their notes' words are (`type` above).
+          const onlyOn = openWeb ? null : theirSites.length > 0 ? theirSites : undefined;
+          if (onlyOn === undefined) {
+            return textResult("You can only attach the person's files on a site they named in their message.", true);
+          }
+          const read = await files(step);
+          if (read?.file === undefined) return textResult(`Not attached: ${read?.error ?? "that file could not be read"}.`, true);
+          planned.push({ do: "upload", ref: Number.isInteger(step.ref) ? step.ref : null, file: read.file, ...(onlyOn ? { onlyOn } : {}) });
         } else if (step.do === "handoff") {
           if (computer.canHandOff?.() !== true) {
             return textResult("This browser can't be handed to the person. Tell them what to do on the site themselves.", true);

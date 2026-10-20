@@ -9,6 +9,7 @@ import { callToolForSession } from "../tools/session.js";
 import { DEFAULT_TIME_ZONE, readTimeZone } from "./localNow.js";
 import { readTexNotes } from "./jobs.js";
 import { openTranscript } from "./transcript.js";
+import { resolveUpload } from "./uploads.js";
 import { wireTraceEntry } from "./turnLog.js";
 import { readProductionSetup, readProductionSkill } from "./production.js";
 import { skillSession, withSkills } from "./skills.js";
@@ -337,6 +338,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
           say: channel !== null ? (text) => channel.say(text) : null,
           // The vault this turn's grant opens, for `fill_login`.
           store,
+          // The person's own files, read as them, for a page's upload box (`uploads.js`).
+          files: (step) => resolveUpload(step, { dispatch, store }),
         });
   // A page or a search result is text from outside the workspace: once one
   // is read, every widening in this turn asks (`privacy/egress.js`).
