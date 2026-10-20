@@ -1,0 +1,48 @@
+# Count, then cancel, every Stripe subscription Context could still charge.
+#
+# Context is free (owner, 2026-10-20): stop collecting money, and everybody
+# keeps using Context as before. Manual only. `count` changes nothing;
+# `cancel` ends each subscription at once, with no final invoice and no
+# proration. Both print counts and never an id, a customer or a workspace:
+# this repository is public, and so is this job's log.
+name: Billing wind-down
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "count changes nothing; cancel ends every chargeable subscription now."
+        required: true
+        default: count
+        type: choice
+        options: [count, cancel]
+
+jobs:
+  wind-down:
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Count
+        run: npx convex run functions/billingStripe:countChargeableSubscriptions
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+
+      - name: Cancel
+        if: ${{ inputs.mode == 'cancel' }}
+        run: |
+          npx convex run functions/billingStripe:cancelEveryChargeableSubscription '{"confirm":"cancel-every-subscription"}'
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}

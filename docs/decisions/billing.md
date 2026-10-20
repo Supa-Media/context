@@ -7,6 +7,38 @@ products, monthly prices, subscription update, and price reads all succeeded
 against Stripe's API. The request shapes below are still pinned by fixtures so
 an API change fails in CI before it reaches checkout.
 
+## Context is free (2026-10-20)
+
+Decided by the owner: "I don't want to make any differentiation between free
+and premium anymore … set no limits for now", and cancel everyone's
+subscriptions while they keep using Context as before, with no refunds and no
+further charges. A file-count limit is expected later, so the billing code
+below stays, dormant, rather than being deleted.
+
+**One switch, `CONTEXT_PRICING`, absent is free** (`pricingIsOn`,
+`lib/premium.ts`). While it is off every feature gate reads
+`premiumFeaturesOn`, which is true for every workspace (the built-in model and
+Tex's dreams, websites' designs, custom domains, owner suggestions, usage);
+`noteCapFor` returns no cap; `deploymentSells` is false, so `startCheckout`
+refuses with `CONTEXT_IS_FREE`; and managed storage is offered wherever the
+managed account is configured. `billing.status` reports `free`, and the
+console draws no plan, price, upgrade or note limit. `planIsPaying` stays the
+answer to the money question only. The deploy never pushes the variable
+(`deployEnv.test.ts` exempts it), so no deploy can start charging; setting it
+to `on` by hand brings back the paid model this file describes. The Convex
+suite runs with it on so that model stays proven; `pricingOff.test.ts` proves
+the free one.
+
+**Custom domains are safe through the cancellation** because the domain sweep
+reads `premiumFeaturesOn`: the switch ships to production before any
+subscription is cancelled, so no domain is released when a plan stops paying.
+
+**Cancelling is a manual workflow** (`.github/workflows/billing-wind-down.yml`):
+`count` reports how many subscriptions Stripe could still charge, `cancel`
+ends each at once with no final invoice and no proration. It cancels the
+subscriptions our plan rows hold and those Stripe lists with a `workspaceId`
+in their metadata, and nothing else on the account. It prints counts only.
+
 ## A plan belongs to a workspace, never to a person
 
 `workspacePlans` hangs off a `workspaceId`, exactly as a storage binding does

@@ -2,7 +2,7 @@ import { ConvexError, v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { QueryCtx } from "../../../_generated/server";
-import { stripePriceId, type Entitlements, type PlanStatus } from "../premium";
+import { pricingIsOn, stripePriceId, type Entitlements, type PlanStatus } from "../premium";
 import {
   freeManagedStorageSwitchedOn,
   managedAccountId,
@@ -91,6 +91,8 @@ export function bindingIsManaged(
  * row the moment anybody presses Upgrade.
  */
 export function deploymentSells(): boolean {
+  // Context is free (`pricingIsOn`): nothing is sold, whatever is configured.
+  if (!pricingIsOn()) return false;
   try {
     return stripePriceId() !== null;
   } catch {
@@ -116,7 +118,7 @@ export function deploymentSells(): boolean {
  * The throw is still the right behaviour where provisioning itself reads it.
  */
 export function deploymentProvidesManagedStorage(): boolean {
-  if (!stagingStorageIsFree() && !deploymentSells()) return false;
+  if (pricingIsOn() && !stagingStorageIsFree() && !deploymentSells()) return false;
   try {
     return managedAccountId() !== null;
   } catch {

@@ -17,6 +17,10 @@ export default defineConfig({
     // has to be transformed by vite rather than imported natively by node.
     server: { deps: { inline: ["convex-test", "@supa-media/convex"] } },
     env: {
+      // Production is free (`lib/premium.ts`, `pricingIsOn`). The suite runs
+      // the dormant paid model so it stays proven for when pricing returns;
+      // `pricingOff.test.ts` unsets this to prove the free one.
+      CONTEXT_PRICING: "on",
       // A deterministic 32-byte AES-256 key, base64. Obviously fake, and only
       // ever used by the test suite — this repository is public, so a real key
       // must never appear here or anywhere else in source.

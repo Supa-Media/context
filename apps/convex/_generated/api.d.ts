@@ -20,6 +20,7 @@ import type * as functions_audit from "../functions/audit.js";
 import type * as functions_billing from "../functions/billing.js";
 import type * as functions_jev from "../functions/jev.js";
 import type * as functions_billingStripe from "../functions/billingStripe.js";
+import type * as functions_billingWindDown from "../functions/billingWindDown.js";
 import type * as functions_authorizations from "../functions/authorizations.js";
 import type * as functions_cardAssets from "../functions/cardAssets.js";
 import type * as functions_cardRender from "../functions/cardRender.js";
@@ -212,6 +213,7 @@ declare const fullApi: ApiFromModules<{
   "functions/billing": typeof functions_billing;
   "functions/jev": typeof functions_jev;
   "functions/billingStripe": typeof functions_billingStripe;
+  "functions/billingWindDown": typeof functions_billingWindDown;
   "functions/managedHandoff": typeof functions_managedHandoff;
   "functions/handoffEmail": typeof functions_handoffEmail;
   "functions/moveCatchUp": typeof functions_moveCatchUp;

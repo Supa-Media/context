@@ -32,7 +32,7 @@ import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx, QueryCtx } from "../../../_generated/server";
 import { deploymentSells, planFor, statusOf } from "../billing/plan";
-import { planIsPaying } from "../premium";
+import { premiumFeaturesOn } from "../premium";
 import { isEncryptedNote } from "../noteEncryption";
 import { readPublishedImages } from "./images";
 import { PUBLICATION_CLEARANCE } from "./publication";
@@ -232,5 +232,5 @@ export async function siteDesignsAllowed(
   workspaceId: Id<"workspaces">,
 ): Promise<boolean> {
   if (!deploymentSells()) return true;
-  return planIsPaying(statusOf(await planFor(ctx, workspaceId)));
+  return premiumFeaturesOn(statusOf(await planFor(ctx, workspaceId)));
 }

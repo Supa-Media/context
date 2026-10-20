@@ -8,7 +8,7 @@
 import type { Id } from "../../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../../_generated/server";
 import { planFor, statusOf } from "../billing/plan";
-import { planIsPaying } from "../premium";
+import { premiumFeaturesOn } from "../premium";
 import { ALL_JEV_FEATURES, JEV_FEATURES, type JevFeatureName } from "./features";
 
 /** Clef's published price: input tokens (Cloudflare's model page, 2026-10-05). Was Jev's $0.042. */
@@ -129,7 +129,7 @@ export async function usageRow(ctx: QueryCtx, day: string, feature: string, work
 
 /** Whether the workspace's plan is paying right now. Asked at the moment of use. */
 export async function isPaying(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<boolean> {
-  return planIsPaying(statusOf(await planFor(ctx, workspaceId)));
+  return premiumFeaturesOn(statusOf(await planFor(ctx, workspaceId)));
 }
 
 /**

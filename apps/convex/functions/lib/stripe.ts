@@ -426,6 +426,32 @@ export async function stripeDelete(
   }
 }
 
+/**
+ * One GET to Stripe, for reading a list. Same rules as `stripePost`.
+ */
+export async function stripeGet(
+  apiKey: string,
+  path: string,
+  params: Record<string, string | number | boolean> = {},
+): Promise<Record<string, unknown>> {
+  const query = formEncode(params);
+  const response = await fetch(`${STRIPE_API_BASE}${path}${query ? `?${query}` : ""}`, {
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Stripe-Version": STRIPE_API_VERSION,
+    },
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new StripeApiError(response.status, "Stripe refused the request.");
+  }
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    throw new StripeApiError(response.status, "Stripe returned something unreadable.");
+  }
+}
+
 export async function stripePost(
   apiKey: string,
   path: string,

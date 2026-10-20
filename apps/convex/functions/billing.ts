@@ -55,6 +55,7 @@ import {
   type Entitlements,
   type PlanStatus,
   foundingAtNoCharge,
+  pricingIsOn,
 } from "./lib/premium";
 import { stagingStorageIsFree } from "./lib/managedStorage";
 import { isHandledEventType, type StripeEventFacts } from "./lib/stripe";
@@ -312,6 +313,9 @@ export const startCheckout = mutation({
     const userId = await requireUserId(ctx);
     await requireWorkspaceRole(ctx, args.workspaceId, userId, "owner");
 
+    if (!pricingIsOn()) {
+      throw new ConvexError({ code: "CONTEXT_IS_FREE", message: "Context is free. There is nothing to pay for." });
+    }
     if (stagingStorageIsFree()) {
       throw new ConvexError({ code: "STAGING_NO_PAYMENT", message: "Storage is free on staging. Reload the app to create your bucket without payment." });
     }
