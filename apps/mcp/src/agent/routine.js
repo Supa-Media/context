@@ -127,7 +127,7 @@ function clip(text, max) {
  * the routine's own words. The routine's words go last and are clipped to fit,
  * so the framing above them is never the part that is cut.
  */
-export function routineQuestion(routine, { now, timeZone, lastRun }) {
+export function routineQuestion(routine, { now, timeZone, lastRun, mail = "" }) {
   const lines = [
     "This is a scheduled routine, not a text from a person. Nobody is waiting on this turn.",
     `Routine: ${routine.path}. Schedule: ${describeSchedule(routine.cadence, routine.settings)}. It is now ${localTime(now, timeZone)}.`,
@@ -144,6 +144,7 @@ export function routineQuestion(routine, { now, timeZone, lastRun }) {
         `If it is true now, start your answer with ${DONE_WORD} and say what happened.`,
     );
   }
+  if (mail) lines.push(mail);
   lines.push(
     `Do what the routine below asks. If there is nothing worth telling this time, answer with exactly ${SKIP_WORD}.`,
     "Routine:",

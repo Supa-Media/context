@@ -144,6 +144,17 @@ export function attachLinkCalls(store, session, controlPlane, env) {
     writable: false,
     configurable: true,
   });
+  // Whether this person's own mailboxes are working (`agent/mailHealth.js`):
+  // the owner of their personal workspace only, decided by the control plane.
+  Object.defineProperty(store, "mailHealth", {
+    value: {
+      read: () => controlPlane.readMailHealth(session.accessToken, session.workspaceId),
+      raise: (mailboxes) => controlPlane.raiseMailNotices(session.accessToken, session.workspaceId, mailboxes),
+    },
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
   // The Convex tree, for the agent tools that list (`tree/served.js`). The
   // control plane picks the workspace and clearance off this token's grant.
   Object.defineProperty(store, "treeManifest", {

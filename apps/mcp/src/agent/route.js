@@ -58,6 +58,7 @@ import { threadPrompt, threadView } from "./threadView.js";
 import { steerFor, steeredLine } from "./steer.js";
 import { answerWithAsk, textedAsk } from "./textedApprovals.js";
 import { settleTextedText } from "./textedSettle.js";
+import { readMailHealth, routineMailSection } from "./mailHealth.js";
 
 /**
  * What a turn that may not run says. Nothing in the app can change this any
@@ -156,6 +157,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       now: Date.now(),
       timeZone: routineTimeZone(routine.settings, body.routine.timeZone),
       lastRun: runs.findLast((run) => run.outcome === "answered" || run.outcome === "finished"),
+      // A mailbox that stopped syncing, said in the routine's context; it never texts for it alone (`mailHealth.js`).
+      mail: routineMailSection(await readMailHealth(store), Date.now()),
     });
     // A job going well, done or gone costs no model call (`supervise.js`); done or gone stops its supervisor.
     supervision = await prepareSupervision(dispatch, routine, { runs, handle: store.contexts.find((c) => c.current)?.name });
