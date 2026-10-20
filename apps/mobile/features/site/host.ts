@@ -21,6 +21,10 @@ export function siteHostname(): string | null {
 export function isPlatformHost(host: string): boolean {
   return (
     host === "context.lc" ||
+    // Tex's own domain serves this same app (`isTexHost`); `www.` only ever
+    // redirects there, but is ours either way.
+    host === "tex.lc" ||
+    host === "www.tex.lc" ||
     host.endsWith(".context.lc") ||
     host.endsWith(".workers.dev") ||
     host.endsWith(".expo.app") ||
@@ -29,6 +33,24 @@ export function isPlatformHost(host: string): boolean {
     host === "[::1]" ||
     host === ""
   );
+}
+
+/**
+ * Is this page being served at one of Tex's addresses? tex.lc, and the staging
+ * stand-in the router names in `infra/router/src/texHost.ts` (the same exact
+ * list, restated because the two packages cannot share a module). On those,
+ * `/` is the Tex landing page and the waitlist is Tex's; everything else, the
+ * console and sign-in included, is the same app as on context.lc.
+ *
+ * Web only, like `siteHostname`.
+ */
+export function isTexHost(host: string | null = currentHost()): boolean {
+  return host === "tex.lc" || host === "tex-staging.context.lc";
+}
+
+function currentHost(): string | null {
+  if (Platform.OS !== "web" || typeof window === "undefined") return null;
+  return window.location.hostname.toLowerCase();
 }
 
 /**

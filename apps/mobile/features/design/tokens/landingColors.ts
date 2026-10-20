@@ -56,3 +56,17 @@ export const simpleLandingColors = {
   bubble: "#E9E7E0",
   rule: "#E7E4DB",
 } as const;
+
+/**
+ * tex.lc (`features/tex/launch`): the brand guide's colours
+ * (docs/brand/README.md) on direction A's lighter page ground. Paper is the
+ * guide's, behind Tex's avatar; the period blue is the one in "Context."
+ */
+export const texLaunchColors = {
+  page: "#F2F0EA",
+  paper: "#EDE4D3",
+  ink: "#16181C",
+  ink2: "#55534E",
+  blue: texColors.light.ink,
+  period: "#2F7BF5",
+} as const;

@@ -13,7 +13,9 @@
 
     node scripts/render-og-card.mjs tex
 
-  Direction A of the approved Tex landing: paper ground, ink type, Tex blue.
+  Direction A of the approved Tex landing, in the brand guide's colours
+  (docs/brand/README.md): Paper ground, Ink type, Tex blue, and the app icon
+  (Tex's resting # on paper) top right, as on Context's own card.
   The headline is Libron (apps/mobile/public/Libron-Regular.woff2, the face
   the landing sets it in); the small type is Instrument Sans 600, the one
   weight this repository holds. Both are injected by the script from the
@@ -27,11 +29,11 @@
 <meta charset="utf-8">
 <style>
   :root{
-    --ground:#F2F0EA;
+    --ground:#EDE4D3;
     --ink:#16181C;
     --ink-2:#55534E;
     --blue:#2A45CF;
-    --grey:#E9E7E0;
+    --grey:#F6F1E7;
   }
   *{box-sizing:border-box}
   html,body{margin:0;padding:0}
@@ -46,6 +48,11 @@
     font-size:40px;letter-spacing:-.02em;line-height:1;
   }
   .mark .lc{color:var(--blue)}
+  /* Paper on paper: the icon's edge is a hairline and a soft shadow. */
+  .tile{
+    position:absolute;right:72px;top:54px;width:100px;height:100px;border-radius:22px;display:block;
+    box-shadow:0 0 0 1.5px rgba(22,24,28,.10),0 6px 18px rgba(22,24,28,.10);
+  }
   .line .sep{padding:0 .3em}
   .headline{
     position:absolute;left:72px;top:146px;width:640px;
@@ -57,7 +64,7 @@
     font-size:30px;letter-spacing:-.01em;color:var(--ink-2);
   }
   .thread{
-    position:absolute;right:72px;top:0;bottom:0;width:430px;
+    position:absolute;right:72px;top:130px;bottom:40px;width:430px;
     display:flex;flex-direction:column;justify-content:center;gap:18px;
   }
   .bubble{
@@ -70,6 +77,7 @@
 </head>
 <body>
   <div class="mark">tex<span class="lc">.lc</span></div>
+  <img class="tile" src="../../apps/mobile/assets/source/favicon.svg" alt="">
   <div class="headline">A personal assistant you just text.</div>
   <div class="line">Invite only<span class="sep">·</span>iMessage</div>
   <div class="thread">

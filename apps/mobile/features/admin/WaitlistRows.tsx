@@ -13,7 +13,15 @@ import { Icon } from "../design/components/Icon";
 import { pointerType } from "../design/tokens";
 import { useCompact, usePanelPad } from "./AdminKit";
 import { TableRow, type Column } from "./AdminTable";
-import { pageLabel, rowName, shortDate, type WaitlistRow, type WaitlistStatus } from "./waitlist";
+import {
+  editedAgo,
+  highlightParts,
+  pageLabel,
+  rowName,
+  shortDate,
+  type WaitlistRow,
+  type WaitlistStatus,
+} from "./waitlist";
 
 /** What a row can do, which depends on the list it is in. */
 export interface RowActions {
@@ -31,20 +39,23 @@ export function WaitlistRows({
   rows,
   status,
   actions,
+  highlight = "",
 }: {
   rows: readonly WaitlistRow[];
   status: WaitlistStatus;
   actions: RowActions;
+  /** The answer search, marked where it appears in each answer. */
+  highlight?: string;
 }) {
   const compact = useCompact();
   return compact ? (
     <>
       {rows.map((row, index) => (
-        <StackedRow key={row.id} row={row} status={status} actions={actions} first={index === 0} />
+        <StackedRow key={row.id} row={row} status={status} actions={actions} first={index === 0} highlight={highlight} />
       ))}
     </>
   ) : (
-    <WideTable rows={rows} status={status} actions={actions} />
+    <WideTable rows={rows} status={status} actions={actions} highlight={highlight} />
   );
 }
 
@@ -52,17 +63,19 @@ function WideTable({
   rows,
   status,
   actions,
+  highlight,
 }: {
   rows: readonly WaitlistRow[];
   status: WaitlistStatus;
   actions: RowActions;
+  highlight: string;
 }) {
   const styles = useThemedStyles(makeStyles);
   // The header is a `TableRow` rather than `TableHead` so it can hold the
   // select-all box; `TableHead` draws labels and nothing else.
   const columns: Column[] = [
     ...(actions.selectable ? [{ label: "", width: 16 }] : []),
-    { label: "Email", flex: 2 },
+    { label: "Email or phone", flex: 2 },
     { label: "Would use it for", flex: 3 },
     { label: status === "admitted" ? "Let in" : "Joined", width: 64 },
     ...(actions.onAdmit ? [{ label: " ", width: 64, align: "right" as const }] : []),
@@ -89,7 +102,7 @@ function WideTable({
                   />,
                 ]
               : []),
-            head("Email"),
+            head("Email or phone"),
             head("Would use it for"),
             head(status === "admitted" ? "Let in" : "Joined"),
             ...(actions.onAdmit ? [null] : []),
@@ -116,7 +129,7 @@ function WideTable({
             <Text key="email" variant="rowTitle" numberOfLines={1} style={styles.email}>
               {rowName(row)}
             </Text>,
-            <UseFor key="for" text={row.useFor} />,
+            <UseFor key="for" text={row.useFor} at={row.useForAt} highlight={highlight} />,
             <Text key="when" variant="meta" numberOfLines={1}>
               {shortDate(status === "admitted" && row.admittedAt !== null ? row.admittedAt : row.joinedAt)}
               <LandingLabel landing={row.landing} campaign={row.campaign} />
@@ -136,11 +149,13 @@ function StackedRow({
   status,
   actions,
   first,
+  highlight,
 }: {
   row: WaitlistRow;
   status: WaitlistStatus;
   actions: RowActions;
   first: boolean;
+  highlight: string;
 }) {
   const styles = useThemedStyles(makeStyles);
   const pad = usePanelPad();
@@ -165,8 +180,8 @@ function StackedRow({
         <Text variant="rowTitle" style={styles.emailCompact}>
           {rowName(row)}
         </Text>
-        {row.useFor ? <UseFor text={row.useFor} /> : null}
-          <Text variant="meta">
+        {row.useFor ? <UseFor text={row.useFor} at={row.useForAt} highlight={highlight} /> : null}
+        <Text variant="meta">
           {when}
           <LandingLabel landing={row.landing} campaign={row.campaign} />
         </Text>
@@ -182,18 +197,30 @@ function LandingLabel({ landing, campaign }: { landing: string | undefined; camp
   return label === null ? null : <Text variant="foot">{`  ·  ${label}`}</Text>;
 }
 
-/** Their answer to "what would you use it for?", or a dash for no answer. */
-function UseFor({ text }: { text: string | null }) {
+/**
+ * Their answer to "what would you use it for?" in full, or a dash for no
+ * answer. Staff read these to decide who goes first, so nothing is cut off;
+ * the search term is marked, and an answer changed after joining says when.
+ */
+function UseFor({ text, at, highlight }: { text: string | null; at: number | null; highlight: string }) {
   const styles = useThemedStyles(makeStyles);
   const compact = useCompact();
+  if (text === null) return <Text variant="meta" style={[styles.useFor, styles.none]}>—</Text>;
   return (
-    <Text
-      variant="meta"
-      numberOfLines={compact ? 3 : 2}
-      style={[compact ? styles.useForCompact : styles.useFor, text ? null : styles.none]}
-    >
-      {text ?? "—"}
-    </Text>
+    <View style={styles.answer}>
+      <Text variant="meta" style={compact ? styles.useForCompact : styles.useFor}>
+        {highlightParts(text, highlight).map((part, index) =>
+          part.hit ? (
+            <Text key={index} style={styles.hit}>
+              {part.text}
+            </Text>
+          ) : (
+            part.text
+          ),
+        )}
+      </Text>
+      {at !== null ? <Text variant="foot">{editedAgo(at, Date.now())}</Text> : null}
+    </View>
   );
 }
 
@@ -253,6 +280,8 @@ const makeStyles = (colors: Colors) =>
     useFor: { color: colors.text2 },
     useForCompact: { color: colors.text2, fontSize: pointerType.ui, lineHeight: leading(pointerType.ui, 1.55) },
     none: { color: colors.muted },
+    answer: { gap: 2 },
+    hit: { backgroundColor: colors.markWash, color: colors.text, borderRadius: radii.xs },
 
     stacked: {
       flexDirection: "row",

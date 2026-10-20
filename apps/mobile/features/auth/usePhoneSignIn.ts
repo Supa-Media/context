@@ -8,6 +8,7 @@ import { adCampaign } from "./adCampaign";
 import { landingPage } from "./landingPage";
 import { reportMetaLead } from "./metaPixel";
 import { reportWaitlistSignUp } from "./xPixel";
+import { saveReceipt } from "../tex/launch/receipt";
 
 /** The provider `apps/convex/auth.ts` registers for a texted code. */
 export const PHONE_VERIFY_PROVIDER = "phone-verify";
@@ -31,6 +32,8 @@ export function usePhoneSignIn(options: { onSignedIn: () => void; onUnavailable:
   const [error, setError] = useState<string | null>(null);
   const [resent, setResent] = useState(false);
   const [waitlist, setWaitlist] = useState<"joined" | "already" | null>(null);
+  // The last answer to `start`, for a page that words its own errors (tex.lc).
+  const [startStatus, setStartStatus] = useState<StartStatus | null>(null);
 
   async function send(again = false) {
     setError(null);
@@ -42,8 +45,9 @@ export function usePhoneSignIn(options: { onSignedIn: () => void; onUnavailable:
         phone: sentTo ?? phone,
         ...(landing === undefined ? {} : { landing }),
         ...(campaign === undefined ? {} : { campaign }),
-      })) as { status: StartStatus; phone?: string; conversionId?: string };
+      })) as { status: StartStatus; phone?: string; conversionId?: string; receipt?: string };
       setError(startError(result.status));
+      setStartStatus(result.status);
       if (result.status === "sent" && result.phone !== undefined) {
         setSentTo(result.phone);
         setCode("");
@@ -54,6 +58,9 @@ export function usePhoneSignIn(options: { onSignedIn: () => void; onUnavailable:
           // counts a phone sign-up too (the landing pages lead with a phone).
           reportWaitlistSignUp(result.conversionId);
           reportMetaLead(result.conversionId);
+          // This browser made the row, so it alone may come back to it
+          // (`/waitlist`). Kept before the state change that may navigate.
+          if (result.receipt !== undefined) saveReceipt(result.receipt);
         }
         setWaitlist(result.status);
       } else if (result.status === "unavailable") {
@@ -61,6 +68,7 @@ export function usePhoneSignIn(options: { onSignedIn: () => void; onUnavailable:
       }
     } catch {
       setError(startError("failed"));
+      setStartStatus("failed");
     } finally {
       setSubmitting(false);
     }
@@ -111,6 +119,7 @@ export function usePhoneSignIn(options: { onSignedIn: () => void; onUnavailable:
     error,
     resent,
     waitlist,
+    startStatus,
     canSend: phone.trim().length >= 7,
     send,
     verify,

@@ -289,6 +289,7 @@ const ROUTES: Record<string, Coverage> = {
   "texts/[token].tsx": { kind: "screen", mount: () => createElement(requireRoute("texts/[token].tsx")) },
   "vault/[token].tsx": { kind: "screen", mount: () => createElement(requireRoute("vault/[token].tsx")) },
   "tex/[handle].tsx": { kind: "screen", mount: () => createElement(requireRoute("tex/[handle].tsx")) },
+  "waitlist.tsx": { kind: "screen", mount: () => createElement(requireRoute("waitlist.tsx")) },
   "[handle]/index.tsx": { kind: "screen", mount: () => websitePage() },
   "[handle]/[...path].tsx": { kind: "screen", mount: () => websitePage() },
   "connect/google.tsx": { kind: "screen", mount: () => createElement(GoogleCallbackScreen) },

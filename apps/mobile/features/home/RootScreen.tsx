@@ -7,6 +7,8 @@ import { HomeShell } from "./HomeShell";
 import { isStudioStage } from "./cast/studioLink";
 import { LandingPage } from "../landing/LandingPage";
 import { landingFor } from "../landing/route";
+import { isTexHost } from "../site/host";
+import { TexLanding } from "../tex/launch/TexLanding";
 
 /**
  * What `/` is.
@@ -38,6 +40,10 @@ export function RootScreen() {
  */
 function WebHome() {
   const params = useGlobalSearchParams<{ page?: string | string[] }>();
+  // tex.lc's `/` is Tex's own landing (2026-10-20); context.lc keeps its own.
+  if (isTexHost() && typeof window !== "undefined" && window.location.pathname === "/" && !params.page) {
+    return <TexLanding />;
+  }
   const landing =
     typeof window === "undefined"
       ? null

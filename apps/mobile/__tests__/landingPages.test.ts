@@ -18,8 +18,8 @@ import {
  */
 
 describe("the landing pages", () => {
-  test("are a, b and c, with a as the default", () => {
-    expect([...LANDING_PAGES]).toEqual(["a", "b", "c"]);
+  test("are a, b, c and tex.lc's, with a as the default", () => {
+    expect([...LANDING_PAGES]).toEqual(["a", "b", "c", "tex"]);
     expect(DEFAULT_LANDING_PAGE).toBe("a");
   });
 
@@ -32,10 +32,14 @@ describe("the landing pages", () => {
 
   test("the home page is the default, and /a to /c are their own pages", () => {
     expect(landingPageFromPath("/")).toBe("a");
-    for (const page of LANDING_PAGES) {
+    for (const page of ["a", "b", "c"]) {
       expect(landingPageFromPath(`/${page}`)).toBe(page);
       expect(landingPageFromPath(`/${page}/`)).toBe(page);
     }
+  });
+
+  test("tex.lc's page has no path here: it is drawn at / on a Tex host", () => {
+    expect(landingPageFromPath("/tex")).toBeNull();
   });
 
   test("any other path is no landing page", () => {
