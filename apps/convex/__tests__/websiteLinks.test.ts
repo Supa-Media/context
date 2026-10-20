@@ -103,24 +103,20 @@ describe("website link publication", () => {
     ).toEqual(["1-projects/shared.md"]);
   });
 
-  test("two publishable notes with one bare name remain plain text", () => {
-    const ambiguous: WebsiteLinkCatalogEntry[] = [
-      ...catalog,
-      {
-        kind: "route",
-        objectKey: "website/team/about.md",
-        href: "/team/about",
-        audience: "public",
-        sourceEtag: "nested-about-etag",
-      },
-    ];
-    expect(
-      rewriteWebsiteLinks(
-        "[[about]]",
-        { ...options, catalog: ambiguous },
-        new Set(),
-      ),
-    ).toBe("[[about]]");
+  test("two publishable notes with one bare name link the nearer, and stay plain text on a tie", () => {
+    const route = (objectKey: string, href: string): WebsiteLinkCatalogEntry => ({
+      kind: "route",
+      objectKey,
+      href,
+      audience: "public",
+      sourceEtag: `${href}-etag`,
+    });
+    // The one beside the page wins (the owner, 2026-10-20: a bare name opens the nearest note).
+    const nested = [...catalog, route("website/team/about.md", "/team/about")];
+    expect(rewriteWebsiteLinks("[[about]]", { ...options, catalog: nested }, new Set())).toBe("[about](/about)");
+    // Two equally far away are still a guess.
+    const tied = [...catalog.filter((entry) => entry.objectKey !== "website/about.md"), route("website/team/about.md", "/team/about"), route("website/crew/about.md", "/crew/about")];
+    expect(rewriteWebsiteLinks("[[about]]", { ...options, catalog: tied }, new Set())).toBe("[[about]]");
   });
 
   /*
