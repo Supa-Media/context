@@ -219,6 +219,28 @@ test("a reply that starts a thread under a plain text is shown what led up to th
   assert.equal(threadView(history, { words: "Got it, I won't contact Luciana about the hold.", replied: true }, 2).shown.length, 2);
 });
 
+test("a thread is shown its own texts past a setup's short history", async () => {
+  // Dev, 2026-10-20: production's history is four turns, so in the bowling thread the
+  // draft email ("yeah send") was cut and only the cc question and its answer were shown.
+  const { threadView } = await import("../src/agent/threadView.js");
+  const store = listingStore();
+  const hold = await appendConversation(store, "texts", [], "(Not a text from them. This was your own check-in.)", "Lucky Strike's courtesy hold on your Nov 6 lanes expires at 5 pm today.", { at: 1_000 });
+  await appendConversation(store, "texts", [], "make a flyer", "Here's the flyer.", { at: 2_000 });
+  await appendConversation(store, "texts", [], "email her we'd like Oct 30", "Here's the email I'd send: Hi Luciana.", { at: 3_000, thread: hold });
+  await appendConversation(store, "texts", [], "yeah send", "Which David?", { at: 4_000, thread: hold });
+  await appendConversation(store, "texts", [], "david walker", "Is this the David Walker at Fount?", { at: 5_000, thread: hold });
+  await appendConversation(store, "texts", [], "it's a kingdomcity email", "Got it, I won't contact Luciana about the hold.", { at: 6_000, thread: hold });
+  const history = await readConversation(store, "texts");
+
+  const view = threadView(history, { words: "Got it, I won't contact Luciana about the hold.", start: "Lucky Strike's courtesy hold on your Nov 6 lanes expires at 5 pm today.", replied: true }, 4);
+  assert.equal(view.thread, hold);
+  assert.ok(view.shown.some((turn) => turn.text === "Here's the email I'd send: Hi Luciana."), "the draft up the thread is shown");
+  assert.ok(!view.shown.some((turn) => turn.text === "Here's the flyer."), "nothing from outside the thread");
+  assert.equal(view.shown.length, 10);
+  // A setup that shows no history still shows none.
+  assert.equal(threadView(history, { words: "Got it, I won't contact Luciana about the hold.", start: "Lucky Strike's courtesy hold on your Nov 6 lanes expires at 5 pm today.", replied: true }, 0).shown.length, 0);
+});
+
 test("a thread's lead-in never includes what was texted after the thread began", async () => {
   const { threadView } = await import("../src/agent/threadView.js");
   const store = listingStore();

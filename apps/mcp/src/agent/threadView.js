@@ -10,19 +10,18 @@
  * thread is that exchange and every later one typed under it, each marked
  * with its root's id when it was kept (`events.js`).
  *
- * The root is shown with what led up to it, too: a reply that started a thread
- * under a plain text ("Got it, I won't contact Luciana") made that text the
- * root, and the turn read that one exchange with the draft email before it
- * gone ("send this email now", Dev, 2026-10-20). The lead-in is only what came
- * before the root, never what was texted after it outside the thread, and it
- * is the first thing trimmed when the thread fills the shown turns.
+ * A thread is shown at least the default window of its own texts, whatever a
+ * setup's `history:` says (`threadTurns`), and, in what that setup's window
+ * leaves, what led up to its root: a reply that starts a thread under a plain
+ * text needs the texts before that text. The lead-in is only what came before
+ * the root, never what was texted after it outside the thread.
  *
  * Words are matched, never trusted: they only pick which of the person's own
  * kept exchanges to show, and a root that cannot be found leaves the turn the
  * whole recent conversation, as before.
  */
 
-import { shownHistory } from "./conversation.js";
+import { SHOWN_HISTORY_TURNS, shownHistory } from "./conversation.js";
 
 /** How much of the root's words is matched; enough to tell two texts apart. */
 const PROBE_CHARS = 48;
@@ -66,19 +65,33 @@ export function threadView(history, { words = "", start = "", replied = false } 
   const inThread = (pair) => pair.question.id === thread || pair.question.thread === thread;
   const at = pairs.indexOf(root);
   const since = pairs.slice(at);
-  const kept = [...pairs.slice(0, at), ...since.filter((pair) => inThread(pair) || pair === root)];
-  const shown = shownHistory(
-    kept.flatMap((pair) => (pair.answer ? [pair.question, pair.answer] : [pair.question])),
-    turns,
-  );
-  return { thread, shown, elsewhere: since.filter((pair) => !inThread(pair) && pair !== root).length };
+  const own = shownHistory(flatten(since.filter((pair) => inThread(pair) || pair === root)), threadTurns(turns));
+  // What led up to the root fills only what the setup's own window leaves.
+  const room = turns - own.length;
+  const lead = room > 0 ? shownHistory(flatten(pairs.slice(0, at)), room) : [];
+  return { thread, shown: [...lead, ...own], elsewhere: since.filter((pair) => !inThread(pair) && pair !== root).length };
+}
+
+function flatten(pairs) {
+  return pairs.flatMap((pair) => (pair.answer ? [pair.question, pair.answer] : [pair.question]));
+}
+
+/**
+ * How many of a thread's own turns are shown: never fewer than the default
+ * window. A setup's short `history:` keeps the texts about other things out
+ * of every turn; a thread is already only the one thing, and at production's
+ * four turns the draft email three texts up its own thread was cut while the
+ * cc question after it was kept ("send this email now", Dev, 2026-10-20).
+ */
+function threadTurns(turns) {
+  return turns === 0 ? 0 : Math.max(turns, SHOWN_HISTORY_TURNS);
 }
 
 /** The line the turn's instructions get when it is shown one thread. */
 export function threadPrompt({ thread, elsewhere }) {
   if (thread === null) return "";
   return (
-    "\n\nThis text was typed inside an iMessage thread. The earlier texts above are what led up to the message it started from, then that thread's own." +
+    "\n\nThis text was typed inside an iMessage thread. The earlier texts above are that thread's own, after any that led up to the message it started from." +
     (elsewhere > 0
       ? ` ${elsewhere} other exchange${elsewhere === 1 ? "" : "s"} went on in the rest of the chat since it started; they are about other things.`
       : "") +
