@@ -63,8 +63,9 @@ OPENAI_APPS_CHALLENGE = "mvCPz_ecepW9QtwBVmDzCk3cxzqSXHmRE0TE52cJbcc"
 # itself. So on `wrangler dev`, list the origin you browse from.
 #
 # Matching is exact — scheme, host and port, no wildcards. On the product
-# deployment the console is the apex, so:
-ALLOWED_ORIGINS = "https://context.lc"
+# deployment the console is the apex, and the same console is served at Tex's
+# own domain (`infra/router/src/texHost.ts`), so both are listed:
+ALLOWED_ORIGINS = "https://context.lc https://tex.lc"
 # The app, named in the OAuth metadata as `context_app_origin` so the CLI can
 # send the browser to the app's "connected" page after signing in. Optional:
 # unset, the CLI shows its own plain page.
@@ -201,7 +202,7 @@ workers_dev = true
 [env.staging.vars]
 SHARING_JUDGE = "on"
 PUBLIC_ORIGIN = "https://mcp-staging.context.lc"
-ALLOWED_ORIGINS = "https://staging.context.lc"
+ALLOWED_ORIGINS = "https://staging.context.lc https://tex-staging.context.lc"
 APP_ORIGIN = "https://staging.context.lc"
 SEARCH_SUBREQUEST_BUDGET = "600"
 

@@ -77,4 +77,12 @@ const texAuth = await fetch(`${tex}/api/auth/signin/github`, {
 assert.ok(!(await texAuth.text()).includes(bundle), 'auth on the Tex host must reach Convex, not the SPA fallback');
 const denied = await fetch(`${gateway}/mcp`, { method: 'POST', headers: { Origin: 'https://context.lc', 'Content-Type': 'application/json' }, body: '{}', signal: AbortSignal.timeout(30000) });
 assert.equal(denied.status, 403, 'production browser origin must not access staging MCP');
+// The console on the Tex host opens notes over the gateway's /collaboration;
+// an origin the gateway does not list is refused (403) before the token is read.
+for (const consoleOrigin of [origin, tex]) {
+  const note = await fetch(`${gateway}/collaboration`, { method: 'POST', headers: { Origin: consoleOrigin, 'Content-Type': 'application/json' }, body: '{}', signal: AbortSignal.timeout(30000) });
+  assert.notEqual(note.status, 403, `${consoleOrigin} must be allowed to open notes on the staging gateway`);
+}
+const texProd = await fetch(`${gateway}/collaboration`, { method: 'POST', headers: { Origin: 'https://tex.lc', 'Content-Type': 'application/json' }, body: '{}', signal: AbortSignal.timeout(30000) });
+assert.equal(texProd.status, 403, 'the production Tex origin must not reach the staging gateway');
 console.log('Staging assets, deep links, the Tex host, OAuth routing, backend signing keys, MCP discovery, origin isolation and transcription bindings verified.');
