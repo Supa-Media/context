@@ -173,4 +173,4 @@ In [A broken mailbox is said only when the person must act, and a long silence o
 
 ### A mailbox recovers by itself unless the person has to give a permission
 
-In [A mailbox recovers by itself unless the person has to give a permission](./communications/gmail-and-sync-loop.md#a-mailbox-recovers-by-itself-unless-the-person-has-to-give-a-permission).
+In [A mailbox recovers by itself unless the person has to give a permission](./communications/sync-recovery.md#a-mailbox-recovers-by-itself-unless-the-person-has-to-give-a-permission).

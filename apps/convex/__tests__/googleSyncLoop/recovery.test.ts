@@ -21,7 +21,7 @@ import {
 
   Each block below is one way a connected mailbox used to stop, or tell its
   owner to reconnect, over something that was never theirs to fix:
-  `docs/decisions/communications/gmail-and-sync-loop.md`, "Recovering without
+  `docs/decisions/communications/sync-recovery.md`, "Recovering without
   the owner".
 */
 

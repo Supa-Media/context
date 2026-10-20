@@ -20,7 +20,7 @@ import {
   A row marked `reconnect_required` was skipped until a fresh connect, so a
   single spurious refusal from Google's token endpoint stopped email until its
   owner noticed. `functions/googleReconnect.ts` gives each such row one
-  refresh a day; `docs/decisions/communications/gmail-and-sync-loop.md`,
+  refresh a day; `docs/decisions/communications/sync-recovery.md`,
   "Recovering without the owner".
 */
 

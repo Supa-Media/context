@@ -15,7 +15,7 @@
  * Only a refused grant (`REFRESHABLE_RECONNECT_CODES`): `SCOPES_INCOMPLETE`
  * is a permission the person has to give, and a refresh cannot. A
  * disconnected row is never asked about.
- * `docs/decisions/communications/gmail-and-sync-loop.md`.
+ * `docs/decisions/communications/sync-recovery.md`.
  */
 
 import { v } from "convex/values";

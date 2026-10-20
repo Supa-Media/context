@@ -15,7 +15,7 @@ import {
   on every pass that brings it mail, so counting the whole note each time
   spent the quota on the same bytes until a busy mailbox stopped with
   MAIL_QUOTA_EXCEEDED, a failure nothing ever lifted.
-  `docs/decisions/communications/gmail-and-sync-loop.md`, "Recovering without
+  `docs/decisions/communications/sync-recovery.md`, "Recovering without
   the owner".
 */
 
