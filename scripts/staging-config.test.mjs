@@ -7,7 +7,7 @@ test('staging gateway has its own origins, queue and presence namespace', () => 
   assert.ok(config, 'staging environment must exist');
   assert.match(config, /name = "context-mcp-staging"/);
   assert.match(config, /PUBLIC_ORIGIN = "https:\/\/mcp-staging.context.lc"/);
-  assert.match(config, /ALLOWED_ORIGINS = "https:\/\/staging.context.lc"/);
+  assert.match(config, /ALLOWED_ORIGINS = "https:\/\/staging\.context\.lc https:\/\/tex-staging\.context\.lc"/);
   assert.equal((config.match(/queue = "context-gateway-jobs-staging"/g) || []).length, 2);
   assert.doesNotMatch(config, /queue = "context-gateway-jobs"|script_name/);
   assert.match(config, /\[\[env.staging.durable_objects.bindings\]\]/);
