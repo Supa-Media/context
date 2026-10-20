@@ -139,23 +139,68 @@ jobs:
         if: steps.scope.outputs.affected == 'true'
         run: pnpm install --filter "@context/mcp..." --frozen-lockfile
 
-      # The package's own script (test/run.mjs, which runs every entry point
-      # side by side), not `node test/test.mjs`: that entry is one of four, and
-      # the `node --test` half (`test:unit`) — the tool
+      # The package's own runner (test/run.mjs), not `node test/test.mjs`: that
+      # entry is one of several, and the `node --test` half — the tool
       # annotations, the scope-info workspace set, the app-origin metadata, the
       # logical delete, the note cap, the store HEAD, the encrypted generation
-      # footer, the gateway source guards and the OpenAI challenge — ran in no
-      # lane at all. `check-package-tests-run.mjs` reported `apps/mcp` covered
-      # because this step names the directory, which was true of the package and
-      # false of nine of its files.
+      # footer, the gateway source guards and the OpenAI challenge — once ran
+      # in no lane at all. `check-package-tests-run.mjs` reported `apps/mcp`
+      # covered because this step names the directory, which was true of the
+      # package and false of nine of its files.
+      #
+      # `integration` is every entry but that half, which `Test Gateway units`
+      # below runs on a runner of its own (2026-10-20): together on one runner
+      # they were bound by its four cores, and this job took over a minute.
       - name: Run test suite
         if: steps.scope.outputs.affected == 'true'
         working-directory: apps/mcp
-        run: pnpm test
+        run: node test/run.mjs integration
 
       - name: Test collaboration storage and recovery
         if: steps.scope.outputs.affected == 'true'
         run: pnpm --filter @context/collaboration test
+
+  unit:
+    name: Test Gateway units
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: ./.github/actions/ci-scope
+        id: scope
+        with:
+          packages: "@context/mcp"
+          # The same inputs as `Test Gateway`'s scope; see its comment.
+          paths: |
+            scripts/check-worker-fetch-options.mjs
+            .github/workflows/mcp.yml
+            packages/shared/**
+            packages/communications/**
+            packages/drawings/**
+            packages/meetings/**
+            packages/obsidian-runtime/**
+
+      - uses: actions/setup-node@v5
+        if: steps.scope.outputs.affected == 'true'
+        with:
+          node-version: 22
+          # pnpm is installed below; do not try to locate its cache before then.
+          package-manager-cache: false
+
+      - uses: pnpm/action-setup@v4
+        if: steps.scope.outputs.affected == 'true'
+
+      - name: Install the collaboration engine
+        if: steps.scope.outputs.affected == 'true'
+        run: pnpm install --filter "@context/mcp..." --frozen-lockfile
+
+      # The `node --test` half of `pnpm test` (`test/unit.list`), beside
+      # `Test Gateway` above rather than inside it; see its `Run test suite` step.
+      - name: Run unit tests
+        if: steps.scope.outputs.affected == 'true'
+        working-directory: apps/mcp
+        run: pnpm test:unit
 
   packages:
     # Six suites that need no install, in one job (2026-10-07). Each was its

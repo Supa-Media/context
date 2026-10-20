@@ -22,15 +22,30 @@ const unit = [...new Set(readFileSync(join(ROOT, "test/unit.list"), "utf8").spli
 const missing = unit.filter((file) => !existsSync(join(ROOT, file)));
 if (!unit.length || missing.length) throw new Error(`test/unit.list names files that do not exist: ${missing.join(", ") || "(empty list)"}`);
 
+// test/isolated.mjs's suites, split across this many processes (see its header).
+const ISOLATED_SHARDS = 3;
 const ENTRIES = [
   ["test.mjs", ["test/test.mjs"]],
+  ...Array.from({ length: ISOLATED_SHARDS }, (_, shard) => [
+    `isolated.mjs ${shard + 1}/${ISOLATED_SHARDS}`,
+    ["test/isolated.mjs", String(shard), String(ISOLATED_SHARDS)],
+  ]),
   ["bulkMoves.mjs move", ["test/bulkMoves.mjs", "move"]],
   ["bulkMoves.mjs folder", ["test/bulkMoves.mjs", "folder"]],
   ["move queue dedupe", ["test/moveQueueDedupe.test.mjs"]],
   ["node --test", ["--test", ...unit]],
 ];
-// `pnpm test:unit` runs the `node --test` entry alone.
-const only = process.argv[2] === "unit" ? ENTRIES.filter(([name]) => name === "node --test") : ENTRIES;
+// `pnpm test:unit` (`run.mjs unit`) runs the `node --test` entry alone, and
+// `run.mjs integration` runs every other one. CI runs the two halves as two
+// jobs on two runners: on one, all of them together are bound by its four
+// cores, not by the slowest entry.
+const MODES = {
+  unit: ([name]) => name === "node --test",
+  integration: ([name]) => name !== "node --test",
+};
+const mode = process.argv[2];
+if (mode !== undefined && !MODES[mode]) throw new Error(`run.mjs takes no argument, "unit" or "integration", not ${JSON.stringify(mode)}`);
+const only = mode ? ENTRIES.filter(MODES[mode]) : ENTRIES;
 
 function run([name, args]) {
   return new Promise((resolve) => {

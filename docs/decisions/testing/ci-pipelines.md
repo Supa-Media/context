@@ -53,6 +53,25 @@ or importing an agent module from a Convex test, fails the path-gates check;
 declaring `canSee` in an agent module fails `privacyEngine/portParity.test.ts`
 in Gateway Contracts.
 
+## The gateway suite runs as two jobs, and its slow file in shards
+
+_Decided 2026-10-20, from the same ask._ `Test Gateway` ran every
+`test/run.mjs` entry on one runner, and `test/test.mjs` alone took 85 seconds
+because about seventy suites that build worlds of their own ran one after
+another behind the shared fixture. Those now live in `test/isolated.mjs`, which
+`run.mjs` runs as three shards beside a `test.mjs` that keeps only what reads
+the shared fixture; within a shard suites still run one at a time, so a suite
+that swaps `globalThis.fetch` still owns it alone. And the `node --test` half
+(`test/unit.list`) runs as `Test Gateway units`, on its own runner, because
+the entries together were bound by four cores, not by the slowest one.
+`pnpm test` locally still runs everything.
+
+Folding the suites back into `test.mjs` costs every gateway pull request about
+a minute. A suite that reads the shared fixture (`call`, `contextStore`,
+`controlPlane` from `harness.mjs`) belongs in `test.mjs`; in a shard it would
+read an unseeded fixture and fail, which is the signal. Sabotage: a suite in a
+shard that throws fails `run.mjs integration` with a non-zero exit.
+
 ## Per push, a real browser tests only the note editor
 
 _Decided by Dev2, 2026-10-07: "we don't need the browser to test settings
