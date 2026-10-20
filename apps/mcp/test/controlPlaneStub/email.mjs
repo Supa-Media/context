@@ -38,9 +38,9 @@ export function createEmailRoute(clearedEditor, flags) {
     const cleared = await clearedEditor(body);
     let answer;
     if (!cleared) answer = { ok: false, refused: "not_allowed" };
-    else if (flags.mailRefusal) answer = { ok: false, refused: flags.mailRefusal };
+    else if (flags.mailRefusal) answer = { ok: false, refused: flags.mailRefusal, ...(flags.mailExtra ?? {}) };
     else if (path === "/gateway/email/search") {
-      answer = { ok: true, results: flags.mailResults ?? [], mailboxes: flags.mailboxes ?? [] };
+      answer = { ok: true, results: flags.mailResults ?? [], mailboxes: flags.mailboxes ?? [], ...(flags.mailExtra ?? {}) };
     } else if (body.attachment !== undefined) {
       answer = flags.mailMessage && flags.mailAttachment
         ? { ok: true, message: flags.mailMessage, attachment: flags.mailAttachment }

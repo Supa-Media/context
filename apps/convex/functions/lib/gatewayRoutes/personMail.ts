@@ -136,20 +136,25 @@ export async function gatewayPersonMailSearchHandler(ctx: ActionCtx, body: Recor
   const claimed = await claim(ctx, accessToken, expected, address);
   if (!claimed.ok) {
     log({ route: "search", outcome: "refused", reason: claimed.refused });
-    return json({ ok: false, refused: claimed.refused });
+    return json({
+      ok: false,
+      refused: claimed.refused,
+      ...(claimed.mailboxes ? { mailboxes: claimed.mailboxes } : {}),
+      ...(claimed.reconnect ? { reconnect: claimed.reconnect } : {}),
+    });
   }
   // Every mailbox is searched, each for its share of the results, and the
   // answers are taken in turn: filling the limit from the first mailbox left
   // a person's other Gmails unsearched (2026-10-20).
   const share = Math.ceil(limit / Math.max(claimed.mailboxes.length, 1));
   const perMailbox: Array<Array<Record<string, string>>> = [];
-  let failed = 0;
+  const unanswered: string[] = [];
   for (const mailbox of claimed.mailboxes) {
     const found: Array<Record<string, string>> = [];
     perMailbox.push(found);
     const token = await tokenFor(ctx, mailbox);
     if (token === null) {
-      failed += 1;
+      unanswered.push(mailbox.address);
       continue;
     }
     try {
@@ -174,7 +179,7 @@ export async function gatewayPersonMailSearchHandler(ctx: ActionCtx, body: Recor
         });
       }
     } catch (error) {
-      failed += 1;
+      unanswered.push(mailbox.address);
       log({ route: "search", outcome: "gmail_error", status: error instanceof GmailApiError ? error.status : 0 });
     }
   }
@@ -182,10 +187,17 @@ export async function gatewayPersonMailSearchHandler(ctx: ActionCtx, body: Recor
   for (let turn = 0; results.length < limit && perMailbox.some((found) => turn < found.length); turn += 1) {
     for (const found of perMailbox) if (turn < found.length && results.length < limit) results.push(found[turn]!);
   }
-  log({ route: "search", outcome: "ok", results: results.length, mailboxes: claimed.mailboxes.length, failed });
-  // Each mailbox's folder, where its synced day notes are.
+  log({ route: "search", outcome: "ok", results: results.length, mailboxes: claimed.mailboxes.length, failed: unanswered.length });
+  // Each mailbox's folder, where its synced day notes are: the gateway reads
+  // them for a mailbox Gmail did not answer for.
   const mailboxes = claimed.mailboxes.map(({ address, folder }: Mailbox) => ({ address, folder }));
-  return json({ ok: true, results, mailboxes, ...(failed > 0 ? { incomplete: true } : {}) });
+  return json({
+    ok: true,
+    results,
+    mailboxes,
+    ...(unanswered.length > 0 ? { incomplete: true, unanswered } : {}),
+    ...(claimed.reconnect.length > 0 ? { reconnect: claimed.reconnect } : {}),
+  });
 }
 
 export async function gatewayPersonMailReadHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {

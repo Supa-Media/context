@@ -26,10 +26,19 @@ export function createEmailMethods({ post }) {
     /** The person's own mail, read live for what their notes do not hold (`tools/emailRead.js`). */
     async personMailSearch(accessToken, expectedWorkspaceId, search) {
       const answer = await post("/gateway/email/search", { accessToken, expectedWorkspaceId, ...search });
+      // Which mailboxes Gmail did not search, and why, so their synced notes can answer instead.
+      const named = (list) => (Array.isArray(list) ? list.filter((entry) => typeof entry?.address === "string" && typeof entry?.folder === "string") : []);
+      const reconnect = named(answer?.reconnect);
       if (answer?.ok === true && Array.isArray(answer.results) && Array.isArray(answer.mailboxes)) {
-        return { ok: true, results: answer.results, mailboxes: answer.mailboxes, incomplete: answer.incomplete === true };
+        const unanswered = Array.isArray(answer.unanswered) ? answer.unanswered.filter((address) => typeof address === "string") : [];
+        return { ok: true, results: answer.results, mailboxes: named(answer.mailboxes), incomplete: answer.incomplete === true, unanswered, reconnect };
       }
-      return { ok: false, refused: READ_REFUSALS.has(answer?.refused) ? answer.refused : "unavailable" };
+      return {
+        ok: false,
+        refused: READ_REFUSALS.has(answer?.refused) ? answer.refused : "unavailable",
+        mailboxes: named(answer?.mailboxes),
+        reconnect,
+      };
     },
     /** With `attachment` (1 for the first), that attachment's bytes come back too, as base64. */
     async personMailRead(accessToken, expectedWorkspaceId, address, id, { attachment } = {}) {
@@ -52,4 +61,4 @@ export function createEmailMethods({ post }) {
   };
 }
 
-const READ_REFUSALS = new Set(["invalid", "not_allowed", "no_mailbox", "rate_limited", "not_found", "too_large", "unavailable"]);
+const READ_REFUSALS = new Set(["invalid", "not_allowed", "no_mailbox", "rate_limited", "reconnect_required", "not_found", "too_large", "unavailable"]);

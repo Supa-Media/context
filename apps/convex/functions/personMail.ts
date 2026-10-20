@@ -31,6 +31,9 @@ const mailbox = v.object({
   syncedThrough: v.optional(v.number()),
 });
 
+/** A mailbox's address and the folder its synced day notes are in. */
+const named = v.object({ address: v.string(), folder: v.string() });
+
 export const claimPersonMailRead = internalMutation({
   args: {
     hashedAccessToken: v.string(),
@@ -39,10 +42,14 @@ export const claimPersonMailRead = internalMutation({
     address: v.union(v.string(), v.null()),
   },
   returns: v.union(
-    v.object({ ok: v.literal(true), mailboxes: v.array(mailbox) }),
+    v.object({ ok: v.literal(true), mailboxes: v.array(mailbox), reconnect: v.array(named) }),
     v.object({
       ok: v.literal(false),
-      refused: v.union(v.literal("not_allowed"), v.literal("no_mailbox"), v.literal("rate_limited")),
+      refused: v.union(v.literal("not_allowed"), v.literal("no_mailbox"), v.literal("rate_limited"), v.literal("reconnect_required")),
+      /** Every mailbox the search would have asked, so its notes can answer instead. */
+      mailboxes: v.optional(v.array(named)),
+      /** Mailboxes whose Google sign-in stopped working: not searched, and not syncing. */
+      reconnect: v.optional(v.array(named)),
     }),
   ),
   handler: async (ctx, args) => {
@@ -74,30 +81,44 @@ export const claimPersonMailRead = internalMutation({
       .query("googleConnections")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
       .take(20);
-    const mailboxes = connections
-      .filter(
-        (row) =>
-          row.disconnectedAt === undefined &&
-          row.health !== "reconnect_required" &&
-          row.products.includes("gmail") &&
-          row.gmail !== undefined &&
-          (args.address === null || row.address.toLowerCase() === args.address),
-      )
+    const gmails = connections.filter(
+      (row) =>
+        row.disconnectedAt === undefined &&
+        row.products.includes("gmail") &&
+        row.gmail !== undefined &&
+        (args.address === null || row.address.toLowerCase() === args.address),
+    );
+    const folderOf = (row: (typeof gmails)[number]) =>
+      row.gmail!.destinationFolder ?? defaultGoogleDestinationFolder("gmail", row.gmail!.mailboxSlug);
+    // A mailbox whose sign-in Google stopped honouring is named, so the person
+    // is told to reconnect it rather than its mail silently missing (2026-10-20).
+    const reconnect = gmails
+      .filter((row) => row.health === "reconnect_required")
+      .map((row) => ({ address: row.address.toLowerCase(), folder: folderOf(row) }));
+    const mailboxes = gmails
+      .filter((row) => row.health !== "reconnect_required")
       .map((row) => ({
         connectionId: row._id,
         address: row.address.toLowerCase(),
-        folder: row.gmail!.destinationFolder ?? defaultGoogleDestinationFolder("gmail", row.gmail!.mailboxSlug),
+        folder: folderOf(row),
         syncedFrom: row.createdAt,
         ...(row.gmail!.lastSyncedAt === undefined ? {} : { syncedThrough: row.gmail!.lastSyncedAt }),
       }));
-    if (mailboxes.length === 0) return { ok: false as const, refused: "no_mailbox" as const };
+    if (mailboxes.length === 0) {
+      return reconnect.length > 0
+        ? { ok: false as const, refused: "reconnect_required" as const, reconnect }
+        : { ok: false as const, refused: "no_mailbox" as const };
+    }
 
     const room = await tryConsumeRateLimit(ctx, {
       key: `person.mail.read:${live.grant.userId}`,
       limit: PERSON_MAIL_READS_PER_HOUR,
       windowMs: 60 * 60 * 1000,
     });
-    if (!room) return { ok: false as const, refused: "rate_limited" as const };
-    return { ok: true as const, mailboxes };
+    if (!room) {
+      const asked = mailboxes.map(({ address, folder }) => ({ address, folder }));
+      return { ok: false as const, refused: "rate_limited" as const, mailboxes: asked, reconnect };
+    }
+    return { ok: true as const, mailboxes, reconnect };
   },
 });

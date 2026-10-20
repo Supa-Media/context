@@ -36,6 +36,22 @@ taken in turn. The first version filled the limit from the first mailbox and
 stopped, so a person with three Gmails had two never searched (2026-10-20;
 `personMail.test.ts`, "every connected Gmail is searched…").
 
+**Gmail first, the notes as the fallback, and a broken sign-in named**
+(asked by the owner, 2026-10-20: "searching from the Gmail API directly
+first before we fall back to the notes... let people know you need to
+reconnect Gmail"). The notes answer only for a mailbox Gmail could not
+search: one whose Google sign-in stopped working (`health:
+"reconnect_required"`), one whose call failed just now (`unanswered`), or
+every one once the hour's reads are spent (`rate_limited`). Each such answer
+says the notes may miss mail. A mailbox needing reconnecting is named in the
+answer with the words to tell the person, because that mailbox has also
+stopped syncing, and its mail would otherwise just go missing; with every
+mailbox in that state the control plane refuses as `reconnect_required`
+rather than `no_mailbox`, which would have told them to connect one they
+already have. `emailRead.test.mjs` fails if a reconnect is not named or the
+notes do not answer for it; `personMail.test.ts` fails if a broken mailbox
+is folded back into "no mailbox".
+
 A search downloads headers and a snippet only (`format=metadata`). Results
 come back as `email:<address>/<id>` ids, and `fetch` of one (`read_email`)
 reads that message's body, capped at 20,000 characters.
