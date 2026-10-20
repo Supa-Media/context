@@ -353,6 +353,31 @@ const PRODUCT_RESERVED_NAMES: readonly string[] = [
   // The texting assistant's name (decided by the owner, 2026-10-10): `@tex`
   // and `tex@context.lc` would read as the assistant itself.
   "tex",
+  // Every static route the app itself serves, which `names.test.ts` now holds
+  // against `ROUTE_SEGMENTS` rather than restating. Same two reasons the
+  // gateway's first segments are reserved: each is a product surface at
+  // `context.lc/<segment>`, and — ingestion being on the apex — each is a
+  // mailbox at `<segment>@context.lc`. `tex` above was reserved by name for
+  // exactly that reason while `texts` beside it was not, and `/text` and
+  // `/add-gmail` arrived unreserved on 2026-10-20; a derived check is what
+  // stops the next one. `google` is the sharpest of them: mail from
+  // `google@` the company's own domain aligns on SPF and DKIM. `s` needs no
+  // entry — one character is below `NAME_MIN_LENGTH`.
+  "add-gmail",
+  "cli",
+  "connections",
+  "console",
+  "e2e-fixture",
+  "google",
+  "not-me",
+  "note",
+  "onboarding",
+  "preview",
+  "stop-new-email",
+  "text",
+  "texts",
+  "vault",
+  "waitlist",
   // The account-wide list of what was shared with you (decided by the owner,
   // 2026-10-14): `@shared` is how the app names it, so a person or workspace
   // holding it would read as that list.

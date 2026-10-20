@@ -299,23 +299,37 @@ export const consumeCode = internalMutation({
     }
     await ctx.db.delete(row._id);
     await requireProofToAddEmail(ctx, userId);
-    return await attachProvenEmail(ctx, userId, email, { mayMove: true });
+    return await attachProvenEmail(ctx, userId, email, { mayMove: true, mayFold: true });
   },
 });
 
 /**
  * Attach `email`, already proven to be this person's, to `userId`: by a
  * mailed code, or by Google signing them in to it. The first address of an
- * account a phone made becomes its mail address. `mayMove` lets an empty phone
- * account fold into the one that already holds the address (the code path);
- * Google's path never moves, because the Gmail it proved is being bound to
- * this account's own workspace at the same moment.
+ * account a phone made becomes its mail address.
+ *
+ * Two ways another account can be in the way, and each path says separately
+ * whether it may be moved out of it, because closing somebody's account is
+ * not undoable:
+ *
+ *  - `mayMove` lets an empty phone account fold into the one that already
+ *    holds the address (the code path). Google's path never moves, because
+ *    the Gmail it proved is being bound to this account's own workspace at
+ *    the same moment.
+ *  - `mayFold` lets an account that owns nothing but holds the address close
+ *    into this one, its memberships and its other sign-in addresses coming
+ *    with it. The mailed code is that account's consent — only somebody who
+ *    reads the mailbox can produce it. Google's `email_verified` is a claim
+ *    about a Google account, not about reading that mailbox, so Google's path
+ *    refuses with `has_own_workspace` and leaves the account alone; the Gmail
+ *    is still connected for mail, and the address can still be added, and
+ *    fold, through a mailed code.
  */
 async function attachProvenEmail(
   ctx: MutationCtx,
   userId: Id<"users">,
   email: string,
-  { mayMove }: { mayMove: boolean },
+  { mayMove, mayFold }: { mayMove: boolean; mayFold: boolean },
 ): Promise<"added" | "moved" | "has_own_workspace"> {
   const standing = await standingOf(ctx, userId, email);
   if (standing.kind === "mine") return "added";
@@ -329,7 +343,10 @@ async function attachProvenEmail(
     await ctx.db.patch(into, { phone: me.phone, phoneVerificationTime: me.phoneVerificationTime });
     return "moved";
   }
-  if (standing.kind === "other") await foldIn(ctx, standing.otherId, userId);
+  if (standing.kind === "other") {
+    if (!mayFold) return "has_own_workspace";
+    await foldIn(ctx, standing.otherId, userId);
+  }
   // Folding may already have brought this address over.
   if ((await standingOf(ctx, userId, email)).kind !== "mine") {
     await ctx.db.insert("signInEmails", { userId, email, addedAt: Date.now() });
@@ -352,10 +369,13 @@ async function attachProvenEmail(
  * The Gmail somebody connects first becomes their main email, when their
  * account has none yet (Dev2, 2026-10-20: "the first should be a primary
  * personal gmail and then use that email as the primary email"). Google
- * signing them in to the address is the proof a mailed code would be, so
- * nothing is mailed. Only ever the first address: an account with one already
- * is `skipped`, and an address another account holds is `has_own_workspace`,
- * the Gmail still connected for mail but not made the main email.
+ * signing them in to the address is the proof a mailed code would be for
+ * making it the main email, so nothing is mailed. Only ever the first
+ * address: an account with one already is `skipped`, and an address another
+ * account holds is `has_own_workspace` — whether that account owns anything
+ * or not, because neither moving nor closing it is this claim's to do
+ * (`attachProvenEmail`). The Gmail is still connected for mail; it is just
+ * not made the main email.
  */
 export const adoptGoogleAddress = internalMutation({
   args: { userId: v.id("users"), email: v.string() },
@@ -365,7 +385,7 @@ export const adoptGoogleAddress = internalMutation({
     if (user === null || user.email !== undefined || (await attachedEmailsOf(ctx, userId)).length > 0) return "skipped";
     const parsed = parseInvitee(email);
     if (!parsed.ok || parsed.invitee.kind !== "email") return "skipped";
-    const outcome = await attachProvenEmail(ctx, userId, parsed.invitee.value, { mayMove: false });
+    const outcome = await attachProvenEmail(ctx, userId, parsed.invitee.value, { mayMove: false, mayFold: false });
     return outcome === "moved" ? "skipped" : outcome;
   },
 });
