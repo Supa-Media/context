@@ -31,6 +31,12 @@ export const MAX_FETCH_BYTES = 1_000_000;
  * JavaScript, and only a browser will see it.
  */
 export const MIN_HTML_TEXT_CHARS = 200;
+/**
+ * The most of a PDF handed to the gateway, which reads files up to the same
+ * size. A browser shows a PDF as a viewer with no text, so a course map or an
+ * invoice linked from a page was unreadable before (2026-10-20).
+ */
+export const MAX_PDF_BYTES = 10 * 1024 * 1024;
 
 type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
 
@@ -59,6 +65,7 @@ export async function fetchPage(url: string, fetchImpl: FetchLike = workerFetch)
       continue;
     }
     const type = response.headers.get("content-type") ?? "";
+    if (response.ok && /^application\/pdf\b/i.test(type)) return await pdfPage(current, response);
     const markdown = /^text\/markdown\b/i.test(type);
     if (!response.ok || !(markdown || /^text\/html\b/i.test(type))) {
       await response.body?.cancel().catch(() => undefined);
@@ -74,6 +81,27 @@ export async function fetchPage(url: string, fetchImpl: FetchLike = workerFetch)
   return null;
 }
 
+/** A PDF, handed on whole for the gateway to read; null when it is too big or not a PDF after all. */
+async function pdfPage(url: string, response: Response): Promise<PageRead | null> {
+  try {
+    const bytes = await readBytes(response, MAX_PDF_BYTES + 1);
+    if (bytes.byteLength > MAX_PDF_BYTES || !startsPdf(bytes)) return null;
+    return { url, title: "", text: "", truncated: false, links: [], via: "file", file: { type: "application/pdf", data: base64(bytes) } };
+  } catch {
+    return null;
+  }
+}
+
+function startsPdf(bytes: Uint8Array): boolean {
+  return bytes.length >= 5 && String.fromCharCode(...bytes.subarray(0, 5)) === "%PDF-";
+}
+
+function base64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(binary);
+}
+
 function safeResolve(href: string, base: string): string | null {
   try {
     return new URL(href, base).toString();
@@ -83,7 +111,11 @@ function safeResolve(href: string, base: string): string | null {
 }
 
 async function readCapped(response: Response, maxBytes: number): Promise<string> {
-  if (!response.body) return "";
+  return new TextDecoder().decode(await readBytes(response, maxBytes));
+}
+
+async function readBytes(response: Response, maxBytes: number): Promise<Uint8Array> {
+  if (!response.body) return new Uint8Array(0);
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
@@ -102,7 +134,7 @@ async function readCapped(response: Response, maxBytes: number): Promise<string>
     offset += part.length;
     if (offset >= joined.length) break;
   }
-  return new TextDecoder().decode(joined);
+  return joined;
 }
 
 /** A Markdown link, not an image: `[text](href "title")`. */

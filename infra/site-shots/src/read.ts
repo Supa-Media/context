@@ -27,8 +27,13 @@ export interface PageRead {
   text: string;
   truncated: boolean;
   links: Array<{ text: string; href: string }>;
-  /** How it was read: the site's Markdown or HTML (`./fetchText.ts`), or a browser. */
-  via: "markdown" | "html" | "browser";
+  /** How it was read: the site's Markdown or HTML (`./fetchText.ts`), a file, or a browser. */
+  via: "markdown" | "html" | "file" | "browser";
+  /**
+   * A PDF the address serves, as base64, for the gateway to read the way it
+   * reads any file (`apps/mcp/src/tools/readFile.js`); `text` is then empty.
+   */
+  file?: { type: "application/pdf"; data: string };
 }
 
 export function parseReadRequest(body: unknown): { url: string } | null {

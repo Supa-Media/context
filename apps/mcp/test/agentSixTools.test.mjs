@@ -8,6 +8,8 @@
  *     allow is refused before it is dispatched" fails
  *   `grantedActions` ignoring which tools are held → "the six list only what
  *     the turn holds" fails
+ *   `resolve` not looking in the other families (2026-10-20) → "an action
+ *     called on the wrong one of the six runs where it lives" fails
  */
 
 import assert from "node:assert/strict";
@@ -72,6 +74,19 @@ test("an action the turn does not hold, or the surface did not allow, is refused
   assert.match(dream.resolve("manage", { action: "move", args: {} }).error, /Yours: none/);
   assert.match(dream.resolve("send", { action: "browse", args: {} }).error, /Yours: none/);
   assert.equal(dream.resolve("write", { path: "a.md", content: "x" }).name, "write_note");
+});
+
+test("an action called on the wrong one of the six runs where it lives, never wider", () => {
+  // Tex, 2026-10-17 and 2026-10-20: write { action: "progress" } failed with "no such action" twice.
+  const { resolve } = sixToolsOver(held("read_note", "write_note", "move_note", "text_progress"));
+  assert.deepEqual(resolve("write", { action: "progress", args: { text: "On it." } }), { name: "text_progress", args: { text: "On it." } });
+  assert.equal(resolve("send", { action: "move", args: { source: "a.md", destination: "b.md" } }).name, "move_note");
+  // Not held anywhere is still refused, naming the family it was called on.
+  assert.match(resolve("write", { action: "browse", args: {} }).error, /write has no action "browse" for you/);
+  // A surface's grants still decide: the dream may save and nothing else.
+  const dream = sixToolsOver(held("write_note", "move_note", "text_progress"), { write: ["save"] });
+  assert.match(dream.resolve("write", { action: "progress", args: { text: "x" } }).error, /no action "progress"/);
+  assert.match(dream.resolve("write", { action: "move", args: {} }).error, /no action "move"/);
 });
 
 test("a connected app is never granted the assistant's own actions", () => {

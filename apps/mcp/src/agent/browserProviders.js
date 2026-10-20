@@ -21,6 +21,9 @@
  * be produced for another person without the secret.
  */
 
+import { fileWords } from "../tools/readFile.js";
+import { pdfLinks } from "../tools/pdfLinks.js";
+
 /** Set once a Worker says it has no Browserbase key; a deploy starts a new isolate. */
 let browserbaseMissing = false;
 
@@ -85,7 +88,7 @@ export function siteShotsComputer(env, { owner = null, viewer = null, now = Date
       if (!response.ok || !body?.page || typeof body.page.text !== "string") {
         throw new Error("page unreadable");
       }
-      return body.page;
+      return body.page.file ? await pdfPage(env?.AI, body.page) : body.page;
     },
 
     async browse(session, steps, { handoff = false } = {}) {
@@ -118,5 +121,30 @@ export function siteShotsComputer(env, { owner = null, viewer = null, now = Date
       if (onBrowserbase) return;
       await post(binding, "/browse/close", { session });
     },
+  };
+}
+
+/**
+ * A PDF the screenshot Worker handed on whole (`infra/site-shots/src/fetchText.ts`),
+ * read the way `read_file` reads one: its words, and its links as links the
+ * turn may follow, since a browser shows a PDF with no text at all
+ * (2026-10-20: a race's course map and a payment link were both PDFs).
+ */
+export async function pdfPage(ai, page) {
+  const { file, ...rest } = page;
+  let bytes;
+  try {
+    bytes = Uint8Array.from(atob(String(file.data ?? "")), (ch) => ch.charCodeAt(0));
+  } catch {
+    throw new Error("page unreadable");
+  }
+  const name = decodeURIComponent(new URL(page.url).pathname.split("/").pop() || "page.pdf");
+  const read = await fileWords(ai, name, "application/pdf", bytes);
+  const links = (await pdfLinks(bytes)).filter((href) => href.startsWith("https://")).map((href) => ({ text: "", href }));
+  return {
+    ...rest,
+    title: rest.title || name,
+    text: read.text ?? `(This is a PDF, and ${read.error}.)`,
+    links,
   };
 }
