@@ -12,6 +12,10 @@
  * query without `outsideSyncQuery` failed "Gmail is asked only about mail the
  * notes do not hold". The old loop, which stopped once the first mailbox
  * filled the limit (2026-10-20), fails "every connected Gmail is searched…".
+ * Folding `reconnect_required` mailboxes back into "no mailbox" fails "with
+ * every mailbox needing reconnecting, the search says so…". Dropping
+ * `delaysMs: LIVE_RETRY_MS` from the live search waited out the sync's
+ * retries, failing "a live search waits on Gmail's rate limit once…".
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -20,6 +24,7 @@ import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { ACCESS_A, ACCESS_B, bodyOf, twoConnectedTenants } from "./controlPlane/fixtures.helpers";
 import { outsideSyncQuery } from "../functions/lib/gatewayRoutes/personMail";
 import { PERSON_MAIL_READS_PER_HOUR } from "../functions/personMail";
+import { gmailRetry } from "../../mcp/src/communications/gmail/api.js";
 
 const realFetch = globalThis.fetch;
 const HOUR = 60 * 60 * 1000;
@@ -241,6 +246,74 @@ describe("reading a person's own mail live", () => {
     await t.run((ctx) =>
       ctx.db.insert("rateLimits", { key: `person.mail.read:${owner}`, windowStartedAt: Date.now(), count: PERSON_MAIL_READS_PER_HOUR }),
     );
-    expect(await search(t, ACCESS_A, aliceWs)).toEqual({ ok: false, refused: "rate_limited" });
+    // ...naming the mailboxes, so their synced notes can answer instead.
+    expect(await search(t, ACCESS_A, aliceWs)).toEqual({
+      ok: false,
+      refused: "rate_limited",
+      mailboxes: [{ address: "alice@gmail.example", folder: expect.any(String) }],
+      reconnect: [],
+    });
+  });
+
+  test("a mailbox whose sign-in stopped working is named for reconnecting, and the rest are searched", async () => {
+    const queries = gmail();
+    const { t, aliceWs, alice } = await connected();
+    const broken = await seedGoogleConnection(t, { workspaceId: aliceWs, boundBy: alice, address: "old@gmail.example", googleAccountId: "old" });
+    await t.run((ctx) => ctx.db.patch(broken, { health: "reconnect_required" }));
+    const answer = await search(t, ACCESS_A, aliceWs);
+    expect(answer.ok).toBe(true);
+    expect(answer.reconnect).toEqual([{ address: "old@gmail.example", folder: expect.any(String) }]);
+    expect(answer.mailboxes).toEqual([{ address: "alice@gmail.example", folder: expect.any(String) }]);
+    expect(queries.length).toBeGreaterThan(0);
+  });
+
+  test("with every mailbox needing reconnecting, the search says so rather than that none is connected", async () => {
+    const queries = gmail();
+    const { t, aliceWs, connectionId } = await connected();
+    await t.run((ctx) => ctx.db.patch(connectionId, { health: "reconnect_required" }));
+    expect(await search(t, ACCESS_A, aliceWs)).toEqual({
+      ok: false,
+      refused: "reconnect_required",
+      reconnect: [{ address: "alice@gmail.example", folder: expect.any(String) }],
+    });
+    expect(queries).toHaveLength(0);
+  });
+
+  test("a live search waits on Gmail's rate limit once and briefly, never the sync's forty seconds", async () => {
+    const { t, aliceWs } = await connected();
+    const waits: number[] = [];
+    const sleep = gmailRetry.sleep;
+    gmailRetry.sleep = async (ms: number) => {
+      waits.push(ms);
+    };
+    let asked = 0;
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (!url.startsWith("https://gmail.googleapis.com/")) return await realFetch(input, init);
+      asked += 1;
+      return new Response(JSON.stringify({ error: { errors: [{ reason: "rateLimitExceeded" }] } }), {
+        status: 429,
+        headers: { "content-type": "application/json", "retry-after": "30" },
+      });
+    });
+    try {
+      const answer = await search(t, ACCESS_A, aliceWs);
+      expect(answer).toMatchObject({ ok: true, unanswered: ["alice@gmail.example"] });
+      expect(asked).toBe(2);
+      expect(waits.reduce((sum, ms) => sum + ms, 0)).toBeLessThanOrEqual(1_000);
+    } finally {
+      gmailRetry.sleep = sleep;
+    }
+  });
+
+  test("a mailbox Gmail did not answer for is named", async () => {
+    const { t, aliceWs } = await connected();
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (!url.startsWith("https://gmail.googleapis.com/")) return await realFetch(input, init);
+      return new Response("{}", { status: 503 });
+    });
+    const answer = await search(t, ACCESS_A, aliceWs);
+    expect(answer).toMatchObject({ ok: true, results: [], incomplete: true, unanswered: ["alice@gmail.example"] });
   });
 });

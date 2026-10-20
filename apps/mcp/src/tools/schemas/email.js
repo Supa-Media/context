@@ -8,7 +8,7 @@ export function emailToolDefinitions() {
         "Send one plain-text email as the person, through their own connected Gmail. It is never sent straight away: " +
         "the person is shown this exact email and must say yes to it, and any change is a new email they are asked about again. " +
         "Write the whole email first (to, subject, body as they would send it) from what the person asked for; for a reply, " +
-        "use the sender's address from the email in their inbox and start the subject with Re:. Don't repeat the whole email " +
+        "pass in_reply_to with the email's id from search_email, use the sender's address and start the subject with Re:. Don't repeat the whole email " +
         "in your answer; Context shows it to them. Only when the person asked for this email to go; if they asked for a draft, " +
         "use save_email_draft instead. At most 10 addresses, 5 emails an hour, 20 a day, and 3 a day to one address.",
       inputSchema: {
@@ -21,6 +21,11 @@ export function emailToolDefinitions() {
           from: {
             type: "string",
             description: "Optional: which of the person's connected Gmail addresses sends it. Left out, their first one that can.",
+          },
+          in_reply_to: {
+            type: "string",
+            description:
+              "Optional: the email:<address>/<id> id search_email gave for the email this answers. It is sent inside that email's thread, from that mailbox.",
           },
         },
         required: ["to", "subject", "body"],
@@ -46,6 +51,10 @@ export function emailToolDefinitions() {
           from: {
             type: "string",
             description: "Optional: which of the person's connected Gmail addresses keeps the draft. Left out, their first one that can.",
+          },
+          in_reply_to: {
+            type: "string",
+            description: "Optional: the email:<address>/<id> id search_email gave for the email this answers. The draft sits in that thread.",
           },
         },
         required: ["to", "subject", "body"],

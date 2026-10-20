@@ -42,6 +42,12 @@ export const TOOL_NEWS = Object.freeze([
   {
     date: "2026-10-20",
     text:
+      "send_email and save_email_draft take `in_reply_to`: the email:<address>/<id> id search_email gave for the email being answered. " +
+      "The reply goes inside that email's thread, from that mailbox.",
+  },
+  {
+    date: "2026-10-20",
+    text:
       "search with `args: { email: true }` now asks the person's Gmail itself, over all of their mail, sent and received; it no longer " +
       "lists synced mail notes, whose search could not find a message inside a long day. Every result is an `email:<address>/<id>` id to fetch.",
   },
@@ -217,7 +223,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "abb3a541";
+export const TOOL_SHAPE = "7b1bcd8d";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

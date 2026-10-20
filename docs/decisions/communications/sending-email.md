@@ -137,6 +137,33 @@ fails if a send-only connection saves a draft, a draft hits the send
 endpoint, or a draft spends the sending limits; `apps/mcp/test/emailDraft.test.mjs`
 fails if a draft is held or routed to the send route.
 
+### A reply joins the thread of the email it answers (2026-10-20)
+
+`send_email` and `save_email_draft` take `in_reply_to`, the
+`email:<address>/<id>` id `search_email` gave. The control plane reads that
+message's metadata from the sending mailbox itself, then sends with its
+`threadId` and with `In-Reply-To` and `References` built from its
+`Message-ID`, so the reply lands inside the conversation on both sides rather
+than as a new email with "Re:" in front. Before, a reply to a venue's
+confirmation thread arrived on their side as a stranger's fresh email.
+
+The reply always goes from the mailbox that holds the message: a different
+`from` is refused, and the id is only ever looked up in the person's own
+Gmail, so it cannot reach another tenant's mail. Every header value read from
+Gmail is checked to be one plain `<msg-id>` before it is written, since it
+becomes a header of the email sent; `References` keeps at most 20. A message
+Gmail no longer has, or one with no usable Message-ID, refuses as
+`reply_not_found` rather than sending outside the thread. The person's copy
+says it is a reply in the thread, and the yes covers `in_reply_to` with the
+rest of the call.
+
+**What a simplification would cost.** Sending a reply that was not found as
+a new email would make the thread question silent again. Copying Gmail's
+headers unchecked would let a crafted Message-ID add a Bcc.
+`apps/convex/__tests__/personEmail.test.ts` fails if a forged Message-ID
+passes, a missing message sends, or a reply leaves its thread;
+`apps/mcp/test/emailGate.test.mjs` fails if a reply sends from another mailbox.
+
 ### What is deliberately not built
 
 Attachments, HTML bodies, scheduled sends, and sending from a shared

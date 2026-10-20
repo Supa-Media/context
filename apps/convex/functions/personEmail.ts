@@ -27,6 +27,7 @@ import { tryConsumeRateLimit } from "./lib/rateLimit";
 const refusal = v.union(
   v.literal("not_allowed"),
   v.literal("no_sender"),
+  v.literal("reconnect_required"),
   v.literal("hourly_limit"),
   v.literal("daily_limit"),
   v.literal("recipient_limit"),
@@ -80,14 +81,19 @@ export const claimPersonEmail = internalMutation({
       .query("googleConnections")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", personal._id))
       .take(20);
-    const sender = connections.find(
+    const able = connections.filter(
       (row) =>
         row.disconnectedAt === undefined &&
         row.products.includes("gmail") &&
         row.scopes.includes(scope) &&
         (args.from === null || row.address.toLowerCase() === args.from),
     );
-    if (sender === undefined) return { ok: false as const, refused: "no_sender" as const };
+    // A mailbox whose Google sign-in stopped working cannot send: another one
+    // that can is chosen, or the person is told to reconnect it (2026-10-20).
+    const sender = able.find((row) => row.health !== "reconnect_required");
+    if (sender === undefined) {
+      return { ok: false as const, refused: able.length > 0 ? ("reconnect_required" as const) : ("no_sender" as const) };
+    }
     const hashes = [...new Set(args.recipientHashes)];
     if (hashes.length === 0 || hashes.some((hash) => !/^[0-9a-f]{64}$/.test(hash))) {
       return { ok: false as const, refused: "not_allowed" as const };
