@@ -68,6 +68,16 @@ turn the bytes into Markdown with Workers AI's `toMarkdown` at request time
 and keep nothing: the file is the record and its words are a derivative.
 Both are `UNTRUSTED_READS`, since a file's words are its author's.
 
+A PDF's links come with its words (2026-10-20). `toMarkdown` drops link
+annotations, so a contract's "CLICK HERE to make payment" button reached Tex as
+those words and nothing else, and Tex told Dev to open the PDF and tap it
+(Dev: "another stupid text limitation"). `pdfLinks` (`src/tools/pdfLinks.js`)
+reads the file's `/URI` actions, in the open and inside compressed object
+streams, keeps http, https and mailto addresses (at most 50), and `fileWords`
+lists them under the words. Pictures and fonts are never inflated, and
+inflating stops at 20 MB. Tests: `test/pdfLinks.test.mjs` ("read_file hands
+back where a PDF's button goes, after its words"; sabotaged 2026-10-20).
+
 **Who may read.** Only the owner of the personal workspace the mailbox is
 connected to, through a grant holding `context:private`
 (`functions/personMail.ts`, one mutation with the rate limit). An editor or
