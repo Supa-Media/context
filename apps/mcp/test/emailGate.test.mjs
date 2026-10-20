@@ -44,7 +44,7 @@
  *     stays unarmed even when withdrawing it fails` fails.
  * 15. `turn.js` passing a held result's `isError` to the model. → `a held
  *     email reaches the model as waiting for a yes` fails.
- * 16. `route.js` not calling `withoutHeldEcho`. → `a held email is texted
+ * 16. `answerWithAsk` not calling `withoutHeldEcho`. → `a held email is texted
  *     once` fails.
  */
 
