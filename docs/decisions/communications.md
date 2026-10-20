@@ -170,3 +170,7 @@ Moved to [A Gmail day is rewritten through its collaboration document](./communi
 ### A broken mailbox is said only when the person must act, and a long silence once (owner, 2026-10-20)
 
 In [A broken mailbox is said only when the person must act, and a long silence once](./communications/mail-health.md#a-broken-mailbox-is-said-only-when-the-person-must-act-and-a-long-silence-once-owner-2026-10-20).
+
+### A mailbox recovers by itself unless the person has to give a permission
+
+In [A mailbox recovers by itself unless the person has to give a permission](./communications/gmail-and-sync-loop.md#a-mailbox-recovers-by-itself-unless-the-person-has-to-give-a-permission).

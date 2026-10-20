@@ -75,12 +75,20 @@ export function renderDay(options) {
  * clobbering it. `maxAttempts` bounds that retry rather than looping forever
  * against a store that never settles.
  *
+ * `bytes` is what the write ADDED to the bucket: the new text's size less the
+ * size of the text it replaced, never below zero. It is what the connection's
+ * write quota counts (`syncBytesWritten`), and today's day note is rewritten
+ * on every pass that brings it mail: counting the whole note each time spent
+ * a lifetime quota on the same bytes until Gmail stopped for good.
+ *
  * @param {import("../../store/index.js").ContextStore} store
  * @param {import("../../../../../packages/communications/src/protocol.js").ChannelDayPart} part
  * @returns {Promise<{path: string, bytes: number, wrote: boolean}>}
  */
 export async function writeDayPart(store, part, maxAttempts = 3) {
-  const bytes = new TextEncoder().encode(part.text).length;
+  const encoder = new TextEncoder();
+  const bytes = encoder.encode(part.text).length;
+  const grownFrom = (previous) => Math.max(0, bytes - (previous === null ? 0 : encoder.encode(previous).length));
   if (!store.capabilities?.conditionalWrite) {
     /*
       NO CONDITIONAL WRITE STILL MEANS NO POINTLESS WRITE.
@@ -94,22 +102,24 @@ export async function writeDayPart(store, part, maxAttempts = 3) {
       degradation, not "write blindly".
     */
     const current = await store.get(part.path);
-    if (current && (await current.text()) === part.text) {
+    const currentText = current ? await current.text() : null;
+    if (currentText === part.text) {
       return { path: part.path, bytes, wrote: false };
     }
     await store.put(part.path, part.text);
-    return { path: part.path, bytes, wrote: true };
+    return { path: part.path, bytes: grownFrom(currentText), wrote: true };
   }
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const existing = await store.get(part.path);
-    if (existing && (await existing.text()) === part.text) {
+    const existingText = existing ? await existing.text() : null;
+    if (existingText === part.text) {
       // Already exactly this. Nothing to write, nothing to race.
       return { path: part.path, bytes, wrote: false };
     }
     const result = existing
       ? await store.put(part.path, part.text, { onlyIf: { etagMatches: existing.etag } })
       : await store.put(part.path, part.text);
-    if (result) return { path: part.path, bytes, wrote: true };
+    if (result) return { path: part.path, bytes: grownFrom(existingText), wrote: true };
     // `null` means the precondition failed — someone else wrote first.
     // Loop and re-read; the content is a pure function of Gmail's state, so
     // converging on the current etag is always possible.

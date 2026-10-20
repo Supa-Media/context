@@ -93,6 +93,7 @@ import {
   isProductTransient,
   productBackingOff,
   productBackoffMs,
+  syncBytesUsed,
 } from "./lib/googleSchedule";
 import { settlePushAfterPass } from "./lib/googlePush/pending";
 import { productTurnPatch, recordedDestinations, SUCCEEDED } from "./lib/googleConnect/rowPatches";
@@ -439,7 +440,8 @@ export const recordGoogleForwardSyncPass = internalMutation({
         lastSyncAt: now,
         nextSyncAt: siblingsCanRun ? now + intervalMs : retryAt,
         syncCatchUp: undefined,
-        syncBytesWritten: (connection.syncBytesWritten ?? 0) + (args.bytesWritten ?? 0),
+        syncBytesWritten: syncBytesUsed(connection) + (args.bytesWritten ?? 0),
+        syncBytesBasis: "growth" as const,
         lastSyncFailureAt: now,
         lastSyncFailureCode: args.errorCode,
         lastSyncFailure: error ?? "This service did not sync.",
@@ -487,7 +489,8 @@ export const recordGoogleForwardSyncPass = internalMutation({
           a ceiling that could never be crossed, which is what the schema
           comment calls decoration.
         */
-        syncBytesWritten: (connection.syncBytesWritten ?? 0) + (args.bytesWritten ?? 0),
+        syncBytesWritten: syncBytesUsed(connection) + (args.bytesWritten ?? 0),
+        syncBytesBasis: "growth" as const,
         /*
           `reconnect_required` SURVIVES A FAILED PASS.
 
@@ -503,7 +506,12 @@ export const recordGoogleForwardSyncPass = internalMutation({
             ? ("reconnect_required" as const)
             : ("error" as const),
         lastError: error ?? "This Google account did not sync.",
-        errorCode: args.errorCode ?? "GOOGLE_SYNC_FAILED",
+        // And so does its cause: `GRANT_REVOKED` is what the daily re-check
+        // (`googleReconnect.ts`) looks for, and `SCOPES_INCOMPLETE` what it skips.
+        errorCode:
+          connection.health === "reconnect_required" && connection.errorCode !== undefined
+            ? connection.errorCode
+            : (args.errorCode ?? "GOOGLE_SYNC_FAILED"),
         lastSyncFailureAt: now,
         lastSyncFailureCode: args.errorCode ?? "GOOGLE_SYNC_FAILED",
         lastSyncFailure: error ?? "This Google account did not sync.",
@@ -587,7 +595,8 @@ export const recordGoogleForwardSyncPass = internalMutation({
       push: pushed.push,
       syncCatchUp: catchUp ? true : undefined,
       syncFailures: undefined,
-      syncBytesWritten: (connection.syncBytesWritten ?? 0) + (args.bytesWritten ?? 0),
+      syncBytesWritten: syncBytesUsed(connection) + (args.bytesWritten ?? 0),
+      syncBytesBasis: "growth" as const,
       health: "active" as const,
       lastError: undefined,
       errorCode: undefined,

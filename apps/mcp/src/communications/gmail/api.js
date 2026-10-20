@@ -179,7 +179,7 @@ function gmailError(status, path, details) {
   return new GmailApiError(status, `Gmail answered ${path} with ${status}`, details);
 }
 
-async function safeGoogleErrorDetails(response) {
+export async function safeGoogleErrorDetails(response) {
   try {
     const type = response.headers?.get?.("content-type") ?? "";
     if (!type.toLowerCase().includes("application/json")) return {};

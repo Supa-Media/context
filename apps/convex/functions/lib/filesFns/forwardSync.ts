@@ -1,6 +1,6 @@
 /**
- * The forward sync pass for one Google connection — Gmail, Chat and Calendar —
- * and the retired historical Gmail backfill's refusal.
+ * The forward sync pass for one Google connection — Gmail, Chat and Calendar.
+ * The retired historical Gmail backfill's refusal is `gmailBackfillRefusal.ts`.
  *
  * Moved verbatim out of `functions/files.ts`. Every function here runs inside
  * the credential barrier `runFileOperation`, against the store it built, and
@@ -63,6 +63,7 @@ import {
   CalendarTimezoneMismatchError,
   classifyForwardSyncError,
   ForwardSyncStorageError,
+  accessTokenRefused,
   logForwardSyncFailure,
   type ForwardSyncJob,
   type ForwardSyncProduct,
@@ -72,7 +73,6 @@ import {
 } from "./forwardSyncSupport";
 import { GMAIL_PASS_HISTORY_PAGES, gmailDayStore, reconcileDays } from "./gmailDayStore";
 import { runGmailRecentImport } from "./gmailRecentImport";
-import type { OperationResult } from "./operationTypes";
 import { ensureGooglePush } from "../googlePush/ensure";
 
 /* -------------------------------------------------------------------------- */
@@ -419,10 +419,22 @@ export async function runGoogleForwardSync(
      * scheduler holding the failure and the row holding its claim, so the
      * connection goes quiet for fifteen minutes with nothing on it to say why.
      */
-    const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessToken, {
+    const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessTokenOutcome, {
       connectionId: job.connectionId,
     });
-    if (minted === null) {
+    if (minted.kind === "unavailable") {
+      // Google's token endpoint did not answer (5xx, 429, a timeout). That is
+      // Google's to fix and lifts by itself, so it backs this product off on
+      // its own ladder and never tells the person to reconnect.
+      return await failForwardSync(
+        ctx,
+        job.connectionId,
+        "GOOGLE_UNAVAILABLE",
+        "Google could not renew this account's access just now. The next scheduled pass will try again.",
+        job.product,
+      );
+    }
+    if (minted.kind !== "minted") {
       // `mintGoogleAccessToken` has already marked the row
       // `reconnect_required` if Google refused the grant outright; this
       // records the pass itself.
@@ -460,12 +472,15 @@ async function runMintedPass(
   const days = gmailDayStore(store, job.destinationFolder);
   if (job.recentImport === true) return await runGmailRecentImport(ctx, days, job, accessToken);
 
-  if (job.historyId === undefined) {
+  // An empty cursor is no cursor: `getProfileHistoryId` answers "" when
+  // Google gives none, and "" handed to `history.list` is a 400 every pass.
+  if (!job.historyId) {
     const historyId = await getProfileHistoryId({ fetchImpl: timeoutFetch, accessToken });
     await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
       connectionId: job.connectionId,
       status: "synced",
-      historyId,
+      // Nothing stored rather than "": the next pass asks for a baseline again.
+      historyId: historyId || undefined,
       daysTouched: 0,
       bytesWritten: 0,
       // A cursor, not a sync: this pass read no mail, and the console must
@@ -521,7 +536,7 @@ async function runMintedPass(
     await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
       connectionId: job.connectionId,
       status: "synced",
-      historyId,
+      historyId: historyId || undefined,
       daysTouched: 0,
       bytesWritten: 0,
       gapDetected: true,
@@ -654,47 +669,10 @@ async function forwardSyncFailed(
   }
   const { code, message, reason } = classifyForwardSyncError(error);
   logForwardSyncFailure(job, code, error);
-  return await failForwardSync(ctx, job.connectionId, code, message, job.product, reason);
-}
-
-export async function runGoogleGmailBackfill(
-  ctx: ActionCtx,
-  workspaceId: Id<"workspaces">,
-  runId: Id<"googleSyncRuns">,
-): Promise<Extract<OperationResult, { kind: "googleSyncRun" }>> {
-  const job = await ctx.runQuery(internal.functions.googleConnect.googleGmailBackfillForRun, {
-    workspaceId,
-    runId,
-  });
-  if (job === null) {
-    return {
-      kind: "googleSyncRun",
-      runId,
-      status: "complete",
-      totalUnits: 0,
-      completedUnits: 0,
-      itemsFound: 0,
-      daysWithMail: 0,
-      bytesWritten: 0,
-      continue: false,
-    };
+  // Google refused the access token itself: forget it, so the next pass
+  // mints a fresh one rather than reusing the refused one until it expires.
+  if (accessTokenRefused(error)) {
+    await ctx.runMutation(internal.functions.googleConnect.dropCachedAccessToken, { connectionId: job.connectionId });
   }
-
-  await ctx.runMutation(internal.functions.googleConnect.stopGoogleGmailBackfillRun, {
-    workspaceId,
-    runId,
-    errorCode: "GOOGLE_GMAIL_BACKFILL_DISABLED",
-    message: "Historical Gmail imports are disabled. This account will sync new mail from its current position.",
-  });
-  return {
-    kind: "googleSyncRun",
-    runId,
-    status: "failed",
-    totalUnits: job.totalUnits,
-    completedUnits: job.completedUnits,
-    itemsFound: 0,
-    daysWithMail: 0,
-    bytesWritten: 0,
-    continue: false,
-  };
+  return await failForwardSync(ctx, job.connectionId, code, message, job.product, reason);
 }
