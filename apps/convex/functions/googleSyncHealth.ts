@@ -142,6 +142,7 @@ export const report = internalQuery({
       if (wrote.length > 0) bump(checkInAfterMail, await checkInState(ctx, row.workspaceId, now));
       if (row.gmail.lastFailureCode !== undefined) bump(gmailFailure, row.gmail.lastFailureCode);
       if (row.gmail.lastFailureReason !== undefined) bump(gmailFailure, `reason:${row.gmail.lastFailureReason}`);
+      if (row.gmail.lastFailureCall !== undefined) bump(gmailFailure, `call:${row.gmail.lastFailureCall}`);
       if (productBackingOff(row, "gmail", now)) {
         bump(gmailFailure, "backingOffNow");
         const wait = row.gmail.retryAt! - now;

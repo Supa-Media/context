@@ -206,7 +206,19 @@ export class CalendarTimezoneMismatchError extends Error {
  * classification did not, because "Google refused this account" and "Google
  * was briefly unavailable" are still different sentences to show somebody.
  */
-export function classifyForwardSyncError(error: unknown): { code: string; message: string; reason?: string } {
+/** The fields that are set: an argument of `undefined` is not a Convex value. */
+export function definedOnly<T extends Record<string, unknown>>(fields: T): Partial<T> {
+  return Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined)) as Partial<T>;
+}
+
+export function classifyForwardSyncError(error: unknown): {
+  code: string;
+  message: string;
+  reason?: string;
+  /** When Google said a rate limit lifts, and which kind of call met it. */
+  retryAfterAt?: number;
+  call?: string;
+} {
   if (error instanceof ForwardSyncStorageError) {
     return {
       code: "STORAGE_CONDITIONAL_WRITES_REQUIRED",
@@ -286,6 +298,8 @@ export function classifyForwardSyncError(error: unknown): { code: string; messag
         message: "Google rate-limited this mailbox. The next scheduled pass will try again.",
         // Which limit, so a daily quota is not retried in minutes (`productBackoffMs`).
         ...(reason === undefined ? {} : { reason }),
+        ...(error.retryAfterAt === undefined ? {} : { retryAfterAt: error.retryAfterAt }),
+        ...(error.call === undefined ? {} : { call: error.call }),
       };
     }
     if (error.status === 401 || error.status === 403) {

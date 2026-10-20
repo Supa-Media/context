@@ -4,6 +4,7 @@ import type { Id } from "../../_generated/dataModel";
 import { asUser, type TestConvex } from "../fixtures.helpers";
 import { nextProductToSync } from "../../functions/lib/googleSchedule";
 import { classifyForwardSyncError, ForwardSyncStorageError, safeErrorDetail } from "../../functions/lib/filesFns/forwardSyncSupport";
+import { GmailApiError } from "../../../mcp/src/communications/gmailSync.js";
 import { enableMailSync, patchConnection, readConnection, scenario } from "./fixtures.helpers";
 
 /*
@@ -163,6 +164,22 @@ describe("the failures the catch-all used to hide", () => {
       "STORAGE_CONDITIONAL_WRITES_REQUIRED",
     );
     expect(classifyForwardSyncError(new ForwardSyncStorageError("chat")).message).toMatch(/^Chat /);
+  });
+});
+
+describe("a Gmail rate limit carries when it lifts and which call met it", () => {
+  test("the classifier passes both to the pass record", () => {
+    const error = new GmailApiError(429, "Gmail answered /gmail/v1/users/me/history with 429", {
+      reason: "rateLimitExceeded",
+      retryAfterAt: 1_800_000_000_000,
+      call: "history",
+    });
+    expect(classifyForwardSyncError(error)).toMatchObject({
+      code: "GOOGLE_RATE_LIMITED",
+      reason: "rateLimitExceeded",
+      retryAfterAt: 1_800_000_000_000,
+      call: "history",
+    });
   });
 });
 

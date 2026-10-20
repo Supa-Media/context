@@ -20,6 +20,8 @@ const productAttemptFields = {
   lastFailure: v.optional(v.string()),
   /** Google's own reason for the last failure (`userRateLimitExceeded`), when it gave one: a fixed word, never text. */
   lastFailureReason: v.optional(v.string()),
+  /** Which kind of call met it (`messagesGet`, `history`): a fixed word, never a path. */
+  lastFailureCall: v.optional(v.string()),
   /**
    * A failure that is this product's alone (Google rate-limited it, or was
    * briefly unavailable) backs off here rather than on the account: the

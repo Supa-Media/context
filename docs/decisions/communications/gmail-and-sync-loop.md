@@ -663,3 +663,13 @@ pass away and the next asked Gmail the same question, which is how one mailbox
 stayed on its September cursor into October (2026-10-19). Raising it back
 trades that for fewer passes on a backlog. Test: the page-walk case in
 `apps/convex/__tests__/googleSyncLoop/endToEnd.test.ts`.
+
+When Google's rate-limit answer names the time the limit lifts ("Retry after
+<time>", a lockout after sustained overuse), `gmailFetch` does not spend its
+retries on it, and the mailbox's `retryAt` is that time, capped at a day,
+rather than the minute ladder: retrying minutes into a lockout only fails
+again. The pass also records which kind of call met the limit
+(`lastFailureCall`: `history`, `messagesGet`, `attachmentsGet`, ...), a fixed
+word the health report prints as `call:<word>`, so a mailbox stuck on rate
+limits says where (2026-10-20). Tests: `rateLimitBackoff.test.ts` and the
+lockout check in `apps/mcp/test/gmailSync/messageCache.test.mjs`.

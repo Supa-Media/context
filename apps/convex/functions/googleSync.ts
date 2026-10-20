@@ -373,6 +373,10 @@ export const recordGoogleForwardSyncPass = internalMutation({
     error: v.optional(v.string()),
     /** Google's reason word for the failure, when it gave one (`classifyForwardSyncError`). */
     errorReason: v.optional(v.string()),
+    /** Which kind of Gmail call met a rate limit (`callKind` in gmail/api.js). */
+    errorCall: v.optional(v.string()),
+    /** When Google said a rate limit lifts, in epoch ms. */
+    errorRetryAfterAt: v.optional(v.number()),
   },
   returns: v.object({ accepted: v.boolean() }),
   handler: async (ctx, args): Promise<{ accepted: boolean }> => {
@@ -418,12 +422,16 @@ export const recordGoogleForwardSyncPass = internalMutation({
       const productFailures = (product?.failures ?? 0) + 1;
       // Only a plain word is kept: it is printed by the public health report.
       const reason = args.errorReason !== undefined && /^[A-Za-z]{1,64}$/.test(args.errorReason) ? args.errorReason : undefined;
-      const retryAt = now + productBackoffMs(args.errorCode, reason, intervalMs, productFailures, args.connectionId);
+      const call = args.errorCall !== undefined && /^[A-Za-z]{1,32}$/.test(args.errorCall) ? args.errorCall : undefined;
+      // A lockout Google dated is waited out, up to a day, rather than retried on the minute ladder.
+      const lifts = Math.min(args.errorRetryAfterAt ?? 0, now + 24 * 60 * 60 * 1000);
+      const retryAt = Math.max(now + productBackoffMs(args.errorCode, reason, intervalMs, productFailures, args.connectionId), lifts);
       const turn = productTurnPatch(connection, args.product, {
         lastAttemptAt: now,
         lastFailureCode: args.errorCode,
         lastFailure: error ?? "This service did not sync.",
         lastFailureReason: reason,
+        lastFailureCall: call,
         retryAt,
         failures: productFailures,
       });

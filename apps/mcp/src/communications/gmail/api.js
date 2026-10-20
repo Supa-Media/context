@@ -47,6 +47,10 @@ export class GmailApiError extends Error {
     this.status = status;
     this.reason = typeof details.reason === "string" ? details.reason : undefined;
     this.googleStatus = typeof details.googleStatus === "string" ? details.googleStatus : undefined;
+    /** When Google said the limit lifts ("Retry after <time>"), in epoch ms. */
+    this.retryAfterAt = Number.isFinite(details.retryAfterAt) ? details.retryAfterAt : undefined;
+    /** Which kind of call met it (`callKind`): a fixed word, never a path. */
+    this.call = typeof details.call === "string" ? details.call : undefined;
   }
 }
 
@@ -157,7 +161,10 @@ export async function gmailFetch(fetchImpl, accessToken, path, params, { delaysM
     });
     if (response.ok) return response.json();
     const details = await safeGoogleErrorDetails(response);
-    if (attempt < delaysMs.length && retryable(response.status, details)) {
+    // A lockout Google dates past the longest wait here is not retried: seconds
+    // of retries cannot outlast it, and the pass that fails records when it ends.
+    const lockedOut = details.retryAfterAt !== undefined && details.retryAfterAt - Date.now() > gmailRetry.maxRetryAfterMs;
+    if (attempt < delaysMs.length && !lockedOut && retryable(response.status, details)) {
       await gmailRetry.sleep(Math.min(retryAfterMs(response) ?? delaysMs[attempt], Math.max(...delaysMs)));
       continue;
     }
@@ -176,7 +183,29 @@ function gmailError(status, path, details) {
   // sync or — if a caller reacted to the type the way the class name tells
   // it to — trigger a needless 90-day reconcile, once per deletion, forever.
   // Only `listHistoryPage` promotes a 404 now, at its own call site.
-  return new GmailApiError(status, `Gmail answered ${path} with ${status}`, details);
+  return new GmailApiError(status, `Gmail answered ${path} with ${status}`, { ...details, call: callKind(path) });
+}
+
+/** The kind of call a path is, as a word the health report may print. */
+function callKind(path) {
+  if (/\/attachments\//.test(path)) return "attachmentsGet";
+  if (/\/messages\/[^/]+$/.test(path)) return "messagesGet";
+  if (path.endsWith("/messages")) return "messagesList";
+  if (path.endsWith("/history")) return "history";
+  if (path.endsWith("/profile")) return "profile";
+  if (path.endsWith("/watch")) return "watch";
+  return "other";
+}
+
+/**
+ * "User-rate limit exceeded.  Retry after 2026-10-20T13:45:12.345Z": the time
+ * Google's message names, when it names one. Google locks a mailbox out for
+ * minutes at a time after sustained overuse, longer than any Retry-After.
+ */
+function retryAfterFromMessage(message) {
+  const match = typeof message === "string" ? /Retry after (\d{4}-\d{2}-\d{2}T[\d:.]+Z)/.exec(message) : null;
+  const at = match ? Date.parse(match[1]) : NaN;
+  return Number.isFinite(at) ? at : undefined;
 }
 
 export async function safeGoogleErrorDetails(response) {
@@ -194,6 +223,7 @@ export async function safeGoogleErrorDetails(response) {
     return {
       reason: reasons[0],
       googleStatus: typeof error.status === "string" ? error.status : undefined,
+      retryAfterAt: retryAfterFromMessage(error.message),
     };
   } catch {
     return {};

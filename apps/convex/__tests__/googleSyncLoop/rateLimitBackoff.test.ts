@@ -13,6 +13,7 @@ import { MINUTE, enableMailSync, patchConnection, readConnection, scenario } fro
  *   every rate limit on the long ladder         -> "a per-minute limit" and "climbs" failed
  *   daily quotas on the short ladder            -> "a daily quota" failed
  *   reason stored as given                      -> "only a plain reason" failed
+ *   Google's "Retry after" ignored              -> "a lockout Google dated" failed
  */
 describe("a Gmail rate limit backs off by what Google said", () => {
   beforeEach(() => enableMailSync());
@@ -23,7 +24,11 @@ describe("a Gmail rate limit backs off by what Google said", () => {
     return s;
   }
 
-  async function limit(s: Awaited<ReturnType<typeof scenario>>, errorReason?: string) {
+  async function limit(
+    s: Awaited<ReturnType<typeof scenario>>,
+    errorReason?: string,
+    lockout: { errorCall?: string; errorRetryAfterAt?: number } = {},
+  ) {
     await s.t.mutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
       connectionId: s.connectionId,
       product: "gmail",
@@ -31,6 +36,7 @@ describe("a Gmail rate limit backs off by what Google said", () => {
       errorCode: "GOOGLE_RATE_LIMITED",
       error: "Google rate-limited this mailbox. The next scheduled pass will try again.",
       ...(errorReason === undefined ? {} : { errorReason }),
+      ...lockout,
     });
     return await readConnection(s.t, s.connectionId);
   }
@@ -82,6 +88,32 @@ describe("a Gmail rate limit backs off by what Google said", () => {
     row = await readConnection(s.t, s.connectionId);
     expect(row.gmail?.lastFailureReason).toBeUndefined();
     expect(row.gmail?.retryAt).toBeUndefined();
+  });
+
+  /*
+    Google locks a mailbox out for minutes at a time after sustained overuse
+    and names the time in its message. Retrying on the minute ladder meant a
+    failed pass every few minutes until then, and the mailbox read as stuck
+    with nothing saying where (production, 2026-10-20).
+  */
+  test("a lockout Google dated waits until it lifts, and says which call met it", async () => {
+    const s = await gmailOnly();
+    const lifts = Date.now() + 40 * MINUTE;
+    const row = await limit(s, "rateLimitExceeded", { errorCall: "messagesGet", errorRetryAfterAt: lifts });
+    expect(row.gmail!.retryAt!).toBeGreaterThanOrEqual(lifts);
+    expect(row.gmail?.lastFailureCall).toBe("messagesGet");
+    const report = await s.t.query(internal.functions.googleSyncHealth.report, {});
+    expect(report).toMatchObject({ gmailFailure: { "call:messagesGet": 1 } });
+  });
+
+  test("a lockout is waited out for a day at most, and only a plain call word is kept", async () => {
+    const s = await gmailOnly();
+    const row = await limit(s, "rateLimitExceeded", {
+      errorCall: "/gmail/v1/users/me/messages/abc",
+      errorRetryAfterAt: Date.now() + 3 * 24 * 60 * MINUTE,
+    });
+    expect(row.gmail!.retryAt! - Date.now()).toBeLessThanOrEqual(24 * 60 * MINUTE + 1_000);
+    expect(row.gmail?.lastFailureCall).toBeUndefined();
   });
 
   test("the health report counts the reason and how long the wait is", async () => {

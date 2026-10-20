@@ -20,6 +20,7 @@
 //   listHistoryPage keeps every messageAdded                    -> 1 check failed
 //   gmailFetch stops retrying                                   -> 2 checks failed
 //   gmailFetch retries dailyLimitExceeded                       -> 1 check failed
+//   gmailFetch ignores Google's "Retry after <time>"            -> 1 check failed
 //   the pacing map is keyed by the access token itself          -> 1 check failed
 //   a day stopped part-way keeps nothing it fetched             -> 1 check failed
 
@@ -208,6 +209,22 @@ export async function runGmailMessageCacheChecks(check) {
     };
     await getMessage({ fetchImpl: spent, accessToken: "tok", id: "x" }).catch(() => undefined);
     check("a daily limit is not retried: seconds do not refill a day", daily === 1);
+
+    // -- a lockout Google dates is not hammered, and says which call met it ----
+    const until = new Date(Date.now() + 20 * 60_000).toISOString();
+    let locked = 0;
+    const lockedOut = async () => {
+      locked += 1;
+      return jsonResponse(
+        { error: { message: `User-rate limit exceeded.  Retry after ${until}`, errors: [{ reason: "rateLimitExceeded" }] } },
+        429,
+      );
+    };
+    const lockout = await getMessage({ fetchImpl: lockedOut, accessToken: "lock-tok", id: "x" }).catch((error) => error);
+    check(
+      "A LIMIT GOOGLE SAYS LIFTS IN TWENTY MINUTES IS NOT RETRIED IN SECONDS, AND THE PASS LEARNS WHEN AND WHERE",
+      locked === 1 && lockout?.retryAfterAt === Date.parse(until) && lockout?.call === "messagesGet",
+    );
 
     // -- a day Google stops part-way resumes where it stopped ---------------
     const busy = [message("b1", 8), message("b2", 9), message("b3", 10), message("b4", 11)];
