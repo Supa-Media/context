@@ -92,3 +92,12 @@ export function reconcileDays(now: number): string[] {
   const day = (ms: number) => new Date(ms).toISOString().slice(0, 10);
   return [day(now - 24 * 60 * 60 * 1000), day(now)];
 }
+
+/**
+ * History pages one Gmail pass walks, at up to a hundred records a page. A
+ * cursor weeks behind drains this many pages a pass, its row kept due by
+ * `catchUp`, rather than fetching thousands of messages before saving any:
+ * one rate limit late in such a pass threw all of it away, and the next pass
+ * asked Gmail the same question again (2026-10-19).
+ */
+export const GMAIL_PASS_HISTORY_PAGES = 3;
