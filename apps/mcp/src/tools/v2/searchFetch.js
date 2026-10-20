@@ -79,7 +79,7 @@ export function translateSearch(call, app = {}) {
   if (isChatGpt(app) && open.args === undefined) {
     return { name: "search", arguments: { query: call.query }, action: "notes" };
   }
-  // Their email: synced first, then Gmail for what the notes do not hold.
+  // Their email, through Gmail's own search (`emailRead.js`).
   if (open.args?.email === true) {
     return target("search", open.args, {
       name: "search_email",

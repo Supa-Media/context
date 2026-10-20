@@ -169,8 +169,8 @@ export async function runProtocolBasicsChecks() {
   // 53 with `dream_now`, the owner starting Tex's dream now for onboarding.
   // 54 with `calendar_event`, held for the person's yes to each change (`calendarGate.js`).
   // 55 with `notify_me`, an agent asking Tex to text the person (`tools/attention.js`).
-  // 57 with `search_email` and `read_email`, the person's mail synced first and
-  // then live from Gmail (`tools/emailRead.js`).
+  // 57 with `search_email` and `read_email`, the person's mail searched and read
+  // live from Gmail (`tools/emailRead.js`).
   // 58 with `save_email_draft`, a draft in the person's own Gmail that reaches nobody.
   // 59 with `read_file`, the words in a stored PDF, Word or Excel file (`tools/readFile.js`).
   check("59 tools listed", fullTools.result?.tools.length === 59);

@@ -40,6 +40,12 @@ import { unlistedArgumentAdvice } from "./liveList.js";
  */
 export const TOOL_NEWS = Object.freeze([
   {
+    date: "2026-10-20",
+    text:
+      "search with `args: { email: true }` now asks the person's Gmail itself, over all of their mail, sent and received; it no longer " +
+      "lists synced mail notes, whose search could not find a message inside a long day. Every result is an `email:<address>/<id>` id to fetch.",
+  },
+  {
     date: "2026-10-19",
     text:
       "fetch with a file's path (a PDF, Word, Excel, CSV or picture file a note links, such as an email attachment under " +
