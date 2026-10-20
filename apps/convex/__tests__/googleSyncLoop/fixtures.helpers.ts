@@ -370,3 +370,31 @@ export async function runPass(t: TestConvex, workspaceId: Id<"workspaces">, conn
   });
 }
 
+/* Google's token endpoint, for passes and re-checks that have to refresh. */
+
+export const jsonResponse = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+
+/** Google's token endpoint, answering `answer`, in front of whatever else the pass calls. */
+export function withTokenEndpoint(
+  inner: (input: URL | RequestInfo, init?: RequestInit) => Promise<Response>,
+  answer: () => Response,
+) {
+  const calls = { token: 0 };
+  const fetchImpl = async (input: URL | RequestInfo, init: RequestInit = {}) => {
+    const url = new URL(typeof input === "string" ? input : String(input));
+    if (url.hostname === "oauth2.googleapis.com") {
+      calls.token += 1;
+      return answer();
+    }
+    return await inner(input, init);
+  };
+  return { fetchImpl, calls };
+}
+
+export const tokenOk = () => jsonResponse({ access_token: "example-fresh-access-token-not-real", expires_in: 3600 });
+
+/** No cached access token, so the pass has to refresh. */
+export async function withoutCachedToken(t: TestConvex, connectionId: Id<"googleConnections">) {
+  await patchConnection(t, connectionId, { encryptedAccessToken: undefined, accessTokenExpiresAt: undefined });
+}

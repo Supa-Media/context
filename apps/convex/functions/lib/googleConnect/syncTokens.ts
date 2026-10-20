@@ -80,3 +80,44 @@ export async function markReconnectRequiredHandler(
   });
   return null;
 }
+
+/**
+ * What one mint came to (`mintGoogleAccessTokenOutcome`). Only
+ * `reconnect_required` is Google refusing the grant (`invalid_grant`), and it
+ * is the only one that may tell the person to reconnect; `unavailable` is
+ * Google not answering, and lifts by itself; `refused` is a disconnected row
+ * or this deployment's own configuration.
+ */
+export type MintOutcome =
+  | { kind: "minted"; accessToken: string; expiresAt: number }
+  | { kind: "reconnect_required" }
+  | { kind: "unavailable" }
+  | { kind: "refused" };
+
+export const mintOutcomeValidator = v.union(
+  v.object({ kind: v.literal("minted"), accessToken: v.string(), expiresAt: v.number() }),
+  v.object({ kind: v.literal("reconnect_required") }),
+  v.object({ kind: v.literal("unavailable") }),
+  v.object({ kind: v.literal("refused") }),
+);
+
+export const dropCachedAccessTokenArgs = { connectionId: v.id("googleConnections") };
+
+/**
+ * Forget the cached access token after Google answered a call with 401, so
+ * the next mint refreshes instead of handing the refused token out again
+ * until it expires by itself.
+ */
+export async function dropCachedAccessTokenHandler(
+  ctx: MutationCtx,
+  args: ObjectType<typeof dropCachedAccessTokenArgs>,
+) {
+  const connection = await ctx.db.get(args.connectionId);
+  if (connection === null || connection.encryptedAccessToken === undefined) return null;
+  await ctx.db.patch(args.connectionId, {
+    encryptedAccessToken: undefined,
+    accessTokenExpiresAt: undefined,
+    updatedAt: Date.now(),
+  });
+  return null;
+}

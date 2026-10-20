@@ -21,6 +21,7 @@ import {
 import { ChatPaginationError } from "../../../../mcp/src/communications/googleChat/sync.js";
 import type { FileStore } from "../fileOps";
 import { GmailApiError } from "../../../../mcp/src/communications/gmailSync.js";
+import { isGoogleRateLimit } from "../../../../mcp/src/communications/googleErrorDetails.js";
 import type { Id } from "../../../_generated/dataModel";
 import {
   eligible as collaborationEligible,
@@ -106,12 +107,35 @@ export type ForwardSyncJob =
 
 export type ForwardSyncResult = Extract<OperationResult, { kind: "googleForwardSync" }>;
 
-const GMAIL_RATE_LIMIT_REASONS = new Set([
-  "dailyLimitExceeded",
-  "rateLimitExceeded",
-  "userRateLimitExceeded",
-  "quotaExceeded",
-]);
+/**
+ * One Google API failure, by what it means for the person.
+ *
+ * A 403 is a refusal only when its body does not say rate limit: Google sends
+ * `rateLimitExceeded` and `RESOURCE_EXHAUSTED` as 403s from every product, and
+ * a Calendar or Chat limit read as a refusal failed the whole account and
+ * stopped Gmail with it. A 401 is the access token, not the grant: the pass
+ * drops the cached token (`forwardSyncFailed`) and the next mint refreshes, so
+ * it is transient (`GOOGLE_TOKEN_REJECTED`); a grant Google really revoked is
+ * found by that refresh, as `invalid_grant`.
+ */
+function googleApiFailure(
+  error: { status: number; reason?: string; googleStatus?: string },
+  messages: { refused: string; limited: string; unavailable: string },
+): { code: string; message: string; reason?: string } {
+  const reason = typeof error.reason === "string" ? error.reason : undefined;
+  if (error.status === 401) {
+    return {
+      code: "GOOGLE_TOKEN_REJECTED",
+      message: "Google turned down this pass's access token. The next pass gets a fresh one.",
+    };
+  }
+  if (error.status === 429 || (error.status === 403 && isGoogleRateLimit(error))) {
+    // Which limit, so a daily quota is not retried in minutes (`productBackoffMs`).
+    return { code: "GOOGLE_RATE_LIMITED", message: messages.limited, ...(reason === undefined ? {} : { reason }) };
+  }
+  if (error.status === 403) return { code: "GOOGLE_ACCESS_REFUSED", message: messages.refused };
+  return { code: "GOOGLE_UNAVAILABLE", message: messages.unavailable };
+}
 
 export type ForwardSyncProduct = "gmail" | "calendar" | "chat";
 
@@ -205,22 +229,11 @@ export function classifyForwardSyncError(error: unknown): { code: string; messag
     };
   }
   if (error instanceof CalendarApiError) {
-    if (error.status === 401 || error.status === 403) {
-      return {
-        code: "GOOGLE_ACCESS_REFUSED",
-        message: "Google refused access to Calendar. Reconnect the account and approve Calendar access.",
-      };
-    }
-    if (error.status === 429) {
-      return {
-        code: "GOOGLE_RATE_LIMITED",
-        message: "Google rate-limited Calendar. The next scheduled pass will try again.",
-      };
-    }
-    return {
-      code: "GOOGLE_UNAVAILABLE",
-      message: "Google Calendar did not answer reliably. The next scheduled pass will try again.",
-    };
+    return googleApiFailure(error, {
+      refused: "Google refused access to Calendar. Reconnect the account and approve Calendar access.",
+      limited: "Google rate-limited Calendar. The next scheduled pass will try again.",
+      unavailable: "Google Calendar did not answer reliably. The next scheduled pass will try again.",
+    });
   }
   if (error instanceof ChatContributionConflictError) {
     return {
@@ -235,54 +248,25 @@ export function classifyForwardSyncError(error: unknown): { code: string; messag
     };
   }
   if (error instanceof ChatApiError) {
-    if (error.status === 401 || error.status === 403) {
-      return {
-        code: "GOOGLE_ACCESS_REFUSED",
-        message: "Google refused access to Chat. Reconnect the account and approve Chat access.",
-      };
-    }
-    if (error.status === 429) {
-      return {
-        code: "GOOGLE_RATE_LIMITED",
-        message: "Google rate-limited Chat. The next scheduled pass will try again.",
-      };
-    }
-    return {
-      code: "GOOGLE_UNAVAILABLE",
-      message: "Google Chat did not answer reliably. The next scheduled pass will try again.",
-    };
+    return googleApiFailure(error, {
+      refused: "Google refused access to Chat. Reconnect the account and approve Chat access.",
+      limited: "Google rate-limited Chat. The next scheduled pass will try again.",
+      unavailable: "Google Chat did not answer reliably. The next scheduled pass will try again.",
+    });
   }
   if (error instanceof GmailApiError) {
-    const reason = typeof error.reason === "string" ? error.reason : undefined;
-    const googleStatus = typeof error.googleStatus === "string" ? error.googleStatus : undefined;
-    if (
-      error.status === 429 ||
-      (error.status === 403 &&
-        (GMAIL_RATE_LIMIT_REASONS.has(reason ?? "") || googleStatus === "RESOURCE_EXHAUSTED"))
-    ) {
+    const status = error.status;
+    if (status !== 401 && status !== 403 && status !== 429 && status < 500) {
       return {
-        code: "GOOGLE_RATE_LIMITED",
-        message: "Google rate-limited this mailbox. The next scheduled pass will try again.",
-        // Which limit, so a daily quota is not retried in minutes (`productBackoffMs`).
-        ...(reason === undefined ? {} : { reason }),
+        code: `GMAIL_HTTP_${status}`,
+        message: `Gmail answered with ${status}. The next scheduled pass will try again.`,
       };
     }
-    if (error.status === 401 || error.status === 403) {
-      return {
-        code: "GOOGLE_ACCESS_REFUSED",
-        message: "Google refused access to this mailbox. Reconnect the account and approve Gmail access.",
-      };
-    }
-    if (error.status >= 500) {
-      return {
-        code: "GOOGLE_UNAVAILABLE",
-        message: "Google did not answer reliably. The next scheduled pass will try again.",
-      };
-    }
-    return {
-      code: `GMAIL_HTTP_${error.status}`,
-      message: `Gmail answered with ${error.status}. The next scheduled pass will try again.`,
-    };
+    return googleApiFailure(error, {
+      refused: "Google refused access to this mailbox. Reconnect the account and approve Gmail access.",
+      limited: "Google rate-limited this mailbox. The next scheduled pass will try again.",
+      unavailable: "Google did not answer reliably. The next scheduled pass will try again.",
+    });
   }
   if (
     error instanceof Error &&

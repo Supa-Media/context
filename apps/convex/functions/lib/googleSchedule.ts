@@ -166,6 +166,8 @@ export const PRODUCT_TRANSIENT_CODES: ReadonlySet<string> = new Set([
   "GOOGLE_RATE_LIMITED",
   "GOOGLE_UNAVAILABLE",
   "GOOGLE_SYNC_TIMEOUT",
+  // The access token was refused; the pass dropped it and the next one refreshes.
+  "GOOGLE_TOKEN_REJECTED",
 ]);
 
 /**

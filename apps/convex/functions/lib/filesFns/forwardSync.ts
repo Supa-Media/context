@@ -419,10 +419,22 @@ export async function runGoogleForwardSync(
      * scheduler holding the failure and the row holding its claim, so the
      * connection goes quiet for fifteen minutes with nothing on it to say why.
      */
-    const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessToken, {
+    const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessTokenOutcome, {
       connectionId: job.connectionId,
     });
-    if (minted === null) {
+    if (minted.kind === "unavailable") {
+      // Google's token endpoint did not answer (5xx, 429, a timeout). That is
+      // Google's to fix and lifts by itself, so it backs this product off on
+      // its own ladder and never tells the person to reconnect.
+      return await failForwardSync(
+        ctx,
+        job.connectionId,
+        "GOOGLE_UNAVAILABLE",
+        "Google could not renew this account's access just now. The next scheduled pass will try again.",
+        job.product,
+      );
+    }
+    if (minted.kind !== "minted") {
       // `mintGoogleAccessToken` has already marked the row
       // `reconnect_required` if Google refused the grant outright; this
       // records the pass itself.
@@ -460,12 +472,15 @@ async function runMintedPass(
   const days = gmailDayStore(store, job.destinationFolder);
   if (job.recentImport === true) return await runGmailRecentImport(ctx, days, job, accessToken);
 
-  if (job.historyId === undefined) {
+  // An empty cursor is no cursor: `getProfileHistoryId` answers "" when
+  // Google gives none, and "" handed to `history.list` is a 400 every pass.
+  if (!job.historyId) {
     const historyId = await getProfileHistoryId({ fetchImpl: timeoutFetch, accessToken });
     await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
       connectionId: job.connectionId,
       status: "synced",
-      historyId,
+      // Nothing stored rather than "": the next pass asks for a baseline again.
+      historyId: historyId || undefined,
       daysTouched: 0,
       bytesWritten: 0,
       // A cursor, not a sync: this pass read no mail, and the console must
@@ -521,7 +536,7 @@ async function runMintedPass(
     await ctx.runMutation(internal.functions.googleSync.recordGoogleForwardSyncPass, {
       connectionId: job.connectionId,
       status: "synced",
-      historyId,
+      historyId: historyId || undefined,
       daysTouched: 0,
       bytesWritten: 0,
       gapDetected: true,
@@ -654,6 +669,11 @@ async function forwardSyncFailed(
   }
   const { code, message, reason } = classifyForwardSyncError(error);
   logForwardSyncFailure(job, code, error);
+  // Google refused the access token itself: forget it, so the next pass
+  // mints a fresh one rather than reusing the refused one until it expires.
+  if (code === "GOOGLE_TOKEN_REJECTED") {
+    await ctx.runMutation(internal.functions.googleConnect.dropCachedAccessToken, { connectionId: job.connectionId });
+  }
   return await failForwardSync(ctx, job.connectionId, code, message, job.product, reason);
 }
 
