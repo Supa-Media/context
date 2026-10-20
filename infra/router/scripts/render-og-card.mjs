@@ -1,5 +1,9 @@
 /**
- * Render `og-card.source.html` into `src/og-card.png`.
+ * Render `og-card.source.html` into `src/og-card.png`, or, with `tex` as the
+ * one argument, `og-tex-card.source.html` into `src/og-tex-card.png`.
+ *
+ *   node scripts/render-og-card.mjs        # the Context card
+ *   node scripts/render-og-card.mjs tex    # the Tex card (texHost.ts)
  *
  * ## Why this file exists
  *
@@ -51,8 +55,22 @@ import { chromium } from "playwright";
 import sharp from "sharp";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const source = resolve(here, "../og-card.source.html");
-const output = resolve(here, "../src/og-card.png");
+
+/**
+ * The cards this script draws. Tex's adds Libron, its landing's serif, read
+ * from the app's own copy of the official web file — the same rule as the
+ * Instrument Sans below: one copy in the repository, nothing fetched.
+ */
+const CARDS = {
+  context: { source: "og-card.source.html", output: "og-card.png", libron: false },
+  tex: { source: "og-tex-card.source.html", output: "og-tex-card.png", libron: true },
+};
+const which = process.argv[2] ?? "context";
+const card = CARDS[which];
+if (card === undefined) throw new Error(`unknown card "${which}"; one of ${Object.keys(CARDS).join(", ")}`);
+const source = resolve(here, "..", card.source);
+const output = resolve(here, "../src", card.output);
+const libron = resolve(here, "../../../apps/mobile/public/Libron-Regular.woff2");
 const fontModule = resolve(
   here,
   "../../../apps/convex/functions/lib/cardFont/instrumentSans.ts",
@@ -96,15 +114,25 @@ try {
   await page.addStyleTag({
     content:
       `@font-face{font-family:"Instrument Sans";font-style:normal;` +
-      `font-weight:600;src:url(data:font/ttf;base64,${embeddedFontBase64()}) format("truetype")}`,
+      `font-weight:600;src:url(data:font/ttf;base64,${embeddedFontBase64()}) format("truetype")}` +
+      (card.libron
+        ? `@font-face{font-family:"Libron";font-style:normal;font-weight:400;` +
+          `src:url(data:font/woff2;base64,${readFileSync(libron).toString("base64")}) format("woff2")}`
+        : ""),
   });
   await page.evaluate(() => document.fonts.ready);
 
-  const faces = await page.evaluate(() => document.fonts.size);
-  if (faces < 1) {
-    throw new Error(
-      "no font face loaded — the card would render in the system sans",
-    );
+  // Every injected face must have actually loaded — counted per family, so a
+  // Libron that failed to decode cannot hide behind an Instrument Sans that
+  // did. See the note above on why `document.fonts.check` is not the guard.
+  const families = await page.evaluate(() =>
+    [...document.fonts].filter((face) => face.status === "loaded").map((face) => face.family.replace(/"/g, "")),
+  );
+  const faces = families.length;
+  for (const family of ["Instrument Sans", ...(card.libron ? ["Libron"] : [])]) {
+    if (!families.includes(family)) {
+      throw new Error(`${family} did not load — the card would render in a fallback face`);
+    }
   }
   const shot = await page.screenshot({ type: "png" });
 
@@ -126,7 +154,7 @@ try {
     throw new Error(`wrote ${width}x${height}, expected ${WIDTH}x${HEIGHT}`);
   }
   console.log(
-    `wrote src/og-card.png — ${WIDTH}x${HEIGHT}, ${png.byteLength} bytes, ${faces} face(s)`,
+    `wrote src/${card.output} — ${WIDTH}x${HEIGHT}, ${png.byteLength} bytes, ${faces} face(s)`,
   );
 } finally {
   await browser.close();

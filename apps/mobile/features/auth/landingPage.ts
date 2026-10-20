@@ -38,7 +38,12 @@ export function landingPage(): LandingPage | undefined {
 /** Remember the landing page for `pathname`, unless this session already has one. */
 export function captureLandingPage(pathname: string): void {
   const page = landingPageFromPath(pathname);
-  if (page === null || landingPage() !== undefined) return;
+  if (page !== null) captureLanding(page);
+}
+
+/** Remember `page` by name (tex.lc's, which has no path of its own), unless this session has one. */
+export function captureLanding(page: LandingPage): void {
+  if (landingPage() !== undefined) return;
   remembered = page;
   try {
     storage()?.setItem(KEY, page);

@@ -1,0 +1,88 @@
+<!doctype html>
+<!--
+  Source for src/og-tex-card.png — the 1200x630 OpenGraph card tex.lc links
+  unfurl with (src/texHost.ts points every Tex preview at /og/tex-card.png).
+
+  The same rule as og-card.source.html, word for word: IT SAYS NOTHING ABOUT
+  ANY PERSON, AND MUST NOT. A crawler is unauthenticated, so this is product
+  branding only — no name, no number, nothing derived from the URL being
+  previewed. The two bubbles are the landing page's own example, not anyone's
+  messages.
+
+  Regenerate after editing:
+
+    node scripts/render-og-card.mjs tex
+
+  Direction A of the approved Tex landing, in the brand guide's colours
+  (docs/brand/README.md): Paper ground, Ink type, Tex blue, and the app icon
+  (Tex's resting # on paper) top right, as on Context's own card.
+  The headline is Libron (apps/mobile/public/Libron-Regular.woff2, the face
+  the landing sets it in); the small type is Instrument Sans 600, the one
+  weight this repository holds. Both are injected by the script from the
+  repository's own copies, so the render touches no network; opening this
+  file directly shows system fallbacks, with the layout still right.
+
+  Nothing sits in the bottom-left 64px: X draws its domain label there.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  :root{
+    --ground:#EDE4D3;
+    --ink:#16181C;
+    --ink-2:#55534E;
+    --blue:#2A45CF;
+    --grey:#F6F1E7;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    width:1200px;height:630px;overflow:hidden;position:relative;
+    background:var(--ground);color:var(--ink);
+    font-family:"Instrument Sans",ui-sans-serif,system-ui,sans-serif;
+    font-weight:600;-webkit-font-smoothing:antialiased;
+  }
+  .mark{
+    position:absolute;left:72px;top:60px;
+    font-size:40px;letter-spacing:-.02em;line-height:1;
+  }
+  .mark .lc{color:var(--blue)}
+  /* Paper on paper: the icon's edge is a hairline and a soft shadow. */
+  .tile{
+    position:absolute;right:72px;top:54px;width:100px;height:100px;border-radius:22px;display:block;
+    box-shadow:0 0 0 1.5px rgba(22,24,28,.10),0 6px 18px rgba(22,24,28,.10);
+  }
+  .line .sep{padding:0 .3em}
+  .headline{
+    position:absolute;left:72px;top:146px;width:640px;
+    font-family:"Libron",Georgia,serif;font-weight:400;
+    font-size:88px;line-height:1.02;letter-spacing:-.015em;
+  }
+  .line{
+    position:absolute;left:72px;bottom:72px;
+    font-size:30px;letter-spacing:-.01em;color:var(--ink-2);
+  }
+  .thread{
+    position:absolute;right:72px;top:130px;bottom:40px;width:430px;
+    display:flex;flex-direction:column;justify-content:center;gap:18px;
+  }
+  .bubble{
+    max-width:400px;padding:16px 22px;border-radius:28px;
+    font-size:25px;line-height:1.28;letter-spacing:-.005em;font-weight:600;
+  }
+  .out{align-self:flex-end;background:var(--blue);color:#fff;border-bottom-right-radius:8px}
+  .in{align-self:flex-start;background:var(--grey);color:var(--ink);border-bottom-left-radius:8px}
+</style>
+</head>
+<body>
+  <div class="mark">tex<span class="lc">.lc</span></div>
+  <img class="tile" src="../../apps/mobile/assets/source/favicon.svg" alt="">
+  <div class="headline">A personal assistant you just text.</div>
+  <div class="line">Invite only<span class="sep">·</span>iMessage</div>
+  <div class="thread">
+    <div class="bubble out">the plumber is coming thursday between 9 and 12</div>
+    <div class="bubble in">Want me to put Thursday 9&nbsp;to&nbsp;12 on your calendar?</div>
+  </div>
+</body>
+</html>

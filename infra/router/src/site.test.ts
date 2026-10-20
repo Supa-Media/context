@@ -133,8 +133,21 @@ describe("which hosts are ours", () => {
     "staging.context.lc",
     "context-router.example.workers.dev",
     "localhost",
+    "tex.lc",
+    "www.tex.lc",
+    "TEX.LC",
+    "tex-staging.context.lc",
   ])("%s is the platform", (host) => expect(isPlatformHost(host)).toBe(true));
-  it.each(["docs.acme-test.com", "context.lc.acme-test.com", "evilcontext.lc"])(
+  // Tex is named host by host, never as a suffix: a subdomain nobody attached
+  // is a customer's (and so a 404 unless the control plane says otherwise).
+  it.each([
+    "docs.acme-test.com",
+    "context.lc.acme-test.com",
+    "evilcontext.lc",
+    "eviltex.lc",
+    "app.tex.lc",
+    "tex.lc.acme-test.com",
+  ])(
     "%s is a customer's",
     (host) => expect(isPlatformHost(host)).toBe(false),
   );

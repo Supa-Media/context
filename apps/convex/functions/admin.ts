@@ -82,6 +82,7 @@ import {
   landingCountsValidator,
   listWaitlistHandler,
   removeHandler,
+  waitlistFilterValidator,
   waitlistRowValidator,
   waitlistStatusValidator,
 } from "./lib/adminFns/waitlist";
@@ -293,17 +294,25 @@ export const setJevSwitch = mutation({
  * address and `lib/adminFns/waitlist.ts` for the handlers.
  */
 export const listWaitlist = query({
-  args: { status: waitlistStatusValidator },
+  args: {
+    status: waitlistStatusValidator,
+    /** Only rows whose answer contains this, any case. */
+    search: v.optional(v.string()),
+    /** Only rows with an answer. */
+    answered: v.optional(v.boolean()),
+  },
   returns: v.object({
     rows: v.array(waitlistRowValidator),
     more: v.boolean(),
     counts: v.object({ waiting: v.number(), admitted: v.number() }),
+    /** Present when a filter was applied. */
+    filter: v.optional(waitlistFilterValidator),
   }),
   handler: async (ctx, args) => {
     await requireAdmin(ctx).catch((error: unknown) => {
       throw toConvexError(error);
     });
-    return await listWaitlistHandler(ctx, args.status);
+    return await listWaitlistHandler(ctx, args.status, { search: args.search, answered: args.answered });
   },
 });
 

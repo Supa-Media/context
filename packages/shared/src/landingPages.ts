@@ -12,7 +12,12 @@
  * it, the same way the click ids are dropped (`features/auth/adClickId.ts`).
  */
 
-export const LANDING_PAGES = ["a", "b", "c"] as const;
+/**
+ * `tex` is tex.lc's own landing (Tex launch, 2026-10-20). It has no path of
+ * its own here: it is drawn at `/` on a Tex host, and recorded by name so
+ * staff can tell tex.lc joins from context.lc's.
+ */
+export const LANDING_PAGES = ["a", "b", "c", "tex"] as const;
 
 export type LandingPage = (typeof LANDING_PAGES)[number];
 

@@ -779,6 +779,15 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     marker: "the link the texting assistant sends a phone nobody has",
   },
   {
+    route: "/waitlist",
+    file: "app/waitlist.tsx",
+    reachable: false,
+    reason:
+      "Where somebody who joined Tex's waitlist on tex.lc stands, read with the receipt their browser " +
+      "was handed at joining: reached from tex.lc's landing and sign-up, never from the app.",
+    marker: "where somebody who joined the waitlist stands",
+  },
+  {
     route: "/vault/[token]",
     file: "app/vault/[token].tsx",
     reachable: false,

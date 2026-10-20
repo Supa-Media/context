@@ -97,8 +97,9 @@ export const ROBOTS_PATH = "/robots.txt";
  */
 const ROBOTS_TXT = "User-agent: *\nAllow: /\n";
 
-export function robotsResponse(): Response {
-  return new Response(ROBOTS_TXT, {
+/** `body` is Tex's variant on a Tex host (`texHost.ts`); the apex's otherwise. */
+export function robotsResponse(body: string = ROBOTS_TXT): Response {
+  return new Response(body, {
     status: 200,
     headers: {
       "Content-Type": "text/plain; charset=utf-8",

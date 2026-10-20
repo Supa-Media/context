@@ -22,6 +22,8 @@ export interface WaitlistRow {
   joinedAt: number;
   source: string;
   useFor: string | null;
+  /** When the answer was last written from the status page; `null` for one given at joining. */
+  useForAt: number | null;
   admittedAt: number | null;
   /** The landing page (`/a` to `/c`) the person saw before joining, if recorded. */
   landing?: string;
@@ -106,4 +108,52 @@ export function removedSentence(changed: number): string {
 /** A day of the month and a month, in UTC like the rest of the console. */
 export function shortDate(at: number): string {
   return shortDay(new Date(at).toISOString().slice(0, 10));
+}
+
+/**
+ * The line beside the answer search: `7 people mention “calendar”`, `131 of
+ * 214 waiting answered`, `No answers mention “zebra”.` A scan the server cut
+ * short says "at least", because the oldest rows were not read.
+ */
+export function filterSentence(
+  search: string,
+  answered: boolean,
+  result: { matches: number; capped: boolean },
+  total: number | null,
+): string | null {
+  const term = search.trim();
+  const atLeast = result.capped ? "at least " : "";
+  if (term !== "") {
+    if (result.matches === 0) return result.capped ? `No recent answers mention “${term}”.` : `No answers mention “${term}”.`;
+    const verb = result.matches === 1 ? "mentions" : "mention";
+    return `${atLeast}${people(result.matches)} ${verb} “${term}”`.replace(/^a/, "A");
+  }
+  if (!answered) return null;
+  if (total === null || result.capped) return `${atLeast}${people(result.matches)} answered`.replace(/^a/, "A");
+  return `${result.matches} of ${total} answered`;
+}
+
+/** An answer cut around a search term, so the term can be marked where it appears. */
+export function highlightParts(text: string, term: string): { text: string; hit: boolean }[] {
+  const needle = term.trim().toLowerCase();
+  if (needle === "") return [{ text, hit: false }];
+  const parts: { text: string; hit: boolean }[] = [];
+  const lower = text.toLowerCase();
+  let from = 0;
+  for (let at = lower.indexOf(needle); at !== -1; at = lower.indexOf(needle, from)) {
+    if (at > from) parts.push({ text: text.slice(from, at), hit: false });
+    parts.push({ text: text.slice(at, at + needle.length), hit: true });
+    from = at + needle.length;
+  }
+  if (from < text.length) parts.push({ text: text.slice(from), hit: false });
+  return parts;
+}
+
+/** `edited 2h ago`, `edited 3d ago`, for an answer changed after joining. */
+export function editedAgo(at: number, now: number): string {
+  const minutes = Math.max(0, Math.round((now - at) / 60_000));
+  if (minutes < 60) return minutes <= 1 ? "edited just now" : `edited ${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `edited ${hours}h ago`;
+  return `edited ${Math.round(hours / 24)}d ago`;
 }

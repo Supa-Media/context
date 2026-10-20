@@ -16,6 +16,7 @@ import { waitlistConversionId } from "./lib/xConversion";
 import { phoneSignInPaused } from "./lib/emailProof";
 import { APP_REVIEW_PHONE, appReviewPhoneEnabled, appReviewUser } from "./lib/reviewerAccount";
 import { scheduleSignInAlert } from "./signInAlerts";
+import { newReceipt } from "./lib/waitlistReceipt";
 
 /**
  * Signing in, and joining the waitlist, with a phone (Dev2, 2026-10-09:
@@ -82,6 +83,8 @@ const reservedValidator = v.object({
   status: v.union(v.literal("ok"), v.literal("joined"), v.literal("already"), v.literal("too_many"), v.literal("paused")),
   // On `joined` only: the id the page's X and Meta pixel events report.
   conversionId: v.optional(v.string()),
+  // On `joined` only: the row's status receipt (`lib/waitlistReceipt.ts`).
+  receipt: v.optional(v.string()),
 });
 type Reserved = typeof reservedValidator.type;
 
@@ -100,15 +103,17 @@ async function joinWaitlist(
   if (!(await tryConsumeRateLimit(ctx, { key: "waitlist.join", limit: WAITLIST_JOINS_PER_HOUR, windowMs: WINDOW_MS }))) {
     return { status: "too_many" };
   }
+  const { receipt, receiptHash } = await newReceipt();
   const id = await ctx.db.insert("waitlist", {
     phone,
     status: "waiting",
     joinedAt: Date.now(),
     source: "login",
+    receiptHash,
     ...signUpOrigin(origin),
   });
   await scheduleSignupAlert(ctx, { kind: "waitlist", waitlistId: id });
-  return { status: "joined", conversionId: waitlistConversionId(id) };
+  return { status: "joined", conversionId: waitlistConversionId(id), receipt };
 }
 
 /**
@@ -200,8 +205,14 @@ export const start = action({
   // `landing` is the page the person saw and `campaign` the ad that sent
   // them; both are kept only if they join.
   args: { phone: v.string(), landing: v.optional(v.string()), campaign: v.optional(adCampaignValidator) },
-  returns: v.object({ status: startStatus, phone: v.optional(v.string()), conversionId: v.optional(v.string()) }),
-  handler: async (ctx, args): Promise<{ status: StartStatus; phone?: string; conversionId?: string }> => {
+  returns: v.object({
+    status: startStatus,
+    phone: v.optional(v.string()),
+    conversionId: v.optional(v.string()),
+    // On `joined` only, to the browser that made the row and nobody else.
+    receipt: v.optional(v.string()),
+  }),
+  handler: async (ctx, args): Promise<{ status: StartStatus; phone?: string; conversionId?: string; receipt?: string }> => {
     const phone = normalizePhone(args.phone);
     if (phone === null) return { status: "invalid_phone" };
     if (phone === APP_REVIEW_PHONE ? !appReviewPhoneEnabled() : !canTextCodes()) return { status: "unavailable", phone };
