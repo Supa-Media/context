@@ -550,6 +550,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Synced mail first, then Gmail for what the sync does not hold (owner, 2026-10-18)
 - A pass fetches only the mail it has not seen
 - A Gmail day is rewritten through its collaboration document
+- A mailbox recovers by itself unless the person has to give a permission (owner, 2026-10-20)
 
 ## [The desktop shell](./desktop.md)
 

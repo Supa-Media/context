@@ -166,3 +166,7 @@ Moved to [A workspace's passes run back to back, and a pushed one goes first](./
 ### A Gmail day is rewritten through its collaboration document
 
 Moved to [A Gmail day is rewritten through its collaboration document](./communications/gmail-and-sync-loop.md#a-gmail-day-is-rewritten-through-its-collaboration-document).
+
+### A mailbox recovers by itself unless the person has to give a permission
+
+In [A mailbox recovers by itself unless the person has to give a permission](./communications/gmail-and-sync-loop.md#a-mailbox-recovers-by-itself-unless-the-person-has-to-give-a-permission).
