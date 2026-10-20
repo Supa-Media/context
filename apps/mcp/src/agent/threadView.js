@@ -10,6 +10,13 @@
  * thread is that exchange and every later one typed under it, each marked
  * with its root's id when it was kept (`events.js`).
  *
+ * The root is shown with what led up to it, too: a reply that started a thread
+ * under a plain text ("Got it, I won't contact Luciana") made that text the
+ * root, and the turn read that one exchange with the draft email before it
+ * gone ("send this email now", Dev, 2026-10-20). The lead-in is only what came
+ * before the root, never what was texted after it outside the thread, and it
+ * is the first thing trimmed when the thread fills the shown turns.
+ *
  * Words are matched, never trusted: they only pick which of the person's own
  * kept exchanges to show, and a root that cannot be found leaves the turn the
  * whole recent conversation, as before.
@@ -57,8 +64,9 @@ export function threadView(history, { words = "", start = "", replied = false } 
   if (!root) return flat;
   const thread = root.question.thread ?? root.question.id;
   const inThread = (pair) => pair.question.id === thread || pair.question.thread === thread;
-  const since = pairs.slice(pairs.indexOf(root));
-  const kept = pairs.filter((pair) => inThread(pair) || pair === root);
+  const at = pairs.indexOf(root);
+  const since = pairs.slice(at);
+  const kept = [...pairs.slice(0, at), ...since.filter((pair) => inThread(pair) || pair === root)];
   const shown = shownHistory(
     kept.flatMap((pair) => (pair.answer ? [pair.question, pair.answer] : [pair.question])),
     turns,
@@ -70,9 +78,10 @@ export function threadView(history, { words = "", start = "", replied = false } 
 export function threadPrompt({ thread, elsewhere }) {
   if (thread === null) return "";
   return (
-    "\n\nThis text was typed inside an iMessage thread, and the earlier texts above are that thread's only." +
+    "\n\nThis text was typed inside an iMessage thread. The earlier texts above are what led up to the message it started from, then that thread's own." +
     (elsewhere > 0
-      ? ` ${elsewhere} other exchange${elsewhere === 1 ? "" : "s"} went on in the rest of the chat since it started; they are about other things, and earlier_texts reads them if this text needs them.`
-      : "")
+      ? ` ${elsewhere} other exchange${elsewhere === 1 ? "" : "s"} went on in the rest of the chat since it started; they are about other things.`
+      : "") +
+    " earlier_texts reads the whole chat, further back too, when this text refers to something not in front of you."
   );
 }
