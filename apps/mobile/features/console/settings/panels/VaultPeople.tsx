@@ -1,9 +1,9 @@
 /**
  * A key's People section on Settings › Vault (vault sharing boards 1 and 2):
- * whoever has it, each with their own AIs nested under them, how much they
- * get ("Their AIs use it" or "They can see it too"), and Take back, which
- * says once in bold red what it does. Under them, the Give field: type a
- * name, pick a person, a group or everyone in the workspace, and Give.
+ * whoever has it, each with their own AIs nested under them, what they can
+ * do ("Use only" or "Use and see"), and Remove, which says once in bold red
+ * what it does. Under them, the Share field: type a name, pick a person, a
+ * group or everyone in the workspace, and Share.
  *
  * Drawn for somebody who may manage the key only; everyone else sees their
  * own AIs in the panel's "AIs that can use it" list.
@@ -21,9 +21,11 @@ import { AgentFace } from "../../map/live/ui/ActorFace";
 import { Segmented } from "../../../vault/Segmented";
 import {
   LEVEL_OPTIONS,
+  LEVEL_QUESTION,
   aisByPerson,
   giveSuggestions,
   initialsOf,
+  levelHint,
   levelLabel,
   moveLine,
   shareRowLine,
@@ -104,7 +106,7 @@ export function VaultPeople({
             {index === 0 || confirming === row.to ? null : (
               <View style={styles.controls}>
                 <LevelMenu row={row} busy={busy} onChange={(next) => void onGive(row.to, next)} />
-                <CutButton label="Take back" disabled={busy} testID={`vault-take-${row.to}`} onPress={() => setConfirming(row.to)} />
+                <CutButton label="Remove" disabled={busy} testID={`vault-take-${row.to}`} onPress={() => setConfirming(row.to)} />
               </View>
             )}
           </View>
@@ -115,7 +117,7 @@ export function VaultPeople({
               </Text>
               <View style={styles.confirmButtons}>
                 <Button
-                  label="Take back"
+                  label="Remove"
                   variant="dialogDanger"
                   disabled={busy}
                   testID={`vault-take-yes-${row.to}`}
@@ -188,12 +190,16 @@ export function VaultPeople({
         </View>
       ) : (
         <View style={styles.give}>
-          <Segmented label="How much they get" options={LEVEL_OPTIONS} value={level} onChange={setLevel} disabled={busy} testID="vault-give-level" />
+          <Text variant="rowTitle">{LEVEL_QUESTION}</Text>
+          <Segmented label={LEVEL_QUESTION} options={LEVEL_OPTIONS} value={level} onChange={setLevel} disabled={busy} testID="vault-give-level" />
+          <Text variant="rowSub" style={styles.levelHint} testID="vault-give-level-hint">
+            {levelHint(level, entry.type)}
+          </Text>
           <View style={styles.giveRow}>
             <TextField
-              label="Give to a teammate or a group"
+              label="Add a teammate or group"
               labelHidden
-              placeholder="Give to a teammate or a group"
+              placeholder="Add a teammate or group"
               value={picked?.title ?? typed}
               onChangeText={(text) => {
                 setPicked(null);
@@ -205,7 +211,7 @@ export function VaultPeople({
               containerStyle={styles.flex}
               testID="vault-give-input"
             />
-            <Button label="Give" variant={picked ? "dialogPrimary" : "dialog"} disabled={busy || picked === null} onPress={() => void give()} testID="vault-give" />
+            <Button label="Share" variant={picked ? "dialogPrimary" : "dialog"} disabled={busy || picked === null} onPress={() => void give()} testID="vault-give" />
           </View>
           {suggestions.length > 0 ? (
             <View style={styles.list} testID="vault-give-suggestions">
@@ -241,7 +247,7 @@ export function VaultPeople({
   );
 }
 
-/** "Their AIs use it ▾": opens the two choices in place. */
+/** "Use only ▾": opens the two choices in place. */
 function LevelMenu({ row, busy, onChange }: { row: VaultShareRow; busy: boolean; onChange: (level: VaultLevel) => void }) {
   const styles = useThemedStyles(makeStyles);
   const [open, setOpen] = useState(false);
@@ -261,7 +267,7 @@ function LevelMenu({ row, busy, onChange }: { row: VaultShareRow; busy: boolean;
             style={[styles.level, option.value === row.level && styles.levelOn]}
             testID={`vault-level-${row.to}-${option.value}`}
           >
-            <Text variant="mini">{option.label}</Text>
+            <Text variant="mini">{levelLabel(option.value)}</Text>
           </Pressable>
         ))}
       </View>
@@ -285,7 +291,7 @@ function Face({ name, square = false }: { name: string; square?: boolean }) {
   );
 }
 
-/** The board's Cut off and Take back: red words in a red outline, quieter than a filled button. */
+/** The board's Cut off and Remove: red words in a red outline, quieter than a filled button. */
 export function CutButton({ label, disabled, testID, onPress }: { label: string; disabled: boolean; testID: string; onPress: () => void }) {
   const styles = useThemedStyles(makeStyles);
   return (
@@ -332,6 +338,7 @@ const makeStyles = (colors: Colors) =>
     faceText: { color: colors.muted, fontWeight: "700" },
     faceSquareText: { color: colors.surface },
     give: { gap: 8, marginTop: 6 },
+    levelHint: { paddingHorizontal: 4, marginTop: -2 },
     giveRow: { flexDirection: "row", alignItems: "center", gap: 8 },
     list: {
       borderWidth: StyleSheet.hairlineWidth,

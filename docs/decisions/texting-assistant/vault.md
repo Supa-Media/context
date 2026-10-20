@@ -78,6 +78,13 @@ the gateway and the control plane alike.
   key through Context; the person is never shown the value and gets no view
   link. `see` adds Show. The most generous share wins. The saver always sees
   it, and a person on the old people list with no share keeps seeing it.
+- **The levels are worded about the person, never their AIs** (the owner,
+  2026-10-20: "I thought this setting was talking about sharing with other
+  people. didnt realize it was talking about AI's specifically"). Settings ›
+  Vault asks "When you share it, they can:" over **Use it** / **Use and see
+  it** (each row: "Use only" / "Use and see"), with a line under it naming a
+  login's password or a secret's key. "Their AIs use it" read as sharing with
+  AIs; `apps/mobile/features/vault/vaultPeople.ts` holds the words.
 - **Each AI's yes belongs to a person** (`by` on every yes, one-time grant,
   use and refusal). One person's yes never lets somebody else's copy of the
   same app use the key. A record from before `by` existed is the saver's.

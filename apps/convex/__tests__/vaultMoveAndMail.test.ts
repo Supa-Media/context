@@ -162,10 +162,10 @@ describe("moving a personal key into a shared workspace", () => {
 describe("telling somebody they were given a key", () => {
   test("the mail names who gave it and where, never the key or a value", () => {
     const mail = givenMail("Seyi", "supa", "use");
-    expect(mail.subject).toBe("Seyi gave you a key in @supa");
-    expect(mail.text).toContain("You won't see its value");
+    expect(mail.subject).toBe("Seyi shared a key with you in @supa");
+    expect(mail.text).toContain("you won't see its value");
     expect(mail.text).toContain("/console/supa?settings=vault");
-    expect(givenMail("Seyi", "supa", "see").text).toContain("you can open it to see it");
+    expect(givenMail("Seyi", "supa", "see").text).toContain("you can open it in Context to see it");
   });
 
   test("a person given a key hears about it once; a level change and the giver hear nothing", async () => {
@@ -176,7 +176,7 @@ describe("telling somebody they were given a key", () => {
     await give(String(w.sayo), "use");
     await drainScheduled(w.t);
     expect(w.mails.map((mail) => mail.to)).toEqual(["sayo@example.test"]);
-    expect(w.mails[0].subject).toContain("gave you a key in @team-move");
+    expect(w.mails[0].subject).toContain("shared a key with you in @team-move");
     expect(JSON.stringify(w.mails)).not.toContain("Convex read-only");
     expect(JSON.stringify(w.mails)).not.toContain(VALUE);
     await give(String(w.sayo), "see");

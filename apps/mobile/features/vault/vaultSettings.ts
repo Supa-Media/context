@@ -49,7 +49,7 @@ export type VaultEntry = {
   savedByYou: boolean;
   /** Who saved it ("You" for the reader). */
   savedBy?: string;
-  /** How much of it the reader has: their AIs use it, or they see it too. */
+  /** What the reader may do: use it (through their AI tools), or use and see it. */
   level?: VaultLevel;
   /** Whether the reader may give it, take it back, and cut anybody's AI off. */
   manage?: boolean;
@@ -70,7 +70,7 @@ export type VaultFilter = "all" | "ai" | "given" | "logins" | "stale";
 export const VAULT_FILTERS: { key: VaultFilter; label: string }[] = [
   { key: "all", label: "All" },
   { key: "ai", label: "Used by AIs" },
-  { key: "given", label: "Given to others" },
+  { key: "given", label: "Shared with others" },
   { key: "logins", label: "Logins" },
   { key: "stale", label: "Not used in 90 days" },
 ];
@@ -156,7 +156,7 @@ export function vaultRowPill(entry: VaultEntry, now: Date = new Date()): { text:
 /** The detail's line under the name. */
 export function vaultSavedLine(entry: VaultEntry, now: Date = new Date()): string {
   if (entry.savedByYou || entry.savedBy === undefined) return `Saved ${entry.savedByYou ? "by you " : ""}on ${vaultDay(entry.savedAt, now)}`;
-  if (entry.givenBy) return `Given to you by ${entry.givenBy}${entry.level === "use" ? " · for your AIs" : ""}`;
+  if (entry.givenBy) return `Shared with you by ${entry.givenBy}${entry.level === "use" ? " · use only" : ""}`;
   return `Saved by ${entry.savedBy} on ${vaultDay(entry.savedAt, now)}`;
 }
 

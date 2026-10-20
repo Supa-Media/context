@@ -1,7 +1,7 @@
 /**
  * The words of a key's People section (vault sharing boards 1 to 3): who it
- * can be given to, each row's line, how much they get, and what Take back
- * says. Kept apart from the panel so the rules are tested without drawing it.
+ * can be shared with, each row's line, what they can do with it, and what
+ * Remove says. Kept apart from the panel so the rules are tested without drawing it.
  */
 
 import { vaultDay, type VaultClient, type VaultEntry, type VaultLevel, type VaultShareRow } from "./vaultSettings";
@@ -24,13 +24,27 @@ export function moveLine(handle: string): string {
 
 export type GiveSuggestion = { to: string; kind: VaultShareRow["kind"]; title: string; sub: string };
 
+/**
+ * What the person a key is shared with can do: "use" it (their AI tools sign
+ * in for them, the value never shown) or "use and see" it. Worded about the
+ * person, never "their AIs" first, so it reads as sharing with people.
+ */
+export const LEVEL_QUESTION = "When you share it, they can:";
+
 export const LEVEL_OPTIONS: ReadonlyArray<{ value: VaultLevel; label: string }> = [
-  { value: "use", label: "Their AIs use it" },
-  { value: "see", label: "They can see it too" },
+  { value: "use", label: "Use it" },
+  { value: "see", label: "Use and see it" },
 ];
 
+/** A row's level, shorter, for the dropdown beside each person. */
 export function levelLabel(level: VaultLevel): string {
-  return level === "see" ? "They can see it too" : "Their AIs use it";
+  return level === "see" ? "Use and see" : "Use only";
+}
+
+/** The line under the level toggle, for what is picked: a login has a password, anything else a key. */
+export function levelHint(level: VaultLevel, type: VaultEntry["type"]): string {
+  const value = type === "login" ? "password" : "key";
+  return level === "see" ? `They can also see and copy the ${value}.` : `Their AI tools sign in for them. They never see the ${value}.`;
 }
 
 const people = (n: number) => `${n} ${n === 1 ? "person" : "people"}`;
@@ -63,14 +77,14 @@ export function giveSuggestions(choices: VaultShareChoices, typed: string, entry
 
 /** The line under a person, group or the workspace in the People section; the saver is listed first. */
 export function shareRowLine(row: VaultShareRow, saver: boolean, now: Date = new Date()): string {
-  if (saver) return "Saved it · can change it";
-  const given = `Given ${vaultDay(row.at, now)}`;
+  if (saver) return `Added it ${vaultDay(row.at, now)}`;
+  const given = `Shared ${vaultDay(row.at, now)}`;
   if (row.kind === "everyone") return `${given} · ${people(row.count ?? 0)}, and anyone who joins later`;
   if (row.kind === "group") return `${given} · ${people(row.count ?? 0)}`;
   return given;
 }
 
-/** What Take back says, once, before it happens. */
+/** What Remove says, once, before it happens. */
 export function takeBackLine(row: VaultShareRow): string {
   if (row.kind === "person") return `${row.name} and ${row.name}'s AIs lose the key now.`;
   return `${row.kind === "everyone" ? "Everyone here" : `Everyone in ${row.name}`} who has it no other way, and their AIs, lose it now.`;
