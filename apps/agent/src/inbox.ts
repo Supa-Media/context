@@ -53,6 +53,7 @@ import { record } from "./simulator";
 import { oweReadyText } from "./ready";
 import { clearTold, noteTold, owedTold } from "./told";
 import { rememberText } from "./threads";
+import { ackEmoji } from "./ackEmoji";
 import { answers, clearReactions, noteReaction, notedReactions, tapbackText } from "./reactions";
 import { startTurn, steerInto } from "./steer";
 import type { Inbound } from "./inbound";
@@ -329,7 +330,7 @@ export const TYPING_REFRESH_MS = 55_000;
  */
 export const TYPING_AGAIN_MS = 1_500;
 /**
- * A text still being worked on this long gets a thumbs-up tapback, so the
+ * A text still being worked on this long gets a tapback that fits it (`ackEmoji.ts`), so the
  * person knows it landed even if the typing bubble never showed. Sendblue
  * sends the bubble on a best-effort basis, and on 2026-10-19 Dev saw "Read"
  * and nothing else for two minutes: "no typing indicator or thumbs up react
@@ -474,7 +475,7 @@ async function answerTexts(message: Message, deps: InboxDeps, storage: InboxStor
       ? undefined
       : setTimeout(() => {
           // A tapback is a message of ours, which can clear the bubble; the task is still going.
-          acknowledged = line.acknowledge(message.chatId, messageId).then(typing);
+          acknowledged = line.acknowledge(message.chatId, messageId, ackEmoji(message.text)).then(typing);
         }, ACKNOWLEDGE_AFTER_MS);
   try {
     return await replyTo(message, { ...deps, onProgress });

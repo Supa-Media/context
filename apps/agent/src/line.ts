@@ -35,8 +35,8 @@ export interface Line {
   uploadPicture(picture: Picture): Promise<Media>;
   startTyping(chatId: string): Promise<void>;
   markRead(chatId: string): Promise<void>;
-  /** A thumbs-up tapback on the person's text, where the line has tapbacks (Sendblue); Linq does nothing. Never throws. */
-  acknowledge(chatId: string, messageId: string): Promise<void>;
+  /** A tapback of `emoji` on the person's text (`ackEmoji.ts`), where the line has tapbacks (Sendblue); Linq does nothing. Never throws. */
+  acknowledge(chatId: string, messageId: string, emoji: string): Promise<void>;
   /** Whether the line took the contact card. */
   shareContactCard(chatId: string): Promise<boolean>;
   /** The line's iMessage Name & Photo shared into the chat, or set again first with `refresh`; Linq's card already does both. */
@@ -97,8 +97,10 @@ function sendblueLine(deps: LineDeps): Line {
     markRead: async (chatId) => {
       if (deps.sendblue) await markSendblueRead(fetch, deps.sendblue, chatId);
     },
-    acknowledge: async (chatId, messageId) => {
-      if (deps.sendblue) await reactSendblue(fetch, deps.sendblue, chatId, messageId, "like");
+    acknowledge: async (chatId, messageId, emoji) => {
+      if (!deps.sendblue) return;
+      // An emoji the line refuses still leaves the person a sign it landed.
+      if (!(await reactSendblue(fetch, deps.sendblue, chatId, messageId, emoji))) await reactSendblue(fetch, deps.sendblue, chatId, messageId, "like");
     },
     // The card goes as a .vcf, by address (`card.ts`): a contact the person can save.
     shareContactCard: async (chatId) => {

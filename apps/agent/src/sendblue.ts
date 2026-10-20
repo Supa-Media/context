@@ -212,9 +212,9 @@ export async function markSendblueRead(fetcher: Fetch, keys: SendblueKeys, chatI
  * the chat, where the typing bubble is best effort and can be dropped on
  * Sendblue's side with nothing to show for it. Never throws.
  */
-export async function reactSendblue(fetcher: Fetch, keys: SendblueKeys, chatId: string, messageHandle: string, reaction: string): Promise<void> {
+export async function reactSendblue(fetcher: Fetch, keys: SendblueKeys, chatId: string, messageHandle: string, reaction: string): Promise<boolean> {
   const chat = parseSendblueChat(chatId);
-  if (chat === null) return;
+  if (chat === null) return false;
   let status: number | null = null;
   try {
     status = await call(fetcher, keys, "/api/send-reaction", { from_number: chat.line, message_handle: messageHandle, reaction }, QUICK_TIMEOUT_MS);
@@ -222,6 +222,7 @@ export async function reactSendblue(fetcher: Fetch, keys: SendblueKeys, chatId: 
     // A tapback that failed costs only the tapback, but is logged below.
   }
   logRefused("sendblue_reaction", status);
+  return status !== null && status >= 200 && status < 300;
 }
 
 /** A bubble or receipt Sendblue refused, so "no typing bubble" can be told from "never asked". The status only, never the number. */
