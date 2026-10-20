@@ -154,12 +154,8 @@ describe("a phone reaches the settings, not just a menu", () => {
   });
 
   test("and the index has no block on it: fast search is on for everyone", () => {
-    // Search was the row below Storage, then a block on it with a switch.
-    // Fast search is on for every workspace (2026-10-20), so the switch and
-    // the block around it are gone; search by meaning keeps its own card
-    // where there is a live workspace to set it for.
-    // Mounted alone: `overlay()` appends to the same body, so a second mount
-    // in one test would be asserting against both screens at once.
+    // Fast search is on for every workspace (2026-10-20): no switch.
+    // Mounted alone: a second `overlay()` would assert against both screens.
     const text = overlay("storage").textContent ?? "";
     expect(text).not.toContain("Fast search");
     expect(text).not.toContain("Turn it on");
@@ -268,8 +264,7 @@ describe("the list is one press away, and it navigates", () => {
     for (const label of ["Profile", "General", "People & sharing", "Connected apps", "Storage", "Website"]) {
       expect(text).toContain(label);
     }
-    // Context is free (2026-10-20): nothing on the list is about money.
-    expect(text).not.toContain("Plan");
+    expect(text).not.toContain("Plan"); // Context is free (2026-10-20).
     // Folded pages are reached from a row on another page, not listed.
     for (const key of ["activity", "meetings", "emoji", "feedback"]) {
       expect(host.querySelector(`[data-testid="settings-section-${key}"]`)).toBeNull();
@@ -533,13 +528,8 @@ describe("every section names itself exactly once", () => {
     a bar titled "Overview" over a panel titled "Overview" is what this
     started as.
   */
-  /*
-    Plan is listed only where something is sold, so `?settings=premium` here
-    lands on General, and names that once.
-  */
-  test.each(
-    SETTINGS_SECTIONS.map((entry) => [entry.key, entry.key === "premium" ? "General" : entry.label] as const),
-  )(
+  // Plan is listed only where something is sold; `?settings=premium` lands on General.
+  test.each(SETTINGS_SECTIONS.map((e) => [e.key, e.key === "premium" ? "General" : e.label] as const))(
     "%s",
     (key, label) => {
       const host = overlay(key);
