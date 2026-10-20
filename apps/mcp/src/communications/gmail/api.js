@@ -84,14 +84,40 @@ export const gmailRetry = {
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 };
 
-/** When each access token last called Gmail, for `minGapMs`. Bounded: a token lives an hour. */
+/**
+ * When each access token last called Gmail, for `minGapMs`, keyed by a digest
+ * of the token and never by the token.
+ *
+ * This Map is module scope, so it outlives the request that minted the
+ * credential, in an isolate the runtime reuses across tenants, and
+ * `docs/decisions/storage-and-credentials.md` ("Never cache a decrypted
+ * credential across requests") forbids keeping one that long. A digest paces
+ * the same token onto the same lane and leaves nothing usable behind, which
+ * is what lets this module keep the promise its Chat sibling states in full:
+ * the token goes nowhere but the one `Authorization` header it is used for.
+ * Bounded: a token lives an hour, and the map is cleared past 200 lanes.
+ */
 const lastCallAt = new Map();
 
+/** The lanes being paced, for the test that proves none of them is a credential. */
+export function pacingLanes() {
+  return [...lastCallAt.keys()];
+}
+
+/** The lane a token paces on: its SHA-256, so the map holds no credential. */
+async function laneFor(accessToken) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(accessToken)));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 async function pace(accessToken) {
+  // Awaited first: what follows reads and writes one lane without yielding, so
+  // two calls on one token queue behind each other rather than read the same gap.
+  const lane = await laneFor(accessToken);
   const now = Date.now();
-  const wait = (lastCallAt.get(accessToken) ?? -Infinity) + gmailRetry.minGapMs - now;
+  const wait = (lastCallAt.get(lane) ?? -Infinity) + gmailRetry.minGapMs - now;
   if (lastCallAt.size > 200) lastCallAt.clear();
-  lastCallAt.set(accessToken, now + Math.max(0, wait));
+  lastCallAt.set(lane, now + Math.max(0, wait));
   if (wait > 0) await gmailRetry.sleep(wait);
 }
 
