@@ -57,11 +57,8 @@ import {
   meaningSearchDescriptor,
   runMeaningPass,
 } from "./meaningPass";
-import {
-  failForwardSync,
-  releaseForwardSync,
-  runGoogleForwardSync,
-} from "./forwardSync";
+import { runGoogleForwardSync } from "./forwardSync";
+import { failForwardSync, releaseForwardSync } from "./forwardSyncRecord";
 import { runGoogleGmailBackfill } from "./gmailBackfillRefusal";
 import { type ForwardSyncJob, timeoutFetch } from "./forwardSyncSupport";
 import {
