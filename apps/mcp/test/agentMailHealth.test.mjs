@@ -25,7 +25,7 @@
  *     → "…and tells the control plane what it raised" fails.
  *  4. `heartbeatMailSection` listing recovering mailboxes as owed.
  *     → "a mailbox that is only recovering is never said" fails.
- *  5. `route.js` not passing `mail` to `routineQuestion`.
+ *  5. `routineRunQuestion` (`routine.js`, which `route.js` calls) not passing `mail`.
  *     → "a routine is told about a stale mailbox…" fails.
  *  6. `orientMailSection` naming stale mailboxes too.
  *     → "orient says nothing when every mailbox only needs time" fails.

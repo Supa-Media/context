@@ -23,6 +23,7 @@ import {
 } from "../../../../packages/shared/src/routines.cjs";
 import { getWithLegacyFallback } from "../storageLayout.js";
 import { MAX_QUESTION_LENGTH } from "./turn.js";
+import { readMailHealth, routineMailSection } from "./mailHealth.js";
 
 /** The routine runner's first-party client (`apps/convex`). Decided by the grant. */
 export const ROUTINES_CLIENT_ID = "context_routines";
@@ -151,6 +152,22 @@ export function routineQuestion(routine, { now, timeZone, lastRun, mail = "" }) 
   );
   const framing = `${lines.join("\n\n")}\n\n`;
   return framing + clip(routine.body, Math.max(0, MAX_QUESTION_LENGTH - framing.length));
+}
+
+/**
+ * The question for a run now: in the routine's zone, with what it said last
+ * time, and any of the person's mailboxes that stopped syncing
+ * (`mailHealth.js`), which a routine is told and never texts for alone.
+ */
+export async function routineRunQuestion(store, routine, runs, givenTimeZone) {
+  const mailboxes = await readMailHealth(store);
+  const now = Date.now();
+  return routineQuestion(routine, {
+    now,
+    timeZone: routineTimeZone(routine.settings, givenTimeZone),
+    lastRun: runs.findLast((run) => run.outcome === "answered" || run.outcome === "finished"),
+    mail: routineMailSection(mailboxes, now),
+  });
 }
 
 /** How a run ended, read off its answer. */
