@@ -642,7 +642,10 @@ export async function runTurn(options) {
         id: call.id,
         name: made.name,
         text: toolResultText(result) || "(no result)",
-        isError: result?.isError === true,
+        // A held call reaches the model as what it is, waiting for the person, never as an
+        // error: read as one, "Not sent yet" became "the email didn't go through" and a
+        // second, different copy of the email texted beside the one held (Dev, 2026-10-19).
+        isError: failedCall(result),
       });
     }
     const steered = steer === null ? null : await steer.next();

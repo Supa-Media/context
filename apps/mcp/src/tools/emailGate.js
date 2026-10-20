@@ -157,9 +157,10 @@ export async function emailGate(supplied, { store, session, target }) {
   return {
     ...toolError(
       texting
-        ? "Not sent yet: the person will be shown this exact email and asked to reply YES to send it. " +
-            "Say in a line what you drafted, without repeating the email. Don't call this again in this turn."
-        : "Not sent yet: the person must approve this exact email in the Context app. " +
+        ? "Held for their YES, and nothing failed: right after your answer they are texted this exact email and asked " +
+            "to say yes, and it sends then. Say in one short line what you drafted. Don't repeat the email, don't give " +
+            "them a copy to send themselves, and don't call send_email again in this turn."
+        : "Waiting for the person, and nothing failed: they must approve this exact email in the Context app. " +
             "Once they have, call send_email again with exactly the same arguments and you will be told it was sent.",
     ),
     held: true,

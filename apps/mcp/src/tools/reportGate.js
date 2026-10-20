@@ -95,7 +95,7 @@ export async function reportGate(supplied, { store, session }) {
   if (ledger && !ledger.asked.some((asked) => asked.id === record.id)) ledger.asked.push(record);
   return {
     ...toolError(
-      "Not sent yet: the person will be shown this exact report and asked to reply YES to send it. " +
+      "Held for their YES, and nothing failed: right after your answer they are texted this exact report and asked to say yes, and it sends then. " +
         "Say in a line that you wrote it up, without repeating it or asking for their yes: the next text shows it and asks. Don't call this again in this turn.",
     ),
     held: true,

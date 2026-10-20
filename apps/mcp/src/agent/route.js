@@ -9,6 +9,7 @@ import { callToolForSession } from "../tools/session.js";
 import { DEFAULT_TIME_ZONE, readTimeZone } from "./localNow.js";
 import { readTexNotes } from "./jobs.js";
 import { openTranscript } from "./transcript.js";
+import { withoutHeldEcho } from "./heldEcho.js";
 import { wireTraceEntry } from "./turnLog.js";
 import { readProductionSetup, readProductionSkill } from "./production.js";
 import { skillSession, withSkills } from "./skills.js";
@@ -599,7 +600,9 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     const { answer: told, pictures } = outgoing.take(turn.answer);
     // An email's ask is texted exactly as written (`apps/agent/src/reply.ts`), or withdrawn if it would not fit.
     const { ask, verbatim } = await textedAsk(store, session, ledger.asked);
-    const answer = ask === null ? told : `${told}\n\n${ask}`;
+    // An email the ask shows whole is not also in the model's words (`heldEcho.js`).
+    const said = ask === null ? told : withoutHeldEcho(told, ledger.asked);
+    const answer = ask === null ? told : said === "" ? ask : `${said}\n\n${ask}`;
     /*
       A browser handed to the person goes out as a link the gateway adds, so
       the model never holds it. The link is their own `/tex/<handle>` page,
