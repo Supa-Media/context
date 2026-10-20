@@ -218,6 +218,22 @@ describe("a folder's about note", () => {
     expect(calls).toEqual(["open 1-projects/web/overview.md", "close 1-projects/web/overview.md"]);
   });
 
+  test("a heading that only repeats the folder's name is not the panel's title: the page's own name is", async () => {
+    const own = "2-areas/about.md";
+    const notes: ListNote[] = [{ path: own, updatedAt: 10, properties: {}, heading: "2-areas", lede: "Ongoing work." }];
+    BODIES[own] = "# 2-areas\n\nOngoing work.\n\nYou named this folder when you set this context up.\n";
+    const HOME = listing("2-areas", [entry("file", own), entry("file", "2-areas/rent.md")]);
+    try {
+      await mount(entry("folder", "2-areas"), HOME, host(null, notes));
+      await act(async () => {});
+      await press(one("folder-about-more"));
+      await act(async () => {});
+      expect(strip(one("about-panel-title").textContent)).toBe("About areas");
+    } finally {
+      delete BODIES[own];
+    }
+  });
+
   test("where the panel has no room, Read more opens a sheet, and Open as note goes to the note", async () => {
     windowOf(390, 844);
     const view = await mount(entry("folder", "1-projects/web"), WEB, host(null));

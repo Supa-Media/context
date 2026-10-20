@@ -1,6 +1,7 @@
 /**
  * Rendering `index.md` and the per-folder `about.md`s a fresh context starts
- * with.
+ * with. Each paragraph is one line: the console's editor draws a note's line
+ * breaks as written, so prose wrapped here broke mid-sentence there.
  *
  * Split out of `lib/scaffold.ts` — see that file's header for the scaffolder's
  * overall rules.
@@ -36,36 +37,24 @@ export function renderIndex(
     shared ? "# Workspace" : "# Context",
     "",
     shared
-      ? "This bucket is a shared workspace: plain Markdown files the workspace owns,"
-      : "This bucket is a context: plain Markdown files you own, readable by any AI",
-    shared
-      ? "readable by any AI client its members connect. Nothing here is a database"
-      : "client you connect. Nothing here is a database export — every file is a",
-    shared
-      ? "export — every file is a file, editable in Obsidian, in a text editor, or"
-      : "file, editable in Obsidian, in a text editor, or over rclone.",
-    ...(shared ? ["over rclone."] : []),
+      ? "This bucket is a shared workspace: plain Markdown files the workspace owns, readable by any AI client its members connect. Nothing here is a database export — every file is a file, editable in Obsidian, in a text editor, or over rclone."
+      : "This bucket is a context: plain Markdown files you own, readable by any AI client you connect. Nothing here is a database export — every file is a file, editable in Obsidian, in a text editor, or over rclone.",
     "",
     "## Conventions",
     "",
-    "- One idea per note. Notes are shared between many tools, so keep them",
-    "  concise and factual.",
+    "- One idea per note. Notes are shared between many tools, so keep them concise and factual.",
     ...(shared
       ? [
-          "- Write for the next person, not for yourself. A note nobody else can",
-          "  follow is why the workspace exists and why it stops being used.",
+          "- Write for the next person, not for yourself. A note nobody else can follow is why the workspace exists and why it stops being used.",
         ]
       : []),
-    "- `privacy.md` decides what a connected client can see. Folder rules are",
-    "  defaults; an exact note can override its folder.",
+    "- `privacy.md` decides what a connected client can see. Folder rules are defaults; an exact note can override its folder.",
     ...(shared
       ? [
-          "- Every folder listed below is readable by every member. A folder held",
-          "  back to owners says `private` in `privacy.md`, and says so there only.",
+          "- Every folder listed below is readable by every member. A folder held back to owners says `private` in `privacy.md`, and says so there only.",
         ]
       : []),
-    "- Paths under `.context/` are product plumbing, never",
-    "  notes, and are not shown to any client.",
+    "- Paths under `.context/` are product plumbing, never notes, and are not shown to any client.",
     "",
   ];
 
@@ -73,9 +62,7 @@ export function renderIndex(
     lines.push(
       "## Structure",
       "",
-      "The starting shape is PARA. It is a suggestion, not a schema — rename",
-      "these folders, nest them, or ignore them entirely. The tools address",
-      "whatever paths exist.",
+      "The starting shape is PARA. It is a suggestion, not a schema — rename these folders, nest them, or ignore them entirely. The tools address whatever paths exist.",
       "",
     );
     for (const folder of PARA_FOLDERS) {
@@ -87,14 +74,8 @@ export function renderIndex(
       "## Structure",
       "",
       shared
-        ? "These are the folders this workspace was set up with. They are a starting"
-        : "These are the folders you named when you set this context up. They are a",
-      shared
-        ? "point, not a schema — rename them, nest inside them, add more, or delete"
-        : "starting point, not a schema — rename them, nest inside them, add more, or",
-      shared
-        ? "them. The tools address whatever paths exist."
-        : "delete them. The tools address whatever paths exist.",
+        ? "These are the folders this workspace was set up with. They are a starting point, not a schema — rename them, nest inside them, add more, or delete them. The tools address whatever paths exist."
+        : "These are the folders you named when you set this context up. They are a starting point, not a schema — rename them, nest inside them, add more, or delete them. The tools address whatever paths exist.",
       "",
     );
     for (const entry of customFolders) {
@@ -105,8 +86,7 @@ export function renderIndex(
     lines.push(
       "## Structure",
       "",
-      "This context has no imposed folder structure. Create whatever paths suit",
-      "the work; the tools address paths, not a taxonomy.",
+      "This context has no imposed folder structure. Create whatever paths suit the work; the tools address paths, not a taxonomy.",
       "",
     );
   }
@@ -127,8 +107,7 @@ export function renderCustomFolderReadme(entry: CustomFolder): string {
     "",
     entry.description,
     "",
-    "You named this folder when you set this context up. Rename it, nest inside",
-    "it, or delete it — the tools address paths, not a fixed taxonomy.",
+    "You named this folder when you set this context up. Rename it, nest inside it, or delete it — the tools address paths, not a fixed taxonomy.",
     "",
   ].join("\n");
 }
@@ -143,8 +122,7 @@ export function renderFolderReadme(folder: string): string {
     "Examples:",
     ...purpose.examples.map((example) => `- ${example}`),
     "",
-    "This folder is built in: every Context workspace has it, so it can't be",
-    "renamed, moved or deleted. Everything inside it is yours to move.",
+    "This folder is built in: every Context workspace has it, so it can't be renamed, moved or deleted. Everything inside it is yours to move.",
     "",
   ].join("\n");
 }

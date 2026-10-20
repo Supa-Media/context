@@ -73,9 +73,11 @@ export interface PeekLayout {
  * the right first, so the list stays where it was under the title, and only
  * then to the left (a Board, `wide`, takes the left as well). Otherwise the
  * list keeps its width and the panel lies over its right side, flush with the
- * page's right margin. Null before the page has been measured.
+ * page's right margin. A Board wider than the column (`mainWidth`, centred on
+ * it while the panel is closed) keeps that width and place too, so opening
+ * the panel never moves it. Null before the page has been measured.
  */
-export function peekLayout(pageWidth: number, columnWidth: number, wide: boolean): PeekLayout | null {
+export function peekLayout(pageWidth: number, columnWidth: number, wide: boolean, mainWidth: number | null = null): PeekLayout | null {
   if (pageWidth <= 0) return null;
   const avail = room(pageWidth);
   const column = Math.min(columnWidth, avail);
@@ -87,8 +89,10 @@ export function peekLayout(pageWidth: number, columnWidth: number, wide: boolean
     const left = wide ? side : Math.min(side, need - right);
     return { mode: "beside", panel, width: column + left + right, marginLeft: -left, main: null, overlap: 0 };
   }
-  const width = column + side;
-  return { mode: "over", panel, width, marginLeft: 0, main: column, overlap: Math.max(0, column + panel - width) };
+  const main = wide && mainWidth !== null ? Math.max(column, mainWidth) : column;
+  const lead = Math.min(side, (main - column) / 2);
+  const width = lead + column + side;
+  return { mode: "over", panel, width, marginLeft: lead > 0 ? -lead : 0, main, overlap: Math.max(0, main + panel - width) };
 }
 
 export interface PanelEntry {

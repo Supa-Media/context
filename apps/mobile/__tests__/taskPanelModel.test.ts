@@ -150,6 +150,20 @@ describe("what a panel writes and says", () => {
     expect(peekLayout(4000, 640, false)!.panel).toBe(720);
     expect(peekLayout(0, 640, false)).toBeNull();
   });
+
+  test("a Board wider than the column stays where it was when the panel lies over it", () => {
+    // Closed, a 1000-wide Board is centred on the 640 column: 180 out to its left.
+    const over = peekLayout(1100, 640, true, 1000)!;
+    expect(over.mode).toBe("over");
+    expect(over.main).toBe(1000);
+    expect(over.marginLeft).toBe(-180);
+    // The panel still ends at the page's right margin.
+    expect(over.width).toBe(180 + 640 + (1100 - 640) / 2 - 48);
+    expect(over.overlap).toBe(1000 + over.panel - over.width);
+    // A List, or a Board no wider than the column, keeps the column as before.
+    expect(peekLayout(1100, 640, false, 1000)!.main).toBe(640);
+    expect(peekLayout(1100, 640, true, 500)!.marginLeft).toBe(0);
+  });
 });
 
 describe("the words a panel shows", () => {
