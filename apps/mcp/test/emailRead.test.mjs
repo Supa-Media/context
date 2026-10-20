@@ -1,6 +1,7 @@
 /**
- * READING THE PERSON'S EMAIL: synced first, then Gmail for what the notes do
- * not hold (`src/tools/emailRead.js`, the owner's design of 2026-10-18).
+ * READING THE PERSON'S EMAIL: Gmail's own search over all of the mail
+ * (`src/tools/emailRead.js`; 2026-10-20, replacing "synced first" of
+ * 2026-10-18, whose note search could not see into a long day of mail).
  *
  * Driven through the worker, as an MCP client and as a texted turn, on the
  * egress checks' world, whose control-plane stub answers
@@ -10,20 +11,17 @@
  *
  * ## Sabotage record
  *
- *  1. Synced search skipped (`searchOne` not called). → `a search shows the
- *     synced mail first...` fails.
- *  2. `outsideSync` not sent. → `...and asks Gmail only about mail outside the
- *     sync` fails.
+ *  1. `outsideSync: true` sent again (2026-10-20). → `a search asks Gmail
+ *     about all of the mail...` fails.
+ *  2. The synced notes searched again. → `...and lists no synced note...` fails.
  *  3. `search_email` removed from PRIVATE_TIER_ONLY_TOOLS. → `a team-scope
  *     connection is not offered...` fails.
  *  4. `read_email` removed from UNTRUSTED_READS. → `an email read live marks the
  *     texted turn as having read from outside` fails.
- *  5. The wider Gmail search on no synced hit removed (2026-10-19). → `a search
- *     nothing synced matches asks Gmail about all of the mail...` fails.
  */
 
 import { ask, call, textOf, createEgressWorld, TOKEN_MCP, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
-import { notesQueryOf, parseEmailId } from "../src/tools/emailRead.js";
+import { parseEmailId } from "../src/tools/emailRead.js";
 import { translateFetch, translateSearch } from "../src/tools/v2/searchFetch.js";
 import { PRIVATE_TIER_ONLY_TOOLS } from "../src/tools/registry.js";
 import { UNTRUSTED_READS } from "../src/privacy/egress.js";
@@ -40,11 +38,6 @@ const LIVE = {
 };
 
 export async function runEmailReadChecks(check) {
-  check(
-    "a Gmail query keeps its words and addresses for the notes, and drops what only Gmail can answer",
-    notesQueryOf('from:jo@example.com subject:lease "signed copy" after:2024/01/01 in:inbox OR has:attachment') ===
-      'jo@example.com lease "signed copy"',
-  );
   check(
     "an email id names one mailbox and one message, and nothing else parses as one",
     JSON.stringify(parseEmailId("email:Me@Example.com/18c0ffee")) === JSON.stringify({ address: "me@example.com", messageId: "18c0ffee" }) &&
@@ -72,19 +65,16 @@ export async function runEmailReadChecks(check) {
     controlPlane.flags.mailResults = [LIVE];
     controlPlane.flags.mailMessage = { ...LIVE, body: "Hi,\n\nThe signed lease is attached.\n\nJo", attachments: [{ filename: "lease.pdf", contentType: "application/pdf" }] };
 
-    const searched = textOf(await call(env, TOKEN_MCP, "search", { query: "publish", args: { email: true } }));
-    const synced = searched.indexOf("0-inbox/email/me-at-example-com/2026-10-01.md");
-    const live = searched.indexOf("email:me@example.com/18c0ffee");
-    check("a search shows the synced mail first, then what only Gmail has", synced !== -1 && live !== -1 && synced < live);
-    const sent = controlPlane.mailReadCalls.at(-1)?.body;
-    check("...and asks Gmail only about mail outside the sync", sent?.outsideSync === true && sent?.query === "publish");
-
     const callsBefore = controlPlane.mailReadCalls.length;
-    const unsynced = textOf(await call(env, TOKEN_MCP, "search", { query: "to:someone.else@example.net", args: { email: true } }));
-    const asked = controlPlane.mailReadCalls.slice(callsBefore).map((entry) => entry.body?.outsideSync);
+    const searched = textOf(await call(env, TOKEN_MCP, "search", { query: "publish", args: { email: true } }));
+    const asked = controlPlane.mailReadCalls.slice(callsBefore).map((entry) => entry.body);
     check(
-      "a search nothing synced matches asks Gmail about all of the mail, so a recipient of older sent mail is found",
-      asked.join(",") === "true,false" && unsynced.includes("Nothing in the synced mail matched.") && unsynced.includes("email:me@example.com/18c0ffee"),
+      "a search asks Gmail about all of the mail, once, so a thread inside the synced weeks is found",
+      asked.length === 1 && asked[0]?.outsideSync === false && asked[0]?.query === "publish" && searched.includes("email:me@example.com/18c0ffee"),
+    );
+    check(
+      "...and lists no synced note, whose search cannot see into a long day of mail",
+      !searched.includes("0-inbox/email/me-at-example-com/"),
     );
 
     const read = textOf(await call(env, TOKEN_MCP, "fetch", { id: "email:me@example.com/18c0ffee" }));

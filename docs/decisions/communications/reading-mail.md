@@ -1,6 +1,6 @@
 # Communications — reading mail
 
-### Synced mail first, then Gmail for what the sync does not hold
+### The sync keeps the notes; Gmail answers searches
 
 Decided by the owner on 2026-10-18: "for each connected mailbox we should be
 1. using a webhook to update our own notes on the users mail starting from
@@ -16,22 +16,29 @@ So the notes never hold mail from before the connection, and briefly do not
 hold mail newer than the last pass. Before this, an AI asked about older mail
 found nothing and said the person had no history.
 
-One search answers both halves, in that order
-(`apps/mcp/src/tools/emailRead.js`):
+**A search asks Gmail, over all of the mail (2026-10-20).** The first
+version searched the synced notes first and Gmail only outside the synced
+window. It could not work: note search indexes a note's opening 2,048
+characters, and a channel-day note holds a whole day of mail, often 100 KB, so
+a message past the first few was invisible. Asked to reply in Luciana's Lucky
+Strike thread (Oct 15, 16 and 19, all inside the synced weeks), Tex found
+unrelated hits in the notes and nothing in Gmail, and told Dev the thread did
+not exist. So `search_email` (`apps/mcp/src/tools/emailRead.js`) is now one
+call to the control plane (`/gateway/email/search`,
+`functions/lib/gatewayRoutes/personMail.ts`) with `outsideSync: false`, which
+uses Gmail's own search over the whole mailbox, sent mail included. The sync
+still writes the notes, which remain the person's record and what every other
+reader of the folder sees. Undoing this brings the miss back:
+`emailRead.test.mjs`, "a search asks Gmail about all of the mail, once…".
 
-1. **The notes.** `search` with `args { email: true }` (`search_email`) first
-   searches each connected mailbox's own folder through the same search and
-   privacy engine as any note. A Gmail query's words and addresses are kept for
-   this half; operators only Gmail can answer (`after:`, `has:`, `in:`) are
-   dropped.
-2. **Gmail, outside the synced window.** The control plane
-   (`/gateway/email/search`, `functions/lib/gatewayRoutes/personMail.ts`)
-   wraps the query as `(q) {before:<connected> after:<last pass − 1h>}`, so
-   nothing the notes hold is fetched from Gmail again. A mailbox no pass has
-   read yet is searched whole. A search downloads headers and a snippet only
-   (`format=metadata`); results come back as `email:<address>/<id>` ids, and
-   `fetch` of one (`read_email`) reads that message's body, capped at 20,000
-   characters.
+Every connected Gmail is searched, each for an equal share of the results,
+taken in turn. The first version filled the limit from the first mailbox and
+stopped, so a person with three Gmails had two never searched (2026-10-20;
+`personMail.test.ts`, "every connected Gmail is searched…").
+
+A search downloads headers and a snippet only (`format=metadata`). Results
+come back as `email:<address>/<id>` ids, and `fetch` of one (`read_email`)
+reads that message's body, capped at 20,000 characters.
 
 **Attachments are read, not only listed** (asked by the owner, 2026-10-19:
 "Tex needs to be able to read attachments, otherwise it's not useful"). Two

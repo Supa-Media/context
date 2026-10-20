@@ -138,10 +138,15 @@ export async function gatewayPersonMailSearchHandler(ctx: ActionCtx, body: Recor
     log({ route: "search", outcome: "refused", reason: claimed.refused });
     return json({ ok: false, refused: claimed.refused });
   }
-  const results: Array<Record<string, string>> = [];
+  // Every mailbox is searched, each for its share of the results, and the
+  // answers are taken in turn: filling the limit from the first mailbox left
+  // a person's other Gmails unsearched (2026-10-20).
+  const share = Math.ceil(limit / Math.max(claimed.mailboxes.length, 1));
+  const perMailbox: Array<Array<Record<string, string>>> = [];
   let failed = 0;
   for (const mailbox of claimed.mailboxes) {
-    if (results.length >= limit) break;
+    const found: Array<Record<string, string>> = [];
+    perMailbox.push(found);
     const token = await tokenFor(ctx, mailbox);
     if (token === null) {
       failed += 1;
@@ -149,7 +154,7 @@ export async function gatewayPersonMailSearchHandler(ctx: ActionCtx, body: Recor
     }
     try {
       const q = body.outsideSync === true ? outsideSyncQuery(query, mailbox) : query;
-      const { ids } = await listMessageIds({ fetchImpl: timeoutFetch, accessToken: token, query: q, pageToken: undefined, maxResults: limit - results.length });
+      const { ids } = await listMessageIds({ fetchImpl: timeoutFetch, accessToken: token, query: q, pageToken: undefined, maxResults: share });
       for (const id of ids) {
         const message = await getMessageHeaders({ fetchImpl: timeoutFetch, accessToken: token, id }).catch((error: unknown) => {
           if (error instanceof GmailApiError && error.status === 404) return null;
@@ -157,7 +162,7 @@ export async function gatewayPersonMailSearchHandler(ctx: ActionCtx, body: Recor
         });
         if (message === null) continue;
         const headers = message?.payload?.headers ?? [];
-        results.push({
+        found.push({
           address: mailbox.address,
           id: String(message.id ?? id),
           threadId: String(message.threadId ?? ""),
@@ -173,9 +178,12 @@ export async function gatewayPersonMailSearchHandler(ctx: ActionCtx, body: Recor
       log({ route: "search", outcome: "gmail_error", status: error instanceof GmailApiError ? error.status : 0 });
     }
   }
+  const results: Array<Record<string, string>> = [];
+  for (let turn = 0; results.length < limit && perMailbox.some((found) => turn < found.length); turn += 1) {
+    for (const found of perMailbox) if (turn < found.length && results.length < limit) results.push(found[turn]!);
+  }
   log({ route: "search", outcome: "ok", results: results.length, mailboxes: claimed.mailboxes.length, failed });
-  // Each mailbox's folder, so the gateway searches the synced notes too; a
-  // Gmail that did not answer leaves those still worth searching.
+  // Each mailbox's folder, where its synced day notes are.
   const mailboxes = claimed.mailboxes.map(({ address, folder }: Mailbox) => ({ address, folder }));
   return json({ ok: true, results, mailboxes, ...(failed > 0 ? { incomplete: true } : {}) });
 }

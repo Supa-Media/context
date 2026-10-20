@@ -281,7 +281,7 @@ async function runTool(name, args, store, scope) {
     case "save_email_draft":
       return toolSaveEmailDraft(store, args);
     case "search_email":
-      return toolSearchEmail(store, scope, rules, overrides, args);
+      return toolSearchEmail(store, args);
     case "read_email":
       return toolReadEmail(store, args);
     case "calendar_event":

@@ -10,7 +10,8 @@
  * owner check let an editor of Alice's workspace search her mail, failing "an
  * editor of the person's workspace never reaches their mail". Sending the
  * query without `outsideSyncQuery` failed "Gmail is asked only about mail the
- * notes do not hold".
+ * notes do not hold". The old loop, which stopped once the first mailbox
+ * filled the limit (2026-10-20), fails "every connected Gmail is searched…".
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -199,6 +200,38 @@ describe("reading a person's own mail live", () => {
     await t.run((ctx) => ctx.db.patch(connectionId, { disconnectedAt: Date.now() }));
     expect(await search(t, ACCESS_A, aliceWs)).toEqual({ ok: false, refused: "no_mailbox" });
     expect(queries).toHaveLength(0);
+  });
+
+  test("every connected Gmail is searched, and the results are shared between them", async () => {
+    const { t, aliceWs, alice } = await connected();
+    // Two more of Alice's Gmails, each with its own token.
+    for (const address of ["alice.work@gmail.example", "alice.church@gmail.example"]) {
+      const id = await seedGoogleConnection(t, { workspaceId: aliceWs, boundBy: alice, address, googleAccountId: address });
+      const encryptedAccessToken = await encryptSecret(`ya29.fake-${address}`, requireKeyset(), { workspaceId: aliceWs });
+      const row = await t.run((ctx) => ctx.db.get(id));
+      await t.run((ctx) =>
+        ctx.db.patch(id, { encryptedAccessToken, accessTokenExpiresAt: Date.now() + HOUR, gmail: { ...row!.gmail!, mailboxSlug: address } }),
+      );
+    }
+    // Each Gmail holds twenty matches, more than the whole limit.
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (!url.startsWith("https://gmail.googleapis.com/")) return await realFetch(input, init);
+      const parsed = new URL(url);
+      const who = String(new Headers(init?.headers).get("authorization")).replace(/^Bearer ya29\.fake-?/, "") || "first";
+      const json = (body: unknown) => new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
+      if (parsed.pathname === "/gmail/v1/users/me/messages") {
+        const wanted = Number(parsed.searchParams.get("maxResults") ?? 20);
+        return json({ messages: Array.from({ length: Math.min(20, wanted) }, (_, i) => ({ id: `${who.length}x${i}` })) });
+      }
+      const id = parsed.pathname.split("/").at(-1);
+      return json({ id, threadId: id, internalDate: "0", snippet: who, payload: { headers: [{ name: "Subject", value: who }] } });
+    });
+    const answer = await search(t, ACCESS_A, aliceWs, { outsideSync: false, limit: 9 });
+    const results = answer.results as Array<{ address: string }>;
+    const by = (address: string) => results.filter((result) => result.address === address).length;
+    expect(results).toHaveLength(9);
+    expect([by("alice@gmail.example"), by("alice.work@gmail.example"), by("alice.church@gmail.example")]).toEqual([3, 3, 3]);
   });
 
   test("an hour holds a bounded number of reads", async () => {
