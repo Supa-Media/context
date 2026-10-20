@@ -68,6 +68,13 @@ export async function runAgentEgressTextingChecks(check) {
       "a text after the ready text reaches a turn that knows Tex asked them to connect Google",
       afterReady.includes(TOLD.ready) && afterReady.includes(TOLD.setup) && afterReady.indexOf(TOLD.ready) < afterReady.lastIndexOf("Done"),
     );
+    model.install([{ text: "Great, send me the link for it." }]);
+    await request(env, TOKEN_TEXTS, "/agent", { question: "yes my work one", conversation: "texts", told: ["gmail_main"] });
+    const afterGmail = JSON.stringify(model.requests.at(-1) ?? {});
+    check(
+      "a reply to the Gmail-connected text reaches a turn that knows Tex asked about other Gmails",
+      afterGmail.includes(TOLD.gmail_main) && afterGmail.indexOf(TOLD.gmail_main) < afterGmail.lastIndexOf("yes my work one"),
+    );
     check(
       "only the gateway's own fixed lines are written, never a name it does not know",
       !afterReady.includes("../secret") && !afterReady.includes("made up"),

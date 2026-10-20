@@ -779,6 +779,24 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     marker: "the link the texting assistant sends a phone nobody has",
   },
   {
+    route: "/text",
+    file: "app/text.tsx",
+    reachable: false,
+    reason:
+      "Where somebody signed in on tex.lc lands: Tex's number to text, and the console under it. " +
+      "Reached from tex.lc's sign-up and sign-in, never from the app.",
+    marker: "tex.lc's page for somebody signed in",
+  },
+  {
+    route: "/add-gmail",
+    file: "app/(app)/add-gmail.tsx",
+    reachable: false,
+    reason:
+      "The link Tex texts for another Gmail. It exists in that text message; in the app the same " +
+      "connect is Settings › Connected apps.",
+    marker: "the link Tex texts for another Gmail",
+  },
+  {
     route: "/waitlist",
     file: "app/waitlist.tsx",
     reachable: false,

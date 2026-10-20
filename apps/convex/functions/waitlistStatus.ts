@@ -26,6 +26,7 @@ import type { Doc } from "../_generated/dataModel";
 import { mutation, query, type QueryCtx } from "../_generated/server";
 import { dedicatedTexLines, texLineFor } from "./lib/adminFns/texAllowlist";
 import { currentPhoneOf } from "./lib/emailProof";
+import { hasTextedTex } from "./texHome";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
 import { USE_FOR_MAX } from "./lib/waitlist";
 import { rowForReceipt } from "./lib/waitlistReceipt";
@@ -46,6 +47,8 @@ const statusValidator = v.union(
     useFor: v.union(v.string(), v.null()),
     /** On `admitted` only, and only when a line is configured for this person. */
     texLine: v.union(v.string(), v.null()),
+    /** On `admitted`: true until this person's phone first texts Tex, so Open Messages starts them with "hi". */
+    firstText: v.boolean(),
   }),
 );
 
@@ -56,11 +59,14 @@ export const status = query({
     const row = await rowForReceipt(ctx, args.receipt);
     if (row === null) return null;
     const admitted = row.status === "admitted";
+    const phone = admitted ? await phoneOf(ctx, row) : null;
+    const lines = dedicatedTexLines(process.env.TEX_LINE_NUMBERS);
     return {
       state: admitted ? ("admitted" as const) : ("waiting" as const),
       contact: contactOf(row),
       useFor: row.useFor ?? null,
-      texLine: admitted ? await texLineOf(ctx, row) : null,
+      texLine: phone === null || lines.length === 0 ? null : texLineFor(lines, phone),
+      firstText: phone === null ? true : !(await hasTextedTex(ctx, phone)),
     };
   },
 });
@@ -93,21 +99,17 @@ function contactOf(row: Doc<"waitlist">) {
 }
 
 /**
- * The line this person is told to text, or `null` when there is none to give.
- * A phone row's own phone; an address row's phone is the one the account that
- * proved the address holds, as `waitlistTex.texFacts` reads it.
+ * The phone this person texts Tex from, which picks their line: a phone row's
+ * own phone; an address row's phone is the one the account that proved the
+ * address holds, as `waitlistTex.texFacts` reads it.
  */
-async function texLineOf(ctx: QueryCtx, row: Doc<"waitlist">): Promise<string | null> {
-  const lines = dedicatedTexLines(process.env.TEX_LINE_NUMBERS);
-  if (lines.length === 0) return null;
-  let phone = row.phone ?? null;
-  if (phone === null && row.email !== undefined) {
-    const users = await ctx.db
-      .query("users")
-      .withIndex("by_email", (q) => q.eq("email", row.email))
-      .take(2);
-    const user = users.find((candidate) => candidate.emailVerificationTime !== undefined);
-    phone = user === undefined ? null : await currentPhoneOf(ctx, user);
-  }
-  return phone === null ? null : texLineFor(lines, phone);
+async function phoneOf(ctx: QueryCtx, row: Doc<"waitlist">): Promise<string | null> {
+  if (row.phone !== undefined) return row.phone;
+  if (row.email === undefined) return null;
+  const users = await ctx.db
+    .query("users")
+    .withIndex("by_email", (q) => q.eq("email", row.email))
+    .take(2);
+  const user = users.find((candidate) => candidate.emailVerificationTime !== undefined);
+  return user === undefined ? null : await currentPhoneOf(ctx, user);
 }

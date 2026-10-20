@@ -449,6 +449,8 @@ export interface GoogleTokenSet {
   googleAccountId: string;
   /** The `email` claim. What the person knows this account as. */
   address: string;
+  /** The `email_verified` claim: Google vouches the address is this account's. */
+  addressVerified: boolean;
   /** The scopes Google actually granted, verbatim — never assumed from what was requested. */
   scopes: string[];
 }
@@ -514,6 +516,7 @@ export async function exchangeGoogleCode(options: {
     expiresAt: expiryFromSeconds(body.expires_in, Date.now()),
     googleAccountId,
     address,
+    addressVerified: claims?.email_verified === true,
     scopes: grantedScopes,
   };
 }

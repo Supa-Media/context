@@ -530,6 +530,8 @@ describe("every route is reachable, or says why not", () => {
       */
       "/[handle]",
       "/[handle]/[...path]",
+      // The link Tex texts for another Gmail (2026-10-20).
+      "/add-gmail",
       "/admin",
       // The same console at one of its tabs; `/admin` redirects to it.
       "/admin/[...section]",
@@ -580,6 +582,8 @@ describe("every route is reachable, or says why not", () => {
       "/signin/[token]",
       "/stop-new-email",
       "/tex/[handle]",
+      // tex.lc's signed-in page (2026-10-20), reached from tex.lc only.
+      "/text",
       "/texts/[token]",
       "/vault/[token]",
       "/waitlist",

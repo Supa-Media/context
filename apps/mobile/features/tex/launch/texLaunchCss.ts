@@ -180,4 +180,25 @@ export const TEX_LAUNCH_CSS = `
 .tx-actions-near{margin-top:10px}
 .tx-panel-wide{flex:none;max-width:none;margin-top:12px}
 .tx-ink{color:var(--ink)}
+/* /text, signed in (tex-signup-gmail-artboards 01, 02): the number is the page, the console one row under it. */
+.tx-number-big{font-size:clamp(34px,4.4vw,52px);margin-top:-4px}
+.tx-fine{max-width:40em}
+.tx-fine strong,.tx-who strong{white-space:nowrap}
+.tx-console-row{margin-top:8px;padding-top:24px;border-top:1px solid var(--rule);display:flex;align-items:center;justify-content:space-between;gap:16px}
+.tx-console-row p{font-size:16px;line-height:1.5;color:var(--ink2)}
+.tx-console-row .tx-btn{width:auto}
+.tx-btn-compact{height:48px;padding:0 18px;font-size:16px;gap:8px}
+.tx-btn-line svg{color:var(--ink2)}
+/* The landing's join slot, signed in (03). */
+.tx-signed{margin-top:40px;display:flex;flex-direction:column;gap:12px;align-items:flex-start}
+.tx-who{display:inline-flex;align-items:center;gap:8px;font-size:15px;color:var(--ink2)}
+.tx-who strong{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+.tx-who svg{width:18px;height:18px;color:var(--blue);flex:none}
+.tx-close .tx-signed{align-items:center;margin-top:10px}
+@media (max-width:640px){
+  .tx-number-big{margin-top:0}
+  .tx-console-row{margin-top:16px;padding-top:16px;gap:12px}
+  .tx-console-row p{font-size:15px}
+  .tx-signed{margin-top:24px;align-items:stretch}
+}
 `;

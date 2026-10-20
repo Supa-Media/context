@@ -3,6 +3,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import { CONSOLE_ROUTE, LOGIN_ROUTE } from "../../auth/redirect";
 import { forgetReceipt, readReceipt } from "./receipt";
+import { messagesHref } from "./routes";
 import { TEX_TITLE, TexFooter, TexHeader, TexMark } from "./TexLanding.web";
 import { TEX_LAUNCH_CSS } from "./texLaunchCss";
 
@@ -50,7 +51,7 @@ export function TexStatus() {
   let body: React.ReactNode = null;
   if (receipt === null || status === null) body = <NotFound />;
   else if (status === undefined) body = null;
-  else if (status.state === "admitted") body = <Admitted line={status.texLine} />;
+  else if (status.state === "admitted") body = <Admitted line={status.texLine} firstText={status.firstText} />;
   else body = <Waiting receipt={receipt} contact={status.contact} useFor={status.useFor} />;
 
   return (
@@ -210,15 +211,35 @@ export function texVCard(line: string): string {
   return ["BEGIN:VCARD", "VERSION:3.0", "FN:Tex", "N:;Tex;;;", "ORG:Context", `TEL;TYPE=CELL:${line}`, "URL:https://tex.lc", "END:VCARD", ""].join("\r\n");
 }
 
-function Admitted({ line }: { line: string | null }) {
+/**
+ * Open Messages at Tex's line ("hi" typed for a first text) and Save Tex's
+ * contact, as `/waitlist`'s "You're in" and `/text` both draw them.
+ */
+export function TexLineActions({ line, firstText }: { line: string; firstText: boolean }) {
   const [card, setCard] = useState<string | null>(null);
   useEffect(() => {
-    if (line === null) return;
     const url = URL.createObjectURL(new Blob([texVCard(line)], { type: "text/vcard" }));
     setCard(url);
     return () => URL.revokeObjectURL(url);
   }, [line]);
+  return (
+    <div className="tx-actions tx-actions-near">
+      <a className="tx-btn" href={messagesHref(line, firstText)}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" />
+        </svg>
+        Open Messages
+      </a>
+      {card !== null ? (
+        <a className="tx-btn tx-btn-line" href={card} download="Tex.vcf">
+          Save Tex's contact
+        </a>
+      ) : null}
+    </div>
+  );
+}
 
+function Admitted({ line, firstText }: { line: string | null; firstText: boolean }) {
   return (
     <section className="tx-col tx-col-wide">
       <TexMark />
@@ -229,19 +250,7 @@ function Admitted({ line }: { line: string | null }) {
         <>
           <p className="tx-body">Text Tex at</p>
           <p className="tx-number">{readableLine(line)}</p>
-          <div className="tx-actions tx-actions-near">
-            <a className="tx-btn" href={`sms:${line}`}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" />
-              </svg>
-              Open Messages
-            </a>
-            {card !== null ? (
-              <a className="tx-btn tx-btn-line" href={card} download="Tex.vcf">
-                Save Tex's contact
-              </a>
-            ) : null}
-          </div>
+          <TexLineActions line={line} firstText={firstText} />
           <p className="tx-small tx-note-sm">
             Send anything to start, from the iPhone you signed up with. Tex is iMessage only right now; a green-bubble
             text gets a reply asking you to switch.

@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "expo-router";
+import { useConvexAuth, useQuery } from "convex/react";
+import { api } from "@context/convex/_generated/api";
 import { OTP_LENGTH } from "../../auth/CodeBoxes";
 import { landAfterSignIn } from "../../auth/landing";
 import {
@@ -10,11 +12,10 @@ import {
   DEFAULT_COUNTRY_ISO,
   type PhoneCountry,
 } from "../../auth/phoneCountries";
-import { CONSOLE_ROUTE } from "../../auth/redirect";
 import { usePhoneSignIn } from "../../auth/usePhoneSignIn";
 import { texJoinError } from "./joinError";
 import { readReceipt } from "./receipt";
-import { WAITLIST_ROUTE } from "./routes";
+import { TEXT_ROUTE, WAITLIST_ROUTE } from "./routes";
 
 /**
  * tex.lc's sign-up, drawn twice on the landing page (the hero and the
@@ -27,7 +28,10 @@ import { WAITLIST_ROUTE } from "./routes";
  *  - a number already on the list is told so in place, and goes to
  *    `/waitlist` only when this browser holds that row's receipt;
  *  - a number that is let in, or has an account, is texted a code here, and
- *    the code signs in on tex.lc and opens the console.
+ *    the code signs in on tex.lc and opens `/text`, "Text Tex." with the
+ *    console a button under it (Dev2, 2026-10-20), never the console itself;
+ *  - somebody already signed in is not asked for a number at all: the slot
+ *    says who they are signed in as and goes to `/text`.
  *
  * There is no email fallback: Tex is iMessage only, so a phone is the point.
  */
@@ -38,10 +42,42 @@ const CHEVRON = (
 );
 
 export function TexJoin({ id, labelled = true }: { id: string; labelled?: boolean }) {
+  const { isAuthenticated } = useConvexAuth();
+  return isAuthenticated ? <SignedIn /> : <JoinForm id={id} labelled={labelled} />;
+}
+
+function SignedIn() {
+  const home = useQuery(api.functions.texHome.mine, {});
+  const ending = home?.ending ?? null;
+  return (
+    <div className="tx-signed">
+      <p className="tx-who" role="status">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M5 12.5l4.5 4.5L19 7.5" />
+        </svg>
+        {ending === null ? (
+          <span>You're signed in.</span>
+        ) : (
+          <span>
+            You're signed in as <strong aria-label={`your number ending in ${ending}`}>•••• {ending}</strong>.
+          </span>
+        )}
+      </p>
+      <a className="tx-btn" href={TEXT_ROUTE}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" />
+        </svg>
+        Text Tex
+      </a>
+    </div>
+  );
+}
+
+function JoinForm({ id, labelled }: { id: string; labelled: boolean }) {
   const router = useRouter();
   const [unavailable, setUnavailable] = useState(false);
   const flow = usePhoneSignIn({
-    onSignedIn: () => landAfterSignIn(CONSOLE_ROUTE, (href) => router.replace(href as never)),
+    onSignedIn: () => landAfterSignIn(TEXT_ROUTE, (href) => router.replace(href as never)),
     onUnavailable: () => setUnavailable(true),
   });
   const [country, setCountry] = useState<PhoneCountry>(() => countryByIso(DEFAULT_COUNTRY_ISO));

@@ -143,9 +143,39 @@ A text sent before the notes are ready gets the gateway's 503
 `storage_unavailable`, which the Worker answers with "Your notes aren't ready
 for me yet…" (`COPY.noStorage`) rather than "Something went wrong on my side".
 
+**Gmail first, and the first Gmail is the main email** (Dev2, 2026-10-20:
+"we just go straight to asking them to add gmails, we should be clear that the
+first should a primary personal gmail and then use that email as the primary
+email and then we can ask them to add more"). The ready text asks for their
+personal Gmail, the one they check most. The one-time email gate an account a
+phone made meets (`gmailFirst/EmailGate.tsx`) leads with Connect Gmail, with
+"Type an email instead" for the mailed code as it was. When Google returns,
+`exchangeAndBind*` makes the address the account's main email before the
+binding lands (`signInEmails.adoptGoogleAddress`): Google's `email_verified`
+claim is the proof a mailed code would be, so nothing is mailed. Only the
+first address of an account with none, never one another account holds, and
+it never folds an account. Google's unverified-app warning is explained on
+the page, where it happens, not in the text.
+
+**Tex says so itself when that Gmail connects.** After the ready text the
+sender's inbox watches `POST /agent-texts/gmail` (`apps/agent/src/gmailWatch.ts`:
+every 30 seconds for half an hour, then every five minutes, for the day the
+link lives) and texts a fixed line naming the address, whether it is now the
+main email, and asking about other Gmails. Its answer is the next turn, which
+the gateway knows about by name (`told`: `gmail_main`, `gmail`). Another Gmail
+is `connect_google` kind gmail, which now opens `/add-gmail`, one Connect Gmail
+button that leaves the main email alone.
+
+**tex.lc signed in lands on `/text`, not the console** (Dev2, 2026-10-20):
+"Text Tex." with the number, and Open console one quiet row under it. Open
+Messages has "hi" typed for a phone that has never texted Tex (`texHome.mine`
+`firstText`: no texting link and no setup under way). The landing, signed in,
+swaps its number field for "You're signed in as •••• NNNN" and Text Tex.
+
 **Asking for a Gmail link again still goes through the app's sign-in.** A link
-the model sends (`connect_google`) asks for the phone number first and, for
-an account a phone made, the email once (`EmailCheckScreen`).
+the model sends (`connect_google`) asks for the phone number first if that
+browser is not signed in, and for an account a phone made, the Gmail-first
+gate.
 
 **Tex asks whether they pay for ChatGPT or Claude** (Dev2, 2026-10-18): the
 free plans can't connect to Context. And before any browser work it says what
@@ -155,8 +185,9 @@ Both live in the onboarding skill (`@context-lc ai/production/skills/onboarding.
 **Every Google link carries a heads-up about Google's warning** (Dev2,
 2026-10-18). Until Google verifies the app, its consent screen says it hasn't
 verified Context and calls going on unsafe. Met cold, that reads as a scam and
-people stop; so the ready text (`READY_COPY.ready`), `connect_google`'s answer
-and the skill all say it's expected and to tap Advanced, then Go to Context.
+people stop; so the Gmail page under its button (since 2026-10-20, in place of
+the ready text), `connect_google`'s answer and the skill all say it's expected
+and to tap Advanced, then Go to Context.
 
 Tests: `apps/convex/__tests__/textSetup.test.ts` ("an account that already
 owns a personal workspace is never set up or linked by a text", "sets up that
@@ -166,4 +197,7 @@ bucket that is not our own, or one not seen empty") and
 Worker", "texts no link but the console's"), `apps/convex/__tests__/textSignIn.test.ts`
 (the link waits for ready storage, opens once, signs in no other phone, and
 expires) and `apps/agent/src/ready.test.ts` (the ready text goes once, never
-with a link that is not https). Each file's header records the sabotage runs.
+with a link that is not https), `apps/agent/src/gmailWatch.test.ts` (the
+Gmail text goes once, only after it connects, never with something that is
+not one address) and `apps/convex/__tests__/texHome.test.ts` (the first Gmail
+becomes the main email and no other, never folds an account). Each file's header records the sabotage runs.

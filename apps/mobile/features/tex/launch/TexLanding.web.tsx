@@ -1,9 +1,10 @@
 import { useEffect } from "react";
+import { useConvexAuth } from "convex/react";
 import { Tex } from "../../chaos/Tex";
 import { captureLanding } from "../../auth/landingPage";
-import { LOGIN_ROUTE } from "../../auth/redirect";
+import { CONSOLE_ROUTE, LOGIN_ROUTE } from "../../auth/redirect";
 import { readReceipt } from "./receipt";
-import { WAITLIST_ROUTE } from "./routes";
+import { TEXT_ROUTE, WAITLIST_ROUTE } from "./routes";
 import { TexJoin } from "./TexJoin.web";
 import { TEX_LAUNCH_CSS } from "./texLaunchCss";
 
@@ -77,15 +78,18 @@ export function TexLanding() {
     // The waitlist row records which page it was joined from.
     captureLanding("tex");
   }, []);
-  // A browser holding a place in line is shown the way back to it.
+  // A browser holding a place in line is shown the way back to it; somebody
+  // signed in, the console. Signing in here comes back to `/text`.
   const listed = readReceipt() !== null;
+  const { isAuthenticated: signedIn } = useConvexAuth();
+  const signIn = `${LOGIN_ROUTE}?next=${encodeURIComponent(TEXT_ROUTE)}`;
   return (
     <div className="tx" data-landing="tex">
       <style>{TEX_LAUNCH_CSS}</style>
       <TexHeader
         right={
-          <a className="tx-pill" href={listed ? WAITLIST_ROUTE : LOGIN_ROUTE}>
-            {listed ? "Your spot" : "Sign in"}
+          <a className="tx-pill" href={signedIn ? CONSOLE_ROUTE : listed ? WAITLIST_ROUTE : signIn}>
+            {signedIn ? "Open console" : listed ? "Your spot" : "Sign in"}
           </a>
         }
       />
@@ -98,9 +102,11 @@ export function TexLanding() {
             matters. It always asks before it sends an email or changes your calendar.
           </p>
           <TexJoin id="tx-hero" />
-          <p className="tx-small tx-after">
-            Invite only for now. We'll text you when it's your turn. Already let in? <a className="tx-link" href={LOGIN_ROUTE}>Sign in</a>.
-          </p>
+          {signedIn ? null : (
+            <p className="tx-small tx-after">
+              Invite only for now. We'll text you when it's your turn. Already let in? <a className="tx-link" href={signIn}>Sign in</a>.
+            </p>
+          )}
         </section>
         <section className="tx-chat" aria-label="An example conversation with Tex">
           <div className="tx-chat-top">
@@ -246,9 +252,11 @@ export function TexLanding() {
       <section className="tx-wrap tx-section tx-close" aria-label="Get on the list">
         <h2 className="tx-h2">Leave your number. We'll text you when it's your turn.</h2>
         <TexJoin id="tx-close" labelled={false} />
-        <p className="tx-small">
-          Invite only for now · iMessage only. Already let in? <a className="tx-link" href={LOGIN_ROUTE}>Sign in</a>.
-        </p>
+        {signedIn ? null : (
+          <p className="tx-small">
+            Invite only for now · iMessage only. Already let in? <a className="tx-link" href={signIn}>Sign in</a>.
+          </p>
+        )}
       </section>
 
       <TexFooter />

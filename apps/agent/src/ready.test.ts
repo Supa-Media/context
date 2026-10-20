@@ -12,6 +12,7 @@ import {
   type ReadyDeps,
 } from "./ready";
 import { owedTold } from "./told";
+import { GMAIL_KEY } from "./gmailWatch";
 
 /**
  * THE TEXT TEX OWES SOMEBODY SET UP BY TEXT, ONCE THEIR NOTES ARE READY
@@ -45,6 +46,12 @@ function deps(opts: { ready: () => unknown; status?: () => number; linqStatus?: 
 }
 
 describe("the ready text", () => {
+  it("asks for their personal Gmail, which becomes their main email (Dev2, 2026-10-20)", () => {
+    expect(READY_COPY.ready).toContain("personal Gmail");
+    expect(READY_COPY.ready).toContain("main email");
+    expect(READY_COPY.ready).not.toContain("asks for an email");
+  });
+
   it("waits for the first look, then asks until the notes are ready, and texts the line and the link once", async () => {
     const storage = new MemoryStorage();
     let now = 1_000;
@@ -74,6 +81,8 @@ describe("the ready text", () => {
     expect(await storage.get(READY_KEY)).toBeUndefined();
     // The next turn's history is owed it, by name only: no link is kept (`told.ts`).
     expect(await owedTold(storage)).toEqual(["ready"]);
+    // And the Gmail it asked for is watched from now (`gmailWatch.ts`).
+    expect(await storage.get(GMAIL_KEY)).toMatchObject({ phone: PHONE, chatId: "chat_1", since: now });
 
     now += READY_EVERY_MS;
     await checkReady(storage, d);
@@ -111,6 +120,8 @@ describe("the ready text", () => {
     expect(sent.map((s) => s.text)).toEqual([READY_COPY.late]);
     expect(await storage.get(READY_KEY)).toBeUndefined();
     expect(await owedTold(storage)).toEqual(["ready_late"]);
+    // No link went, so there is no Gmail to watch for.
+    expect(await storage.get(GMAIL_KEY)).toBeUndefined();
   });
 
   it("keeps waiting through a control plane that is down", async () => {

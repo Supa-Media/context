@@ -7,7 +7,8 @@
  * that text. The sender's inbox remembers that it owes one (`READY_KEY`) and
  * its alarm asks the control plane every `READY_EVERY_MS` until the notes are
  * ready, then texts the chat they set up from: a fixed line and a link that
- * signs them in and opens Google's connect card (`textSignIn.ts` in Convex).
+ * signs them in and asks for their personal Gmail (`textSignIn.ts` in Convex),
+ * then watches for it to connect (`gmailWatch.ts`).
  *
  * No model writes this text or sees the link, and nothing else is kept: the
  * phone (this object is already named after it), the chat id, and times.
@@ -19,6 +20,7 @@ import type { InboxStorage } from "./inbox";
 import { lineFor, type LineDeps } from "./line";
 import { record } from "./simulator";
 import { noteTold } from "./told";
+import { watchForGmail } from "./gmailWatch";
 
 export const READY_KEY = "ready";
 /** The first look, about when a new bucket usually answers. */
@@ -28,8 +30,10 @@ export const READY_EVERY_MS = 30_000;
 export const READY_GIVE_UP_MS = 20 * 60_000;
 
 export const READY_COPY = {
+  // Gmail first, a personal one, which becomes their main email (Dev2, 2026-10-20).
+  // Google's unverified-app warning is explained on the page, where it happens.
   ready:
-    "You're good to go! Want to connect your Google, so I can get to know you from your email? Open the link below. It signs you in and asks for an email to protect your account, then tap Connect Google. Google will say it hasn't verified Context yet. That's expected: tap Advanced, then Go to Context. Text me when it's done.",
+    "You're good to go! Next, connect your personal Gmail, the one you check most. It becomes your main email on Context, and I'll get to know you from it. Open the link below and tap Connect Gmail.",
   late: "Your notes are taking longer than usual to set up. Text me in a few minutes and we'll pick up from there.",
 };
 
@@ -101,6 +105,10 @@ export async function checkReady(storage: InboxStorage, deps: ReadyDeps): Promis
   // The next turn's history is owed this text, by name (`told.ts`).
   await noteTold(storage, answer.status === "ready" ? "ready" : "ready_late");
   await storage.delete(READY_KEY);
+  // The Gmail it asked for is texted about when it connects (`gmailWatch.ts`).
+  if (answer.status === "ready") {
+    await watchForGmail(storage, { phone: owed.phone, chatId: owed.chatId, ...(owed.channel ? { channel: owed.channel } : {}) }, now);
+  }
 }
 
 type ReadyAnswer = { status: "ready"; url: string } | { status: "waiting" } | { status: "gone" };

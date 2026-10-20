@@ -269,6 +269,9 @@ export async function gatewayWorkspacesInviteHandler(ctx: ActionCtx, body: Recor
  *
  * Owner of a personal workspace only, as `startGmailConnect` requires.
  */
+/** The app's page for connecting a Gmail (`apps/mobile/app/(app)/add-gmail.tsx`). */
+export const ADD_GMAIL_ROUTE = "/add-gmail";
+
 export async function gatewayWorkspacesConnectGoogleHandler(
   ctx: ActionCtx,
   body: Record<string, unknown>,
@@ -294,5 +297,8 @@ export async function gatewayWorkspacesConnectGoogleHandler(
   }
   const origin = httpsAppOrigin();
   if (origin === null) return json({ google: null });
-  return json({ google: { ok: true, url: `${origin}${integrationsSettingsPath(entry.slug)}` } });
+  // Gmail has its own one-button page, worded for a person's next Gmail
+  // (Dev2, 2026-10-20); Calendar keeps Connected apps.
+  const path = kind === "gmail" ? ADD_GMAIL_ROUTE : integrationsSettingsPath(entry.slug);
+  return json({ google: { ok: true, url: `${origin}${path}` } });
 }

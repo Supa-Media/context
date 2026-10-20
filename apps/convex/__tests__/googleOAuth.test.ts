@@ -329,6 +329,26 @@ describe("exchanging a code", () => {
     expect(calls[0]!.body.get("client_secret")).toBe(FAKE_CLIENT_SECRET);
   });
 
+  test("only an id token whose email_verified is true vouches for the address (Gmail first, 2026-10-20)", async () => {
+    for (const [claim, verified] of [[true, true], ["true", false], [false, false], [undefined, false]] as const) {
+      const { impl } = stubFetch(200, {
+        access_token: FAKE_ACCESS_TOKEN,
+        refresh_token: FAKE_REFRESH_TOKEN,
+        expires_in: 3599,
+        id_token: fakeIdToken({ sub: FAKE_GOOGLE_ACCOUNT_ID, email: FAKE_ADDRESS, ...(claim === undefined ? {} : { email_verified: claim }) }),
+        scope: GMAIL_REQUEST_SCOPES.join(" "),
+      });
+      const result = await exchangeGoogleCode({
+        clientId: FAKE_CLIENT_ID,
+        code: FAKE_CODE,
+        verifier: FAKE_VERIFIER,
+        redirectUri: FAKE_REDIRECT_URI,
+        fetchImpl: impl,
+      });
+      expect(result.addressVerified).toBe(verified);
+    }
+  });
+
   test("an omitted client secret is simply not sent — PKCE alone still works", async () => {
     const { impl, calls } = stubFetch(200, {
       access_token: FAKE_ACCESS_TOKEN,

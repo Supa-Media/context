@@ -117,6 +117,7 @@ describe("the status page", () => {
       contact: { kind: "phone", ending: "0142" },
       useFor: null,
       texLine: null,
+      firstText: true,
     });
   });
 
@@ -138,7 +139,16 @@ describe("the status page", () => {
     const { receipt } = await join(t, PHONE);
     const as = await staff(t);
     await as.mutation(api.functions.admin.admitWaitlist, { ids: [(await rowOf(t, PHONE))!._id] });
-    expect(await status(t, receipt!)).toMatchObject({ state: "admitted", texLine: LINE });
+    expect(await status(t, receipt!)).toMatchObject({ state: "admitted", texLine: LINE, firstText: true });
+  });
+
+  test("once the phone has texted Tex, Open Messages no longer starts them with hi", async () => {
+    const t = setupTest();
+    const { receipt } = await join(t, PHONE);
+    const as = await staff(t);
+    await as.mutation(api.functions.admin.admitWaitlist, { ids: [(await rowOf(t, PHONE))!._id] });
+    await t.run((ctx) => ctx.db.insert("textSetups", { stage: "asked", phone: PHONE, at: 1 }));
+    expect(await status(t, receipt!)).toMatchObject({ state: "admitted", texLine: LINE, firstText: false });
   });
 
   test("let in with no Tex line configured says admitted and names no number", async () => {
