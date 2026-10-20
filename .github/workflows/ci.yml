@@ -110,7 +110,57 @@ jobs:
           - '.github/workflows/ci.yml'
         convex:
           - 'apps/convex/**'
-          - 'apps/mcp/**'
+          # Not all of apps/mcp: only the gateway files Convex code and tests
+          # reach (`node scripts/convex-gateway-reads.mjs --filter` prints this
+          # list; check-ci-path-gates.mjs fails when it stops covering them).
+          # A texting-assistant change under apps/mcp/src/agent reaches none,
+          # so it no longer waits four minutes on this suite; the tests that
+          # read the whole gateway run in Gateway Contracts instead.
+          - 'apps/mcp/src/activity/**'
+          - 'apps/mcp/src/chaos/**'
+          - 'apps/mcp/src/communications/**'
+          - 'apps/mcp/src/context/**'
+          - 'apps/mcp/src/controlPlane.js'
+          - 'apps/mcp/src/controlPlane/**'
+          - 'apps/mcp/src/crypto/**'
+          - 'apps/mcp/src/encryption.js'
+          - 'apps/mcp/src/encryption/**'
+          - 'apps/mcp/src/forms.js'
+          - 'apps/mcp/src/forms/**'
+          - 'apps/mcp/src/forwarding.js'
+          - 'apps/mcp/src/history/**'
+          - 'apps/mcp/src/http/**'
+          - 'apps/mcp/src/links.js'
+          - 'apps/mcp/src/lists.js'
+          - 'apps/mcp/src/lists/**'
+          - 'apps/mcp/src/live/**'
+          - 'apps/mcp/src/moves/**'
+          - 'apps/mcp/src/notes/**'
+          - 'apps/mcp/src/plugins/**'
+          - 'apps/mcp/src/presence.js'
+          - 'apps/mcp/src/privacy/**'
+          - 'apps/mcp/src/search/**'
+          - 'apps/mcp/src/session.js'
+          - 'apps/mcp/src/sessionStore.js'
+          - 'apps/mcp/src/storageLayout.js'
+          - 'apps/mcp/src/store/**'
+          - 'apps/mcp/src/tools/approvalKeys.js'
+          - 'apps/mcp/src/tools/moves/archive.js'
+          - 'apps/mcp/src/tools/moves/destination.js'
+          - 'apps/mcp/src/tools/moves/folder.js'
+          - 'apps/mcp/src/tools/moves/note.js'
+          - 'apps/mcp/src/tools/moves/notes.js'
+          - 'apps/mcp/src/tools/moves/queuedFolder.js'
+          - 'apps/mcp/src/tools/moves/references.js'
+          - 'apps/mcp/src/tools/notes/write.js'
+          - 'apps/mcp/src/tools/readImage.js'
+          - 'apps/mcp/src/tools/results.js'
+          - 'apps/mcp/src/tools/search.js'
+          - 'apps/mcp/src/tools/visibility.js'
+          - 'apps/mcp/src/tree/**'
+          - 'apps/mcp/src/vault/**'
+          - 'apps/mcp/src/workspacePath.js'
+          - 'apps/mcp/test/attachmentsCore.test.mjs'
           - 'packages/**'
           - 'infra/**'
           - 'plugins/context/**'
@@ -608,8 +658,54 @@ jobs:
           # packages/** too: Convex reaches packages/communications and
           # packages/meetings by relative path, not as declared dependencies,
           # and this is now the only place the deploy typecheck runs.
+          # The gateway files Convex reaches, as in the convex filter above;
+          # check-ci-path-gates.mjs holds both lists to the same derivation.
           paths: |
-            apps/mcp/**
+            apps/mcp/src/activity/**
+            apps/mcp/src/chaos/**
+            apps/mcp/src/communications/**
+            apps/mcp/src/context/**
+            apps/mcp/src/controlPlane.js
+            apps/mcp/src/controlPlane/**
+            apps/mcp/src/crypto/**
+            apps/mcp/src/encryption.js
+            apps/mcp/src/encryption/**
+            apps/mcp/src/forms.js
+            apps/mcp/src/forms/**
+            apps/mcp/src/forwarding.js
+            apps/mcp/src/history/**
+            apps/mcp/src/http/**
+            apps/mcp/src/links.js
+            apps/mcp/src/lists.js
+            apps/mcp/src/lists/**
+            apps/mcp/src/live/**
+            apps/mcp/src/moves/**
+            apps/mcp/src/notes/**
+            apps/mcp/src/plugins/**
+            apps/mcp/src/presence.js
+            apps/mcp/src/privacy/**
+            apps/mcp/src/search/**
+            apps/mcp/src/session.js
+            apps/mcp/src/sessionStore.js
+            apps/mcp/src/storageLayout.js
+            apps/mcp/src/store/**
+            apps/mcp/src/tools/approvalKeys.js
+            apps/mcp/src/tools/moves/archive.js
+            apps/mcp/src/tools/moves/destination.js
+            apps/mcp/src/tools/moves/folder.js
+            apps/mcp/src/tools/moves/note.js
+            apps/mcp/src/tools/moves/notes.js
+            apps/mcp/src/tools/moves/queuedFolder.js
+            apps/mcp/src/tools/moves/references.js
+            apps/mcp/src/tools/notes/write.js
+            apps/mcp/src/tools/readImage.js
+            apps/mcp/src/tools/results.js
+            apps/mcp/src/tools/search.js
+            apps/mcp/src/tools/visibility.js
+            apps/mcp/src/tree/**
+            apps/mcp/src/vault/**
+            apps/mcp/src/workspacePath.js
+            apps/mcp/test/attachmentsCore.test.mjs
             packages/**
             .github/workflows/ci.yml
 

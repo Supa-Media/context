@@ -13,6 +13,7 @@
 import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { convexGatewayReads } from "./convex-gateway-reads.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const INFRA_PATHS = [".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "patches/**"];
@@ -485,9 +486,15 @@ export function check(root = ROOT) {
   // Contracts keeps only its detector. So ci.yml's convex filter must watch
   // everything that suite reads from outside apps/convex, or a gateway-only
   // pull request skips the very checks Gateway Contracts was written for.
+  // Of the gateway, that is the files Convex reaches (2026-10-20: all of
+  // apps/mcp ran four minutes of this suite on every texting-assistant fix);
+  // the tests that read the gateway whole run in Gateway Contracts.
   const convexFilter = changeFilter(ci, "convex");
+  const typecheckScope = scopePaths(ci, "convex-deploy-typecheck");
+  const { files: gatewayReads } = convexGatewayReads(root);
   for (const path of [
-    ...workspacePaths(["@context/mcp", "@context/convex"], root),
+    ...workspacePaths(["@context/convex"], root),
+    ...gatewayReads,
     ".github/workflows/deploy-convex.yml",
     ...INFRA_PATHS,
   ]) {
@@ -495,8 +502,17 @@ export function check(root = ROOT) {
     // `packages/collaboration/**`.
     const sample = path.endsWith("/**") ? `${path.slice(0, -3)}/sample.ts` : path;
     if (![...convexFilter].some((pattern) => matches(sample, pattern))) {
-      throw new Error(`ci.yml's convex filter does not watch ${path}`);
+      throw new Error(`ci.yml's convex filter does not watch ${path} (node scripts/convex-gateway-reads.mjs --filter prints the gateway list)`);
     }
+  }
+  for (const path of gatewayReads) {
+    if (![...typecheckScope].some((pattern) => matches(path, pattern))) {
+      throw new Error(`convex-deploy-typecheck does not watch ${path}, which Convex reaches`);
+    }
+  }
+  const contracts = readFileSync(join(root, ".github/workflows/gateway-contracts.yml"), "utf8");
+  if (!contracts.includes("node scripts/convex-gateway-reads.mjs --scanner-tests")) {
+    throw new Error("Gateway Contracts no longer runs the Convex tests that read the whole gateway");
   }
 
   // The browser run is daily and on demand (Dev2, 2026-10-07), and the

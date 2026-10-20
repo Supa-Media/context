@@ -97,7 +97,7 @@ jobs:
   contracts:
     name: Gateway contracts
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
 
@@ -109,6 +109,8 @@ jobs:
             @context/convex
           paths: |
             .github/workflows/gateway-contracts.yml
+            scripts/convex-gateway-reads.mjs
+            scripts/deploy-plan.mjs
 
       # The detector self-tests, and fails when it finds nothing. A scan that
       # matches no files is not a pass — it is this job quietly becoming
@@ -131,3 +133,36 @@ jobs:
             exit 1
           fi
           echo "$found contract tests listed."
+
+      # The Convex tests that read the gateway whole. `ci / Test Convex
+      # Backend` watches only the gateway files Convex reaches
+      # (scripts/convex-gateway-reads.mjs), so a change elsewhere in the
+      # gateway, the texting assistant's agent/ above all, no longer runs that
+      # four-minute suite. These few still read every module under
+      # apps/mcp/src (the privacy engine is declared once; privacy state is
+      # read only through its accessors), so they run here on any gateway
+      # change, in seconds. The script derives the list and refuses an empty
+      # one in its self-test.
+      - uses: actions/setup-node@v5
+        if: steps.scope.outputs.affected == 'true'
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - uses: pnpm/action-setup@v4
+        if: steps.scope.outputs.affected == 'true'
+
+      - name: Install the control plane
+        if: steps.scope.outputs.affected == 'true'
+        run: pnpm install --filter "@context/convex..." --frozen-lockfile
+
+      - name: The Convex tests that read the whole gateway pass
+        if: steps.scope.outputs.affected == 'true'
+        run: |
+          node scripts/convex-gateway-reads.mjs --self-test
+          mapfile -t tests < <(node scripts/convex-gateway-reads.mjs --scanner-tests)
+          if [ "${#tests[@]}" -lt 2 ]; then
+            echo "The scanner list has ${#tests[@]} tests, so it did not run."
+            exit 1
+          fi
+          cd apps/convex && pnpm exec vitest run "${tests[@]}"
