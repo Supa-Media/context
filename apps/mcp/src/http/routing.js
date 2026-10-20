@@ -79,12 +79,13 @@ export function attachLinkCalls(store, session, controlPlane, env) {
     configurable: true,
   });
   // Setting a workspace up (`tools/workspaces.js`): created as this person,
-  // laid out or connected in this context. The control plane clears each.
+  // laid out, connected or invited into in this context. The control plane clears each.
   Object.defineProperty(store, "workspaceSetup", {
     value: {
       create: (request) => controlPlane.createWorkspace(session.accessToken, session.workspaceId, request),
       layout: (request) => controlPlane.layoutWorkspace(session.accessToken, session.workspaceId, request),
       connectGoogle: (kind) => controlPlane.connectGoogle(session.accessToken, session.workspaceId, kind),
+      invite: (invitations) => controlPlane.inviteToWorkspace(session.accessToken, session.workspaceId, invitations),
     },
     enumerable: false,
     writable: false,

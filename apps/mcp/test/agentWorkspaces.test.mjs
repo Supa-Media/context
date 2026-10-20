@@ -14,6 +14,8 @@
  *     → "a turn is told the workspaces it can write in" fails
  *   `describe` leaving out "read only"
  *     → "names each workspace, its kind, and the default" fails
+ *   `workspacesPrompt` saying nothing for one workspace
+ *     → "one workspace ... is still offered a shared one" fails
  */
 
 import assert from "node:assert/strict";
@@ -54,9 +56,20 @@ test("a workspace they can only read says so", () => {
   assert.match(prompt, /@club \(shared, read only\)/);
 });
 
-test("one workspace is no choice, and says nothing", () => {
-  assert.equal(workspacesPrompt([{ name: "@ada", kind: "personal", role: "owner", current: true, canWrite: true }]), "");
+test("one workspace is no choice of where to write, but is still offered a shared one", () => {
+  const prompt = workspacesPrompt([{ name: "@ada", kind: "personal", role: "owner", current: true, canWrite: true }]);
+  assert.doesNotMatch(prompt, /They can reach these workspaces/);
+  assert.match(prompt, /done with at least one other person/);
   assert.equal(workspacesPrompt(null), "");
+});
+
+test("work with another person is offered a shared workspace, made and invited under one yes", () => {
+  const prompt = workspacesPrompt(contextsFor(session));
+  assert.match(prompt, /a business, a ministry, a nonprofit/);
+  assert.match(prompt, /create_workspace with slug, name and invite: \[\{ who \}\]/);
+  assert.match(prompt, /Never create a workspace or invite anyone without that yes/);
+  assert.match(prompt, /if they say no, remember that/);
+  assert.match(prompt, /manage action invite and context: "@name"/);
 });
 
 test("a long list is capped and points at orient", () => {

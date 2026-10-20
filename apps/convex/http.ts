@@ -881,9 +881,11 @@ http.route({ path: "/gateway/links/revoke", method: "POST", handler: gatewayLink
 export const gatewayWorkspacesCreate = gatewayRoute(workspaceRoutes.gatewayWorkspacesCreateHandler);
 export const gatewayWorkspacesLayout = gatewayRoute(workspaceRoutes.gatewayWorkspacesLayoutHandler);
 export const gatewayWorkspacesConnectGoogle = gatewayRoute(workspaceRoutes.gatewayWorkspacesConnectGoogleHandler);
+export const gatewayWorkspacesInvite = gatewayRoute(workspaceRoutes.gatewayWorkspacesInviteHandler);
 http.route({ path: "/gateway/workspaces/create", method: "POST", handler: gatewayWorkspacesCreate });
 http.route({ path: "/gateway/workspaces/layout", method: "POST", handler: gatewayWorkspacesLayout });
 http.route({ path: "/gateway/workspaces/connect-google", method: "POST", handler: gatewayWorkspacesConnectGoogle });
+http.route({ path: "/gateway/workspaces/invite", method: "POST", handler: gatewayWorkspacesInvite });
 /* Tex's dream now, for the owner's own agent (`lib/dreams/now.ts`). */
 export const gatewayDreamsStart = gatewayRoute(dreams.gatewayDreamsStartHandler);
 http.route({ path: "/gateway/dreams/start", method: "POST", handler: gatewayDreamsStart });

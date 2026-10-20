@@ -19,6 +19,7 @@ const PAST = {
   change: "changed",
   claim: "claimed",
   fetch: "fetched",
+  invite: "invited",
   let: "let",
   make: "made",
   move: "moved",

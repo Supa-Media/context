@@ -64,14 +64,17 @@ export const RECIPIENT_MAIL_LIMIT = 10;
  * The invitation module's own source, read the way `structure.test.ts` reads
  * every module: the "scheduled, not called" property is a property of the
  * *text*, and no runtime assertion can tell the two apart after the fact.
+ * `inviteMember`'s body lives in `lib/invitations/invite.ts` (shared with an
+ * agent's invite since 2026-10-20), so both files are read as one.
  */
-export const INVITATIONS_SOURCE = (
-  import.meta.glob("../../functions/invitations.ts", {
-    query: "?raw",
-    import: "default",
-    eager: true,
-  }) as Record<string, string>
-)["../../functions/invitations.ts"];
+const INVITATION_FILES = import.meta.glob(
+  ["../../functions/invitations.ts", "../../functions/lib/invitations/invite.ts"],
+  { query: "?raw", import: "default", eager: true },
+) as Record<string, string>;
+export const INVITATIONS_SOURCE = [
+  INVITATION_FILES["../../functions/invitations.ts"],
+  INVITATION_FILES["../../functions/lib/invitations/invite.ts"],
+].join("\n");
 
 /** Obviously fake. This repository is public and no real key may appear in it. */
 export const FAKE_RESEND_KEY = "re_not_a_real_key_000000000000";

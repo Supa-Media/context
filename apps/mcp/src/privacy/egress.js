@@ -169,6 +169,7 @@ export function mightWiden(name, args, { into = null, writes } = {}) {
     case "move_folder":
       return a.confirm_team_publish === true;
     case "create_workspace":
+    case "invite_member":
       return true;
     default:
       return false;

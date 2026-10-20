@@ -1,7 +1,8 @@
 /**
  * `POST /gateway/workspaces/*`: setting a workspace up through an agent — a
- * new shared workspace, its starting layout or one built-in folder, and the
- * page where the person connects Google (decided by Dev2, 2026-10-17;
+ * new shared workspace, its starting layout or one built-in folder, the page
+ * where the person connects Google (decided by Dev2, 2026-10-17), and
+ * inviting people into a shared one (the owner, 2026-10-20;
  * `docs/decisions/gateway-protocol/workspace-setup.md`).
  *
  * The two proofs every gateway route spends: the gateway secret (checked by
@@ -36,6 +37,30 @@ const SCOPE_PRIVATE = "context:private";
 
 /** The longest display name the route forwards; the handler applies the real rule. */
 const MAX_NAME_FIELD = 200;
+/** The longest invitee string the route forwards; `parseInvitee` applies the real rule. */
+const MAX_INVITEE_FIELD = 320;
+
+type Invitation = { invitee: string; role: "editor" | "member" };
+
+/**
+ * `invitations` as the body carries it, or null when it is not a list of
+ * `{ invitee, role }` with an editor or member role. Absent is an empty list.
+ * The count is the mutation's to refuse, in words.
+ */
+function invitationsField(body: Record<string, unknown>): Invitation[] | null {
+  const raw = body.invitations;
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw) || raw.length > 50) return null;
+  const out: Invitation[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") return null;
+    const { invitee, role } = entry as Record<string, unknown>;
+    if (typeof invitee !== "string" || invitee.trim() === "" || invitee.length > MAX_INVITEE_FIELD) return null;
+    if (role !== "editor" && role !== "member") return null;
+    out.push({ invitee: invitee.trim(), role });
+  }
+  return out;
+}
 
 type Covered = {
   workspaceId: string;
@@ -103,14 +128,19 @@ export async function gatewayWorkspacesCreateHandler(ctx: ActionCtx, body: Recor
   if (name === null || name.length > MAX_NAME_FIELD) {
     return json({ workspace: { ok: false, message: "Give the workspace a name to show, as well as its handle." } });
   }
+  const invitations = invitationsField(body);
+  if (invitations === null) return json({ workspace: null });
   try {
     const created = await ctx.runMutation(internal.functions.gatewayWorkspaces.createShared, {
       actorUserId: cleared.actorUserId,
       actorClientId: cleared.clientId,
       slug,
       displayName: name,
+      ...(invitations.length > 0 ? { invitations } : {}),
     });
-    return json({ workspace: { ok: true, slug: created.slug, storage: created.storage } });
+    return json({
+      workspace: { ok: true, slug: created.slug, storage: created.storage, ...(invitations.length > 0 ? { invited: invitations.length } : {}) },
+    });
   } catch (error) {
     return json({ workspace: refusal(error) });
   }
@@ -187,6 +217,38 @@ async function giveJobHandler(ctx: ActionCtx, body: Record<string, unknown>): Pr
     return json({ layout: { ok: true, job, folders: path === null ? [] : [path] } });
   } catch (error) {
     return json({ layout: refusal(toConvexError(error)) });
+  }
+}
+
+/**
+ * `/gateway/workspaces/invite` — invite people into the shared workspace the
+ * call addressed, as its owner, through the app's own handler. A personal
+ * workspace is refused: it is one person's, and an agent never opens it to
+ * somebody else. The answer is the same `{ ok: true, invited }` whoever the
+ * strings name, as `inviteMember` returns `null` for all of them.
+ */
+export async function gatewayWorkspacesInviteHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
+  const invitations = invitationsField(body);
+  if (invitations === null || invitations.length === 0) return json({ invite: null });
+  const cleared = await clear(ctx, body);
+  if (cleared === null) return json({ invite: null });
+  const { entry } = cleared;
+  if (entry.kind !== "shared") {
+    return json({ invite: { ok: false, message: "People are invited into a shared workspace; a personal one stays yours." } });
+  }
+  if (entry.role !== "owner") {
+    return json({ invite: { ok: false, message: "Only an owner of this workspace can invite people into it." } });
+  }
+  try {
+    await ctx.runMutation(internal.functions.gatewayWorkspaces.invite, {
+      actorUserId: cleared.actorUserId,
+      actorClientId: cleared.clientId,
+      workspaceId: entry.workspaceId as Id<"workspaces">,
+      invitations,
+    });
+    return json({ invite: { ok: true, invited: invitations.length } });
+  } catch (error) {
+    return json({ invite: refusal(error) });
   }
 }
 

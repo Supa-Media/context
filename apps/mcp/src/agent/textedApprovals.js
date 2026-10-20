@@ -9,8 +9,22 @@ import { EMAIL_TOOL } from "../tools/email.js";
 import { CALENDAR_TOOL } from "../tools/calendarWrite.js";
 import { REPORT_TOOL } from "../tools/reportProblem.js";
 import { doneLine } from "./doneLine.js";
+import { canonicalToolName } from "../tools/advertised.js";
 import { withoutHeldEcho } from "./heldEcho.js";
 import { armForText, disarmRecords, listPending, replayAsAsked, settlePending, withdrawPending } from "../tools/approvals.js";
+
+/*
+  What a texted yes to a new workspace leads to (the owner, 2026-10-20). No
+  model runs on the yes, so the turn that would lay the workspace out and move
+  the notes about it there never happens unless the reply offers it; the next
+  "yes" then goes to the model, with this line in the conversation.
+*/
+const NEXT_AFTER_CREATE = "Want me to set up its folders and move your notes about it there?";
+
+/** The lines a released call's done line is followed by. */
+function afterYes(tool) {
+  return canonicalToolName(tool) === "create_workspace" ? [NEXT_AFTER_CREATE] : [];
+}
 
 /** A text that is nothing but yes, or nothing but no; anything else goes to the model. */
 const YES = /^\s*(?:yes|yes please|yep|yeah|yup|ok|okay|sure|do it|go ahead|go for it|confirm|confirmed|approve|approved|allow|y)\s*[.!]*\s*$/i;
@@ -179,7 +193,8 @@ export async function settleByText(store, session, verdict, texted = "") {
     // written: projects/x.md (etag c2.doc-…) visibility: team" failed every
     // voice line the judge has), in the past tense (`doneLine.js`). What went
     // wrong still says what the tool said.
-    replies.push(settled.result?.isError === true ? `I tried to ${record.summary}, but: ${said}` : doneLine(record.summary));
+    if (settled.result?.isError === true) replies.push(`I tried to ${record.summary}, but: ${said}`);
+    else replies.push(doneLine(record.summary), ...afterYes(record.tool));
   }
   // An email or calendar change the text did not say YES to is disarmed now: when the text settled
   // something else, no model turn follows to disarm it, and a later bare yes must not reach it.

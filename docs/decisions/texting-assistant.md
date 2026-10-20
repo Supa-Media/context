@@ -675,3 +675,10 @@ Moved to [texting-assistant/progress.md](./texting-assistant/progress.md).
 ### What a person texts with their words reaches the model (2026-10-15)
 
 Moved to [texting-assistant/attachments.md](./texting-assistant/attachments.md).
+
+### Tex offers a shared workspace when work involves someone else (2026-10-20)
+
+Moved to [Tex invites people, and offers a shared workspace when work involves them](./gateway-protocol/workspace-setup.md#tex-invites-people-and-offers-a-shared-workspace-when-work-involves-them-2026-10-20):
+every turn is told to offer one, once, for work done with at least one other
+person, by making the held `create_workspace` with `invite` itself, so one
+texted YES makes the workspace and invites them.

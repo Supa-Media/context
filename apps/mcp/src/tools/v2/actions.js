@@ -90,6 +90,11 @@ export const ACTIONS = {
       summary: "Create a shared workspace the person owns; dry_run checks the @handle is free.",
       take: plain,
     },
+    invite: {
+      tool: "invite_member",
+      summary: "Invite people into a shared workspace the person owns; they are emailed once the person says yes.",
+      take: plain,
+    },
     layout: { tool: "apply_layout", summary: "Lay down a workspace's starting folders, or add one built-in folder.", take: plain },
     folder_job: {
       tool: "apply_layout",
