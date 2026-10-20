@@ -151,3 +151,4 @@ test/emailAttachmentCap.test.mjs
 test/pdfLinks.test.mjs
 test/pdfPage.test.mjs
 test/agentSyncedPlaces.test.mjs
+test/agentUploads.test.mjs

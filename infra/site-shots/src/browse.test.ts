@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SNAPSHOT_SOURCE, offLimits, onSite, parseBrowseRequest, runSteps, snapshot, wordsSource, type BrowsePage } from "./browse";
+import { MAX_UPLOAD_CHARS, SNAPSHOT_SOURCE, offLimits, onSite, parseBrowseRequest, runSteps, snapshot, uploadSource, wordsSource, type BrowsePage } from "./browse";
 
 /**
  * A page with a few numbered elements. `navigate` maps a ref to the address a
@@ -16,6 +16,8 @@ function fakePage(start = "https://shop.example.com/") {
     types: { 1: "text", 2: "password" } as Record<number, string>,
     points: [] as Array<[number, number]>,
     ratio: 2,
+    uploaded: [] as string[],
+    uploadAnswer: "input",
   };
   const url = () => new URL(state.href);
   const page: BrowsePage = {
@@ -44,6 +46,10 @@ function fakePage(start = "https://shop.example.com/") {
       if (kind) {
         const type = state.types[Number(kind[1])] ?? "";
         return (kind[2].includes('"password"') && !kind[2].includes("includes") ? type === "password" : ["text", "email", "tel"].includes(type)) as T;
+      }
+      if (source.includes("new DataTransfer()")) {
+        state.uploaded.push(source);
+        return state.uploadAnswer as T;
       }
       const cleared = source.match(/data-tex-ref="(\d+)"[\s\S]*dispatchEvent\(new Event\("input"/);
       if (cleared) state.typed[Number(cleared[1])] = "";
@@ -262,5 +268,50 @@ describe("runSteps", () => {
     expect(parseBrowseRequest({ steps: [{ do: "click", x: -1, y: 40 }] })).toBeNull();
     expect(parseBrowseRequest({ steps: [{ do: "click", x: "10", y: 40 }] })).toBeNull();
     expect(parseBrowseRequest({ steps: [{ do: "click", x: 10 }] })).toBeNull();
+  });
+});
+
+describe("upload", () => {
+  const file = { name: "receipt.pdf", type: "application/pdf", data: "JVBERi0xLjQK" };
+
+  it("puts the person's file into the page, and the reading says the page takes one", async () => {
+    const { page, state } = fakePage();
+    const result = await runSteps(page, [{ do: "upload", ref: null, file, onlyOn: null }]);
+    expect(result.ran).toEqual([{ do: "upload", ok: true }]);
+    expect(state.uploaded).toHaveLength(1);
+    expect(state.uploaded[0]).toContain('"receipt.pdf"');
+    expect(state.uploaded[0]).toContain('"JVBERi0xLjQK"');
+  });
+
+  it("uploads nothing on a site the person did not name", async () => {
+    const { page, state } = fakePage("https://attacker.example/");
+    const result = await runSteps(page, [{ do: "upload", ref: null, file, onlyOn: ["shop.example.com"] }]);
+    expect(result.ran).toEqual([{ do: "upload", ok: false, reason: "this page is not on a site the person named" }]);
+    expect(state.uploaded).toEqual([]);
+  });
+
+  it("says so when the page has nowhere to put a file", async () => {
+    const { page, state } = fakePage();
+    state.uploadAnswer = "none";
+    const result = await runSteps(page, [{ do: "upload", ref: null, file, onlyOn: null }]);
+    expect(result.ran).toEqual([{ do: "upload", ok: false, reason: "this page has no box that takes a file" }]);
+  });
+
+  it("takes a named file of a plain type, and nothing malformed or too big", () => {
+    const step = (f: unknown, extra = {}) => parseBrowseRequest({ steps: [{ do: "upload", file: f, ...extra }] });
+    expect(step(file)?.steps[0]).toEqual({ do: "upload", ref: null, file, onlyOn: null });
+    expect(step(file, { ref: 3, onlyOn: ["www.chapteros.example"] })?.steps[0]).toEqual({ do: "upload", ref: 3, file, onlyOn: ["chapteros.example"] });
+    expect(step({ ...file, name: "../etc/passwd" })).toBeNull();
+    expect(step({ ...file, type: "text/html; charset=utf-8" })).toBeNull();
+    expect(step({ ...file, data: "not base64!" })).toBeNull();
+    expect(step({ ...file, data: "A".repeat(MAX_UPLOAD_CHARS + 4) })).toBeNull();
+    expect(step(file, { onlyOn: [] })).toBeNull();
+    expect(step(undefined)).toBeNull();
+  });
+
+  it("writes the file's name and bytes into the page as data, never as code", () => {
+    const source = uploadSource(2, { name: 'a"); alert(1); ("', type: "image/png", data: "QQ==" });
+    expect(source).toContain(JSON.stringify('a"); alert(1); ("'));
+    expect(source).toContain(`document.querySelector('[data-tex-ref="2"]')`);
   });
 });

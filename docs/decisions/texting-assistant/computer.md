@@ -103,3 +103,26 @@ A texted turn is told where Google lands in its notes (`SYNCED_PLACES_LINE`,
 under `0-inbox/email/<account>/`. On 2026-10-18 Tex said "I can't read your
 Google Calendar" with every day of it there, and filled the gap with dates
 from someone else's test notes. Test: `agentSyncedPlaces.test.mjs`.
+
+## Tex attaches the person's own files to a page (2026-10-20)
+
+An upload button opens the device's file picker, which a remote browser has no
+way to answer, so Tex told Dev it couldn't attach a receipt to a reimbursement
+form (2026-10-20). A browse step `upload` now puts one file into the page's
+upload box: the file input the step names, the one inside or beside it, or a
+drop on it when the page only takes drops (`uploadSource`, `browse.ts`).
+
+Tex has no drive of its own. The file is one of the person's, found the way
+they would find it (`uploads.js`): a file in their notes, read only after
+`read_file` as the person lets them see it, so a held-back file is "not found"
+and its bytes are never fetched; an email's attachment; a picture they texted;
+or, when the thing to send is the email itself (a confirmation, a receipt), that
+email printed to a plain PDF (`textPdf.js`). The bytes go from the bucket to
+the browser and never reach the model.
+
+Off the open web a file goes only to a site the person named in their message,
+and the browser re-checks the host at the moment of upload (`onlyOn`), the same
+rule as typing. Tests: `test/agentUploads.test.mjs` (sabotaged: skipping the
+`read_file` gate, dropping `onlyOn`) and `browse.test.ts` ("puts the person's
+file into the page…", "uploads nothing on a site the person did not name").
+The input and drop paths were checked in real Chromium by hand.

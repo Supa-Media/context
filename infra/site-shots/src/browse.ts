@@ -60,7 +60,24 @@ export type Step =
   | { do: "press"; key: Key }
   | { do: "back" }
   | { do: "scroll"; direction: "down" | "up" }
-  | { do: "read" };
+  | { do: "read" }
+  | { do: "upload"; ref: number | null; file: UploadFile; onlyOn: string[] | null };
+
+/**
+ * A file the gateway read from the person's own notes or mail (`apps/mcp/src/agent/uploads.js`),
+ * put into the page's upload box the way a person picking it would.
+ */
+export interface UploadFile {
+  name: string;
+  type: string;
+  /** base64 */
+  data: string;
+}
+
+/** The most a file put into a page may be, as base64: the 10 MB a file is read at. */
+export const MAX_UPLOAD_CHARS = Math.ceil((10 * 1024 * 1024 * 4) / 3) + 4;
+const UPLOAD_NAME = /^[^\u0000-\u001f/\\]{1,200}$/;
+const UPLOAD_TYPE = /^[a-z]+\/[a-z0-9.+-]{1,100}$/;
 
 export interface Element {
   ref: number;
@@ -77,6 +94,8 @@ export interface Reading {
   text: string;
   truncated: boolean;
   elements: Element[];
+  /** How many boxes on the page take a file, hidden ones included: an upload step fills one. */
+  uploads?: number;
   /** After a `look`: what the page shows, a JPEG, and its size in its own pixels, the space a click's x and y are in. */
   shot?: { data: string; width: number; height: number };
 }
@@ -160,8 +179,8 @@ function parseStep(item: unknown): Step | null {
       if (ref === null || typeof s.text !== "string" || s.text.length > MAX_TYPED) return null;
       let onlyOn: string[] | null = null;
       if (s.onlyOn !== undefined && s.onlyOn !== null) {
-        if (!Array.isArray(s.onlyOn) || s.onlyOn.length === 0 || !s.onlyOn.every((h) => typeof h === "string" && h.includes("."))) return null;
-        onlyOn = (s.onlyOn as string[]).map(siteOf);
+        onlyOn = sitesOf(s.onlyOn);
+        if (onlyOn === null) return null;
       }
       return { do: "type", ref, text: s.text, enter: s.enter === true, onlyOn };
     }
@@ -183,6 +202,17 @@ function parseStep(item: unknown): Step | null {
       return { do: "read" };
     case "look":
       return { do: "look" };
+    case "upload": {
+      const file = s.file as Record<string, unknown> | undefined;
+      if (!file || typeof file !== "object") return null;
+      const { name, type, data } = file;
+      if (typeof name !== "string" || !UPLOAD_NAME.test(name)) return null;
+      if (typeof type !== "string" || !UPLOAD_TYPE.test(type)) return null;
+      if (typeof data !== "string" || data.length === 0 || data.length > MAX_UPLOAD_CHARS || !/^[A-Za-z0-9+/]+=*$/.test(data)) return null;
+      const onlyOn = s.onlyOn === undefined || s.onlyOn === null ? null : sitesOf(s.onlyOn);
+      if (s.onlyOn !== undefined && s.onlyOn !== null && onlyOn === null) return null;
+      return { do: "upload", ref, file: { name, type, data }, onlyOn };
+    }
     default:
       return null;
   }
@@ -210,6 +240,12 @@ export function siteOf(host: string): string {
 }
 
 /** Is `host` one of `sites`, or under one of them? */
+/** The sites a step may act on, as the gateway named them, or null when they are malformed. */
+function sitesOf(value: unknown): string[] | null {
+  if (!Array.isArray(value) || value.length === 0 || !value.every((h) => typeof h === "string" && h.includes("."))) return null;
+  return (value as string[]).map(siteOf);
+}
+
 export function onSite(host: string, sites: string[]): boolean {
   const here = siteOf(host);
   return sites.some((site) => here === site || here.endsWith(`.${site}`));
@@ -268,7 +304,8 @@ export const SNAPSHOT_SOURCE = `(() => {
     elements.push(item);
   }
   const text = (document.body ? document.body.innerText : "") || "";
-  return { url: location.href, title: document.title || "", text, elements };
+  const uploads = document.querySelectorAll("input[type=file]").length;
+  return { url: location.href, title: document.title || "", text, elements, uploads };
 })()`;
 
 const selector = (ref: number) => `[data-tex-ref="${ref}"]`;
@@ -312,6 +349,39 @@ export function wordsSource(words: string): string {
 })()`;
 }
 
+/**
+ * Put a file into the page as a person choosing it would: into the file box
+ * the step names, the one inside or beside it, or the page's only one, with
+ * the events a page listens for; or, where there is no box, dropped onto the
+ * element named, as dragging it there would. Answers "input", "drop" or "none".
+ */
+export function uploadSource(ref: number | null, file: UploadFile): string {
+  return `(() => {
+  const named = ${ref === null ? "null" : `document.querySelector('${selector(ref)}')`};
+  const binary = atob(${JSON.stringify(file.data)});
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  const transfer = new DataTransfer();
+  transfer.items.add(new File([bytes], ${JSON.stringify(file.name)}, { type: ${JSON.stringify(file.type)} }));
+  const isBox = (el) => !!el && el.tagName === "INPUT" && (el.getAttribute("type") || "").toLowerCase() === "file";
+  const boxes = [...document.querySelectorAll("input[type=file]")];
+  let box = isBox(named) ? named : null;
+  if (!box && named) box = named.querySelector("input[type=file]") || (named.closest("form, label, [role=dialog]") || document.body).querySelector("input[type=file]");
+  if (!box && !named && boxes.length > 0) box = boxes[0];
+  if (box) {
+    box.files = transfer.files;
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    box.dispatchEvent(new Event("change", { bubbles: true }));
+    return "input";
+  }
+  if (!named) return "none";
+  for (const kind of ["dragenter", "dragover", "drop"]) {
+    named.dispatchEvent(new DragEvent(kind, { bubbles: true, cancelable: true, dataTransfer: transfer }));
+  }
+  return "drop";
+})()`;
+}
+
 async function settle(page: BrowsePage): Promise<void> {
   await page.waitForNetworkIdle({ idleTime: 400, timeout: SETTLE_MS }).catch(() => undefined);
 }
@@ -349,7 +419,7 @@ async function clear(page: BrowsePage, ref: number): Promise<void> {
 
 /** Read the page as it is now. */
 export async function snapshot(page: BrowsePage): Promise<Reading> {
-  const raw = await page.evaluate<{ url?: unknown; title?: unknown; text?: unknown; elements?: unknown }>(SNAPSHOT_SOURCE);
+  const raw = await page.evaluate<{ url?: unknown; title?: unknown; text?: unknown; elements?: unknown; uploads?: unknown }>(SNAPSHOT_SOURCE);
   const text = typeof raw?.text === "string" ? raw.text.replace(/\n{3,}/g, "\n\n").trim() : "";
   const elements: Element[] = [];
   for (const item of Array.isArray(raw?.elements) ? raw.elements : []) {
@@ -371,6 +441,7 @@ export async function snapshot(page: BrowsePage): Promise<Reading> {
     text: text.slice(0, MAX_BROWSE_TEXT),
     truncated: text.length > MAX_BROWSE_TEXT,
     elements,
+    ...(Number.isInteger(raw?.uploads) && (raw!.uploads as number) > 0 ? { uploads: Math.min(raw!.uploads as number, 100) } : {}),
   };
 }
 
@@ -513,6 +584,17 @@ async function runStep(page: BrowsePage, step: Step): Promise<StepResult> {
         await page.keyboard.press("Enter");
         await settle(page);
       }
+      return ok;
+    }
+    case "upload": {
+      if (step.ref !== null && !(await exists(page, step.ref))) return missing;
+      // The same second lock as typing: the person's file goes only where they said, checked now.
+      if (step.onlyOn !== null && !onSite((await where(page)).host, step.onlyOn)) {
+        return { do: "upload", ok: false, reason: "this page is not on a site the person named" };
+      }
+      const put = await page.evaluate<string>(uploadSource(step.ref, step.file));
+      if (put === "none") return { do: "upload", ok: false, reason: "this page has no box that takes a file" };
+      await settle(page);
       return ok;
     }
     case "fill": {
