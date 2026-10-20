@@ -114,7 +114,7 @@ const UPLOAD_SENTENCE =
   "When a page asks for a file (a receipt, an ID, a photo), attach it yourself with an upload step, never their device's picker: " +
   "file is a file's path in their notes, a picture's name with note (as the history names a picture they texted), " +
   "or an email's email: id, with attachment for one of its files; an email with nothing attached is attached as a PDF of the email. " +
-  "ref, if given, is the upload button or box; without it the page's own file box is used. ";
+  "ref is the upload button or box a person would press: it is pressed for them and the file goes where their picker would put it; without ref, the page's own file box is used. ";
 const NO_UPLOAD_SENTENCE = "";
 
 /** The default description's two rules, and what it says instead when the setup opened the web. */
