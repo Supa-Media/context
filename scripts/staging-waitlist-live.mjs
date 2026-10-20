@@ -173,9 +173,11 @@ try {
   const stranger = newInbox("stranger");
   const strangerSeen = new Set();
   const reason = `E2E run ${run}: client notes my agents can read`;
-  assert.deepEqual(await client().mutation(ref("functions/waitlist:enter"), { email: stranger.email, source: "homepage" }), {
-    status: "joined",
-  });
+  const entered = await client().mutation(ref("functions/waitlist:enter"), { email: stranger.email, source: "homepage" });
+  assert.equal(entered.status, "joined");
+  // The joining browser's receipt: the only key to its status page (tex.lc's /waitlist).
+  const receipt = entered.receipt;
+  assert.match(receipt, /^[0-9a-f]{64}$/, "a new join must hand back a receipt");
   await client().mutation(ref("functions/waitlist:describe"), { email: stranger.email, useFor: reason });
   const joined = await waitForMail(stranger, /waitlist/i, strangerSeen);
   assert.equal(joined.subject, "You're on the Context.LC waitlist");
@@ -183,16 +185,39 @@ try {
   await expectRefused(stranger.email);
   pass("homepage join: on the list, mailed, reason kept, and still refused a code");
 
+  // 1b. The status page: the receipt reads the place and edits the answer;
+  // anything else reads and writes nothing.
+  const status = ref("functions/waitlistStatus:status");
+  const answer = ref("functions/waitlistStatus:answer");
+  const before = await client().query(status, { receipt });
+  assert.equal(before.state, "waiting");
+  assert.equal(before.useFor, reason);
+  assert.equal(before.texLine, null);
+  assert.equal(before.contact.kind, "email");
+  assert.ok(!before.contact.masked.includes(stranger.email.split("@")[0]), "the address must come back masked");
+  const edited = `${reason}, and my calendar`;
+  assert.deepEqual(await client().mutation(answer, { receipt, useFor: edited }), { saved: true });
+  assert.equal((await client().query(status, { receipt })).useFor, edited);
+  const stranger2 = "0".repeat(64);
+  assert.equal(await client().query(status, { receipt: stranger2 }), null);
+  assert.deepEqual(await client().mutation(answer, { receipt: stranger2, useFor: "not mine" }), { saved: false });
+  await client().mutation(ref("functions/waitlist:describe"), { email: stranger.email, useFor: "overwrite by address" });
+  assert.equal((await client().query(status, { receipt })).useFor, edited, "an address alone must not change an edited answer");
+  pass("status page: the receipt reads the place and edits the answer; a wrong receipt or an address alone does nothing");
+
   // 2. Staff see the reason and let them in; "You're in" brings them back.
   const waiting = await staff.query(ref("functions/admin:listWaitlist"), { status: "waiting" });
   const row = waiting.rows.find((r) => r.email === stranger.email);
   assert.ok(row, "the new row is not in the staff Waitlist");
-  assert.equal(row.useFor, reason);
+  assert.equal(row.useFor, edited);
   assert.equal(row.source, "homepage");
+  const found = await staff.query(ref("functions/admin:listWaitlist"), { status: "waiting", search: "my calendar", answered: true });
+  assert.ok(found.rows.some((r) => r.id === row.id), "staff search must find the edited answer");
   assert.equal((await staff.mutation(ref("functions/admin:admitWaitlist"), { ids: [row.id] })).changed, 1);
   const youreIn = await waitForMail(stranger, /^You're in$/, strangerSeen);
   assert.equal(linkIn(youreIn, /^\/login$/).search, "", "the 'you're in' link carries something it should not");
   assert.deepEqual(await client().mutation(ref("functions/waitlist:enter"), { email: stranger.email }), { status: "admitted" });
+  assert.equal((await client().query(status, { receipt })).state, "admitted", "the status page must flip to You're in");
   const member = await signInWithMailedCode(stranger, strangerSeen);
   accounts.push(member.convex);
   assert.equal(await member.convex.query(ref("functions/admin:amIAdmin"), {}), false);
