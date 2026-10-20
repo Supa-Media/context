@@ -29,7 +29,7 @@ export function createEmailRoute(clearedEditor, flags) {
 
   /**
    * `/gateway/email/search` and `/gateway/email/read` (`gatewayRoutes/personMail.ts`):
-   * `mailboxes` and `mailResults` answer a search, `mailMessage` a read,
+   * `mailboxes` and `mailResults` (a list, or a function of the query) answer a search, `mailMessage` a read,
    * `mailAttachment` a read naming an attachment, and `mailRefusal` refuses
    * them all. The real clearance is proved in Convex.
    */
@@ -40,7 +40,8 @@ export function createEmailRoute(clearedEditor, flags) {
     if (!cleared) answer = { ok: false, refused: "not_allowed" };
     else if (flags.mailRefusal) answer = { ok: false, refused: flags.mailRefusal, ...(flags.mailExtra ?? {}) };
     else if (path === "/gateway/email/search") {
-      answer = { ok: true, results: flags.mailResults ?? [], mailboxes: flags.mailboxes ?? [], ...(flags.mailExtra ?? {}) };
+      const results = typeof flags.mailResults === "function" ? flags.mailResults(body.query) : (flags.mailResults ?? []);
+      answer = { ok: true, results, mailboxes: flags.mailboxes ?? [], ...(flags.mailExtra ?? {}) };
     } else if (body.attachment !== undefined) {
       answer = flags.mailMessage && flags.mailAttachment
         ? { ok: true, message: flags.mailMessage, attachment: flags.mailAttachment }

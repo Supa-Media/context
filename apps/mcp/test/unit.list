@@ -147,6 +147,7 @@ test/agentLearnedSkills.test.mjs
 test/agentSteer.test.mjs
 test/agentMemoryNudge.test.mjs
 test/deployedOrigins.test.mjs
+test/emailAttachmentCap.test.mjs
 test/pdfLinks.test.mjs
 test/pdfPage.test.mjs
 test/agentSyncedPlaces.test.mjs

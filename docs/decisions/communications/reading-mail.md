@@ -52,6 +52,15 @@ already have. `emailRead.test.mjs` fails if a reconnect is not named or the
 notes do not answer for it; `personMail.test.ts` fails if a broken mailbox
 is folded back into "no mailbox".
 
+**A long search that found nothing is asked again for any of its words**
+(2026-10-20). Gmail matches only mail holding every word, so one
+word the email did not use (a name, a synonym) made a long search find nothing,
+and Tex said the mail was not there. When plain words (no Gmail operators) of three or more found
+nothing, `looseQueryOf` asks once more as `{a b c}`, Gmail's any-of form,
+dropping short, numeric and common words, and the answer says those results
+hold only some of the words. Operators or a word or two are never loosened.
+`emailRead.test.mjs`, "a long search Gmail found nothing for is asked again…".
+
 A search downloads headers and a snippet only (`format=metadata`). Results
 come back as `email:<address>/<id>` ids, and `fetch` of one (`read_email`)
 reads that message's body, capped at 20,000 characters.
@@ -67,6 +76,10 @@ bytes (up to 10 MB, over the same clearance and rate limit as a read). Both
 turn the bytes into Markdown with Workers AI's `toMarkdown` at request time
 and keep nothing: the file is the record and its words are a derivative.
 Both are `UNTRUSTED_READS`, since a file's words are its author's.
+The gateway accepts that answer up to 15 MB (`ATTACHMENT_RESPONSE_BYTE_CAP`),
+not the 256 KB every other control-plane answer is held to; under that cap
+any PDF over about 190 KB read as "Gmail did not answer" (2026-10-20), and
+`apps/mcp/test/emailAttachmentCap.test.mjs` fails if it returns.
 
 A PDF's links come with its words (2026-10-20). `toMarkdown` drops link
 annotations, so a contract's "CLICK HERE to make payment" button reached Tex as

@@ -181,6 +181,10 @@ export async function toolConnectGoogle(store, args) {
   return toolText(
     `Link to connect ${what}: ${answer.url}\n` +
       `Send it to them: they open it, press Connect Google, and sign in to Google (it connects ${what} with the rest). ` +
+      // An account already listed has no Connect Google button: it has a
+      // Reconnect beside it, or Reconnect with Google in its ••• menu (2026-10-20).
+      "To reconnect a Google account that is already listed there, they press Reconnect beside it, or the ••• next to it " +
+      "and then Reconnect with Google, not Connect Google. " +
       // Someone set up by text has never signed in to the app: the page asks for
       // their phone (a texted code) and, for an account a phone made, their email once.
       "If they aren't signed in to Context in that browser, it first asks for their phone number and texts them a " +

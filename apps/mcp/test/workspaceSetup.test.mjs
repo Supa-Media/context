@@ -304,6 +304,8 @@ test("connect_google hands back the app's page in the personal workspace, and re
   assert.equal(home.isError, false, home.text);
   assert.match(home.text, /Link to connect Gmail: https:\/\/app\.context\.test\/console\/@homer\?settings=integrations/);
   assert.doesNotMatch(home.text, /accounts\.google\.com/);
+  // A broken sign-in is fixed by Reconnect beside the account, which "Connect Google" never names.
+  assert.match(home.text, /Reconnect with Google/);
 
   const team = await manage(OWNER, "connect_google", { kind: "calendar" }, { context: "@homer-team" });
   assert.equal(team.isError, true);
