@@ -298,7 +298,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   // (`browserProviders.js`); it is made from their id, never from the request.
   // A handoff texts their own `/tex/<handle>` page, never the browser's link.
   const computer = texting
-    ? computerFor(env, { owner: await browserOwner(env, session.actorUserId), viewer: texViewerUrl(env, session) })
+    ? computerFor(env, { owner: await browserOwner(env, session.actorUserId), viewer: texViewerUrl(env, session), store })
     : null;
   // Web search is the texting assistant's too, and runs on its own (the
   // owner's decision, 2026-10-07); `search.js` says why that is accepted.

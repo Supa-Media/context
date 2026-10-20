@@ -59,20 +59,30 @@ async function post(binding, path, body) {
   });
 }
 
-/** What a /browse answer means to `browse.js`. A failed call still names its browser. */
-async function browseResult(response) {
+/**
+ * What a /browse answer means to `browse.js`. A failed call still names its
+ * browser. The sign-ins read back out of the browser go to `keep` and never
+ * on (`browserJar.js`): nothing past this function sees them.
+ */
+async function browseResult(response, keep = null) {
   const body = await response.json().catch(() => null);
   if (typeof body?.session === "string") {
-    if (!response.ok) return { session: body.session, ran: [], page: null };
+    const { jar, ...answer } = body;
+    if (!response.ok) return { session: answer.session, ran: [], page: null };
+    if (keep !== null && jar && typeof jar === "object") await keep.save(jar);
     // A link to hand over is the gateway's to make (`viewer`), never the
     // Worker's: an older one answered with Browserbase's live-view link here.
-    const { liveUrl: _liveUrl, handoffUrl: _handoffUrl, ...result } = body;
+    const { liveUrl: _liveUrl, handoffUrl: _handoffUrl, ...result } = answer;
     return result;
   }
   throw new Error("browser unavailable");
 }
 
-export function siteShotsComputer(env, { owner = null, viewer = null, now = Date.now } = {}) {
+/**
+ * `jar` keeps the person's sign-ins between their Browserbase browsers
+ * (`browserJar.js`); without one, each new browser starts signed out.
+ */
+export function siteShotsComputer(env, { owner = null, viewer = null, jar = null, now = Date.now } = {}) {
   const binding = env?.SITE_SHOTS;
   if (typeof binding?.fetch !== "function") return null;
   // Which browser this question's `browse` ended up on.
@@ -95,13 +105,20 @@ export function siteShotsComputer(env, { owner = null, viewer = null, now = Date
       if (browserbaseWanted()) {
         // `handoff` tells the screenshot Worker (and the bench's stand-in for it)
         // the person is being handed this browser; it asks Browserbase for nothing.
-        const response = await post(binding, "/browse", { provider: "browserbase", owner, steps, ...(handoff ? { handoff: true } : {}) });
+        const held = jar !== null ? await jar.load() : null;
+        const response = await post(binding, "/browse", {
+          provider: "browserbase",
+          owner,
+          steps,
+          ...(handoff ? { handoff: true } : {}),
+          ...(jar !== null ? { keep: true, ...(held !== null ? { jar: held } : {}) } : {}),
+        });
         // 402: Browserbase won't start a browser until its bill is paid.
         // Cloudflare's browser does this question; nothing can be handed over.
         if (response.status === 402) browserbaseRefusedAt = now();
         else if (response.status !== 501) {
           onBrowserbase = true;
-          const result = await browseResult(response);
+          const result = await browseResult(response, jar);
           // The person's own page, never a link to the browser itself.
           return handoff && typeof viewer === "string" ? { ...result, handoffUrl: viewer } : result;
         } else browserbaseMissing = true;

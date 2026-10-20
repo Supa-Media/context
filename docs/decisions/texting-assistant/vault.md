@@ -392,11 +392,43 @@ Reversing it fails `apps/mcp/test/agentFillLogin.test.mjs` ("signing in is
 Tex's to do"). The bench has no vault fill step, so golden tasks 1, 2, 4 and 7
 script Maya declining the save and test the handoff as the fallback.
 
+### Tex's browser sign-ins are one sealed vault item
+
+Decided by the owner, 2026-10-20 ("Sealed in vault", over a Browserbase
+Context and over staying signed out): Tex's browser keeps nothing at
+Browserbase, so each new one started signed out and the person was asked to
+sign in again. Its sign-ins are now one item in their personal vault,
+`.context/vault/browser-jar.json` (`apps/mcp/src/agent/browserJar.js`), sealed
+with the same key and seal as a login, its associated data naming the jar, so
+the bucket alone never yields one and no entry's part opens as it.
+
+- **What is kept.** Every cookie the browser holds (a partitioned one aside)
+  and each https site's localStorage, where many apps keep a sign-in, as it
+  was when Tex last read a page there; a site read with nothing kept loses its
+  saved storage, so signing out stays signed out.
+- **Where it goes.** Gateway to the screenshot Worker and back, with the
+  question (`keep`, `jar` on `/browse`), never into a tool result, a log or a
+  message (`browseResult` takes it off the answer). A new browser is given the
+  cookies; a running one is not, since it holds newer ones. Each saved site's
+  storage is put back as its pages open, by a script in an isolated world
+  that writes only the page's own origin and never over what it holds
+  (`infra/site-shots/src/jar.ts`), so no site's code reads another's.
+- **Whose.** A personal workspace's only, with a data key: the browser is one
+  person's. A shared workspace keeps none. It is not listed with the logins.
+- **Failure.** A jar that does not open, or a restore that fails, is no jar:
+  Tex signs in as before, and a browser that never got the jar is not read
+  back over it.
+
+Tests: `apps/mcp/test/agentBrowserJar.test.mjs` (sabotaged: plain JSON in
+the bucket, `jar` passed on to the turn, the personal check dropped),
+`infra/site-shots/src/jar.test.ts` and `browserbase.test.ts` ("sign-ins kept
+between browsers"); restore and read-back were checked in real Chromium.
+
 ### Later, not now
 
 Editing and deleting an entry, and a Vault list in Settings, come together;
 until then a changed key is saved as a new entry. Handing a coding agent an
 environment's values to run with (the way `op run` does) stays out: the agent
 types the commands, so it could print what it was handed. The proxy above is
-the answer to that need. TOTP secrets, email codes, a
-sealed cookie jar and cards each need their own section before they are built.
+the answer to that need. TOTP secrets, email codes and cards each need their own section before they
+are built; the cookie jar has its own, above.
