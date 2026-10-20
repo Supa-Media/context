@@ -227,6 +227,14 @@ async function respond(
           },
         });
 
+      case "download":
+        // Temporary and uncached, unlike the host redirect above: the address
+        // is ours to repoint. See `download.ts`.
+        return new Response(null, {
+          status: 302,
+          headers: { Location: decision.location, "Cache-Control": "no-store" },
+        });
+
       case "proxy": {
         if (decision.upstream === "expo" && env.ASSETS) {
           // Static Assets and Worker code are one version. Passing the original
