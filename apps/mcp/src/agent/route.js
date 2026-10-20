@@ -57,7 +57,7 @@ import { askedWith, quotedOf, reactedLine, reactedOf, tapbackLine } from "./quot
 import { threadPrompt, threadView } from "./threadView.js";
 import { steerFor, steeredLine } from "./steer.js";
 import { answerWithAsk, textedAsk } from "./textedApprovals.js";
-import { settleTextedText } from "./textedSettle.js";
+import { setAsideLine, settleTextedText } from "./textedSettle.js";
 /**
  * What a turn that may not run says. Nothing in the app can change this any
  * more (people's own model keys were deleted, the owner, 2026-10-10): the
@@ -184,6 +184,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   const steer = steerFor(store, session, body); // texts sent while it works (`steer.js`)
 
   // A texted yes or no settles a pending approval before any model runs (`textedSettle.js`).
+  let setAside = [];
   if (session.actorClientId === TEXTS_CLIENT_ID) {
     const settled = await settleTextedText(store, session, {
       dispatch,
@@ -196,7 +197,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       conversation: conversationPath(body.conversation) !== null && hasScope(session, SCOPE_WRITE) ? body.conversation : null,
       told: body.told,
     });
-    if (settled !== null) return json(settled);
+    if (settled?.answer !== undefined) return json(settled);
+    setAside = settled?.setAside ?? [];
   }
 
   try {
@@ -491,7 +493,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   const { outgoing, maker } = await turnPictures(env, { texted, question, attachments, store, keep: conversation === "texts", meter, workspaceId: session.workspaceId });
   try {
     const turn = await runTurn({
-      question: [reactedLine(reacted), askedWith(question, quoted)].filter(Boolean).join("\n\n"),
+      question: [reactedLine(reacted), setAsideLine(setAside), askedWith(question, quoted)].filter(Boolean).join("\n\n"),
       place: body.place ?? null,
       // A turn that edits directly is not also handed proposals: they have no
       // screen on a phone, and two ways to change a note is one too many.

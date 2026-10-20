@@ -46,6 +46,8 @@
  *     email reaches the model as waiting for a yes` fails.
  * 16. `answerWithAsk` not calling `withoutHeldEcho`. → `a held email is texted
  *     once` fails.
+ * 17. `setAsideLine` dropped from the model's question in `route.js`. → `the
+ *     turn that set a held email aside is told so` fails.
  */
 
 import { ask, call, request, textOf, createEgressWorld, TOKEN_CONSOLE, TOKEN_MCP, TOKEN_ROUTINE, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
@@ -124,6 +126,10 @@ export async function runEmailGateChecks(check) {
     before = sends().length;
     await ask(env, TOKEN_TEXTS, "did you send it to Jo?");
     check(
+      "a turn with nothing held is not told anything was set aside",
+      !JSON.stringify(model.requests.at(-1)?.messages ?? []).includes("This text is not that yes"),
+    );
+    check(
       "the same email asked for again within the hour is answered as sent, not sent twice",
       sends().length === before && pending().length === 0 && JSON.stringify(model.requests.at(-1)?.messages ?? []).includes("Sent from seyi@gmail.example"),
     );
@@ -138,6 +144,11 @@ export async function runEmailGateChecks(check) {
     await ask(env, TOKEN_TEXTS, "actually tell Jo Friday instead");
     model.install([{ text: "Sure, what time?" }]);
     await ask(env, TOKEN_TEXTS, "hmm wait, what time did they suggest?");
+    const movedOn = JSON.stringify(model.requests.at(-1)?.messages ?? []);
+    check(
+      "the turn that set a held email aside is told so, naming it, so it never says it is still waiting",
+      movedOn.includes("This text is not that yes") && movedOn.includes("Re: Friday") && movedOn.includes("Never say it is still waiting"),
+    );
     model.install([{ text: "Yes what?" }]);
     before = sends().length;
     const late = await ask(env, TOKEN_TEXTS, "yes");
