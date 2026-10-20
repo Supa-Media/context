@@ -132,6 +132,9 @@ export const makeStyles = (colors: Colors) => StyleSheet.create({
    * is wider than a 390pt phone's notice at its own padding.
    */
   noticeActions: { flexDirection: "row", flexWrap: "wrap", gap: space.x2 },
+  /** A shared link's sign-in or add-email, with a quiet link beside it. */
+  bandActions: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 16, rowGap: 4 },
+  bandQuiet: { color: colors.muted, fontWeight: "500" },
   /**
    * A move's line: the sentence and its controls on one row, wrapping under it
    * on a phone. A move notice is a status line, not a card, so its controls

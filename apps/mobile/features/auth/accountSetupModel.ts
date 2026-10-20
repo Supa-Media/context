@@ -16,17 +16,15 @@ const FALLBACK_FAILURE = "That didn't work. Try again.";
 export function canFinishSetup({
   name,
   phoneDone,
-  emailDone,
   busy,
 }: {
   name: string;
   phoneDone: boolean;
-  emailDone: boolean;
   busy: boolean;
 }): boolean {
   const trimmed = name.trim();
   if (trimmed.length === 0 || trimmed.length > NAME_MAX) return false;
-  return phoneDone && emailDone && !busy;
+  return phoneDone && !busy;
 }
 
 /**
@@ -40,6 +38,8 @@ export function phoneAlreadyDone(check: { confirmed: boolean; phone?: string } |
 /** What `mySetup` answers (`functions/accountSetup.ts`); `null` when signed out. */
 export interface SetupAnswer {
   needsSetup: boolean;
+  /** Set up, and still owes a personal email: the Gmail step is next. */
+  needsPersonalEmail: boolean;
   email: string | null;
   suggestedName: string;
 }

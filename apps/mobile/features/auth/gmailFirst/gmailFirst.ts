@@ -6,26 +6,41 @@
  *
  * Which page sent this browser to Google is kept for the trip, so the
  * callback can answer in the same words: `primary` from the one-time email
- * gate, `another` from `/add-gmail`. Absent, the callback is Connected apps'
- * ordinary one. Session storage, so it never outlives the tab.
+ * gate, `another` from `/add-gmail`, `personal` from a work-domain sign-up's
+ * personal email step, which also keeps the page to come back to. Absent, the
+ * callback is Connected apps' ordinary one. Session storage, so it never
+ * outlives the tab.
  */
 
-export type GmailFirstMode = "primary" | "another";
+export type GmailFirstMode = "primary" | "another" | "personal";
 
 const KEY = "context.gmailFirst";
+const RETURN_KEY = "context.gmailFirst.return";
 
-export function rememberGmailFirst(mode: GmailFirstMode): void {
+export function rememberGmailFirst(mode: GmailFirstMode, returnTo?: string): void {
   try {
     globalThis.sessionStorage?.setItem(KEY, mode);
+    if (returnTo === undefined) globalThis.sessionStorage?.removeItem(RETURN_KEY);
+    else globalThis.sessionStorage?.setItem(RETURN_KEY, returnTo);
   } catch {
     // Storage refused: the callback shows its ordinary page.
+  }
+}
+
+/** Where a `personal` connect goes back to: the same-origin path it left, or the console. */
+export function readGmailReturn(): string {
+  try {
+    const path = globalThis.sessionStorage?.getItem(RETURN_KEY) ?? null;
+    return path !== null && path.startsWith("/") && !path.startsWith("//") && !path.includes("\\") ? path : "/console";
+  } catch {
+    return "/console";
   }
 }
 
 export function readGmailFirst(): GmailFirstMode | null {
   try {
     const mode = globalThis.sessionStorage?.getItem(KEY) ?? null;
-    return mode === "primary" || mode === "another" ? mode : null;
+    return mode === "primary" || mode === "another" || mode === "personal" ? mode : null;
   } catch {
     return null;
   }
@@ -35,6 +50,7 @@ export function readGmailFirst(): GmailFirstMode | null {
 export function forgetGmailFirst(): void {
   try {
     globalThis.sessionStorage?.removeItem(KEY);
+    globalThis.sessionStorage?.removeItem(RETURN_KEY);
   } catch {
     // Nothing kept.
   }

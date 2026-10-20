@@ -111,7 +111,8 @@ describe("making your account", () => {
     expect(view.text()).toContain("Signed in as ada@publicworship.life");
     expect((view.byId("account-setup-name") as HTMLInputElement).value).toBe("Ada Okafor");
     expect(view.byId("account-setup-phone")).not.toBeNull();
-    expect(view.byId("account-setup-email")).not.toBeNull();
+    // The personal Gmail is the next step, not this one (Dev, 2026-10-20).
+    expect(view.byId("account-setup-email")).toBeNull();
     expect(view.text()).toContain("leave publicworship.life");
     view.unmount();
   });
@@ -124,7 +125,7 @@ describe("making your account", () => {
     view.unmount();
   });
 
-  test("a phone is texted a code, the code confirms it, and the email follows the same way", async () => {
+  test("a phone is texted a code, and the code confirms it", async () => {
     const view = mount();
     await view.type("account-setup-phone", "+1 555 555 0142");
     await view.press("account-setup-phone-send");
@@ -132,13 +133,6 @@ describe("making your account", () => {
     await view.type("account-setup-phone-code", "123456");
     expect(mockCalls).toContainEqual(["phone.confirm", { phone: "+15555550142", code: "123456" }]);
     expect(view.text()).toContain("Your phone is");
-
-    await view.type("account-setup-email", "ada@gmail.com");
-    await view.press("account-setup-email-send");
-    expect(mockCalls).toContainEqual(["email.start", { email: "ada@gmail.com" }]);
-    await view.type("account-setup-email-code", "654321");
-    expect(mockCalls).toContainEqual(["email.confirm", { code: "654321" }]);
-    expect(view.text()).toContain("Your personal email is");
     view.unmount();
   });
 
@@ -153,7 +147,7 @@ describe("making your account", () => {
     view.unmount();
   });
 
-  test("Continue does nothing until the phone and the personal email are both confirmed", async () => {
+  test("Continue does nothing until the phone is confirmed, then finishes with the name", async () => {
     const view = mount();
     await view.press("account-setup-continue");
     expect(mockCalls.filter(([ref]) => ref === "setup.finish")).toEqual([]);
@@ -162,26 +156,9 @@ describe("making your account", () => {
     await view.press("account-setup-phone-send");
     await view.type("account-setup-phone-code", "123456");
     await view.press("account-setup-continue");
-    expect(mockCalls.filter(([ref]) => ref === "setup.finish")).toEqual([]);
-
-    await view.type("account-setup-email", "ada@gmail.com");
-    await view.press("account-setup-email-send");
-    await view.type("account-setup-email-code", "654321");
-    await view.press("account-setup-continue");
     expect(mockCalls.filter(([ref]) => ref === "setup.finish")).toEqual([
       ["setup.finish", { name: "Ada Okafor" }],
     ]);
-    view.unmount();
-  });
-
-  test("the email alone is not enough: Continue waits for the phone too", async () => {
-    const view = mount();
-    await view.type("account-setup-email", "ada@gmail.com");
-    await view.press("account-setup-email-send");
-    await view.type("account-setup-email-code", "654321");
-    expect(view.text()).toContain("Your personal email is");
-    await view.press("account-setup-continue");
-    expect(mockCalls.filter(([ref]) => ref === "setup.finish")).toEqual([]);
     view.unmount();
   });
 

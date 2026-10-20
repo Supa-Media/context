@@ -27,6 +27,7 @@ import { useTrashRoute } from "./trash/TrashRouteContext";
 import { selectedContext, type ConsoleData } from "./types";
 import { useWorkspaceIcons } from "./useWorkspaceIcons";
 import { WorkspaceMark } from "./WorkspaceMark";
+import { useBandOffer } from "../share/domainBand";
 
 /**
  * The account button at the foot of the sidebar, and the workspace switcher
@@ -280,6 +281,7 @@ export function SwitcherMenu({
       : null;
 
   const phone = trigger === "phone";
+  const bandOffer = useBandOffer();
   const places: AccountCardRow[] = [
     /*
       Settings heads the group (Dev2, 2026-10-18): it is the row people come
@@ -416,6 +418,9 @@ export function SwitcherMenu({
       rule that the top bar has no call to action of its own (websites.md).
     */
     const signedOut = onSignIn !== undefined;
+    // A shared link's band already says "Sign in to edit" two inches below
+    // (`share/domainBand.ts`): one sign-in on the screen, not two.
+    if (signedOut && bandOffer?.signInInBand === true) return null;
     const named = phoneNamed && current !== undefined;
     return (
       <>

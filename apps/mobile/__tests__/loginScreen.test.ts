@@ -47,7 +47,15 @@ jest.mock("@convex-dev/auth/react", () => ({
 let mockStatus: "admitted" | "joined" | "already" = "admitted";
 const mockEntered: Array<Record<string, unknown>> = [];
 const mockDescribed: Array<Record<string, unknown>> = [];
+// `shares.shareSignInHint`: the domain a shared link's workspace is open to.
+let mockHint: { domain: string; canEdit: boolean } | null = null;
+const mockHintAsked: unknown[] = [];
 jest.mock("convex/react", () => ({
+  useQuery: (_query: unknown, args: unknown) => {
+    if (args === "skip") return undefined;
+    mockHintAsked.push(args);
+    return mockHint;
+  },
   useAction: () => async (args: Record<string, unknown>) => {
     mockStarted.push(args);
     return mockStart;
@@ -417,6 +425,56 @@ describe("arriving from a shared note", () => {
     const view = mount({ phone: true });
     expect(view.text()).not.toContain("Someone shared a note with you");
     expect(view.byId("login-use-phone")).toBeNull();
+    view.unmount();
+  });
+});
+
+/*
+  A shared link whose workspace is open to an email domain (Dev, 2026-10-20):
+  the page names the domain the server gives for the link's token, and never
+  one read off the URL.
+*/
+describe("arriving from a shared link open to an email domain", () => {
+  const TOKEN = "c".repeat(64);
+  afterEach(() => {
+    delete mockParams.next;
+    delete mockParams.domain;
+    mockHint = null;
+    mockHintAsked.length = 0;
+  });
+
+  test("asks for the domain's email to edit, on the email field", () => {
+    mockParams.next = `/s/tobi-prep-${TOKEN}`;
+    mockHint = { domain: "publicworship.life", canEdit: true };
+    const view = mount({ phone: true });
+    expect(mockHintAsked).toEqual([{ token: TOKEN }]);
+    expect(view.text()).toContain("Sign in to edit");
+    expect(view.text()).toContain("Use your @publicworship.life email. If you're new, we'll make your account next.");
+    expect(view.byId("login-email")?.getAttribute("placeholder")).toBe("you@publicworship.life");
+    view.unmount();
+  });
+
+  test("says join when the domain only reads", () => {
+    mockParams.next = `/s/${TOKEN}`;
+    mockHint = { domain: "publicworship.life", canEdit: false };
+    const view = mount({ phone: true });
+    expect(view.text()).toContain("Sign in to join");
+    view.unmount();
+  });
+
+  test("names no domain the server did not give, whatever the URL says", () => {
+    mockParams.next = `/s/${TOKEN}`;
+    mockParams.domain = "evil.example";
+    const view = mount({ phone: true });
+    expect(view.text()).not.toContain("evil.example");
+    expect(view.text()).not.toContain("Sign in to edit");
+    view.unmount();
+  });
+
+  test("a link that is not a share is never asked about", () => {
+    mockParams.next = "/console";
+    const view = mount({ phone: true });
+    expect(mockHintAsked).toEqual([]);
     view.unmount();
   });
 });

@@ -10,16 +10,18 @@ import {
 import { needsOnboarding, standingFrom } from "../features/onboarding/route";
 
 /**
- * "Make your account" (domain sign-up, 2026-10-16). The screen asks three
- * things before a domain-joined person gets their own workspace: a name, a
- * phone, and a personal email. Continue is the only thing that spends them, so
- * its rule is pinned here rather than inside the screen.
+ * "Make your account" (domain sign-up, 2026-10-16). The screen asks two
+ * things before a domain-joined person gets their own workspace: a name and a
+ * phone. Their personal Gmail is asked next, once that workspace exists for it
+ * to connect to (Dev, 2026-10-20: "they need their number first and then their
+ * personal gmail"). Continue is the only thing that spends them, so its rule is
+ * pinned here rather than inside the screen.
  */
 
-const READY = { name: "Ada Okafor", phoneDone: true, emailDone: true, busy: false };
+const READY = { name: "Ada Okafor", phoneDone: true, busy: false };
 
 describe("when Continue is allowed", () => {
-  test("a name, a confirmed phone and a confirmed personal email", () => {
+  test("a name and a confirmed phone", () => {
     expect(canFinishSetup(READY)).toBe(true);
   });
 
@@ -35,10 +37,6 @@ describe("when Continue is allowed", () => {
 
   test("not until the phone is confirmed or was already on the account", () => {
     expect(canFinishSetup({ ...READY, phoneDone: false })).toBe(false);
-  });
-
-  test("not until the personal email is confirmed", () => {
-    expect(canFinishSetup({ ...READY, emailDone: false })).toBe(false);
   });
 
   test("not while a request is in flight", () => {

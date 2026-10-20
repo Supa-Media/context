@@ -17,6 +17,11 @@ import { CodeBoxes, OTP_LENGTH } from "./CodeBoxes";
 export const EMAIL_CHECK_TITLE = "What's your email?";
 export const EMAIL_CHECK_WHY =
   "It becomes your main email on Context: invitations go to it, and it gets you back in if you lose your phone. We'll send it a code to check it's yours.";
+/** Typed instead of Gmail, after a work-domain sign-up's phone (`gmailFirst/PersonalEmailGate.tsx`). */
+export const PERSONAL_EMAIL_TITLE = "Your personal email";
+export function personalEmailWhy(domain: string | null): string {
+  return `Use one you'll keep ${domain === null ? "if your work email goes away" : `if you leave ${domain}`}. We'll send it a code to check it's yours.`;
+}
 /** The backup email is optional and lives in Settings › Account (Dev2, 2026-10-12). */
 export const EMAIL_CHECK_BACKUP = "You can add a backup email any time in Settings › Account.";
 
@@ -33,7 +38,14 @@ export const EMAIL_CHECK_BACKUP = "You can add a backup email any time in Settin
  * and all (`functions/signInEmails.ts`, "moved"), and they sign in again with
  * the phone to land there.
  */
-export function EmailCheckScreen({ onUseGmail }: { onUseGmail?: () => void } = {}) {
+export function EmailCheckScreen({
+  onUseGmail,
+  personal,
+}: {
+  onUseGmail?: () => void;
+  /** A work-domain sign-up's personal email, added beside the work one rather than made the main one. */
+  personal?: { domain: string | null };
+} = {}) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const router = useRouter();
@@ -118,12 +130,12 @@ export function EmailCheckScreen({ onUseGmail }: { onUseGmail?: () => void } = {
           ) : sentTo === null ? (
             <>
               <Text role="heading" aria-level={1} style={styles.pitch}>
-                {EMAIL_CHECK_TITLE}
+                {personal ? PERSONAL_EMAIL_TITLE : EMAIL_CHECK_TITLE}
               </Text>
               <Text variant="rowSub" style={styles.body}>
-                {EMAIL_CHECK_WHY}
+                {personal ? personalEmailWhy(personal.domain) : EMAIL_CHECK_WHY}
               </Text>
-              {onUseGmail ? null : (
+              {onUseGmail || personal ? null : (
                 <Text variant="foot" style={styles.backup}>
                   {EMAIL_CHECK_BACKUP}
                 </Text>
@@ -133,7 +145,7 @@ export function EmailCheckScreen({ onUseGmail }: { onUseGmail?: () => void } = {
                   label="Email"
                   value={email}
                   onChangeText={setEmail}
-                  placeholder="you@work.com"
+                  placeholder={personal ? "you@gmail.com" : "you@work.com"}
                   autoCapitalize="none"
                   autoCorrect={false}
                   keyboardType="email-address"

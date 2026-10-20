@@ -44,6 +44,10 @@ export interface FixtureParams {
   role?: string | string[];
   /** `screen=shared-link`: `no` draws a link addressed to a person rather than open to anyone. */
   anyone?: string | string[];
+  /** `screen=shared-link`: the email domain the workspace is open to (`role=member` when joining only reads). */
+  domain?: string | string[];
+  /** `screen=shared-link`: read signed in at this address. */
+  as?: string | string[];
   /** `screen=meeting-card`: which call-audio state to draw; `MeetingCardFixture` lists them. */
   warn?: string | string[];
   checkout?: string | string[];
@@ -108,7 +112,17 @@ export function FixtureScreen({ params }: { params: FixtureParams }) {
   // ⌘K's answered search: rich rows, preview, Tab narrows the tree. See its own header.
   if (first(params.screen) === "palette-results") return <PaletteResultsFixture />;
   if (first(params.screen) === "shared") return <SharedInboxFixture at={first(params.at)} />;
-  if (first(params.screen) === "shared-link") return <SharedLinkFixture anyone={first(params.anyone) !== "no"} folder={first(params.at) === "folder"} />;
+  if (first(params.screen) === "shared-link") {
+    const domain = first(params.domain);
+    return (
+      <SharedLinkFixture
+        anyone={first(params.anyone) !== "no"}
+        folder={first(params.at) === "folder"}
+        domain={domain === undefined ? null : { domain, canEdit: first(params.role) !== "member" }}
+        signedInAs={first(params.as) ?? null}
+      />
+    );
+  }
 
   /*
     The application frame, which is otherwise on no browser-reachable screen

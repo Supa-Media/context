@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet, View, useWindowDimensions } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
 import { Button } from "../../design/components/Button";
 import { Card } from "../../design/components/Card";
 import { CenteredScroll } from "../../design/components/CenteredScroll";
@@ -12,7 +12,7 @@ import { CONSOLE_ROUTE } from "../../auth/redirect";
 import { completeGoogleCallback } from "./completeGoogleCallback";
 import { googleE2ECompletionSecret, parseGoogleCallback, takeGoogleCompletionSecret } from "./google";
 import { GmailDone } from "../../auth/gmailFirst/GmailDone";
-import { forgetGmailFirst, readGmailFirst } from "../../auth/gmailFirst/gmailFirst";
+import { forgetGmailFirst, readGmailFirst, readGmailReturn } from "../../auth/gmailFirst/gmailFirst";
 
 export function GoogleCallbackScreen() {
   const styles = useThemedStyles(makeStyles);
@@ -36,6 +36,9 @@ export function GoogleCallbackScreen() {
   );
   // Sent by a Gmail-first page: answered in its words once done (`GmailDone`).
   const [gmailFirst] = useState(readGmailFirst);
+  // A work-domain sign-up's personal Gmail goes straight back to the link
+  // they opened, where the layout draws the note once the address is in.
+  const [gmailReturn] = useState(readGmailReturn);
   useEffect(() => {
     if (status !== "working") forgetGmailFirst();
   }, [status]);
@@ -76,6 +79,7 @@ export function GoogleCallbackScreen() {
           ? "The connection is finishing on our side."
           : "This Google connection expired, failed, or was opened in a different browser. Start it again from settings.";
 
+  if (status === "done" && gmailFirst === "personal") return <Redirect href={gmailReturn} />;
   if (status === "done" && gmailFirst !== null) return <GmailDone mode={gmailFirst} />;
 
   return (

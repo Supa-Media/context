@@ -83,6 +83,8 @@ jest.mock("convex/react", () => {
     useConvexAuth: () => ({ isLoading: false, isAuthenticated: true }),
     useAction: () => async () => ({ redirectTo: "https://claude.ai/cb" }),
     useMutation: () => async () => ({ status: "admitted" }),
+    // The sign-in page's shared-link hint: none here.
+    useQuery: () => undefined,
     useQueries: () => ({
       workspaces: [{ workspaceId: "w1", slug: "testagent1", role: "owner" }],
       request: {

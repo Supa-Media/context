@@ -29,7 +29,20 @@ const NOTES: Record<string, string> = {
 
 const LINKS = ["1-projects/grant/2027-budget.md", "3-resources/funder-rules.md"];
 
-export function SharedLinkFixture({ anyone, folder = false }: { anyone: boolean; folder?: boolean }) {
+export function SharedLinkFixture({
+  anyone,
+  folder = false,
+  domain = null,
+  signedInAs = null,
+}: {
+  anyone: boolean;
+  folder?: boolean;
+  /** The email domain the workspace is open to, for the band's way in. */
+  domain?: { domain: string; canEdit: boolean } | null;
+  /** Read signed in at this address rather than signed out. */
+  signedInAs?: string | null;
+}) {
+  const domainAccess = domain === null ? null : { ...domain, joinSlug: null };
   const [path, setPath] = useState(folder ? "1-projects/grant" : "1-projects/grant/grant-writing-collab.md");
   const note: SharedNote = path === "1-projects/grant" ? {
     path,
@@ -44,6 +57,7 @@ export function SharedLinkFixture({ anyone, folder = false }: { anyone: boolean;
     openToAnyone: anyone,
     collecting: false,
     editableInContext: null,
+    domainAccess,
   } : {
     path,
     text: NOTES[path] ?? "# Not in this fixture",
@@ -54,6 +68,17 @@ export function SharedLinkFixture({ anyone, folder = false }: { anyone: boolean;
     openToAnyone: anyone,
     collecting: false,
     editableInContext: null,
+    domainAccess,
   };
-  return <SharedConsole note={note} signedIn={false} onOpen={setPath} onSignIn={() => {}} />;
+  return (
+    <SharedConsole
+      note={note}
+      signedIn={signedInAs !== null}
+      email={signedInAs}
+      onOpen={setPath}
+      onSignIn={() => {}}
+      onAddEmail={() => {}}
+      onSwitchAccount={() => {}}
+    />
+  );
 }

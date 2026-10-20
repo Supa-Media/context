@@ -12,7 +12,6 @@ import { PhoneNumberField } from "./PhoneNumberField";
 import { confirmError, sendError } from "./phoneCheck";
 import { AccountSetupJoined } from "./AccountSetupJoined";
 import { useSwitchAccount } from "./useSwitchAccount";
-import { confirmError as emailConfirmError, startError } from "../console/settings/panels/signInEmails";
 import { canFinishSetup, finishFailure, initialName, phoneAlreadyDone } from "./accountSetupModel";
 import { makeAccountSetupStyles } from "./accountSetupStyles";
 
@@ -20,9 +19,12 @@ import { makeAccountSetupStyles } from "./accountSetupStyles";
  * "Make your account" (board 2 of the domain sign-up, 2026-10-16). Drawn by
  * `app/(app)/_layout.tsx` after the domain join and before onboarding, for
  * somebody who signed in through a shared workspace's email domain and owns no
- * workspace yet. It asks for a name, a phone (texted a code) and a personal
- * email (mailed a code), then makes their own workspace; the layout then draws
- * the link they opened, on the same URL.
+ * workspace yet. It asks for a name and a phone (texted a code), then makes
+ * their own workspace. Their personal Gmail is asked next, by the layout
+ * (`gmailFirst/PersonalEmailGate.tsx`; Dev, 2026-10-20: "they need their
+ * number first and then their personal gmail"), because Gmail connects to the
+ * workspace this makes; then the layout draws the link they opened, on the
+ * same URL.
  *
  * Nothing here navigates. The rules are in `accountSetupModel.ts`; the server
  * decides what each step may do (`functions/accountSetup.ts`, `phoneCheck.ts`,
@@ -33,8 +35,6 @@ export function AccountSetupScreen({ email, suggestedName }: { email: string | n
   const check = useQuery(api.functions.phoneCheck.myPhoneCheck, {});
   const sendPhoneText = useAction(api.functions.phoneCheck.sendPhoneCode);
   const checkPhoneText = useAction(api.functions.phoneCheck.confirmPhoneCode);
-  const sendEmailCode = useAction(api.functions.signInEmails.startAddEmail);
-  const checkEmailCode = useAction(api.functions.signInEmails.confirmAddEmail);
   const finish = useMutation(api.functions.accountSetup.finishSetup);
   const switchAccount = useSwitchAccount();
 
@@ -44,13 +44,8 @@ export function AccountSetupScreen({ email, suggestedName }: { email: string | n
   const [phoneCode, setPhoneCode] = useState("");
   const [phoneConfirmed, setPhoneConfirmed] = useState(false);
   const [joined, setJoined] = useState(false);
-  const [draft, setDraft] = useState("");
-  const [emailSentTo, setEmailSentTo] = useState<string | null>(null);
-  const [emailCode, setEmailCode] = useState("");
-  const [emailConfirmed, setEmailConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [phoneError, setPhoneError] = useState<string | null>(null);
-  const [emailError, setEmailError] = useState<string | null>(null);
   const [finishError, setFinishError] = useState<string | null>(null);
 
   const phoneDone = phoneConfirmed || phoneAlreadyDone(check);
@@ -92,30 +87,6 @@ export function AccountSetupScreen({ email, suggestedName }: { email: string | n
         setPhoneCode("");
       }
     }, setPhoneError);
-  };
-
-  const sendEmail = () =>
-    run(async () => {
-      setEmailError(null);
-      const result = await sendEmailCode({ email: emailSentTo ?? draft });
-      setEmailError(startError(result.status));
-      if (result.status === "sent" && result.email !== undefined) {
-        setEmailSentTo(result.email);
-        setEmailCode("");
-      }
-    }, setEmailError);
-
-  const confirmEmail = (value: string) => {
-    if (value.length !== OTP_LENGTH) return;
-    return run(async () => {
-      setEmailError(null);
-      const result = await checkEmailCode({ code: value });
-      if (result.status === "added" || result.status === "moved") setEmailConfirmed(true);
-      else {
-        setEmailError(emailConfirmError(result.status));
-        setEmailCode("");
-      }
-    }, setEmailError);
   };
 
   const finishNow = () =>
@@ -211,76 +182,11 @@ export function AccountSetupScreen({ email, suggestedName }: { email: string | n
           </View>
         )}
 
-        {emailConfirmed ? (
-          <Text variant="rowSub" style={styles.body} testID="account-setup-email-done">
-            Your personal email is <Text style={styles.strong}>{emailSentTo}</Text>.
-          </Text>
-        ) : emailSentTo === null ? (
-          <View style={styles.field}>
-            <TextField
-              label="Personal email"
-              value={draft}
-              onChangeText={setDraft}
-              placeholder="you@gmail.com"
-              hint="Your notes stay reachable with this email if your work email goes away."
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="email-address"
-              autoComplete="email"
-              editable={!busy}
-              onSubmitEditing={() => void sendEmail()}
-              testID="account-setup-email"
-            />
-            <View style={styles.primaryRow}>
-              <Button
-                label="Email me a code"
-                variant="decision"
-                disabled={busy || draft.trim() === ""}
-                onPress={() => void sendEmail()}
-                testID="account-setup-email-send"
-              />
-            </View>
-            {emailError ? <Text variant="error" role="alert" style={styles.error}>{emailError}</Text> : null}
-          </View>
-        ) : (
-          <View style={styles.field}>
-            <Text variant="rowSub" style={styles.body}>
-              We sent a code to <Text style={styles.strong}>{emailSentTo}</Text>. It expires in ten minutes.
-            </Text>
-            <View style={styles.codes}>
-              <CodeBoxes
-                value={emailCode}
-                editable={!busy}
-                onChange={(value) => {
-                  setEmailCode(value);
-                  if (value.length === OTP_LENGTH) void confirmEmail(value);
-                }}
-                testID="account-setup-email-code"
-              />
-            </View>
-            <View style={styles.row}>
-              <Button label="Send a new code" variant="decision" disabled={busy} onPress={() => void sendEmail()} testID="account-setup-email-resend" />
-              <Button
-                label="Use a different email"
-                variant="decision"
-                disabled={busy}
-                onPress={() => {
-                  setEmailSentTo(null);
-                  setEmailCode("");
-                  setEmailError(null);
-                }}
-                testID="account-setup-email-change"
-              />
-            </View>
-            {emailError ? <Text variant="error" role="alert" style={styles.error}>{emailError}</Text> : null}
-          </View>
-        )}
-
         <View style={styles.primaryRow}>
           <Button
             label="Continue"
             variant="accent"
-            disabled={!canFinishSetup({ name, phoneDone, emailDone: emailConfirmed, busy })}
+            disabled={!canFinishSetup({ name, phoneDone, busy })}
             onPress={() => void finishNow()}
             testID="account-setup-continue"
           />

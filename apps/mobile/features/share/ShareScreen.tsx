@@ -38,7 +38,10 @@ import { StageBackdrop } from "../design/components/StageBackdrop";
 import { Text } from "../design/components/Text";
 import { radii } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
-import { noteHref } from "../console/nav";
+import { browseHref, noteHref } from "../console/nav";
+import { useSwitchAccount } from "../auth/useSwitchAccount";
+import { useAddressAtDomain } from "../auth/useAddressAtDomain";
+import { domainBandKind } from "./domainBand";
 import { PLATFORM_ORIGIN } from "../site/host";
 import { NoteBody } from "./NoteBody";
 import { SharedConsole } from "./SharedConsole";
@@ -214,14 +217,29 @@ export function ShareScreen({
     [router],
   );
 
-  const signIn = useCallback(() => {
-    if (site !== undefined) return site.signIn(requestedPath ?? undefined);
-    const back =
+  const signInHref = useMemo(
+    () =>
       shortLink !== undefined
         ? loginHref(shortLinkHref(shortLink, requestedPath ?? undefined))
-        : shareSignInHref(segment, requestedPath ?? undefined);
-    router.push(back);
-  }, [requestedPath, router, segment, shortLink, site]);
+        : shareSignInHref(segment, requestedPath ?? undefined),
+    [requestedPath, segment, shortLink],
+  );
+  const signIn = useCallback(() => {
+    if (site !== undefined) return site.signIn(requestedPath ?? undefined);
+    router.push(signInHref);
+  }, [requestedPath, router, signInHref, site]);
+
+  /*
+    Signed in at an address the note's workspace is not open to (board 05):
+    the band says which address, and offers Account settings to add one at
+    the domain, or another account. Asked only then.
+  */
+  const loaded = view.kind === "ready" ? view.note : null;
+  const atOtherAddress =
+    loaded !== null && domainBandKind(loaded.domainAccess, auth.isAuthenticated) === "addEmail";
+  const reader = useAddressAtDomain(atOtherAddress);
+  const switchAccount = useSwitchAccount();
+  const anotherAccount = useCallback(() => switchAccount(signInHref), [signInHref, switchAccount]);
 
   // "Report" under the page: the server is handed the token (or the short
   // link's handle) and forwards ids only; a signed-out reader gets an email.
@@ -262,10 +280,25 @@ export function ShareScreen({
     if (view.note.kind === "note" && view.note.editableInContext !== null) {
       return <Redirect href={noteHref(view.note.editableInContext, view.note.path)} />;
     }
+    /*
+      Signed in with an address at the domain the note's workspace is open to,
+      and not in it yet: into the workspace, where the app's layout joins them
+      (`DomainJoin`), asks for their phone and then their personal Gmail, and
+      draws the note. `joinSlug` is the server's, and only ever theirs.
+    */
+    const joinSlug = view.note.domainAccess?.joinSlug ?? null;
+    if (joinSlug !== null) {
+      return (
+        <Redirect href={view.note.kind === "note" ? noteHref(joinSlug, view.note.path) : browseHref(joinSlug)} />
+      );
+    }
     return (
       <SharedConsole
         note={view.note}
         signedIn={auth.isAuthenticated}
+        email={reader.email}
+        onAddEmail={reader.addEmail}
+        onSwitchAccount={anotherAccount}
         onOpen={open}
         onSignIn={signIn}
         report={report}

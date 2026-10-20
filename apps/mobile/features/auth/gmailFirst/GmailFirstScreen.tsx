@@ -20,6 +20,11 @@ export const ADD_GMAIL_WHY = "Connect the Gmail you want to add, like a work or 
 /** `/add-gmail` for somebody whose main email was typed, with no Gmail yet. */
 export const FIRST_GMAIL_TITLE = "Connect your Gmail";
 export const FIRST_GMAIL_WHY = "Use the one you check most. Tex reads your recent mail to get to know you.";
+/** `personal`: somebody who signed up with a work address, after their phone. */
+export function personalGmailWhy(domain: string | null): string {
+  return `Use the one you check most. It keeps your account yours ${domain === null ? "if your work email goes away" : `if you leave ${domain}`}.`;
+}
+export const PERSONAL_GMAIL_TEX = "Tex reads your recent mail to get to know you.";
 
 /**
  * One button to Google, worded for the Gmail it asks for (board 06, 09):
@@ -28,7 +33,10 @@ export const FIRST_GMAIL_WHY = "Use the one you check most. Tex reads your recen
  *    Gmail, which becomes their main email (`signInEmails.adoptGoogleAddress`),
  *    with "Type an email instead" for anybody who would rather not;
  *  - `another`, `/add-gmail`, the link Tex texts for a work or side-project
- *    Gmail: the main email stays as it is.
+ *    Gmail: the main email stays as it is;
+ *  - `personal`, after a work-domain sign-up's phone: their personal Gmail,
+ *    added beside the work address (`signInEmails.adoptGoogleAddress`), and
+ *    Google brings them back to `returnTo`, the link they opened.
  *
  * Google's unverified-app warning is explained under the button, where it
  * happens. Where Google cannot start (no personal workspace yet, or an origin
@@ -41,8 +49,14 @@ export function GmailFirstScreen({
   mainEmail,
   hasGmail = true,
   onTypeEmail,
+  domain,
+  returnTo,
 }: {
   mode: GmailFirstMode;
+  /** `personal` only: the work domain they signed up with. */
+  domain?: string;
+  /** `personal` only: the page to come back to once Google is done. */
+  returnTo?: string;
   workspaceId: string;
   mainEmail: string | null;
   /** `another` only: false when no Gmail is connected yet, so it is not "another". */
@@ -57,7 +71,7 @@ export function GmailFirstScreen({
 
   const connect = () => {
     if (busy) return;
-    rememberGmailFirst(mode);
+    rememberGmailFirst(mode, returnTo);
     google.start(GMAIL_SERVICES);
   };
 
@@ -72,9 +86,14 @@ export function GmailFirstScreen({
             </Text>
           </Text>
           <Text role="heading" aria-level={1} style={styles.pitch}>
-            {mode === "primary" ? GMAIL_FIRST_TITLE : hasGmail ? ADD_GMAIL_TITLE : FIRST_GMAIL_TITLE}
+            {mode !== "another" ? GMAIL_FIRST_TITLE : hasGmail ? ADD_GMAIL_TITLE : FIRST_GMAIL_TITLE}
           </Text>
-          {mode === "primary" ? (
+          {mode === "personal" ? (
+            <>
+              <Text style={styles.body}>{personalGmailWhy(domain ?? null)}</Text>
+              <Text style={styles.body}>{PERSONAL_GMAIL_TEX}</Text>
+            </>
+          ) : mode === "primary" ? (
             <>
               <Text style={styles.body}>{GMAIL_FIRST_WHY}</Text>
               <Text style={styles.body}>{GMAIL_FIRST_TEX}</Text>

@@ -12,6 +12,7 @@ import { FeedbackHost } from "../../features/feedback/FeedbackHost";
 import { PhoneCheckScreen } from "../../features/auth/PhoneCheckScreen";
 import { EmailGate } from "../../features/auth/gmailFirst/EmailGate";
 import { DomainJoin } from "../../features/auth/DomainJoin";
+import { PersonalEmailGate } from "../../features/auth/gmailFirst/PersonalEmailGate";
 import { domainJoinFor, type JoinableWorkspace } from "../../features/auth/domainJoin";
 import { ToastHost } from "../../features/design/components/Toast";
 import { joinedNotice } from "../../features/console/settings/panels/organization";
@@ -283,6 +284,9 @@ export default function AppLayout() {
   if (mySetup && setupNeeded(mySetup)) {
     return <AccountSetupScreen email={mySetup.email} suggestedName={mySetup.suggestedName} />;
   }
+  // Then their personal Gmail, now that their own workspace exists for it to
+  // connect to (Dev, 2026-10-20: number first, then the personal Gmail).
+  if (mySetup?.needsPersonalEmail === true) return <PersonalEmailGate email={mySetup.email} />;
 
   // Not while `mySetup` is outstanding: a domain-joined person owns nothing
   // until it answers, and `needsOnboarding` waits on that rather than redirect.

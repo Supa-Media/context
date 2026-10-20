@@ -18,6 +18,7 @@ import { sharedWelcome } from "../../sharedWelcome";
 import { SharedWelcomeCard } from "./SharedWelcomeCard";
 import { MainFoldersNotice } from "./MainFoldersNotice";
 import { NO_BUCKET_NOTICE, isNoBucketNotice } from "./noBucketNotice";
+import { useBandOffer } from "../../../share/domainBand";
 
 /**
  * The band itself, drawn from `useBrowseNotices`. Where it sits — above the
@@ -61,8 +62,9 @@ export function BrowseNotices({
   missingFolders: BrowseNoticeState["missingFolders"];
 }) {
   const styles = useThemedStyles(makeStyles);
+  const offer = useBandOffer();
   // The intro, drawn as B2-02's welcome where it can be — see `sharedWelcome`.
-  const welcome = introVisible
+  const welcome = introVisible && offer === null
     ? sharedWelcome({
         intro,
         current,
@@ -122,7 +124,27 @@ export function BrowseNotices({
             otherwise cannot tell a small context from a filtered one.
           */}
           <Text variant="hint">{intro!.text}</Text>
-          {data.demo === true || compact ? null : (
+          {offer !== null ? (
+            /*
+              A shared link's way in (`share/domainBand.ts`): the band carries
+              the sign-in or the add-email in place of "Got it", on phone too.
+            */
+            <View style={styles.bandActions}>
+              {offer.actions.map((action) =>
+                action.quiet ? (
+                  <TextLink
+                    key={action.testID}
+                    label={action.label}
+                    onPress={action.onPress}
+                    style={styles.bandQuiet}
+                    testID={action.testID}
+                  />
+                ) : (
+                  <Button key={action.testID} label={action.label} onPress={action.onPress} testID={action.testID} />
+                ),
+              )}
+            </View>
+          ) : data.demo === true || compact ? null : (
             <Button
               /*
                 "Got it", not "Dismiss". Every other control in this band puts

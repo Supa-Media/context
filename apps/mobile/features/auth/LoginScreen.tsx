@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useQuery } from "convex/react";
+import { api } from "@context/convex/_generated/api";
 import { ActivityIndicator, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { densityFor } from "../app/frame";
@@ -18,7 +20,7 @@ import { CodeBoxes, OTP_LENGTH } from "./CodeBoxes";
 import { SignInPreview } from "./SignInPreview";
 import { PhoneSignInForm } from "./PhoneSignInForm";
 import { EMAIL_STILL_NEEDS_PHONE } from "./phoneSignIn";
-import { SHARED_NOTE_FOOT, SHARED_NOTE_INTRO, isSharedNoteNext } from "./sharedNoteNext";
+import { SHARED_NOTE_FOOT, SHARED_NOTE_INTRO, isSharedNoteNext, shareTokenInNext, sharedLinkDomainIntro } from "./sharedNoteNext";
 import { usePhoneSignIn } from "./usePhoneSignIn";
 
 /**
@@ -67,8 +69,17 @@ export function LoginScreen({ join }: { join?: JoinVariant }) {
   const flow = useEmailSignIn({ source: "login", onSignedIn });
   // A link to a note in a workspace open to somebody's email domain: email
   // first, and the copy says what happens next (`sharedNoteNext.ts`).
-  const sharedNote = join === undefined && isSharedNoteNext(next);
+  // A shared link whose workspace is open to an email domain: the domain is
+  // the server's, asked by the link's token (`shares.shareSignInHint`).
+  const shareToken = join === undefined ? shareTokenInNext(next) : null;
+  const hint = useQuery(api.functions.shares.shareSignInHint, shareToken === null ? "skip" : { token: shareToken });
+  const domainIntro = hint ? sharedLinkDomainIntro(hint.domain, hint.canEdit) : null;
+  const sharedNote = join === undefined && (isSharedNoteNext(next) || domainIntro !== null);
   const [mode, setMode] = useState<"phone" | "email">(join || sharedNote ? "email" : "phone");
+  const domainNamed = domainIntro !== null;
+  useEffect(() => {
+    if (domainNamed) setMode("email");
+  }, [domainNamed]);
   const phoneFlow = usePhoneSignIn({ onSignedIn, onUnavailable: () => setMode("email") });
   const { step, email, code, submitting, error, resent, canSubmit } = flow;
   const view = signInView(join, step);
@@ -106,10 +117,10 @@ export function LoginScreen({ join }: { join?: JoinVariant }) {
           ) : sharedNote ? (
             <>
               <Text role="heading" aria-level={1} style={styles.pitch}>
-                Someone shared a note with you
+                {domainIntro?.heading ?? "Someone shared a note with you"}
               </Text>
               <Text variant="rowSub" style={styles.sent}>
-                {SHARED_NOTE_INTRO}
+                {domainIntro?.intro ?? SHARED_NOTE_INTRO}
               </Text>
             </>
           ) : (
@@ -131,7 +142,7 @@ export function LoginScreen({ join }: { join?: JoinVariant }) {
                 if (view === "wrongEmail") flow.changeEmail();
                 flow.setEmail(value);
               }}
-              placeholder="you@work.com"
+              placeholder={hint ? `you@${hint.domain}` : "you@work.com"}
               autoCapitalize="none"
               autoCorrect={false}
               keyboardType="email-address"

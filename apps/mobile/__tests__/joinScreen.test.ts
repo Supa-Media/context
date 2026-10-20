@@ -166,7 +166,10 @@ describe("an invite that no longer works", () => {
     mockToken = undefined;
     mockQueried.length = 0;
     const view = mount();
-    expect(mockQueried).toEqual(["skip"]);
+    // Every query the page holds is skipped: the invite's, and the shared
+    // link hint the sign-in form asks only for a share address.
+    expect(mockQueried.length).toBeGreaterThan(0);
+    expect(mockQueried.every((args) => args === "skip")).toBe(true);
     expect(view.text()).toContain("This invite no longer works");
     view.unmount();
   });

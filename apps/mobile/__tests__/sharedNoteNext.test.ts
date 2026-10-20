@@ -1,5 +1,5 @@
 import { describe, expect, test } from "@jest/globals";
-import { isSharedNoteNext } from "../features/auth/sharedNoteNext";
+import { isSharedNoteNext, shareTokenInNext } from "../features/auth/sharedNoteNext";
 
 /**
  * Is the `?next=` a sign-in is carrying a link to a note? The login screen
@@ -44,5 +44,22 @@ describe("recognising a shared-note link", () => {
     expect(isSharedNoteNext("//evil.example/console/@seyi?note=x.md")).toBe(false);
     expect(isSharedNoteNext("/\\evil.example/console/@seyi?note=x.md")).toBe(false);
     expect(isSharedNoteNext("/console\\@seyi?note=x.md")).toBe(false);
+  });
+});
+
+describe("the share token a sign-in is carrying back to", () => {
+  const TOKEN = "d".repeat(64);
+  test("reads it from /s/<token> and /s/<slug>-<token>, with or without a path", () => {
+    expect(shareTokenInNext(`/s/${TOKEN}`)).toBe(TOKEN);
+    expect(shareTokenInNext(`/s/tobi-prep-${TOKEN}?path=1-projects%2Fa.md`)).toBe(TOKEN);
+  });
+
+  test("anything else is no token", () => {
+    expect(shareTokenInNext(null)).toBeNull();
+    expect(shareTokenInNext("/console")).toBeNull();
+    expect(shareTokenInNext(`//evil.example/s/${TOKEN}`)).toBeNull();
+    expect(shareTokenInNext(`https://evil.example/s/${TOKEN}`)).toBeNull();
+    expect(shareTokenInNext("/s/not-a-token")).toBeNull();
+    expect(shareTokenInNext(`/s/${TOKEN}/more`)).toBeNull();
   });
 });

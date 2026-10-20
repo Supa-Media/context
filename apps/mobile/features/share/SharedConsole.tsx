@@ -13,6 +13,7 @@ import { useThemedStyles, type Colors } from "../design/theme";
 import { useVisitorConsoleData } from "../home/useVisitorConsoleData";
 import type { SharedNote } from "./share";
 import { isLoaded, sharedTree } from "./sharedTree";
+import { BandOfferContext, domainBandKind, domainBandOffer, readOnlyReasonFor } from "./domainBand";
 
 /**
  * The page a shared link opens, drawn as the console itself.
@@ -66,21 +67,24 @@ export const SHARED_CONTEXT: ConsoleContext = {
 const SHARED_ROUTE: ConsoleRoute = { kind: "context", slug: SHARED_CONTEXT.slug, view: "browse" };
 const NO_PARAMS = { openSettingsSection: null, checkoutReturn: null, connectAgent: null };
 
-export function readOnlyReasonFor(note: SharedNote): string {
-  return note.openToAnyone
-    ? "You're reading a shared link. Only people in this workspace can change it."
-    : "This was shared with you to read.";
-}
-
 export function SharedConsole({
   note,
   signedIn,
   onOpen,
   onSignIn,
   report,
+  email = null,
+  onAddEmail,
+  onSwitchAccount,
 }: {
   note: SharedNote;
   signedIn: boolean;
+  /** The signed-in reader's own address, for "You're signed in as …". */
+  email?: string | null;
+  /** Account settings, to add an address at the workspace's domain. */
+  onAddEmail: () => void;
+  /** Sign out, and sign in again with another account. */
+  onSwitchAccount: () => void;
   /** Go to another note or folder the link reaches. */
   onOpen: (path: string) => void;
   /** Sign in, and come back to this address. */
@@ -90,7 +94,12 @@ export function SharedConsole({
 }) {
   const styles = useThemedStyles(makeStyles);
   const router = useRouter();
-  const tree = useMemo(() => sharedTree(note, readOnlyReasonFor(note)), [note]);
+  const tree = useMemo(() => sharedTree(note, readOnlyReasonFor(note, signedIn, email)), [note, signedIn, email]);
+  const kind = domainBandKind(note.domainAccess, signedIn);
+  const offer = useMemo(
+    () => domainBandOffer(kind, { signIn: onSignIn, addEmail: onAddEmail, switchAccount: onSwitchAccount }),
+    [kind, onSignIn, onAddEmail, onSwitchAccount],
+  );
   const base = useStaticFileBrowser(tree, SHARED_CONTEXT.id);
 
   const files = useMemo<FileBrowser>(
@@ -141,12 +150,14 @@ export function SharedConsole({
   }, [router]);
 
   return (
-    <View style={styles.ground} testID="share-console">
-      <ConsoleFrame data={data} route={SHARED_ROUTE} router={visitorRouter} params={NO_PARAMS}>
-        <BrowsePane data={data} />
-      </ConsoleFrame>
-      {report === undefined ? null : <View style={styles.report}>{report}</View>}
-    </View>
+    <BandOfferContext.Provider value={offer}>
+      <View style={styles.ground} testID="share-console">
+        <ConsoleFrame data={data} route={SHARED_ROUTE} router={visitorRouter} params={NO_PARAMS}>
+          <BrowsePane data={data} />
+        </ConsoleFrame>
+        {report === undefined ? null : <View style={styles.report}>{report}</View>}
+      </View>
+    </BandOfferContext.Provider>
   );
 }
 

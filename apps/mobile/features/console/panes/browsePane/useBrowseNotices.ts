@@ -11,6 +11,7 @@ import { contextIntro, useContextIntro } from "../../contextIntro";
 import { contextSetupFor, setupPromptVisible } from "../../setup";
 import { useInAppMessage } from "../../../messages/useInAppMessage";
 import { missingFoldersEligible } from "../../files/mainFolderOffers";
+import { useBandOffer } from "../../../share/domainBand";
 
 /** The folder card after "Start fresh": being written, then written, then gone. */
 export type LayingOut = "writing" | "done" | null;
@@ -244,8 +245,11 @@ export function useBrowseNotices({
     spoken for by the note's own actions — a design decision rather than this
     one, and the conservative half is here.
   */
+  // A shared link's band with a way in (`share/domainBand.ts`) is not
+  // something read and put aside: a "Got it" from another link never hides it.
+  const bandOffer = useBandOffer();
   const introVisible =
-    intro !== null && (data.demo === true || compact || introAnswer.visible);
+    intro !== null && (data.demo === true || compact || bandOffer !== null || introAnswer.visible);
 
   /*
     MOVES INTO ANOTHER CONTEXT, WHICH FINISH AFTER THE PRESS THAT STARTED THEM.
