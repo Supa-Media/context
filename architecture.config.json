@@ -68,6 +68,7 @@
     }
   ],
   "reviewed": {
+    ".github/workflows/ci.yml": "The pull-request entry workflow: the reusable workflow's inputs and its change-filters are one YAML block that must stay in this file, and most of its length is the convex filter's list of gateway files Convex reaches (scripts/convex-gateway-reads.mjs --filter), which check-ci-path-gates.mjs holds to that derivation.",
     "apps/mobile/features/design/tokens/colors.ts": "The app's colour tokens as one table: each theme's values sit side by side, and the contrast and palette tests read the whole table, so splitting it would scatter one theme across files.",
     "apps/mcp/test/browser/verifyEditor.mjs": "One browser harness: every scenario shares the same worker, control plane, static build and two signed-in pages it boots once; splitting it would boot that stack per file.",
     "apps/mobile/features/console/collaboration/durable.ts": "One class, DurableCollaborationController: the device record, the flush queue, remote reads, recovery replacement and generation adoption all mutate the same private record and Yjs document.",
