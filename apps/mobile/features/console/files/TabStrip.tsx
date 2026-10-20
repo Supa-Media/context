@@ -9,6 +9,8 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
   type ViewProps,
+  type TextStyle,
+  type ViewStyle,
 } from "react-native";
 import { FocusRing } from "../../design/components/FocusRing";
 import { Icon } from "../../design/components/Icon";
@@ -73,7 +75,15 @@ type TabMenuId = "close" | "closeOthers" | "closeToRight" | "reopen";
  *
  * And one rule that is not a copy of anything: **the strip must never wrap.** A
  * second row of tabs reflows the first one, which moves every tab out from under
- * the pointer that is already on its way to one of them. It scrolls instead, and
+ * the pointer that is already on its way to one of them.
+ *
+ * **Nor may it run under the bar's other controls** (owner, 2026-10-20). It used
+ * to keep every tab at its natural width and lean on the scroller to cope, but
+ * the scroller was never given a width of its own, so a seventh tab pushed the
+ * strip out of its slot and across the search field. So it does what Chrome
+ * does: once the row is full, every tab shrinks to an even share of it, the
+ * titles truncate, and at the narrowest only the first letters show — see
+ * `TAB_MIN_WIDTH` and `tabsAreTight`. Only past that floor does it scroll, and
  * the active tab is kept in view when it changes so that ⌘1–⌘9 and "close the
  * active tab" cannot leave you looking at a strip that does not contain the note
  * you are editing.
@@ -96,6 +106,82 @@ export interface TabStripProps {
 
 /** Roughly a dozen characters. Long enough to be a name, short enough to fit six. */
 const MAX_LABEL_WIDTH = 180;
+
+/**
+ * The narrowest a tab gets before the strip scrolls instead: Chrome's floor,
+ * where a tab is its first two or three letters. The front tab's floor is wider
+ * because it keeps its ×, which is what Chrome does too — the tab you are
+ * reading is the one you are most likely to close.
+ */
+export const TAB_MIN_WIDTH = 44;
+export const ACTIVE_TAB_MIN_WIDTH = 112;
+
+/**
+ * Below this even share, a tab in the back gives its ✕'s box to its letters.
+ *
+ * Decided from the share rather than from each tab's own width, because the ✕
+ * is part of what sets that width: a tab that hid its ✕ because it was narrow
+ * would be narrower for having hidden it, and would never get it back.
+ */
+const TIGHT_SHARE = 96;
+
+/**
+ * A title that runs out of room fades over its last 16pt. Web only, like
+ * `SHARE`: a mask is CSS with no React Native equivalent.
+ */
+const LABEL_FADE: TextStyle | null =
+  Platform.OS === "web"
+    ? ({
+        // The label fills its tab, so the fade sits at the tab's edge and a
+        // title short enough to fit is never faded.
+        // The fade's own 16pt is padding, so a tab at its natural width
+        // fades only air and keeps every letter of a short title.
+        flexGrow: 1,
+        paddingRight: 16,
+        whiteSpace: "nowrap",
+        overflow: "hidden",
+        maskImage: "linear-gradient(to right, #000 calc(100% - 16px), transparent)",
+        WebkitMaskImage: "linear-gradient(to right, #000 calc(100% - 16px), transparent)",
+      } as unknown as TextStyle)
+    : null;
+
+/**
+ * The strip's ends fade over 24pt where tabs run past them, so a scrolled row
+ * does not end in a tab cut flat against the file tree. Alpha only, so it is
+ * the same in both themes.
+ */
+function edgeFade({ before, after }: { before: boolean; after: boolean }): ViewStyle | null {
+  if (Platform.OS !== "web" || !(before || after)) return null;
+  const mask = `linear-gradient(to right, ${before ? "transparent, #000 24px" : "#000, #000"}, ${
+    after ? "#000 calc(100% - 24px), transparent" : "#000"
+  })`;
+  return { maskImage: mask, WebkitMaskImage: mask } as unknown as ViewStyle;
+}
+
+/** Whether `count` tabs sharing `width` are past the point where every one can keep a ✕. */
+export function tabsAreTight(width: number, count: number): boolean {
+  // Unmeasured — jsdom, or the first frame — is never tight.
+  if (width <= 0 || count === 0) return false;
+  return width / count < TIGHT_SHARE;
+}
+
+/**
+ * Chrome's sharing rule, in CSS: every tab starts from nothing and grows by an
+ * equal share, but never past its own label (`max-content`). So until the row
+ * is full each tab is exactly as wide as its title, and once it is full they
+ * are an even share each — the short ones keeping their natural width and
+ * handing the rest to the long ones — down to `TAB_MIN_WIDTH`, where the strip
+ * overflows and scrolls.
+ *
+ * `max-content` is a CSS keyword with no React Native equivalent, so it is web
+ * only, which is the only place a second tab can be opened (see the file
+ * comment). Elsewhere a tab shrinks from its natural width, which is the same
+ * answer for the one tab a native tablet ever shows.
+ */
+const SHARE: ViewStyle =
+  Platform.OS === "web"
+    ? ({ flexGrow: 1, flexShrink: 1, flexBasis: 0, maxWidth: "max-content" } as unknown as ViewStyle)
+    : { flexGrow: 0, flexShrink: 1 };
 
 /** Breathing room left either side of the active tab when it is scrolled in. */
 const SCROLL_MARGIN = 24;
@@ -229,6 +315,21 @@ export function TabStrip({
   const boxes = useRef(new Map<string, { x: number; width: number }>());
   /** The visible window: how wide the strip is, and how far it is scrolled. */
   const viewport = useRef({ width: 0, offset: 0 });
+  /** The same width as state, because it decides how the tabs draw. */
+  const [width, setWidth] = useState(0);
+  const tight = tabsAreTight(width, state.tabs.length);
+  /** Whether tabs run past either end of the strip, which is where it fades. */
+  const [edges, setEdges] = useState({ before: false, after: false });
+
+  // Before anything scrolls there is no scroll event to say whether the row
+  // overflows, so the first measurement asks the tabs themselves.
+  useEffect(() => {
+    if (width === 0) return;
+    let end = 0;
+    for (const box of boxes.current.values()) end = Math.max(end, box.x + box.width);
+    const { offset } = viewport.current;
+    setEdges({ before: offset > 1, after: offset + width < end - 1 });
+  }, [width, state.tabs.length]);
 
   const { activePath } = state;
 
@@ -259,7 +360,10 @@ export function TabStrip({
         animated: true,
       });
     }
-  }, [activePath, state.tabs.length]);
+    // `width` too: a strip that mounts full — a reload with thirty tabs —
+    // measures itself after this first runs, and would leave the front tab
+    // scrolled out of sight.
+  }, [activePath, state.tabs.length, width]);
 
   const closeMenu = useCallback(() => setMenu(null), []);
 
@@ -271,14 +375,20 @@ export function TabStrip({
         ref={scroller}
         horizontal
         showsHorizontalScrollIndicator={false}
-        style={styles.scroller}
+        style={[styles.scroller, edgeFade(edges)]}
         contentContainerStyle={styles.scrollerContent}
         testID="tab-strip-scroller"
         onLayout={(event: LayoutChangeEvent) => {
           viewport.current.width = event.nativeEvent.layout.width;
+          setWidth(event.nativeEvent.layout.width);
         }}
         onScroll={(event: NativeSyntheticEvent<NativeScrollEvent>) => {
-          viewport.current.offset = event.nativeEvent.contentOffset.x;
+          const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+          viewport.current.offset = contentOffset.x;
+          setEdges({
+            before: contentOffset.x > 1,
+            after: contentOffset.x + layoutMeasurement.width < contentSize.width - 1,
+          });
         }}
         scrollEventThrottle={16}
       >
@@ -302,6 +412,7 @@ export function TabStrip({
                   : tabLabel(state, tab.path)
               }
               active={tab.path === state.activePath}
+              tight={tight}
               onActivate={() => onActivate(tab.path)}
               onClose={() => onClose(tab.path)}
               onMenu={(at) => setMenu({ path: tab.path, x: at.x, y: at.y })}
@@ -361,6 +472,7 @@ function TabItem({
   tab,
   label,
   active,
+  tight,
   onActivate,
   onClose,
   onMenu,
@@ -369,6 +481,8 @@ function TabItem({
   tab: Tab;
   label: string;
   active: boolean;
+  /** Past the share where every tab keeps a ✕ — see `tabsAreTight`. */
+  tight: boolean;
   onActivate: () => void;
   onClose: () => void;
   onMenu: (at: { x: number; y: number }) => void;
@@ -383,6 +497,12 @@ function TabItem({
   // Hovering the tab anywhere reveals the ×, because by then the pointer is
   // already on its way to it.
   const showDot = tab.dirty && !hovered;
+  // A squeezed back tab is letters only, as in Chrome. Its ✕ leaves the row
+  // rather than fading — the one place it does — because the box it would hold
+  // is most of the tab, and a hover that revealed it would cover the letters
+  // the pointer was aiming at. Middle-click and the menu still close it; a
+  // dirty one keeps its dot, for the reason the comment on the ✕ gives.
+  const closeGone = tight && !active && !tab.dirty;
   // The path, not the label: the label is deliberately the short form, and a
   // screen reader announcing "notes" for two different notes is the ambiguity
   // `tabLabel` exists to fix everywhere it has the room to.
@@ -391,7 +511,12 @@ function TabItem({
   return (
     <View
       testID={`tab-${tab.path}`}
-      style={[styles.tab, active ? styles.tabActive : styles.tabIdle]}
+      style={[
+        styles.tab,
+        SHARE,
+        { minWidth: active ? ACTIVE_TAB_MIN_WIDTH : TAB_MIN_WIDTH },
+        active ? styles.tabActive : styles.tabIdle,
+      ]}
       onLayout={(event: LayoutChangeEvent) => {
         const { x, width } = event.nativeEvent.layout;
         onMeasure({ x, width });
@@ -407,13 +532,16 @@ function TabItem({
         onPress={onActivate}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
-        style={styles.hit}
+        style={[styles.hit, closeGone && styles.hitTight]}
         testID={`tab-open-${tab.path}`}
       >
         <Text
-          numberOfLines={1}
+          // Squeezed, a title fades out rather than ending in "…", which at
+          // 44pt would be a third of the tab (Chrome does the same).
+          numberOfLines={tight ? undefined : 1}
           style={[
             styles.label,
+            tight && LABEL_FADE,
             active ? styles.labelActive : styles.labelIdle,
             tab.preview && styles.labelPreview,
           ]}
@@ -446,19 +574,21 @@ function TabItem({
         Nobody ever presses an invisible one: by the time a pointer is over
         the tab, `hovered` is already true.
       */}
-      <Pressable
-        role="button"
-        accessibilityLabel={`Close ${label}${tab.dirty ? ", unsaved changes" : ""}`}
-        onPress={onClose}
-        style={[styles.close, !(active || hovered || tab.dirty) && styles.closeAway]}
-        testID={`tab-close-${tab.path}`}
-      >
-        {showDot ? (
-          <View style={styles.dirtyDot} testID={`tab-dot-${tab.path}`} />
-        ) : (
-          <Icon name="close" size={10} color={colors.chromeMuted} />
-        )}
-      </Pressable>
+      {closeGone ? null : (
+        <Pressable
+          role="button"
+          accessibilityLabel={`Close ${label}${tab.dirty ? ", unsaved changes" : ""}`}
+          onPress={onClose}
+          style={[styles.close, !(active || hovered || tab.dirty) && styles.closeAway]}
+          testID={`tab-close-${tab.path}`}
+        >
+          {showDot ? (
+            <View style={styles.dirtyDot} testID={`tab-dot-${tab.path}`} />
+          ) : (
+            <Icon name="close" size={10} color={colors.chromeMuted} />
+          )}
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -487,21 +617,35 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   strip: {
     flexDirection: "row",
     alignItems: "flex-end",
+    // The slot's width and no more. Without these the strip took its tabs'
+    // width, ran out of the frame's slot and drew over the search field.
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 0,
   },
 
   scroller: {
     flexGrow: 1,
     flexShrink: 1,
+    minWidth: 0,
   },
 
   scrollerContent: {
-    // `flexGrow: 1` so the strip's ground colour reaches the right-hand edge
-    // when there are only two tabs open.
-    flexGrow: 1,
+    // The visible width exactly, so the tabs have a row to share rather than
+    // an unbounded one to spread along. A row of tabs at their floor still
+    // overflows it, and that overflow is what scrolls.
+    width: "100%",
   },
 
   /** One row, forever. See the comment at its use site. */
   track: {
+    // The content container's width, which is the strip's: grow into it,
+    // and shrink to it too — react-native-web's `View` does not shrink by
+    // default, and a track that keeps its content's width is the overlap.
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 0,
+    minWidth: 0,
     flexDirection: "row",
     flexWrap: "nowrap",
     alignItems: "flex-end",
@@ -563,7 +707,12 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingRight: 6,
   },
 
+  /** No ✕ beside it, so the letters get the tab's whole width, evenly inset. */
+  hitTight: { paddingLeft: 12, paddingRight: 0 },
+
   label: {
+    flexShrink: 1,
+    minWidth: 0,
     fontSize: t.ui,
     lineHeight: 18,
     maxWidth: MAX_LABEL_WIDTH,

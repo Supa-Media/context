@@ -4,7 +4,7 @@ import { AppFrameFixture } from "./AppFrameFixture";
 import { AiLibraryFixture } from "./AiLibraryFixture";
 import { DomainFixture } from "./DomainFixture";
 import { MailFixture } from "./MailFixture";
-import { AppFrameVisualFixture } from "./AppFrameVisualFixture";
+import { AppFrameVisualFixture, fixtureTabs } from "./AppFrameVisualFixture";
 import { ResumeFixture, isResumeSurface } from "./ResumeFixture";
 import { E2EFixtureScreen } from "../console/E2EFixtureScreen";
 import { FirstRunStorageFixture } from "../onboarding/FirstRunStorageFixture";
@@ -47,6 +47,8 @@ export interface FixtureParams {
   /** `screen=meeting-card`: which call-audio state to draw; `MeetingCardFixture` lists them. */
   warn?: string | string[];
   checkout?: string | string[];
+  /** `screen=app-frame-visual`: how many tabs are open, for a full strip. */
+  tabs?: string | string[];
   screen?: string | string[];
   /** No `screen`: `1` draws the open note as moved to the trash. */
   trashed?: string | string[];
@@ -118,7 +120,13 @@ export function FixtureScreen({ params }: { params: FixtureParams }) {
   // The same frame with real contents, for looking at. See its own header for
   // why it is a separate screen rather than a flag on the one above.
   if (first(params.screen) === "app-frame-visual") {
-    return <AppFrameVisualFixture panel={first(params.panel) === "meetings"} />;
+    const tabs = first(params.tabs);
+    return (
+      <AppFrameVisualFixture
+        panel={first(params.panel) === "meetings"}
+        shape={tabs === undefined ? undefined : { tabs: fixtureTabs(Number(tabs)) }}
+      />
+    );
   }
 
   // Every surface that offers a stopped meeting back. See its own header.
