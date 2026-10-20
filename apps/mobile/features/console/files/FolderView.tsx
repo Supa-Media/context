@@ -291,7 +291,7 @@ export function FolderView({
     false.
   */
   const descending = useListingOrder();
-  const rows = listedEntries(listing?.entries ?? [], { descending });
+  const rows = listedEntries(listing?.entries ?? [], { descending, aboutDrawn: true });
   // The contacts folder: its letter folders as an A–Z index, everything else
   // as rows (`communications/ContactsIndex.tsx`). `null` for every other folder.
   const contacts = contactsIndex(entry.path, rows);

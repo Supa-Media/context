@@ -186,15 +186,17 @@ export function orderedEntries(
  *
  * The filter is by name, not by contents — `isFolderPlaceholder` says why, and
  * what that costs. `privacy.md` is dropped by the same rule
- * (`isPrivacyManifest`), and so is the folder's about note (`aboutNoteOf`),
- * whose words its page draws at the top instead.
+ * (`isPrivacyManifest`). The folder's about note (`aboutNoteOf`) is dropped
+ * only where its words are drawn instead (`aboutDrawn`: the folder's own page)
+ * or where it is the app's own description key (`hiddenAboutNote`).
  */
 export function listedEntries(
   entries: readonly FileEntry[],
-  options: { descending?: boolean; keep?: string | null } = {},
+  options: { descending?: boolean; keep?: string | null; aboutDrawn?: boolean } = {},
 ): readonly FileEntry[] {
   const keep = options.keep ?? null;
-  const about = aboutNoteOf(entries);
+  const found = aboutNoteOf(entries);
+  const about = options.aboutDrawn === true || hiddenAboutNote(found) ? found : null;
   const listed = entries.filter(
     // `kind === "file"`, because a FOLDER somebody called `README.md` is a
     // folder — pathological, and `isFolderPlaceholder` is a path predicate with
@@ -219,6 +221,23 @@ export function aboutNoteOf(entries: readonly FileEntry[]): string | null {
   const folder = parentPath(files[0]!.path);
   const name = aboutNoteName(folder, files.map((entry) => baseName(entry.path)));
   return name === null ? null : folder === "" ? name : `${folder}/${name}`;
+}
+
+/**
+ * Whether a folder's about note is left out of a list that does not draw its
+ * words (the sidebar, a subfolder opened inside a folder page).
+ *
+ * Only the app's own key is: a folder's `about.md`, which the folder's page
+ * draws when the folder is opened, and the workspace's `index.md`, which its
+ * home draws. An `overview.md` or `index.md` in a folder is a note somebody
+ * (very often an agent) wrote and that people look for by name, so hiding it
+ * there left it nowhere in the sidebar: decided by the owner, 2026-10-20, after
+ * a project's `overview.md` could only be reached by a link Tex sent. A
+ * `README.md` stays out by the placeholder rule (`isFolderPlaceholder`).
+ */
+export function hiddenAboutNote(about: string | null): boolean {
+  if (about === null) return false;
+  return about === "index.md" || baseName(about) === "about.md";
 }
 
 /**

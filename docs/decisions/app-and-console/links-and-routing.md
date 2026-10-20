@@ -241,6 +241,20 @@ name.** Obsidian's shortest-path-wins rule is not implemented here and must not
 be guessed at: a link that still resolves the way it always did beats one this
 code decided the meaning of.
 
+**Following a bare name opens the nearest note carrying it** (owner,
+2026-10-20). Every project folder had its own `task-lyrics.md`, so a project
+overview's `[[task-lyrics]]` was drawn as a dead link ("No note has this name,
+or more than one does") with the note right beside it. Following, previews and
+published sites now resolve a shared name to the one in the linking note's own
+folder, else the one whose folder shares the most of its path, and still to
+nothing when two are equally near (`nearestNamed`, in `packages/shared/src/links.ts`
+and its twin in `apps/mcp/src/links.js`). The map and the search index already
+read a name beside the note first. A move's rewrite keeps the strict rule
+(`resolveLink(…, { strict: true })`). Going back to "exactly one or nothing"
+fails "a bare name several notes carry opens the nearest one" in
+`apps/mobile/__tests__/noteLinks.test.ts` and its gateway twin in
+`apps/mcp/test/links.test.mjs`.
+
 **Code is not a link.** A fenced block or a code span containing `[[example]]`
 is documentation *about* a link, and these notes are full of them.
 

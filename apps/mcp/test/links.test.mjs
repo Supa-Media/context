@@ -187,10 +187,11 @@ export async function runLinkChecks(check) {
     check("normalizeSegments refuses to escape rather than clamping", normalizeSegments(["..", "a"]) === null);
 
     check("a bare name with exactly one note is resolved", resolve("unique-name") === "3-resources/unique-name.md");
-    check(
-      "a bare name two notes answer to is left alone",
-      resolveLink({ kind: "wiki", target: "overview" }, NOTE, indexByName([NOTE, "2-products/x/overview.md"])) === null
-    );
+    const name = (target, from, paths) => resolveLink({ kind: "wiki", target }, from, indexByName(paths));
+    check("a bare name two notes equally far away answer to is left alone", name("overview", NOTE, ["3-resources/overview.md", "2-products/x/overview.md"]) === null);
+    const lyrics = ["1-projects/nnenna/task-lyrics.md", "1-projects/mari/task-lyrics.md"]; // the owner's [[task-lyrics]], 2026-10-20
+    check("a bare name several notes carry resolves to the nearest, and to nothing on a tie", name("task-lyrics", "1-projects/nnenna/overview.md", lyrics) === lyrics[0] && name("task-lyrics", "1-projects/index.md", lyrics) === null);
+    check("a move still rewrites a bare name only when one note carries it", rewriteLinks("[[task-lyrics]]", { fromPath: "1-projects/nnenna/overview.md", toPath: "1-projects/nnenna/overview.md", renames: new Map([[lyrics[0], "1-projects/nnenna/b.md"]]), byName: indexByName(lyrics) }) === null);
     check("a bare name nothing answers to is left alone", resolve("nothing-here") === null);
 
     // Loose bare names (2026-10-11, `[[Eve]]` vs `eve.md`): case and spacing set aside, uniqueness not.
@@ -337,7 +338,7 @@ export async function runLinkChecks(check) {
     );
 
     check(
-      "a bare link is followed only when one note answers to the name",
+      "a move rewrites a bare link only when one note answers to the name",
       rewrite("[[overview]]", { renames: moved, names: ["2-products/context-lc/overview.md"] })?.text ===
         "[[readme]]" &&
         rewrite("[[overview]]", { renames: moved, names: [...names] }) === null
