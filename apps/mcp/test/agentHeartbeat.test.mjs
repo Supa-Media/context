@@ -34,6 +34,7 @@ import {
   changedSince,
   newsFirst,
   checkInText,
+  HEARTBEAT_READS,
   heartbeatCallTool,
   heartbeatPath,
   heartbeatQuestion,
@@ -44,6 +45,7 @@ import {
   textedLines,
 } from "../src/agent/heartbeat.js";
 import { SKIPPED_WORDS } from "../src/agent/jobLog.js";
+import { UNTRUSTED_READS } from "../src/privacy/egress.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
@@ -283,6 +285,19 @@ async function toolRefusals(check) {
 }
 
 export async function runAgentHeartbeatChecks(check) {
+  /*
+    The check-in saves its exchange with no `tainted` mark, so the memory
+    nudge reads it as clean words of the person's own and may distil it into
+    `tex/about-me.md`, which every later turn reads as Tex's own memory
+    (`memoryNudge.js`). What makes that safe is not the dispatch allowlist by
+    itself but these two sets being disjoint: add `read_email` to a check-in's
+    reading list and a stranger's words reach the person's memory with nothing
+    in the way. Asserted rather than left to be noticed.
+  */
+  check(
+    "a check-in reads nothing from outside the workspace, which is why its exchange is saved untainted",
+    [...HEARTBEAT_READS].every((name) => !UNTRUSTED_READS.has(name)),
+  );
   unitChecks(check);
   await toolRefusals(check);
 
@@ -515,3 +530,4 @@ export async function runAgentHeartbeatChecks(check) {
     globalThis.fetch = previousFetch;
   }
 }
+

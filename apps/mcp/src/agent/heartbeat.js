@@ -77,11 +77,23 @@ const HEARTBEAT_ROUNDS = 10;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** What the model may call: reading their own notes. */
+/**
+ * What a check-in may call. Nothing here is an `UNTRUSTED_READS` tool, and
+ * that is load-bearing beyond the dispatch allowlist: the exchange a check-in
+ * saves is recorded with no `tainted` mark (below), so the memory nudge reads
+ * it as clean words of the person's own (`memoryNudge.js`). Add a tool that
+ * reads from outside the workspace here and the nudge starts distilling a
+ * stranger's words into `tex/about-me.md`, which every later turn reads as
+ * Tex's own memory — so the two sets are asserted disjoint by a test rather
+ * than left to be noticed.
+ */
 const HEARTBEAT_READS = new Set(["read_note", "list_notes", "search_notes"]);
 
 /** Tex's own job output, which never counts as something that changed. */
 const OWN_OUTPUT = [`${HEARTBEAT_FOLDER}/`, `${DREAMS_FOLDER}/`, "tex/housekeeping/", `${ATTENTION_FOLDER}/`, `${LEARNED_SKILLS_FOLDER}/`];
 const OWN_NOTES = new Set([ABOUT_ME_PATH, HEARTBEAT_SETTINGS_PATH, ATTENTION_SETTINGS_PATH]);
+
+export { HEARTBEAT_READS };
 
 /** The words a check-in's text is kept under in the texting conversation, in place of a question. */
 export const CHECK_IN_QUESTION =
@@ -546,6 +558,8 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
   if (text) {
     // Their reply to it is answered with the check-in in front of the turn (`conversation.js`).
     try {
+      // No `tainted`: a check-in cannot read from outside the workspace, because
+      // `HEARTBEAT_READS` holds no `UNTRUSTED_READS` tool. See its comment.
       await appendConversation(store, "texts", conversation, CHECK_IN_QUESTION, text, {
         tools: (turn?.steps ?? []).filter((step) => step.ok).map((step) => step.tool),
       });
