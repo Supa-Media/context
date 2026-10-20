@@ -120,6 +120,7 @@ import * as routines from "./functions/lib/gatewayRoutes/routines";
 import * as dreams from "./functions/lib/gatewayRoutes/dreams";
 import * as heartbeats from "./functions/lib/gatewayRoutes/heartbeats";
 import * as housekeeping from "./functions/lib/gatewayRoutes/housekeeping";
+import * as mailHealth from "./functions/lib/gatewayRoutes/mailHealth";
 import { serverError } from "./functions/lib/gatewayRoutes/responses";
 import * as sharePreviews from "./functions/lib/publicRoutes/sharePreviews";
 import * as shortLinkCards from "./functions/lib/publicRoutes/shortLinkCards";
@@ -889,6 +890,9 @@ http.route({ path: "/gateway/dreams/start", method: "POST", handler: gatewayDrea
 /* An agent asks for the person's attention (`lib/attention/ask.ts`); delivered by their check-in row. */
 export const gatewayAttentionAsk = gatewayRoute(heartbeats.gatewayAttentionAskHandler);
 http.route({ path: "/gateway/attention/ask", method: "POST", handler: gatewayAttentionAsk });
+/* Whether the person's own mailboxes are working, for their agents (`lib/mailHealth/`). */
+http.route({ path: "/gateway/mail-health", method: "POST", handler: gatewayRoute(mailHealth.gatewayMailHealthHandler) });
+http.route({ path: "/gateway/mail-health/raised", method: "POST", handler: gatewayRoute(mailHealth.gatewayMailHealthRaisedHandler) });
 
 /* A website's status or a publish, for an owner's or editor's agent. */
 export const gatewaySite = gatewayRoute(site.gatewaySiteHandler);

@@ -39,58 +39,82 @@ export function lastDelivered(connection: GoogleConnection): number | undefined 
   return times.length === 0 ? undefined : Math.max(...times);
 }
 
+/** A service with no successful pass for this long is shown as stale (`lib/mailHealth/model.ts`, the same six hours). */
+export const STALE_AFTER_MS = 6 * 60 * 60 * 1000;
+
+/** The pass's own code for a mailbox that reached its storage ceiling. */
+export const STORE_FULL_CODE = "MAIL_QUOTA_EXCEEDED";
+
 /**
  * Whether this account needs the person to sign in to Google again.
  *
- * Only the account's own failure counts. A service that Google rate-limited
- * retries on its own, and sending somebody through a consent screen for it
- * would fix nothing.
+ * Only Google refusing the grant counts. A service that Google rate-limited,
+ * or a pass that failed for a while, retries on its own, and sending somebody
+ * through a consent screen for it would fix nothing.
  */
 export function needsReconnect(connection: GoogleConnection): boolean {
-  return accountStatus(connection).tone === "crit";
+  return connection.syncStatus === "reconnect_required";
+}
+
+/** Whether Email stopped because it reached its storage ceiling, which only the person can change. */
+export function storeFull(connection: GoogleConnection): boolean {
+  return connection.errorCode === STORE_FULL_CODE || connection.syncRun?.errorCode === STORE_FULL_CODE;
+}
+
+/**
+ * The services that have not had a successful pass for `STALE_AFTER_MS`, and
+ * the oldest of their last ones. A service that never synced is waiting, not
+ * stale: the account says so on its own.
+ */
+export function staleServices(
+  connection: GoogleConnection,
+  now: number = Date.now(),
+): { services: GoogleService[]; since: number } | null {
+  const stale = enabledServices(connection).filter((service) => {
+    const at = connection[service]?.lastSyncedAt;
+    return at !== undefined && now - at > STALE_AFTER_MS;
+  });
+  if (stale.length === 0) return null;
+  return { services: stale, since: Math.min(...stale.map((service) => connection[service]!.lastSyncedAt!)) };
 }
 
 /**
  * The account's one sentence, worst news first.
  *
- * `crit` is the account's own failure, which a reconnect fixes. `warn` is a
- * service that failed its last turn, or an account that has not had its first
- * pass yet. Anything else is up to date. The row used to say "Syncing." in
- * green over an Email line that had not delivered for weeks; a failing service
- * now reaches the row by name.
+ * `crit` is only what the person has to fix: Google wants them to sign in
+ * again (and a Reconnect sits beside it), or Email is full. `warn` is a
+ * service that has not synced for hours ("Not synced since 9 hours ago"), a
+ * failure that is retrying on its own, or an account that has not had its
+ * first pass yet. Anything else is up to date. The row used to say "Up to
+ * date" over a mailbox that had not delivered for a day, because no failure
+ * code was set; and it offered Reconnect for failures a reconnect does not fix.
  */
-export function accountStatus(connection: GoogleConnection): {
+export function accountStatus(
+  connection: GoogleConnection,
+  now: number = Date.now(),
+): {
   tone: "ok" | "warn" | "crit";
   text: string;
 } {
+  // A stale grant gets the short sentence: the Reconnect beside it is the "what to do".
+  if (needsReconnect(connection)) return { tone: "crit", text: "Google wants you to sign in again." };
+  if (storeFull(connection)) return { tone: "crit", text: "Email storage is full, so new mail isn't being saved." };
+  const stale = staleServices(connection, now);
+  if (stale !== null) {
+    const ago = formatAgo(stale.since, now);
+    // The whole account, or only the services that stopped, by name.
+    if (stale.services.length === enabledServices(connection).length) return { tone: "warn", text: `Not synced since ${ago}.` };
+    const which = listWords(stale.services.map((service) => SERVICE_TITLES[service]));
+    return { tone: "warn", text: `${which} not synced since ${ago}.` };
+  }
   const failed =
     connection.errorCode ??
     connection.syncRun?.errorCode ??
-    (connection.syncStatus === "reconnect_required" || connection.syncStatus === "error"
-      ? connection.syncStatus
-      : undefined);
+    (connection.syncStatus === "error" ? connection.syncStatus : undefined);
   if (failed !== undefined) {
-    return {
-      tone: "crit",
-      /*
-        The server's own sentence wherever there is one: it names the account
-        and what to do. The fallback is written as a sentence here rather than
-        dropped on the row as the fragment the status code is.
-      */
-      text:
-        // A stale grant gets the short sentence: the Reconnect beside it is
-        // the "what to do", and the server's longer one ran to four lines at
-        // 390pt next to that button.
-        (connection.syncStatus === "reconnect_required"
-          ? "Google wants you to sign in again."
-          : undefined) ??
-        connection.lastError ??
-        connection.syncRun?.lastError ??
-        connection.sync.lastFailure ??
-        (failed === "reconnect_required"
-          ? "Google wants you to sign in again. Reconnect this account to keep syncing."
-          : "This account is not syncing. Reconnect it to try again."),
-    };
+    // The server's own sentence where there is one: it names the reason. It retries without them.
+    const said = connection.lastError ?? connection.syncRun?.lastError ?? connection.sync.lastFailure;
+    return { tone: "warn", text: said === undefined ? "Not syncing right now; retrying on its own." : `${said} Retrying on its own.` };
   }
   const failing = failingServices(connection);
   if (failing.length > 0) {
@@ -105,6 +129,15 @@ export function accountStatus(connection: GoogleConnection): {
   }
   if (connection.sync.catchingUp) return { tone: "ok", text: "Catching up on older mail." };
   return { tone: "ok", text: "Up to date." };
+}
+
+/** "45 minutes ago", "9 hours ago", "3 days ago". */
+export function formatAgo(at: number, now: number = Date.now()): string {
+  const minutes = Math.max(1, Math.round((now - at) / 60_000));
+  if (minutes < 90) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `${hours} hours ago`;
+  return `${Math.round(hours / 24)} days ago`;
 }
 
 /**

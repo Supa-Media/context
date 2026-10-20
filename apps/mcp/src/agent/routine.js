@@ -23,6 +23,7 @@ import {
 } from "../../../../packages/shared/src/routines.cjs";
 import { getWithLegacyFallback } from "../storageLayout.js";
 import { MAX_QUESTION_LENGTH } from "./turn.js";
+import { readMailHealth, routineMailSection } from "./mailHealth.js";
 
 /** The routine runner's first-party client (`apps/convex`). Decided by the grant. */
 export const ROUTINES_CLIENT_ID = "context_routines";
@@ -127,7 +128,7 @@ function clip(text, max) {
  * the routine's own words. The routine's words go last and are clipped to fit,
  * so the framing above them is never the part that is cut.
  */
-export function routineQuestion(routine, { now, timeZone, lastRun }) {
+export function routineQuestion(routine, { now, timeZone, lastRun, mail = "" }) {
   const lines = [
     "This is a scheduled routine, not a text from a person. Nobody is waiting on this turn.",
     `Routine: ${routine.path}. Schedule: ${describeSchedule(routine.cadence, routine.settings)}. It is now ${localTime(now, timeZone)}.`,
@@ -144,12 +145,29 @@ export function routineQuestion(routine, { now, timeZone, lastRun }) {
         `If it is true now, start your answer with ${DONE_WORD} and say what happened.`,
     );
   }
+  if (mail) lines.push(mail);
   lines.push(
     `Do what the routine below asks. If there is nothing worth telling this time, answer with exactly ${SKIP_WORD}.`,
     "Routine:",
   );
   const framing = `${lines.join("\n\n")}\n\n`;
   return framing + clip(routine.body, Math.max(0, MAX_QUESTION_LENGTH - framing.length));
+}
+
+/**
+ * The question for a run now: in the routine's zone, with what it said last
+ * time, and any of the person's mailboxes that stopped syncing
+ * (`mailHealth.js`), which a routine is told and never texts for alone.
+ */
+export async function routineRunQuestion(store, routine, runs, givenTimeZone) {
+  const mailboxes = await readMailHealth(store);
+  const now = Date.now();
+  return routineQuestion(routine, {
+    now,
+    timeZone: routineTimeZone(routine.settings, givenTimeZone),
+    lastRun: runs.findLast((run) => run.outcome === "answered" || run.outcome === "finished"),
+    mail: routineMailSection(mailboxes, now),
+  });
 }
 
 /** How a run ended, read off its answer. */

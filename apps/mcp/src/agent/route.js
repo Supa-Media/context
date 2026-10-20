@@ -38,7 +38,7 @@ import {
   RoutineRefusal,
   ROUTINES_CLIENT_ID,
   routinePathFrom,
-  routineQuestion,
+  routineRunQuestion,
   routineTimeZone,
   runOutcome,
   stopRoutine,
@@ -58,7 +58,6 @@ import { threadPrompt, threadView } from "./threadView.js";
 import { steerFor, steeredLine } from "./steer.js";
 import { answerWithAsk, textedAsk } from "./textedApprovals.js";
 import { settleTextedText } from "./textedSettle.js";
-
 /**
  * What a turn that may not run says. Nothing in the app can change this any
  * more (people's own model keys were deleted, the owner, 2026-10-10): the
@@ -152,11 +151,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     }
     if (routine.settings.paused) return json({ outcome: "paused", skipped: true });
     runs = await readRuns(store, routine.path);
-    question = routineQuestion(routine, {
-      now: Date.now(),
-      timeZone: routineTimeZone(routine.settings, body.routine.timeZone),
-      lastRun: runs.findLast((run) => run.outcome === "answered" || run.outcome === "finished"),
-    });
+    question = await routineRunQuestion(store, routine, runs, body.routine.timeZone);
     // A job going well, done or gone costs no model call (`supervise.js`); done or gone stops its supervisor.
     supervision = await prepareSupervision(dispatch, routine, { runs, handle: store.contexts.find((c) => c.current)?.name });
     if (supervision?.skip) {

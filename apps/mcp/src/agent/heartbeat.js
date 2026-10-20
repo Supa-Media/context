@@ -58,6 +58,7 @@ import { isPlumbing } from "../privacy/engine.js";
 import { servedListingStore } from "../tree/served.js";
 import { json } from "../http/responses.js";
 import { disarmTexting } from "../tools/approvals.js";
+import { WORTH_SAYING, heartbeatMailSection, readMailHealth, withMailboxes } from "./mailHealth.js";
 
 /** The check-in's first-party client (`apps/convex/functions/lib/heartbeats/model.ts`). Decided by the grant. */
 export const HEARTBEAT_CLIENT_ID = "context_heartbeat";
@@ -306,15 +307,18 @@ export function continuesFrom(answer, recent) {
   return { answer: said.slice(match[0].length), continues: typeof picked?.text === "string" ? picked.text.slice(0, MAX_CONTINUES_CHARS) : null };
 }
 
-export function heartbeatQuestion({ changed, now, texted, recent = [], instructions = null, theirs = "" }) {
+export function heartbeatQuestion({ changed, now, texted, recent = [], instructions = null, theirs = "", mail = "" }) {
   const shown = changed.slice(0, MAX_CHANGED_SHOWN);
   const more = changed.length - shown.length;
   const words = typeof instructions === "string" && instructions.trim() !== "" ? instructions.trim() : HEARTBEAT_INSTRUCTIONS;
   return [
     words,
     "## This look",
-    `Notes changed since you last looked, newest first, with older days a sync rewrote and contact pages last:\n${shown.map((note) => `- ${note.key} (${age(note.at, now)})`).join("\n")}` +
-      (more > 0 ? `\n- (+${more} more)` : ""),
+    shown.length === 0
+      ? "Nothing in their notes changed since you last looked."
+      : `Notes changed since you last looked, newest first, with older days a sync rewrote and contact pages last:\n${shown.map((note) => `- ${note.key} (${age(note.at, now)})`).join("\n")}` +
+        (more > 0 ? `\n- (+${more} more)` : ""),
+    mail,
     texted.length > 0
       ? `What your check-ins already texted them lately. Never send any of these again, or anything that says the same:\n${texted.map((line) => `- ${line}`).join("\n")}`
       : "",
@@ -352,7 +356,12 @@ export function heartbeatEntry({ now, timeZone, changed, model, text, events, ou
   const lines = [`## ${clock(now, timeZone)}`, ""];
   const shown = changed.slice(0, MAX_CHANGED_SHOWN).map((note) => `\`${note.key}\``);
   const more = changed.length - shown.length;
-  lines.push(`_Looked at ${shown.join(", ")}${more > 0 ? ` and ${more} more` : ""}${model ? `, on ${model}` : ""}._`, "");
+  lines.push(
+    shown.length === 0
+      ? `_Nothing in the notes changed; it looked because a mailbox needs them${model ? `, on ${model}` : ""}._`
+      : `_Looked at ${shown.join(", ")}${more > 0 ? ` and ${more} more` : ""}${model ? `, on ${model}` : ""}._`,
+    "",
+  );
   if (text) lines.push(`**Texted:** ${text.replace(/\s*\n+\s*/g, " ")}`);
   else lines.push(outcome === "failed" ? "_The check-in did not finish._" : "_Stayed quiet: nothing worth a text._");
   const steps = events.map(eventLines).filter(Boolean);
@@ -468,8 +477,11 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
     return json({ error: "tree_unavailable" }, 503);
   }
   const changed = newsFirst(changedSince(entries, since), Date.now());
-  // Nothing changed since the last look: nothing to look at, and no model turn spent.
-  if (changed.length === 0) {
+  // A mailbox that stopped syncing changes no note, so it is asked after on its own (`mailHealth.js`).
+  const mailboxes = await readMailHealth(store);
+  const owed = mailboxes.filter((mailbox) => mailbox.tell && WORTH_SAYING.has(mailbox.state));
+  // Nothing changed since the last look and no mailbox owed a word: no model turn spent.
+  if (changed.length === 0 && owed.length === 0) {
     await skipped(NOTHING_NEW_WORDS);
     return json({ outcome: "nothing_new" });
   }
@@ -510,6 +522,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
         recent: shownRecent.map((shown) => shown.line),
         instructions: setup?.prompt ?? null,
         theirs: settings.instructions,
+        mail: heartbeatMailSection(mailboxes, started),
       }),
       tools: heartbeatTools(offered),
       grants: {}, // reads only: no write, manage or send action at all
@@ -548,7 +561,9 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
   const finished = turn !== null && !turn.exhausted;
   // `[continues N]` comes off before anything reads the answer: never texted, logged or kept.
   const marked = finished ? continuesFrom(turn.answer, shownRecent) : { answer: "", continues: null };
-  const text = finished ? checkInText(marked.answer) : null;
+  // A mailbox it owed a word is said, in its words or added to them, so one marked told was told.
+  const own = finished ? checkInText(marked.answer) : null;
+  const text = finished && owed.length > 0 ? withMailboxes(own, owed, started) : own;
   const outcome = !finished ? "failed" : text ? "speak" : "quiet";
   const now = Date.now();
   const entry = heartbeatEntry({ now, timeZone, changed, model: turn?.model ?? null, text, events, outcome });
@@ -559,6 +574,8 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
   if (why !== null) why = await appendLogEntryWhy(dispatch, path, shortEntry({ now, timeZone, text, outcome, why }), heading(now, timeZone));
   const logged = why === null;
   if (text) {
+    // Counted as told by the control plane only once this text reached them.
+    if (owed.length > 0) await store.mailHealth.raise(owed).catch(() => {});
     await disarmTexting(store, { userId: session.actorUserId }).catch(() => {});
     // Their reply to it is answered with the check-in in front of the turn (`conversation.js`).
     try {
@@ -579,6 +596,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
       provider: BUILTIN_PROVIDER,
       outcome,
       changed: changed.length,
+      mailboxesOwed: owed.length,
       logged,
       ms: now - started,
     }),
