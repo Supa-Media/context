@@ -48,6 +48,21 @@ import type { DictationFailure } from "../features/voice/dictation";
  *     checked is not a guard.
  *  6. `failureFor` maps `no-speech` to `unreachable`.
  *     → `a quiet room is not a failure` fails.
+ *  7. `failureFor` maps `network` to `offline` whatever `onLine` says — the
+ *     owner's "you're offline" while online, 2026-10-20.
+ *     → `a network error is offline only when the browser says it is
+ *     offline` and `the service failing while online is reported as not
+ *     answering, not as offline` fail.
+ *  8. The probe's generation check dropped.
+ *     → `Discard then dictate again, both probes out: one microphone, not
+ *     two` fails. Discard alone does not catch it: the sink going null does.
+ *  9. The Electron guard dropped.
+ *     → `the desktop shell's Electron is never asked, because asking crashes
+ *     it` fails.
+ * 10. `processLocally` never set, or the pack never fetched.
+ *     → `an installed language pack is used, and works with no connection`,
+ *     `a silence restart stays on the device`, and `online with no pack yet,
+ *     the service is used and the pack is fetched for next time` fail.
  */
 
 interface FakeAlternative {
@@ -264,14 +279,16 @@ describe("failures", () => {
     expect(failureFor("aborted")).toBeNull();
   });
 
-  test("the network cases are amber, not a refusal", () => {
+  test("a network error is offline only when the browser says it is offline", () => {
     const { failureFor } = load();
     /*
-      Chrome's engine is a Google service, so `network` means the words have
-      nowhere to be made — which is a connection problem the person can act on,
-      not an engine that is broken. See `offline` in `dictation.ts`.
+      Chrome reports `network` whenever its speech service does not answer —
+      a blip, a firewall, a Chromium build with no speech key. Calling every
+      one of those "you're offline" told people with a working connection
+      that they had none, which is the bug this test exists for.
     */
-    expect(failureFor("network")).toBe("offline");
+    expect(failureFor("network", false)).toBe("unreachable");
+    expect(failureFor("network", true)).toBe("offline");
     expect(failureFor("audio-capture")).toBe("no-microphone");
     expect(failureFor("service-not-allowed")).toBe("denied");
     expect(failureFor("something-new-in-2028")).toBe("unreachable");
@@ -338,6 +355,203 @@ describe("failures", () => {
     scope.webkitSpeechRecognition = FakeRecognition;
     const { createDictationEngine } = load();
     expect(createDictationEngine().available).toBe(true);
+  });
+});
+
+describe("on the device", () => {
+  /**
+   * Chrome 139's on-device recognition: the same constructor with two static
+   * methods beside it, and a `processLocally` flag on each session.
+   */
+  let answer: string | Promise<string> = "available";
+  let installs: unknown[] = [];
+  class LocalRecognition extends FakeRecognition {
+    processLocally = false;
+    static available = jest.fn(async () => answer);
+    static install = jest.fn(async (options: unknown) => {
+      installs.push(options);
+      return true;
+    });
+  }
+
+  async function withNavigator(value: object, run: () => unknown): Promise<void> {
+    const had = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+    Object.defineProperty(globalThis, "navigator", { configurable: true, value });
+    try {
+      await run();
+    } finally {
+      if (had === undefined) delete (globalThis as { navigator?: unknown }).navigator;
+      else Object.defineProperty(globalThis, "navigator", had);
+    }
+  }
+
+  /** Let the probe's promise settle. */
+  async function settle() {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  }
+
+  beforeEach(() => {
+    answer = "available";
+    installs = [];
+    LocalRecognition.available.mockClear();
+    LocalRecognition.install.mockClear();
+    scope.SpeechRecognition = LocalRecognition;
+  });
+
+  test("an installed language pack is used, and works with no connection", async () => {
+    await withNavigator({ onLine: false, language: "en-GB" }, async () => {
+      const { createDictationEngine } = load();
+      const sink = collector();
+      createDictationEngine().open(sink.handlers);
+      await settle();
+      expect(sink.errors).toEqual([]);
+      expect(built).toHaveLength(1);
+      expect((built[0] as LocalRecognition).processLocally).toBe(true);
+      expect(built[0]!.lang).toBe("en-GB");
+      expect(LocalRecognition.available).toHaveBeenCalledWith({
+        langs: ["en-GB"],
+        processLocally: true,
+      });
+    });
+  });
+
+  test("a silence restart stays on the device", async () => {
+    const { createDictationEngine } = load();
+    createDictationEngine().open(collector().handlers);
+    await settle();
+    jest.setSystemTime(new Date("2026-09-18T09:00:30Z"));
+    built[0]!.end();
+    expect((built[1] as LocalRecognition).processLocally).toBe(true);
+  });
+
+  test("online with no pack yet, the service is used and the pack is fetched for next time", async () => {
+    answer = "downloadable";
+    await withNavigator({ onLine: true }, async () => {
+      const { createDictationEngine } = load();
+      const sink = collector();
+      createDictationEngine().open(sink.handlers);
+      await settle();
+      expect(sink.errors).toEqual([]);
+      expect(built).toHaveLength(1);
+      expect((built[0] as LocalRecognition).processLocally).toBe(false);
+      expect(installs).toHaveLength(1);
+    });
+  });
+
+  test("a pack already downloading is not asked for twice", async () => {
+    answer = "downloading";
+    await withNavigator({ onLine: true }, async () => {
+      const { createDictationEngine } = load();
+      createDictationEngine().open(collector().handlers);
+      await settle();
+      expect(built).toHaveLength(1);
+      expect(installs).toEqual([]);
+    });
+  });
+
+  test("offline with no pack says offline, and never opens the microphone", async () => {
+    for (const missing of ["downloadable", "downloading", "unavailable"]) {
+      answer = missing;
+      built = [];
+      await withNavigator({ onLine: false }, async () => {
+        const { createDictationEngine } = load();
+        const sink = collector();
+        createDictationEngine().open(sink.handlers);
+        await settle();
+        expect(built).toHaveLength(0);
+        expect(sink.errors).toEqual(["offline"]);
+      });
+    }
+  });
+
+  test("a probe that never answers falls back to the service instead of hanging", async () => {
+    answer = new Promise<string>(() => {});
+    await withNavigator({ onLine: true }, async () => {
+      const { createDictationEngine } = load();
+      const sink = collector();
+      createDictationEngine().open(sink.handlers);
+      await settle();
+      expect(built).toHaveLength(0);
+      jest.advanceTimersByTime(1500);
+      await settle();
+      expect(built).toHaveLength(1);
+      expect((built[0] as LocalRecognition).processLocally).toBe(false);
+    });
+  });
+
+  test("Discard pressed while the probe is out opens nothing afterwards", async () => {
+    const { createDictationEngine } = load();
+    const sink = collector();
+    const engine = createDictationEngine();
+    engine.open(sink.handlers);
+    engine.abandon();
+    await settle();
+    expect(built).toHaveLength(0);
+    expect(sink.errors).toEqual([]);
+    expect(sink.ended).toBe(0);
+  });
+
+  test("Stop pressed while the probe is out ends the run and opens nothing", async () => {
+    const { createDictationEngine } = load();
+    const sink = collector();
+    const engine = createDictationEngine();
+    engine.open(sink.handlers);
+    engine.finalize();
+    await settle();
+    expect(built).toHaveLength(0);
+    expect(sink.ended).toBe(1);
+  });
+
+  test("Discard then dictate again, both probes out: one microphone, not two", async () => {
+    /*
+      What the generation counter is for. Discard alone is covered by the sink
+      going null; it is the *second* open that gives the stale probe a live
+      sink to launch into, beside the second probe's own.
+    */
+    const { createDictationEngine } = load();
+    const engine = createDictationEngine();
+    engine.open(collector().handlers);
+    engine.abandon();
+    engine.open(collector().handlers);
+    await settle();
+    expect(built).toHaveLength(1);
+  });
+
+  test("opening twice while the probe is out still opens one microphone", async () => {
+    const { createDictationEngine } = load();
+    const engine = createDictationEngine();
+    engine.open(collector().handlers);
+    engine.open(collector().handlers);
+    await settle();
+    expect(built).toHaveLength(1);
+    expect(LocalRecognition.available).toHaveBeenCalledTimes(1);
+  });
+
+  test("the desktop shell's Electron is never asked, because asking crashes it", async () => {
+    await withNavigator(
+      { onLine: true, userAgent: "Mozilla/5.0 (Macintosh) Chrome/130.0 Electron/33.2.0 Safari/537.36" },
+      () => {
+        const { createDictationEngine } = load();
+        createDictationEngine().open(collector().handlers);
+        // Synchronous, as a browser with no on-device engine is.
+        expect(built).toHaveLength(1);
+        expect(LocalRecognition.available).not.toHaveBeenCalled();
+      },
+    );
+  });
+
+  test("the service failing while online is reported as not answering, not as offline", async () => {
+    answer = "unavailable";
+    await withNavigator({ onLine: true }, async () => {
+      const { createDictationEngine } = load();
+      const sink = collector();
+      createDictationEngine().open(sink.handlers);
+      await settle();
+      built[0]!.fail("network");
+      expect(sink.errors).toEqual(["unreachable"]);
+    });
   });
 });
 

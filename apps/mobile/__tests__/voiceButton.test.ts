@@ -16,6 +16,8 @@ import {
 } from "../features/voice/VoiceSheet";
 import { meetings } from "../features/meetings/controller";
 import { setBottomChromeHeight } from "../features/app/bottomChrome";
+import { TOAST_MS } from "../features/design/components/Toast";
+import { ACCESSORY_HEIGHT } from "../features/console/files/accessory";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -71,6 +73,13 @@ import { setBottomChromeHeight } from "../features/app/bottomChrome";
  *     one` fails. This is what the self-review pass found: the two reads the
  *     same in the app today only because the document replacement invalidates
  *     the run before the effect runs.
+ *  8. The failure dock never lifts, or lifts on a phone too.
+ *     → `on the console, the failure card sits above the + rather than under
+ *     it`, or `on a phone the card does not lift, because the + is in the
+ *     bottom row`, fails.
+ *  9. The card's timer or its press handler emptied.
+ *     → `the failure card goes away on the toast's clock, and at once when
+ *     pressed` fails.
  */
 
 let root: Root | null = null;
@@ -539,5 +548,79 @@ describe("when something else on the glass already carries the microphone", () =
     render(button({ engine: fake.engine, microphoneElsewhere: true }));
     expect(findByTestId("voice-failure")?.textContent).toContain("as you left it");
     expect(findByTestId("voice-button")).toBeNull();
+  });
+
+  /** The failure card's dock, measured the way `dockBottom` measures ours. */
+  function failureBottom(): number {
+    const dock = findByTestId("voice-failure")!.parentElement as HTMLElement;
+    return Number.parseFloat(dock.style.bottom || "0");
+  }
+
+  test("on the console, the failure card sits above the + rather than under it", () => {
+    /*
+      The defect in the owner's screenshot: the console's `+` floats in this
+      corner at the dock's own height, so the card drawn at the dock's bottom
+      had the `+` over the end of its sentence. Started from the note's menu,
+      as the console starts it.
+    */
+    setBottomChromeHeight(0);
+    const refused = () => fakeEngine({ open: (handlers) => handlers.error("denied") }).engine;
+
+    render(button({ engine: refused(), startDictation: 1 }));
+    const besideOurOwnButton = failureBottom();
+    act(() => root?.unmount());
+    root = createRoot(host!);
+
+    render(button({ engine: refused(), microphoneElsewhere: true, startDictation: 1 }));
+    expect(findByTestId("voice-button")).toBeNull();
+    // The `+` is 56 tall and the dock's gap is 10: exactly where the card
+    // would sit above a button of ours.
+    expect(failureBottom()).toBe(besideOurOwnButton + 66);
+  });
+
+  test("on a phone the card does not lift, because the + is in the bottom row", () => {
+    setBottomChromeHeight(0);
+    const refused = fakeEngine({ open: (handlers) => handlers.error("denied") }).engine;
+    render(button({ engine: refused, compact: true, startDictation: 1 }));
+    const unlifted = failureBottom();
+    act(() => root?.unmount());
+    root = createRoot(host!);
+    render(button({ engine: refused, compact: true, microphoneElsewhere: true, startDictation: 1 }));
+    expect(failureBottom()).toBe(unlifted);
+  });
+
+  test("with the phone's accessory bar up, the dock stands on the bar rather than under it", () => {
+    setBottomChromeHeight(0);
+    const refused = fakeEngine({ open: (handlers) => handlers.error("denied") }).engine;
+    render(button({ engine: refused, compact: true, microphoneElsewhere: true, startDictation: 1 }));
+    const barDown = failureBottom();
+    act(() => root?.unmount());
+    root = createRoot(host!);
+    render(
+      button({ engine: refused, compact: true, microphoneElsewhere: true, aboveAccessory: true, startDictation: 1 }),
+    );
+    expect(failureBottom()).toBeGreaterThan(barDown - 1);
+    // Standing on the bar, the dock's own gap above its row.
+    expect(failureBottom()).toBe(ACCESSORY_HEIGHT + 10);
+  });
+
+  test("the failure card goes away on the toast's clock, and at once when pressed", () => {
+    jest.useFakeTimers();
+    try {
+      const refused = fakeEngine({ open: (handlers) => handlers.error("denied") }).engine;
+      render(button({ engine: refused, microphoneElsewhere: true, startDictation: 1 }));
+      expect(findByTestId("voice-failure")).not.toBeNull();
+      act(() => jest.advanceTimersByTime(TOAST_MS - 1));
+      expect(findByTestId("voice-failure")).not.toBeNull();
+      act(() => jest.advanceTimersByTime(1));
+      expect(findByTestId("voice-failure")).toBeNull();
+
+      render(button({ engine: refused, microphoneElsewhere: true, startDictation: 2 }));
+      expect(findByTestId("voice-failure")).not.toBeNull();
+      press("voice-failure");
+      expect(findByTestId("voice-failure")).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

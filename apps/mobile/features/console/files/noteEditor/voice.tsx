@@ -7,7 +7,7 @@ import type { NoteView } from "./view";
  * the live editor is on screen and there is a voice host; see the call site.
  */
 export function noteVoiceButton(view: NoteView, voice: VoiceHost) {
-  const { editable, controls, compact, dictateAsked } = view;
+  const { editable, controls, compact, dictateAsked, barUp } = view;
   return (
     <VoiceButton
       page={{ ...voice.page, writable: voice.page.writable && editable }}
@@ -60,6 +60,9 @@ export function noteVoiceButton(view: NoteView, voice: VoiceHost) {
         is a second *door*, never a second implementation.
       */
       startDictation={dictateAsked}
+      // The bar's own microphone key started this run; the capsule that stops
+      // it, and any sentence about it failing, stand on the bar, not under it.
+      aboveAccessory={compact && barUp}
       onRecordMeeting={voice.onRecordMeeting}
     />
   );

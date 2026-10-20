@@ -72,6 +72,8 @@ interface SpeechErrorEvent {
 }
 interface SpeechRecognitionLike {
   continuous: boolean;
+  /** Chrome 139+: must the words be made on this device? Absent elsewhere. */
+  processLocally?: boolean;
   interimResults: boolean;
   lang: string;
   maxAlternatives: number;
@@ -82,7 +84,16 @@ interface SpeechRecognitionLike {
   stop(): void;
   abort(): void;
 }
-type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
+/** What `SpeechRecognition.available()` answers for on-device recognition. */
+export type LocalAvailability = "available" | "downloadable" | "downloading" | "unavailable";
+interface LocalOptions {
+  langs: string[];
+  processLocally: true;
+}
+type SpeechRecognitionCtor = (new () => SpeechRecognitionLike) & {
+  available?: (options: LocalOptions) => Promise<string>;
+  install?: (options: LocalOptions) => Promise<boolean>;
+};
 
 /** Said when the browser has no speech engine to offer. Firefox, mainly. */
 export const NO_ENGINE =
@@ -116,6 +127,85 @@ function knownOffline(): boolean {
 }
 
 /**
+ * How long `available()` may take before on-device is treated as absent.
+ *
+ * It answers from a local registry in a few milliseconds. A promise that never
+ * settles would otherwise leave a capsule saying "Dictating" over a microphone
+ * nobody opened, which is the failure this whole file is shaped against.
+ */
+const LOCAL_PROBE_MS = 1500;
+
+/**
+ * The on-device half of the Web Speech API, when this browser has a usable one.
+ *
+ * Chrome 139 added `processLocally` with the static `available()` and
+ * `install()` beside it: the same engine, run on this machine from a language
+ * pack instead of on Google's service. It is the only way a browser's dictation
+ * works with no connection, and it keeps the audio on the device.
+ *
+ * **Never inside the desktop shell.** Electron before 42.10 has no handler for
+ * the on-device interface, and calling `available()` there kills the renderer
+ * outright (electron/electron#52955). The shell this repo ships is older than
+ * that, so a feature check alone is not a safe answer there.
+ */
+function localSpeech(Recognition: SpeechRecognitionCtor) {
+  const { available, install } = Recognition;
+  if (typeof available !== "function" || typeof install !== "function") return null;
+  const ua = (globalThis as { navigator?: { userAgent?: unknown } }).navigator?.userAgent;
+  if (typeof ua === "string" && /\bElectron\//.test(ua)) return null;
+  return {
+    available: (lang: string): Promise<LocalAvailability> =>
+      new Promise((resolve) => {
+        const timer = setTimeout(() => resolve("unavailable"), LOCAL_PROBE_MS);
+        const settle = (answer: LocalAvailability) => {
+          clearTimeout(timer);
+          resolve(answer);
+        };
+        try {
+          available
+            .call(Recognition, { langs: [lang], processLocally: true })
+            .then(
+              (answer) => settle(isLocalAvailability(answer) ? answer : "unavailable"),
+              () => settle("unavailable"),
+            );
+        } catch {
+          settle("unavailable");
+        }
+      }),
+    /** Fire and forget: the pack is the browser's, shared by every site. */
+    install: (lang: string): void => {
+      try {
+        void install.call(Recognition, { langs: [lang], processLocally: true }).catch(() => {});
+      } catch {
+        // A browser that refuses the download leaves the cloud run as it was.
+      }
+    },
+  };
+}
+
+function isLocalAvailability(value: unknown): value is LocalAvailability {
+  return (
+    value === "available" ||
+    value === "downloadable" ||
+    value === "downloading" ||
+    value === "unavailable"
+  );
+}
+
+/** The language to listen for: the page's, then the browser's, then English. */
+function listeningLanguage(): string {
+  const scope = globalThis as {
+    document?: { documentElement?: { lang?: string } };
+    navigator?: { language?: unknown };
+  };
+  const documentLang = scope.document?.documentElement?.lang;
+  if (typeof documentLang === "string" && documentLang !== "") return documentLang;
+  const browserLang = scope.navigator?.language;
+  if (typeof browserLang === "string" && browserLang !== "") return browserLang;
+  return "en-US";
+}
+
+/**
  * The engine's own error names, in this feature's words.
  *
  * `no-speech` and `aborted` are deliberately absent: neither is a failure.
@@ -123,7 +213,7 @@ function knownOffline(): boolean {
  * causes — reporting either would put a red card over somebody who simply
  * paused, or who pressed Discard.
  */
-export function failureFor(error: string): DictationFailure | null {
+export function failureFor(error: string, offline = knownOffline()): DictationFailure | null {
   switch (error) {
     case "not-allowed":
     case "service-not-allowed":
@@ -132,11 +222,20 @@ export function failureFor(error: string): DictationFailure | null {
       return "no-microphone";
     case "network":
       /*
-        The engine's service could not be reached. In Chrome that service is
-        the whole engine, so this is the offline case whatever `onLine` says —
-        a captive portal reads as online and fails exactly like this.
+        The engine's service could not be reached — which is NOT the same
+        claim as "you are offline", and saying it was is the bug this line
+        used to be. Chrome reports `network` whenever its speech service does
+        not answer: a blip on Google's side, a firewall or VPN in the way, a
+        Chromium build without Google's speech key (Brave, Arc, the desktop
+        shell's Electron). The person in each of those is online, and telling
+        them otherwise sends them to check a connection that is fine.
+
+        So only a browser that itself says it has no connection gets the
+        offline sentence. `onLine === false` is the direction of that flag
+        that can be trusted (`offline/reachability.web.ts`); everything else
+        is the service not answering.
       */
-      return "offline";
+      return offline ? "offline" : "unreachable";
     case "language-not-supported":
     case "bad-grammar":
       return "unreachable";
@@ -188,6 +287,16 @@ export function createDictationEngine(): DictationEngine {
   let startedAt = 0;
   let instantRestarts = 0;
   let sink: DictationHandlers | null = null;
+  /** This run makes its words on the device. Kept across silence restarts. */
+  let local = false;
+  /**
+   * Bumped by every `open`, `finalize` and `abandon`, so an on-device probe
+   * that settles after the person pressed Stop or Discard opens nothing.
+   */
+  let generation = 0;
+  /** An `open` is waiting on the on-device probe, with no session yet. */
+  let probing = false;
+  const onDevice = localSpeech(Recognition);
 
   /**
    * Take our callbacks off a recognition object.
@@ -221,12 +330,11 @@ export function createDictationEngine(): DictationEngine {
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.maxAlternatives = 1;
-    // The page's language, then the engine's own default. Not a stored
-    // preference: somebody switching languages mid-note is rarer than somebody
-    // being handed the wrong one by a setting they set once.
-    const documentLang = (globalThis as { document?: { documentElement?: { lang?: string } } })
-      .document?.documentElement?.lang;
-    if (documentLang !== undefined && documentLang !== "") recognition.lang = documentLang;
+    // The page's language, then the browser's. Not a stored preference:
+    // somebody switching languages mid-note is rarer than somebody being
+    // handed the wrong one by a setting they set once.
+    recognition.lang = listeningLanguage();
+    if (local) recognition.processLocally = true;
 
     recognition.onresult = (event) => {
       const { finals, interim } = readResults(event);
@@ -281,26 +389,64 @@ export function createDictationEngine(): DictationEngine {
     available: true,
     unavailable: "",
     open: (handlers) => {
-      if (session !== null) return;
-      /*
-        ASKED BEFORE THE MICROPHONE OPENS, NOT AFTER IT FAILS.
+      if (session !== null || probing) return;
+      generation += 1;
+      if (onDevice === null) {
+        /*
+          ASKED BEFORE THE MICROPHONE OPENS, NOT AFTER IT FAILS.
 
-        Chrome's engine sends the audio to a server, so a browser that already
-        knows it has no connection can only produce a live capsule, an open
-        microphone, and then a `network` error a moment later. `false` from
-        `navigator.onLine` is the reliable direction (`offline/reachability.web.ts`
-        makes the same argument), so it is answered here with the sentence that
-        points at the computer's own dictation. `true`, or no answer at all, opens
-        exactly as before: a captive portal still fails through `failureFor`.
-      */
-      if (knownOffline()) {
-        handlers.error("offline");
+          With no on-device engine, a browser that already knows it has no
+          connection can only produce a live capsule, an open microphone, and
+          then a `network` error a moment later. `false` from `navigator.onLine`
+          is the reliable direction (`offline/reachability.web.ts`), so it is
+          answered here. `true`, or no answer at all, opens exactly as before.
+        */
+        if (knownOffline()) {
+          handlers.error("offline");
+          return;
+        }
+        local = false;
+        sink = handlers;
+        wanted = true;
+        instantRestarts = 0;
+        launch();
         return;
       }
+      /*
+        ON THE DEVICE WHEN IT CAN BE, ON THE SERVICE WHEN IT CANNOT.
+
+        A pack already installed is used every time: it works offline and the
+        sound never leaves this machine. Without one, an online browser uses
+        its service as it always did — and starts fetching the pack, here,
+        inside the press that asked for dictation, so the next run is on the
+        device and the first offline one works. Offline with no pack there is
+        nothing that can make the words, and that is the one case the offline
+        sentence is for.
+      */
+      const run = generation;
+      probing = true;
       sink = handlers;
       wanted = true;
       instantRestarts = 0;
-      launch();
+      const lang = listeningLanguage();
+      void onDevice.available(lang).then((answer) => {
+        if (run !== generation) return;
+        probing = false;
+        if (answer === "available") {
+          local = true;
+          launch();
+          return;
+        }
+        if (knownOffline()) {
+          wanted = false;
+          sink = null;
+          handlers.error("offline");
+          return;
+        }
+        if (answer === "downloadable") onDevice.install(lang);
+        local = false;
+        launch();
+      });
     },
     finalize: () => {
       // `wanted` goes false *before* `stop()`, so the `onend` it causes is read
@@ -308,11 +454,23 @@ export function createDictationEngine(): DictationEngine {
       // still delivers the pending phrase as a final first, which is the whole
       // difference between this and `abandon`.
       wanted = false;
+      if (probing) {
+        // Stop pressed before a microphone opened: nothing was heard, so the
+        // run simply ends.
+        generation += 1;
+        probing = false;
+        const handlers = sink;
+        sink = null;
+        handlers?.ended();
+        return;
+      }
       session?.stop();
     },
     abandon: () => {
       // `close()` detaches before this returns, so anything the browser is
       // still holding lands on a recognition object with no listeners on it.
+      generation += 1;
+      probing = false;
       const current = close();
       sink = null;
       current?.abort();
