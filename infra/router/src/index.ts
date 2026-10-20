@@ -10,7 +10,7 @@
  */
 import { previewForNote, previewForShortLink, previewForShare, renderPreviewHtml, SHORT_CARD_PREFIX } from "./preview";
 import { isSitePageRequest, sitePageResponse } from "./sitePages"; // any site's page, kept per Publish
-import { route, type RouteDecision } from "./route";
+import { downloadResponse, route, type RouteDecision } from "./route";
 import { isPlatformHost } from "./site";
 import { siteResponse } from "./siteWorker";
 import { siteCardResponse, sitePreviewResponse } from "./siteCards";
@@ -227,6 +227,7 @@ async function respond(
           },
         });
 
+      case "download": return downloadResponse(decision.location);
       case "proxy": {
         if (decision.upstream === "expo" && env.ASSETS) {
           // Static Assets and Worker code are one version. Passing the original

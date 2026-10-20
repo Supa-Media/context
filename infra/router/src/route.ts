@@ -60,6 +60,8 @@ import {
   type PreviewMeta,
 } from "./preview";
 import { handleSiteFrom, siteCardFrom } from "./preview/sites";
+import { downloadFor } from "./download";
+export { downloadResponse } from "./download";
 import { iconFor, ROBOTS_PATH, type IconName } from "./icons";
 import { isTexHost, TEX_APEX, TEX_CARD_PATH, TEX_WWW_HOST, texPreviewFor } from "./texHost";
 
@@ -68,6 +70,9 @@ export type Upstream = "expo" | "convex";
 
 export type RouteDecision =
   | { kind: "redirect"; location: string }
+  // The Mac app's dmg on GitHub, a temporary redirect that is never cached.
+  // See `download.ts`.
+  | { kind: "download"; location: string }
   // Server-rendered OpenGraph/Twitter tags for a link-preview crawler. `meta`
   // is always one of the frozen constants in preview.ts — never anything
   // derived from the request. See that file for why.
@@ -233,6 +238,11 @@ export function route(url: URL, userAgent?: string | null): RouteDecision {
   // robots.txt too: it is the first thing Googlebot fetches, and the crawler
   // branch below would answer it with the HTML product card.
   if (pathname === ROBOTS_PATH) return tex ? { kind: "robots", tex: true } : { kind: "robots" };
+
+  // A download link pasted into Slack is still a download link: ahead of the
+  // crawler check, so the unfurler is sent to the file rather than a card.
+  const download = downloadFor(pathname);
+  if (download !== null) return { kind: "download", location: download };
 
   // Before the crawler check, like `/og/card.png` above and for the same
   // reason: this is the image the preview tags point at, and it is requested
