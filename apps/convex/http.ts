@@ -112,6 +112,7 @@ import * as site from "./functions/lib/gatewayRoutes/site";
 import * as workspaceRoutes from "./functions/lib/gatewayRoutes/workspaces";
 import * as feedback from "./functions/lib/gatewayRoutes/feedback";
 import * as agentTexts from "./functions/lib/gatewayRoutes/agentTexts";
+import * as agentTextGroups from "./functions/lib/gatewayRoutes/agentTextGroups";
 import * as builtinModel from "./functions/lib/gatewayRoutes/builtinModel";
 import * as meetingSummary from "./functions/lib/gatewayRoutes/meetingSummary";
 import * as agentTurns from "./functions/lib/gatewayRoutes/agentTurns";
@@ -911,6 +912,9 @@ export const agentTextsInvite = agentWorkerRoute(agentTexts.agentTextsInviteHand
 export const agentTextsUnlink = agentWorkerRoute(agentTexts.agentTextsUnlinkHandler);
 http.route({ path: "/agent-texts/invite", method: "POST", handler: agentTextsInvite });
 http.route({ path: "/agent-texts/unlink", method: "POST", handler: agentTextsUnlink });
+/* A tagged message or a command in a group chat Tex is in (`functions/textGroups.ts`). */
+export const agentTextsGroup = agentWorkerRoute(agentTextGroups.agentTextsGroupHandler);
+http.route({ path: "/agent-texts/group", method: "POST", handler: agentTextsGroup });
 export const agentTextsSetup = agentWorkerRoute(agentTexts.agentTextsSetupHandler);
 http.route({ path: "/agent-texts/setup", method: "POST", handler: agentTextsSetup });
 http.route({ path: "/agent-texts/ready", method: "POST", handler: agentWorkerRoute(agentTexts.agentTextsReadyHandler) });

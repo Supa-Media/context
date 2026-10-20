@@ -16,6 +16,8 @@ import { getMembership } from "../workspaceAuth";
 import { pinnedContextRow } from "../pinnedContext";
 import { pinReaderNames } from "../pinnedReaders";
 import { CONSOLE_CLIENT_ID } from "../../agentGrant";
+import { TEXTS_GROUP_CLIENT_ID } from "../../textGroups";
+import { phoneSignInPaused } from "../emailProof";
 
 /** What a live grant resolves to. Shared by the session and binding routes. */
 export interface LiveGrant {
@@ -89,7 +91,29 @@ export async function validateLiveGrantRecord(
     .unique();
   if (client === null) return null;
 
+  if (grant.clientId === TEXTS_GROUP_CLIENT_ID && !(await groupStillShares(ctx, grant))) return null;
+
   return { grant, workspace, role: membership.role };
+}
+
+/**
+ * A Tex group chat's grant (`functions/textGroups.ts`) resolves only while the
+ * chat it was minted for may still see its workspace: every co-viewer is still
+ * a member and still texting, the tagger too, and the chat is not muted and
+ * still bound there. Re-read on every request, so a member removed mid-turn
+ * stops the turn's next call. A group grant with no `texGroup` is refused.
+ */
+async function groupStillShares(ctx: QueryCtx, grant: Doc<"oauthGrants">): Promise<boolean> {
+  const texGroup = grant.texGroup;
+  if (texGroup === undefined) return false;
+  const group = await ctx.db.get(texGroup.groupId);
+  if (group === null || group.mutedAt !== undefined || group.workspaceId !== grant.workspaceId) return false;
+  if (await phoneSignInPaused(ctx, grant.userId)) return false;
+  for (const userId of texGroup.coViewerIds) {
+    if ((await getMembership(ctx, grant.workspaceId, userId)) === null) return false;
+    if (await phoneSignInPaused(ctx, userId)) return false;
+  }
+  return true;
 }
 
 /**
@@ -175,6 +199,10 @@ export async function contextsForGrant(
   if (includeGrantedNames) {
     own.grantedNames = await grantedNamesFor(ctx, own.workspaceId, live.grant.userId);
   }
+  // A group chat's grant reaches its one workspace and nothing else: not the
+  // tagger's other memberships, not their personal workspace, not the pin.
+  if (live.grant.clientId === TEXTS_GROUP_CLIENT_ID) return [own];
+
   const memberships = await ctx.db
     .query("workspaceMembers")
     .withIndex("by_user", (q) => q.eq("userId", live.grant.userId))
