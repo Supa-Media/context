@@ -17,6 +17,9 @@
  *  4. **Add emails names what it skipped** rather than dropping it quietly.
  *  5. **The signup-alerts switch** names the address it mails and flips the
  *     caller's own setting.
+ *  6. **Searching answers asks the server**, once typing pauses, marks the
+ *     term in each answer, says how many matched, and offers a way back
+ *     when nothing did (Tex launch, 2026-10-20).
  *
  * Each runs twice: at a phone's width, where the rows stack, and at a
  * desk's, where they are a table. jsdom does no layout and reports a width
@@ -31,12 +34,15 @@
  *   row Let in passing every row's id                             2
  *   bulk Remove calling `admitWaitlist`                           2
  *   the `invalid` list left out of the outcome notice             2
+ *   the search left out of `listWaitlist`'s arguments             2
  */
 
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
 
 /** Keyed by the Convex function's own name; see `adminPaneRender.test.ts`. */
 const mockAnswers = new Map<string, unknown>();
+/** The arguments each query was last read with. */
+const mockQueryArgs = new Map<string, unknown>();
 /** Every call the pane makes to a mutation, with its arguments. */
 const mockCalls: { name: string; args: Record<string, unknown> }[] = [];
 /** What the next mutation call does; throws unless a test says. */
@@ -54,7 +60,10 @@ jest.mock("convex/react", () => {
     return mockCall(name, args);
   };
   return {
-    useQuery: (reference: never) => mockAnswers.get(getFunctionName(reference)),
+    useQuery: (reference: never, args: unknown) => {
+      mockQueryArgs.set(getFunctionName(reference), args);
+      return mockAnswers.get(getFunctionName(reference));
+    },
     useAction: callable,
     useMutation: callable,
   };
@@ -81,6 +90,7 @@ afterEach(() => {
   while (roots.length > 0) roots.pop()!();
   document.body.innerHTML = "";
   mockAnswers.clear();
+  mockQueryArgs.clear();
   mockCalls.length = 0;
   mockCall = async () => {
     throw new Error("not used in this test");
@@ -153,6 +163,7 @@ const waiting = [
     joinedAt: Date.UTC(2026, 8, 20),
     source: "login",
     useFor: "Notes for my research group",
+    useForAt: null,
     admittedAt: null,
   },
   {
@@ -162,6 +173,7 @@ const waiting = [
     joinedAt: Date.UTC(2026, 8, 20) - day,
     source: "home",
     useFor: null,
+    useForAt: null,
     admittedAt: null,
   },
   {
@@ -171,6 +183,7 @@ const waiting = [
     joinedAt: Date.UTC(2026, 8, 20) - 2 * day,
     source: "home",
     useFor: null,
+    useForAt: null,
     admittedAt: null,
   },
 ];
@@ -320,5 +333,71 @@ describe.each([
     click("admin-signup-alerts-switch");
     await settle();
     expect(mockCalls).toEqual([{ name: "functions/admin:setSignupAlerts", args: { on: true } }]);
+  });
+
+  test("searching answers asks the server, marks the term and says how many", async () => {
+    jest.useFakeTimers();
+    try {
+      mount();
+      click("admin-tab-waitlist");
+      expect(mockQueryArgs.get("functions/admin:listWaitlist")).toEqual({ status: "waiting" });
+      expect(find("admin-waitlist-filter-sentence")).toBeNull();
+      type("admin-waitlist-search", "research");
+      // Not on every keystroke: the server scans for each search.
+      expect(mockQueryArgs.get("functions/admin:listWaitlist")).toEqual({ status: "waiting" });
+      mockAnswers.set("functions/admin:listWaitlist", {
+        rows: [{ ...waiting[0], useForAt: Date.now() - 2 * 3_600_000 }],
+        more: false,
+        counts: { waiting: 3, admitted: 5 },
+        filter: { matches: 1, capped: false },
+      });
+      act(() => {
+        jest.advanceTimersByTime(300);
+      });
+      expect(mockQueryArgs.get("functions/admin:listWaitlist")).toEqual({ status: "waiting", search: "research" });
+      expect(find("admin-waitlist-filter-sentence")?.textContent).toBe("1 person mentions “research”");
+      const row = find("admin-waitlist-row-wl_one")?.textContent ?? "";
+      expect(row).toContain("Notes for my research group");
+      expect(row).toContain("edited 2h ago");
+      expect(find("admin-waitlist-row-wl_two")).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test("Answered only asks for answered rows and counts them against the list", () => {
+    mount();
+    click("admin-tab-waitlist");
+    mockAnswers.set("functions/admin:listWaitlist", {
+      rows: [waiting[0]],
+      more: false,
+      counts: { waiting: 3, admitted: 5 },
+      filter: { matches: 1, capped: false },
+    });
+    click("admin-waitlist-answered");
+    expect(mockQueryArgs.get("functions/admin:listWaitlist")).toEqual({ status: "waiting", answered: true });
+    expect(find("admin-waitlist-filter-sentence")?.textContent).toBe("1 of 3 answered");
+  });
+
+  test("a search nothing matches says so and clears", () => {
+    jest.useFakeTimers();
+    try {
+      mount();
+      click("admin-tab-waitlist");
+      mockAnswers.set("functions/admin:listWaitlist", {
+        rows: [],
+        more: false,
+        counts: { waiting: 3, admitted: 5 },
+        filter: { matches: 0, capped: false },
+      });
+      type("admin-waitlist-search", "zebra");
+      act(() => {
+        jest.advanceTimersByTime(300);
+      });
+      expect(find("admin-waitlist-no-match")?.textContent).toContain("No answers mention “zebra”.");
+      expect(find("admin-waitlist-empty")).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

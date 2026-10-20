@@ -205,6 +205,23 @@ describe("a half-visible mechanism never claims the whole", () => {
 });
 
 describe("the rows that can answer, do", () => {
+  test("Connected apps counts apps, not the grants behind them", () => {
+    /*
+      A shared workspace's row said "43" over a list of eight apps: one app
+      ("Context (this app)") held thirty-six grants, one per browser instance,
+      and the row counted grants while the panel draws one row per app.
+    */
+    const base = demoData();
+    const [first] = base.clients;
+    const clients = [
+      ...Array.from({ length: 5 }, (_, i) => ({ ...first, id: `ctx-${i}`, name: "Context (this app)" })),
+      { ...first, id: "claude", name: "Claude" },
+      { ...first, id: "claude-2", name: "Claude" },
+      { ...first, id: "chatgpt", name: "ChatGPT" },
+    ];
+    expect(settingsPreview("integrations", { ...base, clients })).toBe("3");
+  });
+
   test("profile says the handle the person is signed in as", () => {
     const base = demoData();
     expect(settingsPreview("profile", base)).toBe(base.viewer.name);

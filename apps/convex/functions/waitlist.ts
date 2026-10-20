@@ -25,6 +25,7 @@ import { scheduleXConversion } from "./xConversions";
 import { scheduleMetaConversion } from "./metaConversions";
 import { waitlistConversionId } from "./lib/xConversion";
 import { adCampaignValidator, signUpOrigin } from "./lib/waitlistCampaign";
+import { newReceipt } from "./lib/waitlistReceipt";
 
 /** New waitlist rows per window, across every caller. */
 export const WAITLIST_JOINS_PER_HOUR = 300;
@@ -61,6 +62,8 @@ export const enter = mutation({
     // On `joined` only: the id the page's X and Meta pixel events report,
     // matching the server's conversions so each network counts it once.
     conversionId: v.optional(v.string()),
+    // On `joined` only: the row's status receipt (`lib/waitlistReceipt.ts`).
+    receipt: v.optional(v.string()),
   }),
   handler: async (ctx, args) => {
     const email = waitlistEmail(args.email);
@@ -79,12 +82,14 @@ export const enter = mutation({
       windowMs: WAITLIST_JOIN_WINDOW_MS,
     });
     const now = Date.now();
+    const { receipt, receiptHash } = await newReceipt();
     const id = await ctx.db.insert("waitlist", {
       email,
       status: "waiting",
       joinedAt: now,
       source: args.source ?? "homepage",
       joinedMailAt: now,
+      receiptHash,
       ...signUpOrigin(args),
     });
     await ctx.scheduler.runAfter(0, internal.functions.waitlist.sendMail, { waitlistId: id, kind: "joined" });
@@ -93,16 +98,18 @@ export const enter = mutation({
       await scheduleXConversion(ctx, { kind: "waitlist", waitlistId: id, twclid: args.twclid });
       await scheduleMetaConversion(ctx, { kind: "waitlist", waitlistId: id, fbc: args.fbc, fbp: args.fbp });
     }
-    return { status: "joined" as const, conversionId: waitlistConversionId(id) };
+    return { status: "joined" as const, conversionId: waitlistConversionId(id), receipt };
   },
 });
 
 /**
- * The optional "what would you use it for?" answer.
+ * The optional "what would you use it for?" answer, by address: the form app
+ * builds from before the status receipt still call it.
  *
  * Written once: a row that already has an answer keeps it, so somebody who
  * knows your address cannot rewrite what you said. Always returns `null`, so
- * it tells a caller nothing about the address either.
+ * it tells a caller nothing about the address either. Changing an answer
+ * later goes through `waitlistStatus.answer`, which needs the row's receipt.
  */
 export const describe = mutation({
   args: { email: v.string(), useFor: v.string() },
@@ -115,7 +122,9 @@ export const describe = mutation({
       .query("waitlist")
       .withIndex("by_email", (q) => q.eq("email", email))
       .unique();
-    if (row === null || row.status !== "waiting" || row.useFor !== undefined) return null;
+    // `useForAt` marks a row whose answer its receipt holder has written,
+    // cleared included: an address alone never writes over that.
+    if (row === null || row.status !== "waiting" || row.useFor !== undefined || row.useForAt !== undefined) return null;
     await ctx.db.patch(row._id, { useFor });
     return null;
   },

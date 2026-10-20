@@ -132,7 +132,14 @@ export async function createEgressWorld() {
   const withStubs = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const url = typeof input === "string" ? input : input.url;
-    if (url.startsWith(AI_GATEWAY_ORIGIN)) return model.handle(url, init);
+    if (url.startsWith(AI_GATEWAY_ORIGIN)) {
+      // The memory nudge every 10 texts (`memoryNudge.js`) runs after a turn and is not these tests'
+      // subject: it finds nothing, and never takes a scripted reply or counts as a request.
+      if (/"client":"memory_nudge"/.test(new Headers(init.headers).get("cf-aig-metadata") ?? "")) {
+        return Response.json({ content: [{ type: "text", text: "NONE" }], stop_reason: "end_turn" });
+      }
+      return model.handle(url, init);
+    }
     return withStubs(input, init);
   };
   const restore = () => {

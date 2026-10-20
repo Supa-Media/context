@@ -88,6 +88,12 @@ export function anthropicMessages(messages) {
       out.push({ role: "user", content: anthropicAttachmentBlocks(message.attachments, message.text) });
       continue;
     }
+    // Words after a tool round (`steer.js`) ride in the same turn as its answers.
+    const last = out[out.length - 1];
+    if (last && last.role === "user" && last.pendingTools) {
+      last.content.push({ type: "text", text: message.text });
+      continue;
+    }
     out.push({ role: "user", content: [{ type: "text", text: message.text }] });
   }
   // `pendingTools` is this function's own bookkeeping and is not part of the

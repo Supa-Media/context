@@ -24,7 +24,11 @@
  *    happen — the same set `describeNameProblem` refuses for a name.
  *  - **A note with no heading gets one on its first edit**: `# <its name>`,
  *    above what was there. Opening it changes nothing; a note is never
- *    rewritten by being looked at.
+ *    rewritten by being looked at. An empty note is no different: what is
+ *    typed into it is its body, under its name. It used to become the title,
+ *    and a quick note made that way could not be written in at all —
+ *    everything typed renamed it (reported 2026-10-19). The name field above
+ *    an empty note is where its title is typed.
  *
  * Only what a person types is held to this. A document put on screen, a
  * collaborator's edit arriving through the shared room, undo and redo all go
@@ -99,8 +103,8 @@ export function lockTitle(
   const prior = firstContentLine(before);
   if (prior !== null && /^\s*#/.test(prior.text)) return transaction;
   // Typed on a line of its own above the writing, as after a title's words
-  // were deleted: what is typed is the title.
-  if (prior === null || transaction.changes.mapPos(prior.from, 1) > line.to) {
+  // were deleted: what is typed is the title. Into an empty note, it is not.
+  if (prior !== null && transaction.changes.mapPos(prior.from, 1) > line.to) {
     return withEdit(transaction, { from: line.from, insert: "# " });
   }
   return withEdit(transaction, { from: line.from, insert: `# ${noteNameOf(path).text}\n\n` });

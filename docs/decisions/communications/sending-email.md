@@ -20,8 +20,10 @@ what happens to the draft (`apps/mcp/src/tools/emailGate.js`):
    things: the person's recent texts with what Tex texted back, and the draft.
    It never sees the email being answered, a note, a page or a tool result, so
    nothing a stranger wrote reaches it. "No" (a recipient, words or timing the
-   person did not ask for) refuses before the person is bothered; "unsure" is
-   shown beside the email; a checker that cannot run marks it unchecked.
+   person did not ask for) refuses before the person is bothered; "unsure",
+   or a checker that cannot run, still puts the email to the person, and the
+   checker's reason is never texted (2026-10-19: beside the copy it read as
+   part of the email, and it was wrong).
 4. **The call is held as a pending approval carrying the whole email.** The
    copy is texted exactly as written, outside the reply's formatting (which
    drops links and lines) and in a text of its own, as every ask now is
@@ -29,7 +31,7 @@ what happens to the draft (`apps/mcp/src/tools/emailGate.js`):
    long for one text (2,500 characters) is never asked about by text. A texted turn asks about one
    email at most, and an ask holding an email that would outgrow one text
    (other asks beside it included) is withdrawn rather than cut. Only a
-   YES within half an hour sends it, or a yes that says to send it ("yes
+   YES within twelve hours, before anything else is texted either way, sends it, or a yes that says to send it ("yes
    please", "yes, send it", "ok send it"; the owner, 2026-10-19), settled
    before any model runs, from a fixed list anchored at both ends so "yes but
    send it to Sam" is not one; a bare "ok", "sure" or any other text disarms it, even when that text settles
@@ -91,6 +93,23 @@ that can fail; an armed record left behind by a failed delete would be
 released by the next bare "yes" (found by Codex re-reviewing #1826). A record
 that can be neither disarmed nor dropped is reported, and the person is told
 to reply NO. Tests: `emailGate.test.mjs` sabotages 13 to 15.
+
+### A held email is waiting, never an error, and is texted once (2026-10-19)
+
+On 2026-10-19 Dev asked Tex to email a venue. The gate held the email as
+designed, but the hold came back to the model as an error ("Not sent yet",
+`is_error: true`), and the model read it as a failure: it texted "The email
+didn't go through on my end, so here it is to send yourself" with its own copy
+of the email, and the gateway's ask then texted the held copy, worded
+differently. So a held call now reaches the model as a plain result
+(`turn.js`, `failedCall`), worded "Held for their YES, and nothing failed",
+and `agent/heldEcho.js` drops any paragraph of the answer that is an email
+header block or mostly the held email's words, plus a line introducing it,
+before the ask is added. The person sees one copy: the one a YES sends.
+
+What a simplification would cost: passing `isError` through for a hold brings
+back "didn't go through"; dropping `withoutHeldEcho` brings back two versions
+of one email. `test/emailGate.test.mjs` fails on either.
 
 ### A draft saved in the person's Gmail needs no yes
 

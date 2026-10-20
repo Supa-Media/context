@@ -50,10 +50,15 @@ export type DictationFailure =
    * The engine needs a connection and this device does not have one.
    *
    * Its own case rather than `unreachable`, because the person can act on it
-   * and the action is somewhere else: Chrome's engine is a network service, so
-   * offline it can only fail, while the computer's own dictation — macOS and
-   * Windows both ship one — works with no connection at all. "The words cannot
-   * be made right now" was true and left them with nothing to do.
+   * and the action is somewhere else: with no on-device language pack the
+   * browser's engine is a network service, so offline it can only fail, while
+   * the computer's own dictation — macOS and Windows both ship one — works
+   * with no connection at all.
+   *
+   * **Only for a browser that says it is offline.** A `network` error from an
+   * online browser is the service not answering, which is `unreachable`; it
+   * was reported as this once, and told people with a working connection that
+   * they had none. See `failureFor` in `engine.web.ts`.
    */
   | "offline"
   /** This surface has no speech engine. See `engine.ts`. */
@@ -97,7 +102,9 @@ export type DictationEvent =
   | { type: "cancel" }
   /** The engine has closed. Nothing more is coming. */
   | { type: "ended" }
-  | { type: "error"; reason: DictationFailure };
+  | { type: "error"; reason: DictationFailure }
+  /** The failure has been read: put it away. Only ever leaves `failed`. */
+  | { type: "dismiss" };
 
 export type DictationEffect =
   /** Open the microphone. */
@@ -191,6 +198,10 @@ export function reduce(state: DictationState, event: DictationEvent): Step {
     case "ended":
       if (!isLive(state)) return { state, effects: [] };
       return { state: IDLE, effects: [{ do: "ghost", text: "" }] };
+
+    case "dismiss":
+      if (state.name !== "failed") return { state, effects: [] };
+      return { state: IDLE, effects: [] };
 
     case "error":
       return {

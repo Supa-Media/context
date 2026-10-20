@@ -16,7 +16,9 @@ followed by the next. **At most three texted check-ins a day**
 replacing the first rule of one a day, which waited 12 hours after a text).
 After the third, the next look is tomorrow's first slot. That is decided by
 the control plane, never by the model. A check-in refused for want of a model (not Premium) or with no chat to text into waits for the person's
-next text; a daily sweep gives a first one to everyone with a linked phone.
+next text; a daily sweep gives a first one to everyone with a linked phone. A
+look that finds them mid-conversation waits ten quiet minutes and looks again
+([runtime](./runtime.md)).
 
 **New mail brings a look forward** (`lib/heartbeats/mail.ts`; the owner,
 2026-10-19, choosing "Yes, on new mail" after Google's 3:47 am email waited

@@ -47,7 +47,9 @@ plane hears an outcome code (`dreamed`, `unchanged`, `nothing_new`, `failed`,
 `daily_limit`, `no_provider`) and nothing else.
 
 Later the owner may let dreams organize other things; for now it updates the
-about-me note only.
+about-me note only. Since 2026-10-19 the gateway also moves learned skills
+unused for 60 days to `tex/skills/retired/` before the model runs, by date
+and never by the model ([learned skills](./learned-skills.md)).
 
 **What a simplification would cost:** letting the dream use the texting
 grant or the full tool list makes a model steered by a transcript able to

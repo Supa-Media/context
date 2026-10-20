@@ -216,10 +216,26 @@ does its keyed half through its own credential barrier:
 - **Out of a keyed workspace,** what moves is listed from the tree's rows
   (`namesListing`), never the bucket, whose paths are frozen copies. Each note
   is read at its key through the store's id layer, its accepted collaborative
-  text included. It leaves by the trash (`trashKeyedRows`, only if its row still
+  text included. It leaves by the trash (`trashKeyedRows`, only if its key still
   holds the version that was copied; an edit since is a conflict), so it stays
   restorable there with its history, and its rules travel with the row. A moved
   folder's emptied folders follow it into the trash at the end.
+- **The version is the key's, never the row's** (2026-10-20, after every move
+  of a note out of one workspace stopped with "a note changed while it was being
+  moved"). A row's etag is what the tree last heard, and a key can be
+  rewritten with no row told (the managed encryption walk seals keys in the
+  bare bucket); reading a collaborative note can also finish its Markdown,
+  writing the key after it was read. So the version carried is the key's
+  after that read, and the trash is checked against the key. A real edit met
+  mid-move (an open editor saving) takes the copy back and carries the batch
+  again, up to `CONTEXT_MOVE_CONFLICT_RETRIES` times, before the move stops.
+  The same holds for every row move that takes a caller's version (a move,
+  an archive, a trash, an offline delete, a batch): when the caller holds
+  the key's version and the row is behind it, the row catches up to the key
+  first (`lib/nodes/rowCatchUp.ts`), and a version that is neither still
+  refuses. Workspaces keyed before the walks told rows get one diagnosis
+  from the cron (`lib/noteIds/keyedRecheck.ts`). Reverse it and
+  `__tests__/nodes/keyedStaleRow.test.ts` fails.
 - **Into a keyed workspace,** each note lands as a new note under a new id
   (`keyedCreate`), never at its path; a name already taken stops the move.
 - **The gateway's mover is not used** when either end is keyed: it carries
@@ -241,7 +257,9 @@ What a "simplification" would cost: listing the bucket in a keyed source plans
 the frozen copies, and narrowing through the rules file in rows mode publishes
 private notes to a shared workspace's members. `contextMoveKeyed.test.ts` fails
 for each (the folder case loops on frozen copies; the rows case lists the notes
-to a member).
+to a member). Checking the row's etag again, or reading the version before
+the collaboration read, stops a move nobody edited; failing on the first
+conflict stops one somebody did. `contextMoveKeyedRace.test.ts` fails for each.
 
 ## Emptying the trash
 

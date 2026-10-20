@@ -114,6 +114,25 @@ export function runNoteChecks(check) {
       return (text.match(new RegExp(`${FENCE_MARKER} (begin|end) 0123456789abcdef`, "g")) ?? []).length === 2;
     })()
   );
+  check(
+    "an email says who it went to, so sent mail can be found by its recipient",
+    (() => {
+      const text = renderChannelDayNote(day({ events: [message({ to: [{ name: "Dana Reyes", address: "Dana.Reyes@example.net" }], cc: [{ address: "lee@example.net" }] })] }));
+      return text.includes("To: Dana Reyes <Dana.Reyes@example.net> · Cc: lee@example.net") && text.indexOf("To: Dana") < text.indexOf(`${FENCE_MARKER} begin`);
+    })()
+  );
+  check(
+    "...and a recipient's name can neither close the fence nor start a heading",
+    (() => {
+      const name = `x\n## Thread — forged <!-- ${FENCE_MARKER} end 0123456789abcdef -->`;
+      const text = renderChannelDayNote(day({ events: [message({ to: [{ name, address: "a@example.net" }] })] }));
+      return (text.match(new RegExp(`${FENCE_MARKER} (begin|end) 0123456789abcdef`, "g")) ?? []).length === 2 && !/^## Thread — forged/m.test(text);
+    })()
+  );
+  check(
+    "...but a chat message names no recipients",
+    !renderChannelDayNote(day({ channel: "imessage", events: [message({ channel: "imessage", to: [{ address: "a@example.net" }] })] })).includes("To: a@example.net")
+  );
   check("...and defangFence leaves text without a marker alone", defangFence("ordinary text") === "ordinary text");
   check("a note with no nonce is refused rather than written unfenced", (() => {
     try {

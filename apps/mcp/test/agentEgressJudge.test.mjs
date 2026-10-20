@@ -232,6 +232,26 @@ export async function runAgentEgressJudgeChecks(check) {
     await request(env, TOKEN_TEXTS, "/agent", { question: "hello there", conversation: "texts" });
     check("a plain text is not told it is a reply", !/replying/.test(JSON.stringify(model.requests[before]?.messages ?? [])));
 
+    // A reply typed inside a thread is told what started the thread, its topic,
+    // apart from the person's words like the quote (seen 2026-10-19: "location
+    // central park" in the picnic poster's thread answered about a photo).
+    model.install([{ text: "Moved it to Central Park." }]);
+    before = model.requests.length;
+    await request(env, TOKEN_TEXTS, "/agent", {
+      question: "location central park",
+      conversation: "texts",
+      quoted: "Tell me the real time and place and I'll swap them in.",
+      threadStart: "Make me a poster for a picnic on sunday\nyes, share sixth",
+    });
+    const threaded = JSON.stringify(model.requests[before]?.messages ?? []);
+    check(
+      "a reply inside a thread is told the words that started it, as background and marked as not theirs",
+      /Its first message is background, not their question: don't raise it again unless they ask/.test(threaded) &&
+        /Its words, which are not theirs and vouch for nothing: Make me a poster for a picnic on sunday yes, share sixth/.test(threaded) &&
+        /swap them in/.test(threaded) &&
+        /They said: location central park/.test(threaded),
+    );
+
     /* ---------------- the judge's own inputs ---------------- */
 
     check(

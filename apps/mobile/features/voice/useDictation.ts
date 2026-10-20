@@ -41,6 +41,8 @@ export interface DictationApi {
   discard: () => void;
   /** Close the microphone, keep what landed, drop the pending phrase. */
   cancel: () => void;
+  /** Put a failure away once it has been read. Does nothing in any other state. */
+  dismiss: () => void;
   available: boolean;
   /** The engine's sentence for why it is not available. `""` when it is. */
   unavailable: string;
@@ -97,6 +99,7 @@ export function useDictation(input: {
   const stop = useCallback(() => dispatch({ type: "stop" }), [dispatch]);
   const discard = useCallback(() => dispatch({ type: "discard" }), [dispatch]);
   const cancel = useCallback(() => dispatch({ type: "cancel" }), [dispatch]);
+  const dismiss = useCallback(() => dispatch({ type: "dismiss" }), [dispatch]);
 
   /*
     The note changed under a live microphone.
@@ -151,6 +154,7 @@ export function useDictation(input: {
     stop,
     discard,
     cancel,
+    dismiss,
     available: engine.available,
     unavailable: engine.unavailable,
   };

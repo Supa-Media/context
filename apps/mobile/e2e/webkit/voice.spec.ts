@@ -250,3 +250,39 @@ test("a browser with no engine offers the meeting and refuses dictation", async 
   await shot(page, "5-no-engine");
   await context.close();
 });
+
+/*
+  The owner's screenshot, 2026-10-20: online, the browser's speech service
+  failed with `network`, and the console said "you're offline" in a card the
+  `+` covered the end of. Driven on the Resume surface because it is the one
+  fixture with the console's `+` in the corner, and started from the note's
+  menu because that is the console's only door to the microphone.
+*/
+test("a speech service that fails while online is not called offline, and its card clears the +", async ({
+  browser,
+}) => {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 840 }, isMobile: false, hasTouch: false });
+  const page = await context.newPage();
+  await page.addInitScript(FAKE_ENGINE);
+  await page.addInitScript(`
+    window.SpeechRecognition.prototype.start = function () {
+      setTimeout(() => { if (this.onerror) this.onerror({ error: "network" }); }, 50);
+    };
+  `);
+  await page.goto("/e2e-fixture?screen=resume");
+  await page.locator(".cm-line", { hasText: "launch moves to the 14th" }).first().click({ button: "right" });
+  await page.getByText("Dictate here", { exact: true }).click();
+
+  const card = page.getByTestId("voice-failure");
+  await expect(card).toContainText("speech service didn't answer");
+  await expect(card).not.toContainText("offline");
+
+  const cardBox = (await card.boundingBox())!;
+  const plusBox = (await page.getByTestId("console-create").boundingBox())!;
+  // Flush right with the `+`, and standing above it rather than under it.
+  expect(Math.abs(cardBox.x + cardBox.width - (plusBox.x + plusBox.width))).toBeLessThanOrEqual(1);
+  expect(cardBox.y + cardBox.height).toBeLessThanOrEqual(plusBox.y);
+  expect(plusBox.y - (cardBox.y + cardBox.height)).toBeLessThanOrEqual(12);
+  await shot(page, "6-service-failed");
+  await context.close();
+});

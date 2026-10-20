@@ -23,16 +23,20 @@
  *     → "only the check-in client checks in" fails.
  *  5. `handleHeartbeat` returning nothing_new without logging it (2026-10-19).
  *     → "a look with nothing changed still leaves a line…" fails.
+ *  6. The check-in's `disarmTexting` removed (2026-10-19).
+ *     → "a texted check-in stops an older ask listening…" fails.
  */
 
 import worker from "../src/index.js";
 import { transcriptPath } from "../src/agent/transcript.js";
 import {
   CHECK_IN_QUESTION,
+  BUSY_WORDS,
   NOTHING_NEW_WORDS,
   changedSince,
   newsFirst,
   checkInText,
+  HEARTBEAT_READS,
   heartbeatCallTool,
   heartbeatPath,
   heartbeatQuestion,
@@ -43,16 +47,18 @@ import {
   textedLines,
 } from "../src/agent/heartbeat.js";
 import { SKIPPED_WORDS } from "../src/agent/jobLog.js";
+import { PENDING_PREFIX } from "../src/tools/approvalKeys.js";
+import { UNTRUSTED_READS } from "../src/privacy/egress.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
+import { conversationTurns } from "./agentConversationFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-heartbeat.test";
 const TOKEN_BEAT = `cat_beat_heartbeat_${"0".repeat(20)}`;
 const TOKEN_TEXTS = `cat_beat_texts_${"0".repeat(24)}`;
 const TOKEN_APP = `cat_beat_app_${"0".repeat(26)}`;
 const HOUR_MS = 60 * 60 * 1000;
-const CONVERSATION = ".context/agent/conversations/texts.json";
 
 const PRIVACY_MANIFEST =
   "---\nrole: privacy-manifest\n---\n\n" +
@@ -138,6 +144,8 @@ function unitChecks(check) {
       { key: "tex/dreams/2026-10-17.md", uploaded: at("2026-10-17T12:30:00Z") },
       { key: "tex/housekeeping/2026-10-17.md", uploaded: at("2026-10-17T12:30:00Z") },
       { key: "tex/about-me.md", uploaded: at("2026-10-17T12:30:00Z") },
+      { key: "tex/skills/book-a-table.md", uploaded: at("2026-10-17T12:30:00Z") },
+      { key: "tex/skills/retired/old-way.md", uploaded: at("2026-10-17T12:30:00Z") },
       { key: "tex/heartbeat.md", uploaded: at("2026-10-17T12:30:00Z") },
       { key: ".context/agent/x.md", uploaded: at("2026-10-17T12:30:00Z") },
       { key: "files/photo.png", uploaded: at("2026-10-17T12:30:00Z") },
@@ -280,6 +288,19 @@ async function toolRefusals(check) {
 }
 
 export async function runAgentHeartbeatChecks(check) {
+  /*
+    The check-in saves its exchange with no `tainted` mark, so the memory
+    nudge reads it as clean words of the person's own and may distil it into
+    `tex/about-me.md`, which every later turn reads as Tex's own memory
+    (`memoryNudge.js`). What makes that safe is not the dispatch allowlist by
+    itself but these two sets being disjoint: add `read_email` to a check-in's
+    reading list and a stranger's words reach the person's memory with nothing
+    in the way. Asserted rather than left to be noticed.
+  */
+  check(
+    "a check-in reads nothing from outside the workspace, which is why its exchange is saved untainted",
+    [...HEARTBEAT_READS].every((name) => !UNTRUSTED_READS.has(name)),
+  );
   unitChecks(check);
   await toolRefusals(check);
 
@@ -367,11 +388,30 @@ export async function runAgentHeartbeatChecks(check) {
       },
       { text: "Found the Tex branding image you asked for, in your branding notes:\nhttps://example.invalid/tex-chaos-scale.png" },
     ]);
+    // An email still waiting for their texted yes, from before the check-in.
+    const waiting = `${PENDING_PREFIX}2026-10-19-waiting.json`;
+    bucket.set(waiting, {
+      body: JSON.stringify({
+        id: "waiting",
+        tool: "send_email",
+        key: "k",
+        actor: { userId: "user_beat" },
+        texting: true,
+        texting_until: Date.now() + HOUR_MS,
+        created_at: Date.now(),
+        expires_at: Date.now() + HOUR_MS,
+      }),
+      etag: "p1",
+    });
     const found = await ask(env, TOKEN_BEAT, beat());
     check(
       "a check-in that finds an unfinished ask answers it as a text",
       found.status === 200 && found.body?.outcome === "speak" &&
         found.body?.answer?.includes("https://example.invalid/tex-chaos-scale.png"),
+    );
+    check(
+      "a texted check-in stops an older ask listening, so a yes to the check-in releases nothing",
+      JSON.parse(bucket.get(waiting)?.body ?? "{}").texting === false,
     );
     check("a check-in can't write, whatever it is told", bucket.get("todo.md")?.body === "# To do\n\n- Pay rent\n");
     const written = log();
@@ -384,7 +424,7 @@ export async function runAgentHeartbeatChecks(check) {
         written.includes("> 💭 They asked for the branding image and only got the board.") &&
         written.includes("`write_note` `{\"path\":\"todo.md\""),
     );
-    const conversation = JSON.parse(bucket.get(CONVERSATION)?.body ?? "{}");
+    const conversation = { turns: conversationTurns(bucket) };
     check(
       "a texted check-in joins the texting conversation, so a reply has it in front of it",
       conversation.turns?.at(-2)?.text === CHECK_IN_QUESTION &&
@@ -450,11 +490,11 @@ export async function runAgentHeartbeatChecks(check) {
 
     /* ---------------- continuing a text ---------------- */
 
-    const earlier = JSON.parse(bucket.get(CONVERSATION)?.body ?? "{}").turns ?? [];
+    const earlier = conversationTurns(bucket);
     const lastShown = recentTexts(earlier);
     model.install([{ text: `[continues ${lastShown.length}] Still want me to save that image to your branding folder?` }]);
     const continued = await ask(env, TOKEN_BEAT, beat());
-    const afterTurns = JSON.parse(bucket.get(CONVERSATION)?.body ?? "{}").turns ?? [];
+    const afterTurns = conversationTurns(bucket);
     check(
       "a look that continues a text answers without the marker, and names that text's whole words as continues",
       continued.status === 200 && continued.body?.outcome === "speak" &&
@@ -482,6 +522,19 @@ export async function runAgentHeartbeatChecks(check) {
     // Through the gateway, as the app or Tex would write it: the note's saved state is the collaboration doc's.
     const current = await rpc(env, TOKEN_APP, "read_note", { path: "tex/heartbeat.md" });
     const etag = /^etag: (.+)$/m.exec(current?.content?.[0]?.text ?? "")?.[1]?.trim();
+    /* ---------------- mid-conversation ---------------- */
+
+    // A text of theirs moments ago: the look reads nothing, runs no model, and says it is waiting for quiet.
+    model.install([{ text: "Sure, Friday works." }]);
+    await ask(env, TOKEN_TEXTS, { question: "Can we move it to Friday?", conversation: "texts" });
+    await rpc(env, TOKEN_APP, "write_note", { path: "1-projects/quiet-check.md", content: "# Quiet check\n\nA change to look at.\n" });
+    const beforeBusy = model.requests.length;
+    const busy = await ask(env, TOKEN_BEAT, beat());
+    check(
+      "a look while they are texting reads nothing, runs no model, and waits for the chat to go quiet",
+      busy.status === 200 && busy.body?.outcome === "busy" && model.requests.length === beforeBusy && log().includes(BUSY_WORDS),
+    );
+
     const paused = await rpc(env, TOKEN_APP, "write_note", {
       path: "tex/heartbeat.md",
       content: "---\npaused: true\n---\nOnly text me about deadlines.\n",
@@ -499,3 +552,4 @@ export async function runAgentHeartbeatChecks(check) {
     globalThis.fetch = previousFetch;
   }
 }
+

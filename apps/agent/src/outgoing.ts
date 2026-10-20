@@ -11,6 +11,7 @@
  * saying so, never a failed answer.
  */
 
+import type { ImagesLike } from "./attachments";
 import { LINQ_API, MAX_REPLY_TEXT, ServiceError, type Fetch } from "./clients";
 
 export type OutgoingPicture = { name: string; mediaType: string; data: string } | { url: string };
@@ -24,6 +25,37 @@ export type SendPart = string | { media: Media };
 export const MAX_OUTGOING_PICTURES = 4;
 const SENDABLE = new Set(["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif"]);
 const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
+
+/** Under this a picture goes as it is: a poster's sharp edges stay PNG. */
+export const SHRINK_OVER_BYTES = 1_000_000;
+const SHRUNK_EDGE = 2048;
+
+/**
+ * A big photo as a JPEG through Cloudflare Images, so it sends quickly and
+ * fits where it is kept (`media.ts`). The image model answers in PNG, often
+ * past 2 MB for a photo. Small pictures, GIFs (which may move) and anything
+ * Images refuses go unchanged; without the binding nothing is shrunk.
+ */
+export async function shrinkPicture(
+  images: ImagesLike | undefined,
+  picture: { name: string; mediaType: string; data: string },
+): Promise<{ name: string; mediaType: string; data: string }> {
+  if (!images || picture.mediaType === "image/gif" || picture.data.length * 0.75 <= SHRINK_OVER_BYTES) return picture;
+  try {
+    const result = await images
+      .input(new Blob([bytesOf(picture.data)]).stream())
+      .transform({ width: SHRUNK_EDGE, height: SHRUNK_EDGE, fit: "scale-down" })
+      .output({ format: "image/jpeg", quality: 85 });
+    const out = new Uint8Array(await result.response().arrayBuffer());
+    if (out.byteLength === 0 || out[0] !== 0xff || out[1] !== 0xd8) return picture;
+    let binary = "";
+    for (let i = 0; i < out.length; i += 0x8000) binary += String.fromCharCode(...out.subarray(i, i + 0x8000));
+    const dot = picture.name.lastIndexOf(".");
+    return { name: `${dot > 0 ? picture.name.slice(0, dot) : picture.name}.jpg`, mediaType: "image/jpeg", data: btoa(binary) };
+  } catch {
+    return picture;
+  }
+}
 
 export const PICTURE_FAILED = "I couldn't send that picture just now.";
 
@@ -57,7 +89,10 @@ export function readPictures(raw: unknown): OutgoingPicture[] {
 }
 
 function bytesOf(base64: string): Uint8Array {
-  return Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
 }
 
 /** Upload one picture's bytes to Linq; its attachment id. */

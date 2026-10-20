@@ -38,6 +38,19 @@ export const waitlistTables = {
     /** The optional one-line answer, at most `USE_FOR_MAX` characters. */
     useFor: v.optional(v.string()),
     /**
+     * When the answer was last written through the status receipt
+     * (`waitlistStatus.answer`), so staff can tell an edited answer from one
+     * given at joining. Absent for an answer written by the old `describe`.
+     */
+    useForAt: v.optional(v.number()),
+    /**
+     * The SHA-256 of the row's status receipt (`lib/waitlistReceipt.ts`): the
+     * secret handed, once, to the browser that made this row, so that browser
+     * alone can read where the row stands and write its answer. Never the
+     * secret itself, and never set on a row somebody was told "already" about.
+     */
+    receiptHash: v.optional(v.string()),
+    /**
      * Which landing page (`/a` to `/c`, `LANDING_PAGES` in `@context/shared`)
      * the person saw before joining. Set once, when the row is made, and never
      * changed after; read for the landing-page test. `enter` and `phoneSignIn`
@@ -68,6 +81,7 @@ export const waitlistTables = {
   })
     .index("by_email", ["email"])
     .index("by_phone", ["phone"])
+    .index("by_receiptHash", ["receiptHash"])
     .index("by_status_joinedAt", ["status", "joinedAt"]),
 
   /**

@@ -275,6 +275,35 @@ function senderLabel(event) {
   return singleLine(from.name) || singleLine(from.address) || "(unknown sender)";
 }
 
+/** The most recipients a line names; the rest are counted. */
+const MAX_RECIPIENTS = 20;
+
+/** `Name <address>`, else whichever of the two there is. */
+function recipientLabel(person) {
+  const name = singleLine(person?.name);
+  const address = singleLine(person?.address);
+  if (name && address && name.toLowerCase() !== address.toLowerCase()) return `${name} <${address}>`;
+  return name || address;
+}
+
+/**
+ * Who an email went to, as a line under its heading, or none. Without it a
+ * person's own sent mail never says who it was sent to, and "the David I
+ * emailed last week" can't be found in their notes (2026-10-19).
+ */
+function recipientsLine(event) {
+  if (event?.channel !== "email") return null;
+  const parts = [];
+  for (const [label, list] of [["To", event?.to], ["Cc", event?.cc]]) {
+    const names = (Array.isArray(list) ? list : []).map(recipientLabel).filter(Boolean);
+    if (!names.length) continue;
+    const shown = names.slice(0, MAX_RECIPIENTS).join(", ");
+    const more = names.length > MAX_RECIPIENTS ? ` and ${names.length - MAX_RECIPIENTS} more` : "";
+    parts.push(`${label}: ${shown}${more}`);
+  }
+  return parts.length ? defangOutsideFence(parts.join(" · ")) : null;
+}
+
 /**
  * One message, rendered.
  *
@@ -288,9 +317,11 @@ function renderMessage(event, nonce, level = 3) {
   const anchor = messageAnchor(event);
   const subject = defangOutsideFence(singleLine(event?.subject)) || NO_SUBJECT;
   const hashes = "#".repeat(level);
+  const recipients = recipientsLine(event);
   const lines = [
     `${hashes} ${timeOfDay(event)} · ${defangOutsideFence(senderLabel(event))} · ${subject} {#${anchor}}`,
     "",
+    ...(recipients ? [recipients, ""] : []),
     `<!-- ${FENCE_MARKER} begin ${nonce} -->`,
     "",
     defangFence(String(event?.body ?? "")).trim() || "_(no readable text)_",

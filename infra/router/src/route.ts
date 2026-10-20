@@ -25,6 +25,19 @@
  *                         Hosting, path unchanged
  *   www.context.lc     -> 301 https://context.lc<path><search>
  *
+ *   tex.lc, tex-staging.context.lc   (Tex, the texting assistant; texHost.ts)
+ *     every apex rule above, path unchanged — the same web app, the same
+ *     Convex proxy, the same console — except:
+ *     /og/tex-card.png -> Tex's OpenGraph card (served on every host)
+ *     /robots.txt      -> the apex's, less /waitlist and /console
+ *     a crawler        -> Tex's frozen cards, never Context's copy or a
+ *                         context.lc canonical, wherever the apex would have
+ *                         given a static card (share, team, short-link and
+ *                         website previews are unchanged)
+ *     `/` is drawn as the Tex landing by the app itself, from the hostname;
+ *     index.ts skips the context.lc homepage snapshot there.
+ *   www.tex.lc         -> 301 https://tex.lc<path><search>
+ *
  * Deliberately NOT here:
  *
  *   mcp.context.lc     the MCP gateway (apps/mcp) is its own Worker on its own
@@ -48,6 +61,7 @@ import {
 } from "./preview";
 import { handleSiteFrom, siteCardFrom } from "./preview/sites";
 import { iconFor, ROBOTS_PATH, type IconName } from "./icons";
+import { isTexHost, TEX_APEX, TEX_CARD_PATH, TEX_WWW_HOST, texPreviewFor } from "./texHost";
 
 /** The services this Worker fronts. index.ts maps each to a real origin. */
 export type Upstream = "expo" | "convex";
@@ -57,7 +71,10 @@ export type RouteDecision =
   // Server-rendered OpenGraph/Twitter tags for a link-preview crawler. `meta`
   // is always one of the frozen constants in preview.ts — never anything
   // derived from the request. See that file for why.
-  | { kind: "preview"; meta: PreviewMeta }
+  //
+  // `robotsHeader`, when present, is sent as `X-Robots-Tag` too. Only Tex's
+  // noindex cards set it; context.lc's responses are byte-for-byte as before.
+  | { kind: "preview"; meta: PreviewMeta; robotsHeader?: string }
   // A crawler asking for a share link. The token is shape-checked
   // (`shareTokenFrom`) before it gets here, so it is 64 hex characters and
   // nothing else. The caller looks the title up and MUST fall back to
@@ -94,10 +111,12 @@ export type RouteDecision =
     }
   // The Worker's own OpenGraph card image, served from the bundle.
   | { kind: "og-card" }
+  // Tex's card, likewise from the bundle. See `texHost.ts`.
+  | { kind: "tex-card" }
   // The site's favicons, served from the bundle. See `icons.ts`.
   | { kind: "icon"; name: IconName }
   // The apex's robots.txt, plain text from the Worker. See `icons.ts`.
-  | { kind: "robots" }
+  | { kind: "robots"; tex?: true }
   // `path` is the full path + query to request from the upstream. It is never
   // rewritten today, but naming it separately keeps the tests honest about
   // that and makes a future prefix rule a one-line change.
@@ -173,6 +192,17 @@ export function route(url: URL, userAgent?: string | null): RouteDecision {
       location: `https://${APEX}${pathname}${search}`,
     };
   }
+  // The same for Tex, and for the same reasons. Exact host only: there is no
+  // `*.tex.lc` rule anywhere in this Worker.
+  if (hostname === TEX_WWW_HOST) {
+    return {
+      kind: "redirect",
+      location: `https://${TEX_APEX}${pathname}${search}`,
+    };
+  }
+  // Tex's hosts take every rule below unchanged; this flag only picks Tex's
+  // robots.txt and Tex's frozen crawler cards. See texHost.ts.
+  const tex = isTexHost(hostname);
 
   // The apex — and any other host that reaches this Worker, e.g. its
   // workers.dev preview URL — gets the apex's path rules.
@@ -189,6 +219,11 @@ export function route(url: URL, userAgent?: string | null): RouteDecision {
   if (pathname === OG_CARD_PATH) {
     return { kind: "og-card" };
   }
+  // On every platform host, not only Tex's: it is a product image like the
+  // one above, and a preview's tags may be read from either origin.
+  if (pathname === TEX_CARD_PATH) {
+    return { kind: "tex-card" };
+  }
 
   // The favicons, for the same reason: Google's favicon fetcher is a crawler,
   // and a crawler asking for an icon wants the icon, not an HTML card.
@@ -197,7 +232,7 @@ export function route(url: URL, userAgent?: string | null): RouteDecision {
 
   // robots.txt too: it is the first thing Googlebot fetches, and the crawler
   // branch below would answer it with the HTML product card.
-  if (pathname === ROBOTS_PATH) return { kind: "robots" };
+  if (pathname === ROBOTS_PATH) return tex ? { kind: "robots", tex: true } : { kind: "robots" };
 
   // Before the crawler check, like `/og/card.png` above and for the same
   // reason: this is the image the preview tags point at, and it is requested
@@ -276,6 +311,15 @@ export function route(url: URL, userAgent?: string | null): RouteDecision {
     const shareToken = shareTokenFrom(pathname);
     if (shareToken !== null) {
       return { kind: "share-preview", token: shareToken };
+    }
+    // A Tex host answers from Tex's own frozen table — the same rule, with
+    // Tex's words and a tex.lc canonical. The host only picks the table; it
+    // never reaches the output.
+    if (tex) {
+      const meta = texPreviewFor(pathname);
+      return meta.robots === undefined
+        ? { kind: "preview", meta }
+        : { kind: "preview", meta, robotsHeader: meta.robots };
     }
     return { kind: "preview", meta: previewFor(pathname) };
   }

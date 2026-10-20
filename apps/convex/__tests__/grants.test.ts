@@ -231,16 +231,40 @@ describe("listGrants", () => {
     // Connected first, so it is the oldest row and the first to be crowded out.
     await seedGrant(t, workspaceId, user, "claude", "hash-claude");
     for (let load = 0; load < MAX_GRANTS_RETURNED; load += 1) {
-      await seedGrant(t, workspaceId, user, CONSOLE_CLIENT_ID, `hash-load-${load}`);
+      await seedGrant(t, workspaceId, user, CONSOLE_CLIENT_ID, `hash-load-${load}`, Date.now() + 60_000);
     }
 
     const grants = await asUser(t, user).query(api.functions.grants.listGrants, {
       workspaceId,
     });
     expect(grants.some((g) => g.clientId === "claude")).toBe(true);
-    expect(
-      grants.filter((g) => g.clientId === CONSOLE_CLIENT_ID).length,
-    ).toBeLessThanOrEqual(MAX_CONSOLE_GRANTS_RETURNED);
+    const consoleRows = grants.filter((g) => g.clientId === CONSOLE_CLIENT_ID).length;
+    expect(consoleRows).toBeGreaterThan(0);
+    expect(consoleRows).toBeLessThanOrEqual(MAX_CONSOLE_GRANTS_RETURNED);
+  });
+
+  /**
+   * A console grant past its hour is not a connection.
+   *
+   * It has no refresh token, so nothing can use it until a console instance
+   * re-mints into the same row. A shared workspace's Connected apps said
+   * "Context (this app) · 36 connections · last used 25 days ago" because
+   * every one of those dead rows was listed.
+   */
+  test("an expired console grant is not listed; a live one and other clients are", async () => {
+    const t = setupTest();
+    const user = await createUser(t, "owner@example.invalid");
+    const workspaceId = await createWorkspace(t, user, "atlas");
+
+    // An MCP client whose access token lapsed still has its refresh token.
+    await seedGrant(t, workspaceId, user, "claude", "hash-claude", Date.now() - 60_000);
+    const live = await seedGrant(t, workspaceId, user, CONSOLE_CLIENT_ID, "hash-live", Date.now() + 60_000);
+    await seedGrant(t, workspaceId, user, CONSOLE_CLIENT_ID, "hash-expired", Date.now() - 60_000);
+    await seedGrant(t, workspaceId, user, CONSOLE_CLIENT_ID, "hash-legacy");
+
+    const grants = await asUser(t, user).query(api.functions.grants.listGrants, { workspaceId });
+    expect(grants.filter((g) => g.clientId === CONSOLE_CLIENT_ID).map((g) => g.grantId)).toEqual([live]);
+    expect(grants.some((g) => g.clientId === "claude")).toBe(true);
   });
 
   /**

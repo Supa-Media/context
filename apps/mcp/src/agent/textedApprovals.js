@@ -9,6 +9,7 @@ import { EMAIL_TOOL } from "../tools/email.js";
 import { CALENDAR_TOOL } from "../tools/calendarWrite.js";
 import { REPORT_TOOL } from "../tools/reportProblem.js";
 import { doneLine } from "./doneLine.js";
+import { withoutHeldEcho } from "./heldEcho.js";
 import { armForText, disarmRecords, listPending, replayAsAsked, settlePending, withdrawPending } from "../tools/approvals.js";
 
 /** A text that is nothing but yes, or nothing but no; anything else goes to the model. */
@@ -77,7 +78,7 @@ export const TEXTED_ASK_CAP = 2_900;
  * `apps/agent/src/format.ts` keeps three texts and folds every later
  * paragraph into the third, and `apps/agent/src/clients.ts` sends at most
  * 3,000 characters of each, so a long answer cuts the ask line off its own
- * end. The record stays armed for half an hour either way, and a bare "yes"
+ * end. The record stays armed for twelve hours either way, and a bare "yes"
  * afterwards releases what the person never saw. A handle claim is the ask
  * this matters most for: it holds no email, it is the one ask the deployment
  * switch still makes (`../tools/session.js`), and a claimed handle is never
@@ -109,6 +110,17 @@ export async function textedAsk(store, session, asked) {
       (holdsEmail ? "Ask me for one email at a time." : "Ask me for one thing at a time."),
     verbatim: [],
   };
+}
+
+/**
+ * The texted answer: the model's words, then the ask. An email the ask shows
+ * whole is taken out of the model's words first (`heldEcho.js`), so the person
+ * reads one copy, the one a YES sends.
+ */
+export function answerWithAsk(told, ask, asked) {
+  if (ask === null) return told;
+  const said = withoutHeldEcho(told, asked);
+  return said === "" ? ask : `${said}\n\n${ask}`;
 }
 
 /** Control characters and bidi overrides out of words the model wrote, before a person reads them. */

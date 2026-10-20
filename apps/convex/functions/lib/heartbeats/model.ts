@@ -51,7 +51,8 @@ export const MAX_DUE_HEARTBEATS = 10;
  * something and reached their phone; `quiet` looked and found nothing worth a
  * text; `nothing_new` had nothing changed to look at and ran no model;
  * `paused` was switched off in `tex/heartbeat.md`; `no_chat` had something to
- * say and no chat to say it in.
+ * say and no chat to say it in; `busy` found them mid-conversation with Tex
+ * and looks again once the chat has been quiet (`QUIET_WAIT_MS`).
  */
 export const HEARTBEAT_OUTCOMES = [
   "texted",
@@ -62,7 +63,15 @@ export const HEARTBEAT_OUTCOMES = [
   "failed",
   "daily_limit",
   "no_provider",
+  "busy",
 ] as const;
+
+/**
+ * How long a check-in that found them mid-conversation waits before it looks
+ * again: a check-in never lands in the middle of a chat (Tex's runtime
+ * redesign, decided by the owner, 2026-10-19: "check-ins wait 10 quiet minutes").
+ */
+export const QUIET_WAIT_MS = 10 * 60 * 1000;
 export type HeartbeatOutcome = (typeof HEARTBEAT_OUTCOMES)[number];
 
 export function isHeartbeatOutcome(value: unknown): value is HeartbeatOutcome {

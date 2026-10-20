@@ -27,6 +27,9 @@
  * - `ready` holds the phone, the chat id and times, never text, while Tex owes
  *   somebody set up by text the "your notes are ready" text (`ready.ts`); it
  *   goes when that text is sent, or after twenty minutes.
+ * - `reactions` holds up to five tapbacks not answered, each with the words
+ *   it was on, for at most a day, until the next text's turn is told them
+ *   (`reactions.ts`).
  * Conversation history is not kept here at all; the gateway keeps it in the
  * person's own bucket.
  *
@@ -44,12 +47,15 @@ import { lineFor, type LineDeps } from "./line";
 import { pruneMedia } from "./media";
 import { CARD_VERSION } from "./card";
 import { isSendblueChat } from "./sendblue";
-import { PICTURE_FAILED, describePart, partsFor, type Media, type OutgoingPicture, type SendPart } from "./outgoing";
-import { COPY, replyTo, TryLater, type Message, type ReplyDeps } from "./reply";
+import { PICTURE_FAILED, describePart, partsFor, shrinkPicture, type Media, type OutgoingPicture, type SendPart } from "./outgoing";
+import { replyTo, TryLater, type Message, type ReplyDeps } from "./reply";
 import { record } from "./simulator";
 import { oweReadyText } from "./ready";
 import { clearTold, noteTold, owedTold } from "./told";
 import { rememberText } from "./threads";
+import { answers, clearReactions, noteReaction, notedReactions, tapbackText } from "./reactions";
+import { startTurn, steerInto } from "./steer";
+import type { Inbound } from "./inbound";
 
 /** The subset of `DurableObjectStorage` this uses, so tests can pass a Map. */
 export type InboxStorage = {
@@ -84,11 +90,13 @@ export const MAX_PENDING = 20;
  * simulator's own chats are marked, so a routine there lands in its log.
  */
 export const CHAT_KEY = "chat";
+/** A plain text after this long without one from the person starts a new topic, answered in a thread under it. */
+export const NEW_TOPIC_AFTER_MS = 15 * 60 * 1000;
 
 /** When this sender was last offered the contact card; Linq asks for once a day at most. */
 export const CARD_KEY = "card";
 export const CARD_EVERY_MS = 24 * 60 * 60 * 1000;
-/** A Sendblue chat's card is a message the person sees, so it goes once per chat and `CARD_VERSION`, not daily. */
+/** A Sendblue chat's card is a message the person sees, so it goes once per chat, never again for a newer `CARD_VERSION`. */
 export const cardSentKey = (chatId: string) => `card-sent:${chatId}`;
 /** When a Sendblue chat's card or Name & Photo was last tried; per chat, so a card offered on Linq never holds back the new line's. */
 export const cardOfferedKey = (chatId: string) => `card-offered:${chatId}`;
@@ -129,12 +137,15 @@ export async function accept(
   const pending = await storage.list<Pending>({ prefix: "pending:" });
   if (pending.size >= MAX_PENDING) return "full";
 
+  const previous = await storage.get<RememberedChat>(CHAT_KEY);
+  // A plain text after a quiet spell starts a topic (`threadFor`).
+  const quiet = previous === undefined || previous.chatId !== message.chatId || now - previous.at >= NEW_TOPIC_AFTER_MS;
+  if (quiet && !message.threaded && !message.tapback) message = { ...message, newTopic: true };
   const seq = ((await storage.get<number>("seq")) ?? 0) + 1;
   await storage.put("seq", seq);
   await storage.put(seenKey(message.eventId), now);
   await storage.put<Pending>(pendingKey(seq), { message, attempts: 0 });
   await rememberText(storage, message.chatId, message.messageId, message.text, now);
-  const previous = await storage.get<RememberedChat>(CHAT_KEY);
   const told = (await storage.get<number>(NEW_LINE_TOLD_KEY)) !== undefined;
   if (previous && !told && previous.channel !== "simulator" && !isSendblueChat(previous.chatId) && isSendblueChat(message.chatId)) {
     await storage.put(NEW_LINE_KEY, message.chatId);
@@ -148,7 +159,28 @@ export async function accept(
   // words for a photo still on its way.
   const wait = pending.size > 0 ? 0 : mediaOnly(message) ? MEDIA_WAIT_MS : wordsOnly(message) ? TEXT_WAIT_MS : 0;
   await storage.setAlarm(now + wait);
+  // Words sent while Tex works on the text before join that job (`steer.ts`).
+  await steerInto(storage, message, pending.size);
   return "queued";
+}
+
+/**
+ * A tapback (`reactions.ts`): one that answers something is queued as a text,
+ * its words sent apart as the quote; any other is noted for the next turn.
+ */
+export async function react(
+  storage: InboxStorage,
+  inbound: Extract<Inbound, { kind: "reaction" }>,
+  now: number,
+): Promise<"queued" | "duplicate" | "full" | "noted"> {
+  const { reaction, kind: _kind, ...message } = inbound;
+  if (answers(reaction)) {
+    return accept(storage, { kind: "message", ...message, text: tapbackText(reaction.how), quoted: reaction.words, tapback: reaction.how }, now);
+  }
+  if ((await storage.get<number>(seenKey(inbound.eventId))) !== undefined) return "duplicate";
+  await storage.put(seenKey(inbound.eventId), now);
+  await noteReaction(storage, reaction, now);
+  return "noted";
 }
 
 /** Answer everything pending, oldest first. Called from the alarm. */
@@ -182,7 +214,11 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
       // send repeats nothing Linq already accepted; `sent` does the same on
       // a line without keys.
       const line = lineFor(lineDeps(deps), item.message.chatId);
-      const thread = threadFor(item.message);
+      // A text already overtaken by another is answered in its thread, so the answer can't read as one to the newer text.
+      const overtaken = [...(await storage.list<Pending>({ prefix: "pending:" }))].some(
+        ([other, waiting]) => other !== key && waiting.message.chatId === item.message.chatId,
+      );
+      const thread = threadFor(item.message, overtaken);
       for (const [index, part] of reply.entries()) {
         if (index < sent) continue;
         if (item.message.channel === "simulator") {
@@ -217,14 +253,20 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
 }
 
 /**
- * The person's message an answer goes inside the thread of: always the one it
- * answers, so every answer reads next to its question, as people expect from
- * an assistant in iMessage (decided by the owner, 2026-10-19). None only in the
- * simulator, which has no threads.
+ * The person's message an answer goes inside the thread of, or none: Tex
+ * matches how it was texted, and a new topic gets a thread of its own
+ * (decided by the owner, 2026-10-20). A text typed inside a thread is
+ * answered there; a plain text that starts a topic (`newTopic`: the first
+ * after a quiet spell) opens a thread under it; any other plain text is
+ * answered plainly, unless a newer text overtook it, when its thread keeps
+ * the answer next to its question. Answering every text in its own thread
+ * (2026-10-19) put a whole conversation under an unrelated check-in, because
+ * each answer landed in whatever thread its text was in.
  */
-function threadFor(message: Message): string | undefined {
-  if (message.channel === "simulator" || !message.messageId) return undefined;
-  return message.messageId;
+function threadFor(message: Message, overtaken = false): string | undefined {
+  // A tapback's answer goes plain: under the tapback it would read as a reply to an emoji.
+  if (message.channel === "simulator" || !message.messageId || message.tapback) return undefined;
+  return message.threaded || message.newTopic || overtaken ? message.messageId : undefined;
 }
 
 function lineDeps(deps: InboxDeps): LineDeps {
@@ -237,9 +279,10 @@ function lineDeps(deps: InboxDeps): LineDeps {
  * this runs after a reply was sent. The time is kept whether or not the line
  * accepted it, so a line with no card set up costs one request a day, not one
  * per text. On Sendblue the card is a .vcf in the chat (`card.ts`), so once
- * the current card went it never goes again in that chat, and a new
- * `CARD_VERSION` sends it once more, at once; the line's Name & Photo is
- * shared apart from it, and set again with a new photo before it is.
+ * a card went it never goes again in that chat, whatever `CARD_VERSION` says:
+ * a new one arrived after a reply in the middle of a conversation (2026-10-19).
+ * A new `CARD_VERSION` only sets the line's Name & Photo again, which is
+ * shared apart from the card and is how a new photo reaches a chat.
  */
 async function offerCard(storage: InboxStorage, chatId: string, deps: InboxDeps): Promise<void> {
   if (!isSendblueChat(chatId)) {
@@ -251,7 +294,7 @@ async function offerCard(storage: InboxStorage, chatId: string, deps: InboxDeps)
   }
   const sentAs = versionOf(await storage.get<number | boolean>(cardSentKey(chatId)));
   const sharedAs = versionOf(await storage.get<number | boolean>(profileSharedKey(chatId)));
-  if (sentAs === CARD_VERSION && sharedAs === CARD_VERSION) return;
+  if (sentAs !== undefined && sharedAs === CARD_VERSION) return;
   // A day between tries, except that a newer card is tried at once.
   const offered = await storage.get<number | Offered>(cardOfferedKey(chatId));
   const last = typeof offered === "number" ? { at: offered, version: 1 } : offered;
@@ -259,7 +302,7 @@ async function offerCard(storage: InboxStorage, chatId: string, deps: InboxDeps)
   await storage.put<Offered>(cardOfferedKey(chatId), { at: deps.now(), version: CARD_VERSION });
 
   const line = lineFor(lineDeps(deps), chatId);
-  if (sentAs !== CARD_VERSION && (await line.shareContactCard(chatId))) await storage.put(cardSentKey(chatId), CARD_VERSION);
+  if (sentAs === undefined && (await line.shareContactCard(chatId))) await storage.put(cardSentKey(chatId), CARD_VERSION);
   if (sharedAs === CARD_VERSION) return;
   // A chat that knew an older card sets the new photo on the line first, once; it is shared on a later offer.
   const older = sharedAs !== undefined || (last !== undefined && last.version !== CARD_VERSION);
@@ -285,13 +328,14 @@ export const TYPING_REFRESH_MS = 55_000;
  * receipt has.
  */
 export const TYPING_AGAIN_MS = 1_500;
-
 /**
- * How long a turn may run without a word before the person is told it is a
- * longer one (`COPY.working`), once. A quick answer is back well before it; a
- * task that is already texting its progress never sees it.
+ * A text still being worked on this long gets a thumbs-up tapback, so the
+ * person knows it landed even if the typing bubble never showed. Sendblue
+ * sends the bubble on a best-effort basis, and on 2026-10-19 Dev saw "Read"
+ * and nothing else for two minutes: "no typing indicator or thumbs up react
+ * ... not acceptable". A quick answer needs no tapback; it is the answer.
  */
-export const WORKING_NUDGE_MS = 40_000;
+export const ACKNOWLEDGE_AFTER_MS = 10_000;
 
 /**
  * Mark the text read and work out the reply with the typing bubble showing,
@@ -318,10 +362,15 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
     );
   // Fixed texts sent outside a turn, owed to the next turn's history (`told.ts`).
   const told = await owedTold(storage);
+  // Tapbacks left since their last text, told to this turn (`reactions.ts`).
+  const reacted = await notedReactions(storage, deps.now());
+  // Texts this turn takes in while it runs are answered by it, not again (`steer.ts`).
+  const { steer, end } = startTurn(storage, message, deps, (ids) => dropSteered(storage, ids));
   const texts = await answerTexts(
-    message,
+    reacted.length > 0 ? { ...message, reacted } : message,
     {
       ...deps,
+      steer,
       onSetUp,
       told,
       onTold: (sent) => noteTold(storage, sent),
@@ -329,15 +378,24 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
       onPictures: (sent) => void (pictures = sent),
     },
     storage,
-  );
+  ).finally(end);
+  await clearReactions(storage, reacted);
   if (pictures.length === 0) return texts;
   // The simulator has no Linq to upload to; its log says a picture went.
   const upload =
     message.channel === "simulator"
       ? async (): Promise<Media> => ({ attachment_id: "simulator" })
-      : (picture: { name: string; mediaType: string; data: string }) =>
-          lineFor(lineDeps(deps), message.chatId).uploadPicture(picture);
+      : async (picture: { name: string; mediaType: string; data: string }) =>
+          lineFor(lineDeps(deps), message.chatId).uploadPicture(await shrinkPicture(deps.images, picture));
   return await partsFor(texts, pictures, upload);
+}
+
+/** Drop the queued texts a turn took in as it ran; they were answered with it. */
+async function dropSteered(storage: InboxStorage, ids: string[]): Promise<void> {
+  const pending = await storage.list<Pending>({ prefix: "pending:" });
+  for (const [key, item] of pending) {
+    if (item.reply === undefined && ids.includes(item.message.eventId)) await storage.delete(key);
+  }
 }
 
 /**
@@ -368,7 +426,7 @@ async function answerTexts(message: Message, deps: InboxDeps, storage: InboxStor
         if (simulator) await record(storage, "in", text, deps.now());
         else {
           const line = lineFor(lineDeps(deps), message.chatId);
-          // Progress lines go into the thread of the message, like its answer.
+          // Progress lines go where the answer will, as far as can be told yet.
           await line.sendText(message.chatId, text, `progress:${message.eventId}:${index}`, threadFor(message));
           // Sending a text clears the bubble; the task is still going.
           await line.startTyping(message.chatId);
@@ -384,15 +442,14 @@ async function answerTexts(message: Message, deps: InboxDeps, storage: InboxStor
   const onProgress = async (text: string) => {
     for (const part of textsFromAnswer(text)) await say(part);
   };
-  const nudge = setTimeout(() => {
-    if (progressSent === 0) void say(COPY.working);
-  }, WORKING_NUDGE_MS);
+  // No fixed "this takes a while" text: a long turn shows the bubble until it
+  // has something to say (Dev, 2026-10-19: "most useless message ... I don't
+  // want to see it ever again").
 
   if (simulator) {
     try {
       return await replyTo(message, { ...deps, onProgress });
     } finally {
-      clearTimeout(nudge);
       await chain;
     }
   }
@@ -409,13 +466,24 @@ async function answerTexts(message: Message, deps: InboxDeps, storage: InboxStor
   const timer = setInterval(() => {
     renewal = typing();
   }, TYPING_REFRESH_MS);
+  // A tapback goes on the text itself, so not on a tapback, and only on a text the line can name.
+  const messageId = message.tapback || !message.messageId ? undefined : message.messageId;
+  let acknowledged: Promise<void> = Promise.resolve();
+  const acknowledge =
+    messageId === undefined
+      ? undefined
+      : setTimeout(() => {
+          // A tapback is a message of ours, which can clear the bubble; the task is still going.
+          acknowledged = line.acknowledge(message.chatId, messageId).then(typing);
+        }, ACKNOWLEDGE_AFTER_MS);
   try {
     return await replyTo(message, { ...deps, onProgress });
   } finally {
-    clearTimeout(nudge);
     clearTimeout(again);
     clearInterval(timer);
+    clearTimeout(acknowledge);
     await renewal;
+    await acknowledged;
     await chain;
   }
 }
@@ -435,7 +503,9 @@ async function fold(storage: InboxStorage, pending: Map<string, Pending>): Promi
       next.message = {
         ...next.message,
         ...(next.message.quoted ?? item.message.quoted ? { quoted: next.message.quoted ?? item.message.quoted } : {}),
+        ...(next.message.threadStart ?? item.message.threadStart ? { threadStart: next.message.threadStart ?? item.message.threadStart } : {}),
         ...(next.message.threaded ?? item.message.threaded ? { threaded: true as const } : {}),
+        ...(next.message.newTopic ?? item.message.newTopic ? { newTopic: true as const } : {}),
         attachments: [...(item.message.attachments ?? []), ...(next.message.attachments ?? [])].slice(0, MAX_INBOUND_ATTACHMENTS),
       };
       await storage.put<Pending>(entries[index + 1][0], next);

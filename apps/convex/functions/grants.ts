@@ -186,6 +186,8 @@ export const listGrants = query({
     for await (const grant of newestFirst) {
       scanned += 1;
       const isConsole = grant.clientId === CONSOLE_CLIENT_ID;
+      // An expired console grant has no refresh token, so it is no connection.
+      if (isConsole && grant.status === "active" && (grant.accessTokenExpiresAt ?? 0) <= Date.now()) continue;
       if (!isConsole || consoleKept < MAX_CONSOLE_GRANTS_RETURNED) {
         if (isConsole) consoleKept += 1;
         rows.push(grant);

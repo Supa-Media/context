@@ -69,12 +69,20 @@ Worker's half.
 
 Asked by Dev, 2026-10-19: Tex answered an inline "try again" with "Try what
 again?", and should answer inside threads "so we can follow the thoughts", as
-Instinct does. On Sendblue, every answer is sent with `reply_to` naming the
-person's message it answers, inline reply or not, so the answer and its
-progress lines land in that thread (`threadFor` in `apps/agent/src/inbox.ts`).
+Instinct does. On Sendblue, an answer is sent with `reply_to` naming the
+person's message it answers when that message was itself typed in a thread
+(below), so the answer and its progress lines land in that thread (`threadFor` in `apps/agent/src/inbox.ts`).
 The first version threaded only inline replies and answers that newer texts
 had passed; Dev expected a plain "make me a poster" to be answered in its
-thread too, so since 2026-10-19 the rule is always. A
+thread too, so on 2026-10-19 the rule became always. That put a whole email
+exchange under an unrelated check-in the same night, each answer landing in
+whatever thread its text was in, so since 2026-10-20 (Dev's choice) Tex
+matches how it was texted: a text typed inside a thread is answered there, a
+plain text plainly, and a text a newer one overtook in its own thread. A new
+topic gets a thread of its own (Dev, 2026-10-20): a plain text after 15
+quiet minutes (`NEW_TOPIC_AFTER_MS`) is answered in a thread under it. The
+quiet spell stands in for "a new topic"; a change of subject mid-conversation
+is answered plainly. A
 threaded send Sendblue refuses (400: an older line, a target it no longer
 holds) goes again as a plain text, since a reply outside the thread beats
 none. Routines and check-ins answer no one message and stay plain.
@@ -86,8 +94,35 @@ the last few texts (`apps/mcp/src/agent/quoted.js`). How each reply's words
 came out is logged as `sendblue_reply_context` (an outcome word, never the
 words or a number), because a lost quote was otherwise invisible. The day's
 transcript shows the quote above the person's words. Spanish tapbacks
-("Le gustó “…”") are dropped like English ones.
+("Le gustó “…”") are read like English ones, and since 2026-10-19 a tapback
+is answered or noted rather than dropped ([runtime](./runtime.md)).
+
+The thread an inline reply was typed in decides its topic, not whatever was
+texted last. Seen 2026-10-19: "location central park", typed in the picnic
+poster's thread, arrived with Sendblue naming the person's previous text, "try
+again" from the photo thread, as its parent, and Tex answered about the photo.
+So the Worker also reads `thread_originator`, the message that started the
+thread (`threadContext` in `apps/agent/src/sendblue.ts`): a parent that sits
+in another thread is dropped (logged `other_thread`) and the thread's first
+message stands in for it, and when both are readable and differ the turn gets
+the thread's start as `threadStart`, marked like the quote as somebody else's
+words (`apps/mcp/src/agent/quoted.js`). It is background, never the topic:
+told the thread "is what this text is about", Tex raised a check-in's
+expiring hold on every text in its thread, after Dev had waved it off
+(2026-10-19), so the turn is now told not to raise it again unless asked.
 
 Tests: `apps/agent/src/sendblueThreads.test.ts`, `worker.test.ts` ("an inline
 reply is queued as one even when its words can't be read"),
 `agentEgressJudge.test.mjs` and `agentTranscript.test.mjs`.
+
+### No "on it" texts
+
+Asked by Dev, 2026-10-19, of "On it. This one takes a few steps, so I'll text
+you when it's done.": "Most useless message from Tex ever. I don't want to see
+it ever again." The Worker's fixed text after 40 seconds of silence is gone
+(`apps/agent/src/inbox.ts`), and the progress tool and prompt
+(`apps/mcp/src/agent/progress.js`) no longer ask the model to say it is on it:
+a long turn shows the typing bubble until it has something, and progress lines
+are for real milestones (a sign-in link, a step done) only. Tests: "a long turn
+sends no fixed 'on it' text while it works" (`sendblueThreads.test.ts`) and
+"Tex is never told to text that it is on it" (`agentProgress.test.mjs`).

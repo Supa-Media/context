@@ -188,8 +188,10 @@ describe("the sentence a failure gets", () => {
     expect(reasonFor("denied", "")).toContain("as you left it");
   });
 
-  test("an unreachable engine says dictation stopped rather than pretending", () => {
-    expect(reasonFor("unreachable", "")).toContain("rather than look live");
+  test("an unreachable engine says the service did not answer, and never that you are offline", () => {
+    const sentence = reasonFor("unreachable", "");
+    expect(sentence).toContain("didn't answer");
+    expect(sentence).not.toMatch(/offline/);
   });
 
   test("offline says dictation needs a connection here, and points at the computer's own", () => {
@@ -200,6 +202,13 @@ describe("the sentence a failure gets", () => {
     // thing that works with no connection and the person needs to find it.
     expect(sentence).toMatch(/Mac/);
     expect(sentence).toMatch(/Windows/);
+  });
+
+  test("offline on a phone points at the keyboard's microphone, not at keys a phone lacks", () => {
+    const sentence = reasonFor("offline", "", true);
+    expect(sentence).toMatch(/offline/);
+    expect(sentence).toMatch(/keyboard/);
+    expect(sentence).not.toMatch(/Mac|Windows|Fn/);
   });
 
   test("an unsupported surface repeats the engine's own sentence", () => {

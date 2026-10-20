@@ -302,6 +302,7 @@ export const APP_SEGMENTS: ReadonlySet<string> = new Set([
   "tex",
   "texts",
   "vault",
+  "waitlist",
   "welcome",
   "workspace",
   // The edge's.

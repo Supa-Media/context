@@ -35,6 +35,7 @@ import { test } from "node:test";
 
 import { anthropicMessages, openAiMessages } from "../src/agent/providers.js";
 import { hearVoiceMessages, readAttachments, withAttachmentImages } from "../src/agent/attachments.js";
+import { KEPT_PHOTOS_PATH } from "../src/agent/pictureMaker.js";
 import { createEgressWorld, request, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 
 // A 1x1 PNG.
@@ -81,7 +82,11 @@ test("the saved conversation names what was sent, never its bytes", async () => 
   try {
     world.model.install([{ text: "Nice." }]);
     await request(world.env, TOKEN_TEXTS, "/agent", { question: "look", conversation: "texts", attachments: ATTACHED.slice(0, 1) });
-    const saved = world.objectsUnder(".context/").map((key) => String(world.bucket.get(key)?.body ?? "")).join("\n");
+    // The photo itself is kept apart, for a later "try again" (`pictureMaker.js`, KEPT_PHOTOS_PATH);
+    // the conversation never carries it.
+    const keys = world.objectsUnder(".context/");
+    assert.ok(keys.includes(KEPT_PHOTOS_PATH));
+    const saved = keys.filter((key) => key !== KEPT_PHOTOS_PATH).map((key) => String(world.bucket.get(key)?.body ?? "")).join("\n");
     assert.match(saved, /look\\n\[Sent with this text: meme\.png\. Seen only on that turn\.\]/);
     assert.doesNotMatch(saved, new RegExp(PNG.slice(0, 40).replace(/[+/]/g, "\\$&")));
   } finally {

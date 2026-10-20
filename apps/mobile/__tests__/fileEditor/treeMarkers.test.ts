@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, test } from "@jest/globals";
-import { buildTreeRows, findEntry, foldersToRefresh, markerFor, namesIn } from "../../features/console/files/tree";
+import { buildTreeRows, findEntry, foldersToRefresh, listedEntries, markerFor, namesIn } from "../../features/console/files/tree";
 import { file, folder, listing } from "./fixtures";
 
 describe("a row is marked only when it differs from the folder it is in", () => {
@@ -177,13 +177,12 @@ describe("building tree rows", () => {
   });
 
   /**
-   * A folder's about note is drawn at the top of the folder's page, with its
-   * filename in the corner, so the tree does not draw it again as a row: the
-   * workspace's `index.md`, and a folder's `about.md` (or the older
-   * `overview.md`, `index.md`, `README.md`, the first of them present).
-   * Open, it is drawn, so the tree still shows where you are.
+   * A folder's about note is drawn at the top of the folder's page, so the
+   * tree leaves out the app's own description key: the workspace's
+   * `index.md` and a folder's `about.md`. Open, it is drawn, so the tree still
+   * shows where you are.
    */
-  test("a folder's about note is not a row; the workspace's is index.md", () => {
+  test("a folder's about.md is not a row; the workspace's is index.md", () => {
     const withAbout = {
       "": listing("", [folder("1-projects"), file("index.md"), file("todo.md"), file("README.md")]),
       "1-projects": listing("1-projects", [file("1-projects/about.md"), file("1-projects/overview.md"), file("1-projects/a.md")]),
@@ -193,8 +192,25 @@ describe("building tree rows", () => {
     expect(rows.map((row) => row.path)).toEqual(["1-projects", "1-projects/overview.md", "1-projects/a.md", "todo.md", "README.md"]);
     const open = buildTreeRows({ listings: withAbout, expanded: new Set(["1-projects"]), selectedPath: "1-projects/about.md" });
     expect(open.map((row) => row.path)).toContain("1-projects/about.md");
-    const older = { "": listing("", [folder("p")]), p: listing("p", [file("p/overview.md"), file("p/x.md")]) };
-    expect(buildTreeRows({ listings: older, expanded: new Set(["p"]), selectedPath: null }).map((row) => row.path)).toEqual(["p", "p/x.md"]);
+  });
+
+  /**
+   * An `overview.md` or `index.md` in a folder is a note somebody wrote, most
+   * often an agent's project overview. The folder's page still draws it at the
+   * top, but the sidebar is where people look for a note, and leaving it out
+   * there made it reachable only by a link (the owner, 2026-10-20). Restoring
+   * the old filter for every about note fails this.
+   */
+  test("an older-named about note is still a row in the sidebar, and only the page leaves it out", () => {
+    const older = {
+      "": listing("", [folder("p"), folder("q")]),
+      p: listing("p", [file("p/overview.md"), file("p/x.md")]),
+      q: listing("q", [file("q/index.md"), file("q/y.md")]),
+    };
+    const rows = buildTreeRows({ listings: older, expanded: new Set(["p", "q"]), selectedPath: null });
+    expect(rows.map((row) => row.path)).toEqual(["p", "p/overview.md", "p/x.md", "q", "q/index.md", "q/y.md"]);
+    expect(listedEntries(older.p.entries).map((entry) => entry.path)).toEqual(["p/overview.md", "p/x.md"]);
+    expect(listedEntries(older.p.entries, { aboutDrawn: true }).map((entry) => entry.path)).toEqual(["p/x.md"]);
   });
 
   test("a genuinely empty folder says that instead", () => {

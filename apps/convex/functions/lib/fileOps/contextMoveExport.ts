@@ -412,6 +412,7 @@ export async function exportContextMoveBatch(
       continue;
     }
     let collaborationEtag: string | undefined;
+    let etag = object.etag;
     if (sourceText !== null && collaborationSupported(store) &&
         collaborationEligible(key, sourceText)) {
       // A keyed note leaves by the trash, history and all, so it needs no conditional delete and no tombstone:
@@ -432,13 +433,26 @@ export async function exportContextMoveBatch(
           "A note changed while this context move was reading it. Nothing from this batch was removed.",
         );
       }
+      if (keyed) {
+        // Reading the document can finish its Markdown, which writes the key after `object` was read. The
+        // version the trash is checked against is the one holding the text carried, or the source would
+        // read as edited by the move's own read (`deleteMovedSources`).
+        const settled = await store.get(key);
+        if (settled === null || (await settled.text()) !== new TextDecoder().decode(bytes)) {
+          throw new FileOpError(
+            "CONFLICT",
+            "A note changed while this context move was reading it. Nothing from this batch was removed.",
+          );
+        }
+        etag = settled.etag;
+      }
     }
     carried += bytes.byteLength;
     objects.push({
       source: key,
       destination: sourceIsFolder ? `${to}${key.slice(from.length)}` : to,
       bytes,
-      etag: object.etag,
+      etag,
       ...(collaborationEtag === undefined ? {} : { collaborationEtag }),
       sourceVisibility:
         effectiveVisibility(key, state.rules, state.overrides) === "team" ? "team" : "private",

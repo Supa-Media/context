@@ -68,3 +68,30 @@ Probe (`.github/workflows/image-model-probe.yml`) showed Gemini 2.5 Flash
 Image answering through the same gateway, at about 3.9 cents a picture, still
 under the 5-cent target. Run the probe with the 3.1 model id to see when it
 is covered, then switch `IMAGE_MODEL` back.
+
+**A photo outlives its text (2026-10-19).** Dev's "try again", one text after
+a failed "make our clothes blue", got "send the photo again": attachments lived
+for one turn. Now the last text with photos keeps up to four of them in the
+person's bucket at `.context/agent/conversations/texts-photos.json`, written
+before the turn runs, and `earlier-photo:N` names them. Only a kept texted
+turn writes it, and the next text with photos replaces it. The saved
+conversation still holds names only. Test: "a photo from an earlier text is
+still there" in `agentPictureMaker.test.mjs`.
+
+**A made photo is bigger than one stored value (2026-10-19).** Dev's blue
+edit was made and then answered "I couldn't send that picture just now".
+Sendblue fetches a picture by address, so the agent Worker keeps its bytes in
+the sender's Durable Object for half an hour (`apps/agent/src/media.ts`), and
+a stored value there is capped at 2 MB; the image model's photos run past it.
+The bytes are now kept in pieces under that cap, up to 8 MB in all, and are
+pruned together. Test: "keeps a photo bigger than one stored value" in
+`apps/agent/src/media.test.ts`.
+
+**A big photo goes as a JPEG (2026-10-19).** On top of the pieces, the agent
+Worker turns any picture over 1 MB (GIFs aside) into a JPEG at quality 85,
+2048 pixels on its longest edge at most, through the Cloudflare Images
+binding it already has for HEIC, before upload (`shrinkPicture`,
+`apps/agent/src/outgoing.ts`; Dev's call). Under 1 MB a poster stays PNG and
+sharp. Without the binding, or when Images refuses, the picture goes as it
+was. Test: "sends the shrunk JPEG, not the PNG" in
+`apps/agent/src/outgoing.test.ts`.

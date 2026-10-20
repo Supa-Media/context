@@ -21,6 +21,7 @@
 import { MAX_REPLY_TEXT, ServiceError, type Fetch } from "./clients";
 import { CARD_VERSION } from "./card";
 import { MAX_INBOUND_ATTACHMENTS, MAX_INBOUND_TEXT, type Inbound, type InboundAttachment } from "./inbound";
+import { readTapback } from "./reactions";
 
 /** The base address docs.sendblue.com names for every call. */
 export const SENDBLUE_API = "https://api.sendblue.com";
@@ -206,6 +207,23 @@ export async function markSendblueRead(fetcher: Fetch, keys: SendblueKeys, chatI
   logRefused("sendblue_read", status);
 }
 
+/**
+ * A tapback on the person's text (docs: Reactions): the "got it" that stays in
+ * the chat, where the typing bubble is best effort and can be dropped on
+ * Sendblue's side with nothing to show for it. Never throws.
+ */
+export async function reactSendblue(fetcher: Fetch, keys: SendblueKeys, chatId: string, messageHandle: string, reaction: string): Promise<void> {
+  const chat = parseSendblueChat(chatId);
+  if (chat === null) return;
+  let status: number | null = null;
+  try {
+    status = await call(fetcher, keys, "/api/send-reaction", { from_number: chat.line, message_handle: messageHandle, reaction }, QUICK_TIMEOUT_MS);
+  } catch {
+    // A tapback that failed costs only the tapback, but is logged below.
+  }
+  logRefused("sendblue_reaction", status);
+}
+
 /** A bubble or receipt Sendblue refused, so "no typing bubble" can be told from "never asked". The status only, never the number. */
 function logRefused(event: string, status: number | null): void {
   if (status !== null && status >= 200 && status < 300) return;
@@ -276,6 +294,35 @@ export type ProfileShared = "shared" | "refreshed" | "not_yet";
  * anything else, and for any failure: the reply is answered without it.
  */
 export async function repliedToText(fetcher: Fetch, keys: SendblueKeys, handle: string, chatId: string): Promise<string | null> {
+  return (await readOwnMessage(fetcher, keys, handle, chatId))?.words ?? null;
+}
+
+/**
+ * What an inline reply is about: the words of the message it answers
+ * (`quoted`), and, when the thread it was sent in started elsewhere, the
+ * words that started it (`threadStart`). The thread decides the topic: a
+ * parent that Sendblue reports from another thread (seen 2026-10-19, a
+ * reply typed in one thread naming the person's last text in another) is
+ * dropped, and the thread's first message stands in for it.
+ */
+export async function threadContext(
+  fetcher: Fetch,
+  keys: SendblueKeys,
+  replyTo: string,
+  threadRoot: string | undefined,
+  chatId: string,
+): Promise<{ quoted?: string; threadStart?: string }> {
+  const parent = await readOwnMessage(fetcher, keys, replyTo, chatId);
+  const root = threadRoot === undefined || threadRoot === replyTo ? null : await readOwnMessage(fetcher, keys, threadRoot, chatId);
+  const elsewhere = parent !== null && threadRoot !== undefined && parent.root !== undefined && parent.root !== threadRoot && threadRoot !== replyTo;
+  if (elsewhere) replyContext("other_thread");
+  const quoted = parent === null || elsewhere ? root?.words : parent.words;
+  const threadStart = quoted !== undefined && root !== null && root.words !== quoted ? root.words : undefined;
+  return { ...(quoted !== undefined ? { quoted } : {}), ...(threadStart !== undefined ? { threadStart } : {}) };
+}
+
+/** One message of this chat, read from Sendblue: its words and the thread it sits in. Null for anything else. */
+async function readOwnMessage(fetcher: Fetch, keys: SendblueKeys, handle: string, chatId: string): Promise<{ words: string; root?: string } | null> {
   const chat = parseSendblueChat(chatId);
   if (chat === null || handle === "" || handle.length > 200) return replyContext("invalid");
   const parent = await getJson(fetcher, keys, `/api/v2/messages/${encodeURIComponent(handle)}`);
@@ -291,11 +338,18 @@ export async function repliedToText(fetcher: Fetch, keys: SendblueKeys, handle: 
   const content = typeof parent.content === "string" ? parent.content.trim() : "";
   if (content === "") return replyContext("no_words");
   replyContext("quoted");
-  return content.slice(0, MAX_QUOTED_TEXT);
+  const root = handleOf(parent.thread_originator);
+  return { words: content.slice(0, MAX_QUOTED_TEXT), ...(root !== undefined ? { root } : {}) };
+}
+
+/** A `{ message_handle }` reference's handle, when it is a plausible one. */
+function handleOf(value: unknown): string | undefined {
+  const handle = isRecord(value) ? value.message_handle : undefined;
+  return typeof handle === "string" && handle !== "" && handle.length <= 200 ? handle : undefined;
 }
 
 /** How an inline reply's words came out, never the words or the numbers: Tex losing a reply's context is otherwise invisible. */
-function replyContext(outcome: "invalid" | "unread" | "other_chat" | "no_words" | "quoted"): null {
+function replyContext(outcome: "invalid" | "unread" | "other_chat" | "other_thread" | "no_words" | "quoted"): null {
   console.log(JSON.stringify({ event: "sendblue_reply_context", outcome }));
   return null;
 }
@@ -362,7 +416,12 @@ export function parseSendblueInbound(payload: unknown): Inbound {
   if (ours === undefined) return { kind: "invalid" };
 
   const text = typeof payload.content === "string" ? payload.content.trim() : "";
-  if (TAPBACK.test(text) && !payload.media_url) return { kind: "ignored", reason: "reaction" };
+  if (TAPBACK.test(text) && !payload.media_url) {
+    // A tapback is noted or answered (`reactions.ts`); one taken back is dropped.
+    const reaction = readTapback(text);
+    if (reaction === null) return { kind: "ignored", reason: "reaction" };
+    return { kind: "reaction", eventId: `sendblue:${handle}`, chatId: sendblueChatId(ours, from), from, messageId: handle, reaction };
+  }
   const attachments: InboundAttachment[] = [];
   if (typeof payload.media_url === "string" && payload.media_url !== "") {
     try {
@@ -378,8 +437,9 @@ export function parseSendblueInbound(payload: unknown): Inbound {
   }
   if (text.length === 0 && attachments.length === 0) return { kind: "ignored", reason: "empty" };
   // An inline reply names the message it answers; its words are fetched before queueing (`repliedToText`).
-  const parent = isRecord(payload.reply_to) ? payload.reply_to.message_handle : undefined;
-  const replyTo = typeof parent === "string" && parent !== "" && parent.length <= 200 ? parent : undefined;
+  const replyTo = handleOf(payload.reply_to);
+  // The message that started the thread it was typed in, which decides its topic (`threadContext`).
+  const threadRoot = replyTo === undefined ? undefined : handleOf(payload.thread_originator);
 
   return {
     kind: "message",
@@ -390,6 +450,7 @@ export function parseSendblueInbound(payload: unknown): Inbound {
     text: text.slice(0, MAX_INBOUND_TEXT),
     ...(attachments.length > 0 ? { attachments: attachments.slice(0, MAX_INBOUND_ATTACHMENTS) } : {}),
     ...(replyTo !== undefined ? { replyTo } : {}),
+    ...(threadRoot !== undefined ? { threadRoot } : {}),
   };
 }
 

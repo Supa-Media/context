@@ -25,6 +25,7 @@ import worker from "../src/index.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
+import { conversationTurns } from "./agentConversationFixture.mjs";
 
 const S3_ENDPOINT = "https://s3.example-delegate.test";
 const TOKEN_TEXTS = `cat_delegate_texts_${"0".repeat(21)}`;
@@ -225,7 +226,7 @@ export async function runAgentDelegateRouteChecks(check) {
       "a done job is texted once, as finished, with no model call",
       done.body?.outcome === "finished" && /pull\/7/.test(done.body?.answer ?? "") && model.requests.length === before,
     );
-    const conversation = JSON.parse(bucket.get(".context/agent/conversations/texts.json")?.body ?? "{}");
+    const conversation = { turns: conversationTurns(bucket) };
     const last = conversation.turns?.at(-1);
     check(
       "the result reaches the texting conversation, marked as read from outside",

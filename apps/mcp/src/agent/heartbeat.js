@@ -16,7 +16,7 @@
  *      and its body is extra instructions ("only text me about deadlines").
  *   2. The gateway, not the model, lists the notes changed since the last
  *      look. Nothing changed is `nothing_new` and costs no model turn. Tex's
- *      own job output (`tex/heartbeat/`, `tex/dreams/`, `tex/housekeeping/`, `tex/about-me.md`)
+ *      own job output (`tex/heartbeat/`, `tex/dreams/`, `tex/housekeeping/`, `tex/skills/`, `tex/about-me.md`)
  *      never counts as a change, or each look would wake the next.
  *   3. A model may read their notes, in their own workspace only, and nothing
  *      else: no write, no move, no visibility, no web, no other workspace. It
@@ -41,6 +41,7 @@ import { deliverAttention } from "./attention.js";
 import { TRANSCRIPTS_FOLDER, eventLines } from "./transcript.js";
 import { DREAMS_FOLDER } from "./dream.js";
 import { ABOUT_ME_PATH } from "./aboutMe.js";
+import { LEARNED_SKILLS_FOLDER } from "./learnedSkills.js";
 import { openProvider, runTurn } from "./turn.js";
 import { BUILTIN_PROVIDER, builtinModel, canRunBuiltin } from "./builtin.js";
 import { PRODUCTION_HEARTBEAT_PATH, readJobSetup } from "./production.js";
@@ -56,6 +57,7 @@ import { newLedger } from "../privacy/egress.js";
 import { isPlumbing } from "../privacy/engine.js";
 import { servedListingStore } from "../tree/served.js";
 import { json } from "../http/responses.js";
+import { disarmTexting } from "../tools/approvals.js";
 
 /** The check-in's first-party client (`apps/convex/functions/lib/heartbeats/model.ts`). Decided by the grant. */
 export const HEARTBEAT_CLIENT_ID = "context_heartbeat";
@@ -76,11 +78,23 @@ const HEARTBEAT_ROUNDS = 10;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** What the model may call: reading their own notes. */
+/**
+ * What a check-in may call. Nothing here is an `UNTRUSTED_READS` tool, and
+ * that is load-bearing beyond the dispatch allowlist: the exchange a check-in
+ * saves is recorded with no `tainted` mark (below), so the memory nudge reads
+ * it as clean words of the person's own (`memoryNudge.js`). Add a tool that
+ * reads from outside the workspace here and the nudge starts distilling a
+ * stranger's words into `tex/about-me.md`, which every later turn reads as
+ * Tex's own memory — so the two sets are asserted disjoint by a test rather
+ * than left to be noticed.
+ */
 const HEARTBEAT_READS = new Set(["read_note", "list_notes", "search_notes"]);
 
 /** Tex's own job output, which never counts as something that changed. */
-const OWN_OUTPUT = [`${HEARTBEAT_FOLDER}/`, `${DREAMS_FOLDER}/`, "tex/housekeeping/", `${ATTENTION_FOLDER}/`];
+const OWN_OUTPUT = [`${HEARTBEAT_FOLDER}/`, `${DREAMS_FOLDER}/`, "tex/housekeeping/", `${ATTENTION_FOLDER}/`, `${LEARNED_SKILLS_FOLDER}/`];
 const OWN_NOTES = new Set([ABOUT_ME_PATH, HEARTBEAT_SETTINGS_PATH, ATTENTION_SETTINGS_PATH]);
+
+export { HEARTBEAT_READS };
 
 /** The words a check-in's text is kept under in the texting conversation, in place of a question. */
 export const CHECK_IN_QUESTION =
@@ -360,6 +374,20 @@ export function shortEntry({ now, timeZone, text, outcome, why }) {
 /** What a look that could not list the workspace leaves in the day's log. */
 export const TREE_UNAVAILABLE_WORDS = "Couldn't list what changed, so it read nothing; it tries again in a few minutes.";
 export const NOTHING_NEW_WORDS = "Nothing changed since the last look, so it read nothing and ran no model.";
+export const BUSY_WORDS = "They were texting with you, so it read nothing; it looks again once the chat has been quiet for ten minutes.";
+
+/** How long the chat must have been quiet before a check-in looks (the owner, 2026-10-19). */
+export const QUIET_MS = 10 * 60 * 1000;
+
+/**
+ * Whether they are mid-conversation: a text of theirs kept less than
+ * `QUIET_MS` ago. Tex's own texts (a check-in, a routine) never count, or a
+ * check-in would hold back the next. Only the log (`events.js`) knows when an
+ * exchange was; a check-in reading the old file goes ahead as before.
+ */
+export function midConversation(conversation, now) {
+  return conversation.some((turn) => turn.theirs === true && Number.isFinite(turn.at) && now - turn.at < QUIET_MS);
+}
 
 /** The bodies of the last few days' logs, best effort. */
 async function recentLogs(dispatch, now, timeZone) {
@@ -416,6 +444,8 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
         ms: Date.now() - started,
       }),
     );
+    // A text from Tex is something a bare "yes" may answer, so an older ask stops listening.
+    if (delivered) await disarmTexting(store, { userId: session.actorUserId }).catch(() => {});
     return json(delivered ? { outcome: "speak", answer: delivered.text } : { outcome: "quiet" });
   }
   const since = typeof given.since === "number" && Number.isFinite(given.since) ? given.since : started - FIRST_LOOK_MS;
@@ -444,6 +474,14 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
     return json({ outcome: "nothing_new" });
   }
 
+  // A check-in never lands in the middle of a chat: the control plane asks again once it has gone quiet.
+  // Only the last few: each exchange is a read, and a look's reads are counted (above).
+  const conversation = await readConversation(store, "texts", { entries: RECENT_TEXTS_SHOWN });
+  if (midConversation(conversation, Date.now())) {
+    await skipped(BUSY_WORDS);
+    return json({ outcome: "busy" });
+  }
+
   try {
     await openProvider(controlPlane, session, undefined, env);
   } catch (error) {
@@ -452,7 +490,6 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
   }
 
   const texted = textedLines(await recentLogs(dispatch, started, timeZone));
-  const conversation = await readConversation(store, "texts");
   const events = [];
   const offered = await grantedToolsFor(session, store);
   // The check-in's setup note (`ai/production/heartbeat.md`): its words, and its
@@ -522,8 +559,11 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
   if (why !== null) why = await appendLogEntryWhy(dispatch, path, shortEntry({ now, timeZone, text, outcome, why }), heading(now, timeZone));
   const logged = why === null;
   if (text) {
+    await disarmTexting(store, { userId: session.actorUserId }).catch(() => {});
     // Their reply to it is answered with the check-in in front of the turn (`conversation.js`).
     try {
+      // No `tainted`: a check-in cannot read from outside the workspace, because
+      // `HEARTBEAT_READS` holds no `UNTRUSTED_READS` tool. See its comment.
       await appendConversation(store, "texts", conversation, CHECK_IN_QUESTION, text, {
         tools: (turn?.steps ?? []).filter((step) => step.ok).map((step) => step.tool),
       });

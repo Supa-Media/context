@@ -4,13 +4,7 @@
  */
 
 import { actorFor, contextsFor } from "../context/identity.js";
-import {
-  AgentRefusal,
-  agentTools,
-  MAX_QUESTION_LENGTH,
-  openProvider,
-  runTurn,
-} from "./turn.js";
+import { AgentRefusal, agentTools, MAX_QUESTION_LENGTH, openProvider, runTurn } from "./turn.js";
 import { callToolForSession } from "../tools/session.js";
 import { DEFAULT_TIME_ZONE, readTimeZone } from "./localNow.js";
 import { readTexNotes } from "./jobs.js";
@@ -18,6 +12,8 @@ import { openTranscript } from "./transcript.js";
 import { wireTraceEntry } from "./turnLog.js";
 import { readProductionSetup, readProductionSkill } from "./production.js";
 import { skillSession, withSkills } from "./skills.js";
+import { openLearnedSkills, withLearnedSkills } from "./learnedSkills.js";
+import { afterTextedTurn } from "./reflect.js";
 import { searchSettingsOf } from "../search/settings.js";
 import { json } from "../http/responses.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
@@ -34,16 +30,7 @@ import { ProviderError } from "./providers.js";
 import { meterEach } from "./modelPlan.js";
 import { attachmentsLine, hearVoiceMessages, turnAttachments, withAttachmentImages } from "./attachments.js";
 import { grantedToolsFor } from "./sixTools.js";
-import {
-  SHOWN_HISTORY_TURNS,
-  appendConversation,
-  rememberRoutineText,
-  conversationPath,
-  earlierTextsTool,
-  historyIsTainted,
-  readConversation,
-  shownHistory,
-} from "./conversation.js";
+import { SHOWN_HISTORY_TURNS, appendConversation, rememberRoutineText, conversationPath, earlierTextsTool, historyIsTainted, readConversation } from "./conversation.js";
 import {
   loadRoutine,
   readRuns,
@@ -66,8 +53,10 @@ import { transcriptionForwarder } from "../ingestion/transcription.js";
 import { sentPicturesLine } from "./outgoingPictures.js";
 import { turnPictures, withPictureMaker } from "./pictureMaker.js";
 import { disarmTexting, withdrawPending } from "../tools/approvals.js";
-import { askedWith, quotedOf } from "./quoted.js";
-import { textedAsk } from "./textedApprovals.js";
+import { askedWith, quotedOf, reactedLine, reactedOf, tapbackLine } from "./quoted.js";
+import { threadPrompt, threadView } from "./threadView.js";
+import { steerFor, steeredLine } from "./steer.js";
+import { answerWithAsk, textedAsk } from "./textedApprovals.js";
 import { settleTextedText } from "./textedSettle.js";
 
 /**
@@ -196,6 +185,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     Only `runTurn` sees the two together, and the quote is marked there.
   */
   const quoted = quotedOf(session.actorClientId === TEXTS_CLIENT_ID ? body : null);
+  const reacted = reactedOf(session.actorClientId === TEXTS_CLIENT_ID ? body : null); // tapbacks since their last text
+  const steer = steerFor(store, session, body); // texts sent while it works (`steer.js`)
 
   // A texted yes or no settles a pending approval before any model runs (`textedSettle.js`).
   if (session.actorClientId === TEXTS_CLIENT_ID) {
@@ -371,8 +362,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     falls back.
   */
   const production = await readProductionSetup(store, session, { texting });
-  // What of the conversation this turn is shown: the setup's `history:`, else the default.
-  const shown = shownHistory(history, production?.history ?? SHOWN_HISTORY_TURNS);
+  // What of the conversation this turn is shown: the setup's `history:`, else the default; a text typed in a thread, that thread (`threadView.js`).
+  const { shown, ...inThread } = threadView(history, quoted, production?.history ?? SHOWN_HISTORY_TURNS);
   // A previous answer written after a read from outside still carries it.
   if (historyIsTainted(shown)) markUntrusted(ledger);
   if (attachments.length > 0) markUntrusted(ledger); // a forwarded PDF is someone else's words, like a page
@@ -388,6 +379,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   const skills = skillSession(production?.skills ?? [], (path) => readProductionSkill(store, session, path), {
     onRead: (body) => opened?.vouch(body),
   });
+  // Skills Tex wrote itself (`learnedSkills.js`): an index on a text, read on request, never vouched for.
+  const learned = await openLearnedSkills(dispatch, { texted: session.actorClientId === TEXTS_CLIENT_ID, contexts: store.contexts });
   // A text that can write may hand a sub-project to another agent (`delegate.js`), as the person.
   const home = store.contexts.find((entry) => entry.current)?.name ?? null;
   const delegation =
@@ -500,17 +493,17 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     : null;
 
   const texted = session.actorClientId === TEXTS_CLIENT_ID; // Pictures sent back, drawn or made: a text only (`pictureMaker.js`).
-  const { outgoing, maker } = turnPictures(env, { texted, question, attachments, store, keep: conversation === "texts", meter, workspaceId: session.workspaceId });
+  const { outgoing, maker } = await turnPictures(env, { texted, question, attachments, store, keep: conversation === "texts", meter, workspaceId: session.workspaceId });
   try {
     const turn = await runTurn({
-      question: askedWith(question, quoted),
+      question: [reactedLine(reacted), askedWith(question, quoted)].filter(Boolean).join("\n\n"),
       place: body.place ?? null,
       // A turn that edits directly is not also handed proposals: they have no
       // screen on a phone, and two ways to change a note is one too many.
       tools: [
         ...agentTools(offered).filter((tool) => textingWriting.length === 0 || tool.name !== "propose_note"),
         ...textingWriting,
-        ...(skills?.tools ?? []),
+        ...(skills?.tools ?? []), ...(learned?.tools ?? []),
         ...(delegation?.tools ?? []),
         ...(supervision?.mail.tools ?? []), ...(maker?.tools ?? []),
       ],
@@ -520,7 +513,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       callTool: outgoing.wrap(
         withPictureMaker(maker, withAttachmentImages(
           attachments,
-          withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withSkills(skills, withNoteLinks(textingAwareCallTool(dispatch, textingWriting), noteLinking)))),
+          withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withLearnedSkills(learned, withSkills(skills, withNoteLinks(textingAwareCallTool(dispatch, textingWriting), noteLinking)), { tainted: () => ledger.untrusted === true, dispatch }))),
         )),
       ),
       pictures: texted,
@@ -540,6 +533,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       },
       web,
       history: shown,
+      threadNote: threadPrompt(inThread), steer,
       local: earlier,
       // What Tex keeps about them and its open jobs, in their own workspace (`aboutMe.js`, `jobs.js`), on a texted turn.
       ...(texting ? await readTexNotes(dispatch) : {}),
@@ -605,7 +599,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     const { answer: told, pictures } = outgoing.take(turn.answer);
     // An email's ask is texted exactly as written (`apps/agent/src/reply.ts`), or withdrawn if it would not fit.
     const { ask, verbatim } = await textedAsk(store, session, ledger.asked);
-    const answer = ask === null ? told : `${told}\n\n${ask}`;
+    const answer = answerWithAsk(told, ask, ledger.asked);
     /*
       A browser handed to the person goes out as a link the gateway adds, so
       the model never holds it. The link is their own `/tex/<handle>` page,
@@ -616,13 +610,17 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     const handoff = opened?.browser?.handoffLine() ?? null;
     const sent = handoff === null ? answer : `${answer}\n\n${handoff}`;
     if (transcript !== null) await afterAnswer(transcript.finish({ answer, outcome: turn.exhausted ? "exhausted" : "answered" }));
+    if (steer !== null) await afterAnswer(steer.clear());
+    // A hard job, written down for next time (`reflect.js`): after the answer, never on a tainted turn.
+    await afterAnswer(afterTextedTurn({ env, controlPlane, store, session, offered, question, turn, tainted: ledger.untrusted === true, learned, canWrite: textingWriting.some((tool) => tool.name === "write_note"), timeZone }));
 
     if (conversation !== null && !turn.exhausted) {
       try {
-        const saved = [question, attachmentsLine(attachments)].filter(Boolean).join("\n"); // names only, never bytes
+        const saved = [reactedLine(reacted), tapbackLine(quoted) || question, attachmentsLine(attachments), steeredLine(steer?.words ?? [])].filter(Boolean).join("\n"); // names only, never bytes
         await appendConversation(store, conversation, history, saved, [answer, sentPicturesLine(pictures)].filter(Boolean).join("\n"), {
           tainted: ledger.untrusted,
           tools: turn.steps.filter((step) => step.ok).map((step) => step.tool),
+          thread: inThread.thread, theirs: session.actorClientId === TEXTS_CLIENT_ID,
         });
       } catch {
         // The answer is still owed. A history that failed to save costs the
@@ -635,6 +633,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       // How many held calls the answer's last line asks about, so a caller that
       // plays the person (the bench) knows a YES is awaited; zero on a clean turn.
       asked: ledger.asked.length,
+      ...(steer !== null && steer.taken.length > 0 ? { steered: steer.taken } : {}), // the Worker drops these from its queue
       ...(verbatim.length > 0 ? { verbatim } : {}),
       ...(pictures.length > 0 ? { pictures } : {}),
       provider: turn.provider,

@@ -13,6 +13,8 @@
  * room other people are in. Groups arrive with shared workspaces, deliberately.
  */
 
+import type { Reaction, Tapback } from "./reactions";
+
 /** Longest text forwarded to the agent. The gateway caps a question at 8000. */
 export const MAX_INBOUND_TEXT = 4000;
 
@@ -36,6 +38,8 @@ export type Inbound =
       attachments?: InboundAttachment[];
       /** Sendblue: the handle of the message an inline reply answers. Resolved to `quoted`, then dropped, before queueing. */
       replyTo?: string;
+      /** Sendblue: the handle of the message that started the thread the reply was typed in. Dropped with `replyTo`. */
+      threadRoot?: string;
       /**
        * The words of the message this one replies to. Sent to `/agent` apart
        * from the question and never folded into it: the message picked may be
@@ -44,17 +48,34 @@ export type Inbound =
        */
       quoted?: string;
       /**
+       * The words that started the thread an inline reply was typed in, when
+       * that is not the message it answers: the thread's topic. Somebody
+       * else's words too, carried like `quoted`.
+       */
+      threadStart?: string;
+      /**
        * Sendblue: it was an inline reply, so Tex answers inside the same
        * thread (`line.ts`, `sendText`'s `replyTo`), and is told it was a reply
        * even when the replied-to words could not be read.
        */
       threaded?: true;
       /**
+       * Set on arrival (`inbox.ts`, `accept`): a plain text after the chat was
+       * quiet a while, so it starts a topic and its answer opens a thread under it.
+       */
+      newTopic?: true;
+      /**
        * Sendblue: it came as SMS (a green bubble), whose sender number anyone
        * can fake. Its words are never acted on (`reply.ts`, `smsReply`).
        */
       sms?: true;
+      /** A tapback that is answered (`reactions.ts`): which one; `quoted` holds the words it was on. */
+      tapback?: Tapback;
+      /** Tapbacks noted since their last text, told to this one's turn (`reactions.ts`). */
+      reacted?: Reaction[];
     }
+  /** Sendblue: a tapback on a text, read from its words (`reactions.ts`). */
+  | { kind: "reaction"; eventId: string; chatId: string; from: string; messageId: string; reaction: Reaction }
   | { kind: "ignored"; reason: "event_type" | "group" | "sender" | "service" | "empty" | "reaction" }
   | { kind: "invalid" };
 

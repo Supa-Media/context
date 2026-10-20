@@ -43,9 +43,17 @@ folders and new workspaces write `about.md`, and that a folder's description
 is shown, never hidden.
 
 - **At the top of the page, not in the list.** The folder page draws the about
-  note's words under its title (`folderPage/AboutBlock.tsx`); the folder list
-  and the sidebar leave its row out (`tree.ts` `aboutNoteOf`). Search, AIs and
+  note's words under its title (`folderPage/AboutBlock.tsx`) and its list
+  leaves the row out (`tree.ts` `aboutNoteOf`, `aboutDrawn`). Search, AIs and
   other apps reading the bucket still see an ordinary file.
+- **The sidebar hides only the app's own key** (owner, 2026-10-20). A
+  folder's `about.md` and the workspace's `index.md` are left out of the
+  sidebar, because opening the folder or the home draws them. An `overview.md`
+  or `index.md` in a folder stays a row (`hiddenAboutNote`): agents write
+  project overviews under those names and people look for them by name, and
+  hiding them left a shared project's `overview.md` reachable only by a link
+  Tex texted. Hiding every about note again fails "an older-named about note
+  is still a row in the sidebar" in `treeMarkers.test.ts`.
 - **It says it is a file.** The filename sits in the block's corner and opens
   the note; somebody who may write clicks the words to edit them in place
   through the console's one lent editor.

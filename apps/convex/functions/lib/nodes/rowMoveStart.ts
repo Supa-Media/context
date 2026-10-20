@@ -39,6 +39,7 @@ import type { MoveResult } from "../fileOps/moving";
 import { PRIVACY_KEY, canSee } from "../privacy";
 import { carryPrivacy, releasePrivacy } from "./movePrivacy";
 import { touchNodesNow } from "./run";
+import { catchUpKeyedRows } from "./rowCatchUp";
 import type { RowMoveRefusal } from "./rowMove";
 import { driveRowMove, plannedFiles, recordedMove } from "./rowMoveDrive";
 import { afterArchiveMove, archivePlanFor, type ArchivePlan } from "./archiveFollow";
@@ -143,6 +144,8 @@ export async function startRowMove(ctx: ActionCtx, args: RowMoveArgs): Promise<M
   // between here and the move refuses it.
   if (rowsTruth) carried.etag = await ctx.runQuery(internal.functions.nodesAccess.privacyEtagNow, { workspaceId });
   await touchNodesNow(ctx, workspaceId, store, { paths: [], files: [PRIVACY_KEY] });
+  // The caller's version is the key's (`idLayout.js`); a row the key moved on from without telling it catches up first.
+  await catchUpKeyedRows(ctx, workspaceId, store, [{ path: from, expectedEtag: args.expectedEtag }]);
 
   const answer = await ctx.runMutation(internal.functions.nodeRowMoves.rowMove, {
     workspaceId,

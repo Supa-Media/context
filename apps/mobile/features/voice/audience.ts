@@ -61,17 +61,24 @@ const PERSONAL = "personal";
 export const NO_NOTE = "Open a note first — dictation types into the one you are looking at.";
 export const READ_ONLY = "You can read this note but not write to it.";
 
-/** The reason a failed engine gives, as the sentence the row shows. */
-export function reasonFor(failure: DictationFailure, unavailable: string): string {
+/**
+ * The reason a failed engine gives, as the sentence the row shows.
+ *
+ * `phone` picks where the offline sentence points: a phone has no Fn key and
+ * no Windows+H, but its keyboard's own microphone works offline.
+ */
+export function reasonFor(failure: DictationFailure, unavailable: string, phone = false): string {
   switch (failure) {
     case "denied":
       return "Your browser is blocking the microphone. Nothing was heard and the note is as you left it.";
     case "no-microphone":
       return "No microphone is attached, so there is nothing to listen with.";
     case "unreachable":
-      return "The words cannot be made right now. Dictation stops rather than look live while producing nothing.";
+      return "This browser's speech service didn't answer. Try again in a moment.";
     case "offline":
-      return "Dictation in this browser needs a connection, and you're offline. Your computer's own dictation works offline — on a Mac press the dictation key or Fn twice, on Windows press Windows+H — and types straight into the note.";
+      return phone
+        ? "You're offline, and dictation in this browser needs a connection. The mic key on your keyboard still works."
+        : "You're offline, and dictation in this browser needs a connection. Your computer's own dictation still works: press Fn twice on a Mac, or Windows+H on a PC.";
     case "unsupported":
       return unavailable;
   }

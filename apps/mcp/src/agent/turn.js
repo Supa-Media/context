@@ -272,6 +272,10 @@ export async function runTurn(options) {
     env,
     providerOptions = {},
     history = [],
+    // Gateway words saying the history is one iMessage thread's (`threadView.js`).
+    threadNote = "",
+    // Texts sent while it works, taken after each tool round (`steer.js`).
+    steer = null,
     web = null,
     texting = false,
     // Whether its answer can text pictures back (`outgoingPictures.js`): a text from their phone.
@@ -386,6 +390,7 @@ export async function runTurn(options) {
       continued: history.length > 0,
       used: usedTools(history),
     }) +
+    threadNote +
     webPrompt(webNames) +
     (progress ? PROGRESS_PROMPT : "") +
     (aboutMe === null ? "" : aboutMePrompt(aboutMe, { edits: tools.some((tool) => tool.name === "write_note") })) +
@@ -637,8 +642,16 @@ export async function runTurn(options) {
         id: call.id,
         name: made.name,
         text: toolResultText(result) || "(no result)",
-        isError: result?.isError === true,
+        // A held call reaches the model as what it is, waiting for the person, never as an
+        // error: read as one, "Not sent yet" became "the email didn't go through" and a
+        // second, different copy of the email texted beside the one held (Dev, 2026-10-19).
+        isError: failedCall(result),
       });
+    }
+    const steered = steer === null ? null : await steer.next();
+    if (steered !== null) {
+      messages.push({ role: "user", text: steered });
+      tell({ kind: "steered", text: steer.words.at(-1) ?? "" });
     }
   }
 

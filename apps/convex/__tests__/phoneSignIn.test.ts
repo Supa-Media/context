@@ -135,7 +135,7 @@ describe("a phone nobody holds", () => {
   test("joins the waitlist, is texted nothing, and even an approved code makes no account", async () => {
     const t = setupTest();
     await kayla(t);
-    expect(await start(t, NOBODY)).toEqual({ status: "joined", phone: NOBODY, conversionId: expect.stringMatching(/^waitlist-/) });
+    expect(await start(t, NOBODY)).toEqual({ status: "joined", phone: NOBODY, conversionId: expect.stringMatching(/^waitlist-/), receipt: expect.stringMatching(/^[0-9a-f]{64}$/) });
     expect(await start(t, NOBODY)).toEqual({ status: "already", phone: NOBODY });
     expect(calls).toEqual([]);
     const rows = await t.run(async (ctx) => await ctx.db.query("waitlist").collect());
@@ -162,7 +162,7 @@ describe("which landing page and ad a phone was joined from", () => {
         landing: "c",
         campaign: { source: " meta ", campaign: "spring", content: "" },
       }),
-    ).toEqual({ status: "joined", phone: NOBODY, conversionId: expect.stringMatching(/^waitlist-/) });
+    ).toEqual({ status: "joined", phone: NOBODY, conversionId: expect.stringMatching(/^waitlist-/), receipt: expect.stringMatching(/^[0-9a-f]{64}$/) });
     await t.run(async (ctx) => {
       const rows = await ctx.db.query("waitlist").withIndex("by_phone", (q) => q.eq("phone", NOBODY)).collect();
       expect(rows.map((row) => [row.landing, row.campaign])).toEqual([["c", { source: "meta", campaign: "spring" }]]);

@@ -39,6 +39,7 @@ import { totalReferrals } from "./referrals";
 import type { WAITLIST_PLACES } from "./place";
 import { useOwnedOr } from "./useOwnedOr";
 import { WaitlistAdd } from "./WaitlistAdd";
+import { WaitlistFilter } from "./WaitlistFilter";
 import { WaitlistRows } from "./WaitlistRows";
 import { WaitlistUntold } from "./WaitlistUntold";
 import {
@@ -96,7 +97,16 @@ export function WaitlistSection(props: { view?: WaitlistView; onView?: (view: Wa
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
-  const list = useQuery(api.functions.admin.listWaitlist, { status });
+  const [search, setSearch] = useState("");
+  const [answered, setAnswered] = useState(false);
+  // The server scans for each search, so it hears the field once typing pauses.
+  const applied = useDebounced(search.trim(), 300);
+  const list = useQuery(api.functions.admin.listWaitlist, {
+    status,
+    ...(applied === "" ? {} : { search: applied }),
+    ...(answered ? { answered: true } : {}),
+  });
+  const filtering = applied !== "" || answered;
   const admit = useMutation(api.functions.admin.admitWaitlist);
   const remove = useMutation(api.functions.admin.removeFromWaitlist);
   const referrals = useQuery(api.functions.admin.listReferrals, {});
@@ -221,6 +231,17 @@ export function WaitlistSection(props: { view?: WaitlistView; onView?: (view: Wa
         </Text>
       ) : null}
 
+      {friends ? null : (
+        <WaitlistFilter
+          search={search}
+          onSearch={setSearch}
+          answered={answered}
+          onAnswered={setAnswered}
+          result={filtering ? (list?.filter ?? null) : null}
+          total={counts === undefined || status === "removed" ? null : counts[status]}
+        />
+      )}
+
       {!friends && picked.length > 0 ? (
         <View style={[styles.bulk, compact && styles.bulkCompact]} testID="admin-waitlist-bulk">
           <Text style={styles.bulkCount}>{picked.length} selected</Text>
@@ -255,7 +276,20 @@ export function WaitlistSection(props: { view?: WaitlistView; onView?: (view: Wa
         </Card>
       ) : (
         <Panel flush>
-          {rows.length === 0 ? (
+          {rows.length === 0 && filtering ? (
+            <View style={styles.noMatch} testID="admin-waitlist-no-match">
+              <Text variant="meta">
+                {applied !== "" ? `No answers mention “${applied}”.` : "Nobody here has answered yet."}
+              </Text>
+              <TextLink
+                label={applied !== "" ? "Clear search" : "Show everyone"}
+                onPress={() => {
+                  setSearch("");
+                  setAnswered(false);
+                }}
+              />
+            </View>
+          ) : rows.length === 0 ? (
             <EmptyNote
               title={
                 status === "waiting"
@@ -270,6 +304,7 @@ export function WaitlistSection(props: { view?: WaitlistView; onView?: (view: Wa
             <WaitlistRows
               rows={rows}
               status={status}
+              highlight={applied}
               actions={{
                 // Let in is the errand on Waiting, and the undo on Removed.
                 selectable: status !== "admitted",
@@ -329,4 +364,15 @@ const makeStyles = (colors: Colors) =>
     bulkActions: { flexDirection: "row", alignItems: "center", gap: space.x2 },
 
     skGap: { marginTop: 18 },
+    noMatch: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: space.x2, padding: space.x4 },
   });
+
+/** `value`, once it has stopped changing for `ms`. */
+function useDebounced<T>(value: T, ms: number): T {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setSettled(value), ms);
+    return () => clearTimeout(timer);
+  }, [value, ms]);
+  return settled;
+}

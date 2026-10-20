@@ -21,6 +21,23 @@ describe("hosted pictures", () => {
     expect((await serveMedia(storage, "../seen:x", 2_000)).status).toBe(404);
   });
 
+  it("keeps a photo bigger than one stored value, and prunes every piece of it", async () => {
+    // The image model's photos run past a Durable Object's 2 MB value cap
+    // (Dev's blue-clothes edit came back "couldn't send that picture").
+    const storage = new MemoryStorage();
+    const bytes = Uint8Array.from({ length: 4_000_005 }, (_, i) => (i * 7) % 256);
+    const data = Buffer.from(bytes).toString("base64");
+    const url = await hostPicture(storage, "https://agent.example", OBJECT, { name: "p.png", mediaType: "image/png", data }, 1_000);
+    for (const value of storage.data.values()) {
+      if (value instanceof Uint8Array) expect(value.byteLength).toBeLessThan(2_000_000);
+    }
+    const served = await serveMedia(storage, url.slice(-68, -4), 2_000);
+    expect(served.status).toBe(200);
+    expect(Buffer.compare(Buffer.from(await served.arrayBuffer()), Buffer.from(bytes))).toBe(0);
+    await pruneMedia(storage, 1_000 + MEDIA_FOR_MS + 1);
+    expect([...storage.data.keys()].filter((k) => k.startsWith("media"))).toEqual([]);
+  });
+
   it("serves Tex's contact card as a .vcf", async () => {
     const storage = new MemoryStorage();
     const url = await hostPicture(storage, "https://agent.example", OBJECT, { name: "Tex.vcf", mediaType: "text/vcard", data: btoa("BEGIN:VCARD") }, 1_000);
@@ -42,7 +59,7 @@ describe("hosted pictures", () => {
     await expect(hostPicture(storage, "https://agent.example", OBJECT, { ...picture, mediaType: "image/svg+xml" }, 1_000)).rejects.toThrow();
     const big = { ...picture, data: btoa("x".repeat(MAX_HOSTED_BYTES + 1)) };
     await expect(hostPicture(storage, "https://agent.example", OBJECT, big, 1_000)).rejects.toThrow();
-    expect([...storage.data.keys()].filter((k) => k.startsWith("media:"))).toEqual([]);
+    expect([...storage.data.keys()].filter((k) => k.startsWith("media"))).toEqual([]);
   });
 
   it("prunes what expired and wakes for the rest, but never delays a waiting text", async () => {

@@ -9,7 +9,7 @@ import { createRoot, type Root } from "react-dom/client";
 jest.mock("convex/react", () => ({ useConvex: () => undefined }));
 
 import { VaultList, type VaultActions } from "../features/console/settings/panels/VaultPanel";
-import { aisByPerson, giveSuggestions, initialsOf, moveLine, shareRowLine, takeBackLine, type VaultShareChoices } from "../features/vault/vaultPeople";
+import { aisByPerson, giveSuggestions, initialsOf, levelHint, levelLabel, moveLine, shareRowLine, takeBackLine, type VaultShareChoices } from "../features/vault/vaultPeople";
 import { inFilter, vaultClientLine, vaultLastUsedLine, vaultSavedLine, type VaultEntry, type VaultLevel } from "../features/vault/vaultSettings";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -104,14 +104,25 @@ describe("the words", () => {
     expect(giveSuggestions(choices, "lead", { ...owned, people: [] })).toEqual([{ to: "@supa-leads", kind: "group", title: "Leads", sub: "Group · 3 people" }]);
   });
 
-  test("each row's line, and what Take back says", () => {
+  test("each row's line, and what Remove says", () => {
     const [saver, sayo, leads] = owned.people!;
-    expect(shareRowLine(saver, true, NOW)).toBe("Saved it · can change it");
-    expect(shareRowLine(sayo, false, NOW)).toBe("Given 17 Oct");
-    expect(shareRowLine(leads, false, NOW)).toBe("Given 17 Oct · 3 people");
+    expect(shareRowLine(saver, true, NOW)).toBe("Added it 16 Oct");
+    expect(shareRowLine(sayo, false, NOW)).toBe("Shared 17 Oct");
+    expect(shareRowLine(leads, false, NOW)).toBe("Shared 17 Oct · 3 people");
     expect(takeBackLine(sayo)).toBe("Sayo Adeyemi and Sayo Adeyemi's AIs lose the key now.");
     expect(takeBackLine(leads)).toBe("Everyone in Leads who has it no other way, and their AIs, lose it now.");
     expect(initialsOf("Sayo Adeyemi")).toBe("SA");
+  });
+
+  // The levels are about the person shared with, not their AIs: Dev read
+  // "Their AIs use it" as sharing with AIs (2026-10-20).
+  test("each level is worded about the person, and its hint names a login's password or a secret's key", () => {
+    expect(levelLabel("use")).toBe("Use only");
+    expect(levelLabel("see")).toBe("Use and see");
+    expect(levelHint("use", "login")).toBe("Their AI tools sign in for them. They never see the password.");
+    expect(levelHint("see", "login")).toBe("They can also see and copy the password.");
+    expect(levelHint("use", "secret")).toBe("Their AI tools sign in for them. They never see the key.");
+    expect(levelHint("see", "secret")).toBe("They can also see and copy the key.");
     expect(initialsOf("@supa")).toBe("SU");
     expect(moveLine("supa")).toBe("It leaves your personal workspace for @supa. Only you have it there until you give it to someone, and your AIs ask again the first time they use it.");
   });
@@ -126,7 +137,7 @@ describe("the words", () => {
   test("somebody else's AI is named as theirs, and its count is its own", () => {
     expect(vaultClientLine(owned.proxy!.clients[1], owned.proxy!.uses, NOW)).toBe("Sayo Adeyemi said yes 17 Oct · used 12 times");
     expect(vaultLastUsedLine(owned, NOW)).toBe("Sayo Adeyemi's Claude Code read your deployments, 4 minutes ago.");
-    expect(vaultSavedLine(given, NOW)).toBe("Given to you by Seyi · for your AIs");
+    expect(vaultSavedLine(given, NOW)).toBe("Shared with you by Seyi · use only");
     expect(vaultSavedLine({ ...given, givenBy: null, savedBy: "Seyi" }, NOW)).toBe("Saved by Seyi on 16 Oct");
     expect(inFilter(owned, "given")).toBe(true);
     expect(inFilter({ ...owned, shared: false }, "given")).toBe(false);
@@ -229,22 +240,25 @@ describe("the People section", () => {
     await flush();
     const sayo = find("vault-person-user_sayo")!;
     expect(sayo.textContent).toContain("Sayo Adeyemi");
-    expect(sayo.textContent).toContain("Their AIs use it ▾");
+    expect(sayo.textContent).toContain("Use only ▾");
     expect(sayo.textContent).toContain("Claude Code · Sayo Adeyemi said yes 17 Oct · used 12 times");
     expect(find("vault-people")!.textContent).toContain("Has it through a group or everyone");
-    expect(find("vault-person-user_me")!.textContent).not.toContain("Take back");
+    expect(find("vault-person-user_me")!.textContent).not.toContain("Remove");
+    expect(find("vault-people")!.textContent).toContain("When you share it, they can:");
+    expect(find("vault-give-level-hint")!.textContent).toBe("Their AI tools sign in for them. They never see the key.");
     type("vault-give-input", "olu");
     press("vault-give-to-user_olu");
-    // "They can see it too", then Give.
-    const see = [...container.querySelectorAll<HTMLElement>('[role="radio"]')].find((el) => el.textContent === "They can see it too")!;
+    // "Use and see it", then Share.
+    const see = [...container.querySelectorAll<HTMLElement>('[role="radio"]')].find((el) => el.textContent === "Use and see it")!;
     act(() => see.click());
+    expect(find("vault-give-level-hint")!.textContent).toBe("They can also see and copy the key.");
     press("vault-give");
     await flush();
     expect(calls).toContainEqual(["give", owned.entryId, "user_olu", "see"]);
     expect(find("vault-person-user_olu")).not.toBeNull();
   });
 
-  test("Take back says what happens once, and only then takes it", async () => {
+  test("Remove says what happens once, and only then takes it", async () => {
     const { actions, calls } = fakes([owned]);
     act(() => root.render(createElement(VaultList, { actions, now: NOW, layoutWidth: 1100 })));
     await flush();
@@ -297,7 +311,7 @@ describe("a key given to you for your AIs", () => {
     const { actions, calls } = fakes([given]);
     act(() => root.render(createElement(VaultList, { actions, now: NOW, layoutWidth: 1100 })));
     await flush();
-    expect(container.textContent).toContain("Given to you by Seyi · for your AIs");
+    expect(container.textContent).toContain("Shared with you by Seyi · use only");
     expect(find("vault-use-only")).not.toBeNull();
     expect(calls.some((call) => call[0] === "link")).toBe(false);
     expect(find("vault-edit")).toBeNull();

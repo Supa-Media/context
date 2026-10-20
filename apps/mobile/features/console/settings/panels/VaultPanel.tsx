@@ -510,7 +510,7 @@ function VaultDetail({
       )}
       {entry.level === "use" && !editing ? (
         <Text key="use-only" variant="hint" testID="vault-use-only">
-          Your AIs can use it through Context. You can't see the value; ask {entry.givenBy ?? "whoever saved it"} if you need to.
+          Your AI tools sign in for you. You can't see the {entry.type === "login" ? "password" : "key"}; ask {entry.givenBy ?? "whoever saved it"} if you need to.
         </Text>
       ) : null}
       {values}

@@ -19,6 +19,18 @@ send' seems very robotic"): "Look good? Just say yes and I'll send it." for
 an email, a calendar change and a bug report, which still go only on a bare
 yes, and "Should I go ahead?" for the rest (`agent/textedApprovals.js`).
 
+### A texted read answers with it too, and an asked-for link is always given
+
+Decided by the owner, 2026-10-20, after Tex summarised an SOP from a shared
+workspace and then answered "Give me the link" with "I don't have a web link
+for it". `read_note`'s result on a texted turn carries the same `link:` line,
+in its header after `path:` and for whichever context the call named, shared
+ones included. Every texted turn is told (`NOTE_LINK_LINE`, said whatever the
+production setup says) to send that link after an answer taken from one note
+when the whole note would help, to send it whenever asked, reading the note
+first if need be, and to mint a share link only when they ask for one to send
+to someone else. Undo by dropping `read_note` from `withNoteLinks`.
+
 Tests: `apps/mcp/test/agentNoteLinks.test.mjs` (sabotage record in its
 header), and the ask lines in `emailGate`, `calendarGate`, `reportGate` and
 `agentEgressTexting`.

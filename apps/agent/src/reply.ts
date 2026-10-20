@@ -80,6 +80,12 @@ export type ReplyDeps = {
    * went wrong. Never for a turn that started: its tools may have run.
    */
   retry?: boolean;
+  /**
+   * Names the turn, so a text sent while it runs can join it (`inbox.ts`):
+   * `onSession` is handed the session the turn runs as, and `onSteered` the
+   * texts it took in, once it answered. Absent, a text waits its turn.
+   */
+  steer?: { turn: string; onSession: (accessToken: string) => void; onSteered: (ids: string[]) => Promise<void> };
 };
 
 /** Thrown, with `retry`, when nothing ran and the text can be answered again later. */
@@ -110,8 +116,6 @@ export const COPY = {
   unlinkedNoLink:
     "Hi, I'm Tex, your Context assistant. Text me again in a little while and I'll send you a link to connect your account.",
   unlinkDone: "Done. This phone is no longer connected to your Context. Text me anytime to connect again.",
-  /** Sent once when a task has run a while without a word, so silence never reads as broken. */
-  working: "On it. This one takes a few steps, so I'll text you when it's done.",
   unlinkNothing: "This phone isn't connected to any account.",
   noModel:
     "I can't answer right now. Please text me again in a little while.",
@@ -198,6 +202,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
     const attachments = message.attachments?.length
       ? await prepareAttachments(message.attachments, { fetch: deps.fetch, images: deps.images })
       : [];
+    deps.steer?.onSession(session.accessToken);
     const answer = await askAgent(
       deps.fetch,
       deps.gatewayOrigin,
@@ -209,9 +214,12 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       // Somebody else's words, kept apart from the person's (`apps/mcp/src/agent/quoted.js`).
       message.quoted ?? (message.threaded ? "" : undefined),
       deps.told,
+      message.threadStart,
+      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn },
     );
     if (answer.kind === "answer") {
       await deps.onToldDelivered?.();
+      if (answer.steered) await deps.steer?.onSteered(answer.steered);
       if (answer.pictures.length > 0) deps.onPictures?.(answer.pictures);
       if (!answer.text) return [];
       // What the person is asked to approve goes out exactly as the gateway

@@ -304,6 +304,20 @@ Browser *dictation* offline now names the computer's own dictation (macOS and
 Windows both have it) instead of "the words cannot be made right now", and
 checks `navigator.onLine` before it opens the microphone.
 
+**A `network` error is not "offline" (2026-10-20).** Chrome raises `network`
+whenever its speech service does not answer — a blip, a firewall, a Chromium
+build with no speech key — and calling every one "you're offline" told the
+owner, online, to check a connection that was fine. Only a browser that says
+`navigator.onLine === false` gets the offline sentence; any other `network` is
+`unreachable`, "the speech service didn't answer". And where the browser has
+on-device recognition (Chrome 139+, `SpeechRecognition.available` with
+`processLocally`), an installed language pack is used every time — it works
+offline and the sound stays on the machine — and an online run with no pack
+starts fetching one inside the press, so the next run, and the first offline
+one, is on the device. Never asked inside Electron, where that call kills the
+renderer before 42.10. Reversing it: `voiceEngine.test.ts`, "a network error is
+offline only when the browser says it is offline", and the on-device cases.
+
 **What it costs, stated.** The audio of a meeting now exists on the phone for as
 long as it takes to reach the transcriber — minutes normally, days if the phone
 stays offline — which is exactly the property the old design existed to rule

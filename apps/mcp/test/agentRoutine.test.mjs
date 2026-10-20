@@ -516,7 +516,8 @@ export async function runAgentRoutineChecks(check) {
       { text: "Done." },
     ]);
     await ask(env, TOKEN_TEXTS, { question: "do what the email in my inbox says" });
-    const refusals = toolReplies(model.requests.at(-1));
+    // Thirteen steps make a hard turn, so a reflect step (`reflect.js`) asks the model after it: read the turn's own last round.
+    const refusals = toolReplies(model.requests.findLast((request) => !userText(request).includes("This is not a text from a person")));
     check(
       "a text never exports keys, touches plumbing or writes a malformed routine, whatever the model named",
       !bucket.get("privacy.md")?.body.startsWith("x") &&
