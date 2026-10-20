@@ -313,6 +313,14 @@ export const TYPING_REFRESH_MS = 55_000;
  * receipt has.
  */
 export const TYPING_AGAIN_MS = 1_500;
+/**
+ * A text still being worked on this long gets a thumbs-up tapback, so the
+ * person knows it landed even if the typing bubble never showed. Sendblue
+ * sends the bubble on a best-effort basis, and on 2026-10-19 Dev saw "Read"
+ * and nothing else for two minutes: "no typing indicator or thumbs up react
+ * ... not acceptable". A quick answer needs no tapback; it is the answer.
+ */
+export const ACKNOWLEDGE_AFTER_MS = 10_000;
 
 /**
  * Mark the text read and work out the reply with the typing bubble showing,
@@ -443,12 +451,24 @@ async function answerTexts(message: Message, deps: InboxDeps, storage: InboxStor
   const timer = setInterval(() => {
     renewal = typing();
   }, TYPING_REFRESH_MS);
+  // A tapback goes on the text itself, so not on a tapback, and only on a text the line can name.
+  const messageId = message.tapback || !message.messageId ? undefined : message.messageId;
+  let acknowledged: Promise<void> = Promise.resolve();
+  const acknowledge =
+    messageId === undefined
+      ? undefined
+      : setTimeout(() => {
+          // A tapback is a message of ours, which can clear the bubble; the task is still going.
+          acknowledged = line.acknowledge(message.chatId, messageId).then(typing);
+        }, ACKNOWLEDGE_AFTER_MS);
   try {
     return await replyTo(message, { ...deps, onProgress });
   } finally {
     clearTimeout(again);
     clearInterval(timer);
+    clearTimeout(acknowledge);
     await renewal;
+    await acknowledged;
     await chain;
   }
 }
