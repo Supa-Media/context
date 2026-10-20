@@ -7,6 +7,7 @@
  */
 
 import { describe, expect, test } from "vitest";
+import { ROUTE_SEGMENTS } from "@context/shared";
 import { GATEWAY_ROUTE_FLOOR } from "@context/shared/src/gatewayRouteSegments";
 
 import { gatewayReservedFirstSegments } from "./gatewayRoutes.helpers";
@@ -146,6 +147,26 @@ describe("validateName (pure rules)", () => {
       claimable,
       "these name a gateway route and can still be claimed",
     ).toEqual([]);
+  });
+
+  /**
+   * The same rule, for the routes the app itself serves.
+   *
+   * The test above holds the gateway's first segments; the app's own routes
+   * were never held to anything. They are the same hazard in the same two
+   * ways: `context.lc/vault` is a product surface, and — ingestion being on
+   * the apex — `vault@context.lc` is a mailbox. `tex` was reserved by name
+   * (2026-10-10) for exactly that reason while `texts` beside it was not,
+   * which is the drift a derived check exists to refuse.
+   *
+   * `ROUTE_SEGMENTS` is not restated here: the route-tree walker in
+   * `feedbackReport.ts` fails on a static route missing from it, so a route
+   * added next year fails here on the day it is added rather than on the day
+   * somebody claims its mailbox.
+   */
+  test("reserves every app route a name could otherwise be", () => {
+    const claimable = [...ROUTE_SEGMENTS].filter((segment) => validateName(segment).ok);
+    expect(claimable, "these name an app route and can still be claimed").toEqual([]);
   });
 
   test("reserves the product vocabulary — workspace, context, shared", () => {
