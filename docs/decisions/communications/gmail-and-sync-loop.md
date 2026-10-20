@@ -654,3 +654,12 @@ rather than waiting for mail to land on it. It costs two day-list queries a
 pass; an unchanged day re-renders byte-identical and is not written, and a
 reconciled day counts as touched only when it wrote. Older frozen days are
 rebuilt the next time history touches them.
+
+A forward pass walks at most `GMAIL_PASS_HISTORY_PAGES` (three) history
+pages, not the client's default fifty. A cursor weeks behind then drains a few
+hundred messages a pass, its row kept due by `catchUp`, instead of fetching
+thousands before saving any: a rate limit late in such a pass threw the whole
+pass away and the next asked Gmail the same question, which is how one mailbox
+stayed on its September cursor into October (2026-10-19). Raising it back
+trades that for fewer passes on a backlog. Test: the page-walk case in
+`apps/convex/__tests__/googleSyncLoop/endToEnd.test.ts`.
