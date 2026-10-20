@@ -162,6 +162,8 @@ const { InviteScreen } =
   require("../features/invite/InviteScreen") as typeof import("../features/invite/InviteScreen");
 const { InviteListScreen } =
   require("../features/invite/InviteListScreen") as typeof import("../features/invite/InviteListScreen");
+const { GmailFirstScreen } =
+  require("../features/auth/gmailFirst/GmailFirstScreen") as typeof import("../features/auth/gmailFirst/GmailFirstScreen");
 const { ShareScreen } = require("../features/share/ShareScreen") as typeof import("../features/share/ShareScreen");
 const { WebsitePage } = require("../features/site/website/WebsitePage") as typeof import("../features/site/website/WebsitePage");
 // The handle routes only resolve an address; this is the page they then draw.
@@ -227,7 +229,7 @@ const ROUTES: Record<string, Coverage> = {
   */
   "(home)/_layout.tsx": { kind: "framed" },
   "(home)/index.tsx": { kind: "gate", mount: () => createElement(requireRoute("(home)/index.tsx")) },
-  ...Object.fromEntries(["privacy.tsx", "support.tsx", "terms.tsx", "not-me.tsx", "stop-new-email.tsx", "waitlist.tsx"].map((file) => [file, { kind: "screen" as const, mount: () => createElement(requireRoute(file)) }])),
+  ...Object.fromEntries(["privacy.tsx", "support.tsx", "terms.tsx", "not-me.tsx", "stop-new-email.tsx", "waitlist.tsx", "text.tsx"].map((file) => [file, { kind: "screen" as const, mount: () => createElement(requireRoute(file)) }])),
   "authorize.tsx": { kind: "screen", mount: () => createElement(ConsentScreen) },
   "(auth)/login.tsx": { kind: "screen", mount: () => createElement(LoginScreen) },
   /*
@@ -247,6 +249,14 @@ const ROUTES: Record<string, Coverage> = {
     exactly this reason — "so the chrome can be rendered, and looked at, without
     a session or a Convex deployment behind it".
   */
+  /*
+    `/add-gmail` is the Gmail page over a live query of the person's Gmails;
+    mounted as the page it draws once that answers.
+  */
+  "(app)/add-gmail.tsx": {
+    kind: "screen",
+    mount: () => createElement(GmailFirstScreen, { mode: "another", workspaceId: "ws", mainEmail: "ada@example.com" }),
+  },
   "(app)/welcome.tsx": {
     kind: "screen",
     mount: () =>

@@ -101,8 +101,8 @@ function parseImages(value: unknown): Record<string, string> {
  * draws the homepage at one of these anyway.
  */
 const NOT_PAGES = new Set([
-  "admin", "authorize", "connect", "console", "e2e-fixture", "invite", "join", "login", "meetings",
-  "not-me", "note", "preview", "privacy", "s", "signin", "stop-new-email", "support", "terms", "tex", "texts", "vault", "waitlist", "welcome", "workspace", "_expo", "api", "og",
+  "add-gmail", "admin", "authorize", "connect", "console", "e2e-fixture", "invite", "join", "login", "meetings",
+  "not-me", "note", "preview", "privacy", "s", "signin", "stop-new-email", "support", "terms", "tex", "text", "texts", "vault", "waitlist", "welcome", "workspace", "_expo", "api", "og",
 ]);
 
 /**
