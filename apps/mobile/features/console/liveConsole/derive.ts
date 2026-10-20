@@ -382,6 +382,10 @@ export function consoleStats(
               },
             ]),
         { value: formatCount(contexts.length), label: "in your context" },
-        { value: formatCount(activeGrants.length), label: "AI clients connected" },
+        // Apps, as `groupClients` draws them: one per name, not one per grant.
+        {
+          value: formatCount(new Set(activeGrants.map((grant) => grant.clientName ?? grant.clientId)).size),
+          label: "AI clients connected",
+        },
       ];
 }

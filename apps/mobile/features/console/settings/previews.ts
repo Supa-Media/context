@@ -1,3 +1,4 @@
+import { groupClients } from "../clients/grouped";
 import { storageVerdict } from "./panels/StorageHealth";
 import { pluginsPreview } from "../plugins/plugins";
 import type { ConsoleData } from "../types";
@@ -86,7 +87,13 @@ export function settingsPreview(
         that is true on its own.
       */
       if (data.loading) return null;
-      return data.clients.length === 0 ? "None" : String(data.clients.length);
+      /*
+        Apps, the way the panel draws them: one per `groupClients` group, not
+        one per grant. Counting grants said "43" over a list of eight rows,
+        because every machine, browser and re-auth holds its own grant.
+      */
+      const apps = groupClients(data.clients).length;
+      return apps === 0 ? "None" : String(apps);
     }
 
     case "sharing": {

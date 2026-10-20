@@ -592,6 +592,7 @@ export async function seedGrant(
   userId: Id<"users">,
   clientId: string,
   hashedRefreshToken: string,
+  accessTokenExpiresAt?: number,
 ): Promise<Id<"oauthGrants">> {
   return await t.run((ctx) =>
     ctx.db.insert("oauthGrants", {
@@ -600,6 +601,7 @@ export async function seedGrant(
       clientId,
       scopes: ["context.read"],
       hashedRefreshToken,
+      accessTokenExpiresAt,
       status: "active",
       createdAt: Date.now(),
     }),

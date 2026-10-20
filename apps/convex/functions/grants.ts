@@ -183,9 +183,18 @@ export const listGrants = query({
     const rows: Doc<"oauthGrants">[] = [];
     let consoleKept = 0;
     let scanned = 0;
+    const now = Date.now();
     for await (const grant of newestFirst) {
       scanned += 1;
       const isConsole = grant.clientId === CONSOLE_CLIENT_ID;
+      /*
+        A console grant past its hour is not a connection: it has no refresh
+        token, so nothing can use it again until a console instance re-mints
+        into the same row. Left in, a month of page loads drew "Context (this
+        app) · 36 connections · last used 25 days ago". Revoked rows still
+        list, as every other client's do, for the record of who unplugged what.
+      */
+      if (isConsole && grant.status === "active" && (grant.accessTokenExpiresAt ?? 0) <= now) continue;
       if (!isConsole || consoleKept < MAX_CONSOLE_GRANTS_RETURNED) {
         if (isConsole) consoleKept += 1;
         rows.push(grant);
