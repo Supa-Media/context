@@ -24,6 +24,7 @@ import { getWithLegacyFallback } from "../storageLayout.js";
 import { normalizePath } from "../notes/paths.js";
 import { probeWithLegacyFallback } from "../notes/storage.js";
 import { toolError, toolText } from "./results.js";
+import { linksSection, pdfLinks } from "./pdfLinks.js";
 
 /** The extensions `read_file` opens, and the type each is handed to the converter as. */
 export const READABLE_FILE_TYPES = new Map([
@@ -98,10 +99,11 @@ export async function fileWords(ai, name, type, bytes) {
   }
   const first = Array.isArray(answer) ? answer[0] : answer;
   const text = typeof first?.data === "string" && first.format !== "error" ? first.data.trim() : "";
-  if (!text) return { error: "no words could be taken out of this file" };
-  return {
-    text: text.length > MAX_FILE_CHARS ? `${text.slice(0, MAX_FILE_CHARS)}\n\n[cut: the file's words run to ${text.length} characters]` : text,
-  };
+  // Where a PDF's buttons and linked words go, which its words alone never say (`pdfLinks.js`).
+  const links = type === "application/pdf" ? linksSection(await pdfLinks(bytes)) : "";
+  if (!text && !links) return { error: "no words could be taken out of this file" };
+  const words = text.length > MAX_FILE_CHARS ? `${text.slice(0, MAX_FILE_CHARS)}\n\n[cut: the file's words run to ${text.length} characters]` : text;
+  return { text: `${words || "(no words could be taken out of this file)"}${links}` };
 }
 
 /** The type a file is read as, from its name and then its first bytes; null when it is not one `fileWords` opens. */

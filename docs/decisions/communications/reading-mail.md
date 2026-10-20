@@ -72,6 +72,16 @@ not the 256 KB every other control-plane answer is held to; under that cap
 any PDF over about 190 KB read as "Gmail did not answer" (2026-10-20), and
 `apps/mcp/test/emailAttachmentCap.test.mjs` fails if it returns.
 
+A PDF's links come with its words (2026-10-20). `toMarkdown` drops link
+annotations, so a contract's "CLICK HERE to make payment" button reached Tex as
+those words and nothing else, and Tex told Dev to open the PDF and tap it
+(Dev: "another stupid text limitation"). `pdfLinks` (`src/tools/pdfLinks.js`)
+reads the file's `/URI` actions, in the open and inside compressed object
+streams, keeps http, https and mailto addresses (at most 50), and `fileWords`
+lists them under the words. Pictures and fonts are never inflated, and
+inflating stops at 20 MB. Tests: `test/pdfLinks.test.mjs` ("read_file hands
+back where a PDF's button goes, after its words"; sabotaged 2026-10-20).
+
 **Who may read.** Only the owner of the personal workspace the mailbox is
 connected to, through a grant holding `context:private`
 (`functions/personMail.ts`, one mutation with the rate limit). An editor or
