@@ -2,7 +2,9 @@
  * `POST /gateway/email/send`: send one email as the person whose token this is,
  * through their own connected Gmail (`lib/personEmail.ts`).
  *
- * Body `{ accessToken, expectedWorkspaceId, email: { from?, to, cc?, subject, body }, check? }`.
+ * Body `{ accessToken, expectedWorkspaceId, email: { from?, to, cc?, subject, body, replyTo? }, check? }`.
+ * `replyTo` is the Gmail id of a message in the `from` mailbox; the email is
+ * sent inside that message's thread (In-Reply-To, References, threadId).
  * Answers `{ ok: true, from }` (with `check`, nothing is sent) or
  * `{ ok: false, refused }`.
  *
@@ -23,7 +25,9 @@ import { internal } from "../../../_generated/api";
 import type { ActionCtx } from "../../../_generated/server";
 import { hashToken } from "../crypto";
 import { json, stringField } from "../gatewayAuth";
-import { gmailRaw, readPersonEmail, recipientLimitKey, recipientsOf } from "../personEmail";
+import { gmailRaw, readPersonEmail, recipientLimitKey, recipientsOf, replyHeadersOf, type ReplyThread } from "../personEmail";
+import { getReplyHeaders } from "../../../../mcp/src/communications/gmailSync.js";
+import { timeoutFetch } from "../filesFns/forwardSyncSupport";
 
 const GMAIL_SEND_ENDPOINT = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send";
 const GMAIL_DRAFTS_ENDPOINT = "https://gmail.googleapis.com/gmail/v1/users/me/drafts";
@@ -73,12 +77,27 @@ async function personEmail(ctx: ActionCtx, body: Record<string, unknown>, draft:
     log({ outcome: "no_token", draft });
     return json({ ok: false, refused: "unavailable" });
   }
+  // A reply joins the thread of the message it answers, read from the sending
+  // mailbox itself, so it can only ever answer the person's own mail.
+  let thread: ReplyThread | null = null;
+  if (email.replyTo !== null) {
+    try {
+      thread = replyHeadersOf(await getReplyHeaders({ fetchImpl: timeoutFetch, accessToken: minted.accessToken, id: email.replyTo }));
+    } catch {
+      thread = null;
+    }
+    if (thread === null) {
+      log({ outcome: "reply_not_found", draft });
+      return json({ ok: false, refused: "reply_not_found" });
+    }
+  }
   try {
-    const raw = gmailRaw(email, claimed.from);
+    const raw = gmailRaw(email, claimed.from, thread);
+    const message = thread ? { raw, threadId: thread.threadId } : { raw };
     const response = await fetch(draft ? GMAIL_DRAFTS_ENDPOINT : GMAIL_SEND_ENDPOINT, {
       method: "POST",
       headers: { Authorization: `Bearer ${minted.accessToken}`, "Content-Type": "application/json" },
-      body: JSON.stringify(draft ? { message: { raw } } : { raw }),
+      body: JSON.stringify(draft ? { message } : message),
     });
     log({ outcome: response.ok ? (draft ? "drafted" : "sent") : "http_error", status: response.status, recipients: recipientHashes.length, draft });
     if (!response.ok) return json({ ok: false, refused: "unavailable" });

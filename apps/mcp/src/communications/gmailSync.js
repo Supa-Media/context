@@ -73,6 +73,7 @@ export {
   getMessage,
   getMessageOrNull,
   getMessageHeaders,
+  getReplyHeaders,
   getProfileHistoryId,
   listHistoryPage,
   listAllHistory,

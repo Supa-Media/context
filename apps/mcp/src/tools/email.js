@@ -17,6 +17,7 @@
  */
 
 import { toolError, toolText } from "./results.js";
+import { parseEmailId } from "./emailRead.js";
 
 export const EMAIL_TOOL = "send_email";
 export const EMAIL_DRAFT_TOOL = "save_email_draft";
@@ -68,7 +69,26 @@ export function readEmail(args) {
   if (body.trim() === "" || body.length > MAX_BODY || BODY_CONTROL.test(body)) {
     return { error: `body is the email's plain text, 1 to ${MAX_BODY.toLocaleString("en-US")} characters.` };
   }
-  return { email: { ...(from.list.length === 1 ? { from: from.list[0] } : {}), to: to.list, cc: cc.list, subject, body } };
+  // A reply names the email it answers, as search_email gave it, and goes from that email's mailbox.
+  let reply = null;
+  if (args?.in_reply_to !== undefined) {
+    reply = parseEmailId(typeof args.in_reply_to === "string" ? args.in_reply_to.trim() : "");
+    if (reply === null) return { error: "in_reply_to is the email:<address>/<id> id search_email gave for the email this answers." };
+    if (from.list.length === 1 && from.list[0] !== reply.address) {
+      return { error: `A reply goes from the mailbox the email is in: leave from out, or make it ${reply.address}.` };
+    }
+  }
+  const sender = reply ? reply.address : from.list[0];
+  return {
+    email: {
+      ...(sender ? { from: sender } : {}),
+      to: to.list,
+      cc: cc.list,
+      subject,
+      body,
+      ...(reply ? { replyTo: reply.messageId } : {}),
+    },
+  };
 }
 
 /** The email exactly as the person reads it before they say yes. */
@@ -78,6 +98,7 @@ export function emailCopy(email) {
     `To: ${email.to.join(", ")}`,
     ...(email.cc.length > 0 ? [`Cc: ${email.cc.join(", ")}`] : []),
     `Subject: ${email.subject}`,
+    ...(email.replyTo ? ["(A reply inside the existing email thread.)"] : []),
     "",
     email.body,
   ].join("\n");
@@ -100,6 +121,7 @@ export const REFUSED = {
   daily_limit: "Not sent: the person has sent 20 emails through Context today. Try again tomorrow.",
   recipient_limit: "Not sent: the person has already emailed one of these addresses 3 times today through Context.",
   not_configured: "Not sent: this Context deployment does not send email.",
+  reply_not_found: "Not sent: Gmail no longer has the email this replies to, or it has no thread to reply in. Search for it again.",
   unavailable: "Not sent: Gmail did not take the email just now. Nothing was sent; it can be asked for again.",
 };
 
@@ -126,6 +148,7 @@ export const DRAFT_REFUSED = {
   hourly_limit: "Not saved: 10 drafts were saved through Context this hour. Give them this one to copy instead.",
   daily_limit: "Not saved: 50 drafts were saved through Context today. Give them this one to copy instead.",
   not_configured: "Not saved: this Context deployment does not save drafts.",
+  reply_not_found: "Not saved: Gmail no longer has the email this replies to. Search for it again.",
   unavailable: "Not saved: Gmail did not take the draft just now. It can be tried again.",
 };
 

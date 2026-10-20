@@ -52,12 +52,22 @@ export interface PersonEmail {
   cc: string[];
   subject: string;
   body: string;
+  /** The Gmail id of the message this answers, in the sending mailbox: sent inside that thread. */
+  replyTo: string | null;
+}
+
+/** The headers that put a reply inside its thread (`replyHeadersOf`). */
+export interface ReplyThread {
+  threadId: string;
+  inReplyTo: string;
+  references: string[];
 }
 
 export type PersonEmailRefusal =
   | "invalid"
   | "not_allowed"
   | "no_sender"
+  | "reply_not_found"
   | "hourly_limit"
   | "daily_limit"
   | "recipient_limit"
@@ -102,7 +112,32 @@ export function readPersonEmail(value: unknown): PersonEmail | null {
   const body = typeof raw.body === "string" ? raw.body : "";
   if (subject.trim() === "" || subject.length > PERSON_EMAIL_MAX_SUBJECT || SUBJECT_CONTROL.test(subject)) return null;
   if (body.trim() === "" || body.length > PERSON_EMAIL_MAX_BODY || BODY_CONTROL.test(body)) return null;
-  return { from: from[0] ?? null, to, cc, subject, body };
+  const replyTo = raw.replyTo === undefined ? null : raw.replyTo;
+  if (replyTo !== null && (typeof replyTo !== "string" || !MESSAGE_ID.test(replyTo))) return null;
+  // A reply goes from the mailbox that holds the message it answers.
+  if (replyTo !== null && from.length === 0) return null;
+  return { from: from[0] ?? null, to, cc, subject, body, replyTo };
+}
+
+const MESSAGE_ID = /^[A-Za-z0-9_-]{1,64}$/;
+/** One RFC 5322 msg-id, as Gmail returns it: no spaces, no line breaks. */
+const MSG_ID = /^<[\x21-\x3b\x3d\x3f-\x7e]{1,250}>$/;
+const MAX_REFERENCES = 20;
+
+/**
+ * The thread a reply joins, from the metadata of the message it answers, or
+ * null when that message has no usable Message-ID. Every value is checked
+ * here, since they become headers of the email sent.
+ */
+export function replyHeadersOf(message: { threadId?: unknown; payload?: { headers?: Array<{ name?: unknown; value?: unknown }> } }): ReplyThread | null {
+  const headers = message?.payload?.headers ?? [];
+  const header = (name: string) =>
+    String(headers.find((entry) => String(entry?.name ?? "").toLowerCase() === name.toLowerCase())?.value ?? "").trim();
+  const inReplyTo = header("Message-ID");
+  const threadId = String(message?.threadId ?? "");
+  if (!MSG_ID.test(inReplyTo) || !MESSAGE_ID.test(threadId)) return null;
+  const earlier = header("References").split(/\s+/).filter((id) => MSG_ID.test(id) && id !== inReplyTo);
+  return { threadId, inReplyTo, references: [...earlier.slice(-(MAX_REFERENCES - 1)), inReplyTo] };
 }
 
 /** Every address the email goes to. */
@@ -163,12 +198,13 @@ function base64(bytes: Uint8Array): string {
  * was validated by `readPersonEmail`, so none carries a line break; the body
  * travels base64-encoded and cannot end the headers early either.
  */
-export function gmailRaw(email: PersonEmail, from: string): string {
+export function gmailRaw(email: PersonEmail, from: string, thread: ReplyThread | null = null): string {
   const lines = [
     `From: ${from}`,
     `To: ${email.to.join(", ")}`,
     ...(email.cc.length > 0 ? [`Cc: ${email.cc.join(", ")}`] : []),
     `Subject: ${headerText(email.subject)}`,
+    ...(thread ? [`In-Reply-To: ${thread.inReplyTo}`, `References: ${thread.references.join(" ")}`] : []),
     "MIME-Version: 1.0",
     'Content-Type: text/plain; charset="UTF-8"',
     "Content-Transfer-Encoding: base64",

@@ -8,7 +8,7 @@
  * cross once, to be sent, and are kept by neither side.
  */
 
-const REFUSALS = new Set(["invalid", "not_allowed", "no_sender", "hourly_limit", "daily_limit", "recipient_limit", "not_configured", "unavailable"]);
+const REFUSALS = new Set(["invalid", "not_allowed", "no_sender", "hourly_limit", "daily_limit", "recipient_limit", "not_configured", "unavailable", "reply_not_found"]);
 
 export function createEmailMethods({ post }) {
   return {

@@ -234,6 +234,14 @@ export async function getMessageHeaders({ fetchImpl, accessToken, id }) {
   });
 }
 
+/** The headers a reply in the same thread needs: its Message-ID, References and Subject. */
+export async function getReplyHeaders({ fetchImpl, accessToken, id }) {
+  return gmailFetch(fetchImpl, accessToken, `/gmail/v1/users/me/messages/${encodeURIComponent(id)}`, {
+    format: "metadata",
+    metadataHeaders: ["Message-ID", "References", "Subject"],
+  });
+}
+
 /**
  * One message, or `null` if Gmail no longer has it.
  *
