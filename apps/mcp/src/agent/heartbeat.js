@@ -57,6 +57,7 @@ import { newLedger } from "../privacy/egress.js";
 import { isPlumbing } from "../privacy/engine.js";
 import { servedListingStore } from "../tree/served.js";
 import { json } from "../http/responses.js";
+import { disarmTexting } from "../tools/approvals.js";
 
 /** The check-in's first-party client (`apps/convex/functions/lib/heartbeats/model.ts`). Decided by the grant. */
 export const HEARTBEAT_CLIENT_ID = "context_heartbeat";
@@ -443,6 +444,8 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
         ms: Date.now() - started,
       }),
     );
+    // A text from Tex is something a bare "yes" may answer, so an older ask stops listening.
+    if (delivered) await disarmTexting(store, { userId: session.actorUserId }).catch(() => {});
     return json(delivered ? { outcome: "speak", answer: delivered.text } : { outcome: "quiet" });
   }
   const since = typeof given.since === "number" && Number.isFinite(given.since) ? given.since : started - FIRST_LOOK_MS;
@@ -556,6 +559,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
   if (why !== null) why = await appendLogEntryWhy(dispatch, path, shortEntry({ now, timeZone, text, outcome, why }), heading(now, timeZone));
   const logged = why === null;
   if (text) {
+    await disarmTexting(store, { userId: session.actorUserId }).catch(() => {});
     // Their reply to it is answered with the check-in in front of the turn (`conversation.js`).
     try {
       // No `tainted`: a check-in cannot read from outside the workspace, because

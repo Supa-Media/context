@@ -20,8 +20,9 @@
 export const CARD_NAME = "Tex";
 export const CARD_MEDIA_TYPE = "text/vcard";
 /**
- * Bump when the card or its photo changes: every Sendblue chat that has an
- * older card gets the new one once, and the line's Name & Photo is set again.
+ * Bump when the card or its photo changes: every Sendblue chat sets the line's
+ * Name & Photo again. A chat that already had a card is never sent another;
+ * only a chat new to Tex gets this one.
  */
 export const CARD_VERSION = 3;
 

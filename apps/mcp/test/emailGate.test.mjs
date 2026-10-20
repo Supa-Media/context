@@ -280,16 +280,16 @@ export async function runEmailGateChecks(check) {
     ]);
     const unsure = await ask(env, TOKEN_TEXTS, "maybe tell Jo thursday");
     check(
-      "an unsure checker puts it to the person with its doubt beside the email",
-      pending().length === 1 && (unsure.body?.answer ?? "").includes("(Mail checker: they said maybe Thursday.)"),
+      "an unsure checker puts it to the person, the email alone and never its reason",
+      pending().length === 1 && (unsure.body?.answer ?? "").includes("Re: maybe Thursday") && !(unsure.body?.answer ?? "").includes("Mail checker"),
     );
     await ask(env, TOKEN_TEXTS, "no");
 
     model.install([{ toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "Re: unchecked" } }] }, { status: 500 }, { text: "Drafted." }]);
     const unchecked = await ask(env, TOKEN_TEXTS, "send Jo the thursday email");
     check(
-      "a checker that cannot run still leaves the person the say, marked as unchecked",
-      pending().length === 1 && /Mail checker: the Mail checker could not run/.test(unchecked.body?.answer ?? ""),
+      "a checker that cannot run still leaves the person the say",
+      pending().length === 1 && (unchecked.body?.answer ?? "").includes("Re: unchecked") && !(unchecked.body?.answer ?? "").includes("Mail checker"),
     );
     await ask(env, TOKEN_TEXTS, "no");
 
@@ -390,7 +390,7 @@ export async function runEmailGateChecks(check) {
     end of a long answer the formatter cuts it: `apps/agent/src/format.ts`
     keeps three texts and folds every later paragraph into the third, and
     `apps/agent/src/clients.ts` sends at most 3,000 characters of each. The
-    record stays armed for half an hour either way, so a bare "yes" afterwards
+    record stays armed for twelve hours either way, so a bare "yes" afterwards
     releases a claim the person never read — and a claimed handle is never
     given back.
   */

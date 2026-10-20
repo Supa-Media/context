@@ -60,6 +60,11 @@ export type Inbound =
        */
       threaded?: true;
       /**
+       * Set on arrival (`inbox.ts`, `accept`): a plain text after the chat was
+       * quiet a while, so it starts a topic and its answer opens a thread under it.
+       */
+      newTopic?: true;
+      /**
        * Sendblue: it came as SMS (a green bubble), whose sender number anyone
        * can fake. Its words are never acted on (`reply.ts`, `smsReply`).
        */

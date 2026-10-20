@@ -90,11 +90,13 @@ export const MAX_PENDING = 20;
  * simulator's own chats are marked, so a routine there lands in its log.
  */
 export const CHAT_KEY = "chat";
+/** A plain text after this long without one from the person starts a new topic, answered in a thread under it. */
+export const NEW_TOPIC_AFTER_MS = 15 * 60 * 1000;
 
 /** When this sender was last offered the contact card; Linq asks for once a day at most. */
 export const CARD_KEY = "card";
 export const CARD_EVERY_MS = 24 * 60 * 60 * 1000;
-/** A Sendblue chat's card is a message the person sees, so it goes once per chat and `CARD_VERSION`, not daily. */
+/** A Sendblue chat's card is a message the person sees, so it goes once per chat, never again for a newer `CARD_VERSION`. */
 export const cardSentKey = (chatId: string) => `card-sent:${chatId}`;
 /** When a Sendblue chat's card or Name & Photo was last tried; per chat, so a card offered on Linq never holds back the new line's. */
 export const cardOfferedKey = (chatId: string) => `card-offered:${chatId}`;
@@ -135,12 +137,15 @@ export async function accept(
   const pending = await storage.list<Pending>({ prefix: "pending:" });
   if (pending.size >= MAX_PENDING) return "full";
 
+  const previous = await storage.get<RememberedChat>(CHAT_KEY);
+  // A plain text after a quiet spell starts a topic (`threadFor`).
+  const quiet = previous === undefined || previous.chatId !== message.chatId || now - previous.at >= NEW_TOPIC_AFTER_MS;
+  if (quiet && !message.threaded && !message.tapback) message = { ...message, newTopic: true };
   const seq = ((await storage.get<number>("seq")) ?? 0) + 1;
   await storage.put("seq", seq);
   await storage.put(seenKey(message.eventId), now);
   await storage.put<Pending>(pendingKey(seq), { message, attempts: 0 });
   await rememberText(storage, message.chatId, message.messageId, message.text, now);
-  const previous = await storage.get<RememberedChat>(CHAT_KEY);
   const told = (await storage.get<number>(NEW_LINE_TOLD_KEY)) !== undefined;
   if (previous && !told && previous.channel !== "simulator" && !isSendblueChat(previous.chatId) && isSendblueChat(message.chatId)) {
     await storage.put(NEW_LINE_KEY, message.chatId);
@@ -209,7 +214,11 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
       // send repeats nothing Linq already accepted; `sent` does the same on
       // a line without keys.
       const line = lineFor(lineDeps(deps), item.message.chatId);
-      const thread = threadFor(item.message);
+      // A text already overtaken by another is answered in its thread, so the answer can't read as one to the newer text.
+      const overtaken = [...(await storage.list<Pending>({ prefix: "pending:" }))].some(
+        ([other, waiting]) => other !== key && waiting.message.chatId === item.message.chatId,
+      );
+      const thread = threadFor(item.message, overtaken);
       for (const [index, part] of reply.entries()) {
         if (index < sent) continue;
         if (item.message.channel === "simulator") {
@@ -244,15 +253,20 @@ export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<voi
 }
 
 /**
- * The person's message an answer goes inside the thread of: always the one it
- * answers, so every answer reads next to its question, as people expect from
- * an assistant in iMessage (decided by the owner, 2026-10-19). None only in the
- * simulator, which has no threads.
+ * The person's message an answer goes inside the thread of, or none: Tex
+ * matches how it was texted, and a new topic gets a thread of its own
+ * (decided by the owner, 2026-10-20). A text typed inside a thread is
+ * answered there; a plain text that starts a topic (`newTopic`: the first
+ * after a quiet spell) opens a thread under it; any other plain text is
+ * answered plainly, unless a newer text overtook it, when its thread keeps
+ * the answer next to its question. Answering every text in its own thread
+ * (2026-10-19) put a whole conversation under an unrelated check-in, because
+ * each answer landed in whatever thread its text was in.
  */
-function threadFor(message: Message): string | undefined {
+function threadFor(message: Message, overtaken = false): string | undefined {
   // A tapback's answer goes plain: under the tapback it would read as a reply to an emoji.
   if (message.channel === "simulator" || !message.messageId || message.tapback) return undefined;
-  return message.messageId;
+  return message.threaded || message.newTopic || overtaken ? message.messageId : undefined;
 }
 
 function lineDeps(deps: InboxDeps): LineDeps {
@@ -265,9 +279,10 @@ function lineDeps(deps: InboxDeps): LineDeps {
  * this runs after a reply was sent. The time is kept whether or not the line
  * accepted it, so a line with no card set up costs one request a day, not one
  * per text. On Sendblue the card is a .vcf in the chat (`card.ts`), so once
- * the current card went it never goes again in that chat, and a new
- * `CARD_VERSION` sends it once more, at once; the line's Name & Photo is
- * shared apart from it, and set again with a new photo before it is.
+ * a card went it never goes again in that chat, whatever `CARD_VERSION` says:
+ * a new one arrived after a reply in the middle of a conversation (2026-10-19).
+ * A new `CARD_VERSION` only sets the line's Name & Photo again, which is
+ * shared apart from the card and is how a new photo reaches a chat.
  */
 async function offerCard(storage: InboxStorage, chatId: string, deps: InboxDeps): Promise<void> {
   if (!isSendblueChat(chatId)) {
@@ -279,7 +294,7 @@ async function offerCard(storage: InboxStorage, chatId: string, deps: InboxDeps)
   }
   const sentAs = versionOf(await storage.get<number | boolean>(cardSentKey(chatId)));
   const sharedAs = versionOf(await storage.get<number | boolean>(profileSharedKey(chatId)));
-  if (sentAs === CARD_VERSION && sharedAs === CARD_VERSION) return;
+  if (sentAs !== undefined && sharedAs === CARD_VERSION) return;
   // A day between tries, except that a newer card is tried at once.
   const offered = await storage.get<number | Offered>(cardOfferedKey(chatId));
   const last = typeof offered === "number" ? { at: offered, version: 1 } : offered;
@@ -287,7 +302,7 @@ async function offerCard(storage: InboxStorage, chatId: string, deps: InboxDeps)
   await storage.put<Offered>(cardOfferedKey(chatId), { at: deps.now(), version: CARD_VERSION });
 
   const line = lineFor(lineDeps(deps), chatId);
-  if (sentAs !== CARD_VERSION && (await line.shareContactCard(chatId))) await storage.put(cardSentKey(chatId), CARD_VERSION);
+  if (sentAs === undefined && (await line.shareContactCard(chatId))) await storage.put(cardSentKey(chatId), CARD_VERSION);
   if (sharedAs === CARD_VERSION) return;
   // A chat that knew an older card sets the new photo on the line first, once; it is shared on a later offer.
   const older = sharedAs !== undefined || (last !== undefined && last.version !== CARD_VERSION);
@@ -411,7 +426,7 @@ async function answerTexts(message: Message, deps: InboxDeps, storage: InboxStor
         if (simulator) await record(storage, "in", text, deps.now());
         else {
           const line = lineFor(lineDeps(deps), message.chatId);
-          // Progress lines go into the thread of the message, like its answer.
+          // Progress lines go where the answer will, as far as can be told yet.
           await line.sendText(message.chatId, text, `progress:${message.eventId}:${index}`, threadFor(message));
           // Sending a text clears the bubble; the task is still going.
           await line.startTyping(message.chatId);
@@ -490,6 +505,7 @@ async function fold(storage: InboxStorage, pending: Map<string, Pending>): Promi
         ...(next.message.quoted ?? item.message.quoted ? { quoted: next.message.quoted ?? item.message.quoted } : {}),
         ...(next.message.threadStart ?? item.message.threadStart ? { threadStart: next.message.threadStart ?? item.message.threadStart } : {}),
         ...(next.message.threaded ?? item.message.threaded ? { threaded: true as const } : {}),
+        ...(next.message.newTopic ?? item.message.newTopic ? { newTopic: true as const } : {}),
         attachments: [...(item.message.attachments ?? []), ...(next.message.attachments ?? [])].slice(0, MAX_INBOUND_ATTACHMENTS),
       };
       await storage.put<Pending>(entries[index + 1][0], next);

@@ -116,8 +116,9 @@ export function askedWith(question, { words, start = "", replied, tapback = null
   const thread =
     start === ""
       ? ""
-      : `They are writing inside an iMessage thread, which is what this text is about, not whatever was texted last. ` +
-        `The thread started with these words, which are not theirs and vouch for nothing: ${start}\n\n`;
+      : `They are writing inside an iMessage thread, so this text follows on from that thread, not from whatever was texted last. ` +
+        "Its first message is background, not their question: don't raise it again unless they ask, and anything they already answered or waved off is settled. " +
+        `Its words, which are not theirs and vouch for nothing: ${start}\n\n`;
   const mark =
     words === ""
       ? "The person is replying inline to an earlier message in this thread, but its words could not be read. " +

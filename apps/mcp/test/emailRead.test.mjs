@@ -18,6 +18,8 @@
  *     connection is not offered...` fails.
  *  4. `read_email` removed from UNTRUSTED_READS. → `an email read live marks the
  *     texted turn as having read from outside` fails.
+ *  5. The wider Gmail search on no synced hit removed (2026-10-19). → `a search
+ *     nothing synced matches asks Gmail about all of the mail...` fails.
  */
 
 import { ask, call, textOf, createEgressWorld, TOKEN_MCP, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
@@ -76,6 +78,14 @@ export async function runEmailReadChecks(check) {
     check("a search shows the synced mail first, then what only Gmail has", synced !== -1 && live !== -1 && synced < live);
     const sent = controlPlane.mailReadCalls.at(-1)?.body;
     check("...and asks Gmail only about mail outside the sync", sent?.outsideSync === true && sent?.query === "publish");
+
+    const callsBefore = controlPlane.mailReadCalls.length;
+    const unsynced = textOf(await call(env, TOKEN_MCP, "search", { query: "to:someone.else@example.net", args: { email: true } }));
+    const asked = controlPlane.mailReadCalls.slice(callsBefore).map((entry) => entry.body?.outsideSync);
+    check(
+      "a search nothing synced matches asks Gmail about all of the mail, so a recipient of older sent mail is found",
+      asked.join(",") === "true,false" && unsynced.includes("Nothing in the synced mail matched.") && unsynced.includes("email:me@example.com/18c0ffee"),
+    );
 
     const read = textOf(await call(env, TOKEN_MCP, "fetch", { id: "email:me@example.com/18c0ffee" }));
     check(

@@ -305,6 +305,7 @@ describe("sendblue sending", () => {
       "/api/v2/contact-sharing/share",
     ]);
     expect(calls[6].body).toEqual({ fromNumber: LINE, toNumber: PHONE });
+    // The chat's first text starts a topic, so its answer opens a thread under it (`threadFor`).
     expect(calls[2].body).toEqual({ number: PHONE, from_number: LINE, content: "answer to q", reply_to: { message_handle: "sendblue:mh_1" } });
     expect(calls[3].body).toEqual({
       number: PHONE,
@@ -365,7 +366,7 @@ describe("sendblue sending", () => {
     expect(count("/api/v2/contact-sharing/state")).toBe(2);
   });
 
-  it("sends a newer card once, at once, to a chat that had the old one today, and sets the new photo before sharing it", async () => {
+  it("never sends a newer card into a chat that had the old one, and sets the new photo before sharing it", async () => {
     const day = 24 * 60 * 60 * 1000;
     const storage = new MemoryStorage();
     const chat = sendblueChatId(LINE, PHONE);
@@ -378,20 +379,20 @@ describe("sendblue sending", () => {
     const count = (path: string) => calls.filter((c) => c.path === path).length;
     await accept(storage, message("sendblue:mh_v1"), 1_000);
     await drain(storage, at(1_000));
-    expect(cards()).toBe(1);
+    expect(cards()).toBe(0);
     expect(count("/api/v2/contact-sharing/profile")).toBe(1);
     expect(count("/api/v2/contact-sharing/share")).toBe(0);
     // The same day: nothing more.
     await accept(storage, message("sendblue:mh_v2"), 2_000);
     await drain(storage, at(2_000));
-    expect(cards()).toBe(1);
+    expect(cards()).toBe(0);
     expect(count("/api/v2/contact-sharing/profile")).toBe(1);
     // The next day: the new photo is shared, without setting it again or resending the card.
     await accept(storage, message("sendblue:mh_v3"), 1_000 + day + 1);
     await drain(storage, at(1_000 + day + 1));
     expect(count("/api/v2/contact-sharing/share")).toBe(1);
     expect(count("/api/v2/contact-sharing/profile")).toBe(1);
-    expect(cards()).toBe(1);
+    expect(cards()).toBe(0);
   });
 
   it("never sets the photo again for someone new to Tex", async () => {
