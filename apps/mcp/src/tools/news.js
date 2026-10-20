@@ -42,6 +42,13 @@ export const TOOL_NEWS = Object.freeze([
   {
     date: "2026-10-20",
     text:
+      'manage has a new action, invite `{ people: [{ who, role? }] }` with context set to a shared workspace the person owns: ' +
+      "Context emails each person (an email address or a @handle) an invitation, as an editor unless role is member. " +
+      "create_workspace takes the same list as `invite`, so one yes makes the workspace and asks them in. Both wait for the person's yes.",
+  },
+  {
+    date: "2026-10-20",
+    text:
       "send_email and save_email_draft take `in_reply_to`: the email:<address>/<id> id search_email gave for the email being answered. " +
       "The reply goes inside that email's thread, from that mailbox.",
   },
@@ -223,7 +230,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "7b1bcd8d";
+export const TOOL_SHAPE = "ca9c51dc";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

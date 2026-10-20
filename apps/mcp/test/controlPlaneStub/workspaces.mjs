@@ -38,7 +38,7 @@ export function createWorkspaceRoutes({ grantForAccessToken, coveredContexts, wo
         if (!cleared) return { workspace: null };
         const slug = String(body.slug ?? "").toLowerCase();
         const problem = nameProblem(slug);
-        calls.push({ path, userId: cleared.grant.userId, slug, dryRun: body.dryRun === true });
+        calls.push({ path, userId: cleared.grant.userId, slug, dryRun: body.dryRun === true, invitations: body.invitations });
         if (body.dryRun === true) {
           return { workspace: { ok: true, dryRun: true, available: problem === null, normalized: slug, ...(problem ? { message: problem } : {}) } };
         }
@@ -49,7 +49,8 @@ export function createWorkspaceRoutes({ grantForAccessToken, coveredContexts, wo
         for (const grant of grants.values()) {
           if (grant.userId === cleared.grant.userId) grant.alsoMemberOf = [...(grant.alsoMemberOf || []), { workspaceId, role: "owner" }];
         }
-        return { workspace: { ok: true, slug, storage: "starting" } };
+        const invited = Array.isArray(body.invitations) ? body.invitations.length : 0;
+        return { workspace: { ok: true, slug, storage: "starting", ...(invited > 0 ? { invited } : {}) } };
       }
       case "/gateway/workspaces/layout": {
         const cleared = await clear(body);
@@ -67,6 +68,15 @@ export function createWorkspaceRoutes({ grantForAccessToken, coveredContexts, wo
         }
         if (cleared.entry.role !== "owner") return { layout: { ok: false, message: "Only an owner of this workspace can choose its layout." } };
         return LAYOUTS[body.template] ? { layout: { ok: true, queued: true, folders: LAYOUTS[body.template] } } : { layout: null };
+      }
+      case "/gateway/workspaces/invite": {
+        // As `gatewayWorkspacesInviteHandler`: a shared workspace, by its owner.
+        const cleared = await clear(body);
+        if (!cleared || !Array.isArray(body.invitations) || body.invitations.length === 0) return { invite: null };
+        calls.push({ path, userId: cleared.grant.userId, workspaceId: cleared.entry.workspaceId, invitations: body.invitations });
+        if (cleared.entry.kind !== "shared") return { invite: { ok: false, message: "People are invited into a shared workspace; a personal one stays yours." } };
+        if (cleared.entry.role !== "owner") return { invite: { ok: false, message: "Only an owner of this workspace can invite people into it." } };
+        return { invite: { ok: true, invited: body.invitations.length } };
       }
       case "/gateway/workspaces/connect-google": {
         const cleared = await clear(body);

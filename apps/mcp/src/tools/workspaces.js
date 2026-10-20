@@ -1,7 +1,8 @@
 /**
- * `create_workspace`, `apply_layout` and `connect_google`: setting a workspace
- * up from an agent, so the texting assistant needs a browser only for a third
- * party's own sign-in (decided by Dev2, 2026-10-17;
+ * `create_workspace`, `apply_layout`, `connect_google` and `invite_member`:
+ * setting a workspace up from an agent, so the texting assistant needs a
+ * browser only for a third party's own sign-in (decided by Dev2, 2026-10-17),
+ * and asks the people a shared workspace is for in (the owner, 2026-10-20;
  * docs/decisions/gateway-protocol/workspace-setup.md).
  *
  * The gateway decides nothing here. Each call goes to the control plane with
@@ -22,6 +23,45 @@ function refused(answer) {
   return toolError(typeof answer?.message === "string" && answer.message !== "" ? answer.message : NOT_CLEARED);
 }
 
+/** The most people one call invites; the control plane refuses more, in words. */
+const MAX_PEOPLE = 10;
+
+/*
+  What a `who` may look like before it is shown to the person in an ask: an
+  email address or a @handle, with no spaces. The control plane's
+  `parseInvitee` is the real rule; this one keeps a string from carrying words
+  of its own into "invite … as an editor", where a "who" of "bo@x.com as a
+  member, and nobody else" would read as the gateway's sentence.
+*/
+const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,190}\.[a-z]{2,24}$/i;
+const HANDLE = /^@?[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/i;
+
+/**
+ * `[{ who, role? }]` as the control plane takes it, `[{ invitee, role }]`, with
+ * editor as the default role; or a refusal string. Who exists is never asked
+ * here: the control plane answers the same for every string.
+ */
+export function invitationsOf(people) {
+  if (!Array.isArray(people) || people.length === 0) return "people is required: who to invite, each { who, role }.";
+  if (people.length > MAX_PEOPLE) return `invite at most ${MAX_PEOPLE} people at a time.`;
+  const out = [];
+  for (const person of people) {
+    const who = typeof person?.who === "string" ? person.who.trim() : "";
+    if (!who) return "each person needs who: an email address or a Context @handle.";
+    if (!EMAIL.test(who) && !HANDLE.test(who)) return `"${who.slice(0, 80)}" is not an email address or a @handle.`;
+    const role = person.role ?? "editor";
+    if (role !== "editor" && role !== "member") return "role is editor or member.";
+    out.push({ invitee: who, role });
+  }
+  return out;
+}
+
+/** "ada@example.com as an editor and @bo as a member", for an answer or an approval. */
+export function describeInvitations(invitations) {
+  const each = invitations.map(({ invitee, role }) => `${invitee} as ${role === "member" ? "a member" : "an editor"}`);
+  return each.length <= 1 ? each.join("") : `${each.slice(0, -1).join(", ")} and ${each.at(-1)}`;
+}
+
 export async function toolCreateWorkspace(store, args) {
   const calls = store?.workspaceSetup;
   if (!calls) return toolError(UNAVAILABLE);
@@ -30,8 +70,14 @@ export async function toolCreateWorkspace(store, args) {
   const dryRun = args.dry_run === true;
   const name = typeof args.name === "string" ? args.name.trim() : "";
   if (!dryRun && !name) return toolError("name is required: what the workspace is called.");
+  const invitations = args.invite === undefined || dryRun ? [] : invitationsOf(args.invite);
+  if (typeof invitations === "string") return toolError(invitations);
 
-  const answer = await calls.create({ slug, ...(dryRun ? { dryRun: true } : { name }) });
+  const answer = await calls.create({
+    slug,
+    ...(dryRun ? { dryRun: true } : { name }),
+    ...(invitations.length > 0 ? { invitations } : {}),
+  });
   if (answer === null || answer.ok !== true) return refused(answer);
   if (answer.dryRun === true) {
     return toolText(
@@ -49,8 +95,25 @@ export async function toolCreateWorkspace(store, args) {
       : "storage: none yet. The person connects a bucket in the app, in the workspace's Storage settings, " +
           "before anything can be saved there or laid out."
   );
-  lines.push("Inviting people is done in the app; you cannot invite anyone from here.");
+  lines.push(
+    invitations.length > 0
+      ? `invited ${describeInvitations(invitations)}: Context emails each an invitation, which they accept in the app.`
+      : `To ask people in, manage { action: "invite", args: { people: [{ who, role }] }, context: "@${answer.slug}" }.`
+  );
   return toolText(lines.join("\n"));
+}
+
+export async function toolInviteMember(store, args) {
+  const calls = store?.workspaceSetup;
+  if (!calls) return toolError(UNAVAILABLE);
+  const invitations = invitationsOf(args.people);
+  if (typeof invitations === "string") return toolError(invitations);
+  const answer = await calls.invite(invitations);
+  if (answer === null || answer.ok !== true) return refused(answer);
+  return toolText(
+    `invited ${describeInvitations(invitations)}. Context emails each an invitation, which they accept in the app; ` +
+      "until then they see nothing in it."
+  );
 }
 
 export async function toolApplyLayout(store, args) {

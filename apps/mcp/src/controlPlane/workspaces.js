@@ -1,7 +1,7 @@
 /**
  * Setting a workspace up through an agent: a new shared workspace, its
- * starting layout or one built-in folder, and the page where the person
- * connects Google (`/gateway/workspaces/*`,
+ * starting layout or one built-in folder, the page where the person connects
+ * Google, and invitations into a shared one (`/gateway/workspaces/*`,
  * `apps/convex/functions/lib/gatewayRoutes/workspaces.ts`).
  *
  * Each answers what the control plane said, or `null` for a caller it did not
@@ -36,6 +36,12 @@ export function createWorkspaceMethods({ post, required }) {
         { timeoutMs: CONTROL_PLANE_SITE_TIMEOUT_MS }
       );
       return objectOrNull(required(parsed, "layout"), "layout");
+    },
+
+    /** `{ok: true, invited}`, `{ok: false, message}` or null. */
+    async inviteToWorkspace(accessToken, expectedWorkspaceId, invitations) {
+      const parsed = await post("/gateway/workspaces/invite", { accessToken, expectedWorkspaceId, invitations });
+      return objectOrNull(required(parsed, "invite"), "invite");
     },
 
     /** `{ok: true, url}`, `{ok: false, message}` or null. */

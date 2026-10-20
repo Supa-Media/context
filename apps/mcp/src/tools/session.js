@@ -35,9 +35,10 @@ import { canonicalToolName, coercedArguments, toolArgumentRefusal } from "./adve
 import { toolError } from "./results.js";
 import { toolMoveNoteAcrossContexts } from "./moves/acrossContexts.js";
 import { NoteCapReached, asRelocation } from "../store/noteCap.js";
-import { oneLine, recordRead } from "../privacy/egress.js";
+import { recordRead } from "../privacy/egress.js";
 import { createPending, findPending, takeDone } from "./approvals.js";
 import { HELD_GATES } from "./heldGates.js";
+import { irreversibleOf } from "./irreversible.js";
 import { wordsOfTurn } from "../agent/conversation.js";
 import { wideningOf } from "../privacy/widening.js";
 import { loadPrivacyState } from "../privacy/state.js";
@@ -76,8 +77,9 @@ async function answeringNoteCap(run) {
  * THE ASK-FIRST GATE, at the one place every AI client's call passes.
  *
  * Only the few calls nobody can take back wait for the person: an email and a
- * calendar change (`HELD_GATES`, each with its exact copy), and claiming a
- * workspace's @handle, which is never freed. Everything else runs at once.
+ * calendar change (`HELD_GATES`, each with its exact copy), claiming a
+ * workspace's @handle, which is never freed, and inviting people, whose email
+ * cannot be unsent (`irreversible.js`). Everything else runs at once.
  * The widening holds that once sat here — a link, a publish, a visibility
  * change, a write into another workspace, held for a yes as a guard against
  * prompt injection — were removed by the owner on 2026-10-17 ("everything
@@ -100,8 +102,9 @@ async function egressGate(suppliedName, supplied, args, { store, session, target
     const refused = await judgedGate(name, suppliedName, args, { store, session, target, targetStore, into, personSaid });
     if (refused) return refused;
   }
-  const claim = handleClaimOf(name, args);
-  if (claim === null || session.egress?.approved === true) return null;
+  const held = irreversibleOf(name, args, { into: typeof target.workspaceSlug === "string" ? `@${target.workspaceSlug}` : null });
+  if (held === null || session.egress?.approved === true) return null;
+  const { because, ...claim } = held;
   const userId = session.actorUserId;
   const released = await takeDone(store, {
     name: suppliedName,
@@ -135,7 +138,6 @@ async function egressGate(suppliedName, supplied, args, { store, session, target
     );
   }
   if (ledger && !ledger.asked.some((asked) => asked.id === record.id)) ledger.asked.push(record);
-  const because = "a @handle, once claimed, is never given back";
   // `held` tells the turn (and so the turn log and the bench) that this call
   // was not refused but is waiting for the person; it runs when they say yes.
   return {
@@ -216,24 +218,6 @@ async function judgedGate(name, suppliedName, args, { store, session, target, ta
 function advertisesTeamConfirmation(name) {
   const tool = toolDefinitions().find((entry) => entry.name === name);
   return Boolean(tool?.inputSchema?.properties?.confirm_team_publish);
-}
-
-/**
- * A real `create_workspace` claims a handle nobody can give back, so it waits
- * for the person from every turn (Dev2, 2026-10-17;
- * docs/decisions/gateway-protocol/workspace-setup.md). A dry run claims
- * nothing and runs. Null for every other call.
- */
-function handleClaimOf(name, args) {
-  if (name !== "create_workspace") return null;
-  const a = args && typeof args === "object" ? args : {};
-  if (a.dry_run === true) return null;
-  const slug = typeof a.slug === "string" ? a.slug.trim().replace(/^@/, "").toLowerCase() : "";
-  return {
-    audience: "private",
-    permanent: true,
-    summary: oneLine(`claim the handle @${slug} for a new shared workspace (handles are permanent)`),
-  };
 }
 
 /** Run one tool call for this session, enforcing scope. Shared by both eras. */

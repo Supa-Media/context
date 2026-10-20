@@ -27,9 +27,9 @@ six (see [six tools](./six-tools.md)):
   a link to Connected apps in the person's personal workspace, where they press
   Connect and sign in to Google.
 
-Invites and share links are out of this cut: they let more people see
-something. There is no "default workspace" setting; every tool already takes
-`context: "@name"`.
+Share links stay out: they let more people see something, and they have
+their own gate. Invites came next (below, 2026-10-20). There is no "default
+workspace" setting; every tool already takes `context: "@name"`.
 
 ## One handler, the person off the grant
 
@@ -115,6 +115,61 @@ then claims it ... once they say yes", "a dry run is never held, and a claim
 is held even with the widening gate switched off", "Tex asks by text before
 claiming a handle, and the texted YES claims it"), sabotage in its header.
 
+## Tex invites people, and offers a shared workspace when work involves them (2026-10-20)
+
+Decided by the owner, 2026-10-20: "a lot of users are going to be interacting
+with context only through TEX ... once multiple people are involved, suggest,
+hey, this is probably something that can be in another workspace. Even if
+it's just one other person." Before this, Tex could make a shared workspace
+but was told "inviting people is done in the app", and nothing told it to
+offer one, so a person who only texts never made one and their work with
+others stayed in a personal workspace nobody else could open.
+
+- **`manage invite`** `{ people: [{ who, role? }] }` (`invite_member`), with
+  `context` set to a shared workspace the person owns: `who` is an email
+  address or a @handle, `role` editor (the default) or member, at most ten.
+  It posts to `/gateway/workspaces/invite`, which clears the grant as the
+  other routes do and calls `inviteMemberHandler`
+  (`apps/convex/functions/lib/invitations/invite.ts`), the body the app's
+  `inviteMember` now calls too. So the owner check, the string rules, the
+  hourly limit, the pending cap and the `null` that keeps an invite box from
+  being an existence oracle are the app's. A personal workspace is refused
+  at the route: an agent never opens one person's workspace to somebody else.
+- **`create_workspace` takes the same `invite`.** `createShared` makes the
+  workspace and the invitations in one transaction, so a refusal for one
+  string makes nothing at all, and one yes covers both.
+- **Both wait for the person's yes, naming everyone.** An invitation is an
+  email that cannot be unsent, which is the same reason an email waits
+  (`tools/irreversible.js`, beside the handle claim it generalizes). The
+  summary names each invitee and role ("claim the handle @woodshop ..., and
+  invite ada@example.com as an editor (Context emails them)"), so a yes is to
+  those people. It is not a sharing-judge call: the held yes is stronger, and
+  judging it too would refuse Tex's offer before the person could answer it.
+  Housekeeping refuses it (`mightWiden`), since nobody is watching.
+- **The offer is the held call.** Every turn (one workspace or several) is
+  told, in `agent/workspaces.js`, to offer a shared workspace once when work
+  is done with at least one other person and none covers it, never for
+  family, friends or a one-off plan, to remember a no, and to make the offer
+  by calling `create_workspace` with `invite`. The gateway's own ask is the
+  question, so the person answers once: "Before I do that, I need your OK:
+  ... Should I go ahead?" Nothing is created or sent before that yes.
+- **A texted yes offers the next step.** No model runs on a texted yes
+  (`textedSettle.js`), so the done line for a create is followed by "Want me
+  to set up its folders and move your notes about it there?"; the next yes
+  goes to the model with that line in the conversation.
+
+What a simplification would cost: running an invite without the yes lets one
+injected sentence email strangers in the person's name; letting the agent
+invite into a personal workspace opens every note in it; a gateway-side copy
+of the invite rules drifts from the app's and can leak who has an account.
+
+Tests: `apps/convex/__tests__/controlPlane/workspaceInvite.test.ts` (one
+transaction, owner only, personal refused, the same answer whoever the
+strings name; sabotage in its header); `apps/mcp/test/workspaceInvite.test.mjs`
+(held and named, released once, refused in words, the texted offer and its
+one YES; sabotage in its header); `apps/mcp/test/agentWorkspaces.test.mjs`
+("one workspace ... is still offered a shared one").
+
 ## The owned-workspace cap counts owners before it limits (2026-10-17)
 
 `createWorkspaceHandler` (`apps/convex/functions/lib/workspaces/create.ts`)
@@ -146,6 +201,8 @@ of fifteen still allows a tenth".
   app's name rules and reserved words hold; an editor cannot choose a layout;
   Google only for a personal workspace's owner, as a page. Sabotage recorded
   in its header.
+- `apps/convex/__tests__/controlPlane/workspaceInvite.test.ts` and
+  `apps/mcp/test/workspaceInvite.test.mjs`: invites, above.
 - `apps/mcp/test/workspaceSetup.test.mjs`: the actions translate, reach the
   addressed workspace, and a read-only connection never reaches the control
   plane; a layout or a connect is never held, and a real create is held for

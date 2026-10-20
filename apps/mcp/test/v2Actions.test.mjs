@@ -182,6 +182,7 @@ const MANAGE = [
   ["vault_share", "vault_share_link", { entry: "e1" }],
   ["vault_view", "vault_view_link", { entry: "e1" }],
   ["create_workspace", "create_workspace", { slug: "acme", name: "Acme", dry_run: true }],
+  ["invite", "invite_member", { people: [{ who: "ada@example.com" }] }],
   ["layout", "apply_layout", { template: "business" }],
   ["folder_job", "apply_layout", { job: "tex", path: "Life/Assistant" }],
   ["connect_google", "connect_google", { kind: "gmail" }],
