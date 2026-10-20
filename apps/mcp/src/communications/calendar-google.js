@@ -16,6 +16,7 @@
 // definitions of "today".
 
 import { zonedDayStartInstant } from "../../../../packages/communications/src/calendar/timezone.js";
+import { safeGoogleErrorDetails } from "./googleErrorDetails.js";
 
 /** `calendar.events.list`, scoped to one calendar. No API key: OAuth only. */
 export const GOOGLE_CALENDAR_EVENTS_URL = (calendarId) =>
@@ -39,11 +40,14 @@ export class SyncTokenExpiredError extends Error {
  * `status` is safe to log; nothing else about the request is attached.
  */
 export class CalendarApiError extends Error {
-  constructor(status, calendarId) {
+  constructor(status, calendarId, details = {}) {
     super(`calendar API request failed (${status}) for calendar ${calendarId}`);
     this.name = "CalendarApiError";
     this.status = status;
     this.calendarId = calendarId;
+    // Google's reason word, so a 403 rate limit is not read as a refusal.
+    this.reason = typeof details.reason === "string" ? details.reason : undefined;
+    this.googleStatus = typeof details.googleStatus === "string" ? details.googleStatus : undefined;
   }
 }
 
@@ -139,7 +143,7 @@ export async function fetchCalendarPage({
   });
 
   if (response.status === 410) throw new SyncTokenExpiredError(calendarId);
-  if (!response.ok) throw new CalendarApiError(response.status, calendarId);
+  if (!response.ok) throw new CalendarApiError(response.status, calendarId, await safeGoogleErrorDetails(response));
 
   const body = await response.json();
   return {

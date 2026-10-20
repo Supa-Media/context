@@ -101,6 +101,18 @@ export async function runGoogleChatChecks(check) {
     check("a denied space throws a structured, catchable error", error?.code === "PERMISSION_DENIED");
     check("...never a raw HTTP status a caller has to remember", typeof error.code === "string");
   });
+  // A 403 Google sends to slow us down is not a space this grant lost: read
+  // as PERMISSION_DENIED it marked the space unreadable. Sabotage: drop the
+  // `isGoogleRateLimit` branch in `chatGet`.
+  await section("client: a rate-limited 403 is not a denied space", async () => {
+    const fetchImpl = async () =>
+      new Response(JSON.stringify({ error: { code: 403, status: "RESOURCE_EXHAUSTED", errors: [{ reason: "rateLimitExceeded" }] } }), {
+        status: 403,
+        headers: { "content-type": "application/json" },
+      });
+    const error = await listSpacesPage({ fetchImpl, accessToken: ACCESS_TOKEN }).catch((e) => e);
+    check("a rate-limited 403 is RATE_LIMITED, carrying the reason", error?.code === "RATE_LIMITED" && error.reason === "rateLimitExceeded" && error.status === 403);
+  });
 
   // -- transform: Chat's shapes -> CommunicationEvent -----------------------
   check("a GROUP_CHAT space normalizes to group_chat", chatSpaceType(fixtureSpace({ spaceType: "GROUP_CHAT" })) === "group_chat");
