@@ -91,6 +91,28 @@ const TABS: TabsState = {
   closed: [],
 };
 
+/** Names long and short, so a full strip shows both kinds of tab giving way. */
+const MORE_TABS = [
+  "peters-restoration-and-community", "gifts-and-talents", "sanctification", "the-prodigal-son",
+  "worldly-manhood-vs-biblical-manhood", "weekly-plan", "roadmap", "hiring", "budget-2027",
+  "retreat-logistics", "reading-list", "sermon-notes", "launch-checklist", "q4-goals",
+  "volunteers", "setlist", "press-kit", "ideas", "inbox-zero", "one-on-ones",
+];
+
+/**
+ * `?tabs=N`: N tabs open, the last of them active — for the full strip, where
+ * the tabs share the row (`TabStrip.tsx`). Anything else is the design's two.
+ */
+export function fixtureTabs(count: number | null): TabsState {
+  if (count === null || !Number.isInteger(count) || count < 1) return TABS;
+  const tabs = Array.from({ length: count }, (_, at) => ({
+    path: `1-projects/${MORE_TABS[at % MORE_TABS.length]}${at < MORE_TABS.length ? "" : `-${at}`}.md`,
+    preview: false,
+    dirty: false,
+  }));
+  return { tabs, activePath: tabs[tabs.length - 1].path, closed: [] };
+}
+
 export function AppFrameVisualFixture({
   panel = false,
   fakeMeeting = panel,

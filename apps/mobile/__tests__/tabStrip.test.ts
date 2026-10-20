@@ -56,7 +56,7 @@ import { createRoot } from "react-dom/client";
  *    `overflow-y`, so the shorthand itself resolves to `""`. Ask for the axis.
  */
 
-const { TabStrip } =
+const { TabStrip, tabsAreTight } =
   require("../features/console/files/TabStrip") as typeof import("../features/console/files/TabStrip");
 const { emptyTabs, tabsReducer } =
   require("../features/console/files/tabs") as typeof import("../features/console/files/tabs");
@@ -330,6 +330,24 @@ describe("the tab strip draws what tabs.ts says", () => {
     expect(track.flexWrap).toBe("nowrap");
     expect(track.flexDirection).toBe("row");
 
+    strip.unmount();
+  });
+
+  test("a full row is tight: back tabs give up their ✕ below an even share of 96", () => {
+    // Unmeasured is never tight, so jsdom and the first frame draw every ✕.
+    expect(tabsAreTight(0, 30)).toBe(false);
+    expect(tabsAreTight(1000, 10)).toBe(false);
+    expect(tabsAreTight(1000, 11)).toBe(true);
+  });
+
+  test("the strip takes its slot's width rather than its tabs'", () => {
+    // Without these the strip spread along its tabs and drew over the
+    // search field beside it (owner, 2026-10-20). Overlap itself is a layout
+    // claim, and `e2e/webkit/tabStripFit.spec.ts` measures it.
+    const strip = mountStrip(openTabs(NOTES, PLAN, AREAS));
+    const box = getComputedStyle(strip.need("tab-strip"));
+    expect(box.flexShrink).toBe("1");
+    expect(box.minWidth).toBe("0px");
     strip.unmount();
   });
 
