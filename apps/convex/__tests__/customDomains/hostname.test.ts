@@ -26,6 +26,8 @@ describe("normalizeHostname", () => {
     ["192.168.1.1", "IP_ADDRESS"],
     ["context.lc", "PLATFORM_DOMAIN"],
     ["MCP.Context.LC", "PLATFORM_DOMAIN"],
+    ["tex.lc", "PLATFORM_DOMAIN"],
+    ["www.Tex.LC", "PLATFORM_DOMAIN"],
     ["router.localhost", "PLATFORM_DOMAIN"],
     [`${"a".repeat(63)}.${"b".repeat(63)}.${"c".repeat(63)}.${"d".repeat(63)}.com`, "TOO_LONG"],
   ])("%s is refused as %s", (input, reason) => {
