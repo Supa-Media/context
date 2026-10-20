@@ -13,7 +13,7 @@ import { internal } from "../../_generated/api";
 import type { ActionCtx } from "../../_generated/server";
 import type { Id } from "../../_generated/dataModel";
 import { CONTEXT_MOVE_SKIP_CAP } from "./fileOps";
-import type { MoverPass } from "./contextMoveMover";
+import { CONFLICT_STOPPED, type MoverPass, absorbConflict } from "./contextMoveMover";
 
 const UNEXPECTED = "The move could not be completed. Nothing further was moved.";
 
@@ -30,7 +30,7 @@ type Skip = { path: string; reason: "encrypted" | "too_large" };
 /** Carry up to `batches` batches here. `skipped` is added to in place. */
 export async function carryHere(
   ctx: ActionCtx,
-  input: { row: MoveRow; source: Access; destination: Access; skipped: Skip[]; batches: number },
+  input: { row: MoveRow; source: Access; destination: Access; skipped: Skip[]; batches: number; conflictsLeft: number },
 ): Promise<MoverPass> {
   const { row, source, destination, skipped } = input;
   const pass: MoverPass = { movedObjects: 0, movedBytes: 0, remaining: true };
@@ -142,7 +142,7 @@ export async function carryHere(
         const stale = landed.landed.filter((entry) =>
           removed.conflicts.includes(entry.source),
         );
-        await ctx
+        const takenBack = await ctx
           .runAction(internal.functions.files.runFileOperation, {
             workspaceId: row.destinationWorkspaceId,
             scope: destination.scope,
@@ -162,11 +162,11 @@ export async function carryHere(
             },
           })
           .catch(() => undefined);
-        return {
-          ...pass,
-          failed:
-          "A note changed while it was being moved, so the move stopped. Everything already moved is in the new context; run it again to finish.",
-        };
+        // Listed again, the edited note is read at its new version and carried with the edit; a copy that
+        // could not be taken back would stand in the way of that, so the move stops instead.
+        const clear = takenBack?.kind === "contextMoveRemoved" && takenBack.deleted.length === stale.length;
+        if (clear && (await absorbConflict(pass, input.conflictsLeft))) continue;
+        return { ...pass, failed: CONFLICT_STOPPED };
       }
     }
     if (landed.failure !== null) {

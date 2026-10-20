@@ -334,22 +334,30 @@ export async function deleteMovedSources(
 
       Its bytes are at its key and a delete of it is refused (only emptying the
       trash retires a key). So the note's row goes to this workspace's trash,
-      only if it still holds the version that was copied: an edit made since
-      is a conflict, exactly as the conditional retire below makes it. The
-      note stays restorable here, as the unkeyed path's trash copy does, and
-      its rules travel with the row, so there is nothing to forget.
+      only if its key still holds the version that was copied: an edit made
+      since is a conflict, exactly as the conditional retire below makes it.
+      The note stays restorable here, as the unkeyed path's trash copy does,
+      and its rules travel with the row, so there is nothing to forget.
+
+      The version is asked of the key, never the row. A row's etag is what the
+      tree last heard, and a key can be rewritten with nobody telling it (the
+      managed encryption walk seals keys in the bare bucket): checked against
+      the row, such a note read as edited on every move, and never moved. An
+      edit landing after this read and before the trash goes into the trash
+      with the note, where Restore still has it.
     */
     for (const source of options.sources) {
+      const current = typeof store.head === "function" ? await store.head(source.path) : await store.get(source.path);
+      if (current === null || current.etag !== source.etag) {
+        conflicts.push(source.path);
+        continue;
+      }
       try {
-        await trashKeyedRows(store, {
-          path: source.path,
-          clearance,
-          now: Date.now(),
-          expectedEtag: source.etag,
-        });
+        await trashKeyedRows(store, { path: source.path, clearance, now: Date.now() });
         deleted.push(source.path);
       } catch (error) {
         if (!(error instanceof FileOpError)) throw error;
+        console.warn("contextMove.keyed_trash_refused", { code: error.code });
         conflicts.push(source.path);
       }
     }
