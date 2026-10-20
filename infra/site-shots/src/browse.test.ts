@@ -18,6 +18,9 @@ function fakePage(start = "https://shop.example.com/") {
     ratio: 2,
     uploaded: [] as string[],
     uploadAnswer: "input",
+    hooks: [] as string[],
+    pickerAnswer: "none",
+    dropped: [] as string[],
   };
   const url = () => new URL(state.href);
   const page: BrowsePage = {
@@ -42,14 +45,23 @@ function fakePage(start = "https://shop.example.com/") {
       if (source.includes("location.hostname")) return { href: state.href, host: url().hostname, origin: url().origin } as T;
       const exists = source.match(/^!!document\.querySelector\('\[data-tex-ref="(\d+)"\]'\)$/);
       if (exists) return state.refs.has(Number(exists[1])) as T;
-      const kind = source.match(/data-tex-ref="(\d+)"[\s\S]*getAttribute\("type"\)[\s\S]*return (.*);/);
-      if (kind) {
-        const type = state.types[Number(kind[1])] ?? "";
-        return (kind[2].includes('"password"') && !kind[2].includes("includes") ? type === "password" : ["text", "email", "tel"].includes(type)) as T;
+      if (source.includes("window.__texPicker = state")) {
+        state.hooks.push(source);
+        return undefined as T;
+      }
+      if (source.startsWith("new Promise((done)") && source.includes("__texPicker")) return state.pickerAnswer as T;
+      if (source.includes("new DragEvent(")) {
+        state.dropped.push(source);
+        return true as T;
       }
       if (source.includes("new DataTransfer()")) {
         state.uploaded.push(source);
         return state.uploadAnswer as T;
+      }
+      const kind = source.match(/data-tex-ref="(\d+)"[\s\S]*getAttribute\("type"\)[\s\S]*return (.*);/);
+      if (kind) {
+        const type = state.types[Number(kind[1])] ?? "";
+        return (kind[2].includes('"password"') && !kind[2].includes("includes") ? type === "password" : ["text", "email", "tel"].includes(type)) as T;
       }
       const cleared = source.match(/data-tex-ref="(\d+)"[\s\S]*dispatchEvent\(new Event\("input"/);
       if (cleared) state.typed[Number(cleared[1])] = "";
@@ -294,7 +306,40 @@ describe("upload", () => {
     const { page, state } = fakePage();
     state.uploadAnswer = "none";
     const result = await runSteps(page, [{ do: "upload", ref: null, file, onlyOn: null }]);
-    expect(result.ran).toEqual([{ do: "upload", ok: false, reason: "this page has no box that takes a file" }]);
+    expect(result.ran).toEqual([{ do: "upload", ok: false, reason: "this page has no box that takes a file; name the button that asks for one" }]);
+  });
+
+  it("presses a button that makes its file box only when pressed, and that box gets the file", async () => {
+    const { page, state } = fakePage();
+    state.uploadAnswer = "button";
+    state.pickerAnswer = "attached";
+    const result = await runSteps(page, [{ do: "upload", ref: 3, file, onlyOn: null }]);
+    expect(result.ran).toEqual([{ do: "upload", ok: true }]);
+    expect(state.clicks).toEqual([3]);
+    expect(state.hooks).toHaveLength(1);
+    expect(state.hooks[0]).toContain('"receipt.pdf"');
+    expect(state.dropped).toEqual([]);
+  });
+
+  it("drops the file onto it when pressing opened no box, and says to look", async () => {
+    const { page, state } = fakePage();
+    state.uploadAnswer = "button";
+    const result = await runSteps(page, [{ do: "upload", ref: 3, file, onlyOn: null }]);
+    expect(result.ran).toEqual([
+      { do: "upload", ok: true, reason: "pressing it opened no file box, so the file was dropped onto it; look to check the page took it" },
+    ]);
+    expect(state.dropped).toHaveLength(1);
+  });
+
+  it("a click that opens a file picker opens none, and says an upload step attaches the file", async () => {
+    const { page, state } = fakePage();
+    state.pickerAnswer = "asked";
+    const result = await runSteps(page, [{ do: "click", ref: 3 }]);
+    expect(result.ran).toEqual([
+      { do: "click", ok: true, reason: "that asks for a file: an upload step naming the same element attaches one of the person's" },
+    ]);
+    expect(state.hooks).toHaveLength(1);
+    expect(state.hooks[0]).not.toContain("new DataTransfer()");
   });
 
   it("takes a named file of a plain type, and nothing malformed or too big", () => {

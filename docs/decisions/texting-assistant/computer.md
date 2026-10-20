@@ -126,3 +126,17 @@ rule as typing. Tests: `test/agentUploads.test.mjs` (sabotaged: skipping the
 `read_file` gate, dropping `onlyOn`) and `browse.test.ts` ("puts the person's
 file into the page…", "uploads nothing on a site the person did not name").
 The input and drop paths were checked in real Chromium by hand.
+
+The first real try (2026-10-20) found the common case the step missed: an app
+that makes its file box only when its button is pressed (`expo-document-picker`
+on the web creates an input and calls its `click()`), so the page had no box
+to fill and pressing the button opened a picker on the remote machine nobody
+could see. Both steps now press with a stand-in picker in place
+(`pickerHookSource`): a file box the page opens, by `click()`, `showPicker()`
+or a label, gets the person's file on an upload step and is only noted on a
+click, which then says an upload step naming the same element attaches one.
+This is done in the page rather than with Browserbase's uploads API and CDP
+`DOM.setFileInputFiles`, so the file never sits on the browser's disk and the
+same code runs on both providers. Tests: `browse.test.ts` ("presses a button
+that makes its file box only when pressed…", sabotaged by skipping the press),
+plus an app-style button, a label and a plain button checked in real Chromium.

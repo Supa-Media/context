@@ -26,6 +26,8 @@
  */
 
 import { publicHttpsUrl } from "./shoot";
+import { dropSource, pickerHookSource, pickerResult, refSelector as selector, uploadSource, type UploadFile } from "./picker";
+export { dropSource, pickerHookSource, pickerResult, uploadSource, type UploadFile } from "./picker";
 
 /*
   The gateway gives one tool call 20 seconds (`TOOL_TIMEOUT_MS`), and a call
@@ -62,17 +64,6 @@ export type Step =
   | { do: "scroll"; direction: "down" | "up" }
   | { do: "read" }
   | { do: "upload"; ref: number | null; file: UploadFile; onlyOn: string[] | null };
-
-/**
- * A file the gateway read from the person's own notes or mail (`apps/mcp/src/agent/uploads.js`),
- * put into the page's upload box the way a person picking it would.
- */
-export interface UploadFile {
-  name: string;
-  type: string;
-  /** base64 */
-  data: string;
-}
 
 /** The most a file put into a page may be, as base64: the 10 MB a file is read at. */
 export const MAX_UPLOAD_CHARS = Math.ceil((10 * 1024 * 1024 * 4) / 3) + 4;
@@ -308,7 +299,6 @@ export const SNAPSHOT_SOURCE = `(() => {
   return { url: location.href, title: document.title || "", text, elements, uploads };
 })()`;
 
-const selector = (ref: number) => `[data-tex-ref="${ref}"]`;
 const BY_WORDS = `[data-tex-words]`;
 
 /**
@@ -349,38 +339,25 @@ export function wordsSource(words: string): string {
 })()`;
 }
 
-/**
- * Put a file into the page as a person choosing it would: into the file box
- * the step names, the one inside or beside it, or the page's only one, with
- * the events a page listens for; or, where there is no box, dropped onto the
- * element named, as dragging it there would. Answers "input", "drop" or "none".
- */
-export function uploadSource(ref: number | null, file: UploadFile): string {
-  return `(() => {
-  const named = ${ref === null ? "null" : `document.querySelector('${selector(ref)}')`};
-  const binary = atob(${JSON.stringify(file.data)});
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  const transfer = new DataTransfer();
-  transfer.items.add(new File([bytes], ${JSON.stringify(file.name)}, { type: ${JSON.stringify(file.type)} }));
-  const isBox = (el) => !!el && el.tagName === "INPUT" && (el.getAttribute("type") || "").toLowerCase() === "file";
-  const boxes = [...document.querySelectorAll("input[type=file]")];
-  let box = isBox(named) ? named : null;
-  if (!box && named) box = named.querySelector("input[type=file]") || (named.closest("form, label, [role=dialog]") || document.body).querySelector("input[type=file]");
-  if (!box && !named && boxes.length > 0) box = boxes[0];
-  if (box) {
-    box.files = transfer.files;
-    box.dispatchEvent(new Event("input", { bubbles: true }));
-    box.dispatchEvent(new Event("change", { bubbles: true }));
-    return "input";
+/** Press with the stand-in picker in place, and answer what the page asked of it. */
+async function pressWithPicker(page: BrowsePage, press: () => Promise<void>, file: UploadFile | null): Promise<string> {
+  const waitMs = file === null ? 0 : 2_000;
+  await page.evaluate(pickerHookSource(file));
+  let pressed = false;
+  let got: unknown = "none";
+  try {
+    await press();
+    pressed = true;
+    await settle(page);
+  } finally {
+    // Read even when the press threw, so the real picker is put back; a page that left takes the stand-in with it.
+    got = await page.evaluate<unknown>(pickerResult(waitMs)).catch(() => "none");
   }
-  if (!named) return "none";
-  for (const kind of ["dragenter", "dragover", "drop"]) {
-    named.dispatchEvent(new DragEvent(kind, { bubbles: true, cancelable: true, dataTransfer: transfer }));
-  }
-  return "drop";
-})()`;
+  return pressed && typeof got === "string" ? got : "none";
 }
+
+/** The words a click gives back when what it pressed asks for a file. */
+const ASKS_FOR_FILE = "that asks for a file: an upload step naming the same element attaches one of the person's";
 
 async function settle(page: BrowsePage): Promise<void> {
   await page.waitForNetworkIdle({ idleTime: 400, timeout: SETTLE_MS }).catch(() => undefined);
@@ -541,26 +518,25 @@ async function runStep(page: BrowsePage, step: Step): Promise<StepResult> {
       await page.keyboard.press(step.key);
       await settle(page);
       return ok;
-    case "click":
+    case "click": {
+      let press: () => Promise<void>;
       if ("x" in step) {
         // A point on the last look's picture: what a person would tap, whatever the page says it is.
         const { ratio } = await pixelRatio(page);
-        await page.mouse.click(step.x / ratio, step.y / ratio);
-        await settle(page);
-        return ok;
-      }
-      if ("text" in step) {
+        press = () => page.mouse.click(step.x / ratio, step.y / ratio);
+      } else if ("text" in step) {
         if (!(await page.evaluate<boolean>(wordsSource(step.text)))) {
           return { do: "click", ok: false, reason: "nothing on the page shows those words; read the page again" };
         }
-        await page.click(BY_WORDS);
-        await settle(page);
-        return ok;
+        press = () => page.click(BY_WORDS);
+      } else {
+        if (!(await exists(page, step.ref))) return missing;
+        const ref = step.ref;
+        press = () => page.click(selector(ref));
       }
-      if (!(await exists(page, step.ref))) return missing;
-      await page.click(selector(step.ref));
-      await settle(page);
-      return ok;
+      const got = await pressWithPicker(page, press, null);
+      return got === "asked" ? { do: "click", ok: true, reason: ASKS_FOR_FILE } : ok;
+    }
     case "select":
       if (!(await exists(page, step.ref))) return missing;
       // By the option's words, as the person reads them, else by its value.
@@ -593,7 +569,16 @@ async function runStep(page: BrowsePage, step: Step): Promise<StepResult> {
         return { do: "upload", ok: false, reason: "this page is not on a site the person named" };
       }
       const put = await page.evaluate<string>(uploadSource(step.ref, step.file));
-      if (put === "none") return { do: "upload", ok: false, reason: "this page has no box that takes a file" };
+      if (put === "none") return { do: "upload", ok: false, reason: "this page has no box that takes a file; name the button that asks for one" };
+      if (put === "button" && step.ref !== null) {
+        // No box yet: press the element, and the box it opens gets the file instead of the device's picker.
+        const ref = step.ref;
+        const got = await pressWithPicker(page, () => page.click(selector(ref)), step.file);
+        if (got === "attached") return ok;
+        if (!(await page.evaluate<boolean>(dropSource(ref, step.file)))) return missing;
+        await settle(page);
+        return { do: "upload", ok: true, reason: "pressing it opened no file box, so the file was dropped onto it; look to check the page took it" };
+      }
       await settle(page);
       return ok;
     }
