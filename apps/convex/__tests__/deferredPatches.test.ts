@@ -21,12 +21,11 @@
  * tree settles, which is what a test does and what a person doing it by hand
  * does not.
  *
- * **What runs this is `gateway-contracts.yml`, not `ci / Test Convex Backend`.**
- * That job is gated on a paths filter over `apps/convex/**`, so it is skipped on
- * exactly the `apps/mcp`-only pull request that broke this patch the second
- * time. `gateway-contracts.yml` has no `paths:` filter and runs the whole convex
- * suite on every pull request, which is what gives this guard its reach — worth
- * knowing before somebody adds a filter there.
+ * **What runs this is `ci / Test Convex Backend`, on any change to a file a
+ * deferred patch touches:** `scripts/convex-gateway-reads.mjs` reads the
+ * patches' own headers, and `check-ci-path-gates.mjs` requires the convex
+ * filter to watch every gateway file they name, so an `apps/mcp`-only pull
+ * request that breaks a patch, the second failure above, still runs it.
  */
 
 import { execFileSync } from "node:child_process";

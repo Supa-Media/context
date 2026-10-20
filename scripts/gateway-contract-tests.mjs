@@ -24,11 +24,11 @@
  *
  * **What this script is for, and what it is NOT for.** It answers "does the
  * cross-package contract still exist" and names the files carrying it. It is
- * deliberately **not** how the workflow chooses what to run: that job runs the
- * whole control-plane suite. A detector picking the files could miss a seventh
- * one somebody adds next month — the same false negative this job exists to
- * remove, reintroduced one level up. The full suite takes about ten seconds; a
- * narrower list is not worth being wrong about.
+ * deliberately **not** how CI chooses what to run. Which gateway changes run
+ * the control-plane suite is `scripts/convex-gateway-reads.mjs`, which resolves
+ * imports rather than matching text, and is held to `ci.yml`'s convex filter by
+ * `check-ci-path-gates.mjs`; the tests it finds reading the gateway whole run
+ * in Gateway Contracts on every gateway change.
  *
  * The list is derived rather than typed for the same reason a hand-written set
  * went stale in the storage guards. A file qualifies if it reads the gateway's

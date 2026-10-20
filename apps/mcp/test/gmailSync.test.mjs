@@ -41,8 +41,25 @@ import { runGmailAdversarialSyncChecks } from "./gmailSync/adversarialSync.test.
 import { runGmailContactChecks } from "./gmailSync/contacts.test.mjs";
 import { runGmailRecentImportChecks } from "./gmailSync/recentImport.test.mjs";
 import { runGmailMessageCacheChecks } from "./gmailSync/messageCache.test.mjs";
+import { gmailRetry } from "../src/communications/gmail/api.js";
 
+// The fake Gmail answers at once, so every wait the sync asks for (a rate
+// limit's 2, 8 and 30 seconds, the 50ms gap between calls on one token) is
+// time the suite spent asleep: 61 of its 65 seconds, and the longest wait in
+// every gateway run. The waits are still asked for, and the checks that are
+// about them (messageCache's retry and pacing block) record what was asked
+// with a sleep of their own; nothing else here measures time.
 export async function runGmailSyncChecks(check) {
+  const realSleep = gmailRetry.sleep;
+  gmailRetry.sleep = async () => {};
+  try {
+    await runAll(check);
+  } finally {
+    gmailRetry.sleep = realSleep;
+  }
+}
+
+async function runAll(check) {
   const { event } = await runGmailParsingAndQueryChecks(check);
   await runGmailRestCallsChecks(check);
   await runGmailRenderAndWriteChecks(check, { event });

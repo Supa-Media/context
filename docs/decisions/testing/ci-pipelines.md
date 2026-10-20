@@ -29,6 +29,30 @@ the bundle rebuilds for that reason. The `ci-change-scope` self-test pins the
 first-parent rule. `ci / Lint` follows the reusable workflow's `mobile` filter
 (`lint-filter`), so a pull request that touches no app code does not lint.
 
+## The Convex suite watches the gateway files Convex reaches
+
+_Decided 2026-10-20, from the owner's ask that a texting-assistant change ship
+in seconds rather than minutes._ `ci / Test Convex Backend` (about four minutes
+across three shards) and the Convex deploy typecheck used to watch all of
+`apps/mcp/**`, so every Tex fix under `apps/mcp/src/agent/` paid for both,
+although nothing in `apps/convex` imports it. They now watch the gateway files
+`scripts/convex-gateway-reads.mjs` derives: every `apps/mcp` file reached by
+imports out of any file in `apps/convex`, every one a Convex file names by a
+relative or straight-quoted path, and every one a `docs/deferred/` patch
+touches. `check-ci-path-gates.mjs` fails when either list stops covering that
+set, so a new Convex import of a gateway file is a red guard, not a silent
+skip. The Convex tests that read the gateway whole (a glob or directory read:
+the privacy engine is declared once, privacy state is read only through its
+accessors) are the exception the filter cannot express; Gateway Contracts runs
+them on every gateway change, in about ten seconds.
+
+Reversing it to `apps/mcp/**` costs every gateway-only pull request four
+minutes. Dropping the derivation in favour of a hand list is the failure the
+guard exists for. Sabotage: deleting `apps/mcp/src/privacy/**` from the filter,
+or importing an agent module from a Convex test, fails the path-gates check;
+declaring `canSee` in an agent module fails `privacyEngine/portParity.test.ts`
+in Gateway Contracts.
+
 ## Per push, a real browser tests only the note editor
 
 _Decided by Dev2, 2026-10-07: "we don't need the browser to test settings
