@@ -12,11 +12,15 @@ import { GOOGLE_REDIRECT_ORIGINS, type GoogleSyncServices } from "./google";
 import {
   SERVICE_TITLES,
   accountStatus,
+  STALE_AFTER_MS,
   enabledServices,
+  formatAgo,
   formatDay,
   formatWhen,
   lastDelivered,
   listWords,
+  needsReconnect,
+  storeFull,
   type GoogleService,
 } from "./googleStatus";
 import { useGoogleStart } from "./useGoogleStart";
@@ -270,6 +274,8 @@ function GoogleAccountRow({
   const starting = google?.state.kind === "starting";
   const canReconnect = google !== undefined && google.redirectUri !== null;
   const broken = status.tone === "crit";
+  // Reconnect is offered on the row only when signing in again is what fixes it.
+  const offerReconnect = needsReconnect(connection) && canReconnect;
 
   const sentence =
     broken && delivered !== undefined
@@ -331,8 +337,8 @@ function GoogleAccountRow({
             role={broken ? "status" : undefined}
           >
             {sentence}
-            {broken && canReconnect ? " " : ""}
-            {broken && canReconnect ? (
+            {offerReconnect ? " " : ""}
+            {offerReconnect ? (
               <Text
                 variant="rowSub"
                 role="button"
@@ -429,9 +435,10 @@ function GoogleAccountRow({
 
 /** A service's own health, for its dot. */
 function serviceTone(connection: GoogleConnection, service: GoogleService): DotTone {
-  if (accountStatus(connection).tone === "crit") return "crit";
+  if (needsReconnect(connection) || (service === "gmail" && storeFull(connection))) return "crit";
   const source = connection[service];
   if (source?.lastFailure !== undefined) return "warn";
+  if (source?.lastSyncedAt !== undefined && Date.now() - source.lastSyncedAt > STALE_AFTER_MS) return "warn";
   return source?.lastSyncedAt === undefined ? "neutral" : "ok";
 }
 
@@ -468,7 +475,9 @@ function AccountDetail({
             ? `${source.lastSyncedAt === undefined ? "Nothing yet" : `Last new ${service === "gmail" ? "mail" : "item"} ${formatWhen(source.lastSyncedAt)}`}. ${source.lastFailure}`
             : source?.lastSyncedAt === undefined
               ? "Waiting for the first sync."
-              : `Up to date · ${formatWhen(source.lastSyncedAt)}`;
+              : Date.now() - source.lastSyncedAt > STALE_AFTER_MS
+                ? `Not synced since ${formatAgo(source.lastSyncedAt)}.`
+                : `Up to date · ${formatWhen(source.lastSyncedAt)}`;
         return (
           <View key={service} style={[styles.service, index === 0 ? null : styles.serviceDivided]}>
             <View style={styles.serviceIcon}>
