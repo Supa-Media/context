@@ -178,6 +178,6 @@ export const TEX_LAUNCH_CSS = `
 .tx-panel-actions{display:flex;align-items:center;gap:16px}
 .tx-col-wide{max-width:640px}
 .tx-actions-near{margin-top:10px}
-.tx-panel-wide{max-width:none;margin-top:12px}
+.tx-panel-wide{flex:none;max-width:none;margin-top:12px}
 .tx-ink{color:var(--ink)}
 `;
