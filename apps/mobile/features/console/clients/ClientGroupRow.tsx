@@ -75,7 +75,7 @@ export function ClientGroupRow({
       {open ? (
         <View style={styles.grants}>
           {group.clients.map((client) => (
-            <ClientRow key={client.id} client={client} />
+            <ClientRow key={client.id} client={client} inGroup />
           ))}
         </View>
       ) : null}

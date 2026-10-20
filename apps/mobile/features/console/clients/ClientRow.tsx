@@ -30,7 +30,7 @@ import { useArming } from "../useArming";
  * for a shared row is a layering inversion that only held while there was one
  * caller.
  */
-export function ClientRow({ client }: { client: ConsoleClient }) {
+export function ClientRow({ client, inGroup = false }: { client: ConsoleClient; inGroup?: boolean }) {
   const styles = useThemedStyles(makeStyles);
   /*
     Two presses, and the second expires: an app that loses access has to be
@@ -43,7 +43,7 @@ export function ClientRow({ client }: { client: ConsoleClient }) {
       <Dot tone={client.status} />
       <Grow>
         <Row style={styles.rowTitle}>
-          <Text variant="rowTitle">{client.name}</Text>
+          <Text variant="rowTitle">{inGroup ? (client.nameInApp ?? client.name) : client.name}</Text>
           {client.mine ? null : <Pill tone="neutral">another member&apos;s</Pill>}
         </Row>
         <Text variant="rowSub" style={styles.rowSub}>

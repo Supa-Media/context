@@ -166,6 +166,15 @@ export interface ConsoleClient {
    * silent.
    */
   context: string;
+  /**
+   * The app this grant is one part of, where that is not its own name: each of
+   * Tex's background jobs ("Tex, dreaming", "Routines") holds its own grant,
+   * and all of them are "Tex" to the person reading the list. Absent means the
+   * grant's name is the app.
+   */
+  app?: string;
+  /** What the row says inside its app's group, where the full name repeats it: "Dreaming" under "Tex". */
+  nameInApp?: string;
   /** "Full access · last used 4 minutes ago" */
   detail: string;
   /**

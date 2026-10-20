@@ -13,7 +13,8 @@
  * they would revoke: two grants called "Claude" are one app whether they were
  * minted on a laptop or a phone. The machine grant Context mints for a desktop
  * carries the machine's name, so it groups as itself rather than folding into
- * anything else.
+ * anything else. Tex's background jobs each hold a grant under their own name
+ * and group under `app`, "Tex", so opening the row lists the jobs.
  *
  * Pure, so the rules below are checked without a renderer.
  */
@@ -72,8 +73,9 @@ function worstTone(clients: readonly ConsoleClient[]): ConsoleClient["status"] {
 export function groupClients(clients: readonly ConsoleClient[]): ClientGroup[] {
   const groups = new Map<string, ConsoleClient[]>();
   for (const client of clients) {
-    const existing = groups.get(client.name);
-    if (existing === undefined) groups.set(client.name, [client]);
+    const key = client.app ?? client.name;
+    const existing = groups.get(key);
+    if (existing === undefined) groups.set(key, [client]);
     else existing.push(client);
   }
 

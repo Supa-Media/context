@@ -124,6 +124,20 @@ export function constellationFrom(graphKey: string) {
   return buildConstellation({ contexts: contextInputs, clients: clientInputs });
 }
 
+/**
+ * Tex and its background jobs, which list as one app (the owner, 2026-10-20),
+ * each named inside it without the "Tex, " its own name repeats.
+ * The ids are the control plane's (`textLinks`, `lib/heartbeats`,
+ * `lib/housekeeping`, `lib/dreams`, `lib/routines`).
+ */
+const TEX_JOBS: ReadonlyMap<string, string> = new Map([
+  ["context_texts", "Texting"],
+  ["context_heartbeat", "Checking in"],
+  ["context_housekeeping", "Keeping house"],
+  ["context_dreams", "Dreaming"],
+  ["context_routines", "Routines"],
+]);
+
 /** The Connections rows: every active grant, app wide. */
 export function consoleClientsFrom(
   activeGrants: GrantSummary[],
@@ -141,6 +155,8 @@ export function consoleClientsFrom(
     id: grant.grantId,
     name: grant.clientName ?? grant.clientId,
     context: slugOf.get(grant.workspaceId) ?? "a context",
+    app: TEX_JOBS.has(grant.clientId) ? "Tex" : undefined,
+    nameInApp: TEX_JOBS.get(grant.clientId),
     detail: `${describeScopes(grant.scopes)} · ${lastUsedLabel(grant.lastUsedAt, now)}`,
     // Straight from the server's own answer, never derived here: `isMine` is
     // what `listGrants` compared the row against the caller, and the console

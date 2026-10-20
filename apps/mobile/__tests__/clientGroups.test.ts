@@ -115,7 +115,39 @@ describe("nothing is lost on the way in", () => {
     expect(new Set(grouped.map((one) => one.id)).size).toBe(clients.length);
   });
 
+  test("Tex's background jobs are one Tex row, not five apps", () => {
+    const groups = groupClients([
+      client({ id: "t", name: "Tex", app: "Tex", nameInApp: "Texting" }),
+      client({ id: "d", name: "Tex, dreaming", app: "Tex", nameInApp: "Dreaming" }),
+      client({ id: "r", name: "Routines", app: "Tex", nameInApp: "Routines" }),
+      client({ id: "c", name: "ChatGPT" }),
+    ]);
+    expect(groups.map((group) => group.name)).toEqual(["Tex", "ChatGPT"]);
+    expect(connectionCount(groups[0]!)).toBe("3 connections");
+  });
+
   test("an empty list is no groups rather than one empty group", () => {
     expect(groupClients([])).toEqual([]);
+  });
+});
+
+describe("which grants are Tex's", () => {
+  test("the control plane's Tex job ids map to Tex, and nothing else does", () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { consoleClientsFrom } = require("../features/console/liveConsole/derive");
+    const grant = (clientId: string, clientName: string) => ({
+      grantId: clientId, workspaceId: "w", userId: "u", clientId, clientName,
+      scopes: ["context.read"], status: "active", isMine: true, isMachine: false, createdAt: 0,
+    });
+    const rows = consoleClientsFrom(
+      [grant("context_dreams", "Tex, dreaming"), grant("context_texts", "Tex"), grant("claude", "Claude")],
+      [],
+      async () => undefined,
+    ) as ConsoleClient[];
+    expect(rows.map((row) => [row.app, row.nameInApp])).toEqual([
+      ["Tex", "Dreaming"],
+      ["Tex", "Texting"],
+      [undefined, undefined],
+    ]);
   });
 });
