@@ -61,8 +61,8 @@ import {
   failForwardSync,
   releaseForwardSync,
   runGoogleForwardSync,
-  runGoogleGmailBackfill,
 } from "./forwardSync";
+import { runGoogleGmailBackfill } from "./gmailBackfillRefusal";
 import { type ForwardSyncJob, timeoutFetch } from "./forwardSyncSupport";
 import {
   type FileOperation,

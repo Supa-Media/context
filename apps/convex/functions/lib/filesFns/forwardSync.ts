@@ -1,6 +1,6 @@
 /**
- * The forward sync pass for one Google connection — Gmail, Chat and Calendar —
- * and the retired historical Gmail backfill's refusal.
+ * The forward sync pass for one Google connection — Gmail, Chat and Calendar.
+ * The retired historical Gmail backfill's refusal is `gmailBackfillRefusal.ts`.
  *
  * Moved verbatim out of `functions/files.ts`. Every function here runs inside
  * the credential barrier `runFileOperation`, against the store it built, and
@@ -72,7 +72,6 @@ import {
 } from "./forwardSyncSupport";
 import { GMAIL_PASS_HISTORY_PAGES, gmailDayStore, reconcileDays } from "./gmailDayStore";
 import { runGmailRecentImport } from "./gmailRecentImport";
-import type { OperationResult } from "./operationTypes";
 import { ensureGooglePush } from "../googlePush/ensure";
 
 /* -------------------------------------------------------------------------- */
@@ -675,46 +674,4 @@ async function forwardSyncFailed(
     await ctx.runMutation(internal.functions.googleConnect.dropCachedAccessToken, { connectionId: job.connectionId });
   }
   return await failForwardSync(ctx, job.connectionId, code, message, job.product, reason);
-}
-
-export async function runGoogleGmailBackfill(
-  ctx: ActionCtx,
-  workspaceId: Id<"workspaces">,
-  runId: Id<"googleSyncRuns">,
-): Promise<Extract<OperationResult, { kind: "googleSyncRun" }>> {
-  const job = await ctx.runQuery(internal.functions.googleConnect.googleGmailBackfillForRun, {
-    workspaceId,
-    runId,
-  });
-  if (job === null) {
-    return {
-      kind: "googleSyncRun",
-      runId,
-      status: "complete",
-      totalUnits: 0,
-      completedUnits: 0,
-      itemsFound: 0,
-      daysWithMail: 0,
-      bytesWritten: 0,
-      continue: false,
-    };
-  }
-
-  await ctx.runMutation(internal.functions.googleConnect.stopGoogleGmailBackfillRun, {
-    workspaceId,
-    runId,
-    errorCode: "GOOGLE_GMAIL_BACKFILL_DISABLED",
-    message: "Historical Gmail imports are disabled. This account will sync new mail from its current position.",
-  });
-  return {
-    kind: "googleSyncRun",
-    runId,
-    status: "failed",
-    totalUnits: job.totalUnits,
-    completedUnits: job.completedUnits,
-    itemsFound: 0,
-    daysWithMail: 0,
-    bytesWritten: 0,
-    continue: false,
-  };
 }
