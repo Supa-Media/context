@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { internal } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { createUser, createWorkspace, setupTest, type TestConvex } from "./fixtures.helpers";
 
@@ -146,5 +146,28 @@ describe("a link into a workspace opened to a domain", () => {
       canEdit: false,
       joinSlug: "pw",
     });
+  });
+});
+
+describe("the sign-in page's hint", () => {
+  test("names the domain for an unlisted link, read with no session", async () => {
+    const t = setupTest();
+    await world(t);
+    expect(await t.query(api.functions.shares.shareSignInHint, { token: TOKEN })).toEqual({
+      domain: "publicworship.org",
+      canEdit: true,
+    });
+  });
+
+  test("says nothing for a token nobody minted, or a link that needs a session", async () => {
+    const t = setupTest();
+    const { team } = await world(t);
+    expect(await t.query(api.functions.shares.shareSignInHint, { token: "b".repeat(64) })).toBeNull();
+    await t.run(async (ctx) => {
+      const share = await ctx.db.query("noteShares").withIndex("by_token", (q) => q.eq("token", TOKEN)).unique();
+      await ctx.db.patch(share!._id, { recipientKind: "members" });
+    });
+    expect(team).toBeDefined();
+    expect(await t.query(api.functions.shares.shareSignInHint, { token: TOKEN })).toBeNull();
   });
 });

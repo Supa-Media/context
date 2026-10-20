@@ -13,6 +13,7 @@ import { tryConsumeRateLimit } from "./lib/rateLimit";
 import { accountsForEmail, attachedEmailsOf, MAX_EMAILS_PER_ACCOUNT } from "./lib/signInEmails";
 import { confirmedEmailsOf, requireEmailProof } from "./lib/emailProof";
 import { isFreshSingleEmailAccount } from "./lib/freshSignup";
+import { joinedDomains, needsPersonalEmail } from "./lib/accountSetup";
 
 /**
  * Several sign-in emails on one account (Dev2, 2026-10-09).
@@ -362,13 +363,40 @@ export const adoptGoogleAddress = internalMutation({
   returns: v.union(v.literal("added"), v.literal("skipped"), v.literal("has_own_workspace")),
   handler: async (ctx, { userId, email }) => {
     const user = await ctx.db.get(userId);
-    if (user === null || user.email !== undefined || (await attachedEmailsOf(ctx, userId)).length > 0) return "skipped";
+    if (user === null) return "skipped";
     const parsed = parseInvitee(email);
     if (!parsed.ok || parsed.invitee.kind !== "email") return "skipped";
+    if (user.email !== undefined || (await attachedEmailsOf(ctx, userId)).length > 0) {
+      if (!(await mayAttachPersonalGmail(ctx, user, parsed.invitee.value))) return "skipped";
+    }
     const outcome = await attachProvenEmail(ctx, userId, parsed.invitee.value, { mayMove: false });
     return outcome === "moved" ? "skipped" : outcome;
   },
 });
+
+/**
+ * The other way a Gmail is taken without a code: somebody who has just signed
+ * up through a work domain, connecting the personal Gmail setup asks for next
+ * (`lib/accountSetup.ts`, `needsPersonalEmail`). It is added beside their
+ * work address, not made the main one, and only inside the window a typed
+ * address would need no proof either (`lib/freshSignup.ts`); an address at the
+ * domain they joined through is not a personal one.
+ */
+async function mayAttachPersonalGmail(
+  ctx: QueryCtx,
+  user: { _id: Id<"users">; _creationTime: number },
+  email: string,
+): Promise<boolean> {
+  if (!(await needsPersonalEmail(ctx, user._id))) return false;
+  const domain = email.split("@")[1]?.toLowerCase() ?? "";
+  if ((await joinedDomains(ctx, user._id)).has(domain)) return false;
+  return isFreshSingleEmailAccount({
+    createdAt: user._creationTime,
+    now: Date.now(),
+    confirmedCount: (await confirmedEmailsOf(ctx, user._id)).length,
+    attachedCount: 0,
+  });
+}
 
 /** Confirm the code mailed to the address being added. */
 export const confirmAddEmail = action({

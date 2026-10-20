@@ -54,6 +54,7 @@ describe("mySetup", () => {
     const { kayla } = await domainJoiner(t);
     expect(await mySetup(t, kayla)).toEqual({
       needsSetup: true,
+      needsPersonalEmail: false,
       email: "kayla.ortiz@publicworship.life",
       suggestedName: "Kayla Ortiz",
     });
@@ -64,6 +65,7 @@ describe("mySetup", () => {
     const ada = await createUser(t, "ada@home.example");
     expect(await mySetup(t, ada)).toEqual({
       needsSetup: false,
+      needsPersonalEmail: false,
       email: "ada@home.example",
       suggestedName: "Ada",
     });
@@ -155,7 +157,7 @@ describe("finishSetup", () => {
     expect(await finish(t, kayla, "!!!")).toEqual({ slug: "person" });
   });
 
-  test("a domain joiner without a confirmed phone and personal email is refused, and nothing is made", async () => {
+  test("a domain joiner without a confirmed phone is refused, and nothing is made", async () => {
     const t = setupTest();
     const seyi = await createUser(t, "seyi@publicworship.life");
     const team = await createWorkspace(t, seyi, "pw", { kind: "shared" });
@@ -163,9 +165,26 @@ describe("finishSetup", () => {
     const lee = await createUser(t, "lee@publicworship.life");
     await asUser(t, lee).mutation(api.functions.workspaceDomains.joinWithDomain, { slug: "pw" });
     expect(errorCode(await captureError(() => finish(t, lee, "Lee")))).toBe("SETUP_INCOMPLETE");
-    await t.run((ctx) => ctx.db.patch(lee, { phone: "+15555550199", phoneVerificationTime: Date.now() }));
-    expect(errorCode(await captureError(() => finish(t, lee, "Lee")))).toBe("SETUP_INCOMPLETE");
     expect((await mySetup(t, lee))?.needsSetup).toBe(true);
+  });
+
+  /*
+    Number first, then the personal Gmail (Dev, 2026-10-20). Gmail connects to
+    the personal workspace setup makes, so the phone is what setup checks, and
+    the personal email is what is owed after it.
+  */
+  test("with a confirmed phone, setup makes the workspace and then owes a personal email", async () => {
+    const t = setupTest();
+    const seyi = await createUser(t, "seyi@publicworship.life");
+    const team = await createWorkspace(t, seyi, "pw", { kind: "shared" });
+    await asUser(t, seyi).mutation(api.functions.workspaceDomains.addWorkspaceDomain, { workspaceId: team, domain: "publicworship.life" });
+    const lee = await createUser(t, "lee@publicworship.life");
+    await asUser(t, lee).mutation(api.functions.workspaceDomains.joinWithDomain, { slug: "pw" });
+    await t.run((ctx) => ctx.db.patch(lee, { phone: "+15555550199", phoneVerificationTime: Date.now() }));
+    await finish(t, lee, "Lee");
+    expect(await mySetup(t, lee)).toMatchObject({ needsSetup: false, needsPersonalEmail: true });
+    await t.run((ctx) => ctx.db.insert("signInEmails", { userId: lee, email: "lee@gmail.com", addedAt: Date.now() }));
+    expect(await mySetup(t, lee)).toMatchObject({ needsSetup: false, needsPersonalEmail: false });
   });
 
   test("a name outside 1..80 characters is refused as INVALID", async () => {

@@ -5,11 +5,11 @@ import { mutation, query } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { createWorkspaceHandler } from "./lib/workspaces/create";
 import { hasConfirmedPhone } from "./lib/phoneCheck";
-import { attachedEmailsOf } from "./lib/signInEmails";
 import { MAX_DISPLAY_NAME_LENGTH } from "./lib/workspaces/constants";
 import {
   availableSlug,
   joinedThroughDomain,
+  needsPersonalEmail,
   ownedPersonalWorkspace,
   suggestedNameFor,
 } from "./lib/accountSetup";
@@ -33,6 +33,8 @@ export const mySetup = query({
     v.null(),
     v.object({
       needsSetup: v.boolean(),
+      /** Set up, and still owes a personal email (`lib/accountSetup.ts`). */
+      needsPersonalEmail: v.boolean(),
       email: v.union(v.string(), v.null()),
       suggestedName: v.string(),
     }),
@@ -46,6 +48,7 @@ export const mySetup = query({
       (await joinedThroughDomain(ctx, userId)) && (await ownedPersonalWorkspace(ctx, userId)) === null;
     return {
       needsSetup,
+      needsPersonalEmail: !needsSetup && (await needsPersonalEmail(ctx, userId)),
       email: user.email ?? null,
       suggestedName: suggestedNameFor(user.name, user.email ?? null),
     };
@@ -75,15 +78,15 @@ export const finishSetup = mutation({
       return { slug: existing.slug };
     }
     // Someone who came in through a work domain keeps their account if they leave it:
-    // a confirmed phone and a confirmed personal email first, checked here and not only in the app.
+    // a confirmed phone first, checked here and not only in the app. Their
+    // personal email comes next, once this workspace exists for Gmail to
+    // connect to (`needsPersonalEmail`, Dev 2026-10-20: number first, then Gmail).
     if (await joinedThroughDomain(ctx, userId)) {
       const user = await ctx.db.get(userId);
-      const phoneOk = user !== null && (await hasConfirmedPhone(ctx, user));
-      const emailOk = (await attachedEmailsOf(ctx, userId)).length > 0;
-      if (!phoneOk || !emailOk) {
+      if (user === null || !(await hasConfirmedPhone(ctx, user))) {
         throw new ConvexError({
           code: "SETUP_INCOMPLETE",
-          message: "Confirm your phone number and your personal email first.",
+          message: "Confirm your phone number first.",
         });
       }
     }

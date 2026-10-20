@@ -14,7 +14,7 @@
  * (`mintUnlistedLink`, `mintFolderLink`) is the part still written here.
  */
 
-import { ConvexError } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "../_generated/api";
 import {
@@ -418,6 +418,23 @@ export const authorizeShareRead = internalQuery({
   args: recipients.authorizeShareReadArgs,
   returns: recipients.authorizeShareReadReturns,
   handler: recipients.authorizeShareReadHandler,
+});
+
+/**
+ * The email domain the sign-in page names for a link (`./lib/shares/domainAccess.ts`).
+ *
+ * Asked with no session, so it answers exactly what an anonymous read of the
+ * same link would: only an unlisted link stands for nobody, and every other
+ * token, a spent one included, is `null`.
+ */
+export const shareSignInHint = query({
+  args: { token: v.string() },
+  returns: v.union(v.null(), v.object({ domain: v.string(), canEdit: v.boolean() })),
+  handler: async (ctx, args) => {
+    const grant = await recipients.authorizeShareReadHandler(ctx, { actorUserId: null, token: args.token });
+    const access = grant?.domainAccess ?? null;
+    return access === null ? null : { domain: access.domain, canEdit: access.canEdit };
+  },
 });
 
 /** Read a note through a share: see `readSharedNoteHandler` in `./lib/shares/readPath.ts`. */

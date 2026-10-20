@@ -11,6 +11,7 @@ import type { Doc, Id } from "../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../_generated/server";
 import { checkAvailability } from "./nameClaims";
 import { NAME_MAX_LENGTH } from "./names";
+import { attachedEmailsOf } from "./signInEmails";
 
 /** The slug stem for a name with nothing usable in it. */
 const FALLBACK_STEM = "person";
@@ -99,4 +100,24 @@ export async function joinedThroughDomain(ctx: QueryCtx, userId: Id<"users">): P
     .withIndex("by_user", (q) => q.eq("userId", userId))
     .take(500);
   return memberships.some((membership) => membership.viaDomain !== undefined);
+}
+
+/**
+ * Whether somebody who came in through a work domain still owes a personal
+ * email (Dev, 2026-10-20: "they need their number first and then their
+ * personal gmail"). Asked after setup makes their own workspace, because
+ * connecting Gmail binds to it; `app/(app)/_layout.tsx` holds every page until
+ * it is answered.
+ */
+export async function needsPersonalEmail(ctx: QueryCtx, userId: Id<"users">): Promise<boolean> {
+  return (await joinedThroughDomain(ctx, userId)) && (await attachedEmailsOf(ctx, userId)).length === 0;
+}
+
+/** The domains this person joined workspaces through, lower case. */
+export async function joinedDomains(ctx: QueryCtx, userId: Id<"users">): Promise<Set<string>> {
+  const memberships = await ctx.db
+    .query("workspaceMembers")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .take(500);
+  return new Set(memberships.flatMap((membership) => (membership.viaDomain === undefined ? [] : [membership.viaDomain])));
 }
