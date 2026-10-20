@@ -461,7 +461,8 @@ describe("the staff surface", () => {
     await observeBucket(t, ws, store);
     await runPass(chain(t, ws, store));
     const row = (await pass(chain(t, ws, store)))!;
-    await t.run((ctx) => ctx.db.patch(row._id, { keyedAt: 1, keyedDoneAt: 2 }));
+    // Its one recheck of keyed rows against their keys already ran (the next test).
+    await t.run((ctx) => ctx.db.patch(row._id, { keyedAt: 1, keyedDoneAt: 2, keyedRecheckAt: 3 }));
     store.seed("1-projects/b.md", "# B\n");
     await observeBucket(t, ws, store);
     expect(await t.mutation(internal.functions.noteIds.keepCurrent, {})).toEqual({ started: 0 });
@@ -474,6 +475,42 @@ describe("the staff surface", () => {
     expect(await t.mutation(internal.functions.noteIds.keepCurrent, {})).toEqual({ started: 0 });
     await t.run((ctx) => ctx.db.patch(row._id, { updatedAt: Date.now() - 2 * 60 * 60 * 1000 }));
     expect(await t.mutation(internal.functions.noteIds.keepCurrent, {})).toEqual({ started: 1 });
+  });
+
+  test("the cron diagnoses each keyed workspace once, so rows left behind their keys catch up", async () => {
+    const t = tester();
+    const ws = await boundWorkspace(t, "recheck");
+    const store = bucket({ "1-projects/a.md": "# A\n" });
+    await observeBucket(t, ws, store);
+    await runPass(chain(t, ws, store));
+    const row = (await pass(chain(t, ws, store)))!;
+    // Keyed, with its last diagnosis from before the walks told rows about sealing.
+    await t.run((ctx) =>
+      ctx.db.patch(row._id, { keyedAt: 1, keyedDoneAt: 2, diagnosis: { checkedAt: 1, checked: 0, missing: 0, differs: 0 } }),
+    );
+
+    expect(await t.mutation(internal.functions.noteIds.keepCurrent, {})).toEqual({ started: 1 });
+    const after = (await t.run((ctx) => copyRowOf(ctx.db, ws)))!;
+    expect(after.keyedRecheckAt).toBeTypeOf("number");
+    const scheduled = await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect());
+    expect(scheduled.filter((job) => job.name.includes("runCheck") && (job.args[0] as { workspaceId: string }).workspaceId === ws)).toHaveLength(1);
+
+    // Once: the next tick starts nothing for it.
+    expect(await t.mutation(internal.functions.noteIds.keepCurrent, {})).toEqual({ started: 0 });
+  });
+
+  test("a keyed workspace diagnosed since rows could fall behind is not rechecked", async () => {
+    const t = tester();
+    const ws = await boundWorkspace(t, "rechecked");
+    const store = bucket({ "1-projects/a.md": "# A\n" });
+    await observeBucket(t, ws, store);
+    await runPass(chain(t, ws, store));
+    const row = (await pass(chain(t, ws, store)))!;
+    await t.run((ctx) =>
+      ctx.db.patch(row._id, { keyedAt: 1, keyedDoneAt: 2, diagnosis: { checkedAt: Date.now(), checked: 1, missing: 0, differs: 0 } }),
+    );
+
+    expect(await t.mutation(internal.functions.noteIds.keepCurrent, {})).toEqual({ started: 0 });
   });
 
   test("a ticket for a page of a run that moved on opens nothing", async () => {

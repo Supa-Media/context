@@ -438,6 +438,8 @@ export const nodeTables = {
      * (`lib/noteIds/keyedState.ts`): no bucket listing adopts a row from it.
      */
     keyedAt: v.optional(v.number()),
+    /** The one recheck of this keyed workspace's rows against their keys was started then (`lib/noteIds/keyedRecheck.ts`). */
+    keyedRecheckAt: v.optional(v.number()),
     /** The flip found no live file row left unkeyed: every row a copy covers is keyed. */
     keyedDoneAt: v.optional(v.number()),
     /** Rows the flip has keyed so far: a counter, so the admin report never reads a whole tree. */
