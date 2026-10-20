@@ -20,9 +20,10 @@
 //   listHistoryPage keeps every messageAdded                    -> 1 check failed
 //   gmailFetch stops retrying                                   -> 2 checks failed
 //   gmailFetch retries dailyLimitExceeded                       -> 1 check failed
+//   the pacing map is keyed by the access token itself          -> 1 check failed
 //   a day stopped part-way keeps nothing it fetched             -> 1 check failed
 
-import { gmailRetry } from "../../src/communications/gmail/api.js";
+import { gmailRetry, pacingLanes } from "../../src/communications/gmail/api.js";
 import { messageCachePath, MESSAGE_CACHE_VERSION } from "../../src/communications/gmail/messageCache.js";
 import { getMessage, runIncrementalSync, syncDayFromGmail } from "../../src/communications/gmailSync.js";
 import { createFixtureGmail, createMemoryStore, fixtureMessage, jsonResponse } from "./fixtures.mjs";
@@ -185,6 +186,19 @@ export async function runGmailMessageCacheChecks(check) {
     check(
       "BACK-TO-BACK CALLS ON ONE TOKEN WAIT THEIR GAP; ANOTHER TOKEN DOES NOT WAIT FOR IT",
       sleeps.length === 1 && sleeps[0] > 0 && sleeps[0] <= gmailRetry.minGapMs,
+    );
+
+    // The map that spaces those calls is module scope, so it outlives the
+    // request that minted the credential, in an isolate the runtime reuses
+    // across tenants. `docs/decisions/storage-and-credentials.md`, "Never
+    // cache a decrypted credential across requests": what it keeps per token
+    // must therefore be a digest of the token and never the token.
+    const minted = "ya29.a0-fixture-access-token-not-a-real-one-0123456789";
+    await getMessage({ fetchImpl: paced.fetchImpl, accessToken: minted, id: "p1" });
+    const lanes = pacingLanes();
+    check(
+      "NO ACCESS TOKEN IS LEFT BEHIND IN THE PACING MAP",
+      lanes.length > 0 && lanes.every((lane) => /^[0-9a-f]{64}$/.test(lane)) && !lanes.includes(minted),
     );
 
     let daily = 0;
