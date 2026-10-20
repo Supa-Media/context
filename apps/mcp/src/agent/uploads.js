@@ -40,6 +40,25 @@ export function uploadName(name, fallback = "file") {
   return clean || fallback;
 }
 
+/**
+ * Whether a `read_file` answer means the person may see the file, refusal or
+ * not. Everything before `canSee` in `tools/readFile.js` — an unreadable
+ * path, a type it does not open, and the one "not found" a hidden file and a
+ * missing one share — answers false, so those bytes are never fetched. The
+ * refusals in `AFTER_SEEN` are reached only once `canSee` has passed, so the
+ * file is theirs even though no words came back.
+ *
+ * This reads the other module's wording, which is the fragile part: the
+ * partition is pinned from both ends by `test/agentUploads.test.mjs`, which
+ * runs the real `toolReadFile` rather than a fixture, so rewording a refusal
+ * on either side reddens there rather than quietly fetching a hidden file.
+ */
+export function readSawTheFile(read) {
+  if (!Array.isArray(read?.content)) return false;
+  if (read.isError !== true) return true;
+  return AFTER_SEEN.test(read.content.map((part) => part?.text ?? "").join(" ").trim());
+}
+
 function fromBytes(name, bytes, type) {
   if (bytes.byteLength > MAX_FILE_BYTES) return { error: `that file is over the ${MAX_FILE_BYTES / 1024 / 1024} MB a page is given` };
   return { file: { name, type: type || typeOfFile(name, bytes) || GENERIC_TYPE, data: base64(bytes) } };
@@ -101,9 +120,7 @@ async function fromNotes(path, dispatch, store) {
   // Read as the person first: the privacy engine decides, and a hidden file is "not found".
   // Only that refusal stops it: a file seen but not turned into words (no converter) is still theirs.
   const read = await dispatch("read_file", { path: key });
-  const said = Array.isArray(read?.content) ? read.content.map((part) => part?.text ?? "").join(" ") : "";
-  const seen = Array.isArray(read?.content) && (read.isError !== true || AFTER_SEEN.test(said.trim()));
-  if (!seen) return { error: "not found" };
+  if (!readSawTheFile(read)) return { error: "not found" };
   const object = await getWithLegacyFallback(store, key);
   if (!object) return { error: "not found" };
   return fromBytes(uploadName(key), new Uint8Array(await object.arrayBuffer()), readableFileType(key));

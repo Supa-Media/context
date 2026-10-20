@@ -11,12 +11,15 @@
  *     → "a file the person cannot see is not found, and its bytes are never read" fails.
  *  2. The upload step planned with no `onlyOn` when the web is not open.
  *     → "off the open web, a file goes only to a site the person named, re-checked by the browser" fails.
+ *  3. `read_file`'s hidden-file refusal reworded from "not found".
+ *     → "read_file's own refusals still partition the way an upload reads them" fails.
  */
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { resolveUpload, uploadName, printedEmail } from "../src/agent/uploads.js";
+import { readSawTheFile, resolveUpload, uploadName, printedEmail } from "../src/agent/uploads.js";
+import { toolReadFile } from "../src/tools/readFile.js";
 import { browserSession } from "../src/agent/browse.js";
 import { wrap } from "../src/agent/textPdf.js";
 
@@ -147,4 +150,44 @@ test("on the open web a file may go to the page, and a file that can't be read i
   const none = browserSession(fakeComputer(), { allowed: Object.assign(new Set(), { webIsOpen: () => true }), addresses: "", takePages: () => true });
   assert.doesNotMatch(none.definition.description, /upload step/);
   assert.match(session(fakeComputer(), { addresses: "" }).definition.description, /upload step/);
+});
+
+/*
+ * `fromNotes` decides "the person may see this" by reading `read_file`'s
+ * refusal wording (`readSawTheFile`). Four literals in one module against the
+ * strings another one writes, with nothing but this check holding them
+ * together: reword the hidden-file refusal and a held-back file stops being
+ * "not found" and has its bytes fetched. So the partition is asserted against
+ * the real `toolReadFile`, not a fixture of what it is believed to say.
+ */
+function fileStore({ size = PDF.length, ai = null } = {}) {
+  return {
+    ...(ai ? { ai } : {}),
+    async head(key) {
+      return key === "files/receipt.pdf" ? {} : null;
+    },
+    async get(key) {
+      return key === "files/receipt.pdf"
+        ? { size, arrayBuffer: async () => Buffer.from(PDF, "latin1") }
+        : null;
+    },
+  };
+}
+
+test("read_file's own refusals still partition the way an upload reads them", async () => {
+  const hidden = await toolReadFile(fileStore(), "team", [], new Map([["files/receipt.pdf", "private"]]), "files/receipt.pdf");
+  assert.equal(hidden.isError, true);
+  assert.equal(readSawTheFile(hidden), false, "a file the person cannot see must never read as seen");
+
+  // Both of these are refused only after `canSee` passed, so the file is theirs.
+  const huge = await toolReadFile(fileStore({ size: 999 * 1024 * 1024 }), "private", [], new Map(), "files/receipt.pdf");
+  assert.equal(huge.isError, true);
+  assert.equal(readSawTheFile(huge), true, "a file too large to read is still the person's own");
+
+  const noConverter = await toolReadFile(fileStore(), "private", [], new Map(), "files/receipt.pdf");
+  assert.equal(noConverter.isError, true);
+  assert.equal(readSawTheFile(noConverter), true, "a deployment that cannot read files still saw it");
+
+  // And the two refusals before `canSee` keep a path that is not a file out.
+  assert.equal(readSawTheFile(await toolReadFile(fileStore(), "private", [], new Map(), "files/notes.md")), false);
 });
