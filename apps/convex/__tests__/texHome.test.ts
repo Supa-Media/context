@@ -1,14 +1,16 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { asUser, createUser, createWorkspace, seedGoogleConnection, setupTest, type TestConvex } from "./fixtures.helpers";
+import { addMember, asUser, createUser, createWorkspace, seedGoogleConnection, setupTest, type TestConvex } from "./fixtures.helpers";
 
 /**
  * GMAIL FIRST, AND TEX.LC FOR SOMEBODY SIGNED IN (Dev2, 2026-10-20).
  *
  *  - The first Gmail an account with no email connects becomes its main
  *    email, proven by Google rather than a mailed code; never a second one
- *    over an email it has, never an address another account owns.
+ *    over an email it has, never an address another account holds — whether
+ *    that account owns anything or not, because Google's claim is not the
+ *    mailed code that is an ownerless account's consent to being closed.
  *  - `/text` reads the person's own Tex line, last four digits and whether
  *    they have ever texted Tex ("hi" typed for a first text), and nobody
  *    else's.
@@ -19,6 +21,7 @@ import { asUser, createUser, createWorkspace, seedGoogleConnection, setupTest, t
  *
  *   `adoptGoogleAddress` not checking the account has no email          1
  *   `attachProvenEmail` moving with `mayMove: false`                     1
+ *   `attachProvenEmail` folding with `mayFold: false`                    1
  *   `hasTextedTex` ignoring `textSetups`                                 1
  *   `connectedGmailsOf` counting a disconnected connection               2
  */
@@ -87,6 +90,31 @@ describe("the first Gmail becomes the main email", () => {
     expect(await adopt(t, userId, "ada.lovelace@gmail.com")).toBe("has_own_workspace");
     expect(await t.run((ctx) => ctx.db.get(userId))).not.toBeNull();
     expect((await t.run((ctx) => ctx.db.get(owner)))?.phone).toBeUndefined();
+  });
+
+  test("an account that owns nothing but holds the address is refused, not closed", async () => {
+    const t = setupTest();
+    // Signed in once with this address and only ever joined somebody else's
+    // context: the account `foldIn` exists for. A mailed code may close it,
+    // because only the mailbox holds the code. Google's claim is not that
+    // code, so this path refuses rather than closing somebody's account.
+    const other = await createUser(t, "ada.lovelace@gmail.com");
+    const host = await createUser(t, "host@example.com");
+    const shared = await createWorkspace(t, host, "ada-team", { kind: "shared" });
+    await addMember(t, shared, other, "editor");
+    const { userId } = await phoneAccount(t);
+
+    expect(await adopt(t, userId, "ada.lovelace@gmail.com")).toBe("has_own_workspace");
+    expect((await t.run((ctx) => ctx.db.get(userId)))?.email).toBeUndefined();
+    // That account keeps its address, and its seat does not move.
+    expect((await t.run((ctx) => ctx.db.get(other)))?.email).toBe("ada.lovelace@gmail.com");
+    const seats = await t.run((ctx) =>
+      ctx.db
+        .query("workspaceMembers")
+        .withIndex("by_user", (q) => q.eq("userId", other))
+        .collect(),
+    );
+    expect(seats.map((seat) => seat.workspaceId)).toEqual([shared]);
   });
 
   test("something that is not an address is skipped", async () => {
