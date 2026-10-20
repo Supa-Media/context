@@ -1,7 +1,8 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 
 import { floatingStackBottom, useBottomChromeHeight } from "../app/bottomChrome";
+import { registerCornerControl } from "../app/cornerControl";
 import { Icon } from "../design/components/Icon";
 import { Menu } from "../design/components/Menu";
 import { radii } from "../design/tokens";
@@ -124,6 +125,17 @@ export function CreateButton({
     setOpen(false);
     setAnchor(undefined);
   }, []);
+
+  // So a card floating beside this corner can line up with it. See `cornerControl.ts`.
+  useEffect(
+    () =>
+      compact
+        ? undefined
+        : registerCornerControl((answer) =>
+            buttonRef.current?.measureInWindow((x, y, width, height) => answer({ x, y, width, height })),
+          ),
+    [compact],
+  );
 
   const choose = useCallback(
     (id: string) => {

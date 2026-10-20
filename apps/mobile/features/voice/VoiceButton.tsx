@@ -4,7 +4,10 @@ import { floatingStackBottom, useBottomChromeHeight } from "../app/bottomChrome"
 import { Button, PressRow } from "../design/components/Button";
 import { Icon } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
-import { fonts, layout, pointerType as t, radii } from "../design/tokens";
+import { TOAST_MS } from "../design/components/Toast";
+import { ACCESSORY_HEIGHT } from "../console/files/accessory";
+import { measureCornerControl } from "../app/cornerControl";
+import { fonts, layout, pointerType as t, radii, space } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors, type Shadows } from "../design/theme";
 import type { EditorControls } from "../console/files/LiveEditor";
 import { offerDictation, reasonFor, type DictationOffer } from "./audience";
@@ -102,6 +105,7 @@ export function VoiceButton({
   onRecordMeeting,
   microphoneElsewhere = false,
   bottomInset = 0,
+  aboveAccessory = false,
   engine,
   startDictation = null,
   now = Date.now,
@@ -154,6 +158,15 @@ export function VoiceButton({
    * one. Zero is right for every browser.
    */
   bottomInset?: number;
+  /**
+   * The phone's keyboard accessory bar is on the glass in this corner.
+   *
+   * It hides the frame's toolbar, so `useBottomChromeHeight` reads 0 while a
+   * 44pt row sits exactly where the dock is anchored — and the capsule and the
+   * failure card were drawn under it. `NoteEditor` knows when it is up
+   * (`barUp`) and says so; the dock then stands on top of it.
+   */
+  aboveAccessory?: boolean;
   /** Injected by tests. */
   engine?: DictationEngine;
   now?: () => number;
@@ -167,11 +180,59 @@ export function VoiceButton({
     over it, and a floating control over somebody else's control is a control
     that eats their presses. `AppFrame` publishes the height, this reads it.
   */
-  const bottom = floatingStackBottom(bottomInset, useBottomChromeHeight());
+  const stacked = floatingStackBottom(bottomInset, useBottomChromeHeight());
+  // On the bar: its own edges, so the capsule's right edge is the Done key's
+  // and it stands the dock's gap above the row rather than the frame's.
+  const bottom = aboveAccessory ? ACCESSORY_HEIGHT + DOCK_GAP : stacked;
+  const onBar = aboveAccessory ? { right: layout.floatingInset } : null;
   const [asking, setAsking] = useState(false);
   const dictation = useDictation({ controls, notePath: page.notePath, engine });
-  const { state, start, stop, discard, cancel } = dictation;
+  const { state, start, stop, discard, cancel, dismiss: dismissFailure } = dictation;
   const live = isLive(state);
+  const failed = state.name === "failed";
+  /*
+    The failure card goes away on its own, on the toast's clock.
+
+    It used to stay until the next dictation, and on the console nothing in
+    this corner starts one — the microphone is on the note's context menu — so
+    a refusal read once sat over the corner for the rest of the session.
+    Hovering holds it, the toast's rule: "I am still reading this" is honoured.
+    A press puts it away at once.
+  */
+  const [failureHeld, setFailureHeld] = useState(false);
+  useEffect(() => {
+    // A card that went away under the pointer never hears `onHoverOut`.
+    if (!failed) {
+      setFailureHeld(false);
+      return;
+    }
+    if (failureHeld) return;
+    const timer = setTimeout(dismissFailure, TOAST_MS);
+    return () => clearTimeout(timer);
+  }, [failed, failureHeld, dismissFailure]);
+
+  /*
+    Where the dock goes so its right edge is the `+`'s and its card stands
+    `DOCK_GAP` above it. Measured from an invisible fill of the region this
+    dock is positioned in, against the `+` itself; re-measured when a card
+    appears and whenever the region resizes.
+  */
+  const regionProbe = useRef<View>(null);
+  const [besidePlus, setBesidePlus] = useState<{ right: number; bottom: number } | null>(null);
+  const placeBesidePlus = useCallback(() => {
+    measureCornerControl((plus) => {
+      regionProbe.current?.measureInWindow((x, y, width, height) => {
+        if (width === 0 || height === 0) return;
+        setBesidePlus({
+          right: Math.round(x + width - (plus.x + plus.width)),
+          bottom: Math.round(y + height - plus.y + DOCK_GAP),
+        });
+      });
+    });
+  }, []);
+  useEffect(() => {
+    if (failed && microphoneElsewhere && !compact) placeBesidePlus();
+  }, [failed, microphoneElsewhere, compact, placeBesidePlus]);
   /*
     A meeting is running, so this corner is not ours.
 
@@ -253,7 +314,7 @@ export function VoiceButton({
 
   if (live) {
     return (
-      <View style={[styles.dock, { bottom }]} pointerEvents="box-none">
+      <View style={[styles.dock, { bottom }, onBar]} pointerEvents="box-none">
         <View style={styles.capsule} testID="voice-capsule">
           <View style={styles.liveMark}>
             <View style={styles.liveDot} />
@@ -300,42 +361,81 @@ export function VoiceButton({
   */
   if (microphoneElsewhere && !asking && state.name !== "failed") return null;
 
+  /*
+    The console's `+` floats in this corner at this same height, so a failure
+    card drawn at the dock's bottom lay under it — the `+` covering the end of
+    the sentence. With no microphone of ours at rest the dock lifts by the
+    `+`'s height and the dock's own gap, so the card sits above it exactly
+    where it would sit above our own button. The phone's `+` is in the bottom
+    row, which `floatingStackBottom` already clears.
+  */
+  const clearsCorner = microphoneElsewhere && !compact;
+  const dockBottom = clearsCorner ? bottom + FAB_SIZE + DOCK_GAP : bottom;
+  /*
+    The arithmetic above is right only if both docks measure from the same
+    edges, and on the console they do not: the `+` is the frame's, this is the
+    note pane's, which sits inside a padded region. So while a card is up
+    beside the `+`, the dock is placed from where the `+` actually is —
+    measured, see `cornerControl.ts` — and the arithmetic is the fallback for
+    a host that never answers.
+  */
+  const placed = besidePlus !== null && clearsCorner && failed ? besidePlus : null;
+
   return (
-    <View style={[styles.dock, { bottom }]} pointerEvents="box-none">
-      {state.name === "failed" ? (
-        <View style={styles.failure} testID="voice-failure">
-          <Text variant="rowSub" style={styles.failureText}>
-            {reasonFor(state.reason, dictation.unavailable)}
-          </Text>
-        </View>
-      ) : null}
+    <>
+      <View ref={regionProbe} style={StyleSheet.absoluteFill} pointerEvents="none" onLayout={placeBesidePlus} />
+      <View
+        style={[
+          styles.dock,
+          placed === null ? { bottom: dockBottom } : { bottom: placed.bottom, right: placed.right },
+          onBar,
+        ]}
+        pointerEvents="box-none"
+      >
+        {state.name === "failed" ? (
+          <Pressable
+            onPress={dismissFailure}
+            onHoverIn={() => setFailureHeld(true)}
+            onHoverOut={() => setFailureHeld(false)}
+            accessibilityRole="alert"
+            accessibilityHint="Press to dismiss"
+            style={styles.failure}
+            testID="voice-failure"
+          >
+            <View style={styles.failureWash} pointerEvents="none" />
+            <Text variant="rowSub" style={styles.failureText}>
+              {reasonFor(state.reason, dictation.unavailable, compact)}
+            </Text>
+          </Pressable>
+        ) : null}
 
-      {microphoneElsewhere ? null : (
-        <Pressable
-          onPress={ask}
-          role="button"
-          accessibilityLabel="Voice capture"
-          aria-haspopup="menu"
-          aria-expanded={asking}
-          testID="voice-button"
-          style={({ pressed }) => [styles.fab, (pressed || asking) && styles.fabActive]}
-        >
-          <Icon name="mic" size={23} color={asking ? colors.ink : colors.accent} />
-        </Pressable>
-      )}
+        {microphoneElsewhere ? null : (
+          <Pressable
+            onPress={ask}
+            role="button"
+            accessibilityLabel="Voice capture"
+            aria-haspopup="menu"
+            aria-expanded={asking}
+            testID="voice-button"
+            style={({ pressed }) => [styles.fab, (pressed || asking) && styles.fabActive]}
+          >
+            <Icon name="mic" size={23} color={asking ? colors.ink : colors.accent} />
+          </Pressable>
+        )}
 
-      {asking ? (
-        <VoiceSheet
-          audience={offer.audience}
-          refusal={offer.refusal}
-          notePath={page.notePath}
-          compact={compact}
-          onDictate={beginDictation}
-          onRecordMeeting={beginMeeting}
-          onCancel={dismiss}
-        />
-      ) : null}
-    </View>
+        {asking ? (
+          <VoiceSheet
+            audience={offer.audience}
+            refusal={offer.refusal}
+            notePath={page.notePath}
+            compact={compact}
+            onDictate={beginDictation}
+            onRecordMeeting={beginMeeting}
+            onCancel={dismiss}
+          />
+        ) : null}
+      </View>
+    </>
   );
 }
 
@@ -367,6 +467,11 @@ function useElapsed(live: boolean, startedAt: number | null, now: () => number):
   return startedAt === null ? 0 : now() - startedAt;
 }
 
+/** The floating button's diameter, ours and the console's `+` alike. */
+const FAB_SIZE = 56;
+/** Space between the dock's children, and so between a card and a button. */
+const DOCK_GAP = 10;
+
 const makeStyles = (colors: Colors, shadows: Shadows) =>
   StyleSheet.create({
     /*
@@ -378,11 +483,19 @@ const makeStyles = (colors: Colors, shadows: Shadows) =>
       position: "absolute",
       right: 24,
       alignItems: "flex-end",
-      gap: 10,
+      gap: DOCK_GAP,
+      /*
+        Above the note it floats over. Every react-native-web View is its own
+        `z-index: 0` stacking context, and the editor's lines come later in
+        the tree, so with no index of its own the card's sentence had the
+        note's text printed through it. 5 is the console `+`'s dock, the
+        other floating control in this corner.
+      */
+      zIndex: 5,
     },
     fab: {
-      width: 56,
-      height: 56,
+      width: FAB_SIZE,
+      height: FAB_SIZE,
       borderRadius: radii.pill,
       alignItems: "center",
       justifyContent: "center",
@@ -424,14 +537,24 @@ const makeStyles = (colors: Colors, shadows: Shadows) =>
       alignItems: "center",
       justifyContent: "center",
     },
+    /*
+      An opaque card with the wash laid over it, not the wash alone. The wash
+      is 8% ink, so on its own the note it floats over printed straight
+      through the sentence — invisible while the card sat low in an empty
+      corner, plain once it lifted above the `+` and over a paragraph.
+    */
     failure: {
-      maxWidth: 320,
-      padding: 12,
+      // The toast's measure, so the two crit notices in this app read alike.
+      maxWidth: 340,
+      paddingVertical: space.x3,
+      paddingHorizontal: space.x4,
       borderRadius: radii.card,
-      backgroundColor: colors.critWash,
+      overflow: "hidden",
+      backgroundColor: colors.surface,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.critBorder,
       boxShadow: shadows.floating,
     },
+    failureWash: { ...StyleSheet.absoluteFillObject, backgroundColor: colors.critWash },
     failureText: { color: colors.critText },
   });

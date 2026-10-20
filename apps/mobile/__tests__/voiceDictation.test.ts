@@ -264,6 +264,19 @@ describe("failing", () => {
     expect(effects).toEqual([{ do: "open" }]);
   });
 
+  test("dismissing a failure puts it away and touches nothing else", () => {
+    const { state, effects } = run([{ type: "dismiss" }], { name: "failed", reason: "unreachable" });
+    expect(state).toEqual({ name: "idle" });
+    expect(effects).toEqual([]);
+  });
+
+  test("dismiss means nothing to a live microphone", () => {
+    // The card's timer must never be able to close a run that started since.
+    const { state, effects } = run([{ type: "start" }, { type: "dismiss" }]);
+    expect(state).toEqual({ name: "listening", interim: "" });
+    expect(effects).toEqual([{ do: "open" }]);
+  });
+
   test("pressing start while already listening opens nothing twice", () => {
     const { effects } = run([{ type: "start" }, { type: "start" }]);
     expect(effects.filter((e) => e.do === "open")).toHaveLength(1);
