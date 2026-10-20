@@ -20,6 +20,7 @@ import { workspaceArchived } from "./lib/archivedWorkspaces";
 import { isPlumbing } from "./lib/privacy";
 import { cleanupViewOf, cleanupViewValidator, type CleanupView } from "./noteIdsCleanup";
 import { keyedWorkspace } from "./lib/noteIds/keyedState";
+import { KEYED_RECHECKS_PER_TICK, keyedRecheckOwed } from "./lib/noteIds/keyedRecheck";
 import { copyStateOf, planGroup, renameSnapshotId, sharedGroupsPage } from "./lib/noteIds/sharedIds";
 import { beginCopyPass, copyPassOwed, copyRowOf, ensureCopyRow, idCopyPaused, leaseHeld, nodeAt } from "./lib/noteIds/state";
 import { boundWorkspaces, liveBoundWorkspaces, staffOnly } from "./nodesMigration";
@@ -434,8 +435,16 @@ export const keepCurrent = internalMutation({
     if (await idCopyPaused(ctx.db)) return { started: 0 };
     const now = Date.now();
     let started = 0;
+    let rechecks = 0;
     for (const workspaceId of await liveBoundWorkspaces(ctx)) {
       const row = await copyRowOf(ctx.db, workspaceId);
+      if (row !== null && rechecks < KEYED_RECHECKS_PER_TICK && keyedRecheckOwed(row)) {
+        await ctx.db.patch(row._id, { keyedRecheckAt: now });
+        await scheduleDiagnosis(ctx, workspaceId);
+        rechecks += 1;
+        started += 1;
+        continue;
+      }
       if (row?.status === "done") {
         if (!(await copyPassOwed(ctx.db, row, now))) continue;
         if (await beginCopyPass(ctx, workspaceId, { force: false })) started += 1;

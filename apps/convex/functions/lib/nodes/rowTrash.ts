@@ -29,6 +29,7 @@ import { timestampSlug } from "../fileOps/paths";
 import { loadPrivacyState } from "../fileOps/privacyState";
 import { followInProjection, type ProjectionClient } from "../fileOps/search";
 import { TRASH_ROOT, type FileStore } from "../fileOps/store";
+import { catchUpKeyedRows } from "./rowCatchUp";
 import { canSee } from "../privacy";
 import { refusal } from "./rowMoveStart";
 import { carryRowHistory } from "./rowHistory";
@@ -103,6 +104,8 @@ export async function startRowTrash(
     throw new FileOpError("CONFLICT", "That folder cannot be moved to the trash in one step.");
   }
 
+  // The caller's version is the key's (`idLayout.js`); a row the key moved on from without telling it catches up first.
+  await catchUpKeyedRows(ctx, workspaceId, store, [{ path, expectedEtag: args.expectedEtag }]);
   const stamp = timestampSlug(now);
   const destination = (n: number) => `${TRASH_ROOT}/${n === 1 ? stamp : `${stamp}-${n}`}/${path}`;
   const attempt = (to: string) =>
