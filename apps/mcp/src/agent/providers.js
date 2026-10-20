@@ -52,10 +52,18 @@ export function anthropicMessages(messages) {
   const out = [];
   for (const message of messages) {
     if (message.role === "tool") {
+      // A picture the tool handed back is shown, beside its words, inside the tool's answer.
+      const images = Array.isArray(message.images) ? message.images : [];
       const block = {
         type: "tool_result",
         tool_use_id: message.id,
-        content: message.text,
+        content:
+          images.length === 0
+            ? message.text
+            : [
+                { type: "text", text: message.text },
+                ...images.map((image) => ({ type: "image", source: { type: "base64", media_type: image.mediaType, data: image.data } })),
+              ],
         ...(message.isError ? { is_error: true } : {}),
       };
       const last = out[out.length - 1];
@@ -109,7 +117,9 @@ export function openAiMessages(system, messages) {
   const out = system ? [{ role: "system", content: system }] : [];
   for (const message of messages) {
     if (message.role === "tool") {
-      out.push({ role: "tool", tool_call_id: message.id, content: message.text });
+      // Words only on this API's tool answers: a picture is named as one it cannot see.
+      const unseen = Array.isArray(message.images) && message.images.length > 0 ? `\n[${message.images.length === 1 ? "A picture" : `${message.images.length} pictures`} in this result; you cannot see pictures on this model, so say so if asked what it shows.]` : "";
+      out.push({ role: "tool", tool_call_id: message.id, content: `${message.text}${unseen}` });
       continue;
     }
     if (message.role === "assistant") {

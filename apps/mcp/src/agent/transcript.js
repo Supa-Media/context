@@ -182,7 +182,8 @@ function plainName(name) {
 async function sentItems(attachments) {
   const items = [];
   const pictures = [];
-  for (const attachment of Array.isArray(attachments) ? attachments : []) {
+  const list = Array.isArray(attachments) ? attachments : [];
+  for (const [index, attachment] of list.entries()) {
     const name = plainName(attachment?.name);
     const named = `_Sent ${name}${typeof attachment?.unread === "string" ? ", which could not be opened" : ""}._\n`;
     if (attachment?.heard && typeof attachment.text === "string") {
@@ -197,7 +198,7 @@ async function sentItems(attachments) {
         pictures.push({ name: leaf, data, bytes: prepared.images[0].bytes.byteLength });
       }
       if (leaf) {
-        items.push({ line: `![[${leaf}|${name}]]\n`, leaf, fallback: `_Sent ${name}, a picture that could not be kept._\n` });
+        items.push({ line: `![[${leaf}|${name}]]\n`, leaf, index, fallback: `_Sent ${name}, a picture that could not be kept._\n` });
         continue;
       }
     }
@@ -288,6 +289,8 @@ export function openTranscript(callTool, { now, timeZone, question, quoted: repl
   let dirty = false;
   let running = null;
   let sent = { items: [], pictures: [], lost: new Set() }; // filled before the first write
+  let opened = () => {};
+  const ready = new Promise((resolve) => (opened = resolve)); // today's note found, what they sent named
 
   // An inline reply shows what it answers, so the log reads as the thread did.
   const replyingTo = repliedTo === "" ? "" : `${quoted(`↩︎ Replying to: ${cut(repliedTo, MAX_SAID_CHARS)}`)}\n\n`;
@@ -373,8 +376,12 @@ export function openTranscript(callTool, { now, timeZone, question, quoted: repl
   async function drain() {
     try {
       if (state === null) {
-        sent = await sentItems(attachments);
-        state = await open();
+        try {
+          sent = await sentItems(attachments);
+          state = await open();
+        } finally {
+          opened();
+        }
       }
       while (dirty && state) {
         dirty = false;
@@ -408,6 +415,21 @@ export function openTranscript(callTool, { now, timeZone, question, quoted: repl
       schedule();
       // A write started before the ending may still be running; the loop picks the ending up.
       while (running !== null) await running;
+    },
+    /**
+     * The pictures they sent that today's note embeds, by the attachment's
+     * place in what they sent: what the saved conversation points at so a
+     * later turn can look again (`attachmentsLine`). The first write carries
+     * them, so by the time a turn has answered they are stored; one the store
+     * refused is left out, and one still on its way is named by the leaf it
+     * will have, its hash.
+     */
+    async kept() {
+      await ready;
+      if (!state) return [];
+      return sent.items
+        .filter((item) => item.leaf && !sent.lost.has(item.leaf))
+        .map((item) => ({ index: item.index, leaf: item.leaf, note: state.path }));
     },
   };
 }

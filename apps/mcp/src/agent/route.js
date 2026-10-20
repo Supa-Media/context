@@ -613,7 +613,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
 
     if (conversation !== null && !turn.exhausted) {
       try {
-        const saved = [reactedLine(reacted), tapbackLine(quoted) || question, attachmentsLine(attachments), steeredLine(steer?.words ?? [])].filter(Boolean).join("\n"); // names only, never bytes
+        const saved = [reactedLine(reacted), tapbackLine(quoted) || question, attachmentsLine(attachments, (await transcript?.kept()) ?? []), steeredLine(steer?.words ?? [])].filter(Boolean).join("\n"); // names only, never bytes
         await appendConversation(store, conversation, history, saved, [answer, sentPicturesLine(pictures)].filter(Boolean).join("\n"), {
           tainted: ledger.untrusted,
           tools: turn.steps.filter((step) => step.ok).map((step) => step.tool),
