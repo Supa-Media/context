@@ -97,3 +97,9 @@ An action called on the wrong one of the six (`write { action: "progress" }`,
 seen twice) runs under the family that has it, with that family's grants,
 instead of failing (`sixTools.js`; "an action called on the wrong one of the
 six runs where it lives, never wider").
+
+A texted turn is told where Google lands in its notes (`SYNCED_PLACES_LINE`,
+`prompt.js`): one calendar note a day under `0-inbox/calendar/`, and email
+under `0-inbox/email/<account>/`. On 2026-10-18 Tex said "I can't read your
+Google Calendar" with every day of it there, and filled the gap with dates
+from someone else's test notes. Test: `agentSyncedPlaces.test.mjs`.

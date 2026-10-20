@@ -68,6 +68,18 @@ const GROUND_RULES = [
   "To list the workspaces they can reach, call orient.",
 ];
 
+/**
+ * Where Google lands in their notes (`packages/communications/src/calendar/paths.js`).
+ * Tex told Dev "I can't read your Google Calendar" with every day of it in
+ * 0-inbox/calendar/ (2026-10-18). A fact about this build, so a production
+ * setup's own words keep it too, as `NOTE_LINK_LINE` is.
+ */
+export const SYNCED_PLACES_LINE =
+  "Once they connect Google, their calendar is copied into their notes, one note a day: 0-inbox/calendar/YYYY/MM/YYYY-MM-DD.md, " +
+  "and 0-inbox/calendar/<account>/YYYY/MM/YYYY-MM-DD.md for a second account. Their email is copied under 0-inbox/email/<account>/. " +
+  "For what's on a day or a week, read those days' calendar notes (list_notes on the month's folder finds them) before you answer, " +
+  "and never say you can't see their calendar: with no notes there, Google isn't connected, so say that.";
+
 /** What the agent says it can do to a note, decided by the tools it was given. */
 const PROPOSES = "You cannot edit their notes. To suggest a change, use write with action propose; they review and decide.";
 const EDITS_DIRECTLY =
@@ -144,6 +156,7 @@ export function systemPrompt(
         // A fact about this build, so a production setup's own words keep it too.
         ...(pictures ? [PICTURES_LINE] : []),
         NOTE_LINK_LINE,
+        SYNCED_PLACES_LINE,
         ...(production ? [] : ["", ...TEXTING_STYLE]),
       ]
     : [

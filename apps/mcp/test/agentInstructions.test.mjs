@@ -218,6 +218,7 @@ test("an overgrown file is refused, so it cannot crowd out the question", async 
   // from 5,000 when texted turns were told about their check-ins (heartbeat.js),
   // and from 6,000 when they were told what a text about their pings means (checkIns.js),
   // and from 6,500 when they were told to send the link a note read carries (noteLinks.js),
-  // and from 7,000 when every turn was told when to offer a shared workspace (workspaces.js; 7,664 then).
-  assert.ok(system.length < 8_000, `system was ${system.length} characters`);
+  // and from 7,000 when every turn was told when to offer a shared workspace (workspaces.js; 7,664 then),
+  // and from 8,000 when texted turns were told where their calendar and email sync to (prompt.js; 8,150 then).
+  assert.ok(system.length < 8_500, `system was ${system.length} characters`);
 });
