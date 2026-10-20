@@ -60,6 +60,9 @@ export function TexPage() {
       <footer className="tp-foot">
         <a href="/login">Sign in</a>
         <a href="/?page=pricing">Pricing</a>
+        <a className="tp-mac" href="/download/mac">
+          Download for Mac
+        </a>
         <a href="/privacy">Privacy</a>
         <a href="/terms">Terms</a>
         <span className="tp-copy">© 2026 Context</span>

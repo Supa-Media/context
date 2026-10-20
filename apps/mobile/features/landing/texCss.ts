@@ -64,6 +64,14 @@ export const TEX_CSS = `
 .tp-foot{width:100%;max-width:560px;margin:0 auto;padding:0 20px 28px;display:flex;flex-wrap:wrap;gap:8px 22px;font-size:14px;color:var(--ink2)}
 .tp-foot a:hover{color:var(--ink)}
 /*
+  The Mac app's download (Dev, 2026-10-20), a plain footer link like its
+  neighbours. Shown only where there is a mouse, so never on a phone, which
+  cannot install it. \`/download/mac\` is the router's redirect to the newest
+  dmg (\`infra/router/src/download.ts\`).
+*/
+.tp-mac{display:none}
+@media (hover:hover) and (pointer:fine){.tp-mac{display:inline}}
+/*
   A computer's window holds the whole page with no scrolling, as page a's
   did (Dev2, 2026-10-12): the words and the sign-up on the left, the
   conversation on the right.

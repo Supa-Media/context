@@ -149,6 +149,37 @@ export async function runEntitlementsAndIconChecks(check) {
     /target:\s*zip/.test(BUILDER),
   );
   check("...for both architectures, because an Intel Mac is still a Mac", BUILDER.includes("arm64") && BUILDER.includes("x64"));
+
+  // -- the dmg a person downloads from context.lc/download/mac ----------------
+  // The router redirects to `releases/latest/download/Context-mac-<arch>.dmg`
+  // (`infra/router/src/download.ts`). A version back in the dmg's name and
+  // that address is a 404 on the homepage, which no other check here notices.
+  const DMG = withoutYamlComments(BUILDER).split(/\n(?=\S)/).find((block) => block.startsWith("dmg:")) ?? "";
+  const ROUTER_DOWNLOAD = readFileSync(join(ROOT, "../../infra/router/src/download.ts"), "utf8");
+  check(
+    "the dmg's name carries no version, so one address is always the newest",
+    /artifactName:\s*\$\{productName\}-mac-\$\{arch\}\.\$\{ext\}/.test(DMG) &&
+      ROUTER_DOWNLOAD.includes("Context-mac-arm64.dmg") &&
+      ROUTER_DOWNLOAD.includes("Context-mac-x64.dmg"),
+  );
+  // PNG width and height sit at bytes 16-23 of the IHDR chunk.
+  const pngSize = (file) => {
+    const png = readFileSync(join(ROOT, file));
+    return [png.readUInt32BE(16), png.readUInt32BE(20)];
+  };
+  const [w1, h1] = existsSync(join(ROOT, "build/background.png")) ? pngSize("build/background.png") : [0, 0];
+  const [w2, h2] = existsSync(join(ROOT, "build/background@2x.png")) ? pngSize("build/background@2x.png") : [0, 0];
+  check(
+    "the dmg window has its picture at 660x400, and at twice that for a Retina screen",
+    /background:\s*build\/background\.png/.test(DMG) && w1 === 660 && h1 === 400 && w2 === 1320 && h2 === 800,
+  );
+  check(
+    "...and the icons sit where that picture's arrow and name plates expect them",
+    /window:\s*\n\s*width:\s*660\s*\n\s*height:\s*400/.test(DMG) &&
+      /iconSize:\s*112/.test(DMG) &&
+      /x:\s*170\s*\n\s*y:\s*206\s*\n\s*type:\s*file/.test(DMG) &&
+      /x:\s*490\s*\n\s*y:\s*206\s*\n\s*type:\s*link\s*\n\s*path:\s*\/Applications/.test(DMG),
+  );
   /*
     A check that used to be here, deliberately gone rather than quietly dropped:
 

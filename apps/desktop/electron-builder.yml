@@ -176,8 +176,30 @@ mac:
 afterSign: build/notarize.cjs
 
 dmg:
-  # The default window with the app and an Applications alias — a background
-  # image is a design decision nobody has taken.
+  # The window a person sees on opening the download: the app, an arrow, and
+  # Applications, over `build/background.png` (and its @2x), whose source is
+  # `build/dmg-background.html`. The picture draws everything but the icons
+  # and their names, so the icon positions here and the plates and arrow in
+  # that picture move together. Agreed with the owner from an artboard,
+  # 2026-10-20.
+  background: build/background.png
+  iconSize: 112
+  window:
+    width: 660
+    height: 400
+  contents:
+    - x: 170
+      y: 206
+      type: file
+    - x: 490
+      y: 206
+      type: link
+      path: /Applications
+  # No version in the name, so `releases/latest/download/Context-mac-arm64.dmg`
+  # is one address for the newest dmg — what `context.lc/download/mac`
+  # redirects to (`infra/router/src/download.ts`). Only the dmg: the zips and
+  # `latest-mac.yml` keep their versioned names, which is what the updater reads.
+  artifactName: ${productName}-mac-${arch}.${ext}
   #
   # `sign: true` because electron-builder's own default is to leave the disk
   # image itself unsigned even on a fully signed, notarised build (only the

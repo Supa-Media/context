@@ -1,0 +1,44 @@
+<!doctype html>
+<!--
+  The source of background.png and background@2x.png: the window a person sees
+  when they open the dmg. Finder draws the two icons (112 pt, centred on
+  (170,206) and (490,206), as `electron-builder.yml`'s `dmg.contents` says)
+  and their names over this picture; everything else is here.
+
+  The grey plates under the names are deliberate. Finder writes the names in
+  black in light mode and in white in dark mode, over a picture that stays
+  light either way; a mid-tone plate keeps both readable.
+
+  Regenerate, from this folder, with any Chromium:
+    chromium --headless=new --hide-scrollbars --force-device-scale-factor=1 \
+      --window-size=660,600 --screenshot=out.png dmg-background.html
+  then crop the top 660x400 into background.png, and the same at scale 2
+  (1320x800) into background@2x.png.
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+@font-face{font-family:"Libron";src:url(../../mobile/public/Libron-Regular.woff2) format("woff2")}
+body{margin:0}
+.bg{position:relative;width:660px;height:400px;background:#F1F0EA;color:#1C1B19;overflow:hidden;font-family:"Libron",Georgia,serif;-webkit-font-smoothing:antialiased}
+h2{position:absolute;top:52px;left:0;right:0;text-align:center;margin:0;font-weight:500;font-size:26px;line-height:32px;letter-spacing:-.01em}
+p{position:absolute;top:332px;left:0;right:0;text-align:center;margin:0;font-size:15px;line-height:20px;color:#4A4844}
+.arrow{position:absolute;left:266px;top:184px;width:128px;height:44px}
+.plate{position:absolute;top:265px;height:22px;border-radius:11px;background:#77726A}
+.p1{left:132px;width:76px}
+.p2{left:438px;width:104px}
+</style>
+</head>
+<body>
+<div class="bg">
+  <h2>Drag Context into Applications</h2>
+  <i class="plate p1"></i><i class="plate p2"></i>
+  <svg class="arrow" viewBox="0 0 128 44" fill="none" stroke="#2A45CF" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M6 28 C 38 12, 86 12, 118 24"/>
+    <path d="M100 11 L 120 24 L 99 35"/>
+  </svg>
+  <p>Then open Context from Applications.</p>
+</div>
+</body>
+</html>
