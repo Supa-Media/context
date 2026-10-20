@@ -13,7 +13,12 @@
  *
  *  1. `outsideSync: true` sent again (2026-10-20). → `a search asks Gmail
  *     about all of the mail...` fails.
- *  2. The synced notes searched again. → `...and lists no synced note...` fails.
+ *  2. The synced notes searched when Gmail answered. → `...and lists no synced
+ *     note...` fails.
+ *  5. `reconnect_required` dropped from FALLS_BACK (2026-10-20). → `a mailbox
+ *     needing reconnecting is named...` fails.
+ *  6. The notes searched only when Gmail answered. → `Gmail out of reads for
+ *     the hour...` fails.
  *  3. `search_email` removed from PRIVATE_TIER_ONLY_TOOLS. → `a team-scope
  *     connection is not offered...` fails.
  *  4. `read_email` removed from UNTRUSTED_READS. → `an email read live marks the
@@ -76,6 +81,34 @@ export async function runEmailReadChecks(check) {
       "...and lists no synced note, whose search cannot see into a long day of mail",
       !searched.includes("0-inbox/email/me-at-example-com/"),
     );
+
+    const FOLDER = { address: "me@example.com", folder: "0-inbox/email/me-at-example-com" };
+    controlPlane.flags.mailRefusal = "reconnect_required";
+    controlPlane.flags.mailExtra = { reconnect: [FOLDER] };
+    const broken = await call(env, TOKEN_MCP, "search", { query: "publish", args: { email: true } });
+    check(
+      "a mailbox needing reconnecting is named for the person, and its synced notes answer instead",
+      broken?.isError !== true && textOf(broken).includes("me@example.com needs reconnecting") &&
+        textOf(broken).includes("manage connect_google") && textOf(broken).includes("0-inbox/email/me-at-example-com/2026-10-01.md"),
+    );
+    controlPlane.flags.mailRefusal = "rate_limited";
+    controlPlane.flags.mailExtra = { mailboxes: [FOLDER], reconnect: [] };
+    const spent = await call(env, TOKEN_MCP, "search", { query: "from:jo publish", args: { email: true } });
+    check(
+      "Gmail out of reads for the hour: the synced notes answer, and say they may miss mail",
+      spent?.isError !== true && textOf(spent).includes("Gmail was not searched") &&
+        textOf(spent).includes("0-inbox/email/me-at-example-com/2026-10-01.md") && textOf(spent).includes("may miss mail") &&
+        !textOf(spent).includes("needs reconnecting"),
+    );
+    controlPlane.flags.mailRefusal = undefined;
+    controlPlane.flags.mailExtra = { incomplete: true, unanswered: ["me@example.com"] };
+    const partial = textOf(await call(env, TOKEN_MCP, "search", { query: "publish", args: { email: true } }));
+    check(
+      "a mailbox Gmail did not answer for is searched in its notes, beside what Gmail found",
+      partial.includes("email:me@example.com/18c0ffee") && partial.includes("0-inbox/email/me-at-example-com/2026-10-01.md") &&
+        partial.includes("did not answer for me@example.com"),
+    );
+    controlPlane.flags.mailExtra = undefined;
 
     const read = textOf(await call(env, TOKEN_MCP, "fetch", { id: "email:me@example.com/18c0ffee" }));
     check(

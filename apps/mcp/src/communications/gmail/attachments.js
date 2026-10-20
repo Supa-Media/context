@@ -140,12 +140,13 @@ export function attachmentDateOf(path) {
 }
 
 /** One attachment's bytes, raw. `assertWritableContentType` in the store never sees Gmail's declared type — see that file's comment. */
-export async function getAttachmentBytes({ fetchImpl, accessToken, messageId, attachmentId }) {
+export async function getAttachmentBytes({ fetchImpl, accessToken, messageId, attachmentId, delaysMs }) {
   const body = await gmailFetch(
     fetchImpl,
     accessToken,
     `/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}`,
     {},
+    delaysMs ? { delaysMs } : {},
   );
   return decodeBase64UrlToBytes(body.data);
 }

@@ -134,7 +134,15 @@ function retryAfterMs(response) {
   return Number.isFinite(seconds) && seconds >= 0 ? Math.min(seconds * 1000, gmailRetry.maxRetryAfterMs) : undefined;
 }
 
-export async function gmailFetch(fetchImpl, accessToken, path, params) {
+/**
+ * The retries a person waits on: a live search, read or reply asked by an AI
+ * mid-answer gets one short retry, not the sync's 40 seconds of them, so a
+ * slow Gmail fails over to the synced notes inside the gateway's wait
+ * (2026-10-20). A sync pass has no one waiting and keeps `gmailRetry`.
+ */
+export const LIVE_RETRY_MS = [500];
+
+export async function gmailFetch(fetchImpl, accessToken, path, params, { delaysMs = gmailRetry.delaysMs } = {}) {
   const url = new URL(`${GMAIL_API_ORIGIN}${path}`);
   for (const [key, value] of Object.entries(params ?? {})) {
     if (value === undefined || value === null) continue;
@@ -149,8 +157,8 @@ export async function gmailFetch(fetchImpl, accessToken, path, params) {
     });
     if (response.ok) return response.json();
     const details = await safeGoogleErrorDetails(response);
-    if (attempt < gmailRetry.delaysMs.length && retryable(response.status, details)) {
-      await gmailRetry.sleep(retryAfterMs(response) ?? gmailRetry.delaysMs[attempt]);
+    if (attempt < delaysMs.length && retryable(response.status, details)) {
+      await gmailRetry.sleep(Math.min(retryAfterMs(response) ?? delaysMs[attempt], Math.max(...delaysMs)));
       continue;
     }
     throw gmailError(response.status, path, details);
@@ -193,12 +201,14 @@ async function safeGoogleErrorDetails(response) {
 }
 
 /** One page of message ids matching `query`. */
-export async function listMessageIds({ fetchImpl, accessToken, query, pageToken, maxResults = 100 }) {
-  const body = await gmailFetch(fetchImpl, accessToken, "/gmail/v1/users/me/messages", {
-    q: query,
-    pageToken,
-    maxResults,
-  });
+export async function listMessageIds({ fetchImpl, accessToken, query, pageToken, maxResults = 100, delaysMs }) {
+  const body = await gmailFetch(
+    fetchImpl,
+    accessToken,
+    "/gmail/v1/users/me/messages",
+    { q: query, pageToken, maxResults },
+    delaysMs ? { delaysMs } : {},
+  );
   return {
     ids: (body.messages ?? []).map((entry) => String(entry.id)),
     nextPageToken: body.nextPageToken,
@@ -220,18 +230,26 @@ export async function listAllMessageIds({ fetchImpl, accessToken, query, maxPage
 }
 
 /** One message, in full — the only shape that carries a body and headers. */
-export async function getMessage({ fetchImpl, accessToken, id }) {
+export async function getMessage({ fetchImpl, accessToken, id, delaysMs }) {
   return gmailFetch(fetchImpl, accessToken, `/gmail/v1/users/me/messages/${encodeURIComponent(id)}`, {
     format: "full",
-  });
+  }, delaysMs ? { delaysMs } : {});
 }
 
 /** One message's headers and snippet, without its body: what a search result shows. */
-export async function getMessageHeaders({ fetchImpl, accessToken, id }) {
+export async function getMessageHeaders({ fetchImpl, accessToken, id, delaysMs }) {
   return gmailFetch(fetchImpl, accessToken, `/gmail/v1/users/me/messages/${encodeURIComponent(id)}`, {
     format: "metadata",
     metadataHeaders: ["From", "To", "Subject", "Date"],
-  });
+  }, delaysMs ? { delaysMs } : {});
+}
+
+/** The headers a reply in the same thread needs: its Message-ID, References and Subject. */
+export async function getReplyHeaders({ fetchImpl, accessToken, id, delaysMs = LIVE_RETRY_MS }) {
+  return gmailFetch(fetchImpl, accessToken, `/gmail/v1/users/me/messages/${encodeURIComponent(id)}`, {
+    format: "metadata",
+    metadataHeaders: ["Message-ID", "References", "Subject"],
+  }, { delaysMs });
 }
 
 /**
@@ -244,9 +262,9 @@ export async function getMessageHeaders({ fetchImpl, accessToken, id }) {
  * were the same exception until a review pointed the difference out: see
  * `gmailFetch`.
  */
-export async function getMessageOrNull({ fetchImpl, accessToken, id }) {
+export async function getMessageOrNull({ fetchImpl, accessToken, id, delaysMs }) {
   try {
-    return await getMessage({ fetchImpl, accessToken, id });
+    return await getMessage({ fetchImpl, accessToken, id, delaysMs });
   } catch (error) {
     // `GmailHistoryExpiredError` is EXCLUDED rather than caught by inheritance
     // — it extends `GmailApiError` with status 404, so a plain

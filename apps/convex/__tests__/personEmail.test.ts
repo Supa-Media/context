@@ -15,14 +15,19 @@
  * failing "a Gmail connected to read only sends nothing". Dropping the check
  * that the cleared workspace is the person's own sent from Alice's Gmail on a
  * shared workspace's request, failing "a grant on a shared workspace never
- * reaches its person's own Gmail".
+ * reaches its person's own Gmail". Dropping the Message-ID check in
+ * `replyHeadersOf` let a forged header through, failing "a thread's headers
+ * become headers only when each is one plain message id"; sending a reply
+ * when its message was not found (2026-10-20) failed "a reply to an email the
+ * mailbox does not hold sends nothing". Choosing the sender without its
+ * health failed "a Gmail whose sign-in stopped working never sends…".
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { createWorkspace, gatewayPost, seedGoogleConnection, seedStorageBinding } from "./fixtures.helpers";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { ACCESS_A, ACCESS_B, bodyOf, token, twoConnectedTenants } from "./controlPlane/fixtures.helpers";
-import { GMAIL_SEND_SCOPE, PERSON_EMAIL_HOURLY_LIMIT, PERSON_EMAIL_RECIPIENT_DAILY_LIMIT, gmailRaw, readPersonEmail, recipientLimitKey } from "../functions/lib/personEmail";
+import { GMAIL_COMPOSE_SCOPE, GMAIL_SEND_SCOPE, PERSON_EMAIL_HOURLY_LIMIT, PERSON_EMAIL_RECIPIENT_DAILY_LIMIT, gmailRaw, readPersonEmail, recipientLimitKey, replyHeadersOf } from "../functions/lib/personEmail";
 
 const realFetch = globalThis.fetch;
 
@@ -31,15 +36,38 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-/** Gmail, answered here; anything else goes where it was going. Each sent message, decoded. */
-function gmail(status = 200) {
-  const sent: Array<{ auth: string | null; message: string }> = [];
+/** The message a reply answers, as Gmail's metadata read returns it. */
+const ANSWERED = {
+  id: "18cafe",
+  threadId: "18beef",
+  payload: {
+    headers: [
+      { name: "Message-ID", value: "<second@mail.example.invalid>" },
+      { name: "References", value: "<first@mail.example.invalid>" },
+      { name: "Subject", value: "Welcome" },
+    ],
+  },
+};
+
+/**
+ * Gmail, answered here; anything else goes where it was going. Each sent
+ * message, decoded, with the threadId it was sent in. A metadata read answers
+ * from `messages` by id, or 404.
+ */
+function gmail(status = 200, messages: Record<string, unknown> = { [ANSWERED.id]: ANSWERED }) {
+  const sent: Array<{ auth: string | null; message: string; threadId?: string; url: string }> = [];
   vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     if (!url.startsWith("https://gmail.googleapis.com/")) return await realFetch(input, init);
-    const raw = String(JSON.parse(String(init?.body)).raw).replace(/-/g, "+").replace(/_/g, "/");
+    if ((init?.method ?? "GET") === "GET") {
+      const id = decodeURIComponent(new URL(url).pathname.split("/").at(-1) ?? "");
+      return Object.hasOwn(messages, id) ? new Response(JSON.stringify(messages[id])) : new Response("{}", { status: 404 });
+    }
+    const posted = JSON.parse(String(init?.body));
+    const body = posted.message ?? posted;
+    const raw = String(body.raw).replace(/-/g, "+").replace(/_/g, "/");
     const headers = new Headers(init?.headers);
-    sent.push({ auth: headers.get("Authorization"), message: atob(raw) });
+    sent.push({ auth: headers.get("Authorization"), message: atob(raw), threadId: body.threadId, url });
     return new Response(JSON.stringify({ id: "msg_fake" }), { status });
   });
   return sent;
@@ -203,6 +231,51 @@ describe("sending an email as the person", () => {
     expect(await send(t, ACCESS_A, aliceWs, { email: { ...EMAIL, to: ["j.o+again@googlemail.com"] } })).toEqual({ ok: false, refused: "recipient_limit" });
   });
 
+  test("a reply goes inside the thread of the email it answers", async () => {
+    const sent = gmail();
+    const { t, aliceWs } = await connected();
+    expect(await send(t, ACCESS_A, aliceWs, { email: { ...EMAIL, from: FROM, replyTo: ANSWERED.id } })).toEqual({ ok: true, from: FROM });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.threadId).toBe(ANSWERED.threadId);
+    expect(sent[0]!.message).toContain(
+      "In-Reply-To: <second@mail.example.invalid>\r\nReferences: <first@mail.example.invalid> <second@mail.example.invalid>\r\n",
+    );
+  });
+
+  test("a draft reply sits in that thread too", async () => {
+    const sent = gmail();
+    const { t, aliceWs } = await connected();
+    await t.run(async (ctx) => {
+      for (const row of await ctx.db.query("googleConnections").collect()) await ctx.db.patch(row._id, { scopes: [...(row.scopes ?? []), GMAIL_COMPOSE_SCOPE] });
+    });
+    const answer = await bodyOf(
+      await gatewayPost(t, "/gateway/email/draft", { accessToken: ACCESS_A, expectedWorkspaceId: aliceWs, email: { ...EMAIL, from: FROM, replyTo: ANSWERED.id } }),
+    );
+    expect(answer).toEqual({ ok: true, from: FROM });
+    expect(sent[0]!.url).toContain("/drafts");
+    expect(sent[0]!.threadId).toBe(ANSWERED.threadId);
+    expect(sent[0]!.message).toContain("In-Reply-To: <second@mail.example.invalid>");
+  });
+
+  test("a reply to an email the mailbox does not hold sends nothing", async () => {
+    const sent = gmail();
+    const { t, aliceWs } = await connected();
+    expect(await send(t, ACCESS_A, aliceWs, { email: { ...EMAIL, from: FROM, replyTo: "18gone" } })).toEqual({ ok: false, refused: "reply_not_found" });
+    expect(sent).toHaveLength(0);
+  });
+
+  test("a Gmail whose sign-in stopped working never sends: another one does, or the person is told to reconnect", async () => {
+    const sent = gmail();
+    const { t, aliceWs, alice } = await connected();
+    const first = await t.run(async (ctx) => (await ctx.db.query("googleConnections").collect())[0]!._id);
+    await t.run((ctx) => ctx.db.patch(first, { health: "reconnect_required" }));
+    expect(await send(t, ACCESS_A, aliceWs)).toEqual({ ok: false, refused: "reconnect_required" });
+    expect(sent).toHaveLength(0);
+    await connectGmail(t, aliceWs, alice, { address: "alice.work@gmail.example" });
+    expect(await send(t, ACCESS_A, aliceWs)).toEqual({ ok: true, from: "alice.work@gmail.example" });
+    expect(sent).toHaveLength(1);
+  });
+
   test("a Gmail failure is reported, not called sent", async () => {
     gmail(500);
     const { t, aliceWs } = await connected();
@@ -212,7 +285,7 @@ describe("sending an email as the person", () => {
 
 describe("what an email may be", () => {
   test("anything that could add a header or a hidden recipient is refused", () => {
-    expect(readPersonEmail(EMAIL)).toEqual({ ...EMAIL, from: null, cc: [] });
+    expect(readPersonEmail(EMAIL)).toEqual({ ...EMAIL, from: null, cc: [], replyTo: null });
     expect(readPersonEmail({ ...EMAIL, subject: "Hi\nBcc: everyone@example.invalid" })).toBeNull();
     expect(readPersonEmail({ ...EMAIL, to: ["jo@example.invalid, sam@example.invalid"] })).toBeNull();
     expect(readPersonEmail({ ...EMAIL, to: ["Jo <jo@example.invalid>"] })).toBeNull();
@@ -223,6 +296,28 @@ describe("what an email may be", () => {
     expect(readPersonEmail({ ...EMAIL, to: Array.from({ length: 11 }, (_, i) => `p${i}@example.invalid`) })).toBeNull();
     expect(readPersonEmail({ ...EMAIL, body: "" })).toBeNull();
     expect(readPersonEmail({ ...EMAIL, body: "hi \u202e there" })).toBeNull();
+    expect(readPersonEmail({ ...EMAIL, from: FROM, replyTo: "18cafe/../x" })).toBeNull();
+    expect(readPersonEmail({ ...EMAIL, replyTo: "18cafe" })).toBeNull();
+  });
+
+  test("a thread's headers become headers only when each is one plain message id", () => {
+    expect(replyHeadersOf(ANSWERED)).toEqual({
+      threadId: "18beef",
+      inReplyTo: "<second@mail.example.invalid>",
+      references: ["<first@mail.example.invalid>", "<second@mail.example.invalid>"],
+    });
+    const forged = (value: string) => ({ ...ANSWERED, payload: { headers: [{ name: "Message-ID", value }] } });
+    expect(replyHeadersOf(forged("<a@b>\r\nBcc: x@example.invalid"))).toBeNull();
+    expect(replyHeadersOf(forged("<a b@c>"))).toBeNull();
+    expect(replyHeadersOf(forged("no-brackets@example.invalid"))).toBeNull();
+    expect(replyHeadersOf({ ...ANSWERED, threadId: "../x" })).toBeNull();
+    const references = replyHeadersOf({
+      ...ANSWERED,
+      payload: { headers: [ANSWERED.payload.headers[0]!, { name: "References", value: "<ok@x> <bad\r\nBcc:x> " + Array.from({ length: 30 }, (_, i) => `<r${i}@x>`).join(" ") }] },
+    })!;
+    expect(references.references).toHaveLength(20);
+    expect(references.references.at(-1)).toBe("<second@mail.example.invalid>");
+    expect(references.references.join(" ")).not.toContain("Bcc");
   });
 
   test("the message carries the body exactly, encoded so no line of it can become a header", () => {

@@ -52,7 +52,7 @@ import { ask, call, request, textOf, createEgressWorld, TOKEN_CONSOLE, TOKEN_MCP
 import { emailCaller, DEFAULT_EMAIL_CALLERS } from "../src/tools/emailGate.js";
 import { helperCallersOf } from "../src/agent/production.js";
 import { conversationFor, readVerdict } from "../src/agent/mailChecker.js";
-import { readEmail } from "../src/tools/email.js";
+import { emailCopy, readEmail } from "../src/tools/email.js";
 import { TEXTED_ASK_CAP, textedAsk } from "../src/agent/textedApprovals.js";
 import { createPending, disarmRecords, listPending } from "../src/tools/approvals.js";
 import { createMemoryStore } from "./gmailSync/fixtures.mjs";
@@ -302,6 +302,13 @@ export async function runEmailGateChecks(check) {
       "an email the limits would refuse is never put to the person",
       pending().length === 0 && JSON.stringify(model.requests.at(-1)?.messages ?? []).includes("5 emails through Context this hour"),
     );
+    controlPlane.flags.emailRefusal = "reconnect_required";
+    model.install([{ toolCalls: [{ name: "send_email", args: EMAIL }] }, { text: "Your Gmail needs reconnecting." }]);
+    await ask(env, TOKEN_TEXTS, "send Jo the thursday email");
+    check(
+      "an email from a Gmail needing reconnecting is never put to the person, and the AI is told to tell them",
+      pending().length === 0 && JSON.stringify(model.requests.at(-1)?.messages ?? []).includes("needs reconnecting"),
+    );
     controlPlane.flags.emailRefusal = null;
 
     controlPlane.flags.emailSender = null;
@@ -488,5 +495,22 @@ export async function runEmailGateChecks(check) {
       readEmail({ ...EMAIL, to: ["jo@example.com", "JO@example.com"] }).error !== undefined &&
       readEmail({ ...EMAIL, to: Array.from({ length: 11 }, (_, i) => `p${i}@example.com`) }).error !== undefined &&
       readEmail(EMAIL).email?.to[0] === "jo@example.com",
+  );
+  const reply = readEmail({ ...EMAIL, in_reply_to: "email:Me@Example.com/18cafe" }).email;
+  check(
+    "a reply names the email it answers, and goes from that email's mailbox",
+    reply?.from === "me@example.com" && reply?.replyTo === "18cafe" &&
+      readEmail({ ...EMAIL, from: "me@example.com", in_reply_to: "email:me@example.com/18cafe" }).email?.replyTo === "18cafe" &&
+      readEmail(EMAIL).email?.replyTo === undefined,
+  );
+  check(
+    "...and a reply id that is not one, or a different sender, is refused before anything",
+    readEmail({ ...EMAIL, in_reply_to: "18cafe" }).error !== undefined &&
+      readEmail({ ...EMAIL, in_reply_to: "email:me@example.com/../x" }).error !== undefined &&
+      readEmail({ ...EMAIL, from: "other@example.com", in_reply_to: "email:me@example.com/18cafe" }).error?.includes("me@example.com") === true,
+  );
+  check(
+    "...and the person is told it is a reply in the thread",
+    emailCopy(reply).includes("(A reply inside the existing email thread.)") && !emailCopy(readEmail(EMAIL).email).includes("existing email thread"),
   );
 }

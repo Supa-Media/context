@@ -73,6 +73,8 @@ export {
   getMessage,
   getMessageOrNull,
   getMessageHeaders,
+  getReplyHeaders,
+  LIVE_RETRY_MS,
   getProfileHistoryId,
   listHistoryPage,
   listAllHistory,
