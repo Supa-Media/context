@@ -783,10 +783,8 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     file: "app/waitlist.tsx",
     reachable: false,
     reason:
-      "Where somebody who joined Tex's waitlist on tex.lc stands, read with " +
-      "the receipt their browser was handed at joining. It is reached from " +
-      "the tex.lc landing page and its sign-up, never from the app, and " +
-      "means nothing to a person who is signed in.",
+      "Where somebody who joined Tex's waitlist on tex.lc stands, read with the receipt their browser " +
+      "was handed at joining: reached from tex.lc's landing and sign-up, never from the app.",
     marker: "where somebody who joined the waitlist stands",
   },
   {
