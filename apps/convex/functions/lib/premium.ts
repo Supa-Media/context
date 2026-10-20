@@ -167,6 +167,33 @@ export function planIsPaying(status: PlanStatus): boolean {
 }
 
 /**
+ * The deployment variable that turns pricing back on. Absent is free.
+ *
+ * Context is free (decided by the owner, 2026-10-20: "I don't want to make any
+ * differentiation between free and premium anymore … set no limits for now").
+ * Every Premium gate opens for every workspace, no note cap applies and
+ * nothing is sold. The billing code stays, dormant, because a file-count limit
+ * is expected later; setting this to `on` brings the paid model back exactly
+ * as `docs/decisions/billing.md` describes it. The suite runs with it on so the
+ * dormant model stays proven, and `pricingOff.test.ts` proves the free one.
+ */
+export const PRICING_ENV_VAR = "CONTEXT_PRICING";
+
+/** Whether this deployment charges for anything at all. */
+export function pricingIsOn(env: Record<string, string | undefined> = process.env): boolean {
+  return (env[PRICING_ENV_VAR] ?? "").trim().toLowerCase() === "on";
+}
+
+/**
+ * Whether a workspace gets what Premium turns on: always while pricing is off,
+ * otherwise only while its plan is paying. Every feature gate reads this, never
+ * `planIsPaying`, which stays the answer to the money question alone.
+ */
+export function premiumFeaturesOn(status: PlanStatus): boolean {
+  return !pricingIsOn() || planIsPaying(status);
+}
+
+/**
  * What this context actually gets.
  *
  * The AND of "asked for" and "paying", computed in one place so no caller can
@@ -178,7 +205,7 @@ export function activeEntitlements(
   selected: Entitlements,
   status: PlanStatus,
 ): Entitlements {
-  if (!planIsPaying(status)) return { managedStorage: false, fastSearch: false };
+  if (!premiumFeaturesOn(status)) return { managedStorage: false, fastSearch: false };
   return { ...selected };
 }
 
@@ -266,7 +293,7 @@ export function managedStorageEntitled(
   deployment: { freeTierOffered: boolean },
 ): boolean {
   if (plan?.managedStorage !== true) return false;
-  if (planIsPaying(plan.status ?? "none")) return true;
+  if (premiumFeaturesOn(plan.status ?? "none")) return true;
   return plan.freeManaged === true && deployment.freeTierOffered;
 }
 
@@ -294,7 +321,7 @@ export function noteCapFor(
   plan: Pick<PlanFacts, "status" | "founding" | "stripeCustomerId" | "stripeStatus"> | null,
   storageIsManaged: boolean,
 ): number | null {
-  if (!storageIsManaged || plan === null) return null;
+  if (!pricingIsOn() || !storageIsManaged || plan === null) return null;
   // A founder at no charge is active but keeps the cap (`foundingAtNoCharge`).
   if (planIsPaying(plan.status ?? "none") && !foundingAtNoCharge(plan)) return null;
   return FREE_MANAGED_NOTE_CAP;

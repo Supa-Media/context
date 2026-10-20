@@ -42,7 +42,7 @@ import {
 } from "../_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "../_generated/api";
-import { planIsPaying } from "./lib/premium";
+import { premiumFeaturesOn } from "./lib/premium";
 import {
   clientFamily,
   dayKey,
@@ -342,7 +342,7 @@ async function workspaceIsPaying(ctx: MutationCtx, workspaceId: Id<"workspaces">
     .query("workspacePlans")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .collect();
-  return plans.some((plan) => planIsPaying(plan.status));
+  return plans.some((plan) => premiumFeaturesOn(plan.status));
 }
 
 /**

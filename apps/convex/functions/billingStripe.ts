@@ -1,5 +1,5 @@
 /**
- * The two calls this product makes to Stripe.
+ * The calls this product makes to Stripe.
  *
  * Both are `internalAction`s reached only by a schedule edge from
  * `functions/billing.ts` — "scheduling is not calling"
@@ -41,7 +41,7 @@ import type { Id } from "../_generated/dataModel";
 import { internalAction, type ActionCtx } from "../_generated/server";
 import { APP_ORIGIN_ENV_VAR } from "./lib/gatewayAuth";
 import { STRIPE_API_KEY_SECRET, stripePriceId } from "./lib/premium";
-import { StripeApiError, stripeDelete, stripePost } from "./lib/stripe";
+import { StripeApiError, stripeDelete, stripeGet, stripePost } from "./lib/stripe";
 
 /**
  * Our own reasons, from a closed set. The console turns each into a sentence;
@@ -272,5 +272,79 @@ export const createPortalSession = internalAction({
       });
       return await fail(ctx, args.sessionId, "STRIPE_REFUSED");
     }
+  },
+});
+
+/** Stripe's subscription statuses that can still be charged. */
+const CHARGEABLE = new Set(["active", "trialing", "past_due", "unpaid", "incomplete"]);
+
+/**
+ * Every subscription Stripe could still charge for a context: the ones our
+ * plan rows hold, and the ones Stripe lists with a `workspaceId` in their
+ * metadata (written by every checkout), so a subscription whose events never
+ * reached a row is not missed. Another product's subscriptions on the same
+ * account carry no `workspaceId` and are never touched.
+ */
+async function chargeableSubscriptions(ctx: ActionCtx, key: string): Promise<Set<string>> {
+  const ids = new Set(await ctx.runQuery(internal.functions.billingWindDown.liveSubscriptionIds, {}));
+  let startingAfter: string | undefined;
+  for (let page = 0; page < 50; page += 1) {
+    const listed = await stripeGet(key, "/subscriptions", {
+      status: "all",
+      limit: 100,
+      ...(startingAfter === undefined ? {} : { starting_after: startingAfter }),
+    });
+    const data = Array.isArray(listed.data) ? (listed.data as Record<string, unknown>[]) : [];
+    for (const subscription of data) {
+      const metadata = (subscription.metadata ?? {}) as Record<string, unknown>;
+      if (typeof subscription.id !== "string") continue;
+      if (typeof metadata.workspaceId !== "string") continue;
+      if (CHARGEABLE.has(String(subscription.status))) ids.add(subscription.id);
+    }
+    const last = data[data.length - 1];
+    if (listed.has_more !== true || typeof last?.id !== "string") break;
+    startingAfter = last.id;
+  }
+  return ids;
+}
+
+/** How many subscriptions could still be charged. Counts only, never an id. */
+export const countChargeableSubscriptions = internalAction({
+  args: {},
+  returns: v.object({ chargeable: v.number() }),
+  handler: async (ctx) => {
+    const key = await apiKey(ctx);
+    if (key === null) return { chargeable: 0 };
+    return { chargeable: (await chargeableSubscriptions(ctx, key)).size };
+  },
+});
+
+/**
+ * Cancel every subscription that could still be charged, immediately and
+ * without a final invoice or proration (the owner, 2026-10-20: stop collecting
+ * money; everybody keeps using Context as before). `confirm` must name the act,
+ * so a stray run of the counting step cannot reach it. Plans update from
+ * Stripe's own `customer.subscription.deleted` events, as for any cancellation.
+ */
+export const cancelEveryChargeableSubscription = internalAction({
+  args: { confirm: v.literal("cancel-every-subscription") },
+  returns: v.object({ canceled: v.number(), failed: v.number() }),
+  handler: async (ctx) => {
+    const key = await apiKey(ctx);
+    if (key === null) return { canceled: 0, failed: 0 };
+    let canceled = 0;
+    let failed = 0;
+    for (const id of await chargeableSubscriptions(ctx, key)) {
+      try {
+        await stripeDelete(key, `/subscriptions/${encodeURIComponent(id)}`);
+        canceled += 1;
+      } catch (error) {
+        console.error("billing.wind_down_cancel_failed", {
+          status: error instanceof StripeApiError ? error.status : 0,
+        });
+        failed += 1;
+      }
+    }
+    return { canceled, failed };
   },
 });

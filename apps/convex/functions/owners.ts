@@ -55,7 +55,7 @@ import type { OperationResult } from "./lib/filesFns/operationTypes";
 import { withJev } from "./lib/jev/client";
 import { featureIsOn } from "./lib/jev/meter";
 import { planFor, statusOf } from "./lib/billing/plan";
-import { planIsPaying } from "./lib/premium";
+import { premiumFeaturesOn } from "./lib/premium";
 
 /**
  * The most memberships one search reads. Far past any workspace this product
@@ -192,7 +192,7 @@ export const resolveOwners = query({
 /** Premium, and the owner suggestion not switched off through Jev smarts. */
 async function suggestsOwners(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<boolean> {
   if (!(await featureIsOn(ctx, "ownerSuggest"))) return false;
-  return planIsPaying(statusOf(await planFor(ctx, workspaceId)));
+  return premiumFeaturesOn(statusOf(await planFor(ctx, workspaceId)));
 }
 
 /**

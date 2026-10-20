@@ -16,7 +16,7 @@ import type { MutationCtx, QueryCtx } from "../../../_generated/server";
 import { recordAudit } from "../audit";
 import { dnsHostValidator, domainHintValidator } from "../schema/domains";
 import { planFor, requireUserId, statusOf } from "../billing/plan";
-import { planIsPaying } from "../premium";
+import { premiumFeaturesOn } from "../premium";
 import { shortLinkSlugFrom } from "../shareSlug";
 import { isLive } from "../shares/standing";
 import { roleAtLeast, requireWorkspaceAccess, requireWorkspaceRole } from "../workspaceAuth";
@@ -40,7 +40,7 @@ export async function workspacePaying(
   ctx: QueryCtx,
   workspaceId: Id<"workspaces">,
 ): Promise<boolean> {
-  return planIsPaying(statusOf(await planFor(ctx, workspaceId)));
+  return premiumFeaturesOn(statusOf(await planFor(ctx, workspaceId)));
 }
 
 async function domainForOwner(

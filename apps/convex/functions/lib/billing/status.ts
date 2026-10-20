@@ -11,6 +11,7 @@ import {
   activeEntitlements,
   noteCapFor,
   planIsPaying,
+  pricingIsOn,
   type PlanStatus,
 } from "../premium";
 import { stagingStorageIsFree } from "../managedStorage";
@@ -36,6 +37,11 @@ import {
  * what; the owner-only gates are in `readBillingStatus` below.
  */
 export const billingStatusReturns = v.object({
+  /**
+   * Context is free (`pricingIsOn`, decided by the owner 2026-10-20): the
+   * console draws no plan, price, upgrade or note limit anywhere.
+   */
+  free: v.boolean(),
   status: statusValidator,
   selected: entitlementsValidator,
   active: entitlementsValidator,
@@ -164,6 +170,7 @@ export async function readBillingStatus(
     (await freeManagedRefusal(ctx, args.workspaceId, plan)) === null;
 
   return {
+    free: !pricingIsOn(),
     status: planStatus,
     selected,
     active: activeEntitlements(selected, planStatus),

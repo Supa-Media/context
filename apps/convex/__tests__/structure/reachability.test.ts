@@ -381,6 +381,12 @@ describe("no public function can reach a storage secret", () => {
         // Without it, deleting a context leaves the card being charged with no
         // route in the product to stop it.
         "functions.billingStripe.cancelSubscription",
+        // WINDING BILLING DOWN (owner, 2026-10-20: Context is free, stop
+        // charging). Both are internalActions run only by hand through
+        // `convex run` from the billing wind-down workflow; no public function
+        // schedules or calls either. One counts, one cancels.
+        "functions.billingStripe.cancelEveryChargeableSubscription",
+        "functions.billingStripe.countChargeableSubscriptions",
         // THE CUSTOM-HOSTNAME TOKEN, OURS AGAIN.
         //
         // All three open `CUSTOM_DOMAINS_API_TOKEN` — a token of ours,
