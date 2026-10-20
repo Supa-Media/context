@@ -283,7 +283,7 @@ export async function deliverSupervision(store, callTool, supervision, ran, afte
   const personal = store.contexts?.find((entry) => entry.current)?.kind === "personal";
   if (ran.text && personal) {
     try {
-      const history = await readConversation(store, "texts");
+      const history = await readConversation(store, "texts", { entries: 1 });
       await appendConversation(store, "texts", history, updateLine(supervision.task, supervision.title), ran.text, { tainted: true });
     } catch {
       // See above.

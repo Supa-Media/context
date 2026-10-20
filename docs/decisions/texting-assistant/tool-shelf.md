@@ -42,7 +42,19 @@ nothing withheld. connect_google gives a link to the app's Connected apps page,
 because Google's own sign-in is the person's to finish. See
 [workspace setup](../gateway-protocol/workspace-setup.md).
 
-## The conversation is kept long and shown short (2026-10-14)
+## The conversation is kept long and shown short (2026-10-14; reversed 2026-10-20)
+
+**Reversed on 2026-10-20 by the owner**, who chose the whole history over a
+cap after the four-turn window cut a draft email out of its own thread ("why
+can't it just see everything? arbitrary cutoffs don't work"). The kept history
+and what a turn is shown are now bounded by characters, not texts (120,000
+kept, about 80,000 shown, roughly 20,000 tokens); the production setup's
+`history: 4` line was removed, `earlier_texts` reads the rest that is kept,
+and `tex/transcripts/` holds every day's texts beyond that. The history is
+read from the log newest first, a batch at a time, until the budget is spent
+(`events.js`). Tests: "a turn is shown every kept text up to the character
+budget, not a count" and "a thread is shown its own texts past a setup's
+short history". The paragraph below is the decision this replaced.
 
 Same conversation: "Every text is a brand new turn. I don't necessarily think
 that that is bad ... if it does need to, we should have a tool that just shows

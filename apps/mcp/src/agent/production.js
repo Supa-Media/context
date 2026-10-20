@@ -52,9 +52,10 @@
  *   tools          names the setup was proved with (recorded; not yet offered)
  *   core_tools     no longer read: the assistant holds the six tools, each
  *                  listing only what it was granted (`sixTools.js`, 2026-10-16)
- *   history        optional 0-40: how many earlier texts (questions and
+ *   history        optional 0-300: how many earlier texts (questions and
  *                  answers each count) a turn is shown; the rest are read with
- *                  `earlier_texts` (`conversation.js`). Absent: 12.
+ *                  `earlier_texts` (`conversation.js`). Absent: everything
+ *                  kept, up to the shown characters.
  *   max_steps      1-40, the most rounds a turn may take; a quick turn is still
  *                  held to `turn.js`'s 8, and only a streamed (long) texting turn
  *                  (`progress.js`) may go past it
