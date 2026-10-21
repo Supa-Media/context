@@ -30,7 +30,8 @@ const MAX_WORDS = 500;
 
 /** A tapback by its English name, as the gateway reads it. */
 export type Tapback = "Loved" | "Liked" | "Disliked" | "Laughed at" | "Emphasized" | "Questioned" | "Reacted";
-export type Reaction = { how: Tapback; words: string };
+/** `removed`: taken back ("Removed a like from …"), only ever for a yes being held (`thumbs.ts`). */
+export type Reaction = { how: Tapback; words: string; removed?: true };
 type Kept = Reaction & { at: number };
 
 const NAMES: [RegExp, Tapback][] = [
@@ -62,6 +63,14 @@ export function readTapback(text: string): Reaction | null {
   const how = NAMES.find(([pattern]) => pattern.test(match[1]))?.[1];
   const words = match[2].trim().slice(0, MAX_WORDS);
   return how === undefined || words === "" ? null : { how, words };
+}
+
+/** A taken-back like or heart, and the words it was on; null for anything else. */
+export function readRemovedTapback(text: string): Reaction | null {
+  const match = /^Removed an? (like|heart) from [“"]([\s\S]*)[”"]$/u.exec(text.trim());
+  if (match === null) return null;
+  const words = match[2].trim().slice(0, MAX_WORDS);
+  return words === "" ? null : { how: match[1] === "like" ? "Liked" : "Loved", words, removed: true };
 }
 
 /** Whether a tapback is answered: a question mark on anything, or a yes or no on a question. */

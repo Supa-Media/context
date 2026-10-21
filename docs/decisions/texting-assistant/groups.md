@@ -171,3 +171,41 @@ other people. A workspace set computed once at join time, rather than per
 message and per tool call, keeps answering after someone is removed. Tests:
 `apps/convex/__tests__/textGroups.test.ts`,
 `apps/mcp/test/agentGroupTurn.test.mjs`, `apps/agent/src/groupInbox.test.ts`.
+
+## Delivery in a busy chat (from the group chat of 2026-10-21)
+
+Dev2 and Jhon tested Tex in a group and found answers that broke apart. What
+changed, in `apps/agent/src/groupInbox.ts`:
+
+- **Every bubble of an answer threads under the message it answers**, the
+  intro included. Only the first did, so a second bubble landed loose in the
+  chat or under the wrong message.
+- **An ask goes out whole, in its own bubble** (`textsWithExact`), as it does
+  1:1: the bug-report preview was being split by paragraph.
+- **The same ask from the same person within ten minutes is answered once.**
+  Kept as hashes of sender and words. Someone else asking the same thing is
+  their own ask.
+- **The asker's bare "yes", "no" or "send" reaches Tex for half an hour
+  after an answer that asked for a yes.** Anybody else's stays chat: only the
+  asker can release what was held for them. A bare "ok" stays chat, because
+  it is not a yes to a send and would only disarm the ask.
+- **"Tex ^" (or ↑, 👆) wakes Tex**, and the group prompt says it points at
+  the message above.
+- **Seen webhooks are keyed by handle and words**, so if Sendblue delivers an
+  edit under the same handle it is read as the new message. Sendblue does not
+  document an edit webhook, so an edit may still never arrive.
+
+The bug report's line about texts is said once even when the model copies it
+into the report (`reportCopy`), and the held-report instruction tells the
+model to speak as "I", never "Context will text you".
+
+## Links and workspace names in a group (2026-10-21)
+
+- **A note Tex reads or writes in a group comes back with its app link**
+  (`noteLinks.js`). Everyone in the chat is a member of the one workspace a
+  group turn reads, at its team tier, so the link opens for each of them and
+  for nobody else. A share link for people outside the workspace is still the
+  owner's, minted one to one.
+- **"Tex use @x" for a workspace the chat doesn't share names the ones it
+  does** (`not_shared` carries `slugs`). Every person in the chat is a member
+  of each named workspace, so the list tells nobody anything new.

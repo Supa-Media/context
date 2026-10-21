@@ -57,7 +57,8 @@ export const groupAnswerValidator = v.union(
   v.object({ status: v.literal("started") }),
   v.object({ status: v.literal("unknown_sender"), tell: v.boolean() }),
   v.object({ status: v.literal("no_shared") }),
-  v.object({ status: v.literal("not_shared") }),
+  /** `slugs`: the workspaces everyone here does share, so the answer can name them (2026-10-21). */
+  v.object({ status: v.literal("not_shared"), slugs: v.array(v.string()) }),
   v.object({ status: v.literal("choose"), slugs: v.array(v.string()) }),
   v.object({
     status: v.literal("ready"),
@@ -75,7 +76,8 @@ export const groupAnswerValidator = v.union(
 );
 
 export type GroupAnswer =
-  | { status: "refused" | "muted" | "stopped" | "started" | "no_shared" | "not_shared" }
+  | { status: "refused" | "muted" | "stopped" | "started" | "no_shared" }
+  | { status: "not_shared"; slugs: string[] }
   | { status: "unknown_sender"; tell: boolean }
   | { status: "choose"; slugs: string[] }
   | {
@@ -162,7 +164,8 @@ export const applyGroupTurn = internalMutation({
     if (args.command?.kind === "use") {
       const slug = args.command.slug.trim().replace(/^@/, "").toLowerCase().slice(0, MAX_SLUG);
       const chosen = shared.find((entry) => entry.slug === slug) ?? null;
-      if (chosen === null) return { status: "not_shared" };
+      // Every person here is a member of each of these, so naming them tells nobody anything new.
+      if (chosen === null) return { status: "not_shared", slugs: shared.map((entry) => entry.slug).sort() };
       bound = chosen._id !== group.workspaceId;
       workspace = chosen;
     } else if (workspace === null) {

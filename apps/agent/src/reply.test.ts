@@ -288,7 +288,7 @@ describe("replyTo", () => {
       "See [one](https://a.example/1), [two](https://a.example/2) and [three](https://a.example/3).",
       "notes/plan.md",
       "",
-      "Look good? Just say yes and I'll send it.",
+      "Look good? Give this a 👍 or say yes and I'll send it.",
     ].join("\n");
     const reply = await replyTo(
       message("email jo the links"),
@@ -324,7 +324,7 @@ describe("replyTo", () => {
       message("hi"),
       deps({
         "/agent-texts/session": () => [200, { status: "linked", accessToken: "grant-for-this-person" }],
-        "/agent": () => [200, { answer: "**Hi.**", verbatim: ["Just say yes and I'll send it"] }],
+        "/agent": () => [200, { answer: "**Hi.**", verbatim: ["Give this a 👍 or say yes and I'll send it"] }],
       }),
     );
     expect(reply).toEqual(["Hi."]);

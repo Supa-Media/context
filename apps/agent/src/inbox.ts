@@ -46,7 +46,7 @@ import { MAX_INBOUND_ATTACHMENTS } from "./inbound";
 import { lineFor, type LineDeps } from "./line";
 import { pruneMedia } from "./media";
 import { CARD_VERSION } from "./card";
-import { isSendblueChat } from "./sendblue";
+import { isSendblueChat, WEB_ADDRESS } from "./sendblue";
 import { PICTURE_FAILED, describePart, partsFor, shrinkPicture, type Media, type OutgoingPicture, type SendPart } from "./outgoing";
 import { replyTo, TryLater, type Message, type ReplyDeps } from "./reply";
 import { record } from "./simulator";
@@ -55,6 +55,7 @@ import { clearTold, noteTold, owedTold } from "./told";
 import { rememberText } from "./threads";
 import { ackEmoji } from "./ackEmoji";
 import { answers, clearReactions, noteReaction, notedReactions, tapbackText } from "./reactions";
+import { dropThumb, dueThumb, holdsAsYes, holdThumb } from "./thumbs";
 import { startTurn, steerInto } from "./steer";
 import type { Inbound } from "./inbound";
 
@@ -123,6 +124,28 @@ export const MEDIA_WAIT_MS = 4_000;
  */
 export const TEXT_WAIT_MS = 3_000;
 
+/** When this sender last texted a web address, never the address: a link's preview can follow it as a text of its own. */
+export const LINK_AT_KEY = "link-at";
+/** How long after a link a lone picture is taken for that link's preview card. */
+export const LINK_PREVIEW_MS = 15_000;
+const PICTURE_NAME = /\.(png|jpe?g|gif|heic|heif|webp)$/i;
+
+/**
+ * A lone picture that lands just after they texted a link, on Sendblue: the
+ * preview card Messages drew for it, sent on as a message of its own
+ * (owner's report, 2026-10-21, "That's the Context banner. Do you want it
+ * saved to a note?"). The same card in the link's own message is dropped
+ * where it is read (`sendblue.ts`, `isLinkPreview`).
+ */
+async function isLatePreview(storage: InboxStorage, message: Message, now: number): Promise<boolean> {
+  if (!isSendblueChat(message.chatId) || !mediaOnly(message)) return false;
+  const linkAt = await storage.get<number>(LINK_AT_KEY);
+  if (linkAt === undefined || now - linkAt > LINK_PREVIEW_MS) return false;
+  const pictures = (message.attachments ?? []).every(({ filename }) => filename === "" || PICTURE_NAME.test(filename));
+  if (pictures) console.log(JSON.stringify({ event: "sendblue_link_preview", outcome: "dropped_late" }));
+  return pictures;
+}
+
 const mediaOnly = (message: Message) => message.text.trim() === "" && (message.attachments?.length ?? 0) > 0;
 const wordsOnly = (message: Message) => message.text.trim() !== "" && (message.attachments?.length ?? 0) === 0;
 
@@ -133,8 +156,13 @@ export async function accept(
   storage: InboxStorage,
   message: Message,
   now: number,
-): Promise<"queued" | "duplicate" | "full"> {
+): Promise<"queued" | "duplicate" | "full" | "preview"> {
   if ((await storage.get<number>(seenKey(message.eventId))) !== undefined) return "duplicate";
+  if (await isLatePreview(storage, message, now)) {
+    await storage.put(seenKey(message.eventId), now);
+    return "preview";
+  }
+  if (isSendblueChat(message.chatId) && WEB_ADDRESS.test(message.text)) await storage.put<number>(LINK_AT_KEY, now);
   const pending = await storage.list<Pending>({ prefix: "pending:" });
   if (pending.size >= MAX_PENDING) return "full";
 
@@ -173,8 +201,15 @@ export async function react(
   storage: InboxStorage,
   inbound: Extract<Inbound, { kind: "reaction" }>,
   now: number,
-): Promise<"queued" | "duplicate" | "full" | "noted"> {
+): Promise<"queued" | "duplicate" | "full" | "noted" | "preview" | "held" | "dropped"> {
   const { reaction, kind: _kind, ...message } = inbound;
+  // A 👍 on an ask waits ten seconds before it goes, and taking it back drops it (`thumbs.ts`).
+  if (reaction.removed) return (await dropThumb(storage, reaction.words)) ? "dropped" : "noted";
+  if (holdsAsYes(reaction)) {
+    const asked: Message = { kind: "message", ...message, text: tapbackText(reaction.how), quoted: reaction.words, tapback: reaction.how };
+    await holdThumb(storage, asked, reaction.words, now);
+    return "held";
+  }
   if (answers(reaction)) {
     return accept(storage, { kind: "message", ...message, text: tapbackText(reaction.how), quoted: reaction.words, tapback: reaction.how }, now);
   }
@@ -186,6 +221,9 @@ export async function react(
 
 /** Answer everything pending, oldest first. Called from the alarm. */
 export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<void> {
+  // A 👍 that stayed its ten seconds joins the queue as the tapback it is.
+  const thumb = await dueThumb<Message>(storage, deps.now());
+  if (thumb !== undefined) await accept(storage, thumb, deps.now());
   const pending = await fold(storage, await storage.list<Pending>({ prefix: "pending:" }));
   for (const [key, item] of pending) {
     const stored = item.reply;
@@ -490,6 +528,7 @@ async function answerTexts(message: Message, deps: InboxDeps, storage: InboxStor
 }
 
 /**
+ * Words sent back to back in the same place become one text (`sameBurst`).
  * A text that is only files, followed by another not yet answered, becomes
  * part of that one: its files go first, in the order sent. Files with no words
  * after them join the words-only text just before them instead, which they
@@ -513,6 +552,17 @@ async function fold(storage: InboxStorage, pending: Map<string, Pending>): Promi
       await storage.delete(key);
       continue;
     }
+    if (next && sameBurst(item, next)) {
+      next.message = {
+        ...next.message,
+        text: `${item.message.text}\n${next.message.text}`,
+        ...(item.message.newTopic ?? next.message.newTopic ? { newTopic: true as const } : {}),
+        ...(item.message.reacted ?? next.message.reacted ? { reacted: [...(item.message.reacted ?? []), ...(next.message.reacted ?? [])] } : {}),
+      };
+      await storage.put<Pending>(entries[index + 1][0], next);
+      await storage.delete(key);
+      continue;
+    }
     const before = [...kept].at(-1);
     if (before && item.reply === undefined && before[1].reply === undefined && mediaOnly(item.message) && wordsOnly(before[1].message)) {
       before[1].message = { ...before[1].message, attachments: (item.message.attachments ?? []).slice(0, MAX_INBOUND_ATTACHMENTS) };
@@ -523,6 +573,21 @@ async function fold(storage: InboxStorage, pending: Map<string, Pending>): Promi
     kept.set(key, item);
   }
   return kept;
+}
+
+/**
+ * Two texts in a row, neither answered yet, that are only words in the same
+ * place: both plain, or both inline replies to the same message. They get one
+ * answer, in the later one's thread (owner's report, 2026-10-21: a burst of
+ * inline replies got an answer each). A tapback, an SMS or another chat's
+ * text is kept apart, and so is a reply to different words.
+ */
+function sameBurst(item: Pending, next: Pending): boolean {
+  const [a, b] = [item.message, next.message];
+  if (item.reply !== undefined || next.reply !== undefined) return false;
+  if (a.chatId !== b.chatId || !wordsOnly(a) || !wordsOnly(b)) return false;
+  if (a.tapback || b.tapback || a.sms || b.sms) return false;
+  return Boolean(a.threaded) === Boolean(b.threaded) && a.quoted === b.quoted && a.threadStart === b.threadStart;
 }
 
 async function pruneSeen(storage: InboxStorage, now: number): Promise<void> {

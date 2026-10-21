@@ -25,11 +25,24 @@ import { normalizePath } from "../notes/paths.js";
 /**
  * Tools whose results are, by construction, words people other than the person
  * wrote: a mailbox day, a contact page built from senders' own claims, a
- * meeting's transcript, a stored file's words (most are attachments), and a
+ * meeting's transcript, a stored file's words (most are attachments), a
  * stored picture, which a model now sees and may read words in (a texted
- * screenshot, an email's image) the way a texted one taints its own turn.
+ * screenshot, an email's image) the way a texted one taints its own turn, and
+ * a connected app's answer — a Slack channel's messages, a profile's name, a
+ * search's hits are written by whoever is in that Slack
+ * (`tools/connectors.js`). `connect_app` is not one: it answers with a link
+ * the gateway made, and nothing from the provider.
  */
-export const UNTRUSTED_READS = new Set(["read_channel_day", "read_contact", "read_meeting", "search_email", "read_email", "read_file", "read_image"]);
+export const UNTRUSTED_READS = new Set([
+  "read_channel_day",
+  "read_contact",
+  "read_meeting",
+  "search_email",
+  "read_email",
+  "read_file",
+  "read_image",
+  "slack_api",
+]);
 
 /**
  * Tools whose results carry names, counts and settings, never a note's words.

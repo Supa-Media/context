@@ -12,6 +12,7 @@ import { doneLine } from "./doneLine.js";
 import { canonicalToolName } from "../tools/advertised.js";
 import { withoutHeldEcho } from "./heldEcho.js";
 import { isGroupSession } from "./groupTurn.js";
+import { scrubbed } from "./quoted.js";
 import { VAULT_PAY } from "../vault/pay.js";
 import { armForText, disarmRecords, listPending, replayAsAsked, settlePending, withdrawPending } from "../tools/approvals.js";
 
@@ -27,6 +28,15 @@ const NEXT_AFTER_CREATE = "Want me to set up its folders and move your notes abo
 function afterYes(tool) {
   return canonicalToolName(tool) === "create_workspace" ? [NEXT_AFTER_CREATE] : [];
 }
+
+/**
+ * How every ask asks (Dev2, 2026-10-21: "instead of asking users to say yes,
+ * ask them to react like with a thumbs up"). A 👍 or ❤️ on the ask that stays
+ * ten seconds is the yes (`apps/agent/src/thumbs.ts`, `thumbsUpIsYes`); a typed
+ * yes still works. In a group it is the asker's, so it says "reply".
+ */
+export const SAY_YES = "Give this a 👍 or say yes";
+const GROUP_SAY_YES = "Give this a 👍 or reply yes";
 
 /** A text that is nothing but yes, or nothing but no; anything else goes to the model. */
 const YES = /^\s*(?:yes|yes please|yep|yeah|yup|ok|okay|sure|do it|go ahead|go for it|confirm|confirmed|approve|approved|allow|y)\s*[.!]*\s*$/i;
@@ -46,7 +56,7 @@ const RELEASE =
   String.raw`looks good|sounds good)`;
 const SEP = String.raw`[\s,.!-]+`;
 const RELEASED_YES = new RegExp(
-  String.raw`^\s*(?:(?:yes|yep|yeah|yup|ok|okay|sure|y)(?:${SEP}${RELEASE})+|(?:send it|send them|file it|send that|file that)(?:${SEP}${RELEASE})*)\s*[.!]*\s*$`,
+  String.raw`^\s*(?:(?:yes|yep|yeah|yup|ok|okay|sure|y)(?:${SEP}${RELEASE})+|(?:send it|send them|file it|send that|file that|send)(?:${SEP}${RELEASE})*)\s*[.!]*\s*$`,
   "i",
 );
 
@@ -67,21 +77,49 @@ export function askLine(asked) {
   // An email is shown whole: the person can allow only the copy they read (`emailGate.js`).
   const emails = asked.filter((record) => record.tool === EMAIL_TOOL && typeof record.detail === "string");
   if (asked.length === 1 && asked[0].tool === CALENDAR_TOOL && typeof asked[0].detail === "string") {
-    return `Here's the change I'd make:\n\n${clean(asked[0].detail)}\n\nLook good? Just say yes and I'll make the change.`;
+    return `Here's the change I'd make:\n\n${clean(asked[0].detail)}\n\nLook good? ${SAY_YES} and I'll make the change.`;
   }
   if (asked.length === 1 && asked[0].tool === REPORT_TOOL && typeof asked[0].detail === "string") {
-    return `Here's the bug report I'd send to the Context team:\n\n${clean(asked[0].detail)}\n\nLook good? Just say yes and I'll send it.`;
+    return `Here's the bug report I'd send to the Context team:\n\n${clean(asked[0].detail)}\n\nLook good? ${SAY_YES} and I'll send it.`;
   }
   // A card at a checkout, in the gateway's words: the card and the site, never the model's (`vault/pay.js`).
   if (asked.length === 1 && asked[0].kind === VAULT_PAY) {
-    return `Before I pay, I need your OK to ${clean(asked[0].summary).replace(/^let Tex /, "")}. Just say yes and I'll fill it in.`;
+    return `Before I pay, I need your OK to ${clean(asked[0].summary).replace(/^let Tex /, "")}. ${SAY_YES} and I'll fill it in.`;
   }
   if (emails.length > 0 && emails.length === asked.length) {
     const copies = emails.map((record) => clean(record.detail)).join("\n\n---\n\n");
-    return `${emails.length === 1 ? "Here's the email" : "Here are the emails"} I'd send:\n\n${copies}\n\nLook good? Just say yes and I'll send ${emails.length === 1 ? "it" : "them"}.`;
+    return `${emails.length === 1 ? "Here's the email" : "Here are the emails"} I'd send:\n\n${copies}\n\nLook good? ${SAY_YES} and I'll send ${emails.length === 1 ? "it" : "them"}.`;
   }
   const what = asked.map((record) => (typeof record.detail === "string" ? `${record.summary}:\n\n${clean(record.detail)}\n\n` : record.summary)).join("; ");
   return `Before I ${asked.length === 1 ? "do that" : "do those"}, I need your OK: ${what}. Should I go ahead?`;
+}
+
+/** The ask as this session texts it: in a group, the asker replies. */
+function askFor(session, asked) {
+  return isGroupSession(session) ? askLine(asked).replace(SAY_YES, GROUP_SAY_YES) : askLine(asked);
+}
+
+/** Words as the gateway reads a quote (`quoted.js`), a trailing ellipsis off: the ask is compared the same way. */
+const folded = (text) => scrubbed(String(text ?? "").replace(/\s*…\s*$/u, ""));
+/** Fewer words than this quoted cannot tell one ask from another. */
+const MIN_QUOTED = 24;
+
+/**
+ * Whether a 👍 or ❤️ tapback is a yes to what is waiting: only when the words
+ * it was on are the ask the person was shown for exactly what is armed now
+ * (Dev2, 2026-10-21). A like on an older ask, or on any other text, is not.
+ */
+export async function thumbsUpIsYes(store, session, quoted) {
+  if (quoted?.tapback !== "Liked" && quoted?.tapback !== "Loved") return false;
+  const words = folded(quoted.words);
+  if (words.length < MIN_QUOTED) return false;
+  const armed = (await listPending(store, { userId: session.actorUserId, texting: true })).map(({ record }) => record);
+  if (armed.length === 0) return false;
+  for (const order of [armed, [...armed].reverse()]) {
+    const shown = scrubbed(askFor(session, order));
+    if (shown === words || shown.startsWith(words)) return true;
+  }
+  return false;
 }
 
 /** The longest ask holding an email: one text, under the 3,000 a text keeps (`apps/agent/src/clients.ts`). */
@@ -107,7 +145,7 @@ export const TEXTED_ASK_CAP = 2_900;
 export async function textedAsk(store, session, asked) {
   if (asked.length === 0) return { ask: null, verbatim: [] };
   // In a group chat a bare "yes" is chat; a reply to the ask, or "Tex, yes", reaches Tex (`groupTurn.js`).
-  const ask = isGroupSession(session) ? askLine(asked).replace("Just say yes", "Reply yes to this") : askLine(asked);
+  const ask = askFor(session, asked);
   const ids = asked.map((record) => record.id);
   const holdsEmail = asked.some((record) => typeof record.detail === "string");
   if (ask.length <= TEXTED_ASK_CAP) {

@@ -86,7 +86,8 @@ test("a meeting the tree has not read is listed by its date and says its details
     "0-inbox/meetings/2026-09-30-sealed.md": SEALED,
   }, { unread: ["0-inbox/meetings/2026-10-01-standup.md"] });
   const answer = text(await callTool("list_meetings", {}, store, "private"));
-  assert.match(answer, /^2026-10-02 · Review · 30m · Ana, Ben$/m);
+  // The whole start time, not only its day (2026-10-21): it is what a calendar event at the same time is matched against.
+  assert.match(answer, /^2026-10-02T10:00:00Z · Review · 30m · Ana, Ben$/m);
   assert.match(answer, /^2026-10-01 · \(details still loading\)$/m);
   assert.match(answer, /^2026-09-30 · \(encrypted\)$/m);
 });

@@ -20,7 +20,7 @@ import { hasScope, SCOPE_WRITE } from "../session.js";
 import { BUILTIN_PROVIDER, builtinModel, canRunBuiltin } from "./builtin.js";
 import { aiGatewayConfig } from "./aiGateway.js";
 import { mailCheckerFor } from "./mailChecker.js";
-import { appOriginOf, withNoteLinks } from "./noteLinks.js";
+import { appOriginOf, sentNoteLinksLine, withNoteLinks } from "./noteLinks.js";
 import { decisionEngine } from "./decide.js";
 import { openTurnWeb } from "./turnWeb.js";
 import { ProviderError } from "./providers.js";
@@ -53,7 +53,7 @@ import { disarmTexting, withdrawPending } from "../tools/approvals.js";
 import { askedWith, quotedOf, reactedLine, reactedOf, tapbackLine } from "./quoted.js";
 import { threadPrompt, threadView } from "./threadView.js";
 import { steerFor, steeredLine } from "./steer.js";
-import { answerWithAsk, textedAsk } from "./textedApprovals.js";
+import { answerWithAsk, textedAsk, thumbsUpIsYes } from "./textedApprovals.js";
 import { setAsideLine, settleTextedText } from "./textedSettle.js";
 import { paidLine } from "./textedPay.js";
 import { chatLines, checkerHistory, earlierChatTool, groupAwareCallTool, groupOf, keepGroupSettled, withoutTexName, groupPrompt, groupWriteTools, isGroupSession, keepGroupExchange, readGroupMemory } from "./groupTurn.js";
@@ -191,9 +191,11 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   let paid = [];
   // A group chat's yes is its tagger's, said to Tex in the chat (`groupTurn.js`).
   if (session.actorClientId === TEXTS_CLIENT_ID || group !== null) {
+    // A 👍 that stayed on the ask is that yes (`thumbsUpIsYes`).
+    const thumbsUp = await thumbsUpIsYes(store, session, quoted);
     const settled = await settleTextedText(store, session, {
       dispatch,
-      question: group !== null ? withoutTexName(question) : question,
+      question: thumbsUp ? "yes" : group !== null ? withoutTexName(question) : question,
       keep: group !== null ? keepGroupSettled(store, group) : null,
       hasAttachments: sent.length > 0,
       now: received,
@@ -301,7 +303,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   // routine's answer is a text too, when it says anything.
   const texting = session.actorClientId === TEXTS_CLIENT_ID || runner;
   // A texted write answers with the note's link, so Tex can text it (`noteLinks.js`).
-  const noteLinking = { origin: session.actorClientId === TEXTS_CLIENT_ID ? appOriginOf(env) : null, contexts: store.contexts };
+  // A group's too (2026-10-21): everyone in it is a member of the one workspace it reads, so the app link opens for each of them.
+  const noteLinking = { origin: session.actorClientId === TEXTS_CLIENT_ID || group !== null ? appOriginOf(env) : null, contexts: store.contexts };
   // A text has the MCP's own write tools (`textingWrites.js`, the owner,
   // 2026-10-08); a routine's own run never may.
   const textingWriting = textingWriteTools(offered, { texting: session.actorClientId === TEXTS_CLIENT_ID });
@@ -474,7 +477,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   const { outgoing, maker } = await turnPictures(env, { texted, question, attachments, store, keep: conversation === "texts", meter, workspaceId: session.workspaceId });
   try {
     const turn = await runTurn({
-      question: [chatLines(group), reactedLine(reacted), setAsideLine(setAside), paidLine(paid), askedWith(question, quoted)].filter(Boolean).join("\n\n"),
+      question: [chatLines(group), reactedLine(reacted), setAsideLine(setAside), paidLine(paid), sentNoteLinksLine(question, noteLinking.origin), askedWith(question, quoted)].filter(Boolean).join("\n\n"),
       place: body.place ?? null,
       // A turn that edits directly is not also handed proposals: they have no
       // screen on a phone, and two ways to change a note is one too many.
