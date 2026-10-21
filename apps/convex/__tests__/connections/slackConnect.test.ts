@@ -3,6 +3,7 @@ import { api, internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import { addMember, asUser, captureError, createUser, createWorkspace, errorCode, setupTest, type TestConvex } from "../fixtures.helpers";
 import { hashToken } from "../../functions/lib/crypto";
+import { SLACK_USER_SCOPES } from "../../functions/lib/providers/slack";
 
 /**
  * CONNECTORS: a link only its person can finish, a consent only the browser
@@ -340,5 +341,27 @@ describe("Settings", () => {
     await t.finishAllScheduledFunctions(() => {}, 200);
     expect(await t.run((ctx) => ctx.db.query("providerConnections").collect())).toHaveLength(0);
     expect(calls.some((c) => c.url.endsWith("/auth.revoke") && c.auth === `Bearer ${USER_TOKEN}`)).toBe(true);
+  });
+});
+
+describe("a connection made before the app asked for more", () => {
+  /** Sabotage: drop the granted-scope check in `appCatalog`. */
+  test("shows Reconnect until it holds every scope the app asks for now", async () => {
+    enableSlack();
+    const t = setupTest();
+    const w = await world(t);
+    stubSlack([]);
+    await connect(t, w.seyi, (await issue(t, { workspaceId: w.personal, userId: w.seyi })).token);
+    const slackRow = async () =>
+      (await asUser(t, w.seyi).query(api.functions.connectionSettings.myApps, { workspaceId: w.personal })).find((row) => row.app === "slack");
+    expect(await slackRow()).toMatchObject({ state: "reconnect" });
+
+    stubSlack([], {
+      ok: true,
+      team: { id: "T1", name: "Acme" },
+      authed_user: { id: "U1", access_token: USER_TOKEN, scope: SLACK_USER_SCOPES.join(",") },
+    });
+    await connect(t, w.seyi, (await issue(t, { workspaceId: w.personal, userId: w.seyi })).token);
+    expect(await slackRow()).toMatchObject({ state: "connected" });
   });
 });

@@ -44,6 +44,8 @@ export function connectorToolDefinitions() {
         "(include_inactive \"true\" for all); to find someone, pass match with their name or email, e.g. {match: \"segun\"}. " +
         "users.lookupByEmail finds only the email they use in that Slack. " +
         "To DM someone, chat.postMessage takes their user id or that email as channel and posts in the DM with them. " +
+        "Any channel argument may be \"#name\". conversations.history and conversations.replies come back short, with each author named; " +
+        "reply in a thread with chat.postMessage {channel, thread_ts, text}. " +
         `Posting (${SLACK_HELD_METHODS.join(", ")}) waits for the person's yes to the exact words first. ` +
         "Channel ids look like C0123; find them with conversations.list. If Slack is not connected, give them the link from connect_app.",
       inputSchema: {

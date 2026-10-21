@@ -32,6 +32,9 @@ export const SLACK_USER_SCOPES = [
   "im:history",
   "mpim:read",
   "mpim:history",
+  // conversations.open: a DM, or a group DM, is opened before it is posted to.
+  "im:write",
+  "mpim:write",
   "users:read",
   "users:read.email",
   "search:read",
@@ -108,6 +111,12 @@ const READS = new Set<string>(SLACK_READ_METHODS);
 /** A method that changes nothing in Slack. Every other allowed call is audited. */
 export function slackMethodReads(method: string): boolean {
   return READS.has(method);
+}
+
+/** Scopes this app now asks for that a connection made before was not granted: it must be reconnected. */
+export function slackMissingScopes(scope: ConnectionScope, granted: readonly string[]): string[] {
+  const have = new Set(granted);
+  return slackScopesFor(scope).filter((wanted) => !have.has(wanted));
 }
 
 export function slackScopesFor(scope: ConnectionScope): readonly string[] {
