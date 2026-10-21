@@ -1,3 +1,4 @@
+import { Platform } from "react-native";
 import { redactTelemetryText, redactTelemetryValue, telemetryRoute } from "./privacy";
 import { ACTIVE_EVENT, BUTTON_EVENT, type UsageButton } from "@context/shared";
 import {
@@ -32,7 +33,14 @@ let initPromise: Promise<void> | null = null;
 let currentUserId: string | null = null;
 
 const pendingErrors: Array<{ error: unknown; context?: ErrorContext }> = [];
-const pendingScreens: string[] = [];
+type PendingAnalytics = { kind: "screen"; name: string } | { kind: "event"; name: string; properties?: TelemetryProperties };
+const pendingAnalytics: PendingAnalytics[] = [];
+let analyticsStarting: Promise<void> | null = null;
+function queueAnalytics(item: PendingAnalytics): void {
+  if (posthogKey === "") return;
+  pendingAnalytics.push(item);
+  if (pendingAnalytics.length > MAX_PENDING) pendingAnalytics.shift();
+}
 const MAX_PENDING = 20;
 
 const sentryDsn = process.env.EXPO_PUBLIC_SENTRY_DSN?.trim() ?? "";
@@ -108,10 +116,16 @@ async function initSentry(): Promise<void> {
   for (const item of pendingErrors.splice(0)) sendErrorToSentry(item.error, item.context);
 }
 
-async function initPostHog(): Promise<void> {
+function initPostHog(): Promise<void> {
+  if (analyticsStarting !== null) return analyticsStarting;
+  analyticsStarting = startPostHog().finally(() => { analyticsStarting = null; });
+  return analyticsStarting;
+}
+
+async function startPostHog(): Promise<void> {
   if (posthogKey === "" || posthog !== null) return;
   const prefs = await loadPreferences();
-  if (!prefs.screenCounts) return;
+  if (!prefs.screenCounts) { pendingAnalytics.length = 0; return; }
   const client = await createAnalyticsClient({
     apiKey: posthogKey,
     host: posthogHost,
@@ -120,10 +134,26 @@ async function initPostHog(): Promise<void> {
       : 0,
   });
   await client.ready();
-  client.register({ app_env: analyticsEnvironment() });
+  client.register({
+    app_env: analyticsEnvironment(),
+    app_product: typeof location !== "undefined" && /^(?:tex\.lc|tex-staging\.context\.lc)$/.test(location.hostname) ? "tex" : "context",
+    app_platform: Platform.OS,
+    app_build: process.env.EXPO_PUBLIC_APP_BUILD ?? "unknown",
+  });
   posthog = client;
+  // A preference may have changed while the SDK was loading.
+  if (!preferences().screenCounts) {
+    pendingAnalytics.length = 0;
+    client.setCapturing(false);
+    client.stopRecording();
+    return;
+  }
   if (currentUserId !== null) client.identify(currentUserId);
-  for (const screen of pendingScreens.splice(0)) client.screen(screen);
+  if (!preferences().recordings) client.stopRecording();
+  for (const item of pendingAnalytics.splice(0)) {
+    if (item.kind === "screen") client.screen(item.name);
+    else client.capture(item.name, item.properties);
+  }
 }
 
 /**
@@ -132,9 +162,15 @@ async function initPostHog(): Promise<void> {
  * recording mid-session would skip the sampling the rate exists to apply.
  */
 onPreferencesChange((next) => {
-  if (!next.screenCounts) posthog?.setCapturing(false);
-  else if (posthog === null) void initPostHog();
-  else posthog.setCapturing(true);
+  if (!next.screenCounts) {
+    pendingAnalytics.length = 0;
+    posthog?.setCapturing(false);
+  }
+  else if (posthog === null) void initPostHog().catch(() => {});
+  else {
+    posthog.setCapturing(true);
+    if (currentUserId !== null) posthog.identify(currentUserId);
+  }
   if (!next.recordings) posthog?.stopRecording();
 });
 
@@ -188,8 +224,11 @@ export function trackEvent(name: string, properties?: TelemetryProperties): void
     properties === undefined
       ? undefined
       : (redactTelemetryValue(properties) as TelemetryProperties);
-  if (preferences().screenCounts) posthog?.capture(name, cleanProperties);
-  sentry?.addBreadcrumb({ category: "product", message: name, data: cleanProperties });
+  if (preferences().screenCounts) {
+    if (posthog === null) queueAnalytics({ kind: "event", name, properties: cleanProperties });
+    else { try { posthog.capture(name, cleanProperties); } catch { /* Analytics never changes the operation result. */ } }
+  }
+  try { sentry?.addBreadcrumb({ category: "product", message: name, data: cleanProperties }); } catch { /* Best effort. */ }
 }
 
 /**
@@ -214,8 +253,8 @@ export function trackScreen(pathname: string): void {
   if (!preferences().screenCounts) {
     // Counted nowhere; the breadcrumb below still helps a crash report.
   } else if (posthog === null) {
-    if (pendingScreens.at(-1) !== screen) pendingScreens.push(screen);
-    if (pendingScreens.length > MAX_PENDING) pendingScreens.shift();
+    const last = pendingAnalytics.at(-1);
+    if (last?.kind !== "screen" || last.name !== screen) queueAnalytics({ kind: "screen", name: screen });
   } else {
     posthog.screen(screen);
   }
@@ -234,6 +273,7 @@ export function setObservabilityUser(userId: string): void {
 export function resetObservabilityUser(): void {
   const changed = currentUserId !== null;
   currentUserId = null;
+  pendingAnalytics.length = 0;
   sentry?.setUser(null);
   posthog?.reset();
   if (changed) for (const listener of userListeners) listener();

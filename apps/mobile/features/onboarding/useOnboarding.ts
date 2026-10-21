@@ -32,6 +32,7 @@
  * `structureStepFor` treats absence as "ask".
  */
 
+import { trackEvent } from "../observability/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQueries, useQuery, type RequestForQueries } from "convex/react";
 import { api } from "@context/convex/_generated/api";
@@ -171,6 +172,17 @@ export function useOnboarding(
     go(options.resume === "structure" ? "console" : options.resume);
   }, [claimed, go, options.resume, workspaces]);
 
+  const lastTrackedStep = useRef<string | null>(null);
+  useEffect(() => {
+    if (options.resume !== undefined && claimed === null) return;
+    const stage = finished ? "completed" : step;
+    if (lastTrackedStep.current === stage) return;
+    lastTrackedStep.current = stage;
+    trackEvent(finished ? "onboarding_completed" : "onboarding_step_viewed", {
+      step: stage, resumed: options.resume !== undefined,
+    });
+  }, [finished, step, options.resume, claimed]);
+
   const [route, setRoute] = useState<StorageRoute | undefined>(
     options.checkout ? "managed" : undefined,
   );
@@ -215,6 +227,7 @@ export function useOnboarding(
         displayName: status.normalized,
         kind: "personal",
       });
+      trackEvent("workspace_created", { kind: "personal" });
       setClaimed({ workspaceId: result.workspaceId, slug: result.slug });
       go(afterName());
     } catch (error) {

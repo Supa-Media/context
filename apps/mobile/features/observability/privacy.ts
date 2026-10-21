@@ -114,7 +114,7 @@ export function telemetryRoute(pathname: string): string {
     named[1] = ":token";
   }
   const safe = named.map((part, index) =>
-    part !== parts[index] || ROUTE_SEGMENTS.has(part.toLowerCase())
+    part !== parts[index] || [":context", ":token", ":value", ":address"].includes(part) || ROUTE_SEGMENTS.has(part.toLowerCase())
       ? part
       : OPAQUE_SEGMENT,
   );

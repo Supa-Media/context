@@ -3,7 +3,7 @@ import { useConvexAuth, useQuery } from "convex/react";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { api } from "@context/convex/_generated/api";
 import { CONSOLE_ROUTE, LOGIN_ROUTE } from "../../auth/redirect";
-import { resetObservabilityUser } from "../../observability/client";
+import { resetObservabilityUser, trackEvent } from "../../observability/client";
 import { TEX_TITLE, TexFooter, TexHeader, TexMark } from "./TexLanding.web";
 import { TexLineActions, readableLine } from "./TexStatus.web";
 import { TEXT_ROUTE } from "./routes";
@@ -94,7 +94,7 @@ function TextTex({ line, ending, firstText }: { line: string | null; ending: str
       )}
       <div className="tx-console-row">
         <p>Want to see your notes?</p>
-        <a className="tx-btn tx-btn-line tx-btn-compact" href={CONSOLE_ROUTE}>
+        <a className="tx-btn tx-btn-line tx-btn-compact" href={CONSOLE_ROUTE} onClick={() => trackEvent("tex_console_opened")}>
           Open console
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
             <path d="M5 12h14M13 6l6 6-6 6" />

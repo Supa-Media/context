@@ -1,3 +1,4 @@
+import { trackEvent } from "../../observability/client";
 import { useEffect } from "react";
 import { useConvexAuth } from "convex/react";
 import { Tex } from "../../chaos/Tex";
@@ -88,7 +89,7 @@ export function TexLanding() {
       <style>{TEX_LAUNCH_CSS}</style>
       <TexHeader
         right={
-          <a className="tx-pill" href={signedIn ? CONSOLE_ROUTE : listed ? WAITLIST_ROUTE : signIn}>
+          <a className="tx-pill" data-analytics-action="header" onClick={() => trackEvent("landing_cta_clicked", { action: signedIn ? "console" : listed ? "waitlist" : "sign_in", placement: "header" })} href={signedIn ? CONSOLE_ROUTE : listed ? WAITLIST_ROUTE : signIn}>
             {signedIn ? "Open console" : listed ? "Your spot" : "Sign in"}
           </a>
         }

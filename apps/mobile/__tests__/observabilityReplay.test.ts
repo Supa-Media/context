@@ -198,7 +198,7 @@ describe("the web recorder is configured to record nothing legible", () => {
     */
     expect(web().autocapture).toBe(false);
     expect(web().capture_pageview).toBe(false);
-    expect(web().capture_pageleave).toBe(false);
+    expect(web().capture_pageleave).toBe(true);
     expect(web().person_profiles).toBe("identified_only");
 
     expect(web().before_send(null)).toBeNull();

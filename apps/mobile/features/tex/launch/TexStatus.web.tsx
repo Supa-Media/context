@@ -1,3 +1,4 @@
+import { trackEvent } from "../../observability/client";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
@@ -224,14 +225,14 @@ export function TexLineActions({ line, firstText }: { line: string; firstText: b
   }, [line]);
   return (
     <div className="tx-actions tx-actions-near">
-      <a className="tx-btn" href={messagesHref(line, firstText)}>
+      <a className="tx-btn" href={messagesHref(line, firstText)} onClick={() => trackEvent("tex_messages_opened", { first_text: firstText })}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
           <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" />
         </svg>
         Open Messages
       </a>
       {card !== null ? (
-        <a className="tx-btn tx-btn-line" href={card} download="Tex.vcf">
+        <a className="tx-btn tx-btn-line" href={card} download="Tex.vcf" onClick={() => trackEvent("tex_contact_downloaded")}>
           Save Tex's contact
         </a>
       ) : null}
