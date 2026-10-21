@@ -26,10 +26,11 @@ import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View, useWindowDim
 import { isolateForDisplay } from "@context/shared/src/displayText.cjs";
 import { Text } from "../../../design/components/Text";
 import { place } from "../../../design/components/popoverPlacement";
-import { fonts, layout, pointerType, radii, space } from "../../../design/tokens";
+import { fonts, pointerType, radii, space } from "../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
 import { ownerRows, whoseRows, type OwnerResults, type OwnerRow, type OwnerSearch } from "../owners";
 import { useFieldFont } from "../../../design/fieldFont";
+import { densityFor } from "../../../app/frame";
 
 /** How long the field waits for typing to pause before it asks. */
 export const OWNER_SEARCH_DELAY_MS = 150;
@@ -147,7 +148,7 @@ export function OwnerPicker({
     onChoose(row.value);
   };
 
-  const sheet = view.width < layout.narrowBreakpoint || anchor === null;
+  const sheet = densityFor(view.width) === "compact" || anchor === null;
   const box = sheet ? null : place(anchor.x, anchor.y, { width: WIDTH, height: HEIGHT }, view, { minHeight: 120 });
   const note =
     addProblem !== null ? addProblem

@@ -364,3 +364,17 @@ layout back at 110%; putting the zoom items back to roles does the same from the
 menu. `shellTitleBand.test.ts` fails if the floor and the breakpoint drift
 apart, `test/windowSize.test.mjs` if the zoom stops counting, and
 `test/appShell.test.mjs` if a menu zoom stops telling the window.
+
+**The page refuses it too, because the floor arrives late.** Dev2 saw the phone
+layout again on 2026-10-21, the day after the floor shipped in v0.1.62: an
+update installs only when the app quits, and a menu-bar app that keeps meetings
+alive with its window closed rarely does. The page, though, is served live to
+every installed build. So `densityFor` in `apps/mobile/features/app/frame.ts`
+never answers `compact` when `pageInDesktopShell()` finds a bridge that
+`getDesktopBridge` accepts: a narrow Mac window is `medium`, the explorer folded
+to its marks. Every direct `width < layout.narrowBreakpoint` reader now asks
+`densityFor` instead, so there is one place that decides. The editor's two CSS
+media queries still change type at that width; with the shell's floor in place
+they are never reached, and on an old build before it updates they cost phone
+typography in the note, not the phone layout. `shellTitleBand.test.ts` fails if
+the shell stops counting or a planted, unfrozen `desktop` global starts to.

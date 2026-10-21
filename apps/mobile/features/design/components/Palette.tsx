@@ -16,7 +16,6 @@ import { paletteKey, rank, type PaletteItem } from "../../console/files/palette"
 import { mergeRanked } from "./paletteMerge";
 import { SEE_ALL_ID, seeAllItem } from "./paletteHandoffs";
 import { reducedRecallMessage } from "../../console/files/useContextSearch";
-import { layout } from "../tokens";
 import { useColors, useThemedStyles } from "../theme";
 import { Icon } from "./Icon";
 import { Text } from "./Text";
@@ -109,6 +108,7 @@ import { FilterTokens, type PaletteFilters } from "./PaletteFilterTokens";
 import { PaletteMatchRow, isRich, richListHeight, rowHeight, rowTop } from "./PaletteResultRow";
 import { PaletteFoot, PaletteSplit, previewPane } from "./PaletteFoot";
 import { PaletteHeading } from "./PaletteHeading";
+import { densityFor } from "../../app/frame";
 
 export { POINTER_ROW_HEIGHT, TOUCH_ROW_HEIGHT, highlightRuns, secondLine } from "./PaletteRow";
 
@@ -294,7 +294,7 @@ export function Palette({
    * browser window dragged narrow gets the sheet too, which is right: the
    * constraint is the room, not the input device.
    */
-  const touch = Platform.OS !== "web" || width < layout.narrowBreakpoint;
+  const touch = Platform.OS !== "web" || densityFor(width) === "compact";
 
   /*
     A filter being typed ("rent in:ac") turns the list into its suggestions,

@@ -18,9 +18,9 @@ import {
   type GraphColors,
   type Shadows,
 } from "./tokens";
-import { layout } from "./tokens/layout";
 import { darkPhoneColors, lightPhoneColors } from "./tokens/phoneColors";
 import { currentAppearance, subscribeAppearance, type Appearance as AppearanceChoice } from "./appearance";
+import { densityFor } from "../app/frame";
 
 /**
  * Which of the two palettes a subtree draws in, and how a screen gets hold of
@@ -105,7 +105,7 @@ const PALETTES: Record<Palette, Theme> = {
 };
 
 export function paletteFor(scheme: Scheme, width: number): Palette {
-  if (width >= layout.narrowBreakpoint) return scheme;
+  if (densityFor(width) !== "compact") return scheme;
   return scheme === "dark" ? "darkPhone" : "lightPhone";
 }
 

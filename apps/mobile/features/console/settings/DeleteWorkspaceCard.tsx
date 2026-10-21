@@ -5,7 +5,7 @@ import { Grow, Row } from "../../design/components/Card";
 import { Icon } from "../../design/components/Icon";
 import { FormError, TextField } from "../../design/components/Input";
 import { Text } from "../../design/components/Text";
-import { layout, space } from "../../design/tokens";
+import { space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import {
   deletionConfirmed,
@@ -13,6 +13,7 @@ import {
   type KeyExportFailure,
   type WorkspaceDeletion,
 } from "../advanced/advanced";
+import { densityFor } from "../../app/frame";
 
 /**
  * Giving a workspace's name back.
@@ -71,7 +72,7 @@ export function DeleteWorkspaceCard({
     "Download everything" squeezed the sentence into a narrow column and the
     icon floated halfway down it.
   */
-  const compact = useWindowDimensions().width < layout.narrowBreakpoint;
+  const compact = densityFor(useWindowDimensions().width) === "compact";
   const ready = deletionConfirmed(typed, deletion.slug);
   const who =
     people === undefined || people < 2 ? "Removes it" : `Removes it for all ${people} people`;

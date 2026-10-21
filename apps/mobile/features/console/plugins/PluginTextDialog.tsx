@@ -2,9 +2,10 @@ import { Modal, Platform, Pressable, ScrollView, StyleSheet, View, useWindowDime
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
-import { layout, radii, space } from "../../design/tokens";
+import { radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import type { RuntimeView } from "./runtime";
+import { densityFor } from "../../app/frame";
 
 /**
  * A plain dialog a running plugin asked to show, drawn by the console.
@@ -53,7 +54,7 @@ export function PluginTextDialog({ runtime }: { runtime?: RuntimeView }) {
 
   if (modal === null) return null;
 
-  const touch = Platform.OS !== "web" || width < layout.narrowBreakpoint;
+  const touch = Platform.OS !== "web" || densityFor(width) === "compact";
 
   return (
     <Modal
