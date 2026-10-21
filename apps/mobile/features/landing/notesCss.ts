@@ -108,7 +108,7 @@ export const NOTES_CSS = `
   .np-foot .np-tex{margin-left:0}
 }
 @media (max-width:599px){
-  .np-wrap{padding:0 16px}
+  .np-wrap{padding-left:16px;padding-right:16px}
   .np-nav{gap:16px}
   .np-hide{display:none}
   .np-h1{font-size:clamp(32px,9vw,40px);line-height:1.08}
