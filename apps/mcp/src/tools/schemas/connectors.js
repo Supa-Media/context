@@ -38,8 +38,11 @@ export function connectorToolDefinitions() {
       description:
         "Call one Slack Web API method through the person's own connected Slack; Context adds the token and you never see it. " +
         "Reads: conversations.list {types: \"public_channel,private_channel,im,mpim\", limit}, conversations.history {channel, limit, oldest}, " +
-        "conversations.replies {channel, ts}, search.messages {query}, users.list, users.info {user}, " +
+        "conversations.replies {channel, ts}, search.messages {query}, users.list {match}, users.info {user}, " +
         "users.lookupByEmail {email}, chat.getPermalink, team.info. Changes: reactions.add {channel, timestamp, name}, conversations.open {users}. " +
+        "users.list and conversations.list read every page in one call and come back short: active people and open channels only " +
+        "(include_inactive \"true\" for all); to find someone, pass match with their name or email, e.g. {match: \"segun\"}. " +
+        "users.lookupByEmail finds only the email they use in that Slack. " +
         `Posting (${SLACK_HELD_METHODS.join(", ")}) waits for the person's yes to the exact words first. ` +
         "Channel ids look like C0123; find them with conversations.list. If Slack is not connected, give them the link from connect_app.",
       inputSchema: {
@@ -58,6 +61,8 @@ export function connectorToolDefinitions() {
                 ["timestamp", "The message a reaction is on."],
                 ["name", "A reaction's emoji name, e.g. eyes."],
                 ["query", "What search.messages looks for, in Slack's search syntax."],
+                ["match", "users.list or conversations.list: keep only entries whose name or email holds every word of this."],
+                ["include_inactive", "users.list or conversations.list: \"true\" to include deactivated people, bots and archived channels."],
                 ["user", "A user id, e.g. U0123."],
                 ["users", "User ids, comma-separated."],
                 ["email", "An email address."],
@@ -72,7 +77,7 @@ export function connectorToolDefinitions() {
             ),
             additionalProperties: false,
           },
-          limit: { type: "integer", minimum: 1, maximum: 200, description: "How many to list, for a method that pages." },
+          limit: { type: "integer", minimum: 1, maximum: 200, description: "How many to list, for a method that pages (users.list and conversations.list: how many to return, default 150)." },
           team: { type: "string", description: "Which Slack, by name, when more than one is connected." },
         },
         required: ["method"],

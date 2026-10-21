@@ -33,7 +33,8 @@ import { providerAvailable, providerClient, providerOf, scopeForWorkspaceKind } 
 import { revokeAtProvider } from "./lib/providers/oauth";
 import { resolveClient } from "./lib/connections/standard";
 import { providerValidator, type ProviderId } from "./lib/providers/ids";
-import { SLACK_TOKEN_GONE, slackCall, slackMethodAllowed, slackMethodReads } from "./lib/providers/slack";
+import { SLACK_TOKEN_GONE, slackMethodAllowed, slackMethodReads } from "./lib/providers/slack";
+import { slackCallShaped } from "./lib/providers/slackLists";
 import {
   CONNECT_ATTEMPT_TTL_MS,
   TEXTS_GROUP_CLIENT_ID,
@@ -636,7 +637,7 @@ export const callProvider = internalAction({
     }
     let answer: { status: number; body: unknown };
     try {
-      answer = await slackCall(token, args.method, args.args);
+      answer = await slackCallShaped(token, args.method, args.args);
     } catch {
       return { ok: false, refused: "unavailable" };
     }
