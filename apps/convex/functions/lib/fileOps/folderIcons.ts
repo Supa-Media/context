@@ -19,6 +19,7 @@
  */
 
 import { customEmojiShortcode, isSingleEmoji } from "@context/shared";
+import { contextIconOf } from "@context/shared/src/contextIcons.cjs";
 import type { FolderIcons } from "@context/shared/src/folderIcons.cjs";
 import { canSee, isPlumbing } from "../privacy";
 import { type Clearance } from "../clearance";
@@ -77,10 +78,13 @@ export async function checkFolderIcon(
 ): Promise<string> {
   const path = requireFolderPath(options.path);
   if (path === "" || isPlumbing(path)) throw new FileOpError("PATH_INVALID", "Only a folder or a note can have an icon.");
-  // One emoji: a character, or one of this workspace's own as `:name:`, which
-  // must exist, so an icon never names a picture nobody can draw.
+  // One emoji: a character, one of this workspace's own as `:name:`, which
+  // must exist, so an icon never names a picture nobody can draw, or one of
+  // Context's own icons (`contextIcons.cjs`), by a name in the set. A drawn
+  // part (`context:part:`) is a default, never chosen, so it is refused here.
   const custom = options.icon === null ? null : customEmojiShortcode(options.icon);
-  if (options.icon !== null && custom === null && !isSingleEmoji(options.icon)) {
+  const context = options.icon === null ? null : contextIconOf(options.icon);
+  if (options.icon !== null && custom === null && context === null && !isSingleEmoji(options.icon)) {
     throw new FileOpError("PATH_INVALID", "An icon is one emoji.");
   }
   if (custom !== null && !(await options.hasEmoji(custom))) {

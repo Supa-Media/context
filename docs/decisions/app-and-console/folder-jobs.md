@@ -134,6 +134,10 @@ folders its own way, so a job can no longer come from a root name alone.
   (`assertNotProtectedFolder`, the gateway's `protectedFolderRefusal`); they
   can be trashed, and a person adds notes and folders beside them. Meetings
   keeps its row job internally and is said on the Inbox's line.
+- **Tex's own folders** (attention, dreams, heartbeat, housekeeping, routines,
+  skills, transcripts) are kept the same way inside Tex's folder, wherever it
+  is nested, and said on Tex's line (owner, 2026-10-21;
+  [custom-emoji](./custom-emoji.md#the-picker-opens-on-contexts-own-hundred-icons)).
 - **AI clients** use `manage` action `folder_job` `{ job, path | remove }`, a
   row over `apply_layout`, through the same `giveJob` the app's Settings uses.
 

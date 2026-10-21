@@ -15,6 +15,15 @@ import { allStandardEmoji, searchStandardEmoji } from "./emoji/standardEmoji";
 import { baseName, displayName, folderLabel, isMarkdown } from "./paths";
 import { TEX_FIGURE_ICON, defaultFolderIcon } from "@context/shared/src/folderIcons.cjs";
 import { randomIcon } from "@context/shared/src/iconSuggest";
+import {
+  CONTEXT_ICONS,
+  CONTEXT_ICON_FAMILIES,
+  CONTEXT_ICON_FAMILY_LABEL,
+  contextIconMarker,
+  contextIconOf,
+  randomContextIcon,
+  searchContextIcons,
+} from "@context/shared/src/contextIcons.cjs";
 
 /** How many of every emoji are drawn at first, and added each time the list is scrolled near its end. */
 export const EMOJI_PAGE = 240;
@@ -28,6 +37,14 @@ interface Cell {
   readonly icon: string;
   /** What a screen reader hears. */
   readonly label: string;
+}
+
+type Tab = "context" | "emoji";
+
+/** The tab the picker opens on: Emoji when an emoji or a workspace emoji is chosen now, else Context icons. */
+export function openingTab(current: string | null): Tab {
+  if (current === null || contextIconOf(current) !== null || current.startsWith("context:")) return "context";
+  return "emoji";
 }
 
 /**
@@ -57,6 +74,12 @@ interface Cell {
  * owner, 2026-10-14, instead of giving things an emoji on their own): the one
  * Clef suggests from the name (`suggest`, absent where nothing can be asked),
  * and a random one with a Shuffle button. Both are taps like any other cell.
+ *
+ * It opens on Context's own hundred icons (decided by the owner, 2026-10-21,
+ * "Context icon set" boards): two tabs, "Context icons" and "Emoji", with
+ * Suggested and Random from the tab shown. Emoji is today's picker as it was.
+ * Search looks through both, Context icons first. It opens on Emoji when the
+ * icon already chosen is an emoji, so changing it starts where it came from.
  */
 export function FolderIconDialog({
   path,
@@ -74,8 +97,8 @@ export function FolderIconDialog({
   onClose: () => void;
   /** Opened from the folder's icon in the tree: a popover there rather than a dialog in the middle. */
   anchor?: DialogAnchor;
-  /** The emoji suggested from the name, or `null` for none. Never rejects. */
-  suggest?: () => Promise<string | null>;
+  /** The emoji (or with `"context"`, the Context icon) suggested from the name, or `null` for none. Never rejects. */
+  suggest?: (set?: "context") => Promise<string | null>;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -87,27 +110,30 @@ export function FolderIconDialog({
   const [query, setQuery] = useState("");
   const [focused, setFocused] = useState(false);
   const [shown, setShown] = useState(EMOJI_PAGE);
-  // `undefined` while Clef is asked, `null` for no suggestion.
-  const [suggested, setSuggested] = useState<string | null | undefined>(suggest === undefined ? null : undefined);
-  const [random, setRandom] = useState(() => randomIcon());
+  const [tab, setTab] = useState<Tab>(() => openingTab(current));
+  // Per tab: `undefined` while Clef is asked, `null` for no suggestion.
+  const [suggestions, setSuggestions] = useState<Partial<Record<Tab, string | null>>>({});
+  const suggested = suggest === undefined ? null : suggestions[tab];
+  const [randoms, setRandoms] = useState<Record<Tab, string>>(() => ({ context: randomContextIcon(), emoji: randomIcon() }));
+  const random = randoms[tab];
 
   useEffect(() => {
-    if (suggest === undefined) return;
+    if (suggest === undefined || suggestions[tab] !== undefined) return;
     let live = true;
-    void suggest().then((icon) => {
-      if (live) setSuggested(icon);
+    // Asked once per tab per opening: the name does not change while the dialog is open.
+    void suggest(tab === "context" ? "context" : undefined).then((icon) => {
+      if (live) setSuggestions((was) => ({ ...was, [tab]: icon }));
     });
     return () => {
       live = false;
     };
-    // Asked once per opening: the name does not change while the dialog is open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [tab]);
 
   const custom = host?.names ?? NO_NAMES;
   const fallback = defaultFolderIcon(path);
   const note = isMarkdown(path);
-  const sections = useMemo(() => sectionsFor(query, custom, shown), [query, custom, shown]);
+  const sections = useMemo(() => sectionsFor(query, custom, shown, tab), [query, custom, shown, tab]);
 
   async function choose(icon: string | null) {
     setBusy(true);
@@ -139,14 +165,35 @@ export function FolderIconDialog({
           setShown(EMOJI_PAGE);
         }}
         autoFocus={!sheet}
-        placeholder="Search emoji"
+        placeholder="Search icons and emoji"
         placeholderTextColor={colors.muted}
-        accessibilityLabel="Search emoji"
+        accessibilityLabel="Search icons and emoji"
         style={[styles.input, focused && styles.inputFocused, fieldFont]}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
         testID="folder-icon-search"
       />
+      {query.trim() !== "" ? null : (
+        <View style={styles.tabs} role="tablist" testID="folder-icon-tabs">
+          {(["context", "emoji"] as const).map((one) => (
+            <Pressable
+              key={one}
+              role="tab"
+              accessibilityState={{ selected: tab === one }}
+              onPress={() => {
+                setTab(one);
+                setShown(EMOJI_PAGE);
+              }}
+              style={[styles.tab, tab === one && styles.tabOn]}
+              testID={`folder-icon-tab-${one}`}
+            >
+              <Text variant="meta" style={tab === one ? styles.tabTextOn : styles.tabText}>
+                {one === "context" ? "Context icons" : "Emoji"}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
       {query.trim() !== "" ? null : (
         <View style={styles.picks} testID="folder-icon-picks">
           {suggested === null ? null : (
@@ -158,7 +205,7 @@ export function FolderIconDialog({
               ) : (
                 <Pressable
                   role="button"
-                  accessibilityLabel={`Use the suggested ${suggested} as this ${note ? "note" : "folder"}’s icon`}
+                  accessibilityLabel={`Use the suggested ${labelOf(suggested)} as this ${note ? "note" : "folder"}’s icon`}
                   disabled={busy}
                   onPress={() => void choose(suggested)}
                   style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [
@@ -177,7 +224,7 @@ export function FolderIconDialog({
           <View style={styles.pick}>
             <Pressable
               role="button"
-              accessibilityLabel={`Use ${random} as this ${note ? "note" : "folder"}’s icon`}
+              accessibilityLabel={`Use ${labelOf(random)} as this ${note ? "note" : "folder"}’s icon`}
               disabled={busy}
               onPress={() => void choose(random)}
               style={({ hovered }: { hovered?: boolean; pressed: boolean }) => [
@@ -193,7 +240,12 @@ export function FolderIconDialog({
             <Button
               label="Shuffle"
               variant="dialog"
-              onPress={() => setRandom((was) => randomIcon(Math.random, was))}
+              onPress={() =>
+                setRandoms((was) => ({
+                  ...was,
+                  [tab]: tab === "context" ? randomContextIcon(Math.random, was.context) : randomIcon(Math.random, was.emoji),
+                }))
+              }
               disabled={busy}
               testID="folder-icon-shuffle"
             />
@@ -213,7 +265,7 @@ export function FolderIconDialog({
       >
         {sections.length === 0 ? (
           <Text variant="meta" style={styles.empty} testID="folder-icon-none">
-            No emoji called that.
+            Nothing called that.
           </Text>
         ) : (
           sections.map((section) => (
@@ -266,7 +318,7 @@ export function FolderIconDialog({
         )}
         {current === null || current === fallback ? null : (
           <Button
-            label={fallback === null ? "Remove icon" : fallback === TEX_FIGURE_ICON ? "Use default (Tex)" : `Use default ${fallback}`}
+            label={fallback === null ? "Remove icon" : fallback === TEX_FIGURE_ICON ? "Use default (Tex)" : fallback.startsWith("context:") ? "Use default" : `Use default ${fallback}`}
             variant="dialog"
             onPress={() => void choose(null)}
             disabled={busy}
@@ -291,9 +343,17 @@ export function sectionsFor(
   query: string,
   custom: readonly string[],
   shown: number,
+  tab: Tab = "emoji",
 ): Array<{ title: string; cells: Cell[] }> {
   const typed = query.trim();
   const own = (names: readonly string[]): Cell[] => names.map((name) => ({ icon: `:${name}:`, label: `:${name}:` }));
+  const drawn = (icons: typeof CONTEXT_ICONS): Cell[] => icons.map((icon) => ({ icon: contextIconMarker(icon.name), label: icon.label }));
+  if (typed === "" && tab === "context") {
+    return CONTEXT_ICON_FAMILIES.map((family) => ({
+      title: CONTEXT_ICON_FAMILY_LABEL[family],
+      cells: drawn(CONTEXT_ICONS.filter((icon) => icon.family === family)),
+    }));
+  }
   if (typed === "") {
     const seen = new Set<string>(WORKSPACE_ICON_EMOJI);
     return [
@@ -320,6 +380,7 @@ export function sectionsFor(
     found.push({ icon: emoji.char, label: emoji.names[0] ?? emoji.char });
   }
   return [
+    { title: "Context icons", cells: drawn(searchContextIcons(needle)) },
     { title: "This workspace", cells: own(custom.filter((name) => name.includes(needle))) },
     { title: "Emoji", cells: found },
   ].filter((section) => section.cells.length > 0);
@@ -356,6 +417,12 @@ const makeStyles = (colors: Colors) =>
     cellChosen: { borderColor: colors.accent, backgroundColor: colors.accentDim },
     glyph: { fontSize: t.title, lineHeight: 32 },
     empty: { paddingVertical: space.x3 },
+    // Plain tabs, a line under the open one: no tinted track (no tinted boxes).
+    tabs: { flexDirection: "row", gap: space.x4 },
+    tab: { paddingVertical: 6, borderBottomWidth: 2, borderBottomColor: "transparent" },
+    tabOn: { borderBottomColor: colors.text },
+    tabText: { color: colors.muted },
+    tabTextOn: { color: colors.text },
     picks: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: space.x4 },
     pick: { flexDirection: "row", alignItems: "center", gap: space.x2 },
     pickLabel: { color: colors.muted },
@@ -363,3 +430,8 @@ const makeStyles = (colors: Colors) =>
     actions: { flexDirection: "row", gap: space.x2, flexWrap: "wrap", marginTop: space.x2 },
     error: { color: colors.crit },
   });
+
+/** What a screen reader hears for an icon: a Context icon's name, else the icon itself. */
+function labelOf(icon: string): string {
+  return contextIconOf(icon)?.label ?? icon;
+}

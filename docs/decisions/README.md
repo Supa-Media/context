@@ -435,6 +435,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Auto-organize, What changed and the app assistant are deleted, not switched off](./app-and-console/removed-features.md) (2026-10-17)
 - [Custom emoji are pictures in the bucket, written as `:name:` in the note](./app-and-console/custom-emoji.md)
 - [A folder icon is any emoji, a workspace's own included](./app-and-console/custom-emoji.md)
+- [The picker opens on Context's own hundred icons](./app-and-console/custom-emoji.md#the-picker-opens-on-contexts-own-hundred-icons) (2026-10-21)
 - [One folder per built-in role is locked, and a name may not twin its sibling](./app-and-console/folder-name-twins.md) (2026-10-14)
 - [A note's common properties are chips under its name, a new note's included](./app-and-console/property-chips.md) (2026-10-14)
 - [Only a note in the Projects folder is offered the task chips](./app-and-console/property-chips.md) (2026-10-18)

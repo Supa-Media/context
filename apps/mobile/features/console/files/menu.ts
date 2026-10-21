@@ -39,7 +39,7 @@
 import type { Clipboard } from "./clipboard";
 import type { MenuItem } from "./menuItem";
 import type { RowRole } from "@context/shared/src/folderRoles.cjs";
-import { builtInLocks, fixedItems, keptItems, rowJob } from "./menuBuiltIn";
+import { TEX_PART_DETAIL, builtInLocks, fixedItems, isTexPartRow, keptItems, rowJob } from "./menuBuiltIn";
 import { downloadGroup, iconGroup, makeItem, orderGroup, pinGroup, tagsGroup } from "./menuMake";
 import { visibilityGroup } from "./menuVisibility";
 import { restoreTargetFor } from "./paths";
@@ -412,6 +412,7 @@ function pageItems(context: MenuContext, row: TreeRow): MenuItem[] {
   const twin = context.isTwin?.(row.path) === true;
   const job = rowJob(row, context);
   const locks = builtInLocks(job);
+  const texPart = isTexPartRow(row, context);
   return joinGroups([
     [
       makeItem(context, "newNote", "New note"),
@@ -419,8 +420,8 @@ function pageItems(context: MenuContext, row: TreeRow): MenuItem[] {
       ...pasteGroup(context, row.path),
     ],
     [
-      ...(locks.fixed
-        ? fixedItems(context)
+      ...(locks.fixed || texPart
+        ? fixedItems(context, ...(texPart ? [TEX_PART_DETAIL] : []))
         : [makeItem(context, "rename", "Rename…"), makeItem(context, "moveTo", "Move to…")]),
       ...orderGroup(context, row),
       ...pinGroup(context, row),
@@ -540,7 +541,8 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
   // poisons that verb for the whole lot, like a read-only row does.
   const jobs = rows.map((row) => rowJob(row, context));
   const locks = jobs.map(builtInLocks);
-  const fixed = locks.some((lock) => lock.fixed);
+  const texParts = rows.some((row) => isTexPartRow(row, context));
+  const fixed = texParts || locks.some((lock) => lock.fixed);
   const kept = locks.some((lock) => lock.kept);
   const singleJob = single === null ? null : jobs[0]!;
 
@@ -591,7 +593,7 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
       ...(single === null
         ? []
         : fixed
-          ? fixedItems(context)
+          ? fixedItems(context, ...(texParts ? [TEX_PART_DETAIL] : []))
           : [
               makeItem(context, "rename", "Rename…"),
               ...(singleJob === null ? [makeItem(context, "duplicate", "Duplicate")] : []),

@@ -12,7 +12,7 @@
  */
 
 import { JOB_LABEL, MAIN_ROLES, compareTopLevelFolders, folderRole } from "../../../../packages/shared/src/folderRoles.cjs";
-import { GROUP_LABEL, INBOX_PARTS, INBOX_PART_LABEL, JOB_GROUP } from "../../../../packages/shared/src/folderJobInfo.cjs";
+import { GROUP_LABEL, INBOX_PARTS, INBOX_PART_LABEL, JOB_GROUP, TEX_PARTS } from "../../../../packages/shared/src/folderJobInfo.cjs";
 
 /** The order jobs are listed in: the main ones, the extras, the website and meetings, Archive last. */
 const JOB_ORDER = Object.freeze([
@@ -57,6 +57,9 @@ const INBOX_OWN =
   ` Its own folders ${INBOX_PARTS.map((part) => INBOX_PART_LABEL[part]).join(", ")} stay where they are (never rename or move them);` +
   " add notes and folders beside them.";
 
+/** Tex's own folders, said once on its line (owner, 2026-10-21). */
+const TEX_OWN = ` Its own folders ${TEX_PARTS.join(", ")} stay where they are (never rename or move them); add notes and folders beside them.`;
+
 const folderName = (folder) => folder.prefix.replace(/\/+$/, "");
 
 /** Which folder does each job, from the tree when it answered, else from the top-level folders' names. */
@@ -85,7 +88,7 @@ export function systemFoldersSection(survey) {
   for (const job of found) {
     // Meetings in the Inbox's own `meetings` folder are said on the Inbox's line.
     if (job === "meetings" && typeof paths.inbox === "string" && paths.meetings === `${paths.inbox}/meetings`) continue;
-    const own = job === "inbox" ? INBOX_OWN : "";
+    const own = job === "inbox" ? INBOX_OWN : job === "tex" ? TEX_OWN : "";
     lines.push(`- ${LABEL[job]} \`${paths[job]}/\` — ${importance(job)}: ${JOB_LINE[job]}${own}`);
   }
   if (missing.length) {
