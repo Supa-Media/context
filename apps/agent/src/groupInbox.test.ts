@@ -272,6 +272,20 @@ describe("a group's queue", () => {
     expect(w.sends.map((sent) => sent.content)).toEqual([GROUP_LINES.failed]);
   });
 
+  it("acts on no command nobody addressed to it", async () => {
+    // Tex answers what is addressed to it; one of the names it just offered is
+    // the single exception, and only while that question is open. Words like
+    // "stop" between two other people are chat, which `keepChatLine` is for —
+    // so what matters here is that nothing is queued to be acted on.
+    const storage = new MemoryStorage();
+    for (const words of ["stop", "start", "mute", "use band", "what can you see?"]) {
+      expect(["ignored", "kept"]).toContain(await acceptGroup(storage, message(words, { messageId: `h_${words}` }), 0));
+    }
+    expect([...(await storage.list({ prefix: "gpending:" })).keys()]).toEqual([]);
+    // Addressed, the same words still work.
+    expect(await acceptGroup(storage, message("Tex, stop"), 0)).toBe("queued");
+  });
+
   it("says the fixed lines with no model", async () => {
     const cases: [unknown, string, string][] = [
       [{ status: "unknown_sender", tell: true }, "Tex, hi", GROUP_LINES.unknown],

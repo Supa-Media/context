@@ -103,6 +103,8 @@ const NAMED = new RegExp(`(?:^|[^\\w-])${WORD}`, "i");
 /** A reply to Tex that needs no answer. */
 const NOTHING_TO_SAY = /^(?:thanks|thank you|thx|ty|ok|okay|cool|nice|lol|haha|got it|great|perfect)[\s.!]*$/i;
 const EMOJI_ONLY = /^[\p{Extended_Pictographic}\p{Emoji_Component}\s]+$/u;
+/** A workspace slug on its own, with or without its `@`. */
+const BARE_NAME = /^@?([a-z0-9][a-z0-9-]{0,63})$/;
 
 /**
  * Whether a group message is meant for Tex. Read from the words alone, with
@@ -126,6 +128,10 @@ function unquoted(text: string): string {
  * The words after Tex's name, when they are one of the group commands. While
  * the chat is picking a workspace (`choices`), one of the names it was offered
  * on its own ("supa", "@supa", "Tex supa") picks it.
+ *
+ * Tex's name is optional here because the caller has already decided the
+ * message is for Tex (`acceptGroup`). An unaddressed message reaches this
+ * only through `offeredName` below, which is narrower on purpose.
  */
 export function groupCommand(text: string, choices: readonly string[] = []): Command | null {
   const rest = unquoted(text)
@@ -138,8 +144,23 @@ export function groupCommand(text: string, choices: readonly string[] = []): Com
   if (/^what (?:can you see|do you see|can you read)(?: here)?\??$/.test(rest)) return { kind: "status" };
   const use = /^use @?([a-z0-9][a-z0-9-]{0,63})$/.exec(rest);
   if (use) return { kind: "use", slug: use[1] };
-  const named = /^@?([a-z0-9][a-z0-9-]{0,63})$/.exec(rest);
+  const named = BARE_NAME.exec(rest);
   return named && choices.includes(named[1]) ? { kind: "use", slug: named[1] } : null;
+}
+
+/**
+ * One of the names Tex just offered, said on its own — the only words it
+ * answers without being addressed, and only while that question is open.
+ *
+ * `groupCommand` takes Tex's name as optional, which is right once a message
+ * is known to be for Tex and wrong as the way in: it would make a bare "stop"
+ * or "start" from a conversation between two other people mute or unmute Tex.
+ * Those words are chat, and chat is what `keepChatLine` is for.
+ */
+export function offeredName(text: string, choices: readonly string[]): string | null {
+  if (choices.length === 0) return null;
+  const named = BARE_NAME.exec(unquoted(text).replace(/[.!]+$/, "").trim().toLowerCase());
+  return named !== null && choices.includes(named[1]) ? named[1] : null;
 }
 
 export { peopleOf };
@@ -152,7 +173,7 @@ export { peopleOf };
 export async function acceptGroup(storage: InboxStorage, message: GroupMessage, now: number): Promise<"queued" | "kept" | "ignored" | "duplicate" | "full"> {
   const sent = (await storage.get<string[]>(SENT_KEY)) ?? [];
   const repliesToTex = message.replyTo !== undefined && sent.includes(message.replyTo);
-  const tagged = addressesTex(message.text, repliesToTex) || groupCommand(message.text, await openChoice(storage, now)) !== null;
+  const tagged = addressesTex(message.text, repliesToTex) || offeredName(message.text, await openChoice(storage, now)) !== null;
   if ((await storage.get<number>(seenKey(message.eventId))) !== undefined) return tagged ? "duplicate" : "ignored";
   if (!tagged) {
     if (!(await keepChatLine(storage, message, now))) return "ignored";
