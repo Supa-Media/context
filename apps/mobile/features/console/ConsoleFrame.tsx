@@ -44,7 +44,7 @@ import {
 } from "./settings/sections";
 import { selectedContext, type ConsoleData, type VisitorActions } from "./types";
 import { useReadMode } from "./files/readMode";
-import { MEETINGS_ROUTE } from "../meetings/route";
+import { MEETINGS_ROUTE, type MeetingsPanelAsk } from "../meetings/route";
 import { WELCOME_ROUTE } from "../onboarding/route";
 import { NEW_WORKSPACE_ROUTE } from "../workspace/create";
 import { OpenAsideOn } from "./layout/frameBridges";
@@ -128,6 +128,8 @@ export function ConsoleFrame({
     mapOpen?: boolean;
     /** `?trash=1`: the Trash page is open over Browse. */
     trashOpen?: boolean;
+    /** `?meetings=`: open the right panel on Meetings (and record), once. */
+    meetingsOpen?: MeetingsPanelAsk;
   };
   /** The pane: the route's `<Slot/>`, or the homepage's `BrowsePane`. */
   children: ReactNode;
@@ -343,7 +345,9 @@ export function ConsoleFrame({
   const {
     meetingsAt, showMeetings, contextHrefFrom, startMeetingFlow, meetingSheet, startMeeting,
     canCreate, openAsideAt, approvals, resumeRow, voiceHost,
-  } = useConsoleAside({ data, router, phone, insideContext, current, selectedEntry });
+  } = useConsoleAside({
+    data, router, phone, insideContext, current, selectedEntry, meetingsAsked: params.meetingsOpen ?? null,
+  });
 
   /**
    * Where the control is and where a press takes it.
@@ -404,7 +408,12 @@ export function ConsoleFrame({
       */
       router.replace(phone ? contextHrefFrom(slug) : hrefFor(next));
     },
-    onOpenMeetings: data.demo ? undefined : () => router.push(MEETINGS_ROUTE),
+    /*
+      A phone has no right panel, so its Meetings is the list page. Everywhere
+      else it is the panel's Meetings tab: the page was a second copy of it, and
+      on the Mac app a window with no way out (`MEETINGS_PANEL_HREF`).
+    */
+    onOpenMeetings: data.demo ? undefined : phone ? () => router.push(MEETINGS_ROUTE) : showMeetings,
     onClaimContext: data.demo ? undefined : () => router.push(WELCOME_ROUTE),
     onNewWorkspace: data.demo ? undefined : () => router.push(NEW_WORKSPACE_ROUTE),
     onOpenSettings: () => {

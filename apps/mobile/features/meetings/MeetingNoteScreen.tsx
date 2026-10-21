@@ -22,6 +22,8 @@ import { continuationFromRecord, mayResume, meetingIdOf } from "./resume";
 import { useResumeMeeting } from "./useResumeMeeting";
 import { RECORD_BUTTON_CLEARANCE, RecordButton } from "./components/RecordButton";
 import { endedAudioLine, transcriptIncompleteLine } from "./keptAudio";
+import { backOr } from "../app/backOr";
+import { CONSOLE_ROOT } from "../console/nav";
 
 /**
  * The meeting after it has ended: finalizing, then the note.
@@ -189,7 +191,7 @@ export function MeetingNoteScreen({ meetingId }: { meetingId: string }) {
       <ScreenScroll contentContainerStyle={styles.content} testID="meeting-note">
         <View style={styles.topBar}>
           <Pressable
-            onPress={() => router.back()}
+            onPress={() => backOr(router, CONSOLE_ROOT)}
             accessibilityRole="button"
             accessibilityLabel="Back to meetings"
             style={({ pressed }) => [styles.round, pressed && styles.roundPressed]}

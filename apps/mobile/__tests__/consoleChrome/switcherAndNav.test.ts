@@ -15,7 +15,7 @@ import { describe, expect, test } from "@jest/globals";
 // `./fixtures` first: its `jest.mock("react-native-safe-area-context", ...)`
 // must register before `EditorRegion`/`NavBand` are required, or those pull in
 // the real module.
-import { mountConsole } from "./fixtures";
+import { mockConsoleState, mountConsole } from "./fixtures";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { EditorRegion } from "../../features/console/EditorRegion";
@@ -245,5 +245,58 @@ describe("search", () => {
     const phone = mountConsole(390);
     expect(phone.find("frame-search")).toBeNull();
     phone.unmount();
+  });
+});
+
+/**
+ * MEETINGS IS THE PANEL, NOT A PAGE (owner, 2026-10-21).
+ *
+ * The switcher's Meetings used to push `/meetings`, a full-window copy of the
+ * right panel's Meetings tab. On the Mac app that window had no way out but
+ * quitting, so at every density with a panel the row opens the panel instead.
+ * A phone has no panel, so its row still opens the list (`meetingsEntry.test.ts`).
+ *
+ * SABOTAGE: point `onOpenMeetings` back at `router.push(MEETINGS_ROUTE)` at
+ * every density, and the panel never opens.
+ */
+describe("Meetings in the switcher opens the right panel", () => {
+  test("a pointer layout opens the panel on Meetings", () => {
+    const app = mountConsole(1440);
+    expect(app.find("aside-panel")).toBeNull();
+
+    app.press(app.find("account-switcher"));
+    app.press(app.find("switcher-meetings"));
+
+    expect(app.find("aside-panel")).not.toBeNull();
+    expect(app.find("aside-meetings")).not.toBeNull();
+    app.unmount();
+  });
+
+  /*
+    Where `/meetings` lands a pointer layout: `?meetings=1`. The panel opens,
+    and the parameter comes off the address so a reload cannot reopen a panel
+    somebody has since closed. A phone takes it off too, with no panel to open.
+
+    SABOTAGE: drop the `setParams` and the second assertion fails; drop the
+    `showMeetings()` and the first does.
+  */
+  test("?meetings=1 opens the panel once and clears itself", () => {
+    mockConsoleState.query = { meetings: "1" };
+    mockConsoleState.paramsSet.length = 0;
+    try {
+      const app = mountConsole(1440);
+      expect(app.find("aside-meetings")).not.toBeNull();
+      expect(mockConsoleState.paramsSet).toEqual([{ meetings: undefined }]);
+      app.unmount();
+
+      mockConsoleState.paramsSet.length = 0;
+      const phone = mountConsole(390);
+      expect(phone.find("aside-panel")).toBeNull();
+      expect(mockConsoleState.paramsSet).toEqual([{ meetings: undefined }]);
+      phone.unmount();
+    } finally {
+      mockConsoleState.query = {};
+      mockConsoleState.paramsSet.length = 0;
+    }
   });
 });

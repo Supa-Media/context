@@ -683,19 +683,30 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
         densities: PHONE,
       },
       {
-        surface: "Meetings, at the head of the switcher's menu",
-        control: {
-          file: "features/console/SwitcherMenu.tsx",
-          contains: ['testID: "switcher-meetings"', "onOpenMeetings?.()"],
-        },
+        /*
+          No pointer control, deliberately. The switcher's Meetings opens the
+          right panel's Meetings tab at every density that has a panel, and
+          the page was a second copy of that tab — on the Mac app, a window
+          with no way out (owner, 2026-10-21).
+        */
+        surface: "the address itself, which a pointer layout answers with the panel",
         navigation: [
           {
-            file: CONSOLE_LAYOUT,
-            contains: ["MEETINGS_ROUTE", "router.push(MEETINGS_ROUTE)"],
+            file: "app/(app)/meetings/index.tsx",
+            contains: ["<Redirect href={record ? MEETINGS_RECORD_HREF : MEETINGS_PANEL_HREF} />"],
+          },
+          {
+            file: "features/console/layout/useConsoleAside.ts",
+            contains: ["meetingsAskAction", "else if (action === \"open\") showMeetings();"],
           },
         ],
-        region: "switcher",
+        region: "screen",
         densities: POINTER,
+        automatic:
+          "Nobody presses anything to get the page at medium or wide, and nobody " +
+          "can: an old link or a typed `/meetings` redirects to the console with " +
+          "`?meetings=1`, which opens the right panel on Meetings. The page is " +
+          "drawn only where there is no panel.",
       },
     ],
   },

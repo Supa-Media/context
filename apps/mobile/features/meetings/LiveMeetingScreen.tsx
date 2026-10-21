@@ -22,6 +22,8 @@ import type { MeetingRecord } from "./record";
 import { isSynced } from "./record";
 import { UNTITLED_MEETING } from "./session";
 import { useMeetingsSnapshot, useTick } from "./useMeetings";
+import { backOr } from "../app/backOr";
+import { CONSOLE_ROOT } from "../console/nav";
 
 /**
  * The recording screen, which is a notepad with a recorder attached.
@@ -185,7 +187,7 @@ export function LiveMeetingScreen({ meetingId, onClose }: { meetingId: string; o
     <Screen style={styles.screen} chrome={{ bottom: keyboard }} testID="live-meeting">
       <View style={styles.topBar}>
         <Pressable
-          onPress={onClose ?? (() => router.back())}
+          onPress={onClose ?? (() => backOr(router, CONSOLE_ROOT))}
           accessibilityRole="button"
           accessibilityLabel="Back to meetings"
           style={({ pressed }) => [styles.round, pressed && styles.roundPressed]}

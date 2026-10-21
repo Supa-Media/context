@@ -9,6 +9,7 @@ import { resolveContextRoute, settingsFromQuery, type ConsoleRoute } from "../na
 import { trashFromQuery } from "../trash/TrashRouteContext";
 import { mapFromQuery } from "../map/live/route";
 import { inboxFolder } from "../files/jobIcons/folderJobs";
+import { meetingsPanelFromQuery } from "../../meetings/route";
 import type { ConsoleData } from "../types";
 import type { ConsoleRouter } from "./types";
 
@@ -31,6 +32,7 @@ export function useConsoleParams() {
     connect?: string | string[];
     map?: string | string[];
     trash?: string | string[];
+    meetings?: string | string[];
   }>();
   const openSettingsSection = settingsFromQuery(settingsParams.settings);
   /*
@@ -49,7 +51,9 @@ export function useConsoleParams() {
   const mapOpen = mapFromQuery(settingsParams.map);
   // The Trash page, drawn where a note would be — see `TrashPage`.
   const trashOpen = trashFromQuery(settingsParams.trash);
-  return { quickParams, openSettingsSection, checkoutReturn, connectAgent, mapOpen, trashOpen };
+  // The right panel on Meetings — where `/meetings` sends a pointer layout.
+  const meetingsOpen = meetingsPanelFromQuery(settingsParams.meetings);
+  return { quickParams, openSettingsSection, checkoutReturn, connectAgent, mapOpen, trashOpen, meetingsOpen };
 }
 
 /**

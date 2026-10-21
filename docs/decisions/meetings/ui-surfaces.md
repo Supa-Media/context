@@ -317,6 +317,26 @@ second`, `a device with no context yet says so rather than throwing`,
 `the machine's own audio follows the setting, not a question`, and, on the phone
 itself, `the app's other place is the last key, and pressing it records`.
 
+### The meetings list is a phone's page, and the panel is everyone else's (2026-10-21)
+
+**On a layout with a right panel, `/meetings` was a second copy of the panel's
+Meetings tab**, drawn full-window with its own record button and no console
+around it. On the Mac app that window had no way out but quitting. The owner's
+words: *"the whole 'separate' meetings page needs to go. it really serves no
+purpose since people can already see meetings in this sidebar"*.
+
+So the switcher's Meetings opens the panel on Meetings at every density that
+has one (`ConsoleFrame`'s `onOpenMeetings`), and `/meetings` itself redirects a
+medium or wide window to `MEETINGS_PANEL_HREF` (`/console?meetings=1`), which
+opens the panel once and takes the parameter off the address. The route stays,
+for a phone — which has no panel, so the list is its only one — and for an old
+link. The same change gave every Back on a screen outside the console a
+fallback (`features/app/backOr.ts`): `router.back()` with nothing behind it is
+a press that does nothing.
+
+Reversing it fails `Meetings in the switcher opens the right panel`
+(`consoleChrome/switcherAndNav.test.ts`) and `meetingsPanelRedirect.test.ts`.
+
 ### A meeting opens in the panel, and the corner is a `+` (2026-09-19)
 
 **A meeting was a page, and it should not have been.** `/meetings/:id` is a full
