@@ -206,7 +206,7 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, accepte
   const asked = await askControlPlane(deps, message, people, command);
   const status = asked.status;
   // A chat that isn't answering keeps nothing it was told.
-  if (status === "muted" || status === "stopped" || status === "no_shared") await setChatBound(storage, false);
+  if (status === "muted" || status === "stopped" || status === "no_shared") await setChatBound(storage, null);
   if (status === "refused" || status === "muted") return log(status);
   // The same tapback for every tagger, linked or not, so it says nothing about who they are.
   if (command === null) await reactInGroup(deps.fetch, deps.sendblue, chat, message.messageId, "👀");
@@ -221,7 +221,7 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, accepte
   }
   if (status !== "ready") throw new ServiceError("control_plane", null);
   await storage.delete(CHOICE_KEY);
-  await setChatBound(storage, true);
+  await setChatBound(storage, message);
   if (command?.kind === "use") return void (await say(storage, deps, message, GROUP_LINES.bound(asked.slug, asked.intro)));
   if (command?.kind === "status") return void (await say(storage, deps, message, GROUP_LINES.status(asked.slug)));
   if (asked.accessToken === undefined) throw new ServiceError("control_plane", null);

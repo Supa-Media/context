@@ -50,7 +50,8 @@ untagged message is never stored.
 - While a chat is bound to a shared workspace and not muted, an untagged
   message is kept in the group's queue object (`apps/agent/src/groupChat.ts`),
   with who sent it and a hash of who was in the chat. Nothing is kept in a
-  chat that isn't bound, an SMS group, or a muted one.
+  chat that isn't bound, an SMS group, a muted one, or once anyone has joined
+  or left since Tex last answered, until a tag resolves the chat again.
 - The next tagged message hands the gateway the lines said before it, in front
   of exactly the people it answers, by handle and never by number (the
   control plane names them). The gateway files them with the question in the

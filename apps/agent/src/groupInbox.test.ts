@@ -164,8 +164,8 @@ describe("a group's queue", () => {
     expect(await acceptGroup(storage, message("thursday works?", { from: BO, messageId: "c1" }), 1)).toBe("kept");
     expect(await acceptGroup(storage, message("thursday works?", { from: BO, messageId: "c1" }), 1)).toBe("ignored");
     expect(await acceptGroup(storage, message("7 at mine", { messageId: "c2" }), 2)).toBe("kept");
-    // Said in front of somebody else: never handed to a turn for these two.
-    expect(await acceptGroup(storage, message("psst", { messageId: "c3", participants: [ADA, BO, CY, LINE] }), 3)).toBe("kept");
+    // Said in front of somebody else: not kept until a tag resolves the chat with them in it.
+    expect(await acceptGroup(storage, message("psst", { messageId: "c3", participants: [ADA, BO, CY, LINE] }), 3)).toBe("ignored");
     await acceptGroup(storage, message("Tex, write this up", { messageId: "t2" }), 4);
     // Said after the tag: the next one's.
     expect(await acceptGroup(storage, message("also bring snacks", { from: BO, messageId: "c4" }), 5)).toBe("kept");
@@ -174,6 +174,17 @@ describe("a group's queue", () => {
     expect(JSON.stringify(w.asks[1])).not.toContain(BO.slice(1));
     const left = [...(await storage.list<{ text: string }>({ prefix: "gchat:" })).values()].map((line) => line.text);
     expect(left).toEqual(["also bring snacks"]);
+  });
+
+  it("never hands a tag from a bigger chat what was said before the newcomer joined", async () => {
+    const storage = new MemoryStorage();
+    const w = world([[ADA, BO, CY]]);
+    await acceptGroup(storage, message("Tex, hi"), 0);
+    await drainGroup(storage, deps(w));
+    expect(await acceptGroup(storage, message("just between us", { messageId: "c1" }), 1)).toBe("kept");
+    await acceptGroup(storage, message("Tex, what did we say?", { messageId: "t2", from: CY, participants: [ADA, BO, CY, LINE] }), 2);
+    await drainGroup(storage, deps(w));
+    expect(w.asks[1]).toMatchObject({ group: { chat: [] } });
   });
 
   it("keeps the chat's lines when the turn fails, so the retry still has them", async () => {

@@ -5,8 +5,10 @@
  * "Why can't we give it the entire history like a regular chat"); see
  * docs/decisions/texting-assistant/groups.md.
  *
- * Kept only while the chat is bound to a shared workspace and not muted, and
- * only here until the next tagged message: that turn hands the lines to the
+ * Kept only while the chat is bound to a shared workspace, not muted, and has
+ * the same people as when Tex last answered (anyone joining or leaving stops
+ * it until a tag resolves the chat again), and only here until the next
+ * tagged message: that turn hands the lines to the
  * gateway, which files them in the chat's memory in the bound workspace, and
  * they are deleted from this object. Lines nobody tags Tex after age out in a
  * week, the oldest go first past four hundred, and "Tex, stop" drops them.
@@ -23,7 +25,7 @@ export type ChatLine = { at: number; from: string; text: string; people: string 
 
 const CHAT_PREFIX = "gchat:";
 const CHAT_SEQ = "gchatseq";
-/** Set while the chat is bound and answering; nothing is kept without it. */
+/** Who was in the chat, hashed, when it last resolved to a workspace; nothing is kept without it, or for anyone else. */
 const BOUND_KEY = "gbound";
 export const MAX_CHAT_LINES = 400;
 export const CHAT_FOR_MS = 7 * 24 * 60 * 60 * 1000;
@@ -47,10 +49,12 @@ export async function peopleKey(message: GroupMessage): Promise<string> {
 
 /** Keep one untagged message, when the chat is bound. Whether it was kept. */
 export async function keepChatLine(storage: InboxStorage, message: GroupMessage, now: number): Promise<boolean> {
-  if (message.sms || (await storage.get<boolean>(BOUND_KEY)) !== true) return false;
+  if (message.sms) return false;
+  const people = await peopleKey(message);
+  if ((await storage.get<string>(BOUND_KEY)) !== people) return false;
   const seq = ((await storage.get<number>(CHAT_SEQ)) ?? 0) + 1;
   await storage.put(CHAT_SEQ, seq);
-  await storage.put<ChatLine>(chatKey(seq), { at: now, from: message.from, text: message.text, people: await peopleKey(message) });
+  await storage.put<ChatLine>(chatKey(seq), { at: now, from: message.from, text: message.text, people });
   await pruneChat(storage, now);
   return true;
 }
@@ -72,9 +76,9 @@ export async function dropChatLines(storage: InboxStorage, keys: readonly string
   for (const key of keys) await storage.delete(key);
 }
 
-/** Bound and answering, or not: unbinding drops every line kept. */
-export async function setChatBound(storage: InboxStorage, bound: boolean): Promise<void> {
-  if (bound) return void (await storage.put(BOUND_KEY, true));
+/** Bound and answering for the people `message` was sent in front of, or not: unbinding drops every line kept. */
+export async function setChatBound(storage: InboxStorage, bound: GroupMessage | null): Promise<void> {
+  if (bound !== null) return void (await storage.put(BOUND_KEY, await peopleKey(bound)));
   await storage.delete(BOUND_KEY);
   await dropChatLines(storage, [...(await storage.list<ChatLine>({ prefix: CHAT_PREFIX })).keys()]);
 }
