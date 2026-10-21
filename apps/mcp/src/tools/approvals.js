@@ -211,6 +211,18 @@ export async function armForText(store, { userId, ids, now = Date.now() }) {
   const wanted = new Set(ids);
   const found = (await listPending(store, { userId, now })).filter(({ record }) => wanted.has(record.id));
   if (found.length !== wanted.size) throw new Error("an ask is no longer waiting");
+  /*
+    Only this ask line is left armed. `settleByText` releases every armed
+    record on one bare yes, because "the ask line named all of them" — true
+    while one turn ran at a time, since the person's next text disarmed what
+    came before it (`agent/textedSettle.js`). A background job's turn
+    (`agent/background.js`) is not their text and never runs that, so without
+    this its ask would arm beside the chat's and one yes would answer both.
+    The earlier ask is still theirs to answer in the app; it just stops being
+    a thing a bare yes reaches, which is the rule their own next text applies.
+  */
+  const stale = (await listPending(store, { userId, texting: true, now })).filter(({ record }) => !wanted.has(record.id));
+  if (stale.length > 0 && (await disarmRecords(store, stale)) > 0) throw new Error("an earlier ask could not be cleared");
   for (const entry of found) await rearmForText(store, entry, true, now);
 }
 
