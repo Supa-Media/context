@@ -103,6 +103,11 @@ the gateway and the control plane alike.
   Give says nothing about anybody's mailbox; at most 50 people per Give and
   10 such mails per person a day. A level change on an existing share sends
   nothing.
+- **A Tex group chat counts only what is given to everyone** (2026-10-21):
+  its turns are steered by the whole chat, so a key reaches them only when
+  shared with `*`, at use, never the tagger's own or one given to them
+  (`src/vault/access.js` `actorAccessOf`;
+  [groups](./groups.md#tex-acts-for-whoever-tagged-it-the-owner-2026-10-21)).
 - **A personal key is moved, not given** (`functions/vaultMove.ts`): only
   its saver, only into a shared workspace they own or edit, as the barrier's
   own reveal, add and delete. Its AIs' yeses stay behind, so they ask again

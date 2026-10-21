@@ -16,8 +16,8 @@
  *     tagger's 'Tex, yes' sends it".
  *  5. `listPending` not filtering by the acting person → "somebody else's yes
  *     sends nothing".
- *  6. `turnWeb.js` handing a group turn the vault store → "a group turn can
- *     browse but never sign in".
+ *  6. `turnWeb.js` handing a group turn no vault store → "a group turn can
+ *     browse, and sign in only from its workspace's vault".
  *  7. The route opening no computer for a group → the same test.
  */
 
@@ -60,7 +60,7 @@ const live = (prefix) =>
   [...world.team.keys()].filter((key) => key.startsWith(prefix) && !String(world.team.get(key)?.body ?? "").startsWith("context.logical-delete"));
 const sendTool = (sent) => (sent?.tools ?? []).find((tool) => tool.name === "send");
 
-test("a group turn is offered email and calendar, the web, and nothing that reads mail or signs in", async () => {
+test("a group turn is offered email, calendar and the web, and nothing that reads mail", async () => {
   world.model.install([{ text: "Hi." }]);
   const { status } = await tagged(TOKEN_GROUP_MEMBER, "Tex hi", "cy");
   assert.equal(status, 200);
@@ -70,8 +70,9 @@ test("a group turn is offered email and calendar, the web, and nothing that read
   assert.match(send, /- calendar: Add, move or cancel one event/, "calendar is offered");
   assert.match(send, /- open_page: /, "and the web");
   const shown = JSON.stringify(sent.tools);
-  for (const reads of ["search_email", "read_email", "email_search", "fill_login"]) assert.ok(!shown.includes(`"${reads}"`), `${reads} is not a group turn's`);
-  assert.match(JSON.stringify(sent.system), /never sign in to anything/);
+  for (const reads of ["search_email", "read_email", "email_search"]) assert.ok(!shown.includes(`"${reads}"`), `${reads} is not a group turn's`);
+  assert.match(send, /- fill_login: /, "signing in is offered, from the workspace's vault");
+  assert.match(JSON.stringify(sent.system), /only with a login saved in this workspace for the whole workspace/);
 });
 
 test("a member tagger's email is held, the ask says to reply, and somebody else's yes sends nothing", async () => {
@@ -110,7 +111,7 @@ test("a tagger's calendar change is held for their yes the same way", async () =
   assert.equal(yes.body?.answer, 'Done, I added "Rehearsal" to your calendar.');
 });
 
-test("a group turn can browse but never sign in", async () => {
+test("a group turn can browse, and sign in only from its workspace's vault", async () => {
   world.model.install([
     { toolCalls: [{ name: "send", args: { action: "fill_login", args: { entry: "example" } } }, { name: "send", args: { action: "open_page", args: { urls: ["https://example.com/status"] } } }] },
     { text: "All fine." },
@@ -118,7 +119,8 @@ test("a group turn can browse but never sign in", async () => {
   const { status } = await tagged(TOKEN_GROUP_EGRESS, "Tex is https://example.com/status up?", "ada");
   assert.equal(status, 200);
   const [login, page] = toolReplies(world.model.requests.at(-1));
-  assert.match(login, /has no action "fill_login"/, login);
+  // Offered, and opened against the chat's workspace; whose keys count there is vaultGroupChat.test.mjs's.
+  assert.doesNotMatch(login, /has no action/, login);
   assert.doesNotMatch(login, /filled|signed in/i, login);
   assert.match(page, /All fine/, "the page was read");
 });

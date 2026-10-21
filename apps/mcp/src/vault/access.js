@@ -73,6 +73,36 @@ export function maySee(meta, userId, groups = []) {
   return accessOf(meta, userId, groups) === "see";
 }
 
+/*
+  A Tex group chat's turn (`agent/groupTurn.js`) is steered by everyone in
+  the chat, so it uses only what the workspace itself holds (the owner,
+  2026-10-21: "people can give Tex its own email ... but not through the
+  individual saved logins, since we don't want anyone steering someone's
+  personal information"; "same for cards ... specifically shared for that
+  workspace"). A key counts there only when it is given to the whole
+  workspace (`*`), never one given to the tagger by name, by handle or by
+  group, nor one they saved for themselves, and it is used, never seen.
+*/
+const TEXTS_GROUP_CLIENT_ID = "context_texts_group";
+
+function workspaceOnly(actor) {
+  return actor?.clientId === TEXTS_GROUP_CLIENT_ID;
+}
+
+/** How much of a key the caller `actor` (a store's `actor`) has: "see", "use", or null. */
+export function actorAccessOf(meta, actor) {
+  if (!workspaceOnly(actor)) return accessOf(meta, actor?.userId, actor?.groups);
+  return sharesOf(meta).some((share) => share.to === EVERYONE) ? "use" : null;
+}
+
+export function actorMayUse(meta, actor) {
+  return actorAccessOf(meta, actor) !== null;
+}
+
+export function actorMaySee(meta, actor) {
+  return actorAccessOf(meta, actor) === "see";
+}
+
 /** The person an AI's yes, use or refusal belongs to. */
 export function ownerOf(record, meta) {
   return typeof record?.by === "string" && record.by.length > 0 ? record.by : meta?.createdBy ?? null;

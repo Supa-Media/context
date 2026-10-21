@@ -7,13 +7,14 @@
  * (`docs/decisions/texting-assistant/vault.md`). This is not a tool and is
  * never registered as one.
  *
- * Refuses unless the caller's person is on the entry's people list and the
+ * Refuses unless the caller's person is on the entry's people list (for a
+ * group chat's turn, unless it is the workspace's own: `access.js`) and the
  * page is one of the entry's sites. The store is the one the caller's grant
  * opened for the entry's workspace, so the workspace and the person come from
  * the grant, never from the model.
  */
 
-import { mayUse, readMeta, readSecret, siteMatches } from "./entries.js";
+import { actorMayUse, readMeta, readSecret, siteMatches } from "./entries.js";
 import { entryType, fieldValue } from "./fields.js";
 
 export class VaultRefused extends Error {
@@ -35,13 +36,12 @@ export class VaultRefused extends Error {
 export async function openForFill(store, _scope, { entryId, origin, field, env }) {
   const keys = store?.encryptionKey;
   const workspaceId = store?.actor?.workspaceId;
-  const userId = store?.actor?.userId;
   if (!keys || typeof workspaceId !== "string") throw new VaultRefused("no_key");
   const meta = await readMeta(store, keys, workspaceId, entryId);
   if (meta === null) throw new VaultRefused("not_found");
   // One answer for "not yours" and "not there" would hide nothing here: the
   // caller is the fill step, which already holds an id from vault_list.
-  if (!mayUse(meta, userId, store.actor?.groups)) throw new VaultRefused("not_yours");
+  if (!actorMayUse(meta, store.actor)) throw new VaultRefused("not_yours");
   if (!siteMatches(meta.sites, origin)) throw new VaultRefused("wrong_site");
   if (field === undefined && entryType(meta) !== "login") throw new VaultRefused("no_field");
   let secret;
