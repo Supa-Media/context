@@ -19,7 +19,7 @@ import type { SyntaxNode } from "@lezer/common";
   surfaces already reach for it.
 */
 import { unescapeCell } from "../../../../../mcp/src/forms.js";
-import { HIDDEN_MARKS, isHiddenPlumbing, styleClassFor } from "./reveal";
+import { HIDDEN_MARKS, isHiddenPlumbing, styleClassFor, wikiTargetText } from "./reveal";
 
 /**
  * One run of text inside a rendered cell, and the classes to draw it in.
@@ -226,10 +226,11 @@ export function cellRuns(state: EditorState, cell: SyntaxNode): CellRun[] {
       The alias, which is what a reader is meant to see. Split on the last pipe
       and then unescape, so the backslash that let the pipe survive the cell is
       not drawn — the target keeps it, and the target is not what is drawn.
+      Without one, the note's name, as outside a cell (`wikiTargetName`).
     */
     const inside = found[1];
     const pipe = inside.lastIndexOf("|");
-    const shown = pipe === -1 ? inside : inside.slice(pipe + 1);
+    const shown = pipe === -1 ? wikiTargetText(inside) : inside.slice(pipe + 1);
     stands.set(from, {
       to,
       text: (unescapeCell(shown) as string).trim(),

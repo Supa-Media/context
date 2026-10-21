@@ -248,11 +248,14 @@ export function hiddenMarkRanges(
     decorations over the same text is the overlap this file warns about
     elsewhere.
 
-    What is left visible is the alias where there is one and the target where
-    there is not — never nothing. An empty alias (`[[path|]]`) is a typo in
-    progress, and drawing it as an empty span would make the link invisible
-    and unfixable without selecting blindly across it, so that falls back to
-    showing the target too.
+    What is left visible is the alias where there is one and the note's name
+    where there is not — never nothing. A bare target is drawn as its last
+    segment: `[[Areas/Bible study/Jesus]]` reads "Jesus", because the folders
+    are how the link finds the note and not what the sentence says (the
+    owner's screenshot of 2026-10-21; paths belong in the suggestion list).
+    An empty alias (`[[path|]]`) is a typo in progress, and drawing it as an
+    empty span would make the link invisible and unfixable without selecting
+    blindly across it, so that falls back to showing the name too.
 
     An **embed** (`![[…]]`) is left completely alone: it is a picture rather
     than words, `imageBlock` replaces it with a widget, and hiding half of it
@@ -377,6 +380,12 @@ function mergeOrdered(left: TextRange[], right: TextRange[]): TextRange[] {
  * — in the two cases where the source is what should be on screen: the caret
  * is inside it, or it is an embed and `imageBlock` is about to replace the
  * whole thing with a picture.
+ *
+ * "Inside" is strict for a caret. Picking a note from the `[[` list leaves the
+ * caret just after the closing `]]`, and the inclusive touch every other mark
+ * uses drew the whole path the moment the link was made — the screenshot that
+ * asked for names instead. A caret at either edge is beside the link, not in
+ * it; one step in, or a selection across it, still shows the source.
  */
 function wikiLinkSpans(
   text: string,
@@ -387,7 +396,7 @@ function wikiLinkSpans(
     const from = match.index;
     const to = from + match[0].length;
     const embed = match[0].startsWith("!");
-    if (embed || selectionTouches({ from, to }, selection)) {
+    if (embed || selectionInside({ from, to }, selection)) {
       spans.push({ from, to, hides: [] });
       continue;
     }
@@ -396,21 +405,60 @@ function wikiLinkSpans(
     const bar = inner.indexOf("|");
     /*
       An alias is what the link is *called*, so it is the only thing left. A
-      missing one leaves the target, and so does an empty one: `[[path|]]` is a
-      typo in progress, and an empty span is a link nobody can see to fix.
+      missing one leaves the note's name, and so does an empty one: `[[path|]]`
+      is a typo in progress, and an empty span is a link nobody can see to fix.
     */
     const alias = bar === -1 ? "" : inner.slice(bar + 1);
-    const openTo = alias.length > 0 ? innerFrom + bar + 1 : innerFrom;
-    spans.push({
-      from,
-      to,
-      hides: [
-        { from, to: openTo },
-        { from: to - 2, to },
-      ],
-    });
+    if (alias.length > 0) {
+      spans.push({
+        from,
+        to,
+        hides: [
+          { from, to: innerFrom + bar + 1 },
+          { from: to - 2, to },
+        ],
+      });
+      continue;
+    }
+    const name = wikiTargetName(bar === -1 ? inner : inner.slice(0, bar));
+    const hides: TextRange[] = [{ from, to: innerFrom + name.from }];
+    if (name.extensionTo > name.to) {
+      hides.push({ from: innerFrom + name.to, to: innerFrom + name.extensionTo });
+    }
+    hides.push({ from: to - 2, to });
+    spans.push({ from, to, hides });
   }
   return spans;
+}
+
+/** Whether the selection is in a span: across it, or a caret strictly inside. */
+function selectionInside(range: TextRange, selection: readonly TextRange[]): boolean {
+  return selection.some((sel) =>
+    sel.from === sel.to
+      ? sel.from > range.from && sel.from < range.to
+      : sel.to > range.from && sel.from < range.to,
+  );
+}
+
+/**
+ * Where a wiki link target's name is: the last path segment, without a `.md`.
+ *
+ * `from`–`to` is the part drawn and `to`–`extensionTo` a `.md` hidden after
+ * it, both offsets into `target`. A heading or block anchor (`#…`) stays with
+ * the name, and a slash inside the anchor is not a folder.
+ */
+export function wikiTargetName(target: string): { from: number; to: number; extensionTo: number } {
+  const hash = target.indexOf("#");
+  const path = hash === -1 ? target : target.slice(0, hash);
+  const from = path.lastIndexOf("/") + 1;
+  const md = path.length - from > 3 && path.toLowerCase().endsWith(".md");
+  return { from, to: md ? path.length - 3 : path.length, extensionTo: path.length };
+}
+
+/** A wiki link target as it is drawn: its name, and its anchor if it has one. */
+export function wikiTargetText(target: string): string {
+  const name = wikiTargetName(target);
+  return target.slice(name.from, name.to) + target.slice(name.extensionTo);
 }
 
 /**

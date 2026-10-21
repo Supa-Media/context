@@ -24,6 +24,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import * as facade from "../features/console/files/livePreview";
 import { caretInput, editorEngaged } from "../features/console/files/livePreview/engagement";
+import { wikiLinkKeys } from "../features/console/files/livePreview/wikiLinkKeys";
 import { taskToggle } from "../features/console/files/livePreview/listWidgets";
 import { writingTable } from "../features/console/files/livePreview/writingTable";
 
@@ -85,9 +86,11 @@ describe("every state object is still a single object", () => {
     const first = facade.livePreview();
     const second = facade.livePreview();
     // 6 until the touch rule added `caretInput` and its `pointerdown` handler,
-    // appended after `taskToggle` so every index below is unchanged.
-    expect(first).toHaveLength(8);
+    // appended after `taskToggle` so every index below is unchanged; 9 since
+    // `wikiLinkKeys`, appended last for the same reason.
+    expect(first).toHaveLength(9);
     expect(first[6]).toBe(caretInput);
+    expect(first[8]).toBe(wikiLinkKeys);
     expect(first[0]).toBe(editorEngaged);
     expect(first[1]).toBe(writingTable);
     expect(first[5]).toBe(taskToggle);
