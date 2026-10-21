@@ -65,6 +65,8 @@ export const groupAnswerValidator = v.union(
     intro: v.boolean(),
     bound: v.boolean(),
     timeZone: v.string(),
+    /** The tagger's handle (their personal workspace's slug), so the answer can say who asked; "" when none. */
+    handle: v.string(),
     /** False when only the binding was asked for ("Tex, use @slug"): no token was minted. */
     minted: v.boolean(),
   }),
@@ -74,7 +76,7 @@ export type GroupAnswer =
   | { status: "refused" | "muted" | "stopped" | "started" | "no_shared" | "not_shared" }
   | { status: "unknown_sender"; tell: boolean }
   | { status: "choose"; slugs: string[] }
-  | { status: "ready"; slug: string; intro: boolean; bound: boolean; timeZone: string; minted: boolean };
+  | { status: "ready"; slug: string; intro: boolean; bound: boolean; timeZone: string; handle: string; minted: boolean };
 
 /** The key a chat is filed under: its line and Sendblue id, hashed, never stored as given. */
 export async function groupKeyOf(line: string, groupId: string): Promise<string> {
@@ -174,7 +176,9 @@ export const applyGroupTurn = internalMutation({
       if (!ok) return { status: "no_shared" };
       if (intro) await ctx.db.patch(group._id, { introducedAt: now });
     }
-    return { status: "ready", slug: workspace.slug, intro: intro && minted, bound, timeZone, minted };
+    const personal = await personalWorkspaceOf(ctx, senderUser);
+    const handle = personal === null ? "" : (await ctx.db.get(personal))?.slug ?? "";
+    return { status: "ready", slug: workspace.slug, intro: intro && minted, bound, timeZone, handle, minted };
   },
 });
 

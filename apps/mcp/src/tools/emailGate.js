@@ -43,9 +43,9 @@ const TEXTS_CLIENT_ID = "context_texts";
 /**
  * First-party clients that never send: routines and dreams have nobody on the
  * line, and the app has no assistant of its own (deleted 2026-10-17); it is
- * where the person approves.
+ * where the person approves. A group chat's Tex sends no email: whose would it be?
  */
-const NEVER_SENDS = new Set(["context_routines", "context_dreams", "context_console"]);
+const NEVER_SENDS = new Set(["context_routines", "context_dreams", "context_console", "context_texts_group"]);
 
 /** The `callers:` key a connection asks as, or null for one that never may. */
 export function emailCaller(clientId) {

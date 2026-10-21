@@ -132,7 +132,7 @@ describe("what the chat reaches", () => {
     const t = setupTest();
     const { ada, studio } = await crew(t);
     const first = await turn(t, ADA, [ADA, BO, CY, LINE]);
-    expect(first).toMatchObject({ status: "ready", slug: "studio", intro: true, bound: true, minted: true });
+    expect(first).toMatchObject({ status: "ready", slug: "studio", intro: true, bound: true, minted: true, handle: "ada" });
     const session = await resolves(t, first.accessToken as string);
     expect(session?.clientId).toBe(TEXTS_GROUP_CLIENT_ID);
     expect(session?.defaultWorkspaceId).toBe(studio);
