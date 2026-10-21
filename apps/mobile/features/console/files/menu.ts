@@ -598,9 +598,7 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
               makeItem(context, "rename", "Rename…"),
               ...(singleJob === null ? [makeItem(context, "duplicate", "Duplicate")] : []),
             ]),
-      ...(fixed
-        ? []
-        : [makeItem(context, "moveTo", single === null ? `Move ${items(count)} to…` : "Move to…")]),
+      ...(fixed ? [] : [makeItem(context, "moveTo", single === null ? `Move ${items(count)} to…` : "Move to…")]),
       ...orderGroup(context, single),
     ],
 
