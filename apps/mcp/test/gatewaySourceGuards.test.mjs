@@ -303,6 +303,21 @@ test("a gateway module that queries the v1 index also narrows it first", () => {
   `main` as it stands and is left out by name until it is fixed, so the gap is
   written down instead of hidden.
 */
+/*
+  The Mail checker reads a kept turn as the person who asked. A group's kept
+  turns carry what the chat said beside the tagger's ask (`groupTurn.js`), so
+  the one call that builds the checker has to take the chat off first. A
+  helper nobody calls is the shape this file exists to catch, and the check
+  for what the helper does lives in `emailGate.test.mjs`.
+*/
+test("the Mail checker is never handed a group's kept turns whole", () => {
+  const route = FILES.find((file) => file.path === "agent/route.js");
+  assert.ok(route, "agent/route.js is in the scan");
+  const call = /mailCheckerFor\(\{([\s\S]*?)\}\)/.exec(route.text);
+  assert.ok(call, "the mailCheckerFor call could not be read");
+  assert.match(call[1], /history:\s*group !== null \? checkerHistory\(history\) : history/);
+});
+
 const RUN_ON_THEIR_OWN = new Set(["test/moveQueueDedupe.test.mjs"]);
 const KNOWN_FAILING = new Set(["test/keyedCollabRename.test.mjs"]);
 
