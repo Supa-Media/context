@@ -12,13 +12,15 @@
  *     → "a write that was refused is no write" fails.
  *  3. `check` giving its notice every time it is asked.
  *     → "the notice is given once, so the check never loops" fails.
+ *  4. `check` never giving `OFFER_NOTICE`.
+ *     → "an offer with nothing held is sent back; once the call is held, it goes" fails.
  */
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { CLAIM_NOTICE, MUTE_NOTICE, asksToMute, claimCheck, claimsAChange } from "../src/agent/claimCheck.js";
+import { CLAIM_NOTICE, MUTE_NOTICE, OFFER_NOTICE, asksToMute, claimCheck, claimsAChange, offersAHeldChange } from "../src/agent/claimCheck.js";
 import { runTurn } from "../src/agent/turn.js";
 
 const MAIN = "@cf/acme/main-model";
@@ -79,6 +81,27 @@ test("the notice is given once, so the check never loops", () => {
   const once = claimCheck({ question: "hi" });
   assert.equal(once.check("I've added it."), CLAIM_NOTICE);
   assert.equal(once.check("I've added it."), null);
+});
+
+test("an offer of a calendar change or an email, in words, is read as one; an offer of anything else is not", () => {
+  assert.ok(offersAHeldChange("Want me to add 'Emmanuela/Sayo,' 7 to 8 pm today?"));
+  assert.ok(offersAHeldChange("Do you want me to put it on your calendar?"));
+  assert.ok(offersAHeldChange("Should I move the dentist to Friday?"));
+  assert.ok(offersAHeldChange("Want me to forward it to Relay?"));
+  assert.ok(offersAHeldChange("Want me to reply to Sam saying yes?"));
+  assert.ok(!offersAHeldChange("Want me to add a to-do to check the router deploy?"));
+  assert.ok(!offersAHeldChange("Want me to add a to-do for Friday?"));
+  assert.ok(!offersAHeldChange("Want me to send you the list?"));
+  assert.ok(!offersAHeldChange("Want me to look into it?"));
+  assert.ok(!offersAHeldChange("I'll add it once you say yes below."));
+});
+
+test("an offer with nothing held is sent back; once the call is held, it goes", async () => {
+  const offer = "Want me to add 'Emmanuela/Sayo,' 7 to 8 pm today?";
+  assert.equal(claimCheck({ question: "dinner at 7" }).check(offer), OFFER_NOTICE);
+  const held = claimCheck({ question: "dinner at 7" });
+  await held.wrap(async () => ({ isError: true, held: true, content: [] }))("calendar_event", {});
+  assert.equal(held.check("I'll add Emmanuela and Sayo at 7."), null);
 });
 
 /** A Workers AI binding that answers from a script, one reply per call. */

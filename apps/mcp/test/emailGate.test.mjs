@@ -202,7 +202,7 @@ export async function runEmailGateChecks(check) {
 
     model.install([{ toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "Re: ok" } }] }, verdict("yes"), { text: "Drafted." }]);
     await ask(env, TOKEN_TEXTS, "email Jo that it's fine");
-    model.install([{ text: "Want me to send it? Reply YES." }]);
+    model.install([{ text: "It goes when you say so. Reply YES." }]);
     before = sends().length;
     const okay = await ask(env, TOKEN_TEXTS, "ok");
     model.install([{ text: "Yes what?" }]);

@@ -10,7 +10,7 @@ import { CALENDAR_TOOL } from "../tools/calendarWrite.js";
 import { REPORT_TOOL } from "../tools/reportProblem.js";
 import { doneLine } from "./doneLine.js";
 import { canonicalToolName } from "../tools/advertised.js";
-import { withoutHeldEcho } from "./heldEcho.js";
+import { withoutHeldEcho, withoutWaitTalk } from "./heldEcho.js";
 import { isGroupSession } from "./groupTurn.js";
 import { scrubbed } from "./quoted.js";
 import { VAULT_PAY } from "../vault/pay.js";
@@ -174,11 +174,12 @@ export async function textedAsk(store, session, asked) {
 /**
  * The texted answer: the model's words, then the ask. An email the ask shows
  * whole is taken out of the model's words first (`heldEcho.js`), so the person
- * reads one copy, the one a YES sends.
+ * reads one copy, the one a YES sends, and so is any talk of the yes being
+ * waited on somewhere else: the ask is right below.
  */
 export function answerWithAsk(told, ask, asked) {
   if (ask === null) return told;
-  const said = withoutHeldEcho(told, asked);
+  const said = withoutWaitTalk(withoutHeldEcho(told, asked));
   return said === "" ? ask : `${said}\n\n${ask}`;
 }
 
