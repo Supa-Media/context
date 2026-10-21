@@ -188,10 +188,11 @@ describe("what the chat reaches", () => {
     expect(await turn(t, ADA, [ADA, BO, CY, LINE])).toEqual({ status: "choose", slugs: ["ops", "studio"] });
 
     const picked = await turn(t, CY, [ADA, BO, CY, LINE], { command: { kind: "use", slug: "@ops" } });
-    expect(picked).toMatchObject({ status: "ready", slug: "ops", bound: true, minted: false });
+    // The pick's own line is the introduction, so the next answer doesn't repeat it.
+    expect(picked).toMatchObject({ status: "ready", slug: "ops", bound: true, minted: false, intro: true });
     expect(picked.accessToken).toBeUndefined();
     const answer = await turn(t, ADA, [ADA, BO, CY, LINE]);
-    expect(answer).toMatchObject({ status: "ready", slug: "ops", bound: false });
+    expect(answer).toMatchObject({ status: "ready", slug: "ops", bound: false, intro: false });
     expect((await resolves(t, answer.accessToken as string))?.defaultWorkspaceId).toBe(ops);
   });
 

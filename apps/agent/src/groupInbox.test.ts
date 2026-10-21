@@ -241,6 +241,16 @@ describe("a group's queue", () => {
     }
   });
 
+  it("introduces itself in the line that answers a pick, and only then", async () => {
+    const storage = new MemoryStorage();
+    const w = world();
+    await acceptGroup(storage, message("Tex, use @supa"), 0);
+    await drainGroup(storage, deps(w, { control: { status: "ready", slug: "supa", intro: true, bound: true, timeZone: "UTC", handle: "ada", minted: false } }));
+    expect(w.sends.map((sent) => sent.content)).toEqual([GROUP_LINES.bound("supa", true)]);
+    expect(GROUP_LINES.bound("supa", true)).toContain("Tex, stop");
+    expect(GROUP_LINES.bound("supa")).not.toContain("Tex, stop");
+  });
+
   it("introduces itself the first time, then answers", async () => {
     const storage = new MemoryStorage();
     const w = world();
