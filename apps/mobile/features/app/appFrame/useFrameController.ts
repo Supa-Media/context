@@ -73,8 +73,9 @@ export function useFrameController({
        note list.
      - **The root band**, otherwise. At compact this bar is absolute,
        transparent and lying over a document that scrolls under it, so buttons
-       placed in it would sit on the note; and a console window narrowed past
-       `narrowBreakpoint` is that layout on a Mac. `lightsInBarFor` is the
+       placed in it would sit on the note. The Mac app never reaches that
+       layout (the shell holds the page at `SHELL_MIN_PAGE_WIDTH_PX`), so in
+       practice this arm is the browser's. `lightsInBarFor` is the
        density half of the rule and `shellLightsLeadPx` the platform half.
 
     `lightsLeadPx` is therefore non-zero only when all of it holds — a Mac,

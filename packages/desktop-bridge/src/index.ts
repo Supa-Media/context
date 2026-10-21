@@ -65,6 +65,7 @@ export {
 export type { BridgeRefusal, BridgeScope } from "./bridge.ts";
 
 export {
+  SHELL_MIN_PAGE_WIDTH_PX,
   SHELL_TITLE_BAND_LEAD_PX,
   SHELL_TITLE_BAND_PX,
   SHELL_TRAFFIC_LIGHTS,

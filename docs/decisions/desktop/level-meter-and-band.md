@@ -341,3 +341,26 @@ narrowing and on unmount). **One thing here is not covered and is worth saying
 so**: that the effect is a *layout* effect rather than an ordinary one is
 invisible to jsdom, which paints nothing — `act` flushes both the same way. The
 argument for it is above; the check is a cold load on a Mac.
+
+### The desktop app never shows the phone layout
+
+Decided by the owner, 2026-10-21: "desktop app should never have the mobile
+view". The console window allowed 720pt while the page turns into the phone
+layout below `layout.narrowBreakpoint` (880px), so narrowing the Mac window gave
+a floating back button, a bottom search bar and no explorer.
+
+The shell keeps the page out of that range rather than the page asking where it
+runs: the breakpoint is read in more than twenty places, one of them a CSS media
+query inside the editor, and a per-call-site "unless in the shell" is the
+fix that misses one. `SHELL_MIN_PAGE_WIDTH_PX` in `packages/desktop-bridge` is
+the page floor, `core/shell/windowSize.ts` turns it into a window minimum by
+multiplying by the zoom factor (Cmd-plus makes a CSS pixel bigger, so a floor in
+points is one zooming walks past), and `main/windows.ts` reapplies it on load,
+on `zoom-changed` and from the View menu, whose three zoom items are click
+handlers rather than roles for that reason.
+
+**What a simplification costs.** Dropping the zoom factor brings the phone
+layout back at 110%; putting the zoom items back to roles does the same from the
+menu. `shellTitleBand.test.ts` fails if the floor and the breakpoint drift
+apart, `test/windowSize.test.mjs` if the zoom stops counting, and
+`test/appShell.test.mjs` if a menu zoom stops telling the window.

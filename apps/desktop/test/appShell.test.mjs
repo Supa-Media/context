@@ -224,7 +224,13 @@ export function runAppShellChecks(check) {
     );
     check(
       "THE VIEW MENU CAN MAKE THE APP SMALLER, LARGER AND ACTUAL SIZE AGAIN",
-      ["zoomIn", "zoomOut", "resetZoom"].every((role) => roles.includes(role)),
+      /label: "Actual Size", accelerator: "CommandOrControl\+0", click: \(\) => zoomFocused\(null\)/.test(menu) &&
+        /label: "Zoom In", accelerator: "CommandOrControl\+Plus", click: \(\) => zoomFocused\(0\.5\)/.test(menu) &&
+        /label: "Zoom Out", accelerator: "CommandOrControl\+-", click: \(\) => zoomFocused\(-0\.5\)/.test(menu),
+    );
+    check(
+      "...and every menu zoom tells the console window, so Cmd-plus cannot reach the phone layout",
+      /function zoomFocused\([\s\S]*?contents\.setZoomLevel\([\s\S]*?windowZoomed\(win\);/.test(menuSource),
     );
     check(
       "...and no developer tools in a shipped build",

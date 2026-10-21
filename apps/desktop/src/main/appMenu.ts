@@ -6,8 +6,9 @@
  * updater exists; until then the menu says the updater has not started.
  */
 
-import { Menu, app } from "electron";
+import { BrowserWindow, Menu, app } from "electron";
 import { showUpdateCheckMessage } from "./dialogs.ts";
+import { windowZoomed } from "./windows.ts";
 
 
 /**
@@ -30,6 +31,12 @@ import { showUpdateCheckMessage } from "./dialogs.ts";
  * the app read "way too scaled up" and there was no key to shrink it), and
  * `toggleDevTools` in a shipped build is a console on somebody's private notes.
  *
+ * The three zoom commands are the exception, and only just: they do what the
+ * `zoomIn`, `zoomOut` and `resetZoom` roles do (half a zoom level, on the
+ * focused window), and then tell `windows.ts`, because a zoom changes how wide
+ * the console's page is and Electron reports a menu zoom to nobody. Without
+ * that, Cmd-plus on a narrow window is the phone layout on a Mac.
+ *
  * `close` and not `quit` on Cmd-W is the whole of "closing the window must not
  * end a meeting": `window-all-closed` below refuses to quit, the tray stays,
  * and a recording in progress runs on in this process with no window at all.
@@ -42,6 +49,15 @@ let checkForUpdatesFromMenu = () => {
 /** Replace the menu command once `main()` has an updater to ask. */
 export function setCheckForUpdatesFromMenu(handler: () => void): void {
   checkForUpdatesFromMenu = handler;
+}
+
+/** Change the focused window's zoom level the way the roles do; `null` is actual size. */
+function zoomFocused(step: number | null): void {
+  const win = BrowserWindow.getFocusedWindow();
+  if (win === null) return;
+  const contents = win.webContents;
+  contents.setZoomLevel(step === null ? 0 : contents.getZoomLevel() + step);
+  windowZoomed(win);
 }
 
 export function installApplicationMenu(): void {
@@ -79,9 +95,17 @@ export function installApplicationMenu(): void {
         submenu: [
           { role: "reload" },
           { type: "separator" },
-          { role: "resetZoom" },
-          { role: "zoomIn" },
-          { role: "zoomOut" },
+          { label: "Actual Size", accelerator: "CommandOrControl+0", click: () => zoomFocused(null) },
+          { label: "Zoom In", accelerator: "CommandOrControl+Plus", click: () => zoomFocused(0.5) },
+          // Cmd-= is the unshifted key Cmd-plus is printed on, as the role had it.
+          {
+            label: "Zoom In",
+            accelerator: "CommandOrControl+=",
+            visible: false,
+            acceleratorWorksWhenHidden: true,
+            click: () => zoomFocused(0.5),
+          },
+          { label: "Zoom Out", accelerator: "CommandOrControl+-", click: () => zoomFocused(-0.5) },
           { type: "separator" },
           { role: "togglefullscreen" },
         ],

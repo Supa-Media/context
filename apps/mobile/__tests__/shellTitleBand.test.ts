@@ -42,7 +42,7 @@ import { afterEach, beforeEach, describe, expect, test } from "@jest/globals";
 import { act, createElement, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { fakeDesktopBridge } from "@context/desktop-bridge/fake";
-import { SHELL_TITLE_BAND_LEAD_PX, SHELL_TITLE_BAND_PX } from "@context/desktop-bridge";
+import { SHELL_MIN_PAGE_WIDTH_PX, SHELL_TITLE_BAND_LEAD_PX, SHELL_TITLE_BAND_PX } from "@context/desktop-bridge";
 import {
   shellBandDraws,
   shellLightsLeadPx,
@@ -61,6 +61,7 @@ import { setTopChromeHoldsLights } from "../features/app/topChrome";
 
 /** Stands in for a mounted frame — see `topChrome.ts` on why claims are keyed. */
 const CLAIM = "shell-title-band-test";
+import { densityFor } from "../features/app/frame";
 import { layout } from "../features/design/tokens";
 import { viewportHeight } from "../features/design/css";
 // `StyleSheet.getSheet()` is react-native-web's, absent from the `react-native`
@@ -436,6 +437,17 @@ function readHook<T>(read: () => T): T {
  * window is exactly the screen, menu bar included, and a zoomed or dragged
  * window never reaches the menu bar's strip.
  */
+describe("the shell's narrowest page is the first width that is not compact", () => {
+  test("so the Mac app never shows the phone layout", () => {
+    // The shell holds the page at least this wide (`consoleMinimumSize` in
+    // apps/desktop). A breakpoint moved without that floor is a window that
+    // narrows straight into the phone layout again, which is what Dev reported.
+    expect(SHELL_MIN_PAGE_WIDTH_PX).toBe(layout.narrowBreakpoint);
+    expect(densityFor(SHELL_MIN_PAGE_WIDTH_PX)).not.toBe("compact");
+    expect(densityFor(SHELL_MIN_PAGE_WIDTH_PX - 1)).toBe("compact");
+  });
+});
+
 describe("windowFillsScreen", () => {
   test("a window the screen's exact size is full screen", () => {
     expect(windowFillsScreen(1512, 982, 1512, 982)).toBe(true);
