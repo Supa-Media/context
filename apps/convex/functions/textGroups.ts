@@ -174,11 +174,13 @@ export const applyGroupTurn = internalMutation({
         participants: others.length,
       });
       if (!ok) return { status: "no_shared" };
-      if (intro) await ctx.db.patch(group._id, { introducedAt: now });
     }
+    // Choosing the workspace is the chat's first word from Tex, so the line that answers it carries the introduction.
+    const introduced = intro && (minted || args.command?.kind === "use");
+    if (introduced) await ctx.db.patch(group._id, { introducedAt: now });
     const personal = await personalWorkspaceOf(ctx, senderUser);
     const handle = personal === null ? "" : (await ctx.db.get(personal))?.slug ?? "";
-    return { status: "ready", slug: workspace.slug, intro: intro && minted, bound, timeZone, handle, minted };
+    return { status: "ready", slug: workspace.slug, intro: introduced, bound, timeZone, handle, minted };
   },
 });
 

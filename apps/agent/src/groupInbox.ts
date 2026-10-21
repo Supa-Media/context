@@ -71,7 +71,9 @@ export const GROUP_LINES = {
   choose: (slugs: string[]) =>
     `You all share ${slugs.map((slug) => `@${slug}`).join(" and ")}. Which one should I use here? Just say its name.`,
   notShared: "That isn't a workspace everyone in this chat shares.",
-  bound: (slug: string) => `Got it, I'll use @${slug} in this chat.`,
+  bound: (slug: string, intro = false) =>
+    `Got it, I'll use @${slug} in this chat.` +
+    (intro ? ` Start a message with "Tex" when you need me. "Tex, stop" mutes me and "Tex, start" brings me back.` : ""),
   status: (slug: string) => `In this chat I can see @${slug}, and only what everyone there can open.`,
   stopped: `Okay, I'll stay quiet here. Say "Tex, start" when you want me back.`,
   started: "I'm back. Start a message with \"Tex\" when you need me.",
@@ -211,7 +213,7 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, deps: G
   }
   if (status !== "ready") throw new ServiceError("control_plane", null);
   await storage.delete(CHOICE_KEY);
-  if (command?.kind === "use") return void (await say(storage, deps, message, GROUP_LINES.bound(asked.slug)));
+  if (command?.kind === "use") return void (await say(storage, deps, message, GROUP_LINES.bound(asked.slug, asked.intro)));
   if (command?.kind === "status") return void (await say(storage, deps, message, GROUP_LINES.status(asked.slug)));
   if (asked.accessToken === undefined) throw new ServiceError("control_plane", null);
   if (asked.intro) await say(storage, deps, message, GROUP_LINES.intro(asked.slug), false);
