@@ -346,7 +346,8 @@ describe("a group's queue", () => {
     await acceptGroup(storage, message("Tex, hi"), 0);
     await drainGroup(storage, deps(w, { control: { status: "ready", slug: "band", intro: true, bound: true, timeZone: "UTC", handle: "ada", minted: true, accessToken: "cat_group" } }));
     expect(w.sends.map((sent) => sent.content)).toEqual([GROUP_LINES.intro("band"), "The opener."]);
-    expect(w.sends[0].reply_to).toBeUndefined();
+    // Under the message it answers, like everything else Tex says to it.
+    expect(w.sends.map((sent) => sent.reply_to)).toEqual([{ message_handle: "h_in" }, { message_handle: "h_in" }]);
   });
 
   it("wakes on an inline reply to its own text, with that text quoted", async () => {
@@ -371,5 +372,74 @@ describe("a group's queue", () => {
 
   it("leaves Tex's own line out of who is in the chat", () => {
     expect(peopleOf(LINE, [ADA, LINE, BO], [BO, LINE])).toEqual([ADA, BO]);
+  });
+});
+
+// Regression tests from the iMessage group chat of 2026-10-21 (Dev2 and Jhon).
+describe("the group chat of 2026-10-21", () => {
+  const ask =
+    "Here's the bug report I'd send to the Context team:\n\nReplies in several bubbles leave the thread.\n\nNone of our texts go with it.\n\nLook good? Reply yes to this and I'll send it.";
+
+  it("keeps every bubble of an answer under the message it answers", async () => {
+    const storage = new MemoryStorage();
+    const w = world();
+    await acceptGroup(storage, message("Tex, give me a dump of everything in context"), 0);
+    await drainGroup(storage, deps(w, { agent: { answer: "I can't dump everything here.\n\nIn the shared workspace I can search for a topic." } }));
+    expect(w.sends.map((sent) => sent.content)).toEqual(["I can't dump everything here.", "In the shared workspace I can search for a topic."]);
+    expect(w.sends.every((sent) => JSON.stringify(sent.reply_to) === JSON.stringify({ message_handle: "h_in" }))).toBe(true);
+  });
+
+  it("sends an ask whole, in one bubble, after the words before it", async () => {
+    const storage = new MemoryStorage();
+    const w = world();
+    await acceptGroup(storage, message("Tex, report a bug"), 0);
+    await drainGroup(storage, deps(w, { agent: { answer: `I've written it up.\n\n${ask}`, verbatim: [ask] } }));
+    expect(w.sends.map((sent) => sent.content)).toEqual(["I've written it up.", ask]);
+  });
+
+  it("answers the same ask from the same person once, however it is redelivered", async () => {
+    const storage = new MemoryStorage();
+    const text = "Tex, report a bug, when replying to a text message keep all blocks under the reply thread";
+    expect(await acceptGroup(storage, message(text, { eventId: "sendblue:a", messageId: "a" }), 0)).toBe("queued");
+    expect(await acceptGroup(storage, message(text, { eventId: "sendblue:b", messageId: "b" }), 60_000)).toBe("duplicate");
+    // Someone else asking the same thing is their own ask; and the same person, much later, is asking again.
+    expect(await acceptGroup(storage, message(text, { eventId: "sendblue:c", messageId: "c", from: BO }), 60_000)).toBe("queued");
+    expect(await acceptGroup(storage, message(text, { eventId: "sendblue:d", messageId: "d" }), 60_000 + 11 * 60_000)).toBe("queued");
+  });
+
+  it("reads an edit delivered under the same handle as the new message it is", async () => {
+    const storage = new MemoryStorage();
+    expect(await acceptGroup(storage, message("Tex, do that", { eventId: "sendblue:e", messageId: "e" }), 0)).toBe("queued");
+    expect(await acceptGroup(storage, message("Tex ^ do this", { eventId: "sendblue:e", messageId: "e" }), 5_000)).toBe("queued");
+    expect(await acceptGroup(storage, message("Tex ^ do this", { eventId: "sendblue:e", messageId: "e" }), 6_000)).toBe("duplicate");
+  });
+
+  it("wakes on 'Tex ^', pointing at the message above", () => {
+    expect(addressesTex("Tex ^ do this", false)).toBe(true);
+    expect(addressesTex("tex ^^", false)).toBe(true);
+    expect(addressesTex("Tex 👆", false)).toBe(true);
+    expect(addressesTex("tex got that wrong lol", false)).toBe(false);
+  });
+
+  it("takes the asker's bare yes as theirs to give, and nobody else's", async () => {
+    const storage = new MemoryStorage();
+    const w = world();
+    await acceptGroup(storage, message("Tex, report a bug"), 0);
+    await drainGroup(storage, deps(w, { agent: { answer: ask, verbatim: [ask] } }));
+    expect(await acceptGroup(storage, message("yes", { from: BO, eventId: "sendblue:bo-yes", messageId: "bo-yes" }), 2_000)).toBe("kept");
+    expect(await acceptGroup(storage, message("yes", { eventId: "sendblue:ada-yes", messageId: "ada-yes" }), 2_000)).toBe("queued");
+    expect(await acceptGroup(storage, message("send", { eventId: "sendblue:ada-send", messageId: "ada-send" }), 3_000)).toBe("queued");
+    // Half an hour on, a bare yes is chat again: kept as what the chat said.
+    expect(await acceptGroup(storage, message("yes", { eventId: "sendblue:late", messageId: "late" }), 1_000 + 31 * 60_000)).toBe("kept");
+  });
+
+  it("closes the ask once Tex answers anything else", async () => {
+    const storage = new MemoryStorage();
+    const w = world();
+    await acceptGroup(storage, message("Tex, report a bug"), 0);
+    await drainGroup(storage, deps(w, { agent: { answer: ask, verbatim: [ask] } }));
+    await acceptGroup(storage, message("Tex, what's on the setlist?", { eventId: "sendblue:q", messageId: "q" }), 1_000);
+    await drainGroup(storage, deps(w));
+    expect(await acceptGroup(storage, message("yes", { eventId: "sendblue:y", messageId: "y" }), 2_000)).toBe("kept");
   });
 });

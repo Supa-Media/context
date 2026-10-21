@@ -159,6 +159,9 @@ export async function runAgentEgressTextingChecks(check) {
         approvalVerdict("yes please") === "approve" &&
         approvalVerdict("Yes, send it!") === "approve" &&
         approvalVerdict("send it") === "approve" &&
+        approvalVerdict("send") === "approve" &&
+        approvalVerdict("Send.") === "approve" &&
+        approvalVerdict("send it to Sam") === null &&
         approvalVerdict("yes but send it to Sam") === null &&
         approvalVerdict("ok thanks") === null &&
         approvalVerdict("I said no last time") === null &&
