@@ -429,11 +429,77 @@ the bucket, `jar` passed on to the turn, the personal check dropped),
 `infra/site-shots/src/jar.test.ts` and `browserbase.test.ts` ("sign-ins kept
 between browsers"); restore and read-back were checked in real Chromium.
 
+### A card pays only on the person's yes, each time
+
+Decided by the owner, 2026-10-21 ("add cards to the vault please"). A card is
+an entry of type `card` whose values are fixed fields (`number`, `exp_month`,
+`exp_year`, `cvc`, and optionally `name` and `postal_code`), sealed in the
+secret part like any other field (`apps/mcp/src/vault/card.js`).
+
+- **Saving.** Only on the vault's add link, typed by the person. The control
+  plane checks the number's Luhn digit and length for its brand, the expiry
+  (not past) and the security code (four digits for Amex, three otherwise),
+  and refuses a card that carries a login, fields or an AI pin
+  (`saveVaultLogin`). Meta keeps `card`: brand, last four and expiry, which is
+  all a list, a model or an ask is ever told ("Visa ••4242, expires 08/29").
+  A card's details are never edited piecemeal: an edit may rename it or set
+  its site, and anything else is refused with "delete it and save the new
+  card" (`apps/convex/functions/lib/vaultEdit.ts`).
+- **Where it fills.** A card saved for a site fills there and beneath it, as
+  a login does. One saved with no site fills on any https checkout, because a
+  card is used at shops nobody can list in advance; the yes below is what
+  keeps that safe, and it names the site.
+- **The yes.** `fill_card` (`apps/mcp/src/agent/fillCard.js`) asks first,
+  every time (`apps/mcp/src/vault/pay.js`, kind `vault_pay`). Tex asks by
+  text (the owner chose "Ask by text, every payment" on 2026-10-21, over an
+  ask in the app and over a per-site yes): the gateway adds "Before I pay, I
+  need your OK to pay with your Visa ••4242 on shop.example. Just say yes" to
+  the answer, in its own words, naming the card and the site the browser is
+  on, never the model's. Only a plain yes answers ("yes", "yes please", "yes,
+  pay it"); "ok" or "sure" sets the ask aside, a no drops it
+  (`apps/mcp/src/agent/textedPay.js`). The yes does not end the turn: the
+  model is told what was allowed and fills the card in the browser it left
+  on the checkout. The ask lives ten minutes, never the twelve hours other
+  texted asks do. Any other AI, and a card in a workspace other than the
+  turn's own, is asked in the Context app instead, Allow or No. There is
+  never a "from now on", because a payment cannot be taken back. A yes
+  writes one fill into the card's sealed meta, for that AI (client id), that
+  host, that person, for ten minutes, spent by a conditional write before the
+  card is typed, so two fills racing on one yes fill once. Storage without
+  conditional writes fills no card. Nothing is opened before the yes; a site
+  the card isn't for, a page that isn't https, and a box the card has nothing
+  for are refused before anyone is asked. A page Tex reads can make Tex ask,
+  which is why the ask names the site and the card in the gateway's words:
+  the person is answering about that checkout, not about the model's story.
+- **What the model sees.** The card's label and which parts were filled.
+  Never a digit. It fills and never pays: the model presses the checkout's
+  button itself with `browse`, after telling the person the total. The
+  browser types each part only into a box of that kind (`cc-number`,
+  `cc-exp`, `cc-cvc` and so on, or an expiry menu), marks the filled boxes,
+  and blanks them before every screenshot it takes, so no look shows the
+  number (`infra/site-shots/src/browse.ts`).
+- **Groups.** As for logins ([groups](./groups.md)): a group chat counts only
+  a card given to the whole workspace, and the yes is asked of the person who
+  tagged Tex.
+- **Not yet.** Card boxes inside a payment provider's own frame (Stripe
+  Elements, Shopify's checkout) are on another origin the browser does not
+  reach; there Tex hands the browser over for the card, as before.
+
+Tests: `apps/mcp/test/agentFillCard.test.mjs` (sabotaged: the ask skipped,
+the spend dropped, the host ignored, approve-always offered, the missing-part
+and site checks moved after the ask, the group check dropped, any yes taken
+as a payment's, a texted payment ask kept twelve hours, another workspace's
+card asked by text),
+`apps/mcp/test/vaultCard.test.mjs`, `apps/convex/__tests__/vaultCards.test.ts`
+(sabotaged: the card check skipped, the edit guard dropped),
+`infra/site-shots/src/browse.test.ts` ("card" cases) and
+`apps/mobile/__tests__/vaultCards.test.ts`.
+
 ### Later, not now
 
 Editing and deleting an entry, and a Vault list in Settings, come together;
 until then a changed key is saved as a new entry. Handing a coding agent an
 environment's values to run with (the way `op run` does) stays out: the agent
 types the commands, so it could print what it was handed. The proxy above is
-the answer to that need. TOTP secrets, email codes and cards each need their own section before they
-are built; the cookie jar has its own, above.
+the answer to that need. TOTP secrets and email codes each need their own section before they are
+built; the cookie jar and cards have theirs, above.

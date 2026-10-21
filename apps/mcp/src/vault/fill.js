@@ -29,7 +29,7 @@ export class VaultRefused extends Error {
  * With no `field`, a login's username and password. With `field` (and `env`
  * for a per-environment field), that one value, for typing an API key into a
  * dashboard: `{value, name}`. Either way the page must be one of the entry's
- * sites, so an entry saved with no site never fills anywhere.
+ * sites, so an entry saved with no site never fills anywhere, except a card.
  *
  * @returns {Promise<{username: string, password: string, name: string} | {value: string, name: string}>}
  */
@@ -42,7 +42,9 @@ export async function openForFill(store, _scope, { entryId, origin, field, env }
   // One answer for "not yours" and "not there" would hide nothing here: the
   // caller is the fill step, which already holds an id from vault_list.
   if (!actorMayUse(meta, store.actor)) throw new VaultRefused("not_yours");
-  if (!siteMatches(meta.sites, origin)) throw new VaultRefused("wrong_site");
+  // A card saved with no site pays at any checkout (`card.js`); each fill is on the person's yes for that site (`agent/fillCard.js`).
+  const anywhere = entryType(meta) === "card" && (meta.sites ?? []).length === 0 && /^https:\/\/[^/]+$/.test(String(origin ?? ""));
+  if (!anywhere && !siteMatches(meta.sites, origin)) throw new VaultRefused("wrong_site");
   if (field === undefined && entryType(meta) !== "login") throw new VaultRefused("no_field");
   let secret;
   try {

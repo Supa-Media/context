@@ -18,7 +18,7 @@ export function createVaultMethods({ post, required }) {
       const url = required(parsed, "url");
       if (typeof url !== "string" || !/^https?:\/\//.test(url)) return null;
       const built = new URL(url);
-      if (type === "secret") built.searchParams.set("type", "secret");
+      if (type === "secret" || type === "card") built.searchParams.set("type", type);
       if (typeof name === "string" && name) built.searchParams.set("name", name);
       if (typeof site === "string" && site) built.searchParams.set("site", site);
       if (Array.isArray(fields) && fields.length > 0) built.searchParams.set("fields", fields.join(","));

@@ -43,7 +43,7 @@ export function levelLabel(level: VaultLevel): string {
 
 /** The line under the level toggle, for what is picked: a login has a password, anything else a key. */
 export function levelHint(level: VaultLevel, type: VaultEntry["type"]): string {
-  const value = type === "login" ? "password" : "key";
+  const value = type === "login" ? "password" : type === "card" ? "card number" : "key";
   return level === "see" ? `They can also see and copy the ${value}.` : `Their AI tools sign in for them. They never see the ${value}.`;
 }
 

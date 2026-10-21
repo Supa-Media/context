@@ -18,6 +18,8 @@
  *  - A vault key's first-use ask (`kind: "vault_use"`, `vault/asks.js`) is
  *    listed with `choices`, and also takes `action: "approve_always"`. It is
  *    answered by writing the yes into the key, never by replaying a call.
+ *  - A card's payment ask (`kind: "vault_pay"`, `vault/pay.js`) is the same,
+ *    listed with `choices` of approve or deny only: one fill, on one site.
  *
  * An approved call runs once, here, through the same dispatcher an AI
  * client's call goes through, under this person's own session marked
@@ -29,6 +31,7 @@ import { actorFor, contextsFor } from "../context/identity.js";
 import { callToolForSession } from "../tools/session.js";
 import { listPending, pendingById, replayAsAsked, settlePending } from "../tools/approvals.js";
 import { VAULT_USE, grantUse } from "../vault/asks.js";
+import { VAULT_PAY, grantPay } from "../vault/pay.js";
 import { noteRefusal } from "../vault/usage.js";
 import { toolError, toolText } from "../tools/results.js";
 import { json } from "./responses.js";
@@ -63,6 +66,8 @@ export async function handleApprovals(request, store, session) {
         created_at: record.created_at,
         expires_at: record.expires_at,
         ...(record.kind === VAULT_USE ? { kind: VAULT_USE, choices: ["approve_always", "approve", "deny"] } : {}),
+        // A card's payment: once, or no; never from now on (`vault/pay.js`).
+        ...(record.kind === VAULT_PAY ? { kind: VAULT_PAY, choices: ["approve", "deny"] } : {}),
       })),
     });
   }
@@ -89,6 +94,10 @@ export async function handleApprovals(request, store, session) {
     action: action === "deny" ? "deny" : "approve",
     actorScope: session.scope,
     run: async (record) => {
+      if (record.kind === VAULT_PAY) {
+        const granted = await grantPay(store, record, { userId: session.actorUserId });
+        return granted.ok ? toolText(granted.text) : toolError(granted.text);
+      }
       if (record.kind === VAULT_USE) {
         const granted = await grantUse(store, record, action === "approve_always" ? "always" : "once", {
           userId: session.actorUserId,
@@ -106,7 +115,7 @@ export async function handleApprovals(request, store, session) {
   return json({
     status: settled.status,
     summary: settled.record?.summary ?? null,
-    ...(vaultUse ? { kind: VAULT_USE } : {}),
+    ...(vaultUse ? { kind: VAULT_USE } : asked?.kind === VAULT_PAY ? { kind: VAULT_PAY } : {}),
     ...(settled.status === "approved"
       ? { result: typeof text === "string" ? text : "", ok: settled.result?.isError !== true }
       : {}),

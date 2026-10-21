@@ -126,6 +126,14 @@ describe("what the listing shows", () => {
     });
   });
 
+  test("a card's payment ask is read as one, and its yes is a vault answer", () => {
+    const read = readListing(200, { approvals: [entry({ kind: "vault_pay", tool: "vault_list" })] });
+    expect(read.kind === "listed" && read.approvals[0].kind).toBe("vault_pay");
+    expect(readDecision(200, { status: "approved", ok: true, result: "Allowed once, on shop.example.", kind: "vault_pay" })).toMatchObject({
+      decision: { vaultUse: true },
+    });
+  });
+
   test("an empty listing is a listing, not a failure", () => {
     expect(readListing(200, { approvals: [] })).toEqual({ kind: "listed", approvals: [] });
   });

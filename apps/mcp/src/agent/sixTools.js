@@ -44,6 +44,7 @@ export const ASSISTANT_SEND_ACTIONS = {
   open_page: { tool: "open_page", summary: "Read web pages by their address.", take: own },
   browse: { tool: "browse", summary: "Drive a browser step by step.", take: own },
   fill_login: { tool: "fill_login", summary: "Sign in on the open page with a saved login you never see.", take: own },
+  fill_card: { tool: "fill_card", summary: "Fill the checkout's card boxes with a saved card you never see, on the person's yes in the app.", take: own },
   progress: { tool: "text_progress", summary: "Text the person a short line while you work.", take: own },
   delegate: { tool: "delegate", summary: "Hand a whole sub-project to Claude Code, Codex, Claude, Claude Design or ChatGPT.", take: own },
   mail_agent: { tool: "mail_agent", summary: "Mail the agent doing the job you supervise.", take: own },

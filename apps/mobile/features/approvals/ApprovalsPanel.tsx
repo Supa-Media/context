@@ -116,6 +116,9 @@ function ApprovalRow({
   // A saved key's first use: nothing runs, so there is nothing to show, and
   // the yes can be for good (vault board 3).
   const vaultUse = approval.kind === "vault_use";
+  // A card at a checkout: nothing runs either, and the yes is only ever for this once.
+  const vaultPay = approval.kind === "vault_pay";
+  const nothingRuns = vaultUse || vaultPay;
 
   return (
     <Card style={styles.card} testID={`approval-${approval.id}`}>
@@ -130,6 +133,12 @@ function ApprovalRow({
         ].join(" · ")}
       </Text>
 
+      {vaultPay ? (
+        <Text variant="rowSub" testID={`approval-pay-${approval.id}`}>
+          Allowing fills the card once, on this site only, in the next 10 minutes. Tex tells you the total before it pays.
+        </Text>
+      ) : null}
+
       {approval.detail !== undefined ? (
         // The person may allow only what they read: an email is shown whole,
         // before the buttons, with no press needed (`apps/mcp/src/tools/emailGate.js`).
@@ -140,7 +149,7 @@ function ApprovalRow({
         </ScrollView>
       ) : null}
 
-      {vaultUse ? null : (
+      {nothingRuns ? null : (
         <Pressable
           role="button"
           accessibilityLabel={
@@ -156,7 +165,7 @@ function ApprovalRow({
         </Pressable>
       )}
 
-      {open && !vaultUse ? (
+      {open && !nothingRuns ? (
         <View style={styles.detail} testID={`approval-detail-${approval.id}`}>
           <Text variant="mono" style={styles.tool}>
             {approval.tool}
@@ -174,7 +183,26 @@ function ApprovalRow({
         </View>
       ) : null}
 
-      {vaultUse ? (
+      {vaultPay ? (
+        <View style={styles.actions}>
+          <Button
+            label="Allow this payment"
+            variant="decision"
+            disabled={disabled}
+            onPress={onApprove}
+            accessibilityLabel={busy ? "Allowing" : `Allow this payment: ${approval.summary}`}
+            testID={`approve-${approval.id}`}
+          />
+          <Button
+            label="No"
+            variant="decision"
+            disabled={disabled}
+            onPress={onDeny}
+            accessibilityLabel={`No: ${approval.summary}`}
+            testID={`deny-${approval.id}`}
+          />
+        </View>
+      ) : vaultUse ? (
         <View style={styles.actions}>
           <Button
             label="Yes, from now on"

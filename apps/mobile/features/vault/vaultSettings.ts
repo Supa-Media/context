@@ -5,6 +5,7 @@
  */
 
 import { styleWords, type ProxyStyle } from "./vaultProxy";
+import { cardLabel, type CardSummary } from "./vaultCard";
 
 /** Whose AI a record is (`by`), their name ("You" for the reader), and whether it is the reader's. */
 type Whose = { by?: string; byName?: string; mine?: boolean };
@@ -25,10 +26,12 @@ export type VaultShareRow = {
 };
 export type VaultEntry = {
   entryId: string;
-  type: "login" | "secret";
+  type: "login" | "secret" | "card";
   name: string;
   sites: string[];
   envs: string[];
+  /** A card's brand, last four and expiry; never its number. */
+  card?: CardSummary;
   shared: boolean;
   proxy: {
     host: string;
@@ -104,13 +107,15 @@ export function vaultAgo(at: number, now: Date = new Date(), long = false): stri
   return `on ${vaultDay(at, now)}`;
 }
 
-/** "6 keys · 1 login": secrets are keys, logins are counted apart. */
+/** "6 keys · 1 login · 1 card": secrets are keys, logins and cards are counted apart. */
 export function vaultCountLine(entries: VaultEntry[]): string {
   const logins = entries.filter((entry) => entry.type === "login").length;
-  const keys = entries.length - logins;
+  const cards = entries.filter((entry) => entry.type === "card").length;
+  const keys = entries.length - logins - cards;
   const parts = [
-    keys > 0 || logins === 0 ? `${keys} ${keys === 1 ? "key" : "keys"}` : null,
+    keys > 0 || logins + cards === 0 ? `${keys} ${keys === 1 ? "key" : "keys"}` : null,
     logins > 0 ? `${logins} ${logins === 1 ? "login" : "logins"}` : null,
+    cards > 0 ? `${cards} ${cards === 1 ? "card" : "cards"}` : null,
   ];
   return parts.filter(Boolean).join(" · ");
 }
@@ -140,6 +145,7 @@ export function vaultRowLine(entry: VaultEntry): string {
     return `Only to ${entry.proxy.host}${envs}`;
   }
   if (entry.type === "login") return entry.sites[0] ? `Login · Tex fills it on ${entry.sites[0]}` : "Login";
+  if (entry.type === "card") return `${cardLabel(entry.card)} · ${entry.sites[0] ? `pays on ${entry.sites[0]}` : "any checkout"}, asks you each time`;
   return "Not given to AIs · you copy it yourself";
 }
 

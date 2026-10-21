@@ -49,6 +49,7 @@ export function VaultKeyEditor({
 }) {
   const styles = useThemedStyles(makeStyles);
   const login = entry.type === "login";
+  const card = entry.type === "card";
   const start = useMemo(() => draftOf(entry, values), [entry, values]);
   const [draft, setDraft] = useState(start);
   const [busy, setBusy] = useState(false);
@@ -61,7 +62,7 @@ export function VaultKeyEditor({
       ? "To save, give it a name."
       : login && draft.password.length === 0
         ? "To save, enter the password."
-        : login
+        : login || card
           ? null
           : proxyProblem(draft.proxy);
   const change = (patch: Partial<Draft>) => {
@@ -87,7 +88,27 @@ export function VaultKeyEditor({
   return (
     <View style={styles.form} testID="vault-key-editor">
       <TextField label="Name" value={draft.name} onChangeText={(name) => change({ name })} editable={!busy} testID="vault-edit-name" />
-      {login ? (
+      {card ? (
+        <>
+          <TextField
+            label="Pays on"
+            optional
+            hint="One shop, or blank for any checkout. Tex asks you each time either way."
+            value={draft.site}
+            onChangeText={(site) => change({ site })}
+            placeholder="e.g. amazon.com"
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
+            inputMode="url"
+            editable={!busy}
+            testID="vault-edit-site"
+          />
+          <Text variant="rowSub" testID="vault-edit-card-note">
+            A card's number and details can't be changed here. For a new card, delete this one and save the new one.
+          </Text>
+        </>
+      ) : login ? (
         <>
           <TextField
             label="Tex fills it on"
@@ -144,7 +165,7 @@ export function VaultKeyEditor({
           />
         </>
       )}
-      {draft.fields.map((field, fieldIndex) => (
+      {card ? null : draft.fields.map((field, fieldIndex) => (
         <View key={field.name} style={styles.field}>
           <Text variant="mono" style={styles.fieldName} numberOfLines={1} ellipsizeMode="middle">
             {field.name}
@@ -182,7 +203,7 @@ export function VaultKeyEditor({
             </Text>
             <View style={styles.actions}>
               <Button
-                label={busy ? "Deleting…" : "Delete key"}
+                label={busy ? "Deleting…" : card ? "Delete card" : "Delete key"}
                 variant="dialogDanger"
                 disabled={busy}
                 onPress={() => void act(onDelete)}
@@ -192,7 +213,7 @@ export function VaultKeyEditor({
             </View>
           </>
         ) : (
-          <TextLink label="Delete key" style={styles.dangerText} disabled={busy} onPress={() => setConfirming(true)} testID="vault-delete" />
+          <TextLink label={card ? "Delete card" : "Delete key"} style={styles.dangerText} disabled={busy} onPress={() => setConfirming(true)} testID="vault-delete" />
         )}
       </View>
     </View>
@@ -235,6 +256,8 @@ export function editBetween(entry: VaultEntry, before: Draft, after: Draft): Vau
     const now = proxyDraft(after.proxy);
     if (pinKey(was) !== pinKey(now)) edit.proxy = now ?? null;
   }
+  // A card's details are saved whole or not at all (`apps/convex/functions/lib/vaultEdit.ts`).
+  if (entry.type === "card") return edit;
   if (after.username !== before.username) edit.username = after.username;
   if (after.password !== before.password) edit.password = after.password;
   if (JSON.stringify(after.fields) !== JSON.stringify(before.fields)) edit.fields = after.fields;

@@ -53,8 +53,10 @@ export interface Approval {
   /**
    * `vault_use`: an AI asking to use a saved key for the first time. Answered
    * "Yes, from now on", "Just this once" or "No", and nothing is run.
+   * `vault_pay`: an AI asking to fill a saved card at one checkout. Answered
+   * once or no, never from now on (`apps/mcp/src/vault/pay.js`).
    */
-  kind: "vault_use" | null;
+  kind: "vault_use" | "vault_pay" | null;
 }
 
 /** What a listing answers with: the held calls, or a sentence for why not. */
@@ -180,7 +182,7 @@ function approvalFrom(raw: unknown): Approval | null {
     client: typeof record.client === "string" ? record.client : null,
     createdAt,
     expiresAt,
-    kind: record.kind === "vault_use" ? "vault_use" : null,
+    kind: record.kind === "vault_use" || record.kind === "vault_pay" ? record.kind : null,
     ...(typeof record.detail === "string" && record.detail.length > 0 ? { detail: record.detail } : {}),
   };
 }
@@ -228,7 +230,7 @@ export function readDecision(status: number, body: unknown): DecisionRead {
         summary,
         ok: record.ok === true,
         result: typeof record.result === "string" ? record.result : "",
-        ...(record.kind === "vault_use" ? { vaultUse: true } : {}),
+        ...(record.kind === "vault_use" || record.kind === "vault_pay" ? { vaultUse: true } : {}),
       },
     };
   }

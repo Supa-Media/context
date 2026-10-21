@@ -11,7 +11,9 @@ import { SuggestionList } from "./SuggestionList";
 import { suggestSites } from "./apiHostSuggest";
 import { SecretInput } from "./SecretInput";
 import { VaultFieldsEditor } from "./VaultFieldsEditor";
+import { VaultCardFields } from "./VaultCardFields";
 import { VaultProxyFields } from "./VaultProxyFields";
+import { CARD_EMPTY, cardBlocker, cardDraft, type CardDraft, type CardFormState } from "./vaultCard";
 import { PROXY_OFF, proxyDraft, proxyProblem, type ProxyFormState, type ProxyPinDraft } from "./vaultProxy";
 import {
   anyValue,
@@ -35,6 +37,8 @@ export interface VaultDraft {
   fields: SubmitField[];
   /** A secret the person lets their AIs use through Context; absent when the switch is off. */
   proxy?: ProxyPinDraft;
+  /** A card's details; only for a card, which then sends no username, password or fields. */
+  card?: CardDraft;
 }
 
 /** Previews only: a form already typed into. */
@@ -49,8 +53,9 @@ export interface VaultInitialDraft {
 
 /**
  * The form on an `add` link: a login (site, username, password, and any
- * fields of its own) or a secret (named fields, most with a value each for
- * dev, staging and prod).
+ * fields of its own), a secret (named fields, most with a value each for
+ * dev, staging and prod), or a card (its number, expiry and code, which Tex
+ * fills at a checkout on the person's yes each time).
  *
  * Every value lives in this component's state and nowhere else: it is not
  * logged, not put in the URL, and cleared the moment the save succeeds. The
@@ -82,6 +87,7 @@ export function VaultAddForm({
   const [username, setUsername] = useState(initialDraft?.username ?? "");
   const [password, setPassword] = useState(initialDraft?.password ?? "");
   const [proxy, setProxy] = useState<ProxyFormState>(PROXY_OFF);
+  const [card, setCard] = useState<CardFormState>(CARD_EMPTY);
   // One list per kind, so switching back and forth loses nothing typed.
   const [loginFields, setLoginFields] = useState<FieldDraft[]>(() =>
     initialDraft?.fields && (initialDraft.type ?? prefill.type) === "login"
@@ -99,11 +105,14 @@ export function VaultAddForm({
   const passRef = useRef<Field>(null);
 
   const secret = type === "secret";
+  const isCard = type === "card";
   const fields = secret ? secretFields : loginFields;
   const setFields = secret ? setSecretFields : setLoginFields;
   const problems = useMemo(() => fieldProblems(fields), [fields]);
 
-  const blocker = saveBlocker({ secret, name, site, password, fieldsProblem: problems.any, anyValue: anyValue(fields), proxy: proxyProblem(proxy) });
+  const blocker = isCard
+    ? cardSaveBlocker(name, card)
+    : saveBlocker({ secret, name, site, password, fieldsProblem: problems.any, anyValue: anyValue(fields), proxy: proxyProblem(proxy) });
   const ready = blocker === null;
 
   const choose = (next: EntryType) => {
@@ -113,6 +122,15 @@ export function VaultAddForm({
 
   const submit = () => {
     if (!ready || busy) return;
+    if (isCard) {
+      const details = cardDraft(card);
+      if (details === null) return;
+      // Only the card: the control plane refuses one that carries a login or fields.
+      void onSave({ type, name: name.trim(), site: site.trim(), username: "", password: "", fields: [], card: details }).then((ok) => {
+        if (ok) setCard(CARD_EMPTY);
+      });
+      return;
+    }
     const draft: VaultDraft = {
       type,
       name: name.trim(),
@@ -137,7 +155,9 @@ export function VaultAddForm({
         label="What you're saving"
         options={[
           { value: "login", label: "Login" },
-          { value: "secret", label: "API key or secret", accessibilityLabel: "API key, secret or environment variables" },
+          // Three to a row on a phone: short words, the full name for screen readers.
+          { value: "secret", label: "API key", accessibilityLabel: "API key, secret or environment variables" },
+          { value: "card", label: "Card", accessibilityLabel: "Payment card" },
         ]}
         value={type}
         onChange={choose}
@@ -148,7 +168,7 @@ export function VaultAddForm({
         label="Name"
         value={name}
         onChangeText={setName}
-        placeholder={secret ? "e.g. Stripe" : "e.g. Netflix"}
+        placeholder={isCard ? "e.g. Team Visa" : secret ? "e.g. Stripe" : "e.g. Netflix"}
         autoCapitalize="words"
         returnKeyType="next"
         onSubmitEditing={() => siteRef.current?.focus()}
@@ -157,18 +177,18 @@ export function VaultAddForm({
       />
       <TextField
         ref={siteRef}
-        label={secret ? "Fills on" : "Site"}
-        optional={secret}
-        hint={secret ? "A site where Tex may paste these for you. Leave it blank to keep them for copying only." : undefined}
+        label={isCard ? "Pays on" : secret ? "Fills on" : "Site"}
+        optional={secret || isCard}
+        hint={siteHint(type)}
         value={site}
         onChangeText={setSite}
-        placeholder={secret ? "e.g. dashboard.stripe.com" : "e.g. netflix.com"}
+        placeholder={isCard ? "e.g. amazon.com" : secret ? "e.g. dashboard.stripe.com" : "e.g. netflix.com"}
         autoCapitalize="none"
         autoCorrect={false}
         keyboardType="url"
         inputMode="url"
         returnKeyType="next"
-        onSubmitEditing={() => (secret ? undefined : userRef.current?.focus())}
+        onSubmitEditing={() => (secret || isCard ? undefined : userRef.current?.focus())}
         editable={!busy}
         testID="vault-site"
       />
@@ -180,7 +200,8 @@ export function VaultAddForm({
           testID="vault-site-suggestions"
         />
       ) : null}
-      {secret ? null : (
+      {isCard ? <VaultCardFields card={card} onChange={setCard} onDone={submit} busy={busy} /> : null}
+      {secret || isCard ? null : (
         <>
           <TextField
             ref={userRef}
@@ -212,27 +233,29 @@ export function VaultAddForm({
         </>
       )}
 
-      <View style={styles.section}>
-        {secret ? (
-          <>
-            <Text variant="eyebrow">Fields</Text>
-            <Text variant="rowSub">
-              Name each one the way your code reads it. Leave any environment blank that doesn't use it.
-            </Text>
-          </>
-        ) : fields.length > 0 ? (
-          <Text variant="eyebrow">More fields</Text>
-        ) : null}
-        <VaultFieldsEditor
-          fields={fields}
-          onChange={setFields}
-          problems={problems}
-          busy={busy}
-          addLabel={fields.length === 0 ? "Add a field" : "Add another field"}
-          defaultPerEnv={secret}
-          trailing={secret ? <DotenvPaste fields={fields} onChange={setFields} busy={busy} /> : null}
-        />
-      </View>
+      {isCard ? null : (
+        <View style={styles.section}>
+          {secret ? (
+            <>
+              <Text variant="eyebrow">Fields</Text>
+              <Text variant="rowSub">
+                Name each one the way your code reads it. Leave any environment blank that doesn't use it.
+              </Text>
+            </>
+          ) : fields.length > 0 ? (
+            <Text variant="eyebrow">More fields</Text>
+          ) : null}
+          <VaultFieldsEditor
+            fields={fields}
+            onChange={setFields}
+            problems={problems}
+            busy={busy}
+            addLabel={fields.length === 0 ? "Add a field" : "Add another field"}
+            defaultPerEnv={secret}
+            trailing={secret ? <DotenvPaste fields={fields} onChange={setFields} busy={busy} /> : null}
+          />
+        </View>
+      )}
 
       {secret ? <VaultProxyFields state={proxy} onChange={setProxy} entryName={name} entrySite={site} busy={busy} /> : null}
 
@@ -248,18 +271,35 @@ export function VaultAddForm({
         variant="accent"
         style={styles.save}
         disabled={!ready || busy}
-        accessibilityLabel={secret ? "Save secret" : "Save login"}
+        accessibilityLabel={isCard ? "Save card" : secret ? "Save secret" : "Save login"}
         onPress={submit}
         trailing={busy ? <ActivityIndicator color={colors.ink} size="small" /> : null}
         testID="vault-save"
       />
       <Text variant="foot" style={styles.foot}>
-        {secret
-          ? "Tex never sees these values. They're sealed in your own storage, and only you can reveal them."
-          : "Tex never sees your password. It's sealed in your own storage and filled in for you."}
+        {footLine(type)}
       </Text>
     </View>
   );
+}
+
+/** The site box's hint: what leaving it blank means for each kind. */
+function siteHint(type: EntryType): string | undefined {
+  if (type === "card") return "One shop, or leave it blank for any checkout. Either way, Tex asks you each time before it fills the card.";
+  if (type === "secret") return "A site where Tex may paste these for you. Leave it blank to keep them for copying only.";
+  return undefined;
+}
+
+function footLine(type: EntryType): string {
+  if (type === "card") return "Tex never sees the card. It's sealed in your own storage and filled in at a checkout only after you text yes to that payment.";
+  if (type === "secret") return "Tex never sees these values. They're sealed in your own storage, and only you can reveal them.";
+  return "Tex never sees your password. It's sealed in your own storage and filled in for you.";
+}
+
+/** A card's Save blocker: a name, then the card itself (`cardBlocker`). */
+export function cardSaveBlocker(name: string, card: CardFormState, now: Date = new Date()): string | null {
+  if (name.trim().length === 0) return "To save, give it a name.";
+  return cardBlocker(card, now);
 }
 
 /**

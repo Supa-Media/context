@@ -82,7 +82,7 @@ export const ACTIONS = {
     website: { tool: "write_note", summary: "Check, publish, screenshot or roll back the website, or set its domain.", take: website },
     share_link: { tool: "create_link", summary: "Make a link to a note or folder (owners only).", take: plain },
     revoke_link: { tool: "revoke_link", summary: "Turn a link off.", take: plain },
-    vault_add: { tool: "vault_add_link", summary: "Get a link where the person saves a login or secret.", take: plain },
+    vault_add: { tool: "vault_add_link", summary: "Get a link where the person saves a login, secret or card.", take: plain },
     vault_share: { tool: "vault_share_link", summary: "Get a link to give a saved login to another member.", take: plain },
     vault_view: { tool: "vault_view_link", summary: "Get a link where the person sees a saved entry.", take: plain },
     create_workspace: {

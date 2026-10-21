@@ -5,6 +5,7 @@ import { TextLink } from "../design/components/TextLink";
 import { useThemedStyles, type Colors } from "../design/theme";
 import { radii } from "../design/tokens";
 import { useCopy } from "../design/useCopy";
+import { CARD_FIELD_LABELS } from "./vaultCard";
 import { ENVS, ENV_LABEL, SINGLE, isEnv, type RevealedField } from "./vaultFields";
 
 /** What a key holds, as opened on its view link. */
@@ -17,7 +18,8 @@ export type VaultValuesShape = { username: string; password: string; fields: Rev
  * `CONVEX_DEPLOY_KEY` never wraps or repeats. Changing them is Edit's job
  * (`VaultKeyEditor`); this only shows them, and only while it is mounted.
  */
-export function VaultValues({ login, values }: { login: boolean; values: VaultValuesShape }) {
+/** `card`: a card's fixed fields, named for people ("Card number") rather than as stored. */
+export function VaultValues({ login, card = false, values }: { login: boolean; card?: boolean; values: VaultValuesShape }) {
   const styles = useThemedStyles(makeStyles);
   const fields = values.fields.filter((field) => Object.keys(field.values).length > 0);
   return (
@@ -30,8 +32,8 @@ export function VaultValues({ login, values }: { login: boolean; values: VaultVa
       ) : null}
       {fields.map((field, fieldIndex) => (
         <View key={field.name} style={styles.field}>
-          <Text variant="mono" style={styles.fieldName} numberOfLines={1} ellipsizeMode="middle" selectable>
-            {field.name}
+          <Text variant={card ? "eyebrow" : "mono"} style={styles.fieldName} numberOfLines={1} ellipsizeMode="middle" selectable>
+            {card ? (CARD_FIELD_LABELS[field.name] ?? field.name) : field.name}
           </Text>
           <View style={styles.group}>
             {slots(field).map(([slot, value], index) => (

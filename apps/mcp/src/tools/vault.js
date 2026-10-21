@@ -14,10 +14,11 @@ import { firstUseAllowed } from "../vault/asks.js";
 import { noteUse } from "../vault/usage.js";
 import { ProxyRefused, proxyFetch, proxyPin } from "../vault/proxy.js";
 import { ENVS, SINGLE, entryType, isFieldName } from "../vault/fields.js";
+import { cardLabel } from "../vault/card.js";
 import { toolError, toolText } from "./results.js";
 
 const NO_LINKS = "The vault is not available on this deployment.";
-const EMPTY = "Nothing saved here yet. vault_add_link gives the person a private link to save a login or a secret.";
+const EMPTY = "Nothing saved here yet. vault_add_link gives the person a private link to save a login, a secret or a card.";
 
 /** "OPENAI_API_KEY [dev, prod]", "Account number": names and where they are set, never values. */
 function describeFields(fields) {
@@ -34,6 +35,10 @@ function describeFields(fields) {
 function describeEntry({ id, meta }) {
   const type = entryType(meta);
   const sites = (meta.sites ?? []).join(", ");
+  // A card is named by its summary and filled with send action fill_card; its fields are the card's own parts.
+  if (type === "card") {
+    return `- ${meta.name || "(unnamed)"} (card: ${cardLabel(meta)}, ${sites ? `pays on ${sites}` : "pays on any site"}, fill_card asks the person each time) id: ${id}`;
+  }
   const fields = describeFields(meta.fields);
   const pin = proxyPin(meta);
   return [
@@ -77,10 +82,10 @@ function describe(minted, what) {
 export async function toolVaultAddLink(store, args) {
   const calls = store?.vaultLinks;
   if (!calls) return toolError(NO_LINKS);
-  const type = args?.type === "secret" ? "secret" : args?.type === undefined || args?.type === "login" ? "login" : null;
-  if (type === null) return toolError('type is "login" or "secret".');
+  const type = args?.type === "secret" || args?.type === "card" ? args.type : args?.type === undefined || args?.type === "login" ? "login" : null;
+  if (type === null) return toolError('type is "login", "secret" or "card".');
   const fields = Array.isArray(args?.fields) ? args.fields.map((name) => (typeof name === "string" ? name.trim() : "")) : [];
-  if (fields.length > 30 || fields.some((name) => !isFieldName(name))) {
+  if (fields.length > 30 || fields.some((name) => !isFieldName(name)) || (type === "card" && fields.length > 0)) {
     return toolError("fields are up to 30 names like OPENAI_API_KEY or Account number.");
   }
   const minted = await calls.request({
@@ -92,7 +97,7 @@ export async function toolVaultAddLink(store, args) {
     ...(args?.perEnv === false ? { perEnv: false } : args?.perEnv === true || type === "secret" ? { perEnv: true } : {}),
   });
   if (minted === null || typeof minted.url !== "string") return toolError("That link could not be made right now.");
-  return describe(minted, type === "secret" ? "Link to save the secret" : "Link to save the login");
+  return describe(minted, type === "secret" ? "Link to save the secret" : type === "card" ? "Link to save the card" : "Link to save the login");
 }
 
 export async function toolVaultShareLink(store, args) {

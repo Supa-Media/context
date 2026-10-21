@@ -206,7 +206,7 @@ describe("the agent's prefills", () => {
   });
 
   test("anything unknown falls back, and unsaveable or repeated names are dropped", () => {
-    expect(parseVaultPrefill({ type: "card", env: "qa", envs: "yes" })).toEqual({
+    expect(parseVaultPrefill({ type: "wallet", env: "qa", envs: "yes" })).toEqual({
       name: "",
       site: "",
       type: "login",

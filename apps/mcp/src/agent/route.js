@@ -55,6 +55,7 @@ import { threadPrompt, threadView } from "./threadView.js";
 import { steerFor, steeredLine } from "./steer.js";
 import { answerWithAsk, textedAsk } from "./textedApprovals.js";
 import { setAsideLine, settleTextedText } from "./textedSettle.js";
+import { paidLine } from "./textedPay.js";
 import { chatLines, checkerHistory, earlierChatTool, groupAwareCallTool, groupOf, keepGroupSettled, withoutTexName, groupPrompt, groupWriteTools, isGroupSession, keepGroupExchange, readGroupMemory } from "./groupTurn.js";
 /**
  * What a turn that may not run says. Nothing in the app can change this any
@@ -187,6 +188,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
 
   // A texted yes or no settles a pending approval before any model runs (`textedSettle.js`).
   let setAside = [];
+  let paid = [];
   // A group chat's yes is its tagger's, said to Tex in the chat (`groupTurn.js`).
   if (session.actorClientId === TEXTS_CLIENT_ID || group !== null) {
     const settled = await settleTextedText(store, session, {
@@ -203,6 +205,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     });
     if (settled?.answer !== undefined) return json(settled);
     setAside = settled?.setAside ?? [];
+    paid = settled?.allowed ?? [];
   }
 
   try {
@@ -471,7 +474,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   const { outgoing, maker } = await turnPictures(env, { texted, question, attachments, store, keep: conversation === "texts", meter, workspaceId: session.workspaceId });
   try {
     const turn = await runTurn({
-      question: [chatLines(group), reactedLine(reacted), setAsideLine(setAside), askedWith(question, quoted)].filter(Boolean).join("\n\n"),
+      question: [chatLines(group), reactedLine(reacted), setAsideLine(setAside), paidLine(paid), askedWith(question, quoted)].filter(Boolean).join("\n\n"),
       place: body.place ?? null,
       // A turn that edits directly is not also handed proposals: they have no
       // screen on a phone, and two ways to change a note is one too many.
