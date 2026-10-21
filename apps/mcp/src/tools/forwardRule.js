@@ -38,7 +38,7 @@ export const MAX_ABOUT = 120;
 export const MAX_REMEMBERED = 500;
 
 const ROUTINES_CLIENT_ID = "context_routines";
-const CONTROL = /[\u0000-\u001f\u007f‪-‮⁦-⁩]/;
+const CONTROL = /[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/;
 
 /** `{ rule }` for a start, `{ stop }` for a stop, or `{ error }` saying what to fix. */
 export function readForwardRule(args) {
