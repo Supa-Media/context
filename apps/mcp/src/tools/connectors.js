@@ -85,6 +85,14 @@ export async function toolSlackApi(store, args) {
     const refused = REFUSED[answer?.refused] ?? REFUSED.unavailable;
     return toolError(answer?.refused === "choose_team" ? `${refused}${(answer.teams ?? []).join(", ")}.` : refused);
   }
+  // Slack's own refusal for a permission an older connection was not granted: only reconnecting fixes it.
+  if (answer.body?.ok === false && answer.body?.error === "missing_scope") {
+    const needed = typeof answer.body.needed === "string" ? ` (it needs ${answer.body.needed})` : "";
+    return toolError(
+      `Slack hasn't given this connection permission for ${method} yet${needed}. Ask the person to reconnect Slack ` +
+        "in Context's Settings, under Apps Tex uses, then try again. Don't tell them it can't be done.",
+    );
+  }
   const body = JSON.stringify(answer.body ?? null);
   if (body.length > MAX_ANSWER_CHARS) return toolError(REFUSED.too_large);
   return toolText(`Slack (${answer.team}) answered ${method}:\n${body}`);
@@ -98,7 +106,16 @@ export function slackHeldSummary(args) {
   const given = a.args && typeof a.args === "object" && !Array.isArray(a.args) ? a.args : {};
   const where = typeof given.channel === "string" && given.channel !== "" ? ` in ${given.channel}` : "";
   const words = typeof given.text === "string" ? `: "${given.text}"` : given.blocks !== undefined ? " (a formatted message)" : "";
+  const reply = typeof given.thread_ts === "string" && given.thread_ts !== "";
   const verb =
-    method === "chat.delete" ? "delete a Slack message" : method === "chat.update" ? "change a Slack message" : method === "chat.scheduleMessage" ? "schedule a Slack message" : "post in Slack";
+    method === "chat.delete"
+      ? "delete a Slack message"
+      : method === "chat.update"
+        ? "change a Slack message"
+        : method === "chat.scheduleMessage"
+          ? "schedule a Slack message"
+          : reply
+            ? "reply in a Slack thread"
+            : "post in Slack";
   return oneLine(`${verb}${where}${words}`);
 }

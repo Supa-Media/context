@@ -1,4 +1,5 @@
 import { slackCall } from "./slack";
+import { channelIdByName, readMessages, searchMessages } from "./slackMessages";
 
 /**
  * Slack's two directory listings, read the way a person asks about them.
@@ -124,11 +125,20 @@ async function postChannel(accessToken: string, channel: string): Promise<{ chan
 }
 
 /**
- * One Web API call. The two directory listings come back whole, trimmed and
- * filtered, and a post addressed to a person (user id or email) goes to the DM
- * with them.
+ * One Web API call. A channel may be named as `#name`; the two directory
+ * listings come back whole, trimmed and filtered; messages and search hits
+ * come back trimmed and named (`slackMessages.ts`); and a post addressed to a
+ * person (user id or email) goes to the DM with them.
  */
-export async function slackCallShaped(accessToken: string, method: string, args: Record<string, unknown>): Promise<Answer> {
+export async function slackCallShaped(accessToken: string, method: string, given: Record<string, unknown>): Promise<Answer> {
+  let args = given;
+  if (typeof args.channel === "string" && args.channel.trim().startsWith("#")) {
+    const found = await channelIdByName(accessToken, args.channel.trim());
+    if ("answer" in found) return found.answer;
+    args = { ...args, channel: found.id };
+  }
+  if (method === "conversations.history" || method === "conversations.replies") return readMessages(accessToken, method, args);
+  if (method === "search.messages") return searchMessages(accessToken, args);
   if (POSTS.has(method) && typeof args.channel === "string") {
     const to = await postChannel(accessToken, args.channel.trim());
     if ("answer" in to) return to.answer;

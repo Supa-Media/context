@@ -61,6 +61,14 @@ test("a refusal is told in words the model can act on", async () => {
   assert.match(text(await toolSlackApi(none, { method: "conversations.list" })), /manage connect/);
 });
 
+test("a permission the connection lacks says to reconnect, never that it can't be done", async () => {
+  const store = storeWith({ call: async () => ({ ok: true, team: "Acme", body: { ok: false, error: "missing_scope", needed: "im:write" } }) });
+  const result = await toolSlackApi(store, { method: "conversations.open", args: { users: "U05ABC" } });
+  assert.equal(result.isError, true);
+  assert.match(text(result), /needs im:write/);
+  assert.match(text(result), /reconnect Slack/);
+});
+
 test("a long answer is refused rather than shown whole", async () => {
   const store = storeWith({ call: async () => ({ ok: true, team: "Acme", body: { ok: true, messages: "x".repeat(MAX_ANSWER_CHARS) } }) });
   const result = await toolSlackApi(store, { method: "conversations.history", args: { channel: "C1" } });
@@ -74,6 +82,8 @@ test("a post waits for the person's yes to its words", () => {
   assert.equal(held.audience, "outside");
   assert.match(held.summary, /post in Slack in C1: "Running late"/);
   assert.notEqual(irreversibleOf("slack_api", { method: "chat.update", args: { channel: "C1", ts: "1", text: "x" } }), null);
+  const reply = irreversibleOf("slack_api", { method: "chat.postMessage", args: { channel: "#general", thread_ts: "1.2", text: "On it" } });
+  assert.match(reply.summary, /reply in a Slack thread in #general: "On it"/);
 });
 
 test("a read or a reaction runs at once", () => {

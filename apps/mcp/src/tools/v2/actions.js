@@ -132,7 +132,10 @@ export const ACTIONS = {
         "Call one Slack Web API method through the connected Slack; a post waits for the person's yes to its words. " +
         "Find someone: users.list {match: their name or email}, which reads every active person at once. " +
         "DM someone: chat.postMessage {channel: their user id or the email they use in that Slack, text}. " +
-        "Channels: conversations.list {match}; read one: conversations.history {channel}; search: search.messages {query}.",
+        "Post in a channel: chat.postMessage {channel: \"#name\", text}; reply in a thread: add thread_ts (the message's ts). " +
+        "Read a channel: conversations.history {channel: \"#name\"}, newest first, with names; a thread: conversations.replies {channel, ts}. " +
+        "Find channels: conversations.list {match}; search: search.messages {query}; react: reactions.add {channel, timestamp, name}. " +
+        "Mention someone in text as <@their user id>. If Slack says a permission is missing, ask them to reconnect Slack in Settings.",
       take: plain,
     },
     app: {

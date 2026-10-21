@@ -78,6 +78,22 @@ kept with the owner's project files; its client id and secret are
 either unset the connector is off: the link page says so and the gateway
 answers that it is not set up.
 
+The app's user token scopes must equal `SLACK_USER_SCOPES` in
+`functions/lib/providers/slack.ts`: add a scope in the Slack app first, then
+in code, or connecting fails with `invalid_scope`. A connection granted fewer
+scopes than the code now asks for shows Reconnect in Settings, and the
+gateway answers Slack's `missing_scope` with "ask them to reconnect", never
+"it can't be done". `im:write` and `mpim:write` (2026-10-21) are what open a
+DM before posting to it.
+
+Tex reads Slack as a person would: a channel may be named `#name`;
+`users.list` and `conversations.list` come back whole and short;
+`conversations.history`, `conversations.replies` and `search.messages` come
+back trimmed with every author named (`slackLists.ts`, `slackMessages.ts`). A
+texted turn sees an action only as its summary and argument names
+(`agent/sixTools.js`), so the recipes (find, DM, post, reply in a thread)
+live in `ACTIONS.send.slack.summary`.
+
 **What a simplification would cost:** one table per provider repeats the
 cascade, the attempt sweep and the structure pins every time; letting the
 gateway hold the token puts it in a Worker a prompt can steer; letting a
