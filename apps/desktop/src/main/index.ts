@@ -133,7 +133,6 @@ async function main(): Promise<void> {
     connect: () => void ctx.connectThisMachine(),
     disconnect: () => void ctx.disconnectThisMachine(),
     toggleDetection: () => void ctx.update({ detectionEnabled: !ctx.settings.detectionEnabled }),
-    toggleImessage: () => void ctx.update({ imessageEnabled: !ctx.settings.imessageEnabled }),
     installUpdate: () => {
       // A stray click cannot install mid-meeting: `install()` re-checks
       // `controller.recording` itself, regardless of what this menu currently

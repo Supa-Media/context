@@ -54,4 +54,6 @@ export function runSettingsChecks(check) {
   check("a non-URL is refused", acceptableGatewayUrl("gateway.example.test") === null);
   check("a file URL is refused", acceptableGatewayUrl("file:///etc/passwd") === null);
   check("no token field survives normalisation", !("token" in normalizeSettings({ version: 1, token: "shhh" })));
+  // Messages are no longer copied into notes (owner, 2026-10-21): a file that turned the import on reads as off.
+  check("an older file that turned iMessage import on reads as off", normalizeSettings({ version: 1, imessageEnabled: true }).imessageEnabled === false);
 }
