@@ -40,6 +40,7 @@ import { handleCandidate, setupReply, textSetup } from "./setup";
 import type { Told } from "./told";
 import { textsFromAnswer, textsWithExact } from "./format";
 import type { OutgoingPicture } from "./outgoing";
+import type { RunningJob, StartedJob } from "./jobs";
 import type { Inbound } from "./inbound";
 
 /**
@@ -86,6 +87,12 @@ export type ReplyDeps = {
    * texts it took in, once it answered. Absent, a text waits its turn.
    */
   steer?: { turn: string; onSession: (accessToken: string) => void; onSteered: (ids: string[]) => Promise<void> };
+  /**
+   * The chat's background jobs, shown to the turn, and handed the ones it
+   * started (`jobs.ts`). Absent, the turn is offered none.
+   */
+  running?: RunningJob[];
+  onJobs?: (jobs: StartedJob[]) => Promise<void>;
 };
 
 /** Thrown, with `retry`, when nothing ran and the text can be answered again later. */
@@ -215,10 +222,11 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       message.quoted ?? (message.threaded ? "" : undefined),
       deps.told,
       message.threadStart,
-      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn },
+      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running },
     );
     if (answer.kind === "answer") {
       await deps.onToldDelivered?.();
+      if (answer.jobs) await deps.onJobs?.(answer.jobs);
       if (answer.steered) await deps.steer?.onSteered(answer.steered);
       if (answer.pictures.length > 0) deps.onPictures?.(answer.pictures);
       if (!answer.text) return [];

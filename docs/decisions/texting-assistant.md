@@ -231,6 +231,9 @@ Tex's own jobs, each with its record:
 - [Delegation](./texting-assistant/delegation.md): hands a whole sub-project
   to Claude Code, Codex, Claude, Claude Design or ChatGPT, with the task note's
   mail as the channel and a supervisor routine keeping the agent on track.
+- [Background jobs](./texting-assistant/background-jobs.md): a long ask runs in
+  an object of its own, up to three at once in a 1:1 or group chat, its status
+  shown to every turn, and it always writes its deliverable.
 - [Golden tasks](./texting-assistant/golden-tasks.md): jobs Tex must always
   get right, gating a setup; the task skills it reads before doing one, and
   why a read skill may vouch for an address.

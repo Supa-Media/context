@@ -60,6 +60,8 @@ import { jobsPrompt } from "./jobs.js";
 import { TRANSCRIPTS_PROMPT } from "./transcript.js";
 import { ATTENTION_PROMPT, CHECK_IN_PROMPT } from "./checkIns.js";
 
+import { exhaustedAnswer, roundNotice } from "./lastRound.js";
+
 export { describePlace, systemPrompt } from "./prompt.js";
 
 /**
@@ -386,7 +388,8 @@ export async function runTurn(options) {
   */
   if (router !== null) {
     const asked = clock();
-    const routed = await pickTier({ decide: router.decide, text: [question, attachmentsLine(attachments)].filter(Boolean).join("\n"), history, routeAt: router.routeAt });
+    // A background job always plans on `think` and drives on `main` (`background.js`): no router call.
+    const routed = options.planned ? { tier: "think", pick: "think", tokens: 0 } : await pickTier({ decide: router.decide, text: [question, attachmentsLine(attachments)].filter(Boolean).join("\n"), history, routeAt: router.routeAt });
     usage.decision += routed.tokens;
     if (routed.tier === "think") model = router.think;
     plan = thinkRoundsFor(router, routed.tier, mainModel);
@@ -480,7 +483,10 @@ export async function runTurn(options) {
   // The fallback is taken once a turn: a turn that moved models must never loop back to it.
   let fellBack = false;
 
+  let lastWords = ""; // what the model last said, answered if the bound is reached (`lastRound.js`)
   for (let round = 0; round < rounds; round += 1) {
+    const notice = roundNotice(round, rounds);
+    if (notice !== null && messages.at(-1)?.text !== notice) messages.push({ role: "user", text: notice });
     if (plan !== null) {
       const next = modelForRound(plan, round, escalate);
       if (next.model !== model) {
@@ -566,7 +572,10 @@ export async function runTurn(options) {
       return { answer: answer.text, provider, model, steps, usage, usageByModel, timing: { ...timing, trace } };
     }
 
-    if (answer.text?.trim()) tell({ kind: "say", text: answer.text });
+    if (answer.text?.trim()) {
+      tell({ kind: "say", text: answer.text });
+      lastWords = answer.text;
+    }
     messages.push({
       role: "assistant",
       text: answer.text,
@@ -673,16 +682,9 @@ export async function runTurn(options) {
     }
   }
 
-  /*
-    The bound was reached. Answered rather than thrown, and with whatever the
-    model last said, because a person who asked a question is owed the work that
-    was done for them — and because a turn that hits eight rounds is usually one
-    long question rather than a broken one.
-  */
+  // The bound was reached: answered, not thrown, with what the model last said (`lastRound.js`).
   return {
-    answer:
-      "I ran out of steps before I finished that one. Here is where I got to — " +
-      "ask me again and narrow it down if this is not enough.",
+    answer: exhaustedAnswer(lastWords),
     provider,
     model,
     steps,
