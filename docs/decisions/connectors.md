@@ -39,17 +39,27 @@ workspace" page.
   sealed envelope, as is a replaced token on reconnect and every token when a
   workspace is deleted.
 
-### Who a connection acts as follows from the workspace's kind
+### A connection is one person's, for now
 
-- A **personal workspace's** connection acts as its person (Slack's user
-  scopes): Tex reads what they can see, searches, and posts as them. Only that
-  person's own calls reach it.
-- A **shared workspace's** connection acts as the app (Slack's bot member
-  "Tex"): it posts as Tex and sees only channels it is invited to. Owners and
-  editors connect it; every member's Tex can use it.
-- **A Tex group chat never reaches anyone's own connection** (the rule #2021
-  set for logins, the owner 2026-10-21): its links are refused for a personal
-  workspace, and its calls see only the shared workspace's connection.
+Decided by the owner, 2026-10-21: "I dont really want it connecting for
+everyone, it should just be 1 person for now."
+
+- An app connects only in the person's own **personal workspace**, by its
+  owner, and acts as them (Slack's user scopes): Tex reads what they can see,
+  searches, and posts as them. Only that person's own calls reach it
+  (`mayConnect`, `connectionsForCall`).
+- A **shared workspace** gets no link, even for its owner. The workspace-wide
+  shape (Slack's bot member "Tex", `scope: "workspace"`) stays in the schema
+  and `scopeForWorkspaceKind` so it can come back as a decision, but nothing
+  makes one and no call reaches one.
+- **A Tex group chat never gets a link and never reaches a connection** (the
+  rule #2021 set for logins). The group turn is not offered the connector
+  tools; Tex says to text it one-to-one.
+
+Reversing this is a decision here first. The tests that fail are "an app
+connects for one person only" and "a workspace-wide connection, were one ever
+stored, is reached by nobody" (`apps/convex/__tests__/connections/`), and "a
+group turn is never offered Slack" (`apps/mcp/test/connectors.test.mjs`).
 
 ### A post waits for the person's yes; a read or a reaction does not
 
@@ -71,8 +81,8 @@ answers that it is not set up.
 **What a simplification would cost:** one table per provider repeats the
 cascade, the attempt sweep and the structure pins every time; letting the
 gateway hold the token puts it in a Worker a prompt can steer; letting a
-group chat use a personal connection lets anyone in the chat post as one of
-them. Tests: `apps/convex/__tests__/connections/slackConnect.test.ts` ("a
+group chat use a connection lets anyone in the chat post as one person.
+Tests: `apps/convex/__tests__/connections/slackConnect.test.ts` ("a
 group chat, or another person, never reaches someone's own Slack", "a consent
 answered without the starting browser's secret lands nowhere", "a method off
 the list never leaves") and `apps/mcp/test/connectors.test.mjs` ("a post

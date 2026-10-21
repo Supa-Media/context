@@ -12,10 +12,9 @@ export function connectorToolDefinitions() {
       name: "connect_app",
       title: "Link to connect an app",
       description:
-        "Get the link where the person connects an app to this workspace through the app's own approval screen, so you use its API " +
-        "instead of signing in with a browser. Slack is the one app so far. In a personal workspace it acts as the person; " +
-        "in a shared workspace it adds the app's own bot, which posts as Tex and sees only channels it is invited to. " +
-        "Never open the app's sign-in page in a browser for this.",
+        "Get the link where the person connects an app to their own account through the app's own approval screen, so you use its API " +
+        "instead of signing in with a browser. Slack is the one app so far, and it acts as the person. It connects for one person only, " +
+        "never for a shared workspace or a group chat. Never open the app's sign-in page in a browser for this.",
       inputSchema: {
         type: "object",
         properties: {
@@ -30,9 +29,9 @@ export function connectorToolDefinitions() {
       name: "slack_api",
       title: "Call Slack",
       description:
-        "Call one Slack Web API method through the Slack connected to this workspace; Context adds the token and you never see it. " +
+        "Call one Slack Web API method through the person's own connected Slack; Context adds the token and you never see it. " +
         "Reads: conversations.list {types: \"public_channel,private_channel,im,mpim\", limit}, conversations.history {channel, limit, oldest}, " +
-        "conversations.replies {channel, ts}, search.messages {query} (only when connected for the person themselves), users.list, users.info {user}, " +
+        "conversations.replies {channel, ts}, search.messages {query}, users.list, users.info {user}, " +
         "users.lookupByEmail {email}, chat.getPermalink, team.info. Changes: reactions.add {channel, timestamp, name}, conversations.open {users}. " +
         `Posting (${SLACK_HELD_METHODS.join(", ")}) waits for the person's yes to the exact words first. ` +
         "Channel ids look like C0123; find them with conversations.list. If Slack is not connected, give them the link from connect_app.",

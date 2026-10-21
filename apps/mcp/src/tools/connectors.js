@@ -4,8 +4,8 @@
  * as somebody (`docs/decisions/connectors.md`).
  *
  * The gateway decides nothing about who may use which connection: the
- * control plane clears this connection's token, picks the workspace's own
- * connection (never someone's own from a group chat) and adds the app's
+ * control plane clears this connection's token, picks the person's own
+ * connection (one person only, never from a group chat) and adds the app's
  * token itself. This file shapes the call and says what came back. A post
  * other people will read waits for the person's yes (`irreversible.js`).
  */
@@ -25,10 +25,10 @@ const UNAVAILABLE = "Connected apps are not available on this deployment.";
 
 const REFUSED = {
   not_connected:
-    "Slack is not connected to this workspace. Give the person the link from manage connect (app slack) and ask them to tap it and approve in Slack.",
+    "Slack is not connected for this person. Give them the link from manage connect (app slack) and ask them to tap it and approve in Slack.",
   choose_team: "More than one Slack is connected here. Pass team with one of their names: ",
   reconnect_required:
-    "Slack stopped accepting this workspace's connection (it was removed in Slack, or the app was uninstalled). Give the person a new link from manage connect (app slack).",
+    "Slack stopped accepting this connection (it was removed in Slack, or the app was uninstalled). Give the person a new link from manage connect (app slack).",
   method_not_allowed: "That Slack method can't be called through Context. Use one of the methods slack_api lists.",
   too_large: "Slack's answer was too long to read. Ask for fewer with a smaller limit, or a narrower oldest/latest.",
   unavailable: "Slack could not be reached just now. Try again in a moment.",
@@ -43,8 +43,8 @@ export async function toolConnectApp(store, args) {
   if (answer?.url == null) {
     if (answer?.reason === "unavailable") return toolError(`Connecting ${name} is not set up on this deployment yet. Tell the person it is coming.`);
     return toolError(
-      `That link can't be made from here. Connecting ${name} for a shared workspace needs an owner or editor of it, ` +
-        "and a group chat can only connect it for its own shared workspace.",
+      `That link can't be made from here. ${name} connects for one person only, from their own chat with you, ` +
+        "never for a shared workspace or a group chat.",
     );
   }
   return toolText(

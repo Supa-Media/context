@@ -1,14 +1,15 @@
 /**
  * Connected apps on the gateway's side (`src/tools/connectors.js`): the link
  * tool, a Slack call shaped for the control plane, a post held for the
- * person's yes, and a group turn offered the workspace's connector only
- * when its grant was. Who may use which connection is the control plane's,
+ * person's yes, and a group turn never offered one: an app connects for
+ * one person only. Who may use which connection is the control plane's,
  * proven in `apps/convex/__tests__/connections/`.
  *
  * Sabotage these and a test here fails:
  *  1. `irreversibleOf` no longer holding `slack_api` posts → "a post waits".
  *  2. It holding a read or a reaction → "a read or a reaction runs at once".
  *  3. `toolSlackApi` showing a long answer whole → "a long answer is refused".
+ *  4. `groupWriteTools` offering the connector tools → "a group turn is never offered Slack".
  */
 
 import assert from "node:assert/strict";
@@ -76,11 +77,8 @@ test("a read or a reaction runs at once", () => {
   assert.equal(irreversibleOf("slack_api", { method: "reactions.add", args: { channel: "C1", timestamp: "1", name: "eyes" } }), null);
 });
 
-test("a group turn gets the workspace's connector only when its grant offered it", () => {
-  const all = toolDefinitions();
-  const names = (tools) => tools.map((tool) => tool.name);
-  assert.ok(names(groupWriteTools(all)).includes("slack_api"));
-  assert.ok(names(groupWriteTools(all)).includes("connect_app"));
-  const readOnly = all.filter((tool) => tool.annotations?.readOnlyHint === true);
-  assert.ok(!names(groupWriteTools(readOnly)).includes("slack_api"));
+test("a group turn is never offered Slack, since it connects for one person only", () => {
+  const names = groupWriteTools(toolDefinitions()).map((tool) => tool.name);
+  assert.ok(!names.includes("slack_api"));
+  assert.ok(!names.includes("connect_app"));
 });

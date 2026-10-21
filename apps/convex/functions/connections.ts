@@ -402,8 +402,8 @@ export const revokeToken = internalAction({
 /* -------------------------------------------------------------- calls -- */
 
 /**
- * The connections a call may use: the cleared workspace's, for this provider.
- * A personal one only for its own person; a group chat only a workspace's.
+ * The connections a call may use: the cleared workspace's, for this provider,
+ * made by this person (one person only, `mayConnect`). A group chat reaches none.
  */
 export const connectionsForCall = internalQuery({
   args: { provider, workspaceId: v.id("workspaces"), actorUserId: v.id("users"), clientId: v.string() },
@@ -423,7 +423,7 @@ export const connectionsForCall = internalQuery({
       .take(50);
     return rows
       .filter((row: Doc<"providerConnections">) => row.provider === args.provider)
-      .filter((row) => (row.scope === "personal" ? row.connectedBy === args.actorUserId && args.clientId !== TEXTS_GROUP_CLIENT_ID : true))
+      .filter((row) => row.scope === "personal" && row.connectedBy === args.actorUserId && args.clientId !== TEXTS_GROUP_CLIENT_ID)
       .map((row) => ({
         id: row._id,
         teamId: row.externalTeamId,
