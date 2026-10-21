@@ -28,7 +28,7 @@ type World = {
   control: Record<string, unknown>[];
   asks: Record<string, unknown>[];
   reactions: number;
-  members: string[][] | null;
+  members: (string[] | null)[] | null;
 };
 
 function deps(world: World, answers: { control?: unknown; agent?: unknown; agentStatus?: number } = {}): GroupDeps {
@@ -39,6 +39,8 @@ function deps(world: World, answers: { control?: unknown; agent?: unknown; agent
     if (path.startsWith("/api/v2/groups/")) {
       if (world.members === null) return new Response("{}", { status: 404 });
       const list = world.members[Math.min(membersRead++, world.members.length - 1)];
+      // A `null` entry is that read failing, which is not the same as nobody being there.
+      if (list === null) return new Response("{}", { status: 404 });
       return Response.json({ data: { group_id: GROUP, participants: list.map((number) => ({ number })) } });
     }
     if (path.startsWith("/api/v2/messages/")) return Response.json({ group_id: GROUP, is_outbound: true, from_number: LINE, content: "Friday at 6." });
@@ -71,7 +73,7 @@ function deps(world: World, answers: { control?: unknown; agent?: unknown; agent
   };
 }
 
-const world = (members: string[][] | null = [[ADA, BO]]): World => ({ sends: [], control: [], asks: [], reactions: 0, members });
+const world = (members: (string[] | null)[] | null = [[ADA, BO]]): World => ({ sends: [], control: [], asks: [], reactions: 0, members });
 
 describe("what wakes Tex in a group", () => {
   it("its name opening or closing the message, or in a question", () => {
@@ -176,6 +178,17 @@ describe("a group's queue", () => {
     await acceptGroup(storage, message("Tex, hi"), 0);
     await drainGroup(storage, deps(w));
     expect(w.sends.map((sent) => sent.content)).toEqual([GROUP_LINES.joined]);
+  });
+
+  it("sends nothing it wrote when it cannot check who is in the chat afterwards", async () => {
+    // The read that catches a newcomer is the only thing standing between an
+    // answer and somebody who is not a member of the bound workspace. Sendblue
+    // being unreachable is not evidence that nobody joined.
+    const storage = new MemoryStorage();
+    const w = world([[ADA, BO], null]);
+    await acceptGroup(storage, message("Tex, hi"), 0);
+    await drainGroup(storage, deps(w));
+    expect(w.sends.map((sent) => sent.content)).toEqual([GROUP_LINES.failed]);
   });
 
   it("says the fixed lines with no model", async () => {
