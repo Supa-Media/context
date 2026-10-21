@@ -536,6 +536,8 @@ describe("every route is reachable, or says why not", () => {
       // The same console at one of its tabs; `/admin` redirects to it.
       "/admin/[...section]",
       "/authorize",
+      "/connect/[provider]",
+      "/connect/[provider]/[token]",
       "/connect/cli",
       "/connect/google",
       /*
