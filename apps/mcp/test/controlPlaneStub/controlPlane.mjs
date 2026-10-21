@@ -92,6 +92,8 @@ export function createControlPlaneStub(options = {}) {
     /** Which calendar may be changed, or a refusal for every change (`calendar.mjs`). */
     calendarAddress: null,
     calendarRefusal: null,
+    /** The live calendar's answer to a request for days (`calendar.mjs`), or null for none connected. */
+    calendarDays: null,
     /** Answer `/gateway/feedback` with this refusal word instead of accepting. */
     feedbackRefusal: null,
     omitBindingWorkspaceId: false,

@@ -531,3 +531,18 @@ test("runnableQuestions drops drafted cases, names each one it drops, and honour
   assert.deepEqual(runnableQuestions(questions, [1], write).map((q) => q.n), [1]);
   assert.deepEqual(logged, []);
 });
+
+// ---- calendar days ----
+
+test("a calendar day in the repo's bench is served as Google's answer, never placed as a note", async () => {
+  const bench = await readBenchFolder(new URL("../ai", import.meta.url).pathname);
+  const maya = bench.workspaces.maya;
+  assert.ok(!Object.keys(maya.files).some((path) => path.includes("calendar/")), "no calendar day is a note");
+  assert.ok(maya.calendar.some((day) => day.date === "2026-10-09" && day.address === "maya@example.invalid"));
+  assert.deepEqual(expandWorkspaces(bench).workspaces.maya.calendar, maya.calendar);
+  const { calendarAnswer } = await import("../world.mjs");
+  const answer = calendarAnswer(maya.calendar)({ date: "2026-10-09", days: 2 });
+  assert.equal(answer.ok, true);
+  assert.deepEqual([...new Set(answer.days.map((day) => day.date))].sort(), ["2026-10-09", "2026-10-10"]);
+  assert.equal(calendarAnswer([]), null, "a workspace with no calendar has none connected");
+});
