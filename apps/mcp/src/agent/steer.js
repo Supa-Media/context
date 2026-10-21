@@ -12,6 +12,11 @@
  * from its queue. A text that lands after the turn's last look is answered
  * on its own, as before.
  *
+ * A background job's turn (`background.js`) is named the same way, by the
+ * job's own object, in a 1:1 chat or a group: a follow-up the chat's turn
+ * passed to the job arrives here with the job's grant. A group's ordinary
+ * turns are never named, so two people's texts still never fold together.
+ *
  * The words are the person's, but they arrived after the turn's guards were
  * set up from its first text (the browser's addresses, the sharing judge, the
  * Mail checker), so they vouch for nothing those guards allow. Kept in the
@@ -23,6 +28,9 @@ import { json } from "../http/responses.js";
 import { hasScope, SCOPE_WRITE } from "../session.js";
 
 const TEXTS_CLIENT_ID = "context_texts";
+/** A group chat's grant (`apps/convex/functions/textGroups.ts`): only its background jobs name a turn. */
+const TEXTS_GROUP_CLIENT_ID = "context_texts_group";
+const texting = (session) => session.actorClientId === TEXTS_CLIENT_ID || session.actorClientId === TEXTS_GROUP_CLIENT_ID;
 export const STEER_PREFIX = ".context/agent/steer/";
 const TURN = /^[A-Za-z0-9_-]{8,64}$/;
 const ID = /^[A-Za-z0-9_.:-]{1,128}$/;
@@ -37,7 +45,7 @@ function keyOf(id) {
 
 /** `POST /agent/steer` `{ turn, id, text }`: keep a text for the turn it arrived during. */
 export async function handleSteer(request, store, session) {
-  if (session.actorClientId !== TEXTS_CLIENT_ID || !hasScope(session, SCOPE_WRITE)) return json({ error: "forbidden" }, 403);
+  if (!texting(session) || !hasScope(session, SCOPE_WRITE)) return json({ error: "forbidden" }, 403);
   let body;
   try {
     body = await request.json();
@@ -60,7 +68,7 @@ export async function handleSteer(request, store, session) {
  * turn the Worker named.
  */
 export function steerFor(store, session, body) {
-  if (session.actorClientId !== TEXTS_CLIENT_ID || typeof body?.turn !== "string" || !TURN.test(body.turn)) return null;
+  if (!texting(session) || typeof body?.turn !== "string" || !TURN.test(body.turn)) return null;
   const prefix = `${STEER_PREFIX}${body.turn}/`;
   const seen = new Set();
   const taken = [];

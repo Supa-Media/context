@@ -57,7 +57,7 @@ import { ackEmoji } from "./ackEmoji";
 import { answers, clearReactions, noteReaction, notedReactions, tapbackText } from "./reactions";
 import { dropThumb, dueThumb, holdsAsYes, holdThumb } from "./thumbs";
 import { startTurn, steerInto } from "./steer";
-import { chatJobs, startJobs, type JobRun } from "./jobs";
+import { chatJobs, startJobs, steerJobs, type JobRun, type JobSteer } from "./jobs";
 import type { Inbound } from "./inbound";
 
 /** The subset of `DurableObjectStorage` this uses, so tests can pass a Map. */
@@ -76,6 +76,8 @@ export type InboxDeps = ReplyDeps &
     now: () => number;
     /** Starts a background job in an object of its own (`jobs.ts`); absent, texted turns are offered none. */
     spawnJob?: (id: string, run: JobRun) => Promise<void>;
+    /** Hands a later text to a running job's object; true when it took it (`jobRun.ts`). */
+    steerJob?: (id: string, steer: JobSteer) => Promise<boolean>;
   };
 
 /**
@@ -437,7 +439,7 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
 }
 
 /** What a texted turn is shown of the chat's background jobs, and how it starts more (`jobs.ts`). */
-async function jobsFor(storage: InboxStorage, message: Message, deps: InboxDeps): Promise<Pick<ReplyDeps, "running" | "onJobs">> {
+async function jobsFor(storage: InboxStorage, message: Message, deps: InboxDeps): Promise<Pick<ReplyDeps, "running" | "onJobs" | "onSteers">> {
   const spawn = deps.spawnJob;
   if (spawn === undefined || message.sms) return {};
   const channel = message.channel === "simulator" ? { channel: "simulator" as const } : {};
@@ -451,6 +453,10 @@ async function jobsFor(storage: InboxStorage, message: Message, deps: InboxDeps)
         place: { chatId: message.chatId, ...(message.messageId ? { messageId: message.messageId } : {}), ...channel },
         spawn,
       });
+    },
+    // The model only names the job: what the job is handed is always their own text.
+    onSteers: async (asks) => {
+      if (deps.steerJob && message.text.trim() !== "") await steerJobs(storage, asks, { id: message.eventId, text: message.text }, deps.steerJob, deps.now());
     },
   };
 }

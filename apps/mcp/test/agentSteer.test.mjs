@@ -78,6 +78,13 @@ test("no steer for a turn the Worker didn't name, or a client that isn't texting
   assert.equal(steerFor(store, { actorClientId: "claude" }, { turn: TURN }), null);
 });
 
+test("a group's background job can be steered when its object names the turn", () => {
+  // Only a group's job turns are named (`apps/agent/src/jobRun.ts`); its ordinary turns never are.
+  const store = memoryStore();
+  assert.notEqual(steerFor(store, { actorClientId: "context_texts_group" }, { turn: TURN }), null);
+  assert.equal(steerFor(store, { actorClientId: "context_texts_group" }, {}), null);
+});
+
 test("steered words ride in the tool results' user message", () => {
   const out = anthropicMessages([
     { role: "user", text: "book a table" },

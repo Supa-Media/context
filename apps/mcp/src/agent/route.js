@@ -56,7 +56,7 @@ import { steerFor, steeredLine } from "./steer.js";
 import { answerWithAsk, textedAsk, thumbsUpIsYes } from "./textedApprovals.js";
 import { setAsideLine, settleTextedText } from "./textedSettle.js";
 import { paidLine } from "./textedPay.js";
-import { backgroundSession, jobOf, jobPrompt, jobSavedLine, runningJobsOf, startedJobs, withBackground } from "./background.js";
+import { backgroundSession, jobOf, jobPrompt, jobSavedLine, runningJobsOf, startedJobs, withBackground, withJobSteps } from "./background.js";
 import { chatLines, checkerHistory, earlierChatTool, groupAwareCallTool, groupOf, keepGroupSettled, withoutTexName, groupPrompt, groupWriteTools, isGroupSession, keepGroupExchange, readGroupMemory } from "./groupTurn.js";
 /**
  * What a turn that may not run says. Nothing in the app can change this any
@@ -103,7 +103,7 @@ const CONSOLE_CLIENT_ID = "context_console";
  * lives in this deployment's own logs, because a provider's error body quotes
  * the request that produced it — the customer's question and their notes.
  */
-export async function handleAgent(request, env, store, session, controlPlane, { progress = null } = {}) {
+export async function handleAgent(request, env, store, session, controlPlane, { progress = null, step = null } = {}) {
   const received = Date.now();
   let body;
   try {
@@ -524,7 +524,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       // What Tex keeps about them and its open jobs, in their own workspace (`aboutMe.js`, `jobs.js`), on a texted turn.
       ...(texting ? await readTexNotes(dispatch) : {}),
       localNow: { now: Date.now(), timeZone },
-      observe: transcript?.record ?? null,
+      observe: withJobSteps(job, step, transcript?.record ?? null), // a job's steps also go to its chat (`background.js`)
       workspaces: contextsFor(session), // Where a new note goes (`workspaces.js`).
       texting: texting || group !== null, // a group's answer is a text too, written for one
       notes: production !== null ? { prompt: production.prompt } : null,

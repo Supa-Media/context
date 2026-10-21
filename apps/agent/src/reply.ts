@@ -40,7 +40,7 @@ import { handleCandidate, setupReply, textSetup } from "./setup";
 import type { Told } from "./told";
 import { textsFromAnswer, textsWithExact } from "./format";
 import type { OutgoingPicture } from "./outgoing";
-import type { RunningJob, StartedJob } from "./jobs";
+import type { JobSteerAsk, RunningJob, StartedJob } from "./jobs";
 import type { Inbound } from "./inbound";
 
 /**
@@ -93,6 +93,8 @@ export type ReplyDeps = {
    */
   running?: RunningJob[];
   onJobs?: (jobs: StartedJob[]) => Promise<void>;
+  /** Handed the running jobs this text was passed to (`jobs.ts`). */
+  onSteers?: (asks: JobSteerAsk[]) => Promise<void>;
 };
 
 /** Thrown, with `retry`, when nothing ran and the text can be answered again later. */
@@ -227,6 +229,7 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
     if (answer.kind === "answer") {
       await deps.onToldDelivered?.();
       if (answer.jobs) await deps.onJobs?.(answer.jobs);
+      if (answer.steers) await deps.onSteers?.(answer.steers);
       if (answer.steered) await deps.steer?.onSteered(answer.steered);
       if (answer.pictures.length > 0) deps.onPictures?.(answer.pictures);
       if (!answer.text) return [];
