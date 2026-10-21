@@ -28,6 +28,7 @@
 
 import { createEmailRoute } from "./email.mjs";
 import { createCalendarRoute } from "./calendar.mjs";
+import { createClearances } from "./clearances.mjs";
 import { createMailRoutes } from "./mail.mjs";
 import { createTreeRoutes } from "./tree.mjs";
 import { createWorkspaceRoutes } from "./workspaces.mjs";
@@ -133,37 +134,7 @@ export function createControlPlaneStub(options = {}) {
   /** workspaceId → when the gateway last said that context changed */
   const activityStamps = new Map();
 
-  /**
-   * The owner clearance the three link routes share.
-   *
-   * Lifted out rather than repeated three times: three copies is how one of
-   * them ends up missing the `context:private` line, which is exactly the
-   * mistake a stub must not teach the tests to accept.
-   */
-  async function clearedOwner(body) {
-    const grant = await grantForAccessToken(body.accessToken);
-    if (!grant) return null;
-    const named = coveredContexts(grant).find(
-      (entry) => entry.workspaceId === body.expectedWorkspaceId,
-    );
-    if (!named || named.role !== "owner") return null;
-    if (!grant.scopes.includes("context:write") || !grant.scopes.includes("context:private")) {
-      return null;
-    }
-    return { workspaceId: named.workspaceId, actorUserId: grant.userId };
-  }
-
-  /** The real route's owner-or-editor clearance (`gatewayEditorClearance`). */
-  async function clearedEditor(body) {
-    const grant = await grantForAccessToken(body.accessToken);
-    if (!grant) return null;
-    const named = coveredContexts(grant).find(
-      (entry) => entry.workspaceId === body.expectedWorkspaceId,
-    );
-    if (!named || (named.role !== "owner" && named.role !== "editor")) return null;
-    if (!grant.scopes.includes("context:write")) return null;
-    return { workspaceId: named.workspaceId, actorUserId: grant.userId, role: named.role };
-  }
+  const { clearedOwner, clearedEditor, clearedOwnAccount } = createClearances(grantForAccessToken, coveredContexts);
 
   /** One row as the real route reports it: URLs, and never the token. */
   function describeStubLink(row) {
@@ -314,8 +285,8 @@ export function createControlPlaneStub(options = {}) {
 
   // Note mail mailboxes (`mail.mjs`).
   const mail = createMailRoutes(grantForAccessToken, coveredContexts);
-  const email = createEmailRoute(clearedEditor, flags);
-  const calendar = createCalendarRoute(clearedEditor, flags);
+  const email = createEmailRoute(clearedOwnAccount, flags, clearedEditor);
+  const calendar = createCalendarRoute(clearedOwnAccount, flags);
   // Setting a workspace up (`workspaces.mjs`).
   const workspaceSetup = createWorkspaceRoutes({ grantForAccessToken, coveredContexts, workspaces, grants });
   const dreams = createDreamRoutes(clearedOwner);

@@ -14,8 +14,7 @@ import { v } from "convex/values";
 import { internalMutation } from "../_generated/server";
 import type { MutationCtx } from "../_generated/server";
 import { recordAudit } from "./lib/audit";
-import { ownedPersonalWorkspace } from "./lib/accountSetup";
-import { editorClearanceForGatewayHandler } from "./lib/controlPlane/session";
+import { ownAccountClearance } from "./lib/controlPlane/ownAccount";
 import { CALENDAR_WRITE_SCOPE, calendarWritePolicies } from "./lib/calendarWrite";
 import type { RateLimitPolicy } from "./lib/rateLimit";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
@@ -44,17 +43,15 @@ export const claimCalendarWrite = internalMutation({
     v.object({ ok: v.literal(false), refused: refusal }),
   ),
   handler: async (ctx, args) => {
-    // A live grant that may write, on the person's own personal workspace:
-    // an editor grant on a shared one never reaches its holder's calendar.
-    const cleared = await editorClearanceForGatewayHandler(ctx, {
+    // The grant's own person's calendar, from their personal workspace, or a
+    // group chat's tagger's (`lib/controlPlane/ownAccount.ts`): an editor
+    // grant on a shared workspace never reaches its holder's calendar.
+    const cleared = await ownAccountClearance(ctx, {
       hashedAccessToken: args.hashedAccessToken,
       expectedWorkspaceId: args.expectedWorkspaceId,
     });
     if (cleared === null) return { ok: false as const, refused: "not_allowed" as const };
-    const personal = await ownedPersonalWorkspace(ctx, cleared.actorUserId);
-    if (personal === null || personal.createdBy !== cleared.actorUserId || cleared.workspaceId !== personal._id) {
-      return { ok: false as const, refused: "not_allowed" as const };
-    }
+    const personal = cleared.personal;
     const connections = await ctx.db
       .query("googleConnections")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", personal._id))

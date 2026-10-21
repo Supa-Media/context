@@ -18,8 +18,7 @@ import { v } from "convex/values";
 import { internalMutation } from "../_generated/server";
 import type { MutationCtx } from "../_generated/server";
 import { recordAudit } from "./lib/audit";
-import { ownedPersonalWorkspace } from "./lib/accountSetup";
-import { editorClearanceForGatewayHandler } from "./lib/controlPlane/session";
+import { ownAccountClearance } from "./lib/controlPlane/ownAccount";
 import { GMAIL_COMPOSE_SCOPE, GMAIL_SEND_SCOPE, personEmailDraftPolicies, personEmailPolicies } from "./lib/personEmail";
 import type { RateLimitPolicy } from "./lib/rateLimit";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
@@ -60,23 +59,18 @@ export const claimPersonEmail = internalMutation({
     v.object({ ok: v.literal(false), refused: refusal }),
   ),
   handler: async (ctx, args) => {
-    // A live grant that may write, on a workspace its person reaches: the same
-    // clearance an agent's website publish spends. The sender is that person.
-    const cleared = await editorClearanceForGatewayHandler(ctx, {
+    // The grant's own person sends, from their personal workspace's mail, or
+    // a group chat's tagger (`lib/controlPlane/ownAccount.ts`): an editor
+    // grant on a shared workspace must not reach the mail of whoever holds it.
+    const cleared = await ownAccountClearance(ctx, {
       hashedAccessToken: args.hashedAccessToken,
       expectedWorkspaceId: args.expectedWorkspaceId,
     });
     if (cleared === null) return { ok: false as const, refused: "not_allowed" as const };
-    // A person's mail is connected to their personal workspace, and only a
-    // connection whose consent granted sending may send (composing, for a draft).
+    // Only a connection whose consent granted sending may send (composing, for a draft).
     const draft = args.draft === true;
     const scope = draft ? GMAIL_COMPOSE_SCOPE : GMAIL_SEND_SCOPE;
-    const personal = await ownedPersonalWorkspace(ctx, cleared.actorUserId);
-    // Only from the person's own workspace: an editor grant on a shared one
-    // must not reach the mail of whoever holds it.
-    if (personal === null || personal.createdBy !== cleared.actorUserId || cleared.workspaceId !== personal._id) {
-      return { ok: false as const, refused: "not_allowed" as const };
-    }
+    const personal = cleared.personal;
     const connections = await ctx.db
       .query("googleConnections")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", personal._id))

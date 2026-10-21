@@ -41,15 +41,21 @@ export const DEFAULT_EMAIL_CALLERS = ["texting-assistant"];
 
 const TEXTS_CLIENT_ID = "context_texts";
 /**
+ * A group chat's Tex sends as its tagger, from their own Gmail, on their yes
+ * in the chat (the owner, 2026-10-21: "email too, write only not read";
+ * `agent/groupTurn.js`). It is Tex, so it asks as Tex.
+ */
+const TEXTS_GROUP_CLIENT_ID = "context_texts_group";
+/**
  * First-party clients that never send: routines and dreams have nobody on the
  * line, and the app has no assistant of its own (deleted 2026-10-17); it is
- * where the person approves. A group chat's Tex sends no email: whose would it be?
+ * where the person approves.
  */
-const NEVER_SENDS = new Set(["context_routines", "context_dreams", "context_console", "context_texts_group"]);
+const NEVER_SENDS = new Set(["context_routines", "context_dreams", "context_console"]);
 
 /** The `callers:` key a connection asks as, or null for one that never may. */
 export function emailCaller(clientId) {
-  if (clientId === TEXTS_CLIENT_ID) return "texting-assistant";
+  if (clientId === TEXTS_CLIENT_ID || clientId === TEXTS_GROUP_CLIENT_ID) return "texting-assistant";
   if (typeof clientId !== "string" || clientId === "" || NEVER_SENDS.has(clientId)) return null;
   return "connected-ais";
 }

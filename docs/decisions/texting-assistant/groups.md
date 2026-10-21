@@ -82,13 +82,47 @@ with the same tapback as everyone.
 ## What a group turn can do
 
 A separate client id turns every per-person ability off by default
-(`apps/mcp/src/agent/groupTurn.js`): no computer or web search, no email, no
-calendar, no routines, no delegation, no progress texts, no pictures, no
-learned skills, none of the tagger's `tex/` notes and no texts conversation.
-Writes are create and append only: `write_note` takes only a path and
-content and refuses a path where anything is, and `remember` never takes
-`replaces`. The turn is marked untrusted from the start, since other
-people's words are in its history.
+(`apps/mcp/src/agent/groupTurn.js`): no routines, no delegation, no progress
+texts, no pictures, no learned skills, none of the tagger's `tex/` notes and
+no texts conversation. Writes are create and append only: `write_note` takes
+only a path and content and refuses a path where anything is, and `remember`
+never takes `replaces`. The turn is marked untrusted from the start, since
+other people's words are in its history.
+
+## Tex acts for whoever tagged it (the owner, 2026-10-21)
+
+"Yeah calendar is necessary", "email too, write only not read", and
+"computer use as well". A group turn can:
+
+- **Send one email from the tagger's own Gmail, or add, move or cancel one
+  event on their own calendar.** The control plane reaches the tagger's own
+  personal-workspace Google connection from a group grant whatever their
+  role in the shared workspace, and only for the chat's own workspace and
+  only while the chat still resolves (muted, someone left, a stranger added
+  all stop it): `apps/convex/functions/lib/controlPlane/ownAccount.ts`. The
+  gateway exempts exactly `send_email` and `calendar_event` from the
+  dispatcher's write-scope check, because the change is to the tagger's
+  account, not the workspace. Each is held for the tagger's yes to the exact
+  copy shown in the chat, as in a 1:1 text, and the ask says "Reply yes to
+  this", because an untagged "yes" in a group is chat. Pending approvals are
+  listed by the acting person, so somebody else in the chat saying "Tex,
+  yes" releases nothing. A yes is settled before any model, as in 1:1, and
+  kept in the chat's memory.
+- **Never read mail.** `claimPersonMailRead` needs an owner of the personal
+  workspace with `context:private`; a group grant is neither.
+- **Never invite.** Calendar writes refuse guests and send no updates, so
+  the prompt says to email the details or have each person ask.
+- **Use the web with a browser that holds nobody's sign-ins**
+  (`apps/mcp/src/agent/turnWeb.js`): no browser tag carried between turns,
+  no saved logins and no `fill_login`, because anyone in the chat steers
+  what the browser does. Whether a tagger may opt their own sign-ins in is
+  open.
+
+A simplification that reached the tagger's account through their role in
+the shared workspace would leave a member unable to send as themselves and
+an editor able to; one that dropped the actor filter would let any person
+in the chat approve another's email. `apps/convex/__tests__/textGroupsOwnAccount.test.ts`
+and `apps/mcp/test/agentGroupActions.test.mjs` fail if either is reversed.
 
 ## Memory lives in the shared workspace
 

@@ -9,7 +9,6 @@ import { callToolForSession } from "../tools/session.js";
 import { DEFAULT_TIME_ZONE, readTimeZone } from "./localNow.js";
 import { readTexNotes } from "./jobs.js";
 import { openTranscript } from "./transcript.js";
-import { resolveUpload } from "./uploads.js";
 import { wireTraceEntry } from "./turnLog.js";
 import { readProductionSetup, readProductionSkill } from "./production.js";
 import { skillSession, withSkills } from "./skills.js";
@@ -21,12 +20,9 @@ import { hasScope, SCOPE_WRITE } from "../session.js";
 import { BUILTIN_PROVIDER, builtinModel, canRunBuiltin } from "./builtin.js";
 import { aiGatewayConfig } from "./aiGateway.js";
 import { mailCheckerFor } from "./mailChecker.js";
-import { browserOwner } from "./browserProviders.js";
-import { texViewerUrl } from "../http/texComputer.js";
 import { appOriginOf, withNoteLinks } from "./noteLinks.js";
-import { computerFor, webSession } from "./computer.js";
-import { searcherFor } from "./search.js";
 import { decisionEngine } from "./decide.js";
+import { openTurnWeb } from "./turnWeb.js";
 import { ProviderError } from "./providers.js";
 import { meterEach } from "./modelPlan.js";
 import { attachmentsLine, hearVoiceMessages, turnAttachments, withAttachmentImages } from "./attachments.js";
@@ -59,7 +55,7 @@ import { threadPrompt, threadView } from "./threadView.js";
 import { steerFor, steeredLine } from "./steer.js";
 import { answerWithAsk, textedAsk } from "./textedApprovals.js";
 import { setAsideLine, settleTextedText } from "./textedSettle.js";
-import { chatLines, earlierChatTool, groupAwareCallTool, groupOf, groupPrompt, groupWriteTools, isGroupSession, keepGroupExchange, readGroupMemory } from "./groupTurn.js";
+import { chatLines, earlierChatTool, groupAwareCallTool, groupOf, keepGroupSettled, withoutTexName, groupPrompt, groupWriteTools, isGroupSession, keepGroupExchange, readGroupMemory } from "./groupTurn.js";
 /**
  * What a turn that may not run says. Nothing in the app can change this any
  * more (people's own model keys were deleted, the owner, 2026-10-10): the
@@ -191,16 +187,18 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
 
   // A texted yes or no settles a pending approval before any model runs (`textedSettle.js`).
   let setAside = [];
-  if (session.actorClientId === TEXTS_CLIENT_ID) {
+  // A group chat's yes is its tagger's, said to Tex in the chat (`groupTurn.js`).
+  if (session.actorClientId === TEXTS_CLIENT_ID || group !== null) {
     const settled = await settleTextedText(store, session, {
       dispatch,
-      question,
+      question: group !== null ? withoutTexName(question) : question,
+      keep: group !== null ? keepGroupSettled(store, group) : null,
       hasAttachments: sent.length > 0,
       now: received,
       timeZone: readTimeZone(body.timeZone),
       defer: (work) => deferred(store, work),
       // Kept on the same terms as a model turn's history, below, with the Worker's fixed texts (`told`).
-      conversation: conversationPath(body.conversation) !== null && hasScope(session, SCOPE_WRITE) ? body.conversation : null,
+      conversation: group === null && conversationPath(body.conversation) !== null && hasScope(session, SCOPE_WRITE) ? body.conversation : null,
       told: body.told,
     });
     if (settled?.answer !== undefined) return json(settled);
@@ -255,7 +253,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     session.actorClientId === CONSOLE_CLIENT_ID ||
     session.actorClientId === ROUTINES_CLIENT_ID ||
     group !== null;
-  session.egress = { complete: firstParty, ledger, texting: session.actorClientId === TEXTS_CLIENT_ID };
+  session.egress = { complete: firstParty, ledger, texting: session.actorClientId === TEXTS_CLIENT_ID || group !== null };
 
   /*
     A named conversation carries its recent turns into this one. Only a name
@@ -279,7 +277,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     the model runs. Only a texted turn has those words; any other client's
     email waits for the person in the app with no checker in front of it.
   */
-  if (session.actorClientId === TEXTS_CLIENT_ID) {
+  if (session.actorClientId === TEXTS_CLIENT_ID || group !== null) {
     session.mailChecker = mailCheckerFor({
       history,
       question,
@@ -304,15 +302,6 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   const textingWriting = textingWriteTools(offered, { texting: session.actorClientId === TEXTS_CLIENT_ID });
   // A group chat's writes are create and append only (`groupTurn.js`).
   const groupWriting = group !== null ? groupWriteTools(offered) : [];
-  // The person's browser tag lets a later text carry on in the same browser
-  // (`browserProviders.js`); it is made from their id, never from the request.
-  // A handoff texts their own `/tex/<handle>` page, never the browser's link.
-  const computer = texting
-    ? computerFor(env, { owner: await browserOwner(env, session.actorUserId), viewer: texViewerUrl(env, session), store })
-    : null;
-  // Web search is the texting assistant's too, and runs on its own (the
-  // owner's decision, 2026-10-07); `search.js` says why that is accepted.
-  const search = texting ? searcherFor(env) : null;
   /*
     A long task texts its progress (`progress.js`): only a person's own texted
     turn, asked for as a stream by the texting Worker. A routine runs
@@ -337,33 +326,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   const vouched = runner ? routine?.body ?? "" : question;
   // Another agent's mail is someone else's words, like a page (`supervise.js`).
   if (supervision !== null) markUntrusted(ledger);
-  const opened =
-    computer === null && search === null
-      ? null
-      : webSession(computer, question, {
-          decide: decisionEngine(env.AI),
-          search,
-          addresses: vouched,
-          // A browser handed to the person is texted the moment it exists.
-          say: channel !== null ? (text) => channel.say(text) : null,
-          // The vault this turn's grant opens, for `fill_login`.
-          store,
-          // The person's own files, read as them, for a page's upload box (`uploads.js`).
-          files: (step) => resolveUpload(step, { dispatch, store }),
-        });
-  // A page or a search result is text from outside the workspace: once one
-  // is read, every widening in this turn asks (`privacy/egress.js`).
-  const web =
-    opened === null
-      ? null
-      : {
-          tools: opened.tools,
-          usage: opened.usage,
-          call: (name, args) => {
-            markUntrusted(ledger);
-            return opened.call(name, args);
-          },
-        };
+  const { opened, web } = await openTurnWeb(env, { session, texting, group, question, vouched, channel, store, dispatch, ledger });
 
   /*
     THE PRODUCTION SETUP (`production.js`): the texting job's file on a texted
