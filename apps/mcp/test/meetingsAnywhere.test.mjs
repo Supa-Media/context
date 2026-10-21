@@ -107,3 +107,46 @@ test("a meeting in another workspace is listed with its @name, in date order wit
   assert.ok(out.indexOf("Rehearsal") < out.indexOf("Dentist call"), "merged newest first");
   assert.ok(out.includes('context: "@name"'), "and says how to read it there");
 });
+
+/*
+  `tree/served.js`, on the tools that list (`list_meetings` by name): "Privacy
+  is decided twice, never once less. The control plane hands back only what
+  this grant's clearance sees ... A key reaches an agent only if both agree."
+  The dispatcher serves the caller's own store (`tools/dispatch.js`), but a
+  store `openContext` builds is raw, so the second workspace has to be wrapped
+  where it is opened — as orient's cross-workspace survey does
+  (`orient/workspaces.js`). Unwrapped, this walks somebody else's bucket.
+*/
+test("another workspace's meetings come from its tree, and a tree that cannot answer leaves it out", async () => {
+  const withheld = "2-areas/meetings/2026-10-21-board-private-eeee5555.md";
+  const band = fakeStore(
+    {
+      "2-areas/meetings/2026-10-20-rehearsal-cccc3333.md": meeting("2026-10-20T23:00:00Z", "Rehearsal"),
+      [withheld]: meeting("2026-10-21T09:00:00Z", "Board private"),
+    },
+    {
+      // The clearance this grant has there: the bucket holds both, the tree one.
+      async treeManifest() {
+        return { served: true, cursor: null, entries: [{ path: "2-areas/meetings/2026-10-20-rehearsal-cccc3333.md" }] };
+      },
+    },
+  );
+  const loading = fakeStore(
+    { "2-areas/meetings/2026-10-22-offsite-ffff6666.md": meeting("2026-10-22T09:00:00Z", "Offsite") },
+    { async treeManifest() { return { served: false }; } },
+  );
+  const home = fakeStore(
+    { "0-inbox/meetings/2026-10-02-dentist-call-dddd4444.md": meeting("2026-10-02T15:00:00Z", "Dentist call") },
+    {
+      contexts: [{ name: "@maya", current: true }, { name: "@band" }, { name: "@still-loading" }],
+      async openContext(name) {
+        return { session: { scope: "private" }, store: name === "@band" ? band : loading };
+      },
+    },
+  );
+  const out = text(await toolListMeetings(home, "private", [], new Map(), 10));
+  assert.ok(out.includes("@band/2-areas/meetings/2026-10-20-rehearsal-cccc3333.md"), "what that grant's clearance sees there is listed");
+  assert.ok(!out.includes(withheld) && !out.includes("Board private"), "a key the tree withholds is not read off the bucket instead");
+  assert.ok(!out.includes("Offsite"), "a workspace whose tree cannot answer is left out, never bucket-walked");
+  assert.ok(out.includes("Dentist call"), "and this workspace is listed as before");
+});
