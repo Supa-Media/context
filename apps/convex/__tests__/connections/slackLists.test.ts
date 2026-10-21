@@ -123,3 +123,52 @@ describe("conversations.list and the rest", () => {
     expect(sent[0].form.get("match")).toBe("kept");
   });
 });
+
+describe("a post addressed to a person", () => {
+  function stubPosting(sent: Sent[]) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string, init?: RequestInit) => {
+        const method = String(input).split("/").pop() ?? "";
+        const form = new URLSearchParams(String(init?.body ?? ""));
+        sent.push({ method, form });
+        if (method === "users.lookupByEmail") {
+          return form.get("email") === "olu@example.invalid" ? Response.json({ ok: true, user: { id: "U5" } }) : Response.json({ ok: false, error: "users_not_found" });
+        }
+        if (method === "conversations.open") return Response.json({ ok: true, channel: { id: `D-${form.get("users")}` } });
+        return Response.json({ ok: true, channel: form.get("channel"), ts: "1.2" });
+      }),
+    );
+  }
+
+  test("by the email they use in Slack, goes to the DM with them", async () => {
+    const sent: Sent[] = [];
+    stubPosting(sent);
+    const { body } = await slackCallShaped("xoxp-fake", "chat.postMessage", { channel: "olu@example.invalid", text: "hi" });
+    expect(sent.map((s) => s.method)).toEqual(["users.lookupByEmail", "conversations.open", "chat.postMessage"]);
+    expect(sent[2].form.get("channel")).toBe("D-U5");
+    expect(sent[2].form.get("text")).toBe("hi");
+    expect(body).toMatchObject({ ok: true, channel: "D-U5" });
+  });
+
+  test("by user id, opens the DM; an email nobody there uses posts nothing", async () => {
+    const sent: Sent[] = [];
+    stubPosting(sent);
+    await slackCallShaped("xoxp-fake", "chat.postMessage", { channel: "U05ABC", text: "hi" });
+    expect(sent.map((s) => [s.method, s.form.get("channel") ?? s.form.get("users")])).toEqual([
+      ["conversations.open", "U05ABC"],
+      ["chat.postMessage", "D-U05ABC"],
+    ]);
+    sent.length = 0;
+    const { body } = await slackCallShaped("xoxp-fake", "chat.postMessage", { channel: "nobody@example.invalid", text: "hi" });
+    expect(body).toEqual({ ok: false, error: "users_not_found" });
+    expect(sent.map((s) => s.method)).toEqual(["users.lookupByEmail"]);
+  });
+
+  test("a channel id is posted to as given", async () => {
+    const sent: Sent[] = [];
+    stubPosting(sent);
+    await slackCallShaped("xoxp-fake", "chat.postMessage", { channel: "C1", text: "hi" });
+    expect(sent.map((s) => [s.method, s.form.get("channel")])).toEqual([["chat.postMessage", "C1"]]);
+  });
+});

@@ -128,7 +128,11 @@ export const ACTIONS = {
     },
     slack: {
       tool: "slack_api",
-      summary: "Call one Slack Web API method through the connected Slack; a post waits for the person's yes to its words.",
+      summary:
+        "Call one Slack Web API method through the connected Slack; a post waits for the person's yes to its words. " +
+        "Find someone: users.list {match: their name or email}, which reads every active person at once. " +
+        "DM someone: chat.postMessage {channel: their user id or the email they use in that Slack, text}. " +
+        "Channels: conversations.list {match}; read one: conversations.history {channel}; search: search.messages {query}.",
       take: plain,
     },
     app: {
