@@ -6,7 +6,7 @@ import { Text } from "../design/components/Text";
 import { StageBackdrop } from "../design/components/StageBackdrop";
 import { clamp, fonts, layout, leading, radii, tracking } from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
-import { browseHref, CONSOLE_ROOT } from "../console/nav";
+import { browseHref } from "../console/nav";
 import {
   WORKSPACE_STEP_LABELS,
   workspaceStepTitle,
@@ -21,7 +21,7 @@ import { WorkspaceLayoutStep } from "./steps/WorkspaceLayoutStep";
 import { WorkspaceImageStep } from "./steps/WorkspaceImageStep";
 import { WorkspacePeopleStep } from "./steps/WorkspacePeopleStep";
 import { WorkspaceDoneStep } from "./steps/WorkspaceDoneStep";
-import { backOr } from "../app/backOr";
+import { backOrConsole } from "../app/backOr";
 
 /**
  * `/workspace/new` — making a context that is not about one person.
@@ -57,7 +57,7 @@ export function CreateWorkspaceScreen() {
           const slug = controller.created?.slug;
           router.replace(slug === undefined ? "/console" : browseHref(slug));
         }}
-        onCancel={() => backOr(router, CONSOLE_ROOT)}
+        onCancel={() => backOrConsole(router)}
       />
     </CreateWorkspaceChrome>
   );

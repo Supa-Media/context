@@ -331,7 +331,7 @@ medium or wide window to `MEETINGS_PANEL_HREF` (`/console?meetings=1`), which
 opens the panel once and takes the parameter off the address. The route stays,
 for a phone — which has no panel, so the list is its only one — and for an old
 link. The same change gave every Back on a screen outside the console a
-fallback (`features/app/backOr.ts`): `router.back()` with nothing behind it is
+fallback (`backOrConsole`, `features/app/backOr.ts`): `router.back()` with nothing behind it is
 a press that does nothing.
 
 Reversing it fails `Meetings in the switcher opens the right panel`

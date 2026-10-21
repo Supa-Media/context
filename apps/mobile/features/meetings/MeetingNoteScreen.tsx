@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
-import { ScreenScroll } from "../app/Screen";
+import { backOrConsole, ScreenScroll } from "../app/Screen";
 import { fonts, layout, leading, pointerType as t, radii, tracking } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { Icon } from "../design/components/Icon";
@@ -22,8 +22,6 @@ import { continuationFromRecord, mayResume, meetingIdOf } from "./resume";
 import { useResumeMeeting } from "./useResumeMeeting";
 import { RECORD_BUTTON_CLEARANCE, RecordButton } from "./components/RecordButton";
 import { endedAudioLine, transcriptIncompleteLine } from "./keptAudio";
-import { backOr } from "../app/backOr";
-import { CONSOLE_ROOT } from "../console/nav";
 
 /**
  * The meeting after it has ended: finalizing, then the note.
@@ -191,7 +189,7 @@ export function MeetingNoteScreen({ meetingId }: { meetingId: string }) {
       <ScreenScroll contentContainerStyle={styles.content} testID="meeting-note">
         <View style={styles.topBar}>
           <Pressable
-            onPress={() => backOr(router, CONSOLE_ROOT)}
+            onPress={() => backOrConsole(router)}
             accessibilityRole="button"
             accessibilityLabel="Back to meetings"
             style={({ pressed }) => [styles.round, pressed && styles.roundPressed]}
