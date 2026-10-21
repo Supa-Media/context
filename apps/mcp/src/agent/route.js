@@ -55,7 +55,7 @@ import { threadPrompt, threadView } from "./threadView.js";
 import { steerFor, steeredLine } from "./steer.js";
 import { answerWithAsk, textedAsk } from "./textedApprovals.js";
 import { setAsideLine, settleTextedText } from "./textedSettle.js";
-import { chatLines, earlierChatTool, groupAwareCallTool, groupOf, keepGroupSettled, withoutTexName, groupPrompt, groupWriteTools, isGroupSession, keepGroupExchange, readGroupMemory } from "./groupTurn.js";
+import { chatLines, checkerHistory, earlierChatTool, groupAwareCallTool, groupOf, keepGroupSettled, withoutTexName, groupPrompt, groupWriteTools, isGroupSession, keepGroupExchange, readGroupMemory } from "./groupTurn.js";
 /**
  * What a turn that may not run says. Nothing in the app can change this any
  * more (people's own model keys were deleted, the owner, 2026-10-10): the
@@ -279,7 +279,9 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   */
   if (session.actorClientId === TEXTS_CLIENT_ID || group !== null) {
     session.mailChecker = mailCheckerFor({
-      history,
+      // A group's kept turns carry what the chat said beside what the tagger
+      // asked, and the checker reads a kept turn as the person (`groupTurn.js`).
+      history: group !== null ? checkerHistory(history) : history,
       question,
       config: aiGatewayConfig(env),
       metadata: { feature: "mail-checker", workspace: String(session.workspaceId) },
