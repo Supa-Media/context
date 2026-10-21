@@ -24,7 +24,9 @@ Each tagged message is resolved again by the control plane
   calendar, vault and Tex's own notes about them.
 - When they share several, Tex asks which one, and "Tex, use @slug" binds or
   switches it (the owner, 2026-10-20: "if the people in the group share
-  multiple workspaces, just make tex have them pick a workspace"). The
+  multiple workspaces, just make tex have them pick a workspace"). While that
+  question is open, the name alone ("supa") picks it, and quotes typed around
+  a command are ignored (first live test, 2026-10-21). The
   binding drops by itself when someone joins who isn't a member.
 - The turn's grant (`context_texts_group`) reaches only that workspace, at
   the `team` tier with no private scope and no granted names, so a note held

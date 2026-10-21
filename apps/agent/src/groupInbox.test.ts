@@ -102,6 +102,12 @@ describe("what wakes Tex in a group", () => {
     expect(groupCommand("Tex use @Band")).toEqual({ kind: "use", slug: "band" });
     expect(groupCommand("Tex, what can you see here?")).toEqual({ kind: "status" });
     expect(groupCommand("Tex, stop the music at 9")).toBeNull();
+    expect(groupCommand("“Tex use @supa”")).toEqual({ kind: "use", slug: "supa" });
+    expect(addressesTex("“Tex use @supa”", false)).toBe(true);
+    expect(groupCommand("supa", ["context-lc", "supa"])).toEqual({ kind: "use", slug: "supa" });
+    expect(groupCommand("Tex @supa", ["supa"])).toEqual({ kind: "use", slug: "supa" });
+    expect(groupCommand("supa")).toBeNull();
+    expect(groupCommand("hello", ["supa"])).toBeNull();
   });
 });
 
@@ -207,6 +213,20 @@ describe("a group's queue", () => {
       expect(w.sends.map((sent) => sent.content)).toEqual([said]);
       expect(w.asks).toEqual([]);
     }
+  });
+
+  it("takes a workspace's bare name as the answer to its question, and only while it is open", async () => {
+    const storage = new MemoryStorage();
+    const w = world();
+    expect(await acceptGroup(storage, message("supa", { messageId: "h_early" }), 0)).toBe("ignored");
+    await acceptGroup(storage, message("Tex, hi"), 0);
+    await drainGroup(storage, deps(w, { control: { status: "choose", slugs: ["context-lc", "supa"] } }));
+    expect(await acceptGroup(storage, message("supa", { messageId: "h_pick" }), 0)).toBe("queued");
+    await drainGroup(storage, deps(w, { control: { status: "ready", slug: "supa", intro: false, bound: true, timeZone: "UTC", handle: "ada", minted: false } }));
+    expect(w.control[1]).toMatchObject({ command: { kind: "use", slug: "supa" } });
+    expect(w.sends.map((sent) => sent.content).at(-1)).toBe(GROUP_LINES.bound("supa"));
+    // Answered, the question is closed: the name alone is ordinary chat again.
+    expect(await acceptGroup(storage, message("supa", { messageId: "h_later" }), 0)).toBe("ignored");
   });
 
   it("is silent when muted, and tells an unknown tagger only once", async () => {
