@@ -198,3 +198,14 @@ changed, in `apps/agent/src/groupInbox.ts`:
 The bug report's line about texts is said once even when the model copies it
 into the report (`reportCopy`), and the held-report instruction tells the
 model to speak as "I", never "Context will text you".
+
+## Links and workspace names in a group (2026-10-21)
+
+- **A note Tex reads or writes in a group comes back with its app link**
+  (`noteLinks.js`). Everyone in the chat is a member of the one workspace a
+  group turn reads, at its team tier, so the link opens for each of them and
+  for nobody else. A share link for people outside the workspace is still the
+  owner's, minted one to one.
+- **"Tex use @x" for a workspace the chat doesn't share names the ones it
+  does** (`not_shared` carries `slugs`). Every person in the chat is a member
+  of each named workspace, so the list tells nobody anything new.

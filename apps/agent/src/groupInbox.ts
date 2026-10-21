@@ -93,7 +93,9 @@ export const GROUP_LINES = {
     "I can only use notes everyone in this chat can open, and not everyone here shares a workspace with me. Text me on your own instead.",
   choose: (slugs: string[]) =>
     `You all share ${slugs.map((slug) => `@${slug}`).join(" and ")}. Which one should I use here? Just say its name.`,
-  notShared: "That isn't a workspace everyone in this chat shares.",
+  notShared: (slugs: string[]) =>
+    "That isn't a workspace everyone in this chat shares." +
+    (slugs.length > 0 ? ` You all share ${slugs.map((slug) => `@${slug}`).join(", ")}. Say "Tex use @${slugs[0]}" to pick one.` : ""),
   bound: (slug: string, intro = false) =>
     `Got it, I'll use @${slug} in this chat.` +
     (intro
@@ -309,7 +311,7 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, accepte
   if (command === null && message.reaction === undefined) await reactInGroup(deps.fetch, deps.sendblue, chat, message.messageId, "👀");
   if (status === "unknown_sender") return asked.tell === true ? void (await say(storage, deps, message, GROUP_LINES.unknown)) : log(status);
   if (status === "no_shared") return void (await say(storage, deps, message, GROUP_LINES.noShared));
-  if (status === "not_shared") return void (await say(storage, deps, message, GROUP_LINES.notShared));
+  if (status === "not_shared") return void (await say(storage, deps, message, GROUP_LINES.notShared(asked.slugs)));
   if (status === "stopped") return void (await say(storage, deps, message, GROUP_LINES.stopped));
   if (status === "started") return void (await say(storage, deps, message, GROUP_LINES.started));
   if (status === "choose") {
@@ -388,7 +390,8 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, accepte
 }
 
 type ControlAnswer =
-  | { status: "refused" | "muted" | "stopped" | "started" | "no_shared" | "not_shared" }
+  | { status: "refused" | "muted" | "stopped" | "started" | "no_shared" }
+  | { status: "not_shared"; slugs: string[] }
   | { status: "unknown_sender"; tell?: boolean }
   | { status: "choose"; slugs: string[] }
   | {
@@ -420,8 +423,9 @@ async function askControlPlane(deps: GroupDeps, message: GroupMessage, people: s
     case "stopped":
     case "started":
     case "no_shared":
-    case "not_shared":
       return { status: body.status };
+    case "not_shared":
+      return { status: "not_shared", slugs: (Array.isArray(body.slugs) ? body.slugs.filter(slug) : []).slice(0, 8) as string[] };
     case "unknown_sender":
       return { status: "unknown_sender", tell: body.tell === true };
     case "choose": {

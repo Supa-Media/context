@@ -307,3 +307,18 @@ test("the group dispatcher refuses a write tool it wasn't given and passes reads
   );
   assert.equal((await groupAwareCallTool(callTool, groupWriteTools([]))("write_note", { path: "1-projects/y.md", content: "y" })).isError, true);
 });
+
+test("a note read in a group comes back with its app link, which everyone in the chat can open", async () => {
+  // The group chat of 2026-10-21: "Tex, can you send a share link for the read me" got "I can't make a share link here".
+  world.env.APP_ORIGIN = "https://app.example";
+  try {
+    world.model.install([{ toolCalls: [{ name: "fetch", args: { id: "1-projects/setlist.md" } }] }, { text: "https://app.example/note/@band/1-projects/setlist.md" }]);
+    await ask(TOKEN_GROUP, { question: "Tex send the link to the setlist", group: chat() });
+    const request = world.model.requests.at(-1);
+    const [read] = toolResults(request);
+    assert.match(read, /link: https:\/\/app\.example\/note\/@band\/1-projects\/setlist\.md/);
+    assert.match(JSON.stringify(world.model.requests.at(-2).system ?? world.model.requests.at(-2).messages), /opens in the Context app for everyone in this chat/);
+  } finally {
+    delete world.env.APP_ORIGIN;
+  }
+});

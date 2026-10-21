@@ -29,6 +29,14 @@
  * already see the note, never a share link: one of those is minted only when
  * they ask for a link to send someone else.
  *
+ * A GROUP CHAT'S TURN ANSWERS WITH IT TOO (2026-10-21).
+ *
+ * Jhon asked Tex in a group for "a share link for the read me" and was told
+ * none could be made there. A group turn reads only the one workspace every
+ * person in the chat is a member of, at its team tier, so the app link to a
+ * note it read opens for each of them and for nobody else. A share link is
+ * still the owner's, minted one to one.
+ *
  * No link when the deployment has no https `APP_ORIGIN`, when the context's
  * name is not known, or when the call did not succeed: a guessed link opens
  * nothing, and that is worse than none.
@@ -60,8 +68,10 @@ export function noteLinkUrl(origin, slug, path) {
 function slugFor(args, contexts) {
   const named = typeof args?.context === "string" ? args.context.trim().replace(/^@/, "") : "";
   if (named !== "") return named;
+  // A context may be listed by its address ("@band"); the link names it once.
   const own = (contexts || []).find((entry) => entry?.current)?.name;
-  return typeof own === "string" && own !== "" ? own : null;
+  const slug = typeof own === "string" ? own.trim().replace(/^@/, "") : "";
+  return slug !== "" ? slug : null;
 }
 
 /** The first text block with the link put in, or null when the call has none to give. */
