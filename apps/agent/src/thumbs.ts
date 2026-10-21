@@ -64,12 +64,37 @@ export async function rememberAskReply(storage: InboxStorage, texts: readonly st
   }
 }
 
+/*
+  Promoting is a widening, so it is stricter than matching.
+
+  The gateway compares a like's words to the ask for what is armed, and that
+  comparison has a floor (`textedApprovals.js`, `MIN_QUOTED`). A promotion
+  walks past it: by the time the gateway looks, the words ARE the ask, so
+  they are always long enough and always match. The floor therefore has to
+  hold here.
+
+  `sameWords` matches a prefix either way, which is right for a take-back —
+  a quote is the text it was on, cut short — and wrong for a promotion. A
+  gate tells the model to say what it would change "in one short line", so a
+  remembered text is often a few words, and either direction would promote a
+  like on any other message that happens to share that opening.
+*/
+/** Fewest characters that tell one message from another, as `MIN_QUOTED` in the gateway. */
+const MIN_PROMOTED = 24;
+
+/** Whether `quoted` is `text` as a message quotes it: the same words, or those words cut short. */
+function quotesText(text: string, quoted: string): boolean {
+  const fold = (value: string) => value.replace(/\s+/g, " ").replace(/\s*…\s*$/u, "").trim();
+  const [whole, part] = [fold(text), fold(quoted)];
+  return part.length >= MIN_PROMOTED && whole.startsWith(part);
+}
+
 /** A like or love on a text of the last reply that carried an ask, as a like on that ask; anything else as it was. */
 export async function onTheAsk(storage: InboxStorage, reaction: Reaction, now: number): Promise<Reaction> {
   if (reaction.removed || (reaction.how !== "Liked" && reaction.how !== "Loved") || ASK.test(reaction.words)) return reaction;
   const kept = await storage.get<AskReply>(ASK_REPLY_KEY);
   if (kept === undefined || now - kept.at > ASK_REPLY_FOR_MS) return reaction;
-  return kept.texts.some((text) => sameWords(text, reaction.words)) ? { ...reaction, words: kept.ask } : reaction;
+  return kept.texts.some((text) => quotesText(text, reaction.words)) ? { ...reaction, words: kept.ask } : reaction;
 }
 
 /** Hold a tapback for its ten seconds; a newer one replaces it. */
