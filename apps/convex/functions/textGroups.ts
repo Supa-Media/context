@@ -69,6 +69,8 @@ export const groupAnswerValidator = v.union(
     handle: v.string(),
     /** False when only the binding was asked for ("Tex, use @slug"): no token was minted. */
     minted: v.boolean(),
+    /** Each person in the chat's handle, so what they said before the tag is filed by name, never by number. */
+    names: v.array(v.object({ phone: v.string(), handle: v.string() })),
   }),
 );
 
@@ -76,7 +78,16 @@ export type GroupAnswer =
   | { status: "refused" | "muted" | "stopped" | "started" | "no_shared" | "not_shared" }
   | { status: "unknown_sender"; tell: boolean }
   | { status: "choose"; slugs: string[] }
-  | { status: "ready"; slug: string; intro: boolean; bound: boolean; timeZone: string; handle: string; minted: boolean };
+  | {
+      status: "ready";
+      slug: string;
+      intro: boolean;
+      bound: boolean;
+      timeZone: string;
+      handle: string;
+      minted: boolean;
+      names: { phone: string; handle: string }[];
+    };
 
 /** The key a chat is filed under: its line and Sendblue id, hashed, never stored as given. */
 export async function groupKeyOf(line: string, groupId: string): Promise<string> {
@@ -135,9 +146,11 @@ export const applyGroupTurn = internalMutation({
     }
 
     const users: Id<"users">[] = [];
+    const phones = new Map<Id<"users">, string>();
     for (const phone of others) {
       const userId = phone === args.sender ? senderUser : await linkedUser(ctx, phone);
       if (userId === null) return { status: "no_shared" };
+      phones.set(userId, phone);
       if (!users.includes(userId)) users.push(userId);
     }
 
@@ -178,11 +191,18 @@ export const applyGroupTurn = internalMutation({
     // Choosing the workspace is the chat's first word from Tex, so the line that answers it carries the introduction.
     const introduced = intro && (minted || args.command?.kind === "use");
     if (introduced) await ctx.db.patch(group._id, { introducedAt: now });
-    const personal = await personalWorkspaceOf(ctx, senderUser);
-    const handle = personal === null ? "" : (await ctx.db.get(personal))?.slug ?? "";
-    return { status: "ready", slug: workspace.slug, intro: introduced, bound, timeZone, handle, minted };
+    const names: { phone: string; handle: string }[] = [];
+    for (const [userId, phone] of phones) names.push({ phone, handle: await handleOf(ctx, userId) });
+    const handle = await handleOf(ctx, senderUser);
+    return { status: "ready", slug: workspace.slug, intro: introduced, bound, timeZone, handle, minted, names };
   },
 });
+
+/** A person's handle: their personal workspace's slug, or "" when they have none. */
+async function handleOf(ctx: MutationCtx, userId: Id<"users">): Promise<string> {
+  const personal = await personalWorkspaceOf(ctx, userId);
+  return personal === null ? "" : ((await ctx.db.get(personal))?.slug ?? "");
+}
 
 async function groupRow(ctx: MutationCtx, groupKey: string, now: number): Promise<Doc<"textGroups">> {
   const existing = await ctx.db

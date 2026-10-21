@@ -6,11 +6,11 @@ This is how that is built, and the decisions the owner made on the way.
 
 ## Who Tex answers, and from where
 
-Tex stays quiet in a group until it is addressed: its name ("Tex" or
+Tex answers in a group only when it is addressed: its name ("Tex" or
 "Context") opening or closing the message, its name in a question, or an
 inline reply to one of Tex's own texts in that group that says more than
-thanks. The test reads only the words, with no model, and a message that
-fails it is never stored or sent anywhere (`apps/agent/src/groupInbox.ts`).
+thanks. The test reads only the words, with no model
+(`apps/agent/src/groupInbox.ts`). It never chimes in on its own.
 
 Each tagged message is resolved again by the control plane
 (`POST /agent-texts/group`, `apps/convex/functions/textGroups.ts`):
@@ -36,6 +36,35 @@ Each tagged message is resolved again by the control plane
   muted (`liveGrants.ts`), so removing someone from the workspace stops the
   next tool call. The tagger's role decides writes; the turn is metered on
   the tagger's personal workspace; audit records the tagger.
+
+## Tex follows the whole chat (the owner, 2026-10-21)
+
+The first live group wanted Tex like Claude in Slack: "less of adding input
+and more so, hey take all the context from this chat and go do something",
+"like if we are discussing when to meet, and at the end I say @Tex go
+schedule this". The owner then chose the whole chat over a short buffer
+("Why can't we give it the entire history like a regular chat"), kept the
+way a person's own texts are. This replaces the first version's rule that an
+untagged message is never stored.
+
+- While a chat is bound to a shared workspace and not muted, an untagged
+  message is kept in the group's queue object (`apps/agent/src/groupChat.ts`),
+  with who sent it and a hash of who was in the chat. Nothing is kept in a
+  chat that isn't bound, an SMS group, or a muted one.
+- The next tagged message hands the gateway the lines said before it, in front
+  of exactly the people it answers, by handle and never by number (the
+  control plane names them). The gateway files them with the question in the
+  chat's memory in the bound workspace, and the queue's copy is deleted. A
+  line nobody tags Tex after is dropped after a week, the oldest go first past
+  four hundred, and "Tex, stop", a mute or the chat losing its shared
+  workspace drops them all.
+- The memory is bounded like a person's texts (`conversation.js`, 300 turns
+  and 120,000 characters); a turn is shown up to 80,000 and reads the rest
+  with `earlier_chat`. Nothing is summarized: the person's texts aren't
+  either.
+- The chat's words reach the model marked as people talking to each other,
+  never as instructions, and the turn is untrusted from the start, as before.
+- Tex's introduction says it follows the chat and keeps it in the workspace.
 
 ## The lookup risk is accepted (the owner, 2026-10-20)
 
@@ -68,7 +97,7 @@ group grant's `team` tier would hide a note shared by name, so the first
 version keeps each chat's memory as plumbing in the bound workspace,
 `.context/agent/groups/<hash>.json`, filed by the chat and the exact set of
 people in it: somebody added later starts a new memory and is never
-replayed what was said before they joined. A visible `tex/groups/` note the
+replayed what was said before they joined, untagged lines included. A visible `tex/groups/` note the
 people in the chat can read and correct is the follow-up.
 
 ## What Sendblue gives and doesn't
@@ -84,7 +113,9 @@ members read fails, the webhook's own list is used and the failure is
 logged. An answer is not sent if the members read after the turn shows
 someone new.
 
-**What a simplification would cost:** a group turn on the tagger's ordinary
+**What a simplification would cost:** handing a turn every kept line, rather
+than those said in front of the same people, replays to a newcomer what was
+said before they joined. A group turn on the tagger's ordinary
 texting grant reads their personal workspace, mail and vault into a room of
 other people. A workspace set computed once at join time, rather than per
 message and per tool call, keeps answering after someone is removed. Tests:

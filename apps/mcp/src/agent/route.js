@@ -59,7 +59,7 @@ import { threadPrompt, threadView } from "./threadView.js";
 import { steerFor, steeredLine } from "./steer.js";
 import { answerWithAsk, textedAsk } from "./textedApprovals.js";
 import { setAsideLine, settleTextedText } from "./textedSettle.js";
-import { groupAwareCallTool, groupOf, groupPrompt, groupWriteTools, isGroupSession, keepGroupExchange, readGroupMemory } from "./groupTurn.js";
+import { chatLines, earlierChatTool, groupAwareCallTool, groupOf, groupPrompt, groupWriteTools, isGroupSession, keepGroupExchange, readGroupMemory } from "./groupTurn.js";
 /**
  * What a turn that may not run says. Nothing in the app can change this any
  * more (people's own model keys were deleted, the owner, 2026-10-10): the
@@ -378,7 +378,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   if (historyIsTainted(shown)) markUntrusted(ledger);
   if (attachments.length > 0) markUntrusted(ledger); // a forwarded PDF is someone else's words, like a page
   // The rest is read on request, and carries its own mark when it is read.
-  const earlier = conversation === null ? [] : [earlierTextsTool(history, () => markUntrusted(ledger))];
+  const earlier = group !== null ? [earlierChatTool(history)] : conversation === null ? [] : [earlierTextsTool(history, () => markUntrusted(ledger))];
   // The setup's `search:` section, when it has one, over the deployment's
   // settings for this turn's searches, in this context and any it addresses
   // (`openContext` copies the store's settings at open time).
@@ -506,7 +506,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   const { outgoing, maker } = await turnPictures(env, { texted, question, attachments, store, keep: conversation === "texts", meter, workspaceId: session.workspaceId });
   try {
     const turn = await runTurn({
-      question: [reactedLine(reacted), setAsideLine(setAside), askedWith(question, quoted)].filter(Boolean).join("\n\n"),
+      question: [chatLines(group), reactedLine(reacted), setAsideLine(setAside), askedWith(question, quoted)].filter(Boolean).join("\n\n"),
       place: body.place ?? null,
       // A turn that edits directly is not also handed proposals: they have no
       // screen on a phone, and two ways to change a note is one too many.
