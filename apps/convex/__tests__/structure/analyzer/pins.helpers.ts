@@ -197,4 +197,14 @@ export const CREDENTIAL_HTTP_ROUTES = new Set([
   // hour. `__tests__/personMail.test.ts` carries the behavioural half.
   "http.gatewayPersonMailSearch",
   "http.gatewayPersonMailRead",
+  // The person's own Google Calendar, read (`/gateway/calendar/days`, owner
+  // 2026-10-21: calendars are no longer copied into notes, so a day is asked
+  // of Google when it is wanted). The same clearance as the Gmail reads
+  // above: gateway secret plus a live access token on a grant holding
+  // `context:private`, addressed to a personal workspace its person owns.
+  // The calendars are that workspace's own connections, never named by the
+  // request. The token is minted inside the route, spent on events.list and
+  // never returned, logged or stored, and nothing read is kept.
+  // `__tests__/personCalendar.test.ts` carries the behavioural half.
+  "http.gatewayPersonCalendarDays",
 ]);
