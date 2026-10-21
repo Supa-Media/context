@@ -30,6 +30,7 @@ import { DETAIL_CAP, callKey, createPending, findPending, takeDone } from "./app
 import { toolError } from "./results.js";
 import { EMAIL_TOOL, REFUSED, emailCopy, emailSummary, readEmail } from "./email.js";
 import { readHelperCallers } from "../agent/production.js";
+import { parseEmailId } from "./emailRead.js";
 
 export { EMAIL_TOOL };
 
@@ -112,6 +113,23 @@ export async function emailGate(supplied, { store, session, target }) {
     if (releasedBound) return releasedBound;
   }
 
+  // A forward is shown with what goes below their words: the email's sender, subject and each attachment's name.
+  let forwarded = null;
+  if (email.forward) {
+    const named = parseEmailId(String(supplied.forward).trim());
+    let read;
+    try {
+      read = typeof store.email.read === "function" ? await store.email.read(named.address, named.messageId) : null;
+    } catch {
+      read = null;
+    }
+    if (read?.ok !== true) {
+      const why = read?.refused === "not_found" ? "forward_not_found" : read?.refused === "reconnect_required" ? "reconnect_required" : "unavailable";
+      return toolError(REFUSED[why]);
+    }
+    forwarded = read.message;
+  }
+
   const texting = session.egress?.texting === true;
   // One email per texted ask: two copies in one text could outgrow it, and one YES would send both.
   const ledger = session.egress?.ledger ?? null;
@@ -132,7 +150,7 @@ export async function emailGate(supplied, { store, session, target }) {
   // An unsure or unchecked email is still put to the person, as the email
   // alone: the checker's reason is a model's guess, and texted beside the
   // copy it read as part of the email (2026-10-19).
-  const detail = emailCopy({ ...email, from: email.from ?? room.from });
+  const detail = emailCopy({ ...email, from: email.from ?? room.from }, forwarded);
   // The person may allow only what they read, so a copy the record would cut is never asked about.
   if (detail.length > DETAIL_CAP) return toolError("Not sent: this email is too long to show the person whole. Shorten it.");
   if (texting && detail.length > TEXTED_COPY_CAP) {

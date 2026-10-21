@@ -179,7 +179,24 @@ passes, a missing message sends, a reply leaves its thread, or a "Re:" email
 with no id stays out of its thread or joins one with a different subject;
 `apps/mcp/test/emailGate.test.mjs` fails if a reply sends from another mailbox.
 
+### A forward carries the email's attachments (2026-10-21)
+
+Tex offered to send an Anthropic receipt on to the owner's bookkeeping
+address, they said yeah, and it answered "I can't attach the PDF from here, so
+forward it yourself." `send_email` and `save_email_draft` now take `forward`,
+the `email:<address>/<id>` of an email in the sending mailbox, as `in_reply_to`
+does. The gateway reads that email before the person is asked, and the copy
+they say yes to names its sender, subject and every attachment
+(`emailCopy`). The control plane reads it again with the sending connection's
+own token (`lib/personEmailForward.ts`) and sends their words, the forwarded
+email's headers and text below them, and each attachment, as one
+`message/rfc822` upload: up to 20 files and 20 MB. A forward is never also a
+reply, and goes only from the mailbox that holds it, so it can only pass on
+the person's own mail. Every file's name and type is cleaned before it becomes
+a header. Tests: `apps/convex/__tests__/personEmail.test.ts`,
+`apps/mcp/test/emailGate.test.mjs`.
+
 ### What is deliberately not built
 
-Attachments, HTML bodies, scheduled sends, and sending from a shared
-workspace. Files, images and designed flyers are their own follow-ups.
+Attaching a file that is not already on an email (a note's PDF, a picture),
+HTML bodies, scheduled sends, and sending from a shared workspace.

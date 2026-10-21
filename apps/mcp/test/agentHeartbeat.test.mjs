@@ -25,6 +25,10 @@
  *     → "a look with nothing changed still leaves a line…" fails.
  *  6. The check-in's `disarmTexting` removed (2026-10-19).
  *     → "a texted check-in stops an older ask listening…" fails.
+ *  7. `handleHeartbeat` ignoring `mutedCheckIn` (2026-10-21).
+ *     → "a check-in about something they muted in tex/attention.md…" fails.
+ *  8. `checkInText` skipping `withoutPreamble` (2026-10-21).
+ *     → "words about the check-in itself never reach them…" fails.
  */
 
 import worker from "../src/index.js";
@@ -516,6 +520,41 @@ export async function runAgentHeartbeatChecks(check) {
       "a marker naming no shown text sends the text plain, without the marker",
       unnamed.status === 200 && unnamed.body?.answer === "Your rent is due Friday." && unnamed.body?.continues === undefined,
     );
+
+    /* ---------------- what they muted, and words about the check-in itself (2026-10-21) ---------------- */
+
+    bucket.set("tex/attention.md", { body: "---\nmute: [github]\n---\nThey said: never message me about github stuff unless i ask.\n", etag: "m1" });
+    model.install([
+      {
+        text:
+          "Heads up: the production deploy from this morning's main push (da345ba) failed on \"router / Deploy router + production web\" " +
+          "(GitHub notification). Want me to add a to-do to check the router deploy before anything else ships?",
+      },
+    ]);
+    const muted = await ask(env, TOKEN_BEAT, beat());
+    check(
+      "a check-in about something they muted in tex/attention.md is never texted, and the log says why",
+      muted.status === 200 && muted.body?.outcome === "quiet" && muted.body?.answer === undefined &&
+        log().includes("_Stayed quiet: what it found was about github, which they muted._"),
+    );
+    check(
+      "the look is told what they muted",
+      JSON.stringify(model.requests.at(-1)).includes("They asked never to be texted about these unless they ask") &&
+        JSON.stringify(model.requests.at(-1)).includes("github"),
+    );
+    model.install([
+      {
+        text:
+          "? No. This is a new thread, not a follow-up. Here's the text:\n\n" +
+          "Anthropic sent a failed-payment notice for the $212 Claude charge today, and a later receipt says it was paid.",
+      },
+    ]);
+    const meta = await ask(env, TOKEN_BEAT, beat());
+    check(
+      "words about the check-in itself never reach them: the text starts at the news",
+      meta.status === 200 && meta.body?.answer?.startsWith("Anthropic sent a failed-payment notice") && !log().includes("new thread"),
+    );
+    bucket.delete("tex/attention.md");
 
     /* ---------------- paused ---------------- */
 

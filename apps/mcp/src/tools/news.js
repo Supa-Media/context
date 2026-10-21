@@ -41,6 +41,12 @@ import { unlistedArgumentAdvice } from "./liveList.js";
 export const TOOL_NEWS = Object.freeze([
   {
     date: "2026-10-21",
+    text:
+      "send email and email_draft take `forward`: the email:<address>/<id> id of an email to pass on. It goes below the body with all of its attachments, " +
+      "from that mailbox, so a receipt reaches a bookkeeper with its PDF.",
+  },
+  {
+    date: "2026-10-21",
     newTool: true,
     text:
       "fetch `apps:` lists every app Context connects (Linear, Notion, Jira and Confluence, Planning Center, Airtable, monday.com, " +
@@ -246,7 +252,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "629be7ee";
+export const TOOL_SHAPE = "ea2e06a2";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

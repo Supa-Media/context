@@ -54,6 +54,8 @@ export interface PersonEmail {
   body: string;
   /** The Gmail id of the message this answers, in the sending mailbox: sent inside that thread. */
   replyTo: string | null;
+  /** The Gmail id of a message in the sending mailbox this forwards, attachments and all (`personEmailForward.ts`). */
+  forward: string | null;
 }
 
 /** The headers that put a reply inside its thread (`replyHeadersOf`). */
@@ -68,6 +70,8 @@ export type PersonEmailRefusal =
   | "not_allowed"
   | "no_sender"
   | "reply_not_found"
+  | "forward_not_found"
+  | "too_large"
   | "reconnect_required"
   | "hourly_limit"
   | "daily_limit"
@@ -117,7 +121,11 @@ export function readPersonEmail(value: unknown): PersonEmail | null {
   if (replyTo !== null && (typeof replyTo !== "string" || !MESSAGE_ID.test(replyTo))) return null;
   // A reply goes from the mailbox that holds the message it answers.
   if (replyTo !== null && from.length === 0) return null;
-  return { from: from[0] ?? null, to, cc, subject, body, replyTo };
+  const forward = raw.forward === undefined ? null : raw.forward;
+  if (forward !== null && (typeof forward !== "string" || !MESSAGE_ID.test(forward))) return null;
+  // A forward goes from the mailbox that holds it too, and is never also a reply.
+  if (forward !== null && (from.length === 0 || replyTo !== null)) return null;
+  return { from: from[0] ?? null, to, cc, subject, body, replyTo, forward };
 }
 
 const MESSAGE_ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -183,7 +191,7 @@ export function personEmailDraftPolicies(userId: string) {
 }
 
 /** RFC 2047 for a header that is not plain ASCII. */
-function headerText(value: string): string {
+export function headerText(value: string): string {
   if (/^[\x20-\x7e]*$/.test(value)) return value;
   return `=?UTF-8?B?${base64(new TextEncoder().encode(value))}?=`;
 }

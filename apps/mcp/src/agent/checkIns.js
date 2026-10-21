@@ -13,7 +13,7 @@ export const HEARTBEAT_SETTINGS_PATH = "tex/heartbeat.md";
 export const CHECK_IN_PROMPT =
   "\n\nA few times a day you check their workspace on your own and text them only if something is worth it; " +
   `each look is logged in ${HEARTBEAT_FOLDER}/. To change or stop that, write it in ${HEARTBEAT_SETTINGS_PATH} ` +
-  "(`paused: true` in its front matter stops it).";
+  "(`paused: true` in its front matter stops it); a word muted in tex/attention.md (below) silences check-ins too.";
 
 /** Pings their agents asked Tex to text (`attention.js`): each logged here, a day to a note. */
 export const ATTENTION_FOLDER = "tex/attention";

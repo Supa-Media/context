@@ -18,6 +18,8 @@
  *  3. `reportGate` reading the texts before the approved replay (sending them
  *     with the held call). → `nothing of the texts leaves before the YES`
  *     fails.
+ *  4. `reportGate` sending at once whenever their text asks, texts or not
+ *     (2026-10-21). → `…but their texts still go only on a yes` fails.
  */
 
 import { reportCopy } from "../src/tools/reportGate.js";
@@ -122,6 +124,20 @@ export async function runReportGateChecks(check) {
     const pendingBefore = pending().length;
     await ask(env, TOKEN_TEXTS, "file a long one");
     check("a report too long to read in one text is never put to the person", pending().length === pendingBefore && sent().length === 4);
+
+    // Dev2, 2026-10-21: "do it for me, and if you can't do it, file a bug to the developers" was answered with a draft and a wait for 👍.
+    const asks = "??? I told you to do it, don't add it to my todo list, do it for me, and if you can't do it, file a bug to the developers to give you the capability you need";
+    model.install([report({ message: "Tex can't forward an email with its attachment." }), { text: "Filed it." }]);
+    const pendingAsked = pending().length;
+    const filedNow = await ask(env, TOKEN_TEXTS, asks);
+    check(
+      "a text that asks for a bug to be filed is the yes for a report without their texts: sent at once, nothing held",
+      filedNow.status === 200 && sent().length === 5 && sent()[4].message === "Tex can't forward an email with its attachment." &&
+        sent()[4].texts === undefined && pending().length === pendingAsked && filedNow.body?.verbatim === undefined,
+    );
+    model.install([report({ message: "Tex can't forward with attachments.", share_texts: true }), { text: "Wrote it up." }]);
+    await ask(env, TOKEN_TEXTS, asks);
+    check("…but their texts still go only on a yes to the report that says so", sent().length === 5 && pending().length === pendingAsked + 1);
   } finally {
     world.restore();
   }

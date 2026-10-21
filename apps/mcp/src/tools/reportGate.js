@@ -18,6 +18,12 @@
  *   3. The approved replay sends it. Only that replay reads the texts, off
  *      the person's own conversation file, never from anything the model
  *      wrote: the model can say whether they go, never what they say.
+ *   4. A report with none of their texts, on a turn whose own text asks for
+ *      a bug to be filed ("if you can't do it, file a bug to the
+ *      developers"), is sent at once: that text is the yes (the owner,
+ *      2026-10-21, after Tex drafted the report they had just asked for and
+ *      then waited on a thumbs-up). The texts still only ever go on a yes to
+ *      the report that says they go with it.
  */
 
 import { readConversation, shownHistory } from "../agent/conversation.js";
@@ -47,6 +53,18 @@ export function reportCopy(message, shareTexts) {
   return `${said}\n\n${texts}`;
 }
 
+/** "file a bug", "send a bug report to the team", "report this to the developers". */
+const ASKS_TO_FILE = [
+  /\b(?:file|send|submit|open|log|raise|write up|make)\b[^.?!\n]{0,30}?\b(?:bug|issue|ticket|bug report)\b/i,
+  /\breport\s+(?:it|this|that)\b[^.?!\n]{0,20}\b(?:team|devs?|developers?|engineers?)\b/i,
+];
+
+/** Whether the person's own text, this turn, asks for a bug to be filed. */
+export function asksToFile(words) {
+  const said = String(words ?? "");
+  return ASKS_TO_FILE.some((pattern) => pattern.test(said));
+}
+
 /** The person's recent texts with Tex, as plain lines, or undefined when there are none. */
 export async function recentTexts(store) {
   const turns = shownHistory(await readConversation(store, "texts"), REPORT_TEXTS_TURNS);
@@ -73,6 +91,9 @@ export async function reportGate(supplied, { store, session }) {
   if ([...message].length > TEXTED_REPORT_CAP) {
     return toolError(`Not sent: a bug report by text is at most ${TEXTED_REPORT_CAP.toLocaleString("en-US")} characters, so the person can read it whole. Shorten it.`);
   }
+
+  // Their own text asked for it, and none of their texts go: sent now (4. above).
+  if (!shareTexts && asksToFile(session.egress?.turn?.question)) return await sendReport(store, message, undefined);
 
   const ledger = session.egress?.ledger ?? null;
   if (ledger?.asked.some((asked) => asked.tool === REPORT_TOOL && asked.key !== callKey(REPORT_TOOL, supplied))) {

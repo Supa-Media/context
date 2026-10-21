@@ -113,3 +113,25 @@ model on every slot for nothing; keeping what it saw anywhere but the person's
 notes is the opaque memory the owner ruled out (2026-10-14). Tests:
 `apps/mcp/test/agentHeartbeat.test.mjs`, `apps/convex/__tests__/heartbeats.test.ts`,
 `apps/agent/src/heartbeats.test.ts`.
+
+## Muted words, doable offers, and no words about itself (2026-10-21)
+
+A check-in texted the owner about a GitHub deploy notification, then, after
+"never message me about github stuff unless i ask", texted again opening "? No.
+This is a new thread, not a follow-up. Here's the text:", offering to send a
+receipt on to their bookkeeper "and handle these automatically from now on",
+which Tex could not do. So, in `apps/mcp/src/agent/checkInGuards.js`:
+
+- `mute:` in the front matter of `tex/heartbeat.md` or of `tex/attention.md`
+  (where a texted "stop texting me about X" is kept) silences a check-in that
+  says one of the words, decided by the gateway after the model answers; the
+  look is told the words too, and the day's log says it stayed quiet and why.
+- A first paragraph about the check-in itself (a new thread, "not a
+  follow-up", the `[continues N]` marker) or a lead-in like "Here's the
+  text:" comes off before anything is sent, logged or kept.
+- The instructions (built-in, and `@context-lc ai/production/heartbeat.md`)
+  say to offer only what a text lets Tex do once they say yes, and to offer
+  the "from now on" half only for what a routine can do alone: a routine
+  never sends email or changes a calendar.
+
+Tests: `apps/mcp/test/agentHeartbeat.test.mjs` (sabotages 7 and 8).
