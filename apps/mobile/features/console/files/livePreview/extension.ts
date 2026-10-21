@@ -25,6 +25,7 @@ import {
 import { frontmatterRange } from "./frontmatter";
 import { taskToggle } from "./listWidgets";
 import { tableGrids } from "./tableModel";
+import { wikiLinkKeys } from "./wikiLinkKeys";
 import { writingTable } from "./writingTable";
 
 /**
@@ -200,5 +201,7 @@ export function livePreview() {
         return false;
       },
     }),
+    // Backspace beside a link drawn as its name steps into it: see the module.
+    wikiLinkKeys,
   ];
 }

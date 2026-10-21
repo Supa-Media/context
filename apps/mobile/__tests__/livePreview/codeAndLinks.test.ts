@@ -88,12 +88,42 @@ describe("a wiki link is drawn as its words", () => {
     );
   });
 
-  test("without an alias the target is what it has to show", () => {
-    // Nothing else names the note, so the path is the words. Only the brackets
-    // go.
-    expect(visibleText("See [[1-projects/foo/overview]] today")).toBe(
-      "See 1-projects/foo/overview today",
+  test("without an alias the note's name is what it shows, not its path", () => {
+    /*
+      The owner's screenshot of 2026-10-21: a picked note sat in the sentence
+      as `[[Areas/Bible study/Character Analysis/Jesus]]`. The folders are how
+      the link finds the note; the suggestion list is where paths are shown.
+    */
+    expect(visibleText("See [[1-projects/foo/overview]] today")).toBe("See overview today");
+    expect(visibleText("the true [[Areas/Bible study/Character Analysis/Jesus]]!")).toBe(
+      "the true Jesus!",
     );
+  });
+
+  test("a name written with `.md` or an anchor reads as the name", () => {
+    expect(visibleText("See [[a/b/overview.md]] today")).toBe("See overview today");
+    expect(visibleText("See [[a/b/overview#Goals]] today")).toBe("See overview#Goals today");
+    expect(visibleText("See [[a/overview.md#x/y]] today")).toBe("See overview#x/y today");
+    // A target ending in a slash has no name to show, so it keeps its path.
+    expect(visibleText("See [[a/b/]] today")).toBe("See a/b/ today");
+    // A bare name has no folders to drop, and is drawn as it was.
+    expect(visibleText("See [[Eve]] today")).toBe("See Eve today");
+  });
+
+  test("the caret just after a link it was picked into leaves it drawn as a name", () => {
+    // Picking from the `[[` list leaves the caret right after `]]`; an
+    // inclusive touch showed the whole path the moment the link was made.
+    const doc = "the true [[Areas/Bible study/Jesus]]";
+    expect(visibleText(doc, doc.length)).toBe("the true Jesus");
+    expect(visibleText(doc, doc.indexOf("[["))).toBe("the true Jesus");
+  });
+
+  test("one step into it, or a selection across it, still shows the source", () => {
+    const doc = "the true [[Areas/Bible study/Jesus]] again";
+    const end = doc.indexOf("]]") + 2;
+    expect(visibleText(doc, end - 1)).toBe(doc);
+    expect(visibleText(doc, doc.indexOf("[[") + 1)).toBe(doc);
+    expect(visibleText(doc, [0, end])).toBe(doc);
   });
 
   test("the caret inside it reveals the source, like every other mark", () => {
@@ -116,9 +146,7 @@ describe("a wiki link is drawn as its words", () => {
   test("an empty alias leaves the target rather than nothing", () => {
     // `[[path|]]` is a typo in progress. Drawing it as an empty span would make
     // the link invisible and unfixable without selecting blindly across it.
-    expect(visibleText("See [[1-projects/foo/overview|]] today")).toBe(
-      "See 1-projects/foo/overview| today",
-    );
+    expect(visibleText("See [[1-projects/foo/overview|]] today")).toBe("See overview| today");
   });
 
   test("an embed is left to the pass that replaces it with a widget", () => {

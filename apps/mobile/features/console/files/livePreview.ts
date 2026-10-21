@@ -50,6 +50,7 @@
     frontmatter.ts   frontmatterRange/Block and the two frontmatter decorations
     reveal.ts        the inline reveal rule: hidden marks, reveal units,
                      selectionTouches, styleClassFor, wiki-link spans
+    wikiLinkKeys.ts  Backspace/Delete beside a wiki link step into it
     lists.ts         hanging indents, finished tasks, list glyphs, isTicked
     callouts.ts      callout detection and the card's widgets
     writingTable.ts  STATE: setWritingTable / writingTable (the table shown as

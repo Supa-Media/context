@@ -241,6 +241,10 @@ describe("a table is laid out for a reader", () => {
       expect(cell(inCell("[[note]]"), 0, 0)).toBe("note");
     });
 
+    test("a link without an alias shows the note's name, not its folders", () => {
+      expect(cell(inCell("[[Areas/Bible study/Jesus]]"), 0, 0)).toBe("Jesus");
+    });
+
     /*
       The pipe has to be escaped for the alias to be in the cell at all — a bare
       one ends the cell — so this is how an aliased wiki link is really written
