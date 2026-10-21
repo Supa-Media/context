@@ -43,6 +43,7 @@ import type { InboxStorage } from "./inbox";
 import type { SendblueKeys } from "./sendblue";
 import { chatBefore, dropChatLines, keepChatLine, peopleOf, setChatBound, sha256Hex } from "./groupChat";
 import { reactInGroup, readGroupMembers, readOwnGroupMessage, sendGroupText, type GroupMessage } from "./sendblueGroups";
+import { chatJobs, noteJobSent, noteJobUpdate, startJobs, type JobRun, type JobUpdate } from "./jobs";
 
 export type GroupDeps = {
   fetch: Fetch;
@@ -51,7 +52,14 @@ export type GroupDeps = {
   gatewayOrigin: string;
   sendblue?: SendblueKeys | null;
   now: () => number;
+  /** Starts a background job in an object of its own (`jobs.ts`); absent, the chat's turns are offered none. */
+  spawnJob?: (id: string, run: JobRun) => Promise<void>;
 };
+
+/** A group's queue is named apart from every phone's, which always starts with "+". */
+export function groupInboxName(groupId: string): string {
+  return `sendblue-group:${groupId}`;
+}
 
 type Command = { kind: "stop" } | { kind: "start" } | { kind: "use"; slug: string } | { kind: "status" };
 /** `at`: when it was accepted, so its turn is handed only what the chat said before it. */
@@ -345,6 +353,7 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, accepte
         question: message.text,
         group: { ...group, chat: said.lines.map((line) => ({ from: handles.get(line.from) ?? "", text: line.text })) },
         ...(asked.timeZone ? { timeZone: asked.timeZone } : {}),
+        ...(deps.spawnJob ? { running: await chatJobs(storage, deps.now()) } : {}),
         ...(message.reaction !== undefined
           ? { quoted: message.reaction.words, tapback: message.reaction.how }
           : quoted !== null
@@ -387,9 +396,33 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, accepte
   // Every bubble under the message it answers, not only the first (Jhon's bug report, 2026-10-21).
   for (const text of texts) await say(storage, deps, message, text);
   log("answered");
+  // Long asks it handed off run beside the chat (`jobs.ts`), each re-checking who is here when it answers.
+  if (answer.jobs && deps.spawnJob) {
+    await startJobs(storage, answer.jobs, {
+      now: deps.now(),
+      inbox: groupInboxName(message.groupId),
+      origin: { kind: "group", message, at: acceptedAt },
+      place: { line: message.line, groupId: message.groupId, messageId: message.messageId },
+      spawn: deps.spawnJob,
+    });
+  }
 }
 
-type ControlAnswer =
+/** A background job's word (`jobRun.ts`): its status kept, its texts sent under the message it answers. */
+export async function groupJobUpdate(storage: InboxStorage, deps: GroupDeps, update: JobUpdate): Promise<boolean> {
+  const entry = await noteJobUpdate(storage, update, deps.now());
+  if (entry === null || entry.line === undefined || entry.groupId === undefined || entry.messageId === undefined) return entry !== null;
+  const where = { line: entry.line, groupId: entry.groupId, messageId: entry.messageId };
+  for (const [i, text] of (update.texts ?? []).entries()) {
+    const index = (update.first ?? 0) + i;
+    if (index < (entry.sent ?? 0)) continue;
+    await say(storage, deps, where, text);
+    await noteJobSent(storage, update.id, index + 1);
+  }
+  return true;
+}
+
+export type ControlAnswer =
   | { status: "refused" | "muted" | "stopped" | "started" | "no_shared" }
   | { status: "not_shared"; slugs: string[] }
   | { status: "unknown_sender"; tell?: boolean }
@@ -404,7 +437,7 @@ type ControlAnswer =
       names?: { phone: string; handle: string }[];
     };
 
-async function askControlPlane(deps: GroupDeps, message: GroupMessage, people: string[], command: Command | null): Promise<ControlAnswer> {
+export async function askControlPlane(deps: GroupDeps, message: GroupMessage, people: string[], command: Command | null): Promise<ControlAnswer> {
   const wire = command === null || command.kind === "status" ? undefined : command;
   const { status, json } = await post(deps.fetch, "control_plane", `${deps.controlPlaneOrigin}/agent-texts/group`, deps.workerSecret, {
     line: message.line,
@@ -452,7 +485,7 @@ async function askControlPlane(deps: GroupDeps, message: GroupMessage, people: s
 }
 
 /** One text into the group, threaded under the message it answers, remembered so a reply to it wakes Tex. */
-async function say(storage: InboxStorage, deps: GroupDeps, message: GroupMessage, text: string): Promise<void> {
+async function say(storage: InboxStorage, deps: GroupDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId">, text: string): Promise<void> {
   if (!deps.sendblue) throw new ServiceError("sendblue", null);
   const handle = await sendGroupText(deps.fetch, deps.sendblue, { line: message.line, groupId: message.groupId }, text, message.messageId);
   if (handle === undefined) return;

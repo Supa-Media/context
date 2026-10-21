@@ -19,6 +19,7 @@
 import type { GatewayAttachment } from "./attachments";
 import type { Reaction, Tapback } from "./reactions";
 import { readPictures, type OutgoingPicture } from "./outgoing";
+import { readStartedJobs, type JobAsk, type RunningJob, type StartedJob } from "./jobs";
 
 export type Fetch = typeof fetch;
 
@@ -219,7 +220,8 @@ export type AgentAnswer =
    * never reformatted (an email the person is asked to approve). Absent when none.
    */
   /** `steered`: the event ids of texts sent while it ran that the turn took in (`inbox.ts`). */
-  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; verbatim?: string[]; steered?: string[] }
+  /** `jobs`: background jobs the turn started (`jobs.ts`); `exhausted`: it ran out of steps. */
+  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; verbatim?: string[]; steered?: string[]; jobs?: StartedJob[]; exhausted?: true }
   | { kind: "no_model" }
   | { kind: "daily_limit" }
   /** The gateway could not start the turn (503: nothing ran), so asking again is safe. */
@@ -264,7 +266,21 @@ export async function askAgent(
    * (`reactions.ts`), and the name of this turn, which texts sent while it
    * runs are steered into (`apps/mcp/src/agent/steer.js`).
    */
-  { tapback, reacted = [], turn }: { tapback?: Tapback; reacted?: Reaction[]; turn?: string } = {},
+  {
+    tapback,
+    reacted = [],
+    turn,
+    running,
+    job,
+  }: {
+    tapback?: Tapback;
+    reacted?: Reaction[];
+    turn?: string;
+    /** What this chat has running in the background, which also says this Worker can run jobs (`jobs.ts`). */
+    running?: RunningJob[];
+    /** The background job this turn runs. */
+    job?: JobAsk;
+  } = {},
 ): Promise<AgentAnswer> {
   // The person's zone, so the turn knows the time where they are, and what
   // they sent with the text (`attachments.ts`).
@@ -279,6 +295,8 @@ export async function askAgent(
     ...(quoted && tapback ? { tapback } : {}),
     ...(reacted.length > 0 ? { reacted } : {}),
     ...(turn ? { turn } : {}),
+    ...(running ? { running } : {}),
+    ...(job ? { job } : {}),
   };
   if (onProgress) return askAgentStreaming(fetcher, gatewayOrigin, accessToken, ask, onProgress);
   let result: { status: number; json: unknown };
@@ -311,12 +329,15 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
   if (status === 200 && typeof body.answer === "string" && (body.answer.trim() || pictures.length > 0)) {
     const verbatim = readVerbatim(body.verbatim, body.answer);
     const steered = Array.isArray(body.steered) ? body.steered.filter((id): id is string => typeof id === "string").slice(0, 5) : [];
+    const jobs = readStartedJobs(body.jobs);
     return {
       kind: "answer",
       text: body.answer.trim(),
       pictures,
       ...(verbatim.length > 0 ? { verbatim } : {}),
       ...(steered.length > 0 ? { steered } : {}),
+      ...(jobs.length > 0 ? { jobs } : {}),
+      ...(body.exhausted === true ? { exhausted: true as const } : {}),
     };
   }
   if (status === 409) return { kind: "no_model" };

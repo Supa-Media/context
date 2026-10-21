@@ -270,3 +270,12 @@ test("a turn with no plan carries neither line", async () => {
   await turn(gw.fetchImpl, { router: router() });
   for (const body of gw.bodies) assert.doesNotMatch(JSON.stringify(body.system), /write the plan|its plan is in its words/);
 });
+
+test("a background job plans on think and drives on main without asking the router", async () => {
+  const gw = scripted([tools(1), tools(2), answer("Wrote it.")]);
+  let asked = 0;
+  const lookup = { decide: async () => (asked++, { tier: { choice: "lookup", confidence: 0.9 } }), think: OPUS, thinkRounds: 1 };
+  await turn(gw.fetchImpl, { router: lookup, planned: true });
+  assert.deepEqual(gw.models(), [OPUS, HAIKU, HAIKU]);
+  assert.equal(asked, 0);
+});

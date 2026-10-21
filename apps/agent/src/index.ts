@@ -37,8 +37,11 @@ import { hostPicture, OBJECT_ID, ORIGIN_KEY, serveMedia, workerOrigin } from "./
 import { bearerMatches, parseTellRequest, tellEveryone, tellNewLine, type Told } from "./newLine";
 import { parseSendblueInbound, sendblueKeys, threadContext, verifySendblueSecret } from "./sendblue";
 import { parseSendblueGroup, type GroupMessage } from "./sendblueGroups";
-import { acceptGroup, drainGroup } from "./groupInbox";
+import { acceptGroup, drainGroup, groupInboxName } from "./groupInbox";
 import { verifyLinqSignature } from "./signature";
+import { readJobUpdate, type JobRun, type JobUpdate } from "./jobs";
+import { acceptJob, runJob } from "./jobRun";
+import { jobUpdate } from "./jobTexts";
 import { handleSimulator, SIMULATOR_PATH, simulatorEnabled, simulatorInbox } from "./simulator";
 import { SIMULATOR_PAGE } from "./simulatorPage";
 
@@ -236,10 +239,6 @@ async function groupWebhook(env: Env, grouped: NonNullable<ReturnType<typeof par
   return new Response(null, { status: result.ok ? 200 : 503 });
 }
 
-/** A group's queue is named apart from every phone's, which always starts with "+". */
-export function groupInboxName(groupId: string): string {
-  return `sendblue-group:${groupId}`;
-}
 
 /**
  * `GET /media/<object id>/<token>.<ext>`: a picture from someone's notes,
@@ -353,6 +352,16 @@ export class SenderInbox implements DurableObject {
       const message = (await request.json()) as GroupMessage;
       return Response.json({ outcome: await acceptGroup(this.state.storage, message, Date.now()) });
     }
+    // A background job's own object is started here, and reports to its chat's inbox here (`jobs.ts`).
+    if (path === "/job-start") {
+      await acceptJob(this.state.storage, (await request.json()) as JobRun, Date.now());
+      return Response.json({ ok: true });
+    }
+    if (path === "/job-update") {
+      const update = readJobUpdate(await request.json());
+      if (update === null) return new Response(null, { status: 400 });
+      return Response.json({ known: await jobUpdate(this.state.storage, this.deps(), update) });
+    }
     if (path === "/react") {
       const inbound = (await request.json()) as Extract<Inbound, { kind: "reaction" }>;
       return Response.json({ outcome: await react(this.state.storage, inbound, Date.now()) });
@@ -376,6 +385,15 @@ export class SenderInbox implements DurableObject {
     await drain(this.state.storage, this.deps());
     await checkReady(this.state.storage, this.deps());
     await checkGmail(this.state.storage, this.deps());
+    // A job's object has only `jobrun`; every other object finds nothing to run.
+    await runJob(this.state.storage, { ...this.deps(), report: (inbox, update) => this.reportJob(inbox, update) });
+  }
+
+  /** A job's word to the inbox it belongs to: taken once it answers 200. */
+  private async reportJob(inbox: string, update: JobUpdate): Promise<boolean> {
+    const stub = this.env.SENDER_INBOX.get(this.env.SENDER_INBOX.idFromName(inbox));
+    const response = await stub.fetch("https://inbox/job-update", { method: "POST", body: JSON.stringify(update) });
+    return response.ok;
   }
 
   private deps(): InboxDeps {
@@ -396,6 +414,11 @@ export class SenderInbox implements DurableObject {
         ),
       images: this.env.IMAGES,
       now: () => Date.now(),
+      spawnJob: async (id: string, run: JobRun) => {
+        const stub = this.env.SENDER_INBOX.get(this.env.SENDER_INBOX.idFromName(`job:${id}`));
+        const response = await stub.fetch("https://inbox/job-start", { method: "POST", body: JSON.stringify(run) });
+        if (!response.ok) throw new Error("job not started");
+      },
     };
   }
 }

@@ -57,6 +57,7 @@ import { ackEmoji } from "./ackEmoji";
 import { answers, clearReactions, noteReaction, notedReactions, tapbackText } from "./reactions";
 import { dropThumb, dueThumb, holdsAsYes, holdThumb } from "./thumbs";
 import { startTurn, steerInto } from "./steer";
+import { chatJobs, startJobs, type JobRun } from "./jobs";
 import type { Inbound } from "./inbound";
 
 /** The subset of `DurableObjectStorage` this uses, so tests can pass a Map. */
@@ -70,7 +71,12 @@ export type InboxStorage = {
   getAlarm?(): Promise<number | null>;
 };
 
-export type InboxDeps = ReplyDeps & Omit<LineDeps, "fetch"> & { now: () => number };
+export type InboxDeps = ReplyDeps &
+  Omit<LineDeps, "fetch"> & {
+    now: () => number;
+    /** Starts a background job in an object of its own (`jobs.ts`); absent, texted turns are offered none. */
+    spawnJob?: (id: string, run: JobRun) => Promise<void>;
+  };
 
 /**
  * `reply` was one string before a reply could be several texts; both are read.
@@ -415,6 +421,7 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
       onTold: (sent) => noteTold(storage, sent),
       onToldDelivered: () => clearTold(storage, told),
       onPictures: (sent) => void (pictures = sent),
+      ...(await jobsFor(storage, message, deps)),
     },
     storage,
   ).finally(end);
@@ -427,6 +434,25 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
       : async (picture: { name: string; mediaType: string; data: string }) =>
           lineFor(lineDeps(deps), message.chatId).uploadPicture(await shrinkPicture(deps.images, picture));
   return await partsFor(texts, pictures, upload);
+}
+
+/** What a texted turn is shown of the chat's background jobs, and how it starts more (`jobs.ts`). */
+async function jobsFor(storage: InboxStorage, message: Message, deps: InboxDeps): Promise<Pick<ReplyDeps, "running" | "onJobs">> {
+  const spawn = deps.spawnJob;
+  if (spawn === undefined || message.sms) return {};
+  const channel = message.channel === "simulator" ? { channel: "simulator" as const } : {};
+  return {
+    running: await chatJobs(storage, deps.now()),
+    onJobs: async (jobs) => {
+      await startJobs(storage, jobs, {
+        now: deps.now(),
+        inbox: message.from,
+        origin: { kind: "phone", phone: message.from, question: message.text, ...channel },
+        place: { chatId: message.chatId, ...(message.messageId ? { messageId: message.messageId } : {}), ...channel },
+        spawn,
+      });
+    },
+  };
 }
 
 /** Drop the queued texts a turn took in as it ran; they were answered with it. */
