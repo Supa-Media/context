@@ -602,8 +602,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     const sent = handoff === null ? answer : `${answer}\n\n${handoff}`;
     if (transcript !== null) await afterAnswer(transcript.finish({ answer, outcome: turn.exhausted ? "exhausted" : "answered" }));
     if (steer !== null) await afterAnswer(steer.clear());
-    // A hard job, written down for next time (`reflect.js`): after the answer, never on a tainted turn.
-    await afterAnswer(afterTextedTurn({ env, controlPlane, store, session, offered, question, turn, tainted: ledger.untrusted === true, learned, canWrite: textingWriting.some((tool) => tool.name === "write_note"), timeZone }));
+    // A hard job, written down for next time (`reflect.js`): after the answer; a tainted turn reflects on their own text and step names only.
+    await afterAnswer(afterTextedTurn({ env, controlPlane, store, session, offered, question, turn, tainted: ledger.untrusted === true, ownText: !runner && job === null && group === null, learned, canWrite: textingWriting.some((tool) => tool.name === "write_note"), timeZone }));
 
     // Best effort, as below: a memory that failed to save costs the chat some context, not this answer.
     if (group !== null && !turn.exhausted) await keepGroupExchange(store, group, history, jobSavedLine(job) || question, answer, { tainted: ledger.untrusted }).catch(() => {});
