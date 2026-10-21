@@ -78,7 +78,7 @@ export function siteMatches(sites, origin) {
 }
 
 /** Who may use a key, and how much of it: `access.js`. */
-export { mayUse, maySee } from "./access.js";
+export { mayUse, maySee, actorMayUse, actorMaySee } from "./access.js";
 
 async function readRecord(store, id) {
   return (await readVersioned(store, id))?.record ?? null;

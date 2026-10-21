@@ -8,9 +8,11 @@
  * sign-ins between browsers, and their saved logins for `fill_login`.
  *
  * A group chat's turn gets the web and nothing of the tagger's (the owner,
- * 2026-10-21: "computer use as well"): a browser with no tag, no sign-ins and
- * no saved logins, because anyone in the chat steers what it does
- * (docs/decisions/texting-assistant/groups.md).
+ * 2026-10-21: "computer use as well"): a browser with no tag and no sign-ins
+ * kept between browsers, because anyone in the chat steers what it does. Its
+ * `fill_login` opens the chat's shared workspace's vault, and there only what
+ * is given to the whole workspace (`vault/access.js`;
+ * docs/decisions/texting-assistant/groups.md).
  */
 
 import { computerFor, webSession } from "./computer.js";
@@ -49,8 +51,9 @@ export async function openTurnWeb(env, { session, texting, group, question, vouc
           addresses: vouched,
           // A browser handed to the person is texted the moment it exists.
           say: channel !== null ? (text) => channel.say(text) : null,
-          // The vault this turn's grant opens, for `fill_login`; a group chat's opens none.
-          store: group ? null : store,
+          // The vault this turn's grant opens, for `fill_login`: a group chat's is its
+          // shared workspace's, narrowed to what the whole workspace was given.
+          store,
           // The person's own files, read as them, for a page's upload box (`uploads.js`).
           files: (step) => resolveUpload(step, { dispatch, store }),
         });

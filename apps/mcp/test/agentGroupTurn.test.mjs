@@ -171,7 +171,7 @@ test("a group turn is offered only create and append, and none of the tagger's o
   const shown = JSON.stringify(sent.tools);
   // Named either way the turn could be shown them: a tool of its own, or a six-tools action (`- name:`).
   // Email, calendar and the web are a group turn's (agentGroupActions.test.mjs); these never are.
-  for (const missing of ["fill_login", "delegate", "text_progress", "draw_picture", "make_picture", "propose_note", "search_email", "read_email", "progress", "mail_agent"]) {
+  for (const missing of ["delegate", "text_progress", "draw_picture", "make_picture", "propose_note", "search_email", "read_email", "progress", "mail_agent"]) {
     assert.ok(!shown.includes(`"${missing}"`) && !shown.includes(`- ${missing}:`), `${missing} is not a group turn's`);
   }
   assert.ok(!toolNames(sent).includes("earlier_texts"), "a group turn has no texts of its own");

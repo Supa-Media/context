@@ -178,3 +178,4 @@ test/tokens.test.mjs
 test/presence/movedNotice.test.mjs
 test/searchKeyed/census.test.mjs
 test/agentGroupActions.test.mjs
+test/vaultGroupChat.test.mjs

@@ -113,16 +113,30 @@ other people's words are in its history.
 - **Never invite.** Calendar writes refuse guests and send no updates, so
   the prompt says to email the details or have each person ask.
 - **Use the web with a browser that holds nobody's sign-ins**
-  (`apps/mcp/src/agent/turnWeb.js`): no browser tag carried between turns,
-  no saved logins and no `fill_login`, because anyone in the chat steers
-  what the browser does. Whether a tagger may opt their own sign-ins in is
-  open.
+  (`apps/mcp/src/agent/turnWeb.js`): no browser tag carried between turns
+  and no sign-ins kept between browsers, because anyone in the chat steers
+  what the browser does.
+- **Sign in and use keys only with what the workspace itself holds** (the
+  owner, 2026-10-21: "people can give Tex its own email ... but not through
+  the individual saved logins, since we don't want anyone steering someone's
+  personal information", and "same for cards ... they have to add cards
+  specifically shared for that workspace"). A group turn's `fill_login`,
+  vault listing and keyed requests open the chat's shared workspace's vault
+  and count a key there only when it is given to the whole workspace (`*`):
+  never one the tagger saved, nor one given to them by name, handle or
+  group, and never at "see" (`apps/mcp/src/vault/access.js`
+  `actorAccessOf`). A person who wants Tex to act for the group gives it a
+  login of its own, such as a shared email, saved in the workspace for
+  everyone. The vault holds logins and secrets today; a card, when there is
+  one, is an entry like any other and follows the same rule.
 
 A simplification that reached the tagger's account through their role in
 the shared workspace would leave a member unable to send as themselves and
 an editor able to; one that dropped the actor filter would let any person
-in the chat approve another's email. `apps/convex/__tests__/textGroupsOwnAccount.test.ts`
-and `apps/mcp/test/agentGroupActions.test.mjs` fail if either is reversed.
+in the chat approve another's email; one that read a group's vault access
+as the tagger's would let anyone in the chat sign in as them. `apps/convex/__tests__/textGroupsOwnAccount.test.ts`
+`apps/mcp/test/agentGroupActions.test.mjs` and
+`apps/mcp/test/vaultGroupChat.test.mjs` fail if any is reversed.
 
 ## Memory lives in the shared workspace
 
