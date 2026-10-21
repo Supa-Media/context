@@ -46,6 +46,7 @@ export const UNTRUSTED_READS = new Set([
   "read_channel_day",
   "read_contact",
   "read_meeting",
+  "read_calendar",
   "search_email",
   "read_email",
   "read_file",
