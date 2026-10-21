@@ -568,21 +568,18 @@ export async function runMeetingFolderChecks(check, harness) {
   }
 
   /*
-    The one consequence worth stating rather than discovering. `list_meetings`
-    reads the default folder off the bucket, because there is no meetings index
-    to consult and nothing records where a meeting was filed — so a meeting the
-    person pointed elsewhere is not listed, which is exactly what already
-    happens to a meeting its owner *moves*. It is still a note, and every other
-    tool reaches it.
+    `list_meetings` finds a meeting wherever it was filed (owner's report,
+    2026-10-21: Tex answered "my last meeting with <a colleague>" from an older note
+    while yesterday's call sat in a folder of its own). The note says it is a
+    meeting in its own front matter, read from the tree's props, so the
+    folder a person picked no longer hides it. Changed with the behaviour:
+    this used to check the filed meeting was NOT listed.
   */
   const listAfterFiling = await callTool(env, TOKEN_OWNER, "list_meetings", { limit: 25 });
   check("list_meetings still lists what is in the default folder", listAfterFiling.includes(notePath));
+  check("...and lists a meeting filed elsewhere too", listAfterFiling.includes(filedPath));
   check(
-    "and does not claim a meeting filed elsewhere, the same as one its owner moved",
-    !listAfterFiling.includes(filedPath)
-  );
-  check(
-    "...which is still a note, and read_meeting reads it at its own path",
+    "...which read_meeting reads at its own path",
     (await callTool(env, TOKEN_OWNER, "read_meeting", { path: filedPath })).includes(
       "filed where the person pointed it"
     )
@@ -590,28 +587,17 @@ export async function runMeetingFolderChecks(check, harness) {
 
   /*
     **And the model is told, because the model is the only one who can act on
-    it.** The three checks above prove the behaviour; none of them reads the
-    sentence a connected client is actually handed, and for a while that
-    sentence said `list_meetings` lists "the meetings the user recorded" — full
-    stop, no qualification. An assistant reading that has no reason to look
-    further when a meeting is missing, so a meeting somebody deliberately filed
-    elsewhere silently did not exist to any client. A tool description is not
-    prose about the tool; it is the whole of what the model knows, and a wrong
-    one is a defect of the same kind as a wrong return value.
-
-    Asserted on the shape of the claim rather than on the exact wording — the
-    folder it names, that it is not everything, and where to go instead — so
-    the sentence may be rewritten but not quietly re-broadened.
+    it.** A tool description is the whole of what the model knows: it must say
+    the list covers every folder, newest first, how a meeting is recognised,
+    and where to look for one written up by hand.
   */
   // The full list (`fullToolList.mjs`): list_meetings is an older name, which
   // `tools/list` answers only through the six v2 tools now.
   const listDefinition = (await fullToolList(env, TOKEN_OWNER)).find((tool) => tool.name === "list_meetings");
   const listedDescription = listDefinition?.description || "";
-  check("the tool's own description names the folder it reads", listedDescription.includes("0-inbox/meetings"));
-  check(
-    "...says it is not every meeting",
-    /not necessarily every meeting|does not appear here|not every meeting/i.test(listedDescription)
-  );
+  check("the tool's own description says it lists every folder", /every folder/i.test(listedDescription));
+  check("...newest first", /newest first/i.test(listedDescription));
+  check("...says a hand-written call may not appear", /may not appear/i.test(listedDescription));
   check("...and points somewhere for the ones it does not list", listedDescription.includes("search_notes"));
 
 }

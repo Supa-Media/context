@@ -46,7 +46,7 @@ import { MAX_INBOUND_ATTACHMENTS } from "./inbound";
 import { lineFor, type LineDeps } from "./line";
 import { pruneMedia } from "./media";
 import { CARD_VERSION } from "./card";
-import { isSendblueChat } from "./sendblue";
+import { isSendblueChat, WEB_ADDRESS } from "./sendblue";
 import { PICTURE_FAILED, describePart, partsFor, shrinkPicture, type Media, type OutgoingPicture, type SendPart } from "./outgoing";
 import { replyTo, TryLater, type Message, type ReplyDeps } from "./reply";
 import { record } from "./simulator";
@@ -123,6 +123,28 @@ export const MEDIA_WAIT_MS = 4_000;
  */
 export const TEXT_WAIT_MS = 3_000;
 
+/** When this sender last texted a web address, never the address: a link's preview can follow it as a text of its own. */
+export const LINK_AT_KEY = "link-at";
+/** How long after a link a lone picture is taken for that link's preview card. */
+export const LINK_PREVIEW_MS = 15_000;
+const PICTURE_NAME = /\.(png|jpe?g|gif|heic|heif|webp)$/i;
+
+/**
+ * A lone picture that lands just after they texted a link, on Sendblue: the
+ * preview card Messages drew for it, sent on as a message of its own
+ * (owner's report, 2026-10-21, "That's the Context banner. Do you want it
+ * saved to a note?"). The same card in the link's own message is dropped
+ * where it is read (`sendblue.ts`, `isLinkPreview`).
+ */
+async function isLatePreview(storage: InboxStorage, message: Message, now: number): Promise<boolean> {
+  if (!isSendblueChat(message.chatId) || !mediaOnly(message)) return false;
+  const linkAt = await storage.get<number>(LINK_AT_KEY);
+  if (linkAt === undefined || now - linkAt > LINK_PREVIEW_MS) return false;
+  const pictures = (message.attachments ?? []).every(({ filename }) => filename === "" || PICTURE_NAME.test(filename));
+  if (pictures) console.log(JSON.stringify({ event: "sendblue_link_preview", outcome: "dropped_late" }));
+  return pictures;
+}
+
 const mediaOnly = (message: Message) => message.text.trim() === "" && (message.attachments?.length ?? 0) > 0;
 const wordsOnly = (message: Message) => message.text.trim() !== "" && (message.attachments?.length ?? 0) === 0;
 
@@ -133,8 +155,13 @@ export async function accept(
   storage: InboxStorage,
   message: Message,
   now: number,
-): Promise<"queued" | "duplicate" | "full"> {
+): Promise<"queued" | "duplicate" | "full" | "preview"> {
   if ((await storage.get<number>(seenKey(message.eventId))) !== undefined) return "duplicate";
+  if (await isLatePreview(storage, message, now)) {
+    await storage.put(seenKey(message.eventId), now);
+    return "preview";
+  }
+  if (isSendblueChat(message.chatId) && WEB_ADDRESS.test(message.text)) await storage.put<number>(LINK_AT_KEY, now);
   const pending = await storage.list<Pending>({ prefix: "pending:" });
   if (pending.size >= MAX_PENDING) return "full";
 
@@ -173,7 +200,7 @@ export async function react(
   storage: InboxStorage,
   inbound: Extract<Inbound, { kind: "reaction" }>,
   now: number,
-): Promise<"queued" | "duplicate" | "full" | "noted"> {
+): Promise<"queued" | "duplicate" | "full" | "noted" | "preview"> {
   const { reaction, kind: _kind, ...message } = inbound;
   if (answers(reaction)) {
     return accept(storage, { kind: "message", ...message, text: tapbackText(reaction.how), quoted: reaction.words, tapback: reaction.how }, now);

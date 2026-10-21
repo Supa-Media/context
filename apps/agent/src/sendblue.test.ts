@@ -134,6 +134,21 @@ describe("sendblue webhook", () => {
     expect(parseSendblueInbound(received({ content: "", media_url: "http://cdn.example/a.jpg" }))).toEqual({ kind: "ignored", reason: "empty" });
   });
 
+  it("drops a link's preview card: a .pluginPayloadAttachment, or a file that came with an address in the words", () => {
+    // Owner's report, 2026-10-21: a pasted context.lc link's card reached Tex as "just a hashtag icon".
+    expect(parseSendblueInbound(received({ content: "https://context.lc/note/@seyi/a.md", media_url: "https://cdn.example/f/preview.png" }))).toEqual({
+      kind: "message",
+      eventId: "sendblue:mh_1",
+      chatId: sendblueChatId(LINE, PHONE),
+      from: PHONE,
+      messageId: "mh_1",
+      text: "https://context.lc/note/@seyi/a.md",
+    });
+    expect(parseSendblueInbound(received({ content: "", media_url: "https://cdn.example/f/ABC.pluginPayloadAttachment" }))).toEqual({ kind: "ignored", reason: "empty" });
+    // A photo with no address in the words is still a photo.
+    expect(parseSendblueInbound(received({ content: "this one", media_url: "https://cdn.example/f/IMG_2.png" }))).toMatchObject({ attachments: [{ filename: "IMG_2.png" }] });
+  });
+
   it("checks the secret, and refuses everything when ours is missing or short", async () => {
     const secret = "0123456789abcdef0123";
     const headers = (value?: string) => new Headers(value === undefined ? {} : { "sb-signing-secret": value });

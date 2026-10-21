@@ -18,6 +18,8 @@ Invented people and the workspaces each can reach. A test runs as one of them, t
 | Priya | day-job | member |
 | Tomas | tomas (personal) | owner |
 | Nia | nia (personal) | owner |
+| Kofi | kofi (personal) | owner |
+| Kofi | studio | owner |
 
 ## Things tests rely on
 
@@ -28,3 +30,4 @@ Invented people and the workspaces each can reach. A test runs as one of them, t
 - Maya and John both work on fashion-brand. John's woodshop is his alone.
 - Priya is in six workspaces and shares two with Maya (fashion-brand, band).
 - `fashion-brand/people/john.md` is held back from members, so Priya must never see it.
+- Kofi has two meetings with Ada (`tests/meetings.md`): an August walkthrough in his own inbox, and yesterday's one-to-one (October 20) filed in the studio workspace under `meetings/1-1s/ada-kofi/` with a placeholder name and no front matter,, the shape behind Dev2's report of 2026-10-21. His people note about Ada has call notes up to October 14 only. Keep the October 20 call the newest.
