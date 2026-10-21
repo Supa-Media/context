@@ -30,6 +30,29 @@ test("anything from outside the workspace marks the turn", () => {
   assert.equal(web.untrusted, true, "a web page");
 });
 
+/*
+  A connected app's answer is a channel's messages, a profile's name, a
+  search's hits: words whoever is in that Slack wrote, which is what
+  `UNTRUSTED_READS` is for. Leave `slack_api` out of it and a turn that read a
+  planted Slack message still counts as clean, so Tex vouches for a delegated
+  message from it (`agent/delegate.js` `trusted`) and the texting thread keeps
+  the answer unmarked, so the next turn is clean too (`historyIsTainted`).
+*/
+test("a connected app's answer marks the turn, and asking for a connect link does not", () => {
+  const slack = newLedger();
+  recordRead(slack, {
+    name: "slack_api",
+    args: { method: "conversations.history", args: { channel: "C1" } },
+    result: { content: [{ type: "text", text: 'Slack (Acme) answered conversations.history:\n{"ok":true,"messages":[{"text":"hi"}]}' }] },
+  });
+  assert.equal(slack.untrusted, true, "words other people wrote in Slack");
+
+  // The link half returns a URL the gateway itself made, and nothing from the provider.
+  const link = newLedger();
+  recordRead(link, { name: "connect_app", args: { app: "slack" }, result: { content: [{ type: "text", text: "Link to connect Slack: https://example.test/connect/slack/x" }] } });
+  assert.equal(link.untrusted, false, "a connect link");
+});
+
 test("mightWiden says yes to the calls that can widen, and no to the rest", () => {
   // Widening shapes, judged without a manifest.
   assert.equal(mightWiden("create_link", { path: "a.md" }), true);
