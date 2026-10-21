@@ -27,6 +27,7 @@ import ogCard from "./og-card.png";
 // og-tex-card.source.html and texHost.ts.
 import texCard from "./og-tex-card.png";
 import { isTexHost, TEX_ROBOTS_TXT } from "./texHost";
+import { ingestResponse } from "./analyticsIngest";
 
 export interface Env {
   /** Optional legacy upstream for self-hosted configurations without Static Assets. */
@@ -228,6 +229,7 @@ async function respond(
         });
 
       case "download": return downloadResponse(decision.location);
+      case "ingest": return ingestResponse(request, decision.target);
       case "proxy": {
         if (decision.upstream === "expo" && env.ASSETS) {
           // Static Assets and Worker code are one version. Passing the original
