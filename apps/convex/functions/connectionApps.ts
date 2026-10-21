@@ -21,8 +21,8 @@ import { resolveClient, resourceFor } from "./lib/connections/standard";
 import { providerValidator } from "./lib/providers/ids";
 import { mcpCall, mcpListTools } from "./lib/providers/mcpClient";
 import { refreshTokens } from "./lib/providers/oauth";
-import { PROVIDERS, providerAvailable, providerOf } from "./lib/providers/registry";
-import { mayConnect } from "./lib/connections/links";
+import { providerOf } from "./lib/providers/registry";
+import { appCatalog } from "./lib/connections/catalog";
 import type { AppTool, StandardSpec } from "./lib/providers/types";
 
 /** What one answer may carry back to the gateway, under its 256 KB response cap. */
@@ -124,35 +124,8 @@ export const appsForPerson = internalQuery({
       account: v.optional(v.string()),
     }),
   ),
-  handler: async (ctx, args) => {
-    const canConnect = args.clientId !== TEXTS_GROUP_CLIENT_ID && (await mayConnect(ctx, args.workspaceId, args.actorUserId)) !== null;
-    const rows = canConnect
-      ? (await ctx.db
-          .query("providerConnections")
-          .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-          .take(50)).filter((row) => row.scope === "personal" && row.connectedBy === args.actorUserId)
-      : [];
-    const out = [];
-    for (const spec of Object.values(PROVIDERS)) {
-      if (spec === undefined || !providerAvailable(spec)) continue;
-      const row = rows.find((r) => r.provider === spec.id);
-      out.push({
-        app: spec.id,
-        name: spec.name,
-        about: spec.about,
-        via: spec.kind === "mcp" ? ("mcp" as const) : ("api" as const),
-        state: !canConnect
-          ? ("not_available" as const)
-          : row === undefined
-            ? ("not_connected" as const)
-            : row.reconnectRequiredAt !== undefined
-              ? ("reconnect" as const)
-              : ("connected" as const),
-        ...(row === undefined ? {} : { account: row.externalTeamName }),
-      });
-    }
-    return out;
-  },
+  handler: async (ctx, args) =>
+    (await appCatalog(ctx, args.workspaceId, args.actorUserId, args.clientId)).map(({ connectionId: _id, ...entry }) => entry),
 });
 
 function argsObject(value: unknown): Record<string, unknown> {
