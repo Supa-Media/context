@@ -80,7 +80,7 @@ const GROUND_RULES = [
  * setup's own words keep it too, as `NOTE_LINK_LINE` is.
  */
 export const SYNCED_PLACES_LINE =
-  "Once they connect Google, their calendar is copied into their notes, one note a day per account, about two weeks ahead, and their email under 0-inbox/email/<account>/. " +
+  "Once they connect Google, their calendar is copied into their notes, one note a day per account, about two weeks ahead, and their email under inbox/email/<account>/. " +
   'For anything on a day or a week (what they have Friday, whether they\'re free, when something is), fetch id "calendar:" with args { date: "YYYY-MM-DD", days } before you answer: it reads every account\'s day. ' +
   "Never say you can't see or read their calendar, and never say a day is empty without that fetch: it says when a day isn't copied yet or Google isn't connected, so say what it says.";
 

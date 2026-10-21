@@ -49,7 +49,7 @@ export async function runMeetingFolderChecks(check, harness) {
 
   check(
     "a finalize that names no folder says nothing about one",
-    finalized.body?.folderRejected === undefined && notePath.startsWith("0-inbox/meetings/")
+    finalized.body?.folderRejected === undefined && notePath.startsWith("inbox/meetings/")
   );
 
   // `notes` here is a placeholder these fixtures are not testing — they are
@@ -84,7 +84,7 @@ export async function runMeetingFolderChecks(check, harness) {
   check("...and the ack claims nothing was refused", filed.body?.folderRejected === undefined);
   check(
     "...and nothing was filed into the inbox on the way",
-    !keysIn(recorder, "0-inbox/meetings/").includes(filedPath)
+    !keysIn(recorder, "inbox/meetings/").includes(filedPath)
   );
 
   /*
@@ -162,29 +162,29 @@ export async function runMeetingFolderChecks(check, harness) {
     stopping it. Both notes would look correct, which is what makes it the trap.
   */
   await openFor(SESSION_RETITLED, "Standup", "2026-09-06T13:00:00.000Z");
-  harness.failPut = (url) => (url.includes("/meet-recorder/0-inbox/meetings/") ? 500 : null);
+  harness.failPut = (url) => (url.includes("/meet-recorder/inbox/meetings/") ? 500 : null);
   const halfNamed = await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_RETITLED}/finalize`, {});
   check(
     "a finalize whose note write fails has claimed a path under the first title",
     halfNamed.status === 503 && halfNamed.body?.error === "meeting_unavailable"
   );
   harness.failPut = null;
-  const inboxBeforeRetitle = keysIn(recorder, "0-inbox/meetings/").length;
+  const inboxBeforeRetitle = keysIn(recorder, "inbox/meetings/").length;
   const renamed = await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_RETITLED}/finalize`, {
     body: { title: "Quarterly planning with the whole team" },
   });
   check(
     "a re-finalize with a changed title rewrites one note rather than adding a second",
     renamed.status === 200 &&
-      renamed.body?.notePath === `0-inbox/meetings/2026-09-06-standup-${SESSION_RETITLED.slice(-8)}.md`
+      renamed.body?.notePath === `inbox/meetings/2026-09-06-standup-${SESSION_RETITLED.slice(-8)}.md`
   );
   check(
     "...so the rename adds no second key to the bucket",
-    keysIn(recorder, "0-inbox/meetings/").length === inboxBeforeRetitle + 1
+    keysIn(recorder, "inbox/meetings/").length === inboxBeforeRetitle + 1
   );
   check(
     "...and nothing is filed under the new title's slug",
-    !keysIn(recorder, "0-inbox/meetings/").some((key) => key.includes("quarterly-planning"))
+    !keysIn(recorder, "inbox/meetings/").some((key) => key.includes("quarterly-planning"))
   );
 
   /*
@@ -195,7 +195,7 @@ export async function runMeetingFolderChecks(check, harness) {
     and the ack says so, because a fallback nobody is told about is the silent
     wrong destination this whole change exists to close.
   */
-  const inboxBefore = keysIn(recorder, "0-inbox/meetings/").length;
+  const inboxBefore = keysIn(recorder, "inbox/meetings/").length;
   await openFor(SESSION_ESCAPING, "Aimed outside", "2026-09-06T12:00:00.000Z");
   const escaping = await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_ESCAPING}/finalize`, {
     body: { folder: "../../shhh-2026" },
@@ -204,8 +204,8 @@ export async function runMeetingFolderChecks(check, harness) {
     "a folder that tries to leave the bucket does not lose the meeting",
     escaping.status === 200 && escaping.body?.state === "complete"
   );
-  check("...it is filed at the default instead", escaping.body?.notePath?.startsWith("0-inbox/meetings/") === true);
-  check("...and exactly one note appears there", keysIn(recorder, "0-inbox/meetings/").length === inboxBefore + 1);
+  check("...it is filed at the default instead", escaping.body?.notePath?.startsWith("inbox/meetings/") === true);
+  check("...and exactly one note appears there", keysIn(recorder, "inbox/meetings/").length === inboxBefore + 1);
   check("...the client is told its folder was not used", escaping.body?.folderRejected === true);
   check(
     "...and is not read its own value back",
@@ -222,7 +222,7 @@ export async function runMeetingFolderChecks(check, harness) {
   });
   check(
     "a folder naming a dot-prefixed path is refused the same way",
-    plumbing.body?.folderRejected === true && plumbing.body?.notePath?.startsWith("0-inbox/meetings/") === true
+    plumbing.body?.folderRejected === true && plumbing.body?.notePath?.startsWith("inbox/meetings/") === true
   );
   check(
     "...so no meeting is filed where `isPlumbing` would hide it from its own owner",
@@ -243,7 +243,7 @@ export async function runMeetingFolderChecks(check, harness) {
     fallback above, so this class bypassed it completely — a meeting parked for
     good over a folder name a real vault could have.
   */
-  const dottedBefore = keysIn(recorder, "0-inbox/meetings/").length;
+  const dottedBefore = keysIn(recorder, "inbox/meetings/").length;
   await openFor(SESSION_DOTTED, "Aimed at a dotted name", "2026-09-06T16:00:00.000Z");
   const dotted = await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_DOTTED}/finalize`, {
     body: { folder: "1-projects/foo..bar" },
@@ -254,8 +254,8 @@ export async function runMeetingFolderChecks(check, harness) {
   );
   check(
     "...it falls back like every other folder this gateway will not file into",
-    dotted.body?.notePath?.startsWith("0-inbox/meetings/") === true &&
-      keysIn(recorder, "0-inbox/meetings/").length === dottedBefore + 1
+    dotted.body?.notePath?.startsWith("inbox/meetings/") === true &&
+      keysIn(recorder, "inbox/meetings/").length === dottedBefore + 1
   );
   check("...and the client is told", dotted.body?.folderRejected === true);
   check(
@@ -296,7 +296,7 @@ export async function runMeetingFolderChecks(check, harness) {
     Four shapes measured, all accepted by the folder validator and all refused
     by `assertSafeKey`: `%2e%2e`, `%2E%2E`, `ok/%2e%2e`, `%2e`.
   */
-  const encodedBefore = keysIn(recorder, "0-inbox/meetings/").length;
+  const encodedBefore = keysIn(recorder, "inbox/meetings/").length;
   await openFor(SESSION_ENCODED, "Aimed at an encoded name", "2026-09-06T17:00:00.000Z");
   const encoded = await meetingRequest(
     env,
@@ -310,8 +310,8 @@ export async function runMeetingFolderChecks(check, harness) {
   );
   check(
     "...it falls back like every other folder this gateway will not file into",
-    encoded.body?.notePath?.startsWith("0-inbox/meetings/") === true &&
-      keysIn(recorder, "0-inbox/meetings/").length === encodedBefore + 1
+    encoded.body?.notePath?.startsWith("inbox/meetings/") === true &&
+      keysIn(recorder, "inbox/meetings/").length === encodedBefore + 1
   );
   check("...and the client is told", encoded.body?.folderRejected === true);
   check(
@@ -337,7 +337,7 @@ export async function runMeetingFolderChecks(check, harness) {
     This check is the end the person sees: a fallback and a flag, not a refusal
     that blames the clock.
   */
-  const spacedBefore = keysIn(recorder, "0-inbox/meetings/").length;
+  const spacedBefore = keysIn(recorder, "inbox/meetings/").length;
   await openFor(SESSION_SPACED, "Aimed at a spaced name", "2026-09-06T18:00:00.000Z");
   const spaced = await meetingRequest(
     env,
@@ -349,7 +349,7 @@ export async function runMeetingFolderChecks(check, harness) {
     "a folder that normalizes to a whitespace segment falls back, and does not blame the clock",
     spaced.status === 200 &&
       spaced.body?.folderRejected === true &&
-      keysIn(recorder, "0-inbox/meetings/").length === spacedBefore + 1
+      keysIn(recorder, "inbox/meetings/").length === spacedBefore + 1
   );
 
   /*
@@ -453,7 +453,7 @@ export async function runMeetingFolderChecks(check, harness) {
   /*
     A REFUSAL THAT WILL NEVER SUCCEED DOES NOT KEEP THE PATH IT CLAIMED.
 
-    `TOKEN_SHARED` is a team connection in a context whose `0-inbox` default is
+    `TOKEN_SHARED` is a team connection in a context whose `inbox` default is
     team-visible, so it can finish a meeting — the mainline shared-workspace
     flow. Point it at a folder its tier may not write and the finalize is
     refused at the note write, by which time the claim has already reserved
@@ -497,12 +497,12 @@ export async function runMeetingFolderChecks(check, harness) {
   );
   check(
     "...it finalizes into the default folder its tier can write",
-    unwedged.body?.notePath?.startsWith("0-inbox/meetings/") === true
+    unwedged.body?.notePath?.startsWith("inbox/meetings/") === true
   );
   check(
     "...and the note is really there, with exactly one written for it",
     typeof shared.get(unwedged.body.notePath)?.body === "string" &&
-      keysIn(shared, "0-inbox/meetings/").filter((key) => key.includes(SESSION_WEDGED.slice(-8))).length === 1
+      keysIn(shared, "inbox/meetings/").filter((key) => key.includes(SESSION_WEDGED.slice(-8))).length === 1
   );
 
   /*
@@ -562,7 +562,7 @@ export async function runMeetingFolderChecks(check, harness) {
         ? `${releaseCase.name} gives the claimed path back, so a bare finalize still lands`
         : `${releaseCase.name} keeps the claim, because it might work next time`,
       releaseCase.released
-        ? landed.startsWith("0-inbox/meetings/")
+        ? landed.startsWith("inbox/meetings/")
         : landed.startsWith("2-areas/first/")
     );
   }

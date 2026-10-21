@@ -40,7 +40,7 @@ export async function runMeetingStorageFailureChecks(check, harness) {
 
   // The bucket refuses exactly the note write, which is the interesting moment:
   // the session has been claimed, and the note has not been written.
-  harness.failPut = (url) => (url.includes("/meet-recorder/0-inbox/meetings/") ? 500 : null);
+  harness.failPut = (url) => (url.includes("/meet-recorder/inbox/meetings/") ? 500 : null);
   const brokenFinalize = await meetingRequest(
     env,
     TOKEN_OWNER,
@@ -51,7 +51,7 @@ export async function runMeetingStorageFailureChecks(check, harness) {
     "a storage failure mid-finalize is reported as retryable",
     brokenFinalize.status === 503 && brokenFinalize.body?.error === "meeting_unavailable"
   );
-  check("and no note is left behind", keysIn(recorder, "0-inbox/meetings/").length === 1);
+  check("and no note is left behind", keysIn(recorder, "inbox/meetings/").length === 1);
 
   harness.failPut = null;
   const retried = await meetingRequest(
@@ -61,7 +61,7 @@ export async function runMeetingStorageFailureChecks(check, harness) {
     { body: {} }
   );
   check("the retry succeeds", retried.status === 200 && retried.body?.state === "complete");
-  check("writing exactly one note for that meeting", keysIn(recorder, "0-inbox/meetings/").length === 2);
+  check("writing exactly one note for that meeting", keysIn(recorder, "inbox/meetings/").length === 2);
   check(
     "and the transcript that was in flight survived the outage",
     (recorder.get(retried.body.notePath)?.body || "").includes("this should survive the outage")
@@ -148,7 +148,7 @@ export async function runMeetingStorageFailureChecks(check, harness) {
   const SESSION_EMPTY_NO_REASON = `mtg_${"z8".repeat(10)}`;
   const SESSION_EMPTY_THEN_SEGMENTS = `mtg_${"z7".repeat(10)}`;
   const SESSION_EMPTY_WITH_FLAGS_ONLY = `mtg_${"z6".repeat(10)}`;
-  const inboxBeforeEmpty = keysIn(recorder, "0-inbox/meetings/").length;
+  const inboxBeforeEmpty = keysIn(recorder, "inbox/meetings/").length;
 
   await meetingRequest(env, TOKEN_OWNER, "/meetings/sessions", {
     body: { id: SESSION_EMPTY_MIC_DENIED, title: "Recording that never started", startedAt: "2026-09-01T15:00:00.000Z" },
@@ -167,7 +167,7 @@ export async function runMeetingStorageFailureChecks(check, harness) {
   check("...carrying the reason this device gave", micDenied.body?.emptyReason === "microphone not granted");
   check(
     "...and nothing is written to the bucket for it",
-    keysIn(recorder, "0-inbox/meetings/").length === inboxBeforeEmpty
+    keysIn(recorder, "inbox/meetings/").length === inboxBeforeEmpty
   );
 
   const emptyAgain = await meetingRequest(
@@ -184,7 +184,7 @@ export async function runMeetingStorageFailureChecks(check, harness) {
   );
   check(
     "...and still writes nothing",
-    keysIn(recorder, "0-inbox/meetings/").length === inboxBeforeEmpty
+    keysIn(recorder, "inbox/meetings/").length === inboxBeforeEmpty
   );
 
   const emptySessionRead = await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_EMPTY_MIC_DENIED}`, {
@@ -275,7 +275,7 @@ export async function runMeetingStorageFailureChecks(check, harness) {
 
   check(
     "...and none of the above left a second note anywhere in the bucket",
-    keysIn(recorder, "0-inbox/meetings/").length === inboxBeforeEmpty
+    keysIn(recorder, "inbox/meetings/").length === inboxBeforeEmpty
   );
 
   /*
@@ -480,7 +480,7 @@ export async function runMeetingStorageFailureChecks(check, harness) {
   const racedKey = `${MEETING_PREFIX}${SESSION_RACED_FAIL}.json`;
   let racedOnce = false;
   harness.failPut = (url) => {
-    if (racedOnce || !url.includes("/meet-recorder/0-inbox/meetings/")) return null;
+    if (racedOnce || !url.includes("/meet-recorder/inbox/meetings/")) return null;
     racedOnce = true;
     const record = JSON.parse(recorder.get(racedKey).body);
     recorder.set(racedKey, {
@@ -532,8 +532,8 @@ export async function runMeetingStorageFailureChecks(check, harness) {
       events: [{ type: "end", at: "2026-09-05T11:30:00.000Z" }],
     },
   });
-  const inboxBeforeRetry = keysIn(recorder, "0-inbox/meetings/").length;
-  harness.failPut = (url) => (url.includes("/meet-recorder/0-inbox/meetings/") ? 500 : null);
+  const inboxBeforeRetry = keysIn(recorder, "inbox/meetings/").length;
+  harness.failPut = (url) => (url.includes("/meet-recorder/inbox/meetings/") ? 500 : null);
   const doomed = await meetingRequest(
     env,
     TOKEN_OWNER,
@@ -569,7 +569,7 @@ export async function runMeetingStorageFailureChecks(check, harness) {
   check("...on the path the first finalize claimed", pressedRetry.body?.notePath === claimedPath);
   check(
     "...writing exactly one note between them",
-    keysIn(recorder, "0-inbox/meetings/").length === inboxBeforeRetry + 1
+    keysIn(recorder, "inbox/meetings/").length === inboxBeforeRetry + 1
   );
   const retriedTwice = await meetingRequest(
     env,
@@ -581,7 +581,7 @@ export async function runMeetingStorageFailureChecks(check, harness) {
     "...and a second Retry is the ordinary idempotent replay, not a second note",
     retriedTwice.status === 200 &&
       retriedTwice.body?.notePath === claimedPath &&
-      keysIn(recorder, "0-inbox/meetings/").length === inboxBeforeRetry + 1
+      keysIn(recorder, "inbox/meetings/").length === inboxBeforeRetry + 1
   );
 
   /*

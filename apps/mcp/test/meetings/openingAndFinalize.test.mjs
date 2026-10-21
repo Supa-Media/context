@@ -489,11 +489,11 @@ export async function runMeetingOpeningAndFinalizeChecks(check, harness) {
   const notePath = finalized.body?.notePath || "";
   check(
     "at a path derived from the meeting's own UTC date",
-    notePath.startsWith("0-inbox/meetings/2026-09-01-") && notePath.endsWith(".md")
+    notePath.startsWith("inbox/meetings/2026-09-01-") && notePath.endsWith(".md")
   );
   check(
     "...dumped straight into the folder, with no date tree above it",
-    notePath.slice("0-inbox/meetings/".length).includes("/") === false
+    notePath.slice("inbox/meetings/".length).includes("/") === false
   );
   check("and hands back the note's etag", typeof finalized.body?.etag === "string" && finalized.body.etag !== "");
 
@@ -543,7 +543,7 @@ export async function runMeetingOpeningAndFinalizeChecks(check, harness) {
   check("finalizing twice answers with the note that already exists", finalizedAgain.body?.notePath === notePath);
   check(
     "and never writes a second one",
-    keysIn(recorder, "0-inbox/meetings/").length === 1
+    keysIn(recorder, "inbox/meetings/").length === 1
   );
 
   const lateSegments = await meetingRequest(env, TOKEN_OWNER, `/meetings/sessions/${SESSION_MAIN}/segments`, {

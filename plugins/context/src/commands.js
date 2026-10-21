@@ -77,7 +77,7 @@ export async function installHooks({
       ? "At session start your orientation is put in front of the model before it answers."
       : "At session start the model is told to call orient before answering."
   );
-  log("When a session ends, its user-visible messages are saved to 0-inbox/.");
+  log("When a session ends, its user-visible messages are saved to inbox/.");
   if (!clientById(clientId).transcriptVerified) {
     log("");
     log(`Note: this package's transcript parser was written against Claude Code's`);

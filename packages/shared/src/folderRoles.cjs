@@ -11,8 +11,17 @@
  * 2026-10-18; `docs/decisions/app-and-console/folder-jobs.md`). A row is given
  * its job when it is made at the root under a job's name, or the first time a
  * folder that plays one by name is moved. Until then the name decides:
- * `1-projects`, `projects` and `2-Projects` all play the projects role, the
+ * `projects`, `1-projects` and `2-Projects` all play the projects role, the
  * number only sorts (`folderRole`). `folderJobs` reads both.
+ *
+ * ## No number in front
+ *
+ * New workspaces get plain names (`inbox`, `projects`, ... `archive`), and
+ * the numbers older workspaces were given are dropped by a one-time rename
+ * (owner, 2026-10-21; `plainFolderName`, `functions/dropFolderNumbers.ts`).
+ * Order comes from the job and the row's `order`, never from a number. A
+ * number in front of a role's word still plays the role, so a writer or an
+ * AI client that names `0-inbox/` lands in the Inbox wherever it is now.
  *
  * ## The five main folders cannot be removed; extras can
  *
@@ -32,16 +41,19 @@
 const MAIN_ROLES = Object.freeze(["inbox", "projects", "areas", "resources", "archive"]);
 const EXTRA_ROLES = Object.freeze(["clients", "teams", "products"]);
 
-/** The name a new workspace gets for each role. Fixed, so it never drifts. */
+/**
+ * The name a new workspace gets for each role: the role's own word, with no
+ * number in front (owner, 2026-10-21). Fixed, so it never drifts.
+ */
 const DEFAULT_FOLDER = Object.freeze({
-  inbox: "0-inbox",
-  projects: "1-projects",
-  areas: "2-areas",
-  resources: "3-resources",
-  clients: "4-clients",
-  teams: "5-teams",
-  products: "6-products",
-  archive: "9-archive",
+  inbox: "inbox",
+  projects: "projects",
+  areas: "areas",
+  resources: "resources",
+  clients: "clients",
+  teams: "teams",
+  products: "products",
+  archive: "archive",
 });
 
 /** The folder names a new workspace starts with, in order. */
@@ -152,6 +164,20 @@ function folderRole(name) {
   if (!match) return null;
   const word = match[1].toLowerCase();
   return Object.prototype.hasOwnProperty.call(ROLE_RANK, word) ? word : null;
+}
+
+/**
+ * A built-in folder's name without its sort number, or null when there is
+ * nothing to drop: `1-projects` is `projects`, `2-Areas` is `Areas` (the word
+ * as it was typed), and `projects`, `1-plan` and `2026-plans` are null. Only
+ * a name that plays a role (`folderRole`) is changed, so a person's own
+ * numbered folders keep their numbers.
+ */
+function plainFolderName(name) {
+  if (typeof name !== "string") return null;
+  const match = /^\d+-([a-z]+)$/i.exec(name);
+  if (match === null || folderRole(name) === null) return null;
+  return match[1];
 }
 
 /** The role of the folder a path names, when that folder is top-level. */
@@ -441,6 +467,7 @@ module.exports = {
   ROLE_LABEL,
   ROLE_DESCRIPTION,
   folderRole,
+  plainFolderName,
   topLevelRole,
   isMainFolder,
   isExtraRole,

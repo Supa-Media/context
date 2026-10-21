@@ -67,11 +67,11 @@ check(
 );
 check(
   "the inbox is the one the bucket already has, not a second root",
-  INBOX_FOLDER === "0-inbox" && CONTACTS_FOLDER.startsWith("0-inbox/")
+  INBOX_FOLDER === "inbox" && CONTACTS_FOLDER.startsWith("inbox/")
 );
 check(
   "email is where the forwarded captures already are",
-  CHANNEL_FOLDERS.email === "0-inbox/email"
+  CHANNEL_FOLDERS.email === "inbox/email"
 );
 check("a channel-day note says what it is", CHANNEL_DAY_TYPE === "channel-day");
 check("there is no trusted value; a channel is a channel strangers write into", TRUST === "untrusted");

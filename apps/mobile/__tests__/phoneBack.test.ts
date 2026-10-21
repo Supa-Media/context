@@ -45,8 +45,8 @@ describe("the levels behind the back button", () => {
 
   test("a top-level folder goes back to Folders; a loose note goes straight back to Inbox", () => {
     expect(folders("index.md")).toEqual([null, null]);
-    expect(folders("1-projects")).toEqual([null, null]);
-    expect(phoneBackLevels("0-inbox/idea.md")).toEqual([{ folder: null, label: HOME_LABEL, view: "inbox" }]);
+    expect(folders("projects")).toEqual([null, null]);
+    expect(phoneBackLevels("inbox/idea.md")).toEqual([{ folder: null, label: HOME_LABEL, view: "inbox" }]);
   });
 
   test("Folders goes back to Inbox, and Inbox has nothing", () => {
@@ -68,24 +68,24 @@ describe("the levels behind the back button", () => {
 
 describe("which way a page slides", () => {
   test("deeper is forward, up is back", () => {
-    expect(slideDirection("", "1-projects")).toBe("forward");
-    expect(slideDirection("1-projects", "1-projects/plan.md")).toBe("forward");
-    expect(slideDirection("1-projects/plan.md", "1-projects")).toBe("back");
-    expect(slideDirection("1-projects/a/b.md", "1-projects")).toBe("back");
-    expect(slideDirection("1-projects", "")).toBe("back");
+    expect(slideDirection("", "projects")).toBe("forward");
+    expect(slideDirection("projects", "projects/plan.md")).toBe("forward");
+    expect(slideDirection("projects/plan.md", "projects")).toBe("back");
+    expect(slideDirection("projects/a/b.md", "projects")).toBe("back");
+    expect(slideDirection("projects", "")).toBe("back");
   });
 
   test("a jump sideways is forward, and staying put does not move", () => {
-    expect(slideDirection("1-projects/plan.md", "2-areas/home.md")).toBe("forward");
+    expect(slideDirection("projects/plan.md", "2-areas/home.md")).toBe("forward");
     // A sibling whose name starts with the folder's is not inside it.
-    expect(slideDirection("1-projects-old/x.md", "1-projects")).toBe("forward");
-    expect(slideDirection("1-projects", "1-projects")).toBe("none");
+    expect(slideDirection("1-projects-old/x.md", "projects")).toBe("forward");
+    expect(slideDirection("projects", "projects")).toBe("none");
   });
 
   test("Folders sits one step in from Inbox, and every folder one step in from it", () => {
     expect(slideDirection("", FOLDERS_PAGE)).toBe("forward");
     expect(slideDirection(FOLDERS_PAGE, "")).toBe("back");
-    expect(slideDirection(FOLDERS_PAGE, "1-projects")).toBe("forward");
-    expect(slideDirection("1-projects", FOLDERS_PAGE)).toBe("back");
+    expect(slideDirection(FOLDERS_PAGE, "projects")).toBe("forward");
+    expect(slideDirection("projects", FOLDERS_PAGE)).toBe("back");
   });
 });

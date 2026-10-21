@@ -40,7 +40,7 @@ export function searchAndMoveToolDefinitions() {
       name: "archive_note",
       title: "Archive note",
       description:
-        "Retract a note from its canonical location into this context's own archive folder, date-stamped and recoverable — there is no delete, and this is the safe way to pull something out of circulation. Links to it are rewritten to point into the archive, so nothing that referenced it breaks. Only on contexts whose layout has an archive folder (`4-archive`, `5-archive`, `archive`); elsewhere it refuses and move_note follows the owner's conventions instead. Team archives remain team-visible; personal archives safely tighten to private. Pass expected_etag for team cleanup.",
+        "Retract a note from its canonical location into this context's own archive folder, date-stamped and recoverable — there is no delete, and this is the safe way to pull something out of circulation. Links to it are rewritten to point into the archive, so nothing that referenced it breaks. Only on contexts whose layout has an archive folder (`archive`, `4-archive`, `5-archive`); elsewhere it refuses and move_note follows the owner's conventions instead. Team archives remain team-visible; personal archives safely tighten to private. Pass expected_etag for team cleanup.",
       inputSchema: {
         type: "object",
         properties: {

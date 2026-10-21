@@ -362,7 +362,7 @@ describe("a connection records the folder it files into, rather than re-deriving
     // exactly what happened on 2026-09-18, when Chat gained an account level.
     // A connection bound before that keeps what its row says; one bound after
     // it gets this account's own folder.
-    expect(row?.chat?.destinationFolder).toBe("0-inbox/google-chat/person-at-example-invalid");
+    expect(row?.chat?.destinationFolder).toBe("inbox/google-chat/person-at-example-invalid");
   });
 
   test("a reconnect keeps the folder the connection already had", async () => {

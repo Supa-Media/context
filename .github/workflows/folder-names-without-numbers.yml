@@ -1,0 +1,67 @@
+# Take the sort numbers off built-in folders in every keyed workspace
+# (`0-inbox` → `inbox`, `1-projects` → `projects`, …; owner, 2026-10-21).
+#
+# Manual only. Run it with `dry_run` first: that counts what would be renamed
+# and changes nothing. It pages through `functions/folderNumbers:run`, which
+# answers with counts and never a path, an id or a name: this repository is
+# public, and so is this job's log. Running it again renames nothing that was
+# already renamed; a folder whose plain name is already taken is counted as a
+# twin and left for its owner.
+name: Folder names without numbers
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which deployment to rename in."
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
+      dry_run:
+        description: "Count only; rename nothing."
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  rename:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Rename
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          cursor=""
+          page=0
+          while :; do
+            page=$((page + 1))
+            if [ -z "$cursor" ]; then
+              args=$(jq -cn --argjson dry "$DRY_RUN" '{dryRun: $dry}')
+            else
+              args=$(jq -cn --argjson dry "$DRY_RUN" --arg cursor "$cursor" '{dryRun: $dry, cursor: $cursor}')
+            fi
+            answer=$(npx convex run functions/folderNumbers:run "$args")
+            echo "page $page: $(echo "$answer" | jq -c 'del(.cursor)')"
+            if [ "$(echo "$answer" | jq -r '.done')" = "true" ]; then break; fi
+            cursor=$(echo "$answer" | jq -r '.cursor')
+            if [ "$page" -ge 400 ]; then echo "stopped after $page pages"; exit 1; fi
+          done

@@ -21,7 +21,7 @@ function candidate(overrides = {}) {
     title: "Quarterly review",
     start: "2026-09-07T14:00:00.000Z",
     end: "2026-09-07T15:00:00.000Z",
-    path: "0-inbox/calendar/2026-09-07.md",
+    path: "inbox/calendar/2026-09-07.md",
     ...overrides,
   };
 }
@@ -69,7 +69,7 @@ export function runCalendarMeetingLinkChecks(check) {
   // -- calendarEventLink ------------------------------------------------
   check(
     "the link is an ordinary [[path#anchor]] wikilink, extension stripped",
-    calendarEventLink("0-inbox/calendar/2026-09-07.md", "evt-0000000000000001") === "[[0-inbox/calendar/2026-09-07#evt-0000000000000001]]"
+    calendarEventLink("inbox/calendar/2026-09-07.md", "evt-0000000000000001") === "[[inbox/calendar/2026-09-07#evt-0000000000000001]]"
   );
 
   // -- candidatesFromDay ------------------------------------------------
@@ -83,11 +83,11 @@ export function runCalendarMeetingLinkChecks(check) {
   const candidates = candidatesFromDay(day);
   check("cancelled instances are never offered as a match candidate", candidates.length === 1 && candidates[0].title === "Standup");
   check("the candidate's anchor is the real eventAnchor, so a match points at a real heading", candidates[0].anchor === eventAnchor(day.events[0]));
-  check("the candidate's path is the real calendar day path", candidates[0].path === "0-inbox/calendar/2026/09/2026-09-07.md");
+  check("the candidate's path is the real calendar day path", candidates[0].path === "inbox/calendar/2026/09/2026-09-07.md");
   check("an empty or malformed day produces no candidates rather than throwing", candidatesFromDay(null).length === 0 && candidatesFromDay({}).length === 0);
 
   // -- attachEventLink / readEventLink: the patch that actually lands the link
-  const LINK = "[[0-inbox/calendar/2026-03-04#evt-0123456789abcdef]]";
+  const LINK = "[[inbox/calendar/2026-03-04#evt-0123456789abcdef]]";
   const MEETING_ID = "01234567-89ab-cdef-0123-456789abcdef";
   const meetingNote = renderMeetingNote(
     {
@@ -127,8 +127,8 @@ export function runCalendarMeetingLinkChecks(check) {
   );
   check("attaching the same link again is idempotent — the result is byte-identical", attachEventLink(withLink, LINK) === withLink);
 
-  const relinked = attachEventLink(withLink, "[[0-inbox/calendar/2026-03-05#evt-fedcba9876543210]]");
-  check("attaching a different link replaces the old one rather than appending a second key", readEventLink(relinked) === "[[0-inbox/calendar/2026-03-05#evt-fedcba9876543210]]");
+  const relinked = attachEventLink(withLink, "[[inbox/calendar/2026-03-05#evt-fedcba9876543210]]");
+  check("attaching a different link replaces the old one rather than appending a second key", readEventLink(relinked) === "[[inbox/calendar/2026-03-05#evt-fedcba9876543210]]");
   check("...and there is still exactly one event: line", relinked.split("\n").filter((line) => line.startsWith("event:")).length === 1);
 
   check("a note with no frontmatter is returned completely unchanged, not guessed at", attachEventLink("# just a heading\n\nsome text", LINK) === "# just a heading\n\nsome text");

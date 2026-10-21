@@ -170,10 +170,10 @@ describe("groups", () => {
 describe("which folders track progress", () => {
   const { setJobFoldersNow } =
     require("../features/console/files/jobIcons/jobFoldersNow") as typeof import("../features/console/files/jobIcons/jobFoldersNow");
-  afterEach(() => setJobFoldersNow({ inbox: "0-inbox", projects: "1-projects", archive: "9-archive" }));
+  afterEach(() => setJobFoldersNow({ inbox: "inbox", projects: "projects", archive: "9-archive" }));
 
   test("the folder doing the Projects job, and everything under it", () => {
-    for (const folder of ["1-projects", "1-projects/trip", "1-projects/trip/days"]) {
+    for (const folder of ["projects", "projects/trip", "projects/trip/days"]) {
       expect(isProjectsFolder(folder)).toBe(true);
     }
   });
@@ -185,12 +185,12 @@ describe("which folders track progress", () => {
   });
 
   test("a renamed Projects folder is still the Projects folder, and the old name is not", () => {
-    setJobFoldersNow({ inbox: "0-inbox", projects: "Work", archive: "9-archive" });
+    setJobFoldersNow({ inbox: "inbox", projects: "Work", archive: "9-archive" });
     expect(isProjectsFolder("Work")).toBe(true);
     expect(isProjectsFolder("Work/cafe")).toBe(true);
     expect(rowsAreProjects("Work")).toBe(true);
     expect(rowsAreProjects("Work/cafe")).toBe(false);
-    expect(isProjectsFolder("1-projects")).toBe(false);
+    expect(isProjectsFolder("projects")).toBe(false);
   });
 });
 
@@ -279,7 +279,7 @@ describe("a front note headed by the folder's own name", () => {
   });
 
   test("nor is a frontmatter title that only repeats the name on disk", () => {
-    const summary = summarizeFolder("1-projects/3-web-app", [note("1-projects/3-web-app/about.md", { title: "3-web-app" })]);
+    const summary = summarizeFolder("projects/3-web-app", [note("projects/3-web-app/about.md", { title: "3-web-app" })]);
     expect(summary.title).toBeNull();
   });
 });

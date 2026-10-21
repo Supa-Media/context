@@ -206,7 +206,7 @@ describe("an owner can edit their context", () => {
       workspaceId: f.workspaceId,
       path: "1-projects/renamed.md",
     });
-    expect(archived.to).toMatch(/^9-archive\//);
+    expect(archived.to).toMatch(/^archive\//);
     expect(f.backend.snapshot()[archived.to]).toBe("# New\n");
   });
 

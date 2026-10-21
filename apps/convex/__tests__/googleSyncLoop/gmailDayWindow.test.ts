@@ -70,7 +70,7 @@ describe("the Gmail window repair", () => {
     await runPass(t, workspaceId, connectionId);
 
     const store = withLogicalDelete(new S3Store({ ...FAKE_STORAGE, forcePathStyle: true, fetchImpl: backend.fetchImpl }));
-    const path = `0-inbox/email/person-at-example-invalid/${owed[0].slice(0, 4)}/${owed[0].slice(5, 7)}/${owed[0]}.md`;
+    const path = `inbox/email/person-at-example-invalid/${owed[0].slice(0, 4)}/${owed[0].slice(5, 7)}/${owed[0]}.md`;
     expect((await readDocument(store, path)).text).toContain("Pricing for the thirtieth");
     const after = await readConnection(t, connectionId);
     expect(after.gmail?.repairDays).toEqual(owed.slice(REPAIR_DAYS_PER_PASS));

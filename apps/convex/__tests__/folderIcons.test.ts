@@ -36,7 +36,8 @@ import { checkFolderIcon, visibleFolderIcons } from "../functions/lib/fileOps/fo
 import { FOLDER_ICONS_KEY, parseFolderIcons, serializeFolderIcons } from "@context/shared/src/folderIcons.cjs";
 import { attachSmallData } from "../functions/lib/smallData/attach";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
+// A workspace laid out before the numbers were dropped (2026-10-21): its folders keep them.
+import { LEGACY_PARA_FOLDERS, renderPrivacyManifestForFolders } from "../functions/lib/scaffold";
 import { bridge } from "./nodes/moveFixture.helpers";
 
 const NOW = 1_800_000_000_000;
@@ -45,7 +46,7 @@ const MEMBER = clearanceOf("team");
 
 function bucket(): MemoryStore & FileStore {
   const store = memoryStore({}) as MemoryStore & FileStore;
-  store.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
+  store.seed(PRIVACY_KEY, renderPrivacyManifestForFolders(LEGACY_PARA_FOLDERS));
   for (const folder of ["1-projects", "2-areas", "9-archive", "recipes", "secret"]) {
     store.seed(`${folder}/README.md`, `# ${folder}\n`);
   }

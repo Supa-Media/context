@@ -198,7 +198,7 @@ const TOOL = {
         type: "string",
         description: "Your plan for it: what to find or do, which workspace and folder, what to write and where, anything they said that matters.",
       },
-      done_when: { type: "string", description: "What finished looks like, in one line: \"a note comparing five competitors in @supa 1-projects/tex/\"." },
+      done_when: { type: "string", description: "What finished looks like, in one line: \"a note comparing five competitors in @supa projects/tex/\"." },
     },
     required: ["title", "brief"],
   },

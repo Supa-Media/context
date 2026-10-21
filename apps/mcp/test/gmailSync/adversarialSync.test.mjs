@@ -230,7 +230,7 @@ export async function runGmailAdversarialSyncChecks(check) {
     vanishingThrew === null && vanishingResult !== null && vanishingResult.partsWritten === 1,
   );
   const vanishingNote = await (
-    await vanishingStore.get("0-inbox/email/p-at-example-invalid/2026/09/2026-09-07.md")
+    await vanishingStore.get("inbox/email/p-at-example-invalid/2026/09/2026-09-07.md")
   ).text();
   check(
     "...and the day is written from what Gmail still has",
@@ -380,7 +380,7 @@ export async function runGmailAdversarialSyncChecks(check) {
   // property of the code that reads it, not only of the code that writes it.
   const hostileManifestStore = createMemoryStore();
   await hostileManifestStore.put("privacy.md", "# privacy");
-  await hostileManifestStore.put("0-inbox/email/p-at-example-invalid/attachments/2026-09-07/h-real.pdf", "bytes");
+  await hostileManifestStore.put("inbox/email/p-at-example-invalid/attachments/2026-09-07/h-real.pdf", "bytes");
   await hostileManifestStore.put(
     manifestPath("p-at-example-invalid"),
     JSON.stringify({
@@ -388,8 +388,8 @@ export async function runGmailAdversarialSyncChecks(check) {
       resolved: {},
       files: {
         outside: { path: "privacy.md", size: 9, writtenAt: "2026-09-07T00:00:00.000Z", expiresAt: "2026-09-08T00:00:00.000Z", expired: false },
-        elsewhere: { path: "0-inbox/email/other-at-example-invalid/attachments/2026-09-07/h-x.pdf", size: 9, writtenAt: "2026-09-07T00:00:00.000Z", expiresAt: "2026-09-08T00:00:00.000Z", expired: false },
-        real: { path: "0-inbox/email/p-at-example-invalid/attachments/2026-09-07/h-real.pdf", size: 5, writtenAt: "2026-09-07T00:00:00.000Z", expiresAt: "2026-09-08T00:00:00.000Z", expired: false },
+        elsewhere: { path: "inbox/email/other-at-example-invalid/attachments/2026-09-07/h-x.pdf", size: 9, writtenAt: "2026-09-07T00:00:00.000Z", expiresAt: "2026-09-08T00:00:00.000Z", expired: false },
+        real: { path: "inbox/email/p-at-example-invalid/attachments/2026-09-07/h-real.pdf", size: 5, writtenAt: "2026-09-07T00:00:00.000Z", expiresAt: "2026-09-08T00:00:00.000Z", expired: false },
       },
     }),
   );
@@ -409,7 +409,7 @@ export async function runGmailAdversarialSyncChecks(check) {
   check(
     "...while the entry that IS this mailbox's own is still swept",
     hostileSweep.expiredHashes.includes("real") &&
-      (await hostileManifestStore.get("0-inbox/email/p-at-example-invalid/attachments/2026-09-07/h-real.pdf")) ===
+      (await hostileManifestStore.get("inbox/email/p-at-example-invalid/attachments/2026-09-07/h-real.pdf")) ===
         null,
   );
 
@@ -478,7 +478,7 @@ export async function runGmailAdversarialSyncChecks(check) {
   check(
     "...and its bytes are fetched into the bucket like any other attachment",
     (await inlineStore.get(
-      `0-inbox/email/p-at-example-invalid/attachments/2026/09/07/${inlineHash}-signature.png`,
+      `inbox/email/p-at-example-invalid/attachments/2026/09/07/${inlineHash}-signature.png`,
     )) !== null,
   );
 }

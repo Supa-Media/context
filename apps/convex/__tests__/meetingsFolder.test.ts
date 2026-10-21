@@ -37,7 +37,7 @@ import {
   setupTest,
 } from "./fixtures.helpers";
 
-const DEFAULT_FOLDER = "0-inbox/meetings";
+const DEFAULT_FOLDER = "inbox/meetings";
 
 async function workspace() {
   const t = setupTest();

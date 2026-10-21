@@ -45,11 +45,11 @@ That's not a feature we might remove later. It's the architecture:
 ┌────────────────────┐      ┌──────────────────────┐      ┌────────────────────┐
 │ ChatGPT            │      │  Control plane       │      │  R2 / S3 / B2      │
 │ Claude             │─────▶│  (Convex)            │      │                    │
-│ Codex              │ MCP  │  accounts, workspaces│      │  0-inbox/          │
-│ Notion AI          │ over │  OAuth grants,       │      │  1-projects/       │
-│ …                  │ OAuth│  storage bindings,   │      │  2-areas/          │
-└────────────────────┘      │  file tree, privacy  │      │  3-resources/      │
-                            │  rules, audit        │      │  4-archive/        │
+│ Codex              │ MCP  │  accounts, workspaces│      │  inbox/            │
+│ Notion AI          │ over │  OAuth grants,       │      │  projects/         │
+│ …                  │ OAuth│  storage bindings,   │      │  areas/            │
+└────────────────────┘      │  file tree, privacy  │      │  resources/        │
+                            │  rules, audit        │      │  archive/          │
                             ├──────────────────────┤      │  index.md          │
    The app (web, phone,     │  MCP gateway         │─────▶│  privacy.md        │
    desktop) and the     ───▶│  (Cloudflare Worker) │OAuth │  .context/         │
@@ -85,11 +85,11 @@ on setup:
 
 | Folder          | Holds                                        |
 | --------------- | -------------------------------------------- |
-| `0-inbox/`      | raw captures, unfiled                        |
-| `1-projects/`   | active work with an end state                |
-| `2-areas/`      | ongoing responsibilities                     |
-| `3-resources/`  | reference material                           |
-| `4-archive/`    | anything no longer active                    |
+| `inbox/`        | raw captures, unfiled                        |
+| `projects/`     | active work with an end state                |
+| `areas/`        | ongoing responsibilities                     |
+| `resources/`    | reference material                           |
+| `archive/`      | anything no longer active                    |
 
 It's a suggestion, not a schema. Bring your own structure and Context works the
 same — the tools operate on paths, not on a fixed taxonomy.
@@ -133,13 +133,13 @@ the conventions; what makes it earn its place is the part only you can write.
 Building the gateway; consulting on the side. Mornings are for deep work.
 
 ## Now
-- 1-projects/gateway — shipping the MCP server. Decisions in decisions.md.
-- 1-projects/acme — client work, weekly check-in Thursdays.
+- projects/gateway — shipping the MCP server. Decisions in decisions.md.
+- projects/acme — client work, weekly check-in Thursdays.
 
 ## Where things go
-- Anything a client said → 1-projects/<client>/notes.md
-- Reusable how-to → 3-resources/
-- Mail I send myself lands in 0-inbox/ and I file it on Fridays.
+- Anything a client said → projects/<client>/notes.md
+- Reusable how-to → resources/
+- Mail I send myself lands in inbox/ and I file it on Fridays.
 ```
 
 Nothing about the format is enforced. Edit it in Obsidian, in your editor, or
@@ -173,7 +173,7 @@ Two answers, and you want both:
   ```
 
   Signs you in once and adds a `SessionEnd` hook to Claude Code. From then on a
-  session's user-visible messages land in `0-inbox/` on their own. It asks for
+  session's user-visible messages land in `inbox/` on their own. It asks for
   capture access only — it can add to your inbox and cannot read a single note —
   and it shows up in Connections like any other client, revocable on its own.
   See [`plugins/context`](plugins/context).

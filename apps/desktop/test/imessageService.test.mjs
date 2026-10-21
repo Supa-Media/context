@@ -68,7 +68,7 @@ const SQLITE3_BINARY = "/usr/bin/sqlite3";
  */
 const FIXTURE_DAY = "2026-09-07";
 const FIXTURE_NOW = Date.parse(`${FIXTURE_DAY}T12:00:00.000Z`);
-const FIXTURE_NOTE_PATH = `0-inbox/imessage/${FIXTURE_DAY.slice(0, 4)}/${FIXTURE_DAY.slice(5, 7)}/${FIXTURE_DAY}.md`;
+const FIXTURE_NOTE_PATH = `inbox/imessage/${FIXTURE_DAY.slice(0, 4)}/${FIXTURE_DAY.slice(5, 7)}/${FIXTURE_DAY}.md`;
 
 /** Bytes a sender chose, in every column that carries any. None may reach a status. */
 const HOSTILE = Object.freeze({
@@ -562,7 +562,7 @@ export async function runImessageServiceChecks(check, skip) {
     check(
       "...and nothing recognisably note-shaped leaks either — no frontmatter, no fence, no path",
       !everyStatus.includes("context:untrusted-communication") &&
-        !everyStatus.includes("0-inbox/") &&
+        !everyStatus.includes("inbox/") &&
         !everyStatus.includes("channel-day"),
     );
     check(

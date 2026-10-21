@@ -28,7 +28,7 @@ const RESERVED = new Set(["index.md", "privacy.md", "activity.md"]);
  * is ours, so the control plane lists it among the paths a share preview must
  * not confirm (`PRODUCT_MANDATED_PATHS`).
  */
-export const MEMORY_FOLDER = "0-inbox/memories";
+export const MEMORY_FOLDER = "inbox/memories";
 /** New inbox notes for one day's facts are numbered past this many collisions, then refused. */
 const MAX_INBOX_ATTEMPTS = 20;
 

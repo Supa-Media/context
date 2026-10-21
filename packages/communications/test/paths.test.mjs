@@ -12,7 +12,7 @@
 //   let a slug carry a dot, so a mailbox can be plumbing  -> 2 checks failed
 //   return the base slug from chooseMailboxSlug always    -> 1 check failed
 //   accept any segment as the account level               -> 5 checks failed
-//   file a mailbox as a direct child of `0-inbox`          -> 5 checks failed
+//   file a mailbox as a direct child of `inbox`          -> 5 checks failed
 //   write the day flat again, with the reader unchanged   -> 5 checks failed
 //   accept a year/month that disagrees with the filename  -> 1 check failed
 //   drop the flat branch of the reader                    -> 4 checks failed
@@ -23,6 +23,7 @@ import {
   CHANNEL_FOLDERS,
   CONTACTS_FOLDER,
   INBOX_FOLDER,
+  asInboxKey,
 } from "../src/protocol.js";
 import {
   MAX_SLUG_LENGTH,
@@ -37,6 +38,7 @@ import {
   isChannelDayNotePath,
   isContactNotePath,
   isMailboxSlug,
+  archivedContactPath,
   liveContactPathForArchived,
   parseChannelDayPath,
   slugifyAddress,
@@ -46,7 +48,7 @@ export function runPathChecks(check) {
   // -- the inbox, and nothing beside it ------------------------------------
   //
   // The scoping note drew this tree under a top-level `inbox/`. It is
-  // `0-inbox/`, and that is a decision with a migration behind it: see
+  // `inbox/`, and that is a decision with a migration behind it: see
   // docs/decisions/communications.md.
   check(
     "every channel folder is inside the inbox the bucket already has",
@@ -72,7 +74,7 @@ export function runPathChecks(check) {
     channelDayNotePath(
       { channel: "email", account: "a-at-example-com", date: "2026-09-07" },
       { root: "workspace" }
-    ) === "workspace/0-inbox/email/a-at-example-com/2026/09/2026-09-07.md"
+    ) === "workspace/inbox/email/a-at-example-com/2026/09/2026-09-07.md"
   );
   check(
     "...and a root that traverses is refused rather than normalized away",
@@ -124,7 +126,7 @@ export function runPathChecks(check) {
   check(
     "a mailbox day is filed under its year and month",
     channelDayNotePath({ channel: "email", account: "name-at-example-com", date: "2026-09-07" }) ===
-      "0-inbox/email/name-at-example-com/2026/09/2026-09-07.md"
+      "inbox/email/name-at-example-com/2026/09/2026-09-07.md"
   );
   check(
     "...and the filename keeps the whole date, so a note moved out of its folder still says what it is",
@@ -132,12 +134,12 @@ export function runPathChecks(check) {
   );
   check(
     "a machine has no account level, and is dated like everything else",
-    channelDayNotePath({ channel: "imessage", date: "2026-09-07" }) === "0-inbox/imessage/2026/09/2026-09-07.md"
+    channelDayNotePath({ channel: "imessage", date: "2026-09-07" }) === "inbox/imessage/2026/09/2026-09-07.md"
   );
   check(
     "Chat is filed per account, the way mail is",
     channelDayNotePath({ channel: "google-chat", account: "name-at-example-com", date: "2026-09-07" }) ===
-      "0-inbox/google-chat/name-at-example-com/2026/09/2026-09-07.md"
+      "inbox/google-chat/name-at-example-com/2026/09/2026-09-07.md"
   );
   check(
     "...and passing one anyway is refused rather than ignored",
@@ -154,7 +156,7 @@ export function runPathChecks(check) {
   check(
     "...and part 3 is a sibling of it, in the same month folder",
     channelDayNotePath({ channel: "imessage", date: "2026-09-07", part: 3 }) ===
-      "0-inbox/imessage/2026/09/2026-09-07-part-3.md"
+      "inbox/imessage/2026/09/2026-09-07-part-3.md"
   );
   check(
     "a channel this package does not file into is refused",
@@ -197,13 +199,13 @@ export function runPathChecks(check) {
   // bucket held a channel-day note; buckets hold them now.
   check(
     "a flat day written before the dated tree is still a channel-day note",
-    isChannelDayNotePath("0-inbox/email/name-at-example-com/2026-09-07.md")
+    isChannelDayNotePath("inbox/email/name-at-example-com/2026-09-07.md")
   );
   check(
     "...and parses to the same day the nested one does",
     (() => {
-      const flat = parseChannelDayPath("0-inbox/email/name-at-example-com/2026-09-07.md");
-      const nested = parseChannelDayPath("0-inbox/email/name-at-example-com/2026/09/2026-09-07.md");
+      const flat = parseChannelDayPath("inbox/email/name-at-example-com/2026-09-07.md");
+      const nested = parseChannelDayPath("inbox/email/name-at-example-com/2026/09/2026-09-07.md");
       return (
         flat !== null &&
         nested !== null &&
@@ -216,51 +218,51 @@ export function runPathChecks(check) {
   );
   check(
     "a flat Chat day from before the account level still reads as Chat",
-    parseChannelDayPath("0-inbox/google-chat/2026-09-07.md")?.channel === "google-chat"
+    parseChannelDayPath("inbox/google-chat/2026-09-07.md")?.channel === "google-chat"
   );
   check(
     "...and its account is empty rather than invented",
-    parseChannelDayPath("0-inbox/google-chat/2026-09-07.md")?.account === ""
+    parseChannelDayPath("inbox/google-chat/2026-09-07.md")?.account === ""
   );
   check(
     "a date folder that disagrees with the filename is nobody's note",
-    !isChannelDayNotePath("0-inbox/email/name-at-example-com/2025/01/2026-09-07.md")
+    !isChannelDayNotePath("inbox/email/name-at-example-com/2025/01/2026-09-07.md")
   );
   check(
     "...and a month folder with no year in front of it is not one either",
-    !isChannelDayNotePath("0-inbox/email/name-at-example-com/09/2026-09-07.md")
+    !isChannelDayNotePath("inbox/email/name-at-example-com/09/2026-09-07.md")
   );
   check(
     "a folder somebody made below the month is still not a channel day",
-    !isChannelDayNotePath("0-inbox/email/name-at-example-com/2026/09/drafts/2026-09-07.md")
+    !isChannelDayNotePath("inbox/email/name-at-example-com/2026/09/drafts/2026-09-07.md")
   );
   check(
     "a machine still gets no account level, dated or flat",
-    !isChannelDayNotePath("0-inbox/imessage/someone/2026/09/2026-09-07.md")
+    !isChannelDayNotePath("inbox/imessage/someone/2026/09/2026-09-07.md")
   );
   check(
     "a forwarded capture sitting in the same folder is not a day",
-    !isChannelDayNotePath("0-inbox/email/9f2c1d7a4b6e8035ac91d2f4.md")
+    !isChannelDayNotePath("inbox/email/9f2c1d7a4b6e8035ac91d2f4.md")
   );
   check(
     "...and a mailbox folder is not mistaken for one either",
-    !isChannelDayNotePath("0-inbox/email/name-at-example-com")
+    !isChannelDayNotePath("inbox/email/name-at-example-com")
   );
-  check("a meeting is not a channel-day note", !isChannelDayNotePath("0-inbox/meetings/2026-09-07-sync-8h9jkmnp.md"));
+  check("a meeting is not a channel-day note", !isChannelDayNotePath("inbox/meetings/2026-09-07-sync-8h9jkmnp.md"));
   check("an ordinary dated note elsewhere is not one", !isChannelDayNotePath("1-projects/foo/2026-09-07.md"));
-  check("a day inside a dot folder is not one", !isChannelDayNotePath("0-inbox/email/.hidden/2026-09-07.md"));
+  check("a day inside a dot folder is not one", !isChannelDayNotePath("inbox/email/.hidden/2026-09-07.md"));
   check(
     "a channel with no account level does not quietly gain one",
-    !isChannelDayNotePath("0-inbox/imessage/someone/2026-09-07.md")
+    !isChannelDayNotePath("inbox/imessage/someone/2026-09-07.md")
   );
   check(
     "...and no channel gains a second one",
-    !isChannelDayNotePath("0-inbox/email/name-at-example-com/archive/2026-09-07.md") &&
-      !isChannelDayNotePath("0-inbox/imessage/a/b/2026-09-07.md")
+    !isChannelDayNotePath("inbox/email/name-at-example-com/archive/2026-09-07.md") &&
+      !isChannelDayNotePath("inbox/imessage/a/b/2026-09-07.md")
   );
-  check("a day under a mailbox-shaped folder with a bad date is not one", !isChannelDayNotePath("0-inbox/email/name-at-example-com/2026-02-30.md"));
-  check("`-part-1` is not a name this module writes, so it is not one it reads", !isChannelDayNotePath("0-inbox/imessage/2026-09-07-part-1.md"));
-  check("a part number with a leading zero is not one either", !isChannelDayNotePath("0-inbox/imessage/2026-09-07-part-02.md"));
+  check("a day under a mailbox-shaped folder with a bad date is not one", !isChannelDayNotePath("inbox/email/name-at-example-com/2026-02-30.md"));
+  check("`-part-1` is not a name this module writes, so it is not one it reads", !isChannelDayNotePath("inbox/imessage/2026-09-07-part-1.md"));
+  check("a part number with a leading zero is not one either", !isChannelDayNotePath("inbox/imessage/2026-09-07-part-02.md"));
   /*
     The recogniser is what a listing is built from, so a key it accepts is a
     key a tool will read. These are the shapes a crafted key arrives in — a
@@ -270,32 +272,32 @@ export function runPathChecks(check) {
     with a leading slash.
   */
   for (const crafted of [
-    "0-inbox/email/../../etc/2026-09-07.md",
-    "0-inbox/email/a-at-b/../2026-09-07.md",
-    "0-inbox/email/../2026-09-07.md",
-    "0-inbox/email/..%2f..%2fetc/2026-09-07.md",
-    "0-inbox/email/%2e%2e/2026-09-07.md",
-    "0-inbox/email/./2026-09-07.md",
-    "/0-inbox/imessage/2026-09-07.md",
-    "//0-inbox/imessage/2026-09-07.md",
-    "0-inbox//imessage/2026-09-07.md",
-    "0-inbox/email/name-at-example-com//2026-09-07.md",
+    "inbox/email/../../etc/2026-09-07.md",
+    "inbox/email/a-at-b/../2026-09-07.md",
+    "inbox/email/../2026-09-07.md",
+    "inbox/email/..%2f..%2fetc/2026-09-07.md",
+    "inbox/email/%2e%2e/2026-09-07.md",
+    "inbox/email/./2026-09-07.md",
+    "/inbox/imessage/2026-09-07.md",
+    "//inbox/imessage/2026-09-07.md",
+    "inbox//imessage/2026-09-07.md",
+    "inbox/email/name-at-example-com//2026-09-07.md",
   ]) {
     check(`a crafted key is not a channel-day note: ${crafted}`, !isChannelDayNotePath(crafted));
   }
   check(
     "...and a traversal cannot climb out of the customer's chosen root either",
-    !isChannelDayNotePath("workspace/../0-inbox/imessage/2026-09-07.md", { root: "workspace" }) &&
-      !isChannelDayNotePath("0-inbox/imessage/2026-09-07.md", { root: "workspace" })
+    !isChannelDayNotePath("workspace/../inbox/imessage/2026-09-07.md", { root: "workspace" }) &&
+      !isChannelDayNotePath("inbox/imessage/2026-09-07.md", { root: "workspace" })
   );
   check(
     "a contact page is held to the same rule",
-    !isContactNotePath("0-inbox/contacts/../privacy.md") && !isContactNotePath("/0-inbox/contacts/adam.md")
+    !isContactNotePath("inbox/contacts/../privacy.md") && !isContactNotePath("/inbox/contacts/adam.md")
   );
 
   check(
     "a key outside the customer's chosen root is not theirs",
-    !isChannelDayNotePath("0-inbox/imessage/2026-09-07.md", { root: "workspace" })
+    !isChannelDayNotePath("inbox/imessage/2026-09-07.md", { root: "workspace" })
   );
 
   /*
@@ -310,15 +312,15 @@ export function runPathChecks(check) {
     mapping a folder name through a mail-role denylist would rename somebody's
     real mailbox after a word on a list they cannot see. So the separation is
     STRUCTURAL, not a string comparison, and that is what is asserted — a
-    mailbox lives one level down, under `0-inbox/email/`, where it can never be
-    a handle, a route, or a sibling of the folders `0-inbox` already has.
+    mailbox lives one level down, under `inbox/email/`, where it can never be
+    a handle, a route, or a sibling of the folders `inbox` already has.
 
     Every reserved word that could also be produced by the slug function is
     tried, which is the honest set: `support@…` slugifies to
     `support-at-example-com` and could not collide anyway, but an address with
     no `@` in it at all reaches the general rule and comes out as the bare word.
   */
-  const RESERVED = ["mcp", "meetings", "oauth", "granola-webhook", "api", "support", "0-inbox", "workspace", "context", "inbox", "contacts", "sessions"];
+  const RESERVED = ["mcp", "meetings", "oauth", "granola-webhook", "api", "support", "inbox", "workspace", "context", "inbox", "contacts", "sessions"];
   check(
     "a reserved name is never a top-level key, whatever address produced it",
     RESERVED.every((word) => {
@@ -358,28 +360,63 @@ export function runPathChecks(check) {
   check("a person's name becomes a page name", contactSlug("Adam Okonkwo") === "adam-okonkwo");
   check("...and an `@` in a name is not spelled out, which would be nonsense there", contactSlug("Adam@Example") === "adam-example");
   check("a contact page is recognised", isContactNotePath(contactNotePath(contactSlug("Adam Okonkwo"))));
-  check("...and so is a page one folder down, the owner's A–Z filing", isContactNotePath("0-inbox/contacts/team/adam.md") && isContactNotePath("0-inbox/contacts/a/adam-okonkwo.md"));
-  check("...and the legacy imported iMessage folder", isContactNotePath("0-inbox/contacts/imessage/alex.md"));
-  check("...but two folders down is not a contact", !isContactNotePath("0-inbox/contacts/a/b/adam.md"));
-  check("...nor a dot file in it", !isContactNotePath("0-inbox/contacts/.adam.md") && !isContactNotePath("0-inbox/contacts/a/.adam.md"));
+  check("...and so is a page one folder down, the owner's A–Z filing", isContactNotePath("inbox/contacts/team/adam.md") && isContactNotePath("inbox/contacts/a/adam-okonkwo.md"));
+  check("...and the legacy imported iMessage folder", isContactNotePath("inbox/contacts/imessage/alex.md"));
+  check("...but two folders down is not a contact", !isContactNotePath("inbox/contacts/a/b/adam.md"));
+  check("...nor a dot file in it", !isContactNotePath("inbox/contacts/.adam.md") && !isContactNotePath("inbox/contacts/a/.adam.md"));
   check("...nor a dot folder, a traversal or an empty segment",
-    !isContactNotePath("0-inbox/contacts/.hidden/adam.md") &&
-      !isContactNotePath("0-inbox/contacts/../adam.md") &&
-      !isContactNotePath("0-inbox/contacts/a/../../privacy.md") &&
-      !isContactNotePath("0-inbox/contacts//adam.md") &&
-      !isContactNotePath("0-inbox/contacts/./adam.md"));
-  check("...nor anything that is not Markdown", !isContactNotePath("0-inbox/contacts/a/adam.txt") && !isContactNotePath("0-inbox/contacts/a/"));
+    !isContactNotePath("inbox/contacts/.hidden/adam.md") &&
+      !isContactNotePath("inbox/contacts/../adam.md") &&
+      !isContactNotePath("inbox/contacts/a/../../privacy.md") &&
+      !isContactNotePath("inbox/contacts//adam.md") &&
+      !isContactNotePath("inbox/contacts/./adam.md"));
+  check("...nor anything that is not Markdown", !isContactNotePath("inbox/contacts/a/adam.txt") && !isContactNotePath("inbox/contacts/a/"));
   check("a new page's folder is the first letter of the name, accents stripped", contactLetterFolder("Émile Zola") === "e" && contactLetterFolder("  adam") === "a");
   check("...and `other` for a name with no letter, an address or a number",
     ["", "1234", "+1 (555) 123-4567", "adam@example.com", "(unnamed contact)", "李雷"].every((name) => contactLetterFolder(name) === "other"));
-  check("a letter-folder path is built and recognised", contactNotePath("adam", { folder: "a" }) === "0-inbox/contacts/a/adam.md");
+  check("a letter-folder path is built and recognised", contactNotePath("adam", { folder: "a" }) === "inbox/contacts/a/adam.md");
   check("...and a folder that is not a slug is refused", (() => {
     try { contactNotePath("adam", { folder: "../x" }); return false; } catch { return true; }
   })());
   check("an archived contact comes back to the path it mirrors",
-    liveContactPathForArchived("4-archive/0-inbox/contacts/c/claire.md") === "0-inbox/contacts/c/claire.md");
+    liveContactPathForArchived("archive/inbox/contacts/c/claire.md") === "inbox/contacts/c/claire.md");
   check("...and only a contact path is mirrored back",
-    liveContactPathForArchived("4-archive/0-inbox/email/x/2026-09-07.md") === null &&
-      liveContactPathForArchived("4-archive/0-inbox/contacts/a/b/c.md") === null &&
-      liveContactPathForArchived("0-inbox/contacts/c/claire.md") === null);
+    liveContactPathForArchived("archive/inbox/email/x/2026-09-07.md") === null &&
+      liveContactPathForArchived("archive/inbox/contacts/a/b/c.md") === null &&
+      liveContactPathForArchived("inbox/contacts/c/claire.md") === null);
+
+  // -- the Inbox has no number in front (owner, 2026-10-21) ------------------
+  //
+  // New notes are written under `inbox/`, and a one-time rename moved every
+  // `0-inbox` there. A workspace the rename skipped still has `0-inbox`, and a
+  // reader must not lose its mail, its contacts or its days in the meantime:
+  // both spellings read as the same folder.
+  check("the Inbox is written without a number", INBOX_FOLDER === "inbox" &&
+    channelDayNotePath({ channel: "email", account: "a-at-example-com", date: "2026-09-07" }) === "inbox/email/a-at-example-com/2026/09/2026-09-07.md" &&
+    contactNotePath("adam", { folder: "a" }) === "inbox/contacts/a/adam.md");
+  check("a day under the numbered Inbox still reads as a day",
+    parseChannelDayPath("0-inbox/email/a-at-example-com/2026/09/2026-09-07.md")?.date === "2026-09-07" &&
+      parseChannelDayPath("inbox/email/a-at-example-com/2026/09/2026-09-07.md")?.date === "2026-09-07" &&
+      isChannelDayNotePath("0-inbox/imessage/2026-09-07.md"));
+  check("...and so does one under any spelling of the Inbox's word, but not another folder",
+    parseChannelDayPath("Inbox/imessage/2026-09-07.md")?.channel === "imessage" &&
+      parseChannelDayPath("inboxes/imessage/2026-09-07.md") === null &&
+      parseChannelDayPath("1-projects/imessage/2026-09-07.md") === null &&
+      parseChannelDayPath("projects/inbox/imessage/2026-09-07.md") === null);
+  check("a day under a renamed Inbox reads as a day when the reader says where the Inbox is",
+    parseChannelDayPath("Capture/imessage/2026-09-07.md", { inbox: "Capture" })?.date === "2026-09-07" &&
+      parseChannelDayPath("Capture/imessage/2026-09-07.md") === null);
+  check("a contact page under either spelling is a contact page",
+    isContactNotePath("0-inbox/contacts/a/adam.md") && isContactNotePath("inbox/contacts/a/adam.md") &&
+      !isContactNotePath("projects/contacts/a/adam.md"));
+  check("a dormant contact is archived under the plain names, and comes back where it was",
+    archivedContactPath("inbox/contacts/c/claire.md") === "archive/inbox/contacts/c/claire.md" &&
+      liveContactPathForArchived("archive/inbox/contacts/c/claire.md") === "inbox/contacts/c/claire.md" &&
+      liveContactPathForArchived("4-archive/0-inbox/contacts/c/claire.md") === "0-inbox/contacts/c/claire.md" &&
+      liveContactPathForArchived("9-archive/inbox/contacts/c/claire.md") === "inbox/contacts/c/claire.md" &&
+      liveContactPathForArchived("projects/inbox/contacts/c/claire.md") === null);
+  check("asInboxKey spells a key's Inbox `inbox`, and leaves every other key alone",
+    asInboxKey("0-inbox/email/x.md") === "inbox/email/x.md" && asInboxKey("inbox") === "inbox" &&
+      asInboxKey("Capture/email/x.md", "Capture") === "inbox/email/x.md" &&
+      asInboxKey("projects/0-inbox/x.md") === "projects/0-inbox/x.md" && asInboxKey("1-projects/x.md") === "1-projects/x.md");
 }

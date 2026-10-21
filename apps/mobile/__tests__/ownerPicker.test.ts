@@ -72,17 +72,17 @@ const entry = (kind: "file" | "folder", path: string): FileEntry => ({
 });
 
 const PROJECTS: FolderListing = {
-  path: "1-projects",
+  path: "projects",
   folderDefault: "team",
-  entries: [entry("folder", "1-projects/web"), entry("folder", "1-projects/app"), entry("file", "1-projects/loose.md")],
+  entries: [entry("folder", "projects/web"), entry("folder", "projects/app"), entry("file", "projects/loose.md")],
   truncated: false,
   manifestUsable: true,
 };
 
 const NOTES: ListNote[] = [
-  { path: "1-projects/web/overview.md", updatedAt: 50, properties: { status: "active", owner: "Seyi" }, heading: "Website" },
-  { path: "1-projects/app/overview.md", updatedAt: 40, properties: { status: "active", owner: "Sayo" }, heading: "App" },
-  { path: "1-projects/loose.md", updatedAt: 20, properties: { status: "active" } },
+  { path: "projects/web/overview.md", updatedAt: 50, properties: { status: "active", owner: "Seyi" }, heading: "Website" },
+  { path: "projects/app/overview.md", updatedAt: 40, properties: { status: "active", owner: "Sayo" }, heading: "App" },
+  { path: "projects/loose.md", updatedAt: 20, properties: { status: "active" } },
 ];
 
 const MEMBERS = ["Sayo", "Seyi Olujide", "John Adé"];
@@ -208,12 +208,12 @@ async function addOwner(label: string) {
   await press(one("task-panel-owner-add"));
 }
 
-const WEB: FolderListing = { ...PROJECTS, path: "1-projects/web", entries: [entry("file", "1-projects/web/overview.md")] };
+const WEB: FolderListing = { ...PROJECTS, path: "projects/web", entries: [entry("file", "projects/web/overview.md")] };
 
 describe("the owner picker in the side panel", () => {
   test("offers people and agents from the search, and nowhere to type a new owner", async () => {
     const writes: Write[] = [];
-    await mount(entry("folder", "1-projects"), PROJECTS, host(writes, []));
+    await mount(entry("folder", "projects"), PROJECTS, host(writes, []));
     await addOwner("loose");
     await settle();
     expect(all("owner-picker")).toHaveLength(1);
@@ -222,13 +222,13 @@ describe("the owner picker in the side panel", () => {
     expect(strip(one("owner-picker").textContent)).not.toContain("New value");
 
     await press(all("owner-picker-option")[0]);
-    expect(writes).toEqual([["1-projects/loose.md", "owner", "Seyi Olujide"]]);
+    expect(writes).toEqual([["projects/loose.md", "owner", "Seyi Olujide"]]);
     expect(all("owner-picker")).toHaveLength(0);
   });
 
   test("typing asks the server, with the folder's own owners as the ones to prefer", async () => {
     const asked: Asked[] = [];
-    await mount(entry("folder", "1-projects"), PROJECTS, host([], asked));
+    await mount(entry("folder", "projects"), PROJECTS, host([], asked));
     await addOwner("loose");
     await settle();
     await type("jo");
@@ -242,7 +242,7 @@ describe("the owner picker in the side panel", () => {
     const writes: Write[] = [];
     const asked: Asked[] = [];
     // Where the owner is one value to replace: the project's own page.
-    await mount(entry("folder", "1-projects/web"), WEB, host(writes, asked));
+    await mount(entry("folder", "projects/web"), WEB, host(writes, asked));
     await press(one("folder-property-owner"));
     await settle();
     // The current word leads what is preferred, so "Seyi" finds Seyi Olujide.
@@ -250,22 +250,22 @@ describe("the owner picker in the side panel", () => {
     expect(options().slice(0, 2)).toEqual(["✓SeyiNot a member", "Seyi Olujide"]);
     expect(options()).toContain("No owner");
     await press(all("owner-picker-option")[1]);
-    expect(writes).toEqual([["1-projects/web/overview.md", "owner", "Seyi Olujide"]]);
+    expect(writes).toEqual([["projects/web/overview.md", "owner", "Seyi Olujide"]]);
   });
 
   test("any agent is a choice of its own", async () => {
     const writes: Write[] = [];
-    await mount(entry("folder", "1-projects"), PROJECTS, host(writes, []));
+    await mount(entry("folder", "projects"), PROJECTS, host(writes, []));
     await addOwner("loose");
     await settle();
     await type("agent");
     expect(options()).toEqual(["Any agentWhichever picks it up"]);
     await press(one("owner-picker-option"));
-    expect(writes).toEqual([["1-projects/loose.md", "owner", ANY_AGENT]]);
+    expect(writes).toEqual([["projects/loose.md", "owner", ANY_AGENT]]);
   });
 
   test("with no server to ask, it picks from the people it was handed, still without typing", async () => {
-    await mount(entry("folder", "1-projects"), PROJECTS, host([], null));
+    await mount(entry("folder", "projects"), PROJECTS, host([], null));
     await addOwner("loose");
     await settle();
     expect(options()).toEqual(["Demo Person", "Claude›", "Codex›", "Any agentWhichever picks it up"]);
@@ -275,7 +275,7 @@ describe("the owner picker in the side panel", () => {
 describe("an agent owner", () => {
   test("opens whose it is, and writes somebody's agent", async () => {
     const writes: Write[] = [];
-    await mount(entry("folder", "1-projects"), PROJECTS, host(writes, []));
+    await mount(entry("folder", "projects"), PROJECTS, host(writes, []));
     await addOwner("loose");
     await settle();
     await press(all("owner-picker-option").find((node) => strip(node.textContent) === "Claude›")!);
@@ -284,13 +284,13 @@ describe("an agent owner", () => {
     await settle();
     expect(options()).toEqual(["Just Claudeanyone’s", "Seyi Olujide's Claude", "Sayo's Claudeyou", "John Adé's Claude"]);
     await press(all("owner-picker-option")[1]);
-    expect(writes).toEqual([["1-projects/loose.md", "owner", "Seyi Olujide's Claude"]]);
+    expect(writes).toEqual([["projects/loose.md", "owner", "Seyi Olujide's Claude"]]);
     expect(all("owner-picker")).toHaveLength(0);
   });
 
   test("can be nobody's in particular, and back goes back", async () => {
     const writes: Write[] = [];
-    await mount(entry("folder", "1-projects"), PROJECTS, host(writes, []));
+    await mount(entry("folder", "projects"), PROJECTS, host(writes, []));
     await addOwner("loose");
     await settle();
     await press(all("owner-picker-option").find((node) => strip(node.textContent) === "Codex›")!);
@@ -300,33 +300,33 @@ describe("an agent owner", () => {
     await press(all("owner-picker-option").find((node) => strip(node.textContent) === "Codex›")!);
     await settle();
     await press(all("owner-picker-option")[0]);
-    expect(writes).toEqual([["1-projects/loose.md", "owner", "Codex"]]);
+    expect(writes).toEqual([["projects/loose.md", "owner", "Codex"]]);
   });
 
   test("a new agent is typed once, kept in the projects folder's front note, then asked whose", async () => {
     const writes: Write[] = [];
-    await mount(entry("folder", "1-projects"), PROJECTS, host(writes, []));
+    await mount(entry("folder", "projects"), PROJECTS, host(writes, []));
     await addOwner("loose");
     await settle();
     expect(all("owner-picker-add-hint")).toHaveLength(1);
     await type("Cursor");
     await press(one("owner-picker-add"));
     await act(async () => {});
-    expect(writes).toEqual([["1-projects/about.md", "agents", "Claude, Codex, Cursor"]]);
+    expect(writes).toEqual([["projects/about.md", "agents", "Claude, Codex, Cursor"]]);
     expect(strip(one("owner-picker-step").textContent)).toBe("Whose Cursor?");
     await settle();
     await press(all("owner-picker-option")[0]);
-    expect(writes[1]).toEqual(["1-projects/loose.md", "owner", "Cursor"]);
+    expect(writes[1]).toEqual(["projects/loose.md", "owner", "Cursor"]);
   });
 
   test("is marked as an agent on its List row and its card, a person is not", async () => {
     const notes: ListNote[] = [
-      { path: "1-projects/web/overview.md", updatedAt: 50, properties: { status: "active", owner: "@shay's Claude" }, heading: "Website" },
-      { path: "1-projects/app/overview.md", updatedAt: 40, properties: { status: "active", owner: "Sayo" }, heading: "App" },
+      { path: "projects/web/overview.md", updatedAt: 50, properties: { status: "active", owner: "@shay's Claude" }, heading: "Website" },
+      { path: "projects/app/overview.md", updatedAt: 40, properties: { status: "active", owner: "Sayo" }, heading: "App" },
     ];
     const page = host([], []);
     page.source.load = async () => ({ notes, complete: true });
-    await mount(entry("folder", "1-projects"), PROJECTS, page);
+    await mount(entry("folder", "projects"), PROJECTS, page);
     // An AI helper's face is the robot; a person's is their initials.
     for (const of of [listRow, card]) {
       if (of === card) await press(one("folder-view-board"));
@@ -338,12 +338,12 @@ describe("an agent owner", () => {
 
   test("that noted its thread is still the robot, and shown by name", async () => {
     const notes: ListNote[] = [
-      { path: "1-projects/web/overview.md", updatedAt: 50, properties: { status: "active", owner: "Claude (faster CI/CD project thread)" }, heading: "Website" },
-      { path: "1-projects/app/overview.md", updatedAt: 40, properties: { status: "active", owner: "Seyi's Codex (release thread)" }, heading: "App" },
+      { path: "projects/web/overview.md", updatedAt: 50, properties: { status: "active", owner: "Claude (faster CI/CD project thread)" }, heading: "Website" },
+      { path: "projects/app/overview.md", updatedAt: 40, properties: { status: "active", owner: "Seyi's Codex (release thread)" }, heading: "App" },
     ];
     const page = host([], []);
     page.source.load = async () => ({ notes, complete: true });
-    await mount(entry("folder", "1-projects"), PROJECTS, page);
+    await mount(entry("folder", "projects"), PROJECTS, page);
     await openCard("Website");
     const web = one("task-panel-owners");
     expect(web.querySelectorAll('[data-testid="owner-face-agent"]')).toHaveLength(1);
@@ -365,7 +365,7 @@ describe("an owner written before handles", () => {
       resolved.push(words);
       return words.includes("Seyi") ? [{ word: "Seyi", value: "Seyi Olujide" }] : [];
     };
-    await mount(entry("folder", "1-projects"), PROJECTS, page);
+    await mount(entry("folder", "projects"), PROJECTS, page);
     expect([...resolved[0]].sort()).toEqual(["Sayo", "Seyi"]);
     // The name is the member's, not the word written.
     await openCard("Website");
@@ -374,7 +374,7 @@ describe("an owner written before handles", () => {
     expect(strip(one("task-panel-owners").textContent)).toBe("Sayo");
     unmountAll();
     // Checked where the picker replaces the owner: the project's own page.
-    await mount(entry("folder", "1-projects/web"), WEB, page);
+    await mount(entry("folder", "projects/web"), WEB, page);
     expect(strip(one("folder-property-owner").textContent)).toContain("Seyi Olujide");
     await press(one("folder-property-owner"));
     await settle();
@@ -388,21 +388,21 @@ describe("the suggested owner", () => {
   test("leads the picker, named in the note, and is not offered twice", async () => {
     const writes: Write[] = [];
     const askedAbout: string[] = [];
-    const named = { "1-projects/loose.md": "John Adé" };
-    await mount(entry("folder", "1-projects"), PROJECTS, host(writes, [], { suggests: true, named, askedAbout }));
+    const named = { "projects/loose.md": "John Adé" };
+    await mount(entry("folder", "projects"), PROJECTS, host(writes, [], { suggests: true, named, askedAbout }));
     await addOwner("loose");
     await settle();
     await act(async () => {});
-    expect(askedAbout).toEqual(["1-projects/loose.md"]);
+    expect(askedAbout).toEqual(["projects/loose.md"]);
     expect(options()).toEqual(["John AdéNamed in the note", "Seyi Olujide", "Sayo (you)", "Claude›", "Codex›", "Any agentWhichever picks it up"]);
     expect(strip(one("owner-picker").textContent)).toContain("Suggested");
     await press(all("owner-picker-option")[0]);
-    expect(writes).toEqual([["1-projects/loose.md", "owner", "John Adé"]]);
+    expect(writes).toEqual([["projects/loose.md", "owner", "John Adé"]]);
   });
 
   test("is not asked for where the search says it is not offered", async () => {
     const askedAbout: string[] = [];
-    await mount(entry("folder", "1-projects"), PROJECTS, host([], [], { suggests: false, named: { "1-projects/loose.md": "John Adé" }, askedAbout }));
+    await mount(entry("folder", "projects"), PROJECTS, host([], [], { suggests: false, named: { "projects/loose.md": "John Adé" }, askedAbout }));
     await addOwner("loose");
     await settle();
     expect(askedAbout).toEqual([]);
@@ -424,12 +424,12 @@ describe("the suggested owner", () => {
 describe("the owner on a project's own page", () => {
   test("is picked the same way", async () => {
     const writes: Write[] = [];
-    await mount(entry("folder", "1-projects/web"), WEB, host(writes, []));
+    await mount(entry("folder", "projects/web"), WEB, host(writes, []));
     await press(one("folder-property-owner"));
     await settle();
     expect(all("owner-picker")).toHaveLength(1);
     await press(all("owner-picker-option").find((node) => strip(node.textContent) === "Sayo (you)")!);
-    expect(writes).toEqual([["1-projects/web/overview.md", "owner", "Sayo"]]);
+    expect(writes).toEqual([["projects/web/overview.md", "owner", "Sayo"]]);
   });
 });
 

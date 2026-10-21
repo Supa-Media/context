@@ -25,7 +25,7 @@ export async function runGmailRenderAndWriteChecks(check, { event }) {
     now: "2026-09-07T12:00:00.000Z",
   });
   check("a day with events writes exactly one part when under the split threshold", oneDayParts.length === 1);
-  check("the path is under the mailbox's own folder, by slug, and under the day's month", oneDayParts[0].path === "0-inbox/email/person-at-example-invalid/2026/09/2026-09-07.md");
+  check("the path is under the mailbox's own folder, by slug, and under the day's month", oneDayParts[0].path === "inbox/email/person-at-example-invalid/2026/09/2026-09-07.md");
   const parsedNote = parseChannelDayNote(oneDayParts[0].text);
   check("the rendered note's frontmatter carries the real ADDRESS, not the slug", parsedNote.frontmatter.account === "person@example.invalid");
   check("the message the day was built from is present in the rendered note", parsedNote.messages.length === 1);
@@ -33,7 +33,7 @@ export async function runGmailRenderAndWriteChecks(check, { event }) {
   // -- writing through the store --------------------------------------------------
 
   const writeStore = createMemoryStore();
-  const part = { path: "0-inbox/email/x/2026/09/2026-09-07.md", text: "hello" };
+  const part = { path: "inbox/email/x/2026/09/2026-09-07.md", text: "hello" };
   const first = await writeDayPart(writeStore, part);
   check("a first write of a new path writes", first.wrote === true);
   const second = await writeDayPart(writeStore, part);
@@ -80,7 +80,7 @@ export async function runGmailRenderAndWriteChecks(check, { event }) {
     remainingQuotaBytes: 10,
   });
   check("a quota too small for even the smallest part writes nothing and reports it", tinyQuotaResult.bytesWritten === 0 && tinyQuotaResult.quotaExceeded === true);
-  check("...and the store agrees — nothing landed", (await quotaStore.list({ prefix: "0-inbox" })).objects.length === 0);
+  check("...and the store agrees — nothing landed", (await quotaStore.list({ prefix: "inbox" })).objects.length === 0);
   void partsForQuota;
 
   const roomyStore = createMemoryStore();

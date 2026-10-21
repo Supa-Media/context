@@ -10,6 +10,7 @@ const {
   MAIN_FOLDERS,
   DEFAULT_FOLDER,
   folderRole,
+  plainFolderName,
   topLevelRole,
   isMainFolder,
   compareTopLevelFolders,
@@ -58,10 +59,30 @@ test("the five main folders are protected, extras and contents are not", () => {
   }
 });
 
-test("new workspaces sort the same way in any app", () => {
-  assert.deepEqual(MAIN_FOLDERS, ["0-inbox", "1-projects", "2-areas", "3-resources", "9-archive"]);
-  const names = Object.values(DEFAULT_FOLDER);
-  assert.deepEqual([...names].sort(), [...names].sort(compareTopLevelFolders));
+test("new workspaces get plain folder names, with no number in front (owner, 2026-10-21)", () => {
+  assert.deepEqual(MAIN_FOLDERS, ["inbox", "projects", "areas", "resources", "archive"]);
+  for (const name of Object.values(DEFAULT_FOLDER)) assert.doesNotMatch(name, /^\d/);
+  // Each default name still plays its own role, so the row takes its job when it is made.
+  for (const [role, name] of Object.entries(DEFAULT_FOLDER)) assert.equal(folderRole(name), role);
+  // Sorted by job, not by name: Inbox first, Archive last.
+  assert.deepEqual([...MAIN_FOLDERS].sort().sort(compareTopLevelFolders), MAIN_FOLDERS);
+});
+
+test("plainFolderName drops the sort number from a built-in folder's name, keeping how its word was typed", () => {
+  assert.equal(plainFolderName("0-inbox"), "inbox");
+  assert.equal(plainFolderName("1-projects"), "projects");
+  assert.equal(plainFolderName("2-Areas"), "Areas");
+  assert.equal(plainFolderName("9-archive"), "archive");
+  assert.equal(plainFolderName("12-clients"), "clients");
+  // Nothing to drop, or not a built-in folder's word: null, and the folder keeps its name.
+  assert.equal(plainFolderName("inbox"), null);
+  assert.equal(plainFolderName("Projects"), null);
+  assert.equal(plainFolderName("1-plan"), null);
+  assert.equal(plainFolderName("2026-plans"), null);
+  assert.equal(plainFolderName("website"), null);
+  assert.equal(plainFolderName("0-"), null);
+  assert.equal(plainFolderName(""), null);
+  assert.equal(plainFolderName(undefined), null);
 });
 
 test("archive is drawn last even when its number says otherwise", () => {
@@ -80,6 +101,7 @@ test("rolesIn picks one folder per role regardless of listing order", () => {
 test("missingMainRoles names what an older workspace lacks", () => {
   assert.deepEqual(missingMainRoles(["1-projects", "4-archive", "recipes"]), ["inbox", "areas", "resources"]);
   assert.deepEqual(missingMainRoles(MAIN_FOLDERS), []);
+  assert.deepEqual(missingMainRoles(["0-inbox", "1-projects", "2-areas", "3-resources", "9-archive"]), []);
 });
 
 test("indexing priority: everything else first, then the inbox, then the archive", () => {

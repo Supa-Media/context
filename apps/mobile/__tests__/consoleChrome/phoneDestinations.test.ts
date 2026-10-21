@@ -224,7 +224,7 @@ describe("the phone reaches a destination with nothing opened first", () => {
 
     created.length = 0;
     app.press(app.find("notes-bar-compose"));
-    expect(created).toEqual(["note:0-inbox"]);
+    expect(created).toEqual(["note:inbox"]);
     expect(document.body.querySelector("input, textarea")).toBeNull();
 
     app.hold(app.find("notes-bar-compose"));

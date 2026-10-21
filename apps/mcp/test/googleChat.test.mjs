@@ -206,12 +206,12 @@ export async function runGoogleChatChecks(check) {
     });
     const contributionA = {
       account: "a@example.com",
-      destinationFolder: "0-inbox/google-chat",
+      destinationFolder: "inbox/google-chat",
       days: [{ date: "2026-09-06", events: [accountAEvent], unavailableSpaces: [] }],
     };
     const contributionB = {
       account: "b@example.com",
-      destinationFolder: "0-inbox/google-chat",
+      destinationFolder: "inbox/google-chat",
       days: [{ date: "2026-09-06", events: [accountBEvent], unavailableSpaces: [] }],
     };
     const combined = renderSharedGoogleChat({ contributions: [contributionA, contributionB], nonceSeed: "workspace-seed" });
@@ -245,7 +245,7 @@ export async function runGoogleChatChecks(check) {
       renderSharedGoogleChat({
         contributions: [contributionA, { ...contributionB, destinationFolder: "2-areas/chat" }],
         nonceSeed: "workspace-seed",
-      }).map(({ path }) => path).sort().join("|") === "0-inbox/google-chat/2026/09/2026-09-06.md|2-areas/chat/2026/09/2026-09-06.md",
+      }).map(({ path }) => path).sort().join("|") === "2-areas/chat/2026/09/2026-09-06.md|inbox/google-chat/2026/09/2026-09-06.md",
     );
     check(
       "a duplicate account contribution fails closed instead of silently choosing a winner",
@@ -295,7 +295,7 @@ export async function runGoogleChatChecks(check) {
     // messages — the erasure this whole helper exists to prevent, reachable
     // by a trailing slash in a settings field.
     const spelledWithSlash = renderSharedGoogleChat({
-      contributions: [contributionA, { ...contributionB, destinationFolder: "0-inbox/google-chat/" }],
+      contributions: [contributionA, { ...contributionB, destinationFolder: "inbox/google-chat/" }],
       nonceSeed: "workspace-seed",
     });
     check(
@@ -315,11 +315,11 @@ export async function runGoogleChatChecks(check) {
         const notes = renderSharedGoogleChat({
           contributions: [
             { ...contributionA, destinationFolder: undefined },
-            { ...contributionB, destinationFolder: "0-inbox/google-chat" },
+            { ...contributionB, destinationFolder: "inbox/google-chat" },
           ],
           nonceSeed: "workspace-seed",
         });
-        return notes.length === 1 && notes[0].path === "0-inbox/google-chat/2026/09/2026-09-06.md";
+        return notes.length === 1 && notes[0].path === "inbox/google-chat/2026/09/2026-09-06.md";
       })(),
     );
 
@@ -333,7 +333,7 @@ export async function runGoogleChatChecks(check) {
     // accounts happened to be polled in.
     const noticeDay = (spaces) => ({
       account: "a@example.com",
-      destinationFolder: "0-inbox/google-chat",
+      destinationFolder: "inbox/google-chat",
       days: [{ date: "2026-09-06", events: [], unavailableSpaces: spaces }],
     });
     const noticeText = (first, second) =>

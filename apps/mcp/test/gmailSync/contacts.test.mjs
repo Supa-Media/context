@@ -76,43 +76,43 @@ const claire = (extra = {}) => ({
   name: "Claire",
   wroteTo: false,
   identifiers: [{ kind: "email", value: "claire@example.invalid" }],
-  activity: [{ date: "2026-10-12", path: "0-inbox/email/me/2026/10/2026-10-12.md", anchor: "msg-0123456789abcdef", label: "news", channel: "email" }],
+  activity: [{ date: "2026-10-12", path: "inbox/email/me/2026/10/2026-10-12.md", anchor: "msg-0123456789abcdef", label: "news", channel: "email" }],
   updatedAt: "2026-10-12T09:00:00.000Z",
   ...extra,
 });
 
 const page = (name, email) => renderContactNote({ name, slug: "x", identifiers: [{ kind: "email", value: email }], now: "2026-01-01T00:00:00.000Z" });
-const contactKeys = (store) => [...store.objects.keys()].filter((key) => key.startsWith("0-inbox/contacts/"));
+const contactKeys = (store) => [...store.objects.keys()].filter((key) => key.startsWith("inbox/contacts/"));
 
 export async function runGmailContactChecks(check) {
   {
-    const store = guardedStore({ "0-inbox/contacts/people/claire-dubois.md": page("Claire", "claire@example.invalid") });
+    const store = guardedStore({ "inbox/contacts/people/claire-dubois.md": page("Claire", "claire@example.invalid") });
     const result = await writeContactDraft(store, claire(), { remainingQuotaBytes: 1_000_000 });
     check("the gateway writer updates a moved page found by its email",
-      result.wrote && store.text("0-inbox/contacts/people/claire-dubois.md").includes("2026-10-12") && contactKeys(store).length === 1);
+      result.wrote && store.text("inbox/contacts/people/claire-dubois.md").includes("2026-10-12") && contactKeys(store).length === 1);
     check("...and keeps the lookup for the next run as plumbing under .context/",
-      JSON.parse(store.text(CONTACT_INDEX_KEY)).pages["0-inbox/contacts/people/claire-dubois.md"].ids[0] === "email:claire@example.invalid");
+      JSON.parse(store.text(CONTACT_INDEX_KEY)).pages["inbox/contacts/people/claire-dubois.md"].ids[0] === "email:claire@example.invalid");
   }
   {
     // The archived page, and a note of the owner's that links to it.
-    const archived = "4-archive/0-inbox/contacts/c/claire.md";
+    const archived = "archive/inbox/contacts/c/claire.md";
     const store = guardedStore({
       "privacy.md": PRIVACY,
       [archived]: page("Claire", "claire@example.invalid"),
-      "2-areas/people.md": "# People\n\n- [[4-archive/0-inbox/contacts/c/claire|Claire]]\n",
+      "2-areas/people.md": "# People\n\n- [[archive/inbox/contacts/c/claire|Claire]]\n",
     });
     await writeContactDraft(store, claire(), { remainingQuotaBytes: 1_000_000 });
     check("an archived contact is moved back to its live path by the next message, and updated there",
-      store.text(archived) === null && store.text("0-inbox/contacts/c/claire.md")?.includes("2026-10-12") && contactKeys(store).length === 1);
+      store.text(archived) === null && store.text("inbox/contacts/c/claire.md")?.includes("2026-10-12") && contactKeys(store).length === 1);
     check("...through the gateway's own move, so a link to it follows",
-      store.text("2-areas/people.md").includes("[[0-inbox/contacts/c/claire|Claire]]"));
+      store.text("2-areas/people.md").includes("[[inbox/contacts/c/claire|Claire]]"));
   }
   {
     // A keyed workspace (`notes-by-id.md`): the page's bytes live only at its id key,
     // so the bucket's listing of the contacts folder finds nothing. The name comes
     // from the tree, and the write goes to that name (the id layer routes it to the key).
     const KEY = "notes/0192f1a2-3b4c-7d5e-8f60-0000000000c1.md";
-    const TREE_PATH = "0-inbox/contacts/people/claire-dubois.md";
+    const TREE_PATH = "inbox/contacts/people/claire-dubois.md";
     const store = guardedStore({ [KEY]: page("Claire", "claire@example.invalid") });
     const get = store.get.bind(store);
     const put = store.put.bind(store);
@@ -137,7 +137,7 @@ export async function runGmailContactChecks(check) {
   }
   {
     // One lookup across a day's drafts: the folder is listed once.
-    const store = guardedStore({ "0-inbox/contacts/c/claire.md": page("Claire", "claire@example.invalid") });
+    const store = guardedStore({ "inbox/contacts/c/claire.md": page("Claire", "claire@example.invalid") });
     let lists = 0;
     const list = store.list.bind(store);
     store.list = async (options) => {
@@ -148,7 +148,7 @@ export async function runGmailContactChecks(check) {
     for (let index = 0; index < 5; index += 1) {
       await writeContactDraft(store, claire({ activity: [{ ...claire().activity[0], anchor: `msg-012345678900000${index}` }] }), { remainingQuotaBytes: 1_000_000, contacts });
     }
-    check("one lookup lists the contacts folder and its archive once for a whole run, not once per draft", lists === 2);
+    check("one lookup lists the contacts folder and its archive (under each name the Inbox has had) once for a whole run, not once per draft", lists === 4);
   }
   {
     const message = (headers) => ({ id: "m", threadId: "t", internalDate: "0", payload: { mimeType: "text/plain", headers: [{ name: "From", value: "news@paper.invalid" }, ...headers], body: { data: "" } } });
@@ -162,34 +162,34 @@ export async function runGmailContactChecks(check) {
     const dated = (name, email, date) => renderContactNote({
       name, slug: "x", now: "2026-01-01T00:00:00.000Z",
       identifiers: [{ kind: "email", value: email }],
-      activity: [{ date, path: `0-inbox/email/me/${date.slice(0, 4)}/${date.slice(5, 7)}/${date}.md`, anchor: "msg-0123456789abcdef", label: "hi", channel: "email" }],
+      activity: [{ date, path: `inbox/email/me/${date.slice(0, 4)}/${date.slice(5, 7)}/${date}.md`, anchor: "msg-0123456789abcdef", label: "hi", channel: "email" }],
     });
     const seed = () => ({
       "privacy.md": PRIVACY,
-      "0-inbox/contacts/c/claire.md": dated("Claire", "claire@example.invalid", "2025-06-01"),
-      "0-inbox/contacts/d/dana.md": dated("Dana", "dana@example.invalid", "2026-09-01"),
-      "2-areas/people.md": "# People\n\n- [[0-inbox/contacts/c/claire|Claire]]\n",
+      "inbox/contacts/c/claire.md": dated("Claire", "claire@example.invalid", "2025-06-01"),
+      "inbox/contacts/d/dana.md": dated("Dana", "dana@example.invalid", "2026-09-01"),
+      "2-areas/people.md": "# People\n\n- [[inbox/contacts/c/claire|Claire]]\n",
     });
     {
       const store = guardedStore(seed());
       const contacts = await openContactLookup(store);
       const swept = await contacts.sweepDormant({ now: NOW });
       check("the gateway sweep archives a dormant page at its mirror path and keeps an active one",
-        swept.archived.length === 1 && store.text("4-archive/0-inbox/contacts/c/claire.md") !== null &&
-          store.text("0-inbox/contacts/c/claire.md") === null && store.text("0-inbox/contacts/d/dana.md") !== null);
+        swept.archived.length === 1 && store.text("archive/inbox/contacts/c/claire.md") !== null &&
+          store.text("inbox/contacts/c/claire.md") === null && store.text("inbox/contacts/d/dana.md") !== null);
       check("...through the gateway's own move, so a link to it follows",
-        store.text("2-areas/people.md").includes("[[4-archive/0-inbox/contacts/c/claire|Claire]]"));
+        store.text("2-areas/people.md").includes("[[archive/inbox/contacts/c/claire|Claire]]"));
       await writeContactDraft(store, claire(), { remainingQuotaBytes: 1_000_000, contacts });
       check("...and the next message brings it back, with the link, and no duplicate",
-        store.text("0-inbox/contacts/c/claire.md")?.includes("2026-10-12") && store.text("4-archive/0-inbox/contacts/c/claire.md") === null &&
-          store.text("2-areas/people.md").includes("[[0-inbox/contacts/c/claire|Claire]]") && contactKeys(store).length === 2);
+        store.text("inbox/contacts/c/claire.md")?.includes("2026-10-12") && store.text("archive/inbox/contacts/c/claire.md") === null &&
+          store.text("2-areas/people.md").includes("[[inbox/contacts/c/claire|Claire]]") && contactKeys(store).length === 2);
     }
     {
       const store = guardedStore(seed());
       store.capabilities = { conditionalWrite: true };
       const swept = await (await openContactLookup(store)).sweepDormant({ now: NOW });
       check("on a bucket that cannot move a note safely the sweep does not try, and the page stays live",
-        swept.failed === 0 && swept.archived.length === 0 && store.text("0-inbox/contacts/c/claire.md") !== null);
+        swept.failed === 0 && swept.archived.length === 0 && store.text("inbox/contacts/c/claire.md") !== null);
     }
     {
       const store = guardedStore(seed());
@@ -200,7 +200,7 @@ export async function runGmailContactChecks(check) {
       } catch {
         threw = true;
       }
-      check("a sweep whose listing fails answers rather than throwing", !threw && store.text("0-inbox/contacts/c/claire.md") !== null);
+      check("a sweep whose listing fails answers rather than throwing", !threw && store.text("inbox/contacts/c/claire.md") !== null);
     }
     const gmail = () => createFixtureGmail({
       messages: [fixtureMessage({ id: "i1", threadId: "t1", date: "2026-10-12T09:00:00.000Z", from: "a@example.invalid", to: "me@example.invalid", subject: "x", text: "x" })],
@@ -217,10 +217,10 @@ export async function runGmailContactChecks(check) {
       const store = guardedStore(seed());
       const result = await pass(store);
       check("a Gmail forward pass sweeps dormant contacts after its own writes",
-        result.daysTouched.length === 1 && store.text("4-archive/0-inbox/contacts/c/claire.md") !== null &&
-          store.text("0-inbox/contacts/d/dana.md") !== null);
+        result.daysTouched.length === 1 && store.text("archive/inbox/contacts/c/claire.md") !== null &&
+          store.text("inbox/contacts/d/dana.md") !== null);
       check("...and keeps what the sweep learned in the lookup's snapshot",
-        JSON.parse(store.text(CONTACT_INDEX_KEY)).pages["4-archive/0-inbox/contacts/c/claire.md"] !== undefined);
+        JSON.parse(store.text(CONTACT_INDEX_KEY)).pages["archive/inbox/contacts/c/claire.md"] !== undefined);
     }
     {
       const store = guardedStore(seed());
@@ -240,6 +240,6 @@ export async function runGmailContactChecks(check) {
     const event = { channel: "email", account: "me", messageId: "m1", threadId: "t1", sentAt: "2026-10-12T09:00:00.000Z", subject: "hi", from: { name: "Me", address: "me@example.invalid" }, to: [{ name: "Ann", address: "ann@example.invalid" }], body: "x" };
     await syncOneDay({ store, mailboxSlug: "me", address: "me@example.invalid", date: "2026-10-12", events: [event], nonce: "n", remainingQuotaBytes: 1_000_000 });
     check("a day's sync files a new page for somebody the owner wrote to under their letter",
-      contactKeys(store).length === 1 && store.text("0-inbox/contacts/a/email-ann-example-invalid.md") !== null);
+      contactKeys(store).length === 1 && store.text("inbox/contacts/a/email-ann-example-invalid.md") !== null);
   }
 }

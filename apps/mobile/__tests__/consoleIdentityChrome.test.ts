@@ -324,10 +324,10 @@ describe("the widget note command is consumed", () => {
    * IT MAKES THE NOTE NOW, RATHER THAN ASKING WHAT TO CALL IT.
    *
    * This used to assert the naming prompt's own sentence — "It will be created
-   * in 0-inbox as markdown." — which is exactly the modal the owner asked to be
+   * in inbox as markdown." — which is exactly the modal the owner asked to be
    * rid of: a quick-note link is one press from wherever somebody was, and a
    * text field in front of it is the opposite of quick. The note is
-   * `untitled-<date>` in `0-inbox` and takes the first heading typed into it;
+   * `untitled-<date>` in `inbox` and takes the first heading typed into it;
    * see `features/console/files/untitled.ts`.
    *
    * The *consumed-once* half is unchanged and is what the test is really for:
@@ -337,7 +337,7 @@ describe("the widget note command is consumed", () => {
   test("creates once, then a remount of the clean history entry stays idle", () => {
     mockQuickParams = { quickAction: "note" };
     const first = mountConsole();
-    expect(mockCreated).toEqual(["note:0-inbox"]);
+    expect(mockCreated).toEqual(["note:inbox"]);
     expect(mockReplaced).toEqual(["/console/@seyi"]);
     /*
       And no prompt on the way. Asserted by the sentence the prompt used to
@@ -349,7 +349,7 @@ describe("the widget note command is consumed", () => {
     first.unmount();
 
     const returned = mountConsole();
-    expect(mockCreated).toEqual(["note:0-inbox"]);
+    expect(mockCreated).toEqual(["note:inbox"]);
     expect(mockReplaced).toEqual(["/console/@seyi"]);
     returned.unmount();
   });

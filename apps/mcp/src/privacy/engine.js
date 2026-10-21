@@ -517,5 +517,5 @@ export function archiveRoot(rules) {
 
 export function defaultSessionFolder(rules) {
   const root = archiveRoot(rules);
-  return root ? `${root}/chat-history` : "0-inbox/sessions";
+  return root ? `${root}/chat-history` : "inbox/sessions";
 }

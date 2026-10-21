@@ -3,6 +3,7 @@
  * background kick, and the privacy clean-up once the source is empty.
  */
 
+import { DEFAULT_FOLDER } from "../../../../../packages/shared/src/folderRoles.cjs";
 import { collaborationHead } from "../../live/collaborationHttp.js";
 import {
   moveDocument as moveCollaborationDocument,
@@ -278,10 +279,10 @@ async function adoptSyncOwnedChange(store, pair, sourceObject, { copied, job }) 
 /**
  * The folder a move conflict is backed up into: this context's own archive, so
  * a backup lands where archiving lands. A context that declares none keeps
- * `4-archive`, the folder these backups have always used.
+ * the default Archive folder (`archive`; `4-archive` before 2026-10-21).
  */
 function conflictArchiveRoot(privacy) {
-  return archiveRoot(privacy.rules) || "4-archive";
+  return archiveRoot(privacy.rules) || DEFAULT_FOLDER.archive;
 }
 
 async function preserveGeneratedConflict(store, job, pair, sourceObject) {

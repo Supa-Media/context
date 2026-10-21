@@ -16,12 +16,14 @@
 import { searchOne } from "./search.js";
 import { fileWords, QUOTATION, typeOfFile } from "./readFile.js";
 import { toolError, toolText } from "./results.js";
+import { INBOX_FOLDER } from "../../../../packages/communications/src/protocol.js";
+import { inboxFolders, underInbox } from "../communications/inboxFolders.js";
 
 export const EMAIL_ID_PREFIX = "email:";
 
 const NOTE_HITS = 10;
 /** Where synced mail lands when a mailbox's own folder is not known. */
-const MAIL_FOLDER = "0-inbox/email";
+const MAIL_FOLDER = `${INBOX_FOLDER}/email`;
 
 /** Gmail operators the notes cannot answer; their values, where they are words or addresses, still can. */
 const DROPPED = /^-?(before|after|older|newer|older_than|newer_than|in|is|has|label|category|size|larger|smaller|filename|list|deliveredto|rfc822msgid):/i;
@@ -99,7 +101,7 @@ export async function toolSearchEmail(store, scope, rules, overrides, args) {
     : [...reconnect, ...asked];
   const fallback = !answer?.ok || standIns.length > 0;
   const folders = [...new Set(standIns.map((mailbox) => mailbox.folder))];
-  if (fallback && folders.length === 0) folders.push(MAIL_FOLDER);
+  if (fallback && folders.length === 0) folders.push(...underInbox((await inboxFolders(store)).folders, MAIL_FOLDER));
   const notes = fallback ? await notesHits(store, scope, rules, overrides, query, folders) : [];
 
   const lines = [];

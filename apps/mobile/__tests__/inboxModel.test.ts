@@ -38,12 +38,12 @@ const note = (path: string, title: string, updatedAt?: number): HomeNote => ({
 const folder = (path: string): HomeFolder => ({ kind: "folder", path, title: path, notes: 1, folders: 0, shared: false });
 
 const NOTES = [
-  note("0-inbox/old-idea.md", "Old idea", new Date(2026, 9, 12).getTime()),
-  note("0-inbox/sermon.md", "Sermon thoughts", new Date(2026, 9, 17, 11, 42).getTime()),
-  note("0-inbox/inner/deeper.md", "Deeper"),
+  note("inbox/old-idea.md", "Old idea", new Date(2026, 9, 12).getTime()),
+  note("inbox/sermon.md", "Sermon thoughts", new Date(2026, 9, 17, 11, 42).getTime()),
+  note("inbox/inner/deeper.md", "Deeper"),
   note("2-areas/preaching/advent.md", "Advent series"),
-  note("1-projects/dc-chapter.md", "DC chapter"),
-  note("1-projects/moved-twice.md", "Moved twice"),
+  note("projects/dc-chapter.md", "DC chapter"),
+  note("projects/moved-twice.md", "Moved twice"),
   note("3-resources/psalm-23.md", "Psalm 23"),
 ];
 
@@ -84,12 +84,12 @@ const wrote = (when: string, paths: string[], who: Partial<InboxActivity> = {}):
 describe("the notes people wrote by hand", () => {
   test("are only the notes your own hand changed, newest first, from any folder", () => {
     const { groups } = inbox([
-      wrote(at(9), ["0-inbox/sermon.md"]),
-      wrote(at(10), ["1-projects/dc-chapter.md"], { via: "Context (this app)" }),
+      wrote(at(9), ["inbox/sermon.md"]),
+      wrote(at(10), ["projects/dc-chapter.md"], { via: "Context (this app)" }),
       // A teammate's hand in a shared workspace is not yours (Dev2, 2026-10-18).
       wrote(at(10, 30), ["3-resources/psalm-23.md"], { by: "@sayo" }),
       wrote(at(11), ["2-areas/preaching/advent.md"], { via: "Claude" }),
-      wrote(at(12), ["0-inbox/old-idea.md"], { via: "Tex", kind: "added" }),
+      wrote(at(12), ["inbox/old-idea.md"], { via: "Tex", kind: "added" }),
     ]);
     expect(groups.map((group) => [group.label, group.notes.map((row) => [row.title, row.folder])])).toEqual([
       ["Today", [["DC chapter", "projects"], ["Sermon thoughts", "inbox"]]],
@@ -98,17 +98,17 @@ describe("the notes people wrote by hand", () => {
 
   test("are dated by the hand's last edit, not by an AI's later write", () => {
     const edits = humanEdits(
-      [wrote(at(9, 0, 1), ["1-projects/dc-chapter.md"]), wrote(at(12), ["1-projects/dc-chapter.md"], { via: "Claude" })],
+      [wrote(at(9, 0, 1), ["projects/dc-chapter.md"]), wrote(at(12), ["projects/dc-chapter.md"], { via: "Claude" })],
       [],
       (by) => by === "@seyi",
     );
-    expect(edits.get("1-projects/dc-chapter.md")).toBe(Date.parse(at(9, 0, 1)));
+    expect(edits.get("projects/dc-chapter.md")).toBe(Date.parse(at(9, 0, 1)));
   });
 
   test("keep a note a person wrote after an agent filed it", () => {
     const { groups } = inbox([
-      wrote(at(9), ["0-inbox/advent.md"]),
-      moved(at(10), [["0-inbox/advent.md", "2-areas/preaching/advent.md"]], { via: "Tex" }),
+      wrote(at(9), ["inbox/advent.md"]),
+      moved(at(10), [["inbox/advent.md", "2-areas/preaching/advent.md"]], { via: "Tex" }),
     ]);
     expect(groups[0]?.notes.map((row) => [row.path, row.folder])).toEqual([["2-areas/preaching/advent.md", "preaching"]]);
   });
@@ -116,8 +116,8 @@ describe("the notes people wrote by hand", () => {
   test("include what this person's app marked edited, and not what they only opened", () => {
     const { groups } = inbox([], [], [], {
       recents: [
-        { path: "1-projects/moved-twice.md", at: new Date(2026, 9, 2).getTime(), kind: "edited" },
-        { path: "1-projects/dc-chapter.md", at: NOW, kind: "opened" },
+        { path: "projects/moved-twice.md", at: new Date(2026, 9, 2).getTime(), kind: "edited" },
+        { path: "projects/dc-chapter.md", at: NOW, kind: "opened" },
       ],
     });
     expect(groups.map((group) => [group.label, group.notes.map((row) => row.title)])).toEqual([
@@ -126,9 +126,9 @@ describe("the notes people wrote by hand", () => {
   });
 
   test("leave pinned notes to Pinned, which says where each is", () => {
-    const result = inbox([wrote(at(9), ["0-inbox/sermon.md"])], [], [], {
+    const result = inbox([wrote(at(9), ["inbox/sermon.md"])], [], [], {
       pins: [
-        { path: "0-inbox/sermon.md", kind: "note" },
+        { path: "inbox/sermon.md", kind: "note" },
         { path: "2-areas/preaching/advent.md", kind: "note" },
         { path: "2-areas", kind: "folder" },
       ],
@@ -153,8 +153,8 @@ describe("the notes people wrote by hand", () => {
 describe("filed today", () => {
   test("lists a note moved out of the Inbox today, where it went and who moved it", () => {
     const filed = inbox([
-      moved(at(9), [["0-inbox/advent.md", "2-areas/preaching/advent.md"]], { via: "Tex" }),
-      moved(at(10), [["0-inbox/dc.md", "1-projects/dc-chapter.md"]]),
+      moved(at(9), [["inbox/advent.md", "2-areas/preaching/advent.md"]], { via: "Tex" }),
+      moved(at(10), [["inbox/dc.md", "projects/dc-chapter.md"]]),
     ]).filed;
     expect(filed.map((row) => [row.title, row.place, row.who])).toEqual([
       ["DC chapter", "projects", "you"],
@@ -164,9 +164,9 @@ describe("filed today", () => {
 
   test("leaves out yesterday, moves between other folders, and moves within the Inbox", () => {
     const filed = inbox([
-      moved(at(9, 0, 16), [["0-inbox/advent.md", "2-areas/preaching/advent.md"]]),
-      moved(at(9), [["2-areas/dc.md", "1-projects/dc-chapter.md"]]),
-      moved(at(9), [["0-inbox/x.md", "0-inbox/old-idea.md"]]),
+      moved(at(9, 0, 16), [["inbox/advent.md", "2-areas/preaching/advent.md"]]),
+      moved(at(9), [["2-areas/dc.md", "projects/dc-chapter.md"]]),
+      moved(at(9), [["inbox/x.md", "inbox/old-idea.md"]]),
       { at: at(9), kind: "edited", by: "@seyi", via: null },
     ]).filed;
     expect(filed).toEqual([]);
@@ -174,35 +174,35 @@ describe("filed today", () => {
 
   test("draws a note where it is now, once, and not at all once it is gone", () => {
     const filed = inbox([
-      moved(at(12), [["0-inbox/twice.md", "1-projects/moved-twice.md"]]),
-      moved(at(11), [["0-inbox/twice.md", "1-projects/moved-twice.md"]]),
-      moved(at(10), [["0-inbox/gone.md", "1-projects/deleted-since.md"]]),
+      moved(at(12), [["inbox/twice.md", "projects/moved-twice.md"]]),
+      moved(at(11), [["inbox/twice.md", "projects/moved-twice.md"]]),
+      moved(at(10), [["inbox/gone.md", "projects/deleted-since.md"]]),
     ]).filed;
-    expect(filed.map((row) => row.path)).toEqual(["1-projects/moved-twice.md"]);
+    expect(filed.map((row) => row.path)).toEqual(["projects/moved-twice.md"]);
   });
 
   test("a move made in the app itself is yours, not the app's", () => {
-    const filed = inbox([moved(at(9), [["0-inbox/dc.md", "1-projects/dc-chapter.md"]], { via: CONSOLE_CLIENT_NAME })]).filed;
+    const filed = inbox([moved(at(9), [["inbox/dc.md", "projects/dc-chapter.md"]], { via: CONSOLE_CLIENT_NAME })]).filed;
     expect(filed[0]?.who).toBe("you");
   });
 
   test("names someone else by handle", () => {
-    const filed = inbox([moved(at(9), [["0-inbox/dc.md", "1-projects/dc-chapter.md"]], { by: "@sayo" })]).filed;
+    const filed = inbox([moved(at(9), [["inbox/dc.md", "projects/dc-chapter.md"]], { by: "@sayo" })]).filed;
     expect(filed[0]?.who).toBe("@sayo");
   });
 });
 
 describe("the folder row", () => {
   test("is every top-level folder: the Inbox first, pinned, opened most, the rest, Archive last", () => {
-    const folders = ["0-inbox", "1-projects", "2-areas", "3-resources", "4-archive", "5-a", "6-b", "7-c", "2-areas/x"].map(folder);
+    const folders = ["inbox", "projects", "2-areas", "3-resources", "4-archive", "5-a", "6-b", "7-c", "2-areas/x"].map(folder);
     const row = inbox([], folders, [folder("3-resources"), folder("2-areas/preaching")], {
       pins: [{ path: "6-b", kind: "folder" }],
     }).folders;
     expect(row.map((each) => each.path)).toEqual([
-      "0-inbox",
+      "inbox",
       "6-b",
       "3-resources",
-      "1-projects",
+      "projects",
       "2-areas",
       "5-a",
       "7-c",

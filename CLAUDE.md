@@ -303,7 +303,7 @@ checked is not a guard.**
 - **Control plane**: Convex (`@convex-dev/auth`, email OTP via Resend)
 - **Gateway**: Cloudflare Workers + R2/S3 via the storage adapter
 - **Mobile/web app**: React Native + Expo, Expo Router
-- **Ingestion**: Cloudflare Email Routing → Email Worker → `0-inbox/`
+- **Ingestion**: Cloudflare Email Routing → Email Worker → `inbox/`
 - **Framework**: [supa-framework](https://github.com/Supa-Media/supa-framework)
   (`@supa-media/*` from npmjs, public — no token, no `.npmrc` scope line)
 

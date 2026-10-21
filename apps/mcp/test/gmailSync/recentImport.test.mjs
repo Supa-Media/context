@@ -24,7 +24,7 @@ import {
 import { createFixtureGmail, createMemoryStore, fixtureMessage } from "./fixtures.mjs";
 
 const SLUG = "p-at-example-invalid";
-const DAY_PATH = (date) => `0-inbox/email/${SLUG}/${date.slice(0, 4)}/${date.slice(5, 7)}/${date}.md`;
+const DAY_PATH = (date) => `inbox/email/${SLUG}/${date.slice(0, 4)}/${date.slice(5, 7)}/${date}.md`;
 
 /** `count` messages on `date`, newest first, the order `messages.list` answers in. */
 function day(date, count, prefix) {
@@ -111,7 +111,7 @@ export async function runGmailRecentImportChecks(check) {
     await syncDayFromGmail({ ...options(gmail, forwardStore), date, remainingQuotaBytes: 10_000_000 });
   }
   const notesOf = (target) =>
-    [...target._dump()].filter(([key]) => key.startsWith(`0-inbox/email/`)).map(([key, value]) => [key, value.text]).sort(([a], [b]) => a.localeCompare(b));
+    [...target._dump()].filter(([key]) => key.startsWith(`inbox/email/`)).map(([key, value]) => [key, value.text]).sort(([a], [b]) => a.localeCompare(b));
   check(
     "an imported day is byte-identical to the same day written by the forward pass",
     JSON.stringify(notesOf(store)) === JSON.stringify(notesOf(forwardStore)),

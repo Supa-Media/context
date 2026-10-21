@@ -86,18 +86,19 @@ export interface WorkspacePreset {
   folders: readonly { folder: string; description: string }[] | null;
 }
 
-// The five built-in folders, in drawing order. Literal names, so the guard in
-// `teamShare` can read them out of this file as text.
-const INBOX = { folder: "0-inbox", description: ROLE_DESCRIPTION.inbox };
-const PROJECTS = { folder: "1-projects", description: ROLE_DESCRIPTION.projects };
-const AREAS = { folder: "2-areas", description: ROLE_DESCRIPTION.areas };
-const RESOURCES = { folder: "3-resources", description: ROLE_DESCRIPTION.resources };
-const ARCHIVE = { folder: "9-archive", description: ROLE_DESCRIPTION.archive };
+// The five built-in folders, in drawing order, with no number in front (owner,
+// 2026-10-21). Literal names, so the guard in `teamShare` can read them out of
+// this file as text.
+const INBOX = { folder: "inbox", description: ROLE_DESCRIPTION.inbox };
+const PROJECTS = { folder: "projects", description: ROLE_DESCRIPTION.projects };
+const AREAS = { folder: "areas", description: ROLE_DESCRIPTION.areas };
+const RESOURCES = { folder: "resources", description: ROLE_DESCRIPTION.resources };
+const ARCHIVE = { folder: "archive", description: ROLE_DESCRIPTION.archive };
 
-// The extras, at their fixed numbers.
-const CLIENTS = { folder: "4-clients", description: ROLE_DESCRIPTION.clients };
-const TEAMS = { folder: "5-teams", description: ROLE_DESCRIPTION.teams };
-const PRODUCTS = { folder: "6-products", description: ROLE_DESCRIPTION.products };
+// The extras.
+const CLIENTS = { folder: "clients", description: ROLE_DESCRIPTION.clients };
+const TEAMS = { folder: "teams", description: ROLE_DESCRIPTION.teams };
+const PRODUCTS = { folder: "products", description: ROLE_DESCRIPTION.products };
 
 /** A company: the people it works for, and the teams that run it. */
 const BUSINESS_FOLDERS = [INBOX, PROJECTS, AREAS, RESOURCES, CLIENTS, TEAMS, ARCHIVE] as const;

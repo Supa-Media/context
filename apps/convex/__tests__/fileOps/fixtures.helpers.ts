@@ -32,7 +32,8 @@ import {
   setVisibility,
 } from "../../functions/lib/fileOps";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
-import { renderPrivacyManifest } from "../../functions/lib/scaffold";
+// A workspace laid out before the numbers were dropped (2026-10-21): its folders keep them.
+import { LEGACY_PARA_FOLDERS, renderPrivacyManifestForFolders } from "../../functions/lib/scaffold";
 
 export const NOW = 1_800_000_000_000;
 
@@ -42,7 +43,7 @@ export const NOW = 1_800_000_000_000;
  */
 export function bucket(options: { ignoreIfMatch?: boolean; conditional?: boolean } = {}): MemoryStore & FileStore {
   const store = memoryStore(options) as MemoryStore & FileStore;
-  store.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
+  store.seed(PRIVACY_KEY, renderPrivacyManifestForFolders(LEGACY_PARA_FOLDERS));
   store.seed("index.md", "# Context\n");
   store.seed("0-inbox/README.md", "# Inbox\n");
   store.seed("1-projects/README.md", "# Projects\n");

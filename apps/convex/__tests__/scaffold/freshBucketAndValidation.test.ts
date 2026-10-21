@@ -23,11 +23,11 @@ describe("a fresh bucket", () => {
     expect(result).toMatchObject({ scaffolded: true, reason: "created" });
     expect(result.written.sort()).toEqual(
       [
-        "0-inbox/about.md",
-        "1-projects/about.md",
-        "2-areas/about.md",
-        "3-resources/about.md",
-        "9-archive/about.md",
+        "inbox/about.md",
+        "projects/about.md",
+        "areas/about.md",
+        "resources/about.md",
+        "archive/about.md",
         INDEX_KEY,
         PRIVACY_KEY,
       ].sort(),
@@ -41,7 +41,7 @@ describe("a fresh bucket", () => {
     for (const key of store.objects.keys()) {
       expect(key).not.toMatch(/^tenants\//);
       expect(key).not.toMatch(/^workspaces\//);
-      // A note lives at `1-projects/foo.md`, full stop. Every scaffolded key
+      // A note lives at `projects/foo.md`, full stop. Every scaffolded key
       // is either at the root or directly inside a PARA folder.
       const [head] = key.split("/");
       expect([...PARA_FOLDERS, INDEX_KEY, PRIVACY_KEY]).toContain(head);
@@ -113,9 +113,9 @@ describe("the privacy manifest the gateway will read", () => {
     );
 
     for (const key of [
-      "0-inbox/about.md",
-      "1-projects/about.md",
-      "1-projects/anything.md",
+      "inbox/about.md",
+      "projects/about.md",
+      "projects/anything.md",
       INDEX_KEY,
       PRIVACY_KEY,
     ]) {
@@ -124,7 +124,7 @@ describe("the privacy manifest the gateway will read", () => {
       );
     }
     // …and the owner sees their own notes, or the scaffold would be pointless.
-    expect(canSee("1-projects/anything.md", "private", rules, overrides)).toBe(true);
+    expect(canSee("projects/anything.md", "private", rules, overrides)).toBe(true);
   });
 
   test("declares no reserved or plumbing path, which the gateway would reject", async () => {
@@ -155,7 +155,7 @@ describe('structureTemplate "custom"', () => {
     const store = memoryStore();
     await scaffoldContext(store, { structureTemplate: "custom" });
     const index = store.objects.get(INDEX_KEY)!.body;
-    expect(index).not.toContain("1-projects/");
+    expect(index).not.toContain("projects/");
   });
 });
 
@@ -331,26 +331,26 @@ describe("folder notes: about.md now, README.md in workspaces scaffolded before"
       store.seed(`${folder}/README.md`, body);
     }
     // ...and the layout was cut short: the last two folders never landed.
-    store.objects.delete("2-areas/README.md");
-    store.objects.delete("9-archive/README.md");
+    store.objects.delete("areas/README.md");
+    store.objects.delete("archive/README.md");
 
     expect(await hasForeignContent(store, scaffoldFiles("para"))).toBe(false);
     const resumed = await scaffoldContext(store, { structureTemplate: "para", resume: true });
     expect(resumed.reason).toBe("created");
     // The folders that already had their note under the old name are not
     // given a second one beside it.
-    expect(store.objects.has("0-inbox/about.md")).toBe(false);
-    expect(store.objects.has("1-projects/about.md")).toBe(false);
+    expect(store.objects.has("inbox/about.md")).toBe(false);
+    expect(store.objects.has("projects/about.md")).toBe(false);
     expect(resumed.skipped).toEqual(
-      expect.arrayContaining(["0-inbox/about.md", "1-projects/about.md"]),
+      expect.arrayContaining(["inbox/about.md", "projects/about.md"]),
     );
   });
 
   test("a README.md in a scaffolded folder that is not ours still makes a resume refuse", async () => {
     const store = memoryStore();
     await scaffoldContext(store, { structureTemplate: "para" });
-    store.objects.delete("1-projects/about.md");
-    store.seed("1-projects/README.md", "my own words, not yours\n");
+    store.objects.delete("projects/about.md");
+    store.seed("projects/README.md", "my own words, not yours\n");
 
     expect(await hasForeignContent(store, scaffoldFiles("para"))).toBe(true);
     const resumed = await scaffoldContext(store, { structureTemplate: "para", resume: true });

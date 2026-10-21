@@ -8,7 +8,7 @@
  */
 
 import { ARCHIVE_FOLDER_PATTERN } from "../privacy";
-import { INDEX_KEY, PARA_FOLDERS, PRIVACY_KEY } from "./store";
+import { INDEX_KEY, LEGACY_PARA_FOLDERS, PARA_FOLDERS, PRIVACY_KEY } from "./store";
 
 /**
  * Names this product does not write, kept out anyway because they are generic.
@@ -55,19 +55,31 @@ export const GENERIC_ROOT_KEYS = ["todo.md"] as const;
  * source with no Latin alphanumerics gets a folder name of ours, so the
  * sender-chose-it exclusion does not reach the fallback.
  */
-export const CAPTURE_SOURCE_FOLDERS = [
-  "0-inbox/hook-claude-code",
-  "0-inbox/hook-codex",
-  "0-inbox/hook-gemini-cli",
-  "0-inbox/inbox",
-  "0-inbox/granola",
+/**
+ * The Inbox's names this product has written: the plain one every workspace
+ * has had since 2026-10-21, and the numbered one before it, which a workspace
+ * the rename skipped still has. Folders under the Inbox are guarded under both.
+ */
+const INBOX_NAMES = ["inbox", "0-inbox"] as const;
+
+/** The capture folders' own names, under the Inbox. */
+const CAPTURE_SOURCES = [
+  "hook-claude-code",
+  "hook-codex",
+  "hook-gemini-cli",
+  "inbox",
+  "granola",
   // `safeSlug` ends `|| "capture"`, so a source containing no `[a-z0-9]` at
   // all — "日本語アプリ", "Здравствуй", "###", an emoji — lands in a folder
   // named by US rather than by the sender. Narrower than the others and still
   // a hardcoded literal in our source needing no knowledge of the owner, on
   // exactly the generic-guess ground `todo.md` sits on.
-  "0-inbox/capture",
+  "capture",
 ] as const;
+
+export const CAPTURE_SOURCE_FOLDERS: readonly string[] = INBOX_NAMES.flatMap((inbox) =>
+  CAPTURE_SOURCES.map((source) => `${inbox}/${source}`),
+);
 
 /**
  * The one path the single-tenant calendar cron writes, and its folder.
@@ -124,6 +136,12 @@ const PRESET_FOLDERS = [
   // The archive PARA wrote before `9-archive`. Workspaces made then still have
   // it, so it stays guarded here exactly as it was.
   "4-archive",
+  // The PARA names before the numbers were dropped (2026-10-21), and the
+  // presets' extras without them.
+  ...LEGACY_PARA_FOLDERS,
+  "clients",
+  "teams",
+  "products",
 ] as const;
 
 /**
@@ -145,7 +163,7 @@ function productArchiveRoots(): string[] {
 }
 
 function sessionFolders(): string[] {
-  return [...productArchiveRoots().map((root) => `${root}/chat-history`), "0-inbox/sessions"];
+  return [...productArchiveRoots().map((root) => `${root}/chat-history`), ...INBOX_NAMES.map((inbox) => `${inbox}/sessions`)];
 }
 
 /**
@@ -226,7 +244,7 @@ export const SESSION_FOLDERS: readonly string[] = sessionFolders();
  * branch.
  */
 
-export const PRODUCT_MANDATED_PATHS: readonly string[] = [
+export const PRODUCT_MANDATED_PATHS: readonly string[] = [...new Set([
   INDEX_KEY,
   PRIVACY_KEY,
   ...GENERIC_ROOT_KEYS,
@@ -238,7 +256,7 @@ export const PRODUCT_MANDATED_PATHS: readonly string[] = [
   ...SESSION_FOLDERS,
   // Where the gateway's `remember` files a fact given no note
   // (`MEMORY_FOLDER` in apps/mcp/src/tools/notes/remember.js).
-  "0-inbox/memories",
+  ...INBOX_NAMES.map((inbox) => `${inbox}/memories`),
   ...CAPTURE_SOURCE_FOLDERS,
   ...CALENDAR_PATHS,
   ...PARA_FOLDERS.map((folder) => `${folder}/about.md`),
@@ -251,7 +269,7 @@ export const PRODUCT_MANDATED_PATHS: readonly string[] = [
   ...PRESET_FOLDERS,
   ...PRESET_FOLDERS.map((folder) => `${folder}/about.md`),
   ...PRESET_FOLDERS.map((folder) => `${folder}/README.md`),
-];
+])];
 
 /**
  * **The list, not a second statement of it.**

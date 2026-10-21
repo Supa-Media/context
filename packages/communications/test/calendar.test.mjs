@@ -30,7 +30,7 @@ import {
 
 export function runCalendarChecks(check) {
   // -- the contract ---------------------------------------------------------
-  check("the calendar folder is a fixed string under the one inbox root", CALENDAR_FOLDER === "0-inbox/calendar");
+  check("the calendar folder is a fixed string under the one inbox root", CALENDAR_FOLDER === "inbox/calendar");
   check("the default horizon is a positive number of days", Number.isInteger(DEFAULT_HORIZON_DAYS) && DEFAULT_HORIZON_DAYS > 0);
   check("the frontmatter key list is frozen", Object.isFrozen(CALENDAR_FRONTMATTER_KEYS));
   check("...and the status list", Object.isFrozen(EVENT_STATUSES));

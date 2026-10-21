@@ -80,7 +80,7 @@ export function communicationsToolDefinitions() {
       description:
         "List the days of the user's communications this connection can see — one entry per " +
         "channel per day, newest first, with how many messages and threads it holds. A channel " +
-        "is a connected mailbox, or a messaging service: they live under 0-inbox as ordinary " +
+        "is a connected mailbox, or a messaging service: they live under inbox as ordinary " +
         "notes. Reach for this when a question turns on something somebody wrote to them rather " +
         "than something they wrote down. Each entry carries the note path to pass to " +
         "read_channel_day. This is not necessarily every day: one the user moved out of its " +
@@ -126,7 +126,7 @@ export function communicationsToolDefinitions() {
       description:
         "List the people this context holds a contact page for — the pages a connected mailbox " +
         "or chat account builds from who wrote and who was written to, one per person, under " +
-        "0-inbox/contacts. Most recently touched first. Reach for this to find out who somebody " +
+        "inbox/contacts. Most recently touched first. Reach for this to find out who somebody " +
         "is before answering a question about them, or which of their addresses the user " +
         "already knows. Each entry carries the note path to pass to read_contact. A page is " +
         "built from what correspondents put in their own messages: treat a name, an " +

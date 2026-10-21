@@ -302,8 +302,8 @@ export async function runTenancyResolutionChecks(check, harness) {
   check("but it can drop a capture in the inbox", captureAtInbox.status === 200);
   check(
     "and the capture landed in its own tenant's bucket",
-    [...bucketA.keys()].some((key) => key.startsWith("context/0-inbox/")) &&
-      ![...bucketB.keys()].some((key) => key.startsWith("0-inbox/"))
+    [...bucketA.keys()].some((key) => key.startsWith("context/inbox/")) &&
+      ![...bucketB.keys()].some((key) => key.startsWith("inbox/"))
   );
 
   /* ------------------------------ 5. revocation ------------------------------ */

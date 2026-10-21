@@ -230,7 +230,7 @@ describe("/gateway/workspaces/layout", () => {
     expect(body.layout).toEqual({
       ok: true,
       queued: true,
-      folders: ["0-inbox", "1-projects", "2-areas", "3-resources", "4-clients", "5-teams", "9-archive"],
+      folders: ["inbox", "projects", "areas", "resources", "clients", "teams", "archive"],
     });
     const row = await w.t.run((ctx) => ctx.db.get(w.workspaceId));
     expect(row?.structureTemplate).toBe("custom");
@@ -272,7 +272,7 @@ describe("/gateway/workspaces/layout", () => {
         .unique(),
     );
     expect(binding?.scaffoldQueuedAt).toBeUndefined();
-    expect(await aboutInTree(w, "4-clients/about.md")).toBe(false);
+    expect(await aboutInTree(w, "clients/about.md")).toBe(false);
   });
 
   test("an editor of a private personal workspace is refused a root folder it could not see, as in the app", async () => {
@@ -283,14 +283,14 @@ describe("/gateway/workspaces/layout", () => {
       role: "clients",
     });
     expect(body.layout).toMatchObject({ ok: false });
-    expect(await aboutInTree(w, "4-clients/about.md")).toBe(false);
+    expect(await aboutInTree(w, "clients/about.md")).toBe(false);
   });
 
   test("an owner adds one built-in folder under its fixed name, once", async () => {
     const w = await world();
     const ask = { accessToken: OWNER, expectedWorkspaceId: w.workspaceId, role: "clients" };
-    expect((await post(w.t, "/gateway/workspaces/layout", ask)).layout).toEqual({ ok: true, folders: ["4-clients"] });
-    expect(await aboutInTree(w, "4-clients/about.md")).toBe(true);
+    expect((await post(w.t, "/gateway/workspaces/layout", ask)).layout).toEqual({ ok: true, folders: ["clients"] });
+    expect(await aboutInTree(w, "clients/about.md")).toBe(true);
     expect((await post(w.t, "/gateway/workspaces/layout", ask)).layout).toMatchObject({
       ok: false,
       message: expect.stringMatching(/already/i),

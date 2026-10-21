@@ -134,7 +134,7 @@ export async function runMeetingRouteAndCapabilityChecks(check, harness) {
   /*
     A team connection that can actually finish a meeting.
 
-    Every other team-tier finalize in this file is *refused* — `0-inbox` inherits
+    Every other team-tier finalize in this file is *refused* — `inbox` inherits
     `private` from `PRIVACY_MANIFEST`, and a team connection may not create
     private content — so the suite has never once watched a team connection
     finalize successfully. That is the mainline flow for a shared workspace,
@@ -156,7 +156,7 @@ export async function runMeetingRouteAndCapabilityChecks(check, harness) {
     body:
       "---\nrole: privacy-manifest\n---\n\n" +
       "<!-- BEGIN BRAIN PRIVACY RULES -->\n\n```yaml\ndefault_visibility: private\n\n" +
-      "folder_defaults:\n  0-inbox: team\n\nnote_overrides:\n  # none\n```\n\n" +
+      "folder_defaults:\n  inbox: team\n\nnote_overrides:\n  # none\n```\n\n" +
       "<!-- END BRAIN PRIVACY RULES -->\n",
     etag: "sh0",
   });
@@ -207,7 +207,7 @@ export async function runMeetingRouteAndCapabilityChecks(check, harness) {
   );
   check(
     "with exactly one note written for that meeting",
-    keysIn(s3.bucketFor("meet-shared"), "0-inbox/meetings/").length === 1
+    keysIn(s3.bucketFor("meet-shared"), "inbox/meetings/").length === 1
   );
 
 }

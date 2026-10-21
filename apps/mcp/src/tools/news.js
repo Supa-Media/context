@@ -98,7 +98,7 @@ export const TOOL_NEWS = Object.freeze([
     date: "2026-10-19",
     text:
       "fetch with a file's path (a PDF, Word, Excel, CSV or picture file a note links, such as an email attachment under " +
-      "`0-inbox/email/<mailbox>/attachments/`) returns the words in the file, marked untrusted. Older clients can call read_file `{ path }`. " +
+      "`inbox/email/<mailbox>/attachments/`) returns the words in the file, marked untrusted. Older clients can call read_file `{ path }`. " +
       "fetch an `email:<address>/<id>` id with `args: { attachment: 1 }` reads that email's first attachment straight from Gmail.",
   },
   {
@@ -223,7 +223,7 @@ export const TOOL_NEWS = Object.freeze([
   },
   {
     date: "2026-10-07",
-    text: "remember works without `note`: a fact with no note it belongs in is filed under 0-inbox/memories.",
+    text: "remember works without `note`: a fact with no note it belongs in is filed under inbox/memories.",
   },
   {
     date: "2026-10-03",

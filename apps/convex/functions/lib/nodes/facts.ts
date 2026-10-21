@@ -36,7 +36,7 @@
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { DatabaseReader, DatabaseWriter } from "../../../_generated/server";
 import { expiredBefore, seqAt } from "./log";
-import { CONTACTS_FOLDER } from "../../../../../packages/communications/src/protocol.js";
+import { CONTACTS_FOLDER, asInboxKey } from "../../../../../packages/communications/src/protocol.js";
 import { hasReview, isExempt, LONG_NOTE_LINES } from "../../../../mcp/src/chaos/rubric.js";
 
 /** Notes one fill pass reads from the bucket. */
@@ -173,7 +173,7 @@ export function chaosExtraOf(path: string, props: string | null | undefined): Ch
   const lines = typeof parsed.lines === "number" && Number.isFinite(parsed.lines) ? parsed.lines : null;
   const review = hasReview(properties.review);
   const long = lines !== null && lines > LONG_NOTE_LINES;
-  if (!long && !(path.startsWith(`${CONTACTS_FOLDER}/`) && review)) return null;
+  if (!long && !(asInboxKey(path).startsWith(`${CONTACTS_FOLDER}/`) && review)) return null;
   return { lines, exempt: isExempt(path, properties.type, properties.generated), review };
 }
 

@@ -29,7 +29,7 @@ export async function runOrientationSaveAndArchiveChecks(check, harness) {
   const assumed = await save(OWNER_TOKEN, {});
   check(
     "with no procedure and no 4-archive, a session lands in the inbox",
-    /^saved: 0-inbox\/sessions\/claude\//m.test(assumed)
+    /^saved: inbox\/sessions\/claude\//m.test(assumed)
   );
   check(
     "an assumed destination says it was assumed, and how to change it",
@@ -80,12 +80,12 @@ export async function runOrientationSaveAndArchiveChecks(check, harness) {
   const rejected = await save(OWNER_TOKEN, {});
   check(
     "a destination that is not a safe folder path is refused, not repaired",
-    /^saved: 0-inbox\/sessions\/claude\//m.test(rejected) && rejected.includes("assumed")
+    /^saved: inbox\/sessions\/claude\//m.test(rejected) && rejected.includes("assumed")
   );
   bucket.seed("index.md", "# Front\n\n## Save context\n\ndestination: notes/one.md\n");
   check(
     "a destination naming a note rather than a folder is refused",
-    /^saved: 0-inbox\/sessions\/claude\//m.test(await save(OWNER_TOKEN, {}))
+    /^saved: inbox\/sessions\/claude\//m.test(await save(OWNER_TOKEN, {}))
   );
 
   // The rename must not cost anybody a session: a client holding the cached

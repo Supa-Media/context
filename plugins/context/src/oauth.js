@@ -26,7 +26,7 @@
  *
  * This credential sits in a file on somebody's laptop, unattended, forever. It
  * is therefore asked for the narrowest thing that does the job: capture-only,
- * which the gateway lets write to `0-inbox/` and lets read **nothing**. A
+ * which the gateway lets write to `inbox/` and lets read **nothing**. A
  * stolen hook token cannot enumerate a context, cannot read a note, and cannot
  * tell you whether a note exists. Asking for `context:write` would honour the
  * user's own save destination automatically, and it would also mean a laptop
@@ -45,7 +45,7 @@ import { createServer } from "node:http";
 /**
  * The scopes a hook asks for, and the choice between them.
  *
- * **Capture** is the default and the one to prefer: it writes to `0-inbox/` and
+ * **Capture** is the default and the one to prefer: it writes to `inbox/` and
  * reads nothing at all — no search, no listing, no existence oracle.
  *
  * **Orienting** is opt-in, and it is a real widening rather than a setting. A

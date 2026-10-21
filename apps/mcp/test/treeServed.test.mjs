@@ -239,9 +239,10 @@ test("a workspace the tree does not serve is told it is still loading, and its b
       assert.equal(answer.content[0].text, TREE_LOADING);
     }
     // Once per subtree asked side by side (list_channel_days asks for each
-    // channel's folder at once), and never again after the refusal.
+    // channel's folder at once, under both of the Inbox's names when the tree
+    // cannot say which folder is the Inbox), and never again after the refusal.
     const asked = tree.requests.filter((request) => request.ask === undefined).length;
-    assert.ok(asked >= 1 && asked <= 3, `${name} asked ${asked} times`);
+    assert.ok(asked >= 1 && asked <= 6, `${name} asked ${asked} times`);
     assert.deepEqual(bucket.listings.filter((prefix) => !prefix.startsWith(".")), [], `${name} listed the bucket`);
   }
 });

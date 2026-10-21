@@ -438,7 +438,7 @@ export function refusalMessage(error: unknown): string {
   return "The control plane refused the change. Try again.";
 }
 
-export const DEFAULT_TARGET_FOLDER = "0-inbox/";
+export const DEFAULT_TARGET_FOLDER = "inbox/";
 
 /**
  * The backend's limits, mirrored so the console refuses before the round trip.

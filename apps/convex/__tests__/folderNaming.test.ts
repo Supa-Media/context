@@ -51,7 +51,8 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
+// A workspace laid out before the numbers were dropped (2026-10-21): its folders keep them.
+import { LEGACY_PARA_FOLDERS, renderPrivacyManifestForFolders } from "../functions/lib/scaffold";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { memoryS3, type MemoryS3 } from "./storeStub.helpers";
 import {
@@ -114,7 +115,7 @@ async function fixture(): Promise<Fixture> {
   // A SHARED workspace scaffolds its folders `team`, so the folder starts
   // readable by everybody — which is what makes the narrowing below visible as
   // a narrowing rather than as a folder that was never shared.
-  backend.seed(PRIVACY_KEY, renderPrivacyManifest("para", [], "shared"));
+  backend.seed(PRIVACY_KEY, renderPrivacyManifestForFolders(LEGACY_PARA_FOLDERS, "shared"));
   backend.seed("index.md", "# Atlas\n");
   backend.seed("2-areas/README.md", "# Areas\n");
   backend.seed("2-areas/hr.md", "# HR\n");
