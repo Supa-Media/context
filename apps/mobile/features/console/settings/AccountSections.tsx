@@ -20,6 +20,7 @@ import { MachinesCard } from "./panels/MachinesCard";
 import { BlockedPeopleCard } from "./panels/BlockedPeopleCard";
 import { SignInEmailsCard } from "./panels/SignInEmailsCard";
 import { AccountSafetyCard } from "./panels/AccountSafetyCard";
+import { ProviderConnectionsCard } from "./panels/ProviderConnectionsCard";
 import { PhoneCard } from "./panels/PhoneCard";
 import { AppearancePicker } from "./panels/AppearancePicker";
 import { YourPicture } from "./panels/YourPicture";
@@ -64,9 +65,10 @@ export function AccountSection({
     first-class state — `identity.ts` exists partly to handle it — and for one,
     `viewer.name` is their sign-in email rather than a username.
   */
-  const owned = data.contexts.some(
+  const personal = data.contexts.find(
     (context) => context.kind === "personal" && context.role === "owner",
   );
+  const owned = personal !== undefined;
 
   if (section === "feedback") return <FeedbackSettings />;
 
@@ -213,6 +215,12 @@ export function AccountSection({
       <View style={styles.spaced}>
         <MachinesCard />
       </View>
+      {/* The apps Tex uses as this person, with Disconnect. Drawn only when there is one. */}
+      {personal === undefined ? null : (
+        <View style={styles.spaced}>
+          <ProviderConnectionsCard workspaceId={personal.id} />
+        </View>
+      )}
       {/* Who this person blocked, with Unblock. Drawn only when there is somebody. */}
       <View style={styles.spaced}>
         <BlockedPeopleCard />

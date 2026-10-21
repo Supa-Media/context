@@ -11,7 +11,6 @@ import { PaneHead } from "../ConsoleShell";
 import { PanelHead } from "../settings/panels/PanelHead";
 import { atName } from "../format";
 import { SourcesPanel } from "../settings/panels/SourcesPanel";
-import { ProviderConnectionsCard } from "../settings/panels/ProviderConnectionsCard";
 import { MeetingsPanel } from "../settings/panels/MeetingsPanel";
 import { MeaningSearchCardView } from "../search/MeaningSearchCard";
 import type { CheckoutOutcome } from "@context/shared";
@@ -461,7 +460,6 @@ export function SettingsPane({
       <SourcesPanel data={data} />
 
       {/* Connectors belong to one personal workspace, acted in as its owner (`docs/decisions/connectors.md`). */}
-      {current?.kind === "personal" ? <ProviderConnectionsCard workspaceId={current.id} /> : null}
 
       <ConnectedAppsCard data={data} onConnectAgent={onConnectAgent} />
 
