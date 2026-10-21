@@ -18,7 +18,7 @@ import { test } from "node:test";
 
 import { SYNCED_PLACES_LINE, systemPrompt } from "../src/agent/prompt.js";
 
-test("a texted turn is told its calendar and email are in its notes, production setup or not", () => {
+test("a texted turn is told its calendar and email are read from Google, production setup or not", () => {
   for (const notes of [null, { prompt: "You are Tex." }]) {
     const prompt = systemPrompt(null, { texting: true, notes });
     assert.ok(prompt.includes(SYNCED_PLACES_LINE));
@@ -26,6 +26,9 @@ test("a texted turn is told its calendar and email are in its notes, production 
   assert.match(SYNCED_PLACES_LINE, /fetch id "calendar:"/);
   assert.match(SYNCED_PLACES_LINE, /Never say you can't see or read their calendar/);
   assert.match(SYNCED_PLACES_LINE, /never say a day is empty without that fetch/);
+  // Nothing is copied any more (owner, 2026-10-21), so no copy is promised.
+  assert.match(SYNCED_PLACES_LINE, /none of it is copied into their notes/);
+  assert.doesNotMatch(SYNCED_PLACES_LINE, /0-inbox/);
 });
 
 /*

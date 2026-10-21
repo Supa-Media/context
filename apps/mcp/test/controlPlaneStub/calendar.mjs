@@ -5,6 +5,11 @@
  * and answers as the stub's flags say: `calendarAddress` is the calendar that
  * may be changed (null for none), and `calendarRefusal` answers every change
  * and check with that word instead.
+ *
+ * `/gateway/calendar/days` (`gatewayRoutes/personCalendar.ts`) is answered by
+ * `calendarDays`, a function of the request body returning the route's
+ * answer; without one there is no calendar connected. The real clearance is
+ * proved in Convex.
  */
 
 export function createCalendarRoute(clearedEditor, flags) {
@@ -22,9 +27,16 @@ export function createCalendarRoute(clearedEditor, flags) {
     return answer;
   }
 
+  async function days(body) {
+    if (!(await clearedEditor(body))) return { ok: false, refused: "not_allowed" };
+    return typeof flags.calendarDays === "function" ? flags.calendarDays(body) : { ok: false, refused: "no_calendar" };
+  }
+
   /** The route's answer, or undefined for a path that is not this one. */
   async function handle(path, body) {
-    return path === "/gateway/calendar/event" ? await change(body) : undefined;
+    if (path === "/gateway/calendar/event") return await change(body);
+    if (path === "/gateway/calendar/days") return await days(body);
+    return undefined;
   }
 
   return { calls, handle };

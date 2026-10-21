@@ -43,7 +43,7 @@ export const TOOL_NEWS = Object.freeze([
     date: "2026-10-21",
     text:
       'fetch id "calendar:" with args `{ date: "YYYY-MM-DD", days? }` reads what is on the person\'s calendar that day (and up to 13 days after), ' +
-      "from every connected Google account and workspace, wherever the day notes are filed. Use it for any question about a date.",
+      "asked of every connected Google calendar at that moment. Use it for any question about a date.",
   },
   {
     date: "2026-10-21",

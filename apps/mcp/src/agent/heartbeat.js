@@ -60,6 +60,7 @@ import { json } from "../http/responses.js";
 import { disarmTexting } from "../tools/approvals.js";
 import { WORTH_SAYING, heartbeatMailSection, readMailHealth, withMailboxes } from "./mailHealth.js";
 import { checkInMutes, mutedCheckIn, withoutPreamble } from "./checkInGuards.js";
+import { newMailSection, newMailSince } from "./newMail.js";
 
 /** The check-in's first-party client (`apps/convex/functions/lib/heartbeats/model.ts`). Decided by the grant. */
 export const HEARTBEAT_CLIENT_ID = "context_heartbeat";
@@ -79,18 +80,14 @@ export const MAX_CHECK_IN_CHARS = 1_200;
 const HEARTBEAT_ROUNDS = 10;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** What the model may call: reading their own notes. */
 /**
- * What a check-in may call. Nothing here is an `UNTRUSTED_READS` tool, and
- * that is load-bearing beyond the dispatch allowlist: the exchange a check-in
- * saves is recorded with no `tainted` mark (below), so the memory nudge reads
- * it as clean words of the person's own (`memoryNudge.js`). Add a tool that
- * reads from outside the workspace here and the nudge starts distilling a
- * stranger's words into `tex/about-me.md`, which every later turn reads as
- * Tex's own memory — so the two sets are asserted disjoint by a test rather
- * than left to be noticed.
+ * What a check-in may call: reading their own notes, and opening one of the
+ * new emails it was shown. `read_email` is an `UNTRUSTED_READS` tool and the
+ * mail list is a stranger's words, so a look that saw any mail saves its
+ * exchange tainted (below), and the memory nudge never distils a stranger's
+ * words into `tex/about-me.md` (`memoryNudge.js`). Asserted by a test.
  */
-const HEARTBEAT_READS = new Set(["read_note", "list_notes", "search_notes"]);
+const HEARTBEAT_READS = new Set(["read_note", "list_notes", "search_notes", "read_email"]);
 
 /** Tex's own job output, which never counts as something that changed. */
 const OWN_OUTPUT = [`${HEARTBEAT_FOLDER}/`, `${DREAMS_FOLDER}/`, "tex/housekeeping/", `${ATTENTION_FOLDER}/`, `${LEARNED_SKILLS_FOLDER}/`];
@@ -357,10 +354,11 @@ function heading(now, timeZone) {
 }
 
 /** One look's part of the day's log. */
-export function heartbeatEntry({ now, timeZone, changed, model, text, events, outcome, muted = null }) {
+export function heartbeatEntry({ now, timeZone, changed, mail = 0, model, text, events, outcome, muted = null }) {
   const lines = [`## ${clock(now, timeZone)}`, ""];
   const shown = changed.slice(0, MAX_CHANGED_SHOWN).map((note) => `\`${note.key}\``);
   const more = changed.length - shown.length;
+  if (mail > 0) shown.push(`${mail} new email${mail === 1 ? "" : "s"}`);
   lines.push(
     shown.length === 0
       ? `_Nothing in the notes changed; it looked because a mailbox needs them${model ? `, on ${model}` : ""}._`
@@ -485,11 +483,13 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
     return json({ error: "tree_unavailable" }, 503);
   }
   const changed = newsFirst(changedSince(entries, since), Date.now());
+  // New mail is asked of Gmail: nothing of a mailbox is copied into notes (2026-10-21).
+  const mail = await newMailSince(store, since);
   // A mailbox that stopped syncing changes no note, so it is asked after on its own (`mailHealth.js`).
   const mailboxes = await readMailHealth(store);
   const owed = mailboxes.filter((mailbox) => mailbox.tell && WORTH_SAYING.has(mailbox.state));
-  // Nothing changed since the last look and no mailbox owed a word: no model turn spent.
-  if (changed.length === 0 && owed.length === 0) {
+  // Nothing changed since the last look, no new mail and no mailbox owed a word: no model turn spent.
+  if (changed.length === 0 && mail.length === 0 && owed.length === 0) {
     await skipped(NOTHING_NEW_WORDS);
     return json({ outcome: "nothing_new" });
   }
@@ -530,7 +530,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
         recent: shownRecent.map((shown) => shown.line),
         instructions: setup?.prompt ?? null,
         theirs: settings.instructions,
-        mail: heartbeatMailSection(mailboxes, started),
+        mail: [newMailSection(mail), heartbeatMailSection(mailboxes, started)].filter(Boolean).join("\n\n"),
         muted: mutes,
       }),
       tools: heartbeatTools(offered),
@@ -577,7 +577,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
   const text = finished && owed.length > 0 ? withMailboxes(own, owed, started) : own;
   const outcome = !finished ? "failed" : text ? "speak" : "quiet";
   const now = Date.now();
-  const entry = heartbeatEntry({ now, timeZone, changed, model: turn?.model ?? null, text, events, outcome, muted });
+  const entry = heartbeatEntry({ now, timeZone, changed, mail: mail.length, model: turn?.model ?? null, text, events, outcome, muted });
   const path = heartbeatPath(now, timeZone);
   let why = await appendLogEntryWhy(dispatch, path, entry, heading(now, timeZone));
   // The full entry didn't land: its outcome still does, in a few words, so the
@@ -590,9 +590,9 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
     await disarmTexting(store, { userId: session.actorUserId }).catch(() => {});
     // Their reply to it is answered with the check-in in front of the turn (`conversation.js`).
     try {
-      // No `tainted`: a check-in cannot read from outside the workspace, because
-      // `HEARTBEAT_READS` holds no `UNTRUSTED_READS` tool. See its comment.
+      // Tainted when it was shown mail or opened one: a stranger's words (`HEARTBEAT_READS`).
       await appendConversation(store, "texts", conversation, CHECK_IN_QUESTION, text, {
+        tainted: mail.length > 0 || session.egress.ledger.untrusted === true,
         tools: (turn?.steps ?? []).filter((step) => step.ok).map((step) => step.tool),
       });
     } catch {
@@ -607,6 +607,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
       provider: BUILTIN_PROVIDER,
       outcome,
       changed: changed.length,
+      newMail: mail.length,
       mailboxesOwed: owed.length,
       logged,
       ms: now - started,

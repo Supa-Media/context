@@ -189,6 +189,16 @@ export function placeWorkspaces(bench, { s3, controlPlane, baseMs, search = null
   return ids;
 }
 
+/** The live calendar route's answer, from the calendar days a workspace's fixture holds. */
+export function calendarAnswer(days) {
+  if (days.length === 0) return null;
+  return ({ date, days: count = 1 }) => {
+    const start = Date.parse(`${date}T00:00:00Z`);
+    const wanted = Array.from({ length: count }, (_, i) => new Date(start + i * 86_400_000).toISOString().slice(0, 10));
+    return { ok: true, days: days.filter((day) => wanted.includes(day.date)).map(({ date: on, address, text }) => ({ address, date: on, text })) };
+  };
+}
+
 /**
  * Build the world for one person.
  *
@@ -218,6 +228,9 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   // read from the buckets placed below.
   let site = null;
   const controlPlane = createControlPlaneStub({ site: (cleared, body) => site.answer(cleared, body) });
+  // The person's calendar, as Google would answer for it: their personal
+  // workspace's calendar days, read live by `calendar:` (`load.mjs`).
+  controlPlane.flags.calendarDays = calendarAnswer(bench.workspaces[own.workspace]?.calendar ?? []);
   // The listing tools list from the Convex tree, copied here from each S3 bucket.
   controlPlane.serveTreesFrom(null, { s3 });
   // A warmed world answers searches from a copy of the snapshot's database.

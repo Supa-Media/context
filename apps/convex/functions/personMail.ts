@@ -11,10 +11,8 @@
  */
 
 import { v } from "convex/values";
-import type { Id } from "../_generated/dataModel";
 import { internalMutation } from "../_generated/server";
-import { TOKEN_HASH_PATTERN } from "./lib/crypto";
-import { contextsForGrant, resolveLiveGrant } from "./lib/controlPlane/liveGrants";
+import { personalOwnerReadClearance } from "./lib/controlPlane/personalOwner";
 import { defaultGoogleDestinationFolder } from "./lib/googleConnect/validation";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
 
@@ -53,29 +51,9 @@ export const claimPersonMailRead = internalMutation({
     }),
   ),
   handler: async (ctx, args) => {
-    if (!TOKEN_HASH_PATTERN.test(args.hashedAccessToken)) return { ok: false as const, refused: "not_allowed" as const };
-    const live = await resolveLiveGrant(ctx, args.hashedAccessToken);
-    if (live === null) return { ok: false as const, refused: "not_allowed" as const };
-    /*
-      THE OWNER OF THE PERSONAL WORKSPACE, WITH PRIVATE CLEARANCE, AND NOBODY ELSE.
-
-      A mailbox is connected to its person's personal workspace, and its mail is
-      as private as anything in it. So the call must address that workspace,
-      the grant must hold `context:private`, and the grant's person must own it:
-      an editor or member of somebody's personal workspace never reaches its
-      mail, and `expectedWorkspaceId` only selects within the grant's own set.
-    */
-    const covered = (await contextsForGrant(ctx, live)).find(
-      (entry) => entry.workspaceId === args.expectedWorkspaceId,
-    );
-    if (covered === undefined || covered.role !== "owner" || covered.kind !== "personal") {
-      return { ok: false as const, refused: "not_allowed" as const };
-    }
-    if (!live.grant.scopes.includes("context:private")) return { ok: false as const, refused: "not_allowed" as const };
-    const workspace = await ctx.db.get(covered.workspaceId as Id<"workspaces">);
-    if (workspace === null || workspace.kind !== "personal" || workspace.createdBy !== live.grant.userId) {
-      return { ok: false as const, refused: "not_allowed" as const };
-    }
+    const cleared = await personalOwnerReadClearance(ctx, args);
+    if (cleared === null) return { ok: false as const, refused: "not_allowed" as const };
+    const { workspace, userId } = cleared;
 
     const connections = await ctx.db
       .query("googleConnections")
@@ -111,7 +89,7 @@ export const claimPersonMailRead = internalMutation({
     }
 
     const room = await tryConsumeRateLimit(ctx, {
-      key: `person.mail.read:${live.grant.userId}`,
+      key: `person.mail.read:${userId}`,
       limit: PERSON_MAIL_READS_PER_HOUR,
       windowMs: 60 * 60 * 1000,
     });

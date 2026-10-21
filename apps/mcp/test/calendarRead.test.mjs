@@ -1,158 +1,156 @@
 /**
- * `read_calendar` (fetch id `calendar:`) reads a day of the person's calendar
- * out of the notes it is copied into, wherever they are filed, from every
- * account and workspace (owner's report, 2026-10-21: asked "do i have anything
- * planned for friday?", Tex said nothing was written and that it couldn't read
- * Google Calendar, with Friday's note filed under the account's folder).
+ * `read_calendar` (fetch id `calendar:`) asks the person's own Google
+ * calendars at that moment, through the control plane, and reads no note
+ * (owner, 2026-10-21: every copy of a calendar was removed from the notes;
+ * before that, Tex said "I can't read your Google Calendar" twice with the
+ * days copied into a folder it wasn't told about).
  *
  * ## Sabotage record
  *
- *   `calendarDaysIn` asking only the flat `0-inbox/calendar/YYYY/MM/` shape
- *     → "a day filed under its account's folder is read" fails
- *   the type check dropped (any dated note in range counted)
- *     → "a dated note that is not a calendar day is left out" fails
- *   `canSee` dropped from the candidates
- *     → "a calendar the connection may not see is not read, nor hinted at" fails
- *   the other workspaces never opened
- *     → "another workspace's calendar day is read with its @name" fails
- *   "no calendar note" said the same with no calendar anywhere
- *     → "with no calendar at all, it says Google isn't connected" fails
+ *   reading calendar notes from the store again
+ *     → "an old calendar note in the notes is never read" fails
+ *   one calendar's section dropped for a day
+ *     → "every calendar's day is shown, and a run of days reads each" fails
+ *   "unavailable" answered as an empty day
+ *     → "Google not answering is never an empty day" fails
+ *   the unanswered calendar left unnamed
+ *     → "a calendar Google didn't answer for is named, not shown empty" fails
  */
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { toolReadCalendar } from "../src/tools/calendarRead.js";
+import { readCalendarDays } from "../src/communications/calendarLive.js";
 import { translateFetch } from "../src/tools/v2/searchFetch.js";
 import { recordRead, newLedger } from "../src/privacy/egress.js";
 import { renderCalendarDay } from "../../../packages/communications/src/calendar/render.js";
 
-function fakeStore(notes, extra = {}) {
-  const files = new Map(Object.entries(notes));
-  return {
-    async list({ prefix } = {}) {
-      const objects = [...files.keys()]
-        .filter((key) => !prefix || key.startsWith(prefix))
-        .sort()
-        .map((key) => ({ key, size: files.get(key).length, uploaded: new Date(0), etag: `e-${key}` }));
-      return { objects, truncated: false };
-    },
-    async get(key) {
-      if (!files.has(key)) return null;
-      const body = files.get(key);
-      return { etag: `e-${key}`, text: async () => body, size: body.length };
-    },
-    async head(key) {
-      return files.has(key) ? { etag: `e-${key}`, size: files.get(key).length } : null;
-    },
-    ...extra,
-  };
-}
-
-const day = (date, title, account = "person@example.invalid") =>
+const rendered = (date, title, account = "person@example.invalid") =>
   renderCalendarDay({
     date,
     timezone: "America/New_York",
-    nonce: "n0nce",
+    nonce: "live:n0nce",
     now: "2026-10-21T12:00:00Z",
+    origin: "calendar-live",
     events: [
       {
-        id: `${date}-${title}`,
         account,
-        calendar: "primary",
+        calendarId: "primary",
+        eventId: `${date}-${title}`,
         title,
-        start: `${date}T18:00:00-04:00`,
-        end: `${date}T19:00:00-04:00`,
-        allDay: false,
+        description: "",
+        location: "",
+        meetingLink: null,
+        start: { dateTime: `${date}T18:00:00-04:00` },
+        end: { dateTime: `${date}T19:00:00-04:00` },
+        attendees: [],
+        organizer: null,
         status: "confirmed",
+        recurringEventId: null,
+        originalDate: null,
       },
     ],
   });
 
-const text = (result) => result.content.map((part) => part.text).join("\n");
-
-test("a day filed under its account's folder is read, with its events", async () => {
-  const store = fakeStore({
-    "0-inbox/calendar/person-at-example-invalid/2026/10/2026-10-22.md": day("2026-10-22", "Dentist"),
-    "0-inbox/calendar/person-at-example-invalid/2026/10/2026-10-23.md": day("2026-10-23", "Dinner with Ada"),
-  });
-  const result = await toolReadCalendar(store, "private", [], new Map(), { date: "2026-10-23" });
-  assert.notEqual(result.isError, true);
-  const out = text(result);
-  assert.match(out, /## Friday 2026-10-23/);
-  assert.ok(out.includes("Dinner with Ada"), "a day filed under its account's folder is read");
-  assert.ok(!out.includes("Dentist"), "only the days asked for");
-  assert.ok(!out.includes("trust:"), "front matter left off");
-});
-
-test("both accounts' notes for a day are read, and a run of days reads each", async () => {
-  const store = fakeStore({
-    "0-inbox/calendar/2026/10/2026-10-23.md": day("2026-10-23", "Old flat shape"),
-    "0-inbox/calendar/work-at-example-invalid/2026/10/2026-10-23.md": day("2026-10-23", "Standup", "work@example.invalid"),
-    "0-inbox/calendar/work-at-example-invalid/2026/10/2026-10-24.md": day("2026-10-24", "Brunch", "work@example.invalid"),
-  });
-  const out = text(await toolReadCalendar(store, "private", [], new Map(), { date: "2026-10-23", days: 3 }));
-  assert.ok(out.includes("Old flat shape") && out.includes("Standup") && out.includes("Brunch"));
-  assert.ok(out.indexOf("Friday 2026-10-23") < out.indexOf("Saturday 2026-10-24"));
-  assert.match(out, /## Sunday 2026-10-25\n\nNo calendar note for this day/, "a day not written yet is said, not skipped");
-});
-
-test("a calendar day moved out of the Inbox is still found by its front matter", async () => {
-  const store = fakeStore({ "Mail and calendar/Work/2026/10/2026-10-23.md": day("2026-10-23", "Moved along") });
-  const out = text(await toolReadCalendar(store, "private", [], new Map(), { date: "2026-10-23" }));
-  assert.ok(out.includes("Moved along"));
-});
-
-test("a dated note that is not a calendar day is left out", async () => {
-  const store = fakeStore({
-    "0-inbox/calendar/a/2026/10/2026-10-22.md": day("2026-10-22", "Something"),
-    "3-resources/journal/2026-10-23.md": "# A day\n\nWrote a poem.\n",
-  });
-  const out = text(await toolReadCalendar(store, "private", [], new Map(), { date: "2026-10-23" }));
-  assert.ok(!out.includes("Wrote a poem"));
-  assert.match(out, /No calendar note for this day/);
-});
-
-test("with no calendar at all, it says Google isn't connected, never that it can't read it", async () => {
-  const store = fakeStore({ "3-resources/journal/2026-10-23.md": "# A day\n" });
-  const out = text(await toolReadCalendar(store, "private", [], new Map(), { date: "2026-10-23" }));
-  assert.match(out, /Google Calendar isn't connected/);
-  assert.doesNotMatch(out, /can't read/i);
-});
-
-test("a calendar the connection may not see is not read, nor hinted at", async () => {
-  const store = fakeStore({
-    "private/calendar/2026/10/2026-10-23.md": day("2026-10-23", "Secret"),
-    "team/notes.md": "# Team\n",
-  });
-  const rules = [{ prefix: "team", vis: "team" }];
-  const out = text(await toolReadCalendar(store, "team", rules, new Map(), { date: "2026-10-23" }));
-  assert.ok(!out.includes("Secret") && !out.includes("private/"));
-  assert.match(out, /isn't connected/, "answered as if there were none, not 'not written yet'");
-});
-
-test("another workspace's calendar day is read with its @name", async () => {
-  const band = fakeStore({ "0-inbox/calendar/band-at-example-invalid/2026/10/2026-10-23.md": day("2026-10-23", "Gig") });
-  const home = fakeStore(
-    {},
-    {
-      contexts: [{ name: "@maya", current: true }, { name: "@band" }],
-      async openContext(name) {
-        assert.equal(name, "@band");
-        return { session: { scope: "private" }, store: band };
+/** A store whose only calendar is the live one; `answer` is what the control plane says. */
+function liveStore(answer, notes = {}) {
+  const asked = [];
+  return {
+    asked,
+    async list() {
+      return { objects: Object.keys(notes).map((key) => ({ key, size: 1, uploaded: new Date(0), etag: "e" })), truncated: false };
+    },
+    async get(key) {
+      throw new Error(`a note was read: ${key}`);
+    },
+    calendar: {
+      async days(request) {
+        asked.push(request);
+        return typeof answer === "function" ? answer(request) : answer;
       },
     },
-  );
-  const out = text(await toolReadCalendar(home, "private", [], new Map(), { date: "2026-10-23" }));
-  assert.ok(out.includes("@band/0-inbox/calendar/band-at-example-invalid/2026/10/2026-10-23.md"));
-  assert.ok(out.includes("Gig"));
+  };
+}
+
+const text = (result) => result.content.map((part) => part.text).join("\n");
+
+test("a day is asked of Google and its events come back, without front matter", async () => {
+  const store = liveStore({ ok: true, days: [{ address: "person@example.invalid", date: "2026-10-23", text: rendered("2026-10-23", "Dinner with Ada") }] });
+  const result = await toolReadCalendar(store, "private", [], new Map(), { date: "2026-10-23" });
+  assert.notEqual(result.isError, true);
+  assert.deepEqual(store.asked, [{ date: "2026-10-23", days: 1 }]);
+  const out = text(result);
+  assert.match(out, /## Friday 2026-10-23/);
+  assert.ok(out.includes("Dinner with Ada"));
+  assert.ok(!out.includes("trust:"), "front matter left off");
+  assert.match(out, /Read from Google Calendar just now/);
 });
 
-test("a bad date or day count is refused", async () => {
-  const store = fakeStore({});
+test("an old calendar note in the notes is never read", async () => {
+  const store = liveStore(
+    { ok: true, days: [{ address: "person@example.invalid", date: "2026-10-23", text: rendered("2026-10-23", "Live") }] },
+    { "0-inbox/calendar/person-at-example-invalid/2026/10/2026-10-23.md": "stale" },
+  );
+  const out = text(await toolReadCalendar(store, "private", [], new Map(), { date: "2026-10-23" }));
+  assert.ok(out.includes("Live") && !out.includes("stale"));
+});
+
+test("every calendar's day is shown, and a run of days reads each", async () => {
+  const store = liveStore({
+    ok: true,
+    days: [
+      { address: "work@example.invalid", date: "2026-10-23", text: rendered("2026-10-23", "Standup", "work@example.invalid") },
+      { address: "home@example.invalid", date: "2026-10-23", text: rendered("2026-10-23", "Dentist", "home@example.invalid") },
+      { address: "work@example.invalid", date: "2026-10-24", text: rendered("2026-10-24", "Brunch", "work@example.invalid") },
+    ],
+  });
+  const out = text(await toolReadCalendar(store, "private", [], new Map(), { date: "2026-10-23", days: 2 }));
+  assert.ok(out.includes("Standup") && out.includes("Dentist") && out.includes("Brunch"));
+  assert.ok(out.indexOf("Friday 2026-10-23") < out.indexOf("Saturday 2026-10-24"));
+  assert.ok(out.indexOf("home@example.invalid") < out.indexOf("work@example.invalid"), "calendars in a fixed order");
+});
+
+test("Google not answering is never an empty day", async () => {
+  for (const refused of ["unavailable", "rate_limited"]) {
+    const result = await toolReadCalendar(liveStore({ ok: false, refused }), "private", [], new Map(), { date: "2026-10-23" });
+    assert.equal(result.isError, true);
+    assert.match(text(result), /never that the day is empty/);
+  }
+  const thrown = await toolReadCalendar(liveStore(() => { throw new Error("socket"); }), "private", [], new Map(), { date: "2026-10-23" });
+  assert.match(text(thrown), /didn't answer just now/);
+});
+
+test("with no calendar connected, it says so and how to connect, never that it can't read it", async () => {
+  const out = text(await toolReadCalendar(liveStore({ ok: false, refused: "no_calendar" }), "private", [], new Map(), { date: "2026-10-23" }));
+  assert.match(out, /Google Calendar isn't connected/);
+  assert.match(out, /connect_google/);
+});
+
+test("a calendar Google didn't answer for is named, not shown empty, and a broken sign-in is named", async () => {
+  const store = liveStore({
+    ok: true,
+    days: [{ address: "home@example.invalid", date: "2026-10-23", text: rendered("2026-10-23", "Dentist", "home@example.invalid") }],
+    unanswered: ["work@example.invalid"],
+    reconnect: ["old@example.invalid"],
+  });
+  const out = text(await toolReadCalendar(store, "private", [], new Map(), { date: "2026-10-23" }));
+  assert.match(out, /didn't answer for work@example\.invalid/);
+  assert.match(out, /old@example\.invalid stopped working/);
+});
+
+test("a connection with no live calendar (a team grant) is refused", async () => {
+  const result = await toolReadCalendar({}, "team", [], new Map(), { date: "2026-10-23" });
+  assert.equal(result.isError, true);
+  assert.match(text(result), /only the owner of their personal workspace/);
+});
+
+test("a bad date or day count is refused before Google is asked", async () => {
+  const store = liveStore({ ok: true, days: [] });
   for (const args of [{}, { date: "friday" }, { date: "2026-02-30" }, { date: "2026-10-23", days: 0 }, { date: "2026-10-23", days: 15 }]) {
     assert.equal((await toolReadCalendar(store, "private", [], new Map(), args)).isError, true, JSON.stringify(args));
   }
+  assert.equal(store.asked.length, 0);
 });
 
 test('fetch "calendar:" is read_calendar with its date and days', () => {
@@ -168,4 +166,42 @@ test("an invite's words mark the turn as having read something from outside", ()
   const ledger = newLedger();
   recordRead(ledger, { name: "read_calendar", args: { date: "2026-10-23" }, result: { content: [{ type: "text", text: "## Friday" }] } });
   assert.equal(ledger.untrusted, true);
+});
+
+/* ------------------------------ the live read ----------------------------- */
+
+function google(items, timeZone = "America/New_York") {
+  const urls = [];
+  const fetchImpl = async (url) => {
+    urls.push(new URL(url));
+    return new Response(JSON.stringify({ items, timeZone }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  return { urls, fetchImpl };
+}
+
+test("the live read keeps the asked days on the calendar's own wall clock, and renders them fenced", async () => {
+  const { urls, fetchImpl } = google([
+    { id: "a", summary: "Late Thursday", start: { dateTime: "2026-10-22T23:30:00-04:00" }, end: { dateTime: "2026-10-22T23:45:00-04:00" } },
+    { id: "b", summary: "Friday dinner", start: { dateTime: "2026-10-23T19:00:00-04:00" }, end: { dateTime: "2026-10-23T21:00:00-04:00" } },
+    { id: "c", summary: "Gone", status: "cancelled", start: { dateTime: "2026-10-23T10:00:00-04:00" }, end: { dateTime: "2026-10-23T11:00:00-04:00" } },
+  ]);
+  const read = await readCalendarDays({ fetchImpl, accessToken: "tok", account: "a@example.invalid", from: "2026-10-23", days: 2, nonce: "live:x", now: "2026-10-21T12:00:00Z" });
+  assert.equal(read.timezone, "America/New_York");
+  assert.deepEqual(read.days.map((day) => [day.date, day.events]), [["2026-10-23", 1], ["2026-10-24", 0]]);
+  assert.ok(read.days[0].text.includes("Friday dinner"));
+  assert.ok(!read.days[0].text.includes("Late Thursday"), "Thursday 11:30 PM in New York is 03:30 UTC Friday, and stays Thursday");
+  assert.ok(!read.days[0].text.includes("Gone"));
+  assert.ok(read.days[0].text.includes("live:x:2026-10-23"), "fenced with the answer's nonce");
+  // Over-fetched a day either side, to learn the zone without losing an edge.
+  assert.equal(urls[0].searchParams.get("timeMin"), "2026-10-22T00:00:00.000Z");
+  assert.equal(urls[0].searchParams.get("timeMax"), "2026-10-26T00:00:00.000Z");
+  assert.equal(urls[0].searchParams.get("singleEvents"), "true");
+});
+
+test("the live read refuses a bad range before asking Google", async () => {
+  const { urls, fetchImpl } = google([]);
+  for (const [from, days] of [["nope", 1], ["2026-10-23", 0], ["2026-10-23", 15]]) {
+    await assert.rejects(readCalendarDays({ fetchImpl, accessToken: "t", account: "a", from, days, nonce: "n" }));
+  }
+  assert.equal(urls.length, 0);
 });
