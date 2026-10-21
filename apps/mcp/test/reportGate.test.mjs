@@ -20,6 +20,7 @@
  *     fails.
  */
 
+import { reportCopy } from "../src/tools/reportGate.js";
 import { ask, call, textOf, createEgressWorld, TOKEN_MCP, TOKEN_ROUTINE, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 
 const REPORT = { message: "Search found nothing for a note I know exists.", share_texts: true };
@@ -108,4 +109,13 @@ export async function runReportGateChecks(check) {
   } finally {
     world.restore();
   }
+
+  // The group chat of 2026-10-21: a model that had read an earlier copy wrote the line itself, and it was shown twice.
+  const copied = reportCopy("Bubbles leave the thread. None of our texts go with it.\n\nNone of our texts go with it.", false);
+  check(
+    "the line about texts is said once, however often the model copied it",
+    copied === "Bubbles leave the thread.\n\nNone of our texts go with it." &&
+      reportCopy("Bubbles leave the thread.", true).endsWith("so they can see what happened.") &&
+      !reportCopy("Bubbles. None of our texts go with it.", true).includes("None of our texts"),
+  );
 }

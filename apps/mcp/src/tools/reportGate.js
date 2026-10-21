@@ -34,12 +34,17 @@ export const TEXTED_REPORT_CAP = 2_000;
 /** The texts attached, in characters. Kept equal to `MAX_REPORT_TEXTS_CHARS` in the control plane. */
 export const MAX_REPORT_TEXTS_CHARS = 16_000;
 
+/** The line about texts, wherever a model copied it into the report. */
+const SHARE_LINES = /\s*(?:None of our texts go with it\.|Up to the last \d+ messages between us go with it, so they can see what happened\.)\s*/g;
+
 /** What the person reads before their YES: the report, and whether their texts go with it. */
 export function reportCopy(message, shareTexts) {
   const texts = shareTexts
     ? `Up to the last ${REPORT_TEXTS_TURNS} messages between us go with it, so they can see what happened.`
     : "None of our texts go with it.";
-  return `${message}\n\n${texts}`;
+  // A model that read an earlier copy writes the line in itself; it is said once (the group chat of 2026-10-21).
+  const said = message.replace(SHARE_LINES, "").trim();
+  return `${said}\n\n${texts}`;
 }
 
 /** The person's recent texts with Tex, as plain lines, or undefined when there are none. */
@@ -96,7 +101,8 @@ export async function reportGate(supplied, { store, session }) {
   return {
     ...toolError(
       "Held for their YES, and nothing failed: right after your answer they are texted this exact report and asked to say yes, and it sends then. " +
-        "Say in a line that you wrote it up, without repeating it or asking for their yes: the next text shows it and asks. Don't call this again in this turn.",
+        "Say in a line, as yourself (\"I\", never \"Context\"), that you wrote it up, without repeating it or asking for their yes: " +
+        "the next text shows it and asks. Don't call this again in this turn.",
     ),
     held: true,
   };

@@ -46,7 +46,7 @@ const RELEASE =
   String.raw`looks good|sounds good)`;
 const SEP = String.raw`[\s,.!-]+`;
 const RELEASED_YES = new RegExp(
-  String.raw`^\s*(?:(?:yes|yep|yeah|yup|ok|okay|sure|y)(?:${SEP}${RELEASE})+|(?:send it|send them|file it|send that|file that)(?:${SEP}${RELEASE})*)\s*[.!]*\s*$`,
+  String.raw`^\s*(?:(?:yes|yep|yeah|yup|ok|okay|sure|y)(?:${SEP}${RELEASE})+|(?:send it|send them|file it|send that|file that|send)(?:${SEP}${RELEASE})*)\s*[.!]*\s*$`,
   "i",
 );
 
