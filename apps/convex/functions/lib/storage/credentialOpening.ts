@@ -32,6 +32,7 @@ import type {
   SealedBinding,
 } from "./shapes";
 import { isServedProvider } from "./shapes";
+import type { ConnectorRekeyCandidates } from "./rekeyConnectorSecrets";
 import {
   REKEY_BATCH_SIZE,
   type GoogleConnectionRekeyCandidates,
@@ -293,6 +294,50 @@ export const rekeyStorageBindingsHandler = async (
     else platformSecretsSkipped += 1;
   }
 
+  // Connected apps' tokens (workspace-bound) and the client secrets their
+  // authorization servers issued us (platform-bound): two more tables.
+  const connectors: ConnectorRekeyCandidates = await ctx.runQuery(
+    internal.functions.storage.listConnectorRekeyCandidates,
+    { currentKeyId: keyset.current.id, limit },
+  );
+  let connectorSecretsRekeyed = 0;
+  let connectorSecretsSkipped = 0;
+  let connectorSecretsUnreadable = connectors.unreadable;
+  for (const candidate of connectors.connections) {
+    const context = { workspaceId: candidate.workspaceId as string };
+    let plaintext: string;
+    try {
+      plaintext = await decryptSecret(candidate.envelope, keyset, context);
+    } catch {
+      connectorSecretsUnreadable += 1;
+      continue;
+    }
+    const applied: boolean = await ctx.runMutation(internal.functions.storage.applyConnectionRekey, {
+      rowId: candidate.rowId,
+      field: candidate.field,
+      expectedEnvelope: candidate.envelope,
+      envelope: await encryptSecret(plaintext, keyset, context),
+    });
+    if (applied) connectorSecretsRekeyed += 1;
+    else connectorSecretsSkipped += 1;
+  }
+  for (const candidate of connectors.clients) {
+    let plaintext: string;
+    try {
+      plaintext = await decryptSecret(candidate.envelope, keyset, platformContext);
+    } catch {
+      connectorSecretsUnreadable += 1;
+      continue;
+    }
+    const applied: boolean = await ctx.runMutation(internal.functions.storage.applyOAuthClientRekey, {
+      rowId: candidate.rowId,
+      expectedEnvelope: candidate.envelope,
+      envelope: await encryptSecret(plaintext, keyset, platformContext),
+    });
+    if (applied) connectorSecretsRekeyed += 1;
+    else connectorSecretsSkipped += 1;
+  }
+
   const managedMigrations: ManagedMigrationRekeyCandidates =
     await ctx.runQuery(
       internal.functions.storage.listManagedMigrationRekeyCandidates,
@@ -341,5 +386,8 @@ export const rekeyStorageBindingsHandler = async (
     managedMigrationsRekeyed,
     managedMigrationsSkipped,
     managedMigrationsUnreadable,
+    connectorSecretsRekeyed,
+    connectorSecretsSkipped,
+    connectorSecretsUnreadable,
   };
 };
