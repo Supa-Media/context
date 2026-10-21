@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { trackEvent } from "../observability/client";
+import { useRef, useState } from "react";
 import { useAction } from "convex/react";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { api } from "@context/convex/_generated/api";
@@ -29,6 +30,7 @@ export function usePhoneSignIn(options: { onSignedIn: () => void; onUnavailable:
   const [sentTo, setSentTo] = useState<string | null>(null);
   const [code, setCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const engaged = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [resent, setResent] = useState(false);
   const [waitlist, setWaitlist] = useState<"joined" | "already" | null>(null);
@@ -38,6 +40,7 @@ export function usePhoneSignIn(options: { onSignedIn: () => void; onUnavailable:
   async function send(again = false) {
     setError(null);
     setSubmitting(true);
+    trackEvent("signup_submitted", { method: "phone", resend: again });
     try {
       const landing = landingPage();
       const campaign = adCampaign();
@@ -46,6 +49,8 @@ export function usePhoneSignIn(options: { onSignedIn: () => void; onUnavailable:
         ...(landing === undefined ? {} : { landing }),
         ...(campaign === undefined ? {} : { campaign }),
       })) as { status: StartStatus; phone?: string; conversionId?: string; receipt?: string };
+      const outcome = ["sent", "joined", "already", "unavailable", "invalid_phone", "too_many", "paused", "failed"].includes(result.status) ? result.status : "failed";
+      trackEvent("signup_result", { method: "phone", result: outcome, resend: again });
       setError(startError(result.status));
       setStartStatus(result.status);
       if (result.status === "sent" && result.phone !== undefined) {
@@ -67,6 +72,7 @@ export function usePhoneSignIn(options: { onSignedIn: () => void; onUnavailable:
         options.onUnavailable();
       }
     } catch {
+      trackEvent("signup_result", { method: "phone", result: "failed", resend: again });
       setError(startError("failed"));
       setStartStatus("failed");
     } finally {
@@ -78,15 +84,18 @@ export function usePhoneSignIn(options: { onSignedIn: () => void; onUnavailable:
     if (sentTo === null || value.length !== OTP_LENGTH) return;
     setError(null);
     setSubmitting(true);
+    trackEvent("signin_code_submitted", { method: "phone" });
     try {
       // A refused code answers "not signed in" rather than throwing.
       const result = await signIn(PHONE_VERIFY_PROVIDER, { phone: sentTo, code: value });
+      trackEvent("signin_code_result", { method: "phone", result: result.signingIn ? "success" : "failed" });
       if (result.signingIn) options.onSignedIn();
       else {
         setError(CODE_FAILED);
         setCode("");
       }
     } catch {
+      trackEvent("signin_code_result", { method: "phone", result: "failed" });
       setError(CODE_FAILED);
       setCode("");
     } finally {
@@ -106,6 +115,10 @@ export function usePhoneSignIn(options: { onSignedIn: () => void; onUnavailable:
   return {
     phone,
     setPhone: (value: string) => {
+      if (!engaged.current && value.trim() !== "") {
+        engaged.current = true;
+        trackEvent("signup_started", { method: "phone" });
+      }
       setPhone(value);
       setError(null);
     },

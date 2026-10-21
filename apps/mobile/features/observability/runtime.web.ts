@@ -67,9 +67,34 @@ function sanitizedCurrentUrl(defaultUrl: string): string {
   }
 }
 
+const AUTOCAPTURE_PROPERTIES = new Set([
+  "distinct_id", "$device_id", "$user_id", "$session_id", "$window_id", "$is_identified",
+  "$current_url", "$pathname", "$host", "$referrer", "$screen_name", "$event_type", "$ce_version",
+  "$lib", "$lib_version", "$browser", "$browser_version", "$os", "$os_version", "$device_type",
+  "$screen_height", "$screen_width", "$viewport_height", "$viewport_width",
+  "app_env", "app_product", "app_platform", "app_build",
+]);
+
+/** SDK person properties can nest the initial URL under $set_once. */
+function cleanVendorProperties(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(cleanVendorProperties);
+  if (value === null || typeof value !== "object") return value;
+  const clean: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (/^\$(?:title|initial_title|el_text|elements|elements_chain|external_click_url)$/.test(key)) continue;
+    if (/^\$(?:initial_)?(?:current_url|referrer|pathname)$/.test(key) && typeof item === "string") {
+      if (key.endsWith("referrer")) {
+        try { clean[key] = new URL(item).origin; } catch { /* No opaque referrer. */ }
+      } else clean[key] = sanitizedCurrentUrl(item);
+    } else clean[key] = cleanVendorProperties(item);
+  }
+  return clean;
+}
+
 export function cleanPostHogProperties(
   properties: Record<string, unknown>,
   projectKey: string,
+  eventName?: string,
 ): Record<string, unknown> {
   // rrweb's snapshot payload is already protected by the recorder-level text,
   // element-attribute and URL masks below. Walking/rebuilding it here would be
@@ -81,8 +106,36 @@ export function cleanPostHogProperties(
   // the event's copy: restore the public write-only project key from the
   // configuration closure after every ordinary property has been scrubbed.
   // Nested/user-supplied token fields still pass through the redactor.
-  const { $snapshot_data: snapshot, token: _transportToken, ...ordinary } = properties;
-  const clean = redactTelemetryValue(ordinary) as Record<string, unknown>;
+  const { $snapshot_data: snapshot, $heatmap_data: heatmap, token: _transportToken, ...ordinary } = properties;
+  const clean = cleanVendorProperties(redactTelemetryValue(ordinary)) as Record<string, unknown>;
+  // DOM text, classes and hrefs can hold note titles, phone numbers or capabilities.
+  // Named product events identify controls; heatmaps need only coordinates.
+  for (const key of Object.keys(clean)) {
+    // data-ph-capture-attribute-* bypasses SDK masks. Keep no arbitrary DOM properties.
+    if (eventName === "$autocapture" && !AUTOCAPTURE_PROPERTIES.has(key)) delete clean[key];
+  }
+  // The heatmap SDK keys its buffer by the RAW location.href, independently
+  // of get_current_url. Admit only the public homepage and strip its query.
+  if (heatmap && typeof heatmap === "object") {
+    const points: Record<string, unknown[]> = {};
+    for (const [address, value] of Object.entries(heatmap)) {
+      try {
+        const url = new URL(address);
+        if (url.pathname !== "/" || !Array.isArray(value)) continue;
+        const key = `${url.origin}/`;
+        points[key] = [...(points[key] ?? []), ...value.map((point) => {
+          const safe: Record<string, unknown> = {};
+          if (point && typeof point === "object") for (const [name, field] of Object.entries(point)) {
+            if (["x", "y", "target_width", "target_height", "viewport_width", "viewport_height"].includes(name) && typeof field === "number" && Number.isFinite(field)) safe[name] = field;
+            if (name === "target_fixed" && typeof field === "boolean") safe[name] = field;
+            if (name === "type" && ["click", "mousemove", "deadclick", "rageclick"].includes(String(field))) safe[name] = field;
+          }
+          return safe;
+        })];
+      } catch { /* An unknown URL never becomes a telemetry key. */ }
+    }
+    clean.$heatmap_data = points;
+  }
   return snapshot === undefined
     ? { ...clean, token: projectKey }
     : { ...clean, token: projectKey, $snapshot_data: snapshot };
@@ -105,19 +158,33 @@ export function postHogWebOptions({
   host,
   replaySampleRate,
   pageOrigin,
+  pagePath,
 }: {
   apiKey: string;
   host: string;
   replaySampleRate: number;
   /** Where the app is served from; `location.origin` in the browser. */
   pageOrigin?: string;
+  pagePath?: string;
 }) {
+  // Only the public homepage. The signed-in editor never gets DOM autocapture.
+  const marketing = pagePath === "/";
   return {
     api_host: ingestHost(host, pageOrigin),
     ui_host: uiHost(host),
-    autocapture: false,
+    autocapture: marketing ? {
+      dom_event_allowlist: ["click" as const],
+      css_selector_allowlist: ["[data-analytics-action]"],
+    } : false as const,
+    ip: false,
+    mask_all_text: true,
+    mask_all_element_attributes: true,
+    capture_heatmaps: marketing,
     capture_pageview: false,
-    capture_pageleave: false,
+    capture_pageleave: true,
+    save_campaign_params: false,
+    save_referrer: false,
+    enable_recording_console_log: false,
     disable_session_recording: false,
     person_profiles: "identified_only" as const,
     get_current_url: sanitizedCurrentUrl,
@@ -125,7 +192,7 @@ export function postHogWebOptions({
       if (event === null) return null;
       return {
         ...event,
-        properties: cleanPostHogProperties(event.properties, apiKey) as typeof event.properties,
+        properties: cleanPostHogProperties(event.properties, apiKey, event.event) as typeof event.properties,
       };
     },
     session_recording: {
@@ -163,16 +230,23 @@ export async function createAnalyticsClient({
   const { default: posthog } = await import("posthog-js");
   const client = posthog.init(
     apiKey,
-    postHogWebOptions({ apiKey, host, replaySampleRate, pageOrigin: location.origin }),
+    postHogWebOptions({ apiKey, host, replaySampleRate, pageOrigin: location.origin, pagePath: location.pathname }),
   );
 
   return {
     ready: async () => {},
     capture: (name, properties) => {
-      client.capture(name, properties);
+      client.capture(name, properties, {
+        send_instantly: ["signup_result", "signin_code_result", "tex_messages_opened", "landing_cta_clicked"].includes(name),
+      });
     },
     screen: (name) => {
+      const page = postHogWebOptions({ apiKey, host, replaySampleRate, pageOrigin: location.origin, pagePath: name });
+      client.set_config({ autocapture: page.autocapture, capture_heatmaps: page.capture_heatmaps });
       client.capture("$screen", { $screen_name: name });
+      // Expo Router owns navigation. One explicit pageview per screen also
+      // powers PostHog Web Analytics and pageleave/scroll-depth calculations.
+      client.capture("$pageview", { $screen_name: name });
     },
     register: (properties) => client.register(properties),
     identify: (userId) => client.identify(userId),

@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { trackEvent } from "../observability/client";
+import { useRef, useState } from "react";
 import { Platform } from "react-native";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useMutation } from "convex/react";
@@ -45,12 +46,14 @@ export function useEmailSignIn(options: { source: "homepage" | "login"; onSigned
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const engaged = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [resent, setResent] = useState(false);
   const [described, setDescribed] = useState(false);
 
   async function sendCode(normalized: string, again: boolean) {
     await signIn(signInProviderForEmail(normalized), { email: normalized });
+    trackEvent("signup_result", { method: "email", source: options.source, result: "sent", resend: again });
     setStep("verify");
     setResent(again);
     if (again) setCode("");
@@ -60,6 +63,7 @@ export function useEmailSignIn(options: { source: "homepage" | "login"; onSigned
     setError(null);
     setSubmitting(true);
     const normalized = normalizeSignInEmail(email);
+    trackEvent("signup_submitted", { method: "email", source: options.source, resend: false });
     try {
       if (signInProviderForEmail(normalized) !== "email") {
         await sendCode(normalized, false);
@@ -84,10 +88,12 @@ export function useEmailSignIn(options: { source: "homepage" | "login"; onSigned
           reportWaitlistSignUp(conversionId);
           reportMetaLead(conversionId);
         }
+        trackEvent("signup_result", { method: "email", source: options.source, result: status });
         setStep(status);
       }
     } catch (caught) {
       const code = caught instanceof ConvexError ? (caught.data as { code?: string } | undefined)?.code : undefined;
+      trackEvent("signup_result", { method: "email", source: options.source, result: code === "RATE_LIMITED" ? "limited" : "failed" });
       setError(code === "RATE_LIMITED" ? BUSY : SEND_FAILED);
     } finally {
       setSubmitting(false);
@@ -98,8 +104,10 @@ export function useEmailSignIn(options: { source: "homepage" | "login"; onSigned
     setError(null);
     setSubmitting(true);
     try {
+      trackEvent("signup_submitted", { method: "email", source: options.source, resend: true });
       await sendCode(normalizeSignInEmail(email), true);
     } catch {
+      trackEvent("signup_result", { method: "email", source: options.source, result: "failed", resend: true });
       setError(SEND_FAILED);
     } finally {
       setSubmitting(false);
@@ -107,13 +115,18 @@ export function useEmailSignIn(options: { source: "homepage" | "login"; onSigned
   }
 
   async function verify(value = code) {
+    if (value.trim().length !== OTP_LENGTH) return;
     setError(null);
     setSubmitting(true);
+    trackEvent("signin_code_submitted", { method: "email", source: options.source });
     try {
       const normalized = normalizeSignInEmail(email);
-      await signIn(signInProviderForEmail(normalized), { email: normalized, code: value.trim() });
-      options.onSignedIn();
+      const result = await signIn(signInProviderForEmail(normalized), { email: normalized, code: value.trim() });
+      trackEvent("signin_code_result", { method: "email", source: options.source, result: result.signingIn ? "success" : "failed" });
+      if (result.signingIn) options.onSignedIn();
+      else setError(CODE_FAILED);
     } catch {
+      trackEvent("signin_code_result", { method: "email", source: options.source, result: "failed" });
       setError(CODE_FAILED);
     } finally {
       setSubmitting(false);
@@ -144,6 +157,10 @@ export function useEmailSignIn(options: { source: "homepage" | "login"; onSigned
     step,
     email,
     setEmail: (value: string) => {
+      if (!engaged.current && value.trim() !== "") {
+        engaged.current = true;
+        trackEvent("signup_started", { method: "email" });
+      }
       setEmail(value);
       setError(null);
     },
