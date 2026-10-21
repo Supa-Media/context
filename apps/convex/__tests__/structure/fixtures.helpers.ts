@@ -250,6 +250,14 @@ export const DECRYPT_IMPORTERS: ReadonlySet<string> = new Set([
   // product on the grant, so this module adds exactly one new decrypt site,
   // not three.
   "functions/calendarConnect.ts",
+  // A CONNECTED APP'S TOKEN (the owner, 2026-10-21: the official Slack
+  // connector; `docs/decisions/connectors.md`). Not a Google grant and not a
+  // bucket key, so neither of those modules' decrypt paths fits: the token is
+  // sealed to the workspace at connect and opened by `callProvider` for one
+  // allow-listed API call through `/gateway/connect/call`, or by
+  // `revokeToken`, scheduled after a disconnect, a reconnect or a workspace's
+  // deletion. Both internal; no public function reaches either.
+  "functions/connections.ts",
 ]);
 
 /** An import of `decryptSecret`, in code rather than in prose. */

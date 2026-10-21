@@ -51,7 +51,7 @@ export function v2ToolDefinitions() {
         "Change where something lives or who sees it, in ways Context can undo: move, move_many, " +
         "move_folder, archive, visibility, folder_visibility, encrypt, review_proposal, suggest_destination, " +
         "website, share_link, revoke_link, vault_add, vault_share, vault_view, create_workspace, invite, layout, " +
-        "connect_google, dream_now. Ask the person before anything " +
+        "connect_google, connect, dream_now. Ask the person before anything " +
         "that lets more people see something. orient lists every action and its args.",
       inputSchema: {
         type: "object",
@@ -70,6 +70,7 @@ export function v2ToolDefinitions() {
       description:
         "Do something outside Context that cannot be taken back: api calls a site with a key saved in the " +
         "vault, which you never see; email sends one email as the person, and calendar adds, moves or cancels one event on their calendar, once they say yes to it. Ask the person first. " +
+        "slack calls the Slack connected with manage connect: reads run at once, a post waits for their yes to its words. " +
         "notify is the exception: it has Tex text the person themselves, only when they asked to be told or it cannot wait. orient lists every action and its args.",
       inputSchema: {
         type: "object",

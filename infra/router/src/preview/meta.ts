@@ -189,8 +189,29 @@ export function normalisePath(pathname: string): string {
  * is also what makes "this name exists" unobservable.
  */
 export function previewFor(pathname: string): PreviewMeta {
+  if (CONNECT_SLACK_LINK.test(normalisePath(pathname))) return CONNECT_SLACK_PREVIEW;
   return PREVIEW_ROUTES.get(normalisePath(pathname)) ?? GENERIC_PREVIEW;
 }
+
+/** The 1200x630 card a Slack connect link shows, bundled like `/og/card.png`. */
+export const CONNECT_SLACK_CARD_PATH = "/og/connect-slack.png";
+
+/**
+ * A link Tex texts so the person connects Slack (`/connect/slack/<token>`,
+ * `docs/decisions/connectors.md`). iMessage shows it as a card, the way
+ * Instinct's "Connect Slack to Instinct" is. One frozen card for every such
+ * link: the token is never read, so a live link, a spent one and a guess
+ * unfurl the same, and nothing about whose link it is reaches the card.
+ */
+const CONNECT_SLACK_LINK = /^\/connect\/slack\/[A-Za-z0-9_-]{16,128}$/;
+const CONNECT_SLACK_PREVIEW: PreviewMeta = Object.freeze({
+  title: "Connect Slack to Tex",
+  description: "Tap to approve in Slack. Tex can then read and post in Slack for you.",
+  canonical: `${ORIGIN}/`,
+  imageAlt: "The Slack logo and Tex.",
+  imageUrl: `${ORIGIN}${CONNECT_SLACK_CARD_PATH}`,
+  robots: "noindex, nofollow",
+});
 
 /**
  * Escape text for interpolation into an HTML attribute or text node.

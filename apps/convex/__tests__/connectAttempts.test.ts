@@ -22,10 +22,10 @@ describe("connectAttemptTables", () => {
     // matching the shape is a welcome, automatic addition to the sweep; this
     // assertion is what makes that addition visible as a diff to review
     // rather than a change nobody notices.
-    expect(connectAttemptTables()).toEqual(["googleConnectAttempts"]);
+    expect(connectAttemptTables()).toEqual(["googleConnectAttempts", "providerConnectAttempts"]);
     // The exported constant is the same computation, not a second one that
     // could drift from it.
-    expect(CONNECT_ATTEMPT_TABLES).toEqual(["googleConnectAttempts"]);
+    expect(CONNECT_ATTEMPT_TABLES).toEqual(["googleConnectAttempts", "providerConnectAttempts"]);
   });
 
   test("catches a table it was never told about — the derivation's own self-test", () => {
@@ -42,6 +42,7 @@ describe("connectAttemptTables", () => {
     };
     expect(connectAttemptTables(withThirdProvider)).toEqual([
       "googleConnectAttempts",
+      "providerConnectAttempts",
       "slackConnectAttempts",
     ]);
   });

@@ -40,6 +40,13 @@ import { unlistedArgumentAdvice } from "./liveList.js";
  */
 export const TOOL_NEWS = Object.freeze([
   {
+    date: "2026-10-21",
+    newTool: true,
+    text:
+      'manage has a new action, connect `{ app: "slack" }`: a link where the person connects Slack through its own approval screen. ' +
+      'send slack `{ method, args, team? }` then calls the Slack Web API through it; a post waits for their yes to its words.',
+  },
+  {
     date: "2026-10-20",
     text:
       'manage has a new action, invite `{ people: [{ who, role? }] }` with context set to a shared workspace the person owns: ' +
@@ -230,7 +237,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "ca9c51dc";
+export const TOOL_SHAPE = "5d964abe";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

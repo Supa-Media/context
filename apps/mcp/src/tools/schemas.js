@@ -22,6 +22,7 @@ import { vaultToolDefinitions } from "./schemas/vault.js";
 import { emailToolDefinitions } from "./schemas/email.js";
 import { calendarToolDefinitions } from "./schemas/calendarWrite.js";
 import { workspaceToolDefinitions } from "./schemas/workspaces.js";
+import { connectorToolDefinitions } from "./schemas/connectors.js";
 import { dreamToolDefinitions } from "./schemas/dreams.js";
 import { attentionToolDefinitions } from "./schemas/attention.js";
 import { v2ToolDefinitions } from "./v2/schemas.js";
@@ -42,6 +43,7 @@ export function baseToolDefinitions() {
     ...emailToolDefinitions(),
     ...calendarToolDefinitions(),
     ...workspaceToolDefinitions(),
+    ...connectorToolDefinitions(),
     ...dreamToolDefinitions(),
     ...attentionToolDefinitions(),
     ...v2ToolDefinitions(),

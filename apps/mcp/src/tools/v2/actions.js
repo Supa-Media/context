@@ -102,6 +102,7 @@ export const ACTIONS = {
       take: (call) => Object.fromEntries(["job", "path", "remove"].filter((key) => call.args?.[key] !== undefined).map((key) => [key, call.args[key]])),
     },
     connect_google: { tool: "connect_google", summary: "Get the link where the person connects Gmail or Calendar.", take: plain },
+    connect: { tool: "connect_app", summary: "Get the link where the person connects an app (Slack) through its own approval screen.", take: plain },
     dream_now: { tool: "dream_now", summary: "Start Tex's dream now: it rewrites tex/about-me.md (owner only).", take: plain },
   },
   send: {
@@ -123,6 +124,11 @@ export const ACTIONS = {
     notify: {
       tool: "notify_me",
       summary: "Have Tex text the person now: they asked to be told, or it is an emergency. Their settings may hold it.",
+      take: plain,
+    },
+    slack: {
+      tool: "slack_api",
+      summary: "Call one Slack Web API method through the connected Slack; a post waits for the person's yes to its words.",
       take: plain,
     },
     calendar: {

@@ -305,6 +305,9 @@ describe("no public function can reach a storage secret", () => {
         // token for one send and spends it on one request to Gmail; the token
         // is never returned. See its CREDENTIAL_HTTP_ROUTES entry.
         "http.gatewayPersonEmail",
+        // A CONNECTED APP. `/gateway/connect/call` opens the workspace's own
+        // token for one allow-listed call; see its CREDENTIAL_HTTP_ROUTES entry.
+        "http.gatewayConnectCall",
         // The same, saving a draft: `/gateway/email/draft`.
         "http.gatewayPersonEmailDraft",
         // THE PERSON'S OWN CALENDAR. `/gateway/calendar/event`, the same
@@ -414,6 +417,11 @@ describe("no public function can reach a storage secret", () => {
         // needs a function of its own: a Google connection is read-only from the
         // gateway's side and refreshes through the control plane instead, and the
         // function is reused for every product on the grant.
+        // A CONNECTED APP'S TOKEN, opened for one API call or to revoke it
+        // after a disconnect, a reconnect or a workspace's deletion. See the
+        // `functions/connections.ts` entry in `DECRYPT_IMPORTERS`.
+        "functions.connections.callProvider",
+        "functions.connections.revokeToken",
         "functions.googleConnect.exchangeAndBind",
         "functions.googleConnect.exchangeAndBindGoogle",
         "functions.googleConnect.mintGoogleAccessToken",

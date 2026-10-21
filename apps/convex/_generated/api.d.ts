@@ -180,6 +180,7 @@ import type * as functions_vaultSettings from "../functions/vaultSettings.js";
 import type * as functions_vaultPeople from "../functions/vaultPeople.js";
 import type * as functions_vaultNotify from "../functions/vaultNotify.js";
 import type * as functions_vaultMove from "../functions/vaultMove.js";
+import type * as functions_connections from "../functions/connections.js";
 import type * as functions_featureSwitches from "../functions/featureSwitches.js";
 import type * as functions_waitlist from "../functions/waitlist.js";
 import type * as functions_waitlistStatus from "../functions/waitlistStatus.js";
@@ -377,6 +378,7 @@ declare const fullApi: ApiFromModules<{
   "functions/vaultPeople": typeof functions_vaultPeople;
   "functions/vaultNotify": typeof functions_vaultNotify;
   "functions/vaultMove": typeof functions_vaultMove;
+  "functions/connections": typeof functions_connections;
   "functions/featureSwitches": typeof functions_featureSwitches;
   "functions/waitlist": typeof functions_waitlist;
   "functions/waitlistStatus": typeof functions_waitlistStatus;

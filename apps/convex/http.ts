@@ -90,6 +90,7 @@ import {
   stripeSignatureIsValid,
 } from "./functions/lib/stripe";
 import * as sessions from "./functions/lib/gatewayRoutes/sessions";
+import * as connections from "./functions/lib/gatewayRoutes/connections";
 import * as noteMail from "./functions/lib/gatewayRoutes/noteMail";
 import * as credentials from "./functions/lib/gatewayRoutes/credentials";
 import * as privacyRoute from "./functions/lib/gatewayRoutes/privacy";
@@ -843,6 +844,13 @@ http.route({ path: "/gateway/links/create", method: "POST", handler: gatewayLink
 export const gatewayVaultRequest = gatewayRoute(vault.gatewayVaultRequestHandler);
 
 http.route({ path: "/gateway/vault/request", method: "POST", handler: gatewayVaultRequest });
+
+// A connector: a link for the person to connect an app, and one call through it.
+export const gatewayConnectRequest = gatewayRoute(connections.gatewayConnectRequestHandler);
+export const gatewayConnectCall = gatewayRoute(connections.gatewayConnectCallHandler, 128_000);
+
+http.route({ path: "/gateway/connect/request", method: "POST", handler: gatewayConnectRequest });
+http.route({ path: "/gateway/connect/call", method: "POST", handler: gatewayConnectCall });
 
 // One email, as the token's person, after they said yes to its exact copy.
 export const gatewayPersonEmail = gatewayRoute(personEmail.gatewayPersonEmailHandler, 128_000);

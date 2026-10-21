@@ -760,3 +760,10 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A skill Tex read vouches for its addresses and its marked values (2026-10-11)](./texting-assistant/golden-tasks.md)
 - [A handoff that made no link says so, in the gateway's words (2026-10-11)](./texting-assistant/golden-tasks.md)
 - [The benchmark searches the real web (2026-10-11)](./texting-assistant/golden-tasks.md)
+
+## [Connectors](./connectors.md)
+
+- A connector is a token Tex calls the app's API with, and nothing is copied into notes (2026-10-21)
+- Who a connection acts as follows from the workspace's kind
+- A post waits for the person's yes; a read or a reaction does not
+- The Slack app

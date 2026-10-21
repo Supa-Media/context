@@ -7,6 +7,7 @@ import { createLinkMethods } from "./links.js";
 import { createFeedbackMethods } from "./feedback.js";
 import { createSiteMethods } from "./site.js";
 import { createVaultMethods } from "./vault.js";
+import { createConnectionMethods } from "./connections.js";
 import { createTreeMethods } from "./tree.js";
 import { createNoteIdMethods } from "./noteIds.js";
 import { createPrivacyMethods } from "./privacy.js";
@@ -40,6 +41,7 @@ export function createControlPlane(env, options = {}) {
     ...createFeedbackMethods({ post }),
     ...createSiteMethods({ post, required }),
     ...createVaultMethods({ post, required }),
+    ...createConnectionMethods({ post }),
     ...createTreeMethods({ post }),
     ...createNoteIdMethods({ post, required }),
     ...createPrivacyMethods({ post }),

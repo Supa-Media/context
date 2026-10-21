@@ -185,3 +185,27 @@ describe("a host that is not ours is still a customer's", () => {
     expect(assets).not.toHaveBeenCalled();
   });
 });
+
+describe("a Slack connect link", () => {
+  const png = readFileSync(fileURLToPath(new URL("./og-connect-slack.png", import.meta.url)));
+  const IMESSAGE = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_1) AppleWebKit/601.2.4 (KHTML, like Gecko) Version/9.0.1 Safari/601.2.4 facebookexternalhit/1.1 Facebot Twitterbot/1.0";
+
+  it("unfurls as one frozen card, whatever the token", async () => {
+    const live = await (await get("https://context.lc/connect/slack/abcdefghijklmnopqrstuvwx", IMESSAGE)).text();
+    const guessed = await (await get("https://context.lc/connect/slack/zzzzzzzzzzzzzzzzzzzzzzzz", IMESSAGE)).text();
+    expect(live).toContain('<meta property="og:title" content="Connect Slack to Tex">');
+    expect(live).toContain('<meta property="og:image" content="https://context.lc/og/connect-slack.png">');
+    expect(live).not.toContain("abcdefghijklmnopqrstuvwx");
+    expect(guessed).toBe(live);
+  });
+
+  it("serves its card as the bundled 1200x630 PNG", async () => {
+    const response = await get("https://context.lc/og/connect-slack.png", IMESSAGE);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toBe("image/png");
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    expect(bytes).toEqual(new Uint8Array(png));
+    const view = new DataView(bytes.buffer);
+    expect([view.getUint32(16), view.getUint32(20)]).toEqual([1200, 630]);
+  });
+});
