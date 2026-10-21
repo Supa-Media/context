@@ -38,7 +38,7 @@ export function UsageView({ usage, days, onRefresh }: { usage: UsageAnalytics | 
             <View style={styles.envVars}>
               <Text variant="mono">POSTHOG_PERSONAL_API_KEY</Text>
               <Text variant="mono">POSTHOG_PROJECT_ID</Text>
-              {onRefresh ? <Button label="Retry connection" variant="ghost" onPress={onRefresh} testID="admin-usage-retry" /> : null}
+              {onRefresh ? <Button label="Retry connection" variant="mini" onPress={onRefresh} testID="admin-usage-retry" /> : null}
             </View>
           }
         />
@@ -51,7 +51,7 @@ export function UsageView({ usage, days, onRefresh }: { usage: UsageAnalytics | 
         <NoticeLine mark="!" tone="warn">
           PostHog didn't answer: {usage.error}
         </NoticeLine>
-        {onRefresh ? <Button label="Try again" variant="ghost" onPress={onRefresh} testID="admin-usage-retry" /> : null}
+        {onRefresh ? <Button label="Try again" variant="mini" onPress={onRefresh} testID="admin-usage-retry" /> : null}
       </Card>
     );
   }
@@ -59,7 +59,7 @@ export function UsageView({ usage, days, onRefresh }: { usage: UsageAnalytics | 
   const meta = (count: number) => (count >= 10 ? `top 10 · last ${days} days` : `last ${days} days`);
   return (
     <View style={styles.section} testID="admin-usage">
-      {onRefresh ? <Button label="Refresh metrics" variant="ghost" onPress={onRefresh} testID="admin-usage-refresh" /> : null}
+      {onRefresh ? <Button label="Refresh metrics" variant="mini" onPress={onRefresh} testID="admin-usage-refresh" /> : null}
       <TwoUp>
         {usage.sites.map((site) => (
           <SiteCard key={site.host} site={site} days={days} />
