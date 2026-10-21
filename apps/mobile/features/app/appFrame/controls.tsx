@@ -4,6 +4,7 @@ import { Icon, type IconName } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
 import { useColors, useThemedStyles } from "../../design/theme";
 import { makeStyles } from "./styles";
+import { trackButton } from "../../observability/client";
 
 /* -------------------------------------------------------------------------- */
 /*                                   pieces                                   */
@@ -39,7 +40,10 @@ export function SearchTrigger({ onPress }: { onPress: () => void }) {
   const [hovered, setHovered] = useState(false);
   return (
     <Pressable
-      onPress={onPress}
+      onPress={() => {
+        trackButton("search_open");
+        onPress();
+      }}
       onHoverIn={() => setHovered(true)}
       onHoverOut={() => setHovered(false)}
       role="button"

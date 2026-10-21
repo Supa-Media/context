@@ -29,6 +29,16 @@ export function postHogNativeOptions({ host }: { host: string }) {
   };
 }
 
+/**
+ * `production`, `staging` or `development`, sent with every event so the one
+ * PostHog project the three share can be told apart (`runtime.web.ts` for
+ * the web's). A native build knows which site it was built against.
+ */
+export function analyticsEnvironment(): string {
+  if (__DEV__) return "development";
+  return (process.env.EXPO_PUBLIC_SITE_ORIGIN ?? "").includes("staging") ? "staging" : "production";
+}
+
 export async function createAnalyticsClient({
   apiKey,
   host,
@@ -53,6 +63,7 @@ export async function createAnalyticsClient({
     screen: (name) => {
       void client.screen(name);
     },
+    register: (properties) => void client.register(properties),
     identify: (userId) => client.identify(userId),
     reset: () => client.reset(),
     getSessionId: () => client.getSessionId(),

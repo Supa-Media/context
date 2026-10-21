@@ -7,6 +7,8 @@ import { Icon } from "../design/components/Icon";
 import { Menu } from "../design/components/Menu";
 import { radii } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors, type Shadows } from "../design/theme";
+import type { UsageButton } from "@context/shared";
+import { trackButton } from "../observability/client";
 
 /**
  * The + in the corner of the console, and the three things it makes.
@@ -141,6 +143,8 @@ export function CreateButton({
     (id: string) => {
       setOpen(false);
       setAnchor(undefined);
+      const button = CREATE_BUTTONS[id];
+      if (button !== undefined) trackButton(button);
       if (id === "resume-meeting") resume?.onResume();
       if (id === "new-meeting") onNewMeeting();
       if (id === "new-note") onNewNote();
@@ -208,6 +212,14 @@ export function CreateButton({
     </View>
   );
 }
+
+/** The menu's rows the Usage tab counts, by its fixed names. */
+const CREATE_BUTTONS: Partial<Record<string, UsageButton>> = {
+  "new-meeting": "new_meeting",
+  "new-note": "new_note",
+  "new-drawing": "new_drawing",
+  "new-folder": "new_folder",
+};
 
 /** Air between the button and the menu it opens. `layout.floatingInset`'s. */
 const GAP = 12;

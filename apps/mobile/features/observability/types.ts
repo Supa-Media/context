@@ -5,6 +5,8 @@ export interface AnalyticsClient {
   ready(): Promise<void>;
   capture(name: string, properties?: TelemetryProperties): void;
   screen(name: string): void;
+  /** Properties sent with every event from here on. */
+  register(properties: TelemetryProperties): void;
   identify(userId: string): void;
   reset(): void;
   getSessionId(): string;

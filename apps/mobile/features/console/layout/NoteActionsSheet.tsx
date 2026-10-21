@@ -9,6 +9,7 @@ import type { FileEntry } from "../files/types";
 import type { ConsoleData } from "../types";
 import { noteActionItems, type NoteActionId } from "./noteActions";
 import { askAddProperty } from "../files/noteEditor/chips/addPropertyAsk";
+import { trackButton } from "../../observability/client";
 
 /**
  * The ••• sheet over the open note — see `noteActions.ts` for which rows and
@@ -80,6 +81,7 @@ export function runNoteAction(
   const files = data.files;
   const visitor = data.visitor;
   if (id === "copyLink") {
+    trackButton("copy_link");
     if (visitor !== undefined) return visitor.share(entry.path);
     /*
       The share sheet's own Copy link: the team link, which grants nothing —

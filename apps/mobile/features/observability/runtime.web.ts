@@ -12,6 +12,52 @@ export function hasPostHogReplayRuntime(): boolean {
   return false;
 }
 
+/**
+ * The app's own hosts, where the router forwards `/ingest` to PostHog
+ * (`infra/router/src/analyticsIngest.ts`). Exact names, like the router's.
+ */
+const FIRST_PARTY_HOSTS: ReadonlySet<string> = new Set([
+  "context.lc",
+  "tex.lc",
+  "staging.context.lc",
+  "tex-staging.context.lc",
+]);
+
+/** The hosts whose traffic is production, as the Usage tab counts it. */
+const PRODUCTION_HOSTS: ReadonlySet<string> = new Set(["context.lc", "tex.lc"]);
+
+/**
+ * Where events are sent: the page's own origin under `/ingest` on our hosts,
+ * so a blocker that drops requests to PostHog's address does not drop them,
+ * and the configured host anywhere else (a local build, a self-hosted one).
+ */
+export function ingestHost(configured: string, pageOrigin?: string): string {
+  if (pageOrigin === undefined) return configured;
+  try {
+    const url = new URL(pageOrigin);
+    return url.protocol === "https:" && FIRST_PARTY_HOSTS.has(url.hostname) ? `${url.origin}/ingest` : configured;
+  } catch {
+    return configured;
+  }
+}
+
+/** PostHog's own app, for links its SDK draws: `us.i.posthog.com` is `us.posthog.com`. */
+function uiHost(configured: string): string | undefined {
+  const match = /^https:\/\/(us|eu)\.i\.posthog\.com\/?$/.exec(configured);
+  return match ? `https://${match[1]}.posthog.com` : undefined;
+}
+
+/**
+ * `production`, `staging` or `development`, sent with every event so the one
+ * PostHog project the three share can be told apart. On the web the hostname
+ * decides, which is the one thing a staging build cannot claim by accident.
+ */
+export function analyticsEnvironment(hostname?: string): string {
+  const host = hostname ?? (typeof location === "undefined" ? "" : location.hostname);
+  if (PRODUCTION_HOSTS.has(host)) return "production";
+  return FIRST_PARTY_HOSTS.has(host) ? "staging" : "development";
+}
+
 function sanitizedCurrentUrl(defaultUrl: string): string {
   try {
     const url = new URL(defaultUrl);
@@ -58,13 +104,17 @@ export function postHogWebOptions({
   apiKey,
   host,
   replaySampleRate,
+  pageOrigin,
 }: {
   apiKey: string;
   host: string;
   replaySampleRate: number;
+  /** Where the app is served from; `location.origin` in the browser. */
+  pageOrigin?: string;
 }) {
   return {
-    api_host: host,
+    api_host: ingestHost(host, pageOrigin),
+    ui_host: uiHost(host),
     autocapture: false,
     capture_pageview: false,
     capture_pageleave: false,
@@ -113,7 +163,7 @@ export async function createAnalyticsClient({
   const { default: posthog } = await import("posthog-js");
   const client = posthog.init(
     apiKey,
-    postHogWebOptions({ apiKey, host, replaySampleRate }),
+    postHogWebOptions({ apiKey, host, replaySampleRate, pageOrigin: location.origin }),
   );
 
   return {
@@ -124,6 +174,7 @@ export async function createAnalyticsClient({
     screen: (name) => {
       client.capture("$screen", { $screen_name: name });
     },
+    register: (properties) => client.register(properties),
     identify: (userId) => client.identify(userId),
     reset: () => client.reset(),
     getSessionId: () => client.get_session_id(),

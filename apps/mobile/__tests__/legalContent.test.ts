@@ -4,7 +4,7 @@ import { privacyContent, supportContent, termsContent } from "../features/legal/
 
 describe("the privacy policy describes connected AI assistants", () => {
   test("names their access, workspace boundary, third-party terms, and training", () => {
-    expect(privacyContent.updated).toBe("October 15, 2026");
+    expect(privacyContent.updated).toBe("October 21, 2026");
     expect(privacyContent.intro).toContain(
       "what an AI assistant you connect can see and do",
     );
@@ -33,6 +33,9 @@ describe("the privacy policy describes early-beta diagnostics", () => {
     expect(text).toContain("never include your notes, their titles, your folder names, your links");
     expect(text).toContain("Feedback");
     expect(text).toContain("only the attachments you left ticked");
+    // The Usage tab's two additions, said in the policy before they are sent.
+    expect(text).toContain("which of the app's buttons are pressed (by a fixed name, never their words)");
+    expect(text).toContain("how long the app is in use");
   });
 });
 

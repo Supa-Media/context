@@ -32,6 +32,8 @@ import type { FileBrowser } from "./browser";
 import type { MenuActionId, MenuTarget } from "./menu";
 import { parentPath, restoreTargetFor } from "./paths";
 import type { Visibility } from "./types";
+import type { UsageButton } from "@context/shared";
+import { trackButton } from "../../observability/client";
 
 /**
  * A question the console has raised and is waiting on an answer to.
@@ -199,6 +201,25 @@ function runSelectionAction(
   }
 }
 
+/** The menu's verbs the Usage tab counts, by their fixed names. */
+const MENU_BUTTONS: Partial<Record<MenuActionId, UsageButton>> = {
+  newNote: "new_note",
+  newDrawing: "new_drawing",
+  newFolder: "new_folder",
+  rename: "rename",
+  moveTo: "move",
+  duplicate: "duplicate",
+  download: "download",
+  share: "share_note",
+  pin: "pin",
+  archive: "archive",
+  restore: "restore",
+  delete: "delete",
+  visibilityPrivate: "change_visibility",
+  visibilityTeam: "change_visibility",
+  visibilityFollow: "change_visibility",
+};
+
 /**
  * Run one menu item.
  *
@@ -213,6 +234,8 @@ export function runMenuAction(
   target: MenuTarget,
   context: ActionContext,
 ): void {
+  const button = MENU_BUTTONS[id];
+  if (button !== undefined) trackButton(button);
   if (target.kind === "selection" && target.rows.length > 1) {
     runSelectionAction(
       id,
