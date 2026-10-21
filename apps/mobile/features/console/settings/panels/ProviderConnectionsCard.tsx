@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { StyleSheet, View } from "react-native";
-import { useConvexAuth, useMutation, useQuery } from "convex/react";
+import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { Button } from "../../../design/components/Button";
@@ -9,29 +10,26 @@ import { Pill } from "../../../design/components/Pill";
 import { Text } from "../../../design/components/Text";
 import { space } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
-import { failureMessage } from "../../../connect/connectFlow";
+import { browserCompletionStore, failureMessage, rememberCompletionSecret } from "../../../connect/connectFlow";
+import { leaveForConsent } from "../../../connect/leaveForConsent";
 import { useArming } from "../../useArming";
 
-type ConnectionRow = {
-  id: Id<"providerConnections">;
-  provider: string;
-  providerName: string;
-  teamName: string;
-  reconnectRequired: boolean;
-  canDisconnect: boolean;
-};
+type AppRow = FunctionReturnType<typeof api.functions.connectionSettings.myApps>[number];
 
 /**
- * "Apps Tex uses" (`docs/decisions/connectors.md`): the apps this personal
- * workspace is connected to, each as one person. Draws nothing when there are
- * none, and nothing while the list is loading, so an empty workspace shows no
- * row at all. The token never reaches this list; the server sends names only.
+ * "Apps Tex uses" (`docs/decisions/connectors.md`): every app Tex reaches
+ * through its own connection, and where this person stands in each. Connect
+ * mints the same one-use link Tex would text and goes straight on to the
+ * app's consent screen, so connecting needs no text. It avoids `expo-router`
+ * on purpose: this card mounts in render suites that mock no router.
+ * Draws nothing while loading, or for a workspace that connects nothing (a
+ * shared one, or one they don't own). The token never reaches this list.
  */
 export function ProviderConnectionsCard({ workspaceId }: { workspaceId: string }) {
   const styles = useThemedStyles(makeStyles);
   const { isAuthenticated } = useConvexAuth();
   const rows = useQuery(
-    api.functions.connections.listConnections,
+    api.functions.connectionSettings.myApps,
     isAuthenticated ? { workspaceId: workspaceId as Id<"workspaces"> } : "skip",
   );
   if (rows === undefined || rows.length === 0) return null;
@@ -45,48 +43,79 @@ export function ProviderConnectionsCard({ workspaceId }: { workspaceId: string }
       </Text>
       <Card>
         {rows.map((row, index) => (
-          <ProviderConnectionLine key={row.id} row={row} divided={index > 0} />
+          <AppLine key={row.app} row={row} workspaceId={workspaceId} divided={index > 0} />
         ))}
       </Card>
     </View>
   );
 }
 
-function ProviderConnectionLine({ row, divided }: { row: ConnectionRow; divided: boolean }) {
+function AppLine({ row, workspaceId, divided }: { row: AppRow; workspaceId: string; divided: boolean }) {
   const styles = useThemedStyles(makeStyles);
+  const mint = useAction(api.functions.connectionSettings.startAppConnect);
+  const start = useAction(api.functions.connections.startProviderConnect);
   const disconnect = useMutation(api.functions.connections.disconnectConnection);
   const [failure, setFailure] = useState<string | null>(null);
+  const [opening, setOpening] = useState(false);
   const arming = useArming(async () => {
+    if (row.connectionId === undefined) return;
     setFailure(null);
     try {
-      await disconnect({ connectionId: row.id });
+      await disconnect({ connectionId: row.connectionId });
     } catch (error) {
       setFailure(failureMessage(error));
     }
   });
-  const label =
-    arming.stage === "armed" ? "Confirm" : arming.stage === "working" ? "Disconnecting…" : "Disconnect";
+  const connect = async () => {
+    setFailure(null);
+    setOpening(true);
+    try {
+      // The same steps as the link Tex texts, without the stop on its page: this is already the person, signed in, pressing Connect.
+      const { token } = await mint({ workspaceId: workspaceId as Id<"workspaces">, provider: row.app });
+      const { authorizeUrl, completionSecret } = await start({ token });
+      if (!rememberCompletionSecret(row.app, completionSecret, browserCompletionStore())) {
+        setFailure("This browser could not keep the connection secret. Try again.");
+        return;
+      }
+      leaveForConsent(authorizeUrl);
+    } catch (error) {
+      setFailure(failureMessage(error));
+    } finally {
+      setOpening(false);
+    }
+  };
+  const connected = row.state === "connected" || row.state === "reconnect";
 
   return (
-    <Row divided={divided} testID={`provider-connection-${row.provider}`}>
+    <Row divided={divided} testID={`provider-connection-${row.app}`}>
       <Grow>
-        <Text variant="rowTitle">{row.providerName}</Text>
-        <Text variant="rowSub">{row.teamName}</Text>
+        <Text variant="rowTitle">{row.name}</Text>
+        <Text variant="rowSub">{connected && row.account ? row.account : row.about}</Text>
         {failure === null ? null : (
           <Text variant="rowSub" role="status" style={styles.failure}>
             {failure}
           </Text>
         )}
       </Grow>
-      {row.reconnectRequired ? <Pill tone="warn">Reconnect needed</Pill> : null}
-      {row.canDisconnect ? (
+      {row.state === "reconnect" ? <Pill tone="warn">Reconnect needed</Pill> : null}
+      {row.state === "connected" ? <Pill tone="ok">Connected</Pill> : null}
+      {row.state === "not_connected" || row.state === "reconnect" ? (
         <Button
-          label={label}
+          label={opening ? "Opening…" : row.state === "reconnect" ? "Reconnect" : "Connect"}
+          disabled={opening}
+          accessibilityLabel={`${row.state === "reconnect" ? "Reconnect" : "Connect"} ${row.name}`}
+          onPress={() => void connect()}
+          testID={`provider-connection-connect-${row.app}`}
+        />
+      ) : null}
+      {connected && row.connectionId !== undefined ? (
+        <Button
+          label={arming.stage === "armed" ? "Confirm" : arming.stage === "working" ? "Disconnecting…" : "Disconnect"}
           variant="danger"
           disabled={arming.stage === "working"}
-          accessibilityLabel={`Disconnect ${row.providerName} for ${row.teamName}`}
+          accessibilityLabel={`Disconnect ${row.name}`}
           onPress={arming.press}
-          testID={`provider-connection-disconnect-${row.provider}`}
+          testID={`provider-connection-disconnect-${row.app}`}
         />
       ) : null}
     </Row>

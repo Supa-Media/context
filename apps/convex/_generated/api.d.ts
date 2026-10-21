@@ -183,6 +183,7 @@ import type * as functions_vaultMove from "../functions/vaultMove.js";
 import type * as functions_connectionApps from "../functions/connectionApps.js";
 import type * as functions_connectionClients from "../functions/connectionClients.js";
 import type * as functions_connectionConsent from "../functions/connectionConsent.js";
+import type * as functions_connectionSettings from "../functions/connectionSettings.js";
 import type * as functions_connections from "../functions/connections.js";
 import type * as functions_featureSwitches from "../functions/featureSwitches.js";
 import type * as functions_waitlist from "../functions/waitlist.js";
@@ -384,6 +385,7 @@ declare const fullApi: ApiFromModules<{
   "functions/connectionApps": typeof functions_connectionApps;
   "functions/connectionClients": typeof functions_connectionClients;
   "functions/connectionConsent": typeof functions_connectionConsent;
+  "functions/connectionSettings": typeof functions_connectionSettings;
   "functions/connections": typeof functions_connections;
   "functions/featureSwitches": typeof functions_featureSwitches;
   "functions/waitlist": typeof functions_waitlist;

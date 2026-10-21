@@ -120,6 +120,19 @@ it reaches natively and which it still signs in to with its browser.
 - **Tex reads the catalog before reaching for a browser.** `fetch apps:` lists
   every app this deployment connects and the person's state in each; anything
   not listed is a browser job. A group chat sees every app as unavailable.
+- **An app's answer marks the turn untrusted, a change's included.**
+  `app_read`, `app_change` and `slack_api` are in `UNTRUSTED_READS`, and a
+  write's answer is recorded when its tool is one of them, so a planted issue
+  or message steers nothing the way an email cannot. Test:
+  `apps/mcp/test/egress.test.mjs`.
+- **Settings lists every app, not only connected ones (2026-10-21).** Dev2:
+  "no way to connect through context and see what I have / manage the
+  connections?" Settings › Apps Tex uses reads the same catalog Tex does
+  (`lib/connections/catalog.ts`) and its Connect button mints the same
+  one-use link (`connectionSettings.startAppConnect`), so it can only connect
+  the presser's own personal workspace and there is one consent flow, not
+  two. Tests: `apps/convex/__tests__/connections/settingsApps.test.ts`,
+  `apps/mobile/__tests__/providerConnectionsCard.test.ts`.
 
 Outlook stays on its own Microsoft Graph connector, waiting on a Microsoft
 Entra app (Dev2 has no Microsoft directory yet).
