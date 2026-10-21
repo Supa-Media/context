@@ -20,7 +20,7 @@ import { usePhoneSignIn } from "../auth/usePhoneSignIn";
 import { ThemeProvider } from "../design/theme";
 
 /**
- * Page a's sign-up (`TexPage.web`): a labelled phone field and a button that
+ * The landing sign-up (`NotesPage.web`, styled by `signUpCss.ts`): a labelled phone field and a button that
  * says what it does (Dev, 2026-10-18: "signing up for the waitlist the button
  * to click enter isn't clear", replacing the bare › of 2026-10-12). +1 is
  * already there with a drop-down for other countries. The rules are the
