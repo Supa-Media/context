@@ -11,6 +11,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFrame } from "./AppFrame";
 import { surfacePadding, type ChromeHeights, type SurfacePadding } from "./frame";
 
+// The Back every screen outside the console uses, beside the screen it sits on.
+export { backOrConsole } from "./backOr";
+
 /**
  * The one way a screen clears the system's furniture.
  *

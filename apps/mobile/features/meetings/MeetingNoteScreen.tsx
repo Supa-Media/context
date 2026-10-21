@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
-import { ScreenScroll } from "../app/Screen";
+import { backOrConsole, ScreenScroll } from "../app/Screen";
 import { fonts, layout, leading, pointerType as t, radii, tracking } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { Icon } from "../design/components/Icon";
@@ -189,7 +189,7 @@ export function MeetingNoteScreen({ meetingId }: { meetingId: string }) {
       <ScreenScroll contentContainerStyle={styles.content} testID="meeting-note">
         <View style={styles.topBar}>
           <Pressable
-            onPress={() => router.back()}
+            onPress={() => backOrConsole(router)}
             accessibilityRole="button"
             accessibilityLabel="Back to meetings"
             style={({ pressed }) => [styles.round, pressed && styles.roundPressed]}

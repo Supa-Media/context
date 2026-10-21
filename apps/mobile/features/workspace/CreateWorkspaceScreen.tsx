@@ -21,6 +21,7 @@ import { WorkspaceLayoutStep } from "./steps/WorkspaceLayoutStep";
 import { WorkspaceImageStep } from "./steps/WorkspaceImageStep";
 import { WorkspacePeopleStep } from "./steps/WorkspacePeopleStep";
 import { WorkspaceDoneStep } from "./steps/WorkspaceDoneStep";
+import { backOrConsole } from "../app/backOr";
 
 /**
  * `/workspace/new` — making a context that is not about one person.
@@ -56,7 +57,7 @@ export function CreateWorkspaceScreen() {
           const slug = controller.created?.slug;
           router.replace(slug === undefined ? "/console" : browseHref(slug));
         }}
-        onCancel={() => router.back()}
+        onCancel={() => backOrConsole(router)}
       />
     </CreateWorkspaceChrome>
   );

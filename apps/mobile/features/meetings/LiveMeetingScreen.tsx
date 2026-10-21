@@ -2,7 +2,7 @@ import { useCallback, useMemo } from "react";
 import { Platform, Pressable, StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Screen } from "../app/Screen";
+import { backOrConsole, Screen } from "../app/Screen";
 import { floatingGapFor } from "../app/frame";
 import { KeyboardSticky, dismissKeyboard, useKeyboardHeight } from "../design/keyboardSticky";
 import { fonts, layout, leading, pointerType as t, radii, tracking } from "../design/tokens";
@@ -185,7 +185,7 @@ export function LiveMeetingScreen({ meetingId, onClose }: { meetingId: string; o
     <Screen style={styles.screen} chrome={{ bottom: keyboard }} testID="live-meeting">
       <View style={styles.topBar}>
         <Pressable
-          onPress={onClose ?? (() => router.back())}
+          onPress={onClose ?? (() => backOrConsole(router))}
           accessibilityRole="button"
           accessibilityLabel="Back to meetings"
           style={({ pressed }) => [styles.round, pressed && styles.roundPressed]}

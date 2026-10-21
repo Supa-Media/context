@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { WELCOME_ROUTE } from "../../onboarding/route";
 import { useApprovals } from "../../approvals/useApprovals";
 import { useCarriesMeeting } from "../../meetings/carried";
@@ -6,6 +6,7 @@ import { RESUME_RECENT_WINDOW_MS, resumeRowFor } from "../../meetings/resume";
 import { useMeetingFlow } from "../../meetings/useMeetingFlow";
 import { useMeetingsSnapshot, useTick } from "../../meetings/useMeetings";
 import { useResumeMeeting } from "../../meetings/useResumeMeeting";
+import { meetingsAskAction, type MeetingsPanelAsk } from "../../meetings/route";
 import type { VoiceHost } from "../../voice/VoiceHost";
 import { canCreateAnything } from "../files/createSheet";
 import type { entryAt } from "../files/tree";
@@ -31,6 +32,7 @@ export function useConsoleAside({
   insideContext,
   current,
   selectedEntry,
+  meetingsAsked = null,
 }: {
   data: ConsoleData;
   router: ConsoleRouter;
@@ -38,6 +40,8 @@ export function useConsoleAside({
   insideContext: boolean;
   current: ConsoleContext | null;
   selectedEntry: ReturnType<typeof entryAt> | null;
+  /** `?meetings=` is on the address: `/meetings`, on a layout with a panel. */
+  meetingsAsked?: MeetingsPanelAsk;
 }) {
   /**
    * When something last asked for the panel's Meetings tab.
@@ -125,6 +129,36 @@ export function useConsoleAside({
   const [openAsideAt, setOpenAsideAt] = useState<number | null>(null);
 
   const meetingsSnapshot = useMeetingsSnapshot();
+
+  /*
+    `/meetings` on a layout with a panel lands here with `?meetings=`. Open the
+    panel on Meetings once — or, for the widget's Record, start a meeting,
+    which opens it — then take the parameter off the address, so a reload or a
+    trip back through history cannot reopen a panel somebody has since closed
+    or record twice. `?quickAction=note` is consumed the same way. A recording
+    waits for the controller, as the list's did: a cold start from the widget
+    asks before it is configured.
+  */
+  const handledMeetingsAsk = useRef(false);
+  useEffect(() => {
+    if (meetingsAsked === null) {
+      handledMeetingsAsk.current = false;
+      return;
+    }
+    if (handledMeetingsAsk.current) return;
+    const action = meetingsAskAction({
+      ask: meetingsAsked,
+      hasAside,
+      canRecord: startMeeting !== null,
+      ready: meetingsSnapshot.status === "ready",
+      live: meetingsSnapshot.live !== null,
+    });
+    if (action === "wait") return;
+    handledMeetingsAsk.current = true;
+    router.setParams({ meetings: undefined });
+    if (action === "record") startMeeting?.();
+    else if (action === "open") showMeetings();
+  }, [meetingsAsked, hasAside, startMeeting, meetingsSnapshot.status, meetingsSnapshot.live, showMeetings, router]);
   /*
     What the egress gate is holding for this person, in any of their contexts, for the right panel's
     Approvals tab and its count. Read here because the count has to be known

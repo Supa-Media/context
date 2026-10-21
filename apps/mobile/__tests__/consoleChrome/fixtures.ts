@@ -47,9 +47,15 @@ export const mockConsoleState: {
   search?: (query: string, prefix?: string) => Promise<never>;
   /** The context on screen: `w1` is the owner's own, `w2` one where this person is an editor. */
   selectedContextId?: string;
+  /** The address's query, as `useGlobalSearchParams` returns it. */
+  query: Record<string, string>;
+  /** Every `router.setParams` the console made, oldest first. */
+  paramsSet: Record<string, unknown>[];
 } = {
   pathname: "/console/@seyi",
   selectedPath: null,
+  query: {},
+  paramsSet: [],
 };
 
 /** What the `+` sheet asked the browser to make, as `<kind>:<folder>`. */
@@ -96,8 +102,13 @@ jest.mock("expo-router", () => ({
       require("../../features/console/NavBand") as typeof import("../../features/console/NavBand");
     return h(NavBand);
   },
-  useRouter: () => ({ replace: () => {}, push: () => {} }),
+  useRouter: () => ({
+    replace: () => {},
+    push: () => {},
+    setParams: (params: Record<string, unknown>) => mockConsoleState.paramsSet.push(params),
+  }),
   usePathname: () => mockConsoleState.pathname,
+  useGlobalSearchParams: () => mockConsoleState.query,
 }));
 
 jest.mock("@convex-dev/auth/react", () => ({
