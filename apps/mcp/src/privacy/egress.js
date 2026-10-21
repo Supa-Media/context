@@ -33,7 +33,10 @@ import { normalizePath } from "../notes/paths.js";
  * (`tools/connectors.js`), and an app connected by its MCP server answers with
  * its own users' issues, pages and comments (`tools/apps.js`). `connect_app`
  * is not one: it answers with a link the gateway made, and nothing from the
- * provider.
+ * provider. A pending proposal is somebody else's too: `propose_note` is what
+ * a connection that may not write uses, so `read_proposal` hands the model a
+ * reason and a whole note it did not author — `list_proposals` is in
+ * `UNTRUSTED_LISTINGS` for the reason alone.
  *
  * Some of these are not read-only (`slack_api` can post, `app_change` makes a
  * change) and still hand the model an answer, so they mark the turn even when
@@ -50,6 +53,7 @@ export const UNTRUSTED_READS = new Set([
   "slack_api",
   "app_read",
   "app_change",
+  "read_proposal",
 ]);
 
 /**
