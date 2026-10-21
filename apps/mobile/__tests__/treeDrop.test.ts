@@ -18,7 +18,6 @@
  */
 
 import { describe, expect, test } from "@jest/globals";
-import { WEBSITE_DETAIL } from "../features/console/files/menuBuiltIn";
 import { dropZoneAt, planTreeDrop, type TreeDropInput } from "../features/console/files/treeDrop";
 import type { FileEntry, FolderListing } from "../features/console/files/types";
 
@@ -164,6 +163,19 @@ describe("between rows of another level: a move there, at that place", () => {
     });
   });
 
+  test("Website is placed into another level like any folder: its site follows it (owner, 2026-10-21)", () => {
+    expect(plan({ paths: ["website"], target: "Projects/alpha", zone: "above" })).toEqual({
+      kind: "place",
+      from: "website",
+      parent: "Projects",
+      folders: ["Projects/website", "Projects/alpha", "Projects/beta"],
+    });
+  });
+
+  test("and nested", () => {
+    expect(plan({ paths: ["website"], target: "Areas", zone: "into" })).toEqual({ kind: "nest", folder: "Areas" });
+  });
+
   test("a nested folder dropped between root rows comes up to the root", () => {
     expect(plan({ paths: ["Projects/beta"], target: "Areas", zone: "below" })).toEqual({
       kind: "place",
@@ -175,20 +187,6 @@ describe("between rows of another level: a move there, at that place", () => {
 });
 
 describe("refused drops say why", () => {
-  test("Website keeps its place: it cannot be dropped into another level", () => {
-    expect(plan({ paths: ["website"], target: "Projects/alpha", zone: "above" })).toEqual({
-      kind: "refuse",
-      reason: WEBSITE_DETAIL,
-    });
-  });
-
-  test("Website cannot be nested either", () => {
-    expect(plan({ paths: ["website"], target: "Areas", zone: "into" })).toEqual({
-      kind: "refuse",
-      reason: WEBSITE_DETAIL,
-    });
-  });
-
   test("a folder cannot be dropped between its own children", () => {
     expect(plan({ paths: ["Projects"], target: "Projects/alpha", zone: "above" })).toEqual({
       kind: "refuse",

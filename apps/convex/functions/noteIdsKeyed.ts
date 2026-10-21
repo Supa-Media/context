@@ -29,6 +29,7 @@ import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { nodeAt } from "./lib/noteIds/state";
 import { canonicalJobPath } from "./lib/nodes/folderJobs";
 import { movingRowMoves, throughRowMoves } from "./lib/nodes/rowMoveChunks";
+import { markNestedSiteWrite } from "./lib/websites/routeChangeAt";
 import type { DatabaseReader } from "../_generated/server";
 
 /**
@@ -130,6 +131,7 @@ export const adoptKeyed = internalMutation({
     await applyObservation(convexNodeTable(ctx, workspaceId), seamWrite(path, clampAt(at), { etag, size, noteId, storageKey: key }));
     const row = await nodeAt(ctx.db, workspaceId, path);
     if (row !== null && row.goneAt === undefined && row.storageKey !== undefined && row.noteId === noteId) {
+      await markNestedSiteWrite(ctx, workspaceId, path);
       return { adopted: true as const };
     }
     const taken = row === null ? null : entryOf(row);
@@ -158,6 +160,7 @@ export const recordKeyed = internalMutation({
     const row = await nodeAt(ctx.db, workspaceId, path);
     if (row === null || row.goneAt !== undefined || row.storageKey !== key || row.noteId === undefined) return false;
     await applyObservation(convexNodeTable(ctx, workspaceId), seamWrite(path, clampAt(at), { etag, size, noteId: row.noteId, storageKey: key }));
+    await markNestedSiteWrite(ctx, workspaceId, path);
     return (await nodeAt(ctx.db, workspaceId, path))?.etag === etag;
   },
 });

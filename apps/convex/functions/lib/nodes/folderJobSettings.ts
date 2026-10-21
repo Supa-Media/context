@@ -46,7 +46,9 @@ export function decideJobChange(
   path: string | null,
   isFolder: (path: string) => boolean,
 ): JobChange | JobRefusal {
-  if (job === "website") return { code: "PATH_INVALID", message: "Website keeps its name and place: your site is published from it." };
+  if (job === "website") {
+    return { code: "PATH_INVALID", message: "Your site is published from its own folder, so the job stays with it. Rename or move that folder instead: its pages go with it." };
+  }
   if (!canGiveJob(job) || !isRowRole(job)) {
     return {
       code: "PATH_INVALID",

@@ -14,8 +14,8 @@
  *  - **needed**: Inbox, Projects, Areas, Resources, Archive. Every workspace
  *    has one of each. Each can be given to another folder, never taken away.
  *  - **made**: Tex and Website, made by Context the first time the feature is
- *    used. Website keeps its name and place, since the site is published from
- *    it by name.
+ *    used. Both can be renamed and nested anywhere (Website since 2026-10-21);
+ *    Website's job stays with its own folder, which its site is published from.
  *  - **optional**: Clients, Teams, Products, added when useful and removable.
  *
  * Meetings is a job on rows (its folder follows the meetings setting) but is
@@ -90,7 +90,7 @@ const INBOX_PART_LABEL = Object.freeze({
   sessions: "Sessions",
 });
 
-/** A job a person or an agent may give to a folder they name. Website keeps its name and place. */
+/** A job a person or an agent may give to a folder they name. Website's stays with the folder its site is published from. */
 function canGiveJob(job) {
   return SHOWN_JOBS.includes(job) && job !== "website";
 }

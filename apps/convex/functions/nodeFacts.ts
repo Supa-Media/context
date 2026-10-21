@@ -14,6 +14,7 @@ import { readerMirror } from "./lib/nodes/readerRules";
 import { mirrorRules } from "./lib/nodes/log";
 import { canSee } from "./lib/privacy";
 import { PUBLICATION_SCOPE } from "./lib/websites/publication";
+import { namesWebsite, realSitePath, siteRoot } from "./lib/websites/siteRoot";
 import {
   FACT_FILL_NOTES,
   FACT_LEASE_MS,
@@ -438,6 +439,17 @@ export const ready = internalQuery({
 });
 
 /**
+ * The site names its pages under `website/` wherever the folder is nested: each
+ * such path is judged and found where the folder is now (`lib/websites/siteRoot.ts`),
+ * and answered under the name asked. One tree read, only when a path names it.
+ */
+async function sitePaths(db: DatabaseReader, workspaceId: Id<"workspaces">, paths: readonly string[]): Promise<(path: string) => string> {
+  if (!paths.some(namesWebsite)) return (path) => path;
+  const root = await siteRoot(db, workspaceId);
+  return (path) => realSitePath(root, path);
+}
+
+/**
  * What a public website list shows of these notes, from the tree alone (Dev2,
  * 2026-10-14: names and front matter go through the tree; only a note's
  * content comes from storage). Each note the publication clearance may see —
@@ -469,10 +481,11 @@ export const publishedRows = internalQuery({
     // Rules that cannot be read publish nothing.
     if (mirror?.invalid === true) return [];
     const { rules, overrides } = await mirrorRules(mirror);
+    const real = await sitePaths(ctx.db, workspaceId, paths);
     const found = [];
     for (const path of new Set(paths)) {
-      if (!canSee(path, PUBLICATION_SCOPE, rules, overrides)) continue;
-      const row = await liveNode(ctx.db, workspaceId, path);
+      if (!canSee(real(path), PUBLICATION_SCOPE, rules, overrides)) continue;
+      const row = await liveNode(ctx.db, workspaceId, real(path));
       if (row === null) continue;
       found.push({
         path,
@@ -508,10 +521,11 @@ export const visibleNotes = internalQuery({
     if (mirror?.invalid === true) return null;
     const { rules, overrides } = await mirrorRules(mirror);
     const granted = new Set(names);
+    const real = await sitePaths(ctx.db, workspaceId, paths);
     const found = [];
     for (const path of new Set(paths)) {
-      if (!canSee(path, scope, rules, overrides, granted)) continue;
-      if ((await liveNode(ctx.db, workspaceId, path)) !== null) found.push(path);
+      if (!canSee(real(path), scope, rules, overrides, granted)) continue;
+      if ((await liveNode(ctx.db, workspaceId, real(path))) !== null) found.push(path);
     }
     return found;
   },

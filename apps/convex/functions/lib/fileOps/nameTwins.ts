@@ -105,8 +105,9 @@ async function guardedJob(store: FileStore, path: string, clearance: Clearance):
  *  - `remove` (archive, trash, delete): never for the five main folders;
  *  - `move` (rename, move, nest): allowed in a workspace whose notes are kept
  *    by id, where the job goes with the row. Elsewhere the five stay put, as
- *    every writer there still names them by path. The website folder keeps
- *    its name everywhere: its pages are published from it by name.
+ *    every writer there still names them by path. The website folder moves
+ *    on the same terms: the site keeps naming its pages `website/...` and
+ *    reads them wherever the folder is (owner, 2026-10-21).
  *
  * What is inside them is always the person's to move. A path naming no job
  * costs one tree read and no listing.
@@ -127,8 +128,9 @@ export async function assertNotProtectedFolder(
   if (job === null) return;
   const label = JOB_LABEL[job as RowRole] ?? path;
   if (job === "website") {
-    if (intent === "remove") return;
-    throw new FileOpError("PATH_INVALID", "Website keeps its name and place, because your site is published from it. What's inside it can move.");
+    // Kept by id, the site follows its folder wherever it goes (`lib/websites/siteRoot.ts`); elsewhere pages are found by name.
+    if (intent === "remove" || (await isKeyedStore(store))) return;
+    throw new FileOpError("PATH_INVALID", "Website keeps its name and place here, because your site is published from it. What's inside it can move.");
   }
   if (!(MAIN_ROLES as readonly string[]).includes(job)) return;
   if (intent === "move") {

@@ -124,11 +124,12 @@ describe("changing a value from a list", () => {
     view.destroy();
   });
 
-  test("a folder property on an ordinary note is still a value to change", async () => {
-    const notes: ListNote[] = [{ path: "p/web.md", updatedAt: 3, properties: { folder: "inbox" } }];
-    const view = mount(doc("from: p", "show: folder"), { notes });
+  test("a folder property is never offered anywhere: the website's folder can be nested under any name (owner, 2026-10-21)", async () => {
+    const notes: ListNote[] = [{ path: "Work/site/web.md", updatedAt: 3, properties: { folder: "inbox", owner: "Seyi" } }];
+    const view = mount(doc("from: Work/site", "show: folder, owner"), { notes });
     await flush();
-    expect(edits(view).map((b) => b.textContent)).toEqual(["inbox"]);
+    expect(edits(view).map((b) => b.textContent)).toEqual(["Seyi"]);
+    expect(view.dom.querySelectorAll('.cm-lp-list-edit[title="Change folder"]')).toHaveLength(0);
     view.destroy();
   });
 
@@ -358,12 +359,11 @@ describe("the read, the change and the write", () => {
     expect(written).toEqual([]);
   });
 
-  test("a folder property outside the site is written like any other", async () => {
-    const { store, written } = io({ "x.md": note, "websites/x.md": note });
-    expect(await writeNoteProperty(store, "x.md", "folder", "inbox")).toBeNull();
-    // `websites/` is not `website/`, and neither is a note whose name starts with it.
-    expect(await writeNoteProperty(store, "websites/x.md", "folder", "inbox")).toBeNull();
-    expect(written.map(([path]) => path)).toEqual(["x.md", "websites/x.md"]);
+  test("a folder property is refused on any note, since the site's folder may be nested under any name", async () => {
+    const { store, written } = io({ "x.md": note, "Work/site/x.md": note });
+    expect(await writeNoteProperty(store, "x.md", "folder", "inbox")).toMatch(/publishes/);
+    expect(await writeNoteProperty(store, "Work/site/x.md", "folder", "inbox")).toMatch(/publishes/);
+    expect(written).toEqual([]);
   });
 
   test("nothing is written when nothing would change", async () => {
