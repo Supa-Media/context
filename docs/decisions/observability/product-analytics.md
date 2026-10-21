@@ -25,3 +25,17 @@ Heatmap dictionary keys are sanitized separately: the SDK uses raw
 and `authJourneyEvents.test.ts` proves server refusals do not become successful
 conversions or leak entered contact details. Native replay remains disabled.
 The event catalog and dashboard recipes live in `docs/observability.md`.
+
+The staff Usage tab reads aggregate funnels and failed-attempt counts directly
+from the same production PostHog project, through the existing staff guard.
+The backend returns fixed labels and numbers, never individual events or
+persons. Query access uses a separate project-restricted `query:read` key held
+only in deployment secrets and 1Password. The public ingest key cannot read.
+
+Funnels use ordered merged-person sequences with explicit conversion windows,
+not ratios of unrelated event totals. Only instrumentation version 2 and newer
+counts toward the new funnels: otherwise old homepage views with no tracked
+signup events would falsely imply abandonment. New instrumentation gets a new
+version when a change would invalidate a funnel's denominator. Empty funnels
+say unmeasured, and recent visitors may still complete. The timestamp must be
+converted from PostHog's DateTime64 to DateTime for `windowFunnel`.

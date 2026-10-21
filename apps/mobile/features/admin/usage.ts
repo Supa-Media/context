@@ -4,7 +4,7 @@
  * `usageAnalytics.report` (`apps/convex/functions/lib/adminFns/usageAnalytics.ts`).
  */
 
-import { USAGE_BUTTONS, isUsageButton } from "@context/shared";
+import { USAGE_BUTTONS, USAGE_ACTIONS, isUsageAction, isUsageButton } from "@context/shared";
 import { formatCount, shortDay, type Point } from "./report";
 
 /**
@@ -49,7 +49,7 @@ export function pageLabel(route: string): string {
 }
 
 export function buttonLabel(button: string): string {
-  return isUsageButton(button) ? USAGE_BUTTONS[button] : button;
+  return isUsageButton(button) ? USAGE_BUTTONS[button] : isUsageAction(button) ? USAGE_ACTIONS[button] : button;
 }
 
 /** `45s`, `4m 10s`, `2h 5m`. */

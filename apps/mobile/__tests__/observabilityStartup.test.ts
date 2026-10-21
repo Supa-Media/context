@@ -35,7 +35,7 @@ describe("events before the SDK is ready", () => {
     return { calls, ready, client, telemetry, prefs };
   }
   test("keeps screens and product events in their original order, redacted", async () => {
-    const { calls, ready, telemetry } = setup();
+    const { calls, ready, telemetry, client } = setup();
     telemetry.trackScreen("/");
     telemetry.trackEvent("signup_submitted", { method: "phone", token: "private" });
     telemetry.trackScreen("/login");
@@ -44,6 +44,7 @@ describe("events before the SDK is ready", () => {
     expect(calls).toEqual([]);
     ready();
     await started;
+    expect(client.register).toHaveBeenCalledWith(expect.objectContaining({ app_analytics_version: 2 }));
     expect(calls).toEqual([
       ["screen", "/"],
       ["event", "signup_submitted", { method: "phone", token: "[redacted]" }],

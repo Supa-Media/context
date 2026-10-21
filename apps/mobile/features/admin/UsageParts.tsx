@@ -124,7 +124,7 @@ export function TimeCard({ time, prior, days }: { time: UsageTime | null; prior:
       compare: {
         change: null,
         up: false,
-        words: time === null ? "nobody yet" : `${formatCount(time.people)} ${time.people === 1 ? "person" : "people"} signed in`,
+        words: time === null ? "nobody yet" : `${formatCount(time.people)} ${time.people === 1 ? "person" : "people"} active`,
       },
     },
   ];
@@ -180,6 +180,7 @@ export function RankedPanel({
   title,
   meta,
   valueLabel,
+  itemLabel,
   rows,
   empty,
   testID,
@@ -188,6 +189,7 @@ export function RankedPanel({
   title: string;
   meta: string;
   valueLabel: string;
+  itemLabel?: string;
   rows: readonly RankedRow[];
   empty: { title: string; body: string };
   testID: string;
@@ -198,7 +200,7 @@ export function RankedPanel({
   const [all, setAll] = useState(false);
   const share = shares(rows.map((row) => row.value));
   const columns: Column[] = [
-    { label: title === "Most viewed pages" ? "Page" : "Button", flex: 1 },
+    { label: itemLabel ?? (title === "Most viewed pages" ? "Page" : "Button"), flex: 1 },
     { label: "", width: 72 },
     { label: valueLabel, width: 76, align: "right" },
     { label: "People", width: 92, align: "right" },
