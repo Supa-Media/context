@@ -378,7 +378,7 @@ describe("a group's queue", () => {
 // Regression tests from the iMessage group chat of 2026-10-21 (Dev2 and Jhon).
 describe("the group chat of 2026-10-21", () => {
   const ask =
-    "Here's the bug report I'd send to the Context team:\n\nReplies in several bubbles leave the thread.\n\nNone of our texts go with it.\n\nLook good? Reply yes to this and I'll send it.";
+    "Here's the bug report I'd send to the Context team:\n\nReplies in several bubbles leave the thread.\n\nNone of our texts go with it.\n\nLook good? Give this a 👍 or reply yes and I'll send it.";
 
   it("keeps every bubble of an answer under the message it answers", async () => {
     const storage = new MemoryStorage();

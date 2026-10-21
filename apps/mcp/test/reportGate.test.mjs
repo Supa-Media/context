@@ -21,7 +21,7 @@
  */
 
 import { reportCopy } from "../src/tools/reportGate.js";
-import { ask, call, textOf, createEgressWorld, TOKEN_MCP, TOKEN_ROUTINE, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
+import { ask, call, request, textOf, createEgressWorld, TOKEN_MCP, TOKEN_ROUTINE, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
 
 const REPORT = { message: "Search found nothing for a note I know exists.", share_texts: true };
 const report = (args) => ({ toolCalls: [{ name: "write", args: { action: "report_problem", args } }] });
@@ -48,7 +48,7 @@ export async function runReportGateChecks(check) {
           "Here's the bug report I'd send to the Context team:\n\n" +
             "Search found nothing for a note I know exists.\n\n" +
             "Up to the last 12 messages between us go with it, so they can see what happened.\n\n" +
-            "Look good? Just say yes and I'll send it.",
+            "Look good? Give this a 👍 or say yes and I'll send it.",
     );
     check("nothing of the texts leaves before the YES", sent().length === 0 && !JSON.stringify(sent()).includes("avocado"));
 
@@ -90,22 +90,38 @@ export async function runReportGateChecks(check) {
     await ask(env, TOKEN_TEXTS, "no");
     check("a NO drops it", sent().length === 2);
 
+    // Dev2, 2026-10-21: a 👍 that stayed on the ask is the yes, but only on the ask for what is waiting.
+    const like = (words) => request(env, TOKEN_TEXTS, "/agent", { question: "👍", quoted: words, tapback: "Liked", conversation: "texts" });
+    model.install([report({ message: "Thumbs should work." }), { text: "Written up." }]);
+    const shown = (await ask(env, TOKEN_TEXTS, "file a thumbs one")).body?.verbatim?.[0] ?? "";
+    model.install([{ text: "Glad you like it." }]);
+    await like("Here's the bug report I'd send to the Context team:\n\nSomething else broke.\n\nNone of our texts go with it.");
+    check("a 👍 on an older ask releases nothing", sent().length === 2);
+    model.install([report({ message: "Thumbs should work." }), { text: "Written up." }]);
+    await ask(env, TOKEN_TEXTS, "file a thumbs one");
+    before = model.requests.length;
+    const liked = await like(`${shown.slice(0, 60)}…`);
+    check(
+      "a 👍 on the ask for what is waiting sends it, without a model",
+      model.requests.length === before && sent().length === 3 && sent()[2].message === "Thumbs should work." && liked.body?.answer === "Done, I sent a bug report to the Context team.",
+    );
+
     const mcpShares = await call(env, TOKEN_MCP, "report_problem", { message: "read_note timed out", share_texts: true });
     const routineShares = await call(env, TOKEN_ROUTINE, "report_problem", { message: "a routine failed", share_texts: true });
     check(
       "no other AI may attach texts",
-      mcpShares.isError === true && /only for a report the person files by text/.test(textOf(mcpShares)) && routineShares.isError === true && sent().length === 2,
+      mcpShares.isError === true && /only for a report the person files by text/.test(textOf(mcpShares)) && routineShares.isError === true && sent().length === 3,
     );
     const mcp = await call(env, TOKEN_MCP, "report_problem", { message: "read_note timed out" });
     check(
       "another AI's report goes as it always has: at once, the message alone",
-      mcp.isError !== true && sent().length === 3 && sent()[2].message === "read_note timed out" && sent()[2].texts === undefined,
+      mcp.isError !== true && sent().length === 4 && sent()[3].message === "read_note timed out" && sent()[3].texts === undefined,
     );
 
     model.install([report({ message: "x".repeat(2_001), share_texts: true }), { text: "Too long." }]);
     const pendingBefore = pending().length;
     await ask(env, TOKEN_TEXTS, "file a long one");
-    check("a report too long to read in one text is never put to the person", pending().length === pendingBefore && sent().length === 3);
+    check("a report too long to read in one text is never put to the person", pending().length === pendingBefore && sent().length === 4);
   } finally {
     world.restore();
   }

@@ -42,7 +42,7 @@ export async function runEmailDraftChecks(check) {
         JSON.stringify(drafts()[0].email) === JSON.stringify({ to: EMAIL.to, cc: [], subject: EMAIL.subject, body: EMAIL.body }) &&
         sends().length === 0 &&
         pending().length === 0 &&
-        !/Just say yes/.test(asked.body?.answer ?? "") &&
+        !/Give this a 👍 or say yes/.test(asked.body?.answer ?? "") &&
         /^Saved as a draft in seyi@gmail\.example's Gmail/.test(replies[0] ?? ""),
     );
 

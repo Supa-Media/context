@@ -453,7 +453,7 @@ secret part like any other field (`apps/mcp/src/vault/card.js`).
   every time (`apps/mcp/src/vault/pay.js`, kind `vault_pay`). Tex asks by
   text (the owner chose "Ask by text, every payment" on 2026-10-21, over an
   ask in the app and over a per-site yes): the gateway adds "Before I pay, I
-  need your OK to pay with your Visa ••4242 on shop.example. Just say yes" to
+  need your OK to pay with your Visa ••4242 on shop.example. Give this a 👍 or say yes" to
   the answer, in its own words, naming the card and the site the browser is
   on, never the model's. Only a plain yes answers ("yes", "yes please", "yes,
   pay it"); "ok" or "sure" sets the ask aside, a no drops it

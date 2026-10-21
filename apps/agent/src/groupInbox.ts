@@ -37,6 +37,8 @@
 
 import { agentAnswer, post, record, ServiceError, type Fetch } from "./clients";
 import { textsWithExact } from "./format";
+import { tapbackText, type Reaction } from "./reactions";
+import { dropThumb, dueThumb, holdThumb } from "./thumbs";
 import type { InboxStorage } from "./inbox";
 import type { SendblueKeys } from "./sendblue";
 import { chatBefore, dropChatLines, keepChatLine, peopleOf, setChatBound, sha256Hex } from "./groupChat";
@@ -189,6 +191,7 @@ export { peopleOf };
  * dropped right here while it is not.
  */
 export async function acceptGroup(storage: InboxStorage, message: GroupMessage, now: number): Promise<"queued" | "kept" | "ignored" | "duplicate" | "full"> {
+  if (message.reaction !== undefined) return await acceptThumb(storage, message, message.reaction, now);
   const sent = (await storage.get<string[]>(SENT_KEY)) ?? [];
   const repliesToTex = message.replyTo !== undefined && sent.includes(message.replyTo);
   const tagged =
@@ -218,6 +221,22 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
 }
 
 /**
+ * A like on Tex's ask from the person it asked, held ten seconds before it
+ * goes as their yes, or taken back (`thumbs.ts`). Anyone else's is ignored:
+ * only the asker's yes can release what was held for them.
+ */
+async function acceptThumb(storage: InboxStorage, message: GroupMessage, reaction: Reaction, now: number): Promise<"queued" | "ignored"> {
+  const ask = await storage.get<OpenAsk>(ASK_KEY);
+  if (ask === undefined || now - ask.at >= ASK_OPEN_MS || ask.from !== (await sha256Hex(message.from))) return "ignored";
+  if (reaction.removed) {
+    await dropThumb(storage, reaction.words);
+    return "ignored";
+  }
+  await holdThumb<GroupMessage>(storage, { ...message, text: tapbackText(reaction.how) }, reaction.words, now);
+  return "queued";
+}
+
+/**
  * Whether this person tagged Tex with these same words a moment ago (Jhon,
  * 2026-10-21: the same bug report sent twice was written up twice). Kept as
  * hashes of sender and words, never either. Remembers this ask either way.
@@ -243,6 +262,13 @@ async function answersOpenAsk(storage: InboxStorage, message: GroupMessage, now:
 
 /** Answer every tagged message waiting, oldest first. Called from the alarm. */
 export async function drainGroup(storage: InboxStorage, deps: GroupDeps): Promise<void> {
+  // A 👍 that stayed its ten seconds joins the queue as the asker's answer.
+  const thumb = await dueThumb<GroupMessage>(storage, deps.now());
+  if (thumb !== undefined) {
+    const seq = ((await storage.get<number>("gseq")) ?? 0) + 1;
+    await storage.put("gseq", seq);
+    await storage.put<Pending>(pendingKey(seq), { message: thumb, attempts: 0, at: deps.now() });
+  }
   const pending = await storage.list<Pending>({ prefix: "gpending:" });
   for (const [key, item] of pending) {
     try {
@@ -280,7 +306,7 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, accepte
   if (status === "muted" || status === "stopped" || status === "no_shared") await setChatBound(storage, null);
   if (status === "refused" || status === "muted") return log(status);
   // The same tapback for every tagger, linked or not, so it says nothing about who they are.
-  if (command === null) await reactInGroup(deps.fetch, deps.sendblue, chat, message.messageId, "👀");
+  if (command === null && message.reaction === undefined) await reactInGroup(deps.fetch, deps.sendblue, chat, message.messageId, "👀");
   if (status === "unknown_sender") return asked.tell === true ? void (await say(storage, deps, message, GROUP_LINES.unknown)) : log(status);
   if (status === "no_shared") return void (await say(storage, deps, message, GROUP_LINES.noShared));
   if (status === "not_shared") return void (await say(storage, deps, message, GROUP_LINES.notShared));
@@ -317,7 +343,13 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, accepte
         question: message.text,
         group: { ...group, chat: said.lines.map((line) => ({ from: handles.get(line.from) ?? "", text: line.text })) },
         ...(asked.timeZone ? { timeZone: asked.timeZone } : {}),
-        ...(quoted !== null ? { quoted } : message.replyTo !== undefined ? { replied: true } : {}),
+        ...(message.reaction !== undefined
+          ? { quoted: message.reaction.words, tapback: message.reaction.how }
+          : quoted !== null
+            ? { quoted }
+            : message.replyTo !== undefined
+              ? { replied: true }
+              : {}),
       },
       GROUP_TURN_TIMEOUT_MS,
     );

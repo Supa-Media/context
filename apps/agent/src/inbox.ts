@@ -55,6 +55,7 @@ import { clearTold, noteTold, owedTold } from "./told";
 import { rememberText } from "./threads";
 import { ackEmoji } from "./ackEmoji";
 import { answers, clearReactions, noteReaction, notedReactions, tapbackText } from "./reactions";
+import { dropThumb, dueThumb, holdsAsYes, holdThumb } from "./thumbs";
 import { startTurn, steerInto } from "./steer";
 import type { Inbound } from "./inbound";
 
@@ -200,8 +201,15 @@ export async function react(
   storage: InboxStorage,
   inbound: Extract<Inbound, { kind: "reaction" }>,
   now: number,
-): Promise<"queued" | "duplicate" | "full" | "noted" | "preview"> {
+): Promise<"queued" | "duplicate" | "full" | "noted" | "preview" | "held" | "dropped"> {
   const { reaction, kind: _kind, ...message } = inbound;
+  // A 👍 on an ask waits ten seconds before it goes, and taking it back drops it (`thumbs.ts`).
+  if (reaction.removed) return (await dropThumb(storage, reaction.words)) ? "dropped" : "noted";
+  if (holdsAsYes(reaction)) {
+    const asked: Message = { kind: "message", ...message, text: tapbackText(reaction.how), quoted: reaction.words, tapback: reaction.how };
+    await holdThumb(storage, asked, reaction.words, now);
+    return "held";
+  }
   if (answers(reaction)) {
     return accept(storage, { kind: "message", ...message, text: tapbackText(reaction.how), quoted: reaction.words, tapback: reaction.how }, now);
   }
@@ -213,6 +221,9 @@ export async function react(
 
 /** Answer everything pending, oldest first. Called from the alarm. */
 export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<void> {
+  // A 👍 that stayed its ten seconds joins the queue as the tapback it is.
+  const thumb = await dueThumb<Message>(storage, deps.now());
+  if (thumb !== undefined) await accept(storage, thumb, deps.now());
   const pending = await fold(storage, await storage.list<Pending>({ prefix: "pending:" }));
   for (const [key, item] of pending) {
     const stored = item.reply;
