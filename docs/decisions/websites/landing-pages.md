@@ -1,6 +1,7 @@
 # The front door is three landing pages under test
 
-_Page a was replaced by the Tex page on 2026-10-18; see its entry below._
+_Page a was replaced by the Tex page on 2026-10-18, then by the notes page on
+2026-10-21; see its entry below._
 
 _Decided 2026-10-11, by the owner, replacing the five pages of 2026-10-09:
 "a more simple design for the landing page similar to thebrowser.company and
@@ -18,41 +19,33 @@ and a cast preview (`/#cast-preview=…`) and the cast studio's stage are
 recordings of it, so `landingFor` (`features/landing/route.ts`) answers null
 for all of them.
 
-- **a is the Tex page** (decided by the owner, 2026-10-18, replacing the
-  page of prose and its graph: "we need a new landing page, one that is more
-  Tex/Chat focused … Text your notes we'll organize it for you … right now
-  the page has the complex graph that confuses people, and also signing up
-  for the waitlist the button to click enter isn't clear"). Dev's line is the
-  headline, "Text your notes. We'll organize them.", then one sentence of what
-  Tex takes (a thought, a link, a photo, a voice memo or a PDF), the sign-up,
-  and beside it one conversation with Tex (`TexPage.web.tsx`, `TexChat.web.tsx`,
-  `texCss.ts`). It keeps the old a's sheet, Libron and light-only look, so it
-  is the same site.
-- **a's picture is one conversation, not a diagram.** Dev then asked for it
-  to show "something a bit more useful, like sending an email doing something
-  research, but it should all fit on a page", and for Tex to sound like a
-  person ("'Text YES to send' seems very robotic"). An idea becomes a note in
-  Projects; a search for a place finds three and adds them to that note,
-  whose link Tex texts; an email is shown as Tex would send it and goes on a
-  yes; Tex says it will send a reminder. Each is something Tex does
-  today: web search (`agent/search.js`), the note's link on a texted write
-  (`agent/noteLinks.js`), the email send-review gate, routines. The link is
-  drawn as the card a note's link really unfurls as, Context's own, never
-  with the note's name. The whole conversation is drawn at once and nothing
-  on the page animates (Dev, 2026-10-18: "just do the full convo no
-  animating"); Tex, the mark, is the settled #. On a computer the whole page
-  fits the window with no scrolling (on a short window the chat's header
-  folds to one row). A phone is sized for a phone, not shrunk from the
-  computer layout (Dev, 2026-10-18: "this looks so bad and zoomed in on
-  mobile"): a smaller headline, reading-size text, the button under the
-  field below 600px, and the sign-up before the conversation. Putting the
-  graph, a feature list or an animation back is reversing this decision.
+- **a is the notes page** (decided by the owner, 2026-10-21, replacing the
+  Tex page of 2026-10-18 now that tex.lc has its own: "since we have tex.lc
+  and that is more text focused, context.lc's homepage should look more notes
+  focused", then, picking option A of four, "I like A, but also want to show
+  that you can create different workspaces for free"). The headline is "A
+  notes app that every AI you use can read.", then the sign-up, the editor as
+  a still picture (folders, one shared note, who and which AI is in it), four
+  lines of what Context is, a workspace for each part of your life with the
+  free line, and "Tex comes built in", which links to tex.lc rather than
+  drawing a conversation (`NotesPage.web.tsx`, `notesParts.web.tsx`,
+  `notesCss.ts`). It is on the brand's Paper, Libron for headlines, Instrument
+  Sans for the rest, light only. It scrolls; what must fit the first screen,
+  laptop or phone, is the sign-up. Drawing a chat here again makes context.lc
+  a second tex.lc, which is what this reversed.
+- **The free line is the server's numbers.** "Free: up to 10 workspaces, 1,000
+  notes in each" is `MAX_WORKSPACES_PER_USER` and `FREE_MANAGED_NOTE_CAP`;
+  `notesLanding.test.ts` fails if either moves without the page. Every person,
+  note and workspace drawn is made up, and each picture says so (never the
+  owner's own name).
 - **a's sign-up button says what it does.** A labelled phone field with +1
   and a country drop-down, and beside it a solid "Join the waitlist" button
   ("Sign in" on the code step), full width on a narrow phone. The bare › of
   2026-10-12 was the thing nobody saw. The rules are still the sign-in page's
   (`usePhoneSignIn`), and "Use email instead" still swaps in the `JoinCard`.
-  Rows recorded as `a` before 2026-10-18 saw the page of prose and its graph.
+  Its styles are its own (`signUpCss.ts`). Rows recorded as `a` before
+  2026-10-18 saw the page of prose and its graph, from 2026-10-18 to
+  2026-10-21 the Tex page.
 - **b is the page `/` showed until 2026-10-11, unchanged** ("b/ should be the
   current default page"): tab.bot's shape in our colours, the live map behind
   "Less chaos", the real editor playing a demo, the prose, and the sign-up
