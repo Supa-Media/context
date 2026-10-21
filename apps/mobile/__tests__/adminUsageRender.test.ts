@@ -174,6 +174,8 @@ describe("the tab", () => {
     expect(find("admin-usage-page-/console/:context")?.textContent).toContain("Workspace");
     expect(find("admin-usage-button-share_note")?.textContent).toContain("Share");
     expect(page.textContent).toContain("people who turned off screen counts are not in these figures");
+    expect(page.textContent).toContain("12 people active");
+    expect(page.textContent).not.toContain("people signed in");
   });
 
   test("a phone shows five pages and offers the rest", () => {
@@ -214,5 +216,35 @@ describe("the tab", () => {
     expect(find("admin-usage-time")?.textContent).toContain("nobody yet");
     expect(find("admin-usage-site-tex.lc")?.textContent).toContain("No visits yet");
     expect(find("admin-usage-site-tex.lc")?.textContent).toContain("nothing yet");
+  });
+});
+
+describe("conversion and drop-off", () => {
+  test("shows ordered funnel people, conversion and the gap at each step", () => {
+    setWidth(1280);
+    mount(createElement(UsageView, { days: 7, usage: usage({
+      funnels: [{ id: "tex_waitlist", steps: [
+        { key: "landing", people: 100 }, { key: "signup_started", people: 50 },
+        { key: "signup_submitted", people: 40 }, { key: "waitlist_joined", people: 25 },
+      ] }],
+      outcomes: [{ event: "signin_code_result", result: "failed", attempts: 6, people: 3 }],
+    }) }));
+    expect(find("admin-usage-funnel-tex_waitlist")?.textContent).toContain("Tex waitlist");
+    expect(find("admin-usage-funnel-tex_waitlist-waitlist_joined")?.textContent).toContain("25%");
+    expect(find("admin-usage-funnel-tex_waitlist-waitlist_joined")?.textContent).toContain("15 not yet progressed");
+    expect(find("admin-usage-outcomes")?.textContent).toContain("Sign-in code");
+    expect(find("admin-usage-outcomes")?.textContent).toContain("Outcome");
+    expect(find("admin-usage-outcomes")?.textContent).toContain("6");
+  });
+  test("an unmeasured funnel has an empty state, not a zero-percent conversion claim", () => {
+    setWidth(390);
+    const page = mount(createElement(UsageView, { days: 7, usage: usage({
+      funnels: [{ id: "tex_signin", steps: [
+        { key: "code_sent", people: 0 }, { key: "code_submitted", people: 0 }, { key: "signed_in", people: 0 },
+      ] }],
+    }) }));
+    expect(find("admin-usage-funnel-tex_signin")?.textContent).toContain("No funnel events yet");
+    expect(find("admin-usage-funnel-tex_signin")?.textContent).not.toContain("0%");
+    expect(page.textContent).not.toContain("NaN");
   });
 });

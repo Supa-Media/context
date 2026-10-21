@@ -31,6 +31,15 @@ const time = v.object({
 const page = v.object({ route: v.string(), views: v.number(), people: v.number() });
 const button = v.object({ button: v.string(), clicks: v.number(), people: v.number() });
 
+const funnel = v.object({
+  id: v.string(),
+  steps: v.array(v.object({ key: v.string(), people: v.number() })),
+});
+const outcome = v.object({ event: v.string(), result: v.string(), attempts: v.number(), people: v.number() });
+
+export type UsageFunnel = Infer<typeof funnel>;
+export type UsageOutcome = Infer<typeof outcome>;
+
 export const usageAnalyticsValidator = v.union(
   /** No PostHog key on this deployment. */
   v.object({ connected: v.literal(false) }),
@@ -48,6 +57,9 @@ export const usageAnalyticsValidator = v.union(
     pages: v.array(page),
     /** The most pressed named buttons, most first. */
     buttons: v.array(button),
+    // Optional for a frontend receiving the new bundle before its backend.
+    funnels: v.optional(v.array(funnel)),
+    outcomes: v.optional(v.array(outcome)),
   }),
 );
 

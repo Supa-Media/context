@@ -138,6 +138,7 @@ async function startPostHog(): Promise<void> {
     app_env: analyticsEnvironment(),
     app_product: typeof location !== "undefined" && /^(?:tex\.lc|tex-staging\.context\.lc)$/.test(location.hostname) ? "tex" : "context",
     app_platform: Platform.OS,
+    app_analytics_version: 2,
     app_build: process.env.EXPO_PUBLIC_APP_BUILD ?? "unknown",
   });
   posthog = client;

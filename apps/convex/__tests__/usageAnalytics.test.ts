@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { convexTest } from "convex-test";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
@@ -21,7 +21,7 @@ import { clampUsageDays } from "../functions/usageAnalytics";
 const ENV = { POSTHOG_PERSONAL_API_KEY: "phx_fixture_key_not_real", POSTHOG_PROJECT_ID: "12345" };
 const NOW = Date.UTC(2026, 9, 21, 15, 30);
 
-type Name = "daily" | "sites" | "time" | "pages" | "buttons";
+type Name = keyof ReturnType<typeof usageQueries>;
 
 /** Answers each query by which question it asks, and records every call. */
 function posthog(rows: Partial<Record<Name, unknown[][]>>, status = 200) {
@@ -48,7 +48,7 @@ describe("connecting", () => {
   test("the key goes to PostHog's query endpoint, in the header and nowhere else", async () => {
     const { calls, fetchImpl } = posthog({});
     await usageAnalytics(ENV, 7, { fetchImpl, now: NOW });
-    expect(calls).toHaveLength(5);
+    expect(calls).toHaveLength(7);
     for (const call of calls) {
       expect(call.url).toBe("https://us.posthog.com/api/projects/12345/query/");
       expect((call.init.headers as Record<string, string>).Authorization).toBe(`Bearer ${ENV.POSTHOG_PERSONAL_API_KEY}`);
@@ -58,8 +58,9 @@ describe("connecting", () => {
 
   test("a project id that is not a number is not put in the address", async () => {
     const { calls, fetchImpl } = posthog({});
-    await usageAnalytics({ ...ENV, POSTHOG_PROJECT_ID: "1/../../other" }, 7, { fetchImpl, now: NOW });
-    expect(calls[0].url).toBe("https://us.posthog.com/api/projects/@current/query/");
+    const result = await usageAnalytics({ ...ENV, POSTHOG_PROJECT_ID: "1/../../other" }, 7, { fetchImpl, now: NOW });
+    expect(result).toEqual({ connected: true, error: "PostHog project id must be numeric" });
+    expect(calls).toHaveLength(0);
   });
 
   test("a refusal is reported in our words, never PostHog's", async () => {
@@ -204,11 +205,15 @@ describe("what comes back", () => {
 describe("the action is staff only", () => {
   afterEach(() => {
     delete process.env[ADMIN_EMAILS_ENV_VAR];
+    delete process.env.POSTHOG_PERSONAL_API_KEY;
+    vi.restoreAllMocks();
   });
 
   test("signed out and a signed-in stranger are refused before PostHog is asked", async () => {
     const t = convexTest(schema, modules);
     process.env[ADMIN_EMAILS_ENV_VAR] = "staff@supa.media";
+    process.env.POSTHOG_PERSONAL_API_KEY = ENV.POSTHOG_PERSONAL_API_KEY;
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("must not contact PostHog"));
     await expect(t.action(api.functions.usageAnalytics.report, { days: 7 })).rejects.toThrow();
     const stranger: Id<"users"> = await t.run(
       async (ctx) => await ctx.db.insert("users", { email: "someone@example.com", emailVerificationTime: Date.now() } as never),
@@ -216,6 +221,7 @@ describe("the action is staff only", () => {
     await expect(
       t.withIdentity({ subject: stranger }).action(api.functions.usageAnalytics.report, { days: 7 }),
     ).rejects.toThrow();
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   test("staff without a key get not connected", async () => {
@@ -228,5 +234,49 @@ describe("the action is staff only", () => {
     expect(await t.withIdentity({ subject: staff }).action(api.functions.usageAnalytics.report, { days: 7 })).toEqual({
       connected: false,
     });
+  });
+});
+
+describe("conversion and friction metrics", () => {
+  test("funnels enforce ordered steps, identity, product, production and conversion windows", () => {
+    const query = usageQueries(7, NOW).funnels;
+    expect(query).toContain("windowFunnel(86400)(toDateTime(timestamp)");
+    expect(query).toContain("windowFunnel(1800)(toDateTime(timestamp)");
+    expect(query).toContain("properties.app_analytics_version >= 2");
+    expect(query).toContain("GROUP BY person_id");
+    expect(query).toContain("properties.app_env = 'production'");
+    expect(query).toContain("'tex_waitlist'");
+    expect(query).toContain("'context_setup'");
+    expect(query).toContain("properties.result = 'joined'");
+    expect(query).toContain("properties.result = 'success'");
+    expect(query).toContain("coalesce(properties.resend, false) = false");
+    expect(query).not.toMatch(/SELECT \*|properties\.(email|phone|code|note)/);
+  });
+  test("furthest-step histograms become cumulative people; unknown rows are excluded", async () => {
+    const { fetchImpl } = posthog({ funnels: [
+      ["tex_waitlist", 1, 10], ["tex_waitlist", 2, 5], ["tex_waitlist", 4, 5],
+      ["private customer title", 4, 999], ["tex_waitlist", 9, 999], ["tex_waitlist", 1.5, 999],
+    ] });
+    const result = await usageAnalytics(ENV, 7, { fetchImpl, now: NOW });
+    if (!result.connected || result.error !== null) throw new Error("expected figures");
+    const funnel = result.funnels?.find((row) => row.id === "tex_waitlist");
+    expect(funnel?.steps.map((step) => step.people)).toEqual([20, 10, 5, 5]);
+    expect(result.funnels).toHaveLength(6);
+    expect(JSON.stringify(result)).not.toContain("private customer title");
+  });
+  test("semantic clicks and only allowlisted outcomes are shown", async () => {
+    const { fetchImpl } = posthog({
+      buttons: [["tex_messages_opened", 15, 10], ["private title", 20, 1]],
+      outcomes: [["signin_code_result", "failed", 6, 3], ["note_save_result", "timeout", 2, 1],
+        ["signup_result", "private phone +15555550123", 3, 2], ["unknown_event", "failed", 100, 1]],
+    });
+    const result = await usageAnalytics(ENV, 7, { fetchImpl, now: NOW });
+    if (!result.connected || result.error !== null) throw new Error("expected figures");
+    expect(result.buttons).toEqual([{ button: "tex_messages_opened", clicks: 15, people: 10 }]);
+    expect(result.outcomes).toEqual([
+      { event: "signin_code_result", result: "failed", attempts: 6, people: 3 },
+      { event: "note_save_result", result: "timeout", attempts: 2, people: 1 },
+    ]);
+    expect(JSON.stringify(result)).not.toContain("15555550123");
   });
 });

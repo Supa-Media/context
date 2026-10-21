@@ -117,25 +117,41 @@ enough because arbitrary exception text can contain a note body or note path.
 ## The staff Usage tab
 
 `/admin/usage` shows visits to context.lc and tex.lc, time in the app, and the
-most viewed pages and most pressed buttons, for the console's 7 / 30 / 90 day
+most viewed pages, most pressed buttons, ordered conversion funnels and failed
+attempts, for the console's 7 / 30 / 90 day
 window. Asked for by the owner on 2026-10-21; the approach (read PostHog rather
 than count in Convex) and the artboard were approved the same day.
 
 - **Where the figures come from.** `functions/usageAnalytics.ts` (staff only)
-  asks PostHog's query API five HogQL questions
+  asks PostHog's query API seven HogQL questions
   (`functions/lib/adminFns/usageAnalytics.ts`) and returns hosts, days, cleaned
   routes, fixed button names and counts. PostHog's own error text never reaches
   the screen, and a route that is not a cleaned route or a button that is not
   in the list is dropped on the server whatever PostHog holds.
-- **Production only.** The three environments share one PostHog project, so a
-  web event counts when its `$host` is context.lc or tex.lc, and a native one
+- **Production only.** Configure the private read key and project ID to the
+  existing production project. A web event counts when its `$host` is
+  context.lc or tex.lc, and a native one
   when it says `app_env = production`. Visits are sessions; visitors are
   PostHog's merged people.
 - **Buttons are named, never read.** A press is `button_tapped` with
   `{ button }`, from the fixed list `USAGE_BUTTONS` in `@context/shared`, which
   the app's `trackButton` takes as its type and the server filters by. Element
-  text is never sent, which is why autocapture stays off. A button is counted
+  text is never sent. The table also counts the fixed semantic landing and Tex
+  handoff events from `USAGE_ACTIONS`. A button is counted
   once somebody names it there and calls `trackButton` where it is pressed.
+- **Ordered journeys.** Context and Tex each have waitlist and sign-in funnels;
+  workspace setup and Tex's Messages handoff have their own cards. Each counts
+  merged people reaching steps in timestamp order within 24 hours (sign-in:
+  30 minutes), using `windowFunnel` on `toDateTime(timestamp)`. Percentages use
+  the first step as denominator; gaps count people not yet at the next step.
+  Recent visits may still progress. Only `app_analytics_version >= 2` events
+  qualify, so historical traffic without the new instrumentation cannot look
+  like abandonment. An empty funnel says unmeasured, not zero conversion.
+  Definitions are fixed in `packages/shared/src/usageJourneys.ts`.
+- **Friction.** Failed or refused signups, code verification failures, save
+  timeouts and queued offline saves show attempt counts and unique people.
+  Successes and unknown result strings are excluded from that panel. A queued
+  save is pending; a Messages click is a handoff, not proof of a sent text.
 - **Time in app is active time.** `features/observability/activeTime.ts` sends
   `app_active` every thirty seconds while the tab is in front and somebody
   touched, typed, scrolled or moved the pointer in the last two minutes (a
@@ -155,7 +171,11 @@ than count in Convex) and the artboard were approved the same day.
   1Password as `POSTHOG_PERSONAL_API_KEY`, and the project's numeric id as
   `POSTHOG_PROJECT_ID`, both synced to the GitHub environments and pushed to
   Convex by `deploy-convex.yml`. Without the key the tab says PostHog isn't
-  connected; nothing else depends on it.
+  connected; nothing else depends on it. Use the private `production` and
+  `staging` vault fields. The staff report reads production metrics in both
+  deployments, with project access restricted to that production project.
+  Retry/Refresh asks again without reloading the app. Never put this private
+  key in an `EXPO_PUBLIC_` variable.
 
 ## Configuration
 
