@@ -13,7 +13,7 @@
  * Registers nothing and opens no credential; `functions/connections.ts` does.
  */
 
-import type { ConnectionScope, ExchangedToken, ProviderSpec } from "./types";
+import type { ConnectionScope, ExchangedToken, SlackSpec } from "./types";
 
 export const SLACK_CLIENT_ID_ENV_VAR = "SLACK_CLIENT_ID";
 export const SLACK_CLIENT_SECRET_ENV_VAR = "SLACK_CLIENT_SECRET";
@@ -221,9 +221,11 @@ export async function slackCall(accessToken: string, method: string, args: Recor
   return { status: response.status, body };
 }
 
-export const slack: ProviderSpec = {
+export const slack: SlackSpec = {
+  kind: "slack",
   id: "slack",
   name: "Slack",
+  about: "read channels and DMs, search messages, react, and post as the person",
   clientIdEnvVar: SLACK_CLIENT_ID_ENV_VAR,
   clientSecretEnvVar: SLACK_CLIENT_SECRET_ENV_VAR,
   callbackPath: "/connect/slack",

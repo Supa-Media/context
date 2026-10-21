@@ -16,6 +16,8 @@ export const PROVIDER_IDS = [
   "airtable",
   "calendly",
   "monday",
+  "clickup",
+  "todoist",
 ] as const;
 
 export type ProviderId = (typeof PROVIDER_IDS)[number];
@@ -35,6 +37,8 @@ export const providerValidator = v.union(
   v.literal("airtable"),
   v.literal("calendly"),
   v.literal("monday"),
+  v.literal("clickup"),
+  v.literal("todoist"),
 );
 
 // A provider missing from either list fails the type check here.

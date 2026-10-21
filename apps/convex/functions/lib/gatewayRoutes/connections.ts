@@ -13,7 +13,7 @@ import { internal } from "../../../_generated/api";
 import type { ActionCtx } from "../../../_generated/server";
 import { hashToken } from "../crypto";
 import { httpsAppOrigin, json, randomOpaqueToken, stringField } from "../gatewayAuth";
-import { providerClient, providerOf } from "../providers/registry";
+import { providerAvailable, providerOf } from "../providers/registry";
 import { CONNECT_LINK_ROUTE } from "../connections/links";
 
 async function clear(ctx: ActionCtx, body: Record<string, unknown>) {
@@ -30,7 +30,7 @@ export async function gatewayConnectRequestHandler(ctx: ActionCtx, body: Record<
   const spec = providerOf(body.provider);
   if (spec === null) return json({ url: null, reason: "unknown_provider" });
   const origin = httpsAppOrigin();
-  if (origin === null || providerClient(spec) === null) return json({ url: null, reason: "unavailable" });
+  if (origin === null || !providerAvailable(spec)) return json({ url: null, reason: "unavailable" });
   const cleared = await clear(ctx, body);
   if (cleared === null) return json({ url: null, reason: "refused" });
   const token = randomOpaqueToken(24);
@@ -60,6 +60,18 @@ export async function gatewayConnectCallHandler(ctx: ActionCtx, body: Record<str
   const cleared = await clear(ctx, body);
   if (cleared === null) return json({ ok: false, refused: "not_connected" });
   const team = stringField(body, "team");
+  if (spec.kind !== "slack") {
+    return json(
+      await ctx.runAction(internal.functions.connectionApps.callApp, {
+        provider: spec.id,
+        workspaceId: cleared.workspaceId,
+        actorUserId: cleared.actorUserId,
+        clientId: cleared.clientId,
+        method,
+        args: args as Record<string, unknown>,
+      }),
+    );
+  }
   const outcome = await ctx.runAction(internal.functions.connections.callProvider, {
     provider: spec.id,
     workspaceId: cleared.workspaceId,
@@ -70,4 +82,21 @@ export async function gatewayConnectCallHandler(ctx: ActionCtx, body: Record<str
     ...(team === null ? {} : { team }),
   });
   return json(outcome);
+}
+
+/**
+ * `POST /gateway/connect/apps`: every app this deployment connects, and which
+ * the person has connected, so Tex knows what it reaches through an app's own
+ * API and what it still has to sign in to with its browser. Names and states
+ * only; no token is opened.
+ */
+export async function gatewayConnectAppsHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
+  const cleared = await clear(ctx, body);
+  if (cleared === null) return json({ apps: [] });
+  const apps = await ctx.runQuery(internal.functions.connectionApps.appsForPerson, {
+    workspaceId: cleared.workspaceId,
+    actorUserId: cleared.actorUserId,
+    clientId: cleared.clientId,
+  });
+  return json({ apps });
 }
