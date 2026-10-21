@@ -467,7 +467,14 @@ export const noteCall = internalMutation({
 
 export type CallOutcome =
   | { ok: true; team: string; body: unknown }
-  | { ok: false; refused: "not_connected" | "choose_team" | "reconnect_required" | "method_not_allowed" | "unavailable"; teams?: string[] };
+  | {
+      ok: false;
+      refused: "not_connected" | "choose_team" | "reconnect_required" | "method_not_allowed" | "too_large" | "unavailable";
+      teams?: string[];
+    };
+
+/** What one answer may carry back to the gateway, under its 256 KB response cap. */
+const MAX_ANSWER_CHARS = 200_000;
 
 /** One API call through a connection, the token opened here for that call only. */
 export const callProvider = internalAction({
@@ -526,6 +533,8 @@ export const callProvider = internalAction({
       write,
     });
     if (tokenGone) return { ok: false, refused: "reconnect_required" };
+    // Under the gateway's response cap, so a long history is a refusal it can say, not a broken call.
+    if (JSON.stringify(answer.body).length > MAX_ANSWER_CHARS) return { ok: false, refused: "too_large" };
     return { ok: true, team: chosen.teamName, body: answer.body };
   },
 });

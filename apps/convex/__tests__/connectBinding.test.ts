@@ -135,6 +135,10 @@ describe("every third-party connect carries the browser binding", () => {
     expect(callbackActions.map((f) => f.where)).toEqual([
       "calendarConnect.completeCalendarConnect",
       "chatProduct.completeChatConnect",
+      // A connector (Slack first). Its link-first start takes a token, not a
+      // workspace, so its behaviour is driven in `connections/slackConnect.test.ts`
+      // ("a consent answered without the starting browser's secret lands nowhere").
+      "connections.completeProviderConnect",
       "googleConnect.completeGmailConnect",
       "googleConnect.completeGoogleConnect",
     ]);
@@ -143,6 +147,8 @@ describe("every third-party connect carries the browser binding", () => {
       "calendarConnect.parkCalendarAttempt",
       "chatProduct.consumeChatAttemptAndExchange",
       "chatProduct.parkChatAttempt",
+      "connections.consumeConnectAttempt",
+      "connections.parkConnectAttempt",
       "googleConnect.consumeAttemptAndExchange",
       "googleConnect.consumeGoogleAttemptAndExchange",
       "googleConnect.parkAttempt",
@@ -195,6 +201,7 @@ describe("every third-party connect carries the browser binding", () => {
     const attemptTables = tables.filter(([, t]) => "hashedState" in (t.validator?.fields ?? {}));
     expect(attemptTables.map(([name]) => name).sort()).toEqual([
       "googleConnectAttempts",
+      "providerConnectAttempts",
     ]);
     for (const [name, table] of attemptTables) {
       expect({ name, has: "hashedCompletion" in (table.validator?.fields ?? {}) }).toEqual({
