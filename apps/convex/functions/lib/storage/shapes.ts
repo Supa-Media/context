@@ -177,6 +177,9 @@ export interface RekeyResult {
   managedMigrationsRekeyed: number;
   managedMigrationsSkipped: number;
   managedMigrationsUnreadable: number;
+  connectorSecretsRekeyed: number;
+  connectorSecretsSkipped: number;
+  connectorSecretsUnreadable: number;
 }
 
 export interface ManagedMigrationRekeyCandidates {

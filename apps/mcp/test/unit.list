@@ -182,6 +182,7 @@ test/searchKeyed/census.test.mjs
 test/agentGroupActions.test.mjs
 test/vaultGroupChat.test.mjs
 test/connectors.test.mjs
+test/apps.test.mjs
 test/meetingsAnywhere.test.mjs
 test/agentSentNoteLinks.test.mjs
 test/agentBackground.test.mjs

@@ -14,10 +14,12 @@
 import { oneLine } from "../privacy/egress.js";
 import { describeInvitations, invitationsOf } from "./workspaces.js";
 import { slackHeldSummary } from "./connectors.js";
+import { appHeldSummary } from "./apps.js";
 
 const HANDLE_IS_PERMANENT = "a @handle, once claimed, is never given back";
 const EMAIL_IS_SENT = "an invitation is emailed and cannot be unsent";
 const SLACK_IS_READ = "people in Slack read a message the moment it lands";
+const APP_CHANGES = "a change in another app happens there, where Context cannot undo it";
 
 function slugOf(args) {
   return typeof args.slug === "string" ? args.slug.trim().replace(/^@/, "").toLowerCase() : "";
@@ -68,6 +70,12 @@ export function irreversibleOf(name, args, { into = null } = {}) {
     const summary = slackHeldSummary(a);
     if (summary === null) return null;
     return { audience: "outside", permanent: true, summary, because: SLACK_IS_READ };
+  }
+  if (name === "app_change") {
+    // Every change through a connected app waits: Context can't know what a tool does.
+    const summary = appHeldSummary(a);
+    if (summary === null) return null;
+    return { audience: "outside", permanent: true, summary, because: APP_CHANGES };
   }
   return null;
 }

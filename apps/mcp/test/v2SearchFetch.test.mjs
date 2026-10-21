@@ -106,6 +106,9 @@ describe("translateFetch: keyword ids", () => {
     ["plugins:", {}, "list_plugins", {}],
     ["access:", {}, "scope_info", {}],
     ["access:", { path: "1-projects/x.md", workspaces: true }, "scope_info", { path: "1-projects/x.md", workspaces: true }],
+    ["apps:", {}, "app_read", {}],
+    ["apps:linear", {}, "app_read", { app: "linear" }],
+    ["apps:linear", { tool: "list_issues", arguments: { limit: 5 } }, "app_read", { app: "linear", tool: "list_issues", arguments: { limit: 5 } }],
   ];
   for (const [id, args, name, expected] of cases) {
     it(`${id} with ${JSON.stringify(args)} is ${name}`, () => {

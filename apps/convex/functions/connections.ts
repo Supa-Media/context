@@ -29,7 +29,10 @@ import { httpsAppOrigin, randomOpaqueToken } from "./lib/gatewayAuth";
 import { recordAudit } from "./lib/audit";
 import { requireActor } from "./lib/googleConnect/config";
 import { getMembership } from "./lib/workspaceAuth";
-import { providerClient, providerOf, scopeForWorkspaceKind } from "./lib/providers/registry";
+import { providerAvailable, providerClient, providerOf, scopeForWorkspaceKind } from "./lib/providers/registry";
+import { revokeAtProvider } from "./lib/providers/oauth";
+import { resolveClient } from "./lib/connections/standard";
+import { providerValidator, type ProviderId } from "./lib/providers/ids";
 import { SLACK_TOKEN_GONE, slackCall, slackMethodAllowed, slackMethodReads } from "./lib/providers/slack";
 import {
   CONNECT_ATTEMPT_TTL_MS,
@@ -39,7 +42,7 @@ import {
   mayConnect,
 } from "./lib/connections/links";
 
-const provider = v.literal("slack");
+const provider = providerValidator;
 const scope = v.union(v.literal("personal"), v.literal("workspace"));
 
 function unavailable(): never {
@@ -98,7 +101,7 @@ export const connectLinkInfo = query({
       providerName: spec.name,
       scope: found.scope,
       workspaceName: found.workspace.displayName,
-      available: providerClient(spec) !== null,
+      available: providerAvailable(spec),
       connectedTeams: rows.filter((row) => row.provider === found.link.provider).map((row) => row.externalTeamName),
     };
   },
@@ -108,7 +111,7 @@ export const connectLinkInfo = query({
 
 export const parkConnectAttempt = internalMutation({
   args: { hashedToken: v.string(), userId: v.id("users"), hashedState: v.string(), hashedCompletion: v.string() },
-  returns: v.union(v.null(), v.object({ provider, scope })),
+  returns: v.union(v.null(), v.object({ provider, scope, workspaceId: v.id("workspaces") })),
   handler: async (ctx, args) => {
     const found = await linkForHashed(ctx, args.hashedToken, args.userId);
     if (found.state !== "ready") return null;
@@ -128,7 +131,23 @@ export const parkConnectAttempt = internalMutation({
       expiresAt: now + CONNECT_ATTEMPT_TTL_MS,
       createdAt: now,
     });
-    return { provider: found.link.provider, scope: found.scope };
+    return { provider: found.link.provider, scope: found.scope, workspaceId: found.workspace._id };
+  },
+});
+
+/** A standard provider's PKCE verifier, sealed to the attempt's workspace once the attempt is parked. */
+export const sealAttemptVerifier = internalMutation({
+  args: { hashedState: v.string(), hashedCompletion: v.string(), encryptedVerifier: v.string() },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const attempt = await ctx.db
+      .query("providerConnectAttempts")
+      .withIndex("by_hashed_state", (q) => q.eq("hashedState", args.hashedState))
+      .unique();
+    // Only the attempt this browser parked, and only once.
+    if (attempt === null || attempt.hashedCompletion !== args.hashedCompletion || attempt.encryptedVerifier !== undefined) return false;
+    await ctx.db.patch(attempt._id, { encryptedVerifier: args.encryptedVerifier });
+    return true;
   },
 });
 
@@ -146,7 +165,7 @@ export const startProviderConnect = action({
     if (origin === null) unavailable();
     const state = randomOpaqueToken(32);
     const completionSecret = randomOpaqueToken(32);
-    const parked: { provider: "slack"; scope: "personal" | "workspace" } | null = await ctx.runMutation(
+    const parked: { provider: ProviderId; scope: "personal" | "workspace"; workspaceId: Id<"workspaces"> } | null = await ctx.runMutation(
       internal.functions.connections.parkConnectAttempt,
       {
         hashedToken: await hashToken(args.token),
@@ -157,17 +176,25 @@ export const startProviderConnect = action({
     );
     if (parked === null) expired();
     const spec = providerOf(parked.provider)!;
-    const client = providerClient(spec);
-    if (client === null) unavailable();
-    return {
-      completionSecret,
-      authorizeUrl: spec.authorizeUrl({
-        clientId: client.clientId,
-        redirectUri: `${origin}${spec.callbackPath}`,
-        state,
-        scope: parked.scope,
-      }),
-    };
+    const redirectUri = `${origin}${spec.callbackPath}`;
+    if (spec.kind === "slack") {
+      const client = providerClient(spec);
+      if (client === null) unavailable();
+      return {
+        completionSecret,
+        authorizeUrl: spec.authorizeUrl({ clientId: client.clientId, redirectUri, state, scope: parked.scope }),
+      };
+    }
+    const authorizeUrl: string | null = await ctx.runAction(internal.functions.connectionConsent.standardConsentUrl, {
+      provider: parked.provider,
+      workspaceId: parked.workspaceId,
+      hashedState: await hashToken(state),
+      hashedCompletion: await hashToken(completionSecret),
+      state,
+      redirectUri,
+    });
+    if (authorizeUrl === null) unavailable();
+    return { completionSecret, authorizeUrl };
   },
 });
 
@@ -178,7 +205,15 @@ export const startProviderConnect = action({
  */
 export const consumeConnectAttempt = internalMutation({
   args: { provider, hashedState: v.string(), hashedCompletion: v.string(), userId: v.id("users") },
-  returns: v.union(v.null(), v.object({ workspaceId: v.id("workspaces"), linkId: v.id("providerConnectLinks"), scope })),
+  returns: v.union(
+    v.null(),
+    v.object({
+      workspaceId: v.id("workspaces"),
+      linkId: v.id("providerConnectLinks"),
+      scope,
+      encryptedVerifier: v.optional(v.string()),
+    }),
+  ),
   handler: async (ctx, args) => {
     const attempt = await ctx.db
       .query("providerConnectAttempts")
@@ -193,7 +228,12 @@ export const consumeConnectAttempt = internalMutation({
     if (link === null || link.usedAt !== undefined || link.expiresAt + CONNECT_ATTEMPT_TTL_MS < Date.now()) return null;
     const workspace = await mayConnect(ctx, attempt.workspaceId, args.userId);
     if (workspace === null) return null;
-    return { workspaceId: workspace._id, linkId: link._id, scope: scopeForWorkspaceKind(workspace.kind) };
+    return {
+      workspaceId: workspace._id,
+      linkId: link._id,
+      scope: scopeForWorkspaceKind(workspace.kind),
+      ...(attempt.encryptedVerifier === undefined ? {} : { encryptedVerifier: attempt.encryptedVerifier }),
+    };
   },
 });
 
@@ -205,6 +245,8 @@ export const storeConnection = internalMutation({
     connectedBy: v.id("users"),
     scope,
     encryptedAccessToken: v.string(),
+    encryptedRefreshToken: v.optional(v.string()),
+    accessTokenExpiresAt: v.optional(v.number()),
     grantedScopes: v.array(v.string()),
     externalAccountId: v.string(),
     externalTeamId: v.string(),
@@ -226,11 +268,15 @@ export const storeConnection = internalMutation({
       scope: args.scope,
       connectedBy: args.connectedBy,
       encryptedAccessToken: args.encryptedAccessToken,
+      encryptedRefreshToken: args.encryptedRefreshToken,
+      accessTokenExpiresAt: args.accessTokenExpiresAt,
       grantedScopes: args.grantedScopes,
       externalAccountId: args.externalAccountId,
       externalTeamName: args.externalTeamName,
       updatedAt: now,
       reconnectRequiredAt: undefined,
+      readOnlyTools: undefined,
+      toolsListedAt: undefined,
     };
     // Reconnecting the same Slack replaces its token; the old one is revoked after.
     if (existing === null) {
@@ -263,31 +309,49 @@ export const storeConnection = internalMutation({
 /** The provider's callback, finished by the browser that started it. */
 export const completeProviderConnect = action({
   args: { provider, state: v.string(), code: v.string(), completionSecret: v.string() },
-  returns: v.object({ teamName: v.string(), workspaceName: v.string(), scope }),
-  handler: async (ctx, args): Promise<{ teamName: string; workspaceName: string; scope: "personal" | "workspace" }> => {
+  returns: v.object({ teamName: v.string(), workspaceName: v.string(), scope, pending: v.optional(v.number()) }),
+  handler: async (ctx, args): Promise<{ teamName: string; workspaceName: string; scope: "personal" | "workspace"; pending?: number }> => {
     const userId = await requireActor(ctx);
-    const spec = providerOf(args.provider)!;
-    const client = providerClient(spec);
+    const spec = providerOf(args.provider);
     const origin = httpsAppOrigin();
-    if (client === null || origin === null) unavailable();
-    const consumed: { workspaceId: Id<"workspaces">; linkId: Id<"providerConnectLinks">; scope: "personal" | "workspace" } | null =
-      await ctx.runMutation(internal.functions.connections.consumeConnectAttempt, {
-        provider: args.provider,
-        hashedState: await hashToken(args.state),
-        hashedCompletion: await hashToken(args.completionSecret),
-        userId,
-      });
-    if (consumed === null) expired();
-    const token = await spec.exchange({
-      clientId: client.clientId,
-      clientSecret: client.clientSecret,
-      code: args.code,
-      redirectUri: `${origin}${spec.callbackPath}`,
-      scope: consumed.scope,
+    if (spec === null || origin === null || !providerAvailable(spec)) unavailable();
+    const redirectUri = `${origin}${spec.callbackPath}`;
+    const consumed: {
+      workspaceId: Id<"workspaces">;
+      linkId: Id<"providerConnectLinks">;
+      scope: "personal" | "workspace";
+      encryptedVerifier?: string;
+    } | null = await ctx.runMutation(internal.functions.connections.consumeConnectAttempt, {
+      provider: args.provider,
+      hashedState: await hashToken(args.state),
+      hashedCompletion: await hashToken(args.completionSecret),
+      userId,
     });
-    if (token === null) {
+    if (consumed === null) expired();
+    const failed = (): never => {
       throw new ConvexError({ code: "CONNECT_EXCHANGE_FAILED", message: `${spec.name} did not finish connecting. Try the link again.` });
+    };
+    if (spec.kind !== "slack") {
+      if (consumed.encryptedVerifier === undefined) failed();
+      // Scheduled, so this public action never reaches a sealed secret; the page
+      // watches `connectionState` from `pending`, this server's clock before the finish.
+      const pending = Date.now();
+      await ctx.scheduler.runAfter(0, internal.functions.connectionConsent.finishStandardConsent, {
+        provider: args.provider,
+        workspaceId: consumed.workspaceId,
+        linkId: consumed.linkId,
+        connectedBy: userId,
+        scope: consumed.scope,
+        encryptedVerifier: consumed.encryptedVerifier!,
+        code: args.code,
+        redirectUri,
+      });
+      return { teamName: spec.name, workspaceName: "", scope: consumed.scope, pending };
     }
+    const client = providerClient(spec);
+    if (client === null) unavailable();
+    const token = await spec.exchange({ ...client, code: args.code, redirectUri, scope: consumed.scope });
+    if (token === null) failed();
     const keyset = requireKeyset();
     const binding = { workspaceId: consumed.workspaceId as string };
     const stored: { workspaceName: string } = await ctx.runMutation(
@@ -298,17 +362,67 @@ export const completeProviderConnect = action({
         linkId: consumed.linkId,
         connectedBy: userId,
         scope: consumed.scope,
-        encryptedAccessToken: await encryptSecret(token.accessToken, keyset, binding),
-        grantedScopes: token.scopes,
-        externalAccountId: token.accountId,
-        externalTeamId: token.teamId,
-        externalTeamName: token.teamName,
+        encryptedAccessToken: await encryptSecret(token!.accessToken, keyset, binding),
+        grantedScopes: token!.scopes,
+        externalAccountId: token!.accountId,
+        externalTeamId: token!.teamId,
+        externalTeamName: token!.teamName,
       },
     );
-    return { teamName: token.teamName, workspaceName: stored.workspaceName, scope: consumed.scope };
+    return { teamName: token!.teamName, workspaceName: stored.workspaceName, scope: consumed.scope };
   },
 });
 
+/** A finish that did not land: audited, so the callback page can stop waiting and say so. */
+export const noteConnectFailed = internalMutation({
+  args: { workspaceId: v.id("workspaces"), userId: v.id("users"), provider },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await recordAudit(ctx, {
+      workspaceId: args.workspaceId,
+      actorUserId: args.userId,
+      action: "connection.failed",
+      details: { provider: args.provider },
+    });
+    return null;
+  },
+});
+
+/**
+ * Whether the signed-in person's own connection to this app landed since
+ * `since`, for the callback page to watch while the exchange runs. Their
+ * personal workspace only; names nothing but the state.
+ */
+export const connectionState = query({
+  args: { provider, since: v.number() },
+  returns: v.union(v.literal("waiting"), v.literal("connected"), v.literal("failed")),
+  handler: async (ctx, args) => {
+    const userId = await requireActor(ctx);
+    const memberships = await ctx.db
+      .query("workspaceMembers")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .take(100);
+    for (const membership of memberships) {
+      const workspace = await ctx.db.get(membership.workspaceId);
+      if (workspace === null || workspace.kind !== "personal" || membership.role !== "owner") continue;
+      const rows = await ctx.db
+        .query("providerConnections")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
+        .take(50);
+      if (rows.some((row) => row.provider === args.provider && row.connectedBy === userId && row.updatedAt >= args.since)) {
+        return "connected" as const;
+      }
+      const failures = await ctx.db
+        .query("auditEvents")
+        .withIndex("by_workspace_at", (q) => q.eq("workspaceId", workspace._id).gte("at", args.since))
+        .take(50);
+      if (failures.some((event) => event.action === "connection.failed" && event.details?.provider === args.provider)) {
+        return "failed" as const;
+      }
+    }
+    return "waiting" as const;
+  },
+});
 
 /* ------------------------------------------------------------ settings -- */
 
@@ -388,10 +502,16 @@ export const disconnectConnection = mutation({
 export const revokeToken = internalAction({
   args: { provider, workspaceId: v.id("workspaces"), encryptedAccessToken: v.string() },
   returns: v.null(),
-  handler: async (_ctx, args) => {
-    const spec = providerOf(args.provider)!;
+  handler: async (ctx, args) => {
+    const spec = providerOf(args.provider);
+    const origin = httpsAppOrigin();
     try {
-      await spec.revoke(await decryptSecret(args.encryptedAccessToken, requireKeyset(), { workspaceId: args.workspaceId as string }));
+      const token = await decryptSecret(args.encryptedAccessToken, requireKeyset(), { workspaceId: args.workspaceId as string });
+      if (spec?.kind === "slack") await spec.revoke(token);
+      else if (spec !== null && origin !== null) {
+        const client = await resolveClient(ctx, spec, `${origin}${spec.callbackPath}`);
+        if (client !== null) await revokeAtProvider(client, token);
+      }
     } catch {
       // Best effort: the row is already gone or replaced, and the provider's own settings can still revoke it.
     }

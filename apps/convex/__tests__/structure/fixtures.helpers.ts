@@ -258,6 +258,17 @@ export const DECRYPT_IMPORTERS: ReadonlySet<string> = new Set([
   // `revokeToken`, scheduled after a disconnect, a reconnect or a workspace's
   // deletion. Both internal; no public function reaches either.
   "functions/connections.ts",
+  // The same connectors past Slack (the owner, 2026-10-21: "connect through
+  // the official mcp"). `connectionApps.ts` opens a connection's token, and
+  // its refresh token, for one MCP tool call or one of our API tools, in the
+  // internal `callApp`. `connectionConsent.ts` opens the PKCE verifier in the
+  // internal `finishStandardConsent`, scheduled by the public callback, never
+  // called by it. `lib/connections/standard.ts` opens a client secret an app
+  // issued at registration, for those two only; starting a consent goes
+  // through `standardClient.ts`, which opens nothing.
+  "functions/connectionApps.ts",
+  "functions/connectionConsent.ts",
+  "functions/lib/connections/standard.ts",
 ]);
 
 /** An import of `decryptSecret`, in code rather than in prose. */

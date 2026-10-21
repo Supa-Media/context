@@ -459,6 +459,8 @@ export function SettingsPane({
       {/* Mail and calendar first, above the AI connections (Dev2, 2026-10-20). */}
       <SourcesPanel data={data} />
 
+      {/* Connectors belong to one personal workspace, acted in as its owner (`docs/decisions/connectors.md`). */}
+
       <ConnectedAppsCard data={data} onConnectAgent={onConnectAgent} />
 
       <MoreCard onSelect={onSelect} />

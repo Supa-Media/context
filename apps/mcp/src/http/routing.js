@@ -97,6 +97,7 @@ export function attachLinkCalls(store, session, controlPlane, env) {
     value: {
       request: (provider) => controlPlane.connectRequest(session.accessToken, session.workspaceId, provider),
       call: (request) => controlPlane.connectCall(session.accessToken, session.workspaceId, request),
+      apps: () => controlPlane.connectApps(session.accessToken, session.workspaceId),
     },
     enumerable: false,
     writable: false,

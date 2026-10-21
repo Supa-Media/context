@@ -87,3 +87,39 @@ group chat, or another person, never reaches someone's own Slack", "a consent
 answered without the starting browser's secret lands nowhere", "a method off
 the list never leaves") and `apps/mcp/test/connectors.test.mjs` ("a post
 waits for the person's yes to its words").
+
+### An app with an official MCP server connects through it (2026-10-21)
+
+Dev2 asked that Tex reach apps through their official MCP servers where they
+exist, "so Tex essentially just has more tools", and that Tex know which apps
+it reaches natively and which it still signs in to with its browser.
+
+- **One flow for every such app.** Linear, Notion, Jira and Confluence,
+  Airtable, monday.com, Planning Center, Calendly, ClickUp and Todoist are one
+  row each in `lib/providers/mcpApps.ts`: a name and a server URL. The link,
+  the consent page and the callback are the Slack ones.
+- **No keys of ours.** The control plane discovers the server's authorization
+  server (RFC 9728, RFC 8414), registers itself once per callback address
+  (RFC 7591, a public client) and keeps that registration in
+  `providerOAuthClients`. Consent always carries PKCE (S256) and the server as
+  `resource` (RFC 8707). An app whose server needs a pre-registered client
+  (Slack, HubSpot, Box, Asana) is not in this list; Slack keeps its Web API
+  connector.
+- **The public action never opens a secret.** `completeProviderConnect`
+  schedules `finishStandardConsent`, which exchanges the code; the callback
+  page watches `connectionState` until it lands or fails.
+- **A read is what the app marks read-only, and nothing else.** A tool runs
+  without a change only when its `readOnlyHint` is true. A tool marked
+  otherwise, or not marked at all, is refused as `needs_yes`, and the gateway
+  holds every `app_change` (`send app`) for the person's yes to exactly that
+  call (`irreversible.js`), because Context cannot know what an app's tool
+  does. Simplifying this to "trust the description" lets a model post or
+  delete in somebody's workspace unasked. Tests:
+  `apps/convex/__tests__/connections/mcpConnect.test.ts`,
+  `apps/mcp/test/apps.test.mjs`.
+- **Tex reads the catalog before reaching for a browser.** `fetch apps:` lists
+  every app this deployment connects and the person's state in each; anything
+  not listed is a browser job. A group chat sees every app as unavailable.
+
+Outlook stays on its own Microsoft Graph connector, waiting on a Microsoft
+Entra app (Dev2 has no Microsoft directory yet).

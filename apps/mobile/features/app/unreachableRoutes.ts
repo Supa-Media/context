@@ -73,6 +73,28 @@ export const DELIBERATELY_UNREACHABLE: readonly RouteReachability[] = [
     marker: "stop a new email's seven-day wait",
   },
   {
+    route: "/connect/[provider]",
+    file: "app/connect/[provider]/index.tsx",
+    reachable: false,
+    reason:
+      "The URL a connector's provider (Slack, and later others) redirects back to, " +
+      "registered with that provider. The app sends people out to the provider and " +
+      "the provider sends them here with a code and a state; opening it from inside " +
+      "the app would land on a callback without the browser-kept completion secret " +
+      "that started the connection.",
+    marker: "the URL a connector's provider",
+  },
+  {
+    route: "/connect/[provider]/[token]",
+    file: "app/connect/[provider]/[token].tsx",
+    reachable: false,
+    reason:
+      "The private link Tex texts when it needs a provider connected for the person. " +
+      "The token exists in that one text message, and the page opens only for the " +
+      "signed-in person who asked for it.",
+    marker: "the private link Tex texts when it needs a provider connected",
+  },
+  {
     route: "/connect/google",
     file: "app/connect/google.tsx",
     reachable: false,

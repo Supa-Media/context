@@ -38,7 +38,11 @@ test("connect_app hands back the control plane's link, to send on a line of its 
   const off = await toolConnectApp(storeWith({ request: async () => ({ url: null, reason: "unavailable" }) }), { app: "slack" });
   assert.equal(off.isError, true);
   assert.match(text(off), /not set up/);
-  assert.equal((await toolConnectApp(store, { app: "outlook" })).isError, true);
+  assert.equal((await toolConnectApp(store, { app: "Not an app!" })).isError, true);
+  const unknown = await toolConnectApp(storeWith({ request: async () => ({ url: null, reason: "unknown_provider" }) }), { app: "outlook" });
+  assert.match(text(unknown), /fetch apps:/);
+  const named = await toolConnectApp(storeWith({ request: async () => ({ url: "https://context.lc/connect/linear/x", name: "Linear" }) }), { app: "linear" });
+  assert.match(text(named), /approve in Linear/);
 });
 
 test("a Slack call goes to the control plane as method, args and team, and the answer says which Slack", async () => {

@@ -286,6 +286,9 @@ const ROUTES: Record<string, Coverage> = {
   "[handle]/[...path].tsx": { kind: "screen", mount: () => websitePage() },
   "connect/google.tsx": { kind: "screen", mount: () => createElement(GoogleCallbackScreen) },
   "connect/cli.tsx": { kind: "screen", mount: () => createElement(CliConnectedScreen) },
+  // With no provider or token in the params, each paints its own refusal page.
+  "connect/[provider]/index.tsx": { kind: "screen", mount: () => createElement(requireRoute("connect/[provider]/index.tsx")) },
+  "connect/[provider]/[token].tsx": { kind: "screen", mount: () => createElement(requireRoute("connect/[provider]/[token].tsx")) },
   /*
     `EXPO_PUBLIC_E2E_FIXTURE` is unset here, exactly as it is in every real
     build, so this renders a bare `Redirect` and nothing else — the `gate`

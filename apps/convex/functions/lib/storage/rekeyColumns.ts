@@ -76,6 +76,7 @@ export const ROTATED_ENVELOPE_COLUMNS = [
   "encryptedValue",
   "encryptedTargetSecretAccessKey",
   "encryptedApiKey",
+  "encryptedClientSecret",
 ] as const;
 
 /**

@@ -58,6 +58,7 @@ import { toolMailNote, toolReadMail } from "./notes/mail.js";
 import { toolSiteAction } from "./notes/site.js";
 import { toolEvaluateLists } from "./evaluateLists.js";
 import { toolConnectApp, toolSlackApi } from "./connectors.js";
+import { toolAppChange, toolAppRead } from "./apps.js";
 import { moveFinished, moveJobActive, moveJobKey } from "../moves/jobs.js";
 import { getWithLegacyFallback } from "../storageLayout.js";
 import { servedListingStore, TreeUnavailable } from "../tree/served.js";
@@ -297,6 +298,10 @@ async function runTool(name, args, store, scope) {
       return toolConnectApp(store, args);
     case "slack_api":
       return toolSlackApi(store, args);
+    case "app_read":
+      return toolAppRead(store, args);
+    case "app_change":
+      return toolAppChange(store, args);
     case "invite_member":
       return toolInviteMember(store, args);
     case "dream_now":
