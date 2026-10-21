@@ -147,7 +147,7 @@ export function VaultInline({
                 {said}
               </Text>
             ) : null}
-            <VaultValues login={view.revealed.type === "login"} values={values} />
+            <VaultValues login={view.revealed.type === "login"} card={view.revealed.type === "card"} values={values} />
           </>
         );
       default:
@@ -158,7 +158,7 @@ export function VaultInline({
   if (mode === "view") {
     return (
       <View style={styles.section} testID="vault-inline-view">
-        {editing ? null : <Text variant="eyebrow">{view.kind === "view" && view.entry.type === "login" ? "Sign-in" : "Values"}</Text>}
+        {editing ? null : <Text variant="eyebrow">{view.kind === "view" && view.entry.type === "login" ? "Sign-in" : view.kind === "view" && view.entry.type === "card" ? "Card" : "Values"}</Text>}
         {body}
       </View>
     );

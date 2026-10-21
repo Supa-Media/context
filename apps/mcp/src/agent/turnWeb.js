@@ -54,6 +54,8 @@ export async function openTurnWeb(env, { session, texting, group, question, vouc
           // The vault this turn's grant opens, for `fill_login`: a group chat's is its
           // shared workspace's, narrowed to what the whole workspace was given.
           store,
+          // A card's payment is asked by text, with the turn's other asks (`vault/pay.js`).
+          asks: texting || group ? ledger : null,
           // The person's own files, read as them, for a page's upload box (`uploads.js`).
           files: (step) => resolveUpload(step, { dispatch, store }),
         });

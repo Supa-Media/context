@@ -22,6 +22,7 @@ import {
   type RevealedField,
 } from "./vaultFields";
 import type { FieldSummary, VaultLinkView } from "./vaultLink";
+import { CARD_FIELD_LABELS } from "./vaultCard";
 
 type ViewState = Extract<VaultLinkView, { kind: "view" }>;
 
@@ -64,14 +65,14 @@ export function VaultViewPage({
     <View testID="vault-link-view">
       <Title size={titleSize}>{entry.name}</Title>
       <Text variant="heroSub" style={styles.sub}>
-        {`${login ? "A login" : "A secret"} in ${where}. Values stay hidden until you reveal them, and each reveal is recorded.`}
+        {`${login ? "A login" : entry.type === "card" ? "A card" : "A secret"} in ${where}. Values stay hidden until you reveal them, and each reveal is recorded.`}
       </Text>
       <Card style={styles.facts}>
         <FieldList
           testIDPrefix="vault-view"
           fields={[
             { label: "Workspace", value: view.workspace.name },
-            ...(sites ? [{ label: "Fills on", value: sites }] : []),
+            ...(sites ? [{ label: entry.type === "card" ? "Pays on" : "Fills on", value: sites }] : []),
           ]}
         />
       </Card>
@@ -108,7 +109,7 @@ export function VaultViewPage({
         {entry.fields.map((field, index) => (
           <ValueRow
             key={field.name}
-            label={field.name}
+            label={entry.type === "card" ? (CARD_FIELD_LABELS[field.name] ?? field.name) : field.name}
             tag={field.perEnv ? env : undefined}
             value={shown ? revealedValue(shown.fields, field.name, env) : null}
             set={isSet(field, env)}

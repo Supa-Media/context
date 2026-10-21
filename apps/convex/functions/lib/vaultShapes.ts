@@ -10,7 +10,9 @@ import type { Id } from "../../_generated/dataModel";
 
 export type FieldSummary = { name: string; perEnv: boolean; set: string[] };
 export type FieldValues = { name: string; perEnv: boolean; values: Record<string, string> };
-export type EntryKind = "login" | "secret";
+export type EntryKind = "login" | "secret" | "card";
+/** `meta.card`: what anyone is shown of a card (`apps/mcp/src/vault/card.js`). Never its number or code. */
+export type CardSummary = { brand: string; last4: string; expMonth: string; expYear: string };
 /** `meta.proxy`: the one website Context adds this key for (`apps/mcp/src/vault/proxy.js`). */
 export type ProxyPin = { host: string; style: "bearer" | "header" | "query"; name?: string; prefix?: string; ask: boolean };
 /** The AIs a person said "Yes, from now on" to (`apps/mcp/src/vault/asks.js`). */
@@ -36,6 +38,7 @@ export type VaultMeta = {
   people: string[];
   shares?: Share[];
   proxy?: StoredPin;
+  card?: CardSummary;
   createdBy: string;
   createdAt: number;
   updatedAt: number;
@@ -54,6 +57,7 @@ export type ShownMeta = {
   shares?: Share[];
   fields: FieldSummary[];
   proxy?: ProxyPin & PinHistory;
+  card?: CardSummary;
   createdBy: string;
   createdAt: number;
 };
@@ -73,6 +77,7 @@ export type Described = {
 
 export const kindValidator = v.union(v.literal("add"), v.literal("share"), v.literal("view"));
 export const fieldSummaryValidator = v.object({ name: v.string(), perEnv: v.boolean(), set: v.array(v.string()) });
+export const cardSummaryValidator = v.object({ brand: v.string(), last4: v.string(), expMonth: v.string(), expYear: v.string() });
 export const fieldValuesValidator = v.object({ name: v.string(), perEnv: v.boolean(), values: v.record(v.string(), v.string()) });
 
 export const proxyStyleValidator = v.union(v.literal("bearer"), v.literal("header"), v.literal("query"));
@@ -95,13 +100,14 @@ export const operationValidator = v.union(
     kind: v.literal("add"),
     entryId: v.string(),
     userId: v.string(),
-    type: v.union(v.literal("login"), v.literal("secret")),
+    type: v.union(v.literal("login"), v.literal("secret"), v.literal("card")),
     name: v.string(),
     sites: v.array(v.string()),
     username: v.string(),
     password: v.string(),
     fields: v.array(fieldValuesValidator),
     proxy: v.optional(proxyPinValidator),
+    card: v.optional(cardSummaryValidator),
   }),
   v.object({ kind: v.literal("reveal"), entryId: v.string(), userId: v.string(), groups: groupsArg }),
   v.object({ kind: v.literal("list"), userId: v.string(), groups: groupsArg }),
@@ -189,13 +195,14 @@ export const shownPinValidator = v.object({
   refused: v.optional(v.array(proxyClientValidator)),
 });
 export const metaValidator = v.object({
-  type: v.union(v.literal("login"), v.literal("secret")),
+  type: v.union(v.literal("login"), v.literal("secret"), v.literal("card")),
   name: v.string(),
   sites: v.array(v.string()),
   people: v.array(v.string()),
   shares: v.optional(v.array(shareValidator)),
   fields: v.array(fieldSummaryValidator),
   proxy: v.optional(shownPinValidator),
+  card: v.optional(cardSummaryValidator),
   createdBy: v.string(),
   createdAt: v.number(),
 });

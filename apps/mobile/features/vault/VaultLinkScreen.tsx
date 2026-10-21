@@ -147,15 +147,17 @@ export function VaultLinkBody({
         <View testID="vault-link-share">
           <Title size={titleSize}>{`Share ${view.entry.name} with ${who}?`}</Title>
           <Text variant="heroSub" style={styles.sub}>
-            {view.entry.type === "secret"
-              ? `After this, ${who} can see and copy its values, and Tex can paste them for ${who}${sites ? ` on ${sites}` : ""}. The values are never shown to their AI.`
-              : `After this, Tex can sign ${who} and their assistants in${sites ? ` to ${sites}` : ""}. The password is filled in for them and never shown to their AI.`}
+            {view.entry.type === "card"
+              ? `After this, Tex can pay with it for ${who}${sites ? ` on ${sites}` : ""}, each time only after ${who} says yes to that payment. The card is never shown to their AI.`
+              : view.entry.type === "secret"
+                ? `After this, ${who} can see and copy its values, and Tex can paste them for ${who}${sites ? ` on ${sites}` : ""}. The values are never shown to their AI.`
+                : `After this, Tex can sign ${who} and their assistants in${sites ? ` to ${sites}` : ""}. The password is filled in for them and never shown to their AI.`}
           </Text>
           <Card style={styles.facts}>
             <FieldList
               testIDPrefix="vault-share"
               fields={[
-                ...(sites ? [{ label: view.entry.type === "secret" ? "Fills on" : view.entry.sites.length > 1 ? "Sites" : "Site", value: sites }] : []),
+                ...(sites ? [{ label: view.entry.type === "card" ? "Pays on" : view.entry.type === "secret" ? "Fills on" : view.entry.sites.length > 1 ? "Sites" : "Site", value: sites }] : []),
                 { label: "Workspace", value: view.workspace.name },
               ]}
             />
@@ -189,7 +191,7 @@ export function VaultLinkBody({
     case "shared":
       return (
         <Ending testID="vault-link-shared" titleSize={titleSize} title={`Shared with ${atHandle(view.grantee)}`}>
-          {view.type === "secret"
+          {view.type === "secret" || view.type === "card"
             ? `${view.name} is theirs to use now. Go back to Messages.`
             : `Tex can now sign them in with ${view.name}. Go back to Messages.`}
         </Ending>
@@ -218,7 +220,18 @@ function AddPage({
   const styles = useThemedStyles(makeStyles);
   const [type, setType] = useState<EntryType>(initialDraft?.type ?? view.prefill.type);
   const name = view.prefill.name;
-  const title = type === "login" ? (name ? `Save your ${name} login` : "Save a login") : name ? `Save your ${name} keys` : "Save a secret";
+  const title =
+    type === "card"
+      ? name
+        ? `Save your ${name} card`
+        : "Save a card"
+      : type === "login"
+        ? name
+          ? `Save your ${name} login`
+          : "Save a login"
+        : name
+          ? `Save your ${name} keys`
+          : "Save a secret";
   return (
     <View testID="vault-link-add">
       <Title size={titleSize}>{title}</Title>
@@ -240,6 +253,7 @@ function AddPage({
 function addLine(type: EntryType, workspace: VaultWorkspace): string {
   const vault = workspace.kind === "personal" ? "your personal vault" : `the ${workspace.name} vault`;
   const yours = workspace.kind === "personal" ? "" : " Only you can use it until you share it.";
+  if (type === "card") return `So Tex can pay at a checkout, each time only after you allow it. It goes in ${vault}.${yours}`;
   return type === "login"
     ? `So Tex can sign in for you. It goes in ${vault}.${yours}`
     : `API keys and environment variables, sealed in ${vault}. Tex sees their names, never their values.${yours}`;
@@ -247,6 +261,9 @@ function addLine(type: EntryType, workspace: VaultWorkspace): string {
 
 function savedLine(view: Extract<VaultLinkView, { kind: "saved" }>): string {
   if (view.type === "login") return `Tex can sign in to ${view.site} for you now. Go back to Messages.`;
+  if (view.type === "card") {
+    return `Tex can fill ${view.name} at ${view.site ? `checkout on ${view.site}` : "a checkout"} now. Tex texts you before each payment, and fills the card only when you say yes. Go back to Messages.`;
+  }
   if (view.site) return `Tex can paste ${view.name} into ${view.site} for you now, without seeing it. Go back to Messages.`;
   return `${view.name} is in your vault. When you need a value, ask Tex for a link to see it. Go back to Messages.`;
 }

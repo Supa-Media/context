@@ -57,7 +57,7 @@ export type Step =
   | { do: "click"; x: number; y: number }
   | { do: "look" }
   | { do: "type"; ref: number; text: string; enter: boolean; onlyOn: string[] | null }
-  | { do: "fill"; ref: number; value: string; origin: string; field: "username" | "password" }
+  | { do: "fill"; ref: number; value: string; origin: string; field: FillField }
   | { do: "select"; ref: number; option: string }
   | { do: "press"; key: Key }
   | { do: "back" }
@@ -99,6 +99,15 @@ export interface StepResult {
 }
 
 /** The parts of a puppeteer page this file uses. */
+/**
+ * The kinds of box the vault fills: a login's two (`apps/mcp/src/agent/fillLogin.js`)
+ * and a card's parts (`apps/mcp/src/agent/fillCard.js`).
+ */
+export const CARD_FIELDS = ["cc-number", "cc-exp", "cc-exp-month", "cc-exp-year", "cc-cvc", "cc-name", "cc-postal-code"] as const;
+export type FillField = "username" | "password" | (typeof CARD_FIELDS)[number];
+const FILL_FIELDS = new Set<string>(["username", "password", ...CARD_FIELDS]);
+const isCardField = (field: FillField) => field.startsWith("cc-");
+
 export interface BrowsePage {
   goto(url: string, options: { waitUntil: "networkidle2" | "load" | "domcontentloaded"; timeout: number }): Promise<unknown>;
   evaluate<T>(source: string): Promise<T>;
@@ -178,8 +187,8 @@ function parseStep(item: unknown): Step | null {
     case "fill": {
       if (ref === null || typeof s.value !== "string" || s.value.length === 0 || s.value.length > 2_000) return null;
       const origin = publicHttpsUrl(s.origin);
-      if (s.field !== "username" && s.field !== "password") return null;
-      return origin === null ? null : { do: "fill", ref, value: s.value, origin: new URL(origin).origin, field: s.field };
+      if (typeof s.field !== "string" || !FILL_FIELDS.has(s.field)) return null;
+      return origin === null ? null : { do: "fill", ref, value: s.value, origin: new URL(origin).origin, field: s.field as FillField };
     }
     case "select":
       return ref === null || typeof s.option !== "string" || s.option.length > 200 ? null : { do: "select", ref, option: s.option };
@@ -372,14 +381,53 @@ async function exists(page: BrowsePage, ref: number): Promise<boolean> {
  * the page shows dots, so a search box that prints what is typed into it,
  * where a reading would show it, never receives one.
  */
-async function fieldIs(page: BrowsePage, ref: number, field: "username" | "password"): Promise<boolean> {
-  return await page.evaluate<boolean>(`(() => {
+async function fieldIs(page: BrowsePage, ref: number, field: FillField): Promise<"input" | "select" | null> {
+  // A card's expiry month or year may be a menu; every other part is a box a person types into.
+  const menu = field === "cc-exp-month" || field === "cc-exp-year";
+  const types = field === "password" ? ["password"] : field === "username" ? ["text", "email", "tel"] : ["text", "tel", "number", "password"];
+  return await page.evaluate<"input" | "select" | null>(`(() => {
     const el = document.querySelector('${selector(ref)}');
-    if (!el || el.tagName !== "INPUT") return false;
+    if (!el) return null;
+    if (el.tagName === "SELECT") return ${menu ? `"select"` : "null"};
+    if (el.tagName !== "INPUT") return null;
     const type = (el.getAttribute("type") || "text").toLowerCase();
-    return ${field === "password" ? `type === "password"` : `["text", "email", "tel"].includes(type)`};
+    return ${JSON.stringify(types)}.includes(type) ? "input" : null;
   })()`);
 }
+
+/**
+ * Pick a card's expiry month or year in a menu: the option whose value or
+ * words are that number ("08", "8", "08 - August", "2029", "29").
+ */
+function pickExpirySource(ref: number, value: string): string {
+  return `(() => {
+    const el = document.querySelector('${selector(ref)}');
+    const want = ${JSON.stringify(value)};
+    const n = String(Number(want));
+    const short = want.length === 4 ? want.slice(2) : null;
+    const lead = (s) => (String(s).trim().match(/^\d+/) || [""])[0];
+    const hit = (s) => { const d = lead(s); return d !== "" && (d === want || String(Number(d)) === n || (short !== null && d === short)); };
+    const option = el && [...el.options].find((o) => hit(o.value) || hit(o.innerText));
+    if (!option) return false;
+    el.value = option.value;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+    return true;
+  })()`;
+}
+
+/**
+ * A look is a picture the model sees, so a card's boxes are blanked in it once
+ * filled: the page shows dots where a person would see the number
+ * (`fillCard.js`: the model never sees a digit of the card).
+ */
+const HIDE_CARDS_SOURCE = `(() => {
+  if (document.getElementById("context-hide-cards")) return;
+  const style = document.createElement("style");
+  style.id = "context-hide-cards";
+  style.textContent = "[data-context-card]{color:transparent!important;text-shadow:none!important;-webkit-text-security:disc!important;caret-color:transparent!important}";
+  document.documentElement.appendChild(style);
+})()`;
 
 /** Empty a field the way a person selecting all and deleting would. */
 async function clear(page: BrowsePage, ref: number): Promise<void> {
@@ -485,6 +533,7 @@ async function pixelRatio(page: BrowsePage): Promise<{ ratio: number; width: num
 
 /** The page as a person sees it now, the part on screen. */
 async function look(page: BrowsePage): Promise<{ data: string; width: number; height: number }> {
+  await page.evaluate(HIDE_CARDS_SOURCE);
   const { width, height } = await pixelRatio(page);
   const raw = await page.screenshot({ type: "jpeg", quality: LOOK_QUALITY, encoding: "base64", fullPage: false });
   let data = typeof raw === "string" ? raw : "";
@@ -585,7 +634,13 @@ async function runStep(page: BrowsePage, step: Step): Promise<StepResult> {
     case "fill": {
       if (!(await exists(page, step.ref))) return missing;
       if ((await where(page)).origin !== step.origin) return { do: "fill", ok: false, reason: "origin mismatch" };
-      if (!(await fieldIs(page, step.ref, step.field))) return { do: "fill", ok: false, reason: `that is not a ${step.field} box` };
+      const box = await fieldIs(page, step.ref, step.field);
+      if (box === null) return { do: "fill", ok: false, reason: `that is not a ${step.field} box` };
+      if (isCardField(step.field)) await page.evaluate(`document.querySelector('${selector(step.ref)}').setAttribute("data-context-card", "")`);
+      if (box === "select") {
+        if (!(await page.evaluate<boolean>(pickExpirySource(step.ref, step.value)))) return { do: "fill", ok: false, reason: "that menu has no option for the card's expiry" };
+        return ok;
+      }
       await clear(page, step.ref);
       await page.type(selector(step.ref), step.value);
       return ok;

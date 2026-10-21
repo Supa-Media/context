@@ -54,6 +54,7 @@ import {
 } from "../../mcp/src/vault/entries.js";
 import { entryType, fieldSummaries, normalizeFields } from "../../mcp/src/vault/fields.js";
 import { savedPin } from "../../mcp/src/vault/proxy.js";
+import { cardInputValidator, checkedCard } from "./lib/vaultCard";
 import { deleteKey, editEntry } from "./lib/vaultEdit";
 import { allowClient, cutClients, giveKey, listFor, takeKey } from "./lib/vaultPeople";
 import {
@@ -362,6 +363,7 @@ export const runVaultOperation = internalAction({
         ...(Array.isArray(meta.shares) && meta.shares.length > 0 ? { shares: meta.shares } : {}),
         fields: Array.isArray(meta.fields) ? meta.fields : [],
         ...(meta.proxy ? { proxy: shownPin(meta.proxy) } : {}),
+        ...(entryType(meta) === "card" && meta.card ? { card: meta.card } : {}),
         createdBy: meta.createdBy,
         createdAt: meta.createdAt,
       },
@@ -386,6 +388,7 @@ export const runVaultOperation = internalAction({
     if (op.kind === "edit" || op.kind === "delete") {
       const edited = op.kind === "edit" ? await editEntry(store, keys, workspaceId, op) : await deleteKey(store, keys, workspaceId, op);
       if (edited === "conflict") throw fail("VAULT_CHANGED", "This key changed while you were editing it. Try again.");
+      if (edited === "card") throw fail("INVALID_ARGUMENT", "A card's details can't be changed. Delete it and save the new card.");
       return edited === "refused" ? null : { ...shown(op.entryId, edited.meta), changed: edited.changed };
     }
     if (op.kind === "meta") {
@@ -407,6 +410,7 @@ export const runVaultOperation = internalAction({
         sites: op.sites,
         fields: fieldSummaries(op.fields) as FieldSummary[],
         ...(op.proxy === undefined ? {} : { proxy: op.proxy }),
+        ...(op.type === "card" && op.card ? { card: op.card } : {}),
         people: [op.userId],
         createdBy: op.userId,
         createdAt: now,
@@ -488,7 +492,7 @@ export const describeVaultRequest = action({
     entry: v.union(
       v.null(),
       v.object({
-        type: v.union(v.literal("login"), v.literal("secret")),
+        type: v.union(v.literal("login"), v.literal("secret"), v.literal("card")),
         name: v.string(),
         sites: v.array(v.string()),
         fields: v.array(fieldSummaryValidator),
@@ -531,7 +535,7 @@ export const describeVaultRequest = action({
 export const saveVaultLogin = action({
   args: {
     token: v.string(),
-    type: v.optional(v.union(v.literal("login"), v.literal("secret"))),
+    type: v.optional(v.union(v.literal("login"), v.literal("secret"), v.literal("card"))),
     name: v.string(),
     site: v.string(),
     username: v.optional(v.string()),
@@ -539,6 +543,8 @@ export const saveVaultLogin = action({
     fields: v.optional(v.array(fieldValuesValidator)),
     /** "Let my AIs use it, never shown the key": the one website, and how it wants the key. */
     proxy: v.optional(proxyPinValidator),
+    /** A card, as the person typed it: checked and kept as fixed fields (`apps/mcp/src/vault/card.js`). */
+    card: v.optional(cardInputValidator),
   },
   returns: v.object({ name: v.string(), site: v.string() }),
   handler: async (ctx, args): Promise<{ name: string; site: string }> => {
@@ -548,10 +554,12 @@ export const saveVaultLogin = action({
     const name = args.name.trim();
     const username = args.username ?? "";
     const password = args.password ?? "";
-    const site = args.site.trim() === "" && type === "secret" ? "" : siteHost(args.site);
+    // A secret or a card may name no site: a card with none pays on any checkout, each time on the person's yes.
+    const site = args.site.trim() === "" && type !== "login" ? "" : siteHost(args.site);
     if (name.length === 0 || name.length > MAX_NAME) throw fail("INVALID_ARGUMENT", "Give it a short name.");
     if (site === null) throw fail("INVALID_ARGUMENT", "Enter the site's address, like netflix.com.");
-    const normalized = normalizeFields(args.fields);
+    const card = checkedCard(type, args);
+    const normalized = card === null ? normalizeFields(args.fields) : { fields: card.fields, error: null };
     if (normalized.error !== null) throw fail("INVALID_ARGUMENT", `Check the fields: ${normalized.error}.`);
     const fields = normalized.fields as FieldValues[];
     if (type === "login" && password.length === 0) throw fail("INVALID_ARGUMENT", "Enter the password.");
@@ -580,7 +588,7 @@ export const saveVaultLogin = action({
     const saved = await openVault(
       ctx,
       live.workspaceId,
-      { kind: "add", entryId: live.entryId, userId, type, name, sites: site ? [site] : [], username, password, fields, ...(proxy ? { proxy } : {}) },
+      { kind: "add", entryId: live.entryId, userId, type, name, sites: site ? [site] : [], username, password, fields, ...(proxy ? { proxy } : {}), ...(card ? { card: card.summary } : {}) },
       "That wasn't saved: your workspace's storage didn't take it.",
     );
     if (saved === null) throw fail("KEY_UNAVAILABLE", "This workspace's vault can't be opened right now.");
@@ -603,7 +611,7 @@ export const saveVaultLogin = action({
 export const revealVaultEntry = action({
   args: { token: v.string() },
   returns: v.object({
-    type: v.union(v.literal("login"), v.literal("secret")),
+    type: v.union(v.literal("login"), v.literal("secret"), v.literal("card")),
     name: v.string(),
     sites: v.array(v.string()),
     username: v.string(),

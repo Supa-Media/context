@@ -127,8 +127,9 @@ other people's words are in its history.
   group, and never at "see" (`apps/mcp/src/vault/access.js`
   `actorAccessOf`). A person who wants Tex to act for the group gives it a
   login of its own, such as a shared email, saved in the workspace for
-  everyone. The vault holds logins and secrets today; a card, when there is
-  one, is an entry like any other and follows the same rule.
+  everyone. A card is an entry like any other and follows the same rule;
+  each payment is still the tagger's own yes, replied to Tex's ask
+  ([vault](./vault.md), "A card pays only on the person's yes, each time").
 
 A simplification that reached the tagger's account through their role in
 the shared workspace would leave a member unable to send as themselves and

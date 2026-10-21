@@ -394,7 +394,7 @@ function VaultRow({ entry, now, selected, onPress }: { entry: VaultEntry; now?: 
       testID={`vault-row-${entry.entryId}`}
     >
       <View style={styles.tile}>
-        <Icon name={entry.type === "login" ? "lock" : "key"} size={18} color={colors.muted} />
+        <Icon name={entry.type === "login" ? "lock" : entry.type === "card" ? "card" : "key"} size={18} color={colors.muted} />
       </View>
       <View style={styles.flex}>
         <Text variant="rowTitle" numberOfLines={1}>
@@ -493,6 +493,14 @@ function VaultDetail({
             </Text>
           </View>
         </View>
+      ) : entry.type === "card" ? (
+        <View key="site" style={styles.section}>
+          <Text variant="eyebrow">Pays on</Text>
+          <Text variant="rowTitle" testID="vault-card-sites">
+            {entry.sites[0] ?? "Any checkout"}
+          </Text>
+          <Text variant="hint">Before each payment Tex texts you the total and the site, and fills the card only when you say yes.</Text>
+        </View>
       ) : entry.type === "login" ? (
         <View key="site" style={styles.section}>
           <Text variant="eyebrow">Tex fills it on</Text>
@@ -510,7 +518,7 @@ function VaultDetail({
       )}
       {entry.level === "use" && !editing ? (
         <Text key="use-only" variant="hint" testID="vault-use-only">
-          Your AI tools sign in for you. You can't see the {entry.type === "login" ? "password" : "key"}; ask {entry.givenBy ?? "whoever saved it"} if you need to.
+          Your AI tools sign in for you. You can't see the {entry.type === "login" ? "password" : entry.type === "card" ? "card number" : "key"}; ask {entry.givenBy ?? "whoever saved it"} if you need to.
         </Text>
       ) : null}
       {values}

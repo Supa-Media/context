@@ -14,6 +14,11 @@ function fakePage(start = "https://shop.example.com/") {
     navigate: {} as Record<number, string>,
     refs: new Set([1, 2, 3, 4]),
     types: { 1: "text", 2: "password" } as Record<number, string>,
+    tags: {} as Record<number, string>,
+    selected: {} as Record<number, string>,
+    options: {} as Record<number, string[]>,
+    marked: [] as number[],
+    hidden: 0,
     points: [] as Array<[number, number]>,
     ratio: 2,
     uploaded: [] as string[],
@@ -58,10 +63,31 @@ function fakePage(start = "https://shop.example.com/") {
         state.uploaded.push(source);
         return state.uploadAnswer as T;
       }
-      const kind = source.match(/data-tex-ref="(\d+)"[\s\S]*getAttribute\("type"\)[\s\S]*return (.*);/);
+      // `fieldIs`: which kind of box the element is, read from the source's own list.
+      const kind = source.match(/data-tex-ref="(\d+)"[\s\S]*tagName === "SELECT"\) return ([^;]+);[\s\S]*return (\[[^\]]*\])\.includes\(type\)/);
       if (kind) {
-        const type = state.types[Number(kind[1])] ?? "";
-        return (kind[2].includes('"password"') && !kind[2].includes("includes") ? type === "password" : ["text", "email", "tel"].includes(type)) as T;
+        const ref = Number(kind[1]);
+        if (!state.refs.has(ref)) return null as T;
+        if (state.tags[ref] === "SELECT") return (kind[2].includes('"select"') ? "select" : null) as T;
+        return ((JSON.parse(kind[3]) as string[]).includes(state.types[ref] ?? "") ? "input" : null) as T;
+      }
+      const marked = source.match(/data-tex-ref="(\d+)"[\s\S]*setAttribute\("data-context-card"/);
+      if (marked) {
+        state.marked.push(Number(marked[1]));
+        return undefined as T;
+      }
+      if (source.includes("context-hide-cards")) {
+        state.hidden += 1;
+        return undefined as T;
+      }
+      const pick = source.match(/data-tex-ref="(\d+)"[\s\S]*const want = "(\d+)"/);
+      if (pick && source.includes("el.options")) {
+        const ref = Number(pick[1]);
+        const want = pick[2];
+        const found = (state.options[ref] ?? []).find((o) => o === want || String(Number(o)) === String(Number(want)) || (want.length === 4 && o === want.slice(2)));
+        if (found === undefined) return false as T;
+        state.selected[ref] = found;
+        return true as T;
       }
       const cleared = source.match(/data-tex-ref="(\d+)"[\s\S]*dispatchEvent\(new Event\("input"/);
       if (cleared) state.typed[Number(cleared[1])] = "";
@@ -166,6 +192,37 @@ describe("runSteps", () => {
     expect(state.typed).toEqual({});
     const user = await runSteps(page, [{ do: "fill", ref: 1, value: "ada@example.com", origin: "https://shop.example.com", field: "username" }]);
     expect(user.ran[0]).toEqual({ do: "fill", ok: true });
+  });
+
+  it("fills a card's parts only into boxes of their kind, and a menu only for the expiry", async () => {
+    const { page, state } = fakePage("https://pay.shop.example.com/");
+    const origin = "https://pay.shop.example.com";
+    state.refs = new Set([1, 2, 5, 6, 7]);
+    state.types = { 1: "text", 2: "password", 5: "tel" };
+    state.tags = { 6: "SELECT", 7: "SELECT" };
+    state.options = { 6: ["01", "08", "12"], 7: ["2028", "2029"] };
+    const run = (steps: Parameters<typeof runSteps>[1]) => runSteps(page, steps);
+    expect((await run([{ do: "fill", ref: 5, value: "4242424242424242", origin, field: "cc-number" }])).ran[0]).toEqual({ do: "fill", ok: true });
+    expect((await run([{ do: "fill", ref: 6, value: "08", origin, field: "cc-exp-month" }])).ran[0]).toEqual({ do: "fill", ok: true });
+    expect((await run([{ do: "fill", ref: 7, value: "2029", origin, field: "cc-exp-year" }])).ran[0]).toEqual({ do: "fill", ok: true });
+    expect(state.selected).toEqual({ 6: "08", 7: "2029" });
+    // A number is never chosen in a menu, and an expiry with no option is refused, not guessed.
+    expect((await run([{ do: "fill", ref: 6, value: "4242424242424242", origin, field: "cc-number" }])).ran[0]).toEqual({ do: "fill", ok: false, reason: "that is not a cc-number box" });
+    expect((await run([{ do: "fill", ref: 7, value: "2031", origin, field: "cc-exp-year" }])).ran[0]).toEqual({ do: "fill", ok: false, reason: "that menu has no option for the card's expiry" });
+    expect(state.typed[5]).toBe("4242424242424242");
+    expect(state.marked).toEqual(expect.arrayContaining([5, 6, 7]));
+    // The site is still checked exactly.
+    expect((await runSteps(page, [{ do: "fill", ref: 5, value: "4242", origin: "https://shop.example.com", field: "cc-number" }])).ran[0]).toEqual({ do: "fill", ok: false, reason: "origin mismatch" });
+  });
+
+  it("blanks a filled card's boxes before every look", async () => {
+    const { page, state } = fakePage();
+    await runSteps(page, [{ do: "look" }]);
+    expect(state.hidden).toBe(1);
+  });
+
+  it("refuses a fill for a box kind it does not know", () => {
+    expect(parseBrowseRequest({ steps: [{ do: "fill", ref: 2, value: "x", origin: "https://shop.example.com", field: "ssn" }] })).toBeNull();
   });
 
   it("refuses a fill that does not say which box it is for", () => {

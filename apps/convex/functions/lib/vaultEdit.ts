@@ -21,7 +21,8 @@ import type { FieldValues, Revealed, VaultMeta, operationValidator } from "./vau
 type Operation = Infer<typeof operationValidator>;
 type EditOperation = Extract<Operation, { kind: "edit" }>;
 type DeleteOperation = Extract<Operation, { kind: "delete" }>;
-export type EditResult = { meta: VaultMeta; changed: string[] } | "refused" | "conflict";
+/** `card`: the edit would change a card's details, which are only ever saved whole and checked (`card.js`). */
+export type EditResult = { meta: VaultMeta; changed: string[] } | "refused" | "conflict" | "card";
 
 /**
  * Owners and editors may change any key they were given to see; anyone else
@@ -73,6 +74,7 @@ function metaAfter(meta: VaultMeta, op: EditOperation): { meta: VaultMeta; chang
 
 export async function editEntry(store: unknown, keys: unknown, workspaceId: string, op: EditOperation): Promise<EditResult> {
   let refused = false;
+  let card = false;
   let changed: string[] = [];
   let read: VaultMeta | null = null;
   const result = (await changeEntry(store, keys, workspaceId, op.entryId, (meta: VaultMeta, secret: Partial<Revealed>) => {
@@ -81,6 +83,11 @@ export async function editEntry(store: unknown, keys: unknown, workspaceId: stri
       return null;
     }
     read = meta;
+    // A card is renamed or moved to a site here; its number and the rest are never edited piecemeal.
+    if (meta.type === "card" && (op.fields !== undefined || op.proxy !== undefined || op.username !== undefined || op.password !== undefined)) {
+      card = true;
+      return null;
+    }
     const before: Revealed = {
       username: typeof secret?.username === "string" ? secret.username : "",
       password: typeof secret?.password === "string" ? secret.password : "",
@@ -108,6 +115,7 @@ export async function editEntry(store: unknown, keys: unknown, workspaceId: stri
     };
   })) as { written?: { meta: VaultMeta } | null; conflict?: true };
   if (refused) return "refused";
+  if (card) return "card";
   if (result.conflict) return "conflict";
   if (result.written) return { meta: result.written.meta, changed };
   // Nothing differed: the key as it was, and nothing to log.

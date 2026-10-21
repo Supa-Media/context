@@ -21,6 +21,7 @@
 
 import { disarmRecords, listPending } from "../tools/approvals.js";
 import { approvalVerdict, settleByText } from "./textedApprovals.js";
+import { settlePayByText } from "./textedPay.js";
 import { openTranscript } from "./transcript.js";
 import { appendConversation, appendTold, readConversation, readTold } from "./conversation.js";
 
@@ -33,8 +34,11 @@ export async function settleTextedText(store, session, { dispatch, question, has
   // The Worker's fixed texts since the last turn go in the history first (`conversation.js` `TOLD`).
   if (conversation !== null) await appendTold(store, conversation, readTold(told));
   const verdict = hasAttachments ? null : approvalVerdict(question); // a yes with a photo is about the photo
-  if (verdict !== null) {
-    const settled = await settleByText(store, session, verdict, question);
+  // A yes to a card's payment goes on to the model, which fills the card (`textedPay.js`).
+  const pay = await settlePayByText(store, session, verdict, question, now);
+  if (verdict !== null && pay.allowed.length === 0) {
+    const released = await settleByText(store, session, verdict, question);
+    const settled = [...pay.replies, ...(released === null ? [] : [released])].join("\n") || null;
     if (settled !== null) {
       // The yes and what it released go in today's transcript too (`transcript.js`), after the reply.
       await defer(openTranscript(dispatch, { now, timeZone, question }).finish({ answer: settled }));
@@ -62,7 +66,8 @@ export async function settleTextedText(store, session, { dispatch, question, has
   }
   // Said to the model, or it goes on as if the ask still stood: "I'll cc him
   // once you confirm" over an email nothing would ever send (2026-10-19).
-  return asked.length > 0 ? { setAside: asked.map(({ record }) => ({ tool: record.tool, summary: record.summary })) } : null;
+  const setAside = asked.length > 0 ? { setAside: asked.map(({ record }) => ({ tool: record.tool, summary: record.summary })) } : null;
+  return pay.allowed.length > 0 ? { ...setAside, allowed: pay.allowed } : setAside;
 }
 
 /** The model's note that what it asked before was set aside by this text, or "". */

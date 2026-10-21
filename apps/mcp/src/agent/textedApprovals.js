@@ -12,6 +12,7 @@ import { doneLine } from "./doneLine.js";
 import { canonicalToolName } from "../tools/advertised.js";
 import { withoutHeldEcho } from "./heldEcho.js";
 import { isGroupSession } from "./groupTurn.js";
+import { VAULT_PAY } from "../vault/pay.js";
 import { armForText, disarmRecords, listPending, replayAsAsked, settlePending, withdrawPending } from "../tools/approvals.js";
 
 /*
@@ -70,6 +71,10 @@ export function askLine(asked) {
   }
   if (asked.length === 1 && asked[0].tool === REPORT_TOOL && typeof asked[0].detail === "string") {
     return `Here's the bug report I'd send to the Context team:\n\n${clean(asked[0].detail)}\n\nLook good? Just say yes and I'll send it.`;
+  }
+  // A card at a checkout, in the gateway's words: the card and the site, never the model's (`vault/pay.js`).
+  if (asked.length === 1 && asked[0].kind === VAULT_PAY) {
+    return `Before I pay, I need your OK to ${clean(asked[0].summary).replace(/^let Tex /, "")}. Just say yes and I'll fill it in.`;
   }
   if (emails.length > 0 && emails.length === asked.length) {
     const copies = emails.map((record) => clean(record.detail)).join("\n\n---\n\n");
@@ -169,6 +174,8 @@ export async function settleByText(store, session, verdict, texted = "") {
   const notYes = [];
   for (const entry of [...waiting].reverse()) {
     const { record } = entry;
+    // A card's yes lets the model go on to fill it, so it is settled before this (`textedPay.js`).
+    if (record.kind === VAULT_PAY) continue;
     if (verdict === "approve" && YES_ONLY.has(record.tool) && !strictYes(texted)) {
       notYes.push(entry);
       continue;

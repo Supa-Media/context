@@ -46,18 +46,18 @@ export function vaultToolDefinitions() {
     },
     {
       name: "vault_add_link",
-      title: "Link to save a login or secret",
+      title: "Link to save a login, secret or card",
       description:
-        "Get a private link where the person saves a login, or a secret such as API keys and environment variables, themselves, signed in to Context. " +
-        "Use it whenever one is needed and is not in vault_list, and whenever someone tries to send you a password, key or token: never take one in a message. " +
+        "Get a private link where the person saves a login, a secret such as API keys and environment variables, or a payment card, themselves, signed in to Context. " +
+        "Use it whenever one is needed and is not in vault_list, and whenever someone tries to send you a password, key, token or card number: never take one in a message. " +
         "For a secret, name the fields you expect (e.g. OPENAI_API_KEY); they are per environment (dev, staging, prod) unless perEnv is false. " +
         "Send them the link and say it is private to them and lasts 30 minutes.",
       inputSchema: {
         type: "object",
         properties: {
-          type: { type: "string", enum: ["login", "secret"], description: "login (username and password) or secret (named fields). Default login." },
+          type: { type: "string", enum: ["login", "secret", "card"], description: "login (username and password), secret (named fields) or card (a payment card). Default login." },
           name: { type: "string", description: "What to call it, e.g. Netflix or OpenAI. Optional; they can change it." },
-          site: { type: "string", description: "The site it fills on, e.g. netflix.com. Optional for a secret; they can change it." },
+          site: { type: "string", description: "The site it fills on, e.g. netflix.com. Optional for a secret or a card (a card with none fills at any checkout, each time on their yes); they can change it." },
           fields: {
             type: "array",
             items: { type: "string" },

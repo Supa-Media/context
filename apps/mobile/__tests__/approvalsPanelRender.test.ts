@@ -61,6 +61,14 @@ const KEY_ASK: Approval = {
   kind: "vault_use",
 };
 
+const PAY_ASK: Approval = {
+  ...KEY_ASK,
+  id: "ap_pay",
+  summary: "let Claude Code pay with your Visa ••4242, expires 08/29 on shop.example",
+  args: { vault_pay: { entry: "v0", client: "client_x", host: "shop.example" } },
+  kind: "vault_pay",
+};
+
 function view(over: Partial<ApprovalsView> = {}): ApprovalsView & { decided: string[] } {
   const decided: string[] = [];
   return {
@@ -190,6 +198,18 @@ describe("the choice", () => {
     expect(panel.find(`deny-${KEY_ASK.id}`)?.textContent).toContain("No");
     panel.press(`approve-always-${KEY_ASK.id}`);
     expect(state.decided).toEqual([`approve_always:${KEY_ASK.id}`]);
+  });
+
+  test("a card payment is allowed once or not at all, with nothing to show", () => {
+    const state = view({ items: [PAY_ASK] });
+    const panel = mount(state);
+    expect(panel.find(`approval-toggle-${PAY_ASK.id}`)).toBeNull();
+    expect(panel.find(`approve-always-${PAY_ASK.id}`)).toBeNull();
+    expect(panel.find(`approve-${PAY_ASK.id}`)?.textContent).toContain("Allow this payment");
+    expect(panel.find(`deny-${PAY_ASK.id}`)?.textContent).toContain("No");
+    expect(panel.find(`approval-pay-${PAY_ASK.id}`)?.textContent).toMatch(/once, on this site only/);
+    panel.press(`approve-${PAY_ASK.id}`);
+    expect(state.decided).toEqual([`approve:${PAY_ASK.id}`]);
   });
 
   test("an ordinary held call has no from-now-on", () => {

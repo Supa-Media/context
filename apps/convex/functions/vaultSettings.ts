@@ -23,6 +23,7 @@ import { normalizeFields } from "../../mcp/src/vault/fields.js";
 import { EVERYONE, accessOf, belongsTo, ownerOf } from "../../mcp/src/vault/access.js";
 import { mayManage, newlyReached } from "./lib/vaultPeople";
 import {
+  cardSummaryValidator,
   fieldValuesValidator,
   proxyPinValidator,
   shareLevelValidator,
@@ -63,10 +64,12 @@ const shareRowValidator = v.object({
 const styleValidator = v.union(v.literal("bearer"), v.literal("header"), v.literal("query"));
 const entryValidator = v.object({
   entryId: v.string(),
-  type: v.union(v.literal("login"), v.literal("secret")),
+  type: v.union(v.literal("login"), v.literal("secret"), v.literal("card")),
   name: v.string(),
   sites: v.array(v.string()),
   envs: v.array(v.string()),
+  /** A card's brand, last four and expiry; never its number. */
+  card: v.optional(cardSummaryValidator),
   shared: v.boolean(),
   proxy: v.union(
     v.null(),
@@ -168,6 +171,7 @@ function entryFrom(entryId: string, meta: ShownMeta, caller: Caller, labels: Vau
     name: meta.name,
     sites: meta.sites,
     envs: ["dev", "staging", "prod"].filter((env) => envs.has(env)),
+    ...(meta.type === "card" && meta.card ? { card: meta.card } : {}),
     shared: meta.people.length > 1 || shares.length > 0,
     proxy: meta.proxy
       ? {

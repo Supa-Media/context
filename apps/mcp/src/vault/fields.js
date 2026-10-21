@@ -25,9 +25,9 @@ export function isFieldName(value) {
   return typeof value === "string" && NAME.test(value) && value === value.trim();
 }
 
-/** The entry types. An entry saved before types existed is a login. */
+/** The entry types (`card.js` for cards). An entry saved before types existed is a login. */
 export function entryType(meta) {
-  return meta?.type === "secret" ? "secret" : "login";
+  return meta?.type === "secret" || meta?.type === "card" ? meta.type : "login";
 }
 
 /**

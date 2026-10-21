@@ -18,7 +18,7 @@ import { ENVS, MAX_FIELDS, isEnv, isFieldName, type Env, type RevealedField } fr
 
 export const VAULT_ROUTE = "/vault";
 
-export type EntryType = "login" | "secret";
+export type EntryType = "login" | "secret" | "card";
 
 /** What the agent suggested on the link's URL. Only ever a starting point. */
 export interface VaultPrefill {
@@ -42,7 +42,8 @@ export type RawPrefill = Partial<Record<(typeof PREFILL_KEYS)[number], string | 
  * plain default, and field names that could never be saved are dropped.
  */
 export function parseVaultPrefill(raw: RawPrefill): VaultPrefill {
-  const type: EntryType = raw.type?.trim().toLowerCase() === "secret" ? "secret" : "login";
+  const asked = raw.type?.trim().toLowerCase();
+  const type: EntryType = asked === "secret" || asked === "card" ? asked : "login";
   const seen = new Set<string>();
   const fields: string[] = [];
   for (const part of (raw.fields ?? "").split(",")) {

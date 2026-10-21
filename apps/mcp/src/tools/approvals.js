@@ -164,7 +164,9 @@ export async function createPending(
  */
 export async function rearmForText(store, { key, record }, texting, now = Date.now()) {
   if (!texting || (record.texting === true && (record.texting_until ?? record.expires_at) > now)) return record;
-  const armed = { ...record, texting: true, texting_until: now + TEXTING_TTL_MS };
+  // A card's payment ask keeps its own ten minutes: a texted yes never reaches an older one (`vault/pay.js`).
+  const short = record.kind === "vault_pay";
+  const armed = { ...record, texting: true, texting_until: short ? record.expires_at : now + TEXTING_TTL_MS };
   armed.expires_at = Math.max(record.expires_at ?? 0, armed.texting_until);
   await store.put(key, JSON.stringify(armed));
   return armed;

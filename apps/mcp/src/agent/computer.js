@@ -38,6 +38,7 @@
 
 import { BROWSE_TOOL, browserSession } from "./browse.js";
 import { FILL_LOGIN_TOOL, fillLoginTool } from "./fillLogin.js";
+import { FILL_CARD_TOOL, fillCardTool } from "./fillCard.js";
 import { siteShotsComputer } from "./browserProviders.js";
 import { browserJar } from "./browserJar.js";
 import { decisionTokens } from "./decide.js";
@@ -199,7 +200,12 @@ export function webPrompt(webNames) {
   }
   if (webNames.has(FILL_LOGIN_TOOL)) {
     lines.push(
-      "When a site needs signing in, sign in yourself: check fetch vault: and use send action fill_login with a saved login (a Google login signs in on any site's Continue with Google button). With none saved, ask whether they sign in with Gmail or another email, send manage action vault_add's link for that login, and sign in yourself once they say it's saved. Hand the browser over (a browse handoff step) only for what truly needs them, a code, a captcha or a payment, or when they say they'd rather sign in themselves. Never ask for a password, and never say you can't use a site just because no login is saved.",
+      "When a site needs signing in, sign in yourself: check fetch vault: and use send action fill_login with a saved login (a Google login signs in on any site's Continue with Google button). With none saved, ask whether they sign in with Gmail or another email, send manage action vault_add's link for that login, and sign in yourself once they say it's saved. Hand the browser over (a browse handoff step) only for what truly needs them, a code, a captcha or a payment with no saved card, or when they say they'd rather sign in themselves. Never ask for a password, and never say you can't use a site just because no login is saved.",
+    );
+  }
+  if (webNames.has(FILL_CARD_TOOL)) {
+    lines.push(
+      "To pay, check fetch vault: for a saved card and use send action fill_card at the payment step; the person allows each payment in the Context app, so tell them what you're buying and the total when it asks. Press pay only after that. Never ask for a card number: with no card saved, send manage action vault_add's link with type card, or hand the browser over for the payment.",
     );
   }
   if (lines.length === 0) return "";
@@ -253,7 +259,7 @@ function resultsText(query, results) {
  *
  * @returns {{tools: Array, call: (name: string, args: object) => Promise<object>, usage: {decision: number}}}
  */
-export function webSession(computer, question, { decide = null, search = null, addresses = question, say = null, store = null, files = null } = {}) {
+export function webSession(computer, question, { decide = null, search = null, addresses = question, say = null, store = null, files = null, asks = null } = {}) {
   // `addresses` is the text whose addresses count as vouched for, which is the
   // person's own words and NOT necessarily the prompt. They are the same thing
   // for a texted question and differ for a routine, whose prompt is framing
@@ -283,10 +289,13 @@ export function webSession(computer, question, { decide = null, search = null, a
       : null;
   // Saved logins, filled by the gateway into this browser (`fillLogin.js`).
   const logins = browser && store ? fillLoginTool(browser, store) : null;
+  // Saved cards, filled the same way, each on the person's yes (`fillCard.js`).
+  const cards = browser && store ? fillCardTool(browser, store, { asks }) : null;
   const tools = [
     ...(computer ? [OPEN_PAGE_DEFINITION] : []),
     ...(browser ? [browser.definition] : []),
     ...(logins ? [logins.definition] : []),
+    ...(cards ? [cards.definition] : []),
     ...(search ? [SEARCH_WEB_DEFINITION] : []),
   ];
   return {
@@ -333,6 +342,7 @@ export function webSession(computer, question, { decide = null, search = null, a
       if (name === SEARCH_WEB_TOOL && search) return searchWeb(args);
       if (name === BROWSE_TOOL && browser) return browser.call(args);
       if (name === FILL_LOGIN_TOOL && logins) return logins.call(args);
+      if (name === FILL_CARD_TOOL && cards) return cards.call(args);
       if (name !== OPEN_PAGE_TOOL || !computer) return text("There is no such tool.", true);
       // `url` alone is accepted too: models reach for the singular.
       const asked = Array.isArray(args?.urls) ? args.urls : [args?.url];

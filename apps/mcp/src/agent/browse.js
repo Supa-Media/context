@@ -102,9 +102,9 @@ export const NO_LINK_LINE = "I couldn't make a link to my browser this time, so 
 
 /** What the description says about handing the browser over, when this browser can be. */
 const HANDOFF_SENTENCE =
-  "When the person has to do something themselves (a code, a captcha, a payment, or a sign-in they said they'd rather do), add a handoff step: " +
+  "When the person has to do something themselves (a code, a captcha, a payment with no saved card, or a sign-in they said they'd rather do), add a handoff step: " +
   "a link to this browser is added to your reply, so tell them to open it, finish, and text you; never ask for their password. " +
-  "Hand over rarely: a sign-in is yours to do with a login saved in the vault, so ask for one to be saved before handing over. ";
+  "Hand over rarely: a sign-in is yours to do with a login saved in the vault, and a payment with fill_card when a card is saved, so ask for one to be saved before handing over. ";
 /** And when it cannot: a model told a link is coming says so, and none comes. */
 const NO_HANDOFF_SENTENCE =
   "This browser can't be handed to the person, so when they must do something themselves (sign in, a code, a payment), say exactly what to do on the site; never promise them a link to it. ";
@@ -456,9 +456,10 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
     currentOrigin: () => origin,
 
     /**
-     * Type a secret into one field, for the vault (`fillLogin.js`). The
+     * Type a secret into one field, for the vault (`fillLogin.js`, `fillCard.js`). The
      * browser refuses unless the page is exactly at `origin` and the field is
-     * the `field` ("username" or "password") kind of box. The value is
+     * the `field` kind of box ("username", "password", or a card's part such
+     * as "cc-number", `fillCard.js`). The value is
      * never returned, and the result names no more than whether it worked.
      */
     async fillSecret({ ref, value, origin: entryOrigin, field }) {
