@@ -51,6 +51,7 @@
 
 const { topLevelRole } = require("./folderRoles.cjs");
 const { cadenceFromFolder } = require("./routines.cjs");
+const { contextPartMarker } = require("./contextIcons.cjs");
 
 const FOLDER_ICONS_KEY = ".context/folder-icons.json";
 const FOLDER_ICONS_VERSION = 1;
@@ -115,28 +116,20 @@ const WEBSITE_ICON = "🖥️";
  * `1-projects/email` or `0-inbox/email/archive` are somebody's own.
  */
 const DEFAULT_INBOX_FOLDER_ICONS = Object.freeze({
-  calendar: "🗓️",
-  contacts: "📇",
-  email: "✉️",
-  forms: "📝",
-  "google-chat": "💬",
-  imessage: "📲",
-  meetings: "🎙️",
-  memories: "💭",
-  sessions: "🤖",
-  granola: "🥣",
-  inbox: "📨",
-  capture: "📨",
+  calendar: contextPartMarker("inbox_calendar"),
+  contacts: contextPartMarker("inbox_contacts"),
+  email: contextPartMarker("inbox_email"),
+  forms: contextPartMarker("inbox_forms"),
+  "google-chat": contextPartMarker("inbox_chat"),
+  imessage: contextPartMarker("inbox_imessage"),
+  meetings: contextPartMarker("inbox_meetings"),
+  memories: contextPartMarker("inbox_memories"),
+  sessions: contextPartMarker("inbox_sessions"),
+  granola: contextPartMarker("inbox_granola"),
+  inbox: contextPartMarker("inbox_capture"),
+  capture: contextPartMarker("inbox_capture"),
 });
 
-/**
- * Tex's folder, the texting assistant's (decided by the owner, 2026-10-14):
- * `tex/` itself, its `about-me.md`, `tex/dreams/` (the nightly dream's logs,
- * `apps/mcp/src/agent/dream.js`), `tex/routines/`, and each how-often
- * folder under it by what its name means (`routines.cjs`'s
- * `cadenceFromFolder`), so `every-3-hours` gets the hourly one. Only those
- * exact paths: a folder somebody made inside `tex/routines/once/` is theirs.
- */
 /**
  * `tex/` draws Tex itself, calm (the owner, 2026-10-14: "the tex icon,
  * organized version"), not an emoji. A default is drawn and never written, so
@@ -145,30 +138,56 @@ const DEFAULT_INBOX_FOLDER_ICONS = Object.freeze({
  */
 const TEX_FIGURE_ICON = "context:tex";
 
-const TEX_ICONS = Object.freeze({
-  tex: TEX_FIGURE_ICON,
-  "tex/about-me.md": "🪪",
-  "tex/routines": "🔁",
-  "tex/dreams": "💤",
+/**
+ * Tex's own folders and notes, by their path inside Tex's folder (owner,
+ * 2026-10-21: "mark other system folders and give them context like icons
+ * like the folders under tex"). Drawn in Tex blue from the same brush as the
+ * built-in folders (`contextIcons.cjs`'s parts), never written. The folders
+ * here are also kept where they are, like the Inbox's own (`TEX_PARTS`,
+ * `folderJobInfo.cjs`).
+ */
+const TEX_PART_ICONS = Object.freeze({
+  "about-me.md": contextPartMarker("tex_about"),
+  attention: contextPartMarker("tex_attention"),
+  "attention.md": contextPartMarker("tex_attention"),
+  dreams: contextPartMarker("tex_dreams"),
+  heartbeat: contextPartMarker("tex_heartbeat"),
+  "heartbeat.md": contextPartMarker("tex_heartbeat"),
+  housekeeping: contextPartMarker("tex_housekeeping"),
+  "jobs.md": contextPartMarker("tex_jobs"),
+  routines: contextPartMarker("tex_routines"),
+  skills: contextPartMarker("tex_skills"),
+  transcripts: contextPartMarker("tex_transcripts"),
 });
 const CADENCE_ICONS = Object.freeze({
-  once: "📌",
-  minute: "⏱️",
-  hour: "⏳",
-  day: "☀️",
-  week: "📅",
-  month: "🌙",
+  once: contextPartMarker("cadence_once"),
+  minute: contextPartMarker("cadence_minute"),
+  hour: contextPartMarker("cadence_hour"),
+  day: contextPartMarker("cadence_day"),
+  week: contextPartMarker("cadence_week"),
+  month: contextPartMarker("cadence_month"),
 });
-const YEARLY_ICON = "🎆";
+const YEARLY_ICON = contextPartMarker("cadence_year");
 
-function texIcon(path) {
-  if (Object.prototype.hasOwnProperty.call(TEX_ICONS, path)) return TEX_ICONS[path];
-  const segments = path.split("/");
-  if (segments.length !== 3 || segments[0] !== "tex" || segments[1] !== "routines") return null;
-  const cadence = cadenceFromFolder(segments[2]);
+/**
+ * The drawn icon of `inside`, a path inside Tex's folder (`about-me.md`,
+ * `routines/every-day`), or `null` for anything of the person's own. Takes the
+ * path below Tex's folder, so a Tex folder nested anywhere is drawn the same.
+ */
+function texPartIcon(inside) {
+  if (typeof inside !== "string") return null;
+  if (Object.prototype.hasOwnProperty.call(TEX_PART_ICONS, inside)) return TEX_PART_ICONS[inside];
+  const segments = inside.split("/");
+  if (segments.length !== 2 || segments[0] !== "routines") return null;
+  const cadence = cadenceFromFolder(segments[1]);
   if (cadence === null) return null;
   if (cadence.unit === "month" && cadence.every >= 12) return YEARLY_ICON;
   return CADENCE_ICONS[cadence.unit] ?? null;
+}
+
+function texIcon(path) {
+  if (path === "tex") return TEX_FIGURE_ICON;
+  return path.startsWith("tex/") ? texPartIcon(path.slice("tex/".length)) : null;
 }
 
 /** The default emoji for the folder (or built-in note) at `path`, or `null` for one with none. */
@@ -342,6 +361,7 @@ module.exports = {
   DEFAULT_INBOX_FOLDER_ICONS,
   TEX_FIGURE_ICON,
   defaultFolderIcon,
+  texPartIcon,
   parseFolderIcons,
   serializeFolderIcons,
   iconsAfterMove,

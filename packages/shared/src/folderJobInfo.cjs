@@ -118,6 +118,27 @@ function isInboxPart(path, inboxPath) {
 }
 
 /**
+ * Tex's own folders, by their exact names one level inside Tex's folder
+ * (owner, 2026-10-21, "Context icon set" board 4): Tex files into each by
+ * name, so like the Inbox's own they stay where they are, are drawn with
+ * Context's icons (`folderIcons.cjs`), and a person adds notes and folders of
+ * their own beside them.
+ */
+const TEX_PARTS = Object.freeze(["attention", "dreams", "heartbeat", "housekeeping", "routines", "skills", "transcripts"]);
+
+/**
+ * Whether `path` is one of Tex's own folders, given the path of the folder
+ * doing Tex's job now (null: no Tex folder, nothing is).
+ */
+function isTexPart(path, texPath) {
+  if (typeof path !== "string" || typeof texPath !== "string" || texPath === "") return false;
+  const clean = path.replace(/^\/+|\/+$/g, "");
+  if (!clean.startsWith(`${texPath}/`)) return false;
+  const rest = clean.slice(texPath.length + 1);
+  return !rest.includes("/") && TEX_PARTS.includes(rest);
+}
+
+/**
  * Words a folder's name may use for a job, besides the job's own name. Kept
  * short on purpose: a guess the person has to untick costs more than one
  * they have to pick.
@@ -224,6 +245,8 @@ module.exports = {
   canRemoveJob,
   topOnly,
   isInboxPart,
+  TEX_PARTS,
+  isTexPart,
   nameWords,
   nameSays,
   guessFolderJobs,
