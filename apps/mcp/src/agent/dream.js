@@ -147,7 +147,7 @@ export const DREAM_INSTRUCTIONS = [
  */
 export const FIRST_LOOK = [
   `This is your first dream about them, and ${ABOUT_ME_PATH} doesn't exist yet. Take a first look at their workspace before you write:`,
-  "list_notes with no prefix for the whole map; index.md, their front page, if it exists; then their newest notes in their projects and areas folders, and their newest mail in 0-inbox/email/ if there is any.",
+  "list_notes with no prefix for the whole map; index.md, their front page, if it exists; then their newest notes in their projects and areas folders. Their mail is not in their notes, and a stranger's words never go in this note.",
   `Then write a first ${ABOUT_ME_PATH} from what you found: who they are, what they work on, the people around them, how they keep their notes. ` +
     "Start it even if you learn only a little, and mark a guess as a guess. Never leave it unwritten on a first dream.",
 ].join(" ");

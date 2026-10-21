@@ -400,6 +400,10 @@ export async function runAgentDreamChecks(check) {
       dreamQuestion({ transcripts: [], first: true, since: null, timeZone: "UTC" }).includes(FIRST_LOOK) &&
         !dreamQuestion({ transcripts: [], first: false, since: 0, timeZone: "UTC" }).includes(FIRST_LOOK),
     );
+    check(
+      "a first dream never points at copied mail: mail is read from Gmail, and never written into the person's memory",
+      !FIRST_LOOK.includes("0-inbox/email") && FIRST_LOOK.includes("a stranger's words never go in this note"),
+    );
   } finally {
     restoreControlPlane();
     restoreS3();
