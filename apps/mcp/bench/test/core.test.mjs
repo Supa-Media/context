@@ -18,7 +18,7 @@ const read = async (name) => parseTest(await readFile(join(AI, "tests", name), "
 
 test("every core question is a gate", async () => {
   const core = await read("core.md");
-  assert.equal(core.questions.length, 19);
+  assert.equal(core.questions.length, 20);
   for (const q of core.questions) assert.ok(isGateQuestion(q) && q.kind === "task", `question ${q.n} is a ${q.kind}, not a gate`);
 });
 

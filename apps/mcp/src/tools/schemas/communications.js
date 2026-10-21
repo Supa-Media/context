@@ -32,6 +32,27 @@ export function communicationsToolDefinitions() {
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
     {
+      name: "read_calendar",
+      title: "Read calendar",
+      description:
+        "Read what is on the user's calendar for a day or a run of days. Their connected Google " +
+        "calendars are copied into their notes, one note per day per account, about two weeks " +
+        "ahead; this finds those notes wherever they are filed, in every workspace they can " +
+        "reach, and returns each day's events. Reach for this first whenever a question turns " +
+        "on a date: what they have on Friday, whether they are free next week, when something is. " +
+        "It says plainly when a day is not written yet or when no calendar is connected.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          date: { type: "string", description: "The first day, YYYY-MM-DD" },
+          days: { type: "integer", minimum: 1, maximum: 14, description: "How many days from date. Default 1" },
+        },
+        required: ["date"],
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    {
       name: "read_meeting",
       title: "Read meeting",
       description:
