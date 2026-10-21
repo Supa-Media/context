@@ -41,9 +41,23 @@ function refused(error: string, extra: Entry = {}): Answer {
 /**
  * The id of the channel called `#name` (any the person is in or can see, open
  * or private), or Slack's `channel_not_found` when none is.
+ *
+ * **A destination is resolved exactly, never by the search fold.** `fold`
+ * strips accents and folds compatibility forms so that "Ségun" is found by
+ * "segun", which is right for `match` over a listing and wrong for deciding
+ * where a message goes: Slack channel names may hold any script, so anyone in
+ * that Slack can make a channel whose folded name equals another's. Taking
+ * whichever Slack listed first would deliver a post the person said yes to for
+ * `#general` somewhere else, and answer a read of `#general` with that other
+ * channel. So the exact name wins outright — Slack's own names are unique
+ * case-insensitively, so one is all there can be — and the fold is only a
+ * fallback, used when it picks out exactly one channel and refused as
+ * `channel_ambiguous` when it picks out more.
  */
 export async function channelIdByName(accessToken: string, given: string): Promise<{ id: string } | { answer: Answer }> {
-  const wanted = fold(given.replace(/^#/, "").trim());
+  const asked = given.replace(/^#/, "").trim();
+  const wanted = fold(asked);
+  const alike: Entry[] = [];
   let cursor: string | undefined;
   for (let page = 0; page < MAX_CHANNEL_PAGES; page++) {
     const answer = await slackCall(accessToken, "conversations.list", {
@@ -55,11 +69,25 @@ export async function channelIdByName(accessToken: string, given: string): Promi
     const body = (answer.body ?? {}) as Entry;
     if (body.ok !== true) return { answer };
     const channels = Array.isArray(body.channels) ? (body.channels as Entry[]) : [];
-    const found = channels.find((channel) => typeof channel.name === "string" && fold(channel.name) === wanted);
-    if (found && typeof found.id === "string") return { id: found.id };
+    const exact = channels.find(
+      (channel) => typeof channel.name === "string" && typeof channel.id === "string" && channel.name.toLowerCase() === asked.toLowerCase(),
+    );
+    if (exact) return { id: exact.id as string };
+    for (const channel of channels) {
+      if (typeof channel.name === "string" && typeof channel.id === "string" && fold(channel.name) === wanted) alike.push(channel);
+    }
     const next = ((body.response_metadata ?? {}) as Entry).next_cursor;
     if (typeof next !== "string" || next === "") break;
     cursor = next;
+  }
+  if (alike.length === 1) return { id: alike[0].id as string };
+  if (alike.length > 1) {
+    return {
+      answer: refused("channel_ambiguous", {
+        channel: given,
+        hint: `More than one channel is spelled like that (${alike.map((channel) => `#${String(channel.name)}`).join(", ")}). Ask which one, then pass its id.`,
+      }),
+    };
   }
   return { answer: refused("channel_not_found", { channel: given, hint: "No open channel has that name; conversations.list {match} finds the right one." }) };
 }

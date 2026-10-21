@@ -261,3 +261,59 @@ describe("reading a channel, a thread and a search", () => {
     });
   });
 });
+
+/**
+ * `#name` names one channel, and a destination is resolved exactly.
+ *
+ * `fold` is a *search* helper — "Ségun is found by segun" — and resolving a
+ * `#name` with it made two different channels the same word. Slack channel
+ * names may hold any script, so anyone in that Slack can make a channel whose
+ * folded name equals another's, and `find` took whichever Slack listed first:
+ * a post the person said yes to for `#general` could be delivered somewhere
+ * else, and a read of `#general` could come back with that channel instead.
+ */
+describe("a channel named as #name resolves to exactly one channel", () => {
+  function stubChannels(sent: Sent[], channels: Array<{ id: string; name: string }>) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string, init?: RequestInit) => {
+        const method = String(input).split("/").pop() ?? "";
+        const form = new URLSearchParams(String(init?.body ?? ""));
+        sent.push({ method, form });
+        if (method === "conversations.list") return Response.json({ ok: true, channels, response_metadata: { next_cursor: "" } });
+        return Response.json({ ok: true, channel: form.get("channel"), ts: "3.0" });
+      }),
+    );
+  }
+
+  test("a lookalike listed first never takes the name of the channel that holds it exactly", async () => {
+    const sent: Sent[] = [];
+    stubChannels(sent, [
+      { id: "C7", name: "générâl" },
+      { id: "C9", name: "general" },
+    ]);
+    await slackCallShaped("xoxp-fake", "chat.postMessage", { channel: "#general", text: "the quarter's numbers" });
+    expect(sent.find((s) => s.method === "chat.postMessage")?.form.get("channel")).toBe("C9");
+  });
+
+  test("two channels that fold alike are refused rather than guessed between", async () => {
+    const sent: Sent[] = [];
+    stubChannels(sent, [
+      { id: "C7", name: "générâl" },
+      { id: "C8", name: "generâl" },
+    ]);
+    const answer = await slackCallShaped("xoxp-fake", "chat.postMessage", { channel: "#general", text: "the quarter's numbers" });
+    expect(answer.body).toMatchObject({ ok: false, error: "channel_ambiguous" });
+    expect(sent.some((s) => s.method === "chat.postMessage")).toBe(false);
+  });
+
+  test("a read of #name is resolved the same way, so it never returns another channel's messages", async () => {
+    const sent: Sent[] = [];
+    stubChannels(sent, [
+      { id: "C7", name: "ｇｅｎｅｒａｌ" },
+      { id: "C9", name: "general" },
+    ]);
+    await slackCallShaped("xoxp-fake", "conversations.history", { channel: "#general" });
+    expect(sent.find((s) => s.method === "conversations.history")?.form.get("channel")).toBe("C9");
+  });
+});
