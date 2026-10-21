@@ -62,10 +62,12 @@ export function withoutHeldEcho(answer, asked) {
   held calendar change with "Still waiting on the calendar yes. Check your
   messages from Context for the confirmation and tap it", and the ask itself
   came right after it: there is no other message, app or confirmation, only
-  the ask under these words. A sentence saying otherwise comes out.
+  the ask under these words. A sentence saying otherwise comes out, and so
+  does one asking for their yes ("Say yes to the exact email I just texted
+  you and it goes out"): the ask asks, once.
 */
 const WAIT_TALK =
-  /\b(?:still waiting|waiting (?:on|for) (?:the|your)\b|check your (?:messages|texts|inbox|email|notifications|app)|messages? from context|(?:tap|approve|confirm) (?:it )?in (?:the )?(?:context )?app|the confirmation)/i;
+  /\b(?:still waiting|waiting (?:on|for) (?:the|your)\b|check your (?:messages|texts|inbox|email|notifications|app)|messages? from context|(?:tap|approve|confirm) (?:it )?in (?:the )?(?:context )?app|the confirmation|(?:say|reply|text|answer) (?:yes|ok)\b|give (?:this|it) a|just texted you|the exact (?:email|change|report))/i;
 
 /** `answer` without the sentences that send them looking for an ask other than the one below it. */
 export function withoutWaitTalk(answer) {

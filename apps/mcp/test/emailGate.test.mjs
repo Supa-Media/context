@@ -421,6 +421,72 @@ export async function runEmailGateChecks(check) {
         readEmail(FORWARD).email?.forward === "18rcpt" && readEmail(FORWARD).email?.from === "seyi@gmail.example",
     );
 
+    /* ---- the owner's retry, 2026-10-21 2:25 PM: Tex's own preview, a 👍 and a "yes" that only raised the hold ---- */
+
+    controlPlane.flags.mailMessage = {
+      address: "seyi@gmail.example",
+      id: "18rcpt",
+      from: "Anthropic <invoice@billing.example>",
+      subject: "Your receipt from Anthropic #2508-0278-2435",
+      body: "Paid $212.00.",
+      attachments: [{ filename: "Receipt-2508-0278-2435.pdf", contentType: "application/pdf" }],
+    };
+    const RETRY = { ...FORWARD, body: "Forwarding the Anthropic receipt #2508-0278-2435 for the $212.00 Max plan, paid today." };
+    model.install([
+      {
+        text:
+          "Found it, the receipt from today in your Supa inbox. I can forward it with its PDF attached. Here's the email:\n\n" +
+          "To: books@receipts.example\nForward of: Your receipt from Anthropic #2508-0278-2435\n\nSay yes and I'll send it.",
+      },
+      { toolCalls: [{ name: "send", args: { action: "email", args: RETRY } }] },
+      verdict("yes"),
+      { text: "Drafted the forward of the Anthropic receipt to books@receipts.example. Say yes to the exact email I just texted you and it goes out." },
+    ]);
+    const retrySends = sends().length;
+    const retried = await ask(env, TOKEN_TEXTS, "do you want to try this again, you should have this functionality to forward pdfs");
+    const retryAnswer = String(retried.body?.answer ?? "");
+    const retryAsk = retried.body?.verbatim?.[0] ?? "";
+    check(
+      "a preview of a forward in Tex's own words is held as it is shown, and asked for once",
+      sends().length === retrySends &&
+        retryAsk.startsWith("Here's the email I'd send:") &&
+        retryAsk.includes("Receipt-2508-0278-2435.pdf") &&
+        !retryAnswer.includes("Forward of:") &&
+        !/say yes to the exact|just texted you/i.test(retryAnswer) &&
+        retryAnswer.split("Look good?").length === 2,
+    );
+    const askedModel = model.requests.length;
+    const liked = await request(env, TOKEN_TEXTS, "/agent", { question: "👍", quoted: retryAsk, tapback: "Liked", conversation: "texts" });
+    check(
+      "the 👍 on that first preview sends the forward, with no model and no second ask",
+      model.requests.length === askedModel &&
+        sends().length === retrySends + 1 &&
+        sends().at(-1)?.email?.forward === "18rcpt" &&
+        /^Done, I sent an email/.test(liked.body?.answer ?? ""),
+    );
+    controlPlane.flags.mailMessage = null;
+
+    // The same for a plain email: Tex's own "To: … Subject: … Say yes and I'll send it." raises the hold, and one "yes" sends it.
+    const NOTE = { to: ["sam@example.com"], subject: "Re: Saturday", body: "Hi Sam,\n\nSaturday works.\n\nSeyi" };
+    model.install([
+      { text: "Here's the email:\n\nTo: sam@example.com\nSubject: Re: Saturday\n\nHi Sam, Saturday works.\n\nSay yes and I'll send it." },
+      { toolCalls: [{ name: "send_email", args: NOTE }] },
+      verdict("yes"),
+      { text: "I wrote Sam that Saturday works." },
+    ]);
+    const plainSends = sends().length;
+    const previewed = await ask(env, TOKEN_TEXTS, "tell sam saturday works");
+    const plainModel = model.requests.length;
+    const sentYes = await ask(env, TOKEN_TEXTS, "yes");
+    check(
+      "a preview of an email in Tex's own words is held as it is shown, and the first yes sends it",
+      (previewed.body?.verbatim?.[0] ?? "").startsWith("Here's the email I'd send:") &&
+        model.requests.length === plainModel &&
+        sends().length === plainSends + 1 &&
+        sends().at(-1)?.email?.subject === "Re: Saturday" &&
+        /^Done, I sent an email/.test(sentYes.body?.answer ?? ""),
+    );
+
   } finally {
     world.restore();
   }

@@ -22,7 +22,13 @@
  *      held. Their yes to that reached a model, which only then raised the
  *      hold, and they were asked a second time (the owner, 2026-10-21: "This
  *      is annoying. why does this happen?"). The hold is raised with the
- *      offer instead, so the yes they give is the one that makes it.
+ *      offer instead, so the yes they give is the one that makes it. The same
+ *      day, after that shipped, Tex texted its own preview of a forward ("To:
+ *      … Forward of: …  Say yes and I'll send it.") with no question mark and
+ *      nothing held; the owner's 👍 and "yes" on it only raised the hold, and
+ *      they were asked a third time ("do you see how this is frustrating").
+ *      So a preview in its own words, or a request for their yes or 👍 about
+ *      an email, a calendar change or a bug report, counts as an offer too.
  *
  * Any one sends the model one more round with a notice saying what is
  * missing (`turn.js` `answerCheck`): it does the change, or says plainly that
@@ -56,12 +62,20 @@ const WHEN =
   /\b(?:calendar|today|tonight|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d{1,2}(?::\d{2})?\s*(?:am|pm)|\d{1,2}(?::\d{2})?\s*(?:to|-|\u2013)\s*\d{1,2})\b/i;
 /** Their own list or notes, which take no yes: "add a to-do for Friday". */
 const NOT_CALENDAR = /\b(?:to-?dos?|list|notes?|reminders?)\b/i;
-const EMAIL_SEND = /\b(?:email|e-mail|forward|reply to|write back|send (?:it|that|this|the (?:email|reply|note)|(?:an? )?(?:email|reply))|send \w+ (?:an? )?(?:email|note|reply))\b/i;
+const EMAIL_SEND = /\b(?:email|e-mail|forward|reply to|write back|file (?:a|the|it|that)|send (?:it|that|this|the (?:email|reply|note)|(?:an? )?(?:email|reply))|send \w+ (?:an? )?(?:email|note|reply))\b/i;
+
+/** An email laid out in the answer's own words: "To: …", "Subject: …", "Forward of: …". */
+const PREVIEW_LINE = /^\s*(?:to|cc|subject|forward(?:ing)? of|fwd)\s*:/im;
+/** Asking for their yes or 👍 in the answer's own words. */
+const YES_ASK = /\b(?:say|reply|text|answer)\s+(?:yes|ok)\b|\u{1F44D}/iu;
+/** What a yes or 👍 might be asked about that only a held call can make. */
+const HELD_THING = /\b(?:send|email|forward|calendar|schedule|book|file|bug|report)\b/i;
 
 export const OFFER_NOTICE =
-  "Before this goes: you offered, in your own words, a calendar change or an email, and nothing is held for their yes. " +
-  "A yes to words alone makes nothing, and they would be asked twice. If that is what you offered and you know what it is, " +
-  "make the call now (calendar_event, or send_email) with exactly that change or email: they are shown it with your answer, and their one yes makes it. " +
+  "Before this goes: you showed or offered, in your own words, an email, a calendar change or a bug report, and nothing is held for their yes. " +
+  "A yes or 👍 to your words alone makes nothing, and they would be asked again. If that is what you offered and you know what it is, " +
+  "make the call now (send_email, calendar_event or report_problem) with exactly that: they are shown it with your answer, and their one yes or 👍 makes it. " +
+  "Don't write out the email or ask for their yes yourself; the gateway does. " +
   "If something is missing, ask only for that. If you offered something else, send your answer again as it was.";
 
 export const CLAIM_NOTICE =
@@ -81,9 +95,12 @@ export function claimsAChange(answer) {
   return CLAIMS.some((pattern) => pattern.test(said));
 }
 
-/** Whether an answer offers, as a question, a calendar change or an email. */
+/** Whether an answer offers a calendar change, an email or a bug report: as a question, a preview, or a request for their yes. */
 export function offersAHeldChange(answer) {
-  for (const [, offered] of String(answer ?? "").matchAll(OFFER)) {
+  const said = String(answer ?? "");
+  if (PREVIEW_LINE.test(said)) return true;
+  if (YES_ASK.test(said) && HELD_THING.test(said)) return true;
+  for (const [, offered] of said.matchAll(OFFER)) {
     if ((CALENDAR_CHANGE.test(offered) && WHEN.test(offered) && (/\bcalendar\b/i.test(offered) || !NOT_CALENDAR.test(offered))) || EMAIL_SEND.test(offered)) return true;
   }
   return false;
