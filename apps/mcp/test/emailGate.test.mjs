@@ -374,6 +374,53 @@ export async function runEmailGateChecks(check) {
     );
     await ask(env, TOKEN_TEXTS, "no");
 
+    /* ---------------- a forward, attachments and all (Dev2, 2026-10-21) ---------------- */
+
+    // "Want me to send Relay the Anthropic receipt?" "yeah" "I can't attach the PDF from here, so forward it yourself."
+    const FORWARD = {
+      to: ["books@receipts.example"],
+      subject: "Fwd: Your receipt from Anthropic #2508-0278-2435",
+      body: "Receipt for the Supa Media books.",
+      forward: "email:seyi@gmail.example/18rcpt",
+    };
+    controlPlane.flags.mailMessage = {
+      address: "seyi@gmail.example",
+      id: "18rcpt",
+      from: "Anthropic <invoice@billing.example>",
+      subject: "Your receipt from Anthropic #2508-0278-2435",
+      body: "Paid $212.00.",
+      attachments: [{ filename: "Receipt-2508-0278-2435.pdf", contentType: "application/pdf" }],
+    };
+    model.install([{ toolCalls: [{ name: "send", args: { action: "email", args: FORWARD } }] }, verdict("yes"), { text: "I drafted the forward." }]);
+    const sentBefore = sends().length;
+    const forwardAsk = await ask(env, TOKEN_TEXTS, "forward the anthropic receipt to books@receipts.example");
+    check(
+      "a forward is shown with the email it passes on and every attachment by name, before the yes",
+      sends().length === sentBefore &&
+        (forwardAsk.body?.verbatim?.[0] ?? "").includes(
+          'Receipt for the Supa Media books.\n\n(Below this goes the forwarded email from Anthropic <invoice@billing.example>, "Your receipt from Anthropic #2508-0278-2435", with its attachment Receipt-2508-0278-2435.pdf.)',
+        ),
+    );
+    await ask(env, TOKEN_TEXTS, "yes");
+    check(
+      "its YES sends it from that mailbox, naming the email to forward",
+      sends().at(-1)?.email?.forward === "18rcpt" && sends().at(-1)?.email?.from === "seyi@gmail.example",
+    );
+    controlPlane.flags.mailMessage = null;
+    const pendingBeforeGone = pending().length;
+    model.install([{ toolCalls: [{ name: "send", args: { action: "email", args: { ...FORWARD, subject: "Fwd: gone" } } }] }, { text: "It's gone." }]);
+    const gone = await ask(env, TOKEN_TEXTS, "forward the anthropic receipt to books@receipts.example");
+    check(
+      "a forward of an email Gmail no longer has is never put to the person",
+      gone.status === 200 && pending().length === pendingBeforeGone && JSON.stringify(model.requests.at(-1)?.messages ?? []).includes("no longer has the email to forward"),
+    );
+    check(
+      "a forward goes from the mailbox it is in, and is never also a reply",
+      /goes from the mailbox the email is in/.test(readEmail({ ...FORWARD, from: "other@example.com" }).error ?? "") &&
+        /not both/.test(readEmail({ ...FORWARD, in_reply_to: "email:seyi@gmail.example/18x" }).error ?? "") &&
+        readEmail(FORWARD).email?.forward === "18rcpt" && readEmail(FORWARD).email?.from === "seyi@gmail.example",
+    );
+
   } finally {
     world.restore();
   }

@@ -3,6 +3,7 @@
  * very dispatcher an MCP client's calls go through (`callToolForSession`).
  */
 
+import { claimCheck } from "./claimCheck.js";
 import { actorFor, contextsFor } from "../context/identity.js";
 import { AgentRefusal, agentTools, MAX_QUESTION_LENGTH, openProvider, runTurn } from "./turn.js";
 import { callToolForSession } from "../tools/session.js";
@@ -479,6 +480,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     : null;
 
   const texted = session.actorClientId === TEXTS_CLIENT_ID; // Pictures sent back, drawn or made: a text only (`pictureMaker.js`).
+  // A texted answer that says a change was made is checked against the calls that ran (`claimCheck.js`).
+  const claims = !runner && (texted || group !== null) ? claimCheck({ question }) : null;
   const { outgoing, maker } = await turnPictures(env, { texted, question, attachments, store, keep: conversation === "texts", meter, workspaceId: session.workspaceId });
   try {
     const turn = await runTurn({
@@ -496,12 +499,13 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       // THE ONE DISPATCHER, AND IT IS THE CLIENT'S (`callToolForSession`): its routing and every
       // per-call scope refusal. An agent that reached past it would be a second, untested authority.
       onModel: (model) => void (store.usageModel = model),
-      callTool: withBackground(background, outgoing.wrap(
+      answerCheck: claims?.check ?? null,
+      callTool: (claims?.wrap ?? ((call) => call))(withBackground(background, outgoing.wrap(
         withPictureMaker(maker, withAttachmentImages(
           attachments,
           withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withLearnedSkills(learned, withSkills(skills, withNoteLinks(group !== null ? groupAwareCallTool(dispatch, groupWriting) : textingAwareCallTool(dispatch, textingWriting), noteLinking)), { tainted: () => ledger.untrusted === true, dispatch }))),
         )),
-      )),
+      ))),
       pictures: texted,
       attachments,
       env,

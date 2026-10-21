@@ -313,8 +313,8 @@ export async function runTurn(options) {
     grants = null,
     local = [],
     aboutMe = null,
-    // `tex/jobs.md`'s text on a texted turn (`jobs.js`); null says nothing about jobs.
-    jobs = null,
+    jobs = null, // `tex/jobs.md`'s text on a texted turn (`jobs.js`); null says nothing about jobs.
+    answerCheck = null, // reads a final answer, once, and may send one more round (`claimCheck.js`)
     // `{ now, timeZone }`: the person's own clock, told every round (`localNow.js`).
     localNow = null,
     // The workspaces they can reach (`contextsFor`), so a new note goes where its project is (`workspaces.js`).
@@ -569,7 +569,10 @@ export async function runTurn(options) {
     }
 
     if (answer.toolCalls.length === 0) {
-      return { answer: answer.text, provider, model, steps, usage, usageByModel, timing: { ...timing, trace } };
+      const recheck = round < rounds - 1 ? answerCheck?.(answer.text) ?? null : null;
+      if (recheck === null) return { answer: answer.text, provider, model, steps, usage, usageByModel, timing: { ...timing, trace } };
+      messages.push({ role: "assistant", text: answer.text }, { role: "user", text: recheck });
+      continue;
     }
 
     if (answer.text?.trim()) {

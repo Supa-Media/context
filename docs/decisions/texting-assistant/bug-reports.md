@@ -66,3 +66,14 @@ check would put one person's texts in front of every account on the
 deployment the day someone opens the folder to the team;
 `apps/convex/__tests__/controlPlane/bugNotes.test.ts` (three sabotages
 recorded there) fails if it comes back.
+
+## Their text asking for one is the yes, when no texts go (2026-10-21)
+
+"Do it for me, and if you can't do it, file a bug to the developers" was
+answered with a drafted report and "Give this a 👍 or say yes". A report that
+carries none of their texts, on a turn whose own text asks for a bug to be
+filed (`asksToFile` in `apps/mcp/src/tools/reportGate.js`), is sent at once:
+that text is the yes. Read from the person's own message for this turn
+(`session.egress.turn.question`), never from anything the model wrote. A report
+that would carry their texts still waits for a yes to the copy that says so.
+Tests: `apps/mcp/test/reportGate.test.mjs` (sabotage 4).

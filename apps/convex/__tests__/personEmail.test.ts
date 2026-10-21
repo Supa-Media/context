@@ -31,6 +31,7 @@ import { createWorkspace, gatewayPost, seedGoogleConnection, seedStorageBinding 
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { ACCESS_A, ACCESS_B, bodyOf, token, twoConnectedTenants } from "./controlPlane/fixtures.helpers";
 import { replyThreadQuery } from "../functions/lib/personEmailThread";
+import { fileHeaders } from "../functions/lib/personEmailForward";
 import { GMAIL_COMPOSE_SCOPE, GMAIL_SEND_SCOPE, PERSON_EMAIL_HOURLY_LIMIT, PERSON_EMAIL_RECIPIENT_DAILY_LIMIT, gmailRaw, readPersonEmail, recipientLimitKey, replyHeadersOf } from "../functions/lib/personEmail";
 
 const realFetch = globalThis.fetch;
@@ -39,6 +40,25 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
 });
+
+/** An email to forward, as Gmail's full read returns it: a text part and one PDF. */
+const RECEIPT = {
+  id: "18rcpt",
+  threadId: "18rcpt",
+  internalDate: String(Date.UTC(2026, 9, 21, 15, 0)),
+  payload: {
+    mimeType: "multipart/mixed",
+    headers: [
+      { name: "From", value: "Anthropic <invoice@billing.example.invalid>" },
+      { name: "To", value: "alice@gmail.example" },
+      { name: "Subject", value: "Your receipt from Anthropic" },
+    ],
+    parts: [
+      { mimeType: "text/plain", body: { data: btoa("Paid $212.00.") } },
+      { mimeType: "application/pdf", filename: "Receipt-2508.pdf", body: { attachmentId: "att_1", size: 16 } },
+    ],
+  },
+};
 
 /** The message a reply answers, as Gmail's metadata read returns it. */
 const ANSWERED = {
@@ -70,6 +90,12 @@ function gmail(status = 200, messages: Record<string, unknown> = { [ANSWERED.id]
     if ((init?.method ?? "GET") === "GET") {
       const id = decodeURIComponent(new URL(url).pathname.split("/").at(-1) ?? "");
       return Object.hasOwn(messages, id) ? new Response(JSON.stringify(messages[id])) : new Response("{}", { status: 404 });
+    }
+    // A forward goes up whole, as `message/rfc822`, through the upload endpoint.
+    if (url.startsWith("https://gmail.googleapis.com/upload/")) {
+      const headers = new Headers(init?.headers);
+      sent.push({ auth: headers.get("Authorization"), message: new TextDecoder().decode(init?.body as Uint8Array), url });
+      return new Response(JSON.stringify({ id: "msg_fake" }), { status });
     }
     const posted = JSON.parse(String(init?.body));
     const body = posted.message ?? posted;
@@ -307,6 +333,34 @@ describe("sending an email as the person", () => {
     expect(sent).toHaveLength(1);
   });
 
+  test("a forward sends the person's words, the email below them, and its attachment, from that mailbox", async () => {
+    const pdf = btoa("%PDF-1.4 receipt").replace(/\+/g, "-").replace(/\//g, "_");
+    const sent = gmail(200, {
+      [RECEIPT.id]: RECEIPT,
+      att_1: { data: pdf },
+    });
+    const { t, aliceWs } = await connected();
+    const email = { ...EMAIL, from: FROM, subject: "Fwd: Your receipt", body: "For the books.", forward: RECEIPT.id };
+    expect(await send(t, ACCESS_A, aliceWs, { email })).toEqual({ ok: true, from: FROM });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.url).toContain("/upload/gmail/v1/users/me/messages/send?uploadType=media");
+    const message = sent[0]!.message;
+    expect(message).toContain(`From: ${FROM}\r\nTo: jo@example.invalid\r\nSubject: Fwd: Your receipt\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed;`);
+    expect(message).toContain('Content-Type: application/pdf; name="Receipt-2508.pdf"');
+    expect(message).toContain(btoa("%PDF-1.4 receipt"));
+    const text = atob(message.split('Content-Type: text/plain; charset="UTF-8"\r\nContent-Transfer-Encoding: base64\r\n\r\n')[1]!.split("\r\n--")[0]!.replace(/\r\n/g, ""));
+    expect(text).toContain("For the books.\r\n\r\n---------- Forwarded message ---------\r\nFrom: Anthropic <invoice@billing.example.invalid>");
+    expect(text).toContain("Subject: Your receipt from Anthropic");
+    expect(text).toContain("Paid $212.00.");
+  });
+
+  test("a forward of an email the mailbox does not hold sends nothing", async () => {
+    const sent = gmail();
+    const { t, aliceWs } = await connected();
+    expect(await send(t, ACCESS_A, aliceWs, { email: { ...EMAIL, from: FROM, forward: "18gone" } })).toEqual({ ok: false, refused: "forward_not_found" });
+    expect(sent).toHaveLength(0);
+  });
+
   test("a Gmail failure is reported, not called sent", async () => {
     gmail(500);
     const { t, aliceWs } = await connected();
@@ -316,7 +370,7 @@ describe("sending an email as the person", () => {
 
 describe("what an email may be", () => {
   test("anything that could add a header or a hidden recipient is refused", () => {
-    expect(readPersonEmail(EMAIL)).toEqual({ ...EMAIL, from: null, cc: [], replyTo: null });
+    expect(readPersonEmail(EMAIL)).toEqual({ ...EMAIL, from: null, cc: [], replyTo: null, forward: null });
     expect(readPersonEmail({ ...EMAIL, subject: "Hi\nBcc: everyone@example.invalid" })).toBeNull();
     expect(readPersonEmail({ ...EMAIL, to: ["jo@example.invalid, sam@example.invalid"] })).toBeNull();
     expect(readPersonEmail({ ...EMAIL, to: ["Jo <jo@example.invalid>"] })).toBeNull();
@@ -329,6 +383,20 @@ describe("what an email may be", () => {
     expect(readPersonEmail({ ...EMAIL, body: "hi \u202e there" })).toBeNull();
     expect(readPersonEmail({ ...EMAIL, from: FROM, replyTo: "18cafe/../x" })).toBeNull();
     expect(readPersonEmail({ ...EMAIL, replyTo: "18cafe" })).toBeNull();
+    // A forward goes from the mailbox that holds it, names one plain id, and is never also a reply.
+    expect(readPersonEmail({ ...EMAIL, forward: "18rcpt" })).toBeNull();
+    expect(readPersonEmail({ ...EMAIL, from: FROM, forward: "18rcpt/../x" })).toBeNull();
+    expect(readPersonEmail({ ...EMAIL, from: FROM, forward: "18rcpt", replyTo: "18cafe" })).toBeNull();
+    expect(readPersonEmail({ ...EMAIL, from: FROM, forward: "18rcpt" })?.forward).toBe("18rcpt");
+  });
+
+  test("a forwarded file's name and type never become a header of their own", () => {
+    const [type, disposition] = fileHeaders({ filename: 'a"\r\nBcc: x@example.invalid.pdf', contentType: "application/pdf\r\nBcc: y" });
+    expect(type).toBe('Content-Type: application/octet-stream; name="a Bcc: x@example.invalid.pdf"');
+    expect(disposition).toBe('Content-Disposition: attachment; filename="a Bcc: x@example.invalid.pdf"');
+    expect(fileHeaders({ filename: "Reçu.pdf", contentType: "application/pdf" })[1]).toBe(
+      "Content-Disposition: attachment; filename=\"Re_u.pdf\"; filename*=UTF-8''Re%C3%A7u.pdf",
+    );
   });
 
   test("a thread's headers become headers only when each is one plain message id", () => {
