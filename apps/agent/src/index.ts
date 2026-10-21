@@ -39,8 +39,8 @@ import { parseSendblueInbound, sendblueKeys, threadContext, verifySendblueSecret
 import { parseSendblueGroup, type GroupMessage } from "./sendblueGroups";
 import { acceptGroup, drainGroup, groupInboxName } from "./groupInbox";
 import { verifyLinqSignature } from "./signature";
-import { readJobUpdate, type JobRun, type JobUpdate } from "./jobs";
-import { acceptJob, runJob } from "./jobRun";
+import { readJobSteer, readJobUpdate, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
+import { acceptJob, runJob, steerJob } from "./jobRun";
 import { jobUpdate } from "./jobTexts";
 import { handleSimulator, SIMULATOR_PATH, simulatorEnabled, simulatorInbox } from "./simulator";
 import { SIMULATOR_PAGE } from "./simulatorPage";
@@ -357,6 +357,11 @@ export class SenderInbox implements DurableObject {
       await acceptJob(this.state.storage, (await request.json()) as JobRun, Date.now());
       return Response.json({ ok: true });
     }
+    if (path === "/job-steer") {
+      const steer = readJobSteer(await request.json());
+      if (steer === null) return new Response(null, { status: 400 });
+      return Response.json({ taken: await steerJob(this.state.storage, steer) });
+    }
     if (path === "/job-update") {
       const update = readJobUpdate(await request.json());
       if (update === null) return new Response(null, { status: 400 });
@@ -418,6 +423,11 @@ export class SenderInbox implements DurableObject {
         const stub = this.env.SENDER_INBOX.get(this.env.SENDER_INBOX.idFromName(`job:${id}`));
         const response = await stub.fetch("https://inbox/job-start", { method: "POST", body: JSON.stringify(run) });
         if (!response.ok) throw new Error("job not started");
+      },
+      steerJob: async (id: string, steer: JobSteer) => {
+        const stub = this.env.SENDER_INBOX.get(this.env.SENDER_INBOX.idFromName(`job:${id}`));
+        const response = await stub.fetch("https://inbox/job-steer", { method: "POST", body: JSON.stringify(steer) });
+        return response.ok && ((await response.json()) as { taken?: unknown }).taken === true;
       },
     };
   }

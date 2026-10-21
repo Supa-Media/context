@@ -43,7 +43,7 @@ import type { InboxStorage } from "./inbox";
 import type { SendblueKeys } from "./sendblue";
 import { chatBefore, dropChatLines, keepChatLine, peopleOf, setChatBound, sha256Hex } from "./groupChat";
 import { reactInGroup, readGroupMembers, readOwnGroupMessage, sendGroupText, type GroupMessage } from "./sendblueGroups";
-import { chatJobs, noteJobSent, noteJobUpdate, startJobs, type JobRun, type JobUpdate } from "./jobs";
+import { chatJobs, noteJobSent, noteJobUpdate, startJobs, steerJobs, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
 
 export type GroupDeps = {
   fetch: Fetch;
@@ -54,6 +54,8 @@ export type GroupDeps = {
   now: () => number;
   /** Starts a background job in an object of its own (`jobs.ts`); absent, the chat's turns are offered none. */
   spawnJob?: (id: string, run: JobRun) => Promise<void>;
+  /** Hands a later text to a running job's object; true when it took it (`jobRun.ts`). */
+  steerJob?: (id: string, steer: JobSteer) => Promise<boolean>;
 };
 
 /** A group's queue is named apart from every phone's, which always starts with "+". */
@@ -406,12 +408,14 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, accepte
       spawn: deps.spawnJob,
     });
   }
+  // A change to a job still running is handed to it, in the words of whoever texted it.
+  if (answer.steers && deps.steerJob) await steerJobs(storage, answer.steers, { id: message.eventId, text: message.text }, deps.steerJob, deps.now());
 }
 
 /** A background job's word (`jobRun.ts`): its status kept, its texts sent under the message it answers. */
 export async function groupJobUpdate(storage: InboxStorage, deps: GroupDeps, update: JobUpdate): Promise<boolean> {
   const entry = await noteJobUpdate(storage, update, deps.now());
-  if (entry === null || entry.line === undefined || entry.groupId === undefined || entry.messageId === undefined) return entry !== null;
+  if (entry === null || entry.quiet || entry.line === undefined || entry.groupId === undefined || entry.messageId === undefined) return entry !== null;
   const where = { line: entry.line, groupId: entry.groupId, messageId: entry.messageId };
   for (const [i, text] of (update.texts ?? []).entries()) {
     const index = (update.first ?? 0) + i;
