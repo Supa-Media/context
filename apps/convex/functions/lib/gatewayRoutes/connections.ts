@@ -45,7 +45,7 @@ export async function gatewayConnectRequestHandler(ctx: ActionCtx, body: Record<
     })
     .catch(() => "refused" as const);
   if (status !== "issued") return json({ url: null, reason: "refused" });
-  return json({ url: `${origin}${CONNECT_LINK_ROUTE}/${spec.id}/${token}` });
+  return json({ url: `${origin}${CONNECT_LINK_ROUTE}/${spec.id}/${token}`, name: spec.name });
 }
 
 const METHOD = /^[a-z]+(?:\.[a-zA-Z]+){1,3}$/;

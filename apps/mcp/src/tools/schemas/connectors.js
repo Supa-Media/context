@@ -1,8 +1,15 @@
 /**
  * Connected apps (`tools/connectors.js`, `docs/decisions/connectors.md`):
- * `connect_app` gives the link where the person connects one, and `slack_api`
- * calls Slack through the one they connected.
+ * `connect_app` gives the link where the person connects one, `slack_api`
+ * calls Slack through the one they connected, and `app_read` / `app_change`
+ * call an app connected through its own MCP server (`tools/apps.js`).
  */
+
+const APP_CALL = {
+  app: { type: "string", description: "An app id from app_read with no app, e.g. linear." },
+  tool: { type: "string", description: "One of the tools app_read lists for the app." },
+  arguments: { type: "object", description: "The tool's own arguments, as app_read lists them." },
+};
 
 import { SLACK_HELD_METHODS } from "../connectors.js";
 
@@ -13,12 +20,12 @@ export function connectorToolDefinitions() {
       title: "Link to connect an app",
       description:
         "Get the link where the person connects an app to their own account through the app's own approval screen, so you use its API " +
-        "instead of signing in with a browser. Slack is the one app so far, and it acts as the person. It connects for one person only, " +
+        "instead of signing in with a browser; app_read with no app lists the apps. It acts as the person, and connects for one person only, " +
         "never for a shared workspace or a group chat. Never open the app's sign-in page in a browser for this.",
       inputSchema: {
         type: "object",
         properties: {
-          app: { type: "string", enum: ["slack"], description: "Which app." },
+          app: { type: "string", description: "Which app, e.g. slack or linear." },
         },
         required: ["app"],
         additionalProperties: false,
@@ -72,6 +79,23 @@ export function connectorToolDefinitions() {
         additionalProperties: false,
       },
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+    },
+    {
+      name: "app_read",
+      title: "Read through a connected app",
+      description:
+        "With no app: every app Context connects (Linear, Notion, Jira, Planning Center…) and whether the person connected it; " +
+        "anything not listed needs the browser. With app: its tools, each marked read or change. With app and tool: run one read " +
+        "through the person's own connection. A change goes through app_change.",
+      inputSchema: { type: "object", properties: APP_CALL, additionalProperties: false },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+    },
+    {
+      name: "app_change",
+      title: "Change through a connected app",
+      description: "Run one tool app_read marks change, through the person's own connection. It waits for their yes to exactly this call.",
+      inputSchema: { type: "object", properties: APP_CALL, required: ["app", "tool"], additionalProperties: false },
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
     },
   ];
 }

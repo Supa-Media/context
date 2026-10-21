@@ -91,7 +91,9 @@ test("the full list stays compact", () => {
   // `attachment`: the list stood at 13,063.
   // Raised to 14,200 on 2026-10-21 for `connect_app` and `slack_api`, the
   // first connector: the list stood at 13,922 with 62 tools.
-  assert.ok(liveToolListSection(toolDefinitions()).length < 14_200);
+  // Raised to 14,700 the same day for `app_read` and `app_change`, every app
+  // connected through its own MCP server: the list stood at 14,265 with 64.
+  assert.ok(liveToolListSection(toolDefinitions()).length < 14_700);
 });
 
 /* -------------------------------------------------------------------------- */

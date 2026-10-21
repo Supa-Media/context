@@ -43,6 +43,15 @@ export const TOOL_NEWS = Object.freeze([
     date: "2026-10-21",
     newTool: true,
     text:
+      "fetch `apps:` lists every app Context connects (Linear, Notion, Jira and Confluence, Planning Center, Airtable, monday.com, " +
+      "Calendly, ClickUp, Todoist, Slack) and whether the person connected it; anything not listed needs the browser. " +
+      "manage connect `{ app }` gives the link for any of them. fetch `apps:<app>` lists its tools, and with args `{ tool, arguments }` runs a read; " +
+      "send app `{ app, tool, arguments }` makes a change once they say yes.",
+  },
+  {
+    date: "2026-10-21",
+    newTool: true,
+    text:
       'manage has a new action, connect `{ app: "slack" }`: a link where the person connects Slack through its own approval screen. ' +
       'send slack `{ method, args, team? }` then calls the Slack Web API through it; a post waits for their yes to its words.',
   },
@@ -237,7 +246,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "5d964abe";
+export const TOOL_SHAPE = "629be7ee";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

@@ -70,7 +70,8 @@ export function v2ToolDefinitions() {
       description:
         "Do something outside Context that cannot be taken back: api calls a site with a key saved in the " +
         "vault, which you never see; email sends one email as the person, and calendar adds, moves or cancels one event on their calendar, once they say yes to it. Ask the person first. " +
-        "slack calls the Slack connected with manage connect: reads run at once, a post waits for their yes to its words. " +
+        "slack calls the Slack connected with manage connect: reads run at once, a post waits for their yes to its words; " +
+        "app makes one change through another app they connected (fetch apps: lists them), after their yes. " +
         "notify is the exception: it has Tex text the person themselves, only when they asked to be told or it cannot wait. orient lists every action and its args.",
       inputSchema: {
         type: "object",
