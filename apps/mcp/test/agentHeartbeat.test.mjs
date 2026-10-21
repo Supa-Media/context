@@ -53,6 +53,7 @@ import {
 import { SKIPPED_WORDS } from "../src/agent/jobLog.js";
 import { PENDING_PREFIX } from "../src/tools/approvalKeys.js";
 import { UNTRUSTED_READS } from "../src/privacy/egress.js";
+import { newMailQuery } from "../src/agent/newMail.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { createControlPlaneStub, createS3Backend, CONTROL_PLANE_ORIGIN, GATEWAY_SECRET } from "./controlPlaneStub.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
@@ -293,17 +294,21 @@ async function toolRefusals(check) {
 
 export async function runAgentHeartbeatChecks(check) {
   /*
-    The check-in saves its exchange with no `tainted` mark, so the memory
-    nudge reads it as clean words of the person's own and may distil it into
-    `tex/about-me.md`, which every later turn reads as Tex's own memory
-    (`memoryNudge.js`). What makes that safe is not the dispatch allowlist by
-    itself but these two sets being disjoint: add `read_email` to a check-in's
-    reading list and a stranger's words reach the person's memory with nothing
-    in the way. Asserted rather than left to be noticed.
+    A check-in is shown the mail that came in since it last looked, asked of
+    Gmail (`newMail.js`), and may open one with `read_email`: both are a
+    stranger's words. A look that saw any saves its exchange tainted, so the
+    memory nudge never distils them into `tex/about-me.md` (`memoryNudge.js`).
+    Every check-in read that is not its own notes has to be an untrusted read,
+    or a stranger's words would land in the person's memory unmarked.
   */
   check(
-    "a check-in reads nothing from outside the workspace, which is why its exchange is saved untainted",
-    [...HEARTBEAT_READS].every((name) => !UNTRUSTED_READS.has(name)),
+    "every check-in read beyond their own notes is an untrusted read",
+    [...HEARTBEAT_READS].filter((name) => !["read_note", "list_notes", "search_notes"].includes(name))
+      .every((name) => UNTRUSTED_READS.has(name)) && HEARTBEAT_READS.has("read_email"),
+  );
+  check(
+    "new mail is asked of their inbox since the last look, in whole seconds",
+    newMailQuery(Date.UTC(2026, 9, 21, 12, 0, 0, 999)) === `after:${Date.UTC(2026, 9, 21, 12) / 1000} in:inbox`,
   );
   unitChecks(check);
   await toolRefusals(check);
@@ -481,6 +486,42 @@ export async function runAgentHeartbeatChecks(check) {
       refusedLook.status === 409 && capped.status === 429 && model.requests.length === before &&
         log().includes(`_${SKIPPED_WORDS.no_provider}_`) && log().includes(`_${SKIPPED_WORDS.daily_limit}_`),
     );
+
+    /* ---------------- new mail ---------------- */
+
+    // Sabotage record (applied, run, observed failing, reverted): dropping
+    // `mail.length` from the nothing_new test, the mail section from the
+    // prompt, and the `tainted` mark each fail a check here.
+    let mailQuery = null;
+    controlPlane.flags.mailResults = (query) => {
+      mailQuery = query;
+      return [{
+        address: "me@example.invalid",
+        id: "m1",
+        date: "Tue, 21 Oct 2026 12:00:00 +0000",
+        from: "Google <no-reply@example.invalid>",
+        subject: "Verify your app",
+        snippet: "Reply with the code 4412 to finish verification.",
+      }];
+    };
+    model.install([{ text: "Google wrote about verifying the app: they want a reply with a code." }]);
+    const mailed = await ask(env, TOKEN_BEAT, beat(Date.now() - 10 * 60 * 1000));
+    controlPlane.flags.mailResults = undefined;
+    const mailPrompt = JSON.stringify(model.requests.at(-1));
+    check(
+      "new mail with no changed note still gets a look, shown the mail as a stranger's words",
+      mailed.status === 200 && mailed.body?.outcome === "speak" && mailQuery?.endsWith(" in:inbox") &&
+        mailPrompt.includes("email:me@example.invalid/m1") && mailPrompt.includes("Verify your app") &&
+        mailPrompt.includes("a stranger's words"),
+    );
+    check(
+      "a look shown mail saves its exchange tainted, and the log counts the mail",
+      conversationTurns(bucket).at(-1)?.tainted === true && log().includes("1 new email"),
+    );
+    controlPlane.flags.mailRefusal = "no_mailbox";
+    const unmailed = await ask(env, TOKEN_BEAT, beat(Date.now() - 10 * 60 * 1000));
+    controlPlane.flags.mailRefusal = undefined;
+    check("no mailbox and nothing changed is still nothing_new", unmailed.body?.outcome === "nothing_new");
 
     /* ---------------- their instructions ---------------- */
 

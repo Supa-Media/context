@@ -257,7 +257,7 @@ export function ExplorerDialogs({
           path={dialog.path}
           current={files.iconOf(dialog.path)}
           onSet={(icon) => files.setIcon(dialog.path, icon)}
-          {...(files.suggestIcon === undefined ? {} : { suggest: () => files.suggestIcon!(dialog.path) })}
+          {...(files.suggestIcon === undefined ? {} : { suggest: (set?: "context") => files.suggestIcon!(dialog.path, set) })}
           onClose={onClose}
           anchor={dialog.anchor}
         />

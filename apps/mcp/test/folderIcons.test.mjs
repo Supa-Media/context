@@ -4,6 +4,7 @@ import {
   FOLDER_ICONS_KEY,
   TEX_FIGURE_ICON,
   defaultFolderIcon,
+  texPartIcon,
   dropFolderIcons,
   iconsAfterDelete,
   iconsAfterMove,
@@ -12,6 +13,7 @@ import {
   remapIcons,
   serializeFolderIcons,
 } from "../../../packages/shared/src/folderIcons.cjs";
+import { contextPartOf, iconAsText } from "../../../packages/shared/src/contextIcons.cjs";
 
 function memory(initial = {}) {
   const objects = new Map(Object.entries(initial));
@@ -32,6 +34,15 @@ function memory(initial = {}) {
       return { etag: etags.get(key) };
     },
   };
+}
+
+
+/** A built-in part's default, as the emoji it is written as wherever it can't be drawn; and it is a drawn part, never an emoji. */
+function drawn(path) {
+  const icon = defaultFolderIcon(path);
+  if (icon === null) return null;
+  assert.notEqual(contextPartOf(icon), null, `${path} draws ${icon}`);
+  return iconAsText(icon);
 }
 
 test("parse keeps well-formed entries and drops everything else", () => {
@@ -107,15 +118,15 @@ test("built-in folders have a default emoji, only at the top level", () => {
   assert.equal(defaultFolderIcon("constructor"), null);
 });
 
-test("the folders the product files into inside the inbox show a default emoji", () => {
-  assert.equal(defaultFolderIcon("0-inbox/calendar"), "🗓️");
-  assert.equal(defaultFolderIcon("0-inbox/contacts"), "📇");
-  assert.equal(defaultFolderIcon("0-inbox/email"), "✉️");
-  assert.equal(defaultFolderIcon("0-inbox/forms"), "📝");
-  assert.equal(defaultFolderIcon("0-inbox/google-chat"), "💬");
-  assert.equal(defaultFolderIcon("0-inbox/imessage"), "📲");
-  assert.equal(defaultFolderIcon("0-inbox/meetings"), "🎙️");
-  assert.equal(defaultFolderIcon("inbox/memories"), "💭");
+test("the folders the product files into inside the inbox draw a Context part, its emoji twin as text", () => {
+  assert.equal(drawn("0-inbox/calendar"), "🗓️");
+  assert.equal(drawn("0-inbox/contacts"), "📇");
+  assert.equal(drawn("0-inbox/email"), "✉️");
+  assert.equal(drawn("0-inbox/forms"), "📝");
+  assert.equal(drawn("0-inbox/google-chat"), "💬");
+  assert.equal(drawn("0-inbox/imessage"), "📲");
+  assert.equal(drawn("0-inbox/meetings"), "🎙️");
+  assert.equal(drawn("inbox/memories"), "💭");
   // Only one level under the inbox, only by exact name, only under the inbox.
   assert.equal(defaultFolderIcon("0-inbox/email/archive"), null);
   assert.equal(defaultFolderIcon("0-inbox/Email"), null);
@@ -124,19 +135,19 @@ test("the folders the product files into inside the inbox show a default emoji",
   assert.equal(defaultFolderIcon("0-inbox/email.md"), null);
 });
 
-test("Tex's folder, its about note, its routines and each how-often folder show a default emoji", () => {
+test("Tex's folder, its about note, its routines and each how-often folder draw a Context part, its emoji twin as text", () => {
   assert.equal(defaultFolderIcon("tex"), TEX_FIGURE_ICON);
-  assert.equal(defaultFolderIcon("tex/about-me.md"), "🪪");
-  assert.equal(defaultFolderIcon("tex/routines"), "🔁");
-  assert.equal(defaultFolderIcon("tex/routines/once"), "📌");
-  assert.equal(defaultFolderIcon("tex/routines/daily"), "☀️");
-  assert.equal(defaultFolderIcon("tex/routines/every-day"), "☀️");
-  assert.equal(defaultFolderIcon("tex/routines/weekly"), "📅");
-  assert.equal(defaultFolderIcon("tex/routines/biweekly"), "📅");
-  assert.equal(defaultFolderIcon("tex/routines/hourly"), "⏳");
-  assert.equal(defaultFolderIcon("tex/routines/every-30-minutes"), "⏱️");
-  assert.equal(defaultFolderIcon("tex/routines/monthly"), "🌙");
-  assert.equal(defaultFolderIcon("tex/routines/yearly"), "🎆");
+  assert.equal(drawn("tex/about-me.md"), "🪪");
+  assert.equal(drawn("tex/routines"), "🔁");
+  assert.equal(drawn("tex/routines/once"), "📌");
+  assert.equal(drawn("tex/routines/daily"), "☀️");
+  assert.equal(drawn("tex/routines/every-day"), "☀️");
+  assert.equal(drawn("tex/routines/weekly"), "📅");
+  assert.equal(drawn("tex/routines/biweekly"), "📅");
+  assert.equal(drawn("tex/routines/hourly"), "⏳");
+  assert.equal(drawn("tex/routines/every-30-minutes"), "⏱️");
+  assert.equal(drawn("tex/routines/monthly"), "🌙");
+  assert.equal(drawn("tex/routines/yearly"), "🎆");
   // A name that means no cadence, a folder deeper down, and a tex/ that is not at the top are somebody's own.
   assert.equal(defaultFolderIcon("tex/routines/someday"), null);
   assert.equal(defaultFolderIcon("tex/routines/once/trip"), null);
@@ -144,6 +155,23 @@ test("Tex's folder, its about note, its routines and each how-often folder show 
   assert.equal(defaultFolderIcon("1-projects/tex"), null);
   assert.equal(defaultFolderIcon("tex/notes"), null);
   assert.equal(defaultFolderIcon("tex/routines/constructor"), null);
+});
+
+test("Tex's other folders and notes are drawn too, and nowhere else (owner, 2026-10-21)", () => {
+  assert.equal(drawn("tex/transcripts"), "💬");
+  assert.equal(drawn("tex/skills"), "🧠");
+  assert.equal(drawn("tex/housekeeping"), "🧹");
+  assert.equal(drawn("tex/heartbeat"), "💓");
+  assert.equal(drawn("tex/heartbeat.md"), "💓");
+  assert.equal(drawn("tex/attention"), "🔔");
+  assert.equal(drawn("tex/jobs.md"), "📋");
+  assert.equal(defaultFolderIcon("tex/transcripts/2026-10-21.md"), null);
+  assert.equal(defaultFolderIcon("1-projects/transcripts"), null);
+  // Inside a Tex folder nested anywhere, by the path below it.
+  assert.equal(iconAsText(texPartIcon("routines/every-day")), "☀️");
+  assert.equal(iconAsText(texPartIcon("skills")), "🧠");
+  assert.equal(texPartIcon("packing list.md"), null);
+  assert.equal(texPartIcon("constructor"), null);
 });
 
 test("remapIcons carries several note icons in one write", async () => {

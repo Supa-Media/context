@@ -109,6 +109,20 @@ describe("who may set an icon, and where", () => {
     expect(error.code).toBe("PATH_INVALID");
   });
 
+  test("one of Context's own icons is allowed by a name in the set (owner, 2026-10-21)", async () => {
+    const store = bucket();
+    expect(await check(store, { path: "recipes", icon: "context:icon:utensils", clearance: OWNER })).toBe("recipes");
+    expect(await check(store, { path: "recipes/soups/leek.md", icon: "context:icon:leaf", clearance: OWNER })).toBe("recipes/soups/leek.md");
+  });
+
+  test.each(["context:icon:nope", "context:icon:", "context:icon:constructor", "context:part:tex_skills", "context:tex", "context:job:inbox"])(
+    "refuses %j, which is no Context icon anybody can choose",
+    async (icon) => {
+      const error = await refusal(() => check(bucket(), { path: "recipes", icon, clearance: OWNER }));
+      expect(error.code).toBe("PATH_INVALID");
+    },
+  );
+
   test.each([":Party:", "::", ":a:b:", ":../x:", " :x: "])("refuses %j, which is not a workspace emoji's name", async (icon) => {
     const error = await refusal(() => check(bucket(), { path: "recipes", icon, clearance: OWNER, emoji: ["x"] }));
     expect(error.code).toBe("PATH_INVALID");

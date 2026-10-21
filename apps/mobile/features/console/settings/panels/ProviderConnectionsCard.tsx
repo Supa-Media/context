@@ -25,7 +25,7 @@ type AppRow = FunctionReturnType<typeof api.functions.connectionSettings.myApps>
  * Draws nothing while loading, or for a workspace that connects nothing (a
  * shared one, or one they don't own). The token never reaches this list.
  */
-export function ProviderConnectionsCard({ workspaceId }: { workspaceId: string }) {
+export function ProviderConnectionsCard({ workspaceId, bare = false }: { workspaceId: string; bare?: boolean }) {
   const styles = useThemedStyles(makeStyles);
   const { isAuthenticated } = useConvexAuth();
   const rows = useQuery(
@@ -34,13 +34,18 @@ export function ProviderConnectionsCard({ workspaceId }: { workspaceId: string }
   );
   if (rows === undefined || rows.length === 0) return null;
   return (
-    <View testID="provider-connections" style={styles.wrap}>
-      <Text variant="rowTitle" style={styles.head}>
-        Apps Tex uses
-      </Text>
-      <Text variant="rowSub" style={styles.sub}>
-        Tex reads and acts in these as you. Anything it posts or changes waits for your yes.
-      </Text>
+    <View testID="provider-connections" style={bare ? undefined : styles.wrap}>
+      {/* `bare` on the settings page of its own, whose title and line already say this. */}
+      {bare ? null : (
+        <>
+          <Text variant="rowTitle" style={styles.head}>
+            Apps Tex uses
+          </Text>
+          <Text variant="rowSub" style={styles.sub}>
+            Tex reads and acts in these as you. Anything it posts or changes waits for your yes.
+          </Text>
+        </>
+      )}
       <Card>
         {rows.map((row, index) => (
           <AppLine key={row.app} row={row} workspaceId={workspaceId} divided={index > 0} />

@@ -1,6 +1,7 @@
 /** Database-only catalog of public destinations a website page may name. */
 
 import { DEFAULT_WEBSITE_ROOT, SHARE_ROUTE } from "@context/shared";
+import { siteRoot } from "./siteRoot";
 import type { Id } from "../../../_generated/dataModel";
 import type { QueryCtx } from "../../../_generated/server";
 import { workspacePaying } from "../customDomains/handlers";
@@ -62,11 +63,14 @@ export async function websiteLinkCatalogHandler(
     )
     .collect();
   const now = Date.now();
+  // A share of a site page under its folder's real name, wherever it is nested, is the page's.
+  const root = await siteRoot(ctx.db, args.workspaceId);
   for (const share of shares) {
     if (
       share.recipientKind !== "anyone" ||
       (share.entryKind ?? "note") !== "note" ||
       share.entryPath.startsWith(`${DEFAULT_WEBSITE_ROOT}/`) ||
+      share.entryPath.startsWith(`${root}/`) ||
       (await shareStillStands(ctx, share, null, now)) === null
     ) {
       continue;

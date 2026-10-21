@@ -317,6 +317,9 @@ describe("no public function can reach a storage secret", () => {
         // `/gateway/email/read`; see their CREDENTIAL_HTTP_ROUTES entry.
         "http.gatewayPersonMailSearch",
         "http.gatewayPersonMailRead",
+        // THE PERSON'S OWN CALENDAR, READ. `/gateway/calendar/days`; see its
+        // CREDENTIAL_HTTP_ROUTES entry.
+        "http.gatewayPersonCalendarDays",
         // THE PLATFORM'S OWN CREDENTIALS, AND THE ONE FUNCTION THAT OPENS ONE.
         //
         // Not a customer's anything — see the `functions/admin.ts` entry in

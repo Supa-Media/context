@@ -18,8 +18,11 @@ import {
   reorderedSiblings,
   siblingFolders,
   withFolderOrder,
+  websiteFolder,
   type JobEntry,
 } from "../features/console/files/jobIcons/folderJobs";
+import { setJobFoldersNow } from "../features/console/files/jobIcons/jobFoldersNow";
+import { isWebsiteFolder } from "../features/console/website/PublishWebsite";
 import { jobIconMarker, jobOfIcon } from "../features/console/files/jobIcons/marker";
 
 const folder = (path: string, over: Partial<JobEntry> = {}): JobEntry => ({
@@ -68,6 +71,20 @@ describe("jobs from listings", () => {
     };
     expect(jobFolder(nested, "inbox", "0-inbox")).toBe("1-projects/Capture");
     expect(loadedJobs(nested).get("1-projects/Capture")).toBe("inbox");
+  });
+
+  test("Publish goes on the website's folder wherever it is nested, and on `website` until one has loaded", () => {
+    expect(websiteFolder({})).toBe("website");
+    const nested = {
+      "": { entries: [folder("Work", { role: null }), folder("1-projects", { role: "projects" })] },
+      Work: { entries: [folder("Work/site", { role: "website" })] },
+    };
+    expect(websiteFolder(nested)).toBe("Work/site");
+    setJobFoldersNow({ inbox: "0-inbox", archive: "9-archive", website: websiteFolder(nested) });
+    expect(isWebsiteFolder("Work/site")).toBe(true);
+    expect(isWebsiteFolder("website")).toBe(false);
+    setJobFoldersNow({ inbox: "0-inbox", archive: "9-archive", website: "website" });
+    expect(isWebsiteFolder("website")).toBe(true);
   });
 });
 

@@ -39,7 +39,7 @@
 import type { Clipboard } from "./clipboard";
 import type { MenuItem } from "./menuItem";
 import type { RowRole } from "@context/shared/src/folderRoles.cjs";
-import { builtInLocks, fixedItems, keptItems, rowJob } from "./menuBuiltIn";
+import { builtInLocks, fixedItems, isTexPartRow, keptItems, rowJob } from "./menuBuiltIn";
 import { downloadGroup, iconGroup, makeItem, orderGroup, pinGroup, tagsGroup } from "./menuMake";
 import { visibilityGroup } from "./menuVisibility";
 import { restoreTargetFor } from "./paths";
@@ -412,6 +412,7 @@ function pageItems(context: MenuContext, row: TreeRow): MenuItem[] {
   const twin = context.isTwin?.(row.path) === true;
   const job = rowJob(row, context);
   const locks = builtInLocks(job);
+  const texPart = isTexPartRow(row, context);
   return joinGroups([
     [
       makeItem(context, "newNote", "New note"),
@@ -419,7 +420,7 @@ function pageItems(context: MenuContext, row: TreeRow): MenuItem[] {
       ...pasteGroup(context, row.path),
     ],
     [
-      ...(locks.fixed
+      ...(texPart
         ? fixedItems(context)
         : [makeItem(context, "rename", "Rename…"), makeItem(context, "moveTo", "Move to…")]),
       ...orderGroup(context, row),
@@ -539,9 +540,9 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
   // What a built-in folder may not do (`menuBuiltIn.ts`). In a selection one
   // poisons that verb for the whole lot, like a read-only row does.
   const jobs = rows.map((row) => rowJob(row, context));
-  const locks = jobs.map(builtInLocks);
-  const fixed = locks.some((lock) => lock.fixed);
-  const kept = locks.some((lock) => lock.kept);
+  const kept = jobs.map(builtInLocks).some((lock) => lock.kept);
+  // One of Tex's own folders keeps its name and place (`menuBuiltIn.ts`).
+  const fixed = rows.some((row) => isTexPartRow(row, context));
   const singleJob = single === null ? null : jobs[0]!;
 
   return joinGroups([
@@ -596,9 +597,7 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
               makeItem(context, "rename", "Rename…"),
               ...(singleJob === null ? [makeItem(context, "duplicate", "Duplicate")] : []),
             ]),
-      ...(fixed
-        ? []
-        : [makeItem(context, "moveTo", single === null ? `Move ${items(count)} to…` : "Move to…")]),
+      ...(fixed ? [] : [makeItem(context, "moveTo", single === null ? `Move ${items(count)} to…` : "Move to…")]),
       ...orderGroup(context, single),
     ],
 
@@ -611,7 +610,7 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
     // Dragging with ⌥ held is how several are copied at once.
     single === null
       ? []
-      : [makeItem(context, "copy", "Copy"), ...(fixed ? [] : [makeItem(context, "cut", "Cut")])],
+      : [makeItem(context, "copy", "Copy"), makeItem(context, "cut", "Cut")],
 
     // The `@name/1-projects/foo.md` form addresses one path in somebody else's
     // sentence or an agent's prompt; a newline-separated list of three is not

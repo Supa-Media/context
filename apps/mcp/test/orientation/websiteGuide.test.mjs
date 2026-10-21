@@ -74,4 +74,9 @@ export async function runOrientationWebsiteGuideChecks(check, harness) {
     "the guide stays short enough to sit in every orient",
     WEBSITE_GUIDE.length < 3_000 && websiteGuideFor({ folders: [], rootNotes: [] }) === null,
   );
+  check(
+    "a website folder nested somewhere else still brings the guide (owner, 2026-10-21)",
+    websiteGuideFor({ folders: [], rootNotes: [], jobs: { website: "Work/site" } }) === WEBSITE_GUIDE &&
+      websiteGuideFor({ folders: [], rootNotes: [], jobs: { website: null } }) === null,
+  );
 }

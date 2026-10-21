@@ -33,6 +33,7 @@ import type { FormNotifyMaterial } from "../formOps";
 import { recordWrites } from "../treeAnnounce";
 import { indexChangeOf, treeChangeOf, treeChangeOfResult } from "./access";
 import { markWebsiteAfterOperation } from "../websites/routeChangeAt";
+import { siteLens } from "../websites/siteLens";
 import { mayTouchNestedRoutines, routinePathsTouched } from "../routines/changes";
 import { executeOperation } from "./executeOperation";
 import { announceTreeChange, manifestSource } from "./treeOps";
@@ -107,6 +108,10 @@ export async function runFileOperationHandler(
     operation: Infer<typeof operationValidator>;
   },
 ): Promise<OperationResult> {
+  // The site's reads by `website/...` are judged where its folder is now, and answered by the name asked
+  // (`lib/websites/siteLens.ts`, owner 2026-10-21).
+  const lens = await siteLens(ctx, args);
+  if (lens !== null) return lens.relabel(await runFileOperationHandler(ctx, { ...args, operation: lens.operation as typeof args.operation }));
   // In rows mode the rows are the truth and `privacy.md` is not written: a change to who can see something
   // is made on the rows (`filesFns/visibility.ts`), and a rules write reaching here is refused, before any
   // credential is opened.

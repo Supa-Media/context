@@ -68,7 +68,7 @@ describe("the order and the grouping", () => {
     }
   });
 
-  test("seven listed rows; five pages live behind a row on another page", () => {
+  test("eight listed rows; five pages live behind a row on another page", () => {
     /*
       The owner called the fifteen-row list cluttered (2026-10-10). Feedback,
       Activity, Meetings and Emoji keep their pages and their keys —
@@ -84,6 +84,7 @@ describe("the order and the grouping", () => {
     const all = settingsSectionsFor("personal");
     expect(all.filter((section) => !isFoldedSection(section)).map((section) => section.key)).toEqual([
       "profile",
+      "texApps",
       "workspace",
       "sharing",
       "integrations",
@@ -101,7 +102,7 @@ describe("the order and the grouping", () => {
     );
     expect(
       settingsSectionsFor("personal", { invitations: true }).map((section) => section.key),
-    ).toHaveLength(13);
+    ).toHaveLength(14);
   });
 
   test("every section sits under a heading somebody can answer", () => {

@@ -29,7 +29,7 @@ import {
   topLevelRole,
   twinMessage,
 } from "@context/shared/src/folderRoles.cjs";
-import { INBOX_PART_LABEL, isInboxPart, type InboxPart } from "@context/shared/src/folderJobInfo.cjs";
+import { INBOX_PART_LABEL, isInboxPart, isTexPart, type InboxPart } from "@context/shared/src/folderJobInfo.cjs";
 import { isKeyedStore } from "../noteIds/keyedStore";
 import { treeJobs } from "./treeChecks";
 import { canSee, isPlumbing } from "../privacy";
@@ -105,8 +105,9 @@ async function guardedJob(store: FileStore, path: string, clearance: Clearance):
  *  - `remove` (archive, trash, delete): never for the five main folders;
  *  - `move` (rename, move, nest): allowed in a workspace whose notes are kept
  *    by id, where the job goes with the row. Elsewhere the five stay put, as
- *    every writer there still names them by path. The website folder keeps
- *    its name everywhere: its pages are published from it by name.
+ *    every writer there still names them by path. The website folder moves
+ *    on the same terms: the site keeps naming its pages `website/...` and
+ *    reads them wherever the folder is (owner, 2026-10-21).
  *
  * What is inside them is always the person's to move. A path naming no job
  * costs one tree read and no listing.
@@ -114,7 +115,8 @@ async function guardedJob(store: FileStore, path: string, clearance: Clearance):
  * The Inbox's own folders (`INBOX_PARTS`: Email, Meetings, ...) are not
  * renamed or moved either: Context files into them by name. They can still
  * be trashed, and a person adds notes and folders beside them (owner,
- * 2026-10-18).
+ * 2026-10-18). Tex's own folders (`TEX_PARTS`: transcripts, routines, ...)
+ * are kept the same way (owner, 2026-10-21).
  */
 export async function assertNotProtectedFolder(
   store: FileStore,
@@ -123,12 +125,14 @@ export async function assertNotProtectedFolder(
   intent: "move" | "remove",
 ): Promise<void> {
   if (intent === "move") await assertNotInboxPart(store, path, clearance);
+  if (intent === "move") await assertNotTexPart(store, path, clearance);
   const job = await guardedJob(store, path, clearance);
   if (job === null) return;
   const label = JOB_LABEL[job as RowRole] ?? path;
   if (job === "website") {
-    if (intent === "remove") return;
-    throw new FileOpError("PATH_INVALID", "Website keeps its name and place, because your site is published from it. What's inside it can move.");
+    // Kept by id, the site follows its folder wherever it goes (`lib/websites/siteRoot.ts`); elsewhere pages are found by name.
+    if (intent === "remove" || (await isKeyedStore(store))) return;
+    throw new FileOpError("PATH_INVALID", "Website keeps its name and place here, because your site is published from it. What's inside it can move.");
   }
   if (!(MAIN_ROLES as readonly string[]).includes(job)) return;
   if (intent === "move") {
@@ -154,6 +158,18 @@ async function assertNotInboxPart(store: FileStore, path: string, clearance: Cle
   throw new FileOpError(
     "PATH_INVALID",
     `${label} is one of the Inbox's own folders: Context files into it, so it stays where it is. You can add your own notes and folders beside it.`,
+  );
+}
+
+/** Refuse renaming or moving one of Tex's own folders the caller can see. */
+async function assertNotTexPart(store: FileStore, path: string, clearance: Clearance): Promise<void> {
+  const tex = (await treeJobs(store))?.jobs.tex ?? null;
+  if (!isTexPart(path, tex)) return;
+  const state = await loadPrivacyState(store);
+  if (!folderVisibleAtScope(path, clearance, state.rules, state.overrides)) return;
+  throw new FileOpError(
+    "PATH_INVALID",
+    `${baseName(path)} is one of Tex's own folders: Tex files into it by name, so it stays where it is. You can add your own notes and folders beside it.`,
   );
 }
 

@@ -12,6 +12,7 @@ import { afterEach, describe, expect, jest, test } from "@jest/globals";
 import { act, createElement, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { SUGGEST_EMOJI } from "@context/shared/src/iconSuggest";
+import { contextIconOf } from "@context/shared/src/contextIcons.cjs";
 import { FolderIconDialog } from "../features/console/files/FolderIconDialog";
 import { standardEmojiNamed } from "../features/console/files/emoji/standardEmoji";
 
@@ -88,6 +89,8 @@ describe("the quick picks", () => {
 
   test("the random pick is from the list, Shuffle rolls another, and a tap sets it", async () => {
     const set = await picker();
+    // The picker opens on Context's own icons; this list is the Emoji tab's.
+    await act(async () => byTestId("folder-icon-tab-emoji")!.click());
     const glyph = () => [...LISTED].find((char) => byTestId("folder-icon-random")?.textContent?.includes(char));
     const first = glyph();
     expect(first).toBeDefined();
@@ -97,5 +100,13 @@ describe("the quick picks", () => {
     expect(second).not.toBe(first);
     await act(async () => byTestId("folder-icon-random")!.click());
     expect(set).toEqual([second]);
+  });
+
+  test("on Context icons the random pick is one of the hundred, and a tap sets it", async () => {
+    const set = await picker();
+    await act(async () => byTestId("folder-icon-shuffle")!.click());
+    await act(async () => byTestId("folder-icon-random")!.click());
+    expect(set).toHaveLength(1);
+    expect(contextIconOf(set[0])).not.toBeNull();
   });
 });

@@ -21,8 +21,11 @@ import {
   folderJobs,
   isRowRole,
   jobAt,
+  WEBSITE_FOLDER,
   type RowRole,
 } from "@context/shared/src/folderRoles.cjs";
+import { texPartIcon } from "@context/shared/src/folderIcons.cjs";
+import { parentPath } from "../paths";
 
 /** The fields of a listing entry this reads. */
 export interface JobEntry {
@@ -63,6 +66,18 @@ export function loadedJobs(listings: JobListings): Map<string, RowRole> {
     for (const [path, job] of listingJobs(folder, listing)) if (!jobs.has(path)) jobs.set(path, job);
   }
   return jobs;
+}
+
+/**
+ * The drawn part of a folder or note of Tex's own (`texPartIcon`), under the
+ * folder whose job is Tex wherever it is nested, or `null`. Parts sit at most
+ * two below it (`routines/every-day`).
+ */
+export function texPartIconUnder(jobs: ReadonlyMap<string, RowRole>, path: string): string | null {
+  for (let above = parentPath(path), depth = 0; above !== "" && depth < 2; above = parentPath(above), depth += 1) {
+    if (jobs.get(above) === "tex") return texPartIcon(path.slice(above.length + 1));
+  }
+  return null;
 }
 
 /**
@@ -129,6 +144,11 @@ export function projectsFolder(listings: JobListings): string {
 /** Where the Archive is: the folder doing its job, else `9-archive`. */
 export function archiveFolder(listings: JobListings): string {
   return jobFolder(listings, "archive", DEFAULT_FOLDER.archive);
+}
+
+/** Where the website's folder is, wherever it is nested: the folder doing its job, else `website`. */
+export function websiteFolder(listings: JobListings): string {
+  return jobFolder(listings, "website", WEBSITE_FOLDER);
 }
 
 /**

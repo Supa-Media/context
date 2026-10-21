@@ -211,3 +211,26 @@ describe("the Inbox's own folders", () => {
     expect(await guarded("Capture/email/2026", "move")).toBe("allowed");
   });
 });
+
+describe("Tex's own folders (owner, 2026-10-21)", () => {
+  test("stay where they are wherever Tex's folder is, while folders of a person's own beside them move freely", async () => {
+    const f = await keyedFixture();
+    await addFolder(f, "Assistant", undefined);
+    await addFolder(f, "Assistant/tex", "tex");
+    await addFolder(f, "Assistant/tex/transcripts");
+    await addFolder(f, "Assistant/tex/trips");
+    await addFolder(f, "Work");
+    await addFolder(f, "Work/skills");
+    const named = Object.create(f.store) as FileStore;
+    attachTreeListing(f.ctx, f.ws, named);
+    const guarded = (path: string, intent: "move" | "remove") =>
+      assertNotProtectedFolder(named, path, OWNER, intent).then(
+        () => "allowed",
+        (error: Error) => error.message,
+      );
+    expect(await guarded("Assistant/tex/transcripts", "move")).toMatch(/transcripts is one of Tex's own folders/);
+    expect(await guarded("Assistant/tex/transcripts", "remove")).toBe("allowed");
+    expect(await guarded("Assistant/tex/trips", "move")).toBe("allowed");
+    expect(await guarded("Work/skills", "move")).toBe("allowed");
+  });
+});

@@ -16,15 +16,15 @@ import { StyleSheet, View } from "react-native";
 import { useAction } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
-import { DEFAULT_WEBSITE_ROOT } from "@context/shared";
 import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { useWebsite } from "./useWebsite";
+import { websiteFolderNow } from "../files/jobIcons/jobFoldersNow";
 
-/** The folder a Publish button belongs on. */
+/** The folder a Publish button belongs on: the website's, wherever it is nested (`websiteFolderNow`). */
 export function isWebsiteFolder(path: string): boolean {
-  return path === DEFAULT_WEBSITE_ROOT;
+  return path === websiteFolderNow();
 }
 
 type Phase = "idle" | "publishing" | "published" | "failed";

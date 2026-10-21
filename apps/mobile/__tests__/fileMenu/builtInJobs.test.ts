@@ -4,7 +4,7 @@
  * A built-in folder is known by the job on its listing entry (`jobOf`, from
  * `folderMenuFacts`), so an Inbox renamed Capture is still the Inbox: renamed
  * and moved like any folder, never archived or trashed, never given another
- * icon. Website keeps its name and place. Every folder an editor may order
+ * icon. Website moves like the rest. Every folder an editor may order
  * gets Move up and Move down, dimmed at the ends.
  *
  * SABOTAGE: drop `kept` from the trash branch in `menu.ts` → "Capture is
@@ -15,7 +15,7 @@ import { describe, expect, test } from "@jest/globals";
 import type { RowRole } from "@context/shared/src/folderRoles.cjs";
 import { runMenuAction, type ActionContext } from "../../features/console/files/actions";
 import type { FileBrowser } from "../../features/console/files/browser";
-import { folderMenuFacts, rowJob, WEBSITE_DETAIL } from "../../features/console/files/menuBuiltIn";
+import { folderMenuFacts, rowJob } from "../../features/console/files/menuBuiltIn";
 import type { FileEntry, FolderListing } from "../../features/console/files/types";
 import { dir, find, ids, menu } from "./fixtures";
 
@@ -88,12 +88,11 @@ describe("a built-in folder known by its job", () => {
     expect(find(clients, "delete")?.disabled).toBeUndefined();
   });
 
-  test("Website keeps its name and place: Rename and Move dimmed with the reason, trash offered", () => {
+  test("Website is renamed and moved like the rest (its site follows it), trash offered", () => {
     const list = menu({ kind: "row", row: dir("website") }, facts());
-    expect(find(list, "rename")?.disabled).toBe(true);
-    expect(find(list, "moveTo")?.disabled).toBe(true);
-    expect(find(list, "moveTo")?.detail).toBe(WEBSITE_DETAIL);
-    expect(find(list, "cut")).toBeUndefined();
+    expect(find(list, "rename")?.disabled).toBeUndefined();
+    expect(find(list, "moveTo")?.disabled).toBeUndefined();
+    expect(find(list, "cut")?.disabled).toBeUndefined();
     expect(find(list, "delete")?.disabled).toBeUndefined();
   });
 
@@ -105,7 +104,7 @@ describe("a built-in folder known by its job", () => {
     expect(find(page, "archive")?.label).toBe("Archive folder");
     expect(ids(page)).not.toContain("setIcon");
     const website = menu({ kind: "page", row: dir("website") }, { ...facts(), platform: "touch" });
-    expect(find(website, "rename")?.disabled).toBe(true);
+    expect(find(website, "rename")?.disabled).toBeUndefined();
   });
 });
 

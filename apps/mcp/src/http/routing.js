@@ -68,11 +68,13 @@ export function attachLinkCalls(store, session, controlPlane, env) {
     writable: false,
     configurable: true,
   });
-  // A calendar change the person said yes to (`tools/calendarWrite.js`).
+  // A calendar change the person said yes to (`tools/calendarWrite.js`), and reading it live.
   Object.defineProperty(store, "calendar", {
     value: {
       check: (change) => controlPlane.changePersonCalendar(session.accessToken, session.workspaceId, change, { check: true }),
       change: (change) => controlPlane.changePersonCalendar(session.accessToken, session.workspaceId, change),
+      // Days of their calendars read live from Google (`tools/calendarRead.js`).
+      days: (request) => controlPlane.personCalendarDays(session.accessToken, session.workspaceId, request),
     },
     enumerable: false,
     writable: false,

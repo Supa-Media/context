@@ -4,6 +4,7 @@ import { Icon } from "../../design/components/Icon";
 import { EmojiGlyph } from "../emoji/EmojiGlyph";
 import { JobIcon } from "./jobIcons/JobIcon";
 import { jobOfIcon, twinJobOfIcon } from "./jobIcons/marker";
+import { contextIconOf, contextPartOf } from "@context/shared/src/contextIcons.cjs";
 import { pointerType, radii } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 
@@ -66,7 +67,8 @@ export function TreeFolderGlyph({
     ) : (
       <EmojiGlyph
         emoji={icon}
-        size={14}
+        // A drawn icon fills its box as the job icons do; an emoji's glyph sits inside its line height.
+        size={contextIconOf(icon) !== null || contextPartOf(icon) !== null ? 16 : 14}
         textStyle={styles.emoji}
         fallback={plain}
         testID="tree-folder-emoji"
