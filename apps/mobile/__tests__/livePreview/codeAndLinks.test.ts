@@ -104,6 +104,8 @@ describe("a wiki link is drawn as its words", () => {
     expect(visibleText("See [[a/b/overview.md]] today")).toBe("See overview today");
     expect(visibleText("See [[a/b/overview#Goals]] today")).toBe("See overview#Goals today");
     expect(visibleText("See [[a/overview.md#x/y]] today")).toBe("See overview#x/y today");
+    // A target ending in a slash has no name to show, so it keeps its path.
+    expect(visibleText("See [[a/b/]] today")).toBe("See a/b/ today");
     // A bare name has no folders to drop, and is drawn as it was.
     expect(visibleText("See [[Eve]] today")).toBe("See Eve today");
   });

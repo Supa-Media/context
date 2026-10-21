@@ -450,7 +450,10 @@ function selectionInside(range: TextRange, selection: readonly TextRange[]): boo
 export function wikiTargetName(target: string): { from: number; to: number; extensionTo: number } {
   const hash = target.indexOf("#");
   const path = hash === -1 ? target : target.slice(0, hash);
-  const from = path.lastIndexOf("/") + 1;
+  // `[[folder/]]` has no name after its last slash; drawing nothing would make
+  // the link invisible, so it keeps its whole path.
+  const slash = path.lastIndexOf("/") + 1;
+  const from = slash === path.length ? 0 : slash;
   const md = path.length - from > 3 && path.toLowerCase().endsWith(".md");
   return { from, to: md ? path.length - 3 : path.length, extensionTo: path.length };
 }
