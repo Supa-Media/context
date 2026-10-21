@@ -141,32 +141,34 @@ describe("the top bar holds the traffic lights", () => {
     mounted.unmount();
   });
 
-  test("a Mac shell at compact: the phone bar refuses the job, and says so", () => {
+  test("a Mac shell narrowed to a phone's width keeps the desktop bar, lights and all", () => {
     /*
-      `topBarCompact` is absolute, transparent and lying over the note. A
-      console window narrowed past `narrowBreakpoint` is this layout on a Mac,
-      so the band above the app has to come back — and it only can if the
-      frame stops claiming it.
+      The Mac app never takes the phone layout (Dev2, 2026-10-21: "desktop app
+      should never have the mobile view"; `pageInDesktopShell` in
+      features/app/frame.ts). A build from before the shell's width floor can
+      still be dragged this narrow, and what it gets is the medium frame, whose
+      bar goes on holding the traffic lights.
     */
     installMacShell();
     const mounted = mountFrame(390);
 
-    const bar = mounted.find("app-top-bar");
-    expect(styleOf(bar!, "padding-left")).not.toBe(`${SHELL_TITLE_BAND_LEAD_PX}px`);
-    expect(appRegionOf(bar!)).toBeNull();
-    expect(topChromeHoldsLights()).toBe(false);
+    expect(topChromeHoldsLights()).toBe(true);
+    expect(appRegionOf(mounted.find("app-top-bar")!)).toBe("drag");
+    expect(styleOf(mounted.find("frame-column-head")!, "padding-left")).toBe(
+      `${SHELL_TITLE_BAND_LEAD_PX}px`,
+    );
 
     mounted.unmount();
   });
 
-  test("NARROWING A SHELL WINDOW HANDS THE JOB BACK, AND WIDENING TAKES IT AGAIN", () => {
+  test("NARROWING A SHELL WINDOW KEEPS THE JOB, AND WIDENING KEEPS IT TOO", () => {
     installMacShell();
     const mounted = mountFrame(1400);
     expect(topChromeHoldsLights()).toBe(true);
 
     mounted.resize(390);
-    expect(topChromeHoldsLights()).toBe(false);
-    expect(appRegionOf(mounted.find("app-top-bar")!)).toBeNull();
+    expect(topChromeHoldsLights()).toBe(true);
+    expect(appRegionOf(mounted.find("app-top-bar")!)).toBe("drag");
 
     mounted.resize(1400);
     expect(topChromeHoldsLights()).toBe(true);

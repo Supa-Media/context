@@ -11,6 +11,7 @@ import { APP_SECTIONS, selectContextRoute, type ConsoleRoute } from "./nav";
 import { railGroup } from "./rail";
 import { selectedContext, type ConsoleData } from "./types";
 import { tierChipLabel } from "./visibility";
+import { densityFor } from "../app/frame";
 
 /**
  * The console chrome: title bar, left rail, and the pane body.
@@ -54,7 +55,7 @@ export function ConsoleShell({
 }) {
   const styles = useThemedStyles(makeStyles);
   const { width } = useWindowDimensions();
-  const narrow = width < layout.narrowBreakpoint;
+  const narrow = densityFor(width) === "compact";
   const current = selectedContext(data);
   const insideContext = route.kind === "context";
   const group = railGroup({ contexts: data.contexts, claimable: false });
@@ -217,7 +218,7 @@ export function PaneHead({
 }) {
   const styles = useThemedStyles(makeStyles);
   const { width } = useWindowDimensions();
-  const narrow = width > 0 && width < layout.narrowBreakpoint;
+  const narrow = width > 0 && densityFor(width) === "compact";
 
   return (
     <View style={styles.paneHead}>

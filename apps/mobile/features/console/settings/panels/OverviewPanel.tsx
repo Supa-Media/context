@@ -5,7 +5,7 @@ import { Card, Grow, Row } from "../../../design/components/Card";
 import { TextField } from "../../../design/components/Input";
 import { Text } from "../../../design/components/Text";
 import { TextLink } from "../../../design/components/TextLink";
-import { layout, space } from "../../../design/tokens";
+import { space } from "../../../design/tokens";
 import { useThemedStyles } from "../../../design/theme";
 import { atName } from "../../format";
 import { WorkspaceNameField } from "./WorkspaceNameField";
@@ -13,6 +13,7 @@ import { selectedContext, type ConsoleData } from "../../types";
 import type { SettingsSectionKey } from "../sections";
 import { useWorkspaceIcons } from "../../useWorkspaceIcons";
 import { WorkspaceIconPicker, WorkspaceMonogram } from "./WorkspaceIconPicker";
+import { densityFor } from "../../../app/frame";
 
 /**
  * Settings › General: this workspace's name and picture, and the few facts
@@ -43,7 +44,7 @@ export function OverviewPanel({
     Three across, the field shrank to a few letters and "Change picture" hung
     level with the field's label instead of with anything it changes.
   */
-  const compact = useWindowDimensions().width < layout.narrowBreakpoint;
+  const compact = densityFor(useWindowDimensions().width) === "compact";
   const current = selectedContext(data);
   const shared = current?.kind === "shared";
   const [pickingIcon, setPickingIcon] = useState(false);

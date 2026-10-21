@@ -21,6 +21,7 @@ import {
 } from "./sections";
 import { showPluginsSection } from "../plugins/experiment";
 import type { SetupAgent } from "../../agentSetup/guides";
+import { densityFor } from "../../app/frame";
 
 /**
  * Settings, drawn over the context somebody is already looking at.
@@ -95,7 +96,7 @@ export function SettingsOverlay({
     Feedback from the beta notice) it opens that page, with the list one
     press back.
   */
-  const compact = useWindowDimensions().width < layout.narrowBreakpoint;
+  const compact = densityFor(useWindowDimensions().width) === "compact";
   const [listing, setListing] = useState(compact && startOnList);
   const [query, setQuery] = useState("");
   /*
