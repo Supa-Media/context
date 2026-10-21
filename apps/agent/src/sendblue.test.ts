@@ -433,11 +433,12 @@ describe("sendblue sending", () => {
     const storage = new MemoryStorage();
     await storage.put(CHAT_KEY, { chatId: "chat_linq", at: 500 });
     await accept(storage, message("sendblue:mh_m1"), 1_000);
-    await accept(storage, message("sendblue:mh_m2"), 1_000);
+    // Quoting other words, so the two are answered apart (`sameBurst`).
+    await accept(storage, { ...message("sendblue:mh_m2"), quoted: "x" }, 1_000);
     const calls: Call[] = [];
     await drain(storage, deps(fakeSendblue(calls), []));
     const texts = calls.filter((c) => c.path === "/api/send-message" && c.body.content).map((c) => c.body.content);
-    expect(texts).toEqual([NEW_LINE_TEXT, "answer to q", "answer to q"]);
+    expect(texts).toEqual([NEW_LINE_TEXT, "answer to q", "answer to q [quoting x]"]);
   });
 
   it("never says it to someone new to Tex, or on the old line", async () => {

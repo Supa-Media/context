@@ -517,6 +517,7 @@ async function answerTexts(message: Message, deps: InboxDeps, storage: InboxStor
 }
 
 /**
+ * Words sent back to back in the same place become one text (`sameBurst`).
  * A text that is only files, followed by another not yet answered, becomes
  * part of that one: its files go first, in the order sent. Files with no words
  * after them join the words-only text just before them instead, which they
@@ -540,6 +541,17 @@ async function fold(storage: InboxStorage, pending: Map<string, Pending>): Promi
       await storage.delete(key);
       continue;
     }
+    if (next && sameBurst(item, next)) {
+      next.message = {
+        ...next.message,
+        text: `${item.message.text}\n${next.message.text}`,
+        ...(item.message.newTopic ?? next.message.newTopic ? { newTopic: true as const } : {}),
+        ...(item.message.reacted ?? next.message.reacted ? { reacted: [...(item.message.reacted ?? []), ...(next.message.reacted ?? [])] } : {}),
+      };
+      await storage.put<Pending>(entries[index + 1][0], next);
+      await storage.delete(key);
+      continue;
+    }
     const before = [...kept].at(-1);
     if (before && item.reply === undefined && before[1].reply === undefined && mediaOnly(item.message) && wordsOnly(before[1].message)) {
       before[1].message = { ...before[1].message, attachments: (item.message.attachments ?? []).slice(0, MAX_INBOUND_ATTACHMENTS) };
@@ -550,6 +562,21 @@ async function fold(storage: InboxStorage, pending: Map<string, Pending>): Promi
     kept.set(key, item);
   }
   return kept;
+}
+
+/**
+ * Two texts in a row, neither answered yet, that are only words in the same
+ * place: both plain, or both inline replies to the same message. They get one
+ * answer, in the later one's thread (owner's report, 2026-10-21: a burst of
+ * inline replies got an answer each). A tapback, an SMS or another chat's
+ * text is kept apart, and so is a reply to different words.
+ */
+function sameBurst(item: Pending, next: Pending): boolean {
+  const [a, b] = [item.message, next.message];
+  if (item.reply !== undefined || next.reply !== undefined) return false;
+  if (a.chatId !== b.chatId || !wordsOnly(a) || !wordsOnly(b)) return false;
+  if (a.tapback || b.tapback || a.sms || b.sms) return false;
+  return Boolean(a.threaded) === Boolean(b.threaded) && a.quoted === b.quoted && a.threadStart === b.threadStart;
 }
 
 async function pruneSeen(storage: InboxStorage, now: number): Promise<void> {
