@@ -101,6 +101,7 @@ export function parseConnectCallback(params: {
 
 export type CallbackOutcome =
   | { kind: "connected"; teamName: string }
+  | { kind: "finishing"; teamName: string; since: number }
   | { kind: "denied" }
   | { kind: "missing-secret" }
   | { kind: "failed"; message: string };
@@ -114,6 +115,11 @@ export function callbackMessage(outcome: CallbackOutcome): CallbackMessage {
   switch (outcome.kind) {
     case "connected":
       return { headline: `${outcome.teamName} is connected.`, body: "Go back to your texts with Tex." };
+    case "finishing":
+      return {
+        headline: `Finishing ${outcome.teamName}…`,
+        body: "This takes a few seconds. You can go back to your texts with Tex; it will know once it's connected.",
+      };
     case "denied":
       return { headline: "Not connected", body: "You didn't allow it, so nothing was connected." };
     case "missing-secret":

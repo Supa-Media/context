@@ -768,3 +768,4 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Who a connection acts as follows from the workspace's kind
 - A post waits for the person's yes; a read or a reaction does not
 - The Slack app
+- An app with an official MCP server connects through it (2026-10-21)

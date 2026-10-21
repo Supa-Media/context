@@ -309,8 +309,8 @@ export const storeConnection = internalMutation({
 /** The provider's callback, finished by the browser that started it. */
 export const completeProviderConnect = action({
   args: { provider, state: v.string(), code: v.string(), completionSecret: v.string() },
-  returns: v.object({ teamName: v.string(), workspaceName: v.string(), scope, pending: v.optional(v.boolean()) }),
-  handler: async (ctx, args): Promise<{ teamName: string; workspaceName: string; scope: "personal" | "workspace"; pending?: boolean }> => {
+  returns: v.object({ teamName: v.string(), workspaceName: v.string(), scope, pending: v.optional(v.number()) }),
+  handler: async (ctx, args): Promise<{ teamName: string; workspaceName: string; scope: "personal" | "workspace"; pending?: number }> => {
     const userId = await requireActor(ctx);
     const spec = providerOf(args.provider);
     const origin = httpsAppOrigin();
@@ -333,7 +333,9 @@ export const completeProviderConnect = action({
     };
     if (spec.kind !== "slack") {
       if (consumed.encryptedVerifier === undefined) failed();
-      // Scheduled, so this public action never reaches a sealed secret; the page watches `connectionState`.
+      // Scheduled, so this public action never reaches a sealed secret; the page
+      // watches `connectionState` from `pending`, this server's clock before the finish.
+      const pending = Date.now();
       await ctx.scheduler.runAfter(0, internal.functions.connectionConsent.finishStandardConsent, {
         provider: args.provider,
         workspaceId: consumed.workspaceId,
@@ -344,7 +346,7 @@ export const completeProviderConnect = action({
         code: args.code,
         redirectUri,
       });
-      return { teamName: spec.name, workspaceName: "", scope: consumed.scope, pending: true };
+      return { teamName: spec.name, workspaceName: "", scope: consumed.scope, pending };
     }
     const client = providerClient(spec);
     if (client === null) unavailable();

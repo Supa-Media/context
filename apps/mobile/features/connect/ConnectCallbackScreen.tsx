@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useAction, useConvexAuth } from "convex/react";
+import { useAction, useConvexAuth, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import { Button } from "../design/components/Button";
 import { Card } from "../design/components/Card";
@@ -92,12 +92,25 @@ export function ConnectCallbackScreen() {
           code: callback.code,
           completionSecret,
         });
-        setOutcome({ kind: "connected", teamName: done.teamName });
+        // An app connected through its own MCP server finishes on the server; the query below watches it.
+        setOutcome(
+          done.pending === undefined
+            ? { kind: "connected", teamName: done.teamName }
+            : { kind: "finishing", teamName: done.teamName, since: done.pending },
+        );
       } catch (failure) {
         setOutcome({ kind: "failed", message: failureMessage(failure) });
       }
     })();
   }, [auth.isLoading, auth.isAuthenticated, callback, complete, provider]);
+
+  const finishing = outcome?.kind === "finishing" && provider !== null ? { provider, since: outcome.since } : "skip";
+  const connection = useQuery(api.functions.connections.connectionState, finishing);
+  useEffect(() => {
+    if (outcome?.kind !== "finishing") return;
+    if (connection === "connected") setOutcome({ kind: "connected", teamName: outcome.teamName });
+    if (connection === "failed") setOutcome({ kind: "failed", message: failureMessage(null) });
+  }, [outcome, connection]);
 
   if (outcome === null) {
     return (
