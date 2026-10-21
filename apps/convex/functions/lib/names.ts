@@ -353,6 +353,16 @@ const PRODUCT_RESERVED_NAMES: readonly string[] = [
   // The texting assistant's name (decided by the owner, 2026-10-10): `@tex`
   // and `tex@context.lc` would read as the assistant itself.
   "tex",
+  // The apex paths the **router** serves itself, held against its own
+  // `NOT_PAGES` by `namesRoutes.test.ts`. The app's routes below were the
+  // other half of this; `infra/router` has never been covered, and `/ingest`
+  // (the product analytics road, 2026-10-21) arrived claimable while `/og`
+  // had been so since the card was written. Same two reasons: each is a
+  // surface at `context.lc/<segment>`, and each is a mailbox at
+  // `<segment>@context.lc`. `s` and `_expo` need no entry — one character,
+  // and a character this namespace does not allow.
+  "ingest",
+  "og",
   // Every static route the app itself serves, which `names.test.ts` now holds
   // against `ROUTE_SEGMENTS` rather than restating. Same two reasons the
   // gateway's first segments are reserved: each is a product surface at

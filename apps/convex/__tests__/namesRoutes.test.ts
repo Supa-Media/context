@@ -16,6 +16,7 @@ import { ROUTE_SEGMENTS } from "@context/shared";
 import { GATEWAY_ROUTE_FLOOR } from "@context/shared/src/gatewayRouteSegments";
 
 import { gatewayReservedFirstSegments } from "./gatewayRoutes.helpers";
+import { routerNotPages } from "./routerPages.helpers";
 import { validateName } from "../functions/lib/names";
 
 describe("a route a name could otherwise be", () => {
@@ -82,5 +83,24 @@ describe("a route a name could otherwise be", () => {
   test("reserves every app route a name could otherwise be", () => {
     const claimable = [...ROUTE_SEGMENTS].filter((segment) => validateName(segment).ok);
     expect(claimable, "these name an app route and can still be claimed").toEqual([]);
+  });
+
+  /**
+   * And the third list: the apex paths the router serves itself.
+   *
+   * The two checks above hold the gateway's first segments and the app's
+   * routes. The router keeps its own — `/api`, `/og`, `/ingest` — in
+   * `NOT_PAGES`, and nothing held those to the namespace: `/ingest` arrived
+   * on 2026-10-21 and `/og` had been there far longer, both claimable as
+   * handles and so as mailboxes on the apex.
+   *
+   * A floor on the size, like the gateway check, so a list this cannot read
+   * fails here rather than passing by checking nothing.
+   */
+  test("reserves every apex route the router keeps off the homepage", () => {
+    const notPages = routerNotPages();
+    expect(notPages.size, "the router's NOT_PAGES could not be read").toBeGreaterThanOrEqual(25);
+    const claimable = [...notPages].filter((segment) => validateName(segment).ok);
+    expect(claimable, "the router serves these and a name could still be one").toEqual([]);
   });
 });
