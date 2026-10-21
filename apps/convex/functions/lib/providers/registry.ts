@@ -7,10 +7,10 @@
 import { slack } from "./slack";
 import type { ConnectionScope, ProviderId, ProviderSpec } from "./types";
 
-export const PROVIDERS: Record<ProviderId, ProviderSpec> = { slack };
+export const PROVIDERS: Partial<Record<ProviderId, ProviderSpec>> = { slack };
 
 export function providerOf(id: unknown): ProviderSpec | null {
-  return typeof id === "string" && Object.prototype.hasOwnProperty.call(PROVIDERS, id) ? PROVIDERS[id as ProviderId] : null;
+  return typeof id === "string" && Object.prototype.hasOwnProperty.call(PROVIDERS, id) ? (PROVIDERS[id as ProviderId] ?? null) : null;
 }
 
 /** A personal workspace's connection acts as its person; a shared workspace's acts as the app. */

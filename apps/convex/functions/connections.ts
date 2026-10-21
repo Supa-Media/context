@@ -30,6 +30,7 @@ import { recordAudit } from "./lib/audit";
 import { requireActor } from "./lib/googleConnect/config";
 import { getMembership } from "./lib/workspaceAuth";
 import { providerClient, providerOf, scopeForWorkspaceKind } from "./lib/providers/registry";
+import { providerValidator, type ProviderId } from "./lib/providers/ids";
 import { SLACK_TOKEN_GONE, slackCall, slackMethodAllowed, slackMethodReads } from "./lib/providers/slack";
 import {
   CONNECT_ATTEMPT_TTL_MS,
@@ -39,7 +40,7 @@ import {
   mayConnect,
 } from "./lib/connections/links";
 
-const provider = v.literal("slack");
+const provider = providerValidator;
 const scope = v.union(v.literal("personal"), v.literal("workspace"));
 
 function unavailable(): never {
@@ -146,7 +147,7 @@ export const startProviderConnect = action({
     if (origin === null) unavailable();
     const state = randomOpaqueToken(32);
     const completionSecret = randomOpaqueToken(32);
-    const parked: { provider: "slack"; scope: "personal" | "workspace" } | null = await ctx.runMutation(
+    const parked: { provider: ProviderId; scope: "personal" | "workspace" } | null = await ctx.runMutation(
       internal.functions.connections.parkConnectAttempt,
       {
         hashedToken: await hashToken(args.token),

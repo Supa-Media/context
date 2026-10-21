@@ -5,7 +5,8 @@
  * (`functions/connections.ts`, `docs/decisions/connectors.md`).
  */
 
-export type ProviderId = "slack";
+export type { ProviderId } from "./ids";
+import type { ProviderId } from "./ids";
 
 /** `personal` acts as the person who connected it; `workspace` as the provider's app, for everyone. */
 export type ConnectionScope = "personal" | "workspace";

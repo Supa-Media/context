@@ -1,5 +1,6 @@
 import { defineTable } from "convex/server";
 import { v } from "convex/values";
+import { providerValidator } from "../providers/ids";
 
 /**
  * Third-party apps connected through their own OAuth app (Slack first; Outlook,
@@ -11,7 +12,7 @@ import { v } from "convex/values";
  * into notes, which no connector here does. A connector is a token Tex calls
  * the provider's API with, and nothing is copied into the bucket.
  */
-const provider = v.literal("slack");
+const provider = providerValidator;
 
 export const connectionTables = {
   /**
