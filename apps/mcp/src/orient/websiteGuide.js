@@ -25,9 +25,10 @@ export const WEBSITE_GUIDE = [
   "- **Scripts run sealed, or not at all.** Site scripts are not available yet, and when they are, each one runs sealed in its own box on the page: fine for a calculator, quiz or chart, never touching the rest of the page. Tell the person this when they ask for a site: no analytics or tracking snippets, chat bubbles, cookie banners or third-party scripts, nothing that changes the whole page. Do sticky headers, scroll effects, menus and dark mode in CSS instead.",
 ].join("\n");
 
-/** Whether this connection can see a website folder in the survey. */
+/** Whether this connection can see a website folder in the survey, wherever it is nested (`survey.jobs`). */
 export function hasWebsiteFolder(survey) {
   return (
+    (typeof survey.jobs?.website === "string" && survey.jobs.website !== "") ||
     survey.folders.some((folder) => folder.prefix === WEBSITE_ROOT_PREFIX) ||
     survey.rootNotes.some((note) => note.key.startsWith(WEBSITE_ROOT_PREFIX))
   );

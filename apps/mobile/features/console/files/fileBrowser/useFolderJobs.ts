@@ -30,7 +30,7 @@ import type { Id } from "@context/convex/_generated/dataModel";
 import { toFileError } from "../browser";
 import { listingIsDescending } from "../listingOrder";
 import { parentPath } from "../paths";
-import { archiveFolder, inboxFolder, loadedJobs, loadedTwins, projectsFolder, reorderedSiblings, siblingFolders, withFolderOrder } from "../jobIcons/folderJobs";
+import { archiveFolder, inboxFolder, loadedJobs, loadedTwins, projectsFolder, reorderedSiblings, siblingFolders, websiteFolder, withFolderOrder } from "../jobIcons/folderJobs";
 import { setJobFoldersNow } from "../jobIcons/jobFoldersNow";
 import { jobIconMarker, twinIconMarker } from "../jobIcons/marker";
 import type { FileBrowserOptions, Listings } from "./types";
@@ -65,7 +65,12 @@ export function useFolderJobs(deps: FolderJobsDeps): FolderJobsValues {
       change and before anything drawn from them, so nothing reads the old
       name a frame late. Idempotent, which is what lets it sit in a memo.
     */
-    setJobFoldersNow({ inbox: inboxFolder(listings), projects: projectsFolder(listings), archive: archiveFolder(listings) });
+    setJobFoldersNow({
+      inbox: inboxFolder(listings),
+      projects: projectsFolder(listings),
+      archive: archiveFolder(listings),
+      website: websiteFolder(listings),
+    });
     return loadedJobs(listings);
   }, [listings]);
   const twins = useMemo(() => loadedTwins(listings), [listings]);
