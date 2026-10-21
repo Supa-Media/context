@@ -36,6 +36,7 @@ import { join } from "node:path";
 import { SHELL_TRAFFIC_LIGHTS } from "@context/desktop-bridge";
 import { mayNavigateConsoleWindow } from "../core/shell/approval.ts";
 import { mayGrantConsolePermission } from "../core/shell/console.ts";
+import { consoleMinimumSize, grownToMinimum } from "../core/shell/windowSize.ts";
 
 export interface WindowSet {
   panel: BrowserWindow;
@@ -171,8 +172,10 @@ export function createConsoleWindow(
   const win = new BrowserWindow({
     width: 1_040,
     height: 760,
-    minWidth: 720,
-    minHeight: 480,
+    // Never narrow enough for the phone layout; `keepConsoleOutOfPhoneLayout`
+    // below moves this floor with the zoom.
+    minWidth: consoleMinimumSize(1).width,
+    minHeight: consoleMinimumSize(1).height,
     show: false,
     /*
       Named, because the title bar is not the only place a window title is read:
@@ -324,8 +327,40 @@ export function createConsoleWindow(
     mayGrantConsolePermission(permission),
   );
 
+  keepConsoleOutOfPhoneLayout(win);
   void win.loadURL(url);
   return win;
+}
+
+/**
+ * The desktop app never shows the console's phone layout, at any zoom.
+ *
+ * `core/shell/windowSize.ts` has the rule. A zoom from the View menu is
+ * reported by `appMenu.ts` calling `windowZoomed`; a pinch or
+ * Cmd-scroll arrives as `zoom-changed`, before Chromium applies it, so the
+ * minimum is read again on the next turn. A load is a zoom change too, because
+ * Chromium restores a zoom level per origin.
+ */
+function keepConsoleOutOfPhoneLayout(win: BrowserWindow): void {
+  consoleWindows.add(win);
+  win.webContents.on("zoom-changed", () => setImmediate(() => windowZoomed(win)));
+  win.webContents.on("did-finish-load", () => windowZoomed(win));
+}
+
+const consoleWindows = new WeakSet<BrowserWindow>();
+
+/** A window's zoom changed. Only a console window has a floor that follows it. */
+export function windowZoomed(win: BrowserWindow): void {
+  if (consoleWindows.has(win) && !win.isDestroyed()) applyConsoleMinimumSize(win);
+}
+
+/** Set the console window's minimum for its current zoom, growing it if it is now too small. */
+function applyConsoleMinimumSize(win: BrowserWindow): void {
+  const minimum = consoleMinimumSize(win.webContents.getZoomFactor());
+  win.setMinimumSize(minimum.width, minimum.height);
+  const { width, height } = win.getBounds();
+  const grown = grownToMinimum({ width, height }, minimum);
+  if (grown !== null) win.setSize(grown.width, grown.height);
 }
 
 /** Put the panel under the tray icon, clamped to the display it is on. */

@@ -577,6 +577,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The console reserves the space, the shell places the buttons
 - The band's other two payers, and the shell half finally wired
 - The band moves into the bar
+- The desktop app never shows the phone layout
 
 ## [Updating the Mac without shipping a Mac](./desktop-updates.md)
 

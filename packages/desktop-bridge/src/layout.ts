@@ -21,6 +21,8 @@
  *  - `apps/desktop` reads `SHELL_TRAFFIC_LIGHTS` to position the native
  *    traffic-light buttons (`BrowserWindow`'s `trafficLightPosition`) inside
  *    whichever of the two is drawn.
+ *  - `apps/desktop` reads `SHELL_MIN_PAGE_WIDTH_PX` to keep the console window
+ *    from ever being narrow enough for the phone layout.
  *
  * None of them is part of `DesktopBridge` — they are not asked for at
  * runtime, they are compiled into both bundles — so adding or changing them
@@ -29,8 +31,9 @@
  * ## Why the band's height is the top bar's height
  *
  * **`trafficLightPosition` is set once, when the window is created, and the
- * page's layout is not.** A person can narrow the console until it is a phone
- * layout and widen it again, and the buttons do not move when they do. So the
+ * page's layout is not.** A person can narrow the console from its wide layout
+ * to its medium one and widen it again, and the buttons do not move when they
+ * do (it never reaches the phone layout: see `SHELL_MIN_PAGE_WIDTH_PX`). So the
  * two containers that can hold the lights — the root band, and the console's
  * own top bar once it takes the job — cannot have two different heights with
  * one `y` centring the buttons in both. Either the shell learns to move them
@@ -87,3 +90,21 @@ export const SHELL_TRAFFIC_LIGHTS: Readonly<ShellTrafficLightsPosition> = Object
   x: 12,
   y: 16,
 });
+
+/**
+ * The narrowest the console page may be inside the shell, in CSS pixels.
+ *
+ * Equal to `apps/mobile`'s `layout.narrowBreakpoint`, the width below which
+ * `densityFor` answers `compact`: the phone layout, with a floating back button,
+ * a bottom search bar and no explorer. **The desktop app never shows that
+ * layout** (decided by the owner, 2026-10-21: "desktop app should never have the
+ * mobile view"), and the shell keeps that promise by never letting the page get
+ * that narrow, rather than the page asking where it runs at every one of the
+ * places that reads the breakpoint, CSS media queries included.
+ *
+ * In CSS pixels and not window points, because Cmd-plus makes a CSS pixel
+ * bigger: at 125% an 880pt window is a 704px page. `consoleMinimumSize` in
+ * `apps/desktop` multiplies this by the zoom factor, and `shellTitleBand.test.ts`
+ * asserts the equality with the breakpoint from the app's side.
+ */
+export const SHELL_MIN_PAGE_WIDTH_PX = 880;

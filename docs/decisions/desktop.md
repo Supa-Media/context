@@ -141,6 +141,10 @@ Moved to [The band's other two payers, and the shell half finally wired](./deskt
 
 Moved to [The band moves into the bar](./desktop/level-meter-and-band.md#the-band-moves-into-the-bar).
 
+### The desktop app never shows the phone layout
+
+Moved to [The desktop app never shows the phone layout](./desktop/level-meter-and-band.md#the-desktop-app-never-shows-the-phone-layout).
+
 ### Bridge version 4 adds `imessage`, and it is a status object, never a query surface
 
 Moved to [Bridge version 4 adds `imessage`, and it is a status object, never a query surface](./desktop/bridge-and-audio.md#bridge-version-4-adds-imessage-and-it-is-a-status-object-never-a-query-surface).
