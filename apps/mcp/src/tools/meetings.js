@@ -3,10 +3,8 @@
 import { canSee, effectiveVisibility, isPlumbing } from "../privacy/engine.js";
 import { getWithLegacyFallback } from "../storageLayout.js";
 import { isMeetingNotePath } from "../../../../packages/meetings/src/paths.js";
-import { loadPrivacyState } from "../privacy/state.js";
-import { searchSettingsOf } from "../search/settings.js";
 import { listAllKeys, probeWithLegacyFallback } from "../notes/storage.js";
-import { servedListingStore } from "../tree/served.js";
+import { everyWorkspace } from "./everyWorkspace.js";
 import { factProps } from "../tree/facts.js";
 import { meetingFileName } from "./communicationsSupport.js";
 import { normalizePath } from "../notes/paths.js";
@@ -57,36 +55,9 @@ const MEETINGS_FOLDER_NAME = /(^|\/)[^/]*meeting[^/]*\//i;
 export async function toolListMeetings(store, scope, rules, overrides, limitArg) {
   const limit = Number.isInteger(limitArg) ? limitArg : 10;
   if (limit < 1 || limit > 25) return toolError("limit must be between 1 and 25");
-  const names =
-    searchSettingsOf(store).everywhere && typeof store.openContext === "function"
-      ? (store.contexts ?? []).filter((entry) => !entry.current && typeof entry.name === "string").map((entry) => entry.name)
-      : [];
-  const [here, ...elsewhere] = await Promise.all([
-    meetingsIn(store, scope, rules, overrides),
-    ...names.map(async (name) => {
-      try {
-        const { session: target, store: targetStore } = await store.openContext(name);
-        const privacy = await loadPrivacyState(targetStore);
-        if (privacy.error) return [];
-        /*
-          Listed from that workspace's own tree, never its bucket. The
-          dispatcher serves the caller's own store (`tools/dispatch.js`), but
-          a store `openContext` builds is raw, and `tree/served.js` names this
-          tool among the ones whose privacy is "decided twice, never once
-          less": the control plane's clearance there, then `canSee` over its
-          rules. Wrapped here as orient's cross-workspace survey wraps it
-          (`orient/workspaces.js`); a tree that cannot answer throws
-          `TreeUnavailable`, and the catch below leaves that workspace out
-          rather than walking it.
-        */
-        const found = await meetingsIn(servedListingStore(targetStore), target.scope, privacy.rules, privacy.overrides);
-        return found.map((meeting) => ({ ...meeting, key: `${name}/${meeting.key}` }));
-      } catch {
-        return [];
-      }
-    }),
-  ]);
-  const meetings = [...here, ...elsewhere.flat()]
+  const found = await everyWorkspace(store, scope, rules, overrides, async (...where) => ({ meetings: await meetingsIn(...where) }));
+  const meetings = found
+    .flatMap(({ name, meetings: list }) => (name === null ? list : list.map((meeting) => ({ ...meeting, key: `${name}/${meeting.key}` }))))
     .sort((a, b) => b.when.localeCompare(a.when) || a.key.localeCompare(b.key))
     .slice(0, limit);
   if (!meetings.length) return toolText("(no meetings recorded yet)");

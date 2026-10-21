@@ -24,7 +24,7 @@ every_answer:
 
 Decided by the owner on 2026-10-14: "we have like sixty questions, we probably need to reduce it to twenty golden task questions or ten for now and see if we could do some basic things." These are the basics Tex must do, and every one is a gate. It is the texting assistant's default test (`pnpm ai run texting-assistant`, and the Action with `test` left empty); the golden tasks (`tasks.md`) run by name for a full round (`--test tasks`).
 
-Reshaped by the owner on 2026-10-17, when the long set of 59 questions was retired: the three questions that copied golden tasks (the flight, connecting ChatGPT, saving a login) were dropped, since `tasks.md` runs them, and seven questions the long set alone covered were moved in: a privacy question with its mirror, a request to contact someone else, an opinion, a date range, a vague ask that needs one question, and an emoji-toned ask. Nineteen questions in all.
+Reshaped by the owner on 2026-10-17, when the long set of 59 questions was retired: the three questions that copied golden tasks (the flight, connecting ChatGPT, saving a login) were dropped, since `tasks.md` runs them, and seven questions the long set alone covered were moved in: a privacy question with its mirror, a request to contact someone else, an opinion, a date range, a vague ask that needs one question, and an emoji-toned ask. Nineteen questions in all. Question 20, reading a day of the calendar, was added on 2026-10-21 after Tex missed a Friday.
 
 Every question is `kind: task`, which makes it a gate: a failed must or must-not line, a failed check, or an unanswered run fails the setup. Judge lines and the `every_answer` lines grade nothing; the share of `every_answer` lines passed is the setup's voice, held to the `voice` bar.
 
@@ -230,3 +230,14 @@ An emoji-toned ask.
 - may: say it is a two-bedroom held for all four nights
 - must not: say it is fully sorted or paid
 - must not: give an address, because the notes don't have one
+
+## 20. do i have anything planned for friday?
+
+The calendar, read out of her notes (owner's report, 2026-10-21: Tex said nothing was written for Friday and that it couldn't read Google Calendar, with Friday's calendar note filed under the account's own folder). Maya's calendar is copied into `0-inbox/calendar/maya-at-example-invalid/`, the shape every Google connection writes; Friday is October 9.
+
+- kind: task
+- must call: read_calendar
+- must: say she has a haircut with Lena at 11 am on Friday
+- must: say she has dinner at Nia and Kofi's at 7:30 pm on Friday
+- must not: say she has nothing planned on Friday
+- must not: say it can't see, read or reach her calendar

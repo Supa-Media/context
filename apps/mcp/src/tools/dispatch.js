@@ -34,6 +34,7 @@ import {
   toolReadContact,
 } from "./communications.js";
 import { toolListMeetings, toolReadMeeting } from "./meetings.js";
+import { toolReadCalendar } from "./calendarRead.js";
 import { toolListNotes, toolReadNote } from "./notes/read.js";
 import { toolListPlugins } from "../plugins/listPluginsTool.js";
 import { toolListProposals, toolReadProposal } from "./proposals.js";
@@ -93,6 +94,7 @@ export const TREE_LISTING_TOOLS = new Set([
   "list_notes",
   "evaluate_lists",
   "list_meetings",
+  "read_calendar",
   "list_channel_days",
   "list_contacts",
 ]);
@@ -146,6 +148,8 @@ async function runTool(name, args, store, scope) {
       return store.suggestDestination(args);
     case "list_meetings":
       return toolListMeetings(store, scope, rules, overrides, args.limit);
+    case "read_calendar":
+      return toolReadCalendar(store, scope, rules, overrides, args);
     case "read_meeting":
       return toolReadMeeting(store, scope, rules, overrides, args);
     case "list_channel_days":

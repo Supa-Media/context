@@ -184,6 +184,7 @@ test/vaultGroupChat.test.mjs
 test/connectors.test.mjs
 test/apps.test.mjs
 test/meetingsAnywhere.test.mjs
+test/calendarRead.test.mjs
 test/agentSentNoteLinks.test.mjs
 test/agentBackground.test.mjs
 test/agentTwoAsks.test.mjs
