@@ -16,6 +16,8 @@
  *
  *   context.lc (apex)
  *     /api/auth/[...]  -> Convex HTTP actions, path unchanged
+ *     /ingest/[...]    -> PostHog, the app's product analytics, carrying only
+ *                         an allowlist of headers (analyticsIngest.ts)
  *     /_expo/[...]     -> the Expo web app, cacheable forever
  *     /og/card.png     -> the Worker's own OpenGraph card
  *     /favicon.ico etc -> the Worker's own icons (icons.ts)
@@ -64,6 +66,7 @@ import { downloadFor } from "./download";
 export { downloadResponse } from "./download";
 import { iconFor, ROBOTS_PATH, type IconName } from "./icons";
 import { isTexHost, TEX_APEX, TEX_CARD_PATH, TEX_WWW_HOST, texPreviewFor } from "./texHost";
+import { ingestTarget } from "./analyticsIngest";
 
 /** The services this Worker fronts. index.ts maps each to a real origin. */
 export type Upstream = "expo" | "convex";
@@ -114,6 +117,9 @@ export type RouteDecision =
       /** Custom-domain root preview: the website route checked before `slug`. */
       routePath?: string;
     }
+  // The app's analytics on their way to PostHog. `target` is built from two
+  // fixed origins and the path; see `analyticsIngest.ts`.
+  | { kind: "ingest"; target: string }
   // The Worker's own OpenGraph card image, served from the bundle.
   | { kind: "og-card" }
   // Tex's card, likewise from the bundle. See `texHost.ts`.
@@ -220,6 +226,9 @@ export function route(url: URL, userAgent?: string | null): RouteDecision {
   if (isConvexPath(pathname)) {
     return { kind: "proxy", upstream: "convex", path };
   }
+
+  const ingest = ingestTarget(url);
+  if (ingest !== null) return { kind: "ingest", target: ingest };
 
   if (pathname === OG_CARD_PATH) {
     return { kind: "og-card" };

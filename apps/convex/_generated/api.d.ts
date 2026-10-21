@@ -190,6 +190,7 @@ import type * as functions_xConversions from "../functions/xConversions.js";
 import type * as functions_metaConversions from "../functions/metaConversions.js";
 import type * as functions_referrals from "../functions/referrals.js";
 import type * as functions_usage from "../functions/usage.js";
+import type * as functions_usageAnalytics from "../functions/usageAnalytics.js";
 import type * as functions_websites from "../functions/websites.js";
 import type * as functions_workspaces from "../functions/workspaces.js";
 import type * as functions_workspaceMoves from "../functions/workspaceMoves.js";
@@ -370,6 +371,7 @@ declare const fullApi: ApiFromModules<{
   "functions/treeChanges": typeof functions_treeChanges;
   "functions/treeSignals": typeof functions_treeSignals;
   "functions/usage": typeof functions_usage;
+  "functions/usageAnalytics": typeof functions_usageAnalytics;
   "functions/vault": typeof functions_vault;
   "functions/vaultSettings": typeof functions_vaultSettings;
   "functions/vaultPeople": typeof functions_vaultPeople;

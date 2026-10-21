@@ -39,6 +39,7 @@ import { HANDOFF_FORM_LEDE, MOVE_FORM_WORDS, OWN_MOVE, OWN_MOVE_FORM_LEDE, TAKE_
 import { LeftBehindNotice } from "../storage/handoff/LeftBehindNotice";
 import { HandoffCard } from "../storage/handoff/HandoffCard";
 import type { SetupAgent } from "../../agentSetup/guides";
+import { downloadEverything } from "../settings/downloadEverything";
 
 /**
  * A context's settings: its bucket, its credentials, and its ingestion rules.
@@ -315,7 +316,7 @@ export function SettingsPane({
             onChooseExisting={actions?.chooseExistingFiles}
             // Own storage has its download button just above, drawn once.
             onDownload={
-              data.demo || storage.managed !== true ? undefined : () => data.files.download("", "folder")
+              data.demo || storage.managed !== true ? undefined : () => downloadEverything(data)
             }
             onSwitchBack={() => setSwitchingBack(true)}
           />
@@ -410,7 +411,7 @@ export function SettingsPane({
           <DeleteWorkspaceCard
             deletion={data.advanced.deletion}
             people={data.members.loading ? undefined : data.members.members.length}
-            onDownload={() => data.files.download("", "folder")}
+            onDownload={() => downloadEverything(data)}
           />
         </>
       )}

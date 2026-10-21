@@ -27,6 +27,7 @@ import ogCard from "./og-card.png";
 // og-tex-card.source.html and texHost.ts.
 import texCard from "./og-tex-card.png";
 import { isTexHost, TEX_ROBOTS_TXT } from "./texHost";
+import { ingestResponse } from "./analyticsIngest";
 
 export interface Env {
   /** Optional legacy upstream for self-hosted configurations without Static Assets. */
@@ -228,6 +229,7 @@ async function respond(
         });
 
       case "download": return downloadResponse(decision.location);
+      case "ingest": return ingestResponse(request, decision.target);
       case "proxy": {
         if (decision.upstream === "expo" && env.ASSETS) {
           // Static Assets and Worker code are one version. Passing the original
@@ -588,33 +590,6 @@ function withCardHeaders(response: Response): Response {
 }
 
 /**
- * The title, card and folder contents for a readable team link, or nothing.
- *
- * `[null, null, []]` on every failure — no CONVEX_ORIGIN, a non-200, a body
- * that is not JSON, a timeout, a thrown fetch — and `previewForNote(null)`
- * renders GENERIC_PREVIEW byte for byte. So an unlinked note, a revoked link
- * and a control plane mid-deploy are one answer, which is what keeps the probe
- * to "which notes has the owner published a card for".
- *
- * The third element is **only ever a decoration on a card that already has a
- * title.** It is passed through untouched here and bounded inside
- * `previewForNote`, which is also where a falsy title short-circuits to the
- * frozen card — so a control plane that answered with children and no title
- * publishes nothing at all.
- *
- * POST, like every route it talks to: a GET would put a handle and a note path
- * in this Worker's outbound URL and from there into logs.
- */
-/**
- * The title a short link unfurls with, or `null`.
- *
- * `noteTitle`'s shape, one field narrower, and the narrowness is the point:
- * `/share/short` returns no card token, so there is nothing here that could
- * assemble a per-share image out of a capability. Every failure — an origin
- * that is not configured, a timeout, a non-200, a body that is not what this
- * documents — is `null`, which renders the generic card.
- */
-/**
  * A short link's title and the version of its card, or two nulls.
  *
  * A pair rather than a title, for the reason `noteTitle` beside it returns a
@@ -665,6 +640,24 @@ async function shortLinkPreview(
   }
 }
 
+/**
+ * The title, card and folder contents for a readable team link, or nothing.
+ *
+ * `[null, null, []]` on every failure — no CONVEX_ORIGIN, a non-200, a body
+ * that is not JSON, a timeout, a thrown fetch — and `previewForNote(null)`
+ * renders GENERIC_PREVIEW byte for byte. So an unlinked note, a revoked link
+ * and a control plane mid-deploy are one answer, which is what keeps the probe
+ * to "which notes has the owner published a card for".
+ *
+ * The third element is **only ever a decoration on a card that already has a
+ * title.** It is passed through untouched here and bounded inside
+ * `previewForNote`, which is also where a falsy title short-circuits to the
+ * frozen card — so a control plane that answered with children and no title
+ * publishes nothing at all.
+ *
+ * POST, like every route it talks to: a GET would put a handle and a note path
+ * in this Worker's outbound URL and from there into logs.
+ */
 async function noteTitle(
   slug: string,
   path: string,

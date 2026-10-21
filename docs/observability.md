@@ -98,7 +98,7 @@ present, each governed by a Privacy & feedback switch (above).
 | Pipeline | Web | Native |
 | --- | --- | --- |
 | Sentry | Unhandled and reported errors, auto session tracking, sampled traces, sanitized route breadcrumbs, and the internal Convex user id. | The same data, but only in a binary that includes the gated native module. |
-| PostHog | Sanitized screen views, two error-boundary recovery actions, the internal Convex user id, and sampled replay with text and media masking. Autocapture, page views, console capture, and network bodies are off. | Sanitized screen views, the two recovery actions, lifecycle events, and the internal Convex user id. Replay and automatic error tracking are off. |
+| PostHog | Sanitized screen views, named button presses, a thirty-second "in use" tick, two error-boundary recovery actions, the deployment (`app_env`), the internal Convex user id, and sampled replay with text and media masking. Autocapture, page views, console capture, and network bodies are off. Sent through `/ingest` on our own hosts (see below). | Sanitized screen views, named button presses, the "in use" tick, the two recovery actions, lifecycle events, `app_env`, and the internal Convex user id. Replay and automatic error tracking are off. |
 | Convex | Backend exceptions through Convex's Sentry integration. | The same control-plane pipeline serves every client. |
 
 The application does not set a retention period. Sentry and PostHog retain data
@@ -113,6 +113,49 @@ severity and environment value, and the issue's own page on the verified
 not copy the Sentry title, exception type, message, culprit, stack, tags, or
 request fields into the team workspace. Redacting known secret shapes was not
 enough because arbitrary exception text can contain a note body or note path.
+
+## The staff Usage tab
+
+`/admin/usage` shows visits to context.lc and tex.lc, time in the app, and the
+most viewed pages and most pressed buttons, for the console's 7 / 30 / 90 day
+window. Asked for by the owner on 2026-10-21; the approach (read PostHog rather
+than count in Convex) and the artboard were approved the same day.
+
+- **Where the figures come from.** `functions/usageAnalytics.ts` (staff only)
+  asks PostHog's query API five HogQL questions
+  (`functions/lib/adminFns/usageAnalytics.ts`) and returns hosts, days, cleaned
+  routes, fixed button names and counts. PostHog's own error text never reaches
+  the screen, and a route that is not a cleaned route or a button that is not
+  in the list is dropped on the server whatever PostHog holds.
+- **Production only.** The three environments share one PostHog project, so a
+  web event counts when its `$host` is context.lc or tex.lc, and a native one
+  when it says `app_env = production`. Visits are sessions; visitors are
+  PostHog's merged people.
+- **Buttons are named, never read.** A press is `button_tapped` with
+  `{ button }`, from the fixed list `USAGE_BUTTONS` in `@context/shared`, which
+  the app's `trackButton` takes as its type and the server filters by. Element
+  text is never sent, which is why autocapture stays off. A button is counted
+  once somebody names it there and calls `trackButton` where it is pressed.
+- **Time in app is active time.** `features/observability/activeTime.ts` sends
+  `app_active` every thirty seconds while the tab is in front and somebody
+  touched, typed, scrolled or moved the pointer in the last two minutes (a
+  native app: while it is in the foreground). A session's time is its number of
+  thirty-second stretches with any event in them, so a tab left open does not
+  count and the last screen is not lost.
+- **First-party ingest.** On context.lc, tex.lc and their staging hosts the
+  web SDK sends to `<origin>/ingest`, which the router forwards to PostHog
+  (`infra/router/src/analyticsIngest.ts`), so blockers that drop PostHog's own
+  address do not hide visits. The router forwards an allowlist of headers:
+  never the session cookie, an `Authorization` header or the visitor's IP, and
+  it drops any `Set-Cookie` in PostHog's answer.
+- **Who is not counted.** People who turned off Screen counts, and visits from
+  before the tick and the button names shipped (their time is the gap between
+  screens, a floor).
+- **Setup.** A PostHog personal API key with the `query:read` scope, in
+  1Password as `POSTHOG_PERSONAL_API_KEY`, and the project's numeric id as
+  `POSTHOG_PROJECT_ID`, both synced to the GitHub environments and pushed to
+  Convex by `deploy-convex.yml`. Without the key the tab says PostHog isn't
+  connected; nothing else depends on it.
 
 ## Configuration
 

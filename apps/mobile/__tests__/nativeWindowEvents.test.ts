@@ -229,6 +229,7 @@ const RAW_WINDOW_LISTENERS_ALLOWED: Record<string, string> = {
   "features/studio/useStudioPlayer.ts": "the cast studio, opened only by a button `castPreviewButton` draws on the web",
   "features/studio/sounds/useStudioSounds.ts": "the cast studio, opened only by a button `castPreviewButton` draws on the web; its listener also returns first where there is no window",
   "features/home/HomeShell.tsx": "its one listener returns first unless `Platform.OS` is web, and a phone redirects `/` before the shell mounts",
+  "features/observability/activeTime.ts": "listens only on the web, after checking `typeof window.addEventListener` itself",
   "features/site/SiteRoot.tsx": "mounted only when `siteHostname()` names a customer's host, which is null off the web",
 };
 

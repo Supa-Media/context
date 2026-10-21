@@ -43,6 +43,7 @@ import { usePremium } from "./usePremium";
 import { useArming } from "../../useArming";
 import { FreeTierNudge, freeTierUsage } from "./FreeTierNudge";
 import type { SettingsSectionKey } from "../sections";
+import { downloadEverything } from "../downloadEverything";
 
 
 /**
@@ -101,7 +102,7 @@ export function PremiumPanel({
 }) {
   const onOpenStorage = onSelect === undefined ? undefined : () => onSelect("storage");
   // Absent in the demo: there is no bucket behind it to download.
-  const onDownload = data.demo ? undefined : () => data.files.download("", "folder");
+  const onDownload = data.demo ? undefined : () => downloadEverything(data);
   /*
     `useConvex` returns `undefined` rather than throwing when there is no
     provider in the tree; `useQueries` throws. So the question is asked here,

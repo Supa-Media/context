@@ -3,7 +3,7 @@ import type { LegalPageContent } from "./LegalPage";
 export const privacyContent: LegalPageContent = {
   eyebrow: "Privacy",
   title: "Privacy Policy",
-  updated: "October 15, 2026",
+  updated: "October 21, 2026",
   intro:
     "Context.lc is a workspace for notes and connected information. This policy explains what we collect, why we collect it, how Google-connected data is used, and what an AI assistant you connect can see and do.",
   sections: [
@@ -35,7 +35,7 @@ export const privacyContent: LegalPageContent = {
     {
       title: "Diagnostics and feedback",
       body: [
-        "Context.lc is in early beta. To find and fix problems, the app sends crash reports and a sample of performance timings to Sentry, and counts which screens are opened and when the app is opened or closed with PostHog, linked to your internal account id rather than your name or email. On the web, PostHog also records some visits with every word, picture and form field hidden.",
+        "Context.lc is in early beta. To find and fix problems, the app sends crash reports and a sample of performance timings to Sentry, and counts which screens are opened, which of the app's buttons are pressed (by a fixed name, never their words), how long the app is in use and when it is opened or closed with PostHog, linked to your internal account id rather than your name or email. On the web, PostHog also records some visits with every word, picture and form field hidden.",
         "These never include your notes, their titles, your folder names, your links, your email address or your @handle. Addresses in the app are reduced to the kind of screen before they are sent.",
         "You can turn crash reports, screen counts and recordings off in Settings, under Feedback. The switches follow your account to every device you sign in on.",
         "Our public homepage at context.lc loads the advertising pixels of X (Twitter) and Meta (Facebook and Instagram), so we can tell whether our ads there bring people who join. They run only on that page, never inside the app or on your notes. When you join the waitlist or create an account on the web, we also tell X and Meta about the signup with a one-way hash of your email address and, if you arrived from one of their ads, that ad's click id and their browser id, never the address itself. Signups made in the iPhone or Android app are never reported to X, Meta or any other advertising network.",

@@ -5,7 +5,7 @@ import { Confirm } from "./files/Dialogs";
 import { forgetLocalCopies, unsentMeetingAudio, unsentOnDevice } from "../offline/forget";
 import { signOutWarning } from "../offline/copy";
 import type { ConsoleData } from "./types";
-import { resetObservabilityUser } from "../observability/client";
+import { resetObservabilityUser, trackButton } from "../observability/client";
 
 const NO_QUEUE = { pending: 0, conflicted: 0, rejected: 0 };
 
@@ -61,6 +61,7 @@ export function useSignOutFlow(data: ConsoleData): {
   const live = data.files.sync;
   const selectedContextId = data.selectedContextId;
   const requestSignOut = useCallback(() => {
+    trackButton("sign_out");
     void (async () => {
       const elsewhere = await unsentOnDevice(
         live?.ready === true ? selectedContextId : null,

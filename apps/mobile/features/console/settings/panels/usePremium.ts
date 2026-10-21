@@ -10,6 +10,7 @@ import {
   type PremiumStatus,
   type PremiumView,
 } from "./premium";
+import { trackButton } from "../../../observability/client";
 
 /**
  * The Premium section, wired to the control plane.
@@ -87,6 +88,7 @@ export function usePremium(options: {
 
   const upgrade = useCallback(async () => {
     if (Platform.OS !== "web" || workspaceId === null) return;
+    trackButton("upgrade");
     if (status?.stagingFreeStorage === true || status?.isTestAccount === true) {
       await convex.mutation(api.functions.billing.activateTestPremium, {
         workspaceId,

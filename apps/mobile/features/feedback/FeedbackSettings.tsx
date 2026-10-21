@@ -60,7 +60,7 @@ export function FeedbackSettings() {
         />
         <SettingRow
           title="Screen counts"
-          sub="Which screens get opened, linked to your account, not your name or email."
+          sub="Which screens and buttons get used, and for how long, linked to your account, not your name or email."
           value={prefs?.screenCounts ?? true}
           disabled={loading}
           onChange={(screenCounts) => change({ screenCounts })}

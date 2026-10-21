@@ -11,6 +11,7 @@ import { scopeLabel } from "./layout/SearchScope";
 import { NoteQuickBar, type NoteQuick, type NoteQuickId } from "./NoteQuickBar";
 import type { ConsoleData } from "./types";
 import { visibilityTierForRole } from "./visibility";
+import { trackButton } from "../observability/client";
 
 /**
  * Where a quick note from Home lands (Dev2, 2026-09-30: "inbox is the default
@@ -126,7 +127,10 @@ export function ConsoleBottomBar({
   // On a folder's page the field reads "Search in Clients" (board 07b); on Inbox and Folders, "Search everything".
   const inside = targetFolder(data.files.listings, data.files.selectedPath);
   const scope = inside === "" ? null : inside;
-  const search = () => onSearch(scope);
+  const search = () => {
+    trackButton("search_open");
+    onSearch(scope);
+  };
   // A reader cannot write a note; the round button is then only the sheet, if that has rows.
   const canNote = data.files.canEdit;
 
@@ -161,13 +165,12 @@ export function ConsoleBottomBar({
       )}
       {!canNote && onCreate === null ? null : (
         <Pressable
-          onPress={
-            !canNote
-              ? () => onCreate?.(folder ?? "")
-              : folder === null
-                ? onAskWhere
-                : () => data.files.createUntitled(folder, "note")
-          }
+          onPress={() => {
+            if (!canNote) return onCreate?.(folder ?? "");
+            trackButton("new_note");
+            if (folder === null) onAskWhere();
+            else data.files.createUntitled(folder, "note");
+          }}
           // The destination's names, asked for on the touch rather than the lift, so the note's name is chosen against them.
           onPressIn={canNote && folder !== null ? () => data.files.ensureListing(folder) : undefined}
           onLongPress={onCreate === null ? undefined : () => onCreate(folder ?? quickNoteInbox(data))}

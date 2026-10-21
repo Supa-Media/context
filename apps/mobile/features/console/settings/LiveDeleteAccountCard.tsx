@@ -2,6 +2,7 @@ import { useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { ConsoleData } from "../types";
 import { DeleteAccountCard, type ErasedWorkspace } from "./DeleteAccountCard";
+import { downloadEverything } from "./downloadEverything";
 
 /**
  * `DeleteAccountCard`, told which workspaces deleting erases.
@@ -30,7 +31,7 @@ export function LiveDeleteAccountCard({
     <DeleteAccountCard
       deleteAccount={deleteAccount}
       erased={erased}
-      onDownload={() => data.files.download("", "folder")}
+      onDownload={() => downloadEverything(data)}
       onOpen={data.selectContext}
     />
   );

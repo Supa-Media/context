@@ -209,6 +209,12 @@ jobs:
           # Absent is a working state: the tab says the check isn't connected.
           CLOUDFLARE_ANALYTICS_TOKEN: ${{ secrets.CLOUDFLARE_ANALYTICS_TOKEN }}
           CLOUDFLARE_ANALYTICS_ACCOUNT_ID: ${{ secrets.AI_GATEWAY_ACCOUNT_ID }}
+          # The staff Usage tab's read of PostHog
+          # (`functions/lib/adminFns/usageAnalytics.ts`): a personal API key
+          # with query read access, and the project it reads. Absent is a
+          # working state: the tab says PostHog isn't connected.
+          POSTHOG_PERSONAL_API_KEY: ${{ secrets.POSTHOG_PERSONAL_API_KEY }}
+          POSTHOG_PROJECT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
           # The gateway's mover: whole-bucket moves copy bucket to bucket there,
           # never through this deployment (`functions/lib/storageMover.ts`). A
           # public origin rather than a secret; unset runs them here, as a
@@ -247,6 +253,7 @@ jobs:
             CUSTOM_DOMAINS_ZONE_ID CUSTOM_DOMAINS_TARGET \
             REVIEWER_SIGNIN_CODE FEEDBACK_SENTRY_DSN X_PIXEL_TOKEN \
             META_CAPI_TOKEN CLOUDFLARE_ANALYTICS_TOKEN CLOUDFLARE_ANALYTICS_ACCOUNT_ID \
+            POSTHOG_PERSONAL_API_KEY POSTHOG_PROJECT_ID \
             STORAGE_MOVER_ORIGIN REPORTS_EMAIL
 
       # A deployed control plane that cannot decrypt a storage credential, or

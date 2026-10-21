@@ -1,5 +1,7 @@
 import { redactTelemetryText, redactTelemetryValue, telemetryRoute } from "./privacy";
+import { ACTIVE_EVENT, BUTTON_EVENT, type UsageButton } from "@context/shared";
 import {
+  analyticsEnvironment,
   createAnalyticsClient,
   hasSentryNativeRuntime,
 } from "./runtime";
@@ -118,6 +120,7 @@ async function initPostHog(): Promise<void> {
       : 0,
   });
   await client.ready();
+  client.register({ app_env: analyticsEnvironment() });
   posthog = client;
   if (currentUserId !== null) client.identify(currentUserId);
   for (const screen of pendingScreens.splice(0)) client.screen(screen);
@@ -187,6 +190,22 @@ export function trackEvent(name: string, properties?: TelemetryProperties): void
       : (redactTelemetryValue(properties) as TelemetryProperties);
   if (preferences().screenCounts) posthog?.capture(name, cleanProperties);
   sentry?.addBreadcrumb({ category: "product", message: name, data: cleanProperties });
+}
+
+/**
+ * A named button was pressed. The name is the whole event: never the button's
+ * words, never what it acted on (`@context/shared`'s `USAGE_BUTTONS`).
+ */
+export function trackButton(button: UsageButton): void {
+  trackEvent(BUTTON_EVENT, { button });
+}
+
+/**
+ * Thirty seconds of somebody using the app (`./activeTime`). PostHog only: a
+ * breadcrumb every thirty seconds would push out the ones a crash report needs.
+ */
+export function trackActive(): void {
+  if (preferences().screenCounts) posthog?.capture(ACTIVE_EVENT);
 }
 
 export function trackScreen(pathname: string): void {
