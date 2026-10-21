@@ -6,10 +6,11 @@
  *
  * Tex stays quiet in a group until it is addressed: its name opening or
  * closing the message, its name in a question, or an inline reply to one of
- * Tex's own texts in this group. An untagged message is never kept, never
- * read past that test, and never sent anywhere. Tagged ones are answered one
- * at a time, in order, with no steering and no folding: two people's texts
- * are two questions.
+ * Tex's own texts in this group. An untagged message is never answered; while
+ * the chat is bound it is kept until the next tag hands it over as what the
+ * chat said (`groupChat.ts`). Tagged ones are answered one at a time, in
+ * order, with no steering and no folding: two people's texts are two
+ * questions.
  *
  * Every tagged message is resolved again by the control plane
  * (`/agent-texts/group`): who is in the chat (Sendblue's webhook list and
@@ -25,12 +26,15 @@
  *   answered once.
  * - `gsent` the handles of Tex's last thirty texts in this group, so an
  *   inline reply to one wakes it.
+ * - `gchat:<seq>` what the chat said since Tex last answered, with text,
+ *   only while it is bound (`groupChat.ts`).
  */
 
 import { agentAnswer, post, record, ServiceError, type Fetch } from "./clients";
 import { textsFromAnswer } from "./format";
 import type { InboxStorage } from "./inbox";
 import type { SendblueKeys } from "./sendblue";
+import { chatBefore, dropChatLines, keepChatLine, peopleOf, setChatBound, sha256Hex } from "./groupChat";
 import { reactInGroup, readGroupMembers, readOwnGroupMessage, sendGroupText, type GroupMessage } from "./sendblueGroups";
 
 export type GroupDeps = {
@@ -43,7 +47,8 @@ export type GroupDeps = {
 };
 
 type Command = { kind: "stop" } | { kind: "start" } | { kind: "use"; slug: string } | { kind: "status" };
-type Pending = { message: GroupMessage; attempts: number };
+/** `at`: when it was accepted, so its turn is handed only what the chat said before it. */
+type Pending = { message: GroupMessage; attempts: number; at?: number };
 
 const SEEN_FOR_MS = 24 * 60 * 60 * 1000;
 const MAX_PENDING = 10;
@@ -64,7 +69,7 @@ const pendingKey = (seq: number) => `gpending:${String(seq).padStart(12, "0")}`;
 export const GROUP_LINES = {
   intro: (slug: string) =>
     `Hi, I'm Tex. Start a message with "Tex" and I'll answer here, using only @${slug}, the workspace everyone in this chat shares. ` +
-    `"Tex, stop" mutes me and "Tex, start" brings me back.`,
+    `I follow the chat so you can just say "Tex, write this up", and keep it in @${slug}. "Tex, stop" mutes me and "Tex, start" brings me back.`,
   unknown: "I answer people who've set me up. Text me on your own to start.",
   noShared:
     "I can only use notes everyone in this chat can open, and not everyone here shares a workspace with me. Text me on your own instead.",
@@ -73,7 +78,10 @@ export const GROUP_LINES = {
   notShared: "That isn't a workspace everyone in this chat shares.",
   bound: (slug: string, intro = false) =>
     `Got it, I'll use @${slug} in this chat.` +
-    (intro ? ` Start a message with "Tex" when you need me. "Tex, stop" mutes me and "Tex, start" brings me back.` : ""),
+    (intro
+      ? ` Start a message with "Tex" when you need me. I follow the chat so you can just say "Tex, write this up", and keep it in @${slug}. ` +
+        `"Tex, stop" mutes me and "Tex, start" brings me back.`
+      : ""),
   status: (slug: string) => `In this chat I can see @${slug}, and only what everyone there can open.`,
   stopped: `Okay, I'll stay quiet here. Say "Tex, start" when you want me back.`,
   started: "I'm back. Start a message with \"Tex\" when you need me.",
@@ -134,32 +142,30 @@ export function groupCommand(text: string, choices: readonly string[] = []): Com
   return named && choices.includes(named[1]) ? { kind: "use", slug: named[1] } : null;
 }
 
-async function sha256Hex(value: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-/** The people in the chat, without Tex's own line, in one order. */
-export function peopleOf(line: string, ...lists: (readonly string[] | null)[]): string[] {
-  return [...new Set(lists.flatMap((list) => list ?? []).filter((entry) => entry !== line))].sort();
-}
+export { peopleOf };
 
 /**
  * Accept a group message: answered later by the alarm when it is meant for
- * Tex, dropped right here when it is not. Untagged words are never stored.
+ * Tex; otherwise kept as what the chat said while the chat is bound, and
+ * dropped right here while it is not.
  */
-export async function acceptGroup(storage: InboxStorage, message: GroupMessage, now: number): Promise<"queued" | "ignored" | "duplicate" | "full"> {
+export async function acceptGroup(storage: InboxStorage, message: GroupMessage, now: number): Promise<"queued" | "kept" | "ignored" | "duplicate" | "full"> {
   const sent = (await storage.get<string[]>(SENT_KEY)) ?? [];
   const repliesToTex = message.replyTo !== undefined && sent.includes(message.replyTo);
-  if (!addressesTex(message.text, repliesToTex) && groupCommand(message.text, await openChoice(storage, now)) === null) return "ignored";
-  if ((await storage.get<number>(seenKey(message.eventId))) !== undefined) return "duplicate";
+  const tagged = addressesTex(message.text, repliesToTex) || groupCommand(message.text, await openChoice(storage, now)) !== null;
+  if ((await storage.get<number>(seenKey(message.eventId))) !== undefined) return tagged ? "duplicate" : "ignored";
+  if (!tagged) {
+    if (!(await keepChatLine(storage, message, now))) return "ignored";
+    await storage.put(seenKey(message.eventId), now);
+    return "kept";
+  }
   const pending = await storage.list<Pending>({ prefix: "gpending:" });
   if (pending.size >= MAX_PENDING) return "full";
   const seq = ((await storage.get<number>("gseq")) ?? 0) + 1;
   await storage.put("gseq", seq);
   await storage.put(seenKey(message.eventId), now);
   // Whether it replies to Tex is decided now, against the handles Tex sent; the turn reads the words it quotes.
-  await storage.put<Pending>(pendingKey(seq), { message: repliesToTex ? message : { ...message, replyTo: undefined }, attempts: 0 });
+  await storage.put<Pending>(pendingKey(seq), { message: repliesToTex ? message : { ...message, replyTo: undefined }, attempts: 0, at: now });
   await storage.setAlarm(now);
   return "queued";
 }
@@ -169,7 +175,7 @@ export async function drainGroup(storage: InboxStorage, deps: GroupDeps): Promis
   const pending = await storage.list<Pending>({ prefix: "gpending:" });
   for (const [key, item] of pending) {
     try {
-      await answerGroup(storage, item.message, deps);
+      await answerGroup(storage, item.message, item.at ?? deps.now(), deps);
       await storage.delete(key);
     } catch (error) {
       const attempts = item.attempts + 1;
@@ -186,7 +192,7 @@ export async function drainGroup(storage: InboxStorage, deps: GroupDeps): Promis
   await pruneSeen(storage, deps.now());
 }
 
-async function answerGroup(storage: InboxStorage, message: GroupMessage, deps: GroupDeps): Promise<void> {
+async function answerGroup(storage: InboxStorage, message: GroupMessage, acceptedAt: number, deps: GroupDeps): Promise<void> {
   if (!deps.sendblue) throw new ServiceError("sendblue", null);
   // A green-bubble group is never answered from anyone's notes: SMS vouches for no sender.
   if (message.sms) return void (await say(storage, deps, message, GROUP_LINES.sms));
@@ -199,6 +205,8 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, deps: G
   const people = peopleOf(message.line, message.participants, members);
   const asked = await askControlPlane(deps, message, people, command);
   const status = asked.status;
+  // A chat that isn't answering keeps nothing it was told.
+  if (status === "muted" || status === "stopped" || status === "no_shared") await setChatBound(storage, null);
   if (status === "refused" || status === "muted") return log(status);
   // The same tapback for every tagger, linked or not, so it says nothing about who they are.
   if (command === null) await reactInGroup(deps.fetch, deps.sendblue, chat, message.messageId, "👀");
@@ -213,12 +221,15 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, deps: G
   }
   if (status !== "ready") throw new ServiceError("control_plane", null);
   await storage.delete(CHOICE_KEY);
+  await setChatBound(storage, message);
   if (command?.kind === "use") return void (await say(storage, deps, message, GROUP_LINES.bound(asked.slug, asked.intro)));
   if (command?.kind === "status") return void (await say(storage, deps, message, GROUP_LINES.status(asked.slug)));
   if (asked.accessToken === undefined) throw new ServiceError("control_plane", null);
   if (asked.intro) await say(storage, deps, message, GROUP_LINES.intro(asked.slug), false);
 
   const quoted = message.replyTo === undefined ? null : await readOwnGroupMessage(deps.fetch, deps.sendblue, message.replyTo, chat);
+  const said = await chatBefore(storage, message, acceptedAt, deps.now());
+  const handles = new Map((asked.names ?? []).map(({ phone, handle }) => [phone, handle]));
   const group = {
     key: await sha256Hex(`${message.line}:${message.groupId}`),
     members: await sha256Hex(people.join(",")),
@@ -233,7 +244,7 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, deps: G
       asked.accessToken,
       {
         question: message.text,
-        group,
+        group: { ...group, chat: said.lines.map((line) => ({ from: handles.get(line.from) ?? "", text: line.text })) },
         ...(asked.timeZone ? { timeZone: asked.timeZone } : {}),
         ...(quoted !== null ? { quoted } : message.replyTo !== undefined ? { replied: true } : {}),
       },
@@ -246,6 +257,8 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, deps: G
   if (answer.kind === "daily_limit") return void (await say(storage, deps, message, "That's all the questions for today. Ask me again tomorrow."));
   if (answer.kind === "no_model") return void (await say(storage, deps, message, "I can't answer from here yet."));
   if (answer.kind !== "answer") throw new ServiceError("gateway", result.status);
+  // Filed in the chat's memory by that turn: this object's copy goes.
+  await dropChatLines(storage, said.keys);
 
   // Sent only to the people it was written for: someone who joined meanwhile was never part of its scope.
   //
@@ -271,7 +284,15 @@ type ControlAnswer =
   | { status: "refused" | "muted" | "stopped" | "started" | "no_shared" | "not_shared" }
   | { status: "unknown_sender"; tell?: boolean }
   | { status: "choose"; slugs: string[] }
-  | { status: "ready"; slug: string; intro: boolean; timeZone?: string; handle?: string; accessToken?: string };
+  | {
+      status: "ready";
+      slug: string;
+      intro: boolean;
+      timeZone?: string;
+      handle?: string;
+      accessToken?: string;
+      names?: { phone: string; handle: string }[];
+    };
 
 async function askControlPlane(deps: GroupDeps, message: GroupMessage, people: string[], command: Command | null): Promise<ControlAnswer> {
   const wire = command === null || command.kind === "status" ? undefined : command;
@@ -310,6 +331,9 @@ async function askControlPlane(deps: GroupDeps, message: GroupMessage, people: s
         ...(typeof body.timeZone === "string" && /^[A-Za-z0-9_+\-/]{1,64}$/.test(body.timeZone) ? { timeZone: body.timeZone } : {}),
         ...(slug(body.handle) ? { handle: body.handle as string } : {}),
         ...(typeof body.accessToken === "string" && body.accessToken !== "" ? { accessToken: body.accessToken } : {}),
+        names: (Array.isArray(body.names) ? body.names : []).map(record).flatMap((entry) =>
+          typeof entry.phone === "string" && slug(entry.handle) ? [{ phone: entry.phone, handle: entry.handle as string }] : [],
+        ),
       };
     default:
       throw new ServiceError("control_plane", status);

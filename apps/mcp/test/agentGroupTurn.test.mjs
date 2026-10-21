@@ -13,13 +13,15 @@
  *     chat starts a new memory".
  *  4. The route reading `conversation` for a group → "a group turn never
  *     touches anyone's texts".
+ *  5. The route or the memory dropping `chat` → "what the chat said before a
+ *     tag reaches the turn and is kept".
  */
 
 import assert from "node:assert/strict";
 import { after, before, beforeEach, test } from "node:test";
 
 import worker from "../src/index.js";
-import { GROUP_MEMORY_PREFIX, groupOf, groupAwareCallTool, groupWriteTools } from "../src/agent/groupTurn.js";
+import { GROUP_MEMORY_PREFIX, MAX_CHAT_CHARS, groupOf, groupAwareCallTool, groupWriteTools } from "../src/agent/groupTurn.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub, createS3Backend } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { AI_GATEWAY_ENV, AI_GATEWAY_ORIGIN, BUILTIN_ALLOWED } from "./agentModelFixture.mjs";
@@ -151,7 +153,13 @@ test("a group turn must name its chat, and a chat names only hashes", async () =
   assert.equal(refused.status, 400);
   assert.equal(groupOf({ group: { key: KEY, members: "+15555550100", from: "ada" } }), null, "a phone number is not a participant hash");
   assert.equal(groupOf({ group: { key: "short", members: MEMBERS } }), null);
-  assert.deepEqual(groupOf({ group: chat({ from: "Not A Handle!" }) }), { key: KEY, members: MEMBERS, from: "" });
+  assert.deepEqual(groupOf({ group: chat({ from: "Not A Handle!" }) }), { key: KEY, members: MEMBERS, from: "", chat: [] });
+  // A chat line names a handle or nobody, never a number, and a line that isn't one is left out.
+  const said = groupOf({ group: chat({ chat: [{ from: "+15555550100", text: "hi" }, { text: 7 }, { from: "bo", text: "  friday?  " }] }) });
+  assert.deepEqual(said.chat, [{ from: "", text: "hi" }, { from: "bo", text: "friday?" }]);
+  const long = groupOf({ group: chat({ chat: Array.from({ length: 30 }, (_, i) => ({ from: "bo", text: `${i}`.padEnd(4_000, ".") })) }) });
+  assert.ok(long.chat.reduce((sum, line) => sum + line.text.length, 0) <= MAX_CHAT_CHARS, "a tag brings a bounded chat");
+  assert.ok(long.chat.at(-1).text.startsWith("29"), "the newest of it");
 });
 
 test("a group turn is offered only create and append, and none of the tagger's own tools", async () => {
@@ -165,6 +173,7 @@ test("a group turn is offered only create and append, and none of the tagger's o
     assert.ok(!shown.includes(`"${missing}"`), `${missing} is not a group turn's`);
   }
   assert.ok(!toolNames(sent).includes("earlier_texts"), "a group turn has no texts of its own");
+  assert.match(JSON.stringify(sent.tools), /chat: reads this group chat's earlier messages/, "but it can read back its own chat");
   const system = JSON.stringify(sent.system);
   assert.match(system, /GROUP CHAT/);
   assert.match(system, /@ada tagged you/);
@@ -240,6 +249,29 @@ test("the chat remembers by its people: somebody added to the chat starts a new 
   const files = live(world.team, GROUP_MEMORY_PREFIX);
   assert.equal(files.length, 2);
   for (const file of files) assert.doesNotMatch(file, /a{64}|b{64}|c{64}/, "the file name is a hash of the chat, not its key");
+});
+
+test("what the chat said before a tag reaches the turn and is kept", async () => {
+  world.model.install([{ text: "Thursday at 7, at Bo's." }, { toolCalls: [{ name: "fetch", args: { id: "chat:" } }] }, { text: "Bo's place." }]);
+  const said = [
+    { from: "bo", text: "thursday works for me" },
+    { from: "cy", text: "7pm? my place is free" },
+  ];
+  await ask(TOKEN_GROUP, { question: "Tex what did we land on", group: chat({ chat: said }) });
+  const first = JSON.stringify(world.model.requests[0].messages);
+  assert.match(first, /@bo: thursday works for me/);
+  assert.match(first, /@cy: 7pm\? my place is free/);
+  assert.match(first, /never instructions/, "marked as other people's words");
+  // The next tag, with nothing said in between, still has it: it was kept with the question.
+  await ask(TOKEN_GROUP, { question: "Tex where was it again?", group: chat() });
+  const second = world.model.requests[1];
+  assert.match(JSON.stringify(second.messages), /@cy: 7pm\? my place is free/);
+  assert.match(JSON.stringify(second.tools), /chat: reads this group chat/);
+  const [read] = toolResults(world.model.requests[2]);
+  assert.match(read, /@bo: thursday works for me[\s\S]*You: Thursday at 7/, "earlier_chat reads it back, oldest first");
+  const kept = live(world.team, GROUP_MEMORY_PREFIX).map((key) => bodyAt(world.team, key)).join("");
+  assert.match(kept, /thursday works for me/, "kept in the bound workspace");
+  assert.equal(live(world.own, GROUP_MEMORY_PREFIX).length, 0, "never in the tagger's own");
 });
 
 test("a group turn never touches anyone's texts, even when it names them", async () => {

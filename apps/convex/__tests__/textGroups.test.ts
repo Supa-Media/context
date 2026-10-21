@@ -133,6 +133,12 @@ describe("what the chat reaches", () => {
     const { ada, studio } = await crew(t);
     const first = await turn(t, ADA, [ADA, BO, CY, LINE]);
     expect(first).toMatchObject({ status: "ready", slug: "studio", intro: true, bound: true, minted: true, handle: "ada" });
+    // Everyone's handle by their number, so the chat's words are filed by name.
+    expect([...(first.names as { phone: string; handle: string }[])].sort((x, y) => x.handle.localeCompare(y.handle))).toEqual([
+      { phone: ADA, handle: "ada" },
+      { phone: BO, handle: "bo" },
+      { phone: CY, handle: "cy" },
+    ]);
     const session = await resolves(t, first.accessToken as string);
     expect(session?.clientId).toBe(TEXTS_GROUP_CLIENT_ID);
     expect(session?.defaultWorkspaceId).toBe(studio);

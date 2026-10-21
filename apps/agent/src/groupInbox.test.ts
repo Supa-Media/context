@@ -3,6 +3,7 @@ import { acceptGroup, addressesTex, drainGroup, GROUP_LINES, groupCommand, peopl
 import { parseSendblueGroup, readGroupMembers, type GroupMessage } from "./sendblueGroups";
 import { parseSendblueInbound } from "./sendblue";
 import { MemoryStorage } from "./memoryStorage.testing";
+import { CHAT_FOR_MS, MAX_CHAT_LINES } from "./groupChat";
 import type { Fetch } from "./clients";
 
 const LINE = "+15555550199";
@@ -147,10 +148,84 @@ describe("the group webhook", () => {
 });
 
 describe("a group's queue", () => {
-  it("never keeps an untagged message", async () => {
+  it("never keeps an untagged message in a chat that isn't bound", async () => {
     const storage = new MemoryStorage();
     expect(await acceptGroup(storage, message("ok cool"), 0)).toBe("ignored");
     expect([...(await storage.list({ prefix: "" })).keys()]).toEqual([]);
+  });
+
+  it("hands a tag what the chat said before it, by handle, then forgets its own copy", async () => {
+    const storage = new MemoryStorage();
+    const w = world();
+    const control = { status: "ready", slug: "band", intro: false, bound: false, timeZone: "UTC", handle: "ada", minted: true, accessToken: "cat_group",
+      names: [{ phone: ADA, handle: "ada" }, { phone: BO, handle: "bo" }] };
+    await acceptGroup(storage, message("Tex, hi"), 0);
+    await drainGroup(storage, deps(w, { control }));
+    expect(await acceptGroup(storage, message("thursday works?", { from: BO, messageId: "c1" }), 1)).toBe("kept");
+    expect(await acceptGroup(storage, message("thursday works?", { from: BO, messageId: "c1" }), 1)).toBe("ignored");
+    expect(await acceptGroup(storage, message("7 at mine", { messageId: "c2" }), 2)).toBe("kept");
+    // Said in front of somebody else: not kept until a tag resolves the chat with them in it.
+    expect(await acceptGroup(storage, message("psst", { messageId: "c3", participants: [ADA, BO, CY, LINE] }), 3)).toBe("ignored");
+    await acceptGroup(storage, message("Tex, write this up", { messageId: "t2" }), 4);
+    // Said after the tag: the next one's.
+    expect(await acceptGroup(storage, message("also bring snacks", { from: BO, messageId: "c4" }), 5)).toBe("kept");
+    await drainGroup(storage, deps(w, { control }));
+    expect(w.asks[1]).toMatchObject({ question: "Tex, write this up", group: { chat: [{ from: "bo", text: "thursday works?" }, { from: "ada", text: "7 at mine" }] } });
+    expect(JSON.stringify(w.asks[1])).not.toContain(BO.slice(1));
+    const left = [...(await storage.list<{ text: string }>({ prefix: "gchat:" })).values()].map((line) => line.text);
+    expect(left).toEqual(["also bring snacks"]);
+  });
+
+  it("never hands a tag from a bigger chat what was said before the newcomer joined", async () => {
+    const storage = new MemoryStorage();
+    const w = world([[ADA, BO, CY]]);
+    await acceptGroup(storage, message("Tex, hi"), 0);
+    await drainGroup(storage, deps(w));
+    expect(await acceptGroup(storage, message("just between us", { messageId: "c1" }), 1)).toBe("kept");
+    await acceptGroup(storage, message("Tex, what did we say?", { messageId: "t2", from: CY, participants: [ADA, BO, CY, LINE] }), 2);
+    await drainGroup(storage, deps(w));
+    expect(w.asks[1]).toMatchObject({ group: { chat: [] } });
+  });
+
+  it("keeps the chat's lines when the turn fails, so the retry still has them", async () => {
+    const storage = new MemoryStorage();
+    const w = world();
+    await acceptGroup(storage, message("Tex, hi"), 0);
+    await drainGroup(storage, deps(w));
+    await acceptGroup(storage, message("thursday?", { messageId: "c1" }), 1);
+    await acceptGroup(storage, message("Tex, when?", { messageId: "t2" }), 2);
+    await drainGroup(storage, deps(w, { agentStatus: 502, agent: {} }));
+    expect((await storage.list({ prefix: "gchat:" })).size).toBe(1);
+  });
+
+  it("stops keeping, and drops what it kept, when muted or no longer shared", async () => {
+    for (const control of [{ status: "stopped" }, { status: "muted" }, { status: "no_shared" }]) {
+      const storage = new MemoryStorage();
+      const w = world();
+      await acceptGroup(storage, message("Tex, hi"), 0);
+      await drainGroup(storage, deps(w));
+      await acceptGroup(storage, message("thursday?", { messageId: "c1" }), 1);
+      await acceptGroup(storage, message("Tex, stop", { messageId: "t2" }), 2);
+      await drainGroup(storage, deps(w, { control }));
+      expect((await storage.list({ prefix: "gchat:" })).size).toBe(0);
+      expect(await acceptGroup(storage, message("friday then", { messageId: "c2" }), 3)).toBe("ignored");
+    }
+  });
+
+  it("keeps at most a week and four hundred lines", async () => {
+    const storage = new MemoryStorage();
+    const w = world();
+    await acceptGroup(storage, message("Tex, hi"), 0);
+    await drainGroup(storage, deps(w));
+    await acceptGroup(storage, message("old news", { messageId: "old" }), 0);
+    for (let i = 0; i < MAX_CHAT_LINES; i++) await acceptGroup(storage, message(`line ${i}`, { messageId: `c${i}` }), CHAT_FOR_MS - 1);
+    const kept = [...(await storage.list<{ text: string }>({ prefix: "gchat:" })).values()].map((line) => line.text);
+    expect(kept.length).toBe(MAX_CHAT_LINES);
+    expect(kept).not.toContain("old news");
+    // A week on, nothing before it is left.
+    await acceptGroup(storage, message("fresh", { messageId: "fresh" }), 2 * CHAT_FOR_MS);
+    const after = [...(await storage.list<{ text: string }>({ prefix: "gchat:" })).values()].map((line) => line.text);
+    expect(after).toEqual(["fresh"]);
   });
 
   it("answers a tagged message in the chat, threaded, with only hashes about the chat", async () => {
@@ -225,8 +300,8 @@ describe("a group's queue", () => {
     await drainGroup(storage, deps(w, { control: { status: "ready", slug: "supa", intro: false, bound: true, timeZone: "UTC", handle: "ada", minted: false } }));
     expect(w.control[1]).toMatchObject({ command: { kind: "use", slug: "supa" } });
     expect(w.sends.map((sent) => sent.content).at(-1)).toBe(GROUP_LINES.bound("supa"));
-    // Answered, the question is closed: the name alone is ordinary chat again.
-    expect(await acceptGroup(storage, message("supa", { messageId: "h_later" }), 0)).toBe("ignored");
+    // Answered, the question is closed: the name alone is ordinary chat again, kept as what the chat said.
+    expect(await acceptGroup(storage, message("supa", { messageId: "h_later" }), 0)).toBe("kept");
   });
 
   it("is silent when muted, and tells an unknown tagger only once", async () => {
@@ -268,7 +343,7 @@ describe("a group's queue", () => {
     expect(await acceptGroup(storage, message("and load in?", { messageId: "h_in2", replyTo: "h_out_1" }), 0)).toBe("queued");
     await drainGroup(storage, deps(w));
     expect(w.asks[1]).toMatchObject({ question: "and load in?", quoted: "Friday at 6." });
-    expect(await acceptGroup(storage, message("and more?", { messageId: "h_in3", replyTo: "h_someone_elses" }), 0)).toBe("ignored");
+    expect(await acceptGroup(storage, message("and more?", { messageId: "h_in3", replyTo: "h_someone_elses" }), 0)).toBe("kept");
   });
 
   it("answers a green-bubble group with one fixed line and never asks for notes", async () => {

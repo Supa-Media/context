@@ -56,6 +56,7 @@ const ASSISTANT_FETCH_IDS = [
   { prefix: "skill:", tool: "read_skill", args: (rest) => ({ name: rest }) },
   { prefix: "learned:", tool: "read_learned_skill", args: (rest) => ({ name: rest }) }, // `learnedSkills.js`
   { prefix: "texts:", tool: "earlier_texts", args: () => ({}) },
+  { prefix: "chat:", tool: "earlier_chat", args: () => ({}) }, // a group chat's (`groupTurn.js`)
 ];
 
 /** Which carrying tool reads ordinary `fetch` ids: a note or a folder. */
@@ -119,6 +120,9 @@ function fetchTool(base, held) {
   if (learned) extra.push(`learned:<name> reads a skill you wrote yourself. ${firstParagraph(learned.description)}`);
   if (held.has("earlier_texts")) {
     extra.push(`texts: reads this conversation's earlier texts. ${firstParagraph(held.get("earlier_texts").description)}`);
+  }
+  if (held.has("earlier_chat")) {
+    extra.push(`chat: reads this group chat's earlier messages. ${firstParagraph(held.get("earlier_chat").description)}`);
   }
   if (extra.length === 0) return base;
   return { ...base, description: `${base.description}\n\nAlso:\n${extra.map((line) => `- ${line}`).join("\n")}` };
