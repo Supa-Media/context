@@ -1,6 +1,6 @@
 /**
  * Reads under the website's default name, judged where the folder is now
- * (`./siteRoot.ts`). Wraps the credential barrier for the reads the site makes
+ * (`./siteRoot.ts`). Asked first by the credential barrier, for the reads the site makes
  * by name — `read`, `readMany`, a `manifest` of a folder, and the copy Publish
  * keeps of each page (`writeWebsiteRelease`) — and only
  * when a path names `website/` and the folder doing the website's job sits
@@ -75,20 +75,27 @@ function relabelled(result: OperationResult, root: string, asked: ReadonlyMap<st
   }
 }
 
-export async function throughSiteLens<Args extends LensArgs<unknown>>(
+/**
+ * How to run `args` through the lens: the operation with each `website/...`
+ * path carried to the folder, and how to name the answer back. Null when
+ * nothing needs carrying — no path names `website/`, or the folder has not
+ * moved — which costs nothing, or one query when a path names it.
+ */
+export async function siteLens(
   ctx: ActionCtx,
-  args: Args,
-  run: (args: Args) => Promise<OperationResult>,
-): Promise<OperationResult> {
+  args: LensArgs<unknown>,
+): Promise<{ operation: FileOperation; relabel: (result: OperationResult) => OperationResult } | null> {
   const operation = args.operation as FileOperation;
   const paths = lensPaths(operation);
-  if (!paths.some(namesWebsite)) return await run(args);
+  if (!paths.some(namesWebsite)) return null;
   // A tree that cannot answer leaves the name as asked: judged there, it reads as private.
   const root = await ctx
     .runQuery(internal.functions.websites.siteRootNow, { workspaceId: args.workspaceId })
     .catch(() => DEFAULT_WEBSITE_ROOT);
-  if (root === DEFAULT_WEBSITE_ROOT) return await run(args);
+  if (root === DEFAULT_WEBSITE_ROOT) return null;
+  const carried = translated(operation, root);
+  // The folder is never under a root folder called `website` (`siteRoot`), so a carried path names it no more.
+  if (lensPaths(carried).some(namesWebsite)) return null;
   const asked = new Map(paths.filter(namesWebsite).map((path) => [realSitePath(root, path), path]));
-  const result = await run({ ...args, operation: translated(operation, root) });
-  return relabelled(result, root, asked);
+  return { operation: carried, relabel: (result) => relabelled(result, root, asked) };
 }

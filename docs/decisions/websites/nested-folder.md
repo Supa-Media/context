@@ -20,8 +20,8 @@ name, and only those, is carried to the real folder before anyone's privacy is
 asked, and answered under the name asked:
 
 - the credential barrier's `read`, `readMany`, a folder `manifest` and
-  `writeWebsiteRelease` (`lib/websites/siteLens.ts`, wrapped around
-  `runFileOperation`);
+  `writeWebsiteRelease` (`lib/websites/siteLens.ts`, asked first thing in
+  `runFileOperationHandler`);
 - the tree's `publishedRows` and `visibleNotes` (`nodeFacts.ts`), which the
   design notes, lists, probes, history and the homepage ask.
 

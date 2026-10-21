@@ -114,7 +114,6 @@ import {
   searchResultsValidator,
 } from "./lib/filesFns/searchValidators";
 import { operationResultValidator, operationValidator } from "./lib/filesFns/operationValidators";
-import { throughSiteLens } from "./lib/websites/siteLens";
 import {
   type OperationResult,
 } from "./lib/filesFns/operationTypes";
@@ -321,8 +320,7 @@ export const runFileOperation = internalAction({
   returns: operationResultValidator,
   // Annotated rather than inferred: this action calls another function in the
   // same deployment, which is the inference cycle `bindStorage` has.
-  // Reads under `website/` are judged where the website's folder is now (`lib/websites/siteLens.ts`).
-  handler: async (ctx, args): Promise<OperationResult> => await throughSiteLens(ctx, args, (asked) => runFileOperationHandler(ctx, asked)),
+  handler: async (ctx, args): Promise<OperationResult> => await runFileOperationHandler(ctx, args),
 });
 
 /** See `runStorageLayoutMigrationHandler` in `lib/filesFns/storageLayout.ts`. */

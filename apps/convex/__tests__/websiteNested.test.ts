@@ -13,8 +13,8 @@
  *    stale, and an edit elsewhere does not.
  *
  * SABOTAGE (each a temporary local edit, reverted):
- *  - drop `throughSiteLens` from `runFileOperation` (`files.ts`): nothing
- *    publishes from the nested folder;
+ *  - drop the `siteLens` call at the top of `runFileOperationHandler`
+ *    (`fileOperationBarrier.ts`): nothing publishes from the nested folder;
  *  - drop `sitePaths` in `nodeFacts.ts`: the tree's answer case fails (the
  *    design notes, lists, probes and history read the tree by the site's name);
  *  - judge at the asked name in `siteLens.ts` (`realSitePath` returning its
