@@ -43,6 +43,7 @@ export function connectorToolDefinitions() {
         "users.list and conversations.list read every page in one call and come back short: active people and open channels only " +
         "(include_inactive \"true\" for all); to find someone, pass match with their name or email, e.g. {match: \"segun\"}. " +
         "users.lookupByEmail finds only the email they use in that Slack. " +
+        "To DM someone, chat.postMessage takes their user id or that email as channel and posts in the DM with them. " +
         `Posting (${SLACK_HELD_METHODS.join(", ")}) waits for the person's yes to the exact words first. ` +
         "Channel ids look like C0123; find them with conversations.list. If Slack is not connected, give them the link from connect_app.",
       inputSchema: {
@@ -54,7 +55,7 @@ export function connectorToolDefinitions() {
             description: "The method's arguments, as Slack documents them.",
             properties: Object.fromEntries(
               [
-                ["channel", "A channel, DM or group id, e.g. C0123."],
+                ["channel", "A channel, DM or group id, e.g. C0123; for a post, also a person's user id or Slack email, to DM them."],
                 ["text", "The message's words."],
                 ["thread_ts", "Reply in this thread."],
                 ["ts", "A message's ts."],
