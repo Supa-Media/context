@@ -13,6 +13,7 @@
  * Registers nothing and opens no credential; `functions/connections.ts` does.
  */
 
+import { ConvexError } from "convex/values";
 import type { ConnectionScope, ExchangedToken, SlackSpec } from "./types";
 
 export const SLACK_CLIENT_ID_ENV_VAR = "SLACK_CLIENT_ID";
@@ -176,8 +177,25 @@ async function slackExchange(options: {
       redirect_uri: options.redirectUri,
     }),
   });
-  if (!response.ok) return null;
-  return readSlackAccess((await response.json()) as SlackAccess, options.scope);
+  const body = response.ok ? ((await response.json().catch(() => null)) as SlackAccess | null) : null;
+  const token = body === null ? null : readSlackAccess(body, options.scope);
+  if (token !== null) return token;
+  // Slack's own error code (`invalid_code`, `bad_redirect_uri`, `invalid_client_id`…) is the only
+  // thing that says why; it is never a secret, so it goes to the log and to the person's page.
+  const reason = slackExchangeFailure(response.status, body);
+  console.warn(`slack oauth.v2.access failed: ${reason}`);
+  throw new ConvexError({ code: "CONNECT_EXCHANGE_FAILED", message: `Slack did not finish connecting (${reason}). Try again.` });
+}
+
+/** Why an `oauth.v2.access` answer gave no token, in Slack's words where it has any. */
+export function slackExchangeFailure(status: number, body: SlackAccess | null): string {
+  if (body === null) return `http_${status}`;
+  const error = (body as { error?: unknown }).error;
+  if (body.ok !== true) return typeof error === "string" && /^[a-z0-9_.]{1,60}$/.test(error) ? error : "not_ok";
+  const user = body.authed_user;
+  if (typeof user?.access_token === "string" && user.access_token.startsWith("xoxe.")) return "token_rotation_on";
+  if (text(body.team?.id) === null) return "no_team";
+  return "no_user_token";
 }
 
 async function slackRevoke(accessToken: string): Promise<void> {
