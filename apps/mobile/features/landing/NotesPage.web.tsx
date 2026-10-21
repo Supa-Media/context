@@ -39,6 +39,8 @@ export function NotesPage() {
     "--blue": C.blue,
     "--tint": C.tint,
     "--bad": C.bad,
+    "--sage": C.sage,
+    "--peach": C.peach,
     "--period": texLaunchColors.period,
     colorScheme: "light",
   } as CSSProperties;

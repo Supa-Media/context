@@ -108,8 +108,8 @@ export function Points() {
 
 const SPACES = [
   { initial: "P", name: "Phoebe", kind: "Personal · just you", notes: 412, tone: "var(--tint)", mine: true },
-  { initial: "H", name: "Home", kind: "Shared · 3 people", notes: 88, tone: "#CFE3D5", mine: false },
-  { initial: "B", name: "Harbor Bakery", kind: "Shared · 6 people", notes: 240, tone: "#F4D9C6", mine: false },
+  { initial: "H", name: "Home", kind: "Shared · 3 people", notes: 88, tone: "var(--sage)", mine: false },
+  { initial: "B", name: "Harbor Bakery", kind: "Shared · 6 people", notes: 240, tone: "var(--peach)", mine: false },
 ] as const;
 
 /** A workspace per part of your life, free (Dev2, 2026-10-21). */

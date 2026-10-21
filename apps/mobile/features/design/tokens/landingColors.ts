@@ -59,6 +59,9 @@ export const notesLandingColors = {
   tint: "#E3E8FA",
   /** A sign-up problem: a number or code that did not work. */
   bad: "#9A2B1F",
+  /** The example workspaces' badges, beside `tint`. */
+  sage: "#CFE3D5",
+  peach: "#F4D9C6",
 } as const;
 
 /**
