@@ -159,6 +159,13 @@ export const CREDENTIAL_HTTP_ROUTES = new Set([
   // their hourly and daily limits, after the gateway's send-review gate.
   // `__tests__/personEmail.test.ts` carries the behavioural half.
   "http.gatewayPersonEmail",
+  // A connected app's API (`/gateway/connect/call`, the owner 2026-10-21:
+  // the official Slack connector). Gateway secret plus the person's live
+  // editor grant; the connection is the cleared workspace's own, a personal
+  // one only for its own person and never from a group chat. The token is
+  // opened in `callProvider`, spent on one request to an allow-listed
+  // method, and never returned. `__tests__/connections/slackConnect.test.ts`.
+  "http.gatewayConnectCall",
   // The same route saving a draft (`/gateway/email/draft`, owner 2026-10-19):
   // the same two proofs and the same sender resolution, but only a connection
   // whose consent granted `gmail.compose`, and the token is spent on one

@@ -57,6 +57,7 @@ import { toolCommentNote } from "./notes/comment.js";
 import { toolMailNote, toolReadMail } from "./notes/mail.js";
 import { toolSiteAction } from "./notes/site.js";
 import { toolEvaluateLists } from "./evaluateLists.js";
+import { toolConnectApp, toolSlackApi } from "./connectors.js";
 import { moveFinished, moveJobActive, moveJobKey } from "../moves/jobs.js";
 import { getWithLegacyFallback } from "../storageLayout.js";
 import { servedListingStore, TreeUnavailable } from "../tree/served.js";
@@ -292,6 +293,10 @@ async function runTool(name, args, store, scope) {
       return toolApplyLayout(store, args);
     case "connect_google":
       return toolConnectGoogle(store, args);
+    case "connect_app":
+      return toolConnectApp(store, args);
+    case "slack_api":
+      return toolSlackApi(store, args);
     case "invite_member":
       return toolInviteMember(store, args);
     case "dream_now":

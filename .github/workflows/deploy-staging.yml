@@ -112,6 +112,9 @@ jobs:
       AUTH_EMAIL_FROM: ${{ secrets.AUTH_EMAIL_FROM }}
       GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
       GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+      # The Slack connector's app (`docs/decisions/connectors.md`). Absent: off.
+      SLACK_CLIENT_ID: ${{ secrets.SLACK_CLIENT_ID }}
+      SLACK_CLIENT_SECRET: ${{ secrets.SLACK_CLIENT_SECRET }}
       MAIL_CONNECT_ENABLED: ${{ secrets.MAIL_CONNECT_ENABLED }}
       CALENDAR_CONNECT_ENABLED: ${{ secrets.CALENDAR_CONNECT_ENABLED }}
       # Google push for Gmail and Chat (`functions/lib/googlePush/config.ts`).

@@ -13,9 +13,11 @@
 
 import { oneLine } from "../privacy/egress.js";
 import { describeInvitations, invitationsOf } from "./workspaces.js";
+import { slackHeldSummary } from "./connectors.js";
 
 const HANDLE_IS_PERMANENT = "a @handle, once claimed, is never given back";
 const EMAIL_IS_SENT = "an invitation is emailed and cannot be unsent";
+const SLACK_IS_READ = "people in Slack read a message the moment it lands";
 
 function slugOf(args) {
   return typeof args.slug === "string" ? args.slug.trim().replace(/^@/, "").toLowerCase() : "";
@@ -60,6 +62,12 @@ export function irreversibleOf(name, args, { into = null } = {}) {
       summary: oneLine(`invite ${invited}${where} (Context emails them)`),
       because: EMAIL_IS_SENT,
     };
+  }
+  if (name === "slack_api") {
+    // A post is read the moment it lands; a reaction or a read is not held.
+    const summary = slackHeldSummary(a);
+    if (summary === null) return null;
+    return { audience: "outside", permanent: true, summary, because: SLACK_IS_READ };
   }
   return null;
 }

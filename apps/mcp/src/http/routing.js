@@ -91,6 +91,17 @@ export function attachLinkCalls(store, session, controlPlane, env) {
     writable: false,
     configurable: true,
   });
+  // Connected apps (`tools/connectors.js`): a link to connect one, and one call
+  // through it. The control plane clears each and holds the app's token.
+  Object.defineProperty(store, "connectors", {
+    value: {
+      request: (provider) => controlPlane.connectRequest(session.accessToken, session.workspaceId, provider),
+      call: (request) => controlPlane.connectCall(session.accessToken, session.workspaceId, request),
+    },
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
   // A website's status, check or publish (`write_note` `site`), for this context.
   Object.defineProperty(store, "site", {
     value: (request) => controlPlane.site(session.accessToken, session.workspaceId, request),

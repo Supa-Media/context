@@ -34,6 +34,7 @@ import { feedbackTables } from "./functions/lib/schema/feedback";
 import { textLinkTables } from "./functions/lib/schema/textLinks";
 import { textGroupTables } from "./functions/lib/schema/textGroups";
 import { vaultTables } from "./functions/lib/schema/vault";
+import { connectionTables } from "./functions/lib/schema/connections";
 import { signInEmailTables } from "./functions/lib/schema/signInEmails";
 import { emailProofTables } from "./functions/lib/schema/emailProof";
 import { workspaceDomainTables } from "./functions/lib/schema/workspaceDomains";
@@ -122,6 +123,7 @@ const schema = defineSchema({
   ...textLinkTables,
   ...textGroupTables,
   ...vaultTables,
+  ...connectionTables,
   ...signInEmailTables,
   ...emailProofTables,
   ...workspaceDomainTables,

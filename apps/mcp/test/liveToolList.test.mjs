@@ -89,7 +89,9 @@ test("the full list stays compact", () => {
   // list stood at 12,372 with 59 tools, and the two added about 220.
   // Raised to 13,500 on 2026-10-19 for `read_file` and read_email's
   // `attachment`: the list stood at 13,063.
-  assert.ok(liveToolListSection(toolDefinitions()).length < 13_500);
+  // Raised to 14,200 on 2026-10-21 for `connect_app` and `slack_api`, the
+  // first connector: the list stood at 13,922 with 62 tools.
+  assert.ok(liveToolListSection(toolDefinitions()).length < 14_200);
 });
 
 /* -------------------------------------------------------------------------- */

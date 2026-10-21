@@ -186,6 +186,7 @@ const MANAGE = [
   ["layout", "apply_layout", { template: "business" }],
   ["folder_job", "apply_layout", { job: "tex", path: "Life/Assistant" }],
   ["connect_google", "connect_google", { kind: "gmail" }],
+  ["connect", "connect_app", { app: "slack" }],
   ["dream_now", "dream_now", {}],
 ];
 
@@ -255,6 +256,15 @@ test("send calendar is calendar_event with its args as they are", () => {
     name: "calendar_event",
     arguments: args,
     v2: { tool: "send", action: "calendar" },
+  });
+});
+
+test("send slack is slack_api with its args as they are", () => {
+  const args = { method: "chat.postMessage", args: { channel: "C1", text: "Hi" } };
+  assert.deepEqual(translated("send", { action: "slack", args }), {
+    name: "slack_api",
+    arguments: args,
+    v2: { tool: "send", action: "slack" },
   });
 });
 
@@ -384,7 +394,7 @@ test("every row of ACTIONS names a tool, and every row is covered above", () => 
   const covered = new Set([
     ...["write.save", "write.comment", "write.mail", "write.upload", "write.remember", "write.propose", "write.answer", "write.update_answer", "write.retract_answer", "write.vote", "write.save_session", "write.report_problem"],
     ...MANAGE.map(([action]) => `manage.${action}`),
-    ...["manage.website", "send.api", "send.email", "send.email_draft", "send.calendar", "send.notify"],
+    ...["manage.website", "send.api", "send.email", "send.email_draft", "send.calendar", "send.notify", "send.slack"],
   ]);
   assert.deepEqual(rows.filter((row) => !covered.has(row)), []);
   assert.deepEqual([...covered].filter((row) => !rows.includes(row)), []);

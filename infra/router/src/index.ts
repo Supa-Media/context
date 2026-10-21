@@ -26,6 +26,9 @@ import ogCard from "./og-card.png";
 // Tex's card, bundled the same way and for the same reason. See
 // og-tex-card.source.html and texHost.ts.
 import texCard from "./og-tex-card.png";
+// The Slack connect link's card: the Slack mark and Tex, reviewed with the
+// owner with the connect flow's artboards (docs/decisions/connectors.md).
+import connectSlackCard from "./og-connect-slack.png";
 import { isTexHost, TEX_ROBOTS_TXT } from "./texHost";
 import { ingestResponse } from "./analyticsIngest";
 
@@ -209,6 +212,8 @@ async function respond(
 
       case "tex-card":
         return staticAsset(texCard, "image/png");
+      case "connect-slack-card":
+        return staticAsset(connectSlackCard, "image/png");
 
       case "icon":
         return iconResponse(decision.name);
