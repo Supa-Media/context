@@ -32,12 +32,11 @@
  * ## The rule this file must not break
  *
  * This is a public mutation and it must never touch `decryptSecret` — see
- * `__tests__/structure.test.ts`. A Google
- * connection's grant still has to be revoked at the provider (otherwise our copy of
- * the credential is forgotten while the authorization lives on in the
- * person's account), and that is done the way `disconnectGoogleConnection`
- * does it: the revocation
- * is *scheduled*, envelope in the args because the row is deleted in this
+ * `__tests__/structure.test.ts`. A Google or connected-app grant still has to
+ * be revoked at the provider (otherwise our copy of the credential is
+ * forgotten while the authorization lives on in the person's account), and
+ * that is done the way `disconnectGoogleConnection` does it: the revocation is
+ * *scheduled*, envelope in the args because the row is deleted in this
  * transaction, and scheduling is not calling — the scheduler discards the
  * job's result, so no credential can flow back here.
  *
@@ -359,14 +358,11 @@ async function deleteWorkspaceCascade(
     await ctx.db.delete(connection._id);
   }
 
-  // Every connected app (`functions/connections.ts`): revoke the token at the
-  // provider, envelope in the args because the row goes next, the same as a
-  // Google connection above. Their links hold ids and times only.
-  const providerConnections = await ctx.db
+  // Every connected app and its links (`functions/connections.ts`), as above.
+  for (const connection of await ctx.db
     .query("providerConnections")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-    .collect();
-  for (const connection of providerConnections) {
+    .collect()) {
     await ctx.scheduler.runAfter(0, internal.functions.connections.revokeToken, {
       provider: connection.provider,
       workspaceId,
@@ -374,11 +370,12 @@ async function deleteWorkspaceCascade(
     });
     await ctx.db.delete(connection._id);
   }
-  const providerConnectLinks = await ctx.db
+  for (const link of await ctx.db
     .query("providerConnectLinks")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-    .collect();
-  for (const link of providerConnectLinks) await ctx.db.delete(link._id);
+    .collect()) {
+    await ctx.db.delete(link._id);
+  }
 
   // Every in-flight connect attempt, for every provider that has one. No
   // workspace index exists on these tables — each is keyed by state for its
