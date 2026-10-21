@@ -59,9 +59,10 @@ describe("round trip", () => {
 });
 
 describe("case counts", () => {
-  test("core has 19 cases", () => {
-    // #1795 retired texting-assistant.md and moved four of its questions into core.
-    expect(parseTestList(CORE).cases).toHaveLength(19);
+  test("core has 20 cases", () => {
+    // #1795 retired texting-assistant.md and moved four of its questions into core;
+    // #2048 added question 20, reading a day of the calendar.
+    expect(parseTestList(CORE).cases).toHaveLength(20);
   });
 
   test.each(TESTS)("%s.md has one case per ## n. heading", (name) => {
@@ -263,7 +264,7 @@ describe("removeLine", () => {
 describe("addCase", () => {
   test("numbers the new case one above the highest", () => {
     const list = addCase(parseTestList(CORE), "Remind me to pay the deposit");
-    const added = caseByNumber(list, 20);
+    const added = caseByNumber(list, 21);
     expect(added.title).toBe("Remind me to pay the deposit");
     expect(added.kind).toMatchObject({ value: "task" });
     // The existing lines are untouched; the new case is appended after them.
