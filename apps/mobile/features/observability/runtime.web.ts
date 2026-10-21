@@ -1,4 +1,4 @@
-import type { CaptureResult, CapturedNetworkRequest } from "posthog-js";
+import type { CaptureResult, CapturedNetworkRequest, PostHog } from "posthog-js";
 import { redactTelemetryValue, telemetryRoute } from "./privacy";
 import type { AnalyticsClient } from "./types";
 
@@ -218,6 +218,22 @@ export function postHogWebOptions({
   };
 }
 
+/** Disable listeners and discard their in-memory buffer as soon as counts are off. */
+export function setWebCapturing(
+  client: Pick<PostHog, "set_config" | "opt_in_capturing" | "opt_out_capturing">,
+  enabled: boolean,
+  pagePath: string,
+): void {
+  client.set_config({
+    capture_heatmaps: enabled && pagePath === "/",
+    autocapture: enabled && pagePath === "/" ? {
+      dom_event_allowlist: ["click"], css_selector_allowlist: ["[data-analytics-action]"],
+    } : false,
+  });
+  if (enabled) client.opt_in_capturing();
+  else client.opt_out_capturing();
+}
+
 export async function createAnalyticsClient({
   apiKey,
   host,
@@ -253,8 +269,7 @@ export async function createAnalyticsClient({
     reset: () => client.reset(),
     getSessionId: () => client.get_session_id(),
     setCapturing: (enabled) => {
-      if (enabled) client.opt_in_capturing();
-      else client.opt_out_capturing();
+      setWebCapturing(client, enabled, location.pathname);
     },
     stopRecording: () => client.stopSessionRecording(),
   };

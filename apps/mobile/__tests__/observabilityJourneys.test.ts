@@ -1,5 +1,5 @@
-import { describe, expect, test } from "@jest/globals";
-import { cleanPostHogProperties, postHogWebOptions } from "../features/observability/runtime.web";
+import { describe, expect, jest, test } from "@jest/globals";
+import { cleanPostHogProperties, postHogWebOptions, setWebCapturing } from "../features/observability/runtime.web";
 
 const options = (path: string) => postHogWebOptions({
   apiKey: "phc_fixture", host: "https://us.i.posthog.com", replaySampleRate: 0.1,
@@ -60,5 +60,19 @@ test("initial person properties keep no private URL or document title", () => {
   expect(clean.$set_once).toEqual({
     $initial_current_url: "https://context.lc/note/:context",
     $initial_referrer: "https://example.com", harmless: true,
+  });
+});
+
+test("opting out stops heatmap listeners and discards buffered clicks immediately", () => {
+  const client = { set_config: jest.fn(), opt_in_capturing: jest.fn(), opt_out_capturing: jest.fn() };
+  setWebCapturing(client, false, "/");
+  expect(client.set_config).toHaveBeenLastCalledWith({ capture_heatmaps: false, autocapture: false });
+  expect(client.opt_out_capturing).toHaveBeenCalledTimes(1);
+  setWebCapturing(client, true, "/console/@private");
+  expect(client.set_config).toHaveBeenLastCalledWith({ capture_heatmaps: false, autocapture: false });
+  setWebCapturing(client, true, "/");
+  expect(client.set_config).toHaveBeenLastCalledWith({
+    capture_heatmaps: true,
+    autocapture: { dom_event_allowlist: ["click"], css_selector_allowlist: ["[data-analytics-action]"] },
   });
 });
