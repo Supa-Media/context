@@ -102,7 +102,7 @@ export const ACTIONS = {
       take: (call) => Object.fromEntries(["job", "path", "remove"].filter((key) => call.args?.[key] !== undefined).map((key) => [key, call.args[key]])),
     },
     connect_google: { tool: "connect_google", summary: "Get the link where the person connects Gmail or Calendar.", take: plain },
-    connect: { tool: "connect_app", summary: "Get the link where the person connects an app (Slack) through its own approval screen.", take: plain },
+    connect: { tool: "connect_app", summary: "Get the link where the person connects an app fetch apps: lists, through its own approval screen.", take: plain },
     dream_now: { tool: "dream_now", summary: "Start Tex's dream now: it rewrites tex/about-me.md (owner only).", take: plain },
   },
   send: {
@@ -128,12 +128,29 @@ export const ACTIONS = {
     },
     slack: {
       tool: "slack_api",
-      summary: "Call one Slack Web API method through the connected Slack; a post waits for the person's yes to its words.",
+      summary:
+        "Call one Slack Web API method through the connected Slack; a post waits for the person's yes to its words. " +
+        "Find someone: users.list {match: their name or email}, which reads every active person at once. " +
+        "DM someone: chat.postMessage {channel: their user id or the email they use in that Slack, text}. " +
+        "Post in a channel: chat.postMessage {channel: \"#name\", text}; reply in a thread: add thread_ts (the message's ts). " +
+        "Read a channel: conversations.history {channel: \"#name\"}, newest first, with names; a thread: conversations.replies {channel, ts}. " +
+        "Find channels: conversations.list {match}; search: search.messages {query}; react: reactions.add {channel, timestamp, name}. " +
+        "Mention someone in text as <@their user id>. If Slack says a permission is missing, ask them to reconnect Slack in Settings.",
+      take: plain,
+    },
+    app: {
+      tool: "app_change",
+      summary: "Make one change through an app the person connected (app, tool, arguments), once they say yes to it.",
       take: plain,
     },
     calendar: {
       tool: "calendar_event",
       summary: "Add, move or cancel one event on the person's Google Calendar, once they say yes to that exact change.",
+      take: plain,
+    },
+    forward_rule: {
+      tool: "forward_rule",
+      summary: "Let a routine keep forwarding one kind of the person's mail to one address without asking, once they 👍 the rule; or stop it.",
       take: plain,
     },
   },

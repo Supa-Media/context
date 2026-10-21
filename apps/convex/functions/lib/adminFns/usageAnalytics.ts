@@ -14,12 +14,11 @@
  * leaves this file, and an error is reported in our words, never with
  * PostHog's body, which could echo the query.
  *
- * Production only. Development, staging and production share one PostHog
- * project, so a web event counts when it came from context.lc or tex.lc, and
+ * Production only. A web event counts when it came from context.lc or tex.lc, and
  * a native one when the app said it was a production build (`app_env`).
  */
 
-import { isCleanRoute, isUsageButton, ACTIVE_EVENT, BUTTON_EVENT } from "@context/shared";
+import { isCleanRoute, isUsageButton, isUsageAction, isUsageOutcome, USAGE_FUNNELS, ACTIVE_EVENT, BUTTON_EVENT, type UsageStepId } from "@context/shared";
 import type { UsageAnalytics, UsageButtonRow, UsagePageRow, UsageSite, UsageTime } from "./usageAnalyticsShape";
 
 export const POSTHOG_API_HOST = "https://us.posthog.com";
@@ -54,9 +53,31 @@ const SITE_LIST = USAGE_SITES.map((host) => `'${host}'`).join(", ");
 const PRODUCTION = `(properties.$host IN (${SITE_LIST}) OR (properties.app_env = 'production' AND properties.$lib != 'web'))`;
 const COUNTED = `event IN ('$screen', '${ACTIVE_EVENT}', '${BUTTON_EVENT}')`;
 const SESSION = "toString(properties.$session_id)";
+const ACTION_LIST = "'landing_cta_clicked', 'tex_messages_opened', 'tex_contact_downloaded', 'tex_console_opened'";
+const PRODUCT = `if(properties.$host = 'tex.lc' OR properties.app_product = 'tex', 'tex', 'context')`;
 
-/** The five questions, as HogQL. Exported so a test can read what is asked. */
-export function usageQueries(days: number, now: number): Record<"daily" | "sites" | "time" | "pages" | "buttons", string> {
+const FUNNEL_STEPS: Record<UsageStepId, string> = {
+  landing: "event = '$screen' AND properties.$screen_name = '/'",
+  signup_started: "event = 'signup_started'",
+  signup_submitted: "event = 'signup_submitted' AND coalesce(properties.resend, false) = false",
+  waitlist_joined: "event = 'signup_result' AND properties.result = 'joined'",
+  code_sent: "event = 'signup_result' AND properties.result = 'sent' AND coalesce(properties.resend, false) = false",
+  code_submitted: "event = 'signin_code_submitted'",
+  signed_in: "event = 'signin_code_result' AND properties.result = 'success'",
+  setup_started: "event = 'onboarding_step_viewed' AND properties.step = 'name' AND coalesce(properties.resumed, false) = false",
+  workspace_created: "event = 'workspace_created'",
+  setup_completed: "event = 'onboarding_completed'",
+  note_opened: "event = 'note_opened'",
+  text_page: "event = '$screen' AND properties.$screen_name = '/text'",
+  messages_opened: "event = 'tex_messages_opened'",
+};
+
+type QueryName = "daily" | "sites" | "time" | "pages" | "buttons" | "funnels" | "outcomes";
+export type UsageRows = Record<"daily" | "sites" | "time" | "pages" | "buttons", readonly Row[]> &
+  Partial<Record<"funnels" | "outcomes", readonly Row[]>>;
+
+/** The seven questions, as HogQL. Exported so a test can read what is asked. */
+export function usageQueries(days: number, now: number): Record<QueryName, string> {
   const [first] = windowDays(days, now);
   const start = Date.parse(`${first}T00:00:00Z`);
   const end = start + days * DAY_MS;
@@ -87,9 +108,26 @@ export function usageQueries(days: number, now: number): Record<"daily" | "sites
       `WHERE event = '$screen' AND ${PRODUCTION} AND timestamp >= ${S} AND timestamp < ${E} ` +
       `GROUP BY 1 ORDER BY 2 DESC LIMIT 50`,
     buttons:
-      `SELECT toString(properties.button), count(), count(DISTINCT person_id) FROM events ` +
-      `WHERE event = '${BUTTON_EVENT}' AND ${PRODUCTION} AND timestamp >= ${S} AND timestamp < ${E} ` +
+      `SELECT if(event = '${BUTTON_EVENT}', toString(properties.button), event), count(), count(DISTINCT person_id) FROM events ` +
+      `WHERE (event = '${BUTTON_EVENT}' OR event IN (${ACTION_LIST})) AND ${PRODUCTION} AND timestamp >= ${S} AND timestamp < ${E} ` +
       `GROUP BY 1 ORDER BY 2 DESC LIMIT 50`,
+    // windowFunnel enforces event order and a fixed conversion window per
+    // merged person. Return only a histogram of the furthest step reached.
+    funnels: USAGE_FUNNELS.map((funnel) =>
+      `SELECT '${funnel.id}', level, count() FROM (` +
+      // PostHog timestamps are DateTime64; ClickHouse windowFunnel requires DateTime.
+      `SELECT person_id, windowFunnel(${funnel.windowSeconds})(toDateTime(timestamp), ` +
+      funnel.steps.map((step) => `(${FUNNEL_STEPS[step]})`).join(", ") +
+      `) AS level FROM events WHERE ${PRODUCTION} AND ${PRODUCT} = '${funnel.product}' ` +
+      `AND timestamp >= ${S} AND timestamp < ${E} AND properties.app_analytics_version >= 2 ` +
+      `AND event IN ('$screen', 'signup_started', 'signup_submitted', 'signup_result', 'signin_code_submitted', ` +
+      `'signin_code_result', 'onboarding_step_viewed', 'workspace_created', 'onboarding_completed', 'note_opened', 'tex_messages_opened') ` +
+      `GROUP BY person_id) WHERE level > 0 GROUP BY level LIMIT 10`
+    ).join(" UNION ALL "),
+    outcomes:
+      `SELECT event, toString(properties.result), count(), count(DISTINCT person_id) FROM events ` +
+      `WHERE event IN ('signup_result', 'signin_code_result', 'note_save_result') AND ${PRODUCTION} ` +
+      `AND timestamp >= ${S} AND timestamp < ${E} GROUP BY 1, 2 LIMIT 100`,
   };
 }
 
@@ -104,7 +142,7 @@ function count(value: unknown): number {
 export function shapeUsage(
   days: number,
   now: number,
-  rows: Record<"daily" | "sites" | "time" | "pages" | "buttons", readonly Row[]>,
+  rows: UsageRows,
 ): UsageAnalytics {
   const dayList = windowDays(days, now);
   const sites: UsageSite[] = USAGE_SITES.map((host) => {
@@ -141,11 +179,23 @@ export function shapeUsage(
     .map((row) => ({ route: row[0] as string, views: Math.round(count(row[1])), people: Math.round(count(row[2])) }));
 
   const buttons: UsageButtonRow[] = rows.buttons
-    .filter((row) => isUsageButton(row[0]))
+    .filter((row) => isUsageButton(row[0]) || isUsageAction(row[0]))
     .slice(0, USAGE_TOP_ROWS)
     .map((row) => ({ button: row[0] as string, clicks: Math.round(count(row[1])), people: Math.round(count(row[2])) }));
 
-  return { connected: true, error: null, days, sites, time: timeOf(1), priorTime: timeOf(0), pages, buttons };
+  const funnels = USAGE_FUNNELS.map((funnel) => ({
+    id: funnel.id,
+    steps: funnel.steps.map((key, index) => ({
+      key,
+      people: (rows.funnels ?? []).reduce((total, row) =>
+        row[0] === funnel.id && Number.isInteger(Number(row[1])) && count(row[1]) >= index + 1 && count(row[1]) <= funnel.steps.length
+          ? total + Math.round(count(row[2])) : total, 0),
+    })),
+  }));
+  const outcomes = (rows.outcomes ?? [])
+    .filter((row) => isUsageOutcome(row[0], row[1]))
+    .map((row) => ({ event: row[0] as string, result: row[1] as string, attempts: Math.round(count(row[2])), people: Math.round(count(row[3])) }));
+  return { connected: true, error: null, days, sites, time: timeOf(1), priorTime: timeOf(0), pages, buttons, funnels, outcomes };
 }
 
 async function ask(
@@ -188,7 +238,8 @@ export async function usageAnalytics(
   const key = env.POSTHOG_PERSONAL_API_KEY?.trim();
   if (!key) return { connected: false };
   const projectId = env.POSTHOG_PROJECT_ID?.trim();
-  const project = projectId && PROJECT_ID.test(projectId) ? projectId : "@current";
+  if (projectId && !PROJECT_ID.test(projectId)) return { connected: true, error: "PostHog project id must be numeric" };
+  const project = projectId || "@current";
   const url = `${POSTHOG_API_HOST}/api/projects/${project}/query/`;
   const now = options.now ?? Date.now();
   const fetchImpl = options.fetchImpl ?? globalThis.fetch;

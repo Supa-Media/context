@@ -93,7 +93,7 @@ export function reactedLine(reacted) {
  * the end of the quote and the start of something the person said. Empty for
  * anything else.
  */
-function scrubbed(value) {
+export function scrubbed(value) {
   if (typeof value !== "string") return "";
   return value
     .replace(/[\p{Cc}\p{Cf}\n\r"'“”‘’()\[\]<>]+/gu, " ")

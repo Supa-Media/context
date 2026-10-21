@@ -24,7 +24,7 @@ import type { FileBrowser } from "./browser";
 import { editorReducer, emptyEditor } from "./editor";
 import { knownNotePaths } from "./paths";
 import { shownIcon } from "./folderIcons";
-import { archiveFolder, inboxFolder, loadedJobs, loadedTwins, projectsFolder } from "./jobIcons/folderJobs";
+import { archiveFolder, inboxFolder, loadedJobs, loadedTwins, projectsFolder, websiteFolder } from "./jobIcons/folderJobs";
 import { setJobFoldersNow } from "./jobIcons/jobFoldersNow";
 import { jobIconMarker, twinIconMarker } from "./jobIcons/marker";
 import type { OpenNote } from "./types";
@@ -129,7 +129,12 @@ export function useStaticFileBrowser(tree: DemoContextTree, contextId: string | 
 
   const jobs = useMemo(() => {
     // As the real console does (`useFolderJobs`): the folder page and a note's chips read where Projects is from here.
-    setJobFoldersNow({ inbox: inboxFolder(tree.listings), projects: projectsFolder(tree.listings), archive: archiveFolder(tree.listings) });
+    setJobFoldersNow({
+      inbox: inboxFolder(tree.listings),
+      projects: projectsFolder(tree.listings),
+      archive: archiveFolder(tree.listings),
+      website: websiteFolder(tree.listings),
+    });
     return loadedJobs(tree.listings);
   }, [tree]);
   const twins = useMemo(() => loadedTwins(tree.listings), [tree]);

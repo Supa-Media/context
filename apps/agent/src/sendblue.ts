@@ -21,7 +21,7 @@
 import { MAX_REPLY_TEXT, ServiceError, type Fetch } from "./clients";
 import { CARD_VERSION } from "./card";
 import { MAX_INBOUND_ATTACHMENTS, MAX_INBOUND_TEXT, type Inbound, type InboundAttachment } from "./inbound";
-import { readTapback } from "./reactions";
+import { readRemovedTapback, readTapback } from "./reactions";
 
 /** The base address docs.sendblue.com names for every call. */
 export const SENDBLUE_API = "https://api.sendblue.com";
@@ -425,12 +425,17 @@ export function parseSendblueInbound(payload: unknown): Inbound {
   const text = typeof payload.content === "string" ? payload.content.trim() : "";
   if (TAPBACK.test(text) && !payload.media_url) {
     // A tapback is noted or answered (`reactions.ts`); one taken back is dropped.
-    const reaction = readTapback(text);
+    // A like taken back off an ask is read too, so a yes being held can be dropped (`thumbs.ts`).
+    const reaction = readTapback(text) ?? readRemovedTapback(text);
+    // A taken-back like or heart may be one held as a yes, on the ask or on a text beside it (`thumbs.ts`).
     if (reaction === null) return { kind: "ignored", reason: "reaction" };
     return { kind: "reaction", eventId: `sendblue:${handle}`, chatId: sendblueChatId(ours, from), from, messageId: handle, reaction };
   }
   const attachments: InboundAttachment[] = [];
-  if (typeof payload.media_url === "string" && payload.media_url !== "") {
+  // A link's preview card is not something they sent (`isLinkPreview`).
+  const preview = typeof payload.media_url === "string" && payload.media_url !== "" && isLinkPreview(payload.media_url, text);
+  if (preview) console.log(JSON.stringify({ event: "sendblue_link_preview", outcome: "dropped", with_words: text !== "" }));
+  if (typeof payload.media_url === "string" && payload.media_url !== "" && !preview) {
     try {
       const url = new URL(payload.media_url);
       if (url.protocol === "https:") {
@@ -459,6 +464,28 @@ export function parseSendblueInbound(payload: unknown): Inbound {
     ...(replyTo !== undefined ? { replyTo } : {}),
     ...(threadRoot !== undefined ? { threadRoot } : {}),
   };
+}
+
+/** An http(s) address in a text's words. */
+export const WEB_ADDRESS = /\bhttps?:\/\/[^\s]+/i;
+
+/**
+ * Whether a delivered file is the preview Messages drew for a link, not a
+ * file the person sent (owner's report, 2026-10-21: a pasted context.lc link
+ * reached Tex with its preview picture, which Tex answered as "just a hashtag
+ * icon" and then again on its own as "the Context banner"). Messages keeps a
+ * rich link's card as a `.pluginPayloadAttachment`; and a photo is never in
+ * the same bubble as typed words, so a file that comes with an address in the
+ * words is that address's preview.
+ */
+export function isLinkPreview(mediaUrl: string, text: string): boolean {
+  let name = "";
+  try {
+    name = decodeURIComponent(new URL(mediaUrl).pathname.split("/").pop() ?? "");
+  } catch {
+    name = "";
+  }
+  return /\.pluginpayloadattachment$/i.test(name) || WEB_ADDRESS.test(text);
 }
 
 /** Tex's line a delivery came in on. */

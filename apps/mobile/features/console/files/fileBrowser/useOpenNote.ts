@@ -1,3 +1,4 @@
+import { trackEvent } from "../../../observability/client";
 /**
  * Opening a note, and moving the selection to one or away from all of them.
  *
@@ -280,6 +281,7 @@ export function useOpenNote(deps: OpenNoteDeps) {
             if (copy !== null && !waiting && openRun.current === mine) {
               early = relabel(copy.value);
               dispatch({ type: "opened", note: early, fromCache: true, checking: true });
+              trackEvent("note_opened", { cached: true });
               settleOpening(path);
             }
           }
@@ -371,6 +373,7 @@ export function useOpenNote(deps: OpenNoteDeps) {
         if (openRun.current !== mine) return;
         const carried = carriedDraft(carriedFrom, note);
         dispatch({ type: "opened", note, fromCache, notice, restored: restored ?? carried });
+        trackEvent("note_opened", { cached: fromCache });
         if (restored === undefined && carried !== undefined) autosave.edited(path);
       } finally {
         /*

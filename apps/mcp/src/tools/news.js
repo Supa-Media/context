@@ -41,6 +41,35 @@ import { unlistedArgumentAdvice } from "./liveList.js";
 export const TOOL_NEWS = Object.freeze([
   {
     date: "2026-10-21",
+    text:
+      'fetch id "calendar:" with args `{ date: "YYYY-MM-DD", days? }` reads what is on the person\'s calendar that day (and up to 13 days after), ' +
+      "from every connected Google account and workspace, wherever the day notes are filed. Use it for any question about a date.",
+  },
+  {
+    date: "2026-10-21",
+    newTool: true,
+    text:
+      "send `forward_rule` `{ action: start | stop, routine, to?, about? }` lets one routine under tex/routines/ keep forwarding one kind " +
+      "of the person's mail (receipts, invoices) to one address without asking each time, once they 👍 the rule. Write the routine first. " +
+      "Its run forwards each match with send email `forward`, only to that address, each email once. stop ends it at once.",
+  },
+  {
+    date: "2026-10-21",
+    text:
+      "send email and email_draft take `forward`: the email:<address>/<id> id of an email to pass on. It goes below the body with all of its attachments, " +
+      "from that mailbox, so a receipt reaches a bookkeeper with its PDF.",
+  },
+  {
+    date: "2026-10-21",
+    newTool: true,
+    text:
+      "fetch `apps:` lists every app Context connects (Linear, Notion, Jira and Confluence, Planning Center, Airtable, monday.com, " +
+      "Calendly, ClickUp, Todoist, Slack) and whether the person connected it; anything not listed needs the browser. " +
+      "manage connect `{ app }` gives the link for any of them. fetch `apps:<app>` lists its tools, and with args `{ tool, arguments }` runs a read; " +
+      "send app `{ app, tool, arguments }` makes a change once they say yes.",
+  },
+  {
+    date: "2026-10-21",
     newTool: true,
     text:
       'manage has a new action, connect `{ app: "slack" }`: a link where the person connects Slack through its own approval screen. ' +
@@ -237,7 +266,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "5d964abe";
+export const TOOL_SHAPE = "812c15a6";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

@@ -25,11 +25,37 @@ import { normalizePath } from "../notes/paths.js";
 /**
  * Tools whose results are, by construction, words people other than the person
  * wrote: a mailbox day, a contact page built from senders' own claims, a
- * meeting's transcript, a stored file's words (most are attachments), and a
+ * meeting's transcript, a stored file's words (most are attachments), a
  * stored picture, which a model now sees and may read words in (a texted
- * screenshot, an email's image) the way a texted one taints its own turn.
+ * screenshot, an email's image) the way a texted one taints its own turn, and
+ * a connected app's answer — a Slack channel's messages, a profile's name, a
+ * search's hits are written by whoever is in that Slack
+ * (`tools/connectors.js`), and an app connected by its MCP server answers with
+ * its own users' issues, pages and comments (`tools/apps.js`). `connect_app`
+ * is not one: it answers with a link the gateway made, and nothing from the
+ * provider. A pending proposal is somebody else's too: `propose_note` is what
+ * a connection that may not write uses, so `read_proposal` hands the model a
+ * reason and a whole note it did not author — `list_proposals` is in
+ * `UNTRUSTED_LISTINGS` for the reason alone.
+ *
+ * Some of these are not read-only (`slack_api` can post, `app_change` makes a
+ * change) and still hand the model an answer, so they mark the turn even when
+ * the call counts as a write; see `recordRead`.
  */
-export const UNTRUSTED_READS = new Set(["read_channel_day", "read_contact", "read_meeting", "search_email", "read_email", "read_file", "read_image"]);
+export const UNTRUSTED_READS = new Set([
+  "read_channel_day",
+  "read_contact",
+  "read_meeting",
+  "read_calendar",
+  "search_email",
+  "read_email",
+  "read_file",
+  "read_image",
+  "slack_api",
+  "app_read",
+  "app_change",
+  "read_proposal",
+]);
 
 /**
  * Tools whose results carry names, counts and settings, never a note's words.
@@ -73,9 +99,15 @@ export function markUntrusted(ledger) {
   if (ledger) ledger.untrusted = true;
 }
 
-/** Record whether what a read handed the model came from outside the workspace. */
-export function recordRead(ledger, { name, args, result }) {
+/**
+ * Record whether what a call handed the model came from outside the workspace.
+ * A write's answer is the gateway's own words, so it marks nothing, unless the
+ * tool is one of `UNTRUSTED_READS`: a connected app answers a change with what
+ * the app says, written by its users.
+ */
+export function recordRead(ledger, { name, args, result, writing = false }) {
   if (!ledger || !result || result.isError === true) return;
+  if (writing && !UNTRUSTED_READS.has(name)) return;
   if (LISTING_TOOLS.has(name)) {
     if (UNTRUSTED_LISTINGS.has(name)) ledger.untrusted = true;
     return;

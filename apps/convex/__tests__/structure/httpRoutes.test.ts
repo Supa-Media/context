@@ -157,6 +157,7 @@ describe("the gateway's HTTP routes", () => {
     "/gateway/feedback": "gatewayFeedback",
     "/gateway/connect/request": "gatewayConnectRequest",
     "/gateway/connect/call": "gatewayConnectCall",
+    "/gateway/connect/apps": "gatewayConnectApps",
     "/gateway/email/send": "gatewayPersonEmail",
     "/gateway/email/draft": "gatewayPersonEmailDraft",
     "/gateway/calendar/event": "gatewayCalendarWrite",

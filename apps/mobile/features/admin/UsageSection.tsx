@@ -8,20 +8,23 @@
  * `./UsageParts` and the arithmetic in `./usage`.
  */
 
+import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import type { UsageAnalytics } from "@context/convex/functions/lib/adminFns/usageAnalyticsShape";
-import { Card, Text, space, useThemedStyles } from "../design";
+import { Button, Card, Text, space, useThemedStyles } from "../design";
 import { EmptyNote, NoticeLine, Panel, Skeleton, TwoUp } from "./AdminKit";
 import { RankedPanel, SiteCard, TimeCard } from "./UsageParts";
 import { buttonLabel, pageLabel } from "./usage";
+import { UsageJourneys } from "./UsageJourneys";
 import { useUsageData } from "./useUsageData";
 
 export function UsageSection({ days }: { days: number }) {
-  return <UsageView usage={useUsageData(days)} days={days} />;
+  const [refresh, setRefresh] = useState(0);
+  return <UsageView usage={useUsageData(days, refresh)} days={days} onRefresh={() => setRefresh((value) => value + 1)} />;
 }
 
 /** The tab for a given answer, exported so it can be drawn without Convex. */
-export function UsageView({ usage, days }: { usage: UsageAnalytics | undefined; days: number }) {
+export function UsageView({ usage, days, onRefresh }: { usage: UsageAnalytics | undefined; days: number; onRefresh?: () => void }) {
   const styles = useThemedStyles(makeStyles);
   if (usage === undefined) return <Loading />;
   if (!usage.connected) {
@@ -30,11 +33,12 @@ export function UsageView({ usage, days }: { usage: UsageAnalytics | undefined; 
         <EmptyNote
           tall
           title="PostHog isn't connected"
-          body="Usage reads visits, time and clicks from PostHog with a read-only key. Set these Convex env vars, then sync secrets and deploy:"
+          body="Usage needs a private PostHog key with query:read permission and the existing project ID. The public tracking key cannot read metrics. Configure these on the server:"
           action={
             <View style={styles.envVars}>
               <Text variant="mono">POSTHOG_PERSONAL_API_KEY</Text>
               <Text variant="mono">POSTHOG_PROJECT_ID</Text>
+              {onRefresh ? <Button label="Retry connection" variant="mini" onPress={onRefresh} testID="admin-usage-retry" /> : null}
             </View>
           }
         />
@@ -47,6 +51,7 @@ export function UsageView({ usage, days }: { usage: UsageAnalytics | undefined; 
         <NoticeLine mark="!" tone="warn">
           PostHog didn't answer: {usage.error}
         </NoticeLine>
+        {onRefresh ? <Button label="Try again" variant="mini" onPress={onRefresh} testID="admin-usage-retry" /> : null}
       </Card>
     );
   }
@@ -54,12 +59,14 @@ export function UsageView({ usage, days }: { usage: UsageAnalytics | undefined; 
   const meta = (count: number) => (count >= 10 ? `top 10 · last ${days} days` : `last ${days} days`);
   return (
     <View style={styles.section} testID="admin-usage">
+      {onRefresh ? <Button label="Refresh metrics" variant="mini" onPress={onRefresh} testID="admin-usage-refresh" /> : null}
       <TwoUp>
         {usage.sites.map((site) => (
           <SiteCard key={site.host} site={site} days={days} />
         ))}
       </TwoUp>
       <TimeCard time={usage.time} prior={usage.priorTime} days={days} />
+      <UsageJourneys funnels={usage.funnels} outcomes={usage.outcomes} days={days} />
       <TwoUp>
         <RankedPanel
           title="Most viewed pages"

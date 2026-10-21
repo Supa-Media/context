@@ -21,6 +21,7 @@ import {
   folderJobs,
   isRowRole,
   jobAt,
+  WEBSITE_FOLDER,
   type RowRole,
 } from "@context/shared/src/folderRoles.cjs";
 import { texPartIcon } from "@context/shared/src/folderIcons.cjs";
@@ -143,6 +144,11 @@ export function projectsFolder(listings: JobListings): string {
 /** Where the Archive is: the folder doing its job, else `9-archive`. */
 export function archiveFolder(listings: JobListings): string {
   return jobFolder(listings, "archive", DEFAULT_FOLDER.archive);
+}
+
+/** Where the website's folder is, wherever it is nested: the folder doing its job, else `website`. */
+export function websiteFolder(listings: JobListings): string {
+  return jobFolder(listings, "website", WEBSITE_FOLDER);
 }
 
 /**

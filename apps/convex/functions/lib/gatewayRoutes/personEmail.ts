@@ -8,6 +8,9 @@
  * Without it, a subject starting "Re:" joins the newest thread in that
  * mailbox with the same subject and one of its recipients
  * (`lib/personEmailThread.ts`), or goes as a new email.
+ * `forward` is the Gmail id of a message in the `from` mailbox: it goes below
+ * the person's words with all of its attachments (`lib/personEmailForward.ts`),
+ * sent through Gmail's upload endpoint, which takes a message that size.
  * Answers `{ ok: true, from }` (with `check`, nothing is sent) or
  * `{ ok: false, refused }`.
  *
@@ -28,13 +31,16 @@ import { internal } from "../../../_generated/api";
 import type { ActionCtx } from "../../../_generated/server";
 import { hashToken } from "../crypto";
 import { json, stringField } from "../gatewayAuth";
-import { gmailRaw, readPersonEmail, recipientLimitKey, recipientsOf, replyHeadersOf, type ReplyThread } from "../personEmail";
+import { gmailRaw, headerText, readPersonEmail, recipientLimitKey, recipientsOf, replyHeadersOf, type PersonEmail, type ReplyThread } from "../personEmail";
 import { getReplyHeaders } from "../../../../mcp/src/communications/gmailSync.js";
 import { timeoutFetch } from "../filesFns/forwardSyncSupport";
 import { findReplyThread } from "../personEmailThread";
+import { forwardBody, forwardHeaders, forwardMime, newBoundary, readForwarded } from "../personEmailForward";
 
 const GMAIL_SEND_ENDPOINT = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send";
 const GMAIL_DRAFTS_ENDPOINT = "https://gmail.googleapis.com/gmail/v1/users/me/drafts";
+const GMAIL_SEND_UPLOAD = "https://gmail.googleapis.com/upload/gmail/v1/users/me/messages/send?uploadType=media";
+const GMAIL_DRAFTS_UPLOAD = "https://gmail.googleapis.com/upload/gmail/v1/users/me/drafts?uploadType=media";
 
 function log(fields: Record<string, string | number | boolean>): void {
   console.log(JSON.stringify({ event: "person_email", ...fields }));
@@ -81,6 +87,8 @@ async function personEmail(ctx: ActionCtx, body: Record<string, unknown>, draft:
     log({ outcome: "no_token", draft });
     return json({ ok: false, refused: "unavailable" });
   }
+  // A forward reads the message from the sending mailbox itself, so it can only ever pass on the person's own mail.
+  if (email.forward !== null) return await sendForward(minted.accessToken, email, claimed.from, draft, recipientHashes.length);
   // A reply joins the thread of the message it answers, read from the sending
   // mailbox itself, so it can only ever answer the person's own mail.
   let thread: ReplyThread | null = null;
@@ -116,4 +124,32 @@ async function personEmail(ctx: ActionCtx, body: Record<string, unknown>, draft:
     return json({ ok: false, refused: "unavailable" });
   }
   return json({ ok: true, from: claimed.from });
+}
+
+/** A forward, attachments and all, sent (or saved as a draft) as one `message/rfc822` upload. */
+async function sendForward(accessToken: string, email: PersonEmail, from: string, draft: boolean, recipients: number): Promise<Response> {
+  const read = await readForwarded(timeoutFetch, accessToken, email.forward!);
+  if (!read.ok) {
+    log({ outcome: read.refused, draft, forward: true });
+    return json({ ok: false, refused: read.refused });
+  }
+  const mime = forwardMime(
+    forwardHeaders(email, from, headerText(email.subject)),
+    forwardBody(email.body, read.forwarded),
+    read.forwarded.files,
+    newBoundary(),
+  );
+  try {
+    const response = await timeoutFetch(draft ? GMAIL_DRAFTS_UPLOAD : GMAIL_SEND_UPLOAD, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "message/rfc822" },
+      body: mime as BodyInit,
+    });
+    log({ outcome: response.ok ? (draft ? "drafted" : "sent") : "http_error", status: response.status, recipients, draft, forward: true, files: read.forwarded.files.length });
+    if (!response.ok) return json({ ok: false, refused: "unavailable" });
+  } catch {
+    log({ outcome: "transport_error", draft, forward: true });
+    return json({ ok: false, refused: "unavailable" });
+  }
+  return json({ ok: true, from });
 }

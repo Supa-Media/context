@@ -78,6 +78,9 @@ export const rekeyStorageBindingsReturns = v.object({
   managedMigrationsRekeyed: v.number(),
   managedMigrationsSkipped: v.number(),
   managedMigrationsUnreadable: v.number(),
+  connectorSecretsRekeyed: v.number(),
+  connectorSecretsSkipped: v.number(),
+  connectorSecretsUnreadable: v.number(),
 });
 
 export const reverifyStorageReturns = v.object({

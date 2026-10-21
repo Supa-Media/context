@@ -15,6 +15,11 @@
  *     is held, shown whole, and not made` fails: it is made at once.
  *  2. `calendar_event` left out of `YES_ONLY` in `textedApprovals.js`. → `an
  *     "ok" to a calendar change is not a yes` fails.
+ *  3. `claimCheck.js` never giving `OFFER_NOTICE` (2026-10-21). → `an offer of
+ *     a calendar change is held as it is made…` and `the first yes to that
+ *     offer makes the change` fail.
+ *  4. `answerWithAsk` without `withoutWaitTalk`. → `an offer of a calendar
+ *     change is held as it is made…` fails.
  */
 
 import { ask, call, textOf, createEgressWorld, TOKEN_MCP, TOKEN_ROUTINE, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
@@ -41,7 +46,7 @@ export async function runCalendarGateChecks(check) {
         controlPlane.calendarCalls[0].check === true &&
         Array.isArray(asked.body?.verbatim) &&
         asked.body.verbatim[0] ===
-          "Here's the change I'd make:\n\nAdd to your Google Calendar:\nDentist\nFrom 2026-10-20T15:00:00-04:00\nTo 2026-10-20T16:00:00-04:00\n\nLook good? Just say yes and I'll make the change.",
+          `Here's the change I'd make:\n\nAdd to your Google Calendar:\nDentist\nTuesday, October 20${new Date().getUTCFullYear() === 2026 ? "" : ", 2026"}, 3 to 4 pm\n\nGive it a 👍 and I'll make the change.`,
     );
 
     let before = model.requests.length;
@@ -83,6 +88,30 @@ export async function runCalendarGateChecks(check) {
         /approve this exact change in the Context app/.test(textOf(mcp)) &&
         changes().length === 1,
     );
+    // The owner's chat, 2026-10-21: an offer in words, a "yes", a second ask, a second "YES".
+    const DINNER = { action: "create", title: "Emmanuela/Sayo", start: "2026-10-21T19:00:00-04:00", end: "2026-10-21T20:00:00-04:00" };
+    model.install([
+      { text: "Want me to add 'Emmanuela/Sayo,' 7 to 8 pm today?" },
+      { toolCalls: [{ name: "calendar_event", args: DINNER }] },
+      { text: "Still waiting on the calendar yes. Check your messages from Context for the confirmation and tap it." },
+    ]);
+    const offered = await ask(env, TOKEN_TEXTS, "I'm seeing Emmanuela and Sayo at 7 tonight");
+    const offerAnswer = String(offered.body?.answer ?? "");
+    check(
+      "an offer of a calendar change is held as it is made, its times in words, with no talk of waiting elsewhere",
+      pending().length > 0 &&
+        offerAnswer.includes("Wednesday, October 21") &&
+        offerAnswer.includes("7 to 8 pm") &&
+        !/messages from Context|still waiting|T19:00/i.test(offerAnswer),
+    );
+    before = model.requests.length;
+    const made = changes().length;
+    const first = await ask(env, TOKEN_TEXTS, "yes");
+    check(
+      "the first yes to that offer makes the change",
+      model.requests.length === before && changes().length === made + 1 && first.body?.answer === 'Done, I added "Emmanuela/Sayo" to your calendar.',
+    );
+
     const bad = await call(env, TOKEN_MCP, "calendar_event", { ...CREATE, start: "tuesday 3pm" });
     check("a time with no offset is refused before anything", bad.isError === true && /start is a time with its offset/.test(textOf(bad)));
   } finally {

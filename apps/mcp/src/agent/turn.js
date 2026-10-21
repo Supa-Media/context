@@ -60,6 +60,8 @@ import { jobsPrompt } from "./jobs.js";
 import { TRANSCRIPTS_PROMPT } from "./transcript.js";
 import { ATTENTION_PROMPT, CHECK_IN_PROMPT } from "./checkIns.js";
 
+import { exhaustedAnswer, roundNotice } from "./lastRound.js";
+
 export { describePlace, systemPrompt } from "./prompt.js";
 
 /**
@@ -311,8 +313,8 @@ export async function runTurn(options) {
     grants = null,
     local = [],
     aboutMe = null,
-    // `tex/jobs.md`'s text on a texted turn (`jobs.js`); null says nothing about jobs.
-    jobs = null,
+    jobs = null, // `tex/jobs.md`'s text on a texted turn (`jobs.js`); null says nothing about jobs.
+    answerCheck = null, // reads a final answer, once, and may send one more round (`claimCheck.js`)
     // `{ now, timeZone }`: the person's own clock, told every round (`localNow.js`).
     localNow = null,
     // The workspaces they can reach (`contextsFor`), so a new note goes where its project is (`workspaces.js`).
@@ -386,7 +388,8 @@ export async function runTurn(options) {
   */
   if (router !== null) {
     const asked = clock();
-    const routed = await pickTier({ decide: router.decide, text: [question, attachmentsLine(attachments)].filter(Boolean).join("\n"), history, routeAt: router.routeAt });
+    // A background job always plans on `think` and drives on `main` (`background.js`): no router call.
+    const routed = options.planned ? { tier: "think", pick: "think", tokens: 0 } : await pickTier({ decide: router.decide, text: [question, attachmentsLine(attachments)].filter(Boolean).join("\n"), history, routeAt: router.routeAt });
     usage.decision += routed.tokens;
     if (routed.tier === "think") model = router.think;
     plan = thinkRoundsFor(router, routed.tier, mainModel);
@@ -480,7 +483,10 @@ export async function runTurn(options) {
   // The fallback is taken once a turn: a turn that moved models must never loop back to it.
   let fellBack = false;
 
+  let lastWords = ""; // what the model last said, answered if the bound is reached (`lastRound.js`)
   for (let round = 0; round < rounds; round += 1) {
+    const notice = roundNotice(round, rounds);
+    if (notice !== null && messages.at(-1)?.text !== notice) messages.push({ role: "user", text: notice });
     if (plan !== null) {
       const next = modelForRound(plan, round, escalate);
       if (next.model !== model) {
@@ -563,10 +569,16 @@ export async function runTurn(options) {
     }
 
     if (answer.toolCalls.length === 0) {
-      return { answer: answer.text, provider, model, steps, usage, usageByModel, timing: { ...timing, trace } };
+      const recheck = round < rounds - 1 ? answerCheck?.(answer.text) ?? null : null;
+      if (recheck === null) return { answer: answer.text, provider, model, steps, usage, usageByModel, timing: { ...timing, trace } };
+      messages.push({ role: "assistant", text: answer.text }, { role: "user", text: recheck });
+      continue;
     }
 
-    if (answer.text?.trim()) tell({ kind: "say", text: answer.text });
+    if (answer.text?.trim()) {
+      tell({ kind: "say", text: answer.text });
+      lastWords = answer.text;
+    }
     messages.push({
       role: "assistant",
       text: answer.text,
@@ -673,16 +685,9 @@ export async function runTurn(options) {
     }
   }
 
-  /*
-    The bound was reached. Answered rather than thrown, and with whatever the
-    model last said, because a person who asked a question is owed the work that
-    was done for them — and because a turn that hits eight rounds is usually one
-    long question rather than a broken one.
-  */
+  // The bound was reached: answered, not thrown, with what the model last said (`lastRound.js`).
   return {
-    answer:
-      "I ran out of steps before I finished that one. Here is where I got to — " +
-      "ask me again and narrow it down if this is not enough.",
+    answer: exhaustedAnswer(lastWords),
     provider,
     model,
     steps,

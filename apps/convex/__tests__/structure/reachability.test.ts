@@ -422,6 +422,10 @@ describe("no public function can reach a storage secret", () => {
         // `functions/connections.ts` entry in `DECRYPT_IMPORTERS`.
         "functions.connections.callProvider",
         "functions.connections.revokeToken",
+        // An MCP tool call or one of our API tools, and the scheduled finish
+        // of a standard consent. See the `functions/connectionApps.ts` entry.
+        "functions.connectionApps.callApp",
+        "functions.connectionConsent.finishStandardConsent",
         "functions.googleConnect.exchangeAndBind",
         "functions.googleConnect.exchangeAndBindGoogle",
         "functions.googleConnect.mintGoogleAccessToken",

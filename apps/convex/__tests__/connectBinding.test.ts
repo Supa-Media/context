@@ -149,6 +149,9 @@ describe("every third-party connect carries the browser binding", () => {
       "chatProduct.parkChatAttempt",
       "connections.consumeConnectAttempt",
       "connections.parkConnectAttempt",
+      // A standard connector's PKCE verifier, sealed onto the parked attempt
+      // only by the browser that parked it (`hashedCompletion` must match).
+      "connections.sealAttemptVerifier",
       "googleConnect.consumeAttemptAndExchange",
       "googleConnect.consumeGoogleAttemptAndExchange",
       "googleConnect.parkAttempt",

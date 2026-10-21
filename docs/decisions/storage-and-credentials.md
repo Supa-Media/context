@@ -137,3 +137,7 @@ Moved to [Deleting an account erases the storage we ran for it](./storage-and-cr
 ## Dropbox is not a storage option (decided by the owner, 2026-10-17)
 
 Dropbox support is removed entirely. The legacy `dropbox` binding rows and parked Dropbox connect attempts were purged, and the schema is narrowed: the `dropbox` provider literal, its token fields and its connect-attempt table are gone. A customer's notes in their own Dropbox are never touched by Context: not read, moved or deleted. Own storage is an S3-compatible bucket (R2, S3, B2 or `s3-compatible`).
+
+## The secrets sync never deletes unless asked (decided by the owner, 2026-10-21)
+
+Sync Secrets (1Password → GitHub Environment secrets) used to delete any allowlisted key the `Context` vault lacked. A secret set by hand in GitHub looks the same as one removed from the vault on purpose, so the sync would have deleted live production credentials and nobody ran it. Since `@supa-media/scripts` 1.3.0 an absent key is kept unless the run ticks `prune`, and every run's job summary lists drift: names in GitHub missing from the vault, names in the vault missing from GitHub, and names outside the allowlist. **Simplifying it back** to prune-by-default deletes any credential someone set by hand. **The test that fails:** `supa-framework`'s `without --prune, keeps a GitHub secret the vault lacks and reports it as drift`. Tick `prune` only when the dry run's "missing from the vault" list is empty.

@@ -47,7 +47,9 @@ identifying it as a special system thing, using the original names".
   keyed workspace the five main ones can be renamed, moved and nested like any
   folder; they can never be archived, trashed or deleted. Elsewhere the old
   lock stands, since writers there still name them by path. The Website folder
-  keeps its name and place, because pages are published from it by name.
+  moves on the same terms since 2026-10-21: its site keeps naming pages
+  `website/...` and reads them wherever the folder is
+  ([nested-folder](../websites/nested-folder.md)).
   Extras can be removed. A new root folder under a job's name, while another
   folder does that job, is refused as a twin naming that folder.
 - **Order is a row field** (`nodes.order`), set by Move up, Move down and
@@ -62,8 +64,7 @@ identifying it as a special system thing, using the original names".
   insertion line, and the middle into it, with the wash. Between siblings is
   a reorder of that level; between rows of another level is a move there,
   then the order with the folder where it was dropped, sent only once the
-  move has landed. Website reorders among its siblings (as Move up and Move
-  down do) but is never dropped into another level or nested. Notes and
+  move has landed. Website is dragged like the rest (2026-10-21). Notes and
   several rows at once only nest, since notes still list by name.
 - **Built-in folders draw a hand-drawn icon in Tex blue, and nobody can change
   it** for now: the app draws the job's icon over any emoji a row holds and
@@ -115,7 +116,8 @@ folders its own way, so a job can no longer come from a root name alone.
   job decides where everybody's mail and meetings land). The named folder's
   row takes the job, and the folder that did it keeps its notes but holds
   `role: "none"` (`NO_JOB`), so its name never claims the job back. Archive
-  stays at the top; Website keeps its name and place; a folder already doing
+  stays at the top; Website's job stays with its own folder, which can be
+  moved and renamed instead; a folder already doing
   another job is refused. `lib/nodes/folderJobSettings.ts` `decideJobChange`
   is the whole rule.
 - **Guesses after an import** (`guessFolderJobs`): a folder at most three

@@ -59,6 +59,7 @@ import { servedListingStore } from "../tree/served.js";
 import { json } from "../http/responses.js";
 import { disarmTexting } from "../tools/approvals.js";
 import { WORTH_SAYING, heartbeatMailSection, readMailHealth, withMailboxes } from "./mailHealth.js";
+import { checkInMutes, mutedCheckIn, withoutPreamble } from "./checkInGuards.js";
 
 /** The check-in's first-party client (`apps/convex/functions/lib/heartbeats/model.ts`). Decided by the grant. */
 export const HEARTBEAT_CLIENT_ID = "context_heartbeat";
@@ -234,9 +235,12 @@ export const HEARTBEAT_INSTRUCTIONS = [
     "and anything they would shrug at does not.",
   "When there is a next step you could take for them, end by offering that one step by name, as a yes-or-no question " +
     "(\"Want me to put it on your calendar?\"). One step, never a menu, and never take it in the check-in: their yes is the go-ahead. " +
-    "When it is the kind of thing that will come again (a receipt someone asks for, a bill, a request of a kind they get often), the offer always has two halves " +
-    "in one question: this one now, and the next ones automatically from now on, as a routine (\"Want me to send it, and handle these automatically from now on?\"). " +
-    "That is still one offer, not a menu.",
+    "Offer only what a text from them lets you do once they say yes: write or change a note or their to-do list, send, reply to or forward an email " +
+    "(a forward takes the email's attachments with it), save an email draft, add, move or cancel a calendar event, or set up a routine. " +
+    "Never offer anything else (paying, calling, signing in, filing something on a website); when nothing you can do would help, just tell them. " +
+    "When it is the kind of thing that will come again and a routine could do it on its own (a routine reads their notes and mail, writes notes and texts them; " +
+    "it never sends email or changes their calendar, except that it can keep forwarding one kind of mail, like receipts, to one address once they 👍 that), the offer may have two halves in one question: this one now, and the next ones from now on " +
+    "(\"Want me to add it to your to-do list, and keep these on it from now on?\"). That is still one offer, not a menu.",
   "Text only when it is concrete and useful now. Most check-ins should stay quiet. Never text just to say hello, to summarize what changed, " +
     "or to say that you looked. Mail that needs nothing from them (newsletters, receipts, notifications, marketing) is not worth a text. " +
     "Never repeat a check-in. Never anything secret (passwords, codes, card or account numbers). " +
@@ -244,8 +248,8 @@ export const HEARTBEAT_INSTRUCTIONS = [
     "and never repeat its phone numbers, links or addresses, not even to warn them. If it looks like a scam, stay quiet.",
   "If you text: one or two short sentences, the way a friend who keeps track for them would text, in plain words and no Markdown. " +
     "Say where it came from the way they would (\"Luciana's email\"), never a note path or file name, and leave out what they already know. " +
-    "Give the thing itself (the detail, the deadline, the answer), then the offer, " +
-    "with its \"from now on\" half when the thing will come again.",
+    "Give the thing itself (the detail, the deadline, the answer), then the offer. Your answer is the text itself: " +
+    "never a word to us about it (that it is new, a follow-up, or \"here's the text\").",
 ].join("\n\n");
 
 /**
@@ -307,7 +311,7 @@ export function continuesFrom(answer, recent) {
   return { answer: said.slice(match[0].length), continues: typeof picked?.text === "string" ? picked.text.slice(0, MAX_CONTINUES_CHARS) : null };
 }
 
-export function heartbeatQuestion({ changed, now, texted, recent = [], instructions = null, theirs = "", mail = "" }) {
+export function heartbeatQuestion({ changed, now, texted, recent = [], instructions = null, theirs = "", mail = "", muted = [] }) {
   const shown = changed.slice(0, MAX_CHANGED_SHOWN);
   const more = changed.length - shown.length;
   const words = typeof instructions === "string" && instructions.trim() !== "" ? instructions.trim() : HEARTBEAT_INSTRUCTIONS;
@@ -329,6 +333,7 @@ export function heartbeatQuestion({ changed, now, texted, recent = [], instructi
         recent.join("\n")
       : "",
     theirs ? `Their own instructions for check-ins, from ${HEARTBEAT_SETTINGS_PATH}:\n${theirs}` : "",
+    muted.length > 0 ? `They asked never to be texted about these unless they ask, so anything about them is ${SKIP_WORD}: ${muted.join(", ")}.` : "",
     `Answer with the text to send them, or, if nothing is worth a text, exactly ${SKIP_WORD} and nothing else.`,
   ]
     .filter(Boolean)
@@ -337,7 +342,7 @@ export function heartbeatQuestion({ changed, now, texted, recent = [], instructi
 
 /** The model's answer as a text to send, or null for a quiet look. */
 export function checkInText(answer) {
-  const said = String(answer ?? "").trim();
+  const said = withoutPreamble(answer);
   if (said === "" || said.toUpperCase().replace(/[^A-Z]/g, "") === SKIP_WORD) return null;
   if (said.toUpperCase().startsWith(SKIP_WORD)) return null;
   return said.length > MAX_CHECK_IN_CHARS ? `${said.slice(0, MAX_CHECK_IN_CHARS - 1)}…` : said;
@@ -352,7 +357,7 @@ function heading(now, timeZone) {
 }
 
 /** One look's part of the day's log. */
-export function heartbeatEntry({ now, timeZone, changed, model, text, events, outcome }) {
+export function heartbeatEntry({ now, timeZone, changed, model, text, events, outcome, muted = null }) {
   const lines = [`## ${clock(now, timeZone)}`, ""];
   const shown = changed.slice(0, MAX_CHANGED_SHOWN).map((note) => `\`${note.key}\``);
   const more = changed.length - shown.length;
@@ -363,6 +368,7 @@ export function heartbeatEntry({ now, timeZone, changed, model, text, events, ou
     "",
   );
   if (text) lines.push(`**Texted:** ${text.replace(/\s*\n+\s*/g, " ")}`);
+  else if (muted) lines.push(`_Stayed quiet: what it found was about ${muted}, which they muted._`);
   else lines.push(outcome === "failed" ? "_The check-in did not finish._" : "_Stayed quiet: nothing worth a text._");
   const steps = events.map(eventLines).filter(Boolean);
   if (steps.length > 0) lines.push("", "### How it went", "", ...steps.map((step) => step.replace(/\n$/, "")));
@@ -462,6 +468,8 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
   const settingsNote = await readWithEtag(dispatch, HEARTBEAT_SETTINGS_PATH);
   const settings = readSettings(settingsNote?.body ?? "");
   if (settings.paused) return json({ outcome: "paused" });
+  // What they muted, here or for their agents' pings: never texted, whatever the model says.
+  const mutes = checkInMutes(settingsNote?.body ?? "", (await readWithEtag(dispatch, ATTENTION_SETTINGS_PATH))?.body ?? "");
 
   // A look that runs no model still leaves its line in the day's log.
   const skipped = (words) => {
@@ -523,6 +531,7 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
         instructions: setup?.prompt ?? null,
         theirs: settings.instructions,
         mail: heartbeatMailSection(mailboxes, started),
+        muted: mutes,
       }),
       tools: heartbeatTools(offered),
       grants: {}, // reads only: no write, manage or send action at all
@@ -562,11 +571,13 @@ export async function handleHeartbeat(request, env, store, session, controlPlane
   // `[continues N]` comes off before anything reads the answer: never texted, logged or kept.
   const marked = finished ? continuesFrom(turn.answer, shownRecent) : { answer: "", continues: null };
   // A mailbox it owed a word is said, in its words or added to them, so one marked told was told.
-  const own = finished ? checkInText(marked.answer) : null;
+  const found = finished ? checkInText(marked.answer) : null;
+  const muted = found ? mutedCheckIn(found, mutes) : null;
+  const own = muted ? null : found;
   const text = finished && owed.length > 0 ? withMailboxes(own, owed, started) : own;
   const outcome = !finished ? "failed" : text ? "speak" : "quiet";
   const now = Date.now();
-  const entry = heartbeatEntry({ now, timeZone, changed, model: turn?.model ?? null, text, events, outcome });
+  const entry = heartbeatEntry({ now, timeZone, changed, model: turn?.model ?? null, text, events, outcome, muted });
   const path = heartbeatPath(now, timeZone);
   let why = await appendLogEntryWhy(dispatch, path, entry, heading(now, timeZone));
   // The full entry didn't land: its outcome still does, in a few words, so the

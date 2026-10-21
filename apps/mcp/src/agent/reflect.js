@@ -7,9 +7,10 @@
  * learned skill (`learnedSkills.js`), or answer NONE. It runs only when all of:
  *
  *   - the turn was a text from the person (`context_texts`), and could write;
- *   - it was not tainted: nothing from outside the workspace was read (a web
- *     page, an email, another agent's mail, an attachment), because a skill is
- *     read as Tex's own instructions on every later turn;
+ *   - if it was tainted (something from outside the workspace was read: a web
+ *     page, an email, another agent's mail, an attachment), the text was the
+ *     person's own (`ownText`: not a routine, a delegated job or a group), and
+ *     the step is shown only what nobody outside wrote (`reflectQuestion`);
  *   - it finished (not exhausted);
  *   - and it was hard: `MIN_STEPS` tool steps or more, a step that failed and
  *     a later one that worked, or a text that reads as a correction.
@@ -20,6 +21,15 @@
  * workspace and nothing else (`reflectCallTool`), writing once at most. It
  * runs on the built-in model, metered like the dream, and any failure is a
  * code in the Worker's log that costs the person nothing.
+ *
+ * A TAINTED TURN REFLECTS BLIND (owner, 2026-10-21). Until then a tainted turn
+ * never reflected, and since taint carries over from the shown history, almost
+ * every real job (an email read, a page browsed, a calendar looked at) wrote
+ * nothing: nobody had a skill. A tainted turn's reflect step now sees only
+ * what no outsider wrote: the person's own text, the step names (held to a
+ * tool-name shape, so a name can't carry a sentence) and their skill index.
+ * Tex's answer, which may repeat a page's or an email's words, is left out, so
+ * an outsider's instructions still can't reach a skill.
  */
 
 import { runTurn } from "./turn.js";
@@ -68,9 +78,17 @@ export function recoveredFromFailure(steps) {
   return failed !== -1 && list.slice(failed + 1).some((step) => step?.ok === true);
 }
 
-/** Why this turn is worth a reflect step (`steps`, `recovered`, `correction`), or null when it is not. */
-export function reflectReason({ texted, canWrite, tainted, exhausted, steps, question }) {
-  if (texted !== true || canWrite !== true || tainted !== false || exhausted === true) return null;
+/** A step name a tainted turn's reflect step may be shown: shaped like a tool's name, never a sentence. */
+const TOOL_NAME = /^[a-z][a-z0-9_]{0,39}$/;
+
+/**
+ * Why this turn is worth a reflect step (`steps`, `recovered`, `correction`),
+ * or null when it is not. A tainted turn qualifies only on the person's own
+ * text (`ownText`); a turn whose taint is unknown never does.
+ */
+export function reflectReason({ texted, canWrite, tainted, ownText, exhausted, steps, question }) {
+  if (texted !== true || canWrite !== true || typeof tainted !== "boolean" || exhausted === true) return null;
+  if (tainted && ownText !== true) return null;
   if ((Array.isArray(steps) ? steps.length : 0) >= MIN_STEPS) return "steps";
   if (recoveredFromFailure(steps)) return "recovered";
   if (looksLikeCorrection(question)) return "correction";
@@ -123,10 +141,17 @@ const WHY = {
   correction: "they corrected you",
 };
 
-/** What the reflect step is asked. */
-export function reflectQuestion({ question, answer, steps, index, used, reason, today }) {
+/**
+ * What the reflect step is asked. On a tainted turn (`tainted`), never Tex's
+ * answer, and only the steps whose names are shaped like a tool's.
+ */
+export function reflectQuestion({ question, answer, steps, index, used, reason, today, tainted = false }) {
   const said = String(answer ?? "").trim();
-  const shownSteps = (Array.isArray(steps) ? steps : []).slice(0, MAX_STEPS_SHOWN);
+  const listed = Array.isArray(steps) ? steps : [];
+  const shownSteps = (tainted ? listed.filter((step) => TOOL_NAME.test(String(step?.tool ?? ""))) : listed).slice(0, MAX_STEPS_SHOWN);
+  const answerPart = tainted
+    ? "## Your answer\n\n(Not shown: this job read something from outside their workspace, so you see only their own text and your steps. Write the skill from those alone.)"
+    : `## Your answer\n\n${said.length > MAX_ANSWER_SHOWN ? `${said.slice(0, MAX_ANSWER_SHOWN)}…` : said}`;
   return [
     "This is not a text from a person. Nobody is waiting, and nothing you say is texted to anyone.",
     `You just finished a job for them, and it was hard: ${WHY[reason] ?? "it was hard"}. ` +
@@ -139,7 +164,7 @@ export function reflectQuestion({ question, answer, steps, index, used, reason, 
       `If a skill below already covers this job${used.length > 0 ? " (or the one you used)" : ""}, read it with fetch first and write it back improved, passing its etag, rather than adding a near-duplicate. ` +
       `At most ${MAX_LEARNED_SKILLS} skills exist; write one note at most. Then answer DONE.`,
     `## Their text\n\n${String(question ?? "").trim()}`,
-    `## Your answer\n\n${said.length > MAX_ANSWER_SHOWN ? `${said.slice(0, MAX_ANSWER_SHOWN)}…` : said}`,
+    answerPart,
     `## Your steps\n\n${shownSteps.map((step, i) => `${i + 1}. ${String(step?.tool ?? "?").slice(0, 64)}: ${step?.ok === false ? "failed" : "ok"}`).join("\n") || "(none)"}`,
     `## Skills you have\n\n${index.length > 0 ? index.map((entry) => `- ${entry.name}: ${entry.when}`).join("\n") : "(none yet)"}` +
       (used.length > 0 ? `\n\nYou used this turn: ${used.join(", ")}.` : ""),
@@ -168,7 +193,7 @@ function log(session, fields) {
  * @param {object} options
  * @param {{index: Array, used: Set<string>} | null} options.learned the turn's `learnedSkillSession`
  */
-export async function afterTextedTurn({ env, controlPlane, store, session, offered, question, turn, tainted, learned, canWrite, now = Date.now(), timeZone }) {
+export async function afterTextedTurn({ env, controlPlane, store, session, offered, question, turn, tainted, ownText = false, learned, canWrite, now = Date.now(), timeZone }) {
   try {
     const texted = session?.actorClientId === TEXTS_CLIENT_ID;
     const personal = (store?.contexts ?? []).find((entry) => entry.current)?.kind === "personal";
@@ -177,7 +202,7 @@ export async function afterTextedTurn({ env, controlPlane, store, session, offer
     const today = dayOf(now, timeZone);
     const used = [...(learned?.used ?? [])];
     if (used.length > 0) await stampUsed(dispatch, used, today);
-    await reflect({ env, controlPlane, session, offered, question, turn, tainted, learned, canWrite, texted, dispatch, used, today });
+    await reflect({ env, controlPlane, session, offered, question, turn, tainted, ownText, learned, canWrite, texted, dispatch, used, today });
     // Every 10 texts, what was learned goes to about-me now, not at the dream (`memoryNudge.js`).
     await memoryNudge({ env, controlPlane, store, session, offered, dispatch, now });
   } catch (error) {
@@ -185,9 +210,9 @@ export async function afterTextedTurn({ env, controlPlane, store, session, offer
   }
 }
 
-async function reflect({ env, controlPlane, session, offered, question, turn, tainted, learned, canWrite, texted, dispatch, used, today }) {
+async function reflect({ env, controlPlane, session, offered, question, turn, tainted, ownText, learned, canWrite, texted, dispatch, used, today }) {
   try {
-    const reason = reflectReason({ texted, canWrite, tainted, exhausted: turn?.exhausted === true, steps: turn?.steps, question });
+    const reason = reflectReason({ texted, canWrite, tainted, ownText, exhausted: turn?.exhausted === true, steps: turn?.steps, question });
     if (reason === null) return;
     const model = builtinModel(env);
     const started = Date.now();
@@ -196,7 +221,7 @@ async function reflect({ env, controlPlane, session, offered, question, turn, ta
     let ran = null;
     try {
       ran = await runTurn({
-        question: reflectQuestion({ question, answer: turn?.answer, steps: turn?.steps, index: learned?.index ?? [], used, reason, today }),
+        question: reflectQuestion({ question, answer: turn?.answer, steps: turn?.steps, index: learned?.index ?? [], used, reason, today, tainted }),
         tools: reflectTools(offered),
         grants: { write: ["save"] },
         callTool,
@@ -216,7 +241,7 @@ async function reflect({ env, controlPlane, session, offered, question, turn, ta
     }
     await meter(ran.usage, false, ran.model);
     const outcome = callTool.wrote() ? "wrote" : ran.exhausted ? "exhausted" : "none";
-    log(session, { outcome, reason, steps: ran.steps.length });
+    log(session, { outcome, reason, tainted, steps: ran.steps.length });
   } catch (error) {
     log(session ?? {}, { outcome: "failed", code: error?.name === "TypeError" ? "type" : "error" });
   }

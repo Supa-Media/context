@@ -149,8 +149,16 @@ export async function runToolArgumentCensusChecks(check, harness) {
   const walked = advertised.map((tool) => walkNodes(tool.inputSchema, tool.name));
   /* The open `args` every v2 action carries, which is exempt here and checked below. */
   const V2_ARGS = /^(?:search|fetch|write|manage|send)\.args$/;
-  const openNodes = walked.flatMap((entry) => entry.open).filter((where) => !V2_ARGS.test(where));
-  const barePropertyNodes = walked.flatMap((entry) => entry.bare).filter((where) => !V2_ARGS.test(where));
+  /*
+    A connected app's own tool arguments (`tools/apps.js`): their schema is the
+    app's, listed by its server at call time, so there is nothing of Context's
+    to close over. Context reads none of it; the object travels to that app's
+    server as data and the app checks it against its own schema.
+  */
+  const APP_ARGUMENTS = /^app_(?:read|change)\.arguments$/;
+  const exempt = (where) => V2_ARGS.test(where) || APP_ARGUMENTS.test(where);
+  const openNodes = walked.flatMap((entry) => entry.open).filter((where) => !exempt(where));
+  const barePropertyNodes = walked.flatMap((entry) => entry.bare).filter((where) => !exempt(where));
   check(
     `every object node in every advertised schema is closed, not only the root (${openNodes.join(", ")})`,
     openNodes.length === 0

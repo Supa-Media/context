@@ -77,6 +77,7 @@ import {
 import * as bindingState from "./lib/storage/bindingState";
 import * as gatewayBinding from "./lib/storage/gatewayBinding";
 import * as rekeyWorkspace from "./lib/storage/rekeyWorkspaceSecrets";
+import * as rekeyConnectors from "./lib/storage/rekeyConnectorSecrets";
 import * as rekeyPlatform from "./lib/storage/rekeyPlatformSecrets";
 import { forgetWorkspaceTree } from "./nodesPurge";
 import * as bindingView from "./lib/storage/bindingView";
@@ -544,6 +545,24 @@ export const applyGoogleConnectionRekey = internalMutation({
   args: rekeyWorkspace.applyGoogleConnectionRekeyArgs,
   returns: rekeyWorkspace.applyGoogleConnectionRekeyReturns,
   handler: rekeyWorkspace.applyGoogleConnectionRekeyHandler,
+});
+
+export const listConnectorRekeyCandidates = internalQuery({
+  args: rekeyConnectors.listConnectorRekeyCandidatesArgs,
+  returns: rekeyConnectors.listConnectorRekeyCandidatesReturns,
+  handler: rekeyConnectors.listConnectorRekeyCandidatesHandler,
+});
+
+export const applyConnectionRekey = internalMutation({
+  args: rekeyConnectors.applyConnectionRekeyArgs,
+  returns: v.boolean(),
+  handler: rekeyConnectors.applyConnectionRekeyHandler,
+});
+
+export const applyOAuthClientRekey = internalMutation({
+  args: rekeyConnectors.applyOAuthClientRekeyArgs,
+  returns: v.boolean(),
+  handler: rekeyConnectors.applyOAuthClientRekeyHandler,
 });
 
 export const listPlatformSecretRekeyCandidates = internalQuery({

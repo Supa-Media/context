@@ -13,19 +13,41 @@ export function communicationsToolDefinitions() {
       name: "list_meetings",
       title: "List meetings",
       description:
-        "List the meetings filed in the user's default meetings folder (0-inbox/meetings) — what " +
-        "they were called, when, how long they ran and who was there, newest first. Reach for " +
-        "this whenever a question turns on something that was said in a call rather than written " +
-        "down. Each entry carries the note path to pass to read_meeting. This is not necessarily " +
-        "every meeting: one the user filed elsewhere when they recorded it, or moved afterwards, " +
-        "is an ordinary note in their own folders and does not appear here — nothing records " +
-        "where a meeting was filed, by design. If a meeting they refer to is missing, look for " +
-        "it with search_notes and open it with read_note.",
+        "List the meetings the user recorded, newest first, from every folder and every workspace " +
+        "they can reach: what each was called, when it started, how long it ran and who was there. " +
+        "Reach for this first whenever a question turns on a call: their last meeting with someone, " +
+        "yesterday's call, what was decided or who owes what. The newest one that names the person " +
+        "(in its title, its folder or its attendees) is the last meeting with them. Each entry " +
+        "carries the note path to pass to read_meeting. A meeting is listed when its note says it " +
+        "is one (type: meeting in its front matter) or it is a dated note in a folder named for " +
+        "meetings, so a call somebody wrote up by hand in an ordinary note may not appear: if one " +
+        "they refer to is missing, look for it with search_notes and open it with read_note.",
       inputSchema: {
         type: "object",
         properties: {
           limit: { type: "integer", minimum: 1, maximum: 25, description: "Default 10" },
         },
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    {
+      name: "read_calendar",
+      title: "Read calendar",
+      description:
+        "Read what is on the user's calendar for a day or a run of days. Their connected Google " +
+        "calendars are copied into their notes, one note per day per account, about two weeks " +
+        "ahead; this finds those notes wherever they are filed, in every workspace they can " +
+        "reach, and returns each day's events. Reach for this first whenever a question turns " +
+        "on a date: what they have on Friday, whether they are free next week, when something is. " +
+        "It says plainly when a day is not written yet or when no calendar is connected.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          date: { type: "string", description: "The first day, YYYY-MM-DD" },
+          days: { type: "integer", minimum: 1, maximum: 14, description: "How many days from date. Default 1" },
+        },
+        required: ["date"],
         additionalProperties: false,
       },
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },

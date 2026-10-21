@@ -78,6 +78,22 @@ kept with the owner's project files; its client id and secret are
 either unset the connector is off: the link page says so and the gateway
 answers that it is not set up.
 
+The app's user token scopes must equal `SLACK_USER_SCOPES` in
+`functions/lib/providers/slack.ts`: add a scope in the Slack app first, then
+in code, or connecting fails with `invalid_scope`. A connection granted fewer
+scopes than the code now asks for shows Reconnect in Settings, and the
+gateway answers Slack's `missing_scope` with "ask them to reconnect", never
+"it can't be done". `im:write` and `mpim:write` (2026-10-21) are what open a
+DM before posting to it.
+
+Tex reads Slack as a person would: a channel may be named `#name`;
+`users.list` and `conversations.list` come back whole and short;
+`conversations.history`, `conversations.replies` and `search.messages` come
+back trimmed with every author named (`slackLists.ts`, `slackMessages.ts`). A
+texted turn sees an action only as its summary and argument names
+(`agent/sixTools.js`), so the recipes (find, DM, post, reply in a thread)
+live in `ACTIONS.send.slack.summary`.
+
 **What a simplification would cost:** one table per provider repeats the
 cascade, the attempt sweep and the structure pins every time; letting the
 gateway hold the token puts it in a Worker a prompt can steer; letting a
@@ -87,3 +103,52 @@ group chat, or another person, never reaches someone's own Slack", "a consent
 answered without the starting browser's secret lands nowhere", "a method off
 the list never leaves") and `apps/mcp/test/connectors.test.mjs` ("a post
 waits for the person's yes to its words").
+
+### An app with an official MCP server connects through it (2026-10-21)
+
+Dev2 asked that Tex reach apps through their official MCP servers where they
+exist, "so Tex essentially just has more tools", and that Tex know which apps
+it reaches natively and which it still signs in to with its browser.
+
+- **One flow for every such app.** Linear, Notion, Jira and Confluence,
+  Airtable, monday.com, Planning Center, Calendly, ClickUp and Todoist are one
+  row each in `lib/providers/mcpApps.ts`: a name and a server URL. The link,
+  the consent page and the callback are the Slack ones.
+- **No keys of ours.** The control plane discovers the server's authorization
+  server (RFC 9728, RFC 8414), registers itself once per callback address
+  (RFC 7591, a public client) and keeps that registration in
+  `providerOAuthClients`. Consent always carries PKCE (S256) and the server as
+  `resource` (RFC 8707). An app whose server needs a pre-registered client
+  (Slack, HubSpot, Box, Asana) is not in this list; Slack keeps its Web API
+  connector.
+- **The public action never opens a secret.** `completeProviderConnect`
+  schedules `finishStandardConsent`, which exchanges the code; the callback
+  page watches `connectionState` until it lands or fails.
+- **A read is what the app marks read-only, and nothing else.** A tool runs
+  without a change only when its `readOnlyHint` is true. A tool marked
+  otherwise, or not marked at all, is refused as `needs_yes`, and the gateway
+  holds every `app_change` (`send app`) for the person's yes to exactly that
+  call (`irreversible.js`), because Context cannot know what an app's tool
+  does. Simplifying this to "trust the description" lets a model post or
+  delete in somebody's workspace unasked. Tests:
+  `apps/convex/__tests__/connections/mcpConnect.test.ts`,
+  `apps/mcp/test/apps.test.mjs`.
+- **Tex reads the catalog before reaching for a browser.** `fetch apps:` lists
+  every app this deployment connects and the person's state in each; anything
+  not listed is a browser job. A group chat sees every app as unavailable.
+- **An app's answer marks the turn untrusted, a change's included.**
+  `app_read`, `app_change` and `slack_api` are in `UNTRUSTED_READS`, and a
+  write's answer is recorded when its tool is one of them, so a planted issue
+  or message steers nothing the way an email cannot. Test:
+  `apps/mcp/test/egress.test.mjs`.
+- **Settings lists every app, not only connected ones (2026-10-21).** Dev2:
+  "no way to connect through context and see what I have / manage the
+  connections?" Settings › Apps Tex uses reads the same catalog Tex does
+  (`lib/connections/catalog.ts`) and its Connect button mints the same
+  one-use link (`connectionSettings.startAppConnect`), so it can only connect
+  the presser's own personal workspace and there is one consent flow, not
+  two. Tests: `apps/convex/__tests__/connections/settingsApps.test.ts`,
+  `apps/mobile/__tests__/providerConnectionsCard.test.ts`.
+
+Outlook stays on its own Microsoft Graph connector, waiting on a Microsoft
+Entra app (Dev2 has no Microsoft directory yet).

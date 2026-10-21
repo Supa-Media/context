@@ -117,11 +117,11 @@ describe("steer", () => {
       await draining;
       expect(w.steers).toEqual([]);
     }
-    // Two texts ahead: the second waits its turn, so the third does too.
+    // Two texts ahead that are not one burst: the second waits its turn, so the third does too.
     const storage = new MemoryStorage();
     const w = world();
     await accept(storage, msg("e1", "one"), 1_000);
-    await accept(storage, msg("e2", "two"), 1_000);
+    await accept(storage, msg("e2", "two", { quoted: "their words" }), 1_000);
     const draining = drain(storage, w.deps);
     await w.running;
     await accept(storage, msg("e3", "three"), 1_100);

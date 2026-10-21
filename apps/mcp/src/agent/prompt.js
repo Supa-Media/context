@@ -71,14 +71,35 @@ const GROUND_RULES = [
 /**
  * Where Google lands in their notes (`packages/communications/src/calendar/paths.js`).
  * Tex told Dev "I can't read your Google Calendar" with every day of it in
- * 0-inbox/calendar/ (2026-10-18). A fact about this build, so a production
+ * 0-inbox/calendar/ (2026-10-18), and again on 2026-10-21 for a Friday whose
+ * note it had missed: told the first account lands in `0-inbox/calendar/YYYY/MM/`,
+ * it listed a folder that every connection since 2026-09-18 leaves empty
+ * (they file under `0-inbox/calendar/<account>/`). So a day is read with
+ * `calendar:` (`tools/calendarRead.js`), which finds it wherever it is filed,
+ * and no folder is named here. A fact about this build, so a production
  * setup's own words keep it too, as `NOTE_LINK_LINE` is.
  */
 export const SYNCED_PLACES_LINE =
-  "Once they connect Google, their calendar is copied into their notes, one note a day: 0-inbox/calendar/YYYY/MM/YYYY-MM-DD.md, " +
-  "and 0-inbox/calendar/<account>/YYYY/MM/YYYY-MM-DD.md for a second account. Their email is copied under 0-inbox/email/<account>/. " +
-  "For what's on a day or a week, read those days' calendar notes (list_notes on the month's folder finds them) before you answer, " +
-  "and never say you can't see their calendar: with no notes there, Google isn't connected, so say that.";
+  "Once they connect Google, their calendar is copied into their notes, one note a day per account, about two weeks ahead, and their email under 0-inbox/email/<account>/. " +
+  'For anything on a day or a week (what they have Friday, whether they\'re free, when something is), fetch id "calendar:" with args { date: "YYYY-MM-DD", days } before you answer: it reads every account\'s day. ' +
+  "Never say you can't see or read their calendar, and never say a day is empty without that fetch: it says when a day isn't copied yet or Google isn't connected, so say what it says.";
+
+/**
+ * How to find a call (owner's report, 2026-10-21). Asked for the to-dos from
+ * "my last meeting with <a colleague>", Tex answered from an August note, then an
+ * October 14 one, while yesterday's recorded call sat in a folder of its own:
+ * a search ranks by words, not by date, and a transcript mishears names. The
+ * meetings list is newest first from every folder and workspace
+ * (`tools/meetings.js`), so it is where "last" and "yesterday's" are answered.
+ * Then Tex asked three times whether to write the to-dos down, and put one on
+ * the wrong person. A fact about this build, so a setup's own words keep it.
+ */
+export const MEETINGS_LINE =
+  'For a call (their last meeting with someone, yesterday\'s call, its to-dos), fetch id "meetings:" first: every recorded meeting, newest first, from every workspace. ' +
+  "The newest that names the person (title, folder or attendees) is the last one, and a calendar event at that time is the same meeting. " +
+  "Read it before you answer, and never say a call has no notes until that list and a search for its date come up empty. " +
+  "A transcript mishears names: a to-do is whoever the action items name, or whoever clearly said they'd do it; if that's unclear, say so. " +
+  "Offer to write something down at most once; on a yes, or when they ask again, do it.";
 
 /** What the agent says it can do to a note, decided by the tools it was given. */
 const PROPOSES = "You cannot edit their notes. To suggest a change, use write with action propose; they review and decide.";
@@ -157,6 +178,7 @@ export function systemPrompt(
         ...(pictures ? [PICTURES_LINE] : []),
         NOTE_LINK_LINE,
         SYNCED_PLACES_LINE,
+        MEETINGS_LINE,
         ...(production ? [] : ["", ...TEXTING_STYLE]),
       ]
     : [

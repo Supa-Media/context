@@ -22,8 +22,13 @@
  * What it keeps, all without text unless said:
  * - `gpending:<seq>` holds a tagged message only until it is answered or
  *   given up on.
- * - `gseen:<eventId>` a timestamp for a day, so a redelivered webhook is
- *   answered once.
+ * - `gseen:<eventId>:<hash>` a timestamp for a day, so a redelivered webhook
+ *   is answered once; keyed by the words' hash too, so an edit Sendblue
+ *   delivers under the same handle is read as the new message it is.
+ * - `grecent` hashes of who tagged what in the last ten minutes, so the same
+ *   ask sent twice is answered once (the group chat of 2026-10-21).
+ * - `gask` who Tex last asked for a yes, for half an hour, never the words:
+ *   their bare "yes" or "send" is then for Tex, not chat.
  * - `gsent` the handles of Tex's last thirty texts in this group, so an
  *   inline reply to one wakes it.
  * - `gchat:<seq>` what the chat said since Tex last answered, with text,
@@ -31,11 +36,14 @@
  */
 
 import { agentAnswer, post, record, ServiceError, type Fetch } from "./clients";
-import { textsFromAnswer } from "./format";
+import { textsWithExact } from "./format";
+import { tapbackText, type Reaction } from "./reactions";
+import { dropThumb, dueThumb, holdThumb } from "./thumbs";
 import type { InboxStorage } from "./inbox";
 import type { SendblueKeys } from "./sendblue";
 import { chatBefore, dropChatLines, keepChatLine, peopleOf, setChatBound, sha256Hex } from "./groupChat";
 import { reactInGroup, readGroupMembers, readOwnGroupMessage, sendGroupText, type GroupMessage } from "./sendblueGroups";
+import { chatJobs, noteJobSent, noteJobUpdate, startJobs, steerJobs, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
 
 export type GroupDeps = {
   fetch: Fetch;
@@ -44,7 +52,16 @@ export type GroupDeps = {
   gatewayOrigin: string;
   sendblue?: SendblueKeys | null;
   now: () => number;
+  /** Starts a background job in an object of its own (`jobs.ts`); absent, the chat's turns are offered none. */
+  spawnJob?: (id: string, run: JobRun) => Promise<void>;
+  /** Hands a later text to a running job's object; true when it took it (`jobRun.ts`). */
+  steerJob?: (id: string, steer: JobSteer) => Promise<boolean>;
 };
+
+/** A group's queue is named apart from every phone's, which always starts with "+". */
+export function groupInboxName(groupId: string): string {
+  return `sendblue-group:${groupId}`;
+}
 
 type Command = { kind: "stop" } | { kind: "start" } | { kind: "use"; slug: string } | { kind: "status" };
 /** `at`: when it was accepted, so its turn is handed only what the chat said before it. */
@@ -62,7 +79,18 @@ const SENT_KEY = "gsent";
 const CHOICE_KEY = "gchoice";
 const CHOICE_FOR_MS = 24 * 60 * 60 * 1000;
 type Choice = { slugs: string[]; at: number };
-const seenKey = (eventId: string) => `gseen:${eventId}`;
+const seenKey = (eventId: string, words: string) => `gseen:${eventId}:${words}`;
+/** The same person tagging Tex with the same words this soon after is the same ask. */
+export const SAME_ASK_MS = 10 * 60_000;
+const RECENT_KEY = "grecent";
+type Recent = { h: string; at: number };
+/** How long a yes Tex asked for stays the asker's to give without its name. */
+export const ASK_OPEN_MS = 30 * 60_000;
+const ASK_KEY = "gask";
+type OpenAsk = { from: string; at: number };
+/** Words that only answer a yes Tex asked for: a yes, a no, or "send it" (`apps/mcp/src/agent/textedApprovals.js` decides what they settle). A bare "ok" stays chat: it is not a yes to a send there, and would only disarm the ask. */
+const ANSWERS_ASK =
+  /^\s*(?:yes|yes please|yep|yeah|yup|y|no|nope|cancel|send|send it|send that|file it|do it|go ahead|looks good)(?:[\s,.!-]+(?:send it|send|please|file it|do it|go ahead))*\s*[.!]*\s*$/i;
 const pendingKey = (seq: number) => `gpending:${String(seq).padStart(12, "0")}`;
 
 /** The fixed lines, sent with no model. */
@@ -75,7 +103,9 @@ export const GROUP_LINES = {
     "I can only use notes everyone in this chat can open, and not everyone here shares a workspace with me. Text me on your own instead.",
   choose: (slugs: string[]) =>
     `You all share ${slugs.map((slug) => `@${slug}`).join(" and ")}. Which one should I use here? Just say its name.`,
-  notShared: "That isn't a workspace everyone in this chat shares.",
+  notShared: (slugs: string[]) =>
+    "That isn't a workspace everyone in this chat shares." +
+    (slugs.length > 0 ? ` You all share ${slugs.map((slug) => `@${slug}`).join(", ")}. Say "Tex use @${slugs[0]}" to pick one.` : ""),
   bound: (slug: string, intro = false) =>
     `Got it, I'll use @${slug} in this chat.` +
     (intro
@@ -97,7 +127,9 @@ const WORD = `@?${NAME}(?![\\w-])`;
 const ASKING =
   "(?:what|what's|whats|who|who's|when|when's|where|where's|why|how|which|can|could|would|will|is|are|do|does|did|should|please|pls|" +
   "find|check|make|add|save|remember|note|tell|show|look|search|use|stop|start|write|help|list|summarize|summarise|remind|give|get|pull|read)\\b";
-const OPENS = new RegExp(`^\\s*(?:(?:(?:hey|hi|yo|ok|okay)\\s+${WORD})|(?:${WORD}(?:\\s*[,:;!?.-]|\\s*$|\\s+${ASKING})))`, "i");
+/** "Tex ^ do this", "Tex ↑": the message above is the ask. */
+const POINTS_UP = "(?:\\^+|↑|⬆️?|☝️?|👆)";
+const OPENS = new RegExp(`^\\s*(?:(?:(?:hey|hi|yo|ok|okay)\\s+${WORD})|(?:${WORD}(?:\\s*[,:;!?.-]|\\s*$|\\s*${POINTS_UP}|\\s+${ASKING})))`, "i");
 const CLOSES = new RegExp(`(?:^|[\\s,])${WORD}[\\s?!.]*$`, "i");
 const NAMED = new RegExp(`(?:^|[^\\w-])${WORD}`, "i");
 /** A reply to Tex that needs no answer. */
@@ -171,28 +203,84 @@ export { peopleOf };
  * dropped right here while it is not.
  */
 export async function acceptGroup(storage: InboxStorage, message: GroupMessage, now: number): Promise<"queued" | "kept" | "ignored" | "duplicate" | "full"> {
+  if (message.reaction !== undefined) return await acceptThumb(storage, message, message.reaction, now);
   const sent = (await storage.get<string[]>(SENT_KEY)) ?? [];
   const repliesToTex = message.replyTo !== undefined && sent.includes(message.replyTo);
-  const tagged = addressesTex(message.text, repliesToTex) || offeredName(message.text, await openChoice(storage, now)) !== null;
-  if ((await storage.get<number>(seenKey(message.eventId))) !== undefined) return tagged ? "duplicate" : "ignored";
+  const tagged =
+    addressesTex(message.text, repliesToTex) ||
+    offeredName(message.text, await openChoice(storage, now)) !== null ||
+    (await answersOpenAsk(storage, message, now));
+  const seen = seenKey(message.eventId, await sha256Hex(message.text));
+  if ((await storage.get<number>(seen)) !== undefined) return tagged ? "duplicate" : "ignored";
   if (!tagged) {
     if (!(await keepChatLine(storage, message, now))) return "ignored";
-    await storage.put(seenKey(message.eventId), now);
+    await storage.put(seen, now);
     return "kept";
+  }
+  if (await askedJustNow(storage, message, now)) {
+    await storage.put(seen, now);
+    return "duplicate";
   }
   const pending = await storage.list<Pending>({ prefix: "gpending:" });
   if (pending.size >= MAX_PENDING) return "full";
   const seq = ((await storage.get<number>("gseq")) ?? 0) + 1;
   await storage.put("gseq", seq);
-  await storage.put(seenKey(message.eventId), now);
+  await storage.put(seen, now);
   // Whether it replies to Tex is decided now, against the handles Tex sent; the turn reads the words it quotes.
   await storage.put<Pending>(pendingKey(seq), { message: repliesToTex ? message : { ...message, replyTo: undefined }, attempts: 0, at: now });
   await storage.setAlarm(now);
   return "queued";
 }
 
+/**
+ * A like on Tex's ask from the person it asked, held ten seconds before it
+ * goes as their yes, or taken back (`thumbs.ts`). Anyone else's is ignored:
+ * only the asker's yes can release what was held for them.
+ */
+async function acceptThumb(storage: InboxStorage, message: GroupMessage, reaction: Reaction, now: number): Promise<"queued" | "ignored"> {
+  const ask = await storage.get<OpenAsk>(ASK_KEY);
+  if (ask === undefined || now - ask.at >= ASK_OPEN_MS || ask.from !== (await sha256Hex(message.from))) return "ignored";
+  if (reaction.removed) {
+    await dropThumb(storage, reaction.words);
+    return "ignored";
+  }
+  await holdThumb<GroupMessage>(storage, { ...message, text: tapbackText(reaction.how) }, reaction.words, now);
+  return "queued";
+}
+
+/**
+ * Whether this person tagged Tex with these same words a moment ago (Jhon,
+ * 2026-10-21: the same bug report sent twice was written up twice). Kept as
+ * hashes of sender and words, never either. Remembers this ask either way.
+ */
+async function askedJustNow(storage: InboxStorage, message: GroupMessage, now: number): Promise<boolean> {
+  const h = await sha256Hex(`${message.from}\n${message.text.replace(/\s+/g, " ").trim().toLowerCase()}`);
+  const recent = ((await storage.get<Recent[]>(RECENT_KEY)) ?? []).filter((item) => now - item.at < SAME_ASK_MS);
+  const again = recent.some((item) => item.h === h);
+  await storage.put<Recent[]>(RECENT_KEY, [...recent.filter((item) => item.h !== h), { h, at: now }].slice(-MAX_SENT));
+  return again;
+}
+
+/**
+ * A bare yes, no or "send" from the person Tex just asked, while that ask is
+ * open (Jhon's "yes" to the bug report, 2026-10-21, kept as chat). Anyone
+ * else's is chat: only the asker's yes can release what was held for them.
+ */
+async function answersOpenAsk(storage: InboxStorage, message: GroupMessage, now: number): Promise<boolean> {
+  if (!ANSWERS_ASK.test(unquoted(message.text))) return false;
+  const ask = await storage.get<OpenAsk>(ASK_KEY);
+  return ask !== undefined && now - ask.at < ASK_OPEN_MS && ask.from === (await sha256Hex(message.from));
+}
+
 /** Answer every tagged message waiting, oldest first. Called from the alarm. */
 export async function drainGroup(storage: InboxStorage, deps: GroupDeps): Promise<void> {
+  // A 👍 that stayed its ten seconds joins the queue as the asker's answer.
+  const thumb = await dueThumb<GroupMessage>(storage, deps.now());
+  if (thumb !== undefined) {
+    const seq = ((await storage.get<number>("gseq")) ?? 0) + 1;
+    await storage.put("gseq", seq);
+    await storage.put<Pending>(pendingKey(seq), { message: thumb, attempts: 0, at: deps.now() });
+  }
   const pending = await storage.list<Pending>({ prefix: "gpending:" });
   for (const [key, item] of pending) {
     try {
@@ -230,10 +318,10 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, accepte
   if (status === "muted" || status === "stopped" || status === "no_shared") await setChatBound(storage, null);
   if (status === "refused" || status === "muted") return log(status);
   // The same tapback for every tagger, linked or not, so it says nothing about who they are.
-  if (command === null) await reactInGroup(deps.fetch, deps.sendblue, chat, message.messageId, "👀");
+  if (command === null && message.reaction === undefined) await reactInGroup(deps.fetch, deps.sendblue, chat, message.messageId, "👀");
   if (status === "unknown_sender") return asked.tell === true ? void (await say(storage, deps, message, GROUP_LINES.unknown)) : log(status);
   if (status === "no_shared") return void (await say(storage, deps, message, GROUP_LINES.noShared));
-  if (status === "not_shared") return void (await say(storage, deps, message, GROUP_LINES.notShared));
+  if (status === "not_shared") return void (await say(storage, deps, message, GROUP_LINES.notShared(asked.slugs)));
   if (status === "stopped") return void (await say(storage, deps, message, GROUP_LINES.stopped));
   if (status === "started") return void (await say(storage, deps, message, GROUP_LINES.started));
   if (status === "choose") {
@@ -246,7 +334,7 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, accepte
   if (command?.kind === "use") return void (await say(storage, deps, message, GROUP_LINES.bound(asked.slug, asked.intro)));
   if (command?.kind === "status") return void (await say(storage, deps, message, GROUP_LINES.status(asked.slug)));
   if (asked.accessToken === undefined) throw new ServiceError("control_plane", null);
-  if (asked.intro) await say(storage, deps, message, GROUP_LINES.intro(asked.slug), false);
+  if (asked.intro) await say(storage, deps, message, GROUP_LINES.intro(asked.slug));
 
   const quoted = message.replyTo === undefined ? null : await readOwnGroupMessage(deps.fetch, deps.sendblue, message.replyTo, chat);
   const said = await chatBefore(storage, message, acceptedAt, deps.now());
@@ -267,7 +355,14 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, accepte
         question: message.text,
         group: { ...group, chat: said.lines.map((line) => ({ from: handles.get(line.from) ?? "", text: line.text })) },
         ...(asked.timeZone ? { timeZone: asked.timeZone } : {}),
-        ...(quoted !== null ? { quoted } : message.replyTo !== undefined ? { replied: true } : {}),
+        ...(deps.spawnJob ? { running: await chatJobs(storage, deps.now()) } : {}),
+        ...(message.reaction !== undefined
+          ? { quoted: message.reaction.words, tapback: message.reaction.how }
+          : quoted !== null
+            ? { quoted }
+            : message.replyTo !== undefined
+              ? { replied: true }
+              : {}),
       },
       GROUP_TURN_TIMEOUT_MS,
     );
@@ -280,6 +375,9 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, accepte
   if (answer.kind !== "answer") throw new ServiceError("gateway", result.status);
   // Filed in the chat's memory by that turn: this object's copy goes.
   await dropChatLines(storage, said.keys);
+  // An answer that asks for a yes leaves it open for the asker; any other answer closes it.
+  if ((answer.verbatim?.length ?? 0) > 0) await storage.put<OpenAsk>(ASK_KEY, { from: await sha256Hex(message.from), at: deps.now() });
+  else await storage.delete(ASK_KEY);
 
   // Sent only to the people it was written for: someone who joined meanwhile was never part of its scope.
   //
@@ -296,13 +394,41 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, accepte
   }
   const joined = now.some((phone) => phone !== message.line && !people.includes(phone));
   if (joined) return void (await say(storage, deps, message, GROUP_LINES.joined));
-  const texts = textsFromAnswer(answer.text);
-  for (const [i, text] of texts.entries()) await say(storage, deps, message, text, i === 0);
+  const texts = textsWithExact(answer.text, answer.verbatim);
+  // Every bubble under the message it answers, not only the first (Jhon's bug report, 2026-10-21).
+  for (const text of texts) await say(storage, deps, message, text);
   log("answered");
+  // Long asks it handed off run beside the chat (`jobs.ts`), each re-checking who is here when it answers.
+  if (answer.jobs && deps.spawnJob) {
+    await startJobs(storage, answer.jobs, {
+      now: deps.now(),
+      inbox: groupInboxName(message.groupId),
+      origin: { kind: "group", message, at: acceptedAt },
+      place: { line: message.line, groupId: message.groupId, messageId: message.messageId },
+      spawn: deps.spawnJob,
+    });
+  }
+  // A change to a job still running is handed to it, in the words of whoever texted it.
+  if (answer.steers && deps.steerJob) await steerJobs(storage, answer.steers, { id: message.eventId, text: message.text }, deps.steerJob, deps.now());
 }
 
-type ControlAnswer =
-  | { status: "refused" | "muted" | "stopped" | "started" | "no_shared" | "not_shared" }
+/** A background job's word (`jobRun.ts`): its status kept, its texts sent under the message it answers. */
+export async function groupJobUpdate(storage: InboxStorage, deps: GroupDeps, update: JobUpdate): Promise<boolean> {
+  const entry = await noteJobUpdate(storage, update, deps.now());
+  if (entry === null || entry.quiet || entry.line === undefined || entry.groupId === undefined || entry.messageId === undefined) return entry !== null;
+  const where = { line: entry.line, groupId: entry.groupId, messageId: entry.messageId };
+  for (const [i, text] of (update.texts ?? []).entries()) {
+    const index = (update.first ?? 0) + i;
+    if (index < (entry.sent ?? 0)) continue;
+    await say(storage, deps, where, text);
+    await noteJobSent(storage, update.id, index + 1);
+  }
+  return true;
+}
+
+export type ControlAnswer =
+  | { status: "refused" | "muted" | "stopped" | "started" | "no_shared" }
+  | { status: "not_shared"; slugs: string[] }
   | { status: "unknown_sender"; tell?: boolean }
   | { status: "choose"; slugs: string[] }
   | {
@@ -315,7 +441,7 @@ type ControlAnswer =
       names?: { phone: string; handle: string }[];
     };
 
-async function askControlPlane(deps: GroupDeps, message: GroupMessage, people: string[], command: Command | null): Promise<ControlAnswer> {
+export async function askControlPlane(deps: GroupDeps, message: GroupMessage, people: string[], command: Command | null): Promise<ControlAnswer> {
   const wire = command === null || command.kind === "status" ? undefined : command;
   const { status, json } = await post(deps.fetch, "control_plane", `${deps.controlPlaneOrigin}/agent-texts/group`, deps.workerSecret, {
     line: message.line,
@@ -334,8 +460,9 @@ async function askControlPlane(deps: GroupDeps, message: GroupMessage, people: s
     case "stopped":
     case "started":
     case "no_shared":
-    case "not_shared":
       return { status: body.status };
+    case "not_shared":
+      return { status: "not_shared", slugs: (Array.isArray(body.slugs) ? body.slugs.filter(slug) : []).slice(0, 8) as string[] };
     case "unknown_sender":
       return { status: "unknown_sender", tell: body.tell === true };
     case "choose": {
@@ -362,9 +489,9 @@ async function askControlPlane(deps: GroupDeps, message: GroupMessage, people: s
 }
 
 /** One text into the group, threaded under the message it answers, remembered so a reply to it wakes Tex. */
-async function say(storage: InboxStorage, deps: GroupDeps, message: GroupMessage, text: string, threaded = true): Promise<void> {
+async function say(storage: InboxStorage, deps: GroupDeps, message: Pick<GroupMessage, "line" | "groupId" | "messageId">, text: string): Promise<void> {
   if (!deps.sendblue) throw new ServiceError("sendblue", null);
-  const handle = await sendGroupText(deps.fetch, deps.sendblue, { line: message.line, groupId: message.groupId }, text, threaded ? message.messageId : undefined);
+  const handle = await sendGroupText(deps.fetch, deps.sendblue, { line: message.line, groupId: message.groupId }, text, message.messageId);
   if (handle === undefined) return;
   const sent = (await storage.get<string[]>(SENT_KEY)) ?? [];
   await storage.put(SENT_KEY, [...sent.filter((entry) => entry !== handle), handle].slice(-MAX_SENT));

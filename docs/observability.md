@@ -117,25 +117,41 @@ enough because arbitrary exception text can contain a note body or note path.
 ## The staff Usage tab
 
 `/admin/usage` shows visits to context.lc and tex.lc, time in the app, and the
-most viewed pages and most pressed buttons, for the console's 7 / 30 / 90 day
+most viewed pages, most pressed buttons, ordered conversion funnels and failed
+attempts, for the console's 7 / 30 / 90 day
 window. Asked for by the owner on 2026-10-21; the approach (read PostHog rather
 than count in Convex) and the artboard were approved the same day.
 
 - **Where the figures come from.** `functions/usageAnalytics.ts` (staff only)
-  asks PostHog's query API five HogQL questions
+  asks PostHog's query API seven HogQL questions
   (`functions/lib/adminFns/usageAnalytics.ts`) and returns hosts, days, cleaned
   routes, fixed button names and counts. PostHog's own error text never reaches
   the screen, and a route that is not a cleaned route or a button that is not
   in the list is dropped on the server whatever PostHog holds.
-- **Production only.** The three environments share one PostHog project, so a
-  web event counts when its `$host` is context.lc or tex.lc, and a native one
+- **Production only.** Configure the private read key and project ID to the
+  existing production project. A web event counts when its `$host` is
+  context.lc or tex.lc, and a native one
   when it says `app_env = production`. Visits are sessions; visitors are
   PostHog's merged people.
 - **Buttons are named, never read.** A press is `button_tapped` with
   `{ button }`, from the fixed list `USAGE_BUTTONS` in `@context/shared`, which
   the app's `trackButton` takes as its type and the server filters by. Element
-  text is never sent, which is why autocapture stays off. A button is counted
+  text is never sent. The table also counts the fixed semantic landing and Tex
+  handoff events from `USAGE_ACTIONS`. A button is counted
   once somebody names it there and calls `trackButton` where it is pressed.
+- **Ordered journeys.** Context and Tex each have waitlist and sign-in funnels;
+  workspace setup and Tex's Messages handoff have their own cards. Each counts
+  merged people reaching steps in timestamp order within 24 hours (sign-in:
+  30 minutes), using `windowFunnel` on `toDateTime(timestamp)`. Percentages use
+  the first step as denominator; gaps count people not yet at the next step.
+  Recent visits may still progress. Only `app_analytics_version >= 2` events
+  qualify, so historical traffic without the new instrumentation cannot look
+  like abandonment. An empty funnel says unmeasured, not zero conversion.
+  Definitions are fixed in `packages/shared/src/usageJourneys.ts`.
+- **Friction.** Failed or refused signups, code verification failures, save
+  timeouts and queued offline saves show attempt counts and unique people.
+  Successes and unknown result strings are excluded from that panel. A queued
+  save is pending; a Messages click is a handoff, not proof of a sent text.
 - **Time in app is active time.** `features/observability/activeTime.ts` sends
   `app_active` every thirty seconds while the tab is in front and somebody
   touched, typed, scrolled or moved the pointer in the last two minutes (a
@@ -155,7 +171,11 @@ than count in Convex) and the artboard were approved the same day.
   1Password as `POSTHOG_PERSONAL_API_KEY`, and the project's numeric id as
   `POSTHOG_PROJECT_ID`, both synced to the GitHub environments and pushed to
   Convex by `deploy-convex.yml`. Without the key the tab says PostHog isn't
-  connected; nothing else depends on it.
+  connected; nothing else depends on it. Use the private `production` and
+  `staging` vault fields. The staff report reads production metrics in both
+  deployments, with project access restricted to that production project.
+  Retry/Refresh asks again without reloading the app. Never put this private
+  key in an `EXPO_PUBLIC_` variable.
 
 ## Configuration
 
@@ -235,23 +255,96 @@ disabled. The Context incident folder is the quiet review queue; urgent
 notifications should be reserved for an explicit outage or sustained-impact
 monitor, not every new exception.
 
-## Dashboards
+## Product analytics and drop-off
 
-Create these after the first staging events establish the project schema:
+Keep the existing project's ingest key. Every event has `app_env` (production,
+staging, development), `app_product` (context, tex), `app_platform` and
+`app_build`. Filter dashboards to `app_env = production`, then break down by
+product and platform. Internal Convex ids stitch signed-in sessions to the
+same person; no email, phone, workspace name or note title is sent.
 
-- Sentry dashboard: crash-free sessions, affected users, top issues, p95 app
-  start, and p95 screen/navigation duration by release.
-- PostHog dashboard: unique signed-in users, screen sequence, onboarding start
-  to first connected storage, first note opened, save success/failure, and
-  replay availability.
+Web navigation sends `$pageview` for Web Analytics and `$screen` for the
+cross-platform screen path. Use one of these in an insight; adding them counts
+a visit twice. Expo Router owns pageviews; SDK automatic pageviews remain off.
+Pageleave events enable exit and scroll-depth analysis. Early screen and
+product events share a bounded ordered queue while the SDK loads. Signing out
+or switching analytics off discards that queue.
 
-Page views, lifecycle events, boundary failures, retries, and reloads are wired
-today. Funnel events beyond those should be added only at the successful domain
-operation boundary, using low-cardinality properties from the allowlist below.
+### Event catalog
 
-Allowed property classes: boolean capability/state, coarse role, provider name,
-result enum, duration/count, release/build, and sanitized route. Never add a
-free-form string from a user or backend error response.
+| Event | When it happens | Safe properties |
+| --- | --- | --- |
+| `signup_started` | First nonempty phone/email edit in a form | method |
+| `signup_submitted` | Number/address is submitted or a code is requested again | method, source (email), resend |
+| `signup_result` | Server accepts the waitlist entry or answers the code request | method, result, source (email), resend |
+| `signin_code_submitted` | A complete code is submitted | method, source (email) |
+| `signin_code_result` | Auth explicitly succeeds or refuses the code | method, result, source (email) |
+| `onboarding_step_viewed` | A visible wizard step changes | step, resumed |
+| `workspace_created` | Workspace creation succeeds | kind |
+| `onboarding_completed` | The wizard hands off to the console | step, resumed |
+| `note_opened` | The main editor displays a loaded note or cached copy | cached |
+| `note_save_started` | The editor starts its bucket write | none |
+| `note_save_result` | That write succeeds, fails, times out, or is queued offline | result |
+| `button_tapped` | A named console action is pressed | button, from `USAGE_BUTTONS` |
+| `landing_cta_clicked` | Tex header navigation is pressed | action, placement |
+| `tex_messages_opened` | Open Messages is pressed | first_text |
+| `tex_contact_downloaded` | Save Tex's contact is pressed | none |
+| `tex_console_opened` | Open console on the Text Tex page is pressed | none |
+
+`signup_result = joined` is a waitlist conversion, **not** an activated account.
+`already` is an existing waitlist entry, `sent` is an accepted code request,
+and failure values identify which step needs attention. `tex_messages_opened`
+means the Messages handoff was clicked, not that a text was sent or received.
+Save events cover the main editor's conditional bucket-write path; a queued
+write is not a successful remote save, and collaboration sync is separate.
+No event contains the form's value, OTP, optional waitlist answer, backend
+error text, file path, contact card, or Messages URL.
+
+### Dashboard recipes
+
+Build these in the existing PostHog project, with a 30-day reporting window:
+
+1. **Acquisition:** daily unique people with `$pageview`, broken down by
+   `app_product`. The homepage step filters `$screen_name = /`.
+2. **Waitlist conversion:** homepage `$pageview` → `signup_started` →
+   `signup_submitted` (`resend = false`) → `signup_result` (`result = joined`).
+   Use an ordered funnel with a one-day conversion window; show drop-off and
+   median time between steps. Break down by product and method.
+3. **Code verification:** `signup_result` (`result = sent`, `resend = false`)
+   → `signin_code_submitted` → `signin_code_result` (`result = success`).
+   Use a 30-minute window. Keep admitted sign-ins separate from waitlist joins.
+4. **Context activation:** `signin_code_result` (`result = success`) →
+   `onboarding_completed` → `note_opened`, filtered to Context. A separate
+   wizard funnel uses `onboarding_step_viewed` steps `name` → `fork` →
+   `onboarding_completed`, filtered to `resumed = false`; the BYO path has
+   optional `storage` and `dryrun` steps rather than mandatory funnel steps.
+5. **Tex handoff:** `signin_code_result` (`result = success`) →
+   `$pageview` (`$screen_name = /text`) → `tex_messages_opened`, filtered to Tex.
+6. **Friction:** trend failed sign-up/code/save results and save timeouts;
+   break down `button_tapped` by `button`; use `$screen` in Paths and inspect
+   the masked recordings behind a failed funnel step.
+
+### Clicks, heatmaps and recordings
+
+Only `/` enables heatmaps and DOM autocapture, and autocapture accepts clicks
+on explicitly tagged `[data-analytics-action]` controls only. The SDK masks
+all text and attributes. The final outbound filter also drops element chains,
+classes, hrefs, element text, document titles, and arbitrary DOM-added
+properties. Semantic product events identify the actions without these fields.
+Private screens retain named console actions and masked recordings; they never
+enable DOM autocapture or heatmaps. Heatmap buffers are checked again before
+sending because the SDK keys them by raw URLs: only homepage coordinates are
+kept, under a URL with no query or fragment. Navigating in the SPA switches
+heatmaps and autocapture with the visible screen.
+
+Web replay remains sampled at 10% in production and globally masks text and
+sensitive media. Native replay remains disabled. The existing Privacy &
+feedback switches govern the new events and heatmaps too. No project migration,
+new key, increased replay sample rate, or billing change is needed.
+
+Allowed property classes remain boolean capability/state, coarse role,
+provider name, result enum, duration/count, release/build, and sanitized route.
+Never add a free-form string from a user or backend error response.
 
 ## Incident loop
 

@@ -25,7 +25,7 @@ const READ_TIMEOUT_MS = 25_000;
  */
 export const ATTACHMENT_RESPONSE_BYTE_CAP = 15_000_000;
 
-const REFUSALS = new Set(["invalid", "not_allowed", "no_sender", "hourly_limit", "daily_limit", "recipient_limit", "not_configured", "unavailable", "reply_not_found", "reconnect_required"]);
+const REFUSALS = new Set(["invalid", "not_allowed", "no_sender", "hourly_limit", "daily_limit", "recipient_limit", "not_configured", "unavailable", "reply_not_found", "forward_not_found", "too_large", "reconnect_required"]);
 
 export function createEmailMethods({ post }) {
   return {

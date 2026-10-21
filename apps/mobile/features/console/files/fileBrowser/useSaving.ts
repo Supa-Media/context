@@ -1,3 +1,4 @@
+import { trackEvent } from "../../../observability/client";
 /**
  * Saving the open note: the conditional write, the Save button, and autosave.
  *
@@ -113,6 +114,7 @@ export function useSaving(deps: SavingDeps) {
       */
       const renamedHere = offline.serverPathOf(path) !== path;
       if (offline.reachability === "offline" || renamedHere) {
+        trackEvent("note_save_result", { result: "queued" });
         offline.queueSave({ path, text, baseEtag: expectedEtag });
         offline.forgetDraft(path);
         dispatch({
@@ -141,6 +143,7 @@ export function useSaving(deps: SavingDeps) {
         gets here. The settlement dispatches below are guarded because they land
         *later*, when that is no longer true.
       */
+      trackEvent("note_save_started");
       dispatch({ type: "saveStarted" });
 
       saveTimers.current.set(
@@ -151,6 +154,7 @@ export function useSaving(deps: SavingDeps) {
           // Bump past `mine` so the write, if it ever lands, cannot come back
           // and settle an attempt the editor has already given up on.
           saveRuns.current.set(path, mine + 1);
+          trackEvent("note_save_result", { result: "timeout" });
           // A timeout for a note that is no longer on screen has no editor to
           // put into `error`, and the reducer would put the *other* note there.
           // See the failure branch below for the whole argument.
@@ -181,6 +185,7 @@ export function useSaving(deps: SavingDeps) {
         .then((result) => {
           if (saveRuns.current.get(path) !== mine) return;
           settle();
+          trackEvent("note_save_result", { result: "success" });
           /*
             The text is in the bucket now, so the copy of it on this device is
             not a draft any more — leaving it would restore "unsaved changes"
@@ -235,6 +240,7 @@ export function useSaving(deps: SavingDeps) {
         .catch((error: unknown) => {
           if (saveRuns.current.get(path) !== mine) return;
           settle();
+          trackEvent("note_save_result", { result: "failed" });
           let failure = toFileError(error);
           const unsent = expectedEtag === null ? unsentCreates.current.get(path) : undefined;
           if (unsent !== undefined && failure.code === "FILE_NOT_FOUND") failure = toFileError(unsent.refusal());

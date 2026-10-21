@@ -848,9 +848,11 @@ http.route({ path: "/gateway/vault/request", method: "POST", handler: gatewayVau
 // A connector: a link for the person to connect an app, and one call through it.
 export const gatewayConnectRequest = gatewayRoute(connections.gatewayConnectRequestHandler);
 export const gatewayConnectCall = gatewayRoute(connections.gatewayConnectCallHandler, 128_000);
+export const gatewayConnectApps = gatewayRoute(connections.gatewayConnectAppsHandler);
 
 http.route({ path: "/gateway/connect/request", method: "POST", handler: gatewayConnectRequest });
 http.route({ path: "/gateway/connect/call", method: "POST", handler: gatewayConnectCall });
+http.route({ path: "/gateway/connect/apps", method: "POST", handler: gatewayConnectApps });
 
 // One email, as the token's person, after they said yes to its exact copy.
 export const gatewayPersonEmail = gatewayRoute(personEmail.gatewayPersonEmailHandler, 128_000);

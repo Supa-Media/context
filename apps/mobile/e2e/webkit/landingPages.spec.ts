@@ -2,66 +2,44 @@ import { expect, test } from "@playwright/test";
 
 /*
   The landing pages (Dev, 2026-10-11): `/` is page a and `/a` to `/c` are the
-  three versions under test. a is the Tex page (Dev, 2026-10-18): "Text your
-  notes", one conversation with Tex, and a sign-up whose button says what it
-  does; b is the landing page `/` showed until 2026-10-11, kept as it was; c is
-  the console's own shell, which every page of the website (`/?page=…`) still
-  is. `/d` and `/e`, retired, send a visit to `/`.
+  three versions under test. a is the notes page (Dev2, 2026-10-21: "context.lc's
+  homepage should look more notes focused", now tex.lc has the texting page):
+  the editor, a workspace per part of your life for free, and Tex linking to
+  tex.lc; b is the landing page `/` showed until 2026-10-11, kept as it was; c
+  is the console's own shell, which every page of the website (`/?page=…`)
+  still is. `/d` and `/e`, retired, send a visit to `/`.
 */
 
-test("/ is page a: Tex, Dev's line, a conversation with Tex, and a sign-up with a real button", async ({ page }) => {
+test("/ is page a: notes first, the sign-up, the editor, free workspaces, and Tex at tex.lc", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
   await expect(page.locator("[data-landing=a]")).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText(/^Text your notes\. We'll organize them\.$/);
-  // Nothing wider than the window.
-  const wide = await page.locator(".tp").evaluate((el) => el.scrollWidth - el.clientWidth);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(/^A notes app that every AI you use can read\.$/);
+  const wide = await page.locator(".np").evaluate((el) => el.scrollWidth - el.clientWidth);
   expect(wide).toBeLessThanOrEqual(1);
-  await expect(page.locator(".tp-tex svg")).toBeVisible();
-  // No graph any more: the picture is the conversation, drawn whole.
-  await expect(page.locator("[data-landing=a] canvas")).toHaveCount(0);
-  const chat = page.getByRole("region", { name: "An example conversation with Tex" });
-  await expect(chat).toBeVisible();
-  await expect(chat.locator(".tp-b")).toHaveCount(9);
-  await expect(chat).toContainText("Look good?");
   // The sign-up is open from the start, +1 already there, and its button says what it does.
   await expect(page.getByLabel("Join the waitlist")).toBeVisible();
   await expect(page.locator(".tp-cc")).toContainText("+1");
   await expect(page.getByRole("button", { name: "Join the waitlist" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "The Context editor, with an example note" })).toContainText("Supper club");
+  await expect(page.getByRole("heading", { name: "A workspace for each part of your life. Free." })).toBeAttached();
+  await expect(page.getByRole("link", { name: "Meet Tex at tex.lc →" })).toHaveAttribute("href", "https://tex.lc");
+  // No conversation is drawn: texting is tex.lc's page.
+  await expect(page.locator(".tp-chat")).toHaveCount(0);
 });
 
-test("the whole conversation is there at once, with nothing animating", async ({ page }) => {
-  // Dev, 2026-10-18: "just do the full convo no animating".
+test("making a workspace goes to the sign-up", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
   await page.goto("/");
   await expect(page.locator("[data-landing=a]")).toBeVisible({ timeout: 15_000 });
-  await expect(page.locator(".tp-chat .tp-b")).toHaveCount(9, { timeout: 1 });
-  const running = await page.locator(".tp").evaluate((root) =>
-    document.getAnimations().filter((a) => root.contains((a.effect as KeyframeEffect | null)?.target ?? null)).length,
-  );
-  expect(running).toBe(0);
+  await page.getByRole("link", { name: "Make your first workspace" }).click();
+  await expect(page.getByRole("button", { name: "Join the waitlist" })).toBeInViewport();
 });
 
-test("page a fits a laptop window with no scrolling, the sign-up and the conversation included", async ({ page }) => {
-  // Dev2, 2026-10-12: "everything should fit on the page without scrolling".
+test("the sign-up is in the first screen, on a laptop and on a phone, and nothing is wider than the screen", async ({ page }) => {
   for (const [width, height] of [
     [1280, 720],
     [1440, 900],
-  ] as const) {
-    await page.setViewportSize({ width, height });
-    await page.goto("/");
-    await expect(page.locator("[data-landing=a]")).toBeVisible({ timeout: 15_000 });
-    const overflow = () => page.locator(".tp").evaluate((el) => el.scrollHeight - el.clientHeight);
-    expect(await overflow()).toBeLessThanOrEqual(1);
-    for (const selector of [".tp-foot", ".tp-chat", ".tp-go"]) {
-      const bottom = await page.locator(selector).evaluate((el) => el.getBoundingClientRect().bottom);
-      expect(bottom).toBeLessThanOrEqual(height);
-    }
-  }
-});
-
-test("on a phone the sign-up comes before the conversation, sized for a phone and nothing wider than the screen", async ({ page }) => {
-  // Dev, 2026-10-18: "this looks so bad and zoomed in on mobile", on a 430-wide phone.
-  for (const [width, height] of [
     [375, 667],
     [390, 844],
     [430, 932],
@@ -69,18 +47,16 @@ test("on a phone the sign-up comes before the conversation, sized for a phone an
     await page.setViewportSize({ width, height });
     await page.goto("/");
     await expect(page.locator("[data-landing=a]")).toBeVisible({ timeout: 15_000 });
-    const wide = await page.locator(".tp").evaluate((el) => el.scrollWidth - el.clientWidth);
+    const wide = await page.locator(".np").evaluate((el) => el.scrollWidth - el.clientWidth);
     expect(wide).toBeLessThanOrEqual(1);
-    const headline = await page.locator(".tp-h1").evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
-    expect(headline).toBeLessThanOrEqual(36);
-    // The button sits under the field, so the number has the whole width.
     const field = await page.locator(".tp-field").evaluate((el) => el.getBoundingClientRect());
     const join = await page.getByRole("button", { name: "Join the waitlist" }).evaluate((el) => el.getBoundingClientRect());
-    expect(join.top).toBeGreaterThanOrEqual(field.bottom);
-    expect(field.width).toBeGreaterThan(width - 60);
-    const chat = await page.locator(".tp-chat").evaluate((el) => el.getBoundingClientRect().top);
-    expect(join.bottom).toBeLessThan(chat);
     expect(join.bottom).toBeLessThanOrEqual(height);
+    if (width < 600) {
+      // The button sits under the field, so the number has the whole width.
+      expect(join.top).toBeGreaterThanOrEqual(field.bottom);
+      expect(field.width).toBeGreaterThan(width - 60);
+    }
   }
 });
 

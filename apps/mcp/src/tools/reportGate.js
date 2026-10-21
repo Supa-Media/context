@@ -18,6 +18,12 @@
  *   3. The approved replay sends it. Only that replay reads the texts, off
  *      the person's own conversation file, never from anything the model
  *      wrote: the model can say whether they go, never what they say.
+ *   4. A report with none of their texts, on a turn whose own text asks for
+ *      a bug to be filed ("if you can't do it, file a bug to the
+ *      developers"), is sent at once: that text is the yes (the owner,
+ *      2026-10-21, after Tex drafted the report they had just asked for and
+ *      then waited on a thumbs-up). The texts still only ever go on a yes to
+ *      the report that says they go with it.
  */
 
 import { readConversation, shownHistory } from "../agent/conversation.js";
@@ -34,12 +40,29 @@ export const TEXTED_REPORT_CAP = 2_000;
 /** The texts attached, in characters. Kept equal to `MAX_REPORT_TEXTS_CHARS` in the control plane. */
 export const MAX_REPORT_TEXTS_CHARS = 16_000;
 
+/** The line about texts, wherever a model copied it into the report. */
+const SHARE_LINES = /\s*(?:None of our texts go with it\.|Up to the last \d+ messages between us go with it, so they can see what happened\.)\s*/g;
+
 /** What the person reads before their YES: the report, and whether their texts go with it. */
 export function reportCopy(message, shareTexts) {
   const texts = shareTexts
     ? `Up to the last ${REPORT_TEXTS_TURNS} messages between us go with it, so they can see what happened.`
     : "None of our texts go with it.";
-  return `${message}\n\n${texts}`;
+  // A model that read an earlier copy writes the line in itself; it is said once (the group chat of 2026-10-21).
+  const said = message.replace(SHARE_LINES, "").trim();
+  return `${said}\n\n${texts}`;
+}
+
+/** "file a bug", "send a bug report to the team", "report this to the developers". */
+const ASKS_TO_FILE = [
+  /\b(?:file|send|submit|open|log|raise|write up|make)\b[^.?!\n]{0,30}?\b(?:bug|issue|ticket|bug report)\b/i,
+  /\breport\s+(?:it|this|that)\b[^.?!\n]{0,20}\b(?:team|devs?|developers?|engineers?)\b/i,
+];
+
+/** Whether the person's own text, this turn, asks for a bug to be filed. */
+export function asksToFile(words) {
+  const said = String(words ?? "");
+  return ASKS_TO_FILE.some((pattern) => pattern.test(said));
 }
 
 /** The person's recent texts with Tex, as plain lines, or undefined when there are none. */
@@ -69,6 +92,9 @@ export async function reportGate(supplied, { store, session }) {
     return toolError(`Not sent: a bug report by text is at most ${TEXTED_REPORT_CAP.toLocaleString("en-US")} characters, so the person can read it whole. Shorten it.`);
   }
 
+  // Their own text asked for it, and none of their texts go: sent now (4. above).
+  if (!shareTexts && asksToFile(session.egress?.turn?.question)) return await sendReport(store, message, undefined);
+
   const ledger = session.egress?.ledger ?? null;
   if (ledger?.asked.some((asked) => asked.tool === REPORT_TOOL && asked.key !== callKey(REPORT_TOOL, supplied))) {
     return toolError("Not sent: one bug report at a time by text. Ask about this one after the person answers.");
@@ -96,7 +122,8 @@ export async function reportGate(supplied, { store, session }) {
   return {
     ...toolError(
       "Held for their YES, and nothing failed: right after your answer they are texted this exact report and asked to say yes, and it sends then. " +
-        "Say in a line that you wrote it up, without repeating it or asking for their yes: the next text shows it and asks. Don't call this again in this turn.",
+        "Say in a line, as yourself (\"I\", never \"Context\"), that you wrote it up, without repeating it or asking for their yes: " +
+        "the next text shows it and asks. Don't call this again in this turn.",
     ),
     held: true,
   };

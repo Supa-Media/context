@@ -100,6 +100,7 @@ export function translateSearch(call, app = {}) {
 /** Keyword ids: exact, case-sensitive, after trimming. */
 const KEYWORDS = {
   "meetings:": { name: "list_meetings", action: "meetings", copy: ["limit"] },
+  "calendar:": { name: "read_calendar", action: "calendar", copy: ["date", "days"] },
   "messages:": { name: "list_channel_days", action: "messages", copy: ["channel", "account", "limit"] },
   "contacts:": { name: "list_contacts", action: "contacts", copy: ["limit"] },
   "activity:": { name: "read_activity", action: "activity", copy: ["limit"] },
@@ -109,7 +110,11 @@ const KEYWORDS = {
   "vault:": { name: "vault_list", action: "vault", copy: [] },
   "plugins:": { name: "list_plugins", action: "plugins", copy: [] },
   "access:": { name: "scope_info", action: "access", copy: ["path", "workspaces"] },
+  "apps:": { name: "app_read", action: "apps", copy: [] },
 };
+
+/** `apps:<app>`: one connected app's tools, or with `tool`, one read through it. */
+const APP_PREFIX = "apps:";
 
 /** `fetch` in the v2 shape. */
 export function translateFetch(call, app = {}) {
@@ -128,6 +133,10 @@ export function translateFetch(call, app = {}) {
   if (Object.hasOwn(KEYWORDS, id)) {
     const { name, action, copy } = KEYWORDS[id];
     return target(label, a, { name, action, copy });
+  }
+  if (id.startsWith(APP_PREFIX)) {
+    const app = id.slice(APP_PREFIX.length).trim();
+    return target(label, a, { name: "app_read", action: "app", fixed: { app }, copy: ["tool", "arguments"] });
   }
   if (id.startsWith(EMAIL_ID_PREFIX)) {
     return target(label, a, { name: "read_email", action: "email", fixed: { id }, copy: ["attachment"] });

@@ -3,6 +3,7 @@ import { api, internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import { addMember, asUser, captureError, createUser, createWorkspace, errorCode, setupTest, type TestConvex } from "../fixtures.helpers";
 import { hashToken } from "../../functions/lib/crypto";
+import { SLACK_USER_SCOPES } from "../../functions/lib/providers/slack";
 
 /**
  * CONNECTORS: a link only its person can finish, a consent only the browser
@@ -26,7 +27,7 @@ function enableSlack() {
 }
 
 /** Slack's `oauth.v2.access` answer for one team, with both halves; the scope decides which is kept. */
-function stubSlack(calls: Array<{ url: string; body: string; auth: string | null }> = []) {
+function stubSlack(calls: Array<{ url: string; body: string; auth: string | null }> = [], access?: unknown) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: string, init?: RequestInit) => {
@@ -34,6 +35,7 @@ function stubSlack(calls: Array<{ url: string; body: string; auth: string | null
       const headers = new Headers(init?.headers);
       calls.push({ url, body: String(init?.body ?? ""), auth: headers.get("Authorization") });
       if (url.endsWith("/oauth.v2.access")) {
+        if (access !== undefined) return Response.json(access);
         return Response.json({
           ok: true,
           access_token: BOT_TOKEN,
@@ -172,6 +174,25 @@ describe("the consent round trip", () => {
       }),
     );
     expect(errorCode(replay)).toBe("CONNECT_LINK_EXPIRED");
+  });
+
+  /** Dev2's Slack connect on 2026-10-21 failed with no word of why; Slack's own error code now reaches the page. */
+  test("a token Slack will not give says Slack's reason, and nothing is stored", async () => {
+    enableSlack();
+    const t = setupTest();
+    const w = await world(t);
+    for (const [answer, reason] of [
+      [{ ok: false, error: "invalid_code" }, "invalid_code"],
+      [{ ok: false, error: "<script>" }, "not_ok"],
+      [{ ok: true, team: { id: "T1", name: "Acme" }, authed_user: { id: "U1", access_token: "xoxe.xoxp-1-rotating" } }, "token_rotation_on"],
+    ] as const) {
+      stubSlack([], answer);
+      const { token } = await issue(t, { workspaceId: w.personal, userId: w.seyi });
+      const err = await captureError(() => connect(t, w.seyi, token));
+      expect(errorCode(err)).toBe("CONNECT_EXCHANGE_FAILED");
+      expect(String((err as { data?: { message?: string } }).data?.message)).toContain(`(${reason})`);
+    }
+    expect(await t.run((ctx) => ctx.db.query("providerConnections").collect())).toHaveLength(0);
   });
 
   /** Sabotage: drop the `hashedCompletion` comparison in `consumeConnectAttempt`. */
@@ -320,5 +341,27 @@ describe("Settings", () => {
     await t.finishAllScheduledFunctions(() => {}, 200);
     expect(await t.run((ctx) => ctx.db.query("providerConnections").collect())).toHaveLength(0);
     expect(calls.some((c) => c.url.endsWith("/auth.revoke") && c.auth === `Bearer ${USER_TOKEN}`)).toBe(true);
+  });
+});
+
+describe("a connection made before the app asked for more", () => {
+  /** Sabotage: drop the granted-scope check in `appCatalog`. */
+  test("shows Reconnect until it holds every scope the app asks for now", async () => {
+    enableSlack();
+    const t = setupTest();
+    const w = await world(t);
+    stubSlack([]);
+    await connect(t, w.seyi, (await issue(t, { workspaceId: w.personal, userId: w.seyi })).token);
+    const slackRow = async () =>
+      (await asUser(t, w.seyi).query(api.functions.connectionSettings.myApps, { workspaceId: w.personal })).find((row) => row.app === "slack");
+    expect(await slackRow()).toMatchObject({ state: "reconnect" });
+
+    stubSlack([], {
+      ok: true,
+      team: { id: "T1", name: "Acme" },
+      authed_user: { id: "U1", access_token: USER_TOKEN, scope: SLACK_USER_SCOPES.join(",") },
+    });
+    await connect(t, w.seyi, (await issue(t, { workspaceId: w.personal, userId: w.seyi })).token);
+    expect(await slackRow()).toMatchObject({ state: "connected" });
   });
 });

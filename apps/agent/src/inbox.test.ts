@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accept, CARD_EVERY_MS, drain, MAX_ANSWER_ATTEMPTS, MAX_PENDING, MAX_SEND_ATTEMPTS, SEEN_FOR_MS, TEXT_WAIT_MS, TYPING_AGAIN_MS, type InboxDeps } from "./inbox";
+import { accept, CARD_EVERY_MS, drain, LINK_PREVIEW_MS, MAX_ANSWER_ATTEMPTS, MAX_PENDING, MAX_SEND_ATTEMPTS, SEEN_FOR_MS, TEXT_WAIT_MS, TYPING_AGAIN_MS, type InboxDeps } from "./inbox";
 import { COPY, type Message } from "./reply";
 import type { Fetch } from "./clients";
 import { MemoryStorage } from "./memoryStorage.testing";
@@ -96,7 +96,8 @@ describe("inbox", () => {
   it("answers queued messages in order and keeps no text afterwards", async () => {
     const storage = new MemoryStorage();
     expect(await accept(storage, msg("e1", "first"), 1_000)).toBe("queued");
-    expect(await accept(storage, msg("e2", "second"), 1_000)).toBe("queued");
+    // A reply to other words, so the two are not one burst (`sameBurst`).
+    expect(await accept(storage, { ...msg("e2", "second"), quoted: "other words" }, 1_000)).toBe("queued");
     expect(storage.alarms).toEqual([1_000 + TEXT_WAIT_MS, 1_000]);
 
     const sent: Sent[] = [];
@@ -216,6 +217,24 @@ describe("inbox", () => {
       await drain(storage, deps({ linqStatus: () => 500 }));
     }
     expect([...storage.data.keys()].some((k) => k.startsWith("pending:"))).toBe(false);
+  });
+
+  it("takes a lone picture just after a texted link on Sendblue for the link's preview, and drops it", async () => {
+    // Owner's report, 2026-10-21: the card came on as its own text and got "That's the Context banner".
+    const storage = new MemoryStorage();
+    const chatId = "sendblue:+15555550199:+15555550100";
+    const link = { ...msg("e1", "https://context.lc/note/@kofi/2-areas/ada.md"), chatId };
+    const card = { ...msg("e2", ""), chatId, attachments: [{ url: "https://cdn.example/f/card.png", mimeType: "", filename: "card.png", size: null }] };
+    expect(await accept(storage, link, 1_000)).toBe("queued");
+    expect(await accept(storage, card, 1_000 + LINK_PREVIEW_MS - 1)).toBe("preview");
+    expect((await storage.list({ prefix: "pending:" })).size).toBe(1);
+    // A picture well after the link is a picture.
+    const later = { ...card, eventId: "e3", messageId: "m_e3" };
+    expect(await accept(storage, later, 1_000 + LINK_PREVIEW_MS + 1)).toBe("queued");
+    // And a file that is not a picture is never taken for a preview.
+    const pdf = { ...card, eventId: "e4", messageId: "m_e4", attachments: [{ url: "https://cdn.example/f/a.pdf", mimeType: "", filename: "a.pdf", size: null }] };
+    await accept(storage, { ...link, eventId: "e5", messageId: "m_e5" }, 50_000);
+    expect(await accept(storage, pdf, 50_001)).toBe("queued");
   });
 
   it("drops new messages once one sender has too many waiting", async () => {

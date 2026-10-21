@@ -81,8 +81,9 @@ export async function calendarGate(supplied, { store, session, target }) {
   return {
     ...toolError(
       texting
-        ? "Not changed yet: the person will be shown this exact change and asked to reply YES. " +
-            "Say in a line what you would change, without repeating it. Don't call this again in this turn."
+        ? "Held for their yes, and nothing failed: right after your answer, in this same reply, they are shown this exact change " +
+            "and asked, and one yes makes it. Say in one short line what you'd add or change, without repeating it or asking for their yes. " +
+            "Never say it is still waiting, and never point them to another message, app or confirmation. Don't call this again in this turn."
         : "Not changed yet: the person must approve this exact change in the Context app. " +
             "Once they have, call calendar_event again with exactly the same arguments and you will be told it was done.",
     ),

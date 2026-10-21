@@ -1,5 +1,6 @@
 import { defineTable } from "convex/server";
 import { v } from "convex/values";
+import { providerValidator } from "../providers/ids";
 
 /**
  * Third-party apps connected through their own OAuth app (Slack first; Outlook,
@@ -11,7 +12,7 @@ import { v } from "convex/values";
  * into notes, which no connector here does. A connector is a token Tex calls
  * the provider's API with, and nothing is copied into the bucket.
  */
-const provider = v.literal("slack");
+const provider = providerValidator;
 
 export const connectionTables = {
   /**
@@ -84,7 +85,32 @@ export const connectionTables = {
     updatedAt: v.number(),
     /** Set when the provider stopped honouring the token; the person reconnects. */
     reconnectRequiredAt: v.optional(v.number()),
+    /**
+     * An MCP app's tools that say they change nothing, as its server last
+     * listed them: only these run without the person's yes. Names only.
+     */
+    readOnlyTools: v.optional(v.array(v.string())),
+    toolsListedAt: v.optional(v.number()),
   })
     .index("by_workspace", ["workspaceId"])
     .index("by_workspace_provider_team", ["workspaceId", "provider", "externalTeamId"]),
+
+  /**
+   * The OAuth client Context registered with an app's authorization server
+   * (RFC 7591), one per provider and callback address, shared by every
+   * workspace on this deployment: it identifies Context to the app, never a
+   * person. A secret, where the app issues one, is sealed to the platform.
+   */
+  providerOAuthClients: defineTable({
+    provider,
+    redirectUri: v.string(),
+    clientId: v.string(),
+    encryptedClientSecret: v.optional(v.string()),
+    authorizationEndpoint: v.string(),
+    tokenEndpoint: v.string(),
+    revocationEndpoint: v.optional(v.string()),
+    resource: v.optional(v.string()),
+    scopes: v.optional(v.array(v.string())),
+    registeredAt: v.number(),
+  }).index("by_provider_redirect", ["provider", "redirectUri"]),
 };

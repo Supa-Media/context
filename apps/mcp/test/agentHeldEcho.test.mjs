@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { withoutHeldEcho } from "../src/agent/heldEcho.js";
+import { withoutHeldEcho, withoutWaitTalk } from "../src/agent/heldEcho.js";
 
 const COPY =
   "From: seyi@example.com\nTo: luciana@example.com\nSubject: RE: Bowling, 11.06.26\n\nHi Luciana,\n\n" +
@@ -32,4 +32,15 @@ test("nothing is touched when no email was held", () => {
 
 test("an answer that was only the copy becomes empty, so the ask goes alone", () => {
   assert.equal(withoutHeldEcho("Here it is:\n\nSubject: RE: Bowling\n\nHi Luciana, thanks for following up. We'd like to go with the October 30th option instead, on Friday, October 30 at 7:00 pm.", held), "");
+});
+
+test("talk of a yes waited on somewhere else comes out; the ask is right below it (2026-10-21)", () => {
+  const said = "Still waiting on the calendar yes. Check your messages from Context for the confirmation and tap it, and the event goes on today at 7.";
+  assert.equal(withoutWaitTalk(said), "");
+  assert.equal(withoutWaitTalk("Got it, Emmanuela at 7. Still waiting on your yes."), "Got it, Emmanuela at 7.");
+  assert.equal(withoutWaitTalk("I'll add Emmanuela at 7."), "I'll add Emmanuela at 7.");
+  assert.equal(
+    withoutWaitTalk("Drafted the forward of the Anthropic receipt to books@receipts.example. Say yes to the exact email I just texted you and it goes out."),
+    "Drafted the forward of the Anthropic receipt to books@receipts.example.",
+  );
 });

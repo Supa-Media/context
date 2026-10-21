@@ -161,7 +161,7 @@ function JoinForm({ id, labelled }: { id: string; labelled: boolean }) {
               aria-invalid={flow.error ? true : undefined}
             />
           </span>
-          <button type="submit" className="tx-btn" disabled={flow.submitting}>
+          <button type="submit" data-analytics-action="join" className="tx-btn" disabled={flow.submitting}>
             Sign in
           </button>
         </div>
@@ -236,7 +236,7 @@ function JoinForm({ id, labelled }: { id: string; labelled: boolean }) {
             aria-invalid={error ? true : undefined}
           />
         </span>
-        <button type="submit" className="tx-btn" disabled={flow.submitting}>
+        <button type="submit" data-analytics-action="join" className="tx-btn" disabled={flow.submitting}>
           Join
         </button>
       </div>

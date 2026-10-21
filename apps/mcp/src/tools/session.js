@@ -585,9 +585,7 @@ async function routeToolCall(params, store, session, routed) {
     RELOCATING_TOOLS.has(params?.name) ? asRelocation(targetStore, dispatch) : dispatch()
   );
   // Whether the model now holds words from outside the workspace, for the turn's ledger.
-  if (!toolIsWriting(params?.name)) {
-    recordRead(session.egress?.ledger, { name: params?.name, args, result });
-  }
+  recordRead(session.egress?.ledger, { name: params?.name, args, result, writing: toolIsWriting(params?.name) });
   noteAgentActivity(targetStore, params?.name, args, result);
   result = await reportingChaos(targetStore, params?.name, args, target.scope, result);
   // When the caller joined a note's mail, the news rides on every answer.

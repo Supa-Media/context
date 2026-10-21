@@ -35,12 +35,12 @@ this folder: it is public, like the rest of the repository.
   `must hand off`, `must type`, `must choose`, `must set`, `must publish`, `must connect` and `must write` lines are checked
   from the run's record (`bench/checks.mjs`), not by the judge.
 - `tests/core.md`: the core set (decided by the owner 2026-10-14, reshaped
-  2026-10-17), nineteen basics Tex must do, each a gate like a golden task: a
+  2026-10-17), twenty basics Tex must do, each a gate like a golden task: a
   lookup, two facts, a lookup across workspaces, a missing fact, a to-do list,
   a write, a tick-off, a correction, a greeting, "are you a bot", a one-off
   reminder, a weekday routine, a privacy question with its mirror, a request
   to contact someone else, an opinion, a date range, a vague ask and an
-  emoji-toned ask. It is what `pnpm ai run texting-assistant` and the Action
+  emoji-toned ask, plus (2026-10-21) a day of the calendar. It is what `pnpm ai run texting-assistant` and the Action
   run when no test is named; `--test tasks` runs the golden tasks for a full
   round. The long set of 59 questions was retired on 2026-10-17. Its `must
   write: maya/tex/routines/once/ with at: 2026-10-09 9:00 am` lines are

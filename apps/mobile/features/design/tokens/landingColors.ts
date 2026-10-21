@@ -37,24 +37,31 @@ export const texColors = {
 } as const;
 
 /**
- * Page a's off-white sheet (`TexPage.web`): ink type on off-white, a grey
- * hairline and a card for the conversation with Tex. Light only (Dev,
- * 2026-10-11: the dark version read as a different page). Your texts are in
- * Tex's blue, Tex's replies in a warm grey.
+ * Page a's sheet (`NotesPage.web`), the notes page: the brand's warm Paper
+ * for the page, a lighter sheet for the Tex band, and a near-white card for
+ * the editor and the workspaces. Light only, as page a has been since
+ * 2026-10-11 (Dev: the dark version read as a different page).
  */
-export const simpleLandingColors = {
-  paper: "#F1F0EA",
-  ink: "#1C1B19",
-  ink2: "#4A4844",
-  hair: "#C9C6BC",
-  mark: "#DDD1BE",
-  card: "#FAF9F5",
+export const notesLandingColors = {
+  paper: "#EDE4D3",
+  sheet: "#F6F0E4",
+  card: "#FBF8F1",
+  hair: "#D9CFBC",
+  rule: "#E6DDCB",
+  /** The outline of a quieter button and the empty "New workspace" slot. */
+  line: "#B9AE97",
+  ink: "#16181C",
+  ink2: "#55534E",
+  /** Small print, still over 4.5:1 on Paper. */
+  ink3: "#625E57",
+  blue: texColors.light.ink,
+  /** Behind a blue word: someone editing, an AI's mark. */
+  tint: "#E3E8FA",
   /** A sign-up problem: a number or code that did not work. */
   bad: "#9A2B1F",
-  blue: texColors.light.ink,
-  /** Tex's bubble and the line under the chat's header. */
-  bubble: "#E9E7E0",
-  rule: "#E7E4DB",
+  /** The example workspaces' badges, beside `tint`. */
+  sage: "#CFE3D5",
+  peach: "#F4D9C6",
 } as const;
 
 /**

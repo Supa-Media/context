@@ -29,6 +29,14 @@
  * already see the note, never a share link: one of those is minted only when
  * they ask for a link to send someone else.
  *
+ * A GROUP CHAT'S TURN ANSWERS WITH IT TOO (2026-10-21).
+ *
+ * Jhon asked Tex in a group for "a share link for the read me" and was told
+ * none could be made there. A group turn reads only the one workspace every
+ * person in the chat is a member of, at its team tier, so the app link to a
+ * note it read opens for each of them and for nobody else. A share link is
+ * still the owner's, minted one to one.
+ *
  * No link when the deployment has no https `APP_ORIGIN`, when the context's
  * name is not known, or when the call did not succeed: a guessed link opens
  * nothing, and that is worse than none.
@@ -60,8 +68,10 @@ export function noteLinkUrl(origin, slug, path) {
 function slugFor(args, contexts) {
   const named = typeof args?.context === "string" ? args.context.trim().replace(/^@/, "") : "";
   if (named !== "") return named;
+  // A context may be listed by its address ("@band"); the link names it once.
   const own = (contexts || []).find((entry) => entry?.current)?.name;
-  return typeof own === "string" && own !== "" ? own : null;
+  const slug = typeof own === "string" ? own.trim().replace(/^@/, "") : "";
+  return slug !== "" ? slug : null;
 }
 
 /** The first text block with the link put in, or null when the call has none to give. */
@@ -95,4 +105,65 @@ export function withNoteLinks(callTool, { origin, contexts }) {
     if (!text) return result;
     return { ...result, content: [{ ...first, text }, ...result.content.slice(1)] };
   };
+}
+
+/**
+ * A NOTE LINK THEY TEXT IS THE NOTE (owner's report, 2026-10-21).
+ *
+ * Dev pasted the context.lc link of yesterday's meeting note after Tex said
+ * it had no notes from the call, and Tex answered about the link's preview
+ * picture ("just a hashtag icon", "the Context banner") before it read the
+ * note. So a link of this deployment's own to a note, in either shape the app
+ * opens (`/note/@slug/<path>`, `/console/@slug?note=<path>`), is named to the
+ * turn as the note it points at, to be read with the turn's own tools. It
+ * grants nothing: the read goes through the dispatcher and `canSee` like any
+ * other, so a link to a note they cannot see reads as one that is not there.
+ */
+const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/i;
+const MAX_SENT_LINKS = 3;
+
+/** The notes a text links to, as `{ slug, path }`, read off this deployment's own addresses only. */
+export function sentNoteLinks(text, origin) {
+  if (origin === null || typeof text !== "string") return [];
+  const host = new URL(origin).host;
+  const found = [];
+  for (const [address] of text.matchAll(/https?:\/\/[^\s<>"]+/gi)) {
+    let url;
+    try {
+      url = new URL(address.replace(/[).,;!?]+$/, ""));
+    } catch {
+      continue;
+    }
+    if (url.host !== host) continue;
+    const segments = url.pathname.split("/").filter(Boolean);
+    let slug = null;
+    let path = null;
+    try {
+      if (segments[0] === "note" && segments[1]?.startsWith("@")) {
+        slug = decodeURIComponent(segments[1].slice(1));
+        path = segments.slice(2).map(decodeURIComponent).join("/");
+      } else if (segments[0] === "console" && segments[1]?.startsWith("@") && url.searchParams.has("note")) {
+        slug = decodeURIComponent(segments[1].slice(1));
+        path = (url.searchParams.get("note") ?? "").split("#")[0];
+      }
+    } catch {
+      continue;
+    }
+    if (!slug || !SLUG.test(slug) || !path || path.length > 512 || path.split("/").some((part) => part === "" || part === "." || part === "..")) continue;
+    if (!found.some((link) => link.slug === slug && link.path === path)) found.push({ slug, path });
+    if (found.length === MAX_SENT_LINKS) break;
+  }
+  return found;
+}
+
+/** What the turn is told about the note links in their text, or "". */
+export function sentNoteLinksLine(text, origin) {
+  const links = sentNoteLinks(text, origin);
+  if (links.length === 0) return "";
+  const named = links.map(({ slug, path }) => `fetch id "${path}" with context "@${slug}"`).join("; ");
+  return (
+    `Their text links to ${links.length === 1 ? "a note" : "notes"} in Context, not a web page: ${named}. ` +
+    "Read it that way before you answer, never in the browser, and answer from what it says. " +
+    "A picture that came with the link is only its preview card: don't mention it."
+  );
 }

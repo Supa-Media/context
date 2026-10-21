@@ -89,7 +89,7 @@ export async function runEmailGateChecks(check) {
         pending().length === 1 &&
         asked.body?.asked === 1 &&
         (asked.body?.answer ?? "").includes(
-          "Here's the email I'd send:\n\nFrom: seyi@gmail.example\nTo: jo@example.com\nSubject: Re: Thursday\n\nHi Jo,\n\nThursday at 3 works for me.\n\nSeyi\n\nLook good? Just say yes and I'll send it",
+          "Here's the email I'd send:\n\nFrom: seyi@gmail.example\nTo: jo@example.com\nSubject: Re: Thursday\n\nHi Jo,\n\nThursday at 3 works for me.\n\nSeyi\n\nGive it a 👍 and I'll send it",
         ),
     );
     check(
@@ -202,7 +202,7 @@ export async function runEmailGateChecks(check) {
 
     model.install([{ toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "Re: ok" } }] }, verdict("yes"), { text: "Drafted." }]);
     await ask(env, TOKEN_TEXTS, "email Jo that it's fine");
-    model.install([{ text: "Want me to send it? Reply YES." }]);
+    model.install([{ text: "It goes when you say so. Reply YES." }]);
     before = sends().length;
     const okay = await ask(env, TOKEN_TEXTS, "ok");
     model.install([{ text: "Yes what?" }]);
@@ -373,6 +373,119 @@ export async function runEmailGateChecks(check) {
         onceText.startsWith("Her quotes were for 6:30, so she may send a new one for 7."),
     );
     await ask(env, TOKEN_TEXTS, "no");
+
+    /* ---------------- a forward, attachments and all (Dev2, 2026-10-21) ---------------- */
+
+    // "Want me to send Relay the Anthropic receipt?" "yeah" "I can't attach the PDF from here, so forward it yourself."
+    const FORWARD = {
+      to: ["books@receipts.example"],
+      subject: "Fwd: Your receipt from Anthropic #2508-0278-2435",
+      body: "Receipt for the Supa Media books.",
+      forward: "email:seyi@gmail.example/18rcpt",
+    };
+    controlPlane.flags.mailMessage = {
+      address: "seyi@gmail.example",
+      id: "18rcpt",
+      from: "Anthropic <invoice@billing.example>",
+      subject: "Your receipt from Anthropic #2508-0278-2435",
+      body: "Paid $212.00.",
+      attachments: [{ filename: "Receipt-2508-0278-2435.pdf", contentType: "application/pdf" }],
+    };
+    model.install([{ toolCalls: [{ name: "send", args: { action: "email", args: FORWARD } }] }, verdict("yes"), { text: "I drafted the forward." }]);
+    const sentBefore = sends().length;
+    const forwardAsk = await ask(env, TOKEN_TEXTS, "forward the anthropic receipt to books@receipts.example");
+    check(
+      "a forward is shown with the email it passes on and every attachment by name, before the yes",
+      sends().length === sentBefore &&
+        (forwardAsk.body?.verbatim?.[0] ?? "").includes(
+          'Receipt for the Supa Media books.\n\n(Below this goes the forwarded email from Anthropic <invoice@billing.example>, "Your receipt from Anthropic #2508-0278-2435", with its attachment Receipt-2508-0278-2435.pdf.)',
+        ),
+    );
+    await ask(env, TOKEN_TEXTS, "yes");
+    check(
+      "its YES sends it from that mailbox, naming the email to forward",
+      sends().at(-1)?.email?.forward === "18rcpt" && sends().at(-1)?.email?.from === "seyi@gmail.example",
+    );
+    controlPlane.flags.mailMessage = null;
+    const pendingBeforeGone = pending().length;
+    model.install([{ toolCalls: [{ name: "send", args: { action: "email", args: { ...FORWARD, subject: "Fwd: gone" } } }] }, { text: "It's gone." }]);
+    const gone = await ask(env, TOKEN_TEXTS, "forward the anthropic receipt to books@receipts.example");
+    check(
+      "a forward of an email Gmail no longer has is never put to the person",
+      gone.status === 200 && pending().length === pendingBeforeGone && JSON.stringify(model.requests.at(-1)?.messages ?? []).includes("no longer has the email to forward"),
+    );
+    check(
+      "a forward goes from the mailbox it is in, and is never also a reply",
+      /goes from the mailbox the email is in/.test(readEmail({ ...FORWARD, from: "other@example.com" }).error ?? "") &&
+        /not both/.test(readEmail({ ...FORWARD, in_reply_to: "email:seyi@gmail.example/18x" }).error ?? "") &&
+        readEmail(FORWARD).email?.forward === "18rcpt" && readEmail(FORWARD).email?.from === "seyi@gmail.example",
+    );
+
+    /* ---- the owner's retry, 2026-10-21 2:25 PM: Tex's own preview, a 👍 and a "yes" that only raised the hold ---- */
+
+    controlPlane.flags.mailMessage = {
+      address: "seyi@gmail.example",
+      id: "18rcpt",
+      from: "Anthropic <invoice@billing.example>",
+      subject: "Your receipt from Anthropic #2508-0278-2435",
+      body: "Paid $212.00.",
+      attachments: [{ filename: "Receipt-2508-0278-2435.pdf", contentType: "application/pdf" }],
+    };
+    const RETRY = { ...FORWARD, body: "Forwarding the Anthropic receipt #2508-0278-2435 for the $212.00 Max plan, paid today." };
+    model.install([
+      {
+        text:
+          "Found it, the receipt from today in your Supa inbox. I can forward it with its PDF attached. Here's the email:\n\n" +
+          "To: books@receipts.example\nForward of: Your receipt from Anthropic #2508-0278-2435\n\nSay yes and I'll send it.",
+      },
+      { toolCalls: [{ name: "send", args: { action: "email", args: RETRY } }] },
+      verdict("yes"),
+      { text: "Drafted the forward of the Anthropic receipt to books@receipts.example. Say yes to the exact email I just texted you and it goes out." },
+    ]);
+    const retrySends = sends().length;
+    const retried = await ask(env, TOKEN_TEXTS, "do you want to try this again, you should have this functionality to forward pdfs");
+    const retryAnswer = String(retried.body?.answer ?? "");
+    const retryAsk = retried.body?.verbatim?.[0] ?? "";
+    check(
+      "a preview of a forward in Tex's own words is held as it is shown, and asked for once",
+      sends().length === retrySends &&
+        retryAsk.startsWith("Here's the email I'd send:") &&
+        retryAsk.includes("Receipt-2508-0278-2435.pdf") &&
+        !retryAnswer.includes("Forward of:") &&
+        !/say yes to the exact|just texted you/i.test(retryAnswer) &&
+        retryAnswer.split("Give it a 👍").length === 2,
+    );
+    const askedModel = model.requests.length;
+    const liked = await request(env, TOKEN_TEXTS, "/agent", { question: "👍", quoted: retryAsk, tapback: "Liked", conversation: "texts" });
+    check(
+      "the 👍 on that first preview sends the forward, with no model and no second ask",
+      model.requests.length === askedModel &&
+        sends().length === retrySends + 1 &&
+        sends().at(-1)?.email?.forward === "18rcpt" &&
+        /^Done, I sent an email/.test(liked.body?.answer ?? ""),
+    );
+    controlPlane.flags.mailMessage = null;
+
+    // The same for a plain email: Tex's own "To: … Subject: … Say yes and I'll send it." raises the hold, and one "yes" sends it.
+    const NOTE = { to: ["sam@example.com"], subject: "Re: Saturday", body: "Hi Sam,\n\nSaturday works.\n\nSeyi" };
+    model.install([
+      { text: "Here's the email:\n\nTo: sam@example.com\nSubject: Re: Saturday\n\nHi Sam, Saturday works.\n\nSay yes and I'll send it." },
+      { toolCalls: [{ name: "send_email", args: NOTE }] },
+      verdict("yes"),
+      { text: "I wrote Sam that Saturday works." },
+    ]);
+    const plainSends = sends().length;
+    const previewed = await ask(env, TOKEN_TEXTS, "tell sam saturday works");
+    const plainModel = model.requests.length;
+    const sentYes = await ask(env, TOKEN_TEXTS, "yes");
+    check(
+      "a preview of an email in Tex's own words is held as it is shown, and the first yes sends it",
+      (previewed.body?.verbatim?.[0] ?? "").startsWith("Here's the email I'd send:") &&
+        model.requests.length === plainModel &&
+        sends().length === plainSends + 1 &&
+        sends().at(-1)?.email?.subject === "Re: Saturday" &&
+        /^Done, I sent an email/.test(sentYes.body?.answer ?? ""),
+    );
 
   } finally {
     world.restore();

@@ -27,6 +27,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Platform credentials seal to a scope, customers' seal to a workspace
 - Anything needed before this table can be read cannot live in it
 - Usage is counted, never logged
+- [Product analytics records outcomes and named interactions](./observability/product-analytics.md) (2026-10-21)
 - [Token usage at the MCP boundary](./observability/token-usage.md) (2026-10-08)
 - Version history is the customer's object versioning, not a copy we keep
 - Managed storage: a bucket we run, in an account that holds nothing else
@@ -295,6 +296,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A website page can name a folder, and the folder narrows
 - The homepage's cast is written in its pages, and plays through real presence
 - [The front door is three landing pages under test](./websites/landing-pages.md)
+- [The website folder can be nested](./websites/nested-folder.md)
 
 ## [Release communication](./release-communication.md)
 
@@ -544,6 +546,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Mail goes out through the person's own Gmail, and waits for Google (owner, 2026-10-17)
 - A hold is armed for a texted yes only once its ask goes out whole
 - A draft saved in the person's Gmail needs no yes (owner, 2026-10-19)
+- A standing forward: one 👍 lets a routine keep forwarding one kind of mail (owner, 2026-10-21)
 - No calendar change is made without the person's yes to that exact change (owner, 2026-10-17)
 - A move or a cancel names the event by its title and start, and must match one
 - Never an event with guests
@@ -704,6 +707,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [A bug filed by text goes to the team only on the person's YES, texts included (2026-10-17)](./texting-assistant/bug-reports.md)
 - [A texted write answers with the note's link, and an ask sounds like a person (2026-10-18)](./texting-assistant/note-links.md)
 - [Tex in a group chat answers from the one shared workspace everyone in it is a member of (2026-10-20)](./texting-assistant/groups.md)
+- [A thumbs up on an ask is the yes, once it has stayed ten seconds (2026-10-21)](./texting-assistant/thumbs-up.md)
 - [A texted read answers with it too, and an asked-for link is always given (2026-10-20)](./texting-assistant/note-links.md)
 - [Tex makes pictures: graphics as a page, photos with Nano Banana (2026-10-19)](./texting-assistant/pictures.md)
 - Staging has a texts simulator, and nothing else does
@@ -733,6 +737,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Tex keeps a daily transcript in the person's own tex/ folder (2026-10-15)](./texting-assistant/transcripts.md)
 - [Tex dreams once a night, and keeps `tex/about-me.md` current (2026-10-15)](./texting-assistant/dreams.md)
 - [Tex checks in on its own, three times a day, and texts only when it is worth it (2026-10-17)](./texting-assistant/heartbeat.md)
+- [A texted answer never says a change was made that wasn't (2026-10-21)](./texting-assistant/honest-answers.md)
+- [An offer of a calendar change or an email is held when it is made (2026-10-21)](./texting-assistant/honest-answers.md#an-offer-of-a-calendar-change-or-an-email-is-held-when-it-is-made)
 - [Any of the person's agents can ask Tex to get their attention; their own tolerance decides (2026-10-17)](./texting-assistant/attention.md)
 - [A first dream right away, asked for by the person's own agent (2026-10-17)](./texting-assistant/dreams.md)
 - [Tex writes down how it did a hard job, as a learned skill (2026-10-19)](./texting-assistant/learned-skills.md)
@@ -741,6 +747,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Tex keeps its thinking from one step to the next (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Tex's jobs are task notes on the project's board (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Tex hands a whole sub-project to another agent, and a supervisor loop keeps it on track (2026-10-17)](./texting-assistant/delegation.md)
+- [A long ask runs as a background job, so Tex works on several things at once (2026-10-21)](./texting-assistant/background-jobs.md)
+- [A running job can be steered, stopped and audited from the chat (2026-10-21)](./texting-assistant/background-jobs.md)
 - [Open web lifts the browser's capability limits (2026-10-14)](./texting-assistant/open-web-browser.md)
 - The agent searches the web on its own
 - What the assistant is told lives in `@context-lc`, where staff can edit it
@@ -769,3 +777,4 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Who a connection acts as follows from the workspace's kind
 - A post waits for the person's yes; a read or a reaction does not
 - The Slack app
+- An app with an official MCP server connects through it (2026-10-21)

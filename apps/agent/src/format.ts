@@ -66,3 +66,21 @@ export function textsFromAnswer(answer: string): string[] {
   const sent = texts.length > 0 ? texts : [answer.trim()];
   return [...sent, ...links.slice(0, MAX_LINKS)].filter((part) => part.length > 0);
 }
+
+/**
+ * An answer as texts, with each `verbatim` part (an ask the person approves)
+ * taken out and sent last, whole and exactly as written: formatting drops
+ * links and lines, and they may allow only what they read
+ * (`apps/mcp/src/tools/emailGate.js`).
+ */
+export function textsWithExact(answer: string, verbatim: readonly string[] = []): string[] {
+  let rest = answer;
+  const exact: string[] = [];
+  for (const part of verbatim) {
+    const at = rest.indexOf(part);
+    if (at === -1) continue;
+    rest = `${rest.slice(0, at)}\n\n${rest.slice(at + part.length)}`;
+    exact.push(part.trim());
+  }
+  return [...(rest.trim() ? textsFromAnswer(rest) : []), ...exact];
+}

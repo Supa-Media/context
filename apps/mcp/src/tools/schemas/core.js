@@ -78,7 +78,7 @@ export function coreToolDefinitions() {
             description:
               "A note path or search result id; a file path (a PDF, Word, Excel or picture file, such as an email attachment a note links) returns the words in it; " +
               "a folder path (ending in /) lists it; orient lists the other ids " +
-              "(meetings:, messages:, contacts:, activity:, changes:, proposals:, links:, vault:, and email:<address>/<id> from an email search).",
+              "(meetings:, messages:, contacts:, activity:, changes:, proposals:, links:, vault:, apps:, and email:<address>/<id> from an email search).",
           },
           args: {
             type: "object",

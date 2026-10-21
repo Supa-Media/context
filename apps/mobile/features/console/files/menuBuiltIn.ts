@@ -15,11 +15,12 @@
  *    here nobody lacks one. A Move to trash that silently vanished from one
  *    folder's menu reads as a bug, where a dimmed one with the reason under it
  *    answers the question before it is asked (the owner's mockup, 2026-10-08).
- *  - **Website keeps its name and place**, because its site is published from
- *    it by name. Rename and Move to are dimmed with that reason, the same way.
+ *  - **Website moves like the rest** since 2026-10-21: the site keeps naming
+ *    its pages `website/...` and reads them wherever the folder is
+ *    (`apps/convex/functions/lib/websites/siteRoot.ts`).
  *  - **Tex's own folders stay where they are** (transcripts, routines, ...;
  *    `TEX_PARTS`, owner 2026-10-21): Rename and Move to are dimmed with the
- *    reason, as the website folder's are.
+ *    reason, Tex filing into each by name.
  *  - **No built-in folder takes another icon**: its job's drawn icon is the
  *    point (board 9), so "Set icon…" is simply absent.
  */
@@ -32,8 +33,6 @@ import type { MenuItem } from "./menuItem";
 import { makeItem } from "./menuMake";
 
 export const BUILT_IN_DETAIL = "Built in. It can be renamed or moved, but not deleted, so your AI always knows where things go.";
-
-export const WEBSITE_DETAIL = "Your website is published from this folder, so it keeps its name and place.";
 
 export const TEX_PART_DETAIL = "Tex files into this folder by its name, so it keeps its name and place.";
 
@@ -117,24 +116,19 @@ export function rowJob(
 
 /** What a folder's job holds it to. */
 export interface BuiltInLocks {
-  /** Rename and move are refused: the website folder. */
-  fixed: boolean;
   /** Archive and trash are refused: the five main folders. */
   kept: boolean;
 }
 
 export function builtInLocks(job: RowRole | null): BuiltInLocks {
-  return {
-    fixed: job === "website",
-    kept: job !== null && (MAIN_ROLES as readonly string[]).includes(job),
-  };
+  return { kept: job !== null && (MAIN_ROLES as readonly string[]).includes(job) };
 }
 
-/** Rename and Move to, dimmed, the second carrying the reason: the website folder, or one of Tex's own. */
-export function fixedItems(context: MenuContext, detail = WEBSITE_DETAIL): MenuItem[] {
+/** Rename and Move to, dimmed, the second carrying the reason: one of Tex's own folders. */
+export function fixedItems(context: MenuContext): MenuItem[] {
   return [
     makeItem(context, "rename", "Rename…", { disabled: true }),
-    makeItem(context, "moveTo", "Move to…", { disabled: true, detail }),
+    makeItem(context, "moveTo", "Move to…", { disabled: true, detail: TEX_PART_DETAIL }),
   ];
 }
 

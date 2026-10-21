@@ -38,8 +38,9 @@ import {
 import { prepareAttachments, type ImagesLike } from "./attachments";
 import { handleCandidate, setupReply, textSetup } from "./setup";
 import type { Told } from "./told";
-import { textsFromAnswer } from "./format";
+import { textsFromAnswer, textsWithExact } from "./format";
 import type { OutgoingPicture } from "./outgoing";
+import type { JobSteerAsk, RunningJob, StartedJob } from "./jobs";
 import type { Inbound } from "./inbound";
 
 /**
@@ -86,6 +87,14 @@ export type ReplyDeps = {
    * texts it took in, once it answered. Absent, a text waits its turn.
    */
   steer?: { turn: string; onSession: (accessToken: string) => void; onSteered: (ids: string[]) => Promise<void> };
+  /**
+   * The chat's background jobs, shown to the turn, and handed the ones it
+   * started (`jobs.ts`). Absent, the turn is offered none.
+   */
+  running?: RunningJob[];
+  onJobs?: (jobs: StartedJob[]) => Promise<void>;
+  /** Handed the running jobs this text was passed to (`jobs.ts`). */
+  onSteers?: (asks: JobSteerAsk[]) => Promise<void>;
 };
 
 /** Thrown, with `retry`, when nothing ran and the text can be answered again later. */
@@ -215,25 +224,19 @@ async function answer(message: Message, deps: ReplyDeps): Promise<string | strin
       message.quoted ?? (message.threaded ? "" : undefined),
       deps.told,
       message.threadStart,
-      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn },
+      { tapback: message.tapback, reacted: message.reacted, turn: deps.steer?.turn, running: deps.running },
     );
     if (answer.kind === "answer") {
       await deps.onToldDelivered?.();
+      if (answer.jobs) await deps.onJobs?.(answer.jobs);
+      if (answer.steers) await deps.onSteers?.(answer.steers);
       if (answer.steered) await deps.steer?.onSteered(answer.steered);
       if (answer.pictures.length > 0) deps.onPictures?.(answer.pictures);
       if (!answer.text) return [];
       // What the person is asked to approve goes out exactly as the gateway
       // wrote it: formatting drops links and lines, and they may allow only
       // what they read (`apps/mcp/src/tools/emailGate.js`).
-      let rest = answer.text;
-      const exact: string[] = [];
-      for (const part of answer.verbatim ?? []) {
-        const at = rest.indexOf(part);
-        if (at === -1) continue;
-        rest = `${rest.slice(0, at)}\n\n${rest.slice(at + part.length)}`;
-        exact.push(part.trim());
-      }
-      return [...(rest.trim() ? textsFromAnswer(rest) : []), ...exact];
+      return textsWithExact(answer.text, answer.verbatim);
     }
     if (answer.kind === "no_model") return COPY.noModel;
     if (answer.kind === "daily_limit") return COPY.dailyLimit;

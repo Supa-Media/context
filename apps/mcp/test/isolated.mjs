@@ -79,6 +79,7 @@ import { runAgentBrowseChecks } from "./agentBrowse.test.mjs";
 import { runAgentRoutineChecks } from "./agentRoutine.test.mjs";
 import { runAgentRoutineTexChecks } from "./agentRoutineTex.test.mjs";
 import { runAgentDelegateRouteChecks } from "./agentDelegateRoute.test.mjs";
+import { runAgentBackgroundRouteChecks } from "./agentBackgroundRoute.test.mjs";
 import { runAgentTranscriptChecks } from "./agentTranscriptRoute.test.mjs";
 import { runAgentDreamChecks } from "./agentDream.test.mjs";
 import { runAgentHeartbeatChecks } from "./agentHeartbeat.test.mjs";
@@ -90,6 +91,7 @@ import { runEmailGateChecks } from "./emailGate.test.mjs";
 import { runEmailDraftChecks } from "./emailDraft.test.mjs";
 import { runEmailReadChecks } from "./emailRead.test.mjs";
 import { runCalendarGateChecks } from "./calendarGate.test.mjs";
+import { runForwardRuleChecks } from "./forwardRule.test.mjs";
 import { runReportGateChecks } from "./reportGate.test.mjs";
 import { runAgentEgressJudgeChecks } from "./agentEgressJudge.test.mjs";
 import { runAgentSearchChecks } from "./agentSearch.test.mjs";
@@ -134,6 +136,8 @@ const SUITES = [
   ["runAgentRoutineTexChecks", () => runAgentRoutineTexChecks(check)],
   // Tex hands a job to another agent, and its supervisor routine keeps it on track.
   ["runAgentDelegateRouteChecks", () => runAgentDelegateRouteChecks(check)],
+  // Tex runs long asks as background jobs, several at once (`background.js`).
+  ["runAgentBackgroundRouteChecks", () => runAgentBackgroundRouteChecks(check)],
   // Tex's daily transcript in tex/transcripts/, written as a text is answered.
   ["runAgentTranscriptChecks", () => runAgentTranscriptChecks(check)],
   ["runAgentDreamChecks", () => runAgentDreamChecks(check)],
@@ -152,6 +156,7 @@ const SUITES = [
   ["runEmailReadChecks", () => runEmailReadChecks(check)],
   // The calendar gate: every change waits for the person's yes to it.
   ["runCalendarGateChecks", () => runCalendarGateChecks(check)],
+  ["runForwardRuleChecks", () => runForwardRuleChecks(check)],
   // The bug-report gate: a report filed by text waits for the person's YES, and only then carries their texts.
   ["runReportGateChecks", () => runReportGateChecks(check)],
   // The gate with a judge: the person's words, read by a small model, decide (SHARING_JUDGE = "on").

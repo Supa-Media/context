@@ -18,6 +18,7 @@ import { toolReportProblem } from "./reportProblem.js";
 import { toolSaveEmailDraft, toolSendEmail } from "./email.js";
 import { toolReadEmail, toolSearchEmail } from "./emailRead.js";
 import { toolCalendarEvent } from "./calendarWrite.js";
+import { toolForwardRule } from "./forwardRule.js";
 import { toolApplyLayout, toolConnectGoogle, toolCreateWorkspace, toolInviteMember } from "./workspaces.js";
 import { toolDreamNow } from "./dreamNow.js";
 import { toolNotifyMe } from "./attention.js";
@@ -33,6 +34,7 @@ import {
   toolReadContact,
 } from "./communications.js";
 import { toolListMeetings, toolReadMeeting } from "./meetings.js";
+import { toolReadCalendar } from "./calendarRead.js";
 import { toolListNotes, toolReadNote } from "./notes/read.js";
 import { toolListPlugins } from "../plugins/listPluginsTool.js";
 import { toolListProposals, toolReadProposal } from "./proposals.js";
@@ -58,6 +60,7 @@ import { toolMailNote, toolReadMail } from "./notes/mail.js";
 import { toolSiteAction } from "./notes/site.js";
 import { toolEvaluateLists } from "./evaluateLists.js";
 import { toolConnectApp, toolSlackApi } from "./connectors.js";
+import { toolAppChange, toolAppRead } from "./apps.js";
 import { moveFinished, moveJobActive, moveJobKey } from "../moves/jobs.js";
 import { getWithLegacyFallback } from "../storageLayout.js";
 import { servedListingStore, TreeUnavailable } from "../tree/served.js";
@@ -91,6 +94,7 @@ export const TREE_LISTING_TOOLS = new Set([
   "list_notes",
   "evaluate_lists",
   "list_meetings",
+  "read_calendar",
   "list_channel_days",
   "list_contacts",
 ]);
@@ -144,6 +148,8 @@ async function runTool(name, args, store, scope) {
       return store.suggestDestination(args);
     case "list_meetings":
       return toolListMeetings(store, scope, rules, overrides, args.limit);
+    case "read_calendar":
+      return toolReadCalendar(store, scope, rules, overrides, args);
     case "read_meeting":
       return toolReadMeeting(store, scope, rules, overrides, args);
     case "list_channel_days":
@@ -287,6 +293,8 @@ async function runTool(name, args, store, scope) {
       return toolReadEmail(store, args);
     case "calendar_event":
       return toolCalendarEvent(store, args);
+    case "forward_rule":
+      return toolForwardRule(store, args);
     case "create_workspace":
       return toolCreateWorkspace(store, args);
     case "apply_layout":
@@ -297,6 +305,10 @@ async function runTool(name, args, store, scope) {
       return toolConnectApp(store, args);
     case "slack_api":
       return toolSlackApi(store, args);
+    case "app_read":
+      return toolAppRead(store, args);
+    case "app_change":
+      return toolAppChange(store, args);
     case "invite_member":
       return toolInviteMember(store, args);
     case "dream_now":

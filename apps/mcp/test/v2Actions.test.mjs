@@ -259,12 +259,30 @@ test("send calendar is calendar_event with its args as they are", () => {
   });
 });
 
+test("send forward_rule is forward_rule with its args as they are", () => {
+  const args = { action: "start", routine: "tex/routines/hourly/forward-receipts.md", to: "books@receipts.example", about: "receipts" };
+  assert.deepEqual(translated("send", { action: "forward_rule", args }), {
+    name: "forward_rule",
+    arguments: args,
+    v2: { tool: "send", action: "forward_rule" },
+  });
+});
+
 test("send slack is slack_api with its args as they are", () => {
   const args = { method: "chat.postMessage", args: { channel: "C1", text: "Hi" } };
   assert.deepEqual(translated("send", { action: "slack", args }), {
     name: "slack_api",
     arguments: args,
     v2: { tool: "send", action: "slack" },
+  });
+});
+
+test("send app is app_change with its args as they are", () => {
+  const args = { app: "linear", tool: "create_issue", arguments: { title: "Fix login" } };
+  assert.deepEqual(translated("send", { action: "app", args }), {
+    name: "app_change",
+    arguments: args,
+    v2: { tool: "send", action: "app" },
   });
 });
 
@@ -394,7 +412,7 @@ test("every row of ACTIONS names a tool, and every row is covered above", () => 
   const covered = new Set([
     ...["write.save", "write.comment", "write.mail", "write.upload", "write.remember", "write.propose", "write.answer", "write.update_answer", "write.retract_answer", "write.vote", "write.save_session", "write.report_problem"],
     ...MANAGE.map(([action]) => `manage.${action}`),
-    ...["manage.website", "send.api", "send.email", "send.email_draft", "send.calendar", "send.notify", "send.slack"],
+    ...["manage.website", "send.api", "send.email", "send.email_draft", "send.calendar", "send.forward_rule", "send.notify", "send.slack", "send.app"],
   ]);
   assert.deepEqual(rows.filter((row) => !covered.has(row)), []);
   assert.deepEqual([...covered].filter((row) => !rows.includes(row)), []);

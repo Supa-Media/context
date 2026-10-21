@@ -206,8 +206,12 @@ describe("what the chat reaches", () => {
     const t = setupTest();
     const { bo } = await crew(t);
     await createWorkspace(t, bo.userId, "bos-own", { kind: "shared" });
-    expect(await turn(t, ADA, [ADA, BO, CY, LINE], { command: { kind: "use", slug: "bos-own" } })).toEqual({ status: "not_shared" });
-    expect(await turn(t, ADA, [ADA, BO, CY, LINE], { command: { kind: "use", slug: "nowhere" } })).toEqual({ status: "not_shared" });
+    // The group chat of 2026-10-21: the no names the workspaces the chat can use, and only those.
+    const shared = (await turn(t, ADA, [ADA, BO, CY, LINE], { command: { kind: "use", slug: "bos-own" } })) as { status: string; slugs: string[] };
+    expect(shared.status).toBe("not_shared");
+    expect(shared.slugs.length).toBeGreaterThan(0);
+    expect(shared.slugs).not.toContain("bos-own");
+    expect(await turn(t, ADA, [ADA, BO, CY, LINE], { command: { kind: "use", slug: "nowhere" } })).toEqual(shared);
   });
 
   test("a bound workspace someone new doesn't share stops being used", async () => {

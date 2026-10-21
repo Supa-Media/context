@@ -78,7 +78,17 @@ export function readEmail(args) {
       return { error: `A reply goes from the mailbox the email is in: leave from out, or make it ${reply.address}.` };
     }
   }
-  const sender = reply ? reply.address : from.list[0];
+  // A forward names the email it passes on, the same way, and goes from that email's mailbox too.
+  let forward = null;
+  if (args?.forward !== undefined) {
+    forward = parseEmailId(typeof args.forward === "string" ? args.forward.trim() : "");
+    if (forward === null) return { error: "forward is the email:<address>/<id> id search_email gave for the email to pass on." };
+    if (reply !== null) return { error: "An email either answers one (in_reply_to) or forwards one (forward), not both." };
+    if (from.list.length === 1 && from.list[0] !== forward.address) {
+      return { error: `A forward goes from the mailbox the email is in: leave from out, or make it ${forward.address}.` };
+    }
+  }
+  const sender = reply ? reply.address : forward ? forward.address : from.list[0];
   return {
     email: {
       ...(sender ? { from: sender } : {}),
@@ -87,12 +97,17 @@ export function readEmail(args) {
       subject,
       body,
       ...(reply ? { replyTo: reply.messageId } : {}),
+      ...(forward ? { forward: forward.messageId } : {}),
     },
   };
 }
 
-/** The email exactly as the person reads it before they say yes. */
-export function emailCopy(email) {
+/**
+ * The email exactly as the person reads it before they say yes. A forward
+ * also says what goes below their words: the forwarded email (`forwarded`,
+ * read by `emailGate.js`) and each attachment by name.
+ */
+export function emailCopy(email, forwarded = null) {
   return [
     ...(email.from ? [`From: ${email.from}`] : []),
     `To: ${email.to.join(", ")}`,
@@ -101,7 +116,18 @@ export function emailCopy(email) {
     ...(email.replyTo ? ["(A reply inside the existing email thread.)"] : []),
     "",
     email.body,
+    ...(email.forward ? ["", forwardedLine(forwarded)] : []),
   ].join("\n");
+}
+
+function forwardedLine(forwarded) {
+  const subject = String(forwarded?.subject ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
+  const sender = String(forwarded?.from ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
+  const names = (Array.isArray(forwarded?.attachments) ? forwarded.attachments : [])
+    .map((file) => String(file?.filename ?? "").replace(/\s+/g, " ").trim().slice(0, 80))
+    .filter(Boolean);
+  const files = names.length === 0 ? "it has no attachments" : `with ${names.length === 1 ? "its attachment" : "its attachments"} ${names.join(", ")}`;
+  return `(Below this goes the forwarded email${sender ? ` from ${sender}` : ""}${subject ? `, "${subject}"` : ""}, ${files}.)`;
 }
 
 /** One line for the approvals list and the "Done, I …" reply (`agent/doneLine.js`). */
@@ -122,6 +148,8 @@ export const REFUSED = {
   recipient_limit: "Not sent: the person has already emailed one of these addresses 3 times today through Context.",
   not_configured: "Not sent: this Context deployment does not send email.",
   reply_not_found: "Not sent: Gmail no longer has the email this replies to, or it has no thread to reply in. Search for it again.",
+  forward_not_found: "Not sent: Gmail no longer has the email to forward, or one of its attachments. Search for it again.",
+  too_large: "Not sent: the email to forward is too big to send on (over 20 MB of attachments, or more than 20 files).",
   reconnect_required:
     "Not sent: the Gmail it would go from needs reconnecting, because Google stopped honouring its sign-in. Tell the person; they reconnect it with manage connect_google.",
   unavailable: "Not sent: Gmail did not take the email just now. Nothing was sent; it can be asked for again.",
@@ -151,6 +179,8 @@ export const DRAFT_REFUSED = {
   daily_limit: "Not saved: 50 drafts were saved through Context today. Give them this one to copy instead.",
   not_configured: "Not saved: this Context deployment does not save drafts.",
   reply_not_found: "Not saved: Gmail no longer has the email this replies to. Search for it again.",
+  forward_not_found: "Not saved: Gmail no longer has the email to forward, or one of its attachments. Search for it again.",
+  too_large: "Not saved: the email to forward is too big (over 20 MB of attachments, or more than 20 files).",
   reconnect_required:
     "Not saved: that Gmail needs reconnecting, because Google stopped honouring its sign-in. Tell the person; they reconnect it with manage connect_google.",
   unavailable: "Not saved: Gmail did not take the draft just now. It can be tried again.",
