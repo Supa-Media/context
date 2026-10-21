@@ -44,6 +44,7 @@ test/chaosReport.test.mjs
 test/chaosRubric.test.mjs
 test/egress.test.mjs
 test/encryptedGenerationFooter.test.mjs
+test/contextIcons.test.mjs
 test/folderIcons.test.mjs
 test/folderRoles.test.mjs
 test/gatewaySourceGuards.test.mjs

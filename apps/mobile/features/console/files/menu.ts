@@ -39,7 +39,7 @@
 import type { Clipboard } from "./clipboard";
 import type { MenuItem } from "./menuItem";
 import type { RowRole } from "@context/shared/src/folderRoles.cjs";
-import { builtInLocks, keptItems, rowJob } from "./menuBuiltIn";
+import { builtInLocks, fixedItems, isTexPartRow, keptItems, rowJob } from "./menuBuiltIn";
 import { downloadGroup, iconGroup, makeItem, orderGroup, pinGroup, tagsGroup } from "./menuMake";
 import { visibilityGroup } from "./menuVisibility";
 import { restoreTargetFor } from "./paths";
@@ -412,6 +412,7 @@ function pageItems(context: MenuContext, row: TreeRow): MenuItem[] {
   const twin = context.isTwin?.(row.path) === true;
   const job = rowJob(row, context);
   const locks = builtInLocks(job);
+  const texPart = isTexPartRow(row, context);
   return joinGroups([
     [
       makeItem(context, "newNote", "New note"),
@@ -419,8 +420,9 @@ function pageItems(context: MenuContext, row: TreeRow): MenuItem[] {
       ...pasteGroup(context, row.path),
     ],
     [
-      makeItem(context, "rename", "Rename…"),
-      makeItem(context, "moveTo", "Move to…"),
+      ...(texPart
+        ? fixedItems(context)
+        : [makeItem(context, "rename", "Rename…"), makeItem(context, "moveTo", "Move to…")]),
       ...orderGroup(context, row),
       ...pinGroup(context, row),
       ...tagsGroup(context, row),
@@ -539,6 +541,8 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
   // poisons that verb for the whole lot, like a read-only row does.
   const jobs = rows.map((row) => rowJob(row, context));
   const kept = jobs.map(builtInLocks).some((lock) => lock.kept);
+  // One of Tex's own folders keeps its name and place (`menuBuiltIn.ts`).
+  const fixed = rows.some((row) => isTexPartRow(row, context));
   const singleJob = single === null ? null : jobs[0]!;
 
   return joinGroups([
@@ -587,11 +591,13 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
     [
       ...(single === null
         ? []
-        : [
-            makeItem(context, "rename", "Rename…"),
-            ...(singleJob === null ? [makeItem(context, "duplicate", "Duplicate")] : []),
-          ]),
-      makeItem(context, "moveTo", single === null ? `Move ${items(count)} to…` : "Move to…"),
+        : fixed
+          ? fixedItems(context)
+          : [
+              makeItem(context, "rename", "Rename…"),
+              ...(singleJob === null ? [makeItem(context, "duplicate", "Duplicate")] : []),
+            ]),
+      ...(fixed ? [] : [makeItem(context, "moveTo", single === null ? `Move ${items(count)} to…` : "Move to…")]),
       ...orderGroup(context, single),
     ],
 

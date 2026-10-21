@@ -657,9 +657,9 @@ export interface FileBrowser extends BesideEditing, TrashedEditing {
    * The emoji the icon picker suggests for `path` from its name (Clef, through
    * `folderIcons.suggest`), or `null` for none. Never rejects. Absent where
    * nothing can be asked (the demo, tests), and the picker then offers only a
-   * random one.
+   * random one. With `"context"`, one of Context's own icons (`contextIconSuggest.ts`).
    */
-  suggestIcon?: (path: string) => Promise<string | null>;
+  suggestIcon?: (path: string, set?: "context") => Promise<string | null>;
   /**
    * Make one of the workspace's built-in folders (`builtInFolders.add`): an
    * extra the workspace lacks, or a main folder an older one does not have.

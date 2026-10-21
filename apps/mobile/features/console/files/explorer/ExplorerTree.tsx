@@ -119,7 +119,7 @@ export function ExplorerTree({
           workspaceId={files.contextId}
           iconOf={files.iconOf}
           onIconPress={onIconPress}
-          onIconIntent={onIconPress === undefined || files.suggestIcon === undefined ? undefined : (path) => void files.suggestIcon!(path)}
+          onIconIntent={onIconPress === undefined || files.suggestIcon === undefined ? undefined : (path) => void files.suggestIcon!(path, "context")}
           onIntent={files.prefetch}
         />
       )}
