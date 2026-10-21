@@ -30,8 +30,14 @@ import { normalizePath } from "../notes/paths.js";
  * screenshot, an email's image) the way a texted one taints its own turn, and
  * a connected app's answer — a Slack channel's messages, a profile's name, a
  * search's hits are written by whoever is in that Slack
- * (`tools/connectors.js`). `connect_app` is not one: it answers with a link
- * the gateway made, and nothing from the provider.
+ * (`tools/connectors.js`), and an app connected by its MCP server answers with
+ * its own users' issues, pages and comments (`tools/apps.js`). `connect_app`
+ * is not one: it answers with a link the gateway made, and nothing from the
+ * provider.
+ *
+ * Some of these are not read-only (`slack_api` can post, `app_change` makes a
+ * change) and still hand the model an answer, so they mark the turn even when
+ * the call counts as a write; see `recordRead`.
  */
 export const UNTRUSTED_READS = new Set([
   "read_channel_day",
@@ -42,6 +48,8 @@ export const UNTRUSTED_READS = new Set([
   "read_file",
   "read_image",
   "slack_api",
+  "app_read",
+  "app_change",
 ]);
 
 /**
@@ -86,9 +94,15 @@ export function markUntrusted(ledger) {
   if (ledger) ledger.untrusted = true;
 }
 
-/** Record whether what a read handed the model came from outside the workspace. */
-export function recordRead(ledger, { name, args, result }) {
+/**
+ * Record whether what a call handed the model came from outside the workspace.
+ * A write's answer is the gateway's own words, so it marks nothing, unless the
+ * tool is one of `UNTRUSTED_READS`: a connected app answers a change with what
+ * the app says, written by its users.
+ */
+export function recordRead(ledger, { name, args, result, writing = false }) {
   if (!ledger || !result || result.isError === true) return;
+  if (writing && !UNTRUSTED_READS.has(name)) return;
   if (LISTING_TOOLS.has(name)) {
     if (UNTRUSTED_LISTINGS.has(name)) ledger.untrusted = true;
     return;
