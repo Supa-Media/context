@@ -22,8 +22,7 @@
  * console can already see is wrong.
  */
 
-import { WEBSITE_DETAIL } from "./menuBuiltIn";
-import { jobOfPath, siblingFolders, type JobListings } from "./jobIcons/folderJobs";
+import { siblingFolders, type JobListings } from "./jobIcons/folderJobs";
 import { describeMoveProblem, moveTargetFor, parentPath } from "./paths";
 import { namesIn } from "./tree";
 import type { FolderListing } from "./types";
@@ -93,14 +92,11 @@ export function planTreeDrop(input: TreeDropInput): TreeDropPlan {
   const single = paths.length === 1 && isFolder(listings, paths[0]!) ? paths[0]! : null;
   const copying = input.copying === true;
   const zone = single === null || copying ? "into" : input.zone;
-  // Website is published from its folder by name, so it stays in its level. A copy leaves it there.
-  const fixed = !copying && paths.some((path) => jobOfPath(listings, path) === "website");
 
   if (zone === "into") {
     if (paths.some((path) => isFolder(listings, path) && within(target, path))) {
       return { kind: "refuse", reason: target === paths[0] && paths.length === 1 ? "That is the folder you are moving." : INSIDE_ITSELF };
     }
-    if (fixed) return { kind: "refuse", reason: WEBSITE_DETAIL };
     return { kind: "nest", folder: target };
   }
 
@@ -121,7 +117,6 @@ export function planTreeDrop(input: TreeDropInput): TreeDropPlan {
     return { kind: "reorder", parent, folders: serverOrder(next) };
   }
 
-  if (fixed) return { kind: "refuse", reason: WEBSITE_DETAIL };
   const problem = describeMoveProblem(from, parent, new Set(namesIn(listings, parent)));
   if (problem !== null) return { kind: "refuse", reason: problem };
   const moved = moveTargetFor(from, parent);

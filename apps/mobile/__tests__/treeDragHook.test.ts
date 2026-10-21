@@ -24,7 +24,6 @@ import type { FileBrowser } from "../features/console/files/browser";
 import type { FileBrowserOptions, Listings } from "../features/console/files/fileBrowser/types";
 import { useFolderJobs, type FolderJobsValues } from "../features/console/files/fileBrowser/useFolderJobs";
 import { useTreeDrag } from "../features/console/files/explorer/useTreeDrag";
-import { WEBSITE_DETAIL } from "../features/console/files/menuBuiltIn";
 import { NO_PICK } from "../features/console/files/selection";
 import type { FileEntry, FolderListing } from "../features/console/files/types";
 
@@ -218,15 +217,14 @@ describe("useTreeDrag", () => {
     expect(probe.placed).toEqual([]);
   });
 
-  test("Website over another level draws nothing, and the drop says why", () => {
+  test("Website moves into another level like any folder", () => {
     const probe = drag();
     act(() => probe.value().dragHandlers!.onDragStart("website"));
-    act(() => probe.value().dragHandlers!.onDragOver("Projects/alpha", [], 0.9));
-    expect(probe.value().dropTarget).toBeNull();
-    act(() => probe.value().dragHandlers!.onDrop("Projects/alpha", [], 0.9));
-    expect(probe.refused).toEqual([WEBSITE_DETAIL]);
-    expect(probe.placed).toEqual([]);
-    expect(probe.moved).toEqual([]);
+    act(() => probe.value().dragHandlers!.onDragOver("Projects", [], 0.5));
+    expect(probe.value().dropTarget).toEqual({ path: "Projects", zone: "into" });
+    act(() => probe.value().dragHandlers!.onDrop("Projects", [], 0.5));
+    expect(probe.moved).toEqual([["website", "Projects"]]);
+    expect(probe.refused).toEqual([]);
   });
 
   test("a folder dropped between its own children is refused out loud", () => {

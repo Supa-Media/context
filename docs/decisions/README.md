@@ -296,6 +296,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A website page can name a folder, and the folder narrows
 - The homepage's cast is written in its pages, and plays through real presence
 - [The front door is three landing pages under test](./websites/landing-pages.md)
+- [The website folder can be nested](./websites/nested-folder.md)
 
 ## [Release communication](./release-communication.md)
 

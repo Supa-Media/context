@@ -44,10 +44,12 @@ async function publishRowsDefault(
 ): Promise<{ kind: "visibility"; path: string; visibility: "private" | "team" } | { kind: "none" }> {
   // Only a person's gesture can be an owner's change to a row; a repair with no person behind it changes nothing.
   if (args.actorUserId === undefined) return { kind: "none" };
+  // The row is the website's folder wherever it is nested now (`./siteRoot.ts`).
+  const root = await ctx.runQuery(internal.functions.websites.siteRootNow, { workspaceId: args.workspaceId });
   const answer = await ctx.runMutation(internal.functions.nodesAccess.ensureFolderDefault, {
     workspaceId: args.workspaceId,
     actorUserId: args.actorUserId,
-    path: DEFAULT_WEBSITE_ROOT,
+    path: root,
   });
   if (!answer.ok) return { kind: "none" };
   const visibility = answer.visibility as "private" | "team";
@@ -55,13 +57,13 @@ async function publishRowsDefault(
     await recordRowsVisibilityLine(ctx, {
       workspaceId: args.workspaceId,
       action: "visibility.folder",
-      path: DEFAULT_WEBSITE_ROOT,
+      path: root,
       to: visibility,
       teamVisible: visibility === "team",
       ...(args.actorName === undefined ? {} : { actorName: args.actorName }),
     });
   }
-  return { kind: "visibility", path: DEFAULT_WEBSITE_ROOT, visibility };
+  return { kind: "visibility", path: root, visibility };
 }
 
 export async function ensureWebsitePublicationRule(
