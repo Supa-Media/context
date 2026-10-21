@@ -228,8 +228,19 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, deps: G
   if (answer.kind !== "answer") throw new ServiceError("gateway", result.status);
 
   // Sent only to the people it was written for: someone who joined meanwhile was never part of its scope.
+  //
+  // A list that could not be read is not a list with nobody new in it. On the
+  // way in, falling back to the webhook's own names is safe because more names
+  // only ever narrow the workspace the chat may use; here the fallback would
+  // run the other way, and this is the only thing standing between an answer
+  // drawn from the bound workspace and somebody who is not a member of it. So
+  // an unreadable list holds the answer, as a joiner does.
   const now = await readGroupMembers(deps.fetch, deps.sendblue, message.groupId);
-  const joined = (now ?? []).some((phone) => phone !== message.line && !people.includes(phone));
+  if (now === null) {
+    log("members_unread_after");
+    return void (await say(storage, deps, message, GROUP_LINES.failed));
+  }
+  const joined = now.some((phone) => phone !== message.line && !people.includes(phone));
   if (joined) return void (await say(storage, deps, message, GROUP_LINES.joined));
   const texts = textsFromAnswer(answer.text);
   for (const [i, text] of texts.entries()) await say(storage, deps, message, text, i === 0);
