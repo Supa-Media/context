@@ -15,6 +15,8 @@
 
 import { MAX_REPLY_TEXT, ServiceError, type Fetch } from "./clients";
 import { MAX_INBOUND_TEXT } from "./inbound";
+import { readRemovedTapback, readTapback, type Reaction } from "./reactions";
+import { holdsAsYes, takesBackYes } from "./thumbs";
 import { call, E164, getJson, handleOf, isRecord, line, sendCall, TAPBACK, type SendblueKeys } from "./sendblue";
 
 /** Sendblue's group ids are uuids; anything much longer is not one. */
@@ -36,6 +38,8 @@ export type GroupMessage = {
   replyTo?: string;
   /** A green-bubble group: answered with one fixed line, never with notes. */
   sms?: true;
+  /** A like on one of Tex's asks, or one taken back (`thumbs.ts`); `text` is then the tapback's own words. */
+  reaction?: Reaction;
 };
 
 export type GroupInbound = GroupMessage | { kind: "ignored"; reason: string } | { kind: "invalid" };
@@ -67,7 +71,9 @@ export function parseSendblueGroup(payload: unknown): GroupInbound | null {
   if (!participants.includes(from)) participants.push(from);
   const text = typeof payload.content === "string" ? payload.content.trim() : "";
   if (text === "") return { kind: "ignored", reason: "empty" };
-  if (TAPBACK.test(text)) return { kind: "ignored", reason: "reaction" };
+  // A like on an ask, or one taken back off it, is read: it may be the asker's yes (`thumbs.ts`). Any other tapback is not.
+  const reaction = TAPBACK.test(text) ? (readTapback(text) ?? readRemovedTapback(text)) : null;
+  if (TAPBACK.test(text) && (reaction === null || !(holdsAsYes(reaction) || takesBackYes(reaction)))) return { kind: "ignored", reason: "reaction" };
   const replyTo = handleOf(payload.reply_to);
   return {
     kind: "group-message",
@@ -80,6 +86,7 @@ export function parseSendblueGroup(payload: unknown): GroupInbound | null {
     text: text.slice(0, MAX_INBOUND_TEXT),
     ...(replyTo !== undefined ? { replyTo } : {}),
     ...(payload.service === "SMS" ? { sms: true as const } : {}),
+    ...(reaction !== null ? { reaction } : {}),
   };
 }
 

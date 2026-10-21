@@ -53,7 +53,7 @@ import { disarmTexting, withdrawPending } from "../tools/approvals.js";
 import { askedWith, quotedOf, reactedLine, reactedOf, tapbackLine } from "./quoted.js";
 import { threadPrompt, threadView } from "./threadView.js";
 import { steerFor, steeredLine } from "./steer.js";
-import { answerWithAsk, textedAsk } from "./textedApprovals.js";
+import { answerWithAsk, textedAsk, thumbsUpIsYes } from "./textedApprovals.js";
 import { setAsideLine, settleTextedText } from "./textedSettle.js";
 import { paidLine } from "./textedPay.js";
 import { chatLines, checkerHistory, earlierChatTool, groupAwareCallTool, groupOf, keepGroupSettled, withoutTexName, groupPrompt, groupWriteTools, isGroupSession, keepGroupExchange, readGroupMemory } from "./groupTurn.js";
@@ -191,9 +191,11 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   let paid = [];
   // A group chat's yes is its tagger's, said to Tex in the chat (`groupTurn.js`).
   if (session.actorClientId === TEXTS_CLIENT_ID || group !== null) {
+    // A 👍 that stayed on the ask is that yes (`thumbsUpIsYes`).
+    const thumbsUp = await thumbsUpIsYes(store, session, quoted);
     const settled = await settleTextedText(store, session, {
       dispatch,
-      question: group !== null ? withoutTexName(question) : question,
+      question: thumbsUp ? "yes" : group !== null ? withoutTexName(question) : question,
       keep: group !== null ? keepGroupSettled(store, group) : null,
       hasAttachments: sent.length > 0,
       now: received,

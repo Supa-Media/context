@@ -89,7 +89,7 @@ export async function runEmailGateChecks(check) {
         pending().length === 1 &&
         asked.body?.asked === 1 &&
         (asked.body?.answer ?? "").includes(
-          "Here's the email I'd send:\n\nFrom: seyi@gmail.example\nTo: jo@example.com\nSubject: Re: Thursday\n\nHi Jo,\n\nThursday at 3 works for me.\n\nSeyi\n\nLook good? Just say yes and I'll send it",
+          "Here's the email I'd send:\n\nFrom: seyi@gmail.example\nTo: jo@example.com\nSubject: Re: Thursday\n\nHi Jo,\n\nThursday at 3 works for me.\n\nSeyi\n\nLook good? Give this a 👍 or say yes and I'll send it",
         ),
     );
     check(

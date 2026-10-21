@@ -21,7 +21,8 @@
 import { MAX_REPLY_TEXT, ServiceError, type Fetch } from "./clients";
 import { CARD_VERSION } from "./card";
 import { MAX_INBOUND_ATTACHMENTS, MAX_INBOUND_TEXT, type Inbound, type InboundAttachment } from "./inbound";
-import { readTapback } from "./reactions";
+import { readRemovedTapback, readTapback } from "./reactions";
+import { takesBackYes } from "./thumbs";
 
 /** The base address docs.sendblue.com names for every call. */
 export const SENDBLUE_API = "https://api.sendblue.com";
@@ -425,8 +426,9 @@ export function parseSendblueInbound(payload: unknown): Inbound {
   const text = typeof payload.content === "string" ? payload.content.trim() : "";
   if (TAPBACK.test(text) && !payload.media_url) {
     // A tapback is noted or answered (`reactions.ts`); one taken back is dropped.
-    const reaction = readTapback(text);
-    if (reaction === null) return { kind: "ignored", reason: "reaction" };
+    // A like taken back off an ask is read too, so a yes being held can be dropped (`thumbs.ts`).
+    const reaction = readTapback(text) ?? readRemovedTapback(text);
+    if (reaction === null || (reaction.removed && !takesBackYes(reaction))) return { kind: "ignored", reason: "reaction" };
     return { kind: "reaction", eventId: `sendblue:${handle}`, chatId: sendblueChatId(ours, from), from, messageId: handle, reaction };
   }
   const attachments: InboundAttachment[] = [];
