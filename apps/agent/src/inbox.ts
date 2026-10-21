@@ -55,7 +55,7 @@ import { clearTold, noteTold, owedTold } from "./told";
 import { rememberText } from "./threads";
 import { ackEmoji } from "./ackEmoji";
 import { answers, clearReactions, noteReaction, notedReactions, tapbackText } from "./reactions";
-import { dropThumb, dueThumb, holdsAsYes, holdThumb } from "./thumbs";
+import { dropThumb, dueThumb, holdsAsYes, holdThumb, onTheAsk, rememberAskReply } from "./thumbs";
 import { startTurn, steerInto } from "./steer";
 import { chatJobs, startJobs, type JobRun } from "./jobs";
 import type { Inbound } from "./inbound";
@@ -211,8 +211,10 @@ export async function react(
   const { reaction, kind: _kind, ...message } = inbound;
   // A 👍 on an ask waits ten seconds before it goes, and taking it back drops it (`thumbs.ts`).
   if (reaction.removed) return (await dropThumb(storage, reaction.words)) ? "dropped" : "noted";
-  if (holdsAsYes(reaction)) {
-    const asked: Message = { kind: "message", ...message, text: tapbackText(reaction.how), quoted: reaction.words, tapback: reaction.how };
+  // On the line above an ask, it is a 👍 on the ask; taking it back still names the line it was on.
+  const onAsk = await onTheAsk(storage, reaction, now);
+  if (holdsAsYes(onAsk)) {
+    const asked: Message = { kind: "message", ...message, text: tapbackText(onAsk.how), quoted: onAsk.words, tapback: onAsk.how };
     await holdThumb(storage, asked, reaction.words, now);
     return "held";
   }
@@ -426,6 +428,8 @@ async function answering(message: Message, deps: InboxDeps, storage: InboxStorag
     storage,
   ).finally(end);
   await clearReactions(storage, reacted);
+  // A 👍 on any of these texts is a 👍 on the ask among them (`thumbs.ts`).
+  await rememberAskReply(storage, texts, deps.now());
   if (pictures.length === 0) return texts;
   // The simulator has no Linq to upload to; its log says a picture went.
   const upload =

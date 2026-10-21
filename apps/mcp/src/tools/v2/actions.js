@@ -141,6 +141,11 @@ export const ACTIONS = {
       summary: "Add, move or cancel one event on the person's Google Calendar, once they say yes to that exact change.",
       take: plain,
     },
+    forward_rule: {
+      tool: "forward_rule",
+      summary: "Let a routine keep forwarding one kind of the person's mail to one address without asking, once they 👍 the rule; or stop it.",
+      take: plain,
+    },
   },
 };
 

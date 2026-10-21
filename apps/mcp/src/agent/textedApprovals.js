@@ -8,10 +8,10 @@ import { callToolForSession } from "../tools/session.js";
 import { EMAIL_TOOL } from "../tools/email.js";
 import { CALENDAR_TOOL } from "../tools/calendarWrite.js";
 import { REPORT_TOOL } from "../tools/reportProblem.js";
+import { FORWARD_RULE_TOOL } from "../tools/forwardRule.js";
 import { doneLine } from "./doneLine.js";
 import { canonicalToolName } from "../tools/advertised.js";
 import { withoutHeldEcho, withoutWaitTalk } from "./heldEcho.js";
-import { isGroupSession } from "./groupTurn.js";
 import { scrubbed } from "./quoted.js";
 import { VAULT_PAY } from "../vault/pay.js";
 import { armForText, disarmRecords, listPending, replayAsAsked, settlePending, withdrawPending } from "../tools/approvals.js";
@@ -31,12 +31,14 @@ function afterYes(tool) {
 
 /**
  * How every ask asks (Dev2, 2026-10-21: "instead of asking users to say yes,
- * ask them to react like with a thumbs up"). A 👍 or ❤️ on the ask that stays
- * ten seconds is the yes (`apps/agent/src/thumbs.ts`, `thumbsUpIsYes`); a typed
- * yes still works. In a group it is the asker's, so it says "reply".
+ * ask them to react like with a thumbs up", and later that day: "a thumbs up
+ * should always be seen as an approval, the text should end with something
+ * simple like 'give it a 👍 and i'll send'"). A 👍 or ❤️ that stays ten
+ * seconds on the ask, or on any text of the reply that carried it, is the yes
+ * (`apps/agent/src/thumbs.ts`, `thumbsUpIsYes`); a typed yes still works. In
+ * a group only the asker's counts.
  */
-export const SAY_YES = "Give this a 👍 or say yes";
-const GROUP_SAY_YES = "Give this a 👍 or reply yes";
+export const SAY_YES = "Give it a 👍";
 
 /** A text that is nothing but yes, or nothing but no; anything else goes to the model. */
 const YES = /^\s*(?:yes|yes please|yep|yeah|yup|ok|okay|sure|do it|go ahead|go for it|confirm|confirmed|approve|approved|allow|y)\s*[.!]*\s*$/i;
@@ -70,17 +72,20 @@ export function approvalVerdict(text) {
 /**
  * The line a texted answer ends with when the turn held something for the
  * person. Said the way a person would ask (Dev, 2026-10-18: "“Text YES to
- * send” seems very robotic"); an email, a calendar change and a bug report
- * still go only on a bare yes, so those lines say "just say yes".
+ * send” seems very robotic"), and ending the way Dev2 asked on 2026-10-21:
+ * "Give it a 👍 and I'll send it." A typed yes still works.
  */
 export function askLine(asked) {
   // An email is shown whole: the person can allow only the copy they read (`emailGate.js`).
   const emails = asked.filter((record) => record.tool === EMAIL_TOOL && typeof record.detail === "string");
   if (asked.length === 1 && asked[0].tool === CALENDAR_TOOL && typeof asked[0].detail === "string") {
-    return `Here's the change I'd make:\n\n${clean(asked[0].detail)}\n\nLook good? ${SAY_YES} and I'll make the change.`;
+    return `Here's the change I'd make:\n\n${clean(asked[0].detail)}\n\n${SAY_YES} and I'll make the change.`;
   }
   if (asked.length === 1 && asked[0].tool === REPORT_TOOL && typeof asked[0].detail === "string") {
-    return `Here's the bug report I'd send to the Context team:\n\n${clean(asked[0].detail)}\n\nLook good? ${SAY_YES} and I'll send it.`;
+    return `Here's the bug report I'd send to the Context team:\n\n${clean(asked[0].detail)}\n\n${SAY_YES} and I'll send it.`;
+  }
+  if (asked.length === 1 && asked[0].tool === FORWARD_RULE_TOOL && typeof asked[0].detail === "string") {
+    return `Here's what I'd keep doing:\n\n${clean(asked[0].detail)}\n\n${SAY_YES} and I'll start.`;
   }
   // A card at a checkout, in the gateway's words: the card and the site, never the model's (`vault/pay.js`).
   if (asked.length === 1 && asked[0].kind === VAULT_PAY) {
@@ -88,15 +93,10 @@ export function askLine(asked) {
   }
   if (emails.length > 0 && emails.length === asked.length) {
     const copies = emails.map((record) => clean(record.detail)).join("\n\n---\n\n");
-    return `${emails.length === 1 ? "Here's the email" : "Here are the emails"} I'd send:\n\n${copies}\n\nLook good? ${SAY_YES} and I'll send ${emails.length === 1 ? "it" : "them"}.`;
+    return `${emails.length === 1 ? "Here's the email" : "Here are the emails"} I'd send:\n\n${copies}\n\n${SAY_YES} and I'll send ${emails.length === 1 ? "it" : "them"}.`;
   }
   const what = asked.map((record) => (typeof record.detail === "string" ? `${record.summary}:\n\n${clean(record.detail)}\n\n` : record.summary)).join("; ");
-  return `Before I ${asked.length === 1 ? "do that" : "do those"}, I need your OK: ${what}. Should I go ahead?`;
-}
-
-/** The ask as this session texts it: in a group, the asker replies. */
-function askFor(session, asked) {
-  return isGroupSession(session) ? askLine(asked).replace(SAY_YES, GROUP_SAY_YES) : askLine(asked);
+  return `Before I ${asked.length === 1 ? "do that" : "do those"}, I need your OK: ${what}. ${SAY_YES} and I'll go ahead.`;
 }
 
 /** Words as the gateway reads a quote (`quoted.js`), a trailing ellipsis off: the ask is compared the same way. */
@@ -116,7 +116,7 @@ export async function thumbsUpIsYes(store, session, quoted) {
   const armed = (await listPending(store, { userId: session.actorUserId, texting: true })).map(({ record }) => record);
   if (armed.length === 0) return false;
   for (const order of [armed, [...armed].reverse()]) {
-    const shown = scrubbed(askFor(session, order));
+    const shown = scrubbed(askLine(order));
     if (shown === words || shown.startsWith(words)) return true;
   }
   return false;
@@ -145,7 +145,7 @@ export const TEXTED_ASK_CAP = 2_900;
 export async function textedAsk(store, session, asked) {
   if (asked.length === 0) return { ask: null, verbatim: [] };
   // In a group chat a bare "yes" is chat; a reply to the ask, or "Tex, yes", reaches Tex (`groupTurn.js`).
-  const ask = askFor(session, asked);
+  const ask = askLine(asked);
   const ids = asked.map((record) => record.id);
   const holdsEmail = asked.some((record) => typeof record.detail === "string");
   if (ask.length <= TEXTED_ASK_CAP) {
@@ -195,7 +195,7 @@ function clean(text) {
  */
 const EMAIL_YES = /^\s*yes\s*[.!]*\s*$/i;
 const strictYes = (text) => EMAIL_YES.test(text) || RELEASED_YES.test(text);
-const YES_ONLY = new Set([EMAIL_TOOL, CALENDAR_TOOL, REPORT_TOOL]);
+const YES_ONLY = new Set([EMAIL_TOOL, CALENDAR_TOOL, REPORT_TOOL, FORWARD_RULE_TOOL]);
 
 /**
  * Settle what this thread's latest ask put to the person, as their text said.

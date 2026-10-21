@@ -12,6 +12,9 @@
  *     → "a write that was refused is no write" fails.
  *  3. `check` giving its notice every time it is asked.
  *     → "the notice is given once, so the check never loops" fails.
+ *  5. `offersAHeldChange` without its preview and yes-ask checks.
+ *     → emailGate's "a preview of a forward in Tex's own words is held as it
+ *     is shown…" and "a preview of an email…" fail.
  *  4. `check` never giving `OFFER_NOTICE`.
  *     → "an offer with nothing held is sent back; once the call is held, it goes" fails.
  */
@@ -94,6 +97,15 @@ test("an offer of a calendar change or an email, in words, is read as one; an of
   assert.ok(!offersAHeldChange("Want me to send you the list?"));
   assert.ok(!offersAHeldChange("Want me to look into it?"));
   assert.ok(!offersAHeldChange("I'll add it once you say yes below."));
+});
+
+test("a preview in Tex's own words, or its own ask for a yes or 👍, is an offer too (2026-10-21 2:25 PM)", () => {
+  assert.ok(offersAHeldChange("Here's the email:\n\nTo: supa.media.llc@receipts.example\nForward of: Your receipt from Anthropic\n\nSay yes and I'll send it."));
+  assert.ok(offersAHeldChange("Say yes and I'll file it."));
+  assert.ok(offersAHeldChange("Give this a \u{1F44D} and I'll send it."));
+  assert.ok(offersAHeldChange("Want me to file a bug?"));
+  assert.ok(!offersAHeldChange("Reply yes if you want the list."));
+  assert.ok(!offersAHeldChange("To be fair, that's fine."));
 });
 
 test("an offer with nothing held is sent back; once the call is held, it goes", async () => {

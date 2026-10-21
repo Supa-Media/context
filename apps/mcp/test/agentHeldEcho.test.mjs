@@ -39,4 +39,8 @@ test("talk of a yes waited on somewhere else comes out; the ask is right below i
   assert.equal(withoutWaitTalk(said), "");
   assert.equal(withoutWaitTalk("Got it, Emmanuela at 7. Still waiting on your yes."), "Got it, Emmanuela at 7.");
   assert.equal(withoutWaitTalk("I'll add Emmanuela at 7."), "I'll add Emmanuela at 7.");
+  assert.equal(
+    withoutWaitTalk("Drafted the forward of the Anthropic receipt to books@receipts.example. Say yes to the exact email I just texted you and it goes out."),
+    "Drafted the forward of the Anthropic receipt to books@receipts.example.",
+  );
 });

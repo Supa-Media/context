@@ -56,7 +56,7 @@ export async function runAgentEgressTextingChecks(check) {
     const shared = await ask(env, TOKEN_TEXTS, "check the status page and share fourth");
     check(
       "a texted share runs at once, even after a page read",
-      shared.status === 200 && teamVisible("2-areas/fourth.md") && pending().length === 0 && !/Give this a 👍 or say yes|Should I go ahead\?/.test(shared.body?.answer ?? ""),
+      shared.status === 200 && teamVisible("2-areas/fourth.md") && pending().length === 0 && !/Give it a 👍/.test(shared.body?.answer ?? ""),
     );
 
     /* ---------------- the Worker's own texts reach the history ---------------- */
@@ -93,7 +93,7 @@ export async function runAgentEgressTextingChecks(check) {
     check(
       "the ask is in the gateway's own words, after the model's, and the answer says one call waits",
       /Shall I\?\n\nBefore I do that, I need your OK: claim the handle @woodshop/.test(asked.body?.answer ?? "") &&
-        /Should I go ahead\?/.test(asked.body?.answer ?? "") &&
+        /Give it a 👍 and I'll go ahead\./.test(asked.body?.answer ?? "") &&
         asked.body?.asked === 1,
     );
     before = model.requests.length;

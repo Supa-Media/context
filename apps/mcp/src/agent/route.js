@@ -28,6 +28,7 @@ import { ProviderError } from "./providers.js";
 import { meterEach } from "./modelPlan.js";
 import { attachmentsLine, hearVoiceMessages, turnAttachments, withAttachmentImages } from "./attachments.js";
 import { grantedToolsFor } from "./sixTools.js";
+import { standingForwardTools } from "../tools/forwardRule.js";
 import { SHOWN_HISTORY_TURNS, appendConversation, rememberRoutineText, conversationPath, earlierTextsTool, historyIsTainted, readConversation } from "./conversation.js";
 import {
   loadRoutine,
@@ -263,7 +264,13 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     session.actorClientId === CONSOLE_CLIENT_ID ||
     session.actorClientId === ROUTINES_CLIENT_ID ||
     group !== null;
-  session.egress = { complete: firstParty, ledger, texting: session.actorClientId === TEXTS_CLIENT_ID || group !== null };
+  session.egress = {
+    complete: firstParty,
+    ledger,
+    texting: session.actorClientId === TEXTS_CLIENT_ID || group !== null,
+    // The routine this run is, for a standing forward only it may use (`tools/forwardRule.js`).
+    ...(runner ? { routine: routine.path } : {}),
+  };
 
   /*
     A named conversation carries its recent turns into this one. Only a name
@@ -481,6 +488,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
 
   const texted = session.actorClientId === TEXTS_CLIENT_ID; // Pictures sent back, drawn or made: a text only (`pictureMaker.js`).
   // A texted answer that says a change was made is checked against the calls that ran (`claimCheck.js`).
+  const forwarding = runner ? await standingForwardTools(store, routine.path, offered) : [];
   const claims = !runner && (texted || group !== null) ? claimCheck({ question }) : null;
   const { outgoing, maker } = await turnPictures(env, { texted, question, attachments, store, keep: conversation === "texts", meter, workspaceId: session.workspaceId });
   try {
@@ -491,7 +499,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       // screen on a phone, and two ways to change a note is one too many.
       tools: [
         ...agentTools(offered).filter((tool) => (textingWriting.length === 0 && group === null) || tool.name !== "propose_note"),
-        ...textingWriting, ...groupWriting,
+        ...textingWriting, ...groupWriting, ...forwarding,
         ...(skills?.tools ?? []), ...(learned?.tools ?? []),
         ...(delegation?.tools ?? []), ...(background?.tools ?? []),
         ...(supervision?.mail.tools ?? []), ...(maker?.tools ?? []),

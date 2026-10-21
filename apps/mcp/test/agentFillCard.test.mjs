@@ -316,7 +316,7 @@ describe("Tex asks by text", () => {
     assert.equal(ledger.asked.length, 1);
     assert.equal(ledger.asked[0].texting, false, "raised unarmed: only a texted ask arms it");
     const { ask } = await textedAsk(store, SESSION, ledger.asked);
-    assert.equal(ask, "Before I pay, I need your OK to pay with your Visa ••4242, expires 08/29 on shop.example. Give this a 👍 or say yes and I'll fill it in.");
+    assert.equal(ask, "Before I pay, I need your OK to pay with your Visa ••4242, expires 08/29 on shop.example. Give it a 👍 and I'll fill it in.");
     assert.equal(leaks(ask), false);
     assert.equal(fills(computer).length, 0);
     // Armed for no longer than the ask's own ten minutes.

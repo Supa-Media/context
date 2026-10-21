@@ -31,6 +31,7 @@ import { toolError } from "./results.js";
 import { EMAIL_TOOL, REFUSED, emailCopy, emailSummary, readEmail } from "./email.js";
 import { readHelperCallers } from "../agent/production.js";
 import { parseEmailId } from "./emailRead.js";
+import { standingForward } from "./forwardRule.js";
 
 export { EMAIL_TOOL };
 
@@ -74,6 +75,10 @@ export async function emailGate(supplied, { store, session, target }) {
   const read = readEmail(supplied);
   if (read.error) return toolError(`Not sent: ${read.error}`);
   const email = read.email;
+
+  // A routine forwarding under a rule the person 👍'd once (`forwardRule.js`); any other routine send is refused below.
+  const standing = await standingForward(store, session, supplied, email);
+  if (standing !== null) return standing;
 
   // A connected AI calling again after the person approved it in the app.
   const released = await takeDone(store, {

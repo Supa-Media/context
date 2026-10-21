@@ -54,10 +54,19 @@ so the first yes is to the exact change:
   The model makes the call, the ask goes out under its words, and the
   person's one yes makes the change. Offers about their own list or notes take
   no yes and are left alone.
+  After that shipped, the same afternoon, Tex texted its own preview of a
+  forward ("To: … Forward of: …  Say yes and I'll send it."), with no
+  question mark and nothing held. The owner's 👍 and "yes" on it only raised
+  the hold, and they were asked a third time. So an email laid out in Tex's
+  own words ("To:", "Subject:", "Forward of:"), or its own request for a yes
+  or 👍 about sending, filing or the calendar, counts as an offer too. The
+  first preview the person sees is the gateway's ask, so a 👍 or yes on it
+  sends.
 - **Talk of a yes waited on elsewhere comes out** (`heldEcho.js`
   `withoutWaitTalk`): with an ask attached, a sentence about "still waiting",
-  "messages from Context" or a confirmation in the app is dropped; the ask is
-  right below it. The held result tells the model the same.
+  "messages from Context", a confirmation in the app, or the model's own
+  request for a yes ("Say yes to the exact email I just texted you") is
+  dropped. The ask is right below it, and it asks once. The held result tells the model the same.
 - **Calendar changes are shown in words** (`calendarWrite.js` `spanWords`):
   "Wednesday, October 21, 7 to 8 pm", read off the time as given, with "UTC"
   said when that is the clock, and the year only when it is not this one.
