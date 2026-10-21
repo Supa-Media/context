@@ -148,13 +148,8 @@ export const SETTINGS_SECTIONS = [
     personalOnly: false,
   },
   {
-    /*
-      The apps Tex reads and acts in as this person (Slack, Linear…), with
-      Connect, Reconnect and Disconnect. Its own row since 2026-10-21: as a
-      card at the foot of Profile, nobody found it ("don't see any apps tex
-      uses"). Account scope: a connection is the person's own, made from
-      their personal workspace whichever workspace is on screen.
-    */
+    // The apps Tex acts in as this person, with Connect and Disconnect. A row since 2026-10-21:
+    // as a card at the foot of Profile nobody found it. Account scope: a connection is the person's own.
     key: "texApps",
     keywords: "apps tex uses slack linear outlook planning center notion jira connect reconnect disconnect integration assistant",
     label: "Apps Tex uses",
