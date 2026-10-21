@@ -82,7 +82,7 @@ function cleanVendorProperties(value: unknown): unknown {
   const clean: Record<string, unknown> = {};
   for (const [key, item] of Object.entries(value)) {
     if (/^\$(?:title|initial_title|el_text|elements|elements_chain|external_click_url)$/.test(key)) continue;
-    if (/^\$(?:initial_)?(?:current_url|referrer|pathname)$/.test(key) && typeof item === "string") {
+    if (/^\$(?:.*_)?(?:url|referrer|pathname)$/.test(key) && typeof item === "string") {
       if (key.endsWith("referrer")) {
         try { clean[key] = new URL(item).origin; } catch { /* No opaque referrer. */ }
       } else clean[key] = sanitizedCurrentUrl(item);

@@ -76,3 +76,15 @@ test("opting out stops heatmap listeners and discards buffered clicks immediatel
     autocapture: { dom_event_allowlist: ["click"], css_selector_allowlist: ["[data-analytics-action]"] },
   });
 });
+
+test("pageleave and SPA pageview previous-path properties are sanitized too", () => {
+  const clean = cleanPostHogProperties({
+    $prev_pageview_pathname: "/console/@private",
+    $initial_pathname: "/note/@private/payroll.md",
+    $prev_pageview_duration: 12,
+  }, "phc_fixture");
+  expect(clean.$prev_pageview_pathname).toBe("/console/:context");
+  expect(clean.$initial_pathname).toBe("/note/:context");
+  expect(clean.$prev_pageview_duration).toBe(12);
+  expect(JSON.stringify(clean)).not.toMatch(/private|payroll/);
+});
