@@ -96,7 +96,8 @@ describe("inbox", () => {
   it("answers queued messages in order and keeps no text afterwards", async () => {
     const storage = new MemoryStorage();
     expect(await accept(storage, msg("e1", "first"), 1_000)).toBe("queued");
-    expect(await accept(storage, msg("e2", "second"), 1_000)).toBe("queued");
+    // A reply to other words, so the two are not one burst (`sameBurst`).
+    expect(await accept(storage, { ...msg("e2", "second"), quoted: "other words" }, 1_000)).toBe("queued");
     expect(storage.alarms).toEqual([1_000 + TEXT_WAIT_MS, 1_000]);
 
     const sent: Sent[] = [];

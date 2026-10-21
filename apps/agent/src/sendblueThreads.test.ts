@@ -16,6 +16,9 @@
  *     fails (worker.test.ts).
  *  4. `threadContext` keeping a parent from another thread → "a reply typed
  *     inside a thread is about that thread" fails.
+ *  5. `sameBurst` returning false → "inline replies sent back to back…" and
+ *     "plain texts sent back to back…" fail; dropping its `quoted` check →
+ *     "a reply to other words…" fails.
  */
 
 import { describe, expect, it, vi } from "vitest";
@@ -109,13 +112,55 @@ describe("Tex answers inside iMessage threads", () => {
   it("a text a newer one overtook is answered in its thread, and the newest plainly", async () => {
     const storage = new MemoryStorage();
     await accept(storage, message("mh_a", "first"), 1_000);
-    await accept(storage, message("mh_b", "second"), 1_000);
+    // Quoting other words, so it is not folded into the first (`sameBurst`).
+    await accept(storage, message("mh_b", "second", { quoted: "other words" }), 1_000);
     const calls: Call[] = [];
     await drain(storage, deps(fake(calls)));
     expect(answers(calls).map((c) => [c.body.content, c.body.reply_to])).toEqual([
       ["answer to first", { message_handle: "mh_a" }],
       ["answer to second", undefined],
     ]);
+  });
+
+  it("inline replies sent back to back to the same message get one answer, in the newest one's thread", async () => {
+    const storage = new MemoryStorage();
+    const quoted = "Want me to add these to your list?";
+    await accept(storage, message("mh_1", "yes", { threaded: true, quoted }), 1_000);
+    await accept(storage, message("mh_2", "and the receipts go to Ada", { threaded: true, quoted }), 1_000);
+    await accept(storage, message("mh_3", "not me", { threaded: true, quoted }), 1_000);
+    const calls: Call[] = [];
+    const agent: Record<string, unknown>[] = [];
+    await drain(storage, deps(fake(calls, agent)));
+    expect(agent.map((a) => a.question)).toEqual(["yes\nand the receipts go to Ada\nnot me"]);
+    expect(agent[0]).toMatchObject({ quoted });
+    expect(answers(calls).map((c) => c.body.reply_to)).toEqual([{ message_handle: "mh_3" }]);
+    expect([...(await storage.list({ prefix: "pending:" }))]).toEqual([]);
+  });
+
+  it("plain texts sent back to back get one answer", async () => {
+    const storage = new MemoryStorage();
+    await storage.put(CHAT_KEY, { chatId: CHAT, at: 1_000 - NEW_TOPIC_AFTER_MS + 1 });
+    await accept(storage, message("mh_p1", "what's on my list"), 1_000);
+    await accept(storage, message("mh_p2", "for today"), 1_000);
+    const agent: Record<string, unknown>[] = [];
+    await drain(storage, deps(fake([], agent)));
+    expect(agent.map((a) => a.question)).toEqual(["what's on my list\nfor today"]);
+  });
+
+  it("a reply to other words, a plain text after a reply, a tapback or an SMS is answered on its own", async () => {
+    for (const second of [
+      message("mh_b", "this one", { threaded: true, quoted: "other words" }),
+      message("mh_b", "this one"),
+      message("mh_b", "Loved", { quoted: "the first words", tapback: "love" as Message["tapback"] }),
+      message("mh_b", "this one", { threaded: true, quoted: "the first words", sms: true }),
+    ]) {
+      const storage = new MemoryStorage();
+      await accept(storage, message("mh_a", "that one", { threaded: true, quoted: "the first words" }), 1_000);
+      await accept(storage, second, 1_000);
+      const agent: Record<string, unknown>[] = [];
+      await drain(storage, deps(fake([], agent)));
+      expect(agent.map((a) => a.question)[0]).toBe("that one");
+    }
   });
 
   it("a thread Sendblue refuses still gets the answer, as a plain text", async () => {

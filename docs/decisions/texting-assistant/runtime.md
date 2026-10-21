@@ -136,6 +136,23 @@ is held in memory for the turn only, never in Durable Object storage.
 
 Tests: `apps/agent/src/steer.test.ts` and `apps/mcp/test/agentSteer.test.mjs`.
 
+## Texts sent back to back get one answer (2026-10-21)
+
+Dev2's report of 2026-10-21: a burst of inline replies got an answer each.
+A reply or a tapback is never steered (above), so texts that arrive while a
+turn runs wait in the queue, and the next drain answered each on its own.
+Now two queued texts in a row, neither answered yet, that are only words in
+the same place are folded into one before the drain answers anything: both
+plain, or both inline replies to the same words (same `quoted` and
+`threadStart`). Their words join with a newline, the newest one's handle
+carries the answer's thread, and the quoted words stay apart from the
+person's, as before. A reply to different words, a tapback, an SMS, a text
+with files and a text whose answer is already computed are never folded:
+each carries words the guards keep apart, or an answer already owed.
+
+Tests: `apps/agent/src/sendblueThreads.test.ts` ("…sent back to back…" and
+"a reply to other words…").
+
 ## Every ten texts, Tex saves what it learned
 
 Decided by Dev, 2026-10-19, after reading Hermes, whose memory nudge fires
