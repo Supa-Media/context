@@ -20,7 +20,7 @@ import { hasScope, SCOPE_WRITE } from "../session.js";
 import { BUILTIN_PROVIDER, builtinModel, canRunBuiltin } from "./builtin.js";
 import { aiGatewayConfig } from "./aiGateway.js";
 import { mailCheckerFor } from "./mailChecker.js";
-import { appOriginOf, withNoteLinks } from "./noteLinks.js";
+import { appOriginOf, sentNoteLinksLine, withNoteLinks } from "./noteLinks.js";
 import { decisionEngine } from "./decide.js";
 import { openTurnWeb } from "./turnWeb.js";
 import { ProviderError } from "./providers.js";
@@ -474,7 +474,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   const { outgoing, maker } = await turnPictures(env, { texted, question, attachments, store, keep: conversation === "texts", meter, workspaceId: session.workspaceId });
   try {
     const turn = await runTurn({
-      question: [chatLines(group), reactedLine(reacted), setAsideLine(setAside), paidLine(paid), askedWith(question, quoted)].filter(Boolean).join("\n\n"),
+      question: [chatLines(group), reactedLine(reacted), setAsideLine(setAside), paidLine(paid), sentNoteLinksLine(question, noteLinking.origin), askedWith(question, quoted)].filter(Boolean).join("\n\n"),
       place: body.place ?? null,
       // A turn that edits directly is not also handed proposals: they have no
       // screen on a phone, and two ways to change a note is one too many.

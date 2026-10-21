@@ -1,8 +1,10 @@
 /** `list_meetings` and `read_meeting`. */
 
-import { canSee, effectiveVisibility } from "../privacy/engine.js";
+import { canSee, effectiveVisibility, isPlumbing } from "../privacy/engine.js";
 import { getWithLegacyFallback } from "../storageLayout.js";
-import { isMeetingNotePath, MEETINGS_FOLDER } from "../../../../packages/meetings/src/paths.js";
+import { isMeetingNotePath } from "../../../../packages/meetings/src/paths.js";
+import { loadPrivacyState } from "../privacy/state.js";
+import { searchSettingsOf } from "../search/settings.js";
 import { listAllKeys, probeWithLegacyFallback } from "../notes/storage.js";
 import { factProps } from "../tree/facts.js";
 import { meetingFileName } from "./communicationsSupport.js";
@@ -10,69 +12,120 @@ import { normalizePath } from "../notes/paths.js";
 import { splitTranscript } from "../../../../packages/meetings/src/note.js";
 import { toolError, toolText } from "./results.js";
 
+/** Notes whose props one listing asks the tree for, at most: a few requests' worth. */
+export const MEETING_SCAN_NOTES = 1_500;
+
+/** `YYYY-MM-DD` anywhere in a file name: `2026-10-20-sync-ab12.md`, `untitled-2026-10-20.md`. */
+const DATED_NAME = /(\d{4}-\d{2}-\d{2})/;
+/** A folder whose name says it holds meetings: `meetings/`, `2-areas/meetings/1:1s/…`. */
+const MEETINGS_FOLDER_NAME = /(^|\/)[^/]*meeting[^/]*\//i;
+
 /**
- * The meetings this connection can see, newest first.
+ * The meetings this connection can see, newest first, wherever they were
+ * filed, and in every workspace the person can reach (owner's report,
+ * 2026-10-21).
  *
- * Listed from the Convex tree, each row drawn from the tree's props of the
- * note (its front matter and first heading) rather than by opening it (owner,
- * 2026-10-13: only opening a note reads storage); a meeting the tree has not
- * read yet is listed by its date and says its details are still loading.
- * `isMeetingNotePath` recognises one off its path. A meeting whose note its owner
- * moved out of the folder stops being listed here and is still a note — which
- * is the correct behaviour for a product whose whole claim is that the files
- * are theirs.
+ * Tex was asked for the to-dos from "my last meeting with <a colleague>" and answered
+ * from an August note, then an October 14 one, while yesterday's recorded
+ * call sat in a one-to-one folder of its own (`…/meetings/1:1s/<them>/`): this
+ * listed only `0-inbox/meetings/` of one workspace, and a search ranks by
+ * words, not by date. So a meeting is now recognised where it lies, by what
+ * the note says about itself rather than by its folder:
  *
- * A meeting a person *filed* elsewhere at finalize time (`FinalizeBody.folder`)
- * is the same case reached a step earlier, and it is why no folder is passed
- * here. `isMeetingNotePath` answers about the folder it is given; there is no
- * meetings table recording where any given meeting went, by decision, and
- * scanning the whole bucket for `YYYY-MM-DD-*.md` would call somebody's
- * ordinary dated note a meeting. So this lists the default folder, and every
- * other tool reaches the rest.
+ *  - its front matter says `type: meeting` (every recorder writes it,
+ *    `packages/meetings/src/note.js`), read from the tree's props, never by
+ *    opening the note (owner, 2026-10-13); or
+ *  - it is a dated note in a folder named for meetings (`…/meetings/…`), the
+ *    shape a meeting recorded into a new note gets (`untitled-2026-10-20.md`)
+ *    once something rewrote it without its front matter; or
+ *  - it sits in the default folder with the name the recorder gives it, as
+ *    before (`isMeetingNotePath`).
  *
- * `canSee` filters before anything is read, so a team connection cannot learn
- * that a private meeting exists by counting.
+ * The objection `docs/decisions/meetings/namespacing-and-signing.md` raised to
+ * scanning, that any dated note would be called a meeting, is why a date alone
+ * is never enough: the date has to be in a meetings folder, or the note has
+ * to say it is one. The scan is bounded (`MEETING_SCAN_NOTES`): past it, only
+ * the notes whose path names a date or meetings are asked about.
+ *
+ * `canSee` filters before anything is asked, so a team connection cannot
+ * learn that a private meeting exists by counting, and every other workspace
+ * is opened the way `search_notes` everywhere opens it (`tools/search.js`):
+ * under the person's role there and its own `privacy.md`, a workspace that
+ * cannot be read right now left out, never guessed at.
  */
 export async function toolListMeetings(store, scope, rules, overrides, limitArg) {
   const limit = Number.isInteger(limitArg) ? limitArg : 10;
   if (limit < 1 || limit > 25) return toolError("limit must be between 1 and 25");
-  const visible = (await listAllKeys(store, `${MEETINGS_FOLDER}/`))
-    .filter(({ key }) => isMeetingNotePath(key) && canSee(key, scope, rules, overrides))
-    /*
-      Newest first, off the FILENAME rather than the whole key, and costing no
-      reads either way: every meeting note is named `YYYY-MM-DD-…` in UTC.
-
-      The whole key used to be the sort, which was right while every meeting sat
-      at the same depth. It stopped being right the day the date folders were
-      dropped: a legacy `…/2026/03/2026-03-04-x.md` and a current
-      `…/2026-03-04-x.md` differ at the character after the year, where `/`
-      sorts above `-`, so reverse key order put every old meeting ahead of every
-      new one whatever their dates said. The filename is the half that never
-      moved.
-    */
-    .sort((a, b) => meetingFileName(b.key).localeCompare(meetingFileName(a.key)) || b.key.localeCompare(a.key))
+  const names =
+    searchSettingsOf(store).everywhere && typeof store.openContext === "function"
+      ? (store.contexts ?? []).filter((entry) => !entry.current && typeof entry.name === "string").map((entry) => entry.name)
+      : [];
+  const [here, ...elsewhere] = await Promise.all([
+    meetingsIn(store, scope, rules, overrides),
+    ...names.map(async (name) => {
+      try {
+        const { session: target, store: targetStore } = await store.openContext(name);
+        const privacy = await loadPrivacyState(targetStore);
+        if (privacy.error) return [];
+        const found = await meetingsIn(targetStore, target.scope, privacy.rules, privacy.overrides);
+        return found.map((meeting) => ({ ...meeting, key: `${name}/${meeting.key}` }));
+      } catch {
+        return [];
+      }
+    }),
+  ]);
+  const meetings = [...here, ...elsewhere.flat()]
+    .sort((a, b) => b.when.localeCompare(a.when) || a.key.localeCompare(b.key))
     .slice(0, limit);
-  if (!visible.length) return toolText("(no meetings recorded yet)");
+  if (!meetings.length) return toolText("(no meetings recorded yet)");
 
-  const facts = (await factProps(store, visible.map(({ key }) => key))) ?? new Map();
-  const rows = visible.map(({ key }) => {
-    const fact = facts.get(key);
-    const filed = meetingFileName(key).slice(0, 10);
-    if (!fact) return `${filed} · (details still loading)\n  ${key}`;
-    if (fact.sealed) return `${filed} · (encrypted)\n  ${key}`;
-    const front = fact.props.properties;
-    const attendees = Array.isArray(front.attendees) ? front.attendees.join(", ") : String(front.attendees || "");
-    const parts = [String(front.started || "").slice(0, 10) || "undated", fact.props.heading || "(untitled meeting)"];
-    if (front.duration) parts.push(String(front.duration));
-    if (attendees) parts.push(attendees);
-    return `${parts.join(" · ")}\n  ${key}`;
-  });
-
+  const crossWorkspace = meetings.some(({ key }) => key.startsWith("@"));
   return toolText(
-    `${rows.join("\n")}\n\n` +
-      "Pass a path to read_meeting. Transcripts are held in the same note and omitted " +
-      "unless you ask for them."
+    `${meetings.map(rowFor).join("\n")}\n\n` +
+      "Newest first, from every folder. Pass a path to read_meeting. Transcripts are held in the same note and omitted " +
+      "unless you ask for them." +
+      (crossWorkspace
+        ? ' A path that starts with @name/ is in that workspace: pass context: "@name" with the rest of the path to read it.'
+        : "")
   );
+}
+
+/** The meetings of one workspace this caller may see: `{ key, when, fact, front }`, unsorted. */
+async function meetingsIn(store, scope, rules, overrides) {
+  const visible = (await listAllKeys(store, ""))
+    .map(({ key }) => key)
+    .filter((key) => key.endsWith(".md") && !isPlumbing(key) && canSee(key, scope, rules, overrides));
+  const named = (key) => isMeetingNotePath(key) || (MEETINGS_FOLDER_NAME.test(key) && DATED_NAME.test(meetingFileName(key)));
+  const asked =
+    visible.length <= MEETING_SCAN_NOTES
+      ? visible
+      : visible.filter((key) => named(key) || /meeting/i.test(key) || DATED_NAME.test(meetingFileName(key))).slice(0, MEETING_SCAN_NOTES);
+  const facts = (await factProps(store, asked)) ?? new Map();
+
+  const found = [];
+  for (const key of asked) {
+    const fact = facts.get(key);
+    const front = fact?.props?.properties ?? {};
+    const typed = String(front.type ?? "").trim().toLowerCase() === "meeting";
+    if (!typed && !named(key)) continue;
+    const filed = DATED_NAME.exec(meetingFileName(key))?.[1] ?? "";
+    const started = String(front.started || "").trim();
+    const when = started || filed;
+    found.push({ key, when, fact, front });
+  }
+  return found;
+}
+
+/** One listing line: when, what, how long, who, then the path to read. */
+function rowFor({ key, when, fact, front }) {
+  const shown = when || "undated";
+  if (!fact) return `${shown} · (details still loading)\n  ${key}`;
+  if (fact.sealed) return `${shown} · (encrypted)\n  ${key}`;
+  const attendees = Array.isArray(front.attendees) ? front.attendees.join(", ") : String(front.attendees || "");
+  const parts = [shown, fact.props.heading || "(untitled meeting)"];
+  if (front.duration) parts.push(String(front.duration));
+  if (attendees) parts.push(attendees);
+  return `${parts.join(" · ")}\n  ${key}`;
 }
 
 /**

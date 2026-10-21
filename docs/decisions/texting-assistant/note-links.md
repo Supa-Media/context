@@ -34,3 +34,32 @@ to someone else. Undo by dropping `read_note` from `withNoteLinks`.
 Tests: `apps/mcp/test/agentNoteLinks.test.mjs` (sabotage record in its
 header), and the ask lines in `emailGate`, `calendarGate`, `reportGate` and
 `agentEgressTexting`.
+
+### A note link they text is the note, and its preview card is nobody's text
+
+Owner's report, 2026-10-21 ("this was infuriating"). Dev pasted the link of
+yesterday's meeting note after Tex said it had no notes from the call, and
+Tex answered about the link's preview picture ("just a hashtag icon"), then
+answered the picture again on its own ("That's the Context banner").
+
+- A link of this deployment's own to a note, in either shape the app opens
+  (`/note/@slug/<path>`, `/console/@slug?note=<path>`), is named to the turn
+  as that note, to be read with `fetch` in that context (`sentNoteLinks`,
+  `apps/mcp/src/agent/noteLinks.js`). It grants nothing: the read goes
+  through the dispatcher and `canSee`, and another host's link, a path with
+  `..` or a context with no `@` is not a note.
+- On Sendblue, a file that comes with an address in the words, or a
+  `.pluginPayloadAttachment`, is the link's preview and is dropped where it
+  is read (`isLinkPreview`, `apps/agent/src/sendblue.ts`); a lone picture
+  within 15 seconds of a texted link is the same card sent on by itself, and
+  is dropped too (`LINK_PREVIEW_MS`, `apps/agent/src/inbox.ts`). Both log
+  `sendblue_link_preview`, never the address.
+- Every texted turn is told (`MEETINGS_LINE`, said whatever the setup says)
+  to answer a question about a call from `fetch` "meetings:", which lists
+  every recorded meeting newest first from every folder and workspace, to
+  take a to-do's owner from the note's action items rather than a misheard
+  transcript, and to offer to write something down at most once.
+
+Tests: `apps/mcp/test/agentSentNoteLinks.test.mjs`, the preview cases in
+`apps/agent/src/sendblue.test.ts` and `inbox.test.ts`, and the bench list
+`apps/mcp/bench/ai/tests/meetings.md`.

@@ -211,6 +211,18 @@ nothing to consult and reads the default folder off the bucket instead. Scanning
 the whole bucket for `YYYY-MM-DD-*.md` would call somebody's ordinary dated
 note a meeting.
 
+**Superseded on 2026-10-21 (owner's report):** `list_meetings` now lists a
+meeting wherever it was filed, in every workspace the person reaches, newest
+first. Asked for the to-dos from his last meeting with a colleague, Tex
+answered from an August note while yesterday's call sat in a one-to-one folder
+of its own. The objection above still holds and is why a date alone is never
+enough: a note is a meeting when its front matter says `type: meeting` (read
+from the Convex tree's props, never by opening the note), or when it is a
+dated note inside a folder named for meetings. The scan is bounded
+(`MEETING_SCAN_NOTES`). Tests: `apps/mcp/test/meetingsAnywhere.test.mjs` and
+the filed-meeting checks in `apps/mcp/test/meetings/folder.test.mjs`. The
+paragraph below is the decision this replaced.
+
 So `list_meetings` does not list a meeting filed elsewhere, which is the
 behaviour a *moved* meeting already has and which this section already calls
 correct — and since that is a real limit rather than an implementation detail,
