@@ -9,6 +9,8 @@
  *  1. `dueThumb` releasing at once (hold 0). → `waits ten seconds …` fails.
  *  2. `dropThumb` never deleting. → `taking it back inside ten seconds …` fails.
  *  3. Group `acceptThumb` not checking the asker. → `only the asker's like …` fails.
+ *  4. `onTheAsk` returning the reaction unchanged. → `a 👍 on the line above
+ *     the ask is a 👍 on the ask …` fails.
  */
 
 import { describe, expect, it } from "vitest";
@@ -18,11 +20,11 @@ import { readRemovedTapback } from "./reactions";
 import { parseSendblueInbound } from "./sendblue";
 import { parseSendblueGroup, type GroupMessage } from "./sendblueGroups";
 import { acceptGroup, drainGroup, type GroupDeps } from "./groupInbox";
-import { holdsAsYes, THUMB_HOLD_MS } from "./thumbs";
+import { holdsAsYes, rememberAskReply, THUMB_HOLD_MS } from "./thumbs";
 import type { Fetch } from "./clients";
 
 const NOW = 1_800_000_000_000;
-const ASK = "Here's the email I'd send:\n\nTo: jo@example.com\nSubject: Thursday\n\nThursday works.\n\nLook good? Give this a 👍 or say yes and I'll send it.";
+const ASK = "Here's the email I'd send:\n\nTo: jo@example.com\nSubject: Thursday\n\nThursday works.\n\nGive it a 👍 and I'll send it.";
 
 const tapback = (eventId: string, how: "Liked" | "Loved", words: string, removed = false) => ({
   kind: "reaction" as const,
@@ -96,7 +98,33 @@ describe("a thumbs up on an ask, one to one", () => {
       content,
     });
     expect(parseSendblueInbound(webhook(`Removed a like from “${ASK}”`))).toMatchObject({ kind: "reaction", reaction: { removed: true } });
-    expect(parseSendblueInbound(webhook("Removed a like from “see you then”"))).toEqual({ kind: "ignored", reason: "reaction" });
+    // Any taken-back like reaches the inbox, which drops it only if it is the one being held.
+    expect(parseSendblueInbound(webhook("Removed a like from “see you then”"))).toMatchObject({ kind: "reaction", reaction: { removed: true } });
+  });
+
+  it("still holds a like on an ask in the earlier words, sent before the change", () => {
+    expect(holdsAsYes({ how: "Liked", words: "Here's the email I'd send: … Look good? Give this a 👍 or say yes and I'll send it." })).toBe(true);
+  });
+
+  // Dev2, 2026-10-21: "a thumbs up should always be seen as an approval".
+  it("a 👍 on the line above the ask is a 👍 on the ask, and only for the reply that carried it", async () => {
+    const LINE_ABOVE = "I'll forward the receipt with its PDFs to Relay.";
+    const storage = new MemoryStorage();
+    const asks: Record<string, unknown>[] = [];
+    await rememberAskReply(storage, [LINE_ABOVE, ASK], NOW);
+    expect(await react(storage, tapback("t1", "Liked", LINE_ABOVE), NOW)).toBe("held");
+    await drain(storage, deps(asks, { now: NOW + THUMB_HOLD_MS }));
+    expect(asks).toHaveLength(1);
+    expect(asks[0]).toMatchObject({ question: "👍", quoted: ASK, tapback: "Liked" });
+
+    // Taken back inside ten seconds, it is dropped by the words it was on. ("Sent." above was a reply with no ask.)
+    await rememberAskReply(storage, [LINE_ABOVE, ASK], NOW + 15_000);
+    await react(storage, tapback("t2", "Liked", LINE_ABOVE), NOW + 20_000);
+    expect(await react(storage, tapback("t3", "Liked", LINE_ABOVE, true), NOW + 22_000)).toBe("dropped");
+
+    // A later reply with no ask forgets it: a 👍 on that line is a tapback on that line.
+    await rememberAskReply(storage, ["Done, I sent an email to jo@example.com."], NOW + 30_000);
+    expect(await react(storage, tapback("t4", "Liked", LINE_ABOVE), NOW + 31_000)).toBe("noted");
   });
 });
 

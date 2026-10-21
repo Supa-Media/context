@@ -89,7 +89,7 @@ export async function runEmailGateChecks(check) {
         pending().length === 1 &&
         asked.body?.asked === 1 &&
         (asked.body?.answer ?? "").includes(
-          "Here's the email I'd send:\n\nFrom: seyi@gmail.example\nTo: jo@example.com\nSubject: Re: Thursday\n\nHi Jo,\n\nThursday at 3 works for me.\n\nSeyi\n\nLook good? Give this a 👍 or say yes and I'll send it",
+          "Here's the email I'd send:\n\nFrom: seyi@gmail.example\nTo: jo@example.com\nSubject: Re: Thursday\n\nHi Jo,\n\nThursday at 3 works for me.\n\nSeyi\n\nGive it a 👍 and I'll send it",
         ),
     );
     check(
@@ -453,7 +453,7 @@ export async function runEmailGateChecks(check) {
         retryAsk.includes("Receipt-2508-0278-2435.pdf") &&
         !retryAnswer.includes("Forward of:") &&
         !/say yes to the exact|just texted you/i.test(retryAnswer) &&
-        retryAnswer.split("Look good?").length === 2,
+        retryAnswer.split("Give it a 👍").length === 2,
     );
     const askedModel = model.requests.length;
     const liked = await request(env, TOKEN_TEXTS, "/agent", { question: "👍", quoted: retryAsk, tapback: "Liked", conversation: "texts" });

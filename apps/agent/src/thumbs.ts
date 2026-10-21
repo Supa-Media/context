@@ -26,7 +26,7 @@ const THUMB_KEY = "thumb";
  * text that reads as one is held; the gateway still checks the words match
  * what is waiting.
  */
-const ASK = /(?:Give this a 👍 or (?:say|reply) yes|^(?:Here's the (?:bug report|email|change) I'd|Here are the emails I'd|Before I (?:pay|do th)))/u;
+const ASK = /(?:Give (?:this|it) a 👍|^(?:Here's the (?:bug report|email|change) I'd|Here are the emails I'd|Before I (?:pay|do th)))/u;
 
 /** Whether a tapback is a yes to hold: a like or a love on an ask. */
 export function holdsAsYes(reaction: Reaction): boolean {
@@ -39,6 +39,38 @@ export function takesBackYes(reaction: Reaction): boolean {
 }
 
 type Held<T> = { item: T; words: string; at: number };
+
+/*
+  A 👍 on any text of the reply that carried an ask is a 👍 on the ask (Dev2,
+  2026-10-21: "a thumbs up should always be seen as an approval"). The ask
+  goes out as its own text, and the model's line above it as another, so a 👍
+  on that line used to be a tapback on nothing. The reply's texts are kept
+  with its ask, and a like on one of them is taken as a like on the ask,
+  whose words the gateway still checks against what is waiting.
+*/
+const ASK_REPLY_KEY = "askReply";
+/** As long as a held ask stays armed (`apps/mcp/src/tools/approvals.js`). */
+const ASK_REPLY_FOR_MS = 12 * 60 * 60 * 1000;
+type AskReply = { ask: string; texts: string[]; at: number };
+
+/** Keep the texts of a reply that carried an ask, or forget the last one when this reply carried none. */
+export async function rememberAskReply(storage: InboxStorage, texts: readonly string[], now: number): Promise<void> {
+  try {
+    const ask = texts.find((text) => ASK.test(text));
+    if (ask === undefined) await storage.delete(ASK_REPLY_KEY);
+    else await storage.put<AskReply>(ASK_REPLY_KEY, { ask, texts: texts.slice(0, 8).map((text) => text.slice(0, 2_000)), at: now });
+  } catch {
+    // Unkept, a 👍 on the line above an ask is a tapback on that line, as before.
+  }
+}
+
+/** A like or love on a text of the last reply that carried an ask, as a like on that ask; anything else as it was. */
+export async function onTheAsk(storage: InboxStorage, reaction: Reaction, now: number): Promise<Reaction> {
+  if (reaction.removed || (reaction.how !== "Liked" && reaction.how !== "Loved") || ASK.test(reaction.words)) return reaction;
+  const kept = await storage.get<AskReply>(ASK_REPLY_KEY);
+  if (kept === undefined || now - kept.at > ASK_REPLY_FOR_MS) return reaction;
+  return kept.texts.some((text) => sameWords(text, reaction.words)) ? { ...reaction, words: kept.ask } : reaction;
+}
 
 /** Hold a tapback for its ten seconds; a newer one replaces it. */
 export async function holdThumb<T>(storage: InboxStorage, item: T, words: string, now: number): Promise<void> {

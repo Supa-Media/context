@@ -46,7 +46,7 @@ export async function runCalendarGateChecks(check) {
         controlPlane.calendarCalls[0].check === true &&
         Array.isArray(asked.body?.verbatim) &&
         asked.body.verbatim[0] ===
-          `Here's the change I'd make:\n\nAdd to your Google Calendar:\nDentist\nTuesday, October 20${new Date().getUTCFullYear() === 2026 ? "" : ", 2026"}, 3 to 4 pm\n\nLook good? Give this a 👍 or say yes and I'll make the change.`,
+          `Here's the change I'd make:\n\nAdd to your Google Calendar:\nDentist\nTuesday, October 20${new Date().getUTCFullYear() === 2026 ? "" : ", 2026"}, 3 to 4 pm\n\nGive it a 👍 and I'll make the change.`,
     );
 
     let before = model.requests.length;

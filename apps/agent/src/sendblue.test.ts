@@ -116,7 +116,8 @@ describe("sendblue webhook", () => {
     ]) {
       expect(parseSendblueInbound(received({ content }))).toMatchObject({ kind: "reaction", reaction: { how, words } });
     }
-    expect(parseSendblueInbound(received({ content: "Removed a heart from “x”" }))).toEqual({ kind: "ignored", reason: "reaction" });
+    // A taken-back heart reaches the inbox, which drops it only if it was being held as a yes (`thumbs.ts`).
+    expect(parseSendblueInbound(received({ content: "Removed a heart from “x”" }))).toMatchObject({ kind: "reaction", reaction: { removed: true } });
     expect(parseSendblueInbound(received({ content: "Loved the movie" }))).toMatchObject({ kind: "message" });
     expect(parseSendblueInbound(received({ content: "Liked “x” but why?" }))).toMatchObject({ kind: "message" });
   });

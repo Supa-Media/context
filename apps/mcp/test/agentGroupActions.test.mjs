@@ -81,7 +81,7 @@ test("a member tagger's email is held, the ask says to reply, and somebody else'
   assert.equal(asked.status, 200, JSON.stringify(asked.body));
   assert.equal(sends().length, 0);
   assert.equal(live(PENDING_PREFIX).length, 1, "held in the chat's workspace");
-  assert.match(asked.body?.answer ?? "", /From: cy@gmail\.example[\s\S]*Look good\? Give this a 👍 or reply yes and I'll send it/, "the ask says to reply");
+  assert.match(asked.body?.answer ?? "", /From: cy@gmail\.example[\s\S]*Give it a 👍 and I'll send it/, "the ask asks for a 👍");
 
   const before = world.model.requests.length;
   world.model.install([{ text: "That one's Cy's to approve." }]);
@@ -105,7 +105,7 @@ test("a tagger's calendar change is held for their yes the same way", async () =
   const asked = await tagged(TOKEN_GROUP_MEMBER, "Tex put rehearsal on my calendar friday 7 to 9", "cy");
   assert.equal(asked.status, 200);
   assert.equal(changes().length, 0);
-  assert.match(asked.body?.answer ?? "", /Rehearsal[\s\S]*Give this a 👍 or reply yes and I'll make the change/);
+  assert.match(asked.body?.answer ?? "", /Rehearsal[\s\S]*Give it a 👍 and I'll make the change/);
   const yes = await tagged(TOKEN_GROUP_MEMBER, "yes tex", "cy");
   assert.equal(changes().length, 1);
   assert.equal(yes.body?.answer, 'Done, I added "Rehearsal" to your calendar.');
