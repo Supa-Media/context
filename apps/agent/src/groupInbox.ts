@@ -53,6 +53,10 @@ const RETRY_MS = 20_000;
 /** A group turn is asked for whole; the gateway caps it too. */
 const GROUP_TURN_TIMEOUT_MS = 120_000;
 const SENT_KEY = "gsent";
+/** The workspace names Tex last asked this chat to pick from, never text: a bare "supa" then answers it. */
+const CHOICE_KEY = "gchoice";
+const CHOICE_FOR_MS = 24 * 60 * 60 * 1000;
+type Choice = { slugs: string[]; at: number };
 const seenKey = (eventId: string) => `gseen:${eventId}`;
 const pendingKey = (seq: number) => `gpending:${String(seq).padStart(12, "0")}`;
 
@@ -65,7 +69,7 @@ export const GROUP_LINES = {
   noShared:
     "I can only use notes everyone in this chat can open, and not everyone here shares a workspace with me. Text me on your own instead.",
   choose: (slugs: string[]) =>
-    `You all share ${slugs.map((slug) => `@${slug}`).join(", ")}. Which one should I use here? Say "Tex, use @${slugs[0]}".`,
+    `You all share ${slugs.map((slug) => `@${slug}`).join(" and ")}. Which one should I use here? Just say its name.`,
   notShared: "That isn't a workspace everyone in this chat shares.",
   bound: (slug: string) => `Got it, I'll use @${slug} in this chat.`,
   status: (slug: string) => `In this chat I can see @${slug}, and only what everyone there can open.`,
@@ -96,17 +100,25 @@ const EMOJI_ONLY = /^[\p{Extended_Pictographic}\p{Emoji_Component}\s]+$/u;
  * inline reply to Tex that says more than thanks.
  */
 export function addressesTex(text: string, repliesToTex: boolean): boolean {
-  const words = text.trim();
+  const words = unquoted(text);
   if (words === "") return false;
   if (OPENS.test(words) || CLOSES.test(words)) return true;
   if (NAMED.test(words) && /\?\s*$/.test(words)) return true;
   return repliesToTex && !NOTHING_TO_SAY.test(words) && !EMOJI_ONLY.test(words);
 }
 
-/** The words after Tex's name, when they are one of the group commands. */
-export function groupCommand(text: string): Command | null {
-  const rest = text
-    .trim()
+/** The words without the quotes a person may type around them ("“Tex use @supa”"). */
+function unquoted(text: string): string {
+  return text.trim().replace(/^["“”'‘’`]+/, "").replace(/["“”'‘’`]+$/, "").trim();
+}
+
+/**
+ * The words after Tex's name, when they are one of the group commands. While
+ * the chat is picking a workspace (`choices`), one of the names it was offered
+ * on its own ("supa", "@supa", "Tex supa") picks it.
+ */
+export function groupCommand(text: string, choices: readonly string[] = []): Command | null {
+  const rest = unquoted(text)
     .replace(new RegExp(`^(?:(?:hey|hi|yo|ok|okay)\\s+)?${WORD}[\\s,:!.-]*`, "i"), "")
     .trim()
     .replace(/[.!]+$/, "")
@@ -115,7 +127,9 @@ export function groupCommand(text: string): Command | null {
   if (/^(?:start|unmute|come back)$/.test(rest)) return { kind: "start" };
   if (/^what (?:can you see|do you see|can you read)(?: here)?\??$/.test(rest)) return { kind: "status" };
   const use = /^use @?([a-z0-9][a-z0-9-]{0,63})$/.exec(rest);
-  return use ? { kind: "use", slug: use[1] } : null;
+  if (use) return { kind: "use", slug: use[1] };
+  const named = /^@?([a-z0-9][a-z0-9-]{0,63})$/.exec(rest);
+  return named && choices.includes(named[1]) ? { kind: "use", slug: named[1] } : null;
 }
 
 async function sha256Hex(value: string): Promise<string> {
@@ -135,7 +149,7 @@ export function peopleOf(line: string, ...lists: (readonly string[] | null)[]): 
 export async function acceptGroup(storage: InboxStorage, message: GroupMessage, now: number): Promise<"queued" | "ignored" | "duplicate" | "full"> {
   const sent = (await storage.get<string[]>(SENT_KEY)) ?? [];
   const repliesToTex = message.replyTo !== undefined && sent.includes(message.replyTo);
-  if (!addressesTex(message.text, repliesToTex)) return "ignored";
+  if (!addressesTex(message.text, repliesToTex) && groupCommand(message.text, await openChoice(storage, now)) === null) return "ignored";
   if ((await storage.get<number>(seenKey(message.eventId))) !== undefined) return "duplicate";
   const pending = await storage.list<Pending>({ prefix: "gpending:" });
   if (pending.size >= MAX_PENDING) return "full";
@@ -175,7 +189,7 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, deps: G
   // A green-bubble group is never answered from anyone's notes: SMS vouches for no sender.
   if (message.sms) return void (await say(storage, deps, message, GROUP_LINES.sms));
   const chat = { line: message.line, groupId: message.groupId };
-  const command = groupCommand(message.text);
+  const command = groupCommand(message.text, await openChoice(storage, deps.now()));
 
   // Sendblue's own list too: more people only ever narrows what Tex may use.
   const members = await readGroupMembers(deps.fetch, deps.sendblue, message.groupId);
@@ -191,8 +205,12 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, deps: G
   if (status === "not_shared") return void (await say(storage, deps, message, GROUP_LINES.notShared));
   if (status === "stopped") return void (await say(storage, deps, message, GROUP_LINES.stopped));
   if (status === "started") return void (await say(storage, deps, message, GROUP_LINES.started));
-  if (status === "choose") return void (await say(storage, deps, message, GROUP_LINES.choose(asked.slugs)));
+  if (status === "choose") {
+    await storage.put<Choice>(CHOICE_KEY, { slugs: asked.slugs, at: deps.now() });
+    return void (await say(storage, deps, message, GROUP_LINES.choose(asked.slugs)));
+  }
   if (status !== "ready") throw new ServiceError("control_plane", null);
+  await storage.delete(CHOICE_KEY);
   if (command?.kind === "use") return void (await say(storage, deps, message, GROUP_LINES.bound(asked.slug)));
   if (command?.kind === "status") return void (await say(storage, deps, message, GROUP_LINES.status(asked.slug)));
   if (asked.accessToken === undefined) throw new ServiceError("control_plane", null);
@@ -303,6 +321,12 @@ async function say(storage: InboxStorage, deps: GroupDeps, message: GroupMessage
   if (handle === undefined) return;
   const sent = (await storage.get<string[]>(SENT_KEY)) ?? [];
   await storage.put(SENT_KEY, [...sent.filter((entry) => entry !== handle), handle].slice(-MAX_SENT));
+}
+
+/** The names this chat was asked to pick from, while that question is still open. */
+async function openChoice(storage: InboxStorage, now: number): Promise<string[]> {
+  const choice = await storage.get<Choice>(CHOICE_KEY);
+  return choice !== undefined && now - choice.at < CHOICE_FOR_MS ? choice.slugs : [];
 }
 
 async function pruneSeen(storage: InboxStorage, now: number): Promise<void> {
