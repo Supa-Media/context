@@ -180,6 +180,19 @@ export const oauthTables = {
   oauthGrants: defineTable({
     /** Ephemeral first-party browser instance; never an authorization credential. */
     consoleInstanceId: v.optional(v.string()),
+    /**
+     * A Tex group chat's grant (`functions/textGroups.ts`): the chat it was
+     * minted for, everyone else in it, and the tagger's own workspace the turn
+     * is metered on. The grant resolves only while every one of them is still a
+     * member of `workspaceId` (`lib/controlPlane/liveGrants.ts`).
+     */
+    texGroup: v.optional(
+      v.object({
+        groupId: v.id("textGroups"),
+        coViewerIds: v.array(v.id("users")),
+        meterWorkspaceId: v.id("workspaces"),
+      }),
+    ),
     workspaceId: v.id("workspaces"),
     userId: v.id("users"),
     clientId: v.string(),

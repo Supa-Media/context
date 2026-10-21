@@ -36,6 +36,8 @@ import type { Picture } from "./line";
 import { hostPicture, OBJECT_ID, ORIGIN_KEY, serveMedia, workerOrigin } from "./media";
 import { bearerMatches, parseTellRequest, tellEveryone, tellNewLine, type Told } from "./newLine";
 import { parseSendblueInbound, sendblueKeys, threadContext, verifySendblueSecret } from "./sendblue";
+import { parseSendblueGroup, type GroupMessage } from "./sendblueGroups";
+import { acceptGroup, drainGroup } from "./groupInbox";
 import { verifyLinqSignature } from "./signature";
 import { handleSimulator, SIMULATOR_PATH, simulatorEnabled, simulatorInbox } from "./simulator";
 import { SIMULATOR_PAGE } from "./simulatorPage";
@@ -124,6 +126,9 @@ export default {
     } catch {
       return new Response(null, { status: 400 });
     }
+    // A group message goes to the group's own queue, never a sender's (`groupInbox.ts`).
+    const grouped = line === "sendblue" ? parseSendblueGroup(payload) : null;
+    if (grouped !== null) return groupWebhook(env, grouped);
     const inbound = line === "sendblue" ? parseSendblueInbound(payload) : parseInbound(payload);
     if (inbound.kind === "invalid") {
       logWebhook(line, "invalid");
@@ -213,6 +218,27 @@ export default {
  */
 function logWebhook(line: "linq" | "sendblue", outcome: "unsigned" | "invalid" | "ignored" | "accepted", reason?: string): void {
   console.log(JSON.stringify({ event: `${line}_webhook`, outcome, ...(reason ? { reason } : {}) }));
+}
+
+/** A group message: dropped, or handed to the group's own queue, keyed on the group alone. */
+async function groupWebhook(env: Env, grouped: NonNullable<ReturnType<typeof parseSendblueGroup>>): Promise<Response> {
+  if (grouped.kind === "invalid") {
+    logWebhook("sendblue", "invalid");
+    return new Response(null, { status: 400 });
+  }
+  if (grouped.kind === "ignored") {
+    logWebhook("sendblue", "ignored", `group_${grouped.reason}`);
+    return new Response(null, { status: 200 });
+  }
+  const stub = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(groupInboxName(grouped.groupId)));
+  const result = await stub.fetch("https://inbox/group-accept", { method: "POST", body: JSON.stringify(grouped) });
+  logWebhook("sendblue", "accepted", "group");
+  return new Response(null, { status: result.ok ? 200 : 503 });
+}
+
+/** A group's queue is named apart from every phone's, which always starts with "+". */
+export function groupInboxName(groupId: string): string {
+  return `sendblue-group:${groupId}`;
 }
 
 /**
@@ -323,6 +349,10 @@ export class SenderInbox implements DurableObject {
       });
       return Response.json({ told });
     }
+    if (path === "/group-accept") {
+      const message = (await request.json()) as GroupMessage;
+      return Response.json({ outcome: await acceptGroup(this.state.storage, message, Date.now()) });
+    }
     if (path === "/react") {
       const inbound = (await request.json()) as Extract<Inbound, { kind: "reaction" }>;
       return Response.json({ outcome: await react(this.state.storage, inbound, Date.now()) });
@@ -341,6 +371,8 @@ export class SenderInbox implements DurableObject {
   }
 
   async alarm(): Promise<void> {
+    // A group's object has only `gpending:` keys, a phone's only `pending:`; each drain finds the other's empty.
+    await drainGroup(this.state.storage, this.deps());
     await drain(this.state.storage, this.deps());
     await checkReady(this.state.storage, this.deps());
     await checkGmail(this.state.storage, this.deps());

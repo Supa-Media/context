@@ -31,8 +31,10 @@ before the body is parsed, and no secret refuses everything. Tests:
 
 A group's messages come from several people. Answering one of them from a
 personal context would read that person's notes into a room other people are
-in. Groups are dropped until shared workspaces have a group design of their
-own.
+in. So a group never reaches anyone's personal context: on Sendblue it is
+answered from the one shared workspace everyone in it is a member of, through
+a grant of its own ([groups](./texting-assistant/groups.md), 2026-10-20), and
+on Linq it is still dropped.
 
 **The gate fails closed, and that is the load-bearing half.** A direct chat has
 to prove itself with `data.chat.is_group === false`; anything else — a missing

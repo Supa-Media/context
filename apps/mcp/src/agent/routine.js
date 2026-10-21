@@ -293,3 +293,16 @@ export async function stopRoutine(callTool, path) {
     return "kept";
   }
 }
+
+/**
+ * A run goes in the routine's history whatever became of it. Best effort: a
+ * history that failed to save costs the next run its "last time", not this
+ * one its answer.
+ */
+export async function keepRun(store, routine, runs, outcome, text) {
+  try {
+    await recordRun(store, routine.path, runs, { at: Date.now(), outcome, text });
+  } catch {
+    // See above.
+  }
+}

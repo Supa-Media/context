@@ -40,6 +40,7 @@ import { internalMutation, type MutationCtx } from "../_generated/server";
 import { countTurn, recordTurn, resolveTurn } from "./lib/jev/turns";
 import { GLM_MODEL } from "./lib/jev/models";
 import { TEXTS_CLIENT_ID } from "./textLinks";
+import { TEXTS_GROUP_CLIENT_ID } from "./textGroups";
 import { ROUTINES_CLIENT_ID } from "./lib/routines/model";
 import { DREAMS_CLIENT_ID } from "./lib/dreams/model";
 import { HEARTBEAT_CLIENT_ID } from "./lib/heartbeats/model";
@@ -83,6 +84,16 @@ async function chargedWorkspace(
   const turn = await resolveTurn(ctx, hashedAccessToken, expectedWorkspaceId);
   if (turn === null) return null;
   if (BUILTIN_CLIENTS.has(turn.clientId)) return { workspaceId: turn.workspaceId };
+  // A group chat's turn answers in the chat's workspace and is charged to the
+  // person who tagged Tex: their personal workspace's plan, cap and meter.
+  if (turn.clientId === TEXTS_GROUP_CLIENT_ID) {
+    const grant = await ctx.db
+      .query("oauthGrants")
+      .withIndex("by_access_token", (q) => q.eq("hashedAccessToken", hashedAccessToken))
+      .unique();
+    const charged = grant?.texGroup?.meterWorkspaceId;
+    return charged === undefined ? null : { workspaceId: charged };
+  }
   if (tryIt && turn.clientId === CONSOLE_CLIENT_ID && (await editsAiNotes(ctx, hashedAccessToken))) {
     return { workspaceId: turn.workspaceId };
   }

@@ -34,8 +34,8 @@ import { grantedToolsFor } from "./sixTools.js";
 import { SHOWN_HISTORY_TURNS, appendConversation, rememberRoutineText, conversationPath, earlierTextsTool, historyIsTainted, readConversation } from "./conversation.js";
 import {
   loadRoutine,
+  keepRun,
   readRuns,
-  recordRun,
   RoutineRefusal,
   ROUTINES_CLIENT_ID,
   routinePathFrom,
@@ -59,6 +59,7 @@ import { threadPrompt, threadView } from "./threadView.js";
 import { steerFor, steeredLine } from "./steer.js";
 import { answerWithAsk, textedAsk } from "./textedApprovals.js";
 import { setAsideLine, settleTextedText } from "./textedSettle.js";
+import { groupAwareCallTool, groupOf, groupPrompt, groupWriteTools, isGroupSession, keepGroupExchange, readGroupMemory } from "./groupTurn.js";
 /**
  * What a turn that may not run says. Nothing in the app can change this any
  * more (people's own model keys were deleted, the owner, 2026-10-10): the
@@ -132,6 +133,10 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     );
   }
 
+  // A group chat's turn names its chat (`groupTurn.js`); decided by the grant, never by the body.
+  const group = isGroupSession(session) ? groupOf(body) : null;
+  if (isGroupSession(session) && group === null) return json({ error: "invalid_request", error_description: "A group chat's turn names its chat." }, 400);
+
   store.actor = actorFor(session);
   store.contexts = contextsFor(session);
 
@@ -180,7 +185,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     outgoing pictures, the sharing judge and the Mail checker all vouch from.
     Only `runTurn` sees the two together, and the quote is marked there.
   */
-  const quoted = quotedOf(session.actorClientId === TEXTS_CLIENT_ID ? body : null);
+  const quoted = quotedOf(session.actorClientId === TEXTS_CLIENT_ID || group !== null ? body : null);
   const reacted = reactedOf(session.actorClientId === TEXTS_CLIENT_ID ? body : null); // tapbacks since their last text
   const steer = steerFor(store, session, body); // texts sent while it works (`steer.js`)
 
@@ -248,7 +253,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   const firstParty =
     session.actorClientId === TEXTS_CLIENT_ID ||
     session.actorClientId === CONSOLE_CLIENT_ID ||
-    session.actorClientId === ROUTINES_CLIENT_ID;
+    session.actorClientId === ROUTINES_CLIENT_ID ||
+    group !== null;
   session.egress = { complete: firstParty, ledger, texting: session.actorClientId === TEXTS_CLIENT_ID };
 
   /*
@@ -259,10 +265,12 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     hold. Kept in the default context, the one this grant was approved against.
   */
   const conversation =
-    !runner && conversationPath(body.conversation) !== null && hasScope(session, SCOPE_WRITE)
+    !runner && group === null && conversationPath(body.conversation) !== null && hasScope(session, SCOPE_WRITE)
       ? body.conversation
       : null;
-  const history = conversation === null ? [] : await readConversation(store, conversation);
+  // A group chat remembers in its own file, never the tagger's texts; its turns are other people's words, so untrusted (`groupTurn.js`).
+  const history = group !== null ? await readGroupMemory(store, group) : conversation === null ? [] : await readConversation(store, conversation);
+  if (group !== null) markUntrusted(ledger);
   session.egress.turn = runner ? { note: routine?.body ?? "" } : { history, question }; // the sharing judge's
 
   /*
@@ -294,6 +302,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   // A text has the MCP's own write tools (`textingWrites.js`, the owner,
   // 2026-10-08); a routine's own run never may.
   const textingWriting = textingWriteTools(offered, { texting: session.actorClientId === TEXTS_CLIENT_ID });
+  // A group chat's writes are create and append only (`groupTurn.js`).
+  const groupWriting = group !== null ? groupWriteTools(offered) : [];
   // The person's browser tag lets a later text carry on in the same browser
   // (`browserProviders.js`); it is made from their id, never from the request.
   // A handoff texts their own `/tex/<handle>` page, never the browser's link.
@@ -501,8 +511,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       // A turn that edits directly is not also handed proposals: they have no
       // screen on a phone, and two ways to change a note is one too many.
       tools: [
-        ...agentTools(offered).filter((tool) => textingWriting.length === 0 || tool.name !== "propose_note"),
-        ...textingWriting,
+        ...agentTools(offered).filter((tool) => (textingWriting.length === 0 && group === null) || tool.name !== "propose_note"),
+        ...textingWriting, ...groupWriting,
         ...(skills?.tools ?? []), ...(learned?.tools ?? []),
         ...(delegation?.tools ?? []),
         ...(supervision?.mail.tools ?? []), ...(maker?.tools ?? []),
@@ -513,7 +523,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       callTool: outgoing.wrap(
         withPictureMaker(maker, withAttachmentImages(
           attachments,
-          withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withLearnedSkills(learned, withSkills(skills, withNoteLinks(textingAwareCallTool(dispatch, textingWriting), noteLinking)), { tainted: () => ledger.untrusted === true, dispatch }))),
+          withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withLearnedSkills(learned, withSkills(skills, withNoteLinks(group !== null ? groupAwareCallTool(dispatch, groupWriting) : textingAwareCallTool(dispatch, textingWriting), noteLinking)), { tainted: () => ledger.untrusted === true, dispatch }))),
         )),
       ),
       pictures: texted,
@@ -526,21 +536,21 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
         metadata: {
           feature: "assistant",
           workspace: String(session.workspaceId),
-          client: texting ? "texts" : "app",
+          client: group !== null ? "texts-group" : texting ? "texts" : "app",
           // The setup that answered, when one did: which note a cost is for.
           ...(production !== null ? { setup: production.version } : {}),
         },
       },
       web,
       history: shown,
-      threadNote: threadPrompt(inThread), steer,
+      threadNote: (group !== null ? groupPrompt(group, home) : "") + threadPrompt(inThread), steer,
       local: earlier,
       // What Tex keeps about them and its open jobs, in their own workspace (`aboutMe.js`, `jobs.js`), on a texted turn.
       ...(texting ? await readTexNotes(dispatch) : {}),
       localNow: { now: Date.now(), timeZone },
       observe: transcript?.record ?? null,
       workspaces: contextsFor(session), // Where a new note goes (`workspaces.js`).
-      texting,
+      texting: texting || group !== null, // a group's answer is a text too, written for one
       notes: production !== null ? { prompt: production.prompt } : null,
       builtinModelOverride: productionModel ?? undefined,
       router,
@@ -614,6 +624,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     // A hard job, written down for next time (`reflect.js`): after the answer, never on a tainted turn.
     await afterAnswer(afterTextedTurn({ env, controlPlane, store, session, offered, question, turn, tainted: ledger.untrusted === true, learned, canWrite: textingWriting.some((tool) => tool.name === "write_note"), timeZone }));
 
+    // Best effort, as below: a memory that failed to save costs the chat some context, not this answer.
+    if (group !== null && !turn.exhausted) await keepGroupExchange(store, group, history, question, answer, { tainted: ledger.untrusted }).catch(() => {});
     if (conversation !== null && !turn.exhausted) {
       try {
         const saved = [reactedLine(reacted), tapbackLine(quoted) || question, attachmentsLine(attachments, (await transcript?.kept()) ?? []), steeredLine(steer?.words ?? [])].filter(Boolean).join("\n"); // names only, never bytes
@@ -683,18 +695,5 @@ async function deferred(store, work) {
     store.defer(work);
   } catch {
     await work;
-  }
-}
-
-/**
- * A run goes in the routine's history whatever became of it. Best effort: a
- * history that failed to save costs the next run its "last time", not this
- * one its answer.
- */
-async function keepRun(store, routine, runs, outcome, text) {
-  try {
-    await recordRun(store, routine.path, runs, { at: Date.now(), outcome, text });
-  } catch {
-    // See above.
   }
 }

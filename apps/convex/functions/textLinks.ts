@@ -45,9 +45,10 @@ import { armHousekeeping } from "./lib/housekeeping/model";
  * Exactly what any other connection of that person's reaches: the grant is
  * minted on their personal workspace, which is what an unaddressed question
  * answers from, and the gateway resolves the rest of its reach from their live
- * memberships, as it does for every grant. Group chats never get here
- * (`apps/agent/src/inbound.ts`), so an answer only ever goes back to the person
- * whose grant produced it.
+ * memberships, as it does for every grant. Group chats never get here: a
+ * group has its own grant on one shared workspace (`textGroups.ts`), so an
+ * answer from this one only ever goes back to the person whose grant
+ * produced it.
  */
 
 /** E.164: a plus, a non-zero country digit, 7 to 15 digits in all. */

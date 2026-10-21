@@ -195,18 +195,27 @@ describe("worker", () => {
       expect(routedTo).toEqual([]);
     });
 
-    it("answers 200 and drops a group or an unknown service, logging why but never the number or text", async () => {
+    it("answers 200 and drops an unknown service, logging why but never the number or text", async () => {
       const { env: e, routedTo } = sbEnv();
       const lines: string[] = [];
       vi.spyOn(console, "log").mockImplementation((line: string) => void lines.push(line));
       expect((await worker.fetch(post(inbound({ service: "RCS" }), SB_SECRET), e)).status).toBe(200);
-      expect((await worker.fetch(post(inbound({ group_id: "g" }), SB_SECRET), e)).status).toBe(200);
+      expect((await worker.fetch(post(inbound({ group_id: "g", service: "RCS" }), SB_SECRET), e)).status).toBe(200);
       expect(routedTo).toEqual([]);
       expect(lines.map((line) => JSON.parse(line))).toEqual([
         { event: "sendblue_webhook", outcome: "ignored", reason: "service" },
-        { event: "sendblue_webhook", outcome: "ignored", reason: "group" },
+        { event: "sendblue_webhook", outcome: "ignored", reason: "group_service" },
       ]);
       expect(lines.join("\n")).not.toMatch(/5555550100|hello/);
+    });
+
+    it("queues a group message in the group's own inbox, never the sender's", async () => {
+      const { env: e, routedTo, urls } = sbEnv();
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      const body = inbound({ group_id: "g-1", participants: ["+15555550100", "+15555550101"], content: "Tex, hi" });
+      expect((await worker.fetch(post(body, SB_SECRET), e)).status).toBe(200);
+      expect(routedTo).toEqual(["sendblue-group:g-1"]);
+      expect(urls).toEqual(["https://inbox/group-accept"]);
     });
   });
 

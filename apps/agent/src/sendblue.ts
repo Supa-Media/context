@@ -34,7 +34,7 @@ export const MAX_QUOTED_TEXT = 500;
 
 export type SendblueKeys = { keyId: string; secret: string };
 
-const E164 = /^\+[1-9]\d{6,14}$/;
+export const E164 = /^\+[1-9]\d{6,14}$/;
 const CHAT_PREFIX = "sendblue:";
 const TIMEOUT_MS = 30_000;
 const QUICK_TIMEOUT_MS = 3_000;
@@ -62,7 +62,7 @@ export function sendblueKeys(keyId: string | undefined, secret: string | undefin
   return id && key ? { keyId: id, secret: key } : null;
 }
 
-async function call(
+export async function call(
   fetcher: Fetch,
   keys: SendblueKeys,
   path: string,
@@ -90,7 +90,7 @@ function headersOf(keys: SendblueKeys): Record<string, string> {
 }
 
 /** A GET's JSON, unwrapped from `data` when it is wrapped; null for any failure. Quick, never throws. */
-async function getJson(fetcher: Fetch, keys: SendblueKeys, path: string): Promise<Record<string, unknown> | null> {
+export async function getJson(fetcher: Fetch, keys: SendblueKeys, path: string): Promise<Record<string, unknown> | null> {
   try {
     const response = await fetcher(`${SENDBLUE_API}${path}`, {
       method: "GET",
@@ -120,10 +120,15 @@ function chatOf(chatId: string): { number: string; from_number: string } {
  * (an error body can quote the request): the handle a later check-in can be
  * threaded under (`threads.ts`). Undefined when the body has none.
  */
-async function sendCall(fetcher: Fetch, keys: SendblueKeys, body: Record<string, unknown>): Promise<{ status: number; handle?: string }> {
+export async function sendCall(
+  fetcher: Fetch,
+  keys: SendblueKeys,
+  body: Record<string, unknown>,
+  path = "/api/send-message",
+): Promise<{ status: number; handle?: string }> {
   let response: Response;
   try {
-    response = await fetcher(`${SENDBLUE_API}/api/send-message`, {
+    response = await fetcher(`${SENDBLUE_API}${path}`, {
       method: "POST",
       headers: { ...headersOf(keys), "content-type": "application/json" },
       body: JSON.stringify(body),
@@ -344,7 +349,7 @@ async function readOwnMessage(fetcher: Fetch, keys: SendblueKeys, handle: string
 }
 
 /** A `{ message_handle }` reference's handle, when it is a plausible one. */
-function handleOf(value: unknown): string | undefined {
+export function handleOf(value: unknown): string | undefined {
   const handle = isRecord(value) ? value.message_handle : undefined;
   return typeof handle === "string" && handle !== "" && handle.length <= 200 ? handle : undefined;
 }
@@ -381,10 +386,10 @@ export async function verifySendblueSecret(secret: string, headers: Headers): Pr
  * the Spanish ones are here too ("Le gustó “…”" reached Tex as a text,
  * 2026-10-19).
  */
-const TAPBACK =
+export const TAPBACK =
   /^(?:Loved|Liked|Disliked|Laughed at|Emphasi[sz]ed|Questioned|Removed an? .{1,40} from|Reacted .{1,16} to|Le encantó|Le gustó|No le gustó) [“"][\s\S]*[”"]$/u;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -392,7 +397,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * The one shape of Sendblue's receive webhook this Worker acts on: an
  * inbound iMessage in a direct chat, from a phone number, with words or a
  * file. The same rules as Linq's (`inbound.ts`): groups and Apple ID email
- * senders are dropped on purpose. An SMS is kept, flagged `sms`, only so it is
+ * senders are dropped on purpose here; a group goes to its own queue first
+ * (`sendblueGroups.ts`), so one never reaches this. An SMS is kept, flagged `sms`, only so it is
  * answered without its words deciding anything.
  */
 export function parseSendblueInbound(payload: unknown): Inbound {
@@ -456,7 +462,7 @@ export function parseSendblueInbound(payload: unknown): Inbound {
 }
 
 /** Tex's line a delivery came in on. */
-function line(payload: Record<string, unknown>): string | undefined {
+export function line(payload: Record<string, unknown>): string | undefined {
   return [payload.sendblue_number, payload.to_number].find(
     (value): value is string => typeof value === "string" && E164.test(value),
   );

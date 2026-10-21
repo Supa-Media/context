@@ -305,7 +305,7 @@ function readVerbatim(value: unknown, answer: string): string[] {
     .slice(0, 5);
 }
 
-function agentAnswer(status: number, json: unknown): AgentAnswer {
+export function agentAnswer(status: number, json: unknown): AgentAnswer {
   const body = record(json);
   const pictures = readPictures(body.pictures);
   if (status === 200 && typeof body.answer === "string" && (body.answer.trim() || pictures.length > 0)) {
