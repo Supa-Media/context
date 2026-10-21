@@ -91,11 +91,20 @@ async function connect(t: TestConvex, userId: Id<"users">, token: string) {
 }
 
 describe("asking for a connect link", () => {
-  test("a group chat can only ask for a shared workspace's connection, never someone's own", async () => {
+  test("a group chat never gets a link, not even for its shared workspace", async () => {
     const t = setupTest();
     const w = await world(t);
     expect((await issue(t, { workspaceId: w.personal, userId: w.seyi, clientId: "context_texts_group" })).status).toBe("refused");
-    expect((await issue(t, { workspaceId: w.team, userId: w.sayo, clientId: "context_texts_group" })).status).toBe("issued");
+    expect((await issue(t, { workspaceId: w.team, userId: w.seyi, clientId: "context_texts_group" })).status).toBe("refused");
+  });
+
+  /** Sabotage: let `mayConnect` accept a shared workspace. */
+  test("an app connects for one person only: a shared workspace gets no link, even for its owner", async () => {
+    const t = setupTest();
+    const w = await world(t);
+    expect((await issue(t, { workspaceId: w.personal, userId: w.seyi })).status).toBe("issued");
+    expect((await issue(t, { workspaceId: w.team, userId: w.seyi })).status).toBe("refused");
+    expect((await issue(t, { workspaceId: w.team, userId: w.sayo })).status).toBe("refused");
   });
 
   test("a member who can only read, or a stranger, gets no link", async () => {
@@ -111,9 +120,9 @@ describe("asking for a connect link", () => {
     enableSlack();
     const t = setupTest();
     const w = await world(t);
-    const { token } = await issue(t, { workspaceId: w.team, userId: w.seyi });
+    const { token } = await issue(t, { workspaceId: w.personal, userId: w.seyi });
     const mine = await asUser(t, w.seyi).query(api.functions.connections.connectLinkInfo, { token });
-    expect(mine).toMatchObject({ state: "ready", scope: "workspace", workspaceName: expect.any(String), available: true });
+    expect(mine).toMatchObject({ state: "ready", scope: "personal", workspaceName: expect.any(String), available: true });
     expect(await asUser(t, w.sayo).query(api.functions.connections.connectLinkInfo, { token })).toEqual({ state: "not_yours" });
     expect(await asUser(t, w.seyi).query(api.functions.connections.connectLinkInfo, { token: "never-issued-token-xx" })).toEqual({
       state: "expired",
@@ -124,19 +133,15 @@ describe("asking for a connect link", () => {
 });
 
 describe("the consent round trip", () => {
-  test("a personal workspace asks Slack for the person's own scopes, a shared one for the bot's", async () => {
+  test("Slack is asked for the person's own scopes, never the bot's", async () => {
     enableSlack();
     const t = setupTest();
     const w = await world(t);
     const mine = await issue(t, { workspaceId: w.personal, userId: w.seyi });
-    const ours = await issue(t, { workspaceId: w.team, userId: w.seyi });
     const personal = new URL((await asUser(t, w.seyi).action(api.functions.connections.startProviderConnect, { token: mine.token })).authorizeUrl);
-    const shared = new URL((await asUser(t, w.seyi).action(api.functions.connections.startProviderConnect, { token: ours.token })).authorizeUrl);
     expect(personal.origin + personal.pathname).toBe("https://slack.com/oauth/v2/authorize");
     expect(personal.searchParams.get("user_scope")).toContain("search:read");
     expect(personal.searchParams.get("scope")).toBe(null);
-    expect(shared.searchParams.get("scope")).toContain("chat:write");
-    expect(shared.searchParams.get("user_scope")).toBe(null);
     expect(personal.searchParams.get("redirect_uri")).toBe(`${APP}/connect/slack`);
   });
 
@@ -208,7 +213,6 @@ describe("calling Slack through a connection", () => {
     const t = setupTest();
     const w = await world(t);
     await connect(t, w.seyi, (await issue(t, { workspaceId: w.personal, userId: w.seyi })).token);
-    await connect(t, w.seyi, (await issue(t, { workspaceId: w.team, userId: w.seyi })).token);
     calls.length = 0;
     return { t, w, calls };
   }
@@ -224,13 +228,38 @@ describe("calling Slack through a connection", () => {
     });
   }
 
-  test("a call carries the workspace's own token, and the answer is Slack's", async () => {
+  test("a call carries the person's own token, and the answer is Slack's", async () => {
     const { t, w, calls } = await connected();
     const mine = await call(t, { workspaceId: w.personal, actorUserId: w.seyi, method: "conversations.list" });
     expect(mine).toMatchObject({ ok: true, team: "Acme", body: { ok: true } });
     expect(calls[0].auth).toBe(`Bearer ${USER_TOKEN}`);
-    await call(t, { workspaceId: w.team, actorUserId: w.sayo, clientId: "context_texts_group", method: "conversations.list" });
-    expect(calls[1].auth).toBe(`Bearer ${BOT_TOKEN}`);
+  });
+
+  /** Sabotage: let `connectionsForCall` pass a row whose scope is not personal. */
+  test("a workspace-wide connection, were one ever stored, is reached by nobody", async () => {
+    const { t, w, calls } = await connected();
+    await t.run((ctx) =>
+      ctx.db.insert("providerConnections", {
+        provider: "slack",
+        workspaceId: w.team,
+        scope: "workspace",
+        connectedBy: w.seyi,
+        encryptedAccessToken: "not-a-real-envelope",
+        grantedScopes: [],
+        externalAccountId: "UBOT",
+        externalTeamId: "T1",
+        externalTeamName: "Acme",
+        connectedAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    );
+    for (const clientId of ["context_texts", "context_texts_group"]) {
+      expect(await call(t, { workspaceId: w.team, actorUserId: w.seyi, clientId, method: "conversations.list" })).toEqual({
+        ok: false,
+        refused: "not_connected",
+      });
+    }
+    expect(calls).toHaveLength(0);
   });
 
   /** Sabotage: drop the personal-scope filter in `connectionsForCall`. */
@@ -268,32 +297,28 @@ describe("calling Slack through a connection", () => {
 });
 
 describe("Settings", () => {
-  test("a member sees the workspace's connections without a token; a stranger sees none and cannot disconnect", async () => {
+  test("the person sees their connection without a token; a stranger sees none and cannot disconnect", async () => {
     enableSlack();
     const calls = stubSlack();
     const t = setupTest();
     const w = await world(t);
-    await connect(t, w.seyi, (await issue(t, { workspaceId: w.team, userId: w.seyi })).token);
-    const seen = await asUser(t, w.reader).query(api.functions.connections.listConnections, { workspaceId: w.team });
+    await connect(t, w.seyi, (await issue(t, { workspaceId: w.personal, userId: w.seyi })).token);
+    const seen = await asUser(t, w.seyi).query(api.functions.connections.listConnections, { workspaceId: w.personal });
     expect(seen).toHaveLength(1);
-    expect(seen[0]).toMatchObject({ scope: "workspace", canDisconnect: false });
+    expect(seen[0]).toMatchObject({ scope: "personal", canDisconnect: true });
     expect(JSON.stringify(seen)).not.toContain("xox");
 
     const stranger = await createUser(t, "stranger@example.invalid");
-    expect(await asUser(t, stranger).query(api.functions.connections.listConnections, { workspaceId: w.team })).toEqual([]);
+    expect(await asUser(t, stranger).query(api.functions.connections.listConnections, { workspaceId: w.personal })).toEqual([]);
     const refused = await captureError(() =>
       asUser(t, stranger).mutation(api.functions.connections.disconnectConnection, { connectionId: seen[0].id }),
     );
     expect(errorCode(refused)).toBe("CONNECTION_NOT_FOUND");
-    const notAllowed = await captureError(() =>
-      asUser(t, w.reader).mutation(api.functions.connections.disconnectConnection, { connectionId: seen[0].id }),
-    );
-    expect(errorCode(notAllowed)).toBe("INSUFFICIENT_ROLE");
 
     calls.length = 0;
-    await asUser(t, w.sayo).mutation(api.functions.connections.disconnectConnection, { connectionId: seen[0].id });
+    await asUser(t, w.seyi).mutation(api.functions.connections.disconnectConnection, { connectionId: seen[0].id });
     await t.finishAllScheduledFunctions(() => {}, 200);
     expect(await t.run((ctx) => ctx.db.query("providerConnections").collect())).toHaveLength(0);
-    expect(calls.some((c) => c.url.endsWith("/auth.revoke") && c.auth === `Bearer ${BOT_TOKEN}`)).toBe(true);
+    expect(calls.some((c) => c.url.endsWith("/auth.revoke") && c.auth === `Bearer ${USER_TOKEN}`)).toBe(true);
   });
 });

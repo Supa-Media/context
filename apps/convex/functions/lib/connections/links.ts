@@ -26,18 +26,20 @@ export const CONNECT_ATTEMPT_TTL_MS = 10 * 60 * 1000;
 export const CONNECT_LINK_LIMIT = 10;
 export const CONNECT_LINK_WINDOW_MS = 60 * 60 * 1000;
 
-/** A Tex group chat's client: its links only ever make a workspace's own connection. */
+/** A Tex group chat's client: it never makes a connection, and never reaches one. */
 export const TEXTS_GROUP_CLIENT_ID = "context_texts_group";
 
-/** Owners and editors connect an app for a shared workspace; a personal one is its owner's. */
-const CONNECTS = new Set(["owner", "editor"]);
-
+/**
+ * An app connects for one person, in their own personal workspace (decided by
+ * the owner, 2026-10-21: "it should just be 1 person for now"). A shared
+ * workspace's connection, acting as the app's bot, stays modelled
+ * (`scopeForWorkspaceKind`) but nothing can make one.
+ */
 export async function mayConnect(ctx: QueryCtx, workspaceId: Id<"workspaces">, userId: Id<"users">): Promise<Doc<"workspaces"> | null> {
   const membership = await getMembership(ctx, workspaceId, userId);
-  if (membership === null || !CONNECTS.has(membership.role)) return null;
+  if (membership === null || membership.role !== "owner") return null;
   const workspace = await ctx.db.get(workspaceId);
-  if (workspace === null) return null;
-  if (workspace.kind === "personal" && membership.role !== "owner") return null;
+  if (workspace === null || workspace.kind !== "personal") return null;
   return workspace;
 }
 
@@ -53,7 +55,7 @@ export async function issueLink(
   const workspace = await mayConnect(ctx, args.workspaceId, args.userId);
   if (workspace === null) return "refused";
   // A group chat is steered by everyone in it, so it never makes anyone's own connection.
-  if (args.clientId === TEXTS_GROUP_CLIENT_ID && workspace.kind !== "shared") return "refused";
+  if (args.clientId === TEXTS_GROUP_CLIENT_ID) return "refused";
   const now = Date.now();
   const stale = await ctx.db
     .query("providerConnectLinks")
