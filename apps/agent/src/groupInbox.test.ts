@@ -442,4 +442,14 @@ describe("the group chat of 2026-10-21", () => {
     await drainGroup(storage, deps(w));
     expect(await acceptGroup(storage, message("yes", { eventId: "sendblue:y", messageId: "y" }), 2_000)).toBe("kept");
   });
+
+  it("says which workspaces the chat can use when it names one it can't", async () => {
+    const storage = new MemoryStorage();
+    const w = world();
+    await acceptGroup(storage, message("Tex use @softory"), 0);
+    await drainGroup(storage, deps(w, { control: { status: "not_shared", slugs: ["supa", "context-lc"] } }));
+    expect(w.sends.map((sent) => sent.content)).toEqual([
+      `That isn't a workspace everyone in this chat shares. You all share @supa, @context-lc. Say "Tex use @supa" to pick one.`,
+    ]);
+  });
 });

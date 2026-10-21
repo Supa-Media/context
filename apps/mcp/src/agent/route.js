@@ -303,7 +303,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   // routine's answer is a text too, when it says anything.
   const texting = session.actorClientId === TEXTS_CLIENT_ID || runner;
   // A texted write answers with the note's link, so Tex can text it (`noteLinks.js`).
-  const noteLinking = { origin: session.actorClientId === TEXTS_CLIENT_ID ? appOriginOf(env) : null, contexts: store.contexts };
+  // A group's too (2026-10-21): everyone in it is a member of the one workspace it reads, so the app link opens for each of them.
+  const noteLinking = { origin: session.actorClientId === TEXTS_CLIENT_ID || group !== null ? appOriginOf(env) : null, contexts: store.contexts };
   // A text has the MCP's own write tools (`textingWrites.js`, the owner,
   // 2026-10-08); a routine's own run never may.
   const textingWriting = textingWriteTools(offered, { texting: session.actorClientId === TEXTS_CLIENT_ID });
