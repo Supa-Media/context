@@ -58,7 +58,7 @@ test("initial person properties keep no private URL or document title", () => {
   } }, "phc_fixture");
   expect(JSON.stringify(clean)).not.toMatch(/private|payroll|secret/);
   expect(clean.$set_once).toEqual({
-    $initial_current_url: "https://context.lc/note/:context/:value",
+    $initial_current_url: "https://context.lc/note/:context",
     $initial_referrer: "https://example.com", harmless: true,
   });
 });
