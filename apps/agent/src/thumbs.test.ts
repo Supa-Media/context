@@ -20,7 +20,7 @@ import { readRemovedTapback } from "./reactions";
 import { parseSendblueInbound } from "./sendblue";
 import { parseSendblueGroup, type GroupMessage } from "./sendblueGroups";
 import { acceptGroup, drainGroup, type GroupDeps } from "./groupInbox";
-import { holdsAsYes, rememberAskReply, THUMB_HOLD_MS } from "./thumbs";
+import { holdsAsYes, onTheAsk, rememberAskReply, THUMB_HOLD_MS } from "./thumbs";
 import type { Fetch } from "./clients";
 
 const NOW = 1_800_000_000_000;
@@ -208,5 +208,65 @@ describe("a thumbs up on an ask, in a group", () => {
     clock.now = 60_000;
     await drainGroup(storage, groupDeps(asks, clock, { answer: "Sent." }));
     expect(asks).toHaveLength(1);
+  });
+});
+
+/*
+  PROMOTING A 👍 IS A WIDENING, SO IT IS STRICTER THAN MATCHING ONE.
+
+  `onTheAsk` rewrites a like's quoted words to the ask's, and the gateway
+  then compares those words to the ask for what is armed
+  (`apps/mcp/src/agent/textedApprovals.js` `thumbsUpIsYes`). That comparison
+  has a floor — `MIN_QUOTED = 24` — which the rewrite walks straight past:
+  by the time the gateway sees it, the words ARE the ask, so they are always
+  long enough and always match exactly.
+
+  So the floor has to hold here instead. `sameWords` matches a prefix in
+  either direction, which is right for a take-back (a quote is a truncated
+  prefix of the text it was on) and wrong for a promotion: a gate tells the
+  model to "say in one short line what you'd change", so a remembered text
+  is often a few words, and any other message starting with those words
+  would be promoted into a yes for a held email, payment or calendar change.
+*/
+describe("a 👍 is promoted to the ask only on a long enough, truncated match", () => {
+  const ASK_TEXT = "Here's the email I'd send:\n\nTo: jo@example.test\nSubject: Hi\n\nHello.\n\nLook good? Give it a 👍 and I'll send it.";
+  const SHORT_LINE = "Done.";
+  const LONG_LINE = "I've drafted that one and put the numbers in the note.";
+
+  async function remembered(storage: MemoryStorage) {
+    await rememberAskReply(storage, [SHORT_LINE, LONG_LINE, ASK_TEXT], 1_000);
+    return storage;
+  }
+
+  const like = (words: string) => ({ how: "Liked" as const, words });
+
+  it("promotes a like on a long remembered line", async () => {
+    const storage = await remembered(new MemoryStorage());
+    const got = await onTheAsk(storage, like(LONG_LINE), 2_000);
+    expect(got.words).toBe(ASK_TEXT);
+  });
+
+  it("promotes a like whose quote is that line cut short, as iMessage cuts one", async () => {
+    const storage = await remembered(new MemoryStorage());
+    const got = await onTheAsk(storage, like("I've drafted that one and put the numb…"), 2_000);
+    expect(got.words).toBe(ASK_TEXT);
+  });
+
+  it("does not promote a like on a line too short to tell one message from another", async () => {
+    const storage = await remembered(new MemoryStorage());
+    const got = await onTheAsk(storage, like(SHORT_LINE), 2_000);
+    expect(got.words).toBe(SHORT_LINE);
+  });
+
+  it("does not promote a like on a different, longer message that merely starts with a remembered line", async () => {
+    const storage = await remembered(new MemoryStorage());
+    const got = await onTheAsk(storage, like(`${LONG_LINE} And here is the rest of a quite different message.`), 2_000);
+    expect(got.words).not.toBe(ASK_TEXT);
+  });
+
+  it("still promotes a like on the ask itself, whatever its length", async () => {
+    const storage = await remembered(new MemoryStorage());
+    const got = await onTheAsk(storage, like(ASK_TEXT), 2_000);
+    expect(got.words).toBe(ASK_TEXT);
   });
 });
