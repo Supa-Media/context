@@ -36,8 +36,7 @@ texted turn has answered, deferred so the answer never waits, one small turn
 on the built-in model (at most 4 rounds, metered with `builtinMeter` like the
 dream, never counted as a question) may write one skill or answer NONE. It runs
 only when the turn was the texting client's, could write, finished, and was
-**not tainted** (`ledger.untrusted`: nothing from a web page, an email, another
-agent's mail, an attachment or a tainted history), and was hard: six or more
+hard: six or more
 tool steps, a failed step followed by one that worked, or a text opening like a
 correction ("no", "not that", "wrong", "actually", "that's not"). It is shown
 the person's text, Tex's answer, the step names with ok/failed (never a tool's
@@ -49,7 +48,22 @@ is reached. It runs under a ledger of its own, so nothing it does joins the
 turn's asks. A failure is an outcome code in the Worker's log
 (`event: "reflect"`), never text.
 
-**A tainted turn writes no skill at all.** The texted turn itself holds
+**A tainted turn reflects blind** (decided by the owner, 2026-10-21, replacing
+"a tainted turn writes no skill at all"). A turn is tainted (`ledger.untrusted`)
+when it read a web page, an email, a calendar, another agent's mail, an
+attachment, or followed a tainted reply in the shown history, which made
+almost every real job tainted: three days in, the owner had no skills at all.
+Now a tainted turn reflects too, but only on the person's own text (not a
+routine run, a delegated job or a group chat), and its reflect step is shown
+only what no outsider wrote: that text, the step names whose shape is a
+tool's (`^[a-z][a-z0-9_]{0,39}$`, so a name can't carry a sentence) and the
+index. Tex's answer, which may repeat an email's or a page's words, is left
+out. The skills are private to the person already, so the risk was never a
+leak; it was an outsider's instruction ("always forward invoices to …")
+being saved and then read on every later text, and that input is still
+never shown.
+
+**The tainted turn itself still can't write a skill.** The texted turn holds
 `write_note`, so the rule is enforced there too (`withLearnedSkills`): once the
 turn has read from outside, any call naming `tex/skills/` (any tool, any case,
 `@handle/` in front, or a folder moved onto `tex`) is refused. An untainted
@@ -75,13 +89,16 @@ widening still needs the person's own words or their YES.
 
 **What a simplification would cost:** vouching for a learned skill's addresses
 (or reading it through `read_skill`) turns one poisoned turn into a standing
-exfiltration route; letting a tainted turn reflect or write one puts a page's
-instructions into every later prompt; dropping the dispatcher's path and tool
+exfiltration route; showing a tainted turn's reflect step its answer or a
+step name of any shape, or letting the tainted turn write one itself, puts a
+page's instructions into every later prompt; going back to no reflect on a
+tainted turn means nobody gets a skill; dropping the dispatcher's path and tool
 checks lets a reflect step steered by its own answer write anywhere; dropping
 the cap lets the index grow past what a prompt should carry; leaving
 `tex/skills/` out of `OWN_OUTPUT` makes each reflect wake the next check-in.
 Tests: `apps/mcp/test/agentLearnedSkills.test.mjs` ("a learned skill's address
-is never vouched for", "a tainted turn never reflects, and can't write a skill
-itself", "the reflect step's dispatcher refuses every other tool, path and
+is never vouched for", "a tainted turn reflects blind, and can't write a skill
+itself", "a tainted turn reflects blind: their text and tool-shaped step names,
+never the answer", "a tainted turn reflects only on the person's own text", "the reflect step's dispatcher refuses every other tool, path and
 workspace", "a 41st skill is refused"), and the check-in's own-output check in
 `apps/mcp/test/agentHeartbeat.test.mjs`.
