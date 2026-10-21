@@ -78,22 +78,66 @@ export function readCalendarChange(args) {
   return { change: { ...change, new_start: args.new_start, new_end: args.new_end } };
 }
 
-/** The change exactly as the person reads it before they say yes. */
-export function calendarCopy(change) {
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** A whole day in words, "Wednesday, October 21", with the year only when it is not this one. */
+function dayWords(date, now) {
+  const [y, m, d] = date.split("-").map(Number);
+  const weekday = WEEKDAYS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
+  return `${weekday}, ${MONTHS[m - 1]} ${d}${y === new Date(now).getUTCFullYear() ? "" : `, ${y}`}`;
+}
+
+/** The clock reading a time with its offset shows, "7 pm" or "7:30 am", as the offset says: nothing is guessed. */
+function clock(value) {
+  const [h, min] = value.slice(11, 16).split(":").map(Number);
+  const hour = h % 12 === 0 ? 12 : h % 12;
+  return { text: `${hour}${min === 0 ? "" : `:${String(min).padStart(2, "0")}`}`, half: h < 12 ? "am" : "pm" };
+}
+
+/** "UTC" said out loud when the time was given in it; any other offset is the person's own clock. */
+const zone = (value) => (/(?:Z|[+-]00:00)$/.test(value) ? " UTC" : "");
+
+/** One moment in words: "Wednesday, October 21, 7 pm", or the whole day. */
+function momentWords(value, now) {
+  if (DATE.test(value)) return dayWords(value, now);
+  const at = clock(value);
+  return `${dayWords(value.slice(0, 10), now)}, ${at.text} ${at.half}${zone(value)}`;
+}
+
+/**
+ * A span in words (Dev2, 2026-10-21, shown "From 2026-10-21T19:00:00-04:00"):
+ * "Wednesday, October 21, 7 to 8 pm"; a whole day "Wednesday, October 21, all
+ * day", its end being the day after, as Google takes it.
+ */
+export function spanWords(start, end, now = Date.now()) {
+  if (DATE.test(start)) {
+    const last = new Date(Date.parse(`${end}T00:00:00Z`) - DAY_MS).toISOString().slice(0, 10);
+    return last <= start ? `${dayWords(start, now)}, all day` : `${dayWords(start, now)} to ${dayWords(last, now)}, all day`;
+  }
+  if (start.slice(0, 10) !== end.slice(0, 10) || start.slice(19) !== end.slice(19)) return `${momentWords(start, now)} to ${momentWords(end, now)}`;
+  const from = clock(start);
+  const to = clock(end);
+  const first = from.half === to.half ? from.text : `${from.text} ${from.half}`;
+  return `${dayWords(start.slice(0, 10), now)}, ${first} to ${to.text} ${to.half}${zone(end)}`;
+}
+
+/** The change exactly as the person reads it before they say yes, its times in words. */
+export function calendarCopy(change, now = Date.now()) {
   if (change.action === "create") {
     return [
       "Add to your Google Calendar:",
       `${change.title}`,
-      `From ${change.start}`,
-      `To ${change.end}`,
+      spanWords(change.start, change.end, now),
       ...(change.location ? [`Where: ${change.location}`] : []),
       ...(change.notes ? ["", change.notes] : []),
     ].join("\n");
   }
   if (change.action === "move") {
-    return [`Move on your Google Calendar:`, `${change.title}, now at ${change.start}`, `To ${change.new_start}`, `Until ${change.new_end}`].join("\n");
+    return [`Move on your Google Calendar:`, `${change.title}, now ${momentWords(change.start, now)}`, `To ${spanWords(change.new_start, change.new_end, now)}`].join("\n");
   }
-  return [`Cancel on your Google Calendar:`, `${change.title}, at ${change.start}`].join("\n");
+  return [`Cancel on your Google Calendar:`, `${change.title}, ${momentWords(change.start, now)}`].join("\n");
 }
 
 /** One line for the approvals list and the "Done, I …" reply (`agent/doneLine.js`). */

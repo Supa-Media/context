@@ -15,7 +15,11 @@ held exactly as an email is ([sending-email](./sending-email.md)):
   and asks the limits without spending them, so the person is never asked to
   approve a change that would be refused.
 - Tex or another connected AI may ask; a routine or a dream never may.
-- The held record carries the whole change, texted verbatim. Only a literal
+- The held record carries the whole change, texted verbatim, its times in
+  words read off the offset given ("Wednesday, October 21, 7 to 8 pm"; the
+  owner, 2026-10-21). An offer of a change is held when Tex makes it, so the
+  first yes is to the exact change
+  ([honest answers](../texting-assistant/honest-answers.md)). Only a literal
   YES releases it, one change per text; "ok" disarms it. Another AI's change
   is approved in the app.
 

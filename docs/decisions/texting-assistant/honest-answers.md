@@ -33,3 +33,37 @@ called ridiculous. Letting the notice repeat could spend a turn's rounds on it.
 Having the gateway write the mute itself would put words in the person's
 settings that no allowed call wrote. Tests: `apps/mcp/test/agentClaimCheck.test.mjs`
 (three sabotages recorded there).
+
+### An offer of a calendar change or an email is held when it is made
+
+Raised by the owner on 2026-10-21 ("This is annoying. why does this happen?").
+Tex texted "Want me to add 'Emmanuela/Sayo,' 7 to 8 pm today?", the owner said
+"yes", and only then did the model call `calendar_event`. The gate held it, so
+the reply was a second ask ("From 2026-10-21T19:00:00-04:00 …"), led by the
+model's own "Still waiting on the calendar yes. Check your messages from
+Context for the confirmation", and a second "YES" made it.
+
+The yes was not released directly, because only a yes to the exact change the
+person was shown may make one ([calendar writes](../communications/calendar-writes.md)),
+and prose names a change loosely. Instead the hold is raised with the offer,
+so the first yes is to the exact change:
+
+- **An offer in words with nothing held goes back once** (`claimCheck.js`
+  `OFFER_NOTICE`): a question offering to add, move or cancel something at a
+  day or time or on the calendar, or to send, forward or reply to an email.
+  The model makes the call, the ask goes out under its words, and the
+  person's one yes makes the change. Offers about their own list or notes take
+  no yes and are left alone.
+- **Talk of a yes waited on elsewhere comes out** (`heldEcho.js`
+  `withoutWaitTalk`): with an ask attached, a sentence about "still waiting",
+  "messages from Context" or a confirmation in the app is dropped; the ask is
+  right below it. The held result tells the model the same.
+- **Calendar changes are shown in words** (`calendarWrite.js` `spanWords`):
+  "Wednesday, October 21, 7 to 8 pm", read off the time as given, with "UTC"
+  said when that is the clock, and the year only when it is not this one.
+
+**What a simplification would cost.** Releasing on a yes to prose would make a
+change the person never saw exactly. Dropping the offer check brings back the
+double yes. Tests: `apps/mcp/test/calendarGate.test.mjs` (the owner's chat end
+to end), `agentClaimCheck.test.mjs`, `agentHeldEcho.test.mjs`,
+`calendarWords.test.mjs`.

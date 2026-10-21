@@ -188,3 +188,4 @@ test/agentSentNoteLinks.test.mjs
 test/agentBackground.test.mjs
 test/agentTwoAsks.test.mjs
 test/agentClaimCheck.test.mjs
+test/calendarWords.test.mjs

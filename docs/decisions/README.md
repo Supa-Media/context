@@ -734,6 +734,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Tex dreams once a night, and keeps `tex/about-me.md` current (2026-10-15)](./texting-assistant/dreams.md)
 - [Tex checks in on its own, three times a day, and texts only when it is worth it (2026-10-17)](./texting-assistant/heartbeat.md)
 - [A texted answer never says a change was made that wasn't (2026-10-21)](./texting-assistant/honest-answers.md)
+- [An offer of a calendar change or an email is held when it is made (2026-10-21)](./texting-assistant/honest-answers.md#an-offer-of-a-calendar-change-or-an-email-is-held-when-it-is-made)
 - [Any of the person's agents can ask Tex to get their attention; their own tolerance decides (2026-10-17)](./texting-assistant/attention.md)
 - [A first dream right away, asked for by the person's own agent (2026-10-17)](./texting-assistant/dreams.md)
 - [Tex writes down how it did a hard job, as a learned skill (2026-10-19)](./texting-assistant/learned-skills.md)
