@@ -19,7 +19,7 @@
 import type { GatewayAttachment } from "./attachments";
 import type { Reaction, Tapback } from "./reactions";
 import { readPictures, type OutgoingPicture } from "./outgoing";
-import { readStartedJobs, type JobAsk, type RunningJob, type StartedJob } from "./jobs";
+import { readStartedJobs, readSteers, type JobAsk, type JobSteerAsk, type RunningJob, type StartedJob } from "./jobs";
 
 export type Fetch = typeof fetch;
 
@@ -220,8 +220,8 @@ export type AgentAnswer =
    * never reformatted (an email the person is asked to approve). Absent when none.
    */
   /** `steered`: the event ids of texts sent while it ran that the turn took in (`inbox.ts`). */
-  /** `jobs`: background jobs the turn started (`jobs.ts`); `exhausted`: it ran out of steps. */
-  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; verbatim?: string[]; steered?: string[]; jobs?: StartedJob[]; exhausted?: true }
+  /** `jobs`: background jobs the turn started (`jobs.ts`); `steers`: running jobs this text is handed to; `exhausted`: it ran out of steps. */
+  | { kind: "answer"; text: string; pictures: OutgoingPicture[]; verbatim?: string[]; steered?: string[]; jobs?: StartedJob[]; steers?: JobSteerAsk[]; exhausted?: true }
   | { kind: "no_model" }
   | { kind: "daily_limit" }
   /** The gateway could not start the turn (503: nothing ran), so asking again is safe. */
@@ -272,6 +272,7 @@ export async function askAgent(
     turn,
     running,
     job,
+    onStep,
   }: {
     tapback?: Tapback;
     reacted?: Reaction[];
@@ -280,6 +281,8 @@ export async function askAgent(
     running?: RunningJob[];
     /** The background job this turn runs. */
     job?: JobAsk;
+    /** Handed each step a background job's turn takes, as it takes it (`jobRun.ts`). */
+    onStep?: (text: string) => Promise<void>;
   } = {},
 ): Promise<AgentAnswer> {
   // The person's zone, so the turn knows the time where they are, and what
@@ -298,7 +301,7 @@ export async function askAgent(
     ...(running ? { running } : {}),
     ...(job ? { job } : {}),
   };
-  if (onProgress) return askAgentStreaming(fetcher, gatewayOrigin, accessToken, ask, onProgress);
+  if (onProgress) return askAgentStream(fetcher, gatewayOrigin, accessToken, ask, onProgress, onStep);
   let result: { status: number; json: unknown };
   try {
     result = await post(
@@ -330,6 +333,7 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
     const verbatim = readVerbatim(body.verbatim, body.answer);
     const steered = Array.isArray(body.steered) ? body.steered.filter((id): id is string => typeof id === "string").slice(0, 5) : [];
     const jobs = readStartedJobs(body.jobs);
+    const steers = readSteers(body.steers);
     return {
       kind: "answer",
       text: body.answer.trim(),
@@ -337,6 +341,7 @@ export function agentAnswer(status: number, json: unknown): AgentAnswer {
       ...(verbatim.length > 0 ? { verbatim } : {}),
       ...(steered.length > 0 ? { steered } : {}),
       ...(jobs.length > 0 ? { jobs } : {}),
+      ...(steers.length > 0 ? { steers } : {}),
       ...(body.exhausted === true ? { exhausted: true as const } : {}),
     };
   }
@@ -360,12 +365,14 @@ export const AGENT_STREAM_IDLE_MS = 60_000;
 /** One line of the stream is a progress text or a final JSON body, which may carry pictures (`outgoing.ts`). */
 const MAX_STREAM_LINE = 24 * 1024 * 1024;
 
-async function askAgentStreaming(
+/** `/agent` asked for as a stream: progress lines, a background job's `step` lines, then the answer. */
+export async function askAgentStream(
   fetcher: Fetch,
   gatewayOrigin: string,
   accessToken: string,
-  ask: { question: string; conversation: string },
+  ask: { question: string } & Record<string, unknown>,
   onProgress: (text: string) => Promise<void>,
+  onStep?: (text: string) => Promise<void>,
 ): Promise<AgentAnswer> {
   const abort = new AbortController();
   const overall = setTimeout(() => abort.abort(), AGENT_STREAM_TIMEOUT_MS);
@@ -417,6 +424,11 @@ async function askAgentStreaming(
         }
         if (typeof parsed.progress === "string" && parsed.progress.trim()) {
           await onProgress(parsed.progress.trim());
+          touch();
+          continue;
+        }
+        if (typeof parsed.step === "string" && parsed.step.trim()) {
+          await onStep?.(parsed.step.trim().slice(0, 140));
           touch();
           continue;
         }

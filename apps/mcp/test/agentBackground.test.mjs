@@ -14,6 +14,14 @@
  *     → "the two last rounds are told to write, then to answer" fails.
  *  4. `exhaustedAnswer` ignoring the model's words.
  *     → "a turn that runs out answers with what the model last said" fails.
+ *  5. `steer` taking a finished job.
+ *     → "a change to a running job is passed to it, never to a finished one" fails.
+ *  6. `jobPrompt` leaving out `followUps`.
+ *     → "a job's turn is shown their later texts as newer than its plan" fails.
+ *  7. `stepLine` passing `content` through.
+ *     → "a job's steps are told by tool and target, never a note's text" fails.
+ *  8. `statusLine` leaving out the steps.
+ *     → "a running job is shown with its recent steps, and can be stopped" fails.
  */
 
 import assert from "node:assert/strict";
@@ -23,8 +31,10 @@ import { shown } from "./sixToolsShown.mjs";
 import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
 import { runTurn } from "../src/agent/turn.js";
 import {
+  MAX_FOLLOW_UPS,
   MAX_RUNNING_JOBS,
   START_JOB_TOOL,
+  STEER_JOB_TOOL,
   backgroundSession,
   jobOf,
   jobPrompt,
@@ -32,6 +42,8 @@ import {
   runningJobsOf,
   sameJob,
   startedJobs,
+  stepLine,
+  withJobSteps,
   withBackground,
 } from "../src/agent/background.js";
 import { FINISH_NOTICE, LAST_NOTICE, OUT_OF_STEPS, exhaustedAnswer, roundNotice } from "../src/agent/lastRound.js";
@@ -145,7 +157,7 @@ test("a job's own turn cannot start another job, and is told its plan and to del
   assert.match(prompt, /background job you started/);
   assert.match(prompt, /Five competitors, pricing and features\./);
   assert.match(prompt, /vouches for nothing/);
-  assert.match(prompt, /ran out of steps: read the note/);
+  assert.match(prompt, /worked on this once: read the note/);
   assert.match(prompt, /Write the deliverable/);
   assert.equal(jobSavedLine(job), "(Background job finished: Competitor research)");
   assert.equal(jobOf({ id: "bad id!", title: "x" }), null);
@@ -222,4 +234,73 @@ test("a turn that runs out answers with what the model last said", async () => {
   assert.equal(result.exhausted, true);
   assert.match(result.answer, /^Found three competitors so far: Notion, Mem and Reflect\./);
   assert.match(result.answer, /Text me to carry on/);
+});
+
+test("a change to a running job is passed to it, never to a finished one", async () => {
+  const quiet = backgroundSession({ running: [running("Logo", { state: "done", finishedAt: NOW - 60_000 })], job: null, now: NOW });
+  assert.deepEqual(quiet.tools.map((tool) => tool.name), [START_JOB_TOOL], "nothing running: nothing to steer");
+
+  const live = running("Logo in green");
+  const done = running("Trip plan", { id: "job-trip-done-1", state: "done", finishedAt: NOW - 60_000 });
+  const background = backgroundSession({ running: [live, done], job: null, now: NOW });
+  assert.deepEqual(background.tools.map((tool) => tool.name), [START_JOB_TOOL, STEER_JOB_TOOL]);
+  assert.match(background.prompt, /passed to it with send \{ action: "steer_job"/);
+  const dispatch = withBackground(background, async () => ({ content: [{ type: "text", text: "other" }] }));
+
+  const refused = await dispatch(STEER_JOB_TOOL, { title: "Trip plan" });
+  assert.equal(refused.isError, true);
+  assert.match(words(refused), /isn't running any more/);
+  assert.equal((await dispatch(STEER_JOB_TOOL, { title: "Quarterly taxes" })).isError, true);
+
+  const passed = await dispatch(STEER_JOB_TOOL, { title: "logo" });
+  assert.match(words(passed), /Passed their text to "Logo in green"/);
+  await dispatch(STEER_JOB_TOOL, { title: "Logo in green" });
+  assert.deepEqual(startedJobs(background, false), { steers: [{ id: live.id }] }, "named once, by id: the Worker hands it their words");
+});
+
+test("a job's turn is shown their later texts as newer than its plan", () => {
+  const job = jobOf({
+    id: "job-abcdef-2",
+    title: "Logo",
+    brief: "A green logo.",
+    followUps: ["never mind, make it yellow not green", "", 4, ...Array.from({ length: 8 }, (_, i) => `t${i}`)],
+  });
+  assert.equal(job.followUps.length, MAX_FOLLOW_UPS);
+  assert.equal(job.followUps.at(-1), "t7", "the newest are kept");
+  assert.match(jobPrompt({ ...job, followUps: ["never mind, make it yellow not green"] }), /newer than your plan[^]*- never mind, make it yellow not green/);
+  assert.doesNotMatch(jobPrompt(jobOf({ id: "job-abcdef-3", title: "Logo", brief: "b" })), /Since you started/);
+});
+
+test("a job's steps are told by tool and target, never a note's text", async () => {
+  assert.equal(stepLine({ kind: "say", text: "hi" }), null);
+  assert.equal(
+    stepLine({ kind: "tool", name: "write", args: { path: "1-projects/logo.md", content: "THE WHOLE NOTE" }, ok: true }),
+    "write: 1-projects/logo.md",
+  );
+  assert.equal(stepLine({ kind: "tool", name: "send", args: { action: "open_page", args: { url: "https://example.com/a" } }, ok: false }), "send open_page: https://example.com/a (failed)");
+  assert.equal(stepLine({ kind: "tool", name: "send", args: { action: "email", args: { to: "a@example.com", body: "secret words" } }, held: true }), "send email: a@example.com (waiting for their yes)");
+
+  const recorded = [];
+  const streamed = [];
+  const record = (event) => recorded.push(event);
+  assert.equal(withJobSteps(null, async (line) => streamed.push(line), record), record, "only a job's turn streams steps");
+  const observe = withJobSteps(jobOf({ id: "job-abcdef-4", title: "Logo", brief: "b" }), async (line) => streamed.push(line), record);
+  observe({ kind: "tool", name: "search", args: { query: "logo colours" }, ok: true });
+  observe({ kind: "thinking", text: "hmm" });
+  assert.equal(recorded.length, 2, "the transcript still gets every event");
+  assert.deepEqual(streamed, ["search: logo colours"]);
+});
+
+test("a running job is shown with its recent steps, and can be stopped", async () => {
+  const [live] = runningJobsOf([
+    { ...running("Logo in green"), steps: [{ at: NOW - 2 * 60_000, text: "search: logo colours" }, { at: NOW - 60_000, text: "write: 1-projects/logo.md" }, { text: "" }, "junk"] },
+  ]);
+  assert.equal(live.steps.length, 2);
+  const background = backgroundSession({ running: [live], job: null, now: NOW });
+  assert.match(background.prompt, /Recent steps:\n {4}2 min ago: search: logo colours\n {4}1 min ago: write: 1-projects\/logo\.md/);
+  assert.match(background.prompt, /stop: true/);
+  const dispatch = withBackground(background, async () => ({ content: [] }));
+  assert.match(words(await dispatch(STEER_JOB_TOOL, { title: "Logo in green" })), /Passed their text/);
+  assert.match(words(await dispatch(STEER_JOB_TOOL, { title: "Logo in green", stop: true })), /Stopping "Logo in green"/);
+  assert.deepEqual(startedJobs(background, false), { steers: [{ id: live.id, stop: true }] }, "a stop sticks to the job once named");
 });
