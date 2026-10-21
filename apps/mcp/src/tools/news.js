@@ -41,6 +41,14 @@ import { unlistedArgumentAdvice } from "./liveList.js";
 export const TOOL_NEWS = Object.freeze([
   {
     date: "2026-10-21",
+    newTool: true,
+    text:
+      "send `forward_rule` `{ action: start | stop, routine, to?, about? }` lets one routine under tex/routines/ keep forwarding one kind " +
+      "of the person's mail (receipts, invoices) to one address without asking each time, once they 👍 the rule. Write the routine first. " +
+      "Its run forwards each match with send email `forward`, only to that address, each email once. stop ends it at once.",
+  },
+  {
+    date: "2026-10-21",
     text:
       "send email and email_draft take `forward`: the email:<address>/<id> id of an email to pass on. It goes below the body with all of its attachments, " +
       "from that mailbox, so a receipt reaches a bookkeeper with its PDF.",
@@ -252,7 +260,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "ea2e06a2";
+export const TOOL_SHAPE = "2974be79";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

@@ -8,6 +8,7 @@ import { callToolForSession } from "../tools/session.js";
 import { EMAIL_TOOL } from "../tools/email.js";
 import { CALENDAR_TOOL } from "../tools/calendarWrite.js";
 import { REPORT_TOOL } from "../tools/reportProblem.js";
+import { FORWARD_RULE_TOOL } from "../tools/forwardRule.js";
 import { doneLine } from "./doneLine.js";
 import { canonicalToolName } from "../tools/advertised.js";
 import { withoutHeldEcho, withoutWaitTalk } from "./heldEcho.js";
@@ -82,6 +83,9 @@ export function askLine(asked) {
   }
   if (asked.length === 1 && asked[0].tool === REPORT_TOOL && typeof asked[0].detail === "string") {
     return `Here's the bug report I'd send to the Context team:\n\n${clean(asked[0].detail)}\n\n${SAY_YES} and I'll send it.`;
+  }
+  if (asked.length === 1 && asked[0].tool === FORWARD_RULE_TOOL && typeof asked[0].detail === "string") {
+    return `Here's what I'd keep doing:\n\n${clean(asked[0].detail)}\n\n${SAY_YES} and I'll start.`;
   }
   // A card at a checkout, in the gateway's words: the card and the site, never the model's (`vault/pay.js`).
   if (asked.length === 1 && asked[0].kind === VAULT_PAY) {
@@ -191,7 +195,7 @@ function clean(text) {
  */
 const EMAIL_YES = /^\s*yes\s*[.!]*\s*$/i;
 const strictYes = (text) => EMAIL_YES.test(text) || RELEASED_YES.test(text);
-const YES_ONLY = new Set([EMAIL_TOOL, CALENDAR_TOOL, REPORT_TOOL]);
+const YES_ONLY = new Set([EMAIL_TOOL, CALENDAR_TOOL, REPORT_TOOL, FORWARD_RULE_TOOL]);
 
 /**
  * Settle what this thread's latest ask put to the person, as their text said.

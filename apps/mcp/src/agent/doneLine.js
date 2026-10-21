@@ -27,6 +27,7 @@ const PAST = {
   save: "saved",
   send: "sent",
   share: "shared",
+  start: "started",
   take: "took",
   write: "wrote",
 };

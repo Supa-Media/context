@@ -14,7 +14,8 @@ what happens to the draft (`apps/mcp/src/tools/emailGate.js`):
 2. **The caller must be one the Mail checker's note allows.** The AI tab's
    switches write `callers:` on `@context-lc ai/agents/mail-checker.md`; with
    no note, only Tex (the texting assistant). A routine or a dream has nobody
-   on the line and never sends, whatever the note says.
+   on the line and never sends, whatever the note says, except a routine's
+   standing forward the person kept with a 👍 (below).
 3. **On a texted turn, the Mail checker reads the draft first.** It is a second
    model (`apps/mcp/src/agent/mailChecker.js`, Haiku) shown exactly two
    things: the person's recent texts with what Tex texted back, and the draft.
@@ -195,6 +196,37 @@ reply, and goes only from the mailbox that holds it, so it can only pass on
 the person's own mail. Every file's name and type is cleaned before it becomes
 a header. Tests: `apps/convex/__tests__/personEmail.test.ts`,
 `apps/mcp/test/emailGate.test.mjs`.
+
+### A standing forward: one 👍 lets a routine keep forwarding one kind of mail (owner, 2026-10-21)
+
+The owner, after being asked three times to send one receipt on: "for the
+receipts and stuff like that I expected it to consistently handle all of my
+receipts, no need for asking for approval each time ... the user is
+essentially approving forwarding mail to the relay address." So the person can
+approve a *rule* once instead of each email, and this is the one place a
+routine sends (`apps/mcp/src/tools/forwardRule.js`, `forwardRuleGate.js`):
+
+1. **The rule is asked for like an email.** Tex writes the routine note under
+   `tex/routines/<schedule>/`, then calls `send` action `forward_rule` with
+   that routine's path, the one address mail goes to, and a few words on what
+   is forwarded. The person is shown the rule and their 👍 keeps it. A routine
+   or a dream can never ask for one, and another AI's ask waits for the app.
+2. **The rule lives in plumbing (`.context/standing/forward-rules.json`), not
+   in the note.** No note write reaches it, so editing the routine note (by the
+   person, Tex, or text a stranger planted in an email the routine read) can
+   never change where mail goes.
+3. **It is narrow.** Only that routine's own run is given `send_email`, and
+   only a forward of one of the person's own emails, by its id, to exactly that
+   address with no one else on it, once per email. The rate limits still apply.
+   Any other send from a routine is refused as before.
+4. **Stopping needs no yes.** "Stop forwarding receipts" removes the rule at
+   once: stopping only narrows.
+
+What a "simplification" would cost: keeping the address in the routine note
+turns one 👍 into permission for whatever a later edit or a prompt injection
+writes there. Tests: `apps/mcp/test/forwardRule.test.mjs` (a texted rule is
+held, its 👍 keeps it, the routine then forwards without asking, never twice,
+never elsewhere, another routine never sends, stop needs no 👍).
 
 ### What is deliberately not built
 
