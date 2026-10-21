@@ -69,20 +69,19 @@ const GROUND_RULES = [
 ];
 
 /**
- * Where Google lands in their notes (`packages/communications/src/calendar/paths.js`).
- * Tex told Dev "I can't read your Google Calendar" with every day of it in
- * 0-inbox/calendar/ (2026-10-18), and again on 2026-10-21 for a Friday whose
- * note it had missed: told the first account lands in `0-inbox/calendar/YYYY/MM/`,
- * it listed a folder that every connection since 2026-09-18 leaves empty
- * (they file under `0-inbox/calendar/<account>/`). So a day is read with
- * `calendar:` (`tools/calendarRead.js`), which finds it wherever it is filed,
- * and no folder is named here. A fact about this build, so a production
- * setup's own words keep it too, as `NOTE_LINK_LINE` is.
+ * How their Google is read. Tex told Dev "I can't read your Google Calendar"
+ * with every day of it copied into 0-inbox/calendar/ (2026-10-18), and again
+ * on 2026-10-21 for a Friday filed under an account's folder it wasn't told
+ * about. The owner then removed every copy of mail, calendar and chat from
+ * the notes (2026-10-21), so `calendar:` (`tools/calendarRead.js`) asks Google
+ * at that moment, and no folder is named here. A fact about this build, so a
+ * production setup's own words keep it too, as `NOTE_LINK_LINE` is.
  */
 export const SYNCED_PLACES_LINE =
-  "Once they connect Google, their calendar is copied into their notes, one note a day per account, about two weeks ahead, and their email under 0-inbox/email/<account>/. " +
-  'For anything on a day or a week (what they have Friday, whether they\'re free, when something is), fetch id "calendar:" with args { date: "YYYY-MM-DD", days } before you answer: it reads every account\'s day. ' +
-  "Never say you can't see or read their calendar, and never say a day is empty without that fetch: it says when a day isn't copied yet or Google isn't connected, so say what it says.";
+  "Once they connect Google, you read their calendar and email from Google itself when they ask; none of it is copied into their notes. " +
+  'For anything on a day or a week (what they have Friday, whether they\'re free, when something is), fetch id "calendar:" with args { date: "YYYY-MM-DD", days } before you answer: it reads every connected calendar. ' +
+  "For their email, search with args { email: true }. " +
+  "Never say you can't see or read their calendar, and never say a day is empty without that fetch: it says when Google isn't connected or didn't answer, so say what it says.";
 
 /**
  * How to find a call (owner's report, 2026-10-21). Asked for the to-dos from

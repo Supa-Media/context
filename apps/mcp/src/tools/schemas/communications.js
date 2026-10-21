@@ -35,12 +35,11 @@ export function communicationsToolDefinitions() {
       name: "read_calendar",
       title: "Read calendar",
       description:
-        "Read what is on the user's calendar for a day or a run of days. Their connected Google " +
-        "calendars are copied into their notes, one note per day per account, about two weeks " +
-        "ahead; this finds those notes wherever they are filed, in every workspace they can " +
-        "reach, and returns each day's events. Reach for this first whenever a question turns " +
-        "on a date: what they have on Friday, whether they are free next week, when something is. " +
-        "It says plainly when a day is not written yet or when no calendar is connected.",
+        "Read what is on the user's calendar for a day or a run of days. " +
+        "It asks their connected Google calendars at that moment; nothing of a calendar is copied " +
+        "into their notes. Reach for this first whenever a question turns on a date: what they have on Friday, whether they " +
+        "are free next week, when something is. It says plainly when no calendar is connected or " +
+        "Google did not answer.",
       inputSchema: {
         type: "object",
         properties: {

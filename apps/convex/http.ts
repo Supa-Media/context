@@ -108,6 +108,7 @@ import * as links from "./functions/lib/gatewayRoutes/links";
 import * as vault from "./functions/lib/gatewayRoutes/vault";
 import * as personEmail from "./functions/lib/gatewayRoutes/personEmail";
 import * as personMail from "./functions/lib/gatewayRoutes/personMail";
+import * as personCalendar from "./functions/lib/gatewayRoutes/personCalendar";
 import * as calendarWrite from "./functions/lib/gatewayRoutes/calendarWrite";
 import * as site from "./functions/lib/gatewayRoutes/site";
 import * as workspaceRoutes from "./functions/lib/gatewayRoutes/workspaces";
@@ -875,6 +876,11 @@ http.route({ path: "/gateway/email/read", method: "POST", handler: gatewayPerson
 export const gatewayCalendarWrite = gatewayRoute(calendarWrite.gatewayCalendarWriteHandler);
 
 http.route({ path: "/gateway/calendar/event", method: "POST", handler: gatewayCalendarWrite });
+
+// Days of the person's own calendars, read live: nothing of a calendar is copied into notes.
+export const gatewayPersonCalendarDays = gatewayRoute(personCalendar.gatewayPersonCalendarDaysHandler);
+
+http.route({ path: "/gateway/calendar/days", method: "POST", handler: gatewayPersonCalendarDays });
 
 export const gatewayFeedback = gatewayRoute(feedback.gatewayFeedbackHandler);
 
