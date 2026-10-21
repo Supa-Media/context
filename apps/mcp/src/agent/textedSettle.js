@@ -9,8 +9,11 @@
  * the same dispatcher under this session, marked approved, and the result is
  * the reply.
  *
- * Only the texting client reaches this: a routine's run has no person on the
- * line, and the app approves through `/approvals`.
+ * Only the texting client and a group chat's Tex reach this: a routine's run
+ * has no person on the line, and the app approves through `/approvals`. In a
+ * group the yes is the tagger's own: a pending call is theirs alone
+ * (`approvals.js` lists by person), so somebody else's "yes" in the chat
+ * releases nothing of theirs.
  *
  * The words judged are the person's own, never the message an inline reply
  * answers (`quoted.js`), so a quoted "yes" settles nothing.
@@ -26,7 +29,7 @@ import { appendConversation, appendTold, readConversation, readTold } from "./co
  * or what goes on to the model: `{ setAside }`, the asks this text moved on
  * from, which the model is told about (`setAsideLine`), or null.
  */
-export async function settleTextedText(store, session, { dispatch, question, hasAttachments, now, timeZone, defer, conversation = null, told }) {
+export async function settleTextedText(store, session, { dispatch, question, hasAttachments, now, timeZone, defer, conversation = null, told, keep = null }) {
   // The Worker's fixed texts since the last turn go in the history first (`conversation.js` `TOLD`).
   if (conversation !== null) await appendTold(store, conversation, readTold(told));
   const verdict = hasAttachments ? null : approvalVerdict(question); // a yes with a photo is about the photo
@@ -36,6 +39,8 @@ export async function settleTextedText(store, session, { dispatch, question, has
       // The yes and what it released go in today's transcript too (`transcript.js`), after the reply.
       await defer(openTranscript(dispatch, { now, timeZone, question }).finish({ answer: settled }));
       await remember(store, conversation, question, settled);
+      // A group chat keeps it in its own memory instead (`groupTurn.js`).
+      if (keep !== null) await keep(question, settled);
       return { answer: settled, provider: "gateway", model: "none", steps: [] };
     }
   }

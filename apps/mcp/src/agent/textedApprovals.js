@@ -11,6 +11,7 @@ import { REPORT_TOOL } from "../tools/reportProblem.js";
 import { doneLine } from "./doneLine.js";
 import { canonicalToolName } from "../tools/advertised.js";
 import { withoutHeldEcho } from "./heldEcho.js";
+import { isGroupSession } from "./groupTurn.js";
 import { armForText, disarmRecords, listPending, replayAsAsked, settlePending, withdrawPending } from "../tools/approvals.js";
 
 /*
@@ -100,7 +101,8 @@ export const TEXTED_ASK_CAP = 2_900;
  */
 export async function textedAsk(store, session, asked) {
   if (asked.length === 0) return { ask: null, verbatim: [] };
-  const ask = askLine(asked);
+  // In a group chat a bare "yes" is chat; a reply to the ask, or "Tex, yes", reaches Tex (`groupTurn.js`).
+  const ask = isGroupSession(session) ? askLine(asked).replace("Just say yes", "Reply yes to this") : askLine(asked);
   const ids = asked.map((record) => record.id);
   const holdsEmail = asked.some((record) => typeof record.detail === "string");
   if (ask.length <= TEXTED_ASK_CAP) {

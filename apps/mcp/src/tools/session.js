@@ -40,6 +40,7 @@ import { createPending, findPending, takeDone } from "./approvals.js";
 import { HELD_GATES } from "./heldGates.js";
 import { irreversibleOf } from "./irreversible.js";
 import { wordsOfTurn } from "../agent/conversation.js";
+import { actsOnOwnAccount } from "../agent/groupTurn.js";
 import { wideningOf } from "../privacy/widening.js";
 import { loadPrivacyState } from "../privacy/state.js";
 import { PrivacyOverrides } from "../privacy/engine.js";
@@ -497,7 +498,9 @@ async function routeToolCall(params, store, session, routed) {
     toolIsWriting(params?.name) &&
     !hasScope(target, SCOPE_WRITE) &&
     !(FORM_TOOLS.has(params?.name) && participatesInForms(target)) &&
-    !(ROUTING_PLANNING_TOOLS.has(params?.name) && writesAnywhere(session))
+    !(ROUTING_PLANNING_TOOLS.has(params?.name) && writesAnywhere(session)) &&
+    // A group chat's email or calendar change is its tagger's own, not the workspace's (`groupTurn.js`).
+    !actsOnOwnAccount(session, params?.name)
   ) {
     /*
       Two refusals, because there are two causes and the fix differs. A grant

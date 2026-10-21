@@ -9,12 +9,12 @@
  * whose Gmail may keep drafts, and its calls carry `draft: true`.
  */
 
-export function createEmailRoute(clearedEditor, flags) {
+export function createEmailRoute(clearedOwnAccount, flags, clearedEditor = clearedOwnAccount) {
   /** Every call: the email, whether it was a check, and what was answered. */
   const calls = [];
 
   async function send(body, draft = false) {
-    const cleared = await clearedEditor(body);
+    const cleared = await clearedOwnAccount(body);
     const sender = draft ? flags.emailDrafter : flags.emailSender;
     let answer;
     if (!cleared) answer = { ok: false, refused: "not_allowed" };

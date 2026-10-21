@@ -294,3 +294,29 @@ test("a gateway module that queries the v1 index also narrows it first", () => {
     .map((file) => file.path);
   assert.deepEqual(unnarrowed, []);
 });
+
+/*
+  Every `node:test` file is run. `test/run.mjs` runs only what `test/unit.list`
+  names, so a file nobody added there passed nothing in CI while reading as
+  coverage: twenty-five of them did, until 2026-10-21. `test/run.mjs` runs
+  `moveQueueDedupe.test.mjs` on its own. `keyedCollabRename.test.mjs` fails on
+  `main` as it stands and is left out by name until it is fixed, so the gap is
+  written down instead of hidden.
+*/
+const RUN_ON_THEIR_OWN = new Set(["test/moveQueueDedupe.test.mjs"]);
+const KNOWN_FAILING = new Set(["test/keyedCollabRename.test.mjs"]);
+
+test("every node:test file is listed in test/unit.list", () => {
+  const ROOT = fileURLToPath(new URL("../", import.meta.url));
+  const listed = new Set(readFileSync(join(ROOT, "test/unit.list"), "utf8").split("\n").map((line) => line.trim()));
+  const files = (dir) =>
+    readdirSync(join(ROOT, dir)).flatMap((entry) => {
+      const path = `${dir}/${entry}`;
+      if (statSync(join(ROOT, path)).isDirectory()) return entry === "node_modules" ? [] : files(path);
+      return /\.test\.m?js$/.test(entry) && /from "node:test"/.test(readFileSync(join(ROOT, path), "utf8")) ? [path] : [];
+    });
+  const found = files("test");
+  assert.ok(found.includes("test/agentGroupTurn.test.mjs"), "the scan finds node:test files");
+  const unlisted = found.filter((path) => !listed.has(path) && !RUN_ON_THEIR_OWN.has(path) && !KNOWN_FAILING.has(path));
+  assert.deepEqual(unlisted, []);
+});

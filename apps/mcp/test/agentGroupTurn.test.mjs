@@ -169,8 +169,10 @@ test("a group turn is offered only create and append, and none of the tagger's o
   assert.equal(body.answer, "The opener.");
   const sent = world.model.requests[0];
   const shown = JSON.stringify(sent.tools);
-  for (const missing of ["search_web", "open_page", "browse", "fill_login", "delegate", "text_progress", "draw_picture", "make_picture", "propose_note", "send_email"]) {
-    assert.ok(!shown.includes(`"${missing}"`), `${missing} is not a group turn's`);
+  // Named either way the turn could be shown them: a tool of its own, or a six-tools action (`- name:`).
+  // Email, calendar and the web are a group turn's (agentGroupActions.test.mjs); these never are.
+  for (const missing of ["fill_login", "delegate", "text_progress", "draw_picture", "make_picture", "propose_note", "search_email", "read_email", "progress", "mail_agent"]) {
+    assert.ok(!shown.includes(`"${missing}"`) && !shown.includes(`- ${missing}:`), `${missing} is not a group turn's`);
   }
   assert.ok(!toolNames(sent).includes("earlier_texts"), "a group turn has no texts of its own");
   assert.match(JSON.stringify(sent.tools), /chat: reads this group chat's earlier messages/, "but it can read back its own chat");
@@ -298,5 +300,10 @@ test("the group dispatcher refuses a write tool it wasn't given and passes reads
   assert.equal(refused.isError, true);
   await dispatch("read_note", { path: "1-projects/x.md" });
   assert.deepEqual(calls, [{ name: "read_note", args: { path: "1-projects/x.md" } }]);
-  assert.deepEqual(groupWriteTools([{ name: "set_visibility", inputSchema: {} }]), []);
+  // Whatever else the grant offered, only the tagger's own email and calendar are added to the narrowed writes.
+  assert.deepEqual(
+    groupWriteTools([{ name: "set_visibility", inputSchema: {} }]).map((tool) => tool.name),
+    ["send_email", "calendar_event"],
+  );
+  assert.equal((await groupAwareCallTool(callTool, groupWriteTools([]))("write_note", { path: "1-projects/y.md", content: "y" })).isError, true);
 });
