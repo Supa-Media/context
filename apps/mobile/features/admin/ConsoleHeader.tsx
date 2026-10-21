@@ -17,7 +17,7 @@ import { ADMIN_TABS, WINDOW_CHOICES, type AdminTab } from "./report";
 
 /** Only these tabs are read over a window; the others are snapshots. */
 export function isWindowed(tab: AdminTab): boolean {
-  return tab === "growth" || tab === "activity" || tab === "aiCosts";
+  return tab === "growth" || tab === "activity" || tab === "usage" || tab === "aiCosts";
 }
 
 export function ConsoleHeader({
