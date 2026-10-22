@@ -117,6 +117,14 @@ export function offeredKinds(answer) {
 
 /** The notice for an offer of these kinds (`offeredKinds`). */
 export function offerNotice(kinds = OFFER_KINDS) {
+  // Their own calendar takes no yes (the owner, 2026-10-22): the offer is made, not asked about.
+  if (kinds.length === 1 && kinds[0].tool === "calendar_event") {
+    return (
+      "Before this goes: you offered a change to their calendar in your own words and didn't make it. " +
+      "A change to their own calendar needs no yes: make it now with calendar_event, exactly as you offered it, then say in one short line that it's done. " +
+      "Ask first only if they asked you to check with them, or something you need is missing. If you offered something else, send your answer again as it was."
+    );
+  }
   const what = joinOr(kinds.map((entry) => entry.kind));
   const calls = joinOr(kinds.map((entry) => entry.tool));
   return (
@@ -241,6 +249,12 @@ export function offersAHeldChange(answer) {
     if ((CALENDAR_CHANGE.test(offered) && WHEN.test(offered) && (/\bcalendar\b/i.test(offered) || !NOT_CALENDAR.test(offered))) || EMAIL_SEND.test(offered)) return true;
   }
   return false;
+}
+
+/** Tex's last text, when it offered a held change in its own words; null otherwise. */
+export function lastOffer(history) {
+  const said = (Array.isArray(history) ? history : []).filter((turn) => turn?.role === "assistant" && typeof turn.text === "string").at(-1)?.text;
+  return typeof said === "string" && offersAHeldChange(said) ? said : null;
 }
 
 /** Whether their text asks never to be texted about something. */

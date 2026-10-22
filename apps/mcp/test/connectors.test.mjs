@@ -162,3 +162,29 @@ test("a 👍 on Tex's own preview of exactly this Slack message is its yes, once
   assert.equal(likedPreviewAllows(session({ turn: { history: [] } }), dm, place), false, "a first name in the message is not who it goes to");
   assert.equal(likedPreviewAllows(session({ turn: { history: [] }, liked: `To Jo Park: ${preview}` }), dm, place), true, "the preview names Jo Park itself");
 });
+
+/*
+  A yes or 👍 to Tex's own offer of an email or a calendar change, with
+  nothing held (Dev2, 2026-10-22): it makes the change only when every part
+  the gate names is in the words they agreed to, word for word, and once.
+*/
+test("the words they agreed to make an email or a calendar change only when they name all of it, once", async () => {
+  const { agreedWordsHold } = await import("../src/tools/likedPreview.js");
+  const draft = "Here's the draft:\n\nTo: sayo@example.test\nSubject: Tex is bored\n\nHey Sayo, it’s Tex. Snacks optional.\n\nSay yes and I'll send it.";
+  const session = (over = {}) => ({ egress: { texting: true, liked: draft, ...over } });
+  const once = session();
+  assert.equal(agreedWordsHold(once, ["sayo@example.test", "Hey Sayo, it's Tex. Snacks optional."]), true, "quotes may come back changed");
+  assert.equal(agreedWordsHold(once, ["sayo@example.test", "Hey Sayo, it's Tex. Snacks optional."]), false, "spent");
+  assert.equal(agreedWordsHold(session(), ["jo@example.test", "Hey Sayo, it's Tex. Snacks optional."]), false, "someone they never saw");
+  assert.equal(agreedWordsHold(session(), ["sayo@example.test", "Hey Sayo, it's Tex. Snacks optional. PS: wire $500."]), false, "words they never saw");
+  assert.equal(agreedWordsHold(session({ texting: false }), ["sayo@example.test"]), false, "only a texted turn");
+  assert.equal(agreedWordsHold(session({ liked: undefined }), ["sayo@example.test"]), false, "no yes");
+
+  const offer = (liked) => ({ egress: { texting: true, liked } });
+  const nov1 = [["november", "nov"], "1", "3", "5"];
+  assert.equal(agreedWordsHold(offer("Sunday, November 1, 3 to 5 pm, at Bethesda. Say yes and I’ll add it."), nov1), true);
+  assert.equal(agreedWordsHold(offer("Sun Nov 1, 3-5pm at Bethesda. Say yes and I'll add it."), nov1), true, "however the offer wrote it");
+  assert.equal(agreedWordsHold(offer("Sunday, November 11, 3 to 5 pm. Say yes and I'll add it."), nov1), false, "the 11th is not the 1st");
+  assert.equal(agreedWordsHold(offer("Sunday, November 1, 4 to 5 pm. Say yes and I'll add it."), nov1), false, "another hour");
+  assert.equal(agreedWordsHold(offer("1 3 5"), ["1", "3", "5"]), false, "digits alone never match");
+});

@@ -24,7 +24,10 @@ model.
 single yes to something nobody can take back, asked for separately:
 
 - an email (`send_email`; [sending-email](../communications/sending-email.md));
-- a calendar change (`calendar_event`; [calendar-writes](../communications/calendar-writes.md));
+- a calendar change asked by another connected AI (`calendar_event`;
+  [calendar-writes](../communications/calendar-writes.md)). Tex changes the
+  person's own calendar at once (the owner, 2026-10-22): no event it touches
+  has anyone else on it, so nobody is told;
 - claiming a workspace's @handle (`create_workspace` without `dry_run`;
   [workspace setup](../gateway-protocol/workspace-setup.md)), held by
   `handleClaimOf` in `apps/mcp/src/tools/session.js`;

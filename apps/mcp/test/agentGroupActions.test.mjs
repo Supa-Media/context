@@ -100,15 +100,12 @@ test("a member tagger's email is held, the ask says to reply, and somebody else'
   assert.match(memory, /Done, I sent an email/, "the chat remembers it");
 });
 
-test("a tagger's calendar change is held for their yes the same way", async () => {
-  world.model.install([{ toolCalls: [{ name: "send", args: { action: "calendar", args: CREATE } }] }, { text: "Here it is." }]);
+test("a tagger's change to their own calendar is made at once (the owner, 2026-10-22)", async () => {
+  world.model.install([{ toolCalls: [{ name: "send", args: { action: "calendar", args: CREATE } }] }, { text: "Done, rehearsal is on your calendar." }]);
   const asked = await tagged(TOKEN_GROUP_MEMBER, "Tex put rehearsal on my calendar friday 7 to 9", "cy");
   assert.equal(asked.status, 200);
-  assert.equal(changes().length, 0);
-  assert.match(asked.body?.answer ?? "", /Rehearsal[\s\S]*Give it a 👍 and I'll make the change/);
-  const yes = await tagged(TOKEN_GROUP_MEMBER, "yes tex", "cy");
   assert.equal(changes().length, 1);
-  assert.equal(yes.body?.answer, 'Done, I added "Rehearsal" to your calendar.');
+  assert.doesNotMatch(asked.body?.answer ?? "", /👍/);
 });
 
 test("a group turn can browse, and sign in only from its workspace's vault", async () => {

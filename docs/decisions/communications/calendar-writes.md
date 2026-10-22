@@ -2,7 +2,27 @@
 
 _Part of [Communications](../communications.md). See `docs/decisions/README.md` for the index._
 
-### No calendar change is made without the person's yes to that exact change
+### Tex changes the person's own calendar without asking (2026-10-22)
+
+Decided by the owner on 2026-10-22: "as long as there isn't a second person
+added in a calendar event, there is no need to get permission, you can just
+go ahead and do it, we only need confirmation when you are sending things to
+another human being ... a personal calendar thing can be changed without a go
+ahead unless the person asks for a go ahead". Every event `calendar_event`
+touches is the person's alone (below: never an event with guests), so a
+texted turn's change runs at once (`calendarGate.js`), after the same check
+of the change and its limits. Another connected AI's change still waits for
+their yes in the app, as the section below describes. An offer of a change
+in Tex's own words is turned into the change itself, not into an ask
+(`claimCheck.js`, `offerNotice`). Reversing this brings back the double ask
+of 2026-10-22 ("Say yes and I'll add it", "yes", then "Give it a 👍"); the
+test that fails is `calendarGate.test.mjs`, "a texted change to their own
+calendar is made at once".
+
+An invite to another person is a message to them and would wait for a yes,
+as an email does; it is not built.
+
+### Before 2026-10-22: no calendar change without the person's yes to that exact change
 
 Decided by the owner on 2026-10-17: "weren't you supposed to … enable sending
 emails and updating calendars? it should work for testing accounts before we

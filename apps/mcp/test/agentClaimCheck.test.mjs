@@ -226,3 +226,13 @@ test("an answer backed by a write that went through goes as it is, in one round"
   assert.equal(result.answer, "It's on your to-do list now.");
   assert.equal(ai.calls.length, 2);
 });
+
+// Dev2, 2026-10-22: "the 2 messages from Tex should be merged into 1". The model's line about what it held goes; news stays.
+test("the model's one line about what it held is folded into the ask; anything else stays above it", async () => {
+  const { answerWithAsk } = await import("../src/agent/textedApprovals.js");
+  const ask = "Here's the email I'd send:\n\nTo: sayo@example.test\nSubject: Hi\n\nHello.\n\nGive it a 👍 and I'll send it.";
+  assert.equal(answerWithAsk("Drafted it again, the same joke note to Sayo from seyi@example.test", ask, []), ask);
+  assert.equal(answerWithAsk("I drafted the reply to Jo.", ask, []), ask);
+  assert.equal(answerWithAsk("Her quotes were for 6:30, so she may send a new one for 7.", ask, []), `Her quotes were for 6:30, so she may send a new one for 7.\n\n${ask}`);
+  assert.equal(answerWithAsk("Drafted it. Do you also want me to cc Sam?", ask, []), `Drafted it. Do you also want me to cc Sam?\n\n${ask}`);
+});
