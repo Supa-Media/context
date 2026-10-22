@@ -104,6 +104,17 @@ export const run = internalMutation({
     started: v.number(),
     /** Why nothing was started on a page that owed work, or null. */
     refused: v.union(v.string(), v.null()),
+    /**
+     * Why the trees that are not ready are not: counts by tree status ("none"
+     * when there is no tree state) and by the pass's fixed error label, how
+     * many have any tree row, and how many are archived. Labels only.
+     */
+    notReady: v.object({
+      statuses: v.record(v.string(), v.number()),
+      errors: v.record(v.string(), v.number()),
+      withRows: v.number(),
+      archived: v.number(),
+    }),
     cursor: v.string(),
     done: v.boolean(),
   }),
@@ -117,6 +128,7 @@ export const run = internalMutation({
     let archived = 0;
     let started = 0;
     let owed = false;
+    const notReady = { statuses: {} as Record<string, number>, errors: {} as Record<string, number>, withRows: 0, archived: 0 };
     const refusal = mode !== "keys" ? "switch_not_at_keys" : paused ? "paused" : null;
     for (const workspace of page.page) {
       const workspaceId = workspace._id;
@@ -131,7 +143,19 @@ export const run = internalMutation({
       const row = await copyRowOf(ctx.db, workspaceId);
       const stage = stageOf({ bound: binding !== null, mode, treeReady: tree?.status === "ready", row, now });
       stages[stage] += 1;
-      if (await workspaceArchived(ctx.db, workspaceId)) archived += 1;
+      const isArchived = await workspaceArchived(ctx.db, workspaceId);
+      if (isArchived) archived += 1;
+      if (stage === "tree_not_ready") {
+        const status = tree?.status ?? "none";
+        notReady.statuses[status] = (notReady.statuses[status] ?? 0) + 1;
+        if (tree?.error !== undefined) notReady.errors[tree.error] = (notReady.errors[tree.error] ?? 0) + 1;
+        const anyRow = await ctx.db
+          .query("nodes")
+          .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId))
+          .first();
+        if (anyRow !== null) notReady.withRows += 1;
+        if (isArchived) notReady.archived += 1;
+      }
       if (stage === "keyed" || stage === "no_storage" || stage === "copying" || stage === "tree_not_ready") continue;
       owed = true;
       if (dryRun || refusal !== null) continue;
@@ -160,6 +184,7 @@ export const run = internalMutation({
       stages,
       started,
       refused: owed && !dryRun ? refusal : null,
+      notReady,
       cursor: page.continueCursor,
       done: page.isDone,
     };

@@ -78,6 +78,22 @@ describe("every workspace on notes by id", () => {
     expect(await t.run((ctx) => copyRowOf(ctx.db, ws))).toBeNull();
   });
 
+  test("a tree that is not ready says why: its status, its error label, whether it has rows, archived or not", async () => {
+    const t = tester();
+    await setLayout(t, "keys");
+    await boundWorkspace(t, "no-tree");
+    const { ws } = await unkeyedWorkspace(t, "stuck");
+    await t.run(async (ctx) => {
+      const tree = (await ctx.db.query("nodeTrees").collect()).find((row) => row.workspaceId === ws)!;
+      await ctx.db.patch(tree._id, { status: "filling", error: "list_failed" });
+    });
+
+    const [page] = await runAll(t, true);
+
+    expect(page!.stages.tree_not_ready).toBe(2);
+    expect(page!.notReady).toEqual({ statuses: { none: 1, filling: 1 }, errors: { list_failed: 1 }, withRows: 1, archived: 0 });
+  });
+
   test("the run starts an unkeyed workspace's pass, and the pass's end keys it", async () => {
     const t = tester();
     await setLayout(t, "keys");
