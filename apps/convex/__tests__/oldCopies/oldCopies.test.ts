@@ -9,7 +9,8 @@
  *  - let `underHiddenRoot` answer only the trash and nothing moves (`invalid`);
  *  - drop the owner check in `listForExport` and a member is told the hidden names;
  *  - drop the `held` check in `readOldCopyTexts` and a name outside the folder is read;
- *  - let `deleteCopies` run while hiding and the counts the page showed are not what goes.
+ *  - let `deleteCopies` run while hiding and the counts the page showed are not what goes;
+ *  - drop the `passAt` check in `catchUp` and a second pass starts beside one under way.
  */
 
 import { describe, expect, test } from "vitest";
@@ -115,6 +116,25 @@ describe("hiding old copies", () => {
     await f.t.mutation(internal.functions.oldCopies.catchUp, {});
     expect((await scheduled()).filter((job) => job.state.kind === "pending")).toEqual([]);
   });
+});
+
+test("a pass under way is not started twice beside itself, and one that died is picked up again", async () => {
+  const f = await copiesFixture();
+  const pending = async () =>
+    (await f.t.run(async (ctx) => await ctx.db.system.query("_scheduled_functions").collect())).filter(
+      (job) => job.name.includes("hideWorkspace") && job.state.kind === "pending",
+    );
+  await f.t.mutation(internal.functions.oldCopies.beginPass, { workspaceId: f.ws, now: Date.now() });
+  await f.t.mutation(internal.functions.oldCopies.catchUp, {});
+  expect(await pending()).toEqual([]);
+
+  // A run that never came back leaves its claim behind; after a while the next look starts it again.
+  await f.t.run(async (ctx) => {
+    const record = await ctx.db.query("oldCopyHides").first();
+    await ctx.db.patch(record!._id, { passAt: Date.now() - 16 * 60_000 });
+  });
+  await f.t.mutation(internal.functions.oldCopies.catchUp, {});
+  expect(await pending()).toHaveLength(1);
 });
 
 describe("Download as folders keeps them", () => {

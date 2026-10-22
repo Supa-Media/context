@@ -7,8 +7,11 @@
  *
  * They are hidden, never deleted for the person:
  *
- *  - `catchUp` runs hourly (`crons.ts`) over keyed personal workspaces and
- *    schedules `hideWorkspace` for each not yet looked through. A pass reads a
+ *  - `catchUp` runs every ten minutes (`crons.ts`) over keyed personal
+ *    workspaces and schedules `hideWorkspace` for each not yet looked through
+ *    and with no pass under way. Each `hideWorkspace` is one pass, and hands
+ *    on to the next at once until the end, so no run nears an action's time
+ *    limit and a workspace is done in minutes, not hours. A pass reads a
  *    page of rows, tells copies from the person's own notes
  *    (`lib/oldCopies/classify.ts`), and moves each copy's row to
  *    `.context/old-copies/<its path>` (`lib/oldCopies/hiding.ts`). That name
@@ -21,8 +24,8 @@
  *    the rows go first, then the bucket half the trash uses removes the bytes
  *    (`trashEmptying.ts`).
  *
- * Once every workspace has been looked through, each hourly pass is a read of
- * one row per keyed workspace.
+ * Once every workspace has been looked through, each ten-minute pass is a read
+ * of one row per keyed workspace.
  */
 
 import { ConvexError, v } from "convex/values";
@@ -36,20 +39,21 @@ import { defaultGoogleDestinationFolder } from "./lib/googleConnect/validation";
 import { applyRowMove, type RowMoveRefusal } from "./lib/nodes/rowMove";
 import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { rowVerdict } from "./lib/oldCopies/classify";
+import type { HidePass } from "./lib/oldCopies/hiding";
 import { isPlumbing } from "./lib/privacy";
 import { dropLinks, removeRow } from "./trash";
 
 /** Rows one pass looks at. */
 const ROW_PAGE = 300;
-/** Passes one `hideWorkspace` makes before leaving the rest to the next hour. */
-const PASSES = 60;
-/** Workspaces one page of the hourly pass looks at. */
+/** How long a pass under way keeps `catchUp` from starting a second one beside it. */
+const PASS_LEASE_MS = 15 * 60_000;
+/** Workspaces one page of the ten-minute look (`catchUp`) reads. */
 const WORKSPACE_PAGE = 20;
 /** Hidden rows one deleting mutation removes. */
 const ERASE_PAGE = 200;
 /** Hidden notes one export listing names: past it, the download says it is short rather than guess. */
 const EXPORT_MAX = 8_000;
-/** A refusal that is about the workspace, not the row: the pass stops and tries again next hour. */
+/** A refusal that is about the workspace, not the row: the pass stops, and the next look starts it again. */
 const STOPPING: ReadonlySet<RowMoveRefusal> = new Set<RowMoveRefusal>(["not_keyed", "not_served", "busy"]);
 
 const pairValidator = v.object({ from: v.string(), to: v.string() });
@@ -90,6 +94,8 @@ export const catchUp = internalMutation({
       if (workspace === null || workspace.kind !== "personal") continue;
       const record = await hideRecord(ctx, copies.workspaceId);
       if (record !== null && record.state !== "hiding") continue;
+      // A pass is under way and hands on to the next itself.
+      if (record?.passAt !== undefined && Date.now() - record.passAt < PASS_LEASE_MS) continue;
       await ctx.scheduler.runAfter(0, internal.functions.oldCopies.hideWorkspace, { workspaceId: copies.workspaceId });
     }
     if (!page.isDone) await ctx.scheduler.runAfter(0, internal.functions.oldCopies.catchUp, { cursor: page.continueCursor });
@@ -97,37 +103,41 @@ export const catchUp = internalMutation({
   },
 });
 
-/** Look through one workspace a pass at a time, from where the last left off, until the end or the passes run out. */
+/** One pass over the next page of a workspace, handing on to the next until the end. */
 export const hideWorkspace = internalAction({
   args: { workspaceId: v.id("workspaces") },
-  returns: v.object({ passes: v.number(), done: v.boolean() }),
-  handler: async (ctx, { workspaceId }): Promise<{ passes: number; done: boolean }> => {
-    for (let passes = 0; passes < PASSES; passes += 1) {
-      const cursor = await ctx.runMutation(internal.functions.oldCopies.beginPass, { workspaceId, now: Date.now() });
-      if (cursor === false) return { passes, done: true };
-      const pass = (await ctx.runAction(internal.functions.files.runFileOperation, {
-        workspaceId,
-        scope: "private",
-        operation: { kind: "hideOldCopies", ...(cursor === null ? {} : { cursor }) },
-      })) as { kind: "oldCopiesHidden"; cursor: string | null; days: number; contacts: number; files: number; firstDay?: string; lastDay?: string; stopped?: string };
-      await ctx.runMutation(internal.functions.oldCopies.recordPass, {
-        workspaceId,
-        cursor: pass.cursor,
-        stopped: pass.stopped !== undefined,
-        days: pass.days,
-        contacts: pass.contacts,
-        files: pass.files,
-        ...(pass.firstDay === undefined ? {} : { firstDay: pass.firstDay }),
-        ...(pass.lastDay === undefined ? {} : { lastDay: pass.lastDay }),
-        now: Date.now(),
-      });
-      if (pass.stopped !== undefined) {
-        console.log(JSON.stringify({ event: "oldCopies.pass_stopped", workspaceId, reason: pass.stopped }));
-        return { passes: passes + 1, done: false };
-      }
-      if (pass.cursor === null) return { passes: passes + 1, done: true };
-    }
-    return { passes: PASSES, done: false };
+  returns: v.object({ done: v.boolean() }),
+  handler: async (ctx, { workspaceId }): Promise<{ done: boolean }> => {
+    const cursor = await ctx.runMutation(internal.functions.oldCopies.beginPass, { workspaceId, now: Date.now() });
+    if (cursor === false) return { done: true };
+    const pass = (await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId,
+      scope: "private",
+      operation: { kind: "hideOldCopies", ...(cursor === null ? {} : { cursor }) },
+    })) as HidePass;
+    await ctx.runMutation(internal.functions.oldCopies.recordPass, {
+      workspaceId,
+      cursor: pass.cursor,
+      stopped: pass.stopped !== undefined,
+      days: pass.days,
+      contacts: pass.contacts,
+      files: pass.files,
+      ...(pass.firstDay === undefined ? {} : { firstDay: pass.firstDay }),
+      ...(pass.lastDay === undefined ? {} : { lastDay: pass.lastDay }),
+      now: Date.now(),
+    });
+    // Counts only, never a path.
+    console.log(JSON.stringify({
+      event: "oldCopies.pass",
+      workspaceId,
+      hidden: { days: pass.days, contacts: pass.contacts, files: pass.files },
+      looked: pass.looked ?? null,
+      stopped: pass.stopped ?? null,
+      done: pass.cursor === null && pass.stopped === undefined,
+    }));
+    if (pass.stopped !== undefined || pass.cursor === null) return { done: pass.stopped === undefined };
+    await ctx.scheduler.runAfter(0, internal.functions.oldCopies.hideWorkspace, { workspaceId });
+    return { done: false };
   },
 });
 
@@ -139,10 +149,12 @@ export const beginPass = internalMutation({
     if (!(await keyedWorkspace(ctx.db, workspaceId))) return false;
     const record = await hideRecord(ctx, workspaceId);
     if (record === null) {
-      await ctx.db.insert("oldCopyHides", { workspaceId, state: "hiding", days: 0, contacts: 0, files: 0, startedAt: now });
+      await ctx.db.insert("oldCopyHides", { workspaceId, state: "hiding", days: 0, contacts: 0, files: 0, startedAt: now, passAt: now });
       return null;
     }
-    return record.state === "hiding" ? (record.cursor ?? null) : false;
+    if (record.state !== "hiding") return false;
+    await ctx.db.patch(record._id, { passAt: now });
+    return record.cursor ?? null;
   },
 });
 
@@ -172,6 +184,8 @@ export const recordPass = internalMutation({
       ...(firstDay === undefined ? {} : { firstDay }),
       ...(lastDay === undefined ? {} : { lastDay }),
       cursor: args.cursor ?? undefined,
+      // Still held while the next pass is handed on; let go at the end, or when a pass stopped.
+      passAt: args.cursor !== null && !args.stopped ? args.now : undefined,
       ...(finished ? { state: "hidden" as const, hiddenAt: args.now } : {}),
     });
     return null;

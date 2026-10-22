@@ -34,8 +34,13 @@ export interface HidePass {
   files: number;
   firstDay?: string;
   lastDay?: string;
-  /** Why the pass stopped before the end of its page, so the next hour tries again. */
+  /** Why the pass stopped before the end of its page, so the next run tries again. */
   stopped?: string;
+  /**
+   * What the pass looked at, for the log: rows that might be copies, how many
+   * of those could not be read, and how many were read and found the person's.
+   */
+  looked?: { rows: number; unread: number; theirs: number };
 }
 
 async function textAt(store: FileStore, path: string): Promise<string | null> {
@@ -56,7 +61,8 @@ export async function hideOldCopiesPass(
   cursor: string | null,
 ): Promise<HidePass> {
   const page = await ctx.runQuery(internal.functions.oldCopies.candidatePage, { workspaceId, cursor });
-  const pass: HidePass = { kind: "oldCopiesHidden", cursor: page.done ? null : page.cursor, days: 0, contacts: 0, files: 0 };
+  const looked = { rows: page.rows.length, unread: 0, theirs: 0 };
+  const pass: HidePass = { kind: "oldCopiesHidden", cursor: page.done ? null : page.cursor, days: 0, contacts: 0, files: 0, looked };
 
   const hide: { path: string; as: "day" | "contact" | "file" }[] = [];
   for (const row of page.rows) {
@@ -66,6 +72,8 @@ export async function hideOldCopiesPass(
       // A note the facts could not vouch for: its own words decide, and one that cannot be read stays.
       const text = await textAt(store, row.key ?? row.path);
       const verdict = text === null ? null : bodyVerdict(text);
+      if (text === null) looked.unread += 1;
+      else if (verdict === null) looked.theirs += 1;
       if (verdict !== null) hide.push({ path: row.path, as: verdict });
     }
   }

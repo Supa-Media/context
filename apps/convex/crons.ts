@@ -137,7 +137,7 @@ crons.interval("tidy Archive's date folders", { hours: 1 }, internal.functions.a
  * personal workspace is looked through once, its copies moved to a hidden
  * name and never erased by a timer. Once all are done, a read of one row each.
  */
-crons.interval("hide old copies of mail and calendar", { hours: 1 }, internal.functions.oldCopies.catchUp, {});
+crons.interval("hide old copies of mail and calendar", { minutes: 10 }, internal.functions.oldCopies.catchUp, {});
 
 /**
  * Grant founding Premium to accounts still owed it (`lib/billing/founding.ts`),

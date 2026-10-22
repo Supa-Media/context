@@ -84,6 +84,7 @@ export const operationResultValidator = v.union(
     firstDay: v.optional(v.string()),
     lastDay: v.optional(v.string()),
     stopped: v.optional(v.string()),
+    looked: v.optional(v.object({ rows: v.number(), unread: v.number(), theirs: v.number() })),
   }),
   v.object({
     kind: v.literal("oldCopyTexts"),
