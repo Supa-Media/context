@@ -98,8 +98,13 @@ export async function browseOnBrowserbase(env: BrowserbaseEnv, path: string, bod
     // Every file the browser downloads goes to Browserbase's storage for this
     // session, where a download step takes it (./download.ts). Only "downloads"
     // syncs there, the vendor's own folder name.
+    let begun = 0;
+    cdp.on?.("Browser.downloadWillBegin", () => {
+      begun += 1;
+    });
     await cdp.send("Browser.setDownloadBehavior", { behavior: "allow", downloadPath: "downloads", eventsEnabled: true }).catch(() => undefined);
     const downloads: Downloads = {
+      began: () => begun,
       async take(since, waitMs) {
         const got = await takeDownload(env, session.id, since, waitMs, MAX_DOWNLOAD_BYTES, fetcher);
         return got === null || "refused" in got ? got : asFile(got);

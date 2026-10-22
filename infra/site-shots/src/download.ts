@@ -46,6 +46,12 @@ export interface DownloadedFile {
  */
 export interface Downloads {
   take(since: number, waitMs: number): Promise<DownloadedFile | { refused: string } | null>;
+  /**
+   * How many downloads the browser has begun since this call started, where it
+   * says (Browserbase's `Browser.downloadWillBegin`): a click or a key that
+   * starts one hands its file back as a download step would (./browse.ts).
+   */
+  began?(): number;
 }
 
 const NAME_CONTROL = /[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g;
@@ -117,7 +123,7 @@ const fetchable = (href: unknown): href is string => typeof href === "string" &&
  * downloaded last.
  */
 export async function runDownload(
-  page: BrowsePage,
+  page: Pick<BrowsePage, "evaluate">,
   target: string | null,
   press: (() => Promise<void>) | null,
   downloads: Downloads | null,
@@ -129,7 +135,8 @@ export async function runDownload(
   if (press !== null) await press();
   let refused: string | null = null;
   if (downloads !== null) {
-    const got = await downloads.take(since, press === null ? 0 : waitMs).catch(() => null);
+    // The page itself, or a file a click already started: it may still be on its way to Browserbase's storage.
+    const got = await downloads.take(since, press === null ? Math.min(waitMs, 3_000) : waitMs).catch(() => null);
     if (got !== null && "refused" in got) refused = got.refused;
     else if (got !== null) return { do: "download", ok: true, file: got };
   }

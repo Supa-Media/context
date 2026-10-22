@@ -66,7 +66,7 @@ describe("the download step", () => {
         return { name: "Invoice-Sept.pdf", type: "application/pdf", size: 16, data: PDF };
       },
     };
-    const result = await runSteps(page, [{ do: "download", ref: 3, text: null }, { do: "scroll", direction: "down" }], { downloads });
+    const result = await runSteps(page, [{ do: "download", ref: 3, text: null }, { do: "scroll", direction: "down", x: null, y: null }], { downloads });
     expect(state.clicks).toEqual(['[data-tex-ref="3"]']);
     expect(result.file).toEqual({ name: "Invoice-Sept.pdf", type: "application/pdf", size: 16, data: PDF });
     expect(result.ran).toEqual([{ do: "download", ok: true }]);
