@@ -47,25 +47,25 @@ export function runDestinationChecks(check) {
   );
   check(
     "the legacy {date} spelling is accepted on the way in",
-    normalizeDestinationFolder("0-inbox/calendar/{date}.md").folder === "0-inbox/calendar",
+    normalizeDestinationFolder("inbox/calendar/{date}.md").folder === "inbox/calendar",
   );
   check(
     "...and is never produced, so the two spellings converge on the next save",
-    destinationPattern("0-inbox/calendar") === "0-inbox/calendar/YYYY/MM/YYYY-MM-DD.md" &&
+    destinationPattern("inbox/calendar") === "inbox/calendar/YYYY/MM/YYYY-MM-DD.md" &&
       !destinationPattern("x").includes("{date}"),
   );
   check(
     "a pattern this module produced answers with the folder it was built from",
-    normalizeDestinationFolder(destinationPattern("0-inbox/calendar")).folder === "0-inbox/calendar",
+    normalizeDestinationFolder(destinationPattern("inbox/calendar")).folder === "inbox/calendar",
   );
   check(
     "...so saving the rendered pattern back, twice, does not grow it a folder at a time",
     (() => {
-      let folder = "0-inbox/calendar";
+      let folder = "inbox/calendar";
       for (let round = 0; round < 3; round += 1) {
         folder = normalizeDestinationFolder(destinationPattern(folder)).folder;
       }
-      return folder === "0-inbox/calendar";
+      return folder === "inbox/calendar";
     })(),
   );
   check(
@@ -75,11 +75,11 @@ export function runDestinationChecks(check) {
   check("the token is the one the pattern carries", DATE_TOKEN === "YYYY-MM-DD");
   check(
     "surrounding whitespace is not a different folder",
-    normalizeDestinationFolder("  0-inbox/calendar  ").folder === "0-inbox/calendar",
+    normalizeDestinationFolder("  inbox/calendar  ").folder === "inbox/calendar",
   );
   check(
     "a leading and trailing slash are not a different folder either",
-    normalizeDestinationFolder("/0-inbox/calendar/").folder === "0-inbox/calendar",
+    normalizeDestinationFolder("/inbox/calendar/").folder === "inbox/calendar",
   );
 
   // -- what it refuses, and with what to do about it
@@ -103,7 +103,7 @@ export function runDestinationChecks(check) {
     "a percent-encoded traversal is refused HERE, because the layer that decodes it is below this one",
     normalizeDestinationFolder("2-areas/%2E%2E/etc").ok === false &&
       normalizeDestinationFolder("%2e%2e").ok === false &&
-      normalizeDestinationFolder("0-inbox/%2E/mail").ok === false,
+      normalizeDestinationFolder("inbox/%2E/mail").ok === false,
   );
   check(
     "...as a value this field can render, rather than the storage error every sync would have thrown",
@@ -111,8 +111,8 @@ export function runDestinationChecks(check) {
   );
   check(
     "...and only where the DECODED segment IS the traversal, which is where the adapter draws it",
-    normalizeDestinationFolder("0-inbox/a%2E%2Eb").ok === true &&
-      normalizeDestinationFolder("0-inbox/%2Email").ok === true,
+    normalizeDestinationFolder("inbox/a%2E%2Eb").ok === true &&
+      normalizeDestinationFolder("inbox/%2Email").ok === true,
   );
   check(
     "normalizeRoot throws and this never does — the refusal is a value a field can render",
@@ -140,7 +140,7 @@ export function runDestinationChecks(check) {
   );
   check(
     "...at any depth, not just the first segment",
-    normalizeDestinationFolder("0-inbox/.hidden/mail").code === "DESTINATION_RESERVED",
+    normalizeDestinationFolder("inbox/.hidden/mail").code === "DESTINATION_RESERVED",
   );
   check(
     "the manifest is not a folder",
@@ -148,11 +148,11 @@ export function runDestinationChecks(check) {
   );
   check(
     "a segment longer than the limit is refused",
-    normalizeDestinationFolder(`0-inbox/${"x".repeat(DESTINATION_SEGMENT_LIMIT + 1)}`).ok === false,
+    normalizeDestinationFolder(`inbox/${"x".repeat(DESTINATION_SEGMENT_LIMIT + 1)}`).ok === false,
   );
   check(
     "...and one exactly at the limit is not",
-    normalizeDestinationFolder(`0-inbox/${"x".repeat(DESTINATION_SEGMENT_LIMIT)}`).ok === true,
+    normalizeDestinationFolder(`inbox/${"x".repeat(DESTINATION_SEGMENT_LIMIT)}`).ok === true,
   );
   check(
     "a non-string is a refusal rather than a crash",
@@ -241,10 +241,10 @@ export function runDestinationChecks(check) {
   // -- completion
 
   const TREE = [
-    "0-inbox",
-    "0-inbox/calendar",
-    "0-inbox/email",
-    "0-inbox/meetings",
+    "inbox",
+    "inbox/calendar",
+    "inbox/email",
+    "inbox/meetings",
     "1-projects",
     "2-areas",
     "2-areas/communications",
@@ -276,7 +276,7 @@ export function runDestinationChecks(check) {
   check(
     "an empty field offers the roots",
     JSON.stringify(suggestDestinationFolders("", TREE)) ===
-      JSON.stringify(["0-inbox", "1-projects", "2-areas"]),
+      JSON.stringify(["inbox", "1-projects", "2-areas"]),
   );
   check(
     "a committed parent is never undone by a suggestion from another one",

@@ -18,7 +18,7 @@ import { renderPrivacyManifest } from "../functions/lib/scaffold";
 const NOW = 1_800_000_000_000;
 const OWNER = clearanceOf("private");
 
-function bucket(folders = ["0-inbox", "1-projects", "2-areas", "3-resources", "9-archive"]): MemoryStore & FileStore {
+function bucket(folders = ["inbox", "projects", "areas", "resources", "archive"]): MemoryStore & FileStore {
   const store = memoryStore({}) as MemoryStore & FileStore;
   store.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
   for (const folder of folders) store.seed(`${folder}/README.md`, `# ${folder}\n`);
@@ -37,9 +37,9 @@ async function refusal(fn: () => Promise<unknown>): Promise<FileOpError> {
 
 describe("adding a built-in folder", () => {
   test.each([
-    ["clients", "4-clients", "# Clients"],
-    ["teams", "5-teams", "# Teams"],
-    ["products", "6-products", "# Products"],
+    ["clients", "clients", "# Clients"],
+    ["teams", "teams", "# Teams"],
+    ["products", "products", "# Products"],
   ])("%s lands at its fixed name with an about.md saying what it is for", async (role, folder, heading) => {
     const store = bucket();
     expect(await addBuiltInFolder(store, { role, clearance: OWNER, now: NOW })).toEqual({
@@ -52,22 +52,22 @@ describe("adding a built-in folder", () => {
   });
 
   test("a folder that already has its about.md is refused, even with no README beside it", async () => {
-    const store = bucket(["0-inbox", "1-projects", "2-areas", "3-resources", "9-archive"]);
-    store.seed("4-clients/about.md", "# Clients\n");
+    const store = bucket(["inbox", "projects", "areas", "resources", "archive"]);
+    store.seed("clients/about.md", "# Clients\n");
     const error = await refusal(() => addBuiltInFolder(store, { role: "clients", clearance: OWNER, now: NOW }));
     expect(error.code).toBe("DESTINATION_EXISTS");
-    expect(store.snapshot()["4-clients/about.md"]).toBe("# Clients\n");
+    expect(store.snapshot()["clients/about.md"]).toBe("# Clients\n");
   });
 
   test("a missing main folder can be added back too", async () => {
-    const store = bucket(["0-inbox", "1-projects", "4-archive"]);
-    expect((await addBuiltInFolder(store, { role: "resources", clearance: OWNER, now: NOW })).path).toBe("3-resources");
+    const store = bucket(["inbox", "projects", "4-archive"]);
+    expect((await addBuiltInFolder(store, { role: "resources", clearance: OWNER, now: NOW })).path).toBe("resources");
   });
 
   test.each([["archive", "4-archive"], ["clients", "clients"], ["clients", "7-Clients"]])(
     "a workspace that already has %s (as %s) is told so, not given a second one",
     async (role, existing) => {
-      const store = bucket(["0-inbox", "1-projects", existing]);
+      const store = bucket(["inbox", "projects", existing]);
       const error = await refusal(() => addBuiltInFolder(store, { role, clearance: OWNER, now: NOW }));
       expect(error.code).toBe("DESTINATION_EXISTS");
       expect(Object.keys(store.snapshot()).filter((key) => key.endsWith("README.md")).length).toBe(3);
@@ -83,7 +83,7 @@ describe("adding a built-in folder", () => {
     const member = clearanceOf("team");
     const absent = await refusal(() => addBuiltInFolder(bucket(), { role: "clients", clearance: member, now: NOW }));
     const present = await refusal(() =>
-      addBuiltInFolder(bucket(["4-clients"]), { role: "clients", clearance: member, now: NOW }),
+      addBuiltInFolder(bucket(["clients"]), { role: "clients", clearance: member, now: NOW }),
     );
     expect([absent.code, absent.message]).toEqual([present.code, present.message]);
     expect(absent.code).toBe("FILE_NOT_FOUND");

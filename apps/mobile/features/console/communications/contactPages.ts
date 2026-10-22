@@ -25,7 +25,7 @@
  * deep or flat, and nothing deeper.
  */
 
-import { CONTACTS_FOLDER, isContactNote, parseContactView } from "@context/communications";
+import { CONTACTS_FOLDER, asInboxKey, isContactNote, parseContactView } from "@context/communications";
 import { baseName, parentPath } from "../files/paths";
 import { frontmatterTitle, properties, splitNote } from "../files/frontmatter";
 import type { FileEntry } from "../files/types";
@@ -53,17 +53,18 @@ export interface ContactLetter {
 
 const PREFIX = `${CONTACTS_FOLDER}/`;
 
-/** A Markdown note in the contacts folder, flat or one folder down. */
+/** A Markdown note in the contacts folder, flat or one folder down, under either of the Inbox's names (`asInboxKey`). */
 export function isContactPagePath(path: string): boolean {
-  if (!path.startsWith(PREFIX) || !path.endsWith(".md")) return false;
-  const segments = path.slice(PREFIX.length).split("/");
+  const key = asInboxKey(path);
+  if (!key.startsWith(PREFIX) || !key.endsWith(".md")) return false;
+  const segments = key.slice(PREFIX.length).split("/");
   if (segments.length > 2) return false;
   return segments.every((segment) => segment !== "" && segment !== "." && segment !== "..");
 }
 
 /** Is this one of the contacts folder's letter folders (`a`..`z`, `other`)? */
 function isLetterFolder(path: string): boolean {
-  return parentPath(path) === CONTACTS_FOLDER && CONTACT_LETTERS.includes(baseName(path));
+  return asInboxKey(parentPath(path)) === CONTACTS_FOLDER && CONTACT_LETTERS.includes(baseName(path));
 }
 
 /**
@@ -75,12 +76,13 @@ export function contactsIndex(
   folder: string,
   rows: readonly FileEntry[],
 ): { letters: ContactLetter[]; rest: FileEntry[] } | null {
-  if (folder !== CONTACTS_FOLDER) return null;
+  // The contacts folder under the Inbox by either name: `inbox`, or `0-inbox` where the rename was skipped.
+  if (asInboxKey(folder) !== CONTACTS_FOLDER) return null;
   const present = new Set(
     rows.filter((row) => row.kind === "folder" && isLetterFolder(row.path)).map((row) => row.path),
   );
   const letters = CONTACT_LETTERS.map((letter) => {
-    const path = `${PREFIX}${letter}`;
+    const path = `${folder}/${letter}`;
     return {
       letter,
       label: letter === "other" ? "Other" : letter.toUpperCase(),

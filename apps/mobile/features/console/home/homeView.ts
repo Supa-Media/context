@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { DEFAULT_FOLDER } from "@context/shared/src/folderRoles.cjs";
 
 /**
  * WHICH OF THE PHONE'S TWO TOP PAGES IS SHOWING: INBOX OR FOLDERS.
@@ -57,6 +58,6 @@ export const FOLDERS_PAGE = "\u0000folders";
  * first page lists. Read `inboxFolderNow()` instead: the Inbox can be renamed,
  * and that answers the folder doing its job (`files/jobIcons/jobFoldersNow.ts`).
  */
-export const INBOX_FOLDER = "0-inbox";
+export const INBOX_FOLDER = DEFAULT_FOLDER.inbox;
 
 export { inboxFolderNow } from "../files/jobIcons/jobFoldersNow";

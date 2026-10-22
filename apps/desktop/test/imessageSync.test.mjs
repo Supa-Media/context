@@ -139,23 +139,23 @@ export async function runImessageSyncChecks(check) {
   check("the affected day is written", report1.days.length === 1 && report1.days[0].status === "written");
   check("the cursor advances past the highest ROWID seen", report1.cursor.lastRowId === 1);
   check("the day exists, and an inbound-only sender gets no contact page", deps1.notes.size === 1);
-  check("the note lands at the fixed iMessage path for that day", deps1.notes.has("0-inbox/imessage/2026/09/2026-09-07.md"));
+  check("the note lands at the fixed iMessage path for that day", deps1.notes.has("inbox/imessage/2026/09/2026-09-07.md"));
 
   // -- re-running with NOTHING new changes no bytes -------------------------
-  const before = deps1.notes.get("0-inbox/imessage/2026/09/2026-09-07.md").content;
+  const before = deps1.notes.get("inbox/imessage/2026/09/2026-09-07.md").content;
   const writesBefore = deps1.writeCalls.length;
   const report2 = await syncImessage(deps1, report1.cursor);
   check("a pass with nothing past the cursor reports zero new rows", report2.newRows === 0);
   check("...and touches no days at all", report2.days.length === 0);
   check("...and calls writeNote zero additional times", deps1.writeCalls.length === writesBefore);
-  check("...and the stored bytes are exactly what they were", deps1.notes.get("0-inbox/imessage/2026/09/2026-09-07.md").content === before);
+  check("...and the stored bytes are exactly what they were", deps1.notes.get("inbox/imessage/2026/09/2026-09-07.md").content === before);
 
   // -- a new message on the SAME day regenerates it, and its nonce is reused --
   deps1.rows.push(messageRow({ rowid: "2", guid: "g2", date_ns: NS_2026_09_07, text: "second message" }));
   const firstNonce = existingNonce(before);
   const report3 = await syncImessage(deps1, report1.cursor);
   check("the day is regenerated as WRITTEN, since it now has new content", report3.days[0].status === "written");
-  const after = deps1.notes.get("0-inbox/imessage/2026/09/2026-09-07.md").content;
+  const after = deps1.notes.get("inbox/imessage/2026/09/2026-09-07.md").content;
   check("the regenerated day carries both messages", after.includes("hello") && after.includes("second message"));
   check(
     "regenerating an existing day reuses its ORIGINAL nonce rather than minting a new one — otherwise every fence in the file would silently rewrite",
@@ -167,11 +167,11 @@ export async function runImessageSyncChecks(check) {
   const deps2 = fakeDeps([messageRow({ rowid: "1", guid: "d1", date_ns: NS_2026_09_07 })]);
   const r1 = await syncImessage(deps2, EMPTY_CURSOR);
   deps2.rows.push(messageRow({ rowid: "2", guid: "d2", date_ns: NS_2026_09_08 }));
-  const day1Before = deps2.notes.get("0-inbox/imessage/2026/09/2026-09-07.md").content;
+  const day1Before = deps2.notes.get("inbox/imessage/2026/09/2026-09-07.md").content;
   const writesBeforeR2 = deps2.writeCalls.length;
   const r2 = await syncImessage(deps2, r1.cursor);
   check("only the day with new activity is touched", r2.days.length === 1 && r2.days[0].date === "2026-09-08");
-  check("the OTHER day's stored bytes are untouched", deps2.notes.get("0-inbox/imessage/2026/09/2026-09-07.md").content === day1Before);
+  check("the OTHER day's stored bytes are untouched", deps2.notes.get("inbox/imessage/2026/09/2026-09-07.md").content === day1Before);
   check(
     "writeNote is never called for the untouched day (only for the affected one)",
     // The new day alone: its sender only wrote in, so there is no contact page to write.
@@ -194,7 +194,7 @@ export async function runImessageSyncChecks(check) {
   // `updated` timestamp) would pass every check above and only fail here.
   const deps6 = fakeDeps([messageRow({ rowid: "1", guid: "stable-1", date_ns: NS_2026_09_07 })]);
   const r7 = await syncImessage(deps6, EMPTY_CURSOR);
-  const stableBefore = deps6.notes.get("0-inbox/imessage/2026/09/2026-09-07.md").content;
+  const stableBefore = deps6.notes.get("inbox/imessage/2026/09/2026-09-07.md").content;
   deps6.rows.push(
     messageRow({
       rowid: "2",
@@ -209,7 +209,7 @@ export async function runImessageSyncChecks(check) {
   const r8 = await syncImessage(deps6, r7.cursor);
   check("a day re-queried because of a new row that renders no visible change is reported unchanged, not written", r8.days[0].status === "unchanged");
   check("...and writeNote is called zero additional times for it", deps6.writeCalls.length === writesBeforeR8);
-  check("...and the stored bytes are byte-for-byte what they were", deps6.notes.get("0-inbox/imessage/2026/09/2026-09-07.md").content === stableBefore);
+  check("...and the stored bytes are byte-for-byte what they were", deps6.notes.get("inbox/imessage/2026/09/2026-09-07.md").content === stableBefore);
   check("...and the cursor still advances past the new row", r8.cursor.lastRowId === 2);
 
   // -- a write error holds the WHOLE pass's cursor back, not just that day ----
@@ -257,7 +257,7 @@ export async function runImessageSyncChecks(check) {
     messageRow({ rowid: "2", guid: "gone-1", date_ns: NS_2026_09_07, text: "the one that gets deleted" }),
   ]);
   const r9 = await syncImessage(deps7, EMPTY_CURSOR);
-  const dayPath = "0-inbox/imessage/2026/09/2026-09-07.md";
+  const dayPath = "inbox/imessage/2026/09/2026-09-07.md";
   const deletionNonce = existingNonce(deps7.notes.get(dayPath).content);
   check("both messages land in the day first", deps7.notes.get(dayPath).content.includes("the one that gets deleted"));
 
@@ -309,9 +309,9 @@ export async function runImessageSyncChecks(check) {
   );
   check(
     "...and it is filed under the day its timestamp names, not the day the sync ran",
-    deps8.notes.get("0-inbox/imessage/2026/09/2026-09-06.md").content.includes("sent two days ago, delivered now"),
+    deps8.notes.get("inbox/imessage/2026/09/2026-09-06.md").content.includes("sent two days ago, delivered now"),
   );
-  check("...and the already-correct day beside it is not rewritten", deps8.notes.get("0-inbox/imessage/2026/09/2026-09-07.md").content === deps8.notes.get("0-inbox/imessage/2026/09/2026-09-07.md").content);
+  check("...and the already-correct day beside it is not rewritten", deps8.notes.get("inbox/imessage/2026/09/2026-09-07.md").content === deps8.notes.get("inbox/imessage/2026/09/2026-09-07.md").content);
   check("...and the cursor advances past it", r13.cursor.lastRowId === 2);
 
   // A single pass carrying rows for several days at once must schedule every
@@ -355,8 +355,8 @@ export async function runImessageSyncChecks(check) {
   deps10.writeNote = realBigWrite;
   const r16 = await syncImessage(deps10, r15.cursor);
   check("the retried pass completes the day", r16.days[0].status === "written" && r16.cursor.lastRowId === 2);
-  const part1 = deps10.notes.get("0-inbox/imessage/2026/09/2026-09-07.md");
-  const part2 = deps10.notes.get("0-inbox/imessage/2026/09/2026-09-07-part-2.md");
+  const part1 = deps10.notes.get("inbox/imessage/2026/09/2026-09-07.md");
+  const part2 = deps10.notes.get("inbox/imessage/2026/09/2026-09-07-part-2.md");
   check("both parts of the day now exist", part1 !== undefined && part2 !== undefined);
   check(
     "...and both carry the SAME fence nonce, so the two halves of one day are one document",
@@ -383,7 +383,7 @@ export async function runImessageSyncChecks(check) {
     messageRow({ rowid: "2", guid: "shrink-2", date_ns: NS_2026_09_07_LATER, text: `deleted-later ${bulk}` }),
   ]);
   const r18 = await syncImessage(deps11, EMPTY_CURSOR);
-  const orphanPath = "0-inbox/imessage/2026/09/2026-09-07-part-2.md";
+  const orphanPath = "inbox/imessage/2026/09/2026-09-07-part-2.md";
   check("the big day starts out as two parts", r18.days[0].parts === 2 && deps11.notes.has(orphanPath));
   check(
     "...and the message about to be deleted is in the SECOND part — the one a shrink stops rewriting",
@@ -424,45 +424,45 @@ export async function runImessageSyncChecks(check) {
     deps.queryParticipants = async () => [{ chat_guid: "chat-1", address: "+15551234567" }];
     return deps;
   };
-  const contactPaths = (deps) => [...deps.notes.keys()].filter((path) => path.startsWith("0-inbox/contacts/"));
+  const contactPaths = (deps) => [...deps.notes.keys()].filter((path) => path.startsWith("inbox/contacts/"));
   const reply = messageRow({ rowid: "2", guid: "g2", is_from_me: 1, sender_address: null, date_ns: NS_2026_09_07_LATER, text: "back at you" });
   const deps12 = withParticipants(fakeDeps([messageRow(), reply]));
   const report12 = await syncImessage(deps12, EMPTY_CURSOR);
   check("a reply creates a page for the person written to, under other/ for a bare number",
-    report12.days[0].status === "written" && contactPaths(deps12).length === 1 && contactPaths(deps12)[0].startsWith("0-inbox/contacts/other/"));
+    report12.days[0].status === "written" && contactPaths(deps12).length === 1 && contactPaths(deps12)[0].startsWith("inbox/contacts/other/"));
   const created = contactPaths(deps12)[0];
   check("...linking back to the day rather than copying it",
-    deps12.notes.get(created).content.includes("[[0-inbox/imessage/2026/09/2026-09-07#msg-") && !deps12.notes.get(created).content.includes("back at you"));
+    deps12.notes.get(created).content.includes("[[inbox/imessage/2026/09/2026-09-07#msg-") && !deps12.notes.get(created).content.includes("back at you"));
 
   // The owner files the page by hand; the next message goes there, not to a new one.
-  deps12.notes.set("0-inbox/contacts/m/mum.md", deps12.notes.get(created));
+  deps12.notes.set("inbox/contacts/m/mum.md", deps12.notes.get(created));
   deps12.notes.delete(created);
   deps12.rows.push(messageRow({ rowid: "3", guid: "g3", date_ns: NS_2026_09_08, text: "next day" }));
   const contactIndex = { snapshot: null };
   deps12.contactIndex = contactIndex;
   await syncImessage(deps12, report12.cursor);
   check("a page the owner moved receives the next iMessage, and no duplicate appears",
-    contactPaths(deps12).length === 1 && deps12.notes.get("0-inbox/contacts/m/mum.md").content.includes("2026-09-08"));
-  check("...and the pass leaves its lookup for the next one", contactIndex.snapshot?.pages?.["0-inbox/contacts/m/mum.md"] !== undefined);
+    contactPaths(deps12).length === 1 && deps12.notes.get("inbox/contacts/m/mum.md").content.includes("2026-09-08"));
+  check("...and the pass leaves its lookup for the next one", contactIndex.snapshot?.pages?.["inbox/contacts/m/mum.md"] !== undefined);
 
   // Archived for dormancy: the gateway's move brings it back.
-  deps12.notes.set("4-archive/0-inbox/contacts/m/mum.md", deps12.notes.get("0-inbox/contacts/m/mum.md"));
-  deps12.notes.delete("0-inbox/contacts/m/mum.md");
+  deps12.notes.set("archive/inbox/contacts/m/mum.md", deps12.notes.get("inbox/contacts/m/mum.md"));
+  deps12.notes.delete("inbox/contacts/m/mum.md");
   deps12.rows.push(messageRow({ rowid: "4", guid: "g4", date_ns: NS_2026_09_08, text: "and again" }));
   const report13 = await syncImessage(deps12, { lastRowId: 3 });
   check("an archived page is moved back by the next message and updated at its live path",
     report13.days.every((day) => day.status !== "error") &&
-      contactPaths(deps12).length === 1 && !deps12.notes.has("4-archive/0-inbox/contacts/m/mum.md") &&
-      deps12.notes.get("0-inbox/contacts/m/mum.md").content.split("2026-09-08 · imessage").length === 3);
+      contactPaths(deps12).length === 1 && !deps12.notes.has("archive/inbox/contacts/m/mum.md") &&
+      deps12.notes.get("inbox/contacts/m/mum.md").content.split("2026-09-08 · imessage").length === 3);
 
   // Dormancy: a page nobody has messaged in a year goes to the archive mirror
   // at the end of a pass, through the gateway's move; this pass's own person stays.
   const deps15 = withParticipants(fakeDeps([messageRow(), reply]));
   const stale = (name, phone) =>
     `---\nupdated: "2024-01-01T00:00:00.000Z"\ntype: "contact"\nslug: "${name}"\n---\n\n# ${name}\n\n## Identifiers\n\n- phone: ${phone}\n\n` +
-    `## Activity\n\n### 2024-01\n\n- 2024-01-01 · imessage — [[0-inbox/imessage/2024/01/2024-01-01#msg-0123456789abcdef|hi]]\n\n## Notes\n\n\n`;
-  deps15.notes.set("0-inbox/contacts/z/zed.md", { content: stale("zed", "+15550000000"), etag: "seed-1" });
-  deps15.notes.set("0-inbox/contacts/o/old-friend.md", { content: stale("old-friend", "+15551234567"), etag: "seed-2" });
+    `## Activity\n\n### 2024-01\n\n- 2024-01-01 · imessage — [[inbox/imessage/2024/01/2024-01-01#msg-0123456789abcdef|hi]]\n\n## Notes\n\n\n`;
+  deps15.notes.set("inbox/contacts/z/zed.md", { content: stale("zed", "+15550000000"), etag: "seed-1" });
+  deps15.notes.set("inbox/contacts/o/old-friend.md", { content: stale("old-friend", "+15551234567"), etag: "seed-2" });
   const moved = [];
   const move15 = deps15.moveNote;
   deps15.moveNote = async (source, destination) => {
@@ -472,12 +472,12 @@ export async function runImessageSyncChecks(check) {
   const report15 = await syncImessage(deps15, EMPTY_CURSOR);
   check("an iMessage pass archives a contact page with no activity in a year",
     report15.days.every((day) => day.status !== "error") &&
-      !deps15.notes.has("0-inbox/contacts/z/zed.md") && deps15.notes.has("4-archive/0-inbox/contacts/z/zed.md"));
+      !deps15.notes.has("inbox/contacts/z/zed.md") && deps15.notes.has("archive/inbox/contacts/z/zed.md"));
   check("...and keeps the page of the person this pass just wrote to",
-    deps15.notes.get("0-inbox/contacts/o/old-friend.md")?.content.includes("2026-09-07") &&
-      !deps15.notes.has("4-archive/0-inbox/contacts/o/old-friend.md"));
+    deps15.notes.get("inbox/contacts/o/old-friend.md")?.content.includes("2026-09-07") &&
+      !deps15.notes.has("archive/inbox/contacts/o/old-friend.md"));
   check("...because the sweep runs after the pass's own writes, so that page is never moved at all",
-    JSON.stringify(moved) === JSON.stringify(["0-inbox/contacts/z/zed.md"]));
+    JSON.stringify(moved) === JSON.stringify(["inbox/contacts/z/zed.md"]));
 
   const refusing = withParticipants(fakeDeps([reply]));
   refusing.listNotes = async () => ({ ok: false, retryable: true, message: "the gateway could not be reached" });

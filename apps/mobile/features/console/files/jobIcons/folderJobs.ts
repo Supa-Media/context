@@ -131,12 +131,12 @@ export function jobFolder(listings: JobListings, job: RowRole, fallback: string)
   return fallback;
 }
 
-/** Where the Inbox is: the folder doing its job, else `0-inbox`. */
+/** Where the Inbox is: the folder doing its job, else `inbox`. */
 export function inboxFolder(listings: JobListings): string {
   return jobFolder(listings, "inbox", DEFAULT_FOLDER.inbox);
 }
 
-/** Where the Projects folder is: the folder doing its job, else `1-projects`. */
+/** Where the Projects folder is: the folder doing its job, else `projects`. */
 export function projectsFolder(listings: JobListings): string {
   return jobFolder(listings, "projects", DEFAULT_FOLDER.projects);
 }

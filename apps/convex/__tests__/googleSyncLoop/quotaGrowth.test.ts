@@ -22,7 +22,7 @@ import {
 beforeEach(() => enableMailSync());
 
 describe("the write quota counts what the bucket grew by", () => {
-  const day = "0-inbox/email/person-at-example-invalid/2026/09/2026-09-08.md";
+  const day = "inbox/email/person-at-example-invalid/2026/09/2026-09-08.md";
   const messages = [
     { id: "msg-1", date: "2026-09-08T09:14:00.000Z", subject: "Quarterly numbers", text: "The numbers are attached." },
     { id: "msg-2", date: "2026-09-08T11:02:00.000Z", subject: "Follow-up", text: "One more thing." },

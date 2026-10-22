@@ -3,7 +3,7 @@
  * renamed Capture still takes the quick note and is still the page the phone
  * goes back to; an Archive renamed still restores.
  *
- * SABOTAGE: return "0-inbox" from `quickNoteInbox` → "a
+ * SABOTAGE: return "inbox" from `quickNoteInbox` → "a
  * renamed Inbox takes the quick note" fails; drop the `archive` branch in
  * `restoreTargetFor` → "a renamed Archive still restores" fails.
  */
@@ -15,7 +15,7 @@ import { phoneBackLevels } from "../features/console/home/phoneBack";
 import type { ConsoleData } from "../features/console/types";
 import { downloadsPath } from "../features/offline/downloadChoice";
 
-afterEach(() => setJobFoldersNow({ inbox: "0-inbox", archive: "9-archive" }));
+afterEach(() => setJobFoldersNow({ inbox: "inbox", archive: "9-archive" }));
 
 function data(role: string, entries: object[]): ConsoleData {
   return {
@@ -51,28 +51,28 @@ describe("the Inbox by job", () => {
 
   test("before the root has listed, the old name, which the server reads as the Inbox", () => {
     const empty = { ...data("owner", []), files: { selectedPath: null, listings: {} } } as unknown as ConsoleData;
-    expect(quickNoteFolder(empty)).toBe("0-inbox");
-    expect(inboxFolderNow()).toBe("0-inbox");
+    expect(quickNoteFolder(empty)).toBe("inbox");
+    expect(inboxFolderNow()).toBe("inbox");
     expect(archiveFolderNow()).toBe("9-archive");
   });
 
   test("the phone goes back from a note in the renamed Inbox to Inbox itself", () => {
     setJobFoldersNow({ inbox: "Capture", archive: "9-archive" });
     expect(phoneBackLevels("Capture/idea.md").map((level) => level.label)).toHaveLength(1);
-    expect(phoneBackLevels("0-inbox/idea.md").length).toBeGreaterThan(1);
+    expect(phoneBackLevels("inbox/idea.md").length).toBeGreaterThan(1);
   });
 });
 
 describe("the Archive by job", () => {
   test("a renamed or moved Archive still restores", () => {
-    expect(restoreTargetFor("Old stuff/2026-10-18T09-00-00-000Z/1-projects/a.md", "Old stuff")).toBe("1-projects/a.md");
+    expect(restoreTargetFor("Old stuff/2026-10-18T09-00-00-000Z/projects/a.md", "Old stuff")).toBe("projects/a.md");
     expect(restoreTargetFor("2-areas/Archive/2026-10-18T09-00-00-000Z/x/b.md", "2-areas/Archive")).toBe("x/b.md");
-    setJobFoldersNow({ inbox: "0-inbox", archive: "Old stuff" });
+    setJobFoldersNow({ inbox: "inbox", archive: "Old stuff" });
     expect(restoreTargetFor("Old stuff/2026-10-18T09-00-00-000Z/a.md")).toBe("a.md");
   });
 
   test("the old names still restore, and nothing else does", () => {
-    expect(restoreTargetFor("4-archive/2026-08-26T09-14-02-113Z/1-projects/foo.md", "Old stuff")).toBe("1-projects/foo.md");
+    expect(restoreTargetFor("4-archive/2026-08-26T09-14-02-113Z/projects/foo.md", "Old stuff")).toBe("projects/foo.md");
     // Archive keeps the workspace's shape, so a note straight inside it came from the top level.
     expect(restoreTargetFor("Old stuff/a.md", "Old stuff")).toBe("a.md");
     expect(restoreTargetFor("Old stuff", "Old stuff")).toBeNull();

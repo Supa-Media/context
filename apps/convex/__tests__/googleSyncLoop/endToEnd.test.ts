@@ -126,7 +126,7 @@ describe("one pass, end to end, through the credential barrier", () => {
     expect(row.syncBytesWritten).toBeGreaterThan(0);
 
     const written = backend.snapshot();
-    const day = "0-inbox/email/person-at-example-invalid/2026/09/2026-09-08.md";
+    const day = "inbox/email/person-at-example-invalid/2026/09/2026-09-08.md";
     expect(Object.keys(written)).toContain(day);
     expect(written[day]).toContain("Quarterly numbers");
   });
@@ -166,12 +166,12 @@ describe("one pass, end to end, through the credential barrier", () => {
     expect(view.sync.everSynced).toBe(true);
     expect(view.sync.cursorReady).toBe(true);
     const written = backend.snapshot();
-    expect(written["0-inbox/google-chat/2026/09/2026-09-12.md"]).toContain(
+    expect(written["inbox/google-chat/2026/09/2026-09-12.md"]).toContain(
       "Ship the live Chat bridge",
     );
     // Adam only wrote TO the owner: his messages are in the day, and he gets
     // a page only once the owner writes to him (`shouldCreateContactPage`).
-    expect(Object.keys(written).filter((key) => key.startsWith("0-inbox/contacts/"))).toEqual([]);
+    expect(Object.keys(written).filter((key) => key.startsWith("inbox/contacts/"))).toEqual([]);
     expect(google.calls).toEqual(["/v1/spaces", "/v1/spaces/alpha/messages"]);
   });
 
@@ -189,7 +189,7 @@ describe("one pass, end to end, through the credential barrier", () => {
         cursors: { "spaces/alpha": "2026-09-12T09:00:00.000Z" },
       },
     });
-    const filed = "0-inbox/contacts/a/adam-okonkwo.md";
+    const filed = "inbox/contacts/a/adam-okonkwo.md";
     backend.seed(
       filed,
       '---\nupdated: "2026-01-01T00:00:00.000Z"\ntype: "contact"\nslug: "adam-okonkwo"\nreview: "possible duplicate"\n---\n\n# Adam Okonkwo\n\n' +
@@ -201,7 +201,7 @@ describe("one pass, end to end, through the credential barrier", () => {
     await runPass(t, workspaceId, connectionId);
 
     const written = backend.snapshot();
-    expect(Object.keys(written).filter((key) => key.startsWith("0-inbox/contacts/"))).toEqual([filed]);
+    expect(Object.keys(written).filter((key) => key.startsWith("inbox/contacts/"))).toEqual([filed]);
     expect(written[filed]).toContain("2026-09-12 · google-chat");
     expect(written[filed]).toContain("met at the offsite");
     expect(written[filed]).toContain('review: "possible duplicate"');
@@ -231,11 +231,11 @@ describe("one pass, end to end, through the credential barrier", () => {
     const page = (slug: string, name: string, id: string, date: string) =>
       `---\nupdated: "2020-01-01T00:00:00.000Z"\ntype: "contact"\nslug: "${slug}"\n---\n\n# ${name}\n\n` +
       `## Identifiers\n\n- provider-user: ${id}\n\n## Activity\n\n### ${date.slice(0, 7)}\n\n` +
-      `- ${date} · google-chat — [[0-inbox/google-chat/${date}#msg-0123456789abcdef|hi]]\n\n## Notes\n\n\n`;
+      `- ${date} · google-chat — [[inbox/google-chat/${date}#msg-0123456789abcdef|hi]]\n\n## Notes\n\n\n`;
     // The pass measures against the wall clock; 2020 is dormant under any clock that runs this.
-    backend.seed("0-inbox/contacts/z/zoe.md", page("zoe", "Zoe", "users/zoe", "2020-01-01"));
+    backend.seed("inbox/contacts/z/zoe.md", page("zoe", "Zoe", "users/zoe", "2020-01-01"));
     // Adam's last activity is just as old, but this pass carries a message from him.
-    backend.seed("0-inbox/contacts/a/adam-okonkwo.md", page("adam-okonkwo", "Adam Okonkwo", "users/adam", "2020-01-01"));
+    backend.seed("inbox/contacts/a/adam-okonkwo.md", page("adam-okonkwo", "Adam Okonkwo", "users/adam", "2020-01-01"));
     const google = chatAndBucket({ backend });
     vi.stubGlobal("fetch", google.fetchImpl);
 
@@ -245,14 +245,14 @@ describe("one pass, end to end, through the credential barrier", () => {
     const written = backend.snapshot();
     if (movable) {
       // Retired the way every move retires its source on this bucket.
-      expect(isLogicalDeleteMarker(written["0-inbox/contacts/z/zoe.md"])).toBe(true);
-      expect(written["4-archive/0-inbox/contacts/z/zoe.md"]).toContain("# Zoe");
+      expect(isLogicalDeleteMarker(written["inbox/contacts/z/zoe.md"])).toBe(true);
+      expect(written["archive/inbox/contacts/z/zoe.md"]).toContain("# Zoe");
     } else {
-      expect(written["0-inbox/contacts/z/zoe.md"]).toContain("# Zoe");
-      expect(written["4-archive/0-inbox/contacts/z/zoe.md"]).toBeUndefined();
+      expect(written["inbox/contacts/z/zoe.md"]).toContain("# Zoe");
+      expect(written["archive/inbox/contacts/z/zoe.md"]).toBeUndefined();
     }
-    expect(written["0-inbox/contacts/a/adam-okonkwo.md"]).toContain("2026-09-12 · google-chat");
-    expect(written["4-archive/0-inbox/contacts/a/adam-okonkwo.md"]).toBeUndefined();
+    expect(written["inbox/contacts/a/adam-okonkwo.md"]).toContain("2026-09-12 · google-chat");
+    expect(written["archive/inbox/contacts/a/adam-okonkwo.md"]).toBeUndefined();
   });
 
   test("a Calendar cursor advances only after its shared day is written", async () => {
@@ -308,7 +308,7 @@ describe("one pass, end to end, through the credential barrier", () => {
     )[0]!;
     expect(view.sync.everSynced).toBe(true);
     expect(view.sync.cursorReady).toBe(true);
-    expect(backend.snapshot()["0-inbox/calendar/2026/09/2026-09-13.md"]).toContain(
+    expect(backend.snapshot()["inbox/calendar/2026/09/2026-09-13.md"]).toContain(
       "Design review",
     );
     expect(google.calls).toEqual(["/calendar/v3/calendars/primary/events"]);
@@ -337,7 +337,7 @@ describe("one pass, end to end, through the credential barrier", () => {
         scopes: ["https://www.googleapis.com/auth/calendar.events.readonly"],
       },
     });
-    const path = "0-inbox/calendar/2026/09/2026-09-13.md";
+    const path = "inbox/calendar/2026/09/2026-09-13.md";
     vi.stubGlobal("fetch", calendarAndBucket({ backend }).fetchImpl);
     await runPass(t, workspaceId, connectionId);
 
@@ -427,7 +427,7 @@ describe("one pass, end to end, through the credential barrier", () => {
         gmail: undefined,
         calendar: {
           scopes: ["https://www.googleapis.com/auth/calendar.events.readonly"],
-          destinationFolder: "0-inbox/calendar",
+          destinationFolder: "inbox/calendar",
           ...(id === connectionId ? { syncToken: "calendar-token-1" } : {}),
         },
       });
@@ -437,7 +437,7 @@ describe("one pass, end to end, through the credential barrier", () => {
     /*
       PINNED, FOR THE REASON THE TEST TWO ABOVE ALREADY WRITES OUT.
 
-      This one names `0-inbox/calendar/2026-09-13.md` as well, and the day a
+      This one names `inbox/calendar/2026-09-13.md` as well, and the day a
       calendar sync writes is bounded by a horizon measured from *today*:
       `calendar-sync.js` keeps only `date >= windowStart`. So the fixture's
       event on the 13th stopped being written the moment it stopped being the
@@ -463,7 +463,7 @@ describe("one pass, end to end, through the credential barrier", () => {
     expect((await readConnection(t, connectionId)).calendar?.syncToken).toBe(
       "calendar-token-1",
     );
-    expect(backend.snapshot()["0-inbox/calendar/2026/09/2026-09-13.md"]).toBeUndefined();
+    expect(backend.snapshot()["inbox/calendar/2026/09/2026-09-13.md"]).toBeUndefined();
     expect(
       Object.keys(backend.snapshot()).some((path) =>
         path.startsWith(".context/communications/calendar/contributions/"),
@@ -482,7 +482,7 @@ describe("one pass, end to end, through the credential barrier", () => {
     });
     const siblingResult = await runPass(t, workspaceId, siblingId);
     expect(siblingResult).toMatchObject({ status: "synced", cursorAdvanced: true });
-    const shared = backend.snapshot()["0-inbox/calendar/2026/09/2026-09-13.md"]!;
+    const shared = backend.snapshot()["inbox/calendar/2026/09/2026-09-13.md"]!;
     expect(shared).toContain("person@example.invalid");
     expect(shared).toContain("sibling@example.invalid");
   });
@@ -525,7 +525,7 @@ describe("one pass, end to end, through the credential barrier", () => {
     expect((await readConnection(t, connectionId)).chat?.cursors?.["spaces/alpha"]).toBe(
       "2026-09-12T09:00:00.000Z",
     );
-    expect(backend.snapshot()["0-inbox/google-chat/2026/09/2026-09-12.md"]).toBeUndefined();
+    expect(backend.snapshot()["inbox/google-chat/2026/09/2026-09-12.md"]).toBeUndefined();
     expect(
       Object.keys(backend.snapshot()).some((path) =>
         path.startsWith(".context/communications/google-chat/contributions/"),

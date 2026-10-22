@@ -181,8 +181,8 @@ describe("a half-written scaffold can be finished", () => {
     const { store, refuse } = await halfWritten();
     refuse.readmes = false;
     // Inside a folder our own layout owns, which is the case a root-only check
-    // would wave through: `1-projects/` is a prefix we would have written.
-    store.seed("1-projects/their-note.md", "# Mine, thanks\n");
+    // would wave through: `projects/` is a prefix we would have written.
+    store.seed("projects/their-note.md", "# Mine, thanks\n");
     const before = store.snapshot();
 
     expect(
@@ -282,7 +282,7 @@ describe("through the real S3 adapter", () => {
 
   test("leaves an existing bucket alone end to end", async () => {
     const backend = memoryS3(FAKE_BUCKET);
-    backend.seed("1-projects/live.md", "# Live\n");
+    backend.seed("projects/live.md", "# Live\n");
     backend.seed(PRIVACY_KEY, "# hand written\n");
     const before = backend.snapshot();
 
@@ -362,10 +362,10 @@ describe("a shared workspace's starting manifest", () => {
     expect([...overrides.entries()]).toEqual([["index.md", "team"]]);
 
     for (const key of [
-      "0-inbox/about.md",
-      "1-projects/about.md",
-      "1-projects/anything.md",
-      "9-archive/deep/nested/note.md",
+      "inbox/about.md",
+      "projects/about.md",
+      "projects/anything.md",
+      "archive/deep/nested/note.md",
     ]) {
       expect(canSee(key, "team", rules, overrides), `${key} is not readable`).toBe(
         true,
@@ -423,7 +423,7 @@ describe("a shared workspace's starting manifest", () => {
 
     expect(rules.map((rule) => rule.prefix).sort()).toEqual(["customers", "handbook"]);
     expect(canSee("handbook/onboarding.md", "team", rules, overrides)).toBe(true);
-    expect(canSee("1-projects/anything.md", "team", rules, overrides)).toBe(false);
+    expect(canSee("projects/anything.md", "team", rules, overrides)).toBe(false);
   });
 
   /**
@@ -449,7 +449,7 @@ describe("a shared workspace's starting manifest", () => {
     const { parsePrivacyManifest, canSee } = gatewayInternals();
     const { rules, overrides } = parsePrivacyManifest(personalManifest);
     expect(rules.every((rule) => rule.vis === "private")).toBe(true);
-    expect(canSee("1-projects/anything.md", "team", rules, overrides)).toBe(false);
+    expect(canSee("projects/anything.md", "team", rules, overrides)).toBe(false);
   });
 
   /**
@@ -461,7 +461,7 @@ describe("a shared workspace's starting manifest", () => {
   test("the repair renderer still writes an all-private manifest", () => {
     const { parsePrivacyManifest } = gatewayInternals();
     const { rules } = parsePrivacyManifest(
-      renderPrivacyManifestForFolders(["1-projects", "handbook"]),
+      renderPrivacyManifestForFolders(["projects", "handbook"]),
     );
     expect(rules.length).toBe(2);
     expect(rules.every((rule) => rule.vis === "private")).toBe(true);
@@ -541,7 +541,7 @@ describe("a shared workspace's starting manifest", () => {
     expect(canSee(INDEX_KEY, "team", workspace.rules, workspace.overrides)).toBe(false);
 
     const repaired = parsePrivacyManifest(
-      renderPrivacyManifestForFolders(["1-projects", "handbook"]),
+      renderPrivacyManifestForFolders(["projects", "handbook"]),
     );
     expect(repaired.overrides.size).toBe(0);
     expect(canSee(INDEX_KEY, "team", repaired.rules, repaired.overrides)).toBe(false);

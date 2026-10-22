@@ -74,7 +74,7 @@ export async function runMeetingAuditAndAccessChecks(check, harness) {
   check("and returns it when asked", withTranscript.includes("Shall we start with the roadmap"));
   check("with the section heading it is filed under", withTranscript.includes("## Transcript"));
 
-  const missing = await callTool(env, TOKEN_OWNER, "read_meeting", { path: "0-inbox/meetings/nope.md" });
+  const missing = await callTool(env, TOKEN_OWNER, "read_meeting", { path: "inbox/meetings/nope.md" });
   check("a meeting note that does not exist is 'not found'", missing === "not found");
 
   /* ------------------------------ 9. privacy ------------------------------- */
@@ -283,7 +283,7 @@ export async function runMeetingAuditAndAccessChecks(check, harness) {
     "a team connection cannot file a meeting into a private folder",
     editorFinalize.status === 403 && editorFinalize.body?.error === "meeting_forbidden"
   );
-  check("and no note is written when it tries", keysIn(recorder, "0-inbox/meetings/").length === 1);
+  check("and no note is written when it tries", keysIn(recorder, "inbox/meetings/").length === 1);
 
   /* --------------------------- 10. scope and role -------------------------- */
 
@@ -349,8 +349,8 @@ export async function runMeetingAuditAndAccessChecks(check, harness) {
     { body: {} }
   );
   check("nor finalize it", neighbourFinalizes.status === 404);
-  check("writing no note anywhere", keysIn(neighbour, "0-inbox/meetings/").length === 0);
-  check("and leaving the original alone", keysIn(recorder, "0-inbox/meetings/").length === 1);
+  check("writing no note anywhere", keysIn(neighbour, "inbox/meetings/").length === 0);
+  check("and leaving the original alone", keysIn(recorder, "inbox/meetings/").length === 1);
 
   const neighbourList = await meetingRequest(env, TOKEN_NEIGHBOUR, "/meetings/sessions", { method: "GET" });
   check(

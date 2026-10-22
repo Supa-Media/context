@@ -26,7 +26,7 @@
  *   POST /mcp                  MCP streamable HTTP (Authorization: Bearer <access token>)
  *   POST /@<slug>/mcp          the same context, named in the URL — a selector, never a boundary
  *   POST /t/<token>/mcp        compatibility fallback for clients that cannot set headers
- *   POST /inbox                drop a capture into 0-inbox/ (needs context:capture)
+ *   POST /inbox                drop a capture into inbox/ (needs context:capture)
  *   GET  /.well-known/oauth-protected-resource[/…]    RFC 9728
  *   GET  /.well-known/oauth-authorization-server[/…]  RFC 8414
  *   GET  /.well-known/openai-apps-challenge           ChatGPT plugin domain check (OPENAI_APPS_CHALLENGE)

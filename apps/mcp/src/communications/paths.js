@@ -83,10 +83,10 @@ export { isChannelDayNotePath };
 export { isCalendarDayNotePath };
 
 /**
- * `0-inbox/sessions/<platform>/<timestamp>[-<8hex>].md` — see
+ * `inbox/sessions/<platform>/<timestamp>[-<8hex>].md` — see
  * `uniqueSessionPath` and `defaultSessionFolder` in `src/index.js`.
  *
- * Only the unrouted `0-inbox/sessions/` default. Never `4-archive/chat-history`
+ * Only the unrouted `inbox/sessions/` default. Never `4-archive/chat-history`
  * and never a destination a person named in their own `## Save context`
  * procedure in `index.md`: both of those are somewhere the *person* chose to
  * route their sessions, and `defaultSessionFolder`'s whole argument is that a
@@ -99,7 +99,8 @@ export { isCalendarDayNotePath };
  * This one stays here: a saved session is the gateway's own shape, written by
  * `uniqueSessionPath` a few thousand lines away, and it has no package.
  */
-const SESSION_FILE = /^0-inbox\/sessions\/[a-z0-9][a-z0-9-]{0,31}\/[^/]+\.md$/;
+// Under the Inbox, `inbox` since 2026-10-21 and `0-inbox` before it.
+const SESSION_FILE = /^(?:0-)?inbox\/sessions\/[a-z0-9][a-z0-9-]{0,31}\/[^/]+\.md$/;
 
 /** Is this key a saved session note filed at the default, unrouted location? */
 export function isSavedSessionNotePath(path) {

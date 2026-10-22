@@ -35,6 +35,7 @@
  * The control plane hears an outcome code.
  */
 
+import { CONTACTS_FOLDER, asInboxKey } from "../../../../packages/communications/src/protocol.js";
 import { readTimeZone, DEFAULT_TIME_ZONE } from "./localNow.js";
 import { ATTENTION_FOLDER, ATTENTION_SETTINGS_PATH, HEARTBEAT_FOLDER, HEARTBEAT_SETTINGS_PATH } from "./checkIns.js";
 import { deliverAttention } from "./attention.js";
@@ -142,7 +143,7 @@ const DATED = /(\d{4}-\d{2}-\d{2})[^/]*\.md$/i;
  */
 export function newsFirst(changed, now) {
   const later = (key) => {
-    if (key.toLowerCase().startsWith("0-inbox/contacts/")) return true;
+    if (asInboxKey(key).toLowerCase().startsWith(`${CONTACTS_FOLDER}/`)) return true;
     const dated = DATED.exec(key);
     if (dated === null) return false;
     const day = Date.parse(`${dated[1]}T00:00:00Z`);

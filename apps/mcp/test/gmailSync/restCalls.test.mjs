@@ -80,7 +80,7 @@ export async function runGmailRestCallsChecks(check) {
   */
   const plainStore = createMemoryStore({ conditionalWrite: false });
   const plainPart = {
-    path: "0-inbox/email/person-at-example-invalid/2026/09/2026-09-07.md",
+    path: "inbox/email/person-at-example-invalid/2026/09/2026-09-07.md",
     text: "# a day\n",
   };
   const firstPlainWrite = await writeDayPart(plainStore, plainPart);

@@ -33,6 +33,7 @@ export declare const ROLE_LABEL: Readonly<Record<FolderRole, string>>;
 export declare const ROLE_DESCRIPTION: Readonly<Record<FolderRole, string>>;
 
 export declare function folderRole(name: string): FolderRole | null;
+export declare function plainFolderName(name: string | undefined | null): string | null;
 export declare function topLevelRole(path: string): FolderRole | null;
 export declare function isMainFolder(path: string): boolean;
 export declare function isExtraRole(role: FolderRole | null): role is ExtraRole;

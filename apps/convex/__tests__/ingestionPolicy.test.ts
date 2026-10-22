@@ -468,10 +468,10 @@ describe("normalizeDomainEntry", () => {
 
 describe("target folders", () => {
   test("the default is a folder, with its trailing slash", () => {
-    expect(DEFAULT_TARGET_FOLDER).toBe("0-inbox/");
+    expect(DEFAULT_TARGET_FOLDER).toBe("inbox/");
     expect(normalizeTargetFolder(DEFAULT_TARGET_FOLDER)).toEqual({
       ok: true,
-      folder: "0-inbox/",
+      folder: "inbox/",
     });
   });
 

@@ -22,7 +22,7 @@ export async function runGmailAttachmentChecks(check) {
       date: "2026-09-07",
       contentHash: "abc123",
       filename: "../../../etc/passwd",
-    }).startsWith("0-inbox/email/p-at-example-invalid/attachments/2026/09/07/abc123-"),
+    }).startsWith("inbox/email/p-at-example-invalid/attachments/2026/09/07/abc123-"),
   );
   check(
     "...and the sanitized name itself carries no '..' segment",
@@ -122,7 +122,7 @@ export async function runGmailAttachmentChecks(check) {
   check("the attachment's bytes actually landed at the content-hashed path", storedAttachment !== null);
   check("...with the exact bytes Gmail served", storedAttachment !== null && (await storedAttachment.text()) === "pdf-bytes!!");
 
-  const dayNoteAfterFetch = await attachmentStore.get("0-inbox/email/p-at-example-invalid/2026/09/2026-09-07.md");
+  const dayNoteAfterFetch = await attachmentStore.get("inbox/email/p-at-example-invalid/2026/09/2026-09-07.md");
   const dayNoteText = dayNoteAfterFetch ? await dayNoteAfterFetch.text() : "";
   check(
     "the channel-day note LINKS to the fetched attachment",
@@ -187,7 +187,7 @@ export async function runGmailAttachmentChecks(check) {
     "A RE-SYNC AFTER EXPIRY DOES NOT RE-FETCH — the manifest remembers this attachment is gone",
     attachmentGmail.calls.filter((call) => call.includes("/attachments/")).length === attachmentCallCountAfterFirstFetch,
   );
-  const noteAfterExpiry = await attachmentStore.get("0-inbox/email/p-at-example-invalid/2026/09/2026-09-07.md");
+  const noteAfterExpiry = await attachmentStore.get("inbox/email/p-at-example-invalid/2026/09/2026-09-07.md");
   const noteTextAfterExpiry = noteAfterExpiry ? await noteAfterExpiry.text() : "";
   check(
     "the note's link is rewritten to name and size only once expired",

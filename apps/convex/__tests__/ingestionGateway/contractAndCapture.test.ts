@@ -142,7 +142,7 @@ describe("resolving a name that may receive mail", () => {
 
     expect(body.ingestion).toMatchObject({
       context: { kind: "personal", path: "seyi" },
-      targetFolder: "0-inbox/",
+      targetFolder: "inbox/",
       policy: {
         // Seeded closed: the owner's own account email and nobody else.
         allowedSenders: [OWNER_EMAIL],

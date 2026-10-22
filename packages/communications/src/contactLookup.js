@@ -34,7 +34,7 @@
 // what may be written is still `mergeContactNote`'s answer, and whether a page
 // may be created at all is `shouldCreateContactPage`'s.
 
-import { CONTACTS_FOLDER } from "./protocol.js";
+import { CONTACTS_FOLDER, INBOX_FOLDER, LEGACY_INBOX_FOLDER } from "./protocol.js";
 import { CONTACT_ARCHIVE_FOLDER, isContactNotePath, liveContactPathForArchived, normalizeRoot } from "./paths.js";
 import {
   contactPathForDraft,
@@ -131,10 +131,21 @@ function pagesFromSnapshot(snapshot, root) {
   return pages;
 }
 
-/** The prefixes a lookup lists: the live contacts folder and its archive mirror. */
+/**
+ * The prefixes a lookup lists: the live contacts folder and its archive
+ * mirror, each under the plain names written since 2026-10-21 and the
+ * numbered ones written before (`0-inbox`, `4-archive`), so a page in a
+ * workspace the rename skipped is found where it is and never written twice.
+ */
 export function contactPrefixes(options = {}) {
   const root = normalizeRoot(options.root);
-  return [`${root}${CONTACTS_FOLDER}/`, `${root}${CONTACT_ARCHIVE_FOLDER}/${CONTACTS_FOLDER}/`];
+  const legacy = `${LEGACY_INBOX_FOLDER}${CONTACTS_FOLDER.slice(INBOX_FOLDER.length)}`;
+  return [
+    `${root}${CONTACTS_FOLDER}/`,
+    `${root}${legacy}/`,
+    `${root}${CONTACT_ARCHIVE_FOLDER}/${CONTACTS_FOLDER}/`,
+    `${root}4-archive/${legacy}/`,
+  ];
 }
 
 /**

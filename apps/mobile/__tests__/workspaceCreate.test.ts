@@ -169,7 +169,7 @@ describe("what a workspace's name becomes", () => {
     const shown = workspaceNameConsequences("acme-eng");
     expect(shown).toEqual({
       context: "@acme-eng",
-      path: "@acme-eng/1-projects/kickoff.md",
+      path: "@acme-eng/projects/kickoff.md",
     });
     expect(Object.values(shown).join(" ")).not.toContain("@context.lc");
   });
@@ -278,7 +278,7 @@ describe("the presets are things the control plane will accept", () => {
     // The five are the same in every workspace (`folderRoles.cjs`), so a kind
     // can add to them and never take one away. PARA is the scaffold's list, and
     // the five must be exactly that list.
-    const five = ["0-inbox", "1-projects", "2-areas", "3-resources", "9-archive"];
+    const five = ["inbox", "projects", "areas", "resources", "archive"];
     expect([...PARA_FOLDERS].sort()).toEqual([...five].sort());
     for (const key of ["business", "product", "project"] as const) {
       const names = presetRows(key).map((row) => row.name);
@@ -286,31 +286,31 @@ describe("the presets are things the control plane will accept", () => {
     }
   });
 
-  test("each kind lists its extras in number order, with the archive last", () => {
+  test("each kind lists its extras in their set order, with the archive last", () => {
     expect(presetRows("business").map((row) => row.name)).toEqual([
-      "0-inbox",
-      "1-projects",
-      "2-areas",
-      "3-resources",
-      "4-clients",
-      "5-teams",
-      "9-archive",
+      "inbox",
+      "projects",
+      "areas",
+      "resources",
+      "clients",
+      "teams",
+      "archive",
     ]);
     expect(presetRows("product").map((row) => row.name)).toEqual([
-      "0-inbox",
-      "1-projects",
-      "2-areas",
-      "3-resources",
-      "5-teams",
-      "6-products",
-      "9-archive",
+      "inbox",
+      "projects",
+      "areas",
+      "resources",
+      "teams",
+      "products",
+      "archive",
     ]);
     expect(presetRows("project").map((row) => row.name)).toEqual([
-      "0-inbox",
-      "1-projects",
-      "2-areas",
-      "3-resources",
-      "9-archive",
+      "inbox",
+      "projects",
+      "areas",
+      "resources",
+      "archive",
     ]);
   });
 

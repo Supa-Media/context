@@ -177,7 +177,7 @@ describe("Expand and Open in new tab", () => {
 });
 
 describe("a project on the projects folder's page", () => {
-  const PROJECTS = { ...LISTING, path: "1-projects", entries: [entry("folder", CAFE)] };
+  const PROJECTS = { ...LISTING, path: "projects", entries: [entry("folder", CAFE)] };
 
   test("opens beside the board with its values, its tasks and its front note's words", async () => {
     const { selected } = await mount(host([]), PROJECTS);

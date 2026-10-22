@@ -233,7 +233,7 @@ export function runNoteChecks(check) {
                   filename: "invoice]] and [[.audit/x|evil",
                   contentType: "application/pdf",
                   size: 42,
-                  path: "0-inbox/email/x/attachments/2026-09-07/abc123-invoice.pdf",
+                  path: "inbox/email/x/attachments/2026-09-07/abc123-invoice.pdf",
                 },
               ],
             }),
@@ -245,7 +245,7 @@ export function runNoteChecks(check) {
       // hostile label cannot inject a second link or close the first early.
       return (
         line !== undefined &&
-        line.startsWith("- [[0-inbox/email/x/attachments/2026-09-07/abc123-invoice.pdf|") &&
+        line.startsWith("- [[inbox/email/x/attachments/2026-09-07/abc123-invoice.pdf|") &&
         (line.match(/\[\[/g) || []).length === 1 &&
         (line.match(/\]\]/g) || []).length === 1
       );
@@ -276,7 +276,7 @@ export function runNoteChecks(check) {
                   filename: "invoice.pdf",
                   contentType: "application/pdf",
                   size: 10,
-                  path: "0-inbox/email/x/attachments/2026-09-07/h-a]] and [[.audit/secrets",
+                  path: "inbox/email/x/attachments/2026-09-07/h-a]] and [[.audit/secrets",
                 },
               ],
             }),
@@ -352,7 +352,7 @@ export function runNoteChecks(check) {
     "a day under the threshold is one part with the plain name",
     (() => {
       const one = planChannelDay(day());
-      return one.length === 1 && one[0].parts === 1 && one[0].path === "0-inbox/email/name-at-example-com/2026/09/2026-09-07.md";
+      return one.length === 1 && one[0].parts === 1 && one[0].path === "inbox/email/name-at-example-com/2026/09/2026-09-07.md";
     })()
   );
   check("the default threshold is the one the decision names", SPLIT_BYTE_THRESHOLD === 512 * 1024);

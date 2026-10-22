@@ -17,7 +17,7 @@
  * Pure: `rubric.js` asks it about each page.
  */
 
-import { CONTACTS_FOLDER } from "../../../../packages/communications/src/protocol.js";
+import { CONTACTS_FOLDER, asInboxKey } from "../../../../packages/communications/src/protocol.js";
 
 /** The folder an A to Z contacts index keeps for pages with no name. */
 export const UNNAMED_FOLDER = "other";
@@ -33,7 +33,9 @@ const IN_REVIEW = 100;
 
 /** Whether a folder is contacts or inside it: scored by the pages' hygiene, never by count. */
 export function isContactsFolder(path) {
-  return path === CONTACTS_FOLDER || String(path).startsWith(`${CONTACTS_FOLDER}/`);
+  // Under the Inbox by either of its names, `inbox` or the numbered `0-inbox` (`asInboxKey`).
+  const key = asInboxKey(String(path));
+  return key === CONTACTS_FOLDER || key.startsWith(`${CONTACTS_FOLDER}/`);
 }
 
 /**
@@ -45,7 +47,7 @@ export function isContactsFolder(path) {
  */
 export function contactChaos(folder, note) {
   if (note.review) return IN_REVIEW;
-  const filedUnder = folder.slice(CONTACTS_FOLDER.length + 1);
+  const filedUnder = asInboxKey(folder).slice(CONTACTS_FOLDER.length + 1);
   if (/^[a-z]$/i.test(filedUnder)) return 0;
   if (filedUnder === UNNAMED_FOLDER) return UNNAMED;
   return UNSORTED;

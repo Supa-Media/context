@@ -121,9 +121,9 @@ async function offeredToolsOf(store) {
 }
 
 const FETCH_IDS = [
-  "- a note path, e.g. `1-projects/togather/status.md`: that note",
+  "- a note path, e.g. `projects/togather/status.md`: that note",
   "- a file path, e.g. a PDF, Word, Excel or picture file a note links (an email's attachments): the words in it",
-  "- a folder path ending in `/`, e.g. `1-projects/`: lists it",
+  "- a folder path ending in `/`, e.g. `projects/`: lists it",
   "- `calendar:` with args `{ date: \"YYYY-MM-DD\", days }`: what is on their calendar that day (and the days after), from every connected account",
   "- `meetings:`, `messages:`, `contacts:`, `activity:`, `changes:`, `proposals:` (and `proposals:<id>`), `links:`, `vault:`, `plugins:`, `access:`: each kind, listed or read by id",
   "- `apps:`: the apps the person connects through Context (and which need the browser instead); `apps:<app>` lists one's tools, and with args `{ tool, arguments }` runs a read",

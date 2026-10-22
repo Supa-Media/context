@@ -62,7 +62,7 @@ function mount({
   width = 1440,
   canEdit = true,
   draft = "",
-  path = "1-projects/cafe/untitled-2026-10-14.md",
+  path = "projects/cafe/untitled-2026-10-14.md",
   folderLists,
 }: { width?: number; canEdit?: boolean; draft?: string; path?: string; folderLists?: FolderListSource } = {}) {
   const changes: string[] = [];
@@ -214,10 +214,10 @@ test("the folder's own words, in their groups", async () => {
   const folderLists: FolderListSource = {
     load: async () => null,
     loadFront: async (folders) => {
-      expect(folders).toEqual(["1-projects/cafe", "1-projects"]);
+      expect(folders).toEqual(["projects/cafe", "projects"]);
       return [
         {
-          path: "1-projects/cafe/about.md",
+          path: "projects/cafe/about.md",
           properties: { "statuses-not-started": ["idea"], "statuses-in-progress": ["waiting on supplier"], "statuses-done": ["open"] },
         },
       ];
@@ -266,10 +266,10 @@ describe("a loose note", () => {
     require("../features/console/files/jobIcons/jobFoldersNow") as typeof import("../features/console/files/jobIcons/jobFoldersNow");
   const { askAddProperty } =
     require("../features/console/files/noteEditor/chips/addPropertyAsk") as typeof import("../features/console/files/noteEditor/chips/addPropertyAsk");
-  afterEach(() => setJobFoldersNow({ inbox: "0-inbox", projects: "1-projects", archive: "9-archive" }));
+  afterEach(() => setJobFoldersNow({ inbox: "inbox", projects: "projects", archive: "9-archive" }));
 
   test("a new loose note offers no task chips, only Add property under the pointer", async () => {
-    const app = mount({ path: "0-inbox/untitled-2026-10-18.md" });
+    const app = mount({ path: "inbox/untitled-2026-10-18.md" });
     for (const key of ["status", "owner", "priority", "due"]) expect(app.chip(`note-chip-add-${key}`)).toBeNull();
     const more = app.chip("note-chip-more")!;
     expect(more.textContent).toContain("Add property");
@@ -277,7 +277,7 @@ describe("a loose note", () => {
   });
 
   test("on a phone a loose note draws nothing over its name", async () => {
-    const app = mount({ width: 390, path: "0-inbox/untitled-2026-10-18.md" });
+    const app = mount({ width: 390, path: "inbox/untitled-2026-10-18.md" });
     expect(app.chip("note-chip-more")).toBeNull();
     expect(app.host()?.querySelector('[data-testid="note-chips"]') ?? null).toBeNull();
   });
@@ -298,7 +298,7 @@ describe("a loose note", () => {
   });
 
   test("a renamed Projects folder keeps its chips, and a folder named for projects elsewhere does not get them", async () => {
-    setJobFoldersNow({ inbox: "0-inbox", projects: "Work", archive: "9-archive" });
+    setJobFoldersNow({ inbox: "inbox", projects: "Work", archive: "9-archive" });
     const work = mount({ path: "Work/cafe/untitled.md" });
     expect(work.chip("note-chip-add-status")).not.toBeNull();
     const side = mount({ path: "2-areas/side-projects/untitled.md" });
@@ -306,7 +306,7 @@ describe("a loose note", () => {
   });
 
   test("••• Add property opens the Properties card on its Add row", async () => {
-    const app = mount({ width: 390, path: "0-inbox/untitled-2026-10-18.md" });
+    const app = mount({ width: 390, path: "inbox/untitled-2026-10-18.md" });
     expect(app.container.querySelector('[data-testid="note-properties-adding"]')).toBeNull();
     act(() => askAddProperty());
     expect(app.container.querySelector('[data-testid="note-properties-adding"]')).not.toBeNull();

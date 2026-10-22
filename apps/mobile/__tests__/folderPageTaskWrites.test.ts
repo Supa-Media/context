@@ -63,7 +63,7 @@ const entry = (kind: "file" | "folder", path: string): FileEntry => ({
   readOnly: false,
 });
 
-const CAFE = "1-projects/cafe";
+const CAFE = "projects/cafe";
 const note = (name: string, properties: ListNote["properties"], heading?: string): ListNote => ({
   path: `${CAFE}/${name}`,
   properties,
@@ -78,7 +78,7 @@ const NOTES: ListNote[] = [
   note("kitchen/overview.md", { status: "in progress", owner: "@sayo" }, "Get the kitchen ready"),
   note("kitchen/oven.md", { status: "finished" }, "Order the oven"),
   note("budget.md", {}, "Opening budget"),
-  { path: "1-projects/menu/overview.md", properties: { status: "to do" }, updatedAt: 1, heading: "Summer menu" },
+  { path: "projects/menu/overview.md", properties: { status: "to do" }, updatedAt: 1, heading: "Summer menu" },
 ];
 const LISTING: FolderListing = {
   path: CAFE,

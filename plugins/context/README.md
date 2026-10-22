@@ -125,7 +125,7 @@ Every tool your sign-in can use is a command, read from the server's own list:
 ```sh
 npx @supa-media/context tools
 npx @supa-media/context search-notes --query pricing
-npx @supa-media/context read-note --path 1-projects/launch.md
+npx @supa-media/context read-note --path projects/launch.md
 npx @supa-media/context search-notes --help
 ```
 

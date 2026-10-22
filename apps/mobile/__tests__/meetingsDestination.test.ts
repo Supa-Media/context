@@ -28,7 +28,7 @@ import {
  * This file used to be about a *sheet*: two offers, an audience line on each,
  * a refusal beside the one you could not take, and a remembered choice. The
  * owner removed the question — *"all meetings from now on should go into
- * 0-inbox/meetings, no need to ask people it will just confuse them"* — and
+ * inbox/meetings, no need to ask people it will just confuse them"* — and
  * `resolveDestinations` and everything that served it went with the surface
  * that asked, rather than being left in the tree as code with no caller.
  *
@@ -97,11 +97,11 @@ describe("what a press of New meeting records into, with nobody asked", () => {
 
   test("the inbox is the meetings drawer inside it, not the inbox itself", () => {
     /*
-      `0-inbox` is where unfiled things arrive; what arrives there is sorted by
+      `inbox` is where unfiled things arrive; what arrives there is sorted by
       what it is. A meeting filed loose in the inbox lands beside forwarded
       mail, which is the regression this constant pins.
     */
-    expect(INBOX_FOLDER).toBe("0-inbox/meetings");
+    expect(INBOX_FOLDER).toBe("inbox/meetings");
   });
 
   test("standing in a shared workspace does not put the meeting in it", () => {
@@ -186,21 +186,21 @@ describe("the folder somebody types in settings, and what the gateway will take"
    * folder named like a note, a trailing empty segment, and the length bound.
    */
   const REACHABLE_FOLDERS: readonly string[] = [
-    "1-projects",
-    "1-projects/portal",
+    "projects",
+    "projects/portal",
     "2-areas/team/notes",
     "a..b",
-    "1-projects/a..b",
+    "projects/a..b",
     ".git",
-    "1-projects/.obsidian",
+    "projects/.obsidian",
     "overview.md",
-    "1-projects/overview.MD",
+    "projects/overview.MD",
     "scopes.yml",
     // A segment that percent-DECODES to `..`. The gateway added this rule when
     // it found that the storage adapter decodes before it compares, so `%2e%2e`
     // is a `".."` segment there and at no earlier layer.
     "%2e%2e",
-    "1-projects/%2E%2E",
+    "projects/%2E%2E",
     // A space shielded from `normalizeRoot`'s whole-string trim by a separator.
     "ok/a /",
     // Legal on both sides. Being on this list does not hold that; the count
@@ -284,8 +284,8 @@ describe("the folder somebody types in settings, and what the gateway will take"
 describe("how a destination reads", () => {
   test("a destination is drawn as the context and the folder it names", () => {
     expect(
-      describeDestination({ kind: "personalInbox", contextSlug: "testagent1", folder: "0-inbox" }),
-    ).toBe("@testagent1 / 0-inbox");
+      describeDestination({ kind: "personalInbox", contextSlug: "testagent1", folder: "inbox" }),
+    ).toBe("@testagent1 / inbox");
   });
 
   test("the root of a context is named rather than drawn as an empty half", () => {
@@ -327,7 +327,7 @@ describe("a destination read back off a device", () => {
 
   test("a slug that is not a slug is not a destination", () => {
     expect(
-      parseDestination({ kind: "personalInbox", contextSlug: "@testagent1", folder: "0-inbox" }),
+      parseDestination({ kind: "personalInbox", contextSlug: "@testagent1", folder: "inbox" }),
     ).toBeNull();
     expect(parseDestination({ kind: "somethingElse", contextSlug: "a", folder: "b" })).toBeNull();
     expect(parseDestination(null)).toBeNull();

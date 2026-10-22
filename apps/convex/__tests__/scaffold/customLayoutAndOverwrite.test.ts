@@ -354,7 +354,7 @@ describe("an existing context is never overwritten", () => {
    */
   test("a stray file at a scaffold key survives even when detection says fresh", async () => {
     const store = memoryStore();
-    store.seed("1-projects/about.md", "do not touch me\n");
+    store.seed("projects/about.md", "do not touch me\n");
 
     // A blind listing: `hasExistingContext` sees an empty bucket and clears
     // the scaffold to run. Only the per-key `get` stands between us and
@@ -371,8 +371,8 @@ describe("an existing context is never overwritten", () => {
     expect(await hasExistingContext(blind)).toBe(false);
     const result = await scaffoldContext(blind, { structureTemplate: "para" });
 
-    expect(result.skipped).toEqual(["1-projects/about.md"]);
-    expect(store.objects.get("1-projects/about.md")!.body).toBe(
+    expect(result.skipped).toEqual(["projects/about.md"]);
+    expect(store.objects.get("projects/about.md")!.body).toBe(
       "do not touch me\n",
     );
     expect(result.written).toContain(INDEX_KEY);

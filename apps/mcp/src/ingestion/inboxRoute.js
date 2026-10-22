@@ -1,4 +1,4 @@
-/** `POST /inbox` — a capture dropped into `0-inbox/`. */
+/** `POST /inbox` — a capture dropped into the Inbox (`inbox/`). */
 
 import { actorFor } from "../context/identity.js";
 import {
@@ -88,10 +88,10 @@ export async function writeInboxCapture(store, capture, { actorScope = "inbox", 
   let key;
   if (externalId) {
     const fingerprint = await sha256Hex(`${source}\0${externalId}`);
-    key = `0-inbox/${sourceSlug}/${fingerprint.slice(0, 24)}.md`;
+    key = `inbox/${sourceSlug}/${fingerprint.slice(0, 24)}.md`;
   } else {
     const titleSlug = safeSlug(title, 40);
-    key = `0-inbox/${now.toISOString().slice(0, 19).replace(/[:]/g, "-")}-${titleSlug}.md`;
+    key = `inbox/${now.toISOString().slice(0, 19).replace(/[:]/g, "-")}-${titleSlug}.md`;
   }
 
   const existing = await getWithLegacyFallback(store, key);

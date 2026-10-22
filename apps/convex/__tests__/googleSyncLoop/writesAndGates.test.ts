@@ -189,7 +189,7 @@ describe("a writer with nobody present still leaves a record", () => {
     // Counts only — never an address, a subject, or a path.
     const written = JSON.stringify(events[0]);
     expect(written).not.toContain("person@example.invalid");
-    expect(written).not.toContain("0-inbox");
+    expect(written).not.toContain("inbox/");
   });
 
   test("a poll that found nothing is not an event", async () => {
@@ -362,7 +362,7 @@ describe("the pass re-asks every gate before it opens a credential", () => {
       product: "gmail",
       address: "person@example.invalid",
       mailboxSlug: "person-at-example-invalid",
-      destinationFolder: "0-inbox/email/person-at-example-invalid",
+      destinationFolder: "inbox/email/person-at-example-invalid",
       historyId: "1000",
     });
     expect(JSON.stringify(job)).not.toContain("refresh");
@@ -411,7 +411,7 @@ describe("the pass re-asks every gate before it opens a credential", () => {
       kind: "run",
       product: "chat",
       address: "person@example.invalid",
-      destinationFolder: "0-inbox/google-chat",
+      destinationFolder: "inbox/google-chat",
       cursors: { "spaces/alpha": "2026-09-12T10:00:00.000Z" },
       spaceSettings: { "spaces/quiet": "paused" },
     });
@@ -478,7 +478,7 @@ describe("the pass re-asks every gate before it opens a credential", () => {
         gmail: undefined,
         calendar: {
           scopes: ["https://www.googleapis.com/auth/calendar.events.readonly"],
-          destinationFolder: "0-inbox/calendar",
+          destinationFolder: "inbox/calendar",
           ...(id === connectionId ? { syncToken: "calendar-sync-token" } : {}),
         },
       });
@@ -492,7 +492,7 @@ describe("the pass re-asks every gate before it opens a credential", () => {
       kind: "run",
       product: "calendar",
       address: "person@example.invalid",
-      destinationFolder: "0-inbox/calendar",
+      destinationFolder: "inbox/calendar",
       syncToken: "calendar-sync-token",
       contributorSourceIds: expect.arrayContaining([connectionId, siblingId]),
     });
@@ -522,7 +522,7 @@ describe("the pass re-asks every gate before it opens a credential", () => {
         disconnectedAt: id === connectionId ? undefined : Date.now(),
         calendar: {
           scopes: ["https://www.googleapis.com/auth/calendar.events.readonly"],
-          destinationFolder: "0-inbox/calendar",
+          destinationFolder: "inbox/calendar",
           lastSyncedAt,
         },
       });

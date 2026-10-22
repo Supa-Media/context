@@ -23,7 +23,8 @@ import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { PRIVACY_KEY, type PrivacyRule, type Visibility } from "../functions/lib/privacy";
 import { DELETE_CONFIRMATION } from "../functions/lib/fileOps";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
+// A workspace laid out before the numbers were dropped (2026-10-21): its folders keep them.
+import { LEGACY_PARA_FOLDERS, renderPrivacyManifestForFolders } from "../functions/lib/scaffold";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { audiencesOf, treeAudiences } from "../functions/lib/treeAudiences";
 import { memoryS3, type MemoryS3 } from "./storeStub.helpers";
@@ -119,7 +120,7 @@ async function fixture(): Promise<Fixture> {
   const backend = memoryS3(FAKE_STORAGE.bucket);
   backend.seed(
     PRIVACY_KEY,
-    renderPrivacyManifest("para").replace("1-projects: private", "1-projects: team"),
+    renderPrivacyManifestForFolders(LEGACY_PARA_FOLDERS).replace("1-projects: private", "1-projects: team"),
   );
   backend.seed("index.md", "# Context\n");
   backend.seed("1-projects/plan.md", "# Plan\n");

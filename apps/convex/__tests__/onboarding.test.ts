@@ -117,7 +117,7 @@ describe("connecting storage writes nothing and answers the question itself", ()
 
   test("a bucket that already holds a context says so, so nothing is asked", async () => {
     const { t, owner, workspaceId, backend } = await connected({
-      seed: { "1-projects/ship-it.md": "# Ship it\n", "index.md": "# Mine\n" },
+      seed: { "projects/ship-it.md": "# Ship it\n", "index.md": "# Mine\n" },
     });
     const after = backend.snapshot();
 
@@ -127,7 +127,7 @@ describe("connecting storage writes nothing and answers the question itself", ()
       scaffoldReason: "existing-context",
     });
     expect(after).toEqual({
-      "1-projects/ship-it.md": "# Ship it\n",
+      "projects/ship-it.md": "# Ship it\n",
       "index.md": "# Mine\n",
     });
   });
@@ -154,7 +154,7 @@ describe("connecting storage writes nothing and answers the question itself", ()
 
   test("a rebind forgets what the previous bucket held", async () => {
     const { t, owner, workspaceId } = await connected({
-      seed: { "1-projects/ship-it.md": "# Ship it\n" },
+      seed: { "projects/ship-it.md": "# Ship it\n" },
     });
     expect((await binding(t, owner, workspaceId))?.scaffoldReason).toBe(
       "existing-context",
@@ -191,11 +191,11 @@ describe("the answer is what gets written", () => {
 
     expect([...backend.objects.keys()].sort()).toEqual(
       [
-        "0-inbox/about.md",
-        "1-projects/about.md",
-        "2-areas/about.md",
-        "3-resources/about.md",
-        "9-archive/about.md",
+        "inbox/about.md",
+        "projects/about.md",
+        "areas/about.md",
+        "resources/about.md",
+        "archive/about.md",
         "index.md",
         "privacy.md",
       ].sort(),
@@ -328,7 +328,7 @@ describe("a context that already exists is never scaffolded over", () => {
       seed: {
         "privacy.md": "# hand written, do not touch\n",
         "index.md": "# My workspace\n",
-        "1-projects/ship-it.md": "# Ship it\n",
+        "projects/ship-it.md": "# Ship it\n",
       },
     });
     const before = backend.snapshot();
@@ -343,9 +343,9 @@ describe("a context that already exists is never scaffolded over", () => {
   });
 
   test("a live workspace whose first pages are all .history is still refused", async () => {
-    const seed: Record<string, string> = { "1-projects/ship-it.md": "# Ship it\n" };
+    const seed: Record<string, string> = { "projects/ship-it.md": "# Ship it\n" };
     for (let index = 0; index < 1500; index += 1) {
-      seed[`.history/1-projects/ship-it.${index}.md`] = "old";
+      seed[`.history/projects/ship-it.${index}.md`] = "old";
     }
     const { t, owner, workspaceId, backend } = await connected({ seed });
     const before = backend.snapshot();
@@ -374,8 +374,8 @@ describe("a context that already exists is never scaffolded over", () => {
       seed: {
         "privacy.md": "# hand written, do not touch\n",
         "index.md": "# My workspace\n",
-        "1-projects/ship-it.md": "# Ship it\n",
-        "0-inbox/README.md": "my own inbox readme, not yours\n",
+        "projects/ship-it.md": "# Ship it\n",
+        "inbox/README.md": "my own inbox readme, not yours\n",
       },
     });
     const before = backend.snapshot();
@@ -416,8 +416,8 @@ describe("a context that already exists is never scaffolded over", () => {
       seed: {
         "privacy.md": "# hand written, do not touch\n",
         "index.md": "# My workspace\n",
-        "1-projects/ship-it.md": "# Ship it\n",
-        "0-inbox/README.md": "my own inbox readme, not yours\n",
+        "projects/ship-it.md": "# Ship it\n",
+        "inbox/README.md": "my own inbox readme, not yours\n",
       },
     });
     const before = backend.snapshot();
@@ -430,7 +430,7 @@ describe("a context that already exists is never scaffolded over", () => {
       await ctx.db.patch(row!._id, {
         scaffoldReason: "partial",
         scaffolded: true,
-        scaffoldMissing: ["0-inbox/README.md", "1-projects/README.md"],
+        scaffoldMissing: ["inbox/README.md", "projects/README.md"],
       });
     });
 
@@ -731,7 +731,7 @@ describe("a scaffold that only partly lands can be finished from the console", (
     // "we owe this bucket five folder notes" across would carry a licence to write
     // into it, earned somewhere else entirely.
     const other = memoryS3("some-other-bucket");
-    other.seed("1-projects/theirs.md", "# Theirs\n");
+    other.seed("projects/theirs.md", "# Theirs\n");
     vi.stubGlobal("fetch", other.fetchImpl);
     await bindFakeStorage(t, owner, workspaceId, { bucket: "some-other-bucket" });
     expect((await binding(t, owner, workspaceId))?.scaffoldMissing).toBeUndefined();
@@ -742,7 +742,7 @@ describe("a scaffold that only partly lands can be finished from the console", (
         await captureError(() => apply(t, owner, workspaceId, { template: "para" })),
       ),
     ).toBe("CONTEXT_NOT_EMPTY");
-    expect(other.snapshot()).toEqual({ "1-projects/theirs.md": "# Theirs\n" });
+    expect(other.snapshot()).toEqual({ "projects/theirs.md": "# Theirs\n" });
   });
 });
 
@@ -836,7 +836,7 @@ describe("a shared workspace is laid down for the people in it", () => {
     );
 
     expect(rules.map((rule) => rule.prefix).sort()).toEqual([...PARA_FOLDERS].sort());
-    expect(canSee("1-projects/kickoff.md", "team", rules, overrides)).toBe(true);
+    expect(canSee("projects/kickoff.md", "team", rules, overrides)).toBe(true);
     // …and the access map is still an owner's business.
     expect(canSee(PRIVACY_KEY, "team", rules, overrides)).toBe(false);
   });
@@ -852,7 +852,7 @@ describe("a shared workspace is laid down for the people in it", () => {
       backend.objects.get(PRIVACY_KEY)!.body,
     );
     expect(rules.every((rule) => rule.vis === "private")).toBe(true);
-    expect(canSee("1-projects/kickoff.md", "team", rules, overrides)).toBe(false);
+    expect(canSee("projects/kickoff.md", "team", rules, overrides)).toBe(false);
   });
 
   /**
@@ -877,7 +877,7 @@ describe("a shared workspace is laid down for the people in it", () => {
       backend.objects.get(PRIVACY_KEY)!.body,
     );
     expect(
-      canSee("1-projects/kickoff.md", visibilityTierOf(editorScopes), rules, overrides),
+      canSee("projects/kickoff.md", visibilityTierOf(editorScopes), rules, overrides),
     ).toBe(true);
   });
 });

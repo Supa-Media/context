@@ -71,13 +71,13 @@ async function bucket(): Promise<MemoryStore & FileStore> {
   const store = memoryStore() as MemoryStore & FileStore;
   store.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
   store.seed("index.md", "# Context\n");
-  store.seed("1-projects/README.md", "# Projects\n");
-  store.seed("1-projects/transition/overview.md", "# Overview\n");
-  store.seed("1-projects/transition/timeline.md", "# Timeline\n");
-  store.seed("1-projects/transition/salaries.md", "# Salaries\n");
-  store.seed("1-projects/transition/interviews/first.md", "# First\n");
+  store.seed("projects/README.md", "# Projects\n");
+  store.seed("projects/transition/overview.md", "# Overview\n");
+  store.seed("projects/transition/timeline.md", "# Timeline\n");
+  store.seed("projects/transition/salaries.md", "# Salaries\n");
+  store.seed("projects/transition/interviews/first.md", "# First\n");
   await setFolderVisibility(store, {
-    path: "1-projects",
+    path: "projects",
     visibility: "team",
     clearance: clearanceOf("private"),
   });
@@ -95,7 +95,7 @@ describe("only what a team reader may see", () => {
     const store = await bucket();
     // Folders first, then names ascending — three of the four, because three is
     // what a card holds.
-    expect(await childrenOf(store, "1-projects/transition")).toEqual([
+    expect(await childrenOf(store, "projects/transition")).toEqual([
       "interviews/",
       "overview.md",
       "salaries.md",
@@ -111,12 +111,12 @@ describe("only what a team reader may see", () => {
   test("a note the owner made private is not on the card", async () => {
     const store = await bucket();
     await setVisibility(store, {
-      path: "1-projects/transition/salaries.md",
+      path: "projects/transition/salaries.md",
       visibility: "private",
       clearance: clearanceOf("private"),
     });
 
-    const children = await childrenOf(store, "1-projects/transition");
+    const children = await childrenOf(store, "projects/transition");
     expect(children).not.toContain("salaries.md");
     expect(children).toEqual(["interviews/", "overview.md", "timeline.md"]);
   });
@@ -124,12 +124,12 @@ describe("only what a team reader may see", () => {
   test("a subfolder the owner made private is not on the card either", async () => {
     const store = await bucket();
     await setFolderVisibility(store, {
-      path: "1-projects/transition/interviews",
+      path: "projects/transition/interviews",
       visibility: "private",
       clearance: clearanceOf("private"),
     });
 
-    const children = await childrenOf(store, "1-projects/transition");
+    const children = await childrenOf(store, "projects/transition");
     expect(children).not.toContain("interviews/");
     expect(children).toEqual(["overview.md", "salaries.md", "timeline.md"]);
   });
@@ -142,26 +142,26 @@ describe("only what a team reader may see", () => {
    */
   test("a private folder names nothing", async () => {
     const store = await bucket();
-    store.seed("2-areas/private-thing/secret.md", "# Secret\n");
-    expect(await childrenOf(store, "2-areas/private-thing")).toEqual([]);
+    store.seed("areas/private-thing/secret.md", "# Secret\n");
+    expect(await childrenOf(store, "areas/private-thing")).toEqual([]);
   });
 
   test("a folder with nothing team-visible left names nothing", async () => {
     const store = await bucket();
     for (const path of [
-      "1-projects/transition/overview.md",
-      "1-projects/transition/timeline.md",
-      "1-projects/transition/salaries.md",
+      "projects/transition/overview.md",
+      "projects/transition/timeline.md",
+      "projects/transition/salaries.md",
     ]) {
       await setVisibility(store, { path, visibility: "private", clearance: clearanceOf("private") });
     }
     await setFolderVisibility(store, {
-      path: "1-projects/transition/interviews",
+      path: "projects/transition/interviews",
       visibility: "private",
       clearance: clearanceOf("private"),
     });
 
-    expect(await childrenOf(store, "1-projects/transition")).toEqual([]);
+    expect(await childrenOf(store, "projects/transition")).toEqual([]);
   });
 
   /**
@@ -172,14 +172,14 @@ describe("only what a team reader may see", () => {
    */
   test("plumbing never reaches a card", async () => {
     const store = await bucket();
-    store.seed(".history/1-projects/transition/salaries.md.old.md", "# older\n");
+    store.seed(".history/projects/transition/salaries.md.old.md", "# older\n");
     expect(await childrenOf(store, "")).not.toContain(".history/");
   });
 
   /** A note is not a folder, so a link to one names nothing inside it. */
   test("a note has no children", async () => {
     const store = await bucket();
-    expect(await childrenOf(store, "1-projects/transition/overview.md")).toEqual([]);
+    expect(await childrenOf(store, "projects/transition/overview.md")).toEqual([]);
   });
 });
 
@@ -291,7 +291,7 @@ describe("deterministic, because it is a cache key", () => {
  * undrawable card must not cost the link its description.
  */
 describe("end to end, from the bucket to the unauthenticated preview", () => {
-  const FOLDER = "1-projects/transition";
+  const FOLDER = "projects/transition";
 
   async function fixture() {
     const t = setupTest();
@@ -301,7 +301,7 @@ describe("end to end, from the bucket to the unauthenticated preview", () => {
     const backend = memoryS3(FAKE_STORAGE.bucket);
     backend.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
     backend.seed("index.md", "# Context\n");
-    backend.seed("1-projects/README.md", "# Projects\n");
+    backend.seed("projects/README.md", "# Projects\n");
     backend.seed(`${FOLDER}/overview.md`, "# Overview\n");
     backend.seed(`${FOLDER}/timeline.md`, "# Timeline\n");
     backend.seed(`${FOLDER}/salaries.md`, "# Salaries\n");
@@ -355,11 +355,11 @@ describe("end to end, from the bucket to the unauthenticated preview", () => {
     return token;
   }
 
-  /** Share `1-projects`, so a `team` reader has anything to see at all. */
+  /** Share `projects`, so a `team` reader has anything to see at all. */
   async function shareProjects(t: TestConvex, owner: Id<"users">, workspaceId: Id<"workspaces">) {
     await asUser(t, owner).action(api.functions.files.setDirectoryVisibility, {
       workspaceId,
-      path: "1-projects",
+      path: "projects",
       visibility: "team",
     });
   }
@@ -451,7 +451,7 @@ describe("end to end, from the bucket to the unauthenticated preview", () => {
   });
 
   /**
-   * **The half of the rule that did not move.** `3-resources` is a name this
+   * **The half of the rule that did not move.** `resources` is a name this
    * product wrote into every workspace it scaffolds, so it is a handful of guesses
    * per handle rather than a name its owner chose — and naming what is inside
    * it would turn that handful of guesses into a listing of somebody's notes.
@@ -590,7 +590,7 @@ describe("end to end, from the bucket to the unauthenticated preview", () => {
  * `folderVisibleAtScope` makes a folder visible at `team` scope when anything
  * nested under it is `team` — a nested exception or a nested rule. That is
  * deliberate and its comment argues for it: an owner who shares
- * `2-areas/shared` out of a private `2-areas` needs the ancestor to appear, or
+ * `areas/shared` out of a private `areas` needs the ancestor to appear, or
  * the thing they just shared is reachable only by somebody who already knows
  * its name. The disclosure it accepts is "an ancestor's name, in exchange for
  * the shared folder being reachable".
@@ -612,12 +612,12 @@ describe("a private subfolder is not named by an upward-visible child", () => {
   test("a private subfolder holding one team note is not published", async () => {
     const store = await bucket();
     await setFolderVisibility(store, {
-      path: "1-projects/transition/interviews",
+      path: "projects/transition/interviews",
       visibility: "private",
       clearance: clearanceOf("private"),
     });
     await setVisibility(store, {
-      path: "1-projects/transition/interviews/first.md",
+      path: "projects/transition/interviews/first.md",
       visibility: "team",
       clearance: clearanceOf("private"),
     });
@@ -625,23 +625,23 @@ describe("a private subfolder is not named by an upward-visible child", () => {
     // The positive control: the shared note really is reachable by a member,
     // which is the behaviour `folderVisibleAtScope` exists to preserve.
     const listing = await listFolder(store, {
-      path: "1-projects/transition/interviews",
+      path: "projects/transition/interviews",
       clearance: clearanceOf("team"),
     });
     expect(listing.entries.map((entry) => entry.name)).toContain("first.md");
 
     // …and the private folder's own name is still not on the card.
-    expect(await childrenOf(store, "1-projects/transition")).not.toContain("interviews/");
+    expect(await childrenOf(store, "projects/transition")).not.toContain("interviews/");
   });
 
   test("a subfolder team-visible in its own right is still named", async () => {
     const store = await bucket();
     await setFolderVisibility(store, {
-      path: "1-projects/transition/interviews",
+      path: "projects/transition/interviews",
       visibility: "team",
       clearance: clearanceOf("private"),
     });
-    expect(await childrenOf(store, "1-projects/transition")).toContain("interviews/");
+    expect(await childrenOf(store, "projects/transition")).toContain("interviews/");
   });
 
   /**
@@ -674,11 +674,11 @@ describe("a private subfolder is not named by an upward-visible child", () => {
       manifest
         .replace(
           "folder_defaults:\n",
-          "folder_defaults:\n  1-projects/transition/interviews: @supa-leads\n",
+          "folder_defaults:\n  projects/transition/interviews: @supa-leads\n",
         )
         .replace(
           "note_overrides:\n",
-          "note_overrides:\n  1-projects/transition/interviews/first.md: team\n",
+          "note_overrides:\n  projects/transition/interviews/first.md: team\n",
         ),
     );
 
@@ -688,12 +688,12 @@ describe("a private subfolder is not named by an upward-visible child", () => {
     // filter refusing, not a manifest that parsed to nothing or a folder that
     // was already gone.
     const listing = await listFolder(store, {
-      path: "1-projects/transition/interviews",
+      path: "projects/transition/interviews",
       clearance: clearanceOf("team"),
     });
     expect(listing.entries.map((entry) => entry.name)).toContain("first.md");
     const parent = await listFolder(store, {
-      path: "1-projects/transition",
+      path: "projects/transition",
       clearance: clearanceOf("team"),
     });
     expect(parent.entries.find((entry) => entry.name === "interviews")?.visibility).toBe(
@@ -701,7 +701,7 @@ describe("a private subfolder is not named by an upward-visible child", () => {
     );
 
     // …and the group folder's own name is still not on the card.
-    expect(await childrenOf(store, "1-projects/transition")).not.toContain("interviews/");
+    expect(await childrenOf(store, "projects/transition")).not.toContain("interviews/");
   });
 });
 
@@ -722,8 +722,8 @@ describe("a private subfolder is not named by an upward-visible child", () => {
 describe("format characters do not reach a card", () => {
   test("a bidi override in a filename is stripped, not escaped", async () => {
     const store = await bucket();
-    store.seed("1-projects/transition/a\u202egnp.exe\u202d.md", "# spoofed\n");
-    const children = await childrenOf(store, "1-projects/transition");
+    store.seed("projects/transition/a\u202egnp.exe\u202d.md", "# spoofed\n");
+    const children = await childrenOf(store, "projects/transition");
     const named = children.find((name) => name.includes("gnp"));
     expect(named, "the file must still be named").toBeDefined();
     for (const hostile of ["\u202e", "\u202d", "\u2066", "\u2069", "\u200b"]) {
@@ -733,8 +733,8 @@ describe("format characters do not reach a card", () => {
 
   test("a zero-width space cannot hide inside a name", async () => {
     const store = await bucket();
-    store.seed("1-projects/transition/a\u200bb.md", "# split\n");
-    const children = await childrenOf(store, "1-projects/transition");
+    store.seed("projects/transition/a\u200bb.md", "# split\n");
+    const children = await childrenOf(store, "projects/transition");
     expect(children.some((name) => name.includes("\u200b"))).toBe(false);
   });
 });
@@ -789,7 +789,7 @@ describe("a title is stripped like the names beneath it", () => {
    * link.
    */
   test("format and C1 characters do not reach og:title through a filename", () => {
-    const derived = titleFromPath(`1-projects/Report ${RLO}gnp.exe${PDF}${NEL}${ZWSP}.md`);
+    const derived = titleFromPath(`projects/Report ${RLO}gnp.exe${PDF}${NEL}${ZWSP}.md`);
     expect(derived, "the title must survive as text").toContain("gnp.exe");
     for (const hostile of [RLO, PDF, NEL, ZWSP]) {
       expect(derived).not.toContain(hostile);
@@ -797,11 +797,11 @@ describe("a title is stripped like the names beneath it", () => {
   });
 
   test("a filename that is only format characters yields no title", () => {
-    expect(titleFromPath(`1-projects/${RLO}${ZWSP}${PDF}.md`)).toBeNull();
+    expect(titleFromPath(`projects/${RLO}${ZWSP}${PDF}.md`)).toBeNull();
   });
 
   test("an ordinary filename is unchanged by the strip", () => {
-    expect(titleFromPath("1-projects/transition/implementation-handoff.md")).toBe(
+    expect(titleFromPath("projects/transition/implementation-handoff.md")).toBe(
       "Implementation handoff",
     );
   });

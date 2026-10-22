@@ -31,7 +31,8 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
+// A workspace laid out before the numbers were dropped (2026-10-21): its folders keep them.
+import { LEGACY_PARA_FOLDERS, renderPrivacyManifestForFolders } from "../functions/lib/scaffold";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { ANY_AGENT, mayRead, ownerOptions, ownerRequest, readOwnerAnswer } from "../functions/lib/owners/suggest";
 import { TRANSCRIBE_WORKER_SECRET_ENV_VAR, TRANSCRIBE_WORKER_URL_ENV_VAR } from "../functions/meetings/transcribe";
@@ -129,7 +130,7 @@ async function fixture(options: { premium?: boolean; choice?: string } = {}): Pr
 
   const backend = memoryS3(FAKE_STORAGE.bucket);
   // Projects are shared with the team; areas stay private to the owner.
-  backend.seed(PRIVACY_KEY, renderPrivacyManifest("para").replace("1-projects: private", "1-projects: team"));
+  backend.seed(PRIVACY_KEY, renderPrivacyManifestForFolders(LEGACY_PARA_FOLDERS).replace("1-projects: private", "1-projects: team"));
   backend.seed("index.md", "# Context\n");
   backend.seed("1-projects/launch/overview.md", "---\nstatus: active\n---\n# Launch\n\nSayo is running the launch this month.\n");
   backend.seed(

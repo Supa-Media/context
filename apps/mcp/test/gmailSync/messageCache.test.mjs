@@ -32,7 +32,7 @@ import { createFixtureGmail, createMemoryStore, fixtureMessage, jsonResponse } f
 const SLUG = "p-at-example-invalid";
 const DATE = "2026-10-17";
 const NOW = Date.parse("2026-10-18T12:00:00.000Z");
-const NOTE = `0-inbox/email/${SLUG}/2026/10/${DATE}.md`;
+const NOTE = `inbox/email/${SLUG}/2026/10/${DATE}.md`;
 
 function message(id, hour, extra = {}) {
   return fixtureMessage({

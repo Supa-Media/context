@@ -93,21 +93,25 @@ export { PRIVACY_KEY } from "../privacy";
  * five folders you can rename, and `structureTemplate: "custom"` opts out
  * entirely.
  *
- * The archive is `9-archive` for every workspace made from here on, so a
- * number that sorts last in any app. An older workspace's `4-archive` (or
- * `5-archive`, or a plain `archive`) keeps its name and its role: the word
- * decides, not the number — see `packages/shared/src/folderRoles.cjs`. That
- * module is the one place the five names are defined; this literal is kept
- * equal to its `MAIN_FOLDERS` by hand (the convex package does not import the
- * `.cjs` directly).
+ * The names carry no number in front (owner, 2026-10-21): the order comes
+ * from each folder's job, not its name. Older workspaces were given
+ * `0-inbox` ... `9-archive` (or `4-archive`), and a one-time rename drops the
+ * numbers (`functions/dropFolderNumbers.ts`); a number in front still plays
+ * the role — see `packages/shared/src/folderRoles.cjs`. That module is the one
+ * place the five names are defined; this literal is kept equal to its
+ * `MAIN_FOLDERS` by hand (the convex package does not import the `.cjs`
+ * directly), and `LEGACY_PARA_FOLDERS` keeps the names older workspaces had.
  */
 export const PARA_FOLDERS = [
-  "0-inbox",
-  "1-projects",
-  "2-areas",
-  "3-resources",
-  "9-archive",
+  "inbox",
+  "projects",
+  "areas",
+  "resources",
+  "archive",
 ] as const;
+
+/** The names PARA folders were given before 2026-10-21, which older workspaces may still have. */
+export const LEGACY_PARA_FOLDERS = ["0-inbox", "1-projects", "2-areas", "3-resources", "9-archive"] as const;
 
 /**
  * `line` is the manifest entry — one line, in the owner's voice, saying what
@@ -121,14 +125,14 @@ export const FOLDER_PURPOSE: Record<
   string,
   { title: string; line: string; blurb: string; examples: string[] }
 > = {
-  "0-inbox": {
+  inbox: {
     title: "Inbox",
     line: "raw captures, unfiled. Process these into the folders below.",
     blurb:
       "Raw, unfiled captures. Anything that arrives before you have decided where it belongs — emailed notes, quick thoughts, clippings. Empty this regularly by moving notes somewhere else.",
     examples: ["a thought you had on a walk", "an emailed article you have not read yet"],
   },
-  "1-projects": {
+  projects: {
     title: "Projects",
     line:
       "active work with an end state. One folder per project.",
@@ -136,14 +140,14 @@ export const FOLDER_PURPOSE: Record<
       "Active work with an end state. A project has a finish line: when it is reached, the folder moves to the archive.",
     examples: ["ship the new pricing page", "plan the March offsite"],
   },
-  "2-areas": {
+  areas: {
     title: "Areas",
     line: "ongoing responsibilities.",
     blurb:
       "Ongoing responsibilities with no finish line. Areas are maintained, not completed.",
     examples: ["health", "finances", "the team you manage"],
   },
-  "3-resources": {
+  resources: {
     title: "Resources",
     line:
       "reference material: book notes, articles, ideas.",
@@ -151,7 +155,7 @@ export const FOLDER_PURPOSE: Record<
       "Reference material you want to be able to find again, not tied to one project or area.",
     examples: ["how our deploy pipeline works", "notes on a book you read"],
   },
-  "9-archive": {
+  archive: {
     title: "Archive",
     line:
       "anything no longer active. Move, don't delete.",

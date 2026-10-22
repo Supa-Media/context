@@ -25,9 +25,10 @@
  * meetings under `2-areas/team/` should keep doing that
  * ([meetings](../../../docs/decisions/meetings.md), *A meeting lands at an
  * ordinary path*). A client may name a folder per meeting; this is what a
- * client that names none gets, byte for byte.
+ * client that names none gets, byte for byte. Under the Inbox's plain name
+ * (owner, 2026-10-21), which reaches the folder doing the Inbox's job.
  */
-export const MEETINGS_FOLDER = "0-inbox/meetings";
+export const MEETINGS_FOLDER = "inbox/meetings";
 
 /**
  * The longest folder a client may name.
@@ -465,7 +466,19 @@ export function isMeetingNotePath(path, options = {}) {
   if (typeof path !== "string") return false;
   const folder = normalizeMeetingFolder(options.folder);
   if (folder === null) return false;
-  const prefix = `${normalizeRoot(options.root)}${folder}/`;
-  if (!path.startsWith(prefix)) return false;
-  return MEETING_FILE.test(path.slice(prefix.length));
+  const root = normalizeRoot(options.root);
+  if (!path.startsWith(root)) return false;
+  // The Inbox is the same folder whether it is spelled `inbox` or, in a workspace the
+  // 2026-10-21 rename skipped, `0-inbox`: a meeting under either is in the folder asked about.
+  const prefix = `${inboxSpelledPlain(folder)}/`;
+  const key = inboxSpelledPlain(path.slice(root.length));
+  if (!key.startsWith(prefix)) return false;
+  return MEETING_FILE.test(key.slice(prefix.length));
+}
+
+/** `path` with a first segment that spells the Inbox (`0-inbox`, `Inbox`) written `inbox`. */
+function inboxSpelledPlain(path) {
+  const slash = path.indexOf("/");
+  const first = slash < 0 ? path : path.slice(0, slash);
+  return /^(?:\d+-)?inbox$/i.test(first) ? `inbox${path.slice(first.length)}` : path;
 }

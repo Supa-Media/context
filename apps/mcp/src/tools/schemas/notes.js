@@ -17,7 +17,7 @@ export function noteWriteToolDefinitions() {
         properties: {
           note: {
             type: "string",
-            description: "Path of a note you can read that references the image, e.g. '0-inbox/email/capture.md'",
+            description: "Path of a note you can read that references the image, e.g. 'inbox/email/capture.md'",
           },
           image: {
             type: "string",
@@ -39,7 +39,7 @@ export function noteWriteToolDefinitions() {
         properties: {
           path: {
             type: "string",
-            description: "The file's path, as a note links it, e.g. '0-inbox/email/<mailbox>/attachments/2026/10/16/<hash>-quote.pdf'",
+            description: "The file's path, as a note links it, e.g. 'inbox/email/<mailbox>/attachments/2026/10/16/<hash>-quote.pdf'",
           },
         },
         required: ["path"],
@@ -58,7 +58,7 @@ export function noteWriteToolDefinitions() {
         "Folder rules are defaults; visibility is enforced by the private privacy.md manifest, never by frontmatter. New personal writes default private; new team writes default team; updates preserve existing visibility. A personal connection may explicitly publish one note as team even inside a private-default folder by passing visibility=team and confirm_team_publish=true. " +
         "\n\nTHIS TOOL ALSO MAKES FORMS AND PUBLISHES NOTES, so you never need a separate tool for either. " +
         "A form is a fenced ```form block in the content; writing the note validates it and creates the answers note in the same call, and a block that does not parse is refused with the line that is wrong. The block is:\n" +
-        "```form\nid: intake\nresponses: 1-projects/intake-responses.md\nlayout: table\nsubmit: member\nedit_own: true\nvotes: off\nfields:\n  - { name: who, type: line, max: 120, required: true }\n  - { name: brief, type: text, max: 2000 }\n```\n" +
+        "```form\nid: intake\nresponses: projects/intake-responses.md\nlayout: table\nsubmit: member\nedit_own: true\nvotes: off\nfields:\n  - { name: who, type: line, max: 120, required: true }\n  - { name: brief, type: text, max: 2000 }\n```\n" +
         "id is a short lowercase name; responses is a note of its OWN, never this one; layout is table or sections; submit is the lowest role that may answer (member, editor or owner — use member for anything a link should collect); votes is named or off. Field types are line, text, select, number, date and checkbox; line and text need max, select needs options: [A, B]. Who may READ the answers is the responses note's own visibility, so say where it lands before you make it. " +
         "Add notify: owner — or notify: @handle — to EMAIL somebody every answer, which is what to reach for when they say they want to know when one comes in. It names a PERSON, never an address: the mail goes to a member of this context at the address on their account, an email address there is refused, and the mail carries the answers, so only somebody who could already open the answers note is told. " +
         "Then pass share to hand out a link to it — see that argument. " +
@@ -262,7 +262,7 @@ export function noteWriteToolDefinitions() {
           },
           note: {
             type: "string",
-            description: "Path of the note it belongs in; omit for a new note in 0-inbox/",
+            description: "Path of the note it belongs in; omit for a new note in inbox/",
           },
           replaces: {
             type: "string",

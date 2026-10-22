@@ -52,7 +52,7 @@ export async function runOrientationConnectSketchChecks(check, harness) {
   // anything.
   //
   // This manifest is `default_visibility: private` with named team folders,
-  // so the three below are private by three different routes: `0-inbox/` by
+  // so the three below are private by three different routes: `inbox/` by
   // the default, `1-projects\legacy/` because a backslash is not a path
   // separator and it is therefore its own unlisted root, and `privacy.md`
   // because it is plumbing.
@@ -71,7 +71,7 @@ export async function runOrientationConnectSketchChecks(check, harness) {
   );
   check(
     "but never one it may not — the sketch is `canSee`-filtered, not raw",
-    !teamConnect.instructions.includes("0-inbox/") &&
+    !teamConnect.instructions.includes("inbox/") &&
       !teamConnect.instructions.includes("1-projects\\legacy/") &&
       !teamConnect.instructions.includes("privacy.md")
   );
@@ -79,7 +79,7 @@ export async function runOrientationConnectSketchChecks(check, harness) {
   // they are filtered, not because the bucket lacks them.
   check(
     "and the owner's sketch does carry them, so the filter is what removed them",
-    ownerConnect.instructions.includes("0-inbox/") &&
+    ownerConnect.instructions.includes("inbox/") &&
       ownerConnect.instructions.includes("1-projects\\legacy/")
   );
 
@@ -123,7 +123,7 @@ export async function runOrientationConnectSketchChecks(check, harness) {
   //
   // THE TRAILING SLASH IS LOAD-BEARING, and it is worth being exact about
   // which case it buys. `SERVER_INSTRUCTIONS` names the PARA folders in
-  // prose — `0-inbox, 1-projects, 2-areas, …` — so the bare `1-projects`
+  // prose — `inbox, 1-projects, 2-areas, …` — so the bare `1-projects`
   // appears on every connection ever made, the fallback included. Only the
   // folder map emits the slash.
   //

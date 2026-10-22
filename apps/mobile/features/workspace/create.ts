@@ -215,7 +215,7 @@ export function workspaceNameConsequences(name: string): {
   const shown = name.length > 0 ? name : "workspace";
   return {
     context: `@${shown}`,
-    path: `@${shown}/1-projects/kickoff.md`,
+    path: `@${shown}/projects/kickoff.md`,
   };
 }
 
@@ -470,7 +470,7 @@ export function doneLede(slug: string): string {
 export function doneAddressedCheck(slug: string): string {
   return (
     `The workspace is addressed @${slug}. A note in it is ` +
-    `@${slug}/1-projects/kickoff.md, from any context you can reach.`
+    `@${slug}/projects/kickoff.md, from any context you can reach.`
   );
 }
 

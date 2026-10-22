@@ -13,7 +13,7 @@ import { createFakeCalendarServer } from "./fakeCalendarServer.mjs";
 import { syncCalendarAccount } from "../src/communications/calendar-sync.js";
 
 const NOW = "2026-09-07T12:00:00.000Z";
-const DAY = "0-inbox/calendar/2026/09/2026-09-08.md";
+const DAY = "inbox/calendar/2026/09/2026-09-08.md";
 
 function store({ keyed }) {
   const files = new Map();

@@ -33,14 +33,14 @@ export async function runGmailDayAndBackfillChecks(check) {
   };
   const firstSync = await syncDayFromGmail(dayOptions);
   check("syncing a day writes exactly the messages that landed that day", firstSync.partsWritten === 1 && firstSync.bytesWritten > 0);
-  const dayNote = await dayStore.get("0-inbox/email/person-at-example-invalid/2026/09/2026-09-07.md");
+  const dayNote = await dayStore.get("inbox/email/person-at-example-invalid/2026/09/2026-09-07.md");
   const dayNoteParsed = parseChannelDayNote(await dayNote.text());
   check("the OTHER day's message is not in this day's note", dayNoteParsed.messages.length === 2);
-  const contactPaths = (await dayStore.list({ prefix: "0-inbox/contacts/" })).objects.map((item) => item.key);
+  const contactPaths = (await dayStore.list({ prefix: "inbox/contacts/" })).objects.map((item) => item.key);
   check("Gmail sync creates a contact page for somebody the owner wrote to, and not for an inbound-only sender",
-    contactPaths.length === 1 && contactPaths[0] === "0-inbox/contacts/other/email-b-example-invalid.md");
+    contactPaths.length === 1 && contactPaths[0] === "inbox/contacts/other/email-b-example-invalid.md");
   const firstContact = await dayStore.get(contactPaths[0]);
-  check("a Gmail-derived contact links to its daily note and never copies the message body", (await firstContact.text()).includes("[[0-inbox/email/person-at-example-invalid/2026/09/2026-09-07#msg-") && !(await firstContact.text()).includes("\nfirst\n"));
+  check("a Gmail-derived contact links to its daily note and never copies the message body", (await firstContact.text()).includes("[[inbox/email/person-at-example-invalid/2026/09/2026-09-07#msg-") && !(await firstContact.text()).includes("\nfirst\n"));
 
   const resync = await syncDayFromGmail(dayOptions);
   check("RE-RUNNING THE SAME DAY CHANGES NO BYTES — idempotent upsert by message id", resync.bytesWritten === 0);
@@ -56,14 +56,14 @@ export async function runGmailDayAndBackfillChecks(check) {
     and both parsing as 2026-09-07.
   */
   const legacyStore = createMemoryStore();
-  const legacyPath = "0-inbox/email/person-at-example-invalid/2026-09-07.md";
+  const legacyPath = "inbox/email/person-at-example-invalid/2026-09-07.md";
   await legacyStore.put(legacyPath, "---\ntype: channel-day\n---\n\n# 2026-09-07\n");
   const legacySync = await syncDayFromGmail({ ...dayOptions, store: legacyStore });
   check("a day already filed flat is written flat, not moved into the tree", legacySync.partsWritten === 1);
   check(
     "...so the day exists once, where it always was",
     (await legacyStore.get(legacyPath)) !== null &&
-      (await legacyStore.get("0-inbox/email/person-at-example-invalid/2026/09/2026-09-07.md")) === null,
+      (await legacyStore.get("inbox/email/person-at-example-invalid/2026/09/2026-09-07.md")) === null,
   );
   check(
     "...and it is the day's real messages that landed in it, not the placeholder",
@@ -72,7 +72,7 @@ export async function runGmailDayAndBackfillChecks(check) {
   await syncDayFromGmail({ ...dayOptions, store: legacyStore, date: "2026-09-08" });
   check(
     "...while a day the same bucket has NOT seen is filed under its month — the switch is per day, not per bucket",
-    (await legacyStore.get("0-inbox/email/person-at-example-invalid/2026/09/2026-09-08.md")) !== null,
+    (await legacyStore.get("inbox/email/person-at-example-invalid/2026/09/2026-09-08.md")) !== null,
   );
 
   // -- backfill across a window, quota-bound ----------------------------------------
@@ -101,7 +101,7 @@ export async function runGmailDayAndBackfillChecks(check) {
   check("...and reports the number of emails found", backfillResult.itemsFound === 2);
   check(
     "the inactive day in the middle really did not get a file",
-    (await backfillStore.get("0-inbox/email/p-at-example-invalid/2026/09/2026-09-02.md")) === null,
+    (await backfillStore.get("inbox/email/p-at-example-invalid/2026/09/2026-09-02.md")) === null,
   );
 
   const tinyBackfillStore = createMemoryStore();

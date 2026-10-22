@@ -53,7 +53,8 @@ import { fileBugNote } from "../../functions/bugNotes";
 import { bugFolder, bugNotePath, renderBugNote } from "../../functions/lib/feedback/bugNote";
 import { grantedNamesFor } from "../../functions/lib/grantedNames";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
-import { renderPrivacyManifest } from "../../functions/lib/scaffold";
+// A workspace laid out before the numbers were dropped (2026-10-21): its folders keep them.
+import { LEGACY_PARA_FOLDERS, renderPrivacyManifestForFolders } from "../../functions/lib/scaffold";
 import { memoryS3, type MemoryS3 } from "../storeStub.helpers";
 import {
   addMember,
@@ -100,7 +101,7 @@ async function world(rules: "para" | "team-everywhere" = "para") {
   const { t, alice, grantA } = tenants;
   const staff = await createUser(t, "staff@example.invalid");
   const pinned = await createWorkspace(t, staff, PINNED_CONTEXT_SLUG, { kind: "shared", displayName: "Context" });
-  backend.seed(PRIVACY_KEY, rules === "para" ? renderPrivacyManifest("para") : teamEverywhere());
+  backend.seed(PRIVACY_KEY, rules === "para" ? renderPrivacyManifestForFolders(LEGACY_PARA_FOLDERS) : teamEverywhere());
   backend.seed("index.md", "# Context\n");
   await seedStorageBinding(t, { workspaceId: pinned, boundBy: staff, bucket: PINNED_BUCKET });
   await copyTree(t, pinned);
@@ -147,7 +148,7 @@ async function judgedByRows(t: TestConvex, workspaceId: Id<"workspaces">) {
 
 /** A manifest with `areas` opened to the team: every account reads it through the pin. */
 function teamEverywhere(): string {
-  return renderPrivacyManifest("para").replace("  2-areas: private\n", "  2-areas: private\n  areas: team\n");
+  return renderPrivacyManifestForFolders(LEGACY_PARA_FOLDERS).replace("  2-areas: private\n", "  2-areas: private\n  areas: team\n");
 }
 
 async function report(t: TestConvex, body: Record<string, unknown>) {

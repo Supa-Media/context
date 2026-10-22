@@ -43,7 +43,7 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-const FOLDERS = ["", "0-inbox", "0-inbox/meetings", "1-projects", "2-areas", "2-areas/meetings"];
+const FOLDERS = ["", "inbox", "inbox/meetings", "projects", "2-areas", "2-areas/meetings"];
 
 function mount(props: Partial<Parameters<typeof MeetingsDestination>[0]> = {}) {
   const container = document.createElement("div");
@@ -100,7 +100,7 @@ describe("the folder is a control now, not a sentence", () => {
     const screen = mount();
     expect(screen.find("meetings-folder-edit")).not.toBeNull();
     // The default is shown as the default, not as a stored choice.
-    expect(screen.text()).toContain("0-inbox/meetings");
+    expect(screen.text()).toContain("inbox/meetings");
   });
 
   test("a stored folder is the one shown", () => {
@@ -151,7 +151,7 @@ describe("absent rather than disabled", () => {
   test("a member of somebody else's workspace is shown the folder and no way to change it", () => {
     const screen = mount({ role: "member" });
     expect(screen.find("meetings-folder-edit")).toBeNull();
-    expect(screen.text()).toContain("0-inbox/meetings");
+    expect(screen.text()).toContain("inbox/meetings");
     expect(screen.text()).toContain("Only the owner of @seyi can change");
   });
 

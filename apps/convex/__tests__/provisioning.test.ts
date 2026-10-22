@@ -467,7 +467,7 @@ describe("verification classifies the bucket without touching it", () => {
 
   test("a bucket that already holds a context says so, with no prompt to answer", async () => {
     const { t, owner, backend, workspaceId } = await connecting();
-    backend.seed("1-projects/ship-it.md", "# Ship it\n");
+    backend.seed("projects/ship-it.md", "# Ship it\n");
     const before = backend.snapshot();
 
     const result = await t.action(
@@ -500,9 +500,9 @@ describe("verification classifies the bucket without touching it", () => {
   test("a live workspace whose first pages are all .history is not reported empty", async () => {
     const { t, backend, workspaceId } = await connecting();
     for (let index = 0; index < 1500; index += 1) {
-      backend.seed(`.history/1-projects/ship-it.${index}.md`, "old");
+      backend.seed(`.history/projects/ship-it.${index}.md`, "old");
     }
-    backend.seed("1-projects/ship-it.md", "# Ship it\n");
+    backend.seed("projects/ship-it.md", "# Ship it\n");
 
     expect(
       await t.action(internal.functions.provisioning.verifyStorageBinding, {
@@ -522,10 +522,10 @@ describe("verification classifies the bucket without touching it", () => {
    */
   test("a verified bucket carries a note count and the moment it was taken", async () => {
     const { t, owner, backend, workspaceId } = await connecting();
-    backend.seed("1-projects/ship-it.md", "# Ship it\n");
-    backend.seed("1-projects/ship-it/notes.md", "# Notes\n");
-    backend.seed("2-areas/health.md", "# Health\n");
-    backend.seed("1-projects/diagram.png", "binary");
+    backend.seed("projects/ship-it.md", "# Ship it\n");
+    backend.seed("projects/ship-it/notes.md", "# Notes\n");
+    backend.seed("areas/health.md", "# Health\n");
+    backend.seed("projects/diagram.png", "binary");
 
     await t.action(internal.functions.provisioning.verifyStorageBinding, {
       workspaceId,
@@ -540,9 +540,9 @@ describe("verification classifies the bucket without touching it", () => {
   test("history revisions are not counted as notes", async () => {
     const { t, owner, backend, workspaceId } = await connecting();
     for (let index = 0; index < 1500; index += 1) {
-      backend.seed(`.history/1-projects/ship-it.${index}.md`, "old");
+      backend.seed(`.history/projects/ship-it.${index}.md`, "old");
     }
-    backend.seed("1-projects/ship-it.md", "# Ship it\n");
+    backend.seed("projects/ship-it.md", "# Ship it\n");
 
     await t.action(internal.functions.provisioning.verifyStorageBinding, {
       workspaceId,
@@ -559,7 +559,7 @@ describe("verification classifies the bucket without touching it", () => {
    */
   test("a later failed probe does not erase the count", async () => {
     const { t, owner, backend, workspaceId } = await connecting();
-    backend.seed("1-projects/ship-it.md", "# Ship it\n");
+    backend.seed("projects/ship-it.md", "# Ship it\n");
     await t.action(internal.functions.provisioning.verifyStorageBinding, {
       workspaceId,
     });
@@ -587,8 +587,8 @@ describe("verification classifies the bucket without touching it", () => {
    */
   test("rebinding to another bucket clears the count with everything else", async () => {
     const { t, owner, backend, workspaceId } = await connecting();
-    backend.seed("1-projects/ship-it.md", "# Ship it\n");
-    backend.seed("2-areas/health.md", "# Health\n");
+    backend.seed("projects/ship-it.md", "# Ship it\n");
+    backend.seed("areas/health.md", "# Health\n");
     await t.action(internal.functions.provisioning.verifyStorageBinding, {
       workspaceId,
     });
@@ -614,8 +614,8 @@ describe("verification classifies the bucket without touching it", () => {
    */
   test("a member cannot read the owner's note count", async () => {
     const { t, owner, backend, workspaceId } = await connecting();
-    backend.seed("1-projects/private-thing.md", "# Secret\n");
-    backend.seed("2-areas/another.md", "# Also secret\n");
+    backend.seed("projects/private-thing.md", "# Secret\n");
+    backend.seed("areas/another.md", "# Also secret\n");
     await t.action(internal.functions.provisioning.verifyStorageBinding, {
       workspaceId,
     });
@@ -640,7 +640,7 @@ describe("verification classifies the bucket without touching it", () => {
   /** An editor is not the owner either. Write access is not a licence to count. */
   test("an editor cannot read the note count either", async () => {
     const { t, backend, workspaceId } = await connecting();
-    backend.seed("1-projects/ship-it.md", "# Ship it\n");
+    backend.seed("projects/ship-it.md", "# Ship it\n");
     await t.action(internal.functions.provisioning.verifyStorageBinding, {
       workspaceId,
     });
@@ -687,7 +687,7 @@ describe("verification classifies the bucket without touching it", () => {
    */
   test("a later failed probe does not erase what the last good one learned", async () => {
     const { t, owner, backend, workspaceId } = await connecting();
-    backend.seed("1-projects/ship-it.md", "# Ship it\n");
+    backend.seed("projects/ship-it.md", "# Ship it\n");
     await t.action(internal.functions.provisioning.verifyStorageBinding, {
       workspaceId,
     });
@@ -729,11 +729,11 @@ describe("scaffolding the layout the caller asked for", () => {
     expect(result).toMatchObject({ scaffolded: true, scaffoldReason: "created" });
     expect([...backend.objects.keys()].sort()).toEqual(
       [
-        "0-inbox/about.md",
-        "1-projects/about.md",
-        "2-areas/about.md",
-        "3-resources/about.md",
-        "9-archive/about.md",
+        "inbox/about.md",
+        "projects/about.md",
+        "areas/about.md",
+        "resources/about.md",
+        "archive/about.md",
         "index.md",
         "privacy.md",
       ].sort(),
@@ -743,8 +743,8 @@ describe("scaffolding the layout the caller asked for", () => {
     expect(
       parsePrivacyManifest(backend.objects.get(PRIVACY_KEY)!.body).rules.map(
         (rule) => rule.prefix,
-      ),
-    ).toEqual([...PARA_FOLDERS]);
+      ).sort(),
+    ).toEqual([...PARA_FOLDERS].sort());
   });
 
   test("a custom layout gets the owner's own folders, with their own words", async () => {
@@ -793,9 +793,9 @@ describe("scaffolding the layout the caller asked for", () => {
     backend.objects.clear();
     backend.seed(PRIVACY_KEY, "# hand written, do not touch\n");
     backend.seed("index.md", "# My workspace\n");
-    backend.seed("1-projects/ship-it.md", "# Ship it\n");
+    backend.seed("projects/ship-it.md", "# Ship it\n");
     for (let index = 0; index < 1500; index += 1) {
-      backend.seed(`.history/1-projects/ship-it.${index}.md`, "old");
+      backend.seed(`.history/projects/ship-it.${index}.md`, "old");
     }
     const before = backend.snapshot();
 

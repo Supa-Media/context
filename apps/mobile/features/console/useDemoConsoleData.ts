@@ -122,7 +122,7 @@ export const DEMO_CONTEXT_PLUGINS = [
     id: "context-contacts",
     name: "Contacts",
     description:
-      "One page per person you correspond with, in 0-inbox/contacts — their addresses, your own notes about them, and links into the days you spoke.",
+      "One page per person you correspond with, in inbox/contacts — their addresses, your own notes about them, and links into the days you spoke.",
     version: "1.0.0",
     author: "Context",
     enabled: true,

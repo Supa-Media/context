@@ -170,6 +170,6 @@ describe("the gateway and the console resolve the same folder", () => {
     const { defaultSessionFolder } = gatewayInternals();
     expect(defaultSessionFolder(rulesFor("4-archive"))).toBe("4-archive/chat-history");
     expect(defaultSessionFolder(rulesFor("5-archive"))).toBe("5-archive/chat-history");
-    expect(defaultSessionFolder(rulesFor("Journal"))).toBe("0-inbox/sessions");
+    expect(defaultSessionFolder(rulesFor("Journal"))).toBe("inbox/sessions");
   });
 });

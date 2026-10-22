@@ -14,6 +14,7 @@ import { listAllKeys, probeWithLegacyFallback } from "../notes/storage.js";
 import { normalizePath } from "../notes/paths.js";
 import { parseChannelDayNote } from "../../../../packages/communications/src/note.js";
 import { toolError, toolText } from "./results.js";
+import { inboxFolders, underInbox } from "../communications/inboxFolders.js";
 
 /*
   A contact page is any page one folder deep under the contacts folder — the
@@ -92,12 +93,14 @@ export async function toolListChannelDays(store, scope, rules, overrides, args =
     of it to throw most of it away spends a subrequest budget that is shared
     with search. A channel the caller named narrows it to one.
   */
-  const folders = (args.channel ? [args.channel] : CHANNELS).map((channel) => CHANNEL_FOLDERS[channel]);
+  // Under the folder doing the Inbox's job, whatever it is called now (`inboxFolders`).
+  const inbox = await inboxFolders(store);
+  const folders = (args.channel ? [args.channel] : CHANNELS).flatMap((channel) => underInbox(inbox.folders, CHANNEL_FOLDERS[channel]));
   const listings = await Promise.all(folders.map((folder) => listAllKeys(store, `${folder}/`)));
 
   const visible = listings
     .flat()
-    .map(({ key }) => ({ key, day: parseChannelDayPath(key) }))
+    .map(({ key }) => ({ key, day: parseChannelDayPath(key, { inbox: inbox.home }) }))
     .filter(({ key, day }) => day !== null && canSee(key, scope, rules, overrides))
     .filter(({ day }) => (args.account ? day.account === args.account : true))
     /*
@@ -238,7 +241,10 @@ export async function toolListContacts(store, scope, rules, overrides, args = {}
   const limit = Number.isInteger(args.limit) ? args.limit : 10;
   if (limit < 1 || limit > 25) return toolError("limit must be between 1 and 25");
 
-  const listed = await listVisibleNoteKeys(store, scope, rules, overrides, CONTACTS_FOLDER);
+  const inbox = await inboxFolders(store);
+  const listed = (
+    await Promise.all(underInbox(inbox.folders, CONTACTS_FOLDER).map((folder) => listVisibleNoteKeys(store, scope, rules, overrides, folder)))
+  ).flat();
   /*
     A store reports `uploaded` as a Date, as a string, or not at all. Anything
     that is not a finite instant sorts as 0 and falls to the key comparison
@@ -251,7 +257,7 @@ export async function toolListContacts(store, scope, rules, overrides, args = {}
     return Number.isFinite(instant) ? instant : 0;
   };
   const visible = listed
-    .filter(({ key }) => isContactNotePath(key))
+    .filter(({ key }) => isContactNotePath(key, { inbox: inbox.home }))
     .sort((a, b) => touchedAt(b.uploaded) - touchedAt(a.uploaded) || a.key.localeCompare(b.key));
   const page = visible.slice(0, limit);
 
@@ -286,7 +292,7 @@ export async function toolListContacts(store, scope, rules, overrides, args = {}
 export async function toolReadContact(store, scope, rules, overrides, args = {}) {
   const path = normalizePath(args.path);
   if (!path) return toolError("invalid path");
-  if (!isContactNotePath(path)) {
+  if (!isContactNotePath(path) && !isContactNotePath(path, { inbox: (await inboxFolders(store)).home })) {
     return toolError("not a contact page — read it with read_note");
   }
   // Both questions asked, then decided, so the refusal for a note being held

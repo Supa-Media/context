@@ -61,7 +61,7 @@ export { storeForOpenedBinding, storeForSession } from "./sessionStore.js";
 export const SCOPE_READ = "context:read";
 /** Create, update, move, and archive notes. Implies capture. */
 export const SCOPE_WRITE = "context:write";
-/** Drop a raw capture into 0-inbox and nothing else. */
+/** Drop a raw capture into inbox and nothing else. */
 export const SCOPE_CAPTURE = "context:capture";
 /**
  * Reach notes marked private.

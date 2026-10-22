@@ -164,7 +164,7 @@ export const CONTEXT_PLUGINS = Object.freeze([
     id: "contacts",
     name: "Contacts",
     description:
-      "One page per person you correspond with, in 0-inbox/contacts — their addresses, your own notes about them, and links into the days you spoke.",
+      "One page per person you correspond with, in inbox/contacts — their addresses, your own notes about them, and links into the days you spoke.",
     tools: ["list_contacts", "read_contact"],
     surfaces: ["Console", "Notes"],
     /*

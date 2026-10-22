@@ -193,3 +193,43 @@ Archive archives everybody's mail. `apps/convex/__tests__/nodes/archiveMirror.te
 `apps/convex/__tests__/files/archiveTidy.test.ts`,
 `apps/mcp/test/archiveMirror.test.mjs` and
 `apps/mcp/test/archiveNoteMirror.test.mjs` fail if either goes.
+
+## Built-in folders have no number in front
+
+*Decided by the owner, 2026-10-21* ("need to get rid of the 1- 2- prefixes
+we've been putting on folders, need to run a migration and make sure it
+doesn't break anything and then also make sure that when we set up new
+workspaces we aren't adding that").
+
+**What it is.**
+
+- **New workspaces** are laid out as `inbox`, `projects`, `areas`,
+  `resources` and `archive` (plus `clients`, `teams` and `products` for the
+  kinds that add them): `DEFAULT_FOLDER` in
+  `packages/shared/src/folderRoles.cjs`, which the scaffold, the presets, the
+  onboarding layout, the default email-in, meetings and memory folders, and the
+  capture paths of email, iMessage, Google Chat, calendar and contacts all
+  read. The console already showed these folders without their numbers
+  (`withoutSortPrefix`), so nothing a person sees changes.
+- **Existing workspaces** are renamed once by `functions/folderNumbers:run`
+  from the `Folder names without numbers` workflow (`dry_run` first), as the
+  console's rename at the owner's clearance: rows, ids, rules and jobs are
+  kept, Archive twins and the settings naming the folder follow. A folder
+  whose plain name a sibling already has is left alone and counted, an
+  unkeyed workspace is left alone (its rename would be a byte move), and only
+  root folders and folders doing a job are renamed — a numbered folder deeper
+  down is somebody's own.
+- **Old spellings keep working.** A job's name still matches with any number
+  in front (`folderRole`), so a writer that names `0-inbox/...` — an older
+  desktop app, a saved prompt, a link — lands in the folder doing the Inbox
+  job (`canonicalJobPath`), and the readers that parse capture paths
+  (`asInboxKey`, `isMeetingNotePath`, contact lookups) accept both. The
+  unauthenticated preview's guessable paths list both spellings
+  (`PRODUCT_MANDATED_PATHS`).
+
+**What a "simplification" costs.** Dropping the old spellings from the
+readers breaks every workspace not yet renamed and every client still
+writing them; renaming without the twin check merges two folders. The tests
+that fail: `apps/convex/__tests__/nodes/folderNumbers.test.ts`,
+`packages/communications/test/paths.test.mjs` (legacy section) and
+`apps/mcp/test/folderRoles.test.mjs`.

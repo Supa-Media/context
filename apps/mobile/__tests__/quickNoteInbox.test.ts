@@ -35,7 +35,7 @@ function data(role: string, root: Visibility, inbox?: Visibility, selectedPath: 
             { kind: "folder", path: "guides", name: "guides", visibility: "team", inherited: root, exception: root !== "team", readOnly: false },
             ...(inbox === undefined
               ? []
-              : [{ kind: "folder", path: "0-inbox", name: "0-inbox", visibility: inbox, inherited: root, exception: inbox !== root, readOnly: false }]),
+              : [{ kind: "folder", path: "inbox", name: "inbox", visibility: inbox, inherited: root, exception: inbox !== root, readOnly: false }]),
           ],
         },
       },
@@ -45,7 +45,7 @@ function data(role: string, root: Visibility, inbox?: Visibility, selectedPath: 
 
 describe("a quick note from Home", () => {
   test("an owner's goes to the Inbox, private or not", () => {
-    expect(quickNoteFolder(data("owner", "private"))).toBe("0-inbox");
+    expect(quickNoteFolder(data("owner", "private"))).toBe("inbox");
   });
 
   test("an editor with a private top and no Inbox is asked", () => {
@@ -54,11 +54,11 @@ describe("a quick note from Home", () => {
   });
 
   test("an Inbox shared with the editor takes the note", () => {
-    expect(quickNoteFolder(data("editor", "private", "team"))).toBe("0-inbox");
+    expect(quickNoteFolder(data("editor", "private", "team"))).toBe("inbox");
   });
 
   test("so does a top shared with them, which an absent Inbox would be", () => {
-    expect(quickNoteFolder(data("editor", "team"))).toBe("0-inbox");
+    expect(quickNoteFolder(data("editor", "team"))).toBe("inbox");
   });
 
   test("inside a folder it is that folder, whoever presses", () => {

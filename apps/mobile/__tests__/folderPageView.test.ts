@@ -78,18 +78,18 @@ const listing = (path: string, entries: FileEntry[]): FolderListing => ({
 });
 
 const NOTES: ListNote[] = [
-  { path: "1-projects/web/overview.md", updatedAt: 50, properties: { status: "active", owner: "Seyi" }, heading: "Website folder", lede: "Publish a folder as a site." },
-  { path: "1-projects/app/index.md", updatedAt: 40, properties: { status: "paused" } },
-  { path: "1-projects/do this/README.md", updatedAt: 30, properties: {}, lede: "Folder placeholder." },
-  { path: "1-projects/loose.md", updatedAt: 20, properties: {} },
+  { path: "projects/web/overview.md", updatedAt: 50, properties: { status: "active", owner: "Seyi" }, heading: "Website folder", lede: "Publish a folder as a site." },
+  { path: "projects/app/index.md", updatedAt: 40, properties: { status: "paused" } },
+  { path: "projects/do this/README.md", updatedAt: 30, properties: {}, lede: "Folder placeholder." },
+  { path: "projects/loose.md", updatedAt: 20, properties: {} },
 ];
 
-const PROJECTS = listing("1-projects", [
-  entry("folder", "1-projects/app"),
-  entry("folder", "1-projects/do this"),
-  entry("folder", "1-projects/web"),
-  entry("file", "1-projects/loose.md"),
-  entry("file", "1-projects/README.md"),
+const PROJECTS = listing("projects", [
+  entry("folder", "projects/app"),
+  entry("folder", "projects/do this"),
+  entry("folder", "projects/web"),
+  entry("file", "projects/loose.md"),
+  entry("file", "projects/README.md"),
 ]);
 
 type Write = [path: string, key: string, value: string | null, options: { create?: boolean } | undefined];
@@ -162,7 +162,7 @@ const rowNamed = (name: string) => all("folder-row").find((node) => strip(node.g
 
 describe("a folder whose children have statuses", () => {
   test("opens in List: the Notes rows, a dot on each task and none on a note", async () => {
-    await mount(entry("folder", "1-projects"), PROJECTS, host([]));
+    await mount(entry("folder", "projects"), PROJECTS, host([]));
     expect(one("folder-view-list").getAttribute("aria-selected")).toBe("true");
     expect(all("folder-row").map((node) => strip(node.textContent))).toEqual(["app", "do this", "web", "loose"]);
     // Nothing declared, so active and paused are In progress words.
@@ -176,12 +176,12 @@ describe("a folder whose children have statuses", () => {
 
   test("a card's status menu offers the folder's statuses in their groups", async () => {
     const writes: Write[] = [];
-    await mount(entry("folder", "1-projects"), PROJECTS, host(writes));
+    await mount(entry("folder", "projects"), PROJECTS, host(writes));
     await press(one("folder-view-board"));
     await press(statusOf(cardNamed("Website folder")));
     expect(strip(one("menu-root").textContent)).toMatch(/Not started.*No status.*backlog.*to do.*In progress.*in progress.*Done.*finished/);
     await press(one("menu-item-choice:4"));
-    expect(writes).toEqual([["1-projects/web/overview.md", "status", "finished", undefined]]);
+    expect(writes).toEqual([["projects/web/overview.md", "status", "finished", undefined]]);
   });
 
   test("a choice shows at once, and a refused one is taken back with the reason", async () => {
@@ -193,7 +193,7 @@ describe("a folder whose children have statuses", () => {
         setProperty: () => new Promise<string | null>((resolve) => (settle = resolve)),
       },
     };
-    await mount(entry("folder", "1-projects"), PROJECTS, refusing);
+    await mount(entry("folder", "projects"), PROJECTS, refusing);
     await press(one("folder-view-board"));
     await press(statusOf(cardNamed("Website folder")));
     await press(one("menu-item-choice:4"));
@@ -207,7 +207,7 @@ describe("a folder whose children have statuses", () => {
   });
 
   test("a member reads the same List with no control on it", async () => {
-    const view = await mount(entry("folder", "1-projects"), PROJECTS, host(null));
+    const view = await mount(entry("folder", "projects"), PROJECTS, host(null));
     expect(dotOf(rowNamed("web"))).toBe("status-dot-in-progress");
     expect(dots()).toHaveLength(2);
     expect(strip(view.container.textContent)).not.toContain("Set status");
@@ -218,7 +218,7 @@ describe("a folder whose children have statuses", () => {
 
 describe("the switch", () => {
   test("offers List and Board, and remembers the choice for this folder", async () => {
-    await mount(entry("folder", "1-projects"), PROJECTS, host([]));
+    await mount(entry("folder", "projects"), PROJECTS, host([]));
     expect(all("folder-view-switch")).toHaveLength(1);
     // Notes was a third word until the owner merged it into List (2026-10-14).
     expect(all("folder-view-files")).toHaveLength(0);
@@ -235,7 +235,7 @@ describe("the switch", () => {
     ]);
 
     roots.pop()!();
-    await mount(entry("folder", "1-projects"), PROJECTS, host([]));
+    await mount(entry("folder", "projects"), PROJECTS, host([]));
     expect(one("folder-view-board").getAttribute("aria-selected")).toBe("true");
     await press(one("folder-view-list"));
     expect(all("folder-row").length).toBeGreaterThan(0);
@@ -244,17 +244,17 @@ describe("the switch", () => {
 
   test("a folder somebody last saw as Notes opens in List, which is what Notes became", async () => {
     localStorage.setItem("context.folderView\u001fws_test\u001f1-projects", "files");
-    await mount(entry("folder", "1-projects"), PROJECTS, host([]));
+    await mount(entry("folder", "projects"), PROJECTS, host([]));
     expect(one("folder-view-list").getAttribute("aria-selected")).toBe("true");
     expect(dots()).toHaveLength(2);
   });
 });
 
 describe("a project folder's own page", () => {
-  const WEB = listing("1-projects/web", [entry("file", "1-projects/web/overview.md"), entry("file", "1-projects/web/dns.md")]);
+  const WEB = listing("projects/web", [entry("file", "projects/web/overview.md"), entry("file", "projects/web/dns.md")]);
 
   test("is titled by its front note and says its status and owner above its words", async () => {
-    const view = await mount(entry("folder", "1-projects/web"), WEB, host(null));
+    const view = await mount(entry("folder", "projects/web"), WEB, host(null));
     expect(strip(view.container.textContent)).toContain("Website folder");
     expect(strip(one("folder-property-line").textContent)).toMatch(/^active·Seyi·updated /);
     // Its words are the about note's opening, under the title (`folderAbout.test.ts`); this
@@ -267,36 +267,36 @@ describe("a project folder's own page", () => {
   });
 
   test("the title opens the front note", async () => {
-    const view = await mount(entry("folder", "1-projects/web"), WEB, host(null));
+    const view = await mount(entry("folder", "projects/web"), WEB, host(null));
     await press(one("folder-title-open"));
-    expect(view.selected).toEqual(["1-projects/web/overview.md"]);
+    expect(view.selected).toEqual(["projects/web/overview.md"]);
   });
 
   test("a writer changes the status in the front note it was read from", async () => {
     const writes: Write[] = [];
-    await mount(entry("folder", "1-projects/web"), WEB, host(writes));
+    await mount(entry("folder", "projects/web"), WEB, host(writes));
     await press(one("folder-property-status"));
     expect(strip(one("menu-root").textContent)).not.toContain("Saves to");
     await press(one("menu-item-choice:4"));
-    expect(writes).toEqual([["1-projects/web/overview.md", "status", "finished", undefined]]);
+    expect(writes).toEqual([["projects/web/overview.md", "status", "finished", undefined]]);
   });
 });
 
 describe("a plain folder", () => {
-  const DO_THIS = listing("1-projects/do this", [entry("file", "1-projects/do this/README.md")]);
+  const DO_THIS = listing("projects/do this", [entry("file", "projects/do this/README.md")]);
 
   test("shows a writer Set status, which creates about.md and says so first", async () => {
     const writes: Write[] = [];
-    await mount(entry("folder", "1-projects/do this"), DO_THIS, host(writes));
+    await mount(entry("folder", "projects/do this"), DO_THIS, host(writes));
     expect(strip(one("folder-property-line").textContent)).toBe("Set status");
     await press(one("folder-property-status"));
     expect(strip(one("menu-root").textContent)).toContain("Saves to about.md");
     await press(one("menu-item-choice:3"));
-    expect(writes).toEqual([["1-projects/do this/about.md", "status", "in progress", { create: true }]]);
+    expect(writes).toEqual([["projects/do this/about.md", "status", "in progress", { create: true }]]);
   });
 
   test("shows a member nothing to press", async () => {
-    const view = await mount(entry("folder", "1-projects/do this"), DO_THIS, host(null));
+    const view = await mount(entry("folder", "projects/do this"), DO_THIS, host(null));
     expect(all("folder-property-line")).toHaveLength(0);
     expect(strip(view.container.textContent)).not.toContain("Set status");
   });
@@ -306,13 +306,13 @@ describe("on a phone", () => {
   test("the same choice comes from a sheet", async () => {
     windowOf(390, 844);
     const writes: Write[] = [];
-    await mount(entry("folder", "1-projects"), PROJECTS, host(writes));
+    await mount(entry("folder", "projects"), PROJECTS, host(writes));
     expect(all("folder-view-switch")).toHaveLength(1);
     await press(one("folder-view-board"));
     await press(statusOf(cardNamed("Website folder")));
     expect(all("menu-sheet")).toHaveLength(1);
     await press(one("menu-item-choice:4"));
-    expect(writes).toEqual([["1-projects/web/overview.md", "status", "finished", undefined]]);
+    expect(writes).toEqual([["projects/web/overview.md", "status", "finished", undefined]]);
   });
 });
 
@@ -354,17 +354,17 @@ test("a project folder asks for its notes to be current when it opens; a folder 
   // Reported by the owner: a phone's List read "In progress 2" where the web read 9, its copy days behind.
   const freshened: string[] = [];
   const asking = (): FolderPageHost => ({ ...host([]), source: { load: async () => ({ notes: [], complete: true }), freshen: (at: string) => freshened.push(at) } });
-  await mount(entry("folder", "1-projects"), listing("1-projects", []), asking());
+  await mount(entry("folder", "projects"), listing("projects", []), asking());
   await mount(entry("folder", "2-areas"), listing("2-areas", []), asking());
-  expect(freshened).toEqual(["1-projects"]);
+  expect(freshened).toEqual(["projects"]);
 });
 
 describe("a folder of folders nobody has tracked yet", () => {
   const UNTRACKED: ListNote[] = [
-    { path: "1-projects/trip/overview.md", updatedAt: 5, properties: {} },
-    { path: "1-projects/rhythm/overview.md", updatedAt: 6, properties: { priority: "high" } },
+    { path: "projects/trip/overview.md", updatedAt: 5, properties: {} },
+    { path: "projects/rhythm/overview.md", updatedAt: 6, properties: { priority: "high" } },
   ];
-  const LIST = listing("1-projects", [entry("folder", "1-projects/trip"), entry("folder", "1-projects/rhythm")]);
+  const LIST = listing("projects", [entry("folder", "projects/trip"), entry("folder", "projects/rhythm")]);
   const untracked = (writes: Write[] = []): FolderPageHost => ({
     ...host(writes),
     source: { ...host(writes).source, load: async () => ({ notes: UNTRACKED, complete: true }) },
@@ -372,7 +372,7 @@ describe("a folder of folders nobody has tracked yet", () => {
 
   test("opens in List with no nudge: every folder is a project with no status yet", async () => {
     const writes: Write[] = [];
-    await mount(entry("folder", "1-projects"), LIST, untracked(writes));
+    await mount(entry("folder", "projects"), LIST, untracked(writes));
     expect(one("folder-view-list").getAttribute("aria-selected")).toBe("true");
     // There was a "Track these folders by status?" line, which only switched to List; List is where it opens now.
     expect(all("folder-nudge")).toHaveLength(0);
@@ -385,7 +385,7 @@ describe("a folder of folders nobody has tracked yet", () => {
   });
 
   test("a member is offered nothing to press on the rows", async () => {
-    await mount(entry("folder", "1-projects"), LIST, { ...host(null), source: { load: async () => ({ notes: UNTRACKED, complete: true }) } });
+    await mount(entry("folder", "projects"), LIST, { ...host(null), source: { load: async () => ({ notes: UNTRACKED, complete: true }) } });
     expect(all("folder-row")).toHaveLength(2);
     expect(all("folder-row-status")).toHaveLength(0);
     // The empty circle is still drawn, so the rows say what they are; there is just nothing to press.
@@ -427,12 +427,12 @@ describe("the board", () => {
 
   test("a card dropped on another column takes that status, at once and through the same write as the menu", async () => {
     const writes: Write[] = [];
-    await mount(entry("folder", "1-projects"), PROJECTS, host(writes));
+    await mount(entry("folder", "projects"), PROJECTS, host(writes));
     await press(one("folder-view-board"));
     expect(cardNamed("Website folder").getAttribute("draggable")).toBe("true");
     const over = await dragOnto("Website folder", "Finished");
     expect(over.defaultPrevented).toBe(true);
-    expect(writes).toEqual([["1-projects/web/overview.md", "status", "finished", undefined]]);
+    expect(writes).toEqual([["projects/web/overview.md", "status", "finished", undefined]]);
     expect(cardIn("Finished")).toContain("Website folder");
     // Active was only a column because something used it; nothing does now.
     expect(column("Active")).toBeUndefined();
@@ -440,15 +440,15 @@ describe("the board", () => {
 
   test("a folder's card moves by writing its front note, whichever it is, as the menu does", async () => {
     const writes: Write[] = [];
-    await mount(entry("folder", "1-projects"), PROJECTS, host(writes));
+    await mount(entry("folder", "projects"), PROJECTS, host(writes));
     await press(one("folder-view-board"));
     await dragOnto("app", "Finished");
-    expect(writes).toEqual([["1-projects/app/index.md", "status", "finished", undefined]]);
+    expect(writes).toEqual([["projects/app/index.md", "status", "finished", undefined]]);
   });
 
   test("draws tasks only, and dropping where a card already is writes nothing", async () => {
     const writes: Write[] = [];
-    await mount(entry("folder", "1-projects"), PROJECTS, host(writes));
+    await mount(entry("folder", "projects"), PROJECTS, host(writes));
     await press(one("folder-view-board"));
     // `do this` and `loose` have no status: notes, not cards, and there is no No status column.
     expect(all("folder-card-drag").map((node) => strip(node.textContent))).toEqual([
@@ -465,7 +465,7 @@ describe("the board", () => {
       ...host([]),
       source: { load: async () => ({ notes: NOTES, complete: true }), setProperty: async () => "You can read that note but not change it." },
     };
-    await mount(entry("folder", "1-projects"), PROJECTS, refusing);
+    await mount(entry("folder", "projects"), PROJECTS, refusing);
     await press(one("folder-view-board"));
     await dragOnto("Website folder", "Finished");
     expect(cardIn("Active")).toContain("Website folder");
@@ -478,7 +478,7 @@ describe("the board", () => {
       ...host([]),
       source: { load: async () => ({ notes: NOTES, complete: true }), setProperty: () => new Promise((resolve) => (answer = resolve)) },
     };
-    await mount(entry("folder", "1-projects"), PROJECTS, slow);
+    await mount(entry("folder", "projects"), PROJECTS, slow);
     await press(one("folder-view-board"));
     await dragOnto("Website folder", "Finished");
     expect(strip(one("folder-saving").textContent)).toBe("Saving…");
@@ -488,17 +488,17 @@ describe("the board", () => {
 
   test("a drag that is not a card is not taken", async () => {
     const writes: Write[] = [];
-    await mount(entry("folder", "1-projects"), PROJECTS, host(writes));
+    await mount(entry("folder", "projects"), PROJECTS, host(writes));
     await press(one("folder-view-board"));
     const stranger = drag("dragover", new Map([["Files", "x"]]));
     await act(async () => void column("Finished").dispatchEvent(stranger));
     expect(stranger.defaultPrevented).toBe(false);
-    await act(async () => void column("Finished").dispatchEvent(drag("drop", new Map([["text/plain", "1-projects/loose.md"]]))));
+    await act(async () => void column("Finished").dispatchEvent(drag("drop", new Map([["text/plain", "projects/loose.md"]]))));
     expect(writes).toEqual([]);
   });
 
   test("every card a writer sees has its status button, drawn, so a keyboard or a phone can move it", async () => {
-    await mount(entry("folder", "1-projects"), PROJECTS, host([]));
+    await mount(entry("folder", "projects"), PROJECTS, host([]));
     await press(one("folder-view-board"));
     const buttons = all("folder-card-status");
     expect(buttons).toHaveLength(2);
@@ -509,12 +509,12 @@ describe("the board", () => {
   });
 
   test("a member's cards do not move and have no button", async () => {
-    await mount(entry("folder", "1-projects"), PROJECTS, host(null));
+    await mount(entry("folder", "projects"), PROJECTS, host(null));
     await press(one("folder-view-board"));
     expect(all("folder-card-drag").every((node) => node.getAttribute("draggable") === "false")).toBe(true);
     expect(all("folder-card-status")).toHaveLength(0);
     expect(all("folder-board-column").map((node) => node.getAttribute("aria-label"))).toEqual(["To do, 0", "In progress, 0", "Active, 1", "Paused, 1", "Finished, 0"]);
-    const data = new Map<string, string>([["application/x-context-folder-card", "1-projects/loose.md"]]);
+    const data = new Map<string, string>([["application/x-context-folder-card", "projects/loose.md"]]);
     const over = drag("dragover", data);
     await act(async () => void column("Active").dispatchEvent(over));
     expect(over.defaultPrevented).toBe(false);
@@ -531,8 +531,8 @@ describe("the board", () => {
  * it last under No group yet; the List no longer groups, 2026-10-10.)
  */
 describe("a word nobody placed", () => {
-  const UNPLACED: ListNote[] = [...NOTES, { path: "1-projects/research.md", updatedAt: 10, properties: { status: "exploration" } }];
-  const RESEARCH = listing("1-projects", [...PROJECTS.entries, entry("file", "1-projects/research.md")]);
+  const UNPLACED: ListNote[] = [...NOTES, { path: "projects/research.md", updatedAt: 10, properties: { status: "exploration" } }];
+  const RESEARCH = listing("projects", [...PROJECTS.entries, entry("file", "projects/research.md")]);
   type ListWrite = [path: string, changes: readonly (readonly [string, unknown])[]];
   function placing(writes: Write[] | null, lists: ListWrite[] = []): FolderPageHost {
     const base = host(writes);
@@ -554,7 +554,7 @@ describe("a word nobody placed", () => {
   }
 
   test("on the board, it is the last column, with Choose group in its own head and nowhere else", async () => {
-    const view = await mount(entry("folder", "1-projects"), RESEARCH, placing([]));
+    const view = await mount(entry("folder", "projects"), RESEARCH, placing([]));
     await press(one("folder-view-board"));
     // Its column comes after Done.
     expect(all("folder-board-column").map((node) => node.getAttribute("aria-label")).at(-1)).toBe("Exploration, 1");
@@ -568,7 +568,7 @@ describe("a word nobody placed", () => {
   test("Choose group adds it to the folder's list in that group, and its note keeps its word", async () => {
     const writes: Write[] = [];
     const lists: ListWrite[] = [];
-    await mount(entry("folder", "1-projects"), RESEARCH, placing(writes, lists));
+    await mount(entry("folder", "projects"), RESEARCH, placing(writes, lists));
     await press(one("folder-view-board"));
     await press(one("folder-choose-group"));
     await press(one("menu-item-to:not-started"));
@@ -579,7 +579,7 @@ describe("a word nobody placed", () => {
   });
 
   test("a member sees its column with nothing to press", async () => {
-    await mount(entry("folder", "1-projects"), RESEARCH, placing(null));
+    await mount(entry("folder", "projects"), RESEARCH, placing(null));
     await press(one("folder-view-board"));
     expect(all("folder-board-column").map((node) => node.getAttribute("aria-label")).at(-1)).toBe("Exploration, 1");
     expect(all("folder-choose-group")).toHaveLength(0);
@@ -587,7 +587,7 @@ describe("a word nobody placed", () => {
 
   test("Edit statuses lists the words in use, and merging one asks with the count first", async () => {
     const writes: Write[] = [];
-    await mount(entry("folder", "1-projects"), RESEARCH, placing(writes));
+    await mount(entry("folder", "projects"), RESEARCH, placing(writes));
     await press(one("folder-view-board"));
     await press(one("folder-choose-group"));
     await press(one("menu-item-edit"));
@@ -601,7 +601,7 @@ describe("a word nobody placed", () => {
     expect(strip(one("statuses-confirm").textContent)).toContain("1 note uses “active”. Merging changes their status to “in progress”.");
     expect(writes).toEqual([]);
     await press(one("statuses-confirm-go"));
-    expect(writes).toEqual([["1-projects/web/overview.md", "status", "in progress", undefined]]);
+    expect(writes).toEqual([["projects/web/overview.md", "status", "in progress", undefined]]);
   });
 });
 
@@ -640,7 +640,7 @@ describe("opening a board before the device has the folder's notes", () => {
 
   test("holds an empty place, then draws every card where it belongs, once", async () => {
     const { page, arrive } = arriving();
-    await mount(entry("folder", "1-projects"), PROJECTS, page);
+    await mount(entry("folder", "projects"), PROJECTS, page);
     await press(one("folder-view-board"));
     expect(all("folder-waiting")).toHaveLength(1);
     expect(all("folder-card")).toHaveLength(0);
@@ -658,7 +658,7 @@ describe("opening a board before the device has the folder's notes", () => {
 
   test("draws what it has once it has waited long enough", async () => {
     const { page } = arriving();
-    await mount(entry("folder", "1-projects"), PROJECTS, page);
+    await mount(entry("folder", "projects"), PROJECTS, page);
     await press(one("folder-view-board"));
     expect(all("folder-waiting")).toHaveLength(1);
     await act(async () => new Promise((resolve) => setTimeout(resolve, SETTLE_AFTER + 50)));
