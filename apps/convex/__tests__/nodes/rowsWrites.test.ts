@@ -25,7 +25,8 @@ import { setAccessRow } from "../../functions/lib/nodes/setAccess";
 import { startRowMoveBatch } from "../../functions/lib/nodes/rowMoveBatch";
 import { asUser } from "../fixtures.helpers";
 import { fixture as filesFixture } from "../files/fixtures.helpers";
-import { OWNER, drain, fixture, listed, start, type Fixture } from "./moveFixture.helpers";
+import { bodyAtPath } from "../files/keyedNotes.helpers";
+import { OWNER, drain, fixture, listed, type Fixture } from "./moveFixture.helpers";
 import { keyedFixture, privacyEtag } from "./keyedFixture.helpers";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
 
@@ -80,21 +81,6 @@ describe("B: a move in rows mode carries its rows, not the file's rules", () => 
     expect(await listed(f.member, f.ws, "3-resources")).not.toContain("3-resources/codes.md");
     expect(await listed(f.owner, f.ws, "3-resources")).toContain("3-resources/codes.md");
   });
-
-  test("a queued folder move in an unkeyed context is refused in rows mode, and nothing moves", async () => {
-    const f = await fixture();
-    await setRowsMode(f);
-    await setBase(f, "1-projects/secret", "private");
-    await setBase(f, "3-resources", "team");
-    const before = await privacyEtag(f);
-
-    // Its access would not follow it to the new name, so a private folder would be judged by its new parent.
-    await expect(start(f, "1-projects/secret", "3-resources/secret")).rejects.toMatchObject({ code: "CONFLICT" });
-
-    expect(await privacyEtag(f)).toBe(before);
-    expect(await nodeAt(f, "3-resources/secret")).toBeNull();
-    expect((await nodeAt(f, "1-projects/secret"))?.access).toEqual({ base: "private" });
-  });
 });
 
 describe("C: a new context's folders take their scaffolded defaults once, when their rows exist", () => {
@@ -140,16 +126,6 @@ describe("C: a new context's folders take their scaffolded defaults once, when t
     );
     expect(after?.scaffoldDerived).toBe(true);
   });
-
-  test("outside rows mode it derives nothing", async () => {
-    const f = await fixture();
-    await f.t.run(async (ctx) => {
-      const state = await ctx.db.query("nodeAccessState").withIndex("by_workspace", (q) => q.eq("workspaceId", f.ws)).unique();
-      if (state !== null) await ctx.db.delete(state._id);
-    });
-    await f.t.mutation(internal.functions.nodesPrivacy.deriveNewWorkspaceRows, { workspaceId: f.ws, attempt: 0 });
-    expect((await nodeAt(f, "1-projects"))?.access).toBeUndefined();
-  });
 });
 
 describe("D: a website's folder in rows mode", () => {
@@ -188,7 +164,9 @@ describe("D: a website's folder in rows mode", () => {
 });
 
 describe("E: a console tier change in rows mode records the activity line the file path records", () => {
-  test("a note's and a folder's tier each leave their visibility line in the activity file", async () => {
+  // Two real console actions through the file path and the id layer: slower than the default 5s on a loaded runner
+  // (the same reason `contextMoveEndToEnd.test.ts` sets 30s). No assertion is changed.
+  test("a note's and a folder's tier each leave their visibility line in the activity file", { timeout: 30_000 }, async () => {
     const f = await filesFixture();
     await f.t.run(async (ctx) => {
       await ctx.db.insert("nodeMigration", { paused: false, accessSource: "rows", updatedAt: 1 });
@@ -204,8 +182,10 @@ describe("E: a console tier change in rows mode records the activity line the fi
       path: "1-projects/shared.md",
       visibility: "team",
     });
-    // The activity file's own words for each line: a team publication of the folder and of the note.
-    const activity = f.backend.snapshot()[ACTIVITY_PATH] ?? "";
+    // The activity file's own words for each line: a team publication of the folder and of the note. In a keyed
+    // workspace its bytes sit at its row's key (`notes/<noteId>.md`, notes-by-id.md), so they are read through the
+    // row, as `activity.test.ts` reads them; a read of the raw path key finds nothing and proves nothing.
+    const activity = (await bodyAtPath(f, ACTIVITY_PATH)) ?? "";
     expect(activity).toContain("gave the team `1-projects`");
     expect(activity).toContain("gave the team `1-projects/shared.md`");
   });

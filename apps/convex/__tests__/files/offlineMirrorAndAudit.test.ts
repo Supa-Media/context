@@ -1,7 +1,5 @@
 import { describe, expect, test } from "vitest";
 import { api } from "../../_generated/api";
-import { DELETE_CONFIRMATION } from "../../functions/lib/fileOps";
-import { PRIVACY_KEY } from "../../functions/lib/privacy";
 import { ACTIVITY_PATH } from "@context/shared/src/activity.cjs";
 import {
   asUser,
@@ -26,7 +24,7 @@ import {
  * the caller's, and that the answers are the same ones `listFiles` and
  * `readNote` give.
  */
-describe("the offline mirror sees exactly what its reader may", () => {
+describe("the offline mirror sees exactly what its reader may", { timeout: 60_000 }, () => {
   test("an owner's manifest and a member's differ by exactly the private half", async () => {
     const f = await fixture();
     await share(f);
@@ -50,7 +48,6 @@ describe("the offline mirror sees exactly what its reader may", () => {
         "2-areas/private-note.md",
         ACTIVITY_PATH,
         "index.md",
-        PRIVACY_KEY,
       ].sort(),
     );
     expect(member.entries.map((entry) => entry.path)).toEqual([
@@ -64,7 +61,6 @@ describe("the offline mirror sees exactly what its reader may", () => {
     const rendered = JSON.stringify(member);
     expect(rendered).not.toContain("private-note");
     expect(rendered).not.toContain(`"${hidden.etag}"`);
-    expect(rendered).not.toContain(PRIVACY_KEY);
   });
 
   test("a manifest's etag is the one readNote returns, so a sync can skip what it already has", async () => {
@@ -159,7 +155,7 @@ describe("the offline mirror sees exactly what its reader may", () => {
  * fixture that puts them in separate ones proves nothing: the refusal would
  * then come from the row not existing rather than from the gate.
  */
-describe("a member cannot recover a hidden path out of the audit trail", () => {
+describe("a member cannot recover a hidden path out of the audit trail", { timeout: 60_000 }, () => {
   const HIDDEN = "2-areas/deals/acquisition-of-acme.md";
   const SIBLING = "2-areas/deals/acquisition-of-acme-terms.md";
 
@@ -226,13 +222,14 @@ describe("a member cannot recover a hidden path out of the audit trail", () => {
    * a private folder used to write every private note in it onto a row the
    * member reads.
    */
-  test("nor every private sibling out of a folder delete", async () => {
+  test("nor every private sibling out of a folder trash", async () => {
     const f = await attackFixture();
-    await asUser(f.t, f.owner).action(api.functions.files.deleteEntry, {
+    // A keyed workspace takes nothing permanently, so the folder goes to the
+    // trash, which records the same paths the delete used to.
+    await asUser(f.t, f.owner).action(api.functions.files.trashEntry, {
       workspaceId: f.workspaceId,
-      // A subfolder: `2-areas` itself is built in and cannot be deleted.
+      // A subfolder: `2-areas` itself is built in and cannot be trashed.
       path: "2-areas/deals",
-      confirmation: DELETE_CONFIRMATION,
     });
     const dump = await memberSees(f);
     expect(dump).not.toContain(HIDDEN);

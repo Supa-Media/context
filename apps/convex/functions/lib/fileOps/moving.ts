@@ -60,6 +60,8 @@ export interface MoveResult {
    * nothing was copied, and `queued` counts the files that moved.
    */
   rowed?: true;
+  /** Set with `rowed`: each moved note's collaboration history already follows it (`nodes/rowHistory.ts`). */
+  historyCarried?: true;
   /**
    * The files a keyed row move renamed, each at its old and new path, so the
    * gateway can carry their collaboration heads and state along

@@ -30,7 +30,13 @@ import { describe, expect, test } from "vitest";
 import { api } from "../_generated/api";
 import { asUser, drainScheduled } from "./fixtures.helpers";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { keysUnder, pair as pairOf, recopyTree } from "./contextMove.helpers";
+import {
+  bodyOfRow,
+  liveFileAt,
+  liveFilesUnder,
+  pair as pairOf,
+  writeAs,
+} from "./contextMove.helpers";
 
 // Durable lifecycle writes add real SigV4/crypto requests per note. Keep this
 // multi-batch integration test bounded without the unit-suite 5-second ceiling.
@@ -39,8 +45,8 @@ import { keysUnder, pair as pairOf, recopyTree } from "./contextMove.helpers";
   without a mover does, and by the gateway's mover, which is what ours runs.
 */
 describe.each([
-  { carrier: "this deployment", mover: false },
-  { carrier: "the gateway's mover", mover: true },
+  { carrier: "this deployment, no mover configured", mover: false },
+  { carrier: "this deployment, with the gateway's mover configured", mover: true },
 ])("a folder moved from one context into another, carried by $carrier", { timeout: 30_000 }, ({ mover }) => {
   const pair = (options: Parameters<typeof pairOf>[0] = {}) => pairOf({ ...options, mover });
 
@@ -62,22 +68,23 @@ describe.each([
     expect([row?.status, row?.error]).toEqual(["complete", undefined]);
     expect(row?.movedObjects).toBe(55);
     expect(row?.skipped).toEqual([]);
+    // Keyed ends are never handed to the gateway's mover, which carries bucket paths only.
+    expect(p.opened).toEqual([]);
 
-    // Every note is in the destination, under the new prefix, with its body.
-    expect((await keysUnder(p.destination, "work/acme/")).length).toBe(55);
-    expect(p.destination.objects.get("work/acme/note-000.md")?.body).toBe("# 0\n");
-    expect(p.destination.objects.get("work/acme/note-054.md")?.body).toBe("# 54\n");
+    // Every note is in the destination, under the new prefix, with its body at its own key.
+    expect((await liveFilesUnder(p.t, p.to, "work/acme/")).length).toBe(55);
+    expect(bodyOfRow(p.destination, await liveFileAt(p.t, p.to, "work/acme/note-000.md"))).toBe("# 0\n");
+    expect(bodyOfRow(p.destination, await liveFileAt(p.t, p.to, "work/acme/note-054.md"))).toBe("# 54\n");
 
-    // And none is in the source. A copy-then-delete that skipped the delete
+    // And none is live in the source. A copy-then-delete that skipped the delete
     // reads as a complete move from the destination alone.
-    expect((await keysUnder(p.source, "1-projects/acme/"))).toEqual([]);
-    const retired = p.source.objects.get("1-projects/acme/note-000.md");
-    expect(retired?.contentType).toBe("application/x-context-logical-tombstone");
-    expect(retired?.body).not.toContain("# 0");
-    expect(p.source.requests.some((request) => request.method === "DELETE" && request.key.startsWith("1-projects/acme/"))).toBe(false);
-    // What was outside the folder is untouched, in both buckets.
-    expect(p.source.objects.has("1-projects/README.md")).toBe(true);
-    expect(p.destination.objects.has("work/README.md")).toBe(true);
+    expect(await liveFilesUnder(p.t, p.from, "1-projects/acme/")).toEqual([]);
+    expect((await liveFilesUnder(p.t, p.from, ".context/trash/")).length).toBe(55);
+    // The source's bytes stay at their keys (the trash restores them): no note's key is deleted.
+    expect(p.source.requests.some((request) => request.method === "DELETE" && request.key.startsWith("notes/"))).toBe(false);
+    // What was outside the folder is untouched, in both contexts.
+    expect(await liveFileAt(p.t, p.from, "1-projects/README.md")).not.toBeNull();
+    expect(await liveFileAt(p.t, p.to, "work/README.md")).not.toBeNull();
   });
 
   test("a folder bigger than one pass keeps going across scheduled passes", async () => {
@@ -114,8 +121,28 @@ describe.each([
     // tell from a slow one.
     expect([row?.status, row?.error]).toEqual(["complete", undefined]);
     expect(row?.movedObjects).toBe(250);
-    expect((await keysUnder(p.destination, "work/acme/")).length).toBe(250);
-    expect((await keysUnder(p.source, "1-projects/acme/"))).toEqual([]);
+    expect((await liveFilesUnder(p.t, p.to, "work/acme/")).length).toBe(250);
+    expect(await liveFilesUnder(p.t, p.from, "1-projects/acme/")).toEqual([]);
+    // Measured in this suite: about 100 seconds per arm for 250 notes, against about 5 for 55.
+  }, 300_000);
+
+  test("a note encrypted to its own context stays there, named", async () => {
+    const p = await pair({ notes: 2, into: "own" });
+    await writeAs(p, p.mover, p.from, "1-projects/acme/secret.md", "---\ncontext_encryption: v1\n---\n\nAAAAAAAAAAAAAAAA\n");
+
+    const { moveId } = await asUser(p.t, p.mover).action(api.functions.contextMoves.startContextMove, {
+      sourceWorkspaceId: p.from,
+      from: "1-projects/acme",
+      destinationWorkspaceId: p.to,
+      to: "work/acme",
+    });
+    await drainScheduled(p.t);
+
+    const row = await p.t.run((ctx) => ctx.db.get(moveId));
+    expect([row?.status, row?.error, row?.movedObjects]).toEqual(["complete", undefined, 2]);
+    expect(row?.skipped).toEqual([{ path: "1-projects/acme/secret.md", reason: "encrypted" }]);
+    expect((await liveFilesUnder(p.t, p.from, "1-projects/acme/")).map((row) => row.path)).toEqual(["1-projects/acme/secret.md"]);
+    expect(await liveFileAt(p.t, p.to, "work/acme/secret.md")).toBeNull();
   });
 
   test("the source's manifest forgets the folder and the destination's is untouched", async () => {
@@ -146,7 +173,7 @@ describe.each([
     */
     const row = await p.t.run((ctx) => ctx.db.get(moveId));
     expect([row?.status, row?.error]).toEqual(["complete", undefined]);
-    expect((await keysUnder(p.destination, "work/acme/")).length).toBe(3);
+    expect((await liveFilesUnder(p.t, p.to, "work/acme/")).length).toBe(3);
 
     expect(p.destination.objects.get(PRIVACY_KEY)!.body).toBe(destinationManifestBefore);
     expect(p.source.objects.get(PRIVACY_KEY)!.body).not.toContain("1-projects/acme");
@@ -233,8 +260,7 @@ describe.each([
 
   test("a move onto a folder the destination already has is refused, and nothing moves", async () => {
     const p = await pair({ notes: 4 });
-    p.destination.seed("work/acme/theirs.md", "# theirs\n");
-    await recopyTree(p.t, p.to);
+    await writeAs(p, p.mover, p.to, "work/acme/theirs.md", "# theirs\n");
 
     const { moveId } = await asUser(p.t, p.mover).action(
       api.functions.contextMoves.startContextMove,
@@ -250,8 +276,8 @@ describe.each([
     const row = await p.t.run((ctx) => ctx.db.get(moveId));
     expect(row?.status).toBe("failed");
     expect(row?.movedObjects).toBe(0);
-    expect((await keysUnder(p.source, "1-projects/acme/")).length).toBe(4);
-    expect((await keysUnder(p.destination, "work/acme/"))).toEqual(["work/acme/theirs.md"]);
+    expect((await liveFilesUnder(p.t, p.from, "1-projects/acme/")).length).toBe(4);
+    expect((await liveFilesUnder(p.t, p.to, "work/acme/")).map((row) => row.path)).toEqual(["work/acme/theirs.md"]);
   });
 
   test("a move of a path that is not there fails rather than reporting success", async () => {
@@ -296,19 +322,22 @@ describe.each([
     await drainScheduled(p.t);
     expect(await p.t.run(async (ctx) => (await ctx.db.get(moveId))?.status)).toBe("complete");
 
-    // Put three of them back in the source, as a half-finished move leaves
-    // them, and mark the row failed the way a dead pass does.
+    // Put three of them back in the source, as a half-finished move leaves them:
+    // each moves back through the product, so both trees are what a real pass left.
     for (let index = 0; index < 3; index += 1) {
-      const key = `work/acme/note-${String(index).padStart(3, "0")}.md`;
-      p.source.seed(key.replace("work/acme", "1-projects/acme"), `# ${index}\n`);
-      p.destination.objects.delete(key);
+      const name = `note-${String(index).padStart(3, "0")}.md`;
+      await asUser(p.t, p.mover).action(api.functions.contextMoves.startContextMove, {
+        sourceWorkspaceId: p.to,
+        from: `work/acme/${name}`,
+        destinationWorkspaceId: p.from,
+        to: `1-projects/acme/${name}`,
+      });
+      await drainScheduled(p.t);
     }
+    // And the row is marked failed the way a dead pass does.
     await p.t.run((ctx) =>
       ctx.db.patch(moveId, { status: "failed", movedObjects: 3, error: "stopped" }),
     );
-    // Both trees as that half-finished move leaves them.
-    await recopyTree(p.t, p.from);
-    await recopyTree(p.t, p.to);
 
     await asUser(p.t, p.mover).action(api.functions.contextMoves.resumeContextMove, { moveId });
     await drainScheduled(p.t);
@@ -318,7 +347,7 @@ describe.each([
     // Six in total, not nine: the three that had already crossed are not
     // counted twice, because they are not in the source to be found.
     expect(row?.movedObjects).toBe(6);
-    expect((await keysUnder(p.source, "1-projects/acme/"))).toEqual([]);
-    expect((await keysUnder(p.destination, "work/acme/")).length).toBe(6);
+    expect(await liveFilesUnder(p.t, p.from, "1-projects/acme/")).toEqual([]);
+    expect((await liveFilesUnder(p.t, p.to, "work/acme/")).length).toBe(6);
   });
 });

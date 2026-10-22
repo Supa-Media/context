@@ -19,9 +19,12 @@
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../../_generated/api";
-import { addMember, copyTree, createUser, gatewayPost } from "../fixtures.helpers";
-import { fixture, publish } from "../website.helpers";
+import { addMember, createUser, gatewayPost } from "../fixtures.helpers";
+import { fixture, publish, writeNote } from "../website.helpers";
 import { bodyOf, registerClient, seedConnectedClient, token } from "./fixtures.helpers";
+
+// Each test keys a workspace and runs its tree to the end, which takes longer than the default five seconds.
+vi.setConfig({ testTimeout: 30_000 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -80,7 +83,7 @@ const aboutText = (f: Awaited<ReturnType<typeof siteFixture>>) =>
 describe("/gateway/site", () => {
   test("a member, a stranger and a forged token get the bare null, and nothing is published", async () => {
     const f = await siteFixture();
-    f.backend.seed("website/about.md", "---\ntitle: About\nnav: 2\n---\n\nSecond words\n");
+    await writeNote(f, "website/about.md", "---\ntitle: About\nnav: 2\n---\n\nSecond words\n");
     for (const accessToken of [MEMBER, STRANGER, token("site_forged")]) {
       expect(await site(f, accessToken, { action: "status" })).toBeNull();
       expect(await site(f, accessToken, { action: "publish" })).toBeNull();
@@ -96,7 +99,7 @@ describe("/gateway/site", () => {
     expect(before!.draft).toMatch(/^[0-9a-f]{16}$/);
     expect(before!.pages.filter((page) => page.changed)).toEqual([]);
 
-    f.backend.seed("website/about.md", "---\ntitle: About\nnav: 2\n---\n\nSecond words\n");
+    await writeNote(f, "website/about.md", "---\ntitle: About\nnav: 2\n---\n\nSecond words\n");
     const after = await site(f, EDITOR, { action: "status" });
     expect(after!.draft).not.toBe(before!.draft);
     expect(after!.pages.filter((page) => page.changed).map((page) => page.path)).toEqual(["website/about.md"]);
@@ -106,8 +109,7 @@ describe("/gateway/site", () => {
 
   test("status names the app's Website settings and each page, for a person to open and write", async () => {
     const f = await siteFixture();
-    f.backend.seed("website/our story.md", "---\ntitle: Our story\n---\n\nWords\n");
-    await copyTree(f.t, f.workspaceId);
+    await writeNote(f, "website/our story.md", "---\ntitle: Our story\n---\n\nWords\n");
     const status = await site(f, EDITOR, { action: "status" });
     expect(status!.settingsUrl).toBe("https://context.lc/console/@atlas?settings=website");
     const editUrls = Object.fromEntries(
@@ -119,12 +121,12 @@ describe("/gateway/site", () => {
 
   test("publish releases the draft it was checked against, and a stale draft is a conflict", async () => {
     const f = await siteFixture();
-    f.backend.seed("website/about.md", "---\ntitle: About\nnav: 2\n---\n\nSecond words\n");
+    await writeNote(f, "website/about.md", "---\ntitle: About\nnav: 2\n---\n\nSecond words\n");
     const checked = await site(f, EDITOR, { action: "status" });
 
     // Somebody saves again after the agent looked: its publish must not
     // release words it never saw.
-    f.backend.seed("website/about.md", "---\ntitle: About\nnav: 2\n---\n\nThird words\n");
+    await writeNote(f, "website/about.md", "---\ntitle: About\nnav: 2\n---\n\nThird words\n");
     const stale = await site(f, EDITOR, { action: "publish", draft: checked!.draft });
     expect(stale).toMatchObject({ published: false, conflict: true });
     expect(stale!.draft).not.toBe(checked!.draft);
@@ -144,18 +146,16 @@ describe("/gateway/site", () => {
     // A design note is drawn into every page, so a change to it is as much a
     // change to what Publish releases as a page's own words.
     const f = await siteFixture();
-    f.backend.seed("website/site.css.md", "```css\nbody { color: red; }\n```\n");
-    await copyTree(f.t, f.workspaceId);
+    await writeNote(f, "website/site.css.md", "```css\nbody { color: red; }\n```\n");
     const checked = await site(f, EDITOR, { action: "status" });
-    f.backend.seed("website/site.css.md", "```css\nbody { color: blue; }\n```\n");
-    await copyTree(f.t, f.workspaceId);
+    await writeNote(f, "website/site.css.md", "```css\nbody { color: blue; }\n```\n");
     const stale = await site(f, EDITOR, { action: "publish", draft: checked!.draft });
     expect(stale).toMatchObject({ published: false, conflict: true });
   });
 
   test("an owner's team connection publishes without a draft, and the audit names person and connection", async () => {
     const f = await siteFixture();
-    f.backend.seed("website/about.md", "---\ntitle: About\nnav: 2\n---\n\nSecond words\n");
+    await writeNote(f, "website/about.md", "---\ntitle: About\nnav: 2\n---\n\nSecond words\n");
     expect(await site(f, OWNER_TEAM, { action: "publish" })).toMatchObject({ published: true });
     expect(await aboutText(f)).toBe("Second words\n");
 
@@ -170,9 +170,8 @@ describe("/gateway/site", () => {
 
   test("a page with a problem is reported with its path, and nothing is released", async () => {
     const f = await siteFixture();
-    f.backend.seed("website/about.md", "---\ntitle: About\nnav: 2\n---\n\nSecond words\n");
-    f.backend.seed("website/broken.md", "---\ntitle: Broken\naudience: everyone\n---\n\nBroken\n");
-    await copyTree(f.t, f.workspaceId);
+    await writeNote(f, "website/about.md", "---\ntitle: About\nnav: 2\n---\n\nSecond words\n");
+    await writeNote(f, "website/broken.md", "---\ntitle: Broken\naudience: everyone\n---\n\nBroken\n");
     const status = await site(f, EDITOR, { action: "status" });
     expect(status!.pages.find((page) => page.path === "website/broken.md")!.problems.length).toBeGreaterThan(0);
     const result = await site(f, EDITOR, { action: "publish" });

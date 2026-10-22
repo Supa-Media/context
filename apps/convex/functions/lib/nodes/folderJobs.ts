@@ -35,6 +35,7 @@ import {
   jobPath,
 } from "@context/shared/src/folderRoles.cjs";
 import { MEETINGS_FOLDER } from "../../../../../packages/meetings/src/paths.js";
+import { TRASH_ROOT } from "../fileOps/store";
 
 function lastSegment(path: string): string {
   const slash = path.lastIndexOf("/");
@@ -44,13 +45,22 @@ function lastSegment(path: string): string {
 /** Root rows read to decide a name's job: far past any real root, a bound on a loop. */
 const ROOT_ROWS = 2_000;
 
+/**
+ * A row under the trash is no longer doing its job: a trashed Tex folder is
+ * nobody's Tex folder, so its routines stop (`routinesTexRoot.test.ts`). The
+ * role stays on the row, so a Restore brings the job back with the folder.
+ */
+function inTrash(row: Doc<"nodes">): boolean {
+  return row.path === TRASH_ROOT || row.path.startsWith(`${TRASH_ROOT}/`);
+}
+
 /** The live rows at the workspace root. */
 async function liveRootFolders(db: DatabaseReader, workspaceId: Id<"workspaces">): Promise<Doc<"nodes">[]> {
   const rows = await db
     .query("nodes")
     .withIndex("by_parent_name", (q) => q.eq("workspaceId", workspaceId).eq("parentId", undefined))
     .take(ROOT_ROWS);
-  return rows.filter((row) => row.kind === "folder" && row.goneAt === undefined);
+  return rows.filter((row) => row.kind === "folder" && row.goneAt === undefined && !inTrash(row));
 }
 
 /** The live rows that carry a job, wherever they are. */
@@ -61,7 +71,7 @@ async function liveJobRows(db: DatabaseReader, workspaceId: Id<"workspaces">): P
       .query("nodes")
       .withIndex("by_workspace_role", (q) => q.eq("workspaceId", workspaceId).eq("role", role))
       .take(4);
-    rows.push(...held.filter((row) => row.kind === "folder" && row.goneAt === undefined));
+    rows.push(...held.filter((row) => row.kind === "folder" && row.goneAt === undefined && !inTrash(row)));
   }
   return rows;
 }

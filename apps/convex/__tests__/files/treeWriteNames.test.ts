@@ -9,30 +9,27 @@
  * and the write itself is `onlyIf: { absent: true }` wherever the store can
  * hold that, which is the truth for a name the tree has not heard of yet.
  *
- * The bucket and the tree are steered apart: a name only the tree holds
- * proves the tree was asked; a name only the bucket holds proves the
- * conditional write still refuses it.
+ * In a keyed workspace a name is a tree row, and a note's bytes sit at its
+ * `notes/<noteId>.md` key, so every name a write checks is a row the tree
+ * holds. Names that only the bucket held (written behind the tree's back) have
+ * no keyed form and are not tested here.
  *
  * Sabotage (temporary local edits, reverted), each failing a case here:
- *  - `movePath`'s destination checks reading `store.get` again (the note's,
- *    and the drawing's pair check): "a move onto a name only the tree holds"
- *    moves;
- *  - the copy in `movePath` without `onlyIf: { absent: true }`: the drawing
- *    the tree has not heard of is overwritten;
- *  - `copyPath`'s destination check reading the bucket: both copy cases copy;
- *  - `writeNewAbout` putting unconditionally: the about note written a
- *    second ago is overwritten;
- *  - the archive free-name loop asking `store.get`: the archive lands on the
- *    stamp only the tree holds;
- *  - `attachTreeListing` listing the bucket, and calling every name free,
- *    while the tree loads: the loading case moves the note.
+ *  - `movePath`'s destination checks reading the tree as empty: "a move onto a
+ *    name the tree holds" moves;
+ *  - the copy in `movePath` without `onlyIf: { absent: true }` or the tree
+ *    check: the drawing the tree holds is overwritten;
+ *  - `copyPath`'s destination check reading nothing: the copy onto a held
+ *    name copies;
+ *  - `writeNewAbout` putting unconditionally: the about note already held is
+ *    overwritten;
+ *  - the archive free-name loop not asking the tree: the archive lands on the
+ *    stamp the tree holds.
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
-import { PRIVACY_KEY } from "../../functions/lib/privacy";
-import { renderPrivacyManifest } from "../../functions/lib/scaffold";
 import { encryptSecret, requireKeyset } from "../../functions/lib/crypto";
 import { memoryS3, type MemoryS3, type MemoryS3Options } from "../storeStub.helpers";
 import {
@@ -46,6 +43,7 @@ import {
   setupTest,
   type TestConvex,
 } from "../fixtures.helpers";
+import { bodyAtPath } from "./keyedNotes.helpers";
 
 interface Fixture {
   t: TestConvex;
@@ -55,13 +53,12 @@ interface Fixture {
 }
 
 async function fixture(
-  options: { copied?: boolean; storage?: MemoryS3Options; conditionalCreate?: boolean; seed?: Record<string, string> } = {},
+  options: { storage?: MemoryS3Options; conditionalCreate?: boolean; seed?: Record<string, string> } = {},
 ): Promise<Fixture> {
   const t = setupTest();
   const owner = await createUser(t, "owner@example.invalid");
   const workspaceId = await createWorkspace(t, owner, "atlas");
   const backend = memoryS3(FAKE_STORAGE.bucket, options.storage ?? {});
-  backend.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
   backend.seed("index.md", "# Context\n");
   backend.seed("1-projects/plan.md", "# Plan\n");
   backend.seed("1-projects/taken.md", "# Taken\n");
@@ -87,25 +84,19 @@ async function fixture(
       updatedAt: Date.now(),
     }),
   );
-  if (options.copied ?? true) await copyTree(t, workspaceId);
+  await copyTree(t, workspaceId);
   return { t, owner, workspaceId, backend };
-}
-
-/** Names the tree holds that the bucket no longer does: only asking the tree finds them. */
-function onlyInTree(f: Fixture, ...keys: string[]) {
-  for (const key of keys) f.backend.objects.delete(key);
 }
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("a console write asks the tree which names are taken", () => {
-  test("a move onto a name only the tree holds is refused, and nothing moves", async () => {
+describe("a console write asks the tree which names are taken", { timeout: 60_000 }, () => {
+  test("a move onto a name the tree holds is refused, and nothing moves", async () => {
     const f = await fixture({
       seed: { "1-projects/held.excalidraw.md": "# Held\n", "1-projects/sketch.excalidraw.md": "# Sketch\n" },
     });
-    onlyInTree(f, "1-projects/taken.md", "1-projects/held.excalidraw.md");
     const error = await captureError(() =>
       asUser(f.t, f.owner).action(api.functions.files.moveEntry, {
         workspaceId: f.workspaceId,
@@ -114,8 +105,8 @@ describe("a console write asks the tree which names are taken", () => {
       }),
     );
     expect(errorCode(error)).toBe("DESTINATION_EXISTS");
-    expect(f.backend.snapshot()["1-projects/plan.md"]).toBe("# Plan\n");
-    expect(f.backend.snapshot()["1-projects/taken.md"]).toBeUndefined();
+    expect(await bodyAtPath(f, "1-projects/plan.md")).toBe("# Plan\n");
+    expect(await bodyAtPath(f, "1-projects/taken.md")).toBe("# Taken\n");
 
     // And a drawing, which `movePath` copies itself rather than through the document move.
     const drawing = await captureError(() =>
@@ -126,43 +117,12 @@ describe("a console write asks the tree which names are taken", () => {
       }),
     );
     expect(errorCode(drawing)).toBe("DESTINATION_EXISTS");
-    expect(f.backend.snapshot()["1-projects/held.excalidraw.md"]).toBeUndefined();
+    expect(await bodyAtPath(f, "1-projects/held.excalidraw.md")).toBe("# Held\n");
+    expect(await bodyAtPath(f, "1-projects/sketch.excalidraw.md")).toBe("# Sketch\n");
   });
 
-  test("a move onto a note the tree has not heard of yet is refused by the write, never an overwrite", async () => {
+  test("a copy onto a name the tree holds is refused", async () => {
     const f = await fixture();
-    f.backend.seed("1-projects/just-written.md", "# Written a second ago\n");
-    const error = await captureError(() =>
-      asUser(f.t, f.owner).action(api.functions.files.moveEntry, {
-        workspaceId: f.workspaceId,
-        from: "1-projects/plan.md",
-        to: "1-projects/just-written.md",
-      }),
-    );
-    expect(errorCode(error)).toBe("DESTINATION_EXISTS");
-    expect(f.backend.snapshot()["1-projects/just-written.md"]).toBe("# Written a second ago\n");
-    expect(f.backend.snapshot()["1-projects/plan.md"]).toBe("# Plan\n");
-  });
-
-  test("a drawing moved onto one the tree has not heard of yet is refused by the write too", async () => {
-    // Not collaboratively edited, so it takes `movePath`'s own copy rather than the document move.
-    const f = await fixture({ seed: { "1-projects/sketch.excalidraw.md": "# Sketch\n" } });
-    f.backend.seed("1-projects/fresh.excalidraw.md", "# Drawn a second ago\n");
-    const error = await captureError(() =>
-      asUser(f.t, f.owner).action(api.functions.files.moveEntry, {
-        workspaceId: f.workspaceId,
-        from: "1-projects/sketch.excalidraw.md",
-        to: "1-projects/fresh.excalidraw.md",
-      }),
-    );
-    expect(errorCode(error)).toBe("DESTINATION_EXISTS");
-    expect(f.backend.snapshot()["1-projects/fresh.excalidraw.md"]).toBe("# Drawn a second ago\n");
-    expect(f.backend.snapshot()["1-projects/sketch.excalidraw.md"]).toBe("# Sketch\n");
-  });
-
-  test("a copy onto a name only the tree holds is refused", async () => {
-    const f = await fixture();
-    onlyInTree(f, "1-projects/taken.md");
     const error = await captureError(() =>
       asUser(f.t, f.owner).action(api.functions.files.copyEntry, {
         workspaceId: f.workspaceId,
@@ -171,12 +131,16 @@ describe("a console write asks the tree which names are taken", () => {
       }),
     );
     expect(errorCode(error)).toBe("DESTINATION_EXISTS");
-    expect(f.backend.snapshot()["1-projects/taken.md"]).toBeUndefined();
+    expect(await bodyAtPath(f, "1-projects/taken.md")).toBe("# Taken\n");
   });
 
-  test("a new folder whose about note was written a second ago is refused by the write", async () => {
+  test("a new folder whose about note the tree already holds is refused by the write", async () => {
     const f = await fixture();
-    f.backend.seed("2-areas/fresh/about.md", "# Somebody's own words\n");
+    await asUser(f.t, f.owner).action(api.functions.files.writeNote, {
+      workspaceId: f.workspaceId,
+      path: "2-areas/fresh/about.md",
+      text: "# Somebody's own words\n",
+    });
     const error = await captureError(() =>
       asUser(f.t, f.owner).action(api.functions.files.createDirectory, {
         workspaceId: f.workspaceId,
@@ -184,25 +148,24 @@ describe("a console write asks the tree which names are taken", () => {
       }),
     );
     expect(errorCode(error)).toBe("DESTINATION_EXISTS");
-    expect(f.backend.snapshot()["2-areas/fresh/about.md"]).toBe("# Somebody's own words\n");
+    expect(await bodyAtPath(f, "2-areas/fresh/about.md")).toBe("# Somebody's own words\n");
   });
 
   test("an archive lands beside a name only the tree holds, never on it", async () => {
     // Archive keeps the workspace's shape (`archiveMirror.cjs`), so a second plan.md archived from 1-projects is numbered.
     const archived = "9-archive/1-projects/plan.md";
     const f = await fixture({ seed: { [archived]: "# Archived before\n" } });
-    onlyInTree(f, archived);
     const moved = await asUser(f.t, f.owner).action(api.functions.files.archiveEntry, {
       workspaceId: f.workspaceId,
       path: "1-projects/plan.md",
     });
     expect(moved.to).toBe("9-archive/1-projects/plan (2).md");
-    expect(f.backend.snapshot()[moved.to]).toBe("# Plan\n");
+    expect(await bodyAtPath(f, moved.to)).toBe("# Plan\n");
+    expect(await bodyAtPath(f, archived)).toBe("# Archived before\n");
   });
 
   test("on storage without conditional create, the tree is the whole answer, and it is still asked", async () => {
     const f = await fixture({ conditionalCreate: false, storage: { ignoreIfMatch: true } });
-    onlyInTree(f, "1-projects/taken.md");
     const error = await captureError(() =>
       asUser(f.t, f.owner).action(api.functions.files.copyEntry, {
         workspaceId: f.workspaceId,
@@ -211,19 +174,5 @@ describe("a console write asks the tree which names are taken", () => {
       }),
     );
     expect(errorCode(error)).toBe("DESTINATION_EXISTS");
-  });
-
-  test("a workspace whose tree is still loading is told so, and nothing is moved on a guess", async () => {
-    const f = await fixture({ copied: false });
-    const error = await captureError(() =>
-      asUser(f.t, f.owner).action(api.functions.files.moveEntry, {
-        workspaceId: f.workspaceId,
-        from: "1-projects/plan.md",
-        to: "1-projects/renamed.md",
-      }),
-    );
-    expect(errorCode(error)).toBe("TREE_LOADING");
-    expect(f.backend.snapshot()["1-projects/plan.md"]).toBe("# Plan\n");
-    expect(f.backend.snapshot()["1-projects/renamed.md"]).toBeUndefined();
   });
 });

@@ -89,7 +89,7 @@ async function runMoveBatch(
 const TRASHING_KEYED_ROWS = new Set(["removeNewFolder", "pluginDelete", "contextMoveDelete", "contextMoveFinish"]);
 
 /** The operations that may queue a folder move: everything else moves in one go. */
-const QUEUEING = new Set(["move", "archive", "archiveTidy"]);
+const QUEUEING = new Set(["move", "archive", "archiveTidy", "pluginRename"]);
 
 /** The moves a request reads through. Started early, beside the barrier's other lookups. */
 export function pendingMovesLookup(ctx: ActionCtx, workspaceId: Id<"workspaces">): Promise<PendingMove[]> {
@@ -150,6 +150,7 @@ export async function runMoveOperation(
     queued: true,
     count: moved.queued ?? 0,
     ...(moved.rowed === true ? { rowed: true } : {}),
+    ...(moved.historyCarried === true ? { historyCarried: true } : {}),
     ...(moved.moved === undefined ? {} : { moved: moved.moved }),
   };
 }

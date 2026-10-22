@@ -5,7 +5,7 @@ import { mayTouchNestedRoutines, routinePathsTouched } from "../functions/lib/ro
 import { MAX_ROUTINES_PER_WORKSPACE } from "../functions/lib/routines/model";
 import { routinePathsOf } from "../functions/lib/routines/sync";
 import { asUser, copyTree } from "./fixtures.helpers";
-import { DAILY, DAILY_TEXT, due, makeDue, routineFixture, rowAt, rows, signal } from "./routines.helpers";
+import { DAILY, DAILY_TEXT, due, makeDue, routineFixture, rowAt, rows, runPendingScans, signal } from "./routines.helpers";
 
 /**
  * ROUTINES IN TEX'S OWN FOLDER: `tex/routines/<how-often>/<name>.md`.
@@ -15,8 +15,8 @@ import { DAILY, DAILY_TEXT, due, makeDue, routineFixture, rowAt, rows, signal } 
  * nothing moved for anyone (`docs/decisions/routines.md`). So a scan lists
  * both roots every time, counts both toward one cap, and a move from one to
  * the other is picked up like any move. The old root's tests
- * (`routinesSync`, `routinesRuns`, `routinesHistory`, `routinesOnce`) are
- * unchanged.
+ * (`routinesSync`, `routinesRuns`, `routinesHistory`, `routinesOnce`) keep
+ * their expectations for `routines/`.
  */
 /*
  * ## Sabotage record
@@ -85,17 +85,31 @@ describe("a scan reads both roots", () => {
     await signal(f.t, { workspaceId: f.workspaceId, userId: f.owner, paths: [DAILY] });
     expect((await rows(f.t, f.workspaceId)).map((row) => row.path)).toEqual([DAILY]);
 
-    f.backend.objects.delete(DAILY);
-    f.backend.seed("tex/routines/weekly/standup.md", DAILY_TEXT);
-    await signal(f.t, { workspaceId: f.workspaceId, userId: f.editor, paths: [DAILY, "tex/routines/weekly/standup.md"] });
+    // The owner shares both roots, so the editor can see what they move.
+    for (const path of ["routines", "tex"]) {
+      await asUser(f.t, f.owner).action(api.functions.files.setDirectoryVisibility, {
+        workspaceId: f.workspaceId,
+        path,
+        visibility: "team",
+      });
+    }
+    await asUser(f.t, f.editor).action(api.functions.files.moveEntry, {
+      workspaceId: f.workspaceId,
+      from: DAILY,
+      to: "tex/routines/weekly/standup.md",
+    });
+    await runPendingScans(f.t);
     const after = await rows(f.t, f.workspaceId);
     expect(after.map((row) => row.path)).toEqual(["tex/routines/weekly/standup.md"]);
     expect(after[0]).toMatchObject({ writerUserId: f.editor, cadence: { unit: "week", every: 1 } });
 
     // And back again.
-    f.backend.objects.delete("tex/routines/weekly/standup.md");
-    f.backend.seed(DAILY, DAILY_TEXT);
-    await signal(f.t, { workspaceId: f.workspaceId, userId: f.editor, paths: ["tex/routines/weekly/standup.md", DAILY] });
+    await asUser(f.t, f.editor).action(api.functions.files.moveEntry, {
+      workspaceId: f.workspaceId,
+      from: "tex/routines/weekly/standup.md",
+      to: DAILY,
+    });
+    await runPendingScans(f.t);
     expect((await rows(f.t, f.workspaceId)).map((row) => row.path)).toEqual([DAILY]);
   });
 
@@ -105,9 +119,15 @@ describe("a scan reads both roots", () => {
     await signal(f.t, { workspaceId: f.workspaceId, userId: f.editor, paths: [TEX_DAILY] });
     expect(await rows(f.t, f.workspaceId)).toHaveLength(1);
 
-    f.backend.objects.delete(TEX_DAILY);
-    f.backend.seed("4-archive/tex/routines/daily/standup.md", TEX_TEXT);
-    await signal(f.t, { workspaceId: f.workspaceId, userId: f.editor, paths: ["tex", "4-archive/tex"] });
+    // Moved, Tex's folder is still Tex's folder wherever it sits (owner, 2026-10-18): its routine keeps
+    // running, named under tex/ as every reader asks.
+    await asUser(f.t, f.owner).action(api.functions.files.moveEntry, { workspaceId: f.workspaceId, from: "tex", to: "4-archive/tex" });
+    await runPendingScans(f.t);
+    expect((await rows(f.t, f.workspaceId)).map((row) => row.path)).toEqual([TEX_DAILY]);
+
+    // Trashed, it is no longer anybody's Tex folder, so its routine stops.
+    await asUser(f.t, f.owner).action(api.functions.files.trashEntry, { workspaceId: f.workspaceId, path: "4-archive/tex" });
+    await runPendingScans(f.t);
     expect(await rows(f.t, f.workspaceId)).toEqual([]);
   });
 
@@ -122,7 +142,7 @@ describe("a scan reads both roots", () => {
     expect(found).toHaveLength(MAX_ROUTINES_PER_WORKSPACE);
     expect(found.filter((row) => row.path.startsWith("routines/"))).toHaveLength(old);
     expect(found.filter((row) => row.path.startsWith("tex/routines/"))).toHaveLength(5);
-  });
+  }, 180_000); // the bucket's ~500 notes are copied into the tree first, which is slow under load
 });
 
 describe("a tex/routines/ note's runs", () => {
@@ -139,7 +159,7 @@ describe("a tex/routines/ note's runs", () => {
       asUser(f.t, f.owner).action(api.functions.routines.routineRuns, { workspaceId: f.workspaceId, path });
     expect((await runsFor(TEX_DAILY)).map((run) => run.text)).toEqual(["from the new one"]);
     expect((await runsFor(DAILY)).map((run) => run.text)).toEqual(["from the old one"]);
-  });
+  }, 60_000); // the tree's first copy runs before the reads, and takes longer than the file default under load
 });
 
 describe("which paths are routine paths", () => {

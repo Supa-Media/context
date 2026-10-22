@@ -7,7 +7,10 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import { asUser, copyTree, readIntoTree } from "./fixtures.helpers";
-import { fixture, pressPublish, publish } from "./website.helpers";
+import { fixture, pressPublish, publish, writeNote } from "./website.helpers";
+
+// Each test keys a workspace and runs the tree to its end, which takes longer than the default five seconds.
+vi.setConfig({ testTimeout: 30_000 });
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -311,7 +314,7 @@ describe("public website resolution", () => {
     );
     f.backend.seed("website/about.md", "---\ntitle: About\n---\n\nOld\n");
     await publish(f);
-    f.backend.seed(
+    await writeNote(f,
       "website/about.md",
       "---\ntitle: Secret now\naudience: members\n---\n\nChanged\n",
     );
@@ -366,7 +369,7 @@ describe("public website resolution", () => {
     f.backend.seed("website/about.md", "---\ntitle: About\n---\n\nOld\n");
     await publish(f);
     await pressPublish(f);
-    f.backend.seed(
+    await writeNote(f,
       "website/about.md",
       "---\ntitle: About, half typed\n---\n\nNew\n",
     );
@@ -578,7 +581,7 @@ describe("public website resolution", () => {
     // A text editor can persist between the opening and closing frontmatter
     // delimiters. That intermediate file is not a request to take the site
     // down; it is simply not a publishable revision yet.
-    f.backend.seed(
+    await writeNote(f,
       "website/index.md",
       "---\ntitle: Editing right now\nnav: 1\n\nHalf-written frontmatter.\n",
     );
@@ -600,7 +603,7 @@ describe("public website resolution", () => {
       navigation: [{ routePath: "/", title: "Home" }],
     });
 
-    f.backend.seed(
+    await writeNote(f,
       "website/index.md",
       "---\ntitle: Finished\nnav: 1\n---\n\nThe complete edit.\n",
     );
@@ -626,15 +629,8 @@ describe("public website resolution", () => {
     const f = await fixture();
     f.backend.seed("website/index.md", "---\ntitle: Home\n---\n\nOld\n");
     await publish(f);
-    const rawEtag = f.backend.objects.get("website/index.md")?.etag;
-    if (rawEtag === undefined) throw new Error("fixture page is missing");
 
-    await asUser(f.t, f.owner).action(api.functions.files.writeNote, {
-      workspaceId: f.workspaceId,
-      path: "website/index.md",
-      text: "---\ntitle: Home\naudience: members\n---\n\nChanged\n",
-      expectedEtag: rawEtag,
-    });
+    await writeNote(f, "website/index.md", "---\ntitle: Home\naudience: members\n---\n\nChanged\n");
     const state = await f.t.run((ctx) =>
       ctx.db
         .query("websiteStates")
@@ -662,7 +658,7 @@ describe("public website resolution", () => {
       "---\ntitle: Home\nnav: 1\n---\n\nOld public body\n",
     );
     await publish(f);
-    f.backend.seed(
+    await writeNote(f,
       "website/index.md",
       "---\ntitle: Home\naudience: members\n---\n\nNew private body\n",
     );

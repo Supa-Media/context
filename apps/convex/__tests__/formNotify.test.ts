@@ -69,6 +69,8 @@ import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { escapeHtml, sanitizeHeaderText } from "../functions/lib/invitationEmail";
 import { renderFormDigest, renderFormNotification } from "../functions/lib/formNotifyEmail";
 import { memoryS3, type MemoryS3 } from "./storeStub.helpers";
+import { bodyAtPath, keyAtPath } from "./files/keyedNotes.helpers";
+import { bindSecondContext } from "./formNotify.helpers";
 import {
   asUser,
   copyTree,
@@ -263,7 +265,7 @@ describe("a form names a person, never a destination", () => {
       does not parse, so the form refuses submissions altogether rather than
       taking an answer and mailing it somewhere a code fence chose.
     */
-    f.backend.seed(NOTE, formBody("dev@example.invalid"));
+    f.backend.seed((await keyAtPath(f, NOTE))!, formBody("dev@example.invalid"));
     await expect(
       asUser(f.t, f.member).action(api.functions.forms.submitForm, {
         workspaceId: f.workspaceId,
@@ -364,7 +366,7 @@ describe("what a submission sends", () => {
     expect(f.sent).toHaveLength(0);
     // The answer is in the bucket regardless. Mail is a derivative of it.
     expect(responseId).toMatch(/^r-[0-9a-f]{8}$/);
-    expect(f.backend.snapshot()[RESPONSES] ?? "").toContain("Ada");
+    expect((await bodyAtPath(f, RESPONSES)) ?? "").toContain("Ada");
   });
 });
 
@@ -510,10 +512,8 @@ describe("a burst is counted rather than mailed or dropped", () => {
       tenant must not be able to act on another, and "prove isolation with
       tests" is the rule this one exists under.
 
-      The second context is bound to the same bucket only because the fetch
-      stub serves one, and its form lives at its own path so the two never
-      touch the same object. One workspace per bucket is still the rule; this
-      fixture is about the limiter's key and claims nothing about storage.
+      The second context has its own bucket (`formNotify.helpers.ts`), and its
+      form lives at its own path. This fixture is about the limiter's key.
     */
     const second = await createWorkspace(f.t, f.owner, "seyi-two");
     await f.t.run(async (ctx) => {
@@ -524,11 +524,7 @@ describe("a burst is counted rather than mailed or dropped", () => {
         joinedAt: Date.now(),
       });
     });
-    await seedStorageBinding(f.t, {
-      workspaceId: second,
-      boundBy: f.owner,
-      bucket: "fake-bucket",
-    });
+    await bindSecondContext(f.t, f.owner, second);
     await asUser(f.t, f.owner).action(api.functions.files.writeNote, {
       workspaceId: second,
       path: SECOND_NOTE,

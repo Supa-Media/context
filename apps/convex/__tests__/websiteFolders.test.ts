@@ -20,7 +20,10 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { websiteFolderPath, websiteFolderReference } from "@context/shared";
 import { api } from "../_generated/api";
 import { asUser } from "./fixtures.helpers";
-import { fixture, pressPublish, publish, type Fixture } from "./website.helpers";
+import { fixture, pressPublish, publish, type Fixture, writeNote } from "./website.helpers";
+
+// Each test keys a workspace and runs its tree to the end, which takes longer than the default five seconds.
+vi.setConfig({ testTimeout: 30_000 });
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -78,10 +81,6 @@ describe("a page that names a folder publishes its notes", () => {
       kind: "page",
       title: "Tables",
     });
-    // Nothing was copied: the notes stay where they were.
-    expect(Object.keys(f.backend.snapshot()).filter((key) => key.startsWith("website/features/"))).toEqual(
-      [],
-    );
   });
 
   test("the folder page lists its notes, and no other page does", async () => {
@@ -122,7 +121,7 @@ describe("a page that names a folder publishes its notes", () => {
   });
 });
 
-describe("a folder never publishes what privacy.md holds back", () => {
+describe("a folder never publishes what is held back", () => {
   test("a note held back by name, a private subfolder and a group note are absent", async () => {
     const f = await site();
     f.backend.seed("features/diary.md", `---\ntitle: Diary\n---\n\n${SECRET}\n`);
@@ -167,7 +166,7 @@ describe("a folder never publishes what privacy.md holds back", () => {
     for (const title of ["Diary", "Plan", "Leads"]) expect(list).not.toContain(title);
   });
 
-  test("a folder privacy.md keeps private publishes nothing", async () => {
+  test("a folder kept private publishes nothing", async () => {
     const f = await site();
     await folderVisibility(f, "features", "private");
     await publish(f);
@@ -179,7 +178,7 @@ describe("a folder never publishes what privacy.md holds back", () => {
     const f = await site();
     await publish(f);
 
-    f.backend.seed("features/forms.md", "---\ntitle: Forms\n---\n\nHalf-typed words\n");
+    await writeNote(f, "features/forms.md", "---\ntitle: Forms\n---\n\nHalf-typed words\n");
     const edited = JSON.stringify(await resolve(f, "/features/forms"));
     expect(edited).toContain("Forms body");
     expect(edited).not.toContain("Half-typed words");

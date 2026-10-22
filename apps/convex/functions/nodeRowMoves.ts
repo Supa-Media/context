@@ -208,7 +208,7 @@ export const rowMove = internalMutation({
       etag: v.optional(v.string()),
       chunked: v.optional(v.id("rowMoves")),
     }),
-    v.object({ ok: v.literal(false), reason: refusalValidator }),
+    v.object({ ok: v.literal(false), reason: refusalValidator, currentEtag: v.optional(v.string()) }),
   ),
   handler: async (ctx, args) => await applyRowMove(ctx, args),
 });

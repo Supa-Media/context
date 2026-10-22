@@ -283,7 +283,7 @@ function listPage(
       .filter((entry) => entry.kind === "object")
       .map((entry) => ({
         key: entry.name,
-        size: objects.get(entry.name)!.body.length,
+        size: objects.get(entry.name)!.bytes.byteLength,
         uploaded: new Date(0),
         etag: objects.get(entry.name)!.etag,
       })),

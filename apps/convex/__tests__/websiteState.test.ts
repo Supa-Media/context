@@ -31,6 +31,10 @@ import {
 import type { Id } from "../_generated/dataModel";
 
 import { copyTree } from "./fixtures.helpers";
+import { readNoteText, writeNote } from "./website.helpers";
+
+// Each test keys a workspace and runs the tree to its end, which takes longer than the default five seconds.
+vi.setConfig({ testTimeout: 30_000 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -126,7 +130,7 @@ describe("website lifecycle state", () => {
       starter: "created",
     });
     expect(enabled.enabledAt).toEqual(expect.any(Number));
-    expect(f.backend.snapshot()["website/index.md"]).toBe(
+    await expect(readNoteText(f, "website/index.md")).resolves.toBe(
       WEBSITE_STARTER_MARKDOWN,
     );
     expect(
@@ -141,14 +145,14 @@ describe("website lifecycle state", () => {
     const f = await fixture();
     await copyTree(f.t, f.workspaceId);
     const existing = "---\ntitle: Kept\n---\n\n# Do not replace me\n";
-    f.backend.seed("website/index.md", existing);
+    await writeNote(f, "website/index.md", existing);
 
     const enabled = await asUser(f.t, f.owner).action(
       api.functions.workspaces.enableWebsite,
       { workspaceId: f.workspaceId },
     );
     expect(enabled).toMatchObject({ state: "enabled", starter: "existing" });
-    expect(f.backend.snapshot()["website/index.md"]).toBe(existing);
+    await expect(readNoteText(f, "website/index.md")).resolves.toBe(existing);
   });
 
   test("enable is idempotent and does not touch the bucket twice", async () => {
@@ -174,10 +178,13 @@ describe("website lifecycle state", () => {
   });
 
   test("a failed starter write leaves the lifecycle disabled", async () => {
+    // Keyed writes land at `notes/<id>.md`: refuse those once the workspace is keyed.
+    let refuseNotes = false;
     const f = await fixture({
-      refuseWrite: (key) => key === "website/index.md",
+      refuseWrite: (key) => refuseNotes && key.startsWith("notes/"),
     });
     await copyTree(f.t, f.workspaceId);
+    refuseNotes = true;
     const failure = await captureError(() =>
       asUser(f.t, f.owner).action(api.functions.workspaces.enableWebsite, {
         workspaceId: f.workspaceId,
@@ -226,7 +233,7 @@ describe("website lifecycle state", () => {
   test("disable is idempotent and preserves every website file", async () => {
     const f = await fixture();
     await copyTree(f.t, f.workspaceId);
-    f.backend.seed("website/about.md", "# About\n");
+    await writeNote(f, "website/about.md", "# About\n");
     await asUser(f.t, f.owner).action(api.functions.workspaces.enableWebsite, {
       workspaceId: f.workspaceId,
     });

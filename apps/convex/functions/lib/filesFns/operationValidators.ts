@@ -100,6 +100,7 @@ export const operationResultValidator = v.union(
     queued: v.boolean(),
     count: v.optional(v.number()),
     rowed: v.optional(v.boolean()),
+    historyCarried: v.optional(v.boolean()),
     moved: v.optional(v.array(v.object({ from: v.string(), to: v.string() }))),
     error: v.optional(v.string()),
     message: v.optional(v.string()),

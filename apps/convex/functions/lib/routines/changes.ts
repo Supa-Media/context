@@ -1,6 +1,7 @@
 /** Which successful console operations touched a routine root, and where. */
 
 import type { FileOperation, OperationResult } from "../filesFns/operationTypes";
+import { TEX_FOLDER } from "@context/shared/src/folderRoles.cjs";
 import { asTexPath, isUnderRoutines } from "./model";
 
 /**
@@ -11,8 +12,31 @@ import { asTexPath, isUnderRoutines } from "./model";
  * sweep, so the moved shapes are read off the result as well as the request.
  */
 export function routinePathsTouched(operation: FileOperation, result: OperationResult, texPath: string | null = null): string[] {
-  const candidates = pathsTouched(operation, result).map((path) => asTexPath(path, texPath));
+  const candidates = pathsTouched(operation, result).flatMap((path) => {
+    // A folder above Tex's folder moved or trashed takes Tex's routines with it.
+    const holdsTex = typeof texPath === "string" && texPath !== "" && texPath !== TEX_FOLDER && texPath.startsWith(`${path}/`);
+    return holdsTex ? [TEX_FOLDER] : [asTexPath(path, texPath)];
+  });
   return [...new Set(candidates.filter(isUnderRoutines))];
+}
+
+/**
+ * Whether the operation moves or removes something, so a folder that holds a
+ * routine root (or Tex's folder) may have left. The caller reads where Tex's
+ * folder is before the operation runs, because a trashed one is no longer
+ * anywhere afterwards.
+ */
+export function mayRelocateRoutines(operation: FileOperation): boolean {
+  switch (operation.kind) {
+    case "move":
+    case "trash":
+    case "delete":
+    case "archive":
+    case "restoreTrash":
+      return true;
+    default:
+      return false;
+  }
 }
 
 /**

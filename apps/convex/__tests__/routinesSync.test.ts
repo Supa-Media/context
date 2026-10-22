@@ -1,6 +1,15 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
-import { asUser, copyTree, drainScheduled, errorCode, captureError, FAKE_STORAGE, seedStorageBinding } from "./fixtures.helpers";
+import {
+  asUser,
+  copyTree,
+  drainScheduled,
+  errorCode,
+  captureError,
+  FAKE_STORAGE,
+  seedStorageBinding,
+  type TestConvex,
+} from "./fixtures.helpers";
 import {
   DAILY,
   DAILY_TEXT,
@@ -12,6 +21,7 @@ import {
   signal,
   stubBuckets,
 } from "./routines.helpers";
+import type { Id } from "../_generated/dataModel";
 import { routinePathsTouched } from "../functions/lib/routines/changes";
 import type { FileOperation, OperationResult } from "../functions/lib/filesFns/operationTypes";
 
@@ -49,8 +59,11 @@ describe("a scan reads the tree, never the bucket", () => {
     f.backend.requests.length = 0;
     await signal(f.t, { workspaceId: f.workspaceId, userId: f.editor, paths: [DAILY] });
     expect(await rowAt(f.t, f.workspaceId, DAILY)).toMatchObject({ writerUserId: f.editor, at: { hour: 7, minute: 30 } });
-    // The fill reads the note once to keep its facts; nothing else opens it.
-    const opened = f.backend.requests.filter((request) => request.method === "GET" && request.key.endsWith(DAILY));
+    // The fill reads the note once to keep its facts; nothing else opens it. A note's bytes live at its id key,
+    // so the tree row names the object that is read.
+    const key = await storageKeyAt(f.t, f.workspaceId, DAILY);
+    expect(key).toMatch(/^notes\/.+\.md$/);
+    const opened = f.backend.requests.filter((request) => request.method === "GET" && request.key.endsWith(key));
     expect(opened.length).toBeLessThanOrEqual(1);
     f.backend.requests.length = 0;
     await f.t.action(internal.functions.routines.reconcileRoutines, { workspaceId: f.workspaceId });
@@ -133,16 +146,27 @@ describe("a signal reads the folder", () => {
   test("a deleted file loses its row, and a moved one is scheduled under its new folder", async () => {
     const f = await routineFixture();
     f.backend.seed(DAILY, DAILY_TEXT);
+    f.backend.seed("routines/daily/retired.md", DAILY_TEXT);
     await signal(f.t, { workspaceId: f.workspaceId, userId: f.editor, paths: [DAILY] });
-    expect(await rows(f.t, f.workspaceId)).toHaveLength(1);
+    expect(await rows(f.t, f.workspaceId)).toHaveLength(2);
 
-    f.backend.objects.delete(DAILY);
-    f.backend.seed("routines/every-3-hours/standup.md", DAILY_TEXT);
-    await signal(f.t, {
+    // Both changes go through the product. Routines are private by default, so the owner shares the folder
+    // first: an editor can only change what they can see.
+    await asUser(f.t, f.owner).action(api.functions.files.setDirectoryVisibility, {
       workspaceId: f.workspaceId,
-      userId: f.editor,
-      paths: ["routines/daily", "routines/every-3-hours"],
+      path: "routines",
+      visibility: "team",
     });
+    await asUser(f.t, f.editor).action(api.functions.files.trashEntry, {
+      workspaceId: f.workspaceId,
+      path: "routines/daily/retired.md",
+    });
+    await asUser(f.t, f.editor).action(api.functions.files.moveEntry, {
+      workspaceId: f.workspaceId,
+      from: DAILY,
+      to: "routines/every-3-hours/standup.md",
+    });
+    await runPendingScans(f.t);
     const after = await rows(f.t, f.workspaceId);
     expect(after.map((row) => row.path)).toEqual(["routines/every-3-hours/standup.md"]);
     // The person who moved the folder is the writer, not the owner.
@@ -353,6 +377,17 @@ describe("which console operations touch routines/", () => {
     expect(routinePathsTouched({ kind: "trash", path: "routines" } as FileOperation, written)).toEqual(["routines"]);
   });
 });
+
+/** The key a note's bytes live at: its tree row's `storageKey`, which is `notes/<noteId>.md` once keyed. */
+async function storageKeyAt(t: TestConvex, workspaceId: Id<"workspaces">, path: string): Promise<string> {
+  const row = await t.run((ctx) =>
+    ctx.db
+      .query("nodes")
+      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
+      .unique(),
+  );
+  return row?.storageKey ?? "";
+}
 
 /** The gateway's signal without the scans it schedules, which a test then runs itself. */
 async function gatewaySignalOnly(f: Awaited<ReturnType<typeof routineFixture>>): Promise<void> {

@@ -286,15 +286,29 @@ export async function writeFile(
    */
   const conditionalCreate =
     existing === null && store.capabilities?.conditionalCreate === true;
-  const put = sealedResult
-    ? { etag: sealedResult.etag }
-    : collaborationResult
-    ? { etag: collaborationResult.etag }
-    : conditional
-      ? await store.put(path, options.text, { onlyIf: { etagMatches: existing!.etag } })
-      : conditionalCreate
-        ? await store.put(path, options.text, { onlyIf: { absent: true } })
-        : await store.put(path, options.text);
+  let put;
+  try {
+    put = sealedResult
+      ? { etag: sealedResult.etag }
+      : collaborationResult
+      ? { etag: collaborationResult.etag }
+      : conditional
+        ? await store.put(path, options.text, { onlyIf: { etagMatches: existing!.etag } })
+        : conditionalCreate
+          ? await store.put(path, options.text, { onlyIf: { absent: true } })
+          : await store.put(path, options.text);
+  } catch (error) {
+    // A keyed create whose new id key was already taken (`idLayout.js`): the path has no row to
+    // report, so the conflict carries the etag of what holds the key. Anything else is not ours to catch.
+    if (error instanceof Error && error.name === "NoteCreateRaced") {
+      throw new FileOpError(
+        "CONFLICT",
+        "A file already exists at that path. Reload to see it.",
+        (error as { currentEtag?: string }).currentEtag,
+      );
+    }
+    throw error;
+  }
 
   if (put === null) {
     // The backend rejected the precondition: somebody wrote between our read

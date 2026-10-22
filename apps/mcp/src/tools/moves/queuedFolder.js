@@ -35,7 +35,7 @@ import { rewriteReferencesAfterMove } from "./references.js";
 async function carryRowedCollaboration(store, answer, source, destination, privacy) {
   if (answer.rowed !== true) return;
   const moved = Array.isArray(answer.moved) ? answer.moved : [{ from: source, to: destination }];
-  await renameCollaboration(store, moved, privacy);
+  await renameCollaboration(store, moved, privacy, { carried: answer.historyCarried === true });
 }
 
 /**

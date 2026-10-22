@@ -21,28 +21,24 @@ import { type FileStore, loadPrivacyState, type PrivacyState } from "../fileOps"
 import { audiencesForChange, type TreeChange, trimTrailingSlashes } from "../treeAnnounce";
 import { treeAudiences } from "../treeAudiences";
 import { PRIVACY_KEY } from "../privacy";
-import { scheduleNodesTouch, startNodesSweepIfDue, touchNodesNow } from "../nodes/run";
+import { scheduleNodesTouch, touchNodesNow } from "../nodes/run";
 import type { OperationResult } from "./operationTypes";
 
 /**
- * The store an operation inside the barrier walks. Every walk of which notes
- * exist, a website scan's included (`docs/decisions/websites.md`), is answered
- * from the tree before the barrier opens the bucket (`lib/nodes/treeReads.ts`)
- * and never reaches here; what is left here is the bucket's own listing.
+ * The store an operation inside the barrier walks. Every manifest and every
+ * walk of which notes exist (`lib/nodes/treeReads.ts`, `docs/decisions/websites.md`)
+ * is answered from the tree before the barrier opens the bucket, so no
+ * manifest reaches here; what is left here is the bucket's own listing.
  */
 export async function manifestSource(
-  ctx: ActionCtx,
-  args: {
+  _ctx: ActionCtx,
+  _args: {
     workspaceId: Id<"workspaces">;
     scope: "private" | "team";
     operation: { kind: string; source?: string; cursor?: string };
   },
   store: FileStore,
 ): Promise<{ store: FileStore; source: "bucket" | "nodes"; since?: number; privacy?: string | null }> {
-  // The Convex tree's copy starts on the first page of a walk (`lib/nodes/run.ts`).
-  if (args.operation.kind === "manifest" && args.operation.cursor === undefined) {
-    await startNodesSweepIfDue(ctx, args.workspaceId);
-  }
   return { store, source: "bucket" };
 }
 

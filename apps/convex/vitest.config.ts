@@ -13,6 +13,11 @@ export default defineConfig({
   test: {
     environment: "edge-runtime",
     include: ["__tests__/**/*.test.ts"],
+    // Every fixture workspace is keyed through the real copy pass and flip
+    // (`__tests__/fixtures.helpers.ts`, `keyWorkspace`), and a file's first
+    // test also pays for loading every function module: past 5s on a loaded
+    // runner without anything being wrong.
+    testTimeout: 30_000,
     // `@supa-media/convex` ships TypeScript source rather than a build, so it
     // has to be transformed by vite rather than imported natively by node.
     server: { deps: { inline: ["convex-test", "@supa-media/convex"] } },

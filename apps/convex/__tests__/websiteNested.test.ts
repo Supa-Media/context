@@ -29,6 +29,9 @@ import { realSitePath, siteNameOf } from "../functions/lib/websites/siteRoot";
 import { asUser, copyTree } from "./fixtures.helpers";
 import { fixture, type Fixture } from "./website.helpers";
 
+// Each test keys a workspace and runs its tree to the end, which takes longer than the default five seconds.
+vi.setConfig({ testTimeout: 30_000 });
+
 afterEach(() => vi.unstubAllGlobals());
 
 const HOME = "---\ntitle: Home\nnav: 1\n---\n\nHome\n";

@@ -15,33 +15,37 @@ import {
   fixture,
   share,
 } from "./fixtures.helpers";
+import { bodyAtPath, etagAtPath, noteBodies } from "./keyedNotes.helpers";
 
 /* -------------------------------------------------------------------------- */
 /*                                  conflicts                                 */
 /* -------------------------------------------------------------------------- */
 
 /**
- * Stand in for somebody creating `key` in the round trip between `writeNote`'s
- * existence read and its put: the first GET of it finds nothing, and by the
- * time the PUT arrives their note is there.
+ * Stand in for somebody creating a note in the round trip between `writeNote`'s
+ * existence read and its put. A keyed create writes to a key the product just
+ * chose (`notes/<noteId>.md`), so the first PUT of a new note key finds their
+ * note already there: the create must be refused, and theirs must survive.
+ * Returns the key that was raced, once it has been.
  */
-function raceCreate(f: Fixture, key: string, theirs: string): void {
-  let raced = false;
+function raceCreate(f: Fixture, theirs: string): () => string | undefined {
+  let raced: string | undefined;
   vi.stubGlobal("fetch", async (input: URL | RequestInfo, init?: RequestInit) => {
-    const response = await f.backend.fetchImpl(input, init);
     const url = new URL(typeof input === "string" ? input : String(input));
-    if (!raced && (init?.method ?? "GET") === "GET" && url.pathname.endsWith(`/${key}`)) {
-      raced = true;
+    const key = decodeURIComponent(url.pathname.replace(/^\/+/, "").split("/").slice(1).join("/"));
+    if (raced === undefined && (init?.method ?? "GET") === "PUT" && key.startsWith("notes/")) {
+      raced = key;
       f.backend.seed(key, theirs);
     }
-    return response;
+    return await f.backend.fetchImpl(input, init);
   });
+  return () => raced;
 }
 
 describe("a stale save is a conflict, never a silent overwrite", () => {
   test("a create that lost a race to somebody else's is a conflict, and theirs survives", async () => {
     const f = await fixture();
-    raceCreate(f, "1-projects/new.md", "# Theirs\n");
+    const raced = raceCreate(f, "# Theirs\n");
     const error = await captureError(() =>
       asUser(f.t, f.owner).action(api.functions.files.writeNote, {
         workspaceId: f.workspaceId,
@@ -49,11 +53,13 @@ describe("a stale save is a conflict, never a silent overwrite", () => {
         text: "# Mine\n",
       }),
     );
+    const key = raced();
+    expect(key).toMatch(/^notes\/.+\.md$/);
     expect(errorCode(error)).toBe("CONFLICT");
     expect((error as { data: { currentEtag?: string } }).data.currentEtag).toBe(
-      f.backend.objects.get("1-projects/new.md")!.etag,
+      f.backend.objects.get(key!)!.etag,
     );
-    expect(f.backend.snapshot()["1-projects/new.md"]).toBe("# Theirs\n");
+    expect(f.backend.snapshot()[key!]).toBe("# Theirs\n");
   });
 
   test("a create on a bucket that never proved create-only writes says it was a read-compare", async () => {
@@ -87,8 +93,9 @@ describe("a stale save is a conflict, never a silent overwrite", () => {
       expectedEtag: first.etag,
     });
     expect(merged.etag).toMatch(/^c2\./);
-    expect(f.backend.snapshot()["1-projects/shared.md"]).toContain("Human edit");
-    expect(f.backend.snapshot()["1-projects/shared.md"]).toContain("Agent edit");
+    const body = await bodyAtPath(f, "1-projects/shared.md");
+    expect(body).toContain("Human edit");
+    expect(body).toContain("Agent edit");
   });
 
   /*
@@ -131,11 +138,11 @@ describe("a stale save is a conflict, never a silent overwrite", () => {
       const error = await captureError(attempt);
       expect(errorCode(error)).toBe("CONFLICT");
       expect((error as { data: { currentEtag?: string } }).data.currentEtag).toBe(
-        f.backend.objects.get("1-projects/shared.md")!.etag,
+        await etagAtPath(f, "1-projects/shared.md"),
       );
     }
-    expect(f.backend.snapshot()["1-projects/shared.md"]).toBe("# Theirs\n");
-    expect(f.backend.snapshot()["1-projects/renamed.md"]).toBeUndefined();
+    expect(await bodyAtPath(f, "1-projects/shared.md")).toBe("# Theirs\n");
+    expect(await bodyAtPath(f, "1-projects/renamed.md")).toBeNull();
   });
 
   test("a queued rename at the version it was asked about lands, and says the note's new etag", async () => {
@@ -182,7 +189,7 @@ describe("a stale save is a conflict, never a silent overwrite", () => {
       }),
     );
     expect(errorCode(error)).toBe("CONFLICT");
-    expect(f.backend.snapshot()["1-projects/shared.md"]).toBe("# Theirs\n");
+    expect(await bodyAtPath(f, "1-projects/shared.md")).toBe("# Theirs\n");
   });
 });
 
@@ -201,20 +208,25 @@ describe("permanent deletion is explicit", () => {
       }),
     );
     expect(errorCode(error)).toBe("CONFIRMATION_REQUIRED");
-    expect(f.backend.snapshot()["1-projects/shared.md"]).toBe("# Shared\n");
+    expect(await bodyAtPath(f, "1-projects/shared.md")).toBe("# Shared\n");
   });
 
-  test("the right one deletes, and keeps nothing back", async () => {
+  /*
+    A keyed note's row and its key are retired only by emptying the trash
+    (`lib/fileOps/deleting.ts`), so a permanent delete is refused here, before
+    anything is read or removed. The erasure itself is `trash/emptying.test.ts`.
+  */
+  test("a permanent delete is refused in a keyed workspace, and keeps the note", async () => {
     const f = await fixture();
-    await asUser(f.t, f.owner).action(api.functions.files.deleteEntry, {
-      workspaceId: f.workspaceId,
-      path: "2-areas/private-note.md",
-      confirmation: DELETE_CONFIRMATION,
-    });
-    const survivors = Object.values(f.backend.snapshot()).filter((body) =>
-      body.includes(SECRET_BODY_MARKER),
+    const error = await captureError(() =>
+      asUser(f.t, f.owner).action(api.functions.files.deleteEntry, {
+        workspaceId: f.workspaceId,
+        path: "2-areas/private-note.md",
+        confirmation: DELETE_CONFIRMATION,
+      }),
     );
-    expect(survivors).toEqual([]);
+    expect(errorCode(error)).toBe("KEYED_WORKSPACE");
+    expect(await bodyAtPath(f, "2-areas/private-note.md")).toContain(SECRET_BODY_MARKER);
   });
 
   test("archiving is recoverable — the note is still in the bucket", async () => {
@@ -223,14 +235,14 @@ describe("permanent deletion is explicit", () => {
       workspaceId: f.workspaceId,
       path: "2-areas/private-note.md",
     });
-    expect(f.backend.snapshot()[archived.to]).toContain(SECRET_BODY_MARKER);
+    expect(await bodyAtPath(f, archived.to)).toContain(SECRET_BODY_MARKER);
 
     await asUser(f.t, f.owner).action(api.functions.files.moveEntry, {
       workspaceId: f.workspaceId,
       from: archived.to,
       to: "2-areas/private-note.md",
     });
-    expect(f.backend.snapshot()["2-areas/private-note.md"]).toContain(SECRET_BODY_MARKER);
+    expect(await bodyAtPath(f, "2-areas/private-note.md")).toContain(SECRET_BODY_MARKER);
   });
 });
 
@@ -313,7 +325,7 @@ describe("note content never lands in the control plane", () => {
     const dump = await everyStoredDocument(f.t);
     expect(dump).not.toContain(SECRET_BODY_MARKER);
     // The bucket, meanwhile, has it — which is the whole point.
-    expect(JSON.stringify(f.backend.snapshot())).toContain(SECRET_BODY_MARKER);
+    expect(Object.values(noteBodies(f.backend)).join("")).toContain(SECRET_BODY_MARKER);
   });
 
   test("the audit trail records paths and an outcome, and nothing else", async () => {
@@ -347,10 +359,10 @@ describe("note content never lands in the control plane", () => {
       workspaceId: f.workspaceId,
       path: "1-projects/a.md",
     });
-    await as.action(api.functions.files.deleteEntry, {
+    // A keyed workspace takes nothing permanently: a removal is a trash, audited as an archive.
+    await as.action(api.functions.files.trashEntry, {
       workspaceId: f.workspaceId,
       path: "1-projects/a copy.md",
-      confirmation: DELETE_CONFIRMATION,
     });
 
     const events = await asUser(f.t, f.owner).query(api.functions.audit.listEvents, {
@@ -359,7 +371,7 @@ describe("note content never lands in the control plane", () => {
     const actions = events.map((event) => event.action);
     expect(actions).toContain("file.create");
     expect(actions).toContain("file.duplicate");
-    expect(actions).toContain("file.delete");
+    expect(actions).toContain("file.archive");
     for (const event of events.filter((e) => e.action.startsWith("file."))) {
       expect(event.actorUserId).toBe(f.editor);
     }
@@ -434,9 +446,17 @@ describe("note content never lands in the control plane", () => {
   });
 
   test("a provider's own error text is not forwarded to the caller", async () => {
-    const f = await fixture({
-      readOnly: true,
-      errorMessage: `signature mismatch for ${FAKE_STORAGE.accessKeyId}`,
+    const f = await fixture();
+    // The provider refuses every write from here on, quoting the key it was given.
+    const providerSays = `signature mismatch for ${FAKE_STORAGE.accessKeyId}`;
+    vi.stubGlobal("fetch", async (input: URL | RequestInfo, init?: RequestInit) => {
+      if ((init?.method ?? "GET") === "PUT") {
+        return new Response(
+          `<?xml version="1.0" encoding="UTF-8"?><Error><Code>AccessDenied</Code><Message>${providerSays}</Message></Error>`,
+          { status: 403, headers: { "content-type": "application/xml" } },
+        );
+      }
+      return await f.backend.fetchImpl(input, init);
     });
     const failure = await captureError(() =>
       asUser(f.t, f.owner).action(api.functions.files.writeNote, {

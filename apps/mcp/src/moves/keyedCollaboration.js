@@ -36,17 +36,18 @@ export const COLLABORATION_RENAME_MAX = 500;
  * @param {object} store the request's store (its collaboration heads and state are plumbing)
  * @param {{from: string, to: string}[]} moved the files the row move renamed
  * @param {{rules: unknown, overrides: unknown}} privacy the rules the move was judged under; without them no name is shared
+ * @param {{carried?: boolean}} [options] `carried`: the control plane already carried the history with the rows
+ *   (`historyCarried` on its answer), so only the rooms are told
  * @returns {Promise<{renamed: number, failed: string[]}>} the codes of any refusals, never the paths
  */
-export async function renameCollaboration(store, moved, privacy) {
+export async function renameCollaboration(store, moved, privacy, { carried = false } = {}) {
   const answer = { renamed: 0, failed: [] };
   if (!collaborationSupported(store) || !Array.isArray(moved)) return answer;
   for (const pair of moved.slice(0, COLLABORATION_RENAME_MAX)) {
     if (typeof pair?.from !== "string" || typeof pair?.to !== "string") continue;
     if (!pair.from.endsWith(".md") || !pair.to.endsWith(".md")) continue;
     try {
-      const carried = await renameDocument(store, pair.from, pair.to);
-      if (carried.renamed !== true) continue;
+      if (!carried && (await renameDocument(store, pair.from, pair.to)).renamed !== true) continue;
       answer.renamed += 1;
       // Shown to the room only where every team member may see the new name; otherwise members are told it moved, not where.
       const shownTo = privacy && canSee(pair.to, "team", privacy.rules, privacy.overrides) ? pair.to : null;

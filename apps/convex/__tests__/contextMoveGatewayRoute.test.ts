@@ -12,7 +12,6 @@ import type { Id } from "../_generated/dataModel";
 import { createUser, createWorkspace, gatewayPost } from "./fixtures.helpers";
 import { danglingWorkspaceId, registerClient, seedConnectedClient, token } from "./controlPlane/fixtures.helpers";
 import { pair, type Pair } from "./contextMove.helpers";
-import { keyWorkspace } from "./contextMoveKeyed.helpers";
 
 const ACCESS = token("mover");
 const OWNER_PRIVATE = ["context:read", "context:write", "context:private"];
@@ -45,11 +44,9 @@ async function liveAt(p: Pair, workspaceId: Id<"workspaces">, path: string) {
   });
 }
 
+/** Both workspaces are keyed by the copy every workspace gets. */
 async function keyedPair(into: "own" | "shared" = "own"): Promise<Pair> {
-  const p = await pair({ notes: 2, into });
-  await keyWorkspace(p.t, p.from, p.source);
-  await keyWorkspace(p.t, p.to, p.destination);
-  return p;
+  return await pair({ notes: 2, into });
 }
 
 describe("an AI client moving a note between keyed workspaces", { timeout: 30_000 }, () => {

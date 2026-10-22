@@ -26,6 +26,9 @@
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
+
+// Each test builds a workspace with a bucket and a copied tree, which takes longer than the default five seconds.
+vi.setConfig({ testTimeout: 30_000 });
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
@@ -821,9 +824,8 @@ describe("an anonymous reader is told about an outage, not about their session",
 describe("an unlisted link over an encrypted note", () => {
   test("cannot be minted", async () => {
     const f = await fixture();
-    f.backend.seed(ENTRY, ENCRYPTED_NOTE);
-    await readIntoTree(f);
-
+    await writeNote(f, ENTRY, ENCRYPTED_NOTE);
+    
     const error = await captureError(() => unlisted(f));
     expect(errorCode(error)).toBe("PATH_ENCRYPTED");
   });
@@ -836,9 +838,8 @@ describe("an unlisted link over an encrypted note", () => {
     const privateRefusal = await captureError(() => unlisted(f, PRIVATE_NOTE));
     expect(errorCode(privateRefusal)).toBe("PATH_NOT_TEAM_VISIBLE");
 
-    f.backend.seed(ENTRY, ENCRYPTED_NOTE);
-    await readIntoTree(f);
-    const encryptedRefusal = await captureError(() => unlisted(f));
+    await writeNote(f, ENTRY, ENCRYPTED_NOTE);
+        const encryptedRefusal = await captureError(() => unlisted(f));
     expect(errorCode(encryptedRefusal)).toBe("PATH_ENCRYPTED");
   });
 
@@ -849,7 +850,7 @@ describe("an unlisted link over an encrypted note", () => {
     // link that never resolved at all.
     expect((await readAnonymously(f, token)).text).toContain("# Chapter transition");
 
-    f.backend.seed(ENTRY, ENCRYPTED_NOTE);
+    await writeNote(f, ENTRY, ENCRYPTED_NOTE);
 
     const error = await captureError(() => readAnonymously(f, token));
     expect(errorCode(error)).toBe("NOT_AUTHENTICATED");
@@ -861,7 +862,7 @@ describe("an unlisted link over an encrypted note", () => {
   test("...byte-identical to a link that was never minted", async () => {
     const f = await fixture();
     const token = await unlisted(f);
-    f.backend.seed(ENTRY, ENCRYPTED_NOTE);
+    await writeNote(f, ENTRY, ENCRYPTED_NOTE);
 
     const encrypted = await captureError(() => readAnonymously(f, token));
     const invented = await captureError(() =>
@@ -878,7 +879,7 @@ describe("an unlisted link over an encrypted note", () => {
     const token = await unlisted(f);
     expect((await readAnonymously(f, token, LINKED)).text).toContain("# Proposal");
 
-    f.backend.seed(LINKED, ENCRYPTED_NOTE);
+    await writeNote(f, LINKED, ENCRYPTED_NOTE);
 
     const error = await captureError(() => readAnonymously(f, token, LINKED));
     expect(errorShape(error)).toBe(
@@ -892,14 +893,19 @@ describe("an unlisted link over an encrypted note", () => {
 });
 
 /**
- * What was written straight into the bucket reaches the tree and its facts,
- * as a write through the product does: the mint reads whether a note is
- * sealed off those facts, never off the note.
+ * An owner's note written through the product, and what that write leaves
+ * behind: the tree and its facts follow it, which is what the mint reads.
  */
-async function readIntoTree(f: Fixture): Promise<void> {
-  await copyTree(f.t, f.workspaceId);
-  // The sweep schedules a facts fill. Manual passes can all skip while that
-  // job holds the lease, so await its completion before testing the mint
-  // (ported from #1728).
+async function writeNote(f: Fixture, path: string, text: string): Promise<void> {
+  const current = await asUser(f.t, f.owner)
+    .action(api.functions.files.readNote, { workspaceId: f.workspaceId, path })
+    .catch(() => null);
+  await asUser(f.t, f.owner).action(api.functions.files.writeNote, {
+    workspaceId: f.workspaceId,
+    path,
+    text,
+    ...(current === null ? {} : { expectedEtag: current.etag }),
+  });
+  // The write schedules a facts fill. Await its completion before testing the mint.
   await drainScheduled(f.t);
 }

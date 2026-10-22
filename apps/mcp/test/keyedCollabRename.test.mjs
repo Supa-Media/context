@@ -14,7 +14,7 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { commitUpdate, readDocument } from "@context/collaboration";
+import { commitUpdate, readDocument, renameDocument } from "@context/collaboration";
 import { toolMoveNote } from "../src/tools/moves/note.js";
 import { toolMoveFolder } from "../src/tools/moves/folder.js";
 
@@ -23,7 +23,7 @@ import { toolMoveFolder } from "../src/tools/moves/folder.js";
  * with plumbing (`.context/…`) at its own keys. `startQueuedMove` makes the
  * row change the control plane makes, and copies nothing.
  */
-function keyedRows(files, { overwriteRows = false } = {}) {
+function keyedRows(files, { overwriteRows = false, controlPlaneCarries = false } = {}) {
   const rows = new Map();
   const objects = new Map();
   const writes = [];
@@ -112,6 +112,11 @@ function keyedRows(files, { overwriteRows = false } = {}) {
         rows.set(pair.to, rows.get(pair.from));
         rows.delete(pair.from);
       }
+      if (controlPlaneCarries) {
+        // The control plane carries each note's history with its row (`nodes/rowHistory.ts`) and says so.
+        for (const pair of moved) await renameDocument(store, pair.from, pair.to, { internalTrash: true }).catch(() => {});
+        return { queued: true, count: moved.length, rowed: true, historyCarried: true, moved };
+      }
       return { queued: true, count: moved.length, rowed: true, moved };
     },
   };
@@ -137,6 +142,16 @@ test("a keyed note move carries its collaboration history to the new name, and t
     ["https://presence.invalid/moved", { to: "2-areas/a.md" }],
   ]);
   assert.ok(made.rooms[0].name.includes("1-projects%2Fa.md"), "the notice goes to the room the old name had");
+});
+
+test("history the control plane already carried is not renamed again, and the old room is still told", async () => {
+  const made = keyedRows({ "1-projects/a.md": { body: "# A\n", etag: "e0" } }, { controlPlaneCarries: true });
+  const opened = await readDocument(made.store, "1-projects/a.md");
+
+  await toolMoveNote(made.store, "private", TEAM_BOTH, new Map(), "1-projects/a.md", "2-areas/a.md");
+
+  assert.equal((await readDocument(made.store, "2-areas/a.md")).documentId, opened.documentId);
+  assert.deepEqual(made.rooms.map((room) => room.body), [{ to: "2-areas/a.md" }]);
 });
 
 test("a move that narrows the note does not tell the old room where it went, but still closes its members", async () => {
