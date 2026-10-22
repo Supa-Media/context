@@ -189,6 +189,8 @@ export async function runEncryptionRotationChecks(check) {
       NATIVE_BINDINGS: "BUCKET_ROT",
       BUCKET_ROT: a.bucket,
     };
+    // The walk names the tree's notes, never the bucket's listing: serve the tree from it.
+    controlPlane.serveTreesFrom(env);
 
     let id = 0;
     async function call(name, args = {}) {
