@@ -39,11 +39,15 @@ export const STUCK_LINE =
 export function captchaLadder() {
   let ladders = 0;
   let stuck = false;
+  // Pages whose captcha already outlasted every try this question: the
+  // handoff the model then asks for reads the page again, and that reading
+  // must not pay for the tries a second time.
+  const outlasted = new Set();
   return {
     async settle(done, run) {
       if (done?.captcha !== "unsolved") return { done, line: "", cleared: false };
       const url = done.reading?.url;
-      if (ladders >= MAX_LADDERS_PER_TURN || typeof url !== "string") {
+      if (ladders >= MAX_LADDERS_PER_TURN || typeof url !== "string" || outlasted.has(url)) {
         stuck = true;
         return { done, line: STUCK_LINE, cleared: false };
       }
@@ -60,6 +64,8 @@ export function captchaLadder() {
         if (again.captcha !== "unsolved") return { done: again, line: clearedLine(how), cleared: true };
       }
       stuck = true;
+      outlasted.add(url);
+      if (typeof last.reading?.url === "string") outlasted.add(last.reading.url);
       return { done: last, line: STUCK_LINE, cleared: false };
     },
     /** Whether a captcha this question met outlasted every try. */

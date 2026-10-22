@@ -20,6 +20,8 @@
  *     captcha the solver could not clear is reloaded …" fails.
  *  4. `captchaPending` always false (infra/site-shots). → three tests in
  *     captcha.test.ts fail.
+ *  5. `captchaLadder` forgetting the pages it gave up on. → "once a page's
+ *     captcha outlasted every try, the handoff … does not try again" fails.
  */
 
 import assert from "node:assert/strict";
@@ -96,6 +98,20 @@ test("only a captcha that outlasts the solver, a reload and a fresh browser is h
   ]);
   assert.ok(result.content[0].text.includes(STUCK_LINE));
   assert.equal(result.captchaStuck, true);
+  assert.match(web.browser.handoffLine(), /context\.lc\/tex\/maya/);
+});
+
+test("once a page's captcha outlasted every try, the handoff the model then asks for does not try again", async () => {
+  const computer = captchaComputer(["unsolved"]);
+  const web = webSession(computer, `book a court on ${PAGE}`);
+  await web.call(BROWSE_TOOL, open);
+  assert.equal(computer.calls.length, 3, "the reload and the fresh browser were tried");
+  const handing = await web.call(BROWSE_TOOL, { steps: [{ do: "handoff" }] });
+  assert.deepEqual(computer.calls.slice(3).map((c) => [c.steps.join(","), c.fresh, c.handoff]), [
+    ["read", false, false],
+    ["read", false, true],
+  ]);
+  assert.ok(handing.content[0].text.includes(STUCK_LINE));
   assert.match(web.browser.handoffLine(), /context\.lc\/tex\/maya/);
 });
 
