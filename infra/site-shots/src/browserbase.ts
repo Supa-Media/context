@@ -5,7 +5,9 @@
  * Kept to what the decision allows (`docs/decisions/texting-assistant.md`):
  *
  * - **Stateless.** No Browserbase Contexts (saved profiles), so no login
- *   outlives the session at the vendor, and `recordSession: false`.
+ *   outlives the session at the vendor, and `recordSession: false`. Weighed
+ *   again and kept off on 2026-10-22: sign-ins carry over in the person's
+ *   sealed jar (./jar.ts, `docs/decisions/texting-assistant/vault.md`).
  * - **One running browser per person, found by a tag, not stored.** The
  *   gateway passes `owner`, an HMAC of the person's id under its own secret;
  *   it goes on the session as `userMetadata`, and the next question finds the
