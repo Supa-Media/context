@@ -36,7 +36,7 @@ import { TOLD } from "../src/agent/conversation.js";
 
 export async function runAgentEgressTextingChecks(check) {
   const world = await createEgressWorld();
-  const { model, controlPlane, env, teamVisible, pending } = world;
+  const { model, controlPlane, env, teamVisible, pending, bucket } = world;
   const claimed = (slug) => controlPlane.workspaceSetupCalls.some((entry) => entry.dryRun === false && entry.slug === slug);
   const claim = (slug) => ({ toolCalls: [{ name: "create_workspace", args: { slug, name: slug } }] });
   // Deny whatever is waiting, so the next ask starts from an empty queue.
@@ -152,19 +152,24 @@ export async function runAgentEgressTextingChecks(check) {
 
     model.install([claim("garden"), { text: "Want @garden?" }]);
     await ask(env, TOKEN_TEXTS, "make me a garden workspace");
+    const inTheApp = await request(env, TOKEN_CONSOLE, "/approvals", undefined, "GET");
+    const gardenId = pending().map((key) => JSON.parse(bucket.get(key).body)).find((record) => /garden/.test(record.summary))?.id;
+    const fromTheApp = await request(env, TOKEN_CONSOLE, "/approvals", { id: gardenId, action: "approve" });
+    check(
+      "a texted ask is answered in the texts and never in the app (Dev2, 2026-10-22)",
+      pending().length === 1 &&
+        inTheApp.status === 200 &&
+        !(inTheApp.body?.approvals ?? []).some((row) => /garden/.test(row.summary)) &&
+        typeof gardenId === "string" &&
+        fromTheApp.status === 404 &&
+        !claimed("garden"),
+    );
     model.install([{ text: "I will hold off, then." }]);
     before = model.requests.length;
     const longer = await ask(env, TOKEN_TEXTS, "yes but call it something else");
     check(
-      "a text that is more than yes goes to the model",
-      longer.status === 200 && model.requests.length === before + 1 && pending().length === 1 && !claimed("garden"),
-    );
-    const stillHeld = await request(env, TOKEN_CONSOLE, "/approvals", undefined, "GET");
-    const gardenRow = stillHeld.body?.approvals?.find((row) => /garden/.test(row.summary));
-    const released = await request(env, TOKEN_CONSOLE, "/approvals", { id: gardenRow?.id, action: "approve" });
-    check(
-      "what a text held, the app can release",
-      released.status === 200 && released.body?.status === "approved" && claimed("garden"),
+      "a text that is more than yes goes to the model, and the ask it moved on from is dropped",
+      longer.status === 200 && model.requests.length === before + 1 && pending().length === 0 && !claimed("garden"),
     );
 
     check(

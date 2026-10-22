@@ -419,8 +419,8 @@ export async function runAgentHeartbeatChecks(check) {
         found.body?.answer?.includes("https://example.invalid/tex-chaos-scale.png"),
     );
     check(
-      "a texted check-in stops an older ask listening, so a yes to the check-in releases nothing",
-      JSON.parse(bucket.get(waiting)?.body ?? "{}").texting === false,
+      "a texted check-in drops an older ask, so a yes to the check-in releases nothing",
+      !String(bucket.get(waiting)?.body ?? "").startsWith("{"),
     );
     check("a check-in can't write, whatever it is told", bucket.get("todo.md")?.body === "# To do\n\n- Pay rent\n");
     const written = log();

@@ -143,6 +143,7 @@ export async function createPending(
     // Raised for a texted ask, a record keeps that ask's twelve-hour life, but
     // is armed for a yes only when `armed` (`armForText`).
     texting: texting === true && armed === true,
+    ...(texting === true ? { asked_by_text: true } : {}),
     ...(texting === true && armed === true ? { texting_until: now + TEXTING_TTL_MS } : {}),
     // An ask that is not a held call (`vault/asks.js`): settled by its own
     // grant, never replayed.
@@ -174,31 +175,48 @@ export async function rearmForText(store, { key, record }, texting, now = Date.n
 
 /**
  * The thread has moved on: a text that went to the model is not an answer to an
- * ask made before it, so no later bare yes may release one. The records stay
- * for the app to answer; they just stop being a thing a text can settle. A
- * record that cannot be disarmed is dropped, which is the safe direction.
+ * ask made before it, so no later bare yes may release one. Tex's asks live in
+ * the texts and nowhere else (Dev2, 2026-10-22: a day of re-asks had left a
+ * pile of them in the app, each a duplicate email one tap away), so a record
+ * the thread has moved on from is dropped, not left for the app. One that
+ * cannot be dropped is disarmed, which is the other safe direction.
  */
 export async function disarmTexting(store, { userId, now = Date.now() }) {
   return disarmRecords(store, await listPending(store, { userId, texting: true, now }));
 }
 
 /**
- * Disarm these listed records for texting, or drop one that cannot be
- * disarmed. Returns how many could be neither: still armed, so a later bare
- * yes would reach them, and the caller says so to the person.
+ * Drop these listed texted asks, or disarm one that cannot be dropped. Returns
+ * how many could be neither: still armed, so a later bare yes would reach
+ * them, and the caller says so to the person.
  */
 export async function disarmRecords(store, entries) {
   let stuck = 0;
   for (const { key, etag, record } of entries) {
+    if (await deleteWithLegacyFallback(store, key).then(() => true, () => false)) continue;
     try {
       const put = await store.put(key, JSON.stringify({ ...record, texting: false }), etag ? { onlyIf: { etagMatches: etag } } : undefined);
       if (put) continue;
     } catch {
-      // dropped below instead
+      // counted below
     }
-    if (!(await deleteWithLegacyFallback(store, key).then(() => true, () => false))) stuck += 1;
+    stuck += 1;
   }
   return stuck;
+}
+
+/** What Tex is called as a client (`TEXTS_CLIENT_NAME` and its old name in `apps/convex/functions/textLinks.ts`). */
+const TEXTS_CLIENTS = new Set(["Tex", "Texts (iMessage)"]);
+
+/**
+ * Whether a record was asked by text: answered by text and never in the app.
+ * Records from before `asked_by_text` are known by the client that asked,
+ * except a key's first use, which Tex too is allowed in the app
+ * (`vault/asks.js`, raised with `texting: false`).
+ */
+export function askedByText(record) {
+  if (record?.asked_by_text === true) return true;
+  return TEXTS_CLIENTS.has(record?.actor?.client) && record?.kind !== "vault_use";
 }
 
 /**

@@ -29,7 +29,7 @@
 
 import { actorFor, contextsFor } from "../context/identity.js";
 import { callToolForSession } from "../tools/session.js";
-import { listPending, pendingById, replayAsAsked, settlePending } from "../tools/approvals.js";
+import { askedByText, listPending, pendingById, replayAsAsked, settlePending } from "../tools/approvals.js";
 import { VAULT_USE, grantUse } from "../vault/asks.js";
 import { VAULT_PAY, grantPay } from "../vault/pay.js";
 import { noteRefusal } from "../vault/usage.js";
@@ -53,7 +53,8 @@ export async function handleApprovals(request, store, session) {
   store.actor = actorFor(session);
   store.contexts = contextsFor(session);
   if (request.method === "GET") {
-    const waiting = await listPending(store, { userId: session.actorUserId });
+    // Tex's asks are answered in the texts, never here (`askedByText`).
+    const waiting = (await listPending(store, { userId: session.actorUserId })).filter(({ record }) => !askedByText(record));
     return json({
       approvals: waiting.map(({ record }) => ({
         id: record.id,
@@ -84,6 +85,7 @@ export async function handleApprovals(request, store, session) {
     return json({ error: "invalid_request", error_description: "Pass id and action: approve or deny." }, 400);
   }
   const asked = await pendingById(store, id, { userId: session.actorUserId });
+  if (asked !== null && askedByText(asked)) return json({ error: "not_found" }, 404);
   const vaultUse = asked?.kind === VAULT_USE;
   // "From now on" is a vault ask's answer only: a held call runs once.
   if (action === "approve_always" && asked !== null && !vaultUse) {

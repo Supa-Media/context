@@ -28,7 +28,7 @@
  *  8. No texted length cap. → `an email too long to show whole in one text is
  *     never asked about by text` fails.
  *  9. `settleByText` not disarming an email it skipped. → `an "ok" that
- *     settles another ask still disarms the email beside it` fails.
+ *     settles another ask still drops the email beside it` fails.
  * 10. No one-email-per-text refusal in `emailGate`. → `a second email in one
  *     texted turn is refused` fails.
  * 11. `textedAsk` without its length cap. → `an ask holding an email that
@@ -66,7 +66,8 @@ const isChecker = (body) => JSON.stringify(body?.system ?? "").includes("You che
 
 export async function runEmailGateChecks(check) {
   const world = await createEgressWorld();
-  const { model, env, pending, controlPlane } = world;
+  const { model, env, pending, controlPlane, bucket } = world;
+  const held = () => pending().map((key) => JSON.parse(bucket.get(key).body));
   const sends = () => controlPlane.emailCalls.filter((entry) => !entry.check);
   const approvals = async () => (await request(env, TOKEN_CONSOLE, "/approvals", undefined, "GET")).body?.approvals ?? [];
 
@@ -157,15 +158,9 @@ export async function runEmailGateChecks(check) {
       "a yes after the person moved on sends nothing",
       sends().length === before && /Yes what/.test(late.body?.answer ?? ""),
     );
-    const listed = await approvals();
     check(
-      "the app still lists it, with the whole email to read",
-      listed.length === 1 && listed[0].tool === "send_email" && (listed[0].detail ?? "").includes("Subject: Re: Friday"),
-    );
-    const approved = await request(env, TOKEN_CONSOLE, "/approvals", { id: listed[0].id, action: "approve" });
-    check(
-      "approving it in the app sends it once",
-      approved.body?.status === "approved" && approved.body?.ok === true && sends().length === before + 1 && sends().at(-1).email.subject === "Re: Friday",
+      "an email the person moved on from is dropped, not left in the app where one tap would send it (Dev2, 2026-10-22)",
+      (await approvals()).length === 0 && sends().length === before,
     );
 
     /* ---------------- the sender shown is the sender ---------------- */
@@ -245,8 +240,8 @@ export async function runEmailGateChecks(check) {
     model.install([{ text: "Yes what?" }]);
     await ask(env, TOKEN_TEXTS, "yes");
     check(
-      'an "ok" that settles another ask still disarms the email beside it',
-      mixed.body?.asked === 2 && sends().length === before && (await approvals()).some((left) => left.tool === "send_email" && left.summary.includes("Re: mixed")),
+      'an "ok" that settles another ask still drops the email beside it',
+      mixed.body?.asked === 2 && sends().length === before && !held().some((left) => left.tool === "send_email" && left.summary.includes("Re: mixed")),
     );
     for (const left of await approvals()) await request(env, TOKEN_CONSOLE, "/approvals", { id: left.id, action: "deny" });
 
@@ -543,7 +538,7 @@ export async function runEmailGateChecks(check) {
       !spilled.ask.includes("yyyy") &&
       spilled.ask.length < TEXTED_ASK_CAP &&
       spill.length === 0 &&
-      (await listPending(memory, { userId: "u1" })).length === 2,
+      (await listPending(memory, { userId: "u1" })).length === 1,
   );
 
   /*
