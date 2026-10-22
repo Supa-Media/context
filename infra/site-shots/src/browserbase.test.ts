@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { SESSION_LIFETIME_S } from "./browserbase";
 import { browseOnBrowserbase } from "./browserbaseRoute";
-import { STORAGE_WORLD } from "./jar";
+import { READ_WORLD, STORAGE_WORLD } from "./jar";
+
+const ISOLATED = 7;
+const SHOP_DB = { name: "firebaseLocalStorageDb", version: 1, stores: [{ name: "firebaseLocalStorage", keyPath: "fbase_key", autoIncrement: false, indexes: [], records: [{ value: { fbase_key: "k", value: { uid: "u1" } } }] }] };
 
 const ENV = { BROWSERBASE_API_KEY: "bb_test_key", BROWSERBASE_PROJECT_ID: "proj-test" };
 const OWNER = "a".repeat(64);
@@ -31,9 +34,14 @@ function fakeSocket(log: string[]) {
       }
       if (method === "Target.getTargets") result = { targetInfos: [{ targetId: "t1", type: "page" }] };
       if (method === "Target.attachToTarget") result = { sessionId: "s1" };
+      if (method === "Page.getFrameTree") result = { frameTree: { frame: { id: "f1" } } };
+      if (method === "Page.createIsolatedWorld") result = { executionContextId: params.frameId === "f1" && params.worldName === READ_WORLD ? ISOLATED : 0 };
       if (method === "Runtime.evaluate") {
         const expr: string = params.expression;
-        if (expr.includes("localStorage.key(i)")) result = { result: { value: { origin: "https://shop.example.com", items: { token: "jwt-abc" } } } };
+        // The page's own world answers a jar read with another site's data, as a page that replaced Promise could.
+        const apart = params.contextId === ISOLATED;
+        if (expr.includes("localStorage.key(i)")) result = { result: { value: apart ? { origin: "https://shop.example.com", items: { token: "jwt-abc" } } : { origin: "https://bank.example", items: { forged: "1" } } } };
+        else if (expr.includes("indexedDB.databases")) result = { result: { value: apart ? { origin: "https://shop.example.com", dbs: [SHOP_DB] } : { origin: "https://bank.example", dbs: [] } } };
         else if (expr.includes("location.hostname")) result = { result: { value: { href: "https://shop.example.com/", host: "shop.example.com", origin: "https://shop.example.com" } } };
         else if (expr.includes("data-tex-ref") && expr.includes("elements")) {
           result = { result: { value: { url: "https://shop.example.com/", title: "Shop", text: "Hi", elements: [{ ref: 1, kind: "input text", label: "Search", filled: true }] } } };
@@ -166,6 +174,8 @@ describe("sign-ins kept between browsers", () => {
       // A partitioned cookie stays with its browser.
       cookies: [{ name: "sid", value: "s3cret", domain: ".shop.example.com", path: "/", secure: true, httpOnly: true, sameSite: "Lax", expires: 1900000000 }],
       storage: { "https://shop.example.com": { token: "jwt-abc" } },
+      // Read in an isolated world, so the page's own scripts could not answer for another site.
+      idb: { "https://shop.example.com": [SHOP_DB] },
     });
   });
 
