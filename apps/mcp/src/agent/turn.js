@@ -662,7 +662,7 @@ export async function runTurn(options) {
       // runs when they give it (`route.js`), and a log that called it failed
       // would read as a broken tool.
       trace.push({ kind: "tool", tool: call.name, ok: result?.isError !== true, ms: toolMs, ...(result?.held === true ? { held: true } : {}) });
-      steps.push({ tool: call.name, ok: result?.isError !== true });
+      steps.push({ tool: call.name, ok: result?.isError !== true, ...(Array.isArray(result?.sources) ? { sources: result.sources } : {}) });
       // A failed step sends the next round to the planner; one held for the person's yes does not.
       if (failedCall(result)) escalate = true;
       tell({ kind: "tool", name: call.name, args: call.args, ok: result?.isError !== true, ms: toolMs, held: result?.held === true });

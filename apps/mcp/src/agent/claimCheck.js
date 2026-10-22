@@ -30,6 +30,11 @@
  *      So a preview in its own words, or a request for their yes or 👍 about
  *      an email, a calendar change or a bug report, counts as an offer too.
  *
+ *   4. The answer says it couldn't open, read or reach something, and the
+ *      turn had the web and never tried it. On 2026-10-22 Tex texted the
+ *      owner "I couldn't open the LSB text for 28 or 29 from here", then,
+ *      asked why, "I was wrong. I hadn't tried before I said it."
+ *
  * Any one sends the model one more round with a notice saying what is
  * missing (`turn.js` `answerCheck`): it does the change, or says plainly that
  * it has not. The notice is given once a turn, so a check can never loop, and
@@ -89,6 +94,20 @@ export const CLAIM_NOTICE =
   "If they asked for it, make the change now with your tools and then answer. If you can't, answer again saying plainly that it is not done, " +
   "and never say a change is made unless a call for it succeeded.";
 
+/** "I couldn't open the LSB text", "I can't access that page", "I wasn't able to pull it up". */
+const CANT_REACH =
+  /\b(?:couldn['’]?t|could not|can['’]?t|cannot|can not|wasn['’]?t able to|was unable to|am unable to|unable to)\s+(?:open|load|read|reach|access|get to|get at|pull up)\b/i;
+
+export const TRY_NOTICE =
+  "Before this goes: your answer says you couldn't open or read something, but you didn't try anything on the web in this turn. " +
+  "If it is on the web, try it now with search_web and open_page (or browse), then answer from what you read and name the page's address if they asked where it came from. " +
+  "Say you couldn't only after a try failed, and say what failed. If it was never a web thing, send your answer again as it was.";
+
+/** Whether an answer says it couldn't open, read or reach something. */
+export function saysItCouldNot(answer) {
+  return CANT_REACH.test(String(answer ?? ""));
+}
+
 export const MUTE_NOTICE =
   `Before this goes: they asked not to be texted about something unless they ask, and nothing was kept. Add the plain words such texts ` +
   `would say (for "github stuff": github) to \`mute:\` in the front matter of ${ATTENTION_SETTINGS_PATH} now, creating it if it is missing; ` +
@@ -134,7 +153,15 @@ export function claimCheck({ question }) {
   let keptWish = false;
   let held = false;
   let noticed = false;
+  let hadWeb = false;
+  let triedWeb = false;
   return {
+    /** The turn's web (`turnWeb.js`), watched for whether anything on it was tried. */
+    wrapWeb(web) {
+      if (web === null) return null;
+      hadWeb = true;
+      return { ...web, call: (name, args) => ((triedWeb = true), web.call(name, args)) };
+    },
     wrap(callTool) {
       return async (name, args) => {
         const result = await callTool(name, args);
@@ -156,7 +183,9 @@ export function claimCheck({ question }) {
             ? CLAIM_NOTICE
             : offersAHeldChange(answer) && !held
               ? OFFER_NOTICE
-              : null;
+              : hadWeb && !triedWeb && saysItCouldNot(answer)
+                ? TRY_NOTICE
+                : null;
       if (notice !== null) noticed = true;
       return notice;
     },

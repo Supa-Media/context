@@ -19,13 +19,15 @@
  *     is shown…" and "a preview of an email…" fail.
  *  4. `check` never giving `OFFER_NOTICE`.
  *     → "an offer with nothing held is sent back; once the call is held, it goes" fails.
+ *  7. `wrapWeb` not marking a call as tried (2026-10-22).
+ *     → "\"I couldn't open it\" with the web untried gets one more round…" fails.
  */
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { CLAIM_NOTICE, MUTE_NOTICE, OFFER_NOTICE, asksToMute, claimCheck, claimsAChange, offersAHeldChange } from "../src/agent/claimCheck.js";
+import { CLAIM_NOTICE, MUTE_NOTICE, OFFER_NOTICE, TRY_NOTICE, asksToMute, claimCheck, claimsAChange, offersAHeldChange, saysItCouldNot } from "../src/agent/claimCheck.js";
 import { runTurn } from "../src/agent/turn.js";
 
 const MAIN = "@cf/acme/main-model";
@@ -124,6 +126,35 @@ test("an offer with nothing held is sent back; once the call is held, it goes", 
   const held = claimCheck({ question: "dinner at 7" });
   await held.wrap(async () => ({ isError: true, held: true, content: [] }))("calendar_event", {});
   assert.equal(held.check("I'll add Emmanuela and Sayo at 7."), null);
+});
+
+/*
+  2026-10-22: "I couldn't open the LSB text for 28 or 29 from here", then,
+  asked why, "I was wrong. I hadn't tried before I said it."
+*/
+test("an answer that says it couldn't open or read something is read as one; one that couldn't find a note is not", () => {
+  assert.equal(saysItCouldNot("I couldn't open the LSB text for 28 or 29 from here, so the Overview is blank."), true);
+  assert.equal(saysItCouldNot("I can\u2019t access that page."), true);
+  assert.equal(saysItCouldNot("I wasn't able to pull up the chapter."), true);
+  assert.equal(saysItCouldNot("Your notes don't have his number."), false);
+  assert.equal(saysItCouldNot("I couldn't find that in your notes."), false);
+});
+
+test("\"I couldn't open it\" with the web untried gets one more round; after a try, or with no web, it goes", async () => {
+  const said = "I couldn't open the LSB text for 28 or 29 from here.";
+  const web = { tools: [], usage: {}, call: async () => ({ content: [{ type: "text", text: "That page could not be opened." }], isError: true }) };
+
+  const untried = claimCheck({ question: "write the overview" });
+  untried.wrapWeb(web);
+  assert.equal(untried.check(said), TRY_NOTICE);
+
+  const tried = claimCheck({ question: "write the overview" });
+  await tried.wrapWeb(web).call("open_page", { urls: ["https://example.org/deut-28"] });
+  assert.equal(tried.check(said), null, "a try that failed is an honest can't");
+
+  const offline = claimCheck({ question: "write the overview" });
+  assert.equal(offline.wrapWeb(null), null);
+  assert.equal(offline.check(said), null, "a turn with no web has nothing to try");
 });
 
 /** A Workers AI binding that answers from a script, one reply per call. */

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   appendConversation,
   conversationPath,
+  earlierTextsResult,
   MAX_HISTORY_CHARS,
   MAX_HISTORY_TURNS,
   readConversation,
@@ -10,6 +11,7 @@ import {
   usedTools,
 } from "../src/agent/conversation.js";
 import { systemPrompt } from "../src/agent/prompt.js";
+import { MAX_SOURCES, sourceAddress, sourcesOf } from "../src/agent/sources.js";
 
 function memoryStore() {
   const objects = new Map();
@@ -307,4 +309,38 @@ test("only a text of theirs in the last ten minutes holds a check-in back; Tex's
   assert.equal(midConversation(await readConversation(store, "texts"), now), false);
   await appendConversation(store, "texts", [], "Friday then", "Done.", { at: now - 60_000, theirs: true });
   assert.equal(midConversation(await readConversation(store, "texts"), now), true);
+});
+
+/*
+  2026-10-22: asked "where are you reading from?" a text after reading
+  Deuteronomy 28 on a Bible site, Tex had only the tool's name and took back
+  that it had read anything. An answer keeps the addresses of the pages it
+  read (`sources.js`), never their text, and the next turn is told them.
+*/
+test("an answer keeps the addresses of the web pages it read, and the next turn and earlier_texts name them", async () => {
+  const store = memoryStore();
+  await appendConversation(store, "texts", [], "Fill in the overview for Deut 28", "Done, from the LSB.", {
+    tools: ["open_page"],
+    sources: ["https://www.biblegateway.com/passage/?search=Deuteronomy+28&version=LSB#en", "https://www.biblegateway.com/passage/?search=Deuteronomy+28&version=LSB", "javascript:alert(1)", 7],
+  });
+  const turns = await readConversation(store, "texts");
+  const page = "https://www.biblegateway.com/passage/?search=Deuteronomy+28&version=LSB";
+  assert.deepEqual(turns[1].sources, [page]);
+  const used = usedTools(turns);
+  assert.deepEqual(used[0].sources, [page]);
+  const prompt = systemPrompt(null, { texting: true, continued: true, used });
+  assert.ok(prompt.includes(`you used open_page. Web pages you read: ${page}`));
+  assert.match(prompt, /name the page's address/);
+  assert.match(earlierTextsResult(turns).content[0].text, /Web pages you read for this: https:\/\/www\.biblegateway\.com/);
+  assert.doesNotMatch(systemPrompt(null, { texting: true, continued: true, used: [{ question: "hi", tools: ["search_notes"] }] }), /name the page's address/);
+});
+
+test("a kept address drops a sign-in: no user, password, fragment or secret-looking query value", () => {
+  assert.equal(
+    sourceAddress("https://ada:hunter2@example.com/a?id=4&token=abc&api_key=k&sig=s&page=2#frag"),
+    "https://example.com/a?id=4&page=2",
+  );
+  assert.equal(sourceAddress("file:///etc/passwd"), null);
+  assert.equal(sourceAddress(`https://example.com/${"a".repeat(400)}`), null);
+  assert.equal(sourcesOf(Array.from({ length: 20 }, (_, i) => `https://example.com/${i}`)).length, MAX_SOURCES);
 });
