@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../../_generated/api";
 import { asUser, captureError, createUser, createWorkspace, setupTest } from "../fixtures.helpers";
+import { CONNECT_LINK_LIMIT, SETTINGS_CONNECT_LIMIT } from "../../functions/lib/connections/links";
 import { stubLinear } from "./linearStub.helpers";
 
 /**
@@ -51,6 +52,17 @@ describe("apps in Settings", () => {
     await asUser(t, seyi).mutation(api.functions.connections.disconnectConnection, { connectionId: linear.connectionId! });
     const gone = await asUser(t, seyi).query(api.functions.connectionSettings.myApps, { workspaceId: personal });
     expect(gone.find((a) => a.app === "linear")).toMatchObject({ state: "not_connected" });
+  });
+
+  /** Sabotage: give Settings Tex's key again, and the first press here is refused. */
+  test("Tex's spent link allowance never refuses the person's own Connect, which has its own", async () => {
+    const { t, seyi, personal } = await world();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("rateLimits", { key: `connect.link:${seyi}`, windowStartedAt: Date.now(), count: CONNECT_LINK_LIMIT });
+    });
+    const start = () => asUser(t, seyi).action(api.functions.connectionSettings.startAppConnect, { workspaceId: personal, provider: "linear" });
+    for (let press = 0; press < SETTINGS_CONNECT_LIMIT; press++) await start();
+    expect(await captureError(start)).not.toBeNull();
   });
 
   /** Sabotage: drop `mayConnect` from `issueLink`, and both refusals here pass a link. */

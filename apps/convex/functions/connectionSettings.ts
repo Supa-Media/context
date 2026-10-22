@@ -53,7 +53,7 @@ export const myApps = query({
 export const issueSettingsLink = internalMutation({
   args: { provider: providerValidator, workspaceId: v.id("workspaces"), userId: v.id("users"), hashedToken: v.string() },
   returns: v.union(v.literal("issued"), v.literal("refused")),
-  handler: async (ctx, args) => await issueLink(ctx, { ...args, clientId: SETTINGS_CLIENT_ID }),
+  handler: async (ctx, args) => await issueLink(ctx, { ...args, clientId: SETTINGS_CLIENT_ID }, true),
 });
 
 /** A connect link for the signed-in person, opened in the app at once. */

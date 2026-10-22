@@ -25,6 +25,12 @@ export const CONNECT_ATTEMPT_TTL_MS = 10 * 60 * 1000;
 /** A steered agent cannot fill someone's phone with connect links. */
 export const CONNECT_LINK_LIMIT = 10;
 export const CONNECT_LINK_WINDOW_MS = 60 * 60 * 1000;
+/**
+ * The person pressing Connect in Settings, counted apart from Tex's links:
+ * nothing is texted, and sharing the agent's count left a person who had tried
+ * a few times with "Too many requests" on their own button.
+ */
+export const SETTINGS_CONNECT_LIMIT = 30;
 
 /** A Tex group chat's client: it never makes a connection, and never reaches one. */
 export const TEXTS_GROUP_CLIENT_ID = "context_texts_group";
@@ -46,10 +52,11 @@ export async function mayConnect(ctx: QueryCtx, workspaceId: Id<"workspaces">, u
 export async function issueLink(
   ctx: MutationCtx,
   args: { provider: ProviderId; workspaceId: Id<"workspaces">; userId: Id<"users">; clientId: string; hashedToken: string },
+  pressed = false,
 ): Promise<"issued" | "refused"> {
   await consumeRateLimit(ctx, {
-    key: `connect.link:${args.userId}`,
-    limit: CONNECT_LINK_LIMIT,
+    key: `${pressed ? "connect.settings" : "connect.link"}:${args.userId}`,
+    limit: pressed ? SETTINGS_CONNECT_LIMIT : CONNECT_LINK_LIMIT,
     windowMs: CONNECT_LINK_WINDOW_MS,
   });
   const workspace = await mayConnect(ctx, args.workspaceId, args.userId);
