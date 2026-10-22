@@ -38,7 +38,7 @@
 import { agentAnswer, post, record, ServiceError, type Fetch } from "./clients";
 import { textsWithExact } from "./format";
 import { tapbackText, type Reaction } from "./reactions";
-import { dropThumb, dueThumb, holdThumb } from "./thumbs";
+import { dropThumb, dueThumb, GROUP_THUMB_KEY, holdThumb } from "./thumbs";
 import type { InboxStorage } from "./inbox";
 import type { SendblueKeys } from "./sendblue";
 import { chatBefore, dropChatLines, keepChatLine, peopleOf, setChatBound, sha256Hex } from "./groupChat";
@@ -241,10 +241,10 @@ async function acceptThumb(storage: InboxStorage, message: GroupMessage, reactio
   const ask = await storage.get<OpenAsk>(ASK_KEY);
   if (ask === undefined || now - ask.at >= ASK_OPEN_MS || ask.from !== (await sha256Hex(message.from))) return "ignored";
   if (reaction.removed) {
-    await dropThumb(storage, reaction.words);
+    await dropThumb(storage, reaction.words, GROUP_THUMB_KEY);
     return "ignored";
   }
-  await holdThumb<GroupMessage>(storage, { ...message, text: tapbackText(reaction.how) }, reaction.words, now);
+  await holdThumb<GroupMessage>(storage, { ...message, text: tapbackText(reaction.how) }, reaction.words, now, GROUP_THUMB_KEY);
   return "queued";
 }
 
@@ -275,7 +275,7 @@ async function answersOpenAsk(storage: InboxStorage, message: GroupMessage, now:
 /** Answer every tagged message waiting, oldest first. Called from the alarm. */
 export async function drainGroup(storage: InboxStorage, deps: GroupDeps): Promise<void> {
   // A 👍 that stayed its ten seconds joins the queue as the asker's answer.
-  const thumb = await dueThumb<GroupMessage>(storage, deps.now());
+  const thumb = await dueThumb<GroupMessage>(storage, deps.now(), GROUP_THUMB_KEY);
   if (thumb !== undefined) {
     const seq = ((await storage.get<number>("gseq")) ?? 0) + 1;
     await storage.put("gseq", seq);

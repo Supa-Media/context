@@ -76,6 +76,17 @@ const PREVIEW_LINE = /^\s*(?:to|cc|subject|forward(?:ing)? of|fwd)\s*:/im;
 const YES_ASK = /\b(?:say|reply|text|answer|send)\s+(?:yes|ok|okay|go)\b|\bsay the word\b|\bjust say\b|\blet me know (?:and|if)\b|\bgive (?:it|this|me) a\b|\u{1F44D}/iu;
 /** What a yes or 👍 might be asked about that only a held call can make: "sending it again" too. */
 const HELD_THING = /\b(?:send(?:ing)?|email(?:ing)?|forward(?:ing)?|calendar|schedul(?:e|ing)|book(?:ing)?|fil(?:e|ing)|bug|report|slack|dm|post(?:ing)?)\b/i;
+/*
+  A calendar change asked for in the answer's own words: "Sunday, November 1,
+  3 to 5 pm, at Bethesda. Say yes and I'll add it." (2026-10-22 5:04 PM). The
+  verb was "add", which `HELD_THING` doesn't name, so nothing was held, their
+  "yes" reached a model that only then raised the hold, and they were asked a
+  second time for a 👍. "Add" with a day or time is a calendar change unless
+  it names their own list or notes.
+*/
+const CALENDAR_ASK = {
+  test: (said) => CALENDAR_CHANGE.test(said) && WHEN.test(said) && (/\bcalendar\b/i.test(said) || !NOT_CALENDAR.test(said)),
+};
 /**
  * A Slack message offered in the answer's own words (2026-10-22: "I'd DM Jo
  * on Acme Slack: …", with nothing held, so the 👍 on it reached nothing).
@@ -225,7 +236,7 @@ export function claimsAChange(answer) {
 export function offersAHeldChange(answer) {
   const said = String(answer ?? "");
   if (PREVIEW_LINE.test(said) || SLACK_OFFER.test(said)) return true;
-  if (YES_ASK.test(said) && HELD_THING.test(said)) return true;
+  if (YES_ASK.test(said) && (HELD_THING.test(said) || CALENDAR_ASK.test(said))) return true;
   for (const [, offered] of said.matchAll(OFFER)) {
     if ((CALENDAR_CHANGE.test(offered) && WHEN.test(offered) && (/\bcalendar\b/i.test(offered) || !NOT_CALENDAR.test(offered))) || EMAIL_SEND.test(offered)) return true;
   }

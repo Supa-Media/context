@@ -11,6 +11,9 @@
  *  3. Group `acceptThumb` not checking the asker. → `only the asker's like …` fails.
  *  4. `onTheAsk` returning the reaction unchanged. → `a 👍 on the line above
  *     the ask is a 👍 on the ask …` fails.
+ *  5. The group hold back on the phone's key (`GROUP_THUMB_KEY` = "thumb"),
+ *     as shipped until 2026-10-22. → `a real Apple 👍 on an email ask
+ *     survives the alarm …` fails.
  */
 
 import { describe, expect, it } from "vitest";
@@ -57,6 +60,51 @@ function deps(asks: Record<string, unknown>[], clock: { now: number }): InboxDep
 }
 
 describe("a thumbs up on an ask, one to one", () => {
+  /*
+    Replayed from production (2026-10-22 20:55 UTC): Dev2's Apple 👍 on the
+    gateway's own email ask, in the shape Sendblue recorded it (the relay
+    writes tapbacks in Spanish, "Le gustó “…”", with `reply_to` and
+    `thread_originator` naming the ask). It parsed, was held, and was never
+    answered: the Durable Object's alarm drains a group's queue first
+    (`index.ts`, `alarm`), and the group drain took the one-to-one 👍 out of
+    the shared hold as if it were a group's.
+  */
+  it("a real Apple 👍 on an email ask survives the alarm, which drains a group's queue first", async () => {
+    const storage = new MemoryStorage();
+    const asks: Record<string, unknown>[] = [];
+    const clock = { now: NOW };
+    const sent =
+      "Here’s the email I'd send:\n\nFrom: seyi@example.test\nTo: sayo@example.test\nSubject: Tex is bored\n\nHey Sayo, it's Tex. I'm stuck in my sandbox again with nothing to do. Any chance you could keep me company? Snacks optional.\n\nTex\n\nGive it a 👍 and I'll send it.";
+    const inbound = parseSendblueInbound({
+      content: `Le gustó “${sent}”`,
+      is_outbound: false,
+      status: "RECEIVED",
+      message_handle: "mh_tap",
+      from_number: "+15555550100",
+      number: "+15555550100",
+      to_number: "+15555550199",
+      sendblue_number: "+15555550199",
+      media_url: "",
+      message_type: "message",
+      group_id: "",
+      participants: ["+15555550100", "+15555550199"],
+      service: "iMessage",
+      reply_to: { message_handle: "mh_ask" },
+      thread_originator: { message_handle: "mh_ask", part: "0:0:255" },
+      error_key: null,
+      source: null,
+    });
+    if (inbound.kind !== "reaction") throw new Error(`read as ${inbound.kind}`);
+    expect(await react(storage, inbound, NOW)).toBe("held");
+    clock.now = NOW + THUMB_HOLD_MS;
+    const groupAsks: Record<string, unknown>[] = [];
+    await drainGroup(storage, { ...deps(groupAsks, clock), sendblue: null } as unknown as GroupDeps);
+    await drain(storage, deps(asks, clock));
+    expect(groupAsks).toHaveLength(0);
+    expect(asks).toHaveLength(1);
+    expect(asks[0]).toMatchObject({ question: "👍", quoted: sent, tapback: "Liked" });
+  });
+
   it("holds a like or a heart on an ask, and nothing else", () => {
     expect(holdsAsYes({ how: "Liked", words: ASK })).toBe(true);
     expect(holdsAsYes({ how: "Loved", words: "Here's the bug report I'd send to the Context team: …" })).toBe(true);
@@ -306,6 +354,12 @@ describe("a 👍 on the ask itself goes on in the words the ask was sent in", ()
     const older = "Before I do that, I need your OK: send Jo Park a Slack message: \"Running late\". Give it a 👍 and I'll go ahead.";
     const got = await onTheAsk(storage, like(older), 2_000);
     expect(got.words).toBe(older);
+  });
+
+  it("takes back a like Messages reports in Spanish", () => {
+    expect(readRemovedTapback(`Dejó de gustarle “${ASK}”`)).toMatchObject({ how: "Liked", words: ASK, removed: true });
+    expect(readRemovedTapback(`Dejó de encantarle “${ASK}”`)).toMatchObject({ how: "Loved", removed: true });
+    expect(parseSendblueInbound({ content: `Dejó de gustarle “${ASK}”`, is_outbound: false, message_handle: "mh_x", from_number: "+15555550100", to_number: "+15555550199", sendblue_number: "+15555550199", media_url: "", message_type: "message", group_id: "", service: "iMessage" })).toMatchObject({ kind: "reaction", reaction: { removed: true } });
   });
 
   it("holds a like on the standing-forward ask too", () => {

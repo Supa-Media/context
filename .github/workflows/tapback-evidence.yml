@@ -1,6 +1,7 @@
-# What reached Tex around one moment, for a tapback that did nothing: the
-# texting Worker's and gateway's log events and Sendblue's record of the line.
-# Prints shapes only, never a phone number or a message's words.
+# What reached Tex's line around one moment, for a tapback that did nothing:
+# Sendblue's record of every message on the line, with which message each
+# answers. Prints shapes only, never a phone number or a message's words.
+# Run by hand.
 on:
   workflow_dispatch:
     inputs:
@@ -10,9 +11,6 @@ on:
       to:
         description: "End, ISO time (UTC)"
         required: true
-  push:
-    branches: [claude/project-thread-prkzk6]
-    paths: [.github/workflows/tapback-evidence.yml, .github/scripts/tapback-evidence.mjs]
 
 permissions:
   contents: read
@@ -29,10 +27,8 @@ jobs:
           node-version: 22
       - name: Read what arrived
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           SENDBLUE_API_KEY_ID: ${{ secrets.SENDBLUE_API_KEY_ID }}
           SENDBLUE_API_SECRET: ${{ secrets.SENDBLUE_API_SECRET }}
-          FROM: ${{ inputs.from || '2026-10-22T20:40:00Z' }}
-          TO: ${{ inputs.to || '2026-10-22T21:02:00Z' }}
+          FROM: ${{ inputs.from }}
+          TO: ${{ inputs.to }}
         run: node .github/scripts/tapback-evidence.mjs

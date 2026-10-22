@@ -21,6 +21,8 @@
  *     → "an offer with nothing held is sent back; once the call is held, it goes" fails.
  *  7. `wrapWeb` not marking a call as tried (2026-10-22).
  *     → "\"I couldn't open it\" with the web untried gets one more round…" fails.
+ *  8. `offersAHeldChange` without `CALENDAR_ASK` (2026-10-22).
+ *     → "a calendar change asked about in Tex's own words…" fails.
  */
 
 import assert from "node:assert/strict";
@@ -105,6 +107,15 @@ test("an offer of a calendar change or an email, in words, is read as one; an of
   assert.ok(offersAHeldChange("Here's the message as it would go:\n\n“Hey Jo, testing.”\n\nSay yes and I'll try sending it again."));
   assert.ok(!offersAHeldChange("Say the word and I'll look it up."));
   assert.ok(!offersAHeldChange("I'll add it once you say yes below."));
+});
+
+test("a calendar change asked about in Tex's own words, with no question, is an offer (2026-10-22 5:04 PM)", () => {
+  const said = "Sunday, November 1, 3 to 5 pm, at Bethesda. Say yes and I’ll add it.";
+  assert.ok(offersAHeldChange(said));
+  assert.deepEqual(offeredKinds(said).map((entry) => entry.tool), ["calendar_event"]);
+  assert.ok(offersAHeldChange("Friday at 2 pm works. Give it a 👍 and I'll put it on your calendar."));
+  assert.ok(!offersAHeldChange("Say yes and I'll add it to your to-do list for Friday."));
+  assert.ok(!offersAHeldChange("Say the word and I'll add more detail."));
 });
 
 test("a preview in Tex's own words, or its own ask for a yes or 👍, is an offer too (2026-10-21 2:25 PM)", () => {

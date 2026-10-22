@@ -11,15 +11,20 @@
  * what is waiting (`apps/mcp/src/agent/textedApprovals.js`, `thumbsUpIsYes`).
  * Nothing here can release anything: it only waits.
  *
- * What it keeps: `thumb`, the one tapback being held, with the words it was
- * on, until it goes or is taken back.
+ * What it keeps: `thumb` (a phone's chat) or `gthumb` (a group's), the one
+ * tapback being held, with the words it was on, until it goes or is taken
+ * back. The two never share a key: one object's alarm drains a group's queue
+ * and then a phone's (`index.ts`), and while they shared `thumb` the group
+ * drain took every one-to-one 👍 as a group's and dropped it (2026-10-22).
  */
 
 import type { InboxStorage } from "./inbox";
 import type { Reaction } from "./reactions";
 
 export const THUMB_HOLD_MS = 10_000;
-const THUMB_KEY = "thumb";
+/** Where a phone's chat holds its 👍, and where a group's does. */
+export const THUMB_KEY = "thumb";
+export const GROUP_THUMB_KEY = "gthumb";
 
 /**
  * The openings and the closing line of the gateway's asks (`askLine`). Only a
@@ -120,28 +125,28 @@ export async function onTheAsk(storage: InboxStorage, reaction: Reaction, now: n
 }
 
 /** Hold a tapback for its ten seconds; a newer one replaces it. */
-export async function holdThumb<T>(storage: InboxStorage, item: T, words: string, now: number): Promise<void> {
-  await storage.put<Held<T>>(THUMB_KEY, { item, words, at: now });
+export async function holdThumb<T>(storage: InboxStorage, item: T, words: string, now: number, key = THUMB_KEY): Promise<void> {
+  await storage.put<Held<T>>(key, { item, words, at: now });
   await storage.setAlarm(now + THUMB_HOLD_MS);
 }
 
 /** Drop the held tapback when it was on these words. Whether one was dropped. */
-export async function dropThumb(storage: InboxStorage, words: string): Promise<boolean> {
-  const held = await storage.get<Held<unknown>>(THUMB_KEY);
+export async function dropThumb(storage: InboxStorage, words: string, key = THUMB_KEY): Promise<boolean> {
+  const held = await storage.get<Held<unknown>>(key);
   if (held === undefined || !sameWords(held.words, words)) return false;
-  await storage.delete(THUMB_KEY);
+  await storage.delete(key);
   return true;
 }
 
 /** The held tapback once it has stayed its ten seconds, taken out; or undefined, with the alarm set for when it will have. */
-export async function dueThumb<T>(storage: InboxStorage, now: number): Promise<T | undefined> {
-  const held = await storage.get<Held<T>>(THUMB_KEY);
+export async function dueThumb<T>(storage: InboxStorage, now: number, key = THUMB_KEY): Promise<T | undefined> {
+  const held = await storage.get<Held<T>>(key);
   if (held === undefined) return undefined;
   if (now - held.at < THUMB_HOLD_MS) {
     await storage.setAlarm(held.at + THUMB_HOLD_MS);
     return undefined;
   }
-  await storage.delete(THUMB_KEY);
+  await storage.delete(key);
   return held.item;
 }
 
