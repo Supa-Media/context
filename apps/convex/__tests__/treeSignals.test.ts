@@ -22,7 +22,6 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { PRIVACY_KEY, type PrivacyRule, type Visibility } from "../functions/lib/privacy";
-import { DELETE_CONFIRMATION } from "../functions/lib/fileOps";
 // A workspace laid out before the numbers were dropped (2026-10-21): its folders keep them.
 import { LEGACY_PARA_FOLDERS, renderPrivacyManifestForFolders } from "../functions/lib/scaffold";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
@@ -87,7 +86,7 @@ describe("treeAudiences", () => {
   });
 
   test("plumbing and the root reach nobody", () => {
-    expect(treeAudiences([".context/audit/x.json", PRIVACY_KEY, ""], rules, overrides)).toEqual([]);
+    expect(treeAudiences([".context/audit/x.json", ".context/plugins/x.json", ""], rules, overrides)).toEqual([]);
   });
 
   test("a reader's audiences come from their clearance", () => {
@@ -168,7 +167,7 @@ async function tick() {
   await new Promise((resolve) => setTimeout(resolve, 5));
 }
 
-describe("the console's writes move the right hints", () => {
+describe("the console's writes move the right hints", { timeout: 60_000 }, () => {
   test("a shared note's creation moves the owner's hint and the member's", async () => {
     const f = await fixture();
     expect(await hint(f, f.member)).toBeNull();
@@ -254,7 +253,7 @@ describe("the console's writes move the right hints", () => {
    * which `treeAudiences` promises in its own words they cannot ("a reader
    * never sees one moved by a change they cannot see").
    */
-  test("deleting a note held back by name does not re-date it for the member", async () => {
+  test("trashing a note held back by name does not re-date it for the member", async () => {
     const f = await fixture();
     await asUser(f.t, f.owner).action(api.functions.files.setNoteVisibility, {
       workspaceId: f.workspaceId,
@@ -266,10 +265,11 @@ describe("the console's writes move the right hints", () => {
     expect(afterNarrowing).not.toBeNull();
     await tick();
 
-    await asUser(f.t, f.owner).action(api.functions.files.deleteEntry, {
+    // A keyed workspace takes nothing permanently: a removal is a trash, which
+    // retires the note from the tree the same way a delete would.
+    await asUser(f.t, f.owner).action(api.functions.files.trashEntry, {
       workspaceId: f.workspaceId,
       path: "1-projects/plan.md",
-      confirmation: DELETE_CONFIRMATION,
     });
 
     expect(await hint(f, f.member)).toBe(afterNarrowing);

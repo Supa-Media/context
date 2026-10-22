@@ -18,6 +18,9 @@ import { addMember, createUser, gatewayPost } from "../fixtures.helpers";
 import { fixture, publish } from "../website.helpers";
 import { bodyOf, registerClient, seedConnectedClient, token } from "./fixtures.helpers";
 
+// Each test keys a workspace and runs its tree to the end, which takes longer than the default five seconds.
+vi.setConfig({ testTimeout: 30_000 });
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();

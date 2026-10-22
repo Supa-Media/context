@@ -40,6 +40,9 @@
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
+
+// Each test builds a workspace with a bucket and a copied tree, which takes longer than the default five seconds.
+vi.setConfig({ testTimeout: 30_000 });
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import {
@@ -323,7 +326,11 @@ describe("a member outside the named set reaches nothing", () => {
       path: "2-areas/allowed.md",
       text: "# Allowed\n",
     });
-    expect(f.backend.snapshot()["2-areas/allowed.md"]).toContain("# Allowed");
+    const note = await asUser(f.t, f.editorInside).action(api.functions.files.readNote, {
+      workspaceId: f.workspaceId,
+      path: "2-areas/allowed.md",
+    });
+    expect(note.text).toContain("# Allowed");
   });
 
   test("a person who is not the one named reaches nothing", async () => {

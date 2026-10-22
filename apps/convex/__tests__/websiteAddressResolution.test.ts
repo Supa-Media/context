@@ -9,18 +9,21 @@ import type { Id } from "../_generated/dataModel";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { memoryS3 } from "./storeStub.helpers";
-import { publishWebsiteFolder } from "./website.helpers";
+import { publishWebsiteFolder, writeNote } from "./website.helpers";
 import {
   FAKE_STORAGE,
   addMember,
   asUser,
+  copyTree,
   createUser,
   createWorkspace,
   seedStorageBinding,
   setupTest,
   type TestConvex,
-  copyTree,
 } from "./fixtures.helpers";
+
+// Each test keys a workspace and runs its tree to the end, which takes longer than the default five seconds.
+vi.setConfig({ testTimeout: 30_000 });
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -62,6 +65,7 @@ async function publish(f: Fixture): Promise<void> {
       updatedAt: Date.now(),
     });
   });
+  await copyTree(f.t, f.workspaceId);
   await asUser(f.t, f.owner).action(
     api.functions.websites.refreshRouteStatuses,
     { workspaceId: f.workspaceId },
@@ -138,7 +142,7 @@ describe("website-first address resolution", () => {
   test("a website file wins over a legacy named share at the same path", async () => {
     const f = await fixture();
     await claimLegacyLink(f, "intake");
-    f.backend.seed(
+    await writeNote(f,
       "website/intake.md",
       "---\ntitle: Website intake\n---\n\nWebsite body\n",
     );
@@ -171,7 +175,7 @@ describe("website-first address resolution", () => {
   test("a custom-domain homepage preview wins over its configured legacy home slug", async () => {
     const f = await fixture();
     await claimLegacyLink(f, "intake");
-    f.backend.seed(
+    await writeNote(f,
       "website/index.md",
       "---\ntitle: Website home\n---\n\nHome body\n",
     );
@@ -195,7 +199,7 @@ describe("website-first address resolution", () => {
   test("draft, broken, and stale website claims do not fall through to a named share", async () => {
     const f = await fixture();
     await claimLegacyLink(f, "intake");
-    f.backend.seed(
+    await writeNote(f,
       "website/intake.md",
       "---\ntitle: Draft intake\ndraft: true\n---\n\nNot published\n",
     );
@@ -218,7 +222,7 @@ describe("website-first address resolution", () => {
       }),
     ).resolves.toEqual({ owned: true, title: null });
 
-    f.backend.seed(
+    await writeNote(f,
       "website/intake.md",
       "---\ntitle: Broken intake\naudience: everyone\n---\n\nNot valid\n",
     );

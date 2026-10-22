@@ -320,8 +320,13 @@ export async function keyWorkspace(t: TestConvex, workspaceId: Id<"workspaces">)
   await sweepToEnd(t, workspaceId);
   await t.mutation(internal.functions.noteIdsCopy.backfill, { workspaceId });
   await t.run((ctx) => beginCopyPass(ctx, workspaceId, { force: true }));
-  await drainScheduled(t);
-  const row = await t.run((ctx) => copyRowOf(ctx.db, workspaceId));
+  // A big workspace's copy runs as a chain of passes, longer than one drain.
+  let row = await t.run((ctx) => copyRowOf(ctx.db, workspaceId));
+  for (let round = 0; round < 1_000 && row?.keyedDoneAt === undefined; round += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    await t.finishInProgressScheduledFunctions();
+    row = await t.run((ctx) => copyRowOf(ctx.db, workspaceId));
+  }
   if (row?.keyedDoneAt === undefined) throw new Error(`the workspace never finished keying: ${JSON.stringify(row?.failures.slice(0, 3))}`);
 }
 

@@ -11,7 +11,10 @@
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { asUser } from "./fixtures.helpers";
-import { fixture, pressPublish, publish, type Fixture } from "./website.helpers";
+import { fixture, pressPublish, publish, type Fixture, writeNote } from "./website.helpers";
+
+// Each test keys a workspace and runs its tree to the end, which takes longer than the default five seconds.
+vi.setConfig({ testTimeout: 30_000 });
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -75,7 +78,7 @@ describe("/site/page", () => {
   test("the page keeps its published words across a save, under the same revision", async () => {
     const f = await site();
     const before = await page(f, { handle: "atlas", routePath: "/" });
-    f.backend.seed("website/index.md", "---\ntitle: Home\nnav: 1\n---\n\nHalf-typed words\n");
+    await writeNote(f, "website/index.md", "---\ntitle: Home\nnav: 1\n---\n\nHalf-typed words\n");
     const after = await page(f, { handle: "atlas", routePath: "/" });
     expect(after.revision).toBe(before.revision);
     expect(after.address.markdown).toContain("Published words");
@@ -87,7 +90,7 @@ describe("/site/revision", () => {
     const f = await site();
     const first = await revision(f, "atlas");
     expect(first).toEqual(expect.any(String));
-    f.backend.seed("website/index.md", "---\ntitle: Home\nnav: 1\n---\n\nNew words\n");
+    await writeNote(f, "website/index.md", "---\ntitle: Home\nnav: 1\n---\n\nNew words\n");
     expect(await revision(f, "atlas")).toBe(first);
     await pressPublish(f);
     const second = await revision(f, "atlas");

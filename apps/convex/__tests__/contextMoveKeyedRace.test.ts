@@ -27,7 +27,6 @@ import { api } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { asUser, drainScheduled, type TestConvex } from "./fixtures.helpers";
 import { pair as pairOf, type Pair } from "./contextMove.helpers";
-import { keyWorkspace } from "./contextMoveKeyed.helpers";
 import type { MemoryS3 } from "./storeStub.helpers";
 
 afterEach(() => vi.unstubAllEnvs());
@@ -64,11 +63,9 @@ async function move(p: Pair, from: string, to: string) {
   return await p.t.run((ctx) => ctx.db.get(moveId));
 }
 
+/** Both workspaces are keyed by the copy every workspace gets; the notes are the product's own writes from here. */
 async function keyedPair(mover: boolean): Promise<Pair> {
-  const p = await pairOf({ notes: 3, into: "own", mover });
-  await keyWorkspace(p.t, p.from, p.source);
-  await keyWorkspace(p.t, p.to, p.destination);
-  return p;
+  return await pairOf({ notes: 3, into: "own", mover });
 }
 
 /**

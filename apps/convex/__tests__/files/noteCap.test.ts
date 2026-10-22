@@ -18,7 +18,6 @@ import type { Id } from "../../_generated/dataModel";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
 import { renderPrivacyManifest } from "../../functions/lib/scaffold";
 import { encryptSecret, requireKeyset } from "../../functions/lib/crypto";
-import { DELETE_CONFIRMATION } from "../../functions/lib/fileOps";
 import { managedBucketName } from "../../functions/lib/managedStorage";
 import { FREE_MANAGED_NOTE_CAP } from "../../functions/lib/premium";
 import { memoryS3, type MemoryS3 } from "../storeStub.helpers";
@@ -34,6 +33,7 @@ import {
   type TestConvex,
 } from "../fixtures.helpers";
 import { vi } from "vitest";
+import { bodyAtPath, noteBodies } from "./keyedNotes.helpers";
 
 /**
  * A free context on a bucket we run, holding exactly `notes` notes: the two
@@ -95,10 +95,11 @@ async function freeContext(notes: number, status: "none" | "active" = "none"): P
 }
 
 // A thousand notes copied into the tree first, as a bound workspace's are.
-describe("the console at the free tier's note cap", { timeout: 30_000 }, () => {
+describe("the console at the free tier's note cap", { timeout: 180_000 }, () => {
   test("a new note is refused, with the sentence that says what still works", async () => {
     const f = await freeContext(FREE_MANAGED_NOTE_CAP);
     try {
+      const before = Object.keys(noteBodies(f.backend)).length;
       const error = await captureError(() =>
         asUser(f.t, f.owner).action(api.functions.files.writeNote, {
           workspaceId: f.workspaceId,
@@ -108,13 +109,14 @@ describe("the console at the free tier's note cap", { timeout: 30_000 }, () => {
       );
       expect(errorCode(error)).toBe("NOTE_CAP_REACHED");
       expect(JSON.stringify((error as { data?: unknown }).data)).toMatch(/exported/);
-      expect(f.backend.snapshot()["1-projects/one-too-many.md"]).toBeUndefined();
+      expect(await bodyAtPath(f, "1-projects/one-too-many.md")).toBeNull();
+      expect(Object.keys(noteBodies(f.backend)).length).toBe(before);
     } finally {
       vi.unstubAllGlobals();
     }
   });
 
-  test("a note that exists is still edited, moved and deleted", async () => {
+  test("a note that exists is still edited, moved and trashed", async () => {
     const f = await freeContext(FREE_MANAGED_NOTE_CAP);
     try {
       const owner = asUser(f.t, f.owner);
@@ -128,34 +130,33 @@ describe("the console at the free tier's note cap", { timeout: 30_000 }, () => {
         text: "# Edited\n",
         expectedEtag: (read as { etag: string }).etag,
       });
-      expect(f.backend.snapshot()["1-projects/note-0002.md"]).toBe("# Edited\n");
+      expect(await bodyAtPath(f, "1-projects/note-0002.md")).toBe("# Edited\n");
 
       await owner.action(api.functions.files.moveEntry, {
         workspaceId: f.workspaceId,
         from: "1-projects/note-0002.md",
         to: "1-projects/renamed.md",
       });
-      expect(f.backend.snapshot()["1-projects/renamed.md"]).toBe("# Edited\n");
+      expect(await bodyAtPath(f, "1-projects/renamed.md")).toBe("# Edited\n");
 
-      await owner.action(api.functions.files.deleteEntry, {
+      // A keyed workspace takes nothing permanently: a removal is a trash.
+      await owner.action(api.functions.files.trashEntry, {
         workspaceId: f.workspaceId,
         path: "1-projects/renamed.md",
-        confirmation: DELETE_CONFIRMATION,
       });
       // The move was logged to `activity.md`, which is written even at the cap
       // (it is Context's own log) and counted like every other note, as the
       // console's own count counts it. So two go to make room for one.
-      await owner.action(api.functions.files.deleteEntry, {
+      await owner.action(api.functions.files.trashEntry, {
         workspaceId: f.workspaceId,
         path: "1-projects/note-0003.md",
-        confirmation: DELETE_CONFIRMATION,
       });
       await owner.action(api.functions.files.writeNote, {
         workspaceId: f.workspaceId,
         path: "1-projects/room-again.md",
         text: "# Room\n",
       });
-      expect(f.backend.snapshot()["1-projects/room-again.md"]).toBe("# Room\n");
+      expect(await bodyAtPath(f, "1-projects/room-again.md")).toBe("# Room\n");
     } finally {
       vi.unstubAllGlobals();
     }
@@ -169,7 +170,7 @@ describe("the console at the free tier's note cap", { timeout: 30_000 }, () => {
         path: "1-projects/one-more.md",
         text: "# One more\n",
       });
-      expect(f.backend.snapshot()["1-projects/one-more.md"]).toBe("# One more\n");
+      expect(await bodyAtPath(f, "1-projects/one-more.md")).toBe("# One more\n");
     } finally {
       vi.unstubAllGlobals();
     }

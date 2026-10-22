@@ -27,6 +27,9 @@ import {
 import { asUser } from "./fixtures.helpers";
 import { fixture, publish, type Fixture } from "./website.helpers";
 
+// Each test keys a workspace and runs its tree to the end, which takes longer than the default five seconds.
+vi.setConfig({ testTimeout: 30_000 });
+
 afterEach(() => vi.unstubAllGlobals());
 
 function page(over: Partial<Extract<ResolvedWebsitePage, { kind: "page" }>> = {}): ResolvedWebsitePage {

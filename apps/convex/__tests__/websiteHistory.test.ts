@@ -11,8 +11,11 @@
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
-import { asUser, copyTree } from "./fixtures.helpers";
-import { fixture, publish, type Fixture } from "./website.helpers";
+import { asUser, readIntoTree } from "./fixtures.helpers";
+import { fixture, publish, trashNote, type Fixture, writeNote } from "./website.helpers";
+
+// Each test keys a workspace and runs its tree to the end, which takes longer than the default five seconds.
+vi.setConfig({ testTimeout: 30_000 });
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -20,9 +23,9 @@ const HOME = "---\ntitle: Home\nnav: 1\n---\n\nHome\n";
 const BROKEN = "---\ntitle: Half typed\naudience: everyone\n---\n\nStill writing\n";
 const ENCRYPTED = "---\ncontext_encryption: v1\n---\n\n```context-encrypted\nAAAA\n```\n";
 
-/** Notes seeded into the bucket reach the tree before a scan lists it (`copyTree`). */
+/** A Publish after the notes changed, as the owner presses it. */
 async function publishAgain(f: Fixture): Promise<void> {
-  await copyTree(f.t, f.workspaceId);
+  await readIntoTree(f.t, f.workspaceId);
   await f.t.action(internal.functions.websites.reconcileWorkspace, {
     workspaceId: f.workspaceId,
     publish: true,
@@ -30,7 +33,7 @@ async function publishAgain(f: Fixture): Promise<void> {
 }
 
 async function rebuild(f: Fixture): Promise<void> {
-  await copyTree(f.t, f.workspaceId);
+  await readIntoTree(f.t, f.workspaceId);
   await f.t.action(internal.functions.websites.reconcileWorkspace, { workspaceId: f.workspaceId });
 }
 
@@ -59,14 +62,14 @@ describe("a site keeps its last five published versions", () => {
     f.backend.seed("website/index.md", HOME);
     await publish(f);
     for (let n = 2; n <= 5; n += 1) {
-      f.backend.seed("website/index.md", `${HOME}\nVersion ${n}\n`);
+      await writeNote(f, "website/index.md", `${HOME}\nVersion ${n}\n`);
       await publishAgain(f);
     }
     expect((await history(f)).length).toBe(5);
     expect(releases(f).ids.size).toBe(5);
     const oldest = (await history(f)).sort((a, b) => a.revision - b.revision)[0]!;
 
-    f.backend.seed("website/index.md", `${HOME}\nVersion 6\n`);
+    await writeNote(f, "website/index.md", `${HOME}\nVersion 6\n`);
     await publishAgain(f);
     const kept = await history(f);
     expect(kept.length).toBe(5);
@@ -92,7 +95,7 @@ describe("a site keeps its last five published versions", () => {
     f.backend.seed("website/old.md", "---\ntitle: Old\n---\n\nWords worth keeping\n");
     await publish(f);
 
-    f.backend.objects.delete("website/old.md");
+    await trashNote(f, "website/old.md");
     await rebuild(f);
     await publishAgain(f);
 
@@ -107,17 +110,21 @@ describe("a site keeps its last five published versions", () => {
     f.backend.seed("website/index.md", HOME);
     f.backend.seed("website/old.md", "---\ntitle: Old\n---\n\nWords worth keeping\n");
     await publish(f);
-    f.backend.objects.delete("website/old.md");
-    await copyTree(f.t, f.workspaceId);
+    const oldNoteId = await f.t.run(async (ctx) => {
+      const row = (await ctx.db.query("nodes").collect()).find((node) => node.path === "website/old.md");
+      return row?.noteId;
+    });
+    if (oldNoteId === undefined) throw new Error("the fixture's page has no note id");
+    await trashNote(f, "website/old.md");
     f.backend.requests.length = 0;
 
     await f.t.action(internal.functions.websites.reconcileWorkspace, { workspaceId: f.workspaceId, publish: true });
 
-    expect(f.backend.requests.filter((request) => request.method === "GET" && request.key === "website/old.md")).toEqual([]);
+    expect(f.backend.requests.filter((request) => request.key.includes(oldNoteId))).toEqual([]);
     expect(releases(f).bytes).toContain("Words worth keeping");
   });
 
-  test("a page privacy.md holds back leaves every kept version at once", async () => {
+  test("a page held back leaves every kept version at once", async () => {
     const f = await fixture();
     f.backend.seed("website/index.md", HOME);
     f.backend.seed("website/about.md", "---\ntitle: About\n---\n\nA private sentence\n");
@@ -147,7 +154,7 @@ describe("a site keeps its last five published versions", () => {
     await publishAgain(f);
     await publishAgain(f);
 
-    f.backend.seed("website/journal.md", ENCRYPTED);
+    await writeNote(f, "website/journal.md", ENCRYPTED);
     await publishAgain(f);
 
     expect(releases(f).bytes).not.toContain("A sealed sentence");
@@ -160,7 +167,7 @@ describe("a site keeps its last five published versions", () => {
     await publish(f);
     await publishAgain(f);
 
-    f.backend.seed("website/draft.md", BROKEN);
+    await writeNote(f, "website/draft.md", BROKEN);
     await asUser(f.t, f.owner).action(api.functions.files.setNoteVisibility, {
       workspaceId: f.workspaceId,
       path: "website/about.md",

@@ -9,7 +9,10 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
 import { asUser, readIntoTree } from "./fixtures.helpers";
-import { fixture, publish, type Fixture } from "./website.helpers";
+import { bodyKeyOf, fixture, publish, readNoteText, type Fixture, writeNote } from "./website.helpers";
+
+// Each test keys a workspace and runs its tree to the end, which takes longer than the default five seconds.
+vi.setConfig({ testTimeout: 30_000 });
 
 beforeEach(() => vi.stubEnv("HOME_SITE_HANDLE", "atlas"));
 afterEach(() => {
@@ -44,13 +47,13 @@ describe("website existence and publish state come from the tree", () => {
     f.backend.seed("website/index.md", HOME);
     f.backend.seed("website/about.md", ABOUT);
     await publish(f);
-    f.backend.seed("website/about.md", DRAFT_LINE);
+    await writeNote(f, "website/about.md", DRAFT_LINE);
     await readIntoTree(f.t, f.workspaceId);
     f.backend.requests.length = 0;
 
     const snapshot = await f.t.action(api.functions.websites.siteSnapshot, { handle: "atlas" });
     expect(snapshot?.pages.map((page) => page.routePath)).toEqual(["/"]);
-    expect(requestsFor(f, "website/about.md")).toEqual([]);
+    expect(requestsFor(f, await bodyKeyOf(f.t, f.workspaceId, "website/about.md"))).toEqual([]);
   }, 60_000);
 
   test("a page the tree says is a draft is not served, and its bytes are not opened", async () => {
@@ -58,12 +61,12 @@ describe("website existence and publish state come from the tree", () => {
     f.backend.seed("website/index.md", HOME);
     await publish(f);
     await neverIndexed(f);
-    f.backend.seed("website/fresh.md", DRAFT_LINE);
+    await writeNote(f, "website/fresh.md", DRAFT_LINE);
     await readIntoTree(f.t, f.workspaceId);
     f.backend.requests.length = 0;
 
     expect((await resolve(f, "/fresh")).kind).toBe("unavailable");
-    expect(requestsFor(f, "website/fresh.md")).toEqual([]);
+    expect(requestsFor(f, await bodyKeyOf(f.t, f.workspaceId, "website/fresh.md"))).toEqual([]);
   });
 
   test("a live page the index has not caught up with is still served from its bytes", async () => {
@@ -71,7 +74,7 @@ describe("website existence and publish state come from the tree", () => {
     f.backend.seed("website/index.md", HOME);
     await publish(f);
     await neverIndexed(f);
-    f.backend.seed("website/fresh.md", "---\ntitle: Fresh\n---\n\nFresh words\n");
+    await writeNote(f, "website/fresh.md", "---\ntitle: Fresh\n---\n\nFresh words\n");
     await readIntoTree(f.t, f.workspaceId);
 
     const page = await resolve(f, "/fresh");
@@ -83,14 +86,14 @@ describe("website existence and publish state come from the tree", () => {
     f.backend.seed("website/index.md", HOME);
     f.backend.seed("website/styles.css.md", "---\ntitle: Styles\n---\n\n```css\n:root { --accent: #FFD23F; }\n```\n");
     await publish(f);
-    f.backend.seed("website/styles.css.md", "---\ntitle: Styles\ndraft\n---\n\n```css\n:root { --accent: #FFD23F; }\n```\n");
+    await writeNote(f, "website/styles.css.md", "---\ntitle: Styles\ndraft\n---\n\n```css\n:root { --accent: #FFD23F; }\n```\n");
     await readIntoTree(f.t, f.workspaceId);
     f.backend.requests.length = 0;
 
     const page = await resolve(f, "/");
     if (page.kind !== "page") throw new Error("expected a page");
     expect(page.design?.css ?? "").not.toContain("--accent");
-    expect(requestsFor(f, "website/styles.css.md")).toEqual([]);
+    expect(requestsFor(f, await bodyKeyOf(f.t, f.workspaceId, "website/styles.css.md"))).toEqual([]);
   });
 
   test("enabling a site whose homepage exists reads no homepage bytes", async () => {
@@ -104,7 +107,7 @@ describe("website existence and publish state come from the tree", () => {
       workspaceId: f.workspaceId,
     });
     expect(enabled).toMatchObject({ state: "enabled", starter: "existing" });
-    expect(requestsFor(f, "website/index.md")).toEqual([]);
-    expect(f.backend.snapshot()["website/index.md"]).toBe(existing);
+    expect(requestsFor(f, await bodyKeyOf(f.t, f.workspaceId, "website/index.md"))).toEqual([]);
+    await expect(readNoteText(f, "website/index.md")).resolves.toBe(existing);
   });
 });

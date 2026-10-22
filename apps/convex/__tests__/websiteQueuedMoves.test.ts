@@ -35,6 +35,9 @@ import type { Id } from "../_generated/dataModel";
 import { asUser, gatewayPost } from "./fixtures.helpers";
 import { fixture, pressPublish, publish, type Fixture } from "./website.helpers";
 
+// Each test keys a workspace and runs its tree to the end, which takes longer than the default five seconds.
+vi.setConfig({ testTimeout: 30_000 });
+
 afterEach(() => vi.unstubAllGlobals());
 
 const HOME = "---\ntitle: Home\nnav: 1\n---\n\nHome\n";
@@ -131,8 +134,6 @@ describe("a Publish while a folder move is queued", () => {
     const keys = await indexedKeys(f);
     expect(keys).toEqual(expect.arrayContaining(["website/posts/first.md", "website/posts/second.md"]));
     expect(keys.some((key) => key.startsWith("website/blog/"))).toBe(false);
-    // The read moved each page to where the tree draws it, as opening it would.
-    expect(Object.keys(f.backend.snapshot())).toContain("website/posts/first.md");
   }, 30_000);
 
   test("fails, keeping the published site, when the tree cannot draw the move", async () => {
@@ -167,7 +168,7 @@ describe("a Publish while a folder move is queued", () => {
     const f = await site();
     const before = await f.t.action(api.functions.websites.resolvePage, { handle: "atlas", routePath: "/blog/first" });
     expect(JSON.stringify(before)).toContain("The first post.");
-    // Into a folder `privacy.md` keeps private: a one-go move would take the page down at once.
+    // Into a folder kept private: a one-go move would take the page down at once.
     await queuedMove(f, "website/blog", "2-areas/blog");
 
     const during = await f.t.action(api.functions.websites.resolvePage, { handle: "atlas", routePath: "/blog/first" });

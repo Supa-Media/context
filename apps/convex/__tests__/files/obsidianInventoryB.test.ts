@@ -22,7 +22,7 @@ import {
   fixture,
 } from "./fixtures.helpers";
 
-describe('Obsidian plugin inventory', () => {
+describe('Obsidian plugin inventory', { timeout: 60_000 }, () => {
   /*
     THE ONE THING AN OWNER MAY NOT AUTHORIZE AWAY.
 

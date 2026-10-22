@@ -8,7 +8,10 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
 import { asUser } from "./fixtures.helpers";
-import { fixture, pressPublish, publish, type Fixture } from "./website.helpers";
+import { fixture, pressPublish, publish, type Fixture, writeNote } from "./website.helpers";
+
+// Each test keys a workspace and runs its tree to the end, which takes longer than the default five seconds.
+vi.setConfig({ testTimeout: 30_000 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -99,7 +102,7 @@ describe("website designs", () => {
 
   test("saving a stylesheet changes nothing a visitor sees until Publish", async () => {
     const f = await supa();
-    f.backend.seed("website/styles.css.md", STYLES("#00FF00"));
+    await writeNote(f, "website/styles.css.md", STYLES("#00FF00"));
     await asUser(f.t, f.owner).action(api.functions.websites.refreshRouteStatuses, { workspaceId: f.workspaceId });
     const before = await resolve(f, "/");
     if (before.kind !== "page") throw new Error("expected a page");
@@ -112,7 +115,7 @@ describe("website designs", () => {
     expect(after.design!.css).toContain("#00FF00");
   });
 
-  test("a stylesheet privacy.md holds back is gone at once, without a Publish", async () => {
+  test("a stylesheet held back is gone at once, without a Publish", async () => {
     const f = await supa();
     await asUser(f.t, f.owner).action(api.functions.files.setNoteVisibility, {
       workspaceId: f.workspaceId,
@@ -138,7 +141,7 @@ describe("website designs", () => {
 
   test("a broken code note stops Publish and names itself", async () => {
     const f = await supa();
-    f.backend.seed("website/layout.html.md", "```html\n<main></main>\n```\n");
+    await writeNote(f, "website/layout.html.md", "```html\n<main></main>\n```\n");
     await expect(pressPublish(f)).resolves.toEqual({
       published: false,
       problems: [{ path: "website/layout.html.md", message: "layout.html.md needs { content } where each page goes." }],
@@ -185,7 +188,7 @@ describe("website designs", () => {
 
     test("a stylesheet that says base: off turns it off for every page, once published", async () => {
       const f = await supa();
-      f.backend.seed("website/styles.css.md", `---\nbase: off\n---\n\n${STYLES("#FFD23F")}`);
+      await writeNote(f, "website/styles.css.md", `---\nbase: off\n---\n\n${STYLES("#FFD23F")}`);
       const before = await resolve(f, "/");
       if (before.kind !== "page") throw new Error("expected a page");
       expect(before.design).not.toHaveProperty("base");
@@ -200,7 +203,7 @@ describe("website designs", () => {
 
     test("a layout that says base: off turns it off only for the pages drawn with it", async () => {
       const f = await supa();
-      f.backend.seed("website/cards.html.md", `---\nbase: off\n---\n\n${CARDS}`);
+      await writeNote(f, "website/cards.html.md", `---\nbase: off\n---\n\n${CARDS}`);
       await expect(pressPublish(f)).resolves.toMatchObject({ published: true });
       expect(await resolve(f, "/code")).toMatchObject({ kind: "page", design: { base: false } });
       const home = await resolve(f, "/");
@@ -208,9 +211,9 @@ describe("website designs", () => {
       expect(home.design).not.toHaveProperty("base");
     });
 
-    test("a note privacy.md holds back no longer switches it off", async () => {
+    test("a note held back no longer switches it off", async () => {
       const f = await supa();
-      f.backend.seed("website/off.css.md", "---\nbase: off\n---\n\n```css\n.x { color: red; }\n```\n");
+      await writeNote(f, "website/off.css.md", "---\nbase: off\n---\n\n```css\n.x { color: red; }\n```\n");
       await expect(pressPublish(f)).resolves.toMatchObject({ published: true });
       expect(await resolve(f, "/")).toMatchObject({ design: { base: false } });
       await asUser(f.t, f.owner).action(api.functions.files.setNoteVisibility, {
@@ -225,7 +228,7 @@ describe("website designs", () => {
 
     test("anything but on or off stops Publish and names the note", async () => {
       const f = await supa();
-      f.backend.seed("website/styles.css.md", `---\nbase: none\n---\n\n${STYLES("#FFD23F")}`);
+      await writeNote(f, "website/styles.css.md", `---\nbase: none\n---\n\n${STYLES("#FFD23F")}`);
       await expect(pressPublish(f)).resolves.toEqual({
         published: false,
         problems: [{ path: "website/styles.css.md", message: "Website base must be on or off." }],
@@ -234,7 +237,7 @@ describe("website designs", () => {
 
     test("the edge copy carries the switch", async () => {
       const f = await supa();
-      f.backend.seed("website/styles.css.md", `---\nbase: off\n---\n\n${STYLES("#FFD23F")}`);
+      await writeNote(f, "website/styles.css.md", `---\nbase: off\n---\n\n${STYLES("#FFD23F")}`);
       await pressPublish(f);
       const answer = await f.t.fetch("/site/page", {
         method: "POST",

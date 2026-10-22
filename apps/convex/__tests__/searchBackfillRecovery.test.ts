@@ -87,7 +87,9 @@ describe("a projection that fails on a blip", () => {
     expect(after?.status).toBe("failed");
     expect(after?.errorCode).toBe("RATE_LIMITED");
     expect(after?.error).toContain("tries again on its own");
-    expect(await queued(t, "runFileOperation")).toHaveLength(0);
+    // Only the chain's own links count: the copy's follow-up jobs are `runFileOperation` too.
+    const links = (await queued(t, "runFileOperation")).filter((job) => JSON.stringify(job.args).includes("projectIndex"));
+    expect(links).toHaveLength(0);
   }, 30_000); // the tree's first copy runs before the pass, as in the test above
 
   test("the sweep restarts a row that failed on a blip, counters kept", async () => {

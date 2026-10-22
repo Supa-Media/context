@@ -113,8 +113,16 @@ describe("an outsider with edit saves the note", () => {
   test("an editor reads the comments, and a reader does not", async () => {
     const w = await world();
     const withThread = "# Plan\n\nWords <!--c:k7f2-->here<!--/c:k7f2-->.\n\n```comments\n- k7f2 @owner: zzq-thread-marker-7c02\n```\n";
-    w.backend.seed(PLAN, withThread);
-    w.backend.seed(HELD, withThread);
+    // Written by the owner through the product: the workspace is keyed, so a path seeded into the bucket is never read.
+    for (const path of [PLAN, HELD]) {
+      const current = await asUser(w.t, w.owner).action(api.functions.files.readNote, { workspaceId: w.ws, path });
+      await asUser(w.t, w.owner).action(api.functions.files.writeNote, {
+        workspaceId: w.ws,
+        path,
+        text: withThread,
+        expectedEtag: current.etag,
+      });
+    }
     await setListFor(w, PLAN, edit(w.kola));
     await setListFor(w, HELD, view(w.kola));
 

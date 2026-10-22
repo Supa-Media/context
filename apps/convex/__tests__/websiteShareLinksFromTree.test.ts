@@ -9,7 +9,10 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
 import { asUser, copyTree, readIntoTree } from "./fixtures.helpers";
-import { fixture, publish } from "./website.helpers";
+import { bodyKeyOf, fixture, publish } from "./website.helpers";
+
+// Each test keys a workspace and runs its tree to the end, which takes longer than the default five seconds.
+vi.setConfig({ testTimeout: 30_000 });
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -49,7 +52,8 @@ describe("website share links are checked against the tree", () => {
       kind: "page",
       markdown: expect.stringContaining(`[Shared project](/s/${token})`),
     });
-    expect(f.backend.requests.filter((request) => request.key === "1-projects/shared.md")).toEqual([]);
+    const sharedKey = await bodyKeyOf(f.t, f.workspaceId, "1-projects/shared.md");
+    expect(f.backend.requests.filter((request) => request.key === sharedKey)).toEqual([]);
   }, 60_000);
 
   test("a link to an encrypted shared note is dropped, as the bucket read dropped it", async () => {

@@ -69,6 +69,7 @@ import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { escapeHtml, sanitizeHeaderText } from "../functions/lib/invitationEmail";
 import { renderFormDigest, renderFormNotification } from "../functions/lib/formNotifyEmail";
 import { memoryS3, type MemoryS3 } from "./storeStub.helpers";
+import { bodyAtPath, keyAtPath } from "./files/keyedNotes.helpers";
 import {
   asUser,
   copyTree,
@@ -224,7 +225,7 @@ async function submit(
   return result;
 }
 
-describe("a form names a person, never a destination", () => {
+describe("a form names a person, never a destination", { timeout: 60_000 }, () => {
   test("an address in the block is refused by the control plane too", async () => {
     const f = await fixture();
     /*
@@ -263,7 +264,7 @@ describe("a form names a person, never a destination", () => {
       does not parse, so the form refuses submissions altogether rather than
       taking an answer and mailing it somewhere a code fence chose.
     */
-    f.backend.seed(NOTE, formBody("dev@example.invalid"));
+    f.backend.seed((await keyAtPath(f, NOTE))!, formBody("dev@example.invalid"));
     await expect(
       asUser(f.t, f.member).action(api.functions.forms.submitForm, {
         workspaceId: f.workspaceId,
@@ -297,7 +298,7 @@ describe("a form names a person, never a destination", () => {
   });
 });
 
-describe("what a submission sends", () => {
+describe("what a submission sends", { timeout: 60_000 }, () => {
   test("an answer to a form naming the owner is mailed to them, with the answers in it", async () => {
     const f = await fixture("owner");
     await submit(f);
@@ -364,11 +365,11 @@ describe("what a submission sends", () => {
     expect(f.sent).toHaveLength(0);
     // The answer is in the bucket regardless. Mail is a derivative of it.
     expect(responseId).toMatch(/^r-[0-9a-f]{8}$/);
-    expect(f.backend.snapshot()[RESPONSES] ?? "").toContain("Ada");
+    expect((await bodyAtPath(f, RESPONSES)) ?? "").toContain("Ada");
   });
 });
 
-describe("who a form tells is read out of the block, never from the caller", () => {
+describe("who a form tells is read out of the block, never from the caller", { timeout: 60_000 }, () => {
   test("a delivery naming somebody the block does not name sends nothing", async () => {
     const f = await fixture("owner");
     const { responseId } = await submit(f);
@@ -411,7 +412,7 @@ describe("who a form tells is read out of the block, never from the caller", () 
   });
 });
 
-describe("the answers are fetched as the recipient", () => {
+describe("the answers are fetched as the recipient", { timeout: 60_000 }, () => {
   test("a member the manifest holds back from the answers is not mailed", async () => {
     const f = await fixture("@dan");
     // The answers become private; `@dan` is a `member`, so they read at `team`
@@ -461,7 +462,7 @@ describe("the answers are fetched as the recipient", () => {
   });
 });
 
-describe("a burst is counted rather than mailed or dropped", () => {
+describe("a burst is counted rather than mailed or dropped", { timeout: 60_000 }, () => {
   test("over the limit the answers become one digest, and the digest names the count", async () => {
     const f = await fixture("owner");
     for (let i = 0; i < 23; i += 1) {
@@ -524,10 +525,26 @@ describe("a burst is counted rather than mailed or dropped", () => {
         joinedAt: Date.now(),
       });
     });
+    // Its own bucket, served by the same socket: each stub 404s a bucket that is not its own.
+    const secondBucket = memoryS3("second-bucket");
+    secondBucket.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
+    secondBucket.seed("index.md", "# Another context\n");
+    const firstSocket = globalThis.fetch;
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const response = await firstSocket(input, init);
+      return response.status === 404 ? await secondBucket.fetchImpl(input, init) : response;
+    });
     await seedStorageBinding(f.t, {
       workspaceId: second,
       boundBy: f.owner,
-      bucket: "fake-bucket",
+      bucket: "second-bucket",
+    });
+    await copyTree(f.t, second);
+    await drainDueScheduled(f.t);
+    await asUser(f.t, f.owner).action(api.functions.files.setDirectoryVisibility, {
+      workspaceId: second,
+      path: "1-projects",
+      visibility: "team",
     });
     await asUser(f.t, f.owner).action(api.functions.files.writeNote, {
       workspaceId: second,
@@ -614,7 +631,7 @@ describe("a burst is counted rather than mailed or dropped", () => {
   });
 });
 
-describe("what a stranger can put in somebody's inbox", () => {
+describe("what a stranger can put in somebody's inbox", { timeout: 60_000 }, () => {
   /*
     The injection surface, and the reason this file exists at all. Everything
     below is a value a person with no account typed into a published form, on

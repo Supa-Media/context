@@ -361,7 +361,11 @@ describe("through the barrier", () => {
     blip.cf.fail = 503;
     await pass(blip.t, blip.workspaceId, 5);
     expect((await row(blip.t, blip.workspaceId))?.status).toBe("backfilling");
-    expect(await queued(blip.t, "runFileOperation")).toHaveLength(1);
+    // Only the pass's own retry: keying the fixture leaves later jobs of its own.
+    const retries = (await queued(blip.t, "runFileOperation")).filter(
+      (job) => (job.args[0] as { operation?: { kind?: string } }).operation?.kind === "projectMeaning",
+    );
+    expect(retries).toHaveLength(1);
 
     const refused = await workspace();
     await copyTree(refused.t, refused.workspaceId);

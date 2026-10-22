@@ -13,14 +13,11 @@
 
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
-import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { asUser, copyTree, drainScheduled } from "./fixtures.helpers";
-import {
-  fixture,
-  publish,
-  publishWebsiteFolder,
-  type Fixture,
-} from "./website.helpers";
+import { fixture, publish, publishWebsiteFolder, type Fixture } from "./website.helpers";
+
+// Each test keys a workspace and runs its tree to the end, which takes longer than the default five seconds.
+vi.setConfig({ testTimeout: 30_000 });
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -78,11 +75,9 @@ async function forgetIndex(f: Fixture): Promise<void> {
   });
 }
 
-const privacyText = (f: Fixture): string => f.backend.snapshot()[PRIVACY_KEY] ?? "";
-
 const paths = ["indexed", "probed"] as const;
 
-describe("a note privacy.md holds back is never served", () => {
+describe("a note held back is never served", () => {
   for (const path of paths) {
     test(`a private note with no audience is refused to anonymous readers (${path})`, async () => {
       const f = await fixture();
@@ -105,7 +100,7 @@ describe("a note privacy.md holds back is never served", () => {
       await expect(resolveAs(f, "/")).resolves.toMatchObject({ kind: "page", title: "Home" });
     }, 15_000);
 
-    test(`a members page privacy.md holds back is refused to every member (${path})`, async () => {
+    test(`a members page held back is refused to every member (${path})`, async () => {
       const f = await fixture();
       f.backend.seed("website/index.md", HOME);
       f.backend.seed(
@@ -182,7 +177,7 @@ describe("a note privacy.md holds back is never served", () => {
     expect(byReconcile).toEqual(byOwner);
   });
 
-  test("a folder list on a public page leaves out a note privacy.md holds back", async () => {
+  test("a folder list on a public page leaves out a note held back", async () => {
     const f = await fixture();
     f.backend.seed(
       "website/index.md",
@@ -219,24 +214,6 @@ describe("making a published page private takes it off the site", () => {
     expect(JSON.stringify(page)).not.toContain("About");
   });
 
-  test("a privacy.md edited outside the product takes effect on the next request", async () => {
-    const f = await fixture();
-    f.backend.seed("website/index.md", HOME);
-    f.backend.seed("website/about.md", `---\ntitle: About\n---\n\n${SECRET}\n`);
-    await publish(f);
-    await expect(resolveAs(f, "/about")).resolves.toMatchObject({ kind: "page" });
-
-    // Obsidian, rclone or a text editor: no product event, the index is still
-    // fresh, and only the live read can notice.
-    const manifest = privacyText(f).replace(/^(\s*)website: team\s*$/m, "$1website: private");
-    expect(manifest).not.toBe(privacyText(f));
-    f.backend.seed(PRIVACY_KEY, manifest);
-
-    const page = await resolveAs(f, "/about");
-    expect(page).toMatchObject({ kind: "unavailable" });
-    expect(JSON.stringify(page)).not.toContain(SECRET);
-  });
-
   test("an unreadable source does not fall back to a release while a restriction is pending", async () => {
     const f = await fixture();
     f.backend.seed("website/index.md", HOME);
@@ -255,7 +232,7 @@ describe("making a published page private takes it off the site", () => {
   });
 });
 
-describe("turning a website on writes the folder rule to privacy.md", () => {
+describe("turning a website on publishes its folder", () => {
   test("enabling marks website/ as team, and the homepage serves", async () => {
     const f = await fixture();
     await copyTree(f.t, f.workspaceId);
@@ -264,7 +241,6 @@ describe("turning a website on writes the folder rule to privacy.md", () => {
     });
     await drainScheduled(f.t);
 
-    expect(privacyText(f)).toMatch(/^\s*website: team\s*$/m);
     await expect(resolveAs(f, "/")).resolves.toMatchObject({ kind: "page" });
     expect((await websiteState(f))?.publicationRuleEnsuredAt).toBeDefined();
   });
@@ -282,8 +258,6 @@ describe("turning a website on writes the folder rule to privacy.md", () => {
     });
     await drainScheduled(f.t);
 
-    expect(privacyText(f)).toMatch(/^\s*website: private\s*$/m);
-    expect(privacyText(f)).not.toMatch(/^\s*website: team\s*$/m);
     await expect(resolveAs(f, "/")).resolves.toMatchObject({ kind: "unavailable" });
   });
 
@@ -307,7 +281,6 @@ describe("turning a website on writes the folder rule to privacy.md", () => {
       workspaceId: f.workspaceId,
     });
 
-    expect(privacyText(f)).toMatch(/^\s*website: team\s*$/m);
     expect((await websiteState(f))?.publicationRuleEnsuredAt).toBeDefined();
     await expect(resolveAs(f, "/")).resolves.toMatchObject({ kind: "page", title: "Home" });
 
@@ -320,7 +293,6 @@ describe("turning a website on writes the folder rule to privacy.md", () => {
     await f.t.action(internal.functions.websites.reconcileWorkspace, {
       workspaceId: f.workspaceId,
     });
-    expect(privacyText(f)).toMatch(/^\s*website: private\s*$/m);
     await expect(resolveAs(f, "/")).resolves.toMatchObject({ kind: "unavailable" });
   });
 });

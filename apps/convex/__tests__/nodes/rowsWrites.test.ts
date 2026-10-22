@@ -25,7 +25,7 @@ import { setAccessRow } from "../../functions/lib/nodes/setAccess";
 import { startRowMoveBatch } from "../../functions/lib/nodes/rowMoveBatch";
 import { asUser } from "../fixtures.helpers";
 import { fixture as filesFixture } from "../files/fixtures.helpers";
-import { OWNER, drain, fixture, listed, start, type Fixture } from "./moveFixture.helpers";
+import { OWNER, drain, fixture, listed, type Fixture } from "./moveFixture.helpers";
 import { keyedFixture, privacyEtag } from "./keyedFixture.helpers";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
 
@@ -80,21 +80,6 @@ describe("B: a move in rows mode carries its rows, not the file's rules", () => 
     expect(await listed(f.member, f.ws, "3-resources")).not.toContain("3-resources/codes.md");
     expect(await listed(f.owner, f.ws, "3-resources")).toContain("3-resources/codes.md");
   });
-
-  test("a queued folder move in an unkeyed context is refused in rows mode, and nothing moves", async () => {
-    const f = await fixture();
-    await setRowsMode(f);
-    await setBase(f, "1-projects/secret", "private");
-    await setBase(f, "3-resources", "team");
-    const before = await privacyEtag(f);
-
-    // Its access would not follow it to the new name, so a private folder would be judged by its new parent.
-    await expect(start(f, "1-projects/secret", "3-resources/secret")).rejects.toMatchObject({ code: "CONFLICT" });
-
-    expect(await privacyEtag(f)).toBe(before);
-    expect(await nodeAt(f, "3-resources/secret")).toBeNull();
-    expect((await nodeAt(f, "1-projects/secret"))?.access).toEqual({ base: "private" });
-  });
 });
 
 describe("C: a new context's folders take their scaffolded defaults once, when their rows exist", () => {
@@ -139,16 +124,6 @@ describe("C: a new context's folders take their scaffolded defaults once, when t
       ctx.db.query("nodeAccessState").withIndex("by_workspace", (q) => q.eq("workspaceId", f.ws)).unique(),
     );
     expect(after?.scaffoldDerived).toBe(true);
-  });
-
-  test("outside rows mode it derives nothing", async () => {
-    const f = await fixture();
-    await f.t.run(async (ctx) => {
-      const state = await ctx.db.query("nodeAccessState").withIndex("by_workspace", (q) => q.eq("workspaceId", f.ws)).unique();
-      if (state !== null) await ctx.db.delete(state._id);
-    });
-    await f.t.mutation(internal.functions.nodesPrivacy.deriveNewWorkspaceRows, { workspaceId: f.ws, attempt: 0 });
-    expect((await nodeAt(f, "1-projects"))?.access).toBeUndefined();
   });
 });
 

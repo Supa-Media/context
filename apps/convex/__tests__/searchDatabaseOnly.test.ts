@@ -37,8 +37,10 @@ describe("a context with a search database", () => {
       expect(pass).toMatchObject({ kind: "indexMaintained", changed: false, complete: true, pending: 0 });
       expect(bucket.requests.length).toBe(before);
       expect(shardWrites(bucket)).toEqual([]);
-      // And the chain ends here rather than scheduling the next link.
-      expect(await queued(t, "runFileOperation")).toHaveLength(0);
+      // And the chain ends here rather than scheduling the next link. Only the chain's own links count: the copy's
+      // follow-up jobs are `runFileOperation` too.
+      const links = (await queued(t, "runFileOperation")).filter((job) => job.args[0]?.operation?.kind === "maintainIndex");
+      expect(links).toHaveLength(0);
     }
   }, 60_000);
 
