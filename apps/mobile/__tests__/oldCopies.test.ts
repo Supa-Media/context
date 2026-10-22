@@ -41,6 +41,7 @@ const SUMMARY: OldCopiesSummary = {
   firstDay: "2026-09-07",
   lastDay: "2026-10-21",
   since: new Date(2026, 9, 22, 9, 0).getTime(),
+  problem: null,
   addresses: ["me@example.test", "team@example.test"],
 };
 
@@ -86,6 +87,15 @@ describe("what the row and page say", () => {
     expect(whatGoes({ ...SUMMARY, days: 1, contacts: 0, files: 3 })).toBe("1 day and 3 attachments");
   });
 
+  test("a hide that waits says why, and that it is tried again", () => {
+    const waiting = { ...SUMMARY, state: "hiding" as const, days: 0, contacts: 0, files: 0, problem: "busy" };
+    expect(oldCopiesTitle(waiting)).toBe("Copies of mail, calendar and chat");
+    expect(oldCopiesRowLine(waiting)).toBe("Not hidden yet. Another move in this workspace is still running; Context tries again every 10 minutes.");
+    expect(oldCopiesRowLine({ ...waiting, problem: "not_served" })).toBe(
+      "Not hidden yet. Your notes are still being set up; Context tries again every 10 minutes.",
+    );
+  });
+
   test("only contact pages, or one day, still read as a person would say it", () => {
     expect(oldCopiesTitle({ ...SUMMARY, days: 0 })).toBe("1,306 contact pages");
     expect(oldCopiesTitle({ ...SUMMARY, days: 1 })).toBe("1 day of mail, calendar and chat");
@@ -112,7 +122,7 @@ describe("the page", () => {
       }),
     );
     expect(container.textContent).toContain("Keep them hidden");
-    expect(container.textContent).toContain("Contact pages you wrote your own notes on are kept either way.");
+    expect(container.textContent).not.toContain("kept either way");
 
     await press(container, "old-copies-delete");
     expect(calls).toEqual([]);
