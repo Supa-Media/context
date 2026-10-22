@@ -4,7 +4,7 @@
  * pass's end keys it, and `verify` counts the live notes still not at their id
  * keys from the rows themselves.
  *
- * Sabotage: make `run` skip `push` and the second case fails (the workspace
+ * Sabotage: make `run` start nothing and the second case fails (the workspace
  * stays unkeyed); make `verify` count keyed rows and the last case fails.
  */
 

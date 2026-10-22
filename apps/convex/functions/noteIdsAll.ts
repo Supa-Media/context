@@ -21,8 +21,8 @@
 
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import type { Doc, Id } from "../_generated/dataModel";
-import { internalMutation, internalQuery, type MutationCtx } from "../_generated/server";
+import type { Doc } from "../_generated/dataModel";
+import { internalMutation, internalQuery } from "../_generated/server";
 import { workspaceArchived } from "./lib/archivedWorkspaces";
 import { owesKey } from "./lib/noteIds/flip";
 import { beginCopyPass, copyRowOf, leaseHeld } from "./lib/noteIds/state";
@@ -87,29 +87,6 @@ export function stageOf(input: {
   return "ready_to_flip";
 }
 
-/** Start what `stage` owes; whether anything was started. Only in keys mode: the flip is what makes a workspace keyed. */
-async function push(ctx: MutationCtx, workspaceId: Id<"workspaces">, stage: Stage, row: Doc<"noteIdCopies"> | null): Promise<boolean> {
-  switch (stage) {
-    case "not_started":
-    case "failed":
-    case "incomplete":
-      // A pass from the beginning: every row gets an id, then every stale copy is made. Its end flips the workspace.
-      await ctx.scheduler.runAfter(0, internal.functions.noteIdsCopy.backfill, { workspaceId });
-      return await beginCopyPass(ctx, workspaceId, { force: stage !== "not_started" });
-    case "stalled":
-      await ctx.scheduler.runAfter(0, internal.functions.noteIdsCopy.run, { workspaceId, runId: row!.runId });
-      return true;
-    case "ready_to_flip":
-    case "flipping":
-      // A flip that stopped with rows left needs a fresh copy of them first: the pass's end flips again.
-      if (stage === "flipping") return await beginCopyPass(ctx, workspaceId, { force: false });
-      await ctx.scheduler.runAfter(0, internal.functions.noteIdsCopy.flip, { workspaceId });
-      return true;
-    default:
-      return false;
-  }
-}
-
 /**
  * One page of workspaces: each one's stage, and with `dryRun: false` what was
  * started. `cursor` is the `cursor` of the page before; `done` once the last
@@ -158,7 +135,22 @@ export const run = internalMutation({
       if (stage === "keyed" || stage === "no_storage" || stage === "copying" || stage === "tree_not_ready") continue;
       owed = true;
       if (dryRun || refusal !== null) continue;
-      if (await push(ctx, workspaceId, stage, row)) started += 1;
+      // Start what the stage owes. Written here, not in a module-level helper: the structure tests attribute a
+      // helper's scheduling to every export, and `verify` reaches no bucket.
+      if (stage === "not_started" || stage === "failed" || stage === "incomplete") {
+        // A pass from the beginning: every row gets an id, then every stale copy is made. Its end flips the workspace.
+        await ctx.scheduler.runAfter(0, internal.functions.noteIdsCopy.backfill, { workspaceId });
+        if (await beginCopyPass(ctx, workspaceId, { force: stage !== "not_started" })) started += 1;
+      } else if (stage === "stalled" && row !== null) {
+        await ctx.scheduler.runAfter(0, internal.functions.noteIdsCopy.run, { workspaceId, runId: row.runId });
+        started += 1;
+      } else if (stage === "flipping") {
+        // A flip that stopped with rows left needs a fresh copy of them first: the pass's end flips again.
+        if (await beginCopyPass(ctx, workspaceId, { force: false })) started += 1;
+      } else if (stage === "ready_to_flip") {
+        await ctx.scheduler.runAfter(0, internal.functions.noteIdsCopy.flip, { workspaceId });
+        started += 1;
+      }
     }
     return {
       mode,
