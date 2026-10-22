@@ -255,8 +255,11 @@ export async function bindFakeStorage(
  * differ) is a staff alarm no test is about.
  */
 const LATER_MS = 10_000;
+// Rounds a drain may take: keyed workspaces chain more passes than path-keyed ones did (a write's
+// fact fill, a scan's next page), so a slow runner needs more than the 50 a bound used to allow.
+const DRAIN_ROUNDS = 500;
 export async function drainScheduled(t: TestConvex): Promise<void> {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
+  for (let attempt = 0; attempt < DRAIN_ROUNDS; attempt += 1) {
     const jobs = await t.run((ctx) =>
       ctx.db.system.query("_scheduled_functions").collect(),
     );
