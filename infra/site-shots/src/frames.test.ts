@@ -19,7 +19,7 @@ const PDF = btoa("%PDF-1.4 invoice");
 
 /** The admin page, with one frame from payments.google.com holding the invoice menu. */
 function adminPage({ frameHost = "payments.google.com" } = {}) {
-  const state = { topClicks: [] as string[], frameClicks: [] as string[], frameTyped: [] as string[], points: [] as Array<[number, number]>, wheels: [] as number[][], hidden: [] as string[] };
+  const state = { topClicks: [] as string[], frameClicks: [] as string[], frameTyped: [] as string[], points: [] as Array<[number, number]>, wheels: [] as number[][], hidden: [] as string[], frameFiles: [] as string[] };
   const frame: FrameDoc = {
     host: frameHost,
     async evaluate<T>(source: string) {
@@ -37,7 +37,12 @@ function adminPage({ frameHost = "payments.google.com" } = {}) {
       if (source.includes("data-tex-words") && source.includes("5709637891 (.pdf)")) return true as T;
       if (source.includes("context-hide-cards")) state.hidden.push(frameHost);
       if (source.includes('el.tagName !== "INPUT"')) return "input" as T;
+      if (source.includes("box.files[0].size")) return 16 as T;
       return undefined as T;
+    },
+    async setFiles(selector, paths) {
+      state.frameFiles.push(`${selector} ${paths.join(",")}`);
+      return true;
     },
     async click(selector) {
       state.frameClicks.push(selector);
@@ -130,6 +135,26 @@ describe("a page's embedded frames", () => {
     const { page, state } = adminPage();
     await runSteps(page, [{ do: "scroll", direction: "down", x: null, y: null }, { do: "scroll", direction: "up", x: 400, y: 600 }]);
     expect(state.wheels).toEqual([[320, 215, 344], [200, 300, -344]]);
+  });
+});
+
+describe("an upload into a frame", () => {
+  const file = { name: "invoice.pdf", type: "application/pdf", data: PDF };
+  const uploads = { stage: async (f: { name: string }) => `/tmp/.uploads/${f.name}`, said() {} };
+
+  it("has the browser set the file in the frame that holds the box", async () => {
+    const { page, state } = adminPage();
+    const result = await runSteps(page, [{ do: "upload", ref: 1001, file, onlyOn: ["payments.google.com"] }], { uploads });
+    expect(result.ran).toEqual([{ do: "upload", ok: true }]);
+    expect(state.frameFiles).toHaveLength(1);
+    expect(state.frameFiles[0]).toMatch(/^\[data-tex-file-box="[a-f0-9]{32}"\] \/tmp\/\.uploads\/invoice\.pdf$/);
+  });
+
+  it("checks the frame's own site, not the page's", async () => {
+    const { page, state } = adminPage();
+    const result = await runSteps(page, [{ do: "upload", ref: 1001, file, onlyOn: ["admin.google.com"] }], { uploads });
+    expect(result.ran).toEqual([{ do: "upload", ok: false, reason: "this page is not on a site the person named" }]);
+    expect(state.frameFiles).toEqual([]);
   });
 });
 

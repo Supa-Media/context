@@ -11,7 +11,7 @@ const OWNER = "a".repeat(64);
 const OTHER = "b".repeat(64);
 
 /** A CDP socket that answers just enough for one reading of one page. */
-const socketOptions = { failSetCookies: false };
+const socketOptions = { failSetCookies: false, uploadedSize: 9 };
 
 function fakeSocket(log: string[]) {
   const listeners: Record<string, Array<(e: { data: string }) => void>> = {};
@@ -22,7 +22,12 @@ function fakeSocket(log: string[]) {
     },
     send(raw: string) {
       const { id, method, params } = JSON.parse(raw);
-      log.push(method === "Input.insertText" ? `${method} ${params.text}` : /^(Storage\.setCookies|Page\.addScriptToEvaluateOnNewDocument)$/.test(method) ? `${method} ${JSON.stringify(params)}` : method);
+      log.push(
+        method === "Input.insertText" ? `${method} ${params.text}`
+        : /^(Storage\.setCookies|Page\.addScriptToEvaluateOnNewDocument|DOM\.setFileInputFiles)$/.test(method) ? `${method} ${JSON.stringify(params)}`
+        : method === "Runtime.evaluate" && String(params.expression).includes("new DataTransfer()") ? "page DataTransfer"
+        : method,
+      );
       let result: unknown = {};
       let error: unknown = undefined;
       if (method === "Storage.setCookies" && socketOptions.failSetCookies) error = { message: "nope" };
@@ -47,6 +52,8 @@ function fakeSocket(log: string[]) {
           result = { result: { value: { url: "https://shop.example.com/", title: "Shop", text: "Hi", elements: [{ ref: 1, kind: "input text", label: "Search", filled: true }] } } };
         } else if (expr.startsWith("!!document")) result = { result: { value: true } };
         else if (expr === "document.readyState") result = { result: { value: "complete" } };
+        else if (expr.startsWith("document.querySelector(")) result = { result: { type: "object", subtype: "node", objectId: "box-1" } };
+        else if (expr.includes("box.files.length === 1")) result = { result: { value: socketOptions.uploadedSize } };
         else result = { result: { value: true } };
       }
       queueMicrotask(() => listeners.message?.forEach((fn) => fn({ data: JSON.stringify(error ? { id, error } : { id, result }) })));
@@ -65,7 +72,7 @@ function fakeApi({ running = [] as Array<Record<string, unknown>> } = {}) {
       cdp.push(`connect ${url}`);
       return Object.assign(new Response(null), { webSocket: fakeSocket(cdp) });
     }
-    calls.push({ method: init?.method ?? "GET", url, body: init?.body ? JSON.parse(String(init.body)) : null, key: headers.get("X-BB-API-Key") });
+    calls.push({ method: init?.method ?? "GET", url, body: typeof init?.body === "string" ? JSON.parse(init.body) : init?.body ?? null, key: headers.get("X-BB-API-Key") });
     if (url.endsWith("/sessions?status=RUNNING")) return Response.json(running);
     if (url.endsWith("/sessions") && init?.method === "POST") return Response.json({ id: "new-1", connectUrl: "wss://connect.example/new-1" });
     if (url.endsWith("/debug")) return Response.json({ debuggerFullscreenUrl: "https://live.example/new-1" });
@@ -153,6 +160,31 @@ describe("browseOnBrowserbase", () => {
     const api = fakeApi({ running: [{ id: "mine", connectUrl: "wss://c/mine", userMetadata: { owner: OWNER } }] });
     await call(ENV, { owner: OWNER }, api, "/browse/close");
     expect(api.calls.at(-1)).toMatchObject({ method: "POST", url: "https://api.browserbase.com/v1/sessions/mine", body: { status: "REQUEST_RELEASE" } });
+  });
+});
+
+describe("uploads on Browserbase", () => {
+  const file = { name: "receipt.pdf", type: "application/pdf", data: "JVBERi0xLjQK" };
+
+  it("sends the file to the session's uploads and has the browser set it, with no file written into the page", async () => {
+    const result = await call(ENV, { owner: OWNER, steps: [{ do: "upload", file }] });
+    expect(result.body.ran).toEqual([{ do: "upload", ok: true }]);
+    const upload = result.api.calls.find((c) => c.url.endsWith("/uploads"));
+    expect(upload).toMatchObject({ method: "POST", url: "https://api.browserbase.com/v1/sessions/new-1/uploads", key: "bb_test_key" });
+    expect(((upload!.body as FormData).get("file") as File).name).toBe("receipt.pdf");
+    expect(result.api.cdp).toContain(`DOM.setFileInputFiles ${JSON.stringify({ files: ["/tmp/.uploads/receipt.pdf"], objectId: "box-1" })}`);
+    expect(result.api.cdp).not.toContain("page DataTransfer");
+  });
+
+  it("falls back to putting the file in from the page when the browser's copy did not arrive", async () => {
+    socketOptions.uploadedSize = 0;
+    try {
+      const result = await call(ENV, { owner: OWNER, steps: [{ do: "upload", file }] });
+      expect(result.body.ran).toEqual([{ do: "upload", ok: true }]);
+      expect(result.api.cdp).toContain("page DataTransfer");
+    } finally {
+      socketOptions.uploadedSize = 9;
+    }
   });
 });
 

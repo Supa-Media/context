@@ -26,11 +26,11 @@
  */
 
 import { publicHttpsUrl } from "./shoot";
-import { dropSource, pickerHookSource, pickerResult, refSelector as selector, uploadSource, type UploadFile } from "./picker";
+import { dropSource, fillMarkedSource, markedSelector, markedSizeSource, pickerHookSource, pickerResult, refSelector as selector, uploadSource, sizeOf, type UploadFile, type Uploads } from "./picker";
 import { DOWNLOAD_WAIT_MS, runDownload, type DownloadedFile, type Downloads } from "./download";
 import { FRAME_REF_BASE, docMarking, docWith, framesOf, type Doc, type FrameDoc } from "./frames";
 import { MAX_SCANNED, snapshot } from "./reading";
-export { dropSource, pickerHookSource, pickerResult, uploadSource, type UploadFile } from "./picker";
+export { dropSource, pickerHookSource, pickerResult, uploadSource, sizeOf, type UploadFile, type Uploads } from "./picker";
 
 /*
   The gateway gives one tool call 20 seconds (`TOOL_TIMEOUT_MS`), and a call
@@ -122,6 +122,7 @@ export interface BrowsePage {
   mouse: { click(x: number, y: number): Promise<void>; wheel?(x: number, y: number, deltaY: number): Promise<void> };
   /** The page's embedded frames, where the browser can reach them (./frames.ts). */
   frames?(): Promise<FrameDoc[]>;
+  setFiles?(selector: string, paths: string[]): Promise<boolean>;
   screenshot(options: { type: "jpeg"; quality: number; encoding: "base64"; fullPage: false }): Promise<string | Uint8Array>;
   waitForNetworkIdle(options: { idleTime: number; timeout: number }): Promise<void>;
 }
@@ -307,7 +308,7 @@ export function wordsSource(words: string): string {
 }
 
 /** Press with the stand-in picker in place, and answer what the page asked of it. */
-async function pressWithPicker(page: BrowsePage, press: () => Promise<void>, file: UploadFile | null, doc: Doc = page): Promise<string> {
+async function pressWithPicker(page: BrowsePage, press: () => Promise<void>, file: UploadFile | { mark: string } | null, doc: Doc = page): Promise<string> {
   const waitMs = file === null ? 0 : 2_000;
   await doc.evaluate(pickerHookSource(file));
   let pressed = false;
@@ -417,7 +418,7 @@ async function where(page: Pick<Doc, "evaluate">): Promise<{ href: string; host:
 export async function runSteps(
   page: BrowsePage,
   steps: Step[],
-  { budgetMs = BROWSE_BUDGET_MS, now = Date.now, downloads = null }: { budgetMs?: number; now?: () => number; downloads?: Downloads | null } = {},
+  { budgetMs = BROWSE_BUDGET_MS, now = Date.now, downloads = null, uploads = null }: { budgetMs?: number; now?: () => number; downloads?: Downloads | null; uploads?: Uploads | null } = {},
 ): Promise<{ ran: StepResult[]; page: Reading; file?: DownloadedFile }> {
   const started = now();
   const ran: StepResult[] = [];
@@ -433,7 +434,7 @@ export async function runSteps(
     const result =
       step.do === "goto" && offLimits(step.url)
         ? ({ do: "goto", ok: false, reason: "that page is off limits" } as StepResult)
-        : await runStep(page, step, downloads).catch(() => ({ do: step.do, ok: false, reason: "that did not work on this page" }) as StepResult);
+        : await runStep(page, step, downloads, uploads).catch(() => ({ do: step.do, ok: false, reason: "that did not work on this page" }) as StepResult);
     // However it got there (a click, a redirect), it does not stay.
     const landed = (await where(page).catch(() => null))?.href ?? null;
     if (landed !== null && offLimits(landed)) {
@@ -504,7 +505,7 @@ async function look(page: BrowsePage): Promise<{ data: string; width: number; he
   return { data, width, height };
 }
 
-async function runStep(page: BrowsePage, step: Step, downloads: Downloads | null): Promise<StepResult> {
+async function runStep(page: BrowsePage, step: Step, downloads: Downloads | null, uploads: Uploads | null): Promise<StepResult> {
   const ok = { do: step.do, ok: true } as StepResult;
   const missing = { do: step.do, ok: false, reason: "no such element; read the page again" } as StepResult;
   switch (step.do) {
@@ -591,19 +592,34 @@ async function runStep(page: BrowsePage, step: Step, downloads: Downloads | null
       const doc = step.ref === null ? page : await docOf(page, step.ref);
       if (doc === null) return missing;
       // The same second lock as typing: the person's file goes only where they said, checked now.
-      if (step.onlyOn !== null && !onSite((await where(doc)).host, step.onlyOn)) {
-        return { do: "upload", ok: false, reason: "this page is not on a site the person named" };
-      }
-      const put = await doc.evaluate<string>(uploadSource(step.ref, step.file));
+      const named = async () => step.onlyOn === null || onSite((await where(doc)).host, step.onlyOn);
+      const elsewhere = { do: "upload", ok: false, reason: "this page is not on a site the person named" } as StepResult;
+      if (!(await named())) return elsewhere;
+      // A browser that takes a real file (./upload.ts) sets it on a box marked for this step alone; else the page is given it.
+      const mark = uploads !== null && doc.setFiles ? crypto.randomUUID().replace(/-/g, "") : null;
+      const into = mark !== null ? { mark } : step.file;
+      const put = await doc.evaluate<string>(uploadSource(step.ref, into));
       if (put === "none") return { do: "upload", ok: false, reason: "this page has no box that takes a file; name the button that asks for one" };
       if (put === "button" && step.ref !== null) {
         // No box yet: press the element, and the box it opens gets the file instead of the device's picker.
         const ref = step.ref;
-        const got = await pressWithPicker(page, () => doc.click(selector(ref)), step.file, doc);
-        if (got === "attached") return ok;
-        if (!(await doc.evaluate<boolean>(dropSource(ref, step.file)))) return missing;
-        await settle(page);
-        return { do: "upload", ok: true, reason: "pressing it opened no file box, so the file was dropped onto it; look to check the page took it" };
+        const got = await pressWithPicker(page, () => doc.click(selector(ref)), into, doc);
+        if (got !== "attached") {
+          if (!(await doc.evaluate<boolean>(dropSource(ref, step.file)))) return missing;
+          await settle(page);
+          return { do: "upload", ok: true, reason: "pressing it opened no file box, so the file was dropped onto it; look to check the page took it" };
+        }
+      }
+      if (mark !== null) {
+        const path = await uploads!.stage(step.file).catch(() => null);
+        // Again: staging the file takes a moment, and the page may have moved on.
+        if (!(await named())) return elsewhere;
+        const box = markedSelector(mark);
+        // A size that does not match means the browser did not find its copy; the page's file then replaces it.
+        const set = path !== null && (await doc.setFiles!(box, [path]).catch(() => false)) &&
+          (await doc.evaluate<number>(markedSizeSource(mark)).catch(() => -1)) === sizeOf(step.file);
+        uploads!.said(set ? "browser" : "page");
+        if (!set && !(await doc.evaluate<boolean>(fillMarkedSource(mark, step.file)))) return missing;
       }
       await settle(page);
       return ok;

@@ -2,6 +2,11 @@
  * Page code for putting one of the person's files into a page: the file box
  * the step names, a stand-in for the device's file picker while a button is
  * pressed, or a drop. Every piece writes the file in as data, never as code.
+ *
+ * With a browser that can be given a real file (Browserbase, ./upload.ts),
+ * the box is only marked here, with a mark made fresh for each step, and the
+ * browser itself sets the file on it; the in-page DataTransfer is the way in
+ * when it cannot.
  */
 
 /** The element a reading numbered, by its number. */
@@ -19,6 +24,27 @@ export interface UploadFile {
   data: string;
 }
 
+/**
+ * A browser that can be given a real file, the way the device's own picker
+ * gives one (./upload.ts): `stage` puts the file on the browser's own disk and
+ * answers its path there, for a document's `setFiles` (./frames.ts).
+ */
+export interface Uploads {
+  stage(file: UploadFile): Promise<string>;
+  /** How a file went in: by the browser, or from the page. Logged, never the file. */
+  said(via: "browser" | "page"): void;
+}
+
+/** The attribute a box the person's file goes into is marked with, for the browser to find it. */
+export const FILE_BOX_MARK = "data-tex-file-box";
+/** The marked box, by this step's mark. */
+export const markedSelector = (mark: string) => `[${FILE_BOX_MARK}="${mark}"]`;
+const MARK = /^[a-z0-9]{8,64}$/;
+function markSource(mark: string): string {
+  if (!MARK.test(mark)) throw new Error("bad mark");
+  return `box.setAttribute(${JSON.stringify(FILE_BOX_MARK)}, ${JSON.stringify(mark)});`;
+}
+
 /** Page code that makes `transfer`, a DataTransfer holding the person's file, written in as data. */
 function transferSource(file: UploadFile): string {
   return `const binary = atob(${JSON.stringify(file.data)});
@@ -33,21 +59,25 @@ function transferSource(file: UploadFile): string {
  * the step names, the one inside or beside it, or the page's only one, with
  * the events a page listens for. Answers "input"; "button" when the element
  * named has no box near it, so pressing it is what asks for the file (an app
- * that makes its box only when pressed); "none" with nothing to go on.
+ * that makes its box only when pressed); "none" with nothing to go on. Given
+ * a mark instead of a file, the box is only marked, for the browser to fill.
  */
-export function uploadSource(ref: number | null, file: UploadFile): string {
+export function uploadSource(ref: number | null, file: UploadFile | { mark: string }): string {
+  const put = "mark" in file
+    ? markSource(file.mark)
+    : `box.files = transfer.files;
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    box.dispatchEvent(new Event("change", { bubbles: true }));`;
   return `(() => {
   const named = ${ref === null ? "null" : `document.querySelector('${selector(ref)}')`};
-  ${transferSource(file)}
+  ${"mark" in file ? "" : transferSource(file)}
   const isBox = (el) => !!el && el.tagName === "INPUT" && (el.getAttribute("type") || "").toLowerCase() === "file";
   const boxes = [...document.querySelectorAll("input[type=file]")];
   let box = isBox(named) ? named : null;
   if (!box && named) box = named.querySelector("input[type=file]") || (named.closest("form, label, [role=dialog]") || document.body).querySelector("input[type=file]");
   if (!box && !named && boxes.length > 0) box = boxes[0];
   if (box) {
-    box.files = transfer.files;
-    box.dispatchEvent(new Event("input", { bubbles: true }));
-    box.dispatchEvent(new Event("change", { bubbles: true }));
+    ${put}
     return "input";
   }
   return named ? "button" : "none";
@@ -59,12 +89,16 @@ export function uploadSource(ref: number | null, file: UploadFile): string {
  * remote browser's picker opens where nobody can answer it, so a file box the
  * page opens (its own `click()` or `showPicker()`, or a press on a label for
  * one) gets the person's file instead, as choosing it would; with no file,
- * the press is only noted: that element asks for one.
+ * the press is only noted: that element asks for one; with a mark, the box
+ * is marked for the browser to fill.
  */
-export function pickerHookSource(file: UploadFile | null): string {
+export function pickerHookSource(file: UploadFile | { mark: string } | null): string {
   const take =
     file === null
       ? `state.got = "asked";`
+      : "mark" in file
+      ? `${markSource(file.mark)}
+    state.got = "attached";`
       : `${transferSource(file)}
     box.files = transfer.files;
     box.dispatchEvent(new Event("input", { bubbles: true }));
@@ -134,3 +168,29 @@ export function dropSource(ref: number, file: UploadFile): string {
 })()`;
 }
 
+
+/** How many bytes the file is, from its base64. */
+export const sizeOf = (file: UploadFile) => Math.floor((file.data.length * 3) / 4) - (/=*$/.exec(file.data)?.[0].length ?? 0);
+
+/** The size of the one file the marked box holds, or -1: whether the browser's copy arrived. */
+export function markedSizeSource(mark: string): string {
+  if (!MARK.test(mark)) throw new Error("bad mark");
+  return `(() => {
+  const box = document.querySelector('${markedSelector(mark)}');
+  return box && box.files && box.files.length === 1 ? box.files[0].size : -1;
+})()`;
+}
+
+/** Put the file into the marked box from the page: the way in when the browser could not set it itself. */
+export function fillMarkedSource(mark: string, file: UploadFile): string {
+  if (!MARK.test(mark)) throw new Error("bad mark");
+  return `(() => {
+  const box = document.querySelector('${markedSelector(mark)}');
+  if (!box) return false;
+  ${transferSource(file)}
+  box.files = transfer.files;
+  box.dispatchEvent(new Event("input", { bubbles: true }));
+  box.dispatchEvent(new Event("change", { bubbles: true }));
+  return true;
+})()`;
+}

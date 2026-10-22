@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_UPLOAD_CHARS, SNAPSHOT_SOURCE, offLimits, onSite, parseBrowseRequest, runSteps, snapshot, uploadSource, wordsSource, type BrowsePage } from "./browse";
+import { type Uploads, MAX_UPLOAD_CHARS, SNAPSHOT_SOURCE, offLimits, onSite, parseBrowseRequest, runSteps, snapshot, uploadSource, wordsSource, type BrowsePage } from "./browse";
 
 /**
  * A page with a few numbered elements. `navigate` maps a ref to the address a
@@ -26,6 +26,10 @@ function fakePage(start = "https://shop.example.com/") {
     hooks: [] as string[],
     pickerAnswer: "none",
     dropped: [] as string[],
+    marks: [] as string[],
+    filledMarked: [] as string[],
+    moveOnMark: null as string | null,
+    markedSize: 9,
   };
   const url = () => new URL(state.href);
   const page: BrowsePage = {
@@ -55,6 +59,16 @@ function fakePage(start = "https://shop.example.com/") {
         return undefined as T;
       }
       if (source.startsWith("new Promise((done)") && source.includes("__texPicker")) return state.pickerAnswer as T;
+      if (source.includes("box.files[0].size")) return state.markedSize as T;
+      if (source.includes(`document.querySelector('[data-tex-file-box=`)) {
+        state.filledMarked.push(source);
+        return true as T;
+      }
+      if (source.includes('setAttribute("data-tex-file-box"')) {
+        state.marks.push(source);
+        if (state.moveOnMark !== null) state.href = state.moveOnMark;
+        return state.uploadAnswer as T;
+      }
       if (source.includes("new DragEvent(")) {
         state.dropped.push(source);
         return true as T;
@@ -409,6 +423,99 @@ describe("upload", () => {
     expect(step({ ...file, data: "A".repeat(MAX_UPLOAD_CHARS + 4) })).toBeNull();
     expect(step(file, { onlyOn: [] })).toBeNull();
     expect(step(undefined)).toBeNull();
+  });
+
+  /**
+   * A browser that takes a real file (./upload.ts): `stage` answers where the
+   * file is on its disk, the page's `setFiles` records what it set, and with
+   * `arrives` false the box reports an empty file, as when the copy is missing.
+   */
+  function realFiles({ page, state }: ReturnType<typeof fakePage>, arrives = true) {
+    const put: Array<{ selector: string; name: string }> = [];
+    const said: string[] = [];
+    state.markedSize = arrives ? 9 : 0;
+    page.setFiles = async (selector, paths) => {
+      put.push({ selector, name: paths[0]!.slice("/tmp/.uploads/".length) });
+      return true;
+    };
+    const uploads: Uploads = { async stage(f) { return `/tmp/.uploads/${f.name}`; }, said: (via) => said.push(via) };
+    return { put, said, uploads };
+  }
+
+  it("with a browser that takes a real file, marks the box and has the browser set it, writing no file into the page", async () => {
+    const fake = fakePage();
+    const { page, state } = fake;
+    const real = realFiles(fake);
+    const result = await runSteps(page, [{ do: "upload", ref: null, file, onlyOn: null }], { uploads: real.uploads });
+    expect(result.ran).toEqual([{ do: "upload", ok: true }]);
+    expect(state.marks).toHaveLength(1);
+    expect(state.marks[0]).not.toContain("new DataTransfer()");
+    const mark = /setAttribute\("data-tex-file-box", "([a-z0-9]+)"\)/.exec(state.marks[0])![1];
+    expect(mark).toMatch(/^[a-f0-9]{32}$/);
+    expect(real.put).toEqual([{ selector: `[data-tex-file-box="${mark}"]`, name: "receipt.pdf" }]);
+    expect(state.uploaded).toEqual([]);
+    expect(state.filledMarked).toEqual([]);
+    expect(real.said).toEqual(["browser"]);
+  });
+
+  it("gives a page that cannot take a file from the browser (Cloudflare's) the file from the page, as before", async () => {
+    const { page, state } = fakePage();
+    const said: string[] = [];
+    const uploads: Uploads = { async stage() { throw new Error("never"); }, said: (via) => said.push(via) };
+    const result = await runSteps(page, [{ do: "upload", ref: null, file, onlyOn: null }], { uploads });
+    expect(result.ran).toEqual([{ do: "upload", ok: true }]);
+    expect(state.uploaded).toHaveLength(1);
+    expect(state.marks).toEqual([]);
+    expect(said).toEqual([]);
+  });
+
+  it("marks each step's box afresh, so a mark a page wrote itself is never the one filled", async () => {
+    const fake = fakePage();
+    const { page, state } = fake;
+    const real = realFiles(fake);
+    await runSteps(page, [{ do: "upload", ref: null, file, onlyOn: null }, { do: "upload", ref: null, file, onlyOn: null }], { uploads: real.uploads });
+    expect(real.put).toHaveLength(2);
+    expect(real.put[0]!.selector).not.toBe(real.put[1]!.selector);
+    expect(state.marks).toHaveLength(2);
+  });
+
+  it("puts the file in from the page when the browser could not set it", async () => {
+    const fake = fakePage();
+    const { page, state } = fake;
+    const real = realFiles(fake, false);
+    const result = await runSteps(page, [{ do: "upload", ref: null, file, onlyOn: null }], { uploads: real.uploads });
+    expect(result.ran).toEqual([{ do: "upload", ok: true }]);
+    expect(real.put).toHaveLength(1);
+    expect(state.filledMarked).toHaveLength(1);
+    expect(state.filledMarked[0]).toContain('"JVBERi0xLjQK"');
+    expect(state.filledMarked[0]).toContain(real.put[0]!.selector);
+    expect(real.said).toEqual(["page"]);
+  });
+
+  it("sets nothing when the page moved to another site while the box was being marked", async () => {
+    const fake = fakePage();
+    const { page, state } = fake;
+    state.moveOnMark = "https://attacker.example/";
+    const real = realFiles(fake);
+    const result = await runSteps(page, [{ do: "upload", ref: null, file, onlyOn: ["shop.example.com"] }], { uploads: real.uploads });
+    expect(result.ran[0]).toEqual({ do: "upload", ok: false, reason: "this page is not on a site the person named" });
+    expect(real.put).toEqual([]);
+    expect(state.filledMarked).toEqual([]);
+  });
+
+  it("presses a button that makes its box only when pressed, and the browser sets the file on that box", async () => {
+    const fake = fakePage();
+    const { page, state } = fake;
+    state.uploadAnswer = "button";
+    state.pickerAnswer = "attached";
+    const real = realFiles(fake);
+    const result = await runSteps(page, [{ do: "upload", ref: 3, file, onlyOn: null }], { uploads: real.uploads });
+    expect(result.ran).toEqual([{ do: "upload", ok: true }]);
+    expect(state.clicks).toEqual([3]);
+    expect(state.hooks).toHaveLength(1);
+    expect(state.hooks[0]).toContain('setAttribute("data-tex-file-box"');
+    expect(state.hooks[0]).not.toContain("new DataTransfer()");
+    expect(real.put).toHaveLength(1);
   });
 
   it("writes the file's name and bytes into the page as data, never as code", () => {
