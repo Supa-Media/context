@@ -421,21 +421,42 @@ export const diagnoseAll = mutation({
   },
 });
 
+/** At most this many workspaces begin their first id copy in one cron tick, so a deploy does not fan out every bucket at once. */
+export const FIRST_COPIES_PER_TICK = 20;
+
+async function treeReady(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<boolean> {
+  const tree = await ctx.db
+    .query("nodeTrees")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .unique();
+  return tree?.status === "ready";
+}
+
 /**
  * The cron (`crons.ts`): a finished pass starts again once the tree changed
  * since it began (`copyPassOwed`), so edits are caught without reading every
  * unchanged tree again, and a pass whose chain stopped is picked up once its
  * lease has lapsed. A
  * failed pass is not retried here; staff restart it. Does nothing while paused.
+ *
+ * A workspace made after the switch left `paths` has never had a pass, and
+ * `startAll` and the switch to `keys` reached only the workspaces that existed
+ * then: once its tree is ready, its first pass starts here, and that pass's end
+ * flips it. Without this it stays on path keys for good. In keys mode a
+ * finished, complete pass that is still unkeyed (its flip ran before the tree
+ * was ready, and did nothing) is flipped again.
  */
 export const keepCurrent = internalMutation({
   args: {},
   returns: v.object({ started: v.number() }),
   handler: async (ctx) => {
-    if (await idCopyPaused(ctx.db)) return { started: 0 };
+    const layout = await ctx.db.query("noteIdLayout").first();
+    if (layout?.paused === true) return { started: 0 };
+    const mode = layout?.mode ?? "paths";
     const now = Date.now();
     let started = 0;
     let rechecks = 0;
+    let firsts = 0;
     for (const workspaceId of await liveBoundWorkspaces(ctx)) {
       const row = await copyRowOf(ctx.db, workspaceId);
       if (row !== null && rechecks < KEYED_RECHECKS_PER_TICK && keyedRecheckOwed(row)) {
@@ -446,11 +467,26 @@ export const keepCurrent = internalMutation({
         continue;
       }
       if (row?.status === "done") {
-        if (!(await copyPassOwed(ctx.db, row, now))) continue;
-        if (await beginCopyPass(ctx, workspaceId, { force: false })) started += 1;
+        if (await copyPassOwed(ctx.db, row, now)) {
+          if (await beginCopyPass(ctx, workspaceId, { force: false })) started += 1;
+        } else if (mode === "keys" && row.keyedAt === undefined && copyComplete(row) && (await treeReady(ctx, workspaceId))) {
+          await ctx.scheduler.runAfter(0, internal.functions.noteIdsCopy.flip, { workspaceId });
+          started += 1;
+        }
       } else if (row?.status === "copying" && !leaseHeld(row, now)) {
         await ctx.scheduler.runAfter(0, internal.functions.noteIdsCopy.run, { workspaceId, runId: row.runId });
         started += 1;
+      } else if (
+        (row === null || row.status === "idle") &&
+        mode !== "paths" &&
+        firsts < FIRST_COPIES_PER_TICK &&
+        (await treeReady(ctx, workspaceId))
+      ) {
+        await ctx.scheduler.runAfter(0, internal.functions.noteIdsCopy.backfill, { workspaceId });
+        if (await beginCopyPass(ctx, workspaceId, { force: false })) {
+          started += 1;
+          firsts += 1;
+        }
       }
     }
     return { started };

@@ -60,6 +60,20 @@ What a "simplification" would cost: reading a name, a folder or a rule from
 the bucket again brings back a second answer that disagrees with the rows,
 and keying bytes by path brings back copies on every move.
 
+## A workspace made after the switch is keyed by the cron
+
+*Found 2026-10-22: five workspaces made that morning showed "Differs" in the
+console.* `startAll` and the switch to `keys` reach only the workspaces that
+exist when they run, and the 15-minute `noteIds.keepCurrent` used to continue
+only passes that had already started. A workspace made later had no copy row,
+so nothing ever copied or flipped it: it stayed on path keys, and the console
+fell back to the old bucket check. Now, with the switch at `ids` or `keys`,
+the cron starts the first pass of any live workspace with no copy row (or an
+idle one) once its tree is ready, at most `FIRST_COPIES_PER_TICK` a tick, and
+that pass's end flips it. A finished, complete pass that is still unkeyed in
+keys mode (its flip ran before the tree was ready) is flipped again. Removing
+either fails `__tests__/noteIds/firstCopy.test.ts`.
+
 ## Moves in a keyed workspace are row changes
 
 *Built on the keyed rows (PR A), 2026-10-15.* In a keyed workspace (switch at
