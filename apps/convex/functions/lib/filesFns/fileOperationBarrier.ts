@@ -35,6 +35,7 @@ import { indexChangeOf, treeChangeOf, treeChangeOfResult } from "./access";
 import { markWebsiteAfterOperation } from "../websites/routeChangeAt";
 import { siteLens } from "../websites/siteLens";
 import { mayRelocateRoutines, mayTouchNestedRoutines, routinePathsTouched } from "../routines/changes";
+import { texFolderOf } from "../routines/texFolder";
 import { executeOperation } from "./executeOperation";
 import { announceTreeChange, manifestSource } from "./treeOps";
 import { searchDatabaseClient } from "../fastSearchFns/client";
@@ -694,11 +695,4 @@ export async function runFileOperationHandler(
 
   await afterMaintenance(ctx, args, result);
   return result;
-}
-
-/** Where Tex's folder is now, by its job (`folderJobs`); null when none is, or the read fails. */
-async function texFolderOf(ctx: ActionCtx, workspaceId: Id<"workspaces">): Promise<string | null> {
-  return await ctx
-    .runQuery(internal.functions.nodesGateway.folderJobs, { workspaceId })
-    .then((held) => held.jobs.tex ?? null, () => null);
 }

@@ -70,6 +70,7 @@ import { escapeHtml, sanitizeHeaderText } from "../functions/lib/invitationEmail
 import { renderFormDigest, renderFormNotification } from "../functions/lib/formNotifyEmail";
 import { memoryS3, type MemoryS3 } from "./storeStub.helpers";
 import { bodyAtPath, keyAtPath } from "./files/keyedNotes.helpers";
+import { bindSecondContext } from "./formNotify.helpers";
 import {
   asUser,
   copyTree,
@@ -225,7 +226,7 @@ async function submit(
   return result;
 }
 
-describe("a form names a person, never a destination", { timeout: 60_000 }, () => {
+describe("a form names a person, never a destination", () => {
   test("an address in the block is refused by the control plane too", async () => {
     const f = await fixture();
     /*
@@ -298,7 +299,7 @@ describe("a form names a person, never a destination", { timeout: 60_000 }, () =
   });
 });
 
-describe("what a submission sends", { timeout: 60_000 }, () => {
+describe("what a submission sends", () => {
   test("an answer to a form naming the owner is mailed to them, with the answers in it", async () => {
     const f = await fixture("owner");
     await submit(f);
@@ -369,7 +370,7 @@ describe("what a submission sends", { timeout: 60_000 }, () => {
   });
 });
 
-describe("who a form tells is read out of the block, never from the caller", { timeout: 60_000 }, () => {
+describe("who a form tells is read out of the block, never from the caller", () => {
   test("a delivery naming somebody the block does not name sends nothing", async () => {
     const f = await fixture("owner");
     const { responseId } = await submit(f);
@@ -412,7 +413,7 @@ describe("who a form tells is read out of the block, never from the caller", { t
   });
 });
 
-describe("the answers are fetched as the recipient", { timeout: 60_000 }, () => {
+describe("the answers are fetched as the recipient", () => {
   test("a member the manifest holds back from the answers is not mailed", async () => {
     const f = await fixture("@dan");
     // The answers become private; `@dan` is a `member`, so they read at `team`
@@ -462,7 +463,7 @@ describe("the answers are fetched as the recipient", { timeout: 60_000 }, () => 
   });
 });
 
-describe("a burst is counted rather than mailed or dropped", { timeout: 60_000 }, () => {
+describe("a burst is counted rather than mailed or dropped", () => {
   test("over the limit the answers become one digest, and the digest names the count", async () => {
     const f = await fixture("owner");
     for (let i = 0; i < 23; i += 1) {
@@ -511,10 +512,8 @@ describe("a burst is counted rather than mailed or dropped", { timeout: 60_000 }
       tenant must not be able to act on another, and "prove isolation with
       tests" is the rule this one exists under.
 
-      The second context is bound to the same bucket only because the fetch
-      stub serves one, and its form lives at its own path so the two never
-      touch the same object. One workspace per bucket is still the rule; this
-      fixture is about the limiter's key and claims nothing about storage.
+      The second context has its own bucket (`formNotify.helpers.ts`), and its
+      form lives at its own path. This fixture is about the limiter's key.
     */
     const second = await createWorkspace(f.t, f.owner, "seyi-two");
     await f.t.run(async (ctx) => {
@@ -525,27 +524,7 @@ describe("a burst is counted rather than mailed or dropped", { timeout: 60_000 }
         joinedAt: Date.now(),
       });
     });
-    // Its own bucket, served by the same socket: each stub 404s a bucket that is not its own.
-    const secondBucket = memoryS3("second-bucket");
-    secondBucket.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
-    secondBucket.seed("index.md", "# Another context\n");
-    const firstSocket = globalThis.fetch;
-    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
-      const response = await firstSocket(input, init);
-      return response.status === 404 ? await secondBucket.fetchImpl(input, init) : response;
-    });
-    await seedStorageBinding(f.t, {
-      workspaceId: second,
-      boundBy: f.owner,
-      bucket: "second-bucket",
-    });
-    await copyTree(f.t, second);
-    await drainDueScheduled(f.t);
-    await asUser(f.t, f.owner).action(api.functions.files.setDirectoryVisibility, {
-      workspaceId: second,
-      path: "1-projects",
-      visibility: "team",
-    });
+    await bindSecondContext(f.t, f.owner, second);
     await asUser(f.t, f.owner).action(api.functions.files.writeNote, {
       workspaceId: second,
       path: SECOND_NOTE,
@@ -631,7 +610,7 @@ describe("a burst is counted rather than mailed or dropped", { timeout: 60_000 }
   });
 });
 
-describe("what a stranger can put in somebody's inbox", { timeout: 60_000 }, () => {
+describe("what a stranger can put in somebody's inbox", () => {
   /*
     The injection surface, and the reason this file exists at all. Everything
     below is a value a person with no account typed into a published form, on
