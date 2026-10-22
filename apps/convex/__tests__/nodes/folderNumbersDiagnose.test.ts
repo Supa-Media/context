@@ -13,7 +13,14 @@ describe("the stuck-rename report", () => {
     const f = await keyedFixture();
     const projects = await rowOf(f, "1-projects");
     await f.t.run(async (ctx) => {
-      await ctx.db.insert("nodes", { workspaceId: f.ws, path: "projects", name: "projects", kind: "folder", observedAt: 1, role: "projects" } as never);
+      await ctx.db.insert("nodes", {
+        workspaceId: f.ws,
+        path: "projects",
+        name: "projects",
+        kind: "folder",
+        observedAt: 1,
+        role: "projects",
+      } as never);
       await ctx.db.insert("nodes", {
         workspaceId: f.ws,
         path: "1-projects/secret-plan.md",
@@ -56,13 +63,46 @@ describe("the stuck-rename report", () => {
       } as never);
     });
 
-    const page = await f.t.query(internal.functions.folderNumbersDiagnose.page, {});
+    const page = await f.t.query(
+      internal.functions.folderNumbersDiagnose.page,
+      {},
+    );
     const text = JSON.stringify(page);
     expect(text).not.toContain("secret-plan");
     expect(text).not.toContain("my-own");
     const mine = page.workspaces[0];
     expect(mine.otherMoves).toBe(1);
-    expect(mine.moves).toEqual([expect.objectContaining({ from: "1-projects", to: "projects", state: "moving", left: 1, privacyEtag: true })]);
-    expect(mine.numbered).toContainEqual(expect.objectContaining({ name: "1-projects", plainTaken: true, plainRole: "projects", unkeyedFiles: 1 }));
+    expect(mine.moves).toEqual([
+      expect.objectContaining({
+        from: "1-projects",
+        to: "projects",
+        state: "moving",
+        left: 1,
+        privacyEtag: true,
+      }),
+    ]);
+    expect(mine.jobs).toContainEqual(
+      expect.objectContaining({
+        role: "projects",
+        name: "1-projects",
+        atRoot: true,
+        gone: false,
+      }),
+    );
+    expect(mine.plain).toContainEqual(
+      expect.objectContaining({
+        path: "projects",
+        role: "projects",
+        noParent: true,
+      }),
+    );
+    expect(mine.numbered).toContainEqual(
+      expect.objectContaining({
+        name: "1-projects",
+        plainTaken: true,
+        plainRole: "projects",
+        unkeyedFiles: 1,
+      }),
+    );
   });
 });

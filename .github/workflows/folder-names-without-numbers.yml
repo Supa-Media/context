@@ -27,6 +27,10 @@ on:
         description: "Only report stuck renames (built-in names and counts); change nothing."
         type: boolean
         default: false
+      nudge:
+        description: "Run one page of each built-in folder move that stopped, then hand it back to its watchdog (honours dry_run)."
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -48,6 +52,29 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - name: Nudge stopped moves
+        if: ${{ inputs.nudge }}
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          cursor=""
+          page=0
+          while :; do
+            page=$((page + 1))
+            if [ -z "$cursor" ]; then
+              args=$(jq -cn --argjson dry "$DRY_RUN" '{dryRun: $dry}')
+            else
+              args=$(jq -cn --argjson dry "$DRY_RUN" --arg cursor "$cursor" '{dryRun: $dry, cursor: $cursor}')
+            fi
+            answer=$(npx convex run functions/folderNumbersNudge:nudge "$args")
+            echo "page $page: $(echo "$answer" | jq -c '.moves')"
+            if [ "$(echo "$answer" | jq -r '.done')" = "true" ]; then break; fi
+            cursor=$(echo "$answer" | jq -r '.cursor')
+            if [ "$page" -ge 400 ]; then echo "stopped after $page pages"; exit 1; fi
+          done
+
       - name: Diagnose
         if: ${{ inputs.diagnose }}
         env:
@@ -68,7 +95,7 @@ jobs:
           done
 
       - name: Rename
-        if: ${{ !inputs.diagnose }}
+        if: ${{ !inputs.diagnose && !inputs.nudge }}
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
           DRY_RUN: ${{ inputs.dry_run }}
