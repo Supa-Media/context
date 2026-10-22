@@ -151,6 +151,38 @@ test("a slow-by-nature tool may name its own time limit", async () => {
   assert.equal(result.steps[0].ok, true);
 });
 
+/*
+  An email is given two minutes to be checked and held (the owner,
+  2026-10-22), but a quick turn's texting Worker gives the whole turn only
+  two: the call is cut to end 30 s past the tool budget, so the answer still
+  goes back instead of the turn dying with no text.
+*/
+test("a tool's own limit is cut so it ends 30 s past the turn's tool budget", async () => {
+  const limits = [];
+  const realSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, ms, ...rest) => {
+    limits.push(ms);
+    return realSetTimeout(fn, ms, ...rest);
+  };
+  let now = 0;
+  try {
+    const ai = scripted([chat("", [["search_notes", { query: "q" }]]), chat("Done.")]);
+    await turn(ai, {
+      clock: () => now,
+      toolBudgetMs: 70_000,
+      toolTimeouts: { search_notes: 120_000 },
+      callTool: async () => ({ content: [{ type: "text", text: "found" }] }),
+      onModel: () => {
+        now = 50_000; // the round before the call took 50 s
+      },
+    });
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
+  }
+  assert.ok(limits.includes(50_000), `cut to 70 + 30 - 50 = 50 s, got ${limits.join(", ")}`);
+  assert.ok(!limits.includes(120_000));
+});
+
 test("progress texts are bounded: one line, no repeats, a cap per turn", async () => {
   const said = [];
   const channel = progressChannel(async (text) => said.push(text));

@@ -358,9 +358,9 @@ export async function runTurn(options) {
     is translated back into the granted tool before the allowlist below.
   */
   const six = sixToolsOver(tools, grants);
-  // A tool that is slow by nature (a browser step) may name its own limit.
+  // A slow tool (a browser step, a held email) names its own limit, cut to end 30 s past the budget so the answer still fits.
   const timeoutFor = (name) =>
-    Number.isInteger(toolTimeouts?.[name]) && toolTimeouts[name] > 0 ? toolTimeouts[name] : toolTimeoutMs;
+    Math.max(1, Math.min(Number.isInteger(toolTimeouts?.[name]) && toolTimeouts[name] > 0 ? toolTimeouts[name] : toolTimeoutMs, toolBudgetMs + 30_000 - (clock() - began)));
 
   const provider = BUILTIN_PROVIDER;
   // Ours to pick on our bill, never the caller's: see `builtin.js`.

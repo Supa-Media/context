@@ -327,7 +327,7 @@ test("the Mail checker is never handed a group's kept turns whole", () => {
 test("a texted turn gives a held send long enough to be checked and held", () => {
   const route = FILES.find((file) => file.path === "agent/route.js");
   const timeouts = /toolTimeouts:\s*\{([^}]*)\}/.exec(route.text)?.[1] ?? "";
-  for (const [name, least] of [["send_email", 45_000], ["save_email_draft", 45_000], ["calendar_event", 30_000], ["slack_api", 30_000]]) {
+  for (const [name, least] of [["send_email", 120_000], ["save_email_draft", 120_000], ["calendar_event", 30_000], ["slack_api", 30_000]]) {
     const ms = Number(new RegExp(`\\b${name}:\\s*([\\d_]+)`).exec(timeouts)?.[1]?.replace(/_/g, ""));
     assert.ok(ms >= least, `${name} gets at least ${least} ms`);
   }

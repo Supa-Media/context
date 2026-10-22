@@ -14,7 +14,7 @@
  * send that then goes out, and an AI told "not sent" never sends it twice. A
  * search or read has one short retry there and fails over to the notes here.
  */
-const SEND_TIMEOUT_MS = 45_000;
+const SEND_TIMEOUT_MS = 110_000;
 const READ_TIMEOUT_MS = 25_000;
 
 /**
