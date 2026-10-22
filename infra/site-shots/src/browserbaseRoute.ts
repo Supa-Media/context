@@ -15,6 +15,10 @@
  * Downloads are allowed into Browserbase's storage on every call, and a
  * `download` step takes its file from there (./download.ts).
  *
+ * A run that fails is logged with a digest of the session's own Browserbase
+ * log (./sessionLogs.ts), after the answer has gone (`later`): hosts, status
+ * codes and counts, never the page, an address's path or what was typed.
+ *
  * `owner` is the gateway's tag for the person (./browserbase.ts); the browser
  * is found by it, so a question that comes back after a sign-in carries on in
  * the same browser. Browserbase's own live-view link is never asked for: it
@@ -37,11 +41,21 @@ import { MAX_DOWNLOAD_BYTES, asFile, type Downloads } from "./download";
 import { attachPage, cdpPage, connectCdp } from "./cdp";
 import { touchIdle } from "./idle";
 import { captureJar, parseJar, restoreCookies, restoreStorage, type Jar } from "./jar";
+import { reportFailedRun, type FailedRun } from "./sessionLogs";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
-export async function browseOnBrowserbase(env: BrowserbaseEnv, path: string, body: unknown, fetcher: typeof fetch = fetch): Promise<Response> {
+/** Runs work after the answer has gone: the Worker's `ctx.waitUntil`. */
+export type Later = (work: Promise<unknown>) => void;
+
+export async function browseOnBrowserbase(
+  env: BrowserbaseEnv,
+  path: string,
+  body: unknown,
+  fetcher: typeof fetch = fetch,
+  later: Later = (work) => void work,
+): Promise<Response> {
   if (!browserbaseConfigured(env)) return json({ error: "browserbase is not configured" }, 501);
   const owner = (body as { owner?: unknown })?.owner;
   if (typeof owner !== "string" || !OWNER_TAG.test(owner)) return json({ error: "an owner is required" }, 400);
@@ -55,6 +69,9 @@ export async function browseOnBrowserbase(env: BrowserbaseEnv, path: string, bod
   const keep = (body as { keep?: unknown })?.keep === true;
   const held: Jar | null = keep ? parseJar((body as { jar?: unknown })?.jar) : null;
   const started = Date.now();
+  const steps = parsed.steps.map((s) => s.do);
+  const failed = (session: string, stage: FailedRun["stage"], ran?: FailedRun["ran"]) =>
+    later(reportFailedRun(env, { session, stage, steps, ...(ran ? { ran } : {}), ms: Date.now() - started }, fetcher).catch(() => undefined));
   // In use: it lives five more minutes from now. Before the lookup, so a
   // release already under way finishes first and this finds no browser,
   // rather than one being released under it (./idle.ts).
@@ -80,6 +97,7 @@ export async function browseOnBrowserbase(env: BrowserbaseEnv, path: string, bod
   try {
     cdp = await connectCdp(session.connectUrl, fetcher);
   } catch {
+    failed(session.id, "connect");
     return json({ session: session.id, error: "that browser has closed" }, 410);
   }
   try {
@@ -108,10 +126,13 @@ export async function browseOnBrowserbase(env: BrowserbaseEnv, path: string, bod
     const page = await cdpPage(cdp, attached);
     const result = await runSteps(page, parsed.steps, { downloads });
     const jar = keep && restored ? await captureJar(cdp, attached).catch(() => null) : null;
+    const ok = result.ran.every((r) => r.ok);
     // Step kinds and timing only, as for Cloudflare's browser.
-    console.log(JSON.stringify({ event: "site_shots_browse", provider: "browserbase", steps: parsed.steps.map((s) => s.do), ok: result.ran.every((r) => r.ok), ms: Date.now() - started }));
+    console.log(JSON.stringify({ event: "site_shots_browse", provider: "browserbase", steps, ok, ms: Date.now() - started }));
+    if (!ok) failed(session.id, "steps", result.ran.map((r) => ({ do: r.do, ok: r.ok, ...(r.reason && !r.ok ? { reason: r.reason.slice(0, 200) } : {}) })));
     return json({ session: session.id, ...result, ...(jar !== null ? { jar } : {}) });
   } catch {
+    failed(session.id, "run");
     return json({ session: session.id, error: "the browser could not do that" }, 502);
   } finally {
     cdp.close();
