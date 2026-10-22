@@ -11,7 +11,7 @@
  *  1. Dropping the `calendar.events` scope check in `claimCalendarWrite`. →
  *     "a calendar connected to read only changes nothing" fails.
  *  2. Dropping `hasGuests` from `findEvent`. → "an event with guests is never
- *     moved or cancelled" fails.
+ *     moved or cancelled" fails (without `notify_guests`).
  *  3. Taking the first of several matches. → "a move that matches two events
  *     changes neither" fails.
  */
@@ -29,7 +29,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-type Listed = { id: string; summary: string; start: { dateTime?: string; date?: string }; attendees?: Array<{ email: string; self?: boolean }> };
+type Listed = { id: string; summary: string; start: { dateTime?: string; date?: string }; attendees?: Array<{ email: string; self?: boolean; displayName?: string }> };
 
 /** Google Calendar, answered here: `events` is what a listing returns. Each request, recorded. */
 function calendar(events: Listed[] = [], status = 200) {
@@ -129,11 +129,28 @@ describe("changing the person's own calendar", () => {
     expect(calls.map((call) => call.method)).toEqual(["GET"]);
   });
 
-  test("an event with guests is never moved or cancelled", async () => {
+  test("an event with guests is never moved or cancelled without notify_guests", async () => {
     const calls = calendar([{ ...DENTIST, attendees: [{ email: "alice@gmail.example", self: true }, { email: "jo@example.invalid" }] }]);
     const { t, aliceWs } = await connected();
     expect(await change(t, ACCESS_A, aliceWs, CANCEL)).toEqual({ ok: false, refused: "has_guests" });
     expect(calls.map((call) => call.method)).toEqual(["GET"]);
+  });
+
+  test("a checked move names the guests it would tell, and changes nothing", async () => {
+    const calls = calendar([{ ...DENTIST, attendees: [{ email: "alice@gmail.example", self: true }, { email: "jo@example.invalid", displayName: "Jo Lee" }] }]);
+    const { t, aliceWs } = await connected();
+    expect(await change(t, ACCESS_A, aliceWs, MOVE, { check: true })).toEqual({ ok: true, calendar: "alice@gmail.example", guests: ["Jo Lee"] });
+    expect(calls.map((call) => call.method)).toEqual(["GET"]);
+    const limits = await t.run((ctx) => ctx.db.query("rateLimits").collect());
+    expect(limits.filter((row) => row.key.startsWith("calendar_write."))).toHaveLength(0);
+  });
+
+  test("a move the person said yes to with its guests named goes, and Google tells them", async () => {
+    const calls = calendar([{ ...DENTIST, attendees: [{ email: "alice@gmail.example", self: true }, { email: "jo@example.invalid" }] }]);
+    const { t, aliceWs } = await connected();
+    expect((await change(t, ACCESS_A, aliceWs, { ...MOVE, notify_guests: true })).ok).toBe(true);
+    expect(calls.map((call) => call.method)).toEqual(["GET", "PATCH"]);
+    expect(calls[1]!.url).toBe("https://www.googleapis.com/calendar/v3/calendars/primary/events/evt_1?sendUpdates=all");
   });
 
   test("a calendar connected to read only changes nothing", async () => {
@@ -187,5 +204,8 @@ describe("what a change may be", () => {
     expect(readCalendarChange({ ...CANCEL, location: "x" })).toBeNull();
     expect(readCalendarChange({ ...MOVE, new_end: undefined })).toBeNull();
     expect(readCalendarChange({ ...CREATE, action: "invite" })).toBeNull();
+    expect(readCalendarChange({ ...CREATE, notify_guests: true })).toBeNull();
+    expect(readCalendarChange({ ...MOVE, notify_guests: "yes" })).toBeNull();
+    expect(readCalendarChange({ ...MOVE, notify_guests: true })?.notifyGuests).toBe(true);
   });
 });

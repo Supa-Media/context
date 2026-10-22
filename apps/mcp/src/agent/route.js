@@ -607,7 +607,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     // relaying it is a courtesy rather than the mechanism.
     const { answer: told, pictures } = outgoing.take(turn.answer);
     // An email's ask is texted exactly as written (`apps/agent/src/reply.ts`), or withdrawn if it would not fit.
-    const { ask, verbatim } = await textedAsk(store, session, ledger.asked);
+    const { ask, verbatim } = await textedAsk(store, session, ledger.asked, told);
     const answer = answerWithAsk(told, ask, ledger.asked);
     /*
       A browser handed to the person goes out as a link the gateway adds, so

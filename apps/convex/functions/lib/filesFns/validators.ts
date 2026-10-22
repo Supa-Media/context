@@ -64,6 +64,8 @@ export const listingValidator = v.object({
   entries: v.array(entryValidator),
   truncated: v.boolean(),
   manifestUsable: v.boolean(),
+  /** The listed folder's own built-in job: a nested Website page knows it before its parent lists. */
+  role: v.optional(v.string()),
 });
 
 export const imageWrittenValidator = v.object({

@@ -16,6 +16,7 @@
 import { DEFAULT_WEBSITE_ROOT } from "@context/shared";
 import type { Id } from "../../../_generated/dataModel";
 import type { DatabaseReader } from "../../../_generated/server";
+import { liveRowsDoing } from "../nodes/folderJobs";
 
 /** Whether `path` is written under the website's default name. */
 export function namesWebsite(path: string): boolean {
@@ -30,12 +31,7 @@ export function namesWebsite(path: string): boolean {
  * Unfiltered: callers judge who may see it.
  */
 export async function siteRoot(db: DatabaseReader, workspaceId: Id<"workspaces">): Promise<string> {
-  const held = (
-    await db
-      .query("nodes")
-      .withIndex("by_workspace_role", (q) => q.eq("workspaceId", workspaceId).eq("role", "website"))
-      .take(4)
-  ).find((row) => row.kind === "folder" && row.goneAt === undefined);
+  const [held] = await liveRowsDoing(db, workspaceId, "website", 1);
   if (held === undefined || held.path === DEFAULT_WEBSITE_ROOT) return DEFAULT_WEBSITE_ROOT;
   const named = await db
     .query("nodes")

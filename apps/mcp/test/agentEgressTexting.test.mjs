@@ -168,9 +168,10 @@ export async function runAgentEgressTextingChecks(check) {
     before = model.requests.length;
     const longer = await ask(env, TOKEN_TEXTS, "yes but call it something else");
     check(
-      "a text that is more than yes goes to the model, and the ask it moved on from is dropped",
-      longer.status === 200 && model.requests.length === before + 1 && pending().length === 0 && !claimed("garden"),
+      "a text that is more than yes goes to the model, and the ask still stands",
+      longer.status === 200 && model.requests.length === before + 1 && pending().length === 1 && !claimed("garden"),
     );
+    await ask(env, TOKEN_TEXTS, "no");
 
     check(
       "only a whole yes or a whole no is a verdict",

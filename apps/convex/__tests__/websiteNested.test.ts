@@ -39,9 +39,14 @@ const ABOUT = "---\ntitle: About\nnav: 2\n---\n\nAbout us.\n";
 const HELD = "---\ntitle: Held\n---\n\nNot for visitors.\n";
 const ROOT = "Work/site";
 
-/** A site whose folder is `Work/site`: its row does the website's job, and nothing sits at `website/`. */
-async function nested(): Promise<Fixture> {
+/**
+ * A site whose folder is `Work/site`: its row does the website's job, and nothing sits at `website/`.
+ * `earlier` rows that did the job before it (tombstoned, and one in the trash) are older than it in the index.
+ */
+async function nested(earlier = 0): Promise<Fixture> {
   const f = await fixture();
+  // Swept before `Work/site`, so older than it in the index; made into the job's earlier rows below.
+  for (let index = 0; index < earlier; index += 1) f.backend.seed(`Aold${index}/x.md`, "# Old\n");
   f.backend.seed(`${ROOT}/index.md`, HOME);
   f.backend.seed(`${ROOT}/about.md`, ABOUT);
   f.backend.seed(`${ROOT}/held.md`, HELD);
@@ -57,6 +62,13 @@ async function nested(): Promise<Fixture> {
       .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.workspaceId).eq("path", ROOT))
       .unique();
     await ctx.db.patch(row!._id, { role: "website" });
+    for (let index = 0; index < earlier; index += 1) {
+      const old = await ctx.db
+        .query("nodes")
+        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.workspaceId).eq("path", `Aold${index}`))
+        .unique();
+      await ctx.db.patch(old!._id, index === 0 ? { role: "website", path: ".context/trash/1/website" } : { role: "website", goneAt: 1 });
+    }
     await ctx.db.insert("websiteStates", {
       workspaceId: f.workspaceId,
       state: "enabled",
@@ -106,6 +118,22 @@ describe("the website's name and its folder", () => {
 });
 
 describe("a website nested in another folder", () => {
+  test("is found past the rows that did the job before it, gone or in the trash", async () => {
+    // A row keeps its job when it is tombstoned or trashed, and the index lists the oldest first.
+    const f = await nested(6);
+    expect(await f.t.query(internal.functions.websites.siteRootNow, { workspaceId: f.workspaceId })).toBe(ROOT);
+    expect(await indexedKeys(f)).toEqual(["website/about.md", "website/index.md"]);
+  }, 30_000);
+
+  test("its own listing says it is the website, for a page opened before its parent has listed", async () => {
+    const f = await nested();
+    const owner = asUser(f.t, f.owner);
+    const own = await owner.query(api.functions.nodesListing.listFolder, { workspaceId: f.workspaceId, path: ROOT });
+    expect(own?.role).toBe("website");
+    const parent = await owner.query(api.functions.nodesListing.listFolder, { workspaceId: f.workspaceId, path: "Work" });
+    expect(parent?.role).toBeUndefined();
+  }, 30_000);
+
   test("publishes its pages at the addresses they always had", async () => {
     const f = await nested();
     expect(await indexedKeys(f)).toEqual(["website/about.md", "website/index.md"]);

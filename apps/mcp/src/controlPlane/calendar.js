@@ -46,7 +46,11 @@ export function createCalendarMethods({ post }) {
     },
     async changePersonCalendar(accessToken, expectedWorkspaceId, change, { check = false } = {}) {
       const answer = await post("/gateway/calendar/event", { accessToken, expectedWorkspaceId, change, check });
-      if (answer?.ok === true && typeof answer.calendar === "string") return { ok: true, calendar: answer.calendar };
+      if (answer?.ok === true && typeof answer.calendar === "string") {
+        // A move or cancel checked names who it would tell (`calendarGate.js` asks first when anybody).
+        const guests = Array.isArray(answer.guests) ? answer.guests.filter((name) => typeof name === "string" && name !== "").slice(0, 10) : [];
+        return { ok: true, calendar: answer.calendar, guests };
+      }
       return { ok: false, refused: REFUSALS.has(answer?.refused) ? answer.refused : "unavailable" };
     },
   };

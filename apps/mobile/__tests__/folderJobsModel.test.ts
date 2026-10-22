@@ -86,6 +86,23 @@ describe("jobs from listings", () => {
     setJobFoldersNow({ inbox: "0-inbox", archive: "9-archive", website: "website" });
     expect(isWebsiteFolder("website")).toBe(true);
   });
+
+  test("a nested Website opened before its parent has listed knows its job from its own listing", () => {
+    const opened = {
+      "": { entries: [folder("areas", { role: "areas" })] },
+      "areas/website": { entries: [file("areas/website/index.md")], role: "website" },
+    };
+    expect(jobOfPath(opened, "areas/website")).toBe("website");
+    expect(loadedJobs(opened).get("areas/website")).toBe("website");
+    expect(websiteFolder(opened)).toBe("areas/website");
+    setJobFoldersNow({ inbox: "0-inbox", archive: "9-archive", website: websiteFolder(opened) });
+    expect(isWebsiteFolder("areas/website")).toBe(true);
+    setJobFoldersNow({ inbox: "0-inbox", archive: "9-archive", website: "website" });
+    // Once the parent has listed, the parent's entry is the word, even if the stale own listing says otherwise.
+    const listedNow = { ...opened, areas: { entries: [folder("areas/website", { role: null })] } };
+    expect(jobOfPath(listedNow, "areas/website")).toBeNull();
+    expect(websiteFolder(listedNow)).toBe("website");
+  });
 });
 
 describe("the drawn icon's marker", () => {

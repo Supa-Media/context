@@ -58,10 +58,11 @@ switch order, the checker's "no", the caller check, the disarm or the set-aside 
 
 ### Rate limits live in the control plane, and are all-or-none
 
-Five emails an hour, twenty a day, three a day to any one recipient, at most
-ten recipients an email (`apps/convex/functions/lib/personEmail.ts`). The
-windows are fixed, not rolling, so up to ten can go either side of an hour's
-edge. A Gmail recipient counts as one mailbox however it is spelled (dots,
+Twenty emails an hour, a hundred a day, ten a day to any one recipient, at
+most ten recipients an email (`apps/convex/functions/lib/personEmail.ts`;
+five, twenty and three until the owner raised them on 2026-10-22, when they
+got in the way of ordinary use). The windows are fixed, not rolling, so up
+to forty can go either side of an hour's edge. A Gmail recipient counts as one mailbox however it is spelled (dots,
 `+tags`, googlemail.com). Only the person's own personal workspace may send:
 a grant on a shared workspace never reaches its holder's Gmail. The
 limits are authoritative in Convex (`claimPersonEmail`), keyed by the person
