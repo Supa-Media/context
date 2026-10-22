@@ -34,7 +34,7 @@ import { recordWrites } from "../treeAnnounce";
 import { indexChangeOf, treeChangeOf, treeChangeOfResult } from "./access";
 import { markWebsiteAfterOperation } from "../websites/routeChangeAt";
 import { siteLens } from "../websites/siteLens";
-import { mayTouchNestedRoutines, routinePathsTouched } from "../routines/changes";
+import { mayRelocateRoutines, mayTouchNestedRoutines, routinePathsTouched } from "../routines/changes";
 import { executeOperation } from "./executeOperation";
 import { announceTreeChange, manifestSource } from "./treeOps";
 import { searchDatabaseClient } from "../fastSearchFns/client";
@@ -558,6 +558,8 @@ export async function runFileOperationHandler(
   await attachArrivalAccess(ctx, args, listing.store);
   const followPlaces = attachPlacesFollower(ctx, args.workspaceId, listing.store);
   if (args.operation.kind === "move") attachLandedTouch(ctx, args.workspaceId, listing.store, store);
+  // Where Tex's folder is before this runs: a move or trash may take it out of reach (see `routinePathsTouched`).
+  const texBefore = mayRelocateRoutines(args.operation as FileOperation) ? await texFolderOf(ctx, args.workspaceId) : null;
   const operate = () => executeOperation(
     listing.store,
     clearanceOf(args.scope, args.grantedNames ?? []),
@@ -592,13 +594,10 @@ export async function runFileOperationHandler(
   // `tex/routines/`) too. The person who acted is named by `actorName`, the handle `authorizeFileAccess` resolved from live
   // membership; `recordRoutineSignal` keeps them as the writer only if they
   // can write here now. Best effort, like the website mark above.
-  let routinePaths = routinePathsTouched(args.operation as FileOperation, result);
+  let routinePaths = routinePathsTouched(args.operation as FileOperation, result, texBefore);
   if (routinePaths.length === 0 && mayTouchNestedRoutines(args.operation as FileOperation, result)) {
     // Tex's folder may be nested anywhere (owner, 2026-10-18): ask where, and name its routines as rows do.
-    const tex = await ctx
-      .runQuery(internal.functions.nodesGateway.folderJobs, { workspaceId: args.workspaceId })
-      .then((held) => held.jobs.tex ?? null, () => null);
-    routinePaths = routinePathsTouched(args.operation as FileOperation, result, tex);
+    routinePaths = routinePathsTouched(args.operation as FileOperation, result, await texFolderOf(ctx, args.workspaceId));
   }
   if (routinePaths.length > 0) {
     await ctx
@@ -695,4 +694,11 @@ export async function runFileOperationHandler(
 
   await afterMaintenance(ctx, args, result);
   return result;
+}
+
+/** Where Tex's folder is now, by its job (`folderJobs`); null when none is, or the read fails. */
+async function texFolderOf(ctx: ActionCtx, workspaceId: Id<"workspaces">): Promise<string | null> {
+  return await ctx
+    .runQuery(internal.functions.nodesGateway.folderJobs, { workspaceId })
+    .then((held) => held.jobs.tex ?? null, () => null);
 }
