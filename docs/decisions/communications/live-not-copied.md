@@ -69,8 +69,11 @@ them from Settings (`functions/oldCopies.ts`, `lib/oldCopies/`):
   (`trash: true` in `rowMove.ts`, allowed for either root by
   `underHiddenRoot`): nothing is copied or erased, the note keeps its id and
   bytes, and the name is plumbing, so every listing, search and AI read
-  drops it. An hourly pass (`oldCopies.catchUp`) looks through each keyed
-  personal workspace once, a page at a time, and counts what it hid for the
+  drops it. A look every ten minutes (`oldCopies.catchUp`) starts each keyed
+  personal workspace not yet looked through; each run is one page, and hands
+  on to the next at once, so a workspace is done in minutes and no run nears
+  an action's time limit (a first version made up to 60 passes in one hourly
+  run, too slow for a large workspace). It counts what it hid for the
   Settings page. A workspace not yet keyed waits until it is.
 - Download as folders, for the owner of the whole workspace, adds an
   `Old copies/` folder holding each hidden note under its old name

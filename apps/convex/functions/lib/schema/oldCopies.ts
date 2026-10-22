@@ -32,6 +32,8 @@ export const oldCopiesTables = {
     firstDay: v.optional(v.string()),
     lastDay: v.optional(v.string()),
     startedAt: v.number(),
+    /** When the pass under way began; unset between runs, so `catchUp` starts no second pass beside it. */
+    passAt: v.optional(v.number()),
     hiddenAt: v.optional(v.number()),
     /** The owner chose Keep them hidden: the Settings row goes, and the copies stay as they are. */
     keptAt: v.optional(v.number()),
