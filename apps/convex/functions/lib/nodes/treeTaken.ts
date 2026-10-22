@@ -20,7 +20,7 @@
 
 import type { Id } from "../../../_generated/dataModel";
 import type { DatabaseReader } from "../../../_generated/server";
-import { logicalPath, physicalCandidates } from "../../../../mcp/src/moves/queued.js";
+import { logicalPath, physicalCandidates } from "./movePaths";
 import type { PendingMove } from "./moveOverlay";
 import { drawnMoves } from "./rowMoveChunks";
 

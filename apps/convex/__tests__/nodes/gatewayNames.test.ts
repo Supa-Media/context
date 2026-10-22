@@ -149,32 +149,6 @@ describe("POST /gateway/tree/facts, ask: names", () => {
     }
   });
 
-  test("a name a pending move is carrying is drawn where the move puts it", async () => {
-    const { t, ws } = await fixture();
-    await t.run(async (ctx) => {
-      const now = Date.now();
-      await ctx.db.insert("moveQueue", {
-        workspaceId: ws,
-        from: "1-projects/plan.md",
-        to: "3-resources/plan.md",
-        kind: "file",
-        state: "moving",
-        scope: "private",
-        grantedNames: [],
-        total: 1,
-        moved: 0,
-        added: { folders: [], notes: [] },
-        attempts: 0,
-        nextAt: now + 60_000,
-        createdAt: now,
-        updatedAt: now,
-      });
-    });
-    expect(
-      await names(t, { accessToken: OWNER, expectedWorkspaceId: ws, paths: ["1-projects/plan.md", "3-resources/plan.md", "3-resources"] }),
-    ).toEqual({ served: true, files: ["3-resources/plan.md"], folders: ["3-resources"] });
-  });
-
   test("the count counts notes, for the free plan's cap", async () => {
     const { t, ws } = await fixture();
     const answer = await names(t, { accessToken: OWNER, expectedWorkspaceId: ws, count: true });

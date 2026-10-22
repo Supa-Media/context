@@ -478,7 +478,6 @@ describe("the gateway's route", () => {
       { accessToken: ACCESS_A, expectedWorkspaceId: bobWs },
       { accessToken: token("nobody_at_all"), expectedWorkspaceId: aliceWs },
       { expectedWorkspaceId: aliceWs },
-      { accessToken: ACCESS_A, ticket: "tkt", expectedWorkspaceId: aliceWs },
       { accessToken: ACCESS_B, expectedWorkspaceId: aliceWs },
     ]) {
       const answer = await bodyOf(await post(t, { ...body, op: "written", previous: null, etag: "x", ...PRIVATE_PLAN }));
@@ -539,32 +538,6 @@ describe("the gateway's route", () => {
     const answer = await bodyOf(await post(t, body));
     expect(answer).toMatchObject({ ok: true, swapped: { etag: expect.stringMatching(/^ctx-/) } });
     expect((await rowOf(t, aliceWs))?.notes).toHaveLength(1_500);
-  });
-
-  test("a queued move's ticket counts while its job holds the lease", async () => {
-    const { t, alice, aliceWs, grantA } = await authoritative();
-    const ticket = token("move_ticket");
-    const now = Date.now();
-    const jobId = await t.run(async (ctx) =>
-      ctx.db.insert("gatewayJobs", {
-        hashedTicket: await hashToken(ticket),
-        workspaceId: aliceWs,
-        actorUserId: alice,
-        actorClientId: "client",
-        grantId: grantA,
-        kind: "materialize_move",
-        status: "running",
-        attempts: 1,
-        createdAt: now,
-        updatedAt: now,
-        expiresAt: now + 60_000,
-        leasedAt: now,
-      }),
-    );
-    const owed = () => post(t, { ticket, expectedWorkspaceId: aliceWs, op: "owed" }).then(bodyOf);
-    expect(await owed()).toEqual({ ok: true });
-    await t.run(async (ctx) => ctx.db.patch(jobId, { status: "complete" }));
-    expect(await owed()).toEqual({ ok: false });
   });
 
   test("the binding carries the rules while they are the authority", async () => {

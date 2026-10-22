@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 import { Button } from "../../../design/components/Button";
-import { Card, Grow, Row } from "../../../design/components/Card";
+import { Card, Row } from "../../../design/components/Card";
 import { Hint } from "../../../design/components/Field";
 import { FormError } from "../../../design/components/Input";
 import { Text } from "../../../design/components/Text";
@@ -10,8 +10,6 @@ import { useCopy } from "../../../design/useCopy";
 import { useArming } from "../../useArming";
 import {
   describeKeyExportFailure,
-  describeMoveProgress,
-  type AdvancedView,
   type KeyExportAction,
   type KeyExportDocument,
   type KeyExportFailure,
@@ -19,70 +17,15 @@ import {
 import { pointerType as t } from "../../../design/tokens";
 
 /**
- * The two pieces of the old "Advanced" block that belong with storage: large
- * folder moves still running in the background, and the export of the keys
- * that open encrypted notes.
+ * The key export of the old "Advanced" block, which belongs with storage: it
+ * sits beside Download everything, because both are about the files
+ * themselves. (Background folder moves went with the move queue.)
  *
  * "Advanced" was a block at the foot of the workspace page holding these, the
  * audit trail and deleting the workspace: four unrelated things under a word
  * that means "not for me". The settings cleanup (2026-09-29) gave the trail
- * its own Activity section, put deletion on General under "Can't be undone",
- * and moved these two here, beside Download everything, because both are
- * about the files themselves.
+ * its own Activity section and put deletion on General under "Can't be undone".
  */
-
-/**
- * Background folder moves, drawn only while there is something to say.
- *
- * It used to be a card reading "No large folder moves are running" on every
- * visit, which is a row that is true almost always and tells nobody anything.
- */
-export function FolderMovesCard({ view }: { view: AdvancedView["moves"] }) {
-  const styles = useThemedStyles(makeStyles);
-  const [now, setNow] = useState(Date.now);
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 30_000);
-    return () => clearInterval(timer);
-  }, []);
-  if (view.failure) {
-    return (
-      <View style={styles.block}>
-        <FormError
-          headline={view.failure.headline}
-          next={[view.failure.next, view.failure.detail].filter(Boolean).join(" ")}
-        />
-      </View>
-    );
-  }
-  if (view.jobs.length === 0) return null;
-  return (
-    <View style={styles.block}>
-      <Text variant="rowTitle" style={styles.subHead}>
-        Folder moves
-      </Text>
-      <Text variant="rowSub" style={styles.subSub}>
-        Large moves continue safely in the background, even if you close the app.
-      </Text>
-      <Card>
-        {view.jobs.map((job, index) => {
-          const words = describeMoveProgress(job, now);
-          return (
-            <View key={job.jobId} testID="durable-move-progress">
-              <Row divided={index > 0}>
-                <Grow>
-                  <Text variant="rowTitle">{words.headline}</Text>
-                  <Text variant="rowSub" style={styles.rowSub}>
-                    {words.detail}
-                  </Text>
-                </Grow>
-              </Row>
-            </View>
-          );
-        })}
-      </Card>
-    </View>
-  );
-}
 
 /**
  * The key export, under a heading of its own.

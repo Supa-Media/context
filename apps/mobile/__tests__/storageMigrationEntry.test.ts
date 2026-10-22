@@ -191,7 +191,7 @@ function console_(
     fastSearch: { status: null, loading: false },
     members: { rows: [], members: [] },
     shares: { shares: [] },
-    advanced: { moves: { jobs: [], loading: false }, audit: { events: [], loading: false } },
+    advanced: { audit: { events: [], loading: false } },
     loading: false,
     failure: null,
   } as unknown as ConsoleData;

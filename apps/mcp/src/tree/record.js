@@ -68,7 +68,7 @@ const TEXT_SAVES = new Set([
 const ONE_NOTE_MOVES = new Set(["move_note", "archive_note"]);
 
 /** Moves whose paths come in pairs, old then new, so the chaos score can carry what it knew. */
-const PAIRED_MOVES = new Set(["move_note", "archive_note", "move_folder", "materialize_move", "move_notes"]);
+const PAIRED_MOVES = new Set(["move_note", "archive_note", "move_folder", "move_notes"]);
 
 /** `[old, new]` pairs from a move's paths, or none when they are not plainly pairs. */
 function movesOf(action, named, details) {

@@ -32,9 +32,6 @@
  *   plane already shows the owner;
  * - a page of the managed-storage encryption walk (`walkPage.js`): the phase,
  *   the next cursor and how many objects it sealed or opened;
- * - a batch of a move from one workspace into another (`contextMovePage.js`),
- *   the one page that holds two workspaces' keys (owner, 2026-10-14): what
- *   landed, what stayed behind and why, and edits that raced the move;
  * - a batch of the move from path keys to id keys inside one bucket
  *   (`idCopyPage.js`): `idCopy` copies each path to its id key, and `idCheck`
  *   reports, per path, whether the id key already holds the same object;
@@ -50,7 +47,6 @@ import { sha256Hex } from "../controlPlane/client.js";
 import { timingSafeEqual } from "../crypto/bytes.js";
 import { json } from "../http/responses.js";
 import { StorageUnavailable, storeForBinding } from "../store/factory.js";
-import { runContextMovePage } from "./contextMovePage.js";
 import { runIdCheckPage, runIdCopyPage } from "./idCopyPage.js";
 import { CLEANUP_DELETE_MAX, runCleanupDeletePage, runCleanupListPage, wellFormedKey } from "./cleanupPage.js";
 import { runMigrationPage } from "./migrationPage.js";
@@ -128,44 +124,6 @@ function readOpenedWalk(opened) {
   if (!limits || !positive(limits.pageSize) || !positive(limits.lanes) || !positive(limits.byteBudget)) return null;
   if (opened.cursor !== undefined && opened.cursor !== null && typeof opened.cursor !== "string") return null;
   return { ...opened, cursor: typeof opened.cursor === "string" ? opened.cursor : undefined };
-}
-
-/** Objects one batch may name, as many as the control plane plans (`CONTEXT_MOVE_BATCH_OBJECTS`). */
-const CONTEXT_MOVE_OBJECTS = 40;
-
-/**
- * A batch between two workspaces: two different workspaces' buckets, each
- * carrying its own id, and a list of keys to carry. Any other shape is
- * refused, never guessed at.
- */
-function readOpenedContextMove(opened) {
-  const { source, destination, objects, limits } = opened;
-  const side = (value) => value && typeof value === "object" && typeof value.workspaceId === "string" && value.workspaceId !== "";
-  if (!side(source) || !side(destination) || source.workspaceId === destination.workspaceId) return null;
-  if (!Array.isArray(objects) || objects.length === 0 || objects.length > CONTEXT_MOVE_OBJECTS) return null;
-  for (const object of objects) {
-    if (!object || typeof object.source !== "string" || object.source === "" ||
-        typeof object.destination !== "string" || object.destination === "" ||
-        typeof object.size !== "number" || !Number.isFinite(object.size) || object.size < 0) return null;
-  }
-  if (!limits || !positive(limits.lanes) || !positive(limits.byteBudget) || !positive(limits.maxObjectBytes)) return null;
-  return opened;
-}
-
-async function runContextMove(opened, deps) {
-  const page = readOpenedContextMove(opened);
-  if (page === null) return json({ ok: false, error: "STORAGE_UNSAFE" });
-  try {
-    return json({ ok: true, ...(await runContextMovePage(page, deps)) });
-  } catch (error) {
-    const code = error instanceof StorageUnavailable ? "SOURCE_UNAVAILABLE" : "STORAGE_UNSAFE";
-    console.error("mover.context_move_failed", {
-      sourceWorkspaceId: page.source.workspaceId,
-      destinationWorkspaceId: page.destination.workspaceId,
-      code,
-    });
-    return json({ ok: false, error: code });
-  }
 }
 
 function walkFailureCode(error) {
@@ -280,7 +238,6 @@ export async function handleMoverPage(request, env, deps = {}) {
   }
   if (opened === null) return json({ ok: false, error: "STALE" });
   if (opened && typeof opened === "object" && opened.kind === "walk") return await runWalk(opened, deps);
-  if (opened && typeof opened === "object" && opened.kind === "contextMove") return await runContextMove(opened, deps);
   if (opened && typeof opened === "object" && (opened.kind === "idCopy" || opened.kind === "idCheck")) {
     return await runIdPage(opened, deps);
   }

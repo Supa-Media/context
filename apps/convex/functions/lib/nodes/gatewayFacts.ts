@@ -38,10 +38,6 @@
  *   The ledger lives in Convex since 2026-10-14; nothing reads the bucket's
  *   `.context/forwarding.json`, which is written from it.
  *
- *   A queued move asks with its job `ticket` in place of a token, as it does
- *   `/gateway/privacy`, while its job holds the lease: it runs at `private`
- *   clearance (`moves/queueConsumer.js`), so it gets the whole ledger, which
- *   is what it read from the bucket's file before. A ticket asks nothing else.
  */
 
 import { internal } from "../../../_generated/api";
@@ -87,26 +83,11 @@ export async function gatewayTreeFactsHandler(ctx: ActionCtx, body: Record<strin
   return json(await factsFor(ctx, body));
 }
 
-/** A queued move's whole ledger, for its leased ticket; refused as anything else is. */
-async function ledgerForJob(ctx: ActionCtx, ticket: string, expected: string): Promise<Record<string, unknown>> {
-  const leased = await ctx.runQuery(internal.functions.nodesPrivacy.jobWorkspace, { hashedTicket: await hashToken(ticket) });
-  if (leased === null || leased !== expected) return NOT_SERVED;
-  return { served: true, forwarding: await ctx.runQuery(internal.functions.smallData.ledger, { workspaceId: leased }) };
-}
-
 async function factsFor(ctx: ActionCtx, body: Record<string, unknown>): Promise<Record<string, unknown>> {
   const accessToken = typeof body.accessToken === "string" && body.accessToken !== "" ? body.accessToken : null;
-  const ticket = typeof body.ticket === "string" && body.ticket !== "" ? body.ticket : null;
   const expected = typeof body.expectedWorkspaceId === "string" ? body.expectedWorkspaceId : null;
   if (expected === null || !ASKS.has(body.ask as string)) return NOT_SERVED;
-  if (accessToken === null && ticket !== null && body.ask === "forwarding") {
-    try {
-      return await ledgerForJob(ctx, ticket, expected);
-    } catch {
-      return NOT_SERVED;
-    }
-  }
-  if (accessToken === null || ticket !== null) return NOT_SERVED;
+  if (accessToken === null) return NOT_SERVED;
   const sources = body.ask === "links" ? pathList(body.sources, MOVE_RENAMES_CAP) : [];
   const names = body.ask === "links" ? pathList(body.names, MOVE_RENAMES_CAP) : [];
   const paths = body.ask === "props" ? pathList(body.paths, PROPS_REQUEST_PATHS) : [];

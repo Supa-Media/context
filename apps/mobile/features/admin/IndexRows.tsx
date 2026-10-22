@@ -27,8 +27,6 @@ export type IndexActions = {
   /** Copy the workspace again; its facts follow the copy. */
   repair: (workspaceId: string) => void;
   check: (workspaceId: string) => void;
-  retryMove: (id: string) => void;
-  undoMove: (id: string) => void;
   /** Walk a sealed bucket again, for notes saved unsealed after its walk. */
   reseal: (workspaceId: string) => void;
 };

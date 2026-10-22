@@ -17,7 +17,7 @@
  */
 
 import { describe, expect, test } from "vitest";
-import { startQueuedMove } from "../../functions/lib/nodes/moveStart";
+import { startRowMove } from "../../functions/lib/nodes/rowMoveStart";
 import { startRowMoveBatch } from "../../functions/lib/nodes/rowMoveBatch";
 import { startRowTrash } from "../../functions/lib/nodes/rowTrash";
 import { OWNER, type Fixture } from "./moveFixture.helpers";
@@ -35,7 +35,7 @@ async function staleRow(f: Fixture, path = NOTE): Promise<{ keyEtag: string; row
 }
 
 const move = (f: Fixture, from: string, to: string, expectedEtag: string) =>
-  startQueuedMove(f.ctx, { workspaceId: f.ws, store: f.store, from, to, clearance: OWNER, now: Date.now(), expectedEtag });
+  startRowMove(f.ctx, { workspaceId: f.ws, store: f.store, from, to, clearance: OWNER, now: Date.now(), expectedEtag });
 
 describe("a stale keyed row catches up to its key when the caller holds the key's version", () => {
   test("a move against the key's version moves the note, and the row takes the key's version", async () => {

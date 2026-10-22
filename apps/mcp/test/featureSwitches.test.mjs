@@ -48,7 +48,7 @@ function bucket() {
 }
 
 async function storeWith(features) {
-  const controlPlane = { getStorageBinding: async () => ({ binding: BINDING, pendingMoves: [], idLayout: null, features }) };
+  const controlPlane = { getStorageBinding: async () => ({ binding: BINDING,idLayout: null, features }) };
   return storeForSession({ workspaceId: "w1", accessToken: "tok" }, { NATIVE_BINDINGS: "TEST_BUCKET", TEST_BUCKET: bucket() }, controlPlane);
 }
 

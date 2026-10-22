@@ -73,7 +73,6 @@ export const INDEX_ON_CHANGE = new Map([
   ["archive_note", "moved"],
   ["move_notes", "movedPairs"],
   ["move_folder", "folderMoved"],
-  ["materialize_move", "folderMoved"],
 ]);
 
 /**
@@ -98,8 +97,8 @@ function pairsOf(paths, count) {
  * what fast search and search by meaning must follow, or `null` for nothing.
  *
  * A folder move that is still only logical (`status: "logical_active"`) or
- * queued is followed when it is materialized, not before: until then the
- * bucket holds the old layout, and that is what every derivative is read from.
+ * queued is not followed until it has landed: until then the bucket holds the
+ * old layout, and that is what every derivative is read from.
  */
 export function searchChangeOf(action, paths, details) {
   const kind = INDEX_ON_CHANGE.get(action);
@@ -144,8 +143,7 @@ export function searchChangeOf(action, paths, details) {
       follow: { moved: pairs, written: stranded },
     };
   }
-  // folderMoved. Queued or still logical, the bucket holds the old layout;
-  // the copy records `materialize_move` when it lands, and that is followed.
+  // folderMoved. Queued or still logical, the bucket holds the old layout.
   if (details?.status === "logical_active" || details?.queued === true || details?.partial === true) return null;
   if (named.length !== 2) return null;
   return { notes: [], follow: { moved: [[named[0], named[1]]] } };
@@ -265,7 +263,6 @@ const NARROWING_ACTIONS = new Set([
   "move_note",
   "move_notes",
   "move_folder",
-  "materialize_move",
   "archive_note",
   "set_visibility",
   "set_folder_visibility",

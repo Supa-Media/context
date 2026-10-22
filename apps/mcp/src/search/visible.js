@@ -48,7 +48,6 @@
  */
 
 import { isEncryptedNote } from "../encryption.js";
-import { readAtTreeName } from "../moves/queued.js";
 import { messageSegmentFor } from "./commsIndex.js";
 import { readTermFilter, termFilterMayHold } from "./filter.js";
 import { createSearchBudget, inWaves } from "./maintain.js";
@@ -570,8 +569,8 @@ async function answerFromIndex(store, options) {
         // The body read is inside the `try` as well as the fetch. A backend can
         // hand back an object whose stream then fails, and a rejection there is
         // the same kind of failure as a refused GET: one hit's snippet, never
-        // the whole answer. Read at the tree's name while a folder move copies.
-        const object = await readAtTreeName(store, readPath, isVisible);
+        // the whole answer.
+        const object = await store.get(readPath);
         if (!object) return null;
         const text = await object.text();
         // A hit that turns out to be an encrypted note is dropped, exactly as a

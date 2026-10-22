@@ -102,9 +102,6 @@ export function createSessionMethods({ post, required }) {
         // Managed-storage encryption, a sixth sibling: `{mode}` for a managed
         // bucket being encrypted or already encrypted, absent otherwise.
         managedEncryption: parsed.managedEncryption ?? null,
-        // Queued folder moves the tree draws already (`moves/queued.js`), a
-        // seventh: absent unless one is pending, which is nearly always.
-        pendingMoves: Array.isArray(parsed.pendingMoves) ? parsed.pendingMoves : [],
         // Phase 3, an eighth sibling: the privacy rules while they are the
         // authority, absent while `privacy.md` is (`store/privacyAuthority.js`).
         privacy: parsed.privacy ?? null,

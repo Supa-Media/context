@@ -3,7 +3,6 @@ import {
   convexCell,
   countParts,
   factsCell,
-  filesCell,
   fastCell,
   healthCounts,
   joinIndexes,
@@ -13,7 +12,6 @@ import {
   parityWords,
   tierLabel,
   type MigrationRow,
-  type MoveRow,
 } from "../features/admin/searchIndexes";
 import type { MeaningIndexRow } from "../features/admin/meaningIndexes";
 
@@ -21,9 +19,8 @@ import type { MeaningIndexRow } from "../features/admin/meaningIndexes";
  * The admin Search tab's Indexes view, as data: three per-workspace indexes
  * joined into one row each. The rules worth a red test: a workspace with only
  * one of them still shows, stuck rows come first, an owner's off never reads
- * as needing attention, a failure says why, and the file tree column folds the
- * copy and its folder moves, with the copy's facts beside it and never
- * reading as a problem.
+ * as needing attention, a failure says why, and the file tree column is the
+ * copy, with the copy's facts beside it and never reading as a problem.
  */
 
 const meaning = (fields: Partial<Omit<MeaningIndexRow, "workspaceId">> & { workspaceId?: string } = {}): MeaningIndexRow =>
@@ -187,53 +184,13 @@ describe("the Convex copy column", () => {
   });
 });
 
-const move = (fields: Partial<Omit<MoveRow, "id" | "workspaceId">> & { id?: string; workspaceId?: string } = {}): MoveRow =>
-  ({
-    id: "m1",
-    workspaceId: "w1",
-    slug: "maya",
-    state: "moving",
-    total: 340,
-    moved: 120,
-    attempts: 0,
-    lastError: null,
-    undone: false,
-    running: true,
-    stuck: false,
-    canUndo: true,
-    createdAt: 5_000,
-    updatedAt: 6_000,
-    rate: null,
-    etaMs: null,
-    late: null,
-    ...fields,
-  }) as MoveRow;
-
 describe("the file tree column", () => {
   const ready = convexCell(migration());
 
   test("the copy decides it, whatever its facts are doing", () => {
-    expect(filesCell(ready, [])).toEqual(ready);
     const [filling] = joinIndexes([], [migration({ facts: { ready: false, running: true, retrying: 0, retryKind: null, retryPasses: 0 } })]);
     expect(filling!.files).toEqual(ready);
     expect(filling!.details).toMatchObject({ health: "working", label: "Filling" });
-  });
-
-  test("a move copying is work on its way; a stuck one wants a person", () => {
-    expect(filesCell(ready, [move()])).toMatchObject({ health: "working", figure: "40 · 1 move copying" });
-    expect(filesCell(ready, [move(), move({ id: "m2" })]).figure).toBe("40 · 2 moves copying");
-    expect(filesCell(ready, [move({ stuck: true, running: false, lastError: "Copy failed" })])).toMatchObject({
-      health: "stuck",
-      problem: "A folder move is stuck: Copy failed",
-    });
-  });
-
-  test("a workspace only the moves report has still gets a row, with its moves", () => {
-    const rows = joinIndexes([meaning()], [], false, [move({ workspaceId: "w7", slug: "kai" })]);
-    const kai = rows.find((row) => row.slug === "kai")!;
-    expect(kai.moves).toHaveLength(1);
-    expect(kai.files.health).toBe("working");
-    expect(rows.find((row) => row.slug === "maya")!.moves).toEqual([]);
   });
 
   test("its summary counts in its own words", () => {

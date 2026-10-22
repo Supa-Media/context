@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { internal } from "../../_generated/api";
-import { startQueuedMove } from "../../functions/lib/nodes/moveStart";
+import { startRowMove } from "../../functions/lib/nodes/rowMoveStart";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
 import { OWNER, TEAM, fixture, listed, start } from "./moveFixture.helpers";
 import { NOTE_ID, bytesOf, keyedFixture, liveAt, logOf, privacyEtag, rowOf, treeOf } from "./keyedFixture.helpers";
@@ -21,7 +21,7 @@ describe("a keyed workspace moves rows, not bytes", () => {
     expect(await liveAt(f, "1-projects/keep.md")).toBe(false);
     // Nothing was copied, deleted or queued: every object the bucket held is still exactly there.
     expect(bytesOf(f)).toEqual(bytesBefore);
-    expect(await f.t.query(internal.functions.nodeMoves.active, { workspaceId: f.ws })).toEqual([]);
+    expect(await f.t.query(internal.functions.nodeRowMoves.drawn, { workspaceId: f.ws })).toEqual([]);
     expect(await listed(f.owner, f.ws, "1-projects")).toContain("1-projects/kept.md");
     expect(await listed(f.owner, f.ws, "1-projects")).not.toContain("1-projects/keep.md");
   });
@@ -156,36 +156,11 @@ describe("a keyed move refuses what it cannot make true, and changes nothing", (
     expect(await treeOf(f)).toEqual(treeBefore);
   });
 
-  test("a queued byte move still pending in the workspace makes the keyed move wait", async () => {
-    const f = await keyedFixture();
-    await f.t.run(async (ctx) => {
-      await ctx.db.insert("moveQueue", {
-        workspaceId: f.ws,
-        from: "1-projects/old",
-        to: "3-resources/old",
-        kind: "folder",
-        state: "moving",
-        scope: "private",
-        grantedNames: [],
-        total: 1,
-        moved: 0,
-        added: { folders: [], notes: [] },
-        attempts: 0,
-        nextAt: 1,
-        createdAt: 1,
-        updatedAt: 1,
-      });
-    });
-
-    await expect(start(f, "1-projects/keep.md", "1-projects/kept.md")).rejects.toMatchObject({ code: "CONFLICT" });
-    expect(await liveAt(f, "1-projects/keep.md")).toBe(true);
-  });
-
   test("a file asked against an out-of-date version is refused, and the current version moves", async () => {
     const f = await keyedFixture();
     const row = await rowOf(f, "1-projects/keep.md");
     const run = (expectedEtag: string) =>
-      startQueuedMove(f.ctx, {
+      startRowMove(f.ctx, {
         workspaceId: f.ws,
         store: f.store,
         from: "1-projects/keep.md",
@@ -208,7 +183,7 @@ describe("a keyed move refuses what it cannot make true, and changes nothing", (
     const treeBefore = await treeOf(f);
 
     await expect(
-      startQueuedMove(f.ctx, { workspaceId: f.ws, store: f.store, from: "1-projects", to: "3-resources/projects", clearance: TEAM, now: Date.now() }),
+      startRowMove(f.ctx, { workspaceId: f.ws, store: f.store, from: "1-projects", to: "3-resources/projects", clearance: TEAM, now: Date.now() }),
     ).rejects.toMatchObject({ code: "CONFLICT" });
 
     expect(await treeOf(f)).toEqual(treeBefore);
@@ -230,7 +205,7 @@ describe("a keyed move refuses what it cannot make true, and changes nothing", (
       } as never);
     });
 
-    const moved = await startQueuedMove(f.ctx, {
+    const moved = await startRowMove(f.ctx, {
       workspaceId: f.ws,
       store: f.store,
       from: "1-projects/launch",
@@ -439,27 +414,5 @@ describe("what a keyed move carries with it", () => {
     await expect(start(f, "1-projects/secret/codes.md", "3-resources/r.md")).rejects.toMatchObject({ code: "DESTINATION_EXISTS" });
 
     expect(f.store.snapshot()[PRIVACY_KEY]).toBe(rulesBefore);
-  });
-});
-
-describe("a workspace that is not keyed still moves the old way", () => {
-  test("a folder moves as a queued byte move, with no row change", async () => {
-    const f = await fixture();
-    const moved = await start(f, "1-projects/launch", "3-resources/launch");
-    expect(moved).toMatchObject({ from: "1-projects/launch", to: "3-resources/launch", queued: 4 });
-    expect(moved).not.toHaveProperty("rowed");
-  });
-
-  test("a single note moves the old way: the keyed branch does not answer", async () => {
-    const f = await fixture();
-    const answer = await startQueuedMove(f.ctx, {
-      workspaceId: f.ws,
-      store: f.store,
-      from: "1-projects/keep.md",
-      to: "1-projects/kept.md",
-      clearance: OWNER,
-      now: Date.now(),
-    });
-    expect(answer).toBeNull();
   });
 });

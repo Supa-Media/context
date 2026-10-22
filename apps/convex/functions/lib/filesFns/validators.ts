@@ -309,7 +309,6 @@ export const contextMoveExportedValidator = v.object({
     destination: v.string(),
     bytes: v.bytes(),
     etag: v.string(),
-    collaborationEtag: v.optional(v.string()),
     sourceVisibility: v.union(v.literal("private"), v.literal("team")),
   })),
   skipped: v.array(v.object({
@@ -348,26 +347,6 @@ export const contextMoveRemovedValidator = v.object({
 
 export const contextMoveFinishedValidator = v.object({
   kind: v.literal("contextMoveFinished"),
-});
-
-/** A batch for the gateway's mover: names, sizes and tiers, never a byte. */
-export const contextMovePlannedValidator = v.object({
-  kind: v.literal("contextMovePlanned"),
-  objects: v.array(v.object({
-    source: v.string(),
-    destination: v.string(),
-    size: v.number(),
-    sourceVisibility: v.union(v.literal("private"), v.literal("team")),
-  })),
-  skipped: v.array(v.object({
-    path: v.string(),
-    reason: v.union(v.literal("encrypted"), v.literal("too_large")),
-  })),
-  remaining: v.boolean(),
-});
-
-export const contextMoveSettledValidator = v.object({
-  kind: v.literal("contextMoveSettled"),
 });
 
 export const activityRecordedValidator = v.object({ kind: v.literal("activityRecorded") });
@@ -453,22 +432,6 @@ export const activityEntryValidator = v.object({
 export const activityValidator = v.object({
   kind: v.literal("activity"),
   entries: v.array(activityEntryValidator),
-});
-
-export const durableMoveValidator = v.object({
-  jobId: v.id("gatewayJobs"),
-  status: v.union(
-    v.literal("queued"),
-    v.literal("running"),
-    v.literal("complete"),
-    v.literal("failed"),
-  ),
-  phase: v.optional(v.union(v.literal("copying"), v.literal("deleting"), v.literal("rewriting"))),
-  completed: v.optional(v.number()),
-  total: v.optional(v.number()),
-  progressChangedAt: v.optional(v.number()),
-  progressPerMinute: v.optional(v.number()),
-  updatedAt: v.number(),
 });
 
 /** The chaos score for one reader. See `chaosOps.ts`. */

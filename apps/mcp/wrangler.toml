@@ -121,16 +121,6 @@ class_name = "PresenceRoom"
 tag = "v1-presence"
 new_sqlite_classes = ["PresenceRoom"]
 
-[[queues.producers]]
-binding = "GATEWAY_JOBS"
-queue = "context-gateway-jobs"
-
-[[queues.consumers]]
-queue = "context-gateway-jobs"
-max_batch_size = 1
-max_batch_timeout = 5
-max_retries = 20
-
 # `write_note` `site: { action: "screenshot" }`: the Worker in infra/site-shots,
 # which photographs a published website page with Browser Rendering. Reached
 # only through this binding, so it has no address and holds no secret. It must
@@ -199,7 +189,7 @@ service = "context-site-shots"
 [ai]
 binding = "AI"
 
-# Staging shares code with production, but owns its queue and presence objects.
+# Staging shares code with production, but owns its presence objects.
 [env.staging]
 name = "context-mcp-staging"
 workers_dev = true
@@ -215,15 +205,6 @@ SEARCH_SUBREQUEST_BUDGET = "600"
 [[env.staging.durable_objects.bindings]]
 name = "PRESENCE_ROOM"
 class_name = "PresenceRoom"
-
-[[env.staging.queues.producers]]
-binding = "GATEWAY_JOBS"
-queue = "context-gateway-jobs-staging"
-
-[[env.staging.queues.consumers]]
-queue = "context-gateway-jobs-staging"
-max_batch_size = 1
-max_batch_timeout = 5
 
 [[env.staging.services]]
 binding = "SITE_SHOTS"

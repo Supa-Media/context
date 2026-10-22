@@ -13,7 +13,6 @@ import type { ActionCtx } from "../../../_generated/server";
 import { decryptSecret, requireKeyset } from "../crypto";
 import { managedEncryptionOption } from "../managedEncryptionFns/storeOption";
 import { openWalkPage, type WalkMoverPage, type WalkTicket } from "../managedEncryptionFns/walkMover";
-import { type ContextMoveMoverPage, type ContextMoveTicket, openContextMovePage } from "../contextMoveMover";
 import { type NoteIdMoverPage, type NoteIdTicket, openNoteIdPage } from "../noteIds/mover";
 import { type CleanupMoverPage, openCleanupTicket } from "../cleanup/mover";
 import { outOfManagedBucket } from "./direction";
@@ -23,13 +22,11 @@ type GatewayCredential = Parameters<typeof migrationPageFor>[2] | null;
 type MoverTicketJobs = Partial<NoteIdTicket> & {
   walkRunId?: number;
   migrationId?: Id<"managedStorageMigrations">;
-  contextMoveId?: Id<"contextMoves">;
-  objects?: ContextMoveTicket["objects"];
   cleanupRunId?: number;
   cleanupKeys?: string[];
 };
 
-export type MoverPage = ReturnType<typeof migrationPageFor> | WalkMoverPage | ContextMoveMoverPage | NoteIdMoverPage | CleanupMoverPage;
+export type MoverPage = ReturnType<typeof migrationPageFor> | WalkMoverPage | NoteIdMoverPage | CleanupMoverPage;
 
 export async function openMoverPageHandler(ctx: ActionCtx, args: { hashedTicket: string }): Promise<MoverPage | null> {
   const ticket: (Omit<WalkTicket, "walkRunId"> & MoverTicketJobs) | null = await ctx.runMutation(internal.functions.storageMover.claimPage, {
@@ -38,7 +35,6 @@ export async function openMoverPageHandler(ctx: ActionCtx, args: { hashedTicket:
   });
   if (ticket === null) return null;
   if (ticket.walkRunId !== undefined) return await openWalkPage(ctx, { ...ticket, walkRunId: ticket.walkRunId });
-  if (ticket.contextMoveId !== undefined) return await openContextMovePage(ctx, { ...ticket, contextMoveId: ticket.contextMoveId, objects: ticket.objects ?? [] });
   if (ticket.idRunId !== undefined) return await openNoteIdPage(ctx, { workspaceId: ticket.workspaceId, phase: ticket.phase, runId: ticket.idRunId, items: ticket.idItems ?? [] });
   if (ticket.cleanupRunId !== undefined) return await openCleanupTicket(ctx, { ...ticket, cleanupRunId: ticket.cleanupRunId });
   const migration: Doc<"managedStorageMigrations"> | null = await ctx.runQuery(internal.functions.managedProvisioning.migrationForCopy, {

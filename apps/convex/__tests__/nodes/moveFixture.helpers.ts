@@ -16,8 +16,7 @@ import { clearanceOf } from "../../functions/lib/clearance";
 import { type FileStore, setFolderVisibility } from "../../functions/lib/fileOps";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
 import { renderPrivacyManifest } from "../../functions/lib/scaffold";
-import { startQueuedMove } from "../../functions/lib/nodes/moveStart";
-import { runMoveWork } from "../../functions/lib/nodes/moveWork";
+import { startRowMove } from "../../functions/lib/nodes/rowMoveStart";
 import { runNodesOperation } from "../../functions/lib/nodes/run";
 import { memoryStore, type MemoryStore } from "../storeStub.helpers";
 
@@ -107,16 +106,11 @@ export async function listed(who: Fixture["owner"], ws: Id<"workspaces">, path: 
   return listing!.entries.map((entry: { path: string }) => entry.path).sort();
 }
 
+/** A keyed folder or note move: a row change, answered in the call (there is no queue to wait on). */
 export const start = (f: Fixture, from: string, to: string, clearance = OWNER) =>
-  startQueuedMove(f.ctx, { workspaceId: f.ws, store: f.store, from, to, clearance, now: Date.now() });
+  startRowMove(f.ctx, { workspaceId: f.ws, store: f.store, from, to, clearance, now: Date.now() });
 
-export async function drain(f: Fixture): Promise<void> {
-  for (let pass = 0; pass < 20; pass += 1) {
-    const queue = await f.t.query(internal.functions.nodeMoves.active, { workspaceId: f.ws });
-    if (queue.length === 0) return;
-    await runMoveWork(f.ctx, f.ws, f.store);
-  }
-  throw new Error("moves did not drain");
-}
+/** Kept for callers written when moves queued: keyed moves finish inside `start`, so there is nothing to drain. */
+export async function drain(_f: Fixture): Promise<void> {}
 
 export const bucketKeys = (store: Store) => Object.keys(store.snapshot()).filter((key) => !key.startsWith(".")).sort();

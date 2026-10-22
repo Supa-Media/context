@@ -49,7 +49,7 @@ describe("a batch of moves in a keyed workspace lands whole", () => {
     expect(await liveAt(f, "1-projects/keep.md")).toBe(false);
     expect(await liveAt(f, "3-resources/r.md")).toBe(false);
     expect(bytesOf(f)).toEqual(bytesBefore);
-    expect(await f.t.query(internal.functions.nodeMoves.active, { workspaceId: f.ws })).toEqual([]);
+    expect(await f.t.query(internal.functions.nodeRowMoves.drawn, { workspaceId: f.ws })).toEqual([]);
   });
 
   test("the barrier answers a batch with the same moves", async () => {

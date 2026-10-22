@@ -15,7 +15,6 @@ import {
   visibilityOf,
 } from "../privacy";
 import { type Clearance } from "../clearance";
-import { tombstoneDocument as tombstoneCollaborationDocument } from "@context/collaboration";
 import type { FileStore } from "./store";
 import { type FileErrorCode, FileOpError, notFound } from "./errors";
 import { requirePath } from "./paths";
@@ -23,7 +22,6 @@ import { loadPrivacyState } from "./privacyState";
 import { folderVisibleAtScope } from "./listing";
 import { assertWritablePath } from "./writing";
 import { isFolder } from "./walk";
-import { isKeyedStore } from "../noteIds/keyedStore";
 import { trashKeyedRows } from "./deleting";
 import { assertDestinationsVisible } from "./moveRules";
 import {
@@ -260,149 +258,47 @@ export async function importContextMoveBatch(
 }
 
 /**
- * Take the copied objects out of the source, and only those.
+ * Take the copied objects out of the source, and only those, as their rows.
  *
- * Conditional on the etag each was read at, so a note somebody edited between
- * the copy and this call is **not** deleted: the copy at the destination is
- * the older text, and silently removing the newer one would lose the edit. It
- * is reported as a conflict instead, and the caller removes the stale copy it
- * made and stops — see `contextMoves.ts`.
+ * A KEYED NOTE LEAVES BY THE TRASH, NEVER BY A DELETE. Its bytes are at its key
+ * and a delete of it is refused (only emptying the trash retires a key). So the
+ * note's row goes to this workspace's trash, only if its key still holds the
+ * version that was copied: an edit made since is a conflict, and the caller
+ * removes the stale copy it made and stops (see `contextMoves.ts`). The note
+ * stays restorable here, and its rules travel with the row, so there is nothing
+ * to forget.
+ *
+ * The version is asked of the key, never the row. A row's etag is what the tree
+ * last heard, and a key can be rewritten with nobody telling it (the managed
+ * encryption walk seals keys in the bare bucket): checked against the row, such
+ * a note read as edited on every move, and never moved. An edit landing after
+ * this read and before the trash goes into the trash with the note, where
+ * Restore still has it.
  */
-/**
- * Take one copied object out, under a guard the storage will actually enforce.
- *
- * **A conditional DELETE is not that guard on the storage this product runs
- * on.** R2 accepts `If-Match` on DELETE and ignores it — measured, in
- * `apps/mcp`'s "Move a note on storage that will not enforce a conditional
- * delete", once every binding was probed instead of inheriting a claim: every
- * real row came back `conditionalDelete: false` and `conditionalWrite: true`.
- * So the obvious `delete(path, { onlyIf: { etagMatches } })` either refuses
- * every move (if the capability is required) or silently destroys the edit
- * somebody made mid-move (if it is not) — and the second is what the
- * unguarded fallback here used to do, while this file's own comment claimed
- * the newer text was kept.
- *
- * The substitute is the gateway's `retireMovedSource`, ported rather than
- * reinvented so the two engines cannot drift on a data-loss guard:
- *
- *   1. PUT a zero-byte marker at the source path under `If-Match` on the etag
- *      that was copied. Atomic, and it fails if anybody touched the note —
- *      the same conflict, established from the same evidence.
- *   2. Delete the marker. By then the only thing at that key is ours, so the
- *      delete cannot destroy a customer's bytes whether or not it is
- *      conditional.
- *
- * `unguarded` is a store that can do neither, which `assertContextMoveSafe`
- * refuses before anything is copied. It is returned rather than thrown so that
- * a caller which somehow reaches it treats it as a refusal instead of as a
- * successful retirement.
- */
-async function retireMovedSource(
-  store: FileStore,
-  key: string,
-  etag: string,
-): Promise<"retired" | "conflict" | "unguarded"> {
-  if (etag === "") return "unguarded";
-  if (store.capabilities?.conditionalDelete === true) {
-    const deleted = await store.delete(key, { onlyIf: { etagMatches: etag } });
-    return deleted === null ? "conflict" : "retired";
-  }
-  if (store.capabilities?.conditionalWrite !== true) return "unguarded";
-  const claimed = await store.put(key, new Uint8Array(0), { onlyIf: { etagMatches: etag } });
-  if (claimed === null) return "conflict";
-  try {
-    await store.delete(key);
-  } catch {
-    // A zero-byte marker at a path whose content is already at the destination.
-    // The next pass lists it, finds nothing to carry, and removes it; reporting
-    // the move as failed here would be the false half of a move that happened.
-  }
-  return "retired";
-}
-
 export async function deleteMovedSources(
   store: FileStore,
-  options: { sources: readonly { path: string; etag: string; collaborationEtag?: string }[]; clearance?: Clearance },
+  options: { sources: readonly { path: string; etag: string }[]; clearance?: Clearance },
 ): Promise<{ deleted: string[]; conflicts: string[] }> {
   const deleted: string[] = [];
   const conflicts: string[] = [];
-  if (await isKeyedStore(store)) {
-    const clearance = options.clearance;
-    if (clearance === undefined) throw new FileOpError("KEYED_WORKSPACE", "A keyed note is moved out by the trash, which needs the caller's clearance.");
-    /*
-      A KEYED NOTE LEAVES BY THE TRASH, NEVER BY A DELETE.
-
-      Its bytes are at its key and a delete of it is refused (only emptying the
-      trash retires a key). So the note's row goes to this workspace's trash,
-      only if its key still holds the version that was copied: an edit made
-      since is a conflict, exactly as the conditional retire below makes it.
-      The note stays restorable here, as the unkeyed path's trash copy does,
-      and its rules travel with the row, so there is nothing to forget.
-
-      The version is asked of the key, never the row. A row's etag is what the
-      tree last heard, and a key can be rewritten with nobody telling it (the
-      managed encryption walk seals keys in the bare bucket): checked against
-      the row, such a note read as edited on every move, and never moved. An
-      edit landing after this read and before the trash goes into the trash
-      with the note, where Restore still has it.
-    */
-    for (const source of options.sources) {
-      const current = typeof store.head === "function" ? await store.head(source.path) : await store.get(source.path);
-      if (current === null || current.etag !== source.etag) {
-        conflicts.push(source.path);
-        continue;
-      }
-      try {
-        await trashKeyedRows(store, { path: source.path, clearance, now: Date.now() });
-        deleted.push(source.path);
-      } catch (error) {
-        if (!(error instanceof FileOpError)) throw error;
-        console.warn("contextMove.keyed_trash_refused", { code: error.code });
-        conflicts.push(source.path);
-      }
-    }
-    return { deleted, conflicts };
-  }
+  const clearance = options.clearance;
+  if (clearance === undefined) throw new FileOpError("KEYED_WORKSPACE", "A keyed note is moved out by the trash, which needs the caller's clearance.");
   for (const source of options.sources) {
-    if (source.collaborationEtag !== undefined) {
-      try {
-        await tombstoneCollaborationDocument(store, source.path, {
-          expectedEtag: source.collaborationEtag,
-        });
-        deleted.push(source.path);
-      } catch {
-        conflicts.push(source.path);
-      }
-    } else {
-      const retired = await retireMovedSource(store, source.path, source.etag);
-      if (retired === "retired") deleted.push(source.path);
-      else conflicts.push(source.path);
+    const current = typeof store.head === "function" ? await store.head(source.path) : await store.get(source.path);
+    if (current === null || current.etag !== source.etag) {
+      conflicts.push(source.path);
+      continue;
+    }
+    try {
+      await trashKeyedRows(store, { path: source.path, clearance, now: Date.now() });
+      deleted.push(source.path);
+    } catch (error) {
+      if (!(error instanceof FileOpError)) throw error;
+      console.warn("contextMove.keyed_trash_refused", { code: error.code });
+      conflicts.push(source.path);
     }
   }
-
-  await forgetMovedSources(store, { paths: deleted });
   return { deleted, conflicts };
-}
-
-/**
- * Clear the exceptions the source manifest still holds for files that have
- * left it. `deleteMovedSources` ends with this; a batch the gateway's mover
- * carried calls it on its own, for the sources the mover retired.
- */
-export async function forgetMovedSources(
-  store: FileStore,
-  options: { paths: readonly string[] },
-): Promise<void> {
-  const gone = options.paths;
-  if (gone.length === 0) return;
-  const state = await loadPrivacyState(store);
-  if (state.text !== null && !state.invalid && gone.some((path) => hasOverride(state.overrides, path))) {
-    await mutateManifest(store, (current) => {
-      let overrides = current.overrides;
-      for (const path of gone) overrides = clearedOverrides(path, overrides);
-      return { rules: current.rules, overrides };
-    });
-  }
 }
 
 /**
@@ -421,35 +317,12 @@ export async function clearMovedSourceRules(
 ): Promise<void> {
   const from = requirePath(options.from);
   const survivors = options.survivors ?? [];
-  if (await isKeyedStore(store)) {
-    // Rules are on the rows and went to the trash with each note. What is left
-    // of a moved folder is its empty folders: they follow it into the trash,
-    // unless something stayed behind in it.
-    if (survivors.length === 0 && options.clearance !== undefined) {
-      // A moved note is already in the trash, and a folder's row may be too: neither is left to take.
-      await trashKeyedRows(store, { path: from, clearance: options.clearance, now: Date.now() }).catch((error) => {
-        if (!(error instanceof FileOpError) || error.code !== "FILE_NOT_FOUND") throw error;
-      });
-    }
-    return;
+  // Rules are on the rows and went to the trash with each note. What is left of a moved folder is its empty
+  // folders: they follow it into the trash, unless something stayed behind in it.
+  if (survivors.length === 0 && options.clearance !== undefined) {
+    // A moved note is already in the trash, and a folder's row may be too: neither is left to take.
+    await trashKeyedRows(store, { path: from, clearance: options.clearance, now: Date.now() }).catch((error) => {
+      if (!(error instanceof FileOpError) || error.code !== "FILE_NOT_FOUND") throw error;
+    });
   }
-  const state = await loadPrivacyState(store);
-  if (state.text === null || state.invalid) return;
-
-  const under = (path: string) => path === from || path.startsWith(`${from}/`);
-  const kept = (prefix: string) =>
-    survivors.some((path) => path === prefix || path.startsWith(`${prefix}/`));
-
-  const staleRule = state.rules.some((rule) => under(rule.prefix) && !kept(rule.prefix));
-  const staleOverride = [...state.overrides.keys()].some(
-    (path) => under(path) && !survivors.includes(path),
-  );
-  if (!staleRule && !staleOverride) return;
-
-  await mutateManifest(store, (current) => ({
-    rules: current.rules.filter((rule) => !under(rule.prefix) || kept(rule.prefix)),
-    overrides: new Map(
-      [...current.overrides].filter(([path]) => !under(path) || survivors.includes(path)),
-    ),
-  }));
 }

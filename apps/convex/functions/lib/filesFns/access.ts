@@ -75,11 +75,6 @@ export function treeChangeOf(operation: FileOperation): TreeChange | null {
     }
     case "contextMoveFinish":
       return { paths: [operation.from], narrows: true, gone: [operation.from] };
-    // A batch the gateway's mover carried, told to each tree afterwards.
-    case "contextMoveArrived":
-      return { paths: operation.root !== undefined ? [operation.root] : operation.paths, narrows: false };
-    case "contextMoveForget":
-      return { paths: operation.paths, narrows: true, gone: operation.paths };
     case "clearVault":
       return operation.countOnly ? null : { paths: [], narrows: true, every: true };
     case "resetPrivacy":

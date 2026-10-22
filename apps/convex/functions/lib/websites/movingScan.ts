@@ -38,7 +38,7 @@ export async function pendingMovesNow(
   ctx: ActionCtx,
   workspaceId: Id<"workspaces">,
 ): Promise<PendingMove[]> {
-  return await ctx.runQuery(internal.functions.nodeMoves.active, { workspaceId });
+  return await ctx.runQuery(internal.functions.nodeRowMoves.drawn, { workspaceId });
 }
 
 /** Whether two paths are one, or one holds the other. */

@@ -79,8 +79,6 @@ import {
   createControlPlaneStub,
   createS3Backend,
 } from "./controlPlaneStub.mjs";
-import { seedLegacyFolderMoveInMap } from "./legacyMoveJob.mjs";
-import { moveFinished } from "../src/moves/jobs.js";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { approving } from "./egressApproval.mjs";
 
@@ -486,9 +484,7 @@ export async function runMoveWithoutConditionalDeleteChecks(check) {
   /*
     `move_folder` no longer writes a move job for a folder this size: the
     Convex move queue carries it, and with no queue (this harness) it is
-    refused (2026-10-13). A job an older gateway left behind on this storage
-    still has to finish, so the drain is driven from one seeded as that
-    gateway wrote it. Replaces "a folder of thousands cuts over logically
+    refused (2026-10-13). Replaces "a folder of thousands cuts over logically
     instead of refusing" and "...and names the move it can be resumed with".
   */
   const folder = await callTool(env, TOKEN_OWNER, "move_folder", {
@@ -501,115 +497,6 @@ export async function runMoveWithoutConditionalDeleteChecks(check) {
       /could not queue this move/.test(textOf(folder)) &&
       ![...primary.keys()].some((key) => key.startsWith("3-teams/moved/") || key.startsWith(".context/moves/"))
   );
-  const moveId = seedLegacyFolderMoveInMap(primary, "3-teams/big", "3-teams/moved");
-
-  // Bounded passes, exactly as an owner or the background worker would drive
-  // them. Allow copy, cleanup, checkpointed source verification, and the
-  // reference sweep; a regression still shows up as "never finishes".
-  let passes = 0;
-  let last = "";
-  while (passes < 90) {
-    const pass = await callTool(env, TOKEN_OWNER, "materialize_move", { id: moveId });
-    last = textOf(pass);
-    passes += 1;
-    if (pass?.isError || moveFinished(last)) break;
-  }
-  check("a legacy job left on this storage materializes to completion in bounded batches", /: complete$/m.test(last));
-  check("...taking more than one pass, so the batching is real", passes > 1);
-
-  const arrived = [...primary.keys()].filter((key) => key.startsWith("3-teams/moved/"));
-  const listedSourceAfterBulk = textOf(
-    await callTool(env, TOKEN_OWNER, "list_notes", { prefix: "3-teams/big/" }),
-  );
-  check(`...with all ${BULK} objects at the destination`, arrived.length === BULK);
-  check("...and nothing left at the source prefix", !listedSourceAfterBulk.includes("note-"));
-  check(
-    "...and the bytes are the originals, not markers",
-    primary.get("3-teams/moved/note-0000.md")?.body === "BULK-0" &&
-      primary.get(`3-teams/moved/note-${String(BULK - 1).padStart(4, "0")}.md`)?.body ===
-        `BULK-${BULK - 1}`
-  );
-
-  /* ---- 6. a stranger at the destination, wearing the source's etag ------- */
-
-  /*
-    THE ONE THING `canVerifyMoveByEtag` IS FOR.
-
-    A materialization that resumes has to answer "is the destination already
-    my content?", and `destinationMatchesMoveSource` answers it two ways: by
-    comparing etags when the store does same-store copy, and by comparing
-    bytes otherwise. A wrong `true` is not a cosmetic bug — it marks the pair
-    copied without copying it, and the delete phase then REMOVES THE SOURCE.
-    Adoption of a pre-existing destination happens through that function and
-    nowhere else: the line after it throws `destination changed` for anything
-    already sitting there.
-
-    So the etag shortcut carries a premise — that this store's etag is derived
-    from the content — and this binding declares `serverSideCopy: false`,
-    which is exactly the case where the premise is not available and the byte
-    comparison must be what decides.
-
-    The fixture is the disagreement itself: a note at the destination with
-    DIFFERENT bytes and the SAME etag the plan recorded for the source. Real
-    S3 etags are the content MD5 for a single-part object, so this is not a
-    collision anybody expects — but the ETag contract is opaque (multipart and
-    SSE-KMS both break the MD5 rule), and a customer's own bucket is free to
-    be either. The guard is what makes that somebody else's problem.
-
-    Measured against `canVerifyMoveByEtag` forced to `true`: 0 before this
-    check existed, because no fixture could produce the disagreement.
-  */
-  const COLLIDE_ETAG = "collide-same-etag";
-  /*
-    Big enough that materialization takes several passes, and the collision is
-    on the LAST key so it is still pending when it is planted. 600 was the
-    first attempt and it was wrong: the move finished inside `move_folder`, so
-    the plant landed on an already-moved note and `materialize_move` answered
-    "not found" — which an `isError` check read as the refusal under test. The
-    refusal is asserted by its words now, not by its truthiness.
-  */
-  const COLLIDE = 1200;
-  const LAST = String(COLLIDE - 1).padStart(4, "0");
-  for (let n = 0; n < COLLIDE; n += 1) {
-    primary.set(`3-teams/collide/note-${String(n).padStart(4, "0")}.md`, {
-      body: `COLLIDE-${n}`,
-      etag: n === COLLIDE - 1 ? COLLIDE_ETAG : `c${n}`,
-    });
-  }
-  const collideId = seedLegacyFolderMoveInMap(primary, "3-teams/collide", "3-teams/collided");
-
-  // Somebody else's note lands at the first destination key, carrying the etag
-  // the plan recorded for the source. Only the bytes disagree.
-  const COLLIDE_SOURCE = `3-teams/collide/note-${LAST}.md`;
-  const COLLIDE_DESTINATION = `3-teams/collided/note-${LAST}.md`;
-  primary.set(COLLIDE_DESTINATION, { body: "NOT MINE", etag: COLLIDE_ETAG });
-
-  let collidePasses = 0;
-  let collideLast = "";
-  let collideRefused = false;
-  while (collidePasses < 60) {
-    const pass = await callTool(env, TOKEN_OWNER, "materialize_move", { id: collideId });
-    collideLast = textOf(pass);
-    collidePasses += 1;
-    if (pass?.isError) {
-      collideRefused = true;
-      break;
-    }
-    if (moveFinished(collideLast)) break;
-  }
-  check(
-    "a destination whose etag matches but whose bytes differ is refused, not adopted",
-    collideRefused && /destination changed/.test(collideLast),
-  );
-  check(
-    "...so the source note is still there, with its own bytes",
-    primary.get(COLLIDE_SOURCE)?.body === `COLLIDE-${COLLIDE - 1}`,
-  );
-  check(
-    "...and the stranger's note was not overwritten either",
-    primary.get(COLLIDE_DESTINATION)?.body === "NOT MINE",
-  );
-
   restoreControlPlane();
   restoreS3();
 }

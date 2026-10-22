@@ -130,7 +130,7 @@ describe("a parity check that finds differences", () => {
     const ctx = {
       runQuery: async (ref: unknown) => {
         const name = getFunctionName(ref as never);
-        if (name.endsWith("nodeMoves:active")) return [];
+        if (name.endsWith("nodeRowMoves:drawn")) return [];
         if (name.endsWith("nodes:isKeyed")) return keyed;
         if (name.endsWith("nodes:listLive")) return { rows: [], cursor: null };
         if (name.endsWith("nodes:privacy")) return null;

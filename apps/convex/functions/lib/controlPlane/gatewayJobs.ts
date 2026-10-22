@@ -28,7 +28,6 @@ import type {
 export const GATEWAY_JOB_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export const GATEWAY_JOB_LEASE_MS = 15 * 60 * 1000;
 export const GATEWAY_JOB_ERROR_MAX = 240;
-export const MOVE_ID_PATTERN = /^move-[a-f0-9-]{12,}$/;
 
 /*
  * An image upload (`apps/mcp/src/notes/imageUploads.js`): an agent that has a
@@ -44,8 +43,8 @@ export const IMAGE_UPLOAD_TTL_MS = 10 * 60 * 1000;
 export const IMAGE_UPLOAD_MAX_BYTES = 5_000_000;
 export const IMAGE_SHA256_PATTERN = /^[a-f0-9]{64}$/;
 
-export const gatewayJobKindValidator = v.union(v.literal("materialize_move"), v.literal("image_upload"));
-export type GatewayJobKind = "materialize_move" | "image_upload";
+export const gatewayJobKindValidator = v.literal("image_upload");
+export type GatewayJobKind = "image_upload";
 
 export interface ClaimedGatewayJob {
   workspaceId: Id<"workspaces">;
@@ -53,7 +52,6 @@ export interface ClaimedGatewayJob {
   actorClientId: string;
   grantId: Id<"oauthGrants">;
   kind: GatewayJobKind;
-  moveId?: string;
   imageSha256?: string;
   imageBytes?: number;
 }
@@ -92,12 +90,11 @@ export const createGatewayJobArgs = {
   expectedWorkspaceId: v.string(),
   hashedTicket: v.string(),
   kind: gatewayJobKindValidator,
-  moveId: v.optional(v.string()),
   imageSha256: v.optional(v.string()),
   imageBytes: v.optional(v.number()),
 };
 
-export const createGatewayJobReturns = v.union(v.boolean(), v.literal("already_active"));
+export const createGatewayJobReturns = v.boolean();
 
 export async function createGatewayJobHandler(
   ctx: MutationCtx,
@@ -105,61 +102,7 @@ export async function createGatewayJobHandler(
 ) {
   if (!TOKEN_HASH_PATTERN.test(args.hashedAccessToken)) return false;
   if (!TOKEN_HASH_PATTERN.test(args.hashedTicket)) return false;
-  if (args.kind === "materialize_move" && !MOVE_ID_PATTERN.test(args.moveId || "")) return false;
-  if (args.kind === "image_upload") return await createImageUpload(ctx, args);
-
-  const live = await resolveLiveGrant(ctx, args.hashedAccessToken);
-  if (live === null) return false;
-  const workspaceId = gatewayOwnerClearance(
-    {
-      scopes: live.grant.scopes,
-      workspaceId: live.grant.workspaceId,
-      workspaces: await contextsForGrant(ctx, live),
-    },
-    args.expectedWorkspaceId,
-  );
-  if (workspaceId === null) return false;
-
-  const now = Date.now();
-  const existing = await ctx.db.query("gatewayJobs")
-    .withIndex("by_workspace_kind_move", (q) => q
-      .eq("workspaceId", workspaceId)
-      .eq("kind", args.kind)
-      .eq("moveId", args.moveId))
-    .collect();
-  // A manual retry must not mint a second worker for a move whose queue job
-  // is still leased or has recently reported progress. A stale queued ticket
-  // can have been lost between row creation and Queue.send, so allow a fresh
-  // ticket after five minutes. Running passes keep their full lease.
-  if (existing.some((job) => job.expiresAt > now && (
-    (job.status === "running" && typeof job.leasedAt === "number" &&
-      job.leasedAt + GATEWAY_JOB_LEASE_MS > now) ||
-    (job.status === "queued" && job.updatedAt + 5 * 60 * 1000 > now)
-  ))) return "already_active";
-  for (const job of existing) {
-    if (job.expiresAt > now && (job.status === "queued" || job.status === "running")) {
-      await ctx.db.patch(job._id, {
-        status: "failed",
-        updatedAt: now,
-        lastError: "superseded by a fresh move worker",
-      });
-    }
-  }
-  await ctx.db.insert("gatewayJobs", {
-    hashedTicket: args.hashedTicket,
-    workspaceId,
-    actorUserId: live.grant.userId,
-    actorClientId: live.grant.clientId,
-    grantId: live.grant._id,
-    kind: args.kind,
-    moveId: args.moveId,
-    status: "queued",
-    attempts: 0,
-    createdAt: now,
-    updatedAt: now,
-    expiresAt: now + GATEWAY_JOB_TTL_MS,
-  });
-  return true;
+  return await createImageUpload(ctx, args);
 }
 
 /**
@@ -171,7 +114,6 @@ async function createImageUpload(
   ctx: MutationCtx,
   args: ObjectType<typeof createGatewayJobArgs>,
 ): Promise<boolean> {
-  if (args.moveId !== undefined) return false;
   if (!IMAGE_SHA256_PATTERN.test(args.imageSha256 || "")) return false;
   const bytes = args.imageBytes;
   if (typeof bytes !== "number" || !Number.isInteger(bytes) || bytes < 1 || bytes > IMAGE_UPLOAD_MAX_BYTES) {
@@ -220,7 +162,6 @@ export const claimGatewayJobReturns = v.union(
     actorClientId: v.string(),
     grantId: v.id("oauthGrants"),
     kind: gatewayJobKindValidator,
-    moveId: v.optional(v.string()),
     imageSha256: v.optional(v.string()),
     imageBytes: v.optional(v.number()),
   }),
@@ -238,24 +179,20 @@ export async function claimGatewayJobHandler(
   if (job === null) return null;
   if (job.expiresAt <= Date.now()) return null;
   const now = Date.now();
-  const leasedUntil = typeof job.leasedAt === "number" ? job.leasedAt + GATEWAY_JOB_LEASE_MS : 0;
-  const staleLease = job.status === "running" && leasedUntil <= now;
-  if (job.status === "running" && !staleLease) {
-    return { retryAfterMs: Math.max(1_000, leasedUntil - now) };
+  if (job.status === "running") {
+    // A running upload holds its lease; once that lapses the ticket is spent.
+    const leasedUntil = typeof job.leasedAt === "number" ? job.leasedAt + GATEWAY_JOB_LEASE_MS : 0;
+    return leasedUntil > now ? { retryAfterMs: Math.max(1_000, leasedUntil - now) } : null;
   }
-  if (job.status !== "queued" && !staleLease) return null;
+  if (job.status !== "queued") return null;
+  // Exactly the bytes it was minted for, by a grant still live, for a
+  // person who can still write there. Never retried: a stale lease is spent.
+  if (args.contentSha256 !== job.imageSha256) return null;
   const membership = await getMembership(ctx, job.workspaceId, job.actorUserId);
-  if (job.kind === "image_upload") {
-    // Exactly the bytes it was minted for, by a grant still live, for a
-    // person who can still write there. Never retried: a stale lease is spent.
-    if (job.status !== "queued" || args.contentSha256 !== job.imageSha256) return null;
-    if (membership === null || (membership.role !== "owner" && membership.role !== "editor")) return null;
-    const grant = await ctx.db.get(job.grantId);
-    if (grant === null || (await validateLiveGrantRecord(ctx, grant)) === null) return null;
-    if (!grant.scopes.includes("context:write")) return null;
-  } else if (membership === null || membership.role !== "owner") {
-    return null;
-  }
+  if (membership === null || (membership.role !== "owner" && membership.role !== "editor")) return null;
+  const grant = await ctx.db.get(job.grantId);
+  if (grant === null || (await validateLiveGrantRecord(ctx, grant)) === null) return null;
+  if (!grant.scopes.includes("context:write")) return null;
   await ctx.db.patch(job._id, {
     status: "running",
     attempts: job.attempts + 1,
@@ -269,8 +206,8 @@ export async function claimGatewayJobHandler(
     actorClientId: job.actorClientId,
     grantId: job.grantId,
     kind: job.kind,
-    moveId: job.moveId,
-    ...(job.kind === "image_upload" ? { imageSha256: job.imageSha256, imageBytes: job.imageBytes } : {}),
+    imageSha256: job.imageSha256,
+    imageBytes: job.imageBytes,
   };
 }
 
@@ -332,29 +269,6 @@ export async function reportGatewayJobHandler(
       : {}),
   });
   return true;
-}
-
-/**
- * The workspace a job's ticket may act on while it holds its lease: a job
- * that is running, not stale, and whose actor still owns the workspace. The
- * privacy authority's route takes this as its proof for a queued move, which
- * has a ticket and no person's token (`gatewayRoutes/privacy.ts`).
- */
-export async function leasedGatewayJobWorkspace(
-  ctx: QueryCtx,
-  hashedTicket: string,
-): Promise<Id<"workspaces"> | null> {
-  if (!TOKEN_HASH_PATTERN.test(hashedTicket)) return null;
-  const job = await ctx.db
-    .query("gatewayJobs")
-    .withIndex("by_hashed_ticket", (q) => q.eq("hashedTicket", hashedTicket))
-    .unique();
-  const now = Date.now();
-  // A move's lease only: an image upload's ticket proves nothing beyond its own bytes.
-  if (job === null || job.kind !== "materialize_move" || job.status !== "running" || job.expiresAt <= now) return null;
-  if (typeof job.leasedAt !== "number" || job.leasedAt + GATEWAY_JOB_LEASE_MS <= now) return null;
-  const membership = await getMembership(ctx, job.workspaceId, job.actorUserId);
-  return membership?.role === "owner" ? job.workspaceId : null;
 }
 
 export const IMAGE_UPLOAD_SWEEP_BATCH = 200;

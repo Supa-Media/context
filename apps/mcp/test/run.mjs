@@ -32,7 +32,6 @@ const ENTRIES = [
   ]),
   ["bulkMoves.mjs move", ["test/bulkMoves.mjs", "move"]],
   ["bulkMoves.mjs folder", ["test/bulkMoves.mjs", "folder"]],
-  ["move queue dedupe", ["test/moveQueueDedupe.test.mjs"]],
   ["node --test", ["--test", ...unit]],
 ];
 // `pnpm test:unit` (`run.mjs unit`) runs the `node --test` entry alone, and

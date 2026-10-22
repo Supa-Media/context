@@ -73,10 +73,7 @@ test/meaningById.test.mjs
 test/meaningWrite.test.mjs
 test/meetingClaimTree.test.mjs
 test/meetingResolveTree.test.mjs
-test/moveFinished.test.mjs
-test/moveQueueRecovery.test.mjs
 test/mover.test.mjs
-test/moverContextMove.test.mjs
 test/moverWalk.test.mjs
 test/nameTwins.test.mjs
 test/noteCap.test.mjs
@@ -90,7 +87,6 @@ test/privacy/notePeople.test.mjs
 test/privacy/rowsWrites.test.mjs
 test/privacy/setAccessBody.test.mjs
 test/queuedFolderMove.test.mjs
-test/readAtTreeNameGuard.test.mjs
 test/readFailure.test.mjs
 test/remember.test.mjs
 test/reportProblem.test.mjs
@@ -181,7 +177,6 @@ test/managedDecryption.test.mjs
 test/meaningSnippetsFromDatabase.test.mjs
 test/moveWithoutConditionalDelete.test.mjs
 test/searchEverywhere.test.mjs
-test/searchPendingMoves.test.mjs
 test/searchSettings.test.mjs
 test/tokens.test.mjs
 test/presence/movedNotice.test.mjs

@@ -423,7 +423,7 @@ test("a session in the keys layout creates notes at id keys, beneath the note ca
   const bucketFake = bucket();
   const adopted = [];
   const controlPlane = {
-    getStorageBinding: async () => ({ binding: BINDING, pendingMoves: [], idLayout: "keys" }),
+    getStorageBinding: async () => ({ binding: BINDING,idLayout: "keys" }),
     noteIdLookup: async () => ({ copies: {}, keyed: true, notes: {} }),
     noteIdWrote: async () => ({ recorded: true }),
     noteIdAdopt: async (token, workspaceId, note) => {
@@ -441,7 +441,7 @@ test("a session in the keys layout creates notes at id keys, beneath the note ca
 
 test("a session in the keys layout with a control plane that cannot adopt is refused, never served paths", async () => {
   const controlPlane = {
-    getStorageBinding: async () => ({ binding: BINDING, pendingMoves: [], idLayout: "keys" }),
+    getStorageBinding: async () => ({ binding: BINDING,idLayout: "keys" }),
     noteIdLookup: async () => ({ copies: {} }),
     noteIdWrote: async () => ({ recorded: true }),
   };
@@ -527,7 +527,7 @@ test("noteIdAdopt and noteIdRemoved post the note with the session's proofs", as
  */
 test("a keyed session is served the id layer, and its store says it is keyed", async () => {
   const controlPlane = {
-    getStorageBinding: async () => ({ binding: BINDING, pendingMoves: [], idLayout: "keys", keyed: true }),
+    getStorageBinding: async () => ({ binding: BINDING,idLayout: "keys", keyed: true }),
     noteIdLookup: async () => ({ copies: {}, keyed: true, notes: {} }),
     noteIdWrote: async () => ({ recorded: true }),
     noteIdAdopt: async () => ({ adopted: true, taken: null }),
@@ -539,7 +539,7 @@ test("a keyed session is served the id layer, and its store says it is keyed", a
 
 test("a keyed session without the id layer is refused, never served its frozen paths", async () => {
   const controlPlane = {
-    getStorageBinding: async () => ({ binding: BINDING, pendingMoves: [], keyed: true }),
+    getStorageBinding: async () => ({ binding: BINDING,keyed: true }),
     noteIdLookup: async () => ({ copies: {} }),
     noteIdWrote: async () => ({ recorded: true }),
   };

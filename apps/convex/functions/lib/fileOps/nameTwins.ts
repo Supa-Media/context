@@ -30,7 +30,6 @@ import {
   twinMessage,
 } from "@context/shared/src/folderRoles.cjs";
 import { INBOX_PART_LABEL, isInboxPart, isTexPart, type InboxPart } from "@context/shared/src/folderJobInfo.cjs";
-import { isKeyedStore } from "../noteIds/keyedStore";
 import { treeJobs } from "./treeChecks";
 import { canSee, isPlumbing } from "../privacy";
 import { type Clearance } from "../clearance";
@@ -129,19 +128,11 @@ export async function assertNotProtectedFolder(
   const job = await guardedJob(store, path, clearance);
   if (job === null) return;
   const label = JOB_LABEL[job as RowRole] ?? path;
-  if (job === "website") {
-    // Kept by id, the site follows its folder wherever it goes (`lib/websites/siteRoot.ts`); elsewhere pages are found by name.
-    if (intent === "remove" || (await isKeyedStore(store))) return;
-    throw new FileOpError("PATH_INVALID", "Website keeps its name and place here, because your site is published from it. What's inside it can move.");
-  }
+  // Kept by id: a website follows its folder wherever it goes (`lib/websites/siteRoot.ts`), and a built-in
+  // folder moves as its row (`rowMove.ts`), so only a permanent removal is refused here.
+  if (job === "website") return;
   if (!(MAIN_ROLES as readonly string[]).includes(job)) return;
-  if (intent === "move") {
-    if (await isKeyedStore(store)) return;
-    throw new FileOpError(
-      "PATH_INVALID",
-      `${label} is a built-in folder, so it can't be renamed or moved here yet. What's inside it can be.`,
-    );
-  }
+  if (intent === "move") return;
   throw new FileOpError(
     "PATH_INVALID",
     `${label} is a built-in folder, so it can't be archived or deleted. Rename it or move what's inside it instead.`,

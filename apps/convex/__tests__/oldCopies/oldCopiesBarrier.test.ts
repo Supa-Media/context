@@ -91,36 +91,6 @@ test("the job hides every copy through the bucket it is bound to", async () => {
   expect(next).toEqual([]);
 });
 
-test("a workspace another move is still carrying waits, and its Settings row says why", async () => {
-  const { t, workspaceId } = await boundWorkspace();
-  await t.run(async (ctx) => {
-    await ctx.db.insert("moveQueue", {
-      workspaceId,
-      from: "1-projects/a",
-      to: "1-projects/b",
-      kind: "folder",
-      state: "moving",
-      scope: "private",
-      grantedNames: [],
-      total: 1,
-      moved: 0,
-      added: { folders: [], notes: [] },
-      attempts: 0,
-      nextAt: Date.now() + 60_000,
-      createdAt: 1,
-      updatedAt: 1,
-    });
-  });
-
-  const ran = await t.action(internal.functions.oldCopies.hideWorkspace, { workspaceId });
-
-  expect(ran.done).toBe(false);
-  const live = await livePaths(t, workspaceId);
-  for (const path of COPIES.days) expect(live).toContain(path);
-  expect(await t.run(async (ctx) => await ctx.db.query("oldCopyHides").first())).toMatchObject({ state: "hiding", problem: "busy" });
-  expect((await t.run(async (ctx) => await ctx.db.query("oldCopyHides").first()))?.passAt).toBeUndefined();
-});
-
 test("copies still read at their path, left under 0-inbox by a rename of the Inbox, are hidden too", async () => {
   const { t, workspaceId } = await boundWorkspace();
   // The rename moved the Inbox's own row to `inbox`; what it could not carry stayed under `0-inbox`, unkeyed.

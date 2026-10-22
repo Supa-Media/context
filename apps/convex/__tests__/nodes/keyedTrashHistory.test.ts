@@ -193,18 +193,3 @@ describe("removeNewFolder and a plugin's delete trash the rows in a keyed worksp
     expect(await liveAt(f, "1-projects/launch/brief.md")).toBe(true);
   });
 });
-
-describe("outside a keyed workspace the same operations are unchanged", () => {
-  test("a plugin's delete still deletes the file permanently, with no trash copy", async () => {
-    // S3 honours If-Match on DELETE; a plugin's delete is refused where the store cannot make a guarded delete.
-    const f = await fixture("s3");
-    // The version a caller holds is the one `readFile` reports: a collaborative note's revision, not the raw etag.
-    const current = await readFile(f.store, { path: KEEP, clearance: OWNER });
-
-    const deleted = (await operate(f, { kind: "pluginDelete", path: KEEP, expectedEtag: current.etag })) as Deleted;
-
-    expect(deleted).toEqual({ kind: "deleted", paths: [KEEP] });
-    expect(f.store.snapshot()[KEEP]).toBeUndefined();
-    expect(Object.keys(f.store.snapshot()).some((key) => key.startsWith(".context/trash/"))).toBe(false);
-  });
-});

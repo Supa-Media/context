@@ -67,19 +67,13 @@ const itemValidator = v.object({
 
 type Item = typeof itemValidator.type;
 
-/**
- * The Trash page: what this caller may see in the workspace's trash, soonest
- * erased first. A workspace that is not keyed answers an empty trash: its
- * trash is bytes in the bucket, which this does not list.
- */
+/** The Trash page: what this caller may see in the workspace's trash, soonest erased first. */
 export const listTrash = query({
   args: { workspaceId: v.id("workspaces") },
   returns: v.object({ items: v.array(itemValidator), more: v.boolean(), keepDays: v.number() }),
   handler: async (ctx, { workspaceId }) => {
     const actorUserId = await callerId(ctx);
     const { scope, grantedNames } = await resolveFileAccess(ctx, { actorUserId, workspaceId, minimum: "member" });
-    const empty = { items: [], more: false, keepDays: TRASH_KEEP_DAYS };
-    if (!(await keyedWorkspace(ctx.db, workspaceId))) return empty;
     const clearance = clearanceOf(scope, grantedNames);
     const live = scope === "private" ? null : await rulesForReaders(ctx, workspaceId);
     const items: Item[] = [];

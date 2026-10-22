@@ -108,21 +108,3 @@ test("meetings and generated notes are exempt from the long-note rule, and a rev
   for (const value of [null, undefined, false, 0, "", "  ", "[]"]) assert.equal(hasReview(value), false, JSON.stringify(value));
 });
 
-test("orient names a moving folder's long notes at its new name, as the app does", async () => {
-  // The facts file notes at bucket keys; the served keys are drawn through
-  // the pending move. Sabotage: drop `extrasAtTreeNames` in `factSection`
-  // and the long note is not named at all.
-  const texts = workspace();
-  const keys = Object.keys(texts);
-  const extras = [{ path: "1-projects/big/novel.md", lines: 1500, exempt: false, review: false }];
-  const moves = [{ from: "1-projects/big", to: "3-resources/big" }];
-  const drawn = keys.map((key) => key.replace(/^1-projects\/big\//, "3-resources/big/"));
-  const store = {
-    treeKeys: async () => drawn,
-    treeFacts: async () => ({ served: true, chaos: { extras, weekAgo: null } }),
-  };
-  Object.defineProperty(store, "pendingMoves", { value: moves, enumerable: false });
-  const served = await factSection(store, "team", () => true, [], new Map());
-  assert.match(served.longNotes.map((n) => n.path).join(","), /3-resources\/big\/novel\.md/);
-  assert.doesNotMatch(served.longNotes.map((n) => n.path).join(","), /1-projects\/big\//);
-});

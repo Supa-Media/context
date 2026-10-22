@@ -1,17 +1,16 @@
 /**
  * Routing helpers the entry's `route` uses: matching well-known discovery
- * paths, and attaching the link-call and gateway-job hooks to a request's
+ * paths, and attaching the link-call hooks to a request's
  * context. Moved verbatim out of `src/index.js`; `route` itself stays there,
  * where its order of checks can be read top to bottom.
  */
 
 /**
- * The three link calls, attached to the store the way queued work is.
+ * The three link calls, attached to the store for each request.
  *
  * They need the session's access token and the workspace it resolved to, and a
- * tool handler is given a store rather than a session — the same shape
- * `enqueueGatewayJob` already uses, and the reason it uses it: what a handler
- * may do is decided where the session is, not by a handler reaching for one.
+ * tool handler is given a store rather than a session: what a handler may do
+ * is decided where the session is, not by a handler reaching for one.
  *
  * Every session has a control plane (`src/index.js` refuses a deployment without
  * one), so these are always attached.
@@ -192,22 +191,6 @@ export function attachLinkCalls(store, session, controlPlane, env) {
   // Its facts: a move's link candidates and the chaos score's extras (`tree/facts.js`).
   Object.defineProperty(store, "treeFacts", {
     value: (request) => controlPlane.readTreeFacts(session.accessToken, session.workspaceId, request),
-    enumerable: false,
-    writable: false,
-    configurable: true,
-  });
-}
-
-export function attachGatewayJobQueue(store, session, controlPlane, env) {
-  const queue = env?.GATEWAY_JOBS;
-  if (!queue || typeof queue.send !== "function") return;
-  Object.defineProperty(store, "enqueueGatewayJob", {
-    value: async (job) => {
-      const ticket = await controlPlane.createGatewayJob(session.accessToken, session.workspaceId, job);
-      if (ticket === null) return false;
-      await queue.send({ ticket, kind: job.kind, moveId: job.moveId });
-      return true;
-    },
     enumerable: false,
     writable: false,
     configurable: true,

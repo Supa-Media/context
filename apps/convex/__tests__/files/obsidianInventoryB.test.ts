@@ -394,22 +394,6 @@ describe('Obsidian plugin inventory', { timeout: 60_000 }, () => {
       },
     );
     if (!renamedRead.ok) throw new Error("expected renamed plugin file to be readable");
-    const deleted = await asUser(f.t, f.owner).action(
-      api.functions.obsidianPlugins.executePluginRequest,
-      {
-        runtimeToken,
-        request: {
-          version: 1,
-          requestId: "delete_1",
-          operation: {
-            kind: "vault.delete",
-            path: "1-projects/plugin-renamed.md",
-            expectedEtag: (renamedRead.result as { etag: string }).etag,
-          },
-        },
-      },
-    );
-    expect(deleted).toMatchObject({ ok: true, result: { kind: "deleted" } });
     await asUser(f.t, f.owner).mutation(api.functions.obsidianPlugins.reportRuntimeStatus, {
       workspaceId: f.workspaceId,
       pluginId: "highlightr-plugin",

@@ -46,7 +46,7 @@ function fakeCtx(options: { served: boolean; factsReady?: boolean; rows?: string
       asked.push(name);
       if (name === "functions/nodes:served") return options.served ? { mirror: null } : null;
       if (name === "functions/nodes:listLive") return { rows: (options.rows ?? []).map((path) => ({ path })), cursor: null };
-      if (name === "functions/nodeMoves:active") return [];
+      if (name === "functions/nodeRowMoves:drawn") return [];
       if (name === "functions/nodes:paused") return false;
       if (name === "functions/nodeFacts:ready") return options.factsReady === true;
       if (name === "functions/nodeFacts:readiness") return { ready: options.factsReady === true, unparsed: 0 };

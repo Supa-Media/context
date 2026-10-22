@@ -61,7 +61,7 @@ function ctxServing(rows: NodeRow[] | null, moves: unknown[] = []) {
     runQuery: vi.fn(async (ref: unknown, args: { after?: string; limit?: number }) => {
       const name = getFunctionName(ref as never);
       if (name === "functions/nodes:served") return rows === null ? null : { mirror: null };
-      if (name === "functions/nodeMoves:active") return moves;
+      if (name === "functions/nodeRowMoves:drawn") return moves;
       if (name === "functions/nodes:listLive") {
         const after = rows!.filter((row) => args.after === undefined || row.path > args.after);
         const page = after.slice(0, args.limit ?? 1000);

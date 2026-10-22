@@ -2,11 +2,10 @@
  * The tree as people see it while moves are pending (phase 4 of
  * `docs/decisions/app-and-console/convex-tree.md`).
  *
- * A `nodes` row is where an object sits in the bucket. A pending move
- * (`moveQueue`) says where the tree shows it instead, so a move of any size is
- * one row and every listing reads it at once. This file folds the rows of one
- * folder through those moves, with the same path arithmetic the gateway and
- * the move worker use (`apps/mcp/src/moves/queued.js`). Who may see each name
+ * A `nodes` row is where a note sits. A keyed move still moving (`rowMoves`,
+ * `rowMoveChunks.ts`) says where the tree shows it instead, so a move of any
+ * size is one row and every listing reads it at once. This file folds the rows of one
+ * folder through those moves (`movePaths.ts`). Who may see each name
  * is still decided after this, by the unchanged `listFolder` over the rows it
  * returns.
  *
@@ -14,29 +13,13 @@
  * sweep, a re-check and the parity check keep comparing like with like.
  */
 
-import type { Doc, Id } from "../../../_generated/dataModel";
-import type { DatabaseReader } from "../../../_generated/server";
-import { logicalPath, physicalCandidates } from "../../../../mcp/src/moves/queued.js";
+import type { Doc } from "../../../_generated/dataModel";
+import { logicalPath, physicalCandidates } from "./movePaths";
 
 /** A pending move as every fold reads it: paths as they were named, oldest first. */
 export interface PendingMove {
   from: string;
   to: string;
-}
-
-/** Moves one workspace may have pending at once: a bound on every fold. */
-export const MOVES_PER_WORKSPACE = 20;
-
-/**
- * The moves the tree shows already: `moving` rows, oldest first. A `preparing`
- * row is still having its rules written and is not drawn.
- */
-export async function pendingMoves(db: DatabaseReader, workspaceId: Id<"workspaces">): Promise<PendingMove[]> {
-  const rows = await db
-    .query("moveQueue")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-    .take(MOVES_PER_WORKSPACE * 2);
-  return rows.filter((row) => row.state === "moving").map((row) => ({ from: row.from, to: row.to }));
 }
 
 /** The folder a key is listed in: a marker key (`a/`) is listed in the folder it marks. */

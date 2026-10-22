@@ -22,31 +22,24 @@ export async function gatewayJobsCreateHandler(
   const job = body.job && typeof body.job === "object" && !Array.isArray(body.job)
     ? body.job as Record<string, unknown>
     : null;
-  const kind = job?.kind === "materialize_move" || job?.kind === "image_upload" ? job.kind : null;
-  const moveId = typeof job?.moveId === "string" ? job.moveId : undefined;
-  if (accessToken === null || expected === null || kind === null) {
+  // The only kind of job the gateway queues is an image upload (`createGatewayJobHandler`), checked again there.
+  if (accessToken === null || expected === null || job?.kind !== "image_upload") {
     return json({ ticket: null });
   }
-  // Checked again, and bounded, in `createGatewayJobHandler`.
-  const image = kind === "image_upload"
-    ? {
-        imageSha256: typeof job?.sha256 === "string" ? job.sha256 : undefined,
-        imageBytes: typeof job?.bytes === "number" ? job.bytes : undefined,
-      }
-    : {};
+  const image = {
+    imageSha256: typeof job.sha256 === "string" ? job.sha256 : undefined,
+    imageBytes: typeof job.bytes === "number" ? job.bytes : undefined,
+  };
 
   const ticket = randomOpaqueToken();
   const created = await ctx.runMutation(internal.functions.controlPlane.createGatewayJob, {
     hashedAccessToken: await hashToken(accessToken),
     expectedWorkspaceId: expected,
     hashedTicket: await hashToken(ticket),
-    kind,
-    moveId,
+    kind: "image_upload",
     ...image,
   });
-  return json(created === "already_active"
-    ? { ticket: null, alreadyActive: true }
-    : { ticket: created ? ticket : null });
+  return json({ ticket: created ? ticket : null });
 }
 
 export async function gatewayJobsOpenHandler(
