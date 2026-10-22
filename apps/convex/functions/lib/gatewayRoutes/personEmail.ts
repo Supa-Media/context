@@ -107,6 +107,7 @@ async function personEmail(ctx: ActionCtx, body: Record<string, unknown>, draft:
     thread = await findReplyThread(timeoutFetch, minted.accessToken, email);
     if (thread !== null) log({ outcome: "thread_found", draft });
   }
+  if (email.files.length > 0) return await sendWithFiles(minted.accessToken, email, claimed.from, thread, draft, recipientHashes.length);
   try {
     const raw = gmailRaw(email, claimed.from, thread);
     const message = thread ? { raw, threadId: thread.threadId } : { raw };
@@ -136,7 +137,8 @@ async function sendForward(accessToken: string, email: PersonEmail, from: string
   const mime = forwardMime(
     forwardHeaders(email, from, headerText(email.subject)),
     forwardBody(email.body, read.forwarded),
-    read.forwarded.files,
+    // Files the person's AI downloaded go after the forwarded email's own.
+    [...read.forwarded.files, ...email.files],
     newBoundary(),
   );
   try {
@@ -152,4 +154,54 @@ async function sendForward(accessToken: string, email: PersonEmail, from: string
     return json({ ok: false, refused: "unavailable" });
   }
   return json({ ok: true, from });
+}
+
+/**
+ * An email with files the person's AI downloaded (`lib/personEmail.ts` `files`),
+ * as one `message/rfc822`. A reply goes inside its thread through the JSON
+ * endpoint, which carries a thread id and a message up to Gmail's 5 MB there;
+ * anything else goes through the upload endpoint, as a forward does.
+ */
+async function sendWithFiles(accessToken: string, email: PersonEmail, from: string, thread: ReplyThread | null, draft: boolean, recipients: number): Promise<Response> {
+  const headers = [
+    ...forwardHeaders(email, from, headerText(email.subject)),
+    ...(thread ? [`In-Reply-To: ${thread.inReplyTo}`, `References: ${thread.references.join(" ")}`] : []),
+  ];
+  const mime = forwardMime(headers, email.body, email.files, newBoundary());
+  if (thread !== null && mime.length > THREADED_MIME_BYTES) {
+    log({ outcome: "too_large", draft, files: email.files.length });
+    return json({ ok: false, refused: "too_large" });
+  }
+  try {
+    let response: Response;
+    if (thread !== null) {
+      const message = { raw: base64Url(mime), threadId: thread.threadId };
+      response = await timeoutFetch(draft ? GMAIL_DRAFTS_ENDPOINT : GMAIL_SEND_ENDPOINT, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify(draft ? { message } : message),
+      });
+    } else {
+      response = await timeoutFetch(draft ? GMAIL_DRAFTS_UPLOAD : GMAIL_SEND_UPLOAD, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "message/rfc822" },
+        body: mime as BodyInit,
+      });
+    }
+    log({ outcome: response.ok ? (draft ? "drafted" : "sent") : "http_error", status: response.status, recipients, draft, files: email.files.length });
+    if (!response.ok) return json({ ok: false, refused: "unavailable" });
+  } catch {
+    log({ outcome: "transport_error", draft, files: email.files.length });
+    return json({ ok: false, refused: "unavailable" });
+  }
+  return json({ ok: true, from });
+}
+
+/** Under the 5 MB Gmail's JSON send takes, once base64url has grown the message by a third. */
+const THREADED_MIME_BYTES = 3_500_000;
+
+function base64Url(bytes: Uint8Array): string {
+  let binary = "";
+  for (let at = 0; at < bytes.length; at += 0x8000) binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }

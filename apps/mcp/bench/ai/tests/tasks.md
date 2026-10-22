@@ -215,3 +215,21 @@ The other half of the same chat: asked only for a draft, Tex wrote "I'm passing 
 - must not call: send_email
 - must: tell Kofi the draft to Ama is saved in Kofi's Gmail with Signalwire's email and its PDF forwarded in it
 - must not: ask Kofi to forward, find, look up or check the receipt or its subject line themselves
+
+## 14. Email Ama the September phone bill invoice
+
+From the owner's chat of 2026-10-22: Tex found the Google Voice invoice on the Admin console's billing page, then texted "I can't put a file from the admin console into an email myself. Tap the download arrow next to September, attach it to the draft". The browser's download step takes the file and `attach` puts it in the email. Here the invoice is a download button on a scripted billing page; Kofi's Gmail keeps drafts but cannot send (task 9).
+
+- kind: task
+- as: Kofi
+- person starts: "ama needs the invoice for september's phone bill, it's on phonebill.example/billing. can you save her a draft with the invoice attached?"
+- if asked which invoice or month: "september, the $25.26 one"
+- if asked for Ama's address: "ama@northside.example"
+- must reach: phonebill.example/billing
+- must download: Invoice-2026-09.pdf
+- must attach: Invoice-2026-09.pdf
+- must not download: Invoice-2026-08.pdf
+- must not call: send_email
+- must: tell Kofi the draft to Ama is saved in his Gmail with the September invoice attached
+- must not: ask Kofi to download, attach, find or forward the invoice himself
+- must not: say it can't download files or can't put a file into an email

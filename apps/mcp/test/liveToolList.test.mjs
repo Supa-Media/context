@@ -93,7 +93,9 @@ test("the full list stays compact", () => {
   // first connector: the list stood at 13,922 with 62 tools.
   // Raised to 14,700 the same day for `app_read` and `app_change`, every app
   // connected through its own MCP server: the list stood at 14,265 with 64.
-  assert.ok(liveToolListSection(toolDefinitions()).length < 14_700);
+  // Raised to 15,000 on 2026-10-22 for send_email's and save_email_draft's
+  // `attach`, a file Tex downloaded: the list stood at 14,707.
+  assert.ok(liveToolListSection(toolDefinitions()).length < 15_000);
 });
 
 /* -------------------------------------------------------------------------- */

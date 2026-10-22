@@ -18,6 +18,7 @@
 
 import { toolError, toolText } from "./results.js";
 import { parseEmailId } from "./emailRead.js";
+import { attachedFiles, readAttach } from "./emailAttach.js";
 
 export const EMAIL_TOOL = "send_email";
 export const EMAIL_DRAFT_TOOL = "save_email_draft";
@@ -72,7 +73,8 @@ const FORWARD_SUBJECT = /^\s*(?:fwd?|fw)\s*:/i;
 export const PASSES_ON_ERROR =
   "the email says it passes something on (attached, forwarded, here's the receipt), but nothing goes with it. " +
   "An email carries another only as a forward: find that email with search_email (by sender with from:, an amount, a date range, or fewer words) " +
-  "and pass its id as forward, so it goes below your words with its attachments. Don't ask the person to forward or find it. " +
+  "and pass its id as forward, so it goes below your words with its attachments. A file on a website (an invoice, a statement) goes as attach: " +
+  "download it with a browse download step and pass the download: id it gives. Don't ask the person to forward, find or download it. " +
   "Take the line out only if nothing is meant to go with this email.";
 
 /** Whether an email's words say it carries something on with it. */
@@ -124,7 +126,10 @@ export function readEmail(args) {
       return { error: `A forward goes from the mailbox the email is in: leave from out, or make it ${forward.address}.` };
     }
   }
-  if (forward === null && passesSomethingOn(subject, body)) return { error: PASSES_ON_ERROR };
+  // Files downloaded in the browser, by id (`emailAttach.js`).
+  const attach = readAttach(args?.attach);
+  if (attach.error) return { error: attach.error };
+  if (forward === null && attach.list.length === 0 && passesSomethingOn(subject, body)) return { error: PASSES_ON_ERROR };
   const sender = reply ? reply.address : forward ? forward.address : from.list[0];
   return {
     email: {
@@ -135,6 +140,7 @@ export function readEmail(args) {
       body,
       ...(reply ? { replyTo: reply.messageId } : {}),
       ...(forward ? { forward: forward.messageId } : {}),
+      ...(attach.list.length > 0 ? { attach: attach.list } : {}),
     },
   };
 }
@@ -144,7 +150,7 @@ export function readEmail(args) {
  * also says what goes below their words: the forwarded email (`forwarded`,
  * read by `emailGate.js`) and each attachment by name.
  */
-export function emailCopy(email, forwarded = null) {
+export function emailCopy(email, forwarded = null, attached = []) {
   return [
     ...(email.from ? [`From: ${email.from}`] : []),
     `To: ${email.to.join(", ")}`,
@@ -154,7 +160,19 @@ export function emailCopy(email, forwarded = null) {
     "",
     email.body,
     ...(email.forward ? ["", forwardedLine(forwarded)] : []),
+    ...(attached.length > 0 ? ["", `(Attached: ${attached.map((name) => String(name).replace(/\s+/g, " ").trim().slice(0, 80)).join(", ")}.)`] : []),
   ].join("\n");
+}
+
+/**
+ * The email as the control plane takes it: the `attach` ids read into the
+ * files themselves (`emailAttach.js`), `{ email }` or `{ error }`.
+ */
+async function withFiles(store, email) {
+  const { attach, ...plain } = email;
+  if (!attach || attach.length === 0) return { email: plain };
+  const read = await attachedFiles(store, attach);
+  return read.files ? { email: { ...plain, files: read.files } } : { error: read.error };
 }
 
 function forwardedLine(forwarded) {
@@ -186,7 +204,7 @@ export const REFUSED = {
   not_configured: "Not sent: this Context deployment does not send email.",
   reply_not_found: "Not sent: Gmail no longer has the email this replies to, or it has no thread to reply in. Search for it again.",
   forward_not_found: "Not sent: Gmail no longer has the email to forward, or one of its attachments. Search for it again.",
-  too_large: "Not sent: the email to forward is too big to send on (over 20 MB of attachments, or more than 20 files).",
+  too_large: "Not sent: the email is too big to send (over 20 MB of attachments, or more than 20 files).",
   reconnect_required:
     "Not sent: the Gmail it would go from needs reconnecting, because Google stopped honouring its sign-in. Tell the person; they reconnect it with manage connect_google.",
   unavailable: "Not sent: Gmail did not take the email just now. Nothing was sent; it can be asked for again.",
@@ -196,9 +214,11 @@ export async function toolSendEmail(store, args) {
   const read = readEmail(args);
   if (read.error) return toolError(`Not sent: ${read.error}`);
   if (typeof store?.email?.send !== "function") return toolError(REFUSED.not_configured);
+  const ready = await withFiles(store, read.email);
+  if (ready.error) return toolError(`Not sent: ${ready.error}.`);
   let answer;
   try {
-    answer = await store.email.send(read.email);
+    answer = await store.email.send(ready.email);
   } catch {
     return toolError(REFUSED.unavailable);
   }
@@ -217,7 +237,7 @@ export const DRAFT_REFUSED = {
   not_configured: "Not saved: this Context deployment does not save drafts.",
   reply_not_found: "Not saved: Gmail no longer has the email this replies to. Search for it again.",
   forward_not_found: "Not saved: Gmail no longer has the email to forward, or one of its attachments. Search for it again.",
-  too_large: "Not saved: the email to forward is too big (over 20 MB of attachments, or more than 20 files).",
+  too_large: "Not saved: the email is too big (over 20 MB of attachments, or more than 20 files).",
   reconnect_required:
     "Not saved: that Gmail needs reconnecting, because Google stopped honouring its sign-in. Tell the person; they reconnect it with manage connect_google.",
   unavailable: "Not saved: Gmail did not take the draft just now. It can be tried again.",
@@ -227,9 +247,11 @@ export async function toolSaveEmailDraft(store, args) {
   const read = readEmail(args);
   if (read.error) return toolError(`Not saved: ${read.error}`);
   if (typeof store?.email?.draft !== "function") return toolError(DRAFT_REFUSED.not_configured);
+  const ready = await withFiles(store, read.email);
+  if (ready.error) return toolError(`Not saved: ${ready.error}.`);
   let answer;
   try {
-    answer = await store.email.draft(read.email);
+    answer = await store.email.draft(ready.email);
   } catch {
     return toolError(DRAFT_REFUSED.unavailable);
   }
