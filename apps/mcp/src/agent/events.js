@@ -15,7 +15,8 @@
  * as it was: the first write of the log copies it, and nothing writes it again.
  *
  * What an exchange keeps is what `texts.json` kept (the person's words, the
- * answer, the tools' names, whether the turn read from outside the workspace),
+ * answer, the tools' names and the web addresses it read (`sources.js`),
+ * whether the turn read from outside the workspace),
  * plus when it happened, whether the person started it (`theirs`: their text,
  * not a check-in, a routine or one of the Worker's fixed texts), and the
  * thread it belongs to (`threadView.js`).
@@ -61,7 +62,7 @@ export function idOfKey(key) {
  */
 let lastAt = 0;
 
-export async function writeExchange(store, { at: asked = Date.now(), question, answer, tainted = false, tools = [], thread = null, theirs = false }) {
+export async function writeExchange(store, { at: asked = Date.now(), question, answer, tainted = false, tools = [], sources = [], thread = null, theirs = false }) {
   // Two writes in one millisecond from one isolate keep the order they were made in.
   const at = Math.max(asked, lastAt + 1);
   lastAt = at;
@@ -73,6 +74,7 @@ export async function writeExchange(store, { at: asked = Date.now(), question, a
     answer,
     ...(tainted ? { tainted: true } : {}),
     ...(tools.length > 0 ? { tools } : {}),
+    ...(sources.length > 0 ? { sources } : {}),
     ...(thread ? { thread } : {}),
     ...(theirs ? { by: "them" } : {}),
   };
@@ -153,6 +155,7 @@ export async function readEventTurns(store, entries = READ_ENTRIES, { chars = In
       text: entry.answer,
       ...(entry.tainted === true ? { tainted: true } : {}),
       ...(Array.isArray(entry.tools) ? { tools: entry.tools } : {}),
+      ...(Array.isArray(entry.sources) ? { sources: entry.sources } : {}),
     });
   }
   return turns;

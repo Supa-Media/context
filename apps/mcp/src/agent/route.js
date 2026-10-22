@@ -529,7 +529,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
           ...(production !== null ? { setup: production.version } : {}),
         },
       },
-      web,
+      web: claims?.wrapWeb(web) ?? web, // whether the web was tried before "I couldn't open it" (`claimCheck.js`)
       history: shown,
       threadNote: (group !== null ? groupPrompt(group, home) : "") + threadPrompt(inThread) + (background?.prompt ?? "") + jobPrompt(job), steer,
       local: earlier,
@@ -621,6 +621,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
         await appendConversation(store, conversation, history, saved, [answer, sentPicturesLine(pictures)].filter(Boolean).join("\n"), {
           tainted: ledger.untrusted,
           tools: turn.steps.filter((step) => step.ok).map((step) => step.tool),
+          sources: turn.steps.flatMap((step) => step.sources ?? []), // addresses only (`sources.js`)
           thread: inThread.thread, theirs: session.actorClientId === TEXTS_CLIENT_ID,
         });
       } catch {

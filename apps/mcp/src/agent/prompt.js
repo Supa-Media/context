@@ -153,10 +153,23 @@ function usedLine(used) {
   if (answers.length === 0) return "";
   return [
     "What you did for those earlier texts (not shown, but it happened):",
-    ...answers.map(({ question, tools }) => `- "${question}": you used ${tools.join(", ")}.`),
+    ...answers.map(({ question, tools, sources }) =>
+      `- "${question}": you used ${tools.join(", ")}.${Array.isArray(sources) && sources.length > 0 ? ` Web pages you read: ${sources.join(", ")}` : ""}`,
+    ),
     "If an earlier text of yours says you hadn't checked or opened something, that text was the mistake: don't repeat it or correct yourself again.",
+    ...(answers.some(({ sources }) => Array.isArray(sources) && sources.length > 0) ? [SOURCES_LINE] : []),
   ].join("\n");
 }
+
+/**
+ * The pages above are where an earlier answer's web text came from
+ * (`sources.js`). Asked "where are you reading from?" with no address in
+ * front of it, Tex took back that it had read the text at all (owner,
+ * 2026-10-22); with the address it can say where, and stand by it.
+ */
+const SOURCES_LINE =
+  "Those web pages are where that text came from: when they ask where you read something, name the page's address. " +
+  "Don't doubt that you read it, and to check a detail (which translation, a verse's words), open the same page again.";
 
 export function systemPrompt(
   place,

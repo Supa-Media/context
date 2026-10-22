@@ -384,9 +384,13 @@ export function webSession(computer, question, { decide = null, search = null, a
           const href = canonicalUrl(link?.href);
           if (href) allowed.add(href);
         }
-        if (page !== null) parts.push(`Also opened, because it looked like where the answer is:\n\n${pageText(page)}`);
+        if (page !== null) {
+          parts.push(`Also opened, because it looked like where the answer is:\n\n${pageText(page)}`);
+          pages.push(page);
+        }
       }
-      return text(parts.join("\n\n---\n\n"));
+      // Where the text came from, kept with the answer (`sources.js`); the text itself is not.
+      return { ...text(parts.join("\n\n---\n\n")), sources: pages.filter((page) => page !== null).map((page) => page.url) };
     },
   };
 

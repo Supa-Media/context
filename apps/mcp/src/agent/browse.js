@@ -407,6 +407,8 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
             ? "\n\nThe link to this browser could not be made. Tell the person what to do on the site themselves."
             : "";
       const result = textResult(readingText(done.reading, done.ran) + told, done.ran.some((r) => !r.ok));
+      // The page it read, kept with the answer (`sources.js`), even when a step on the way failed.
+      result.sources = [done.reading.url];
       // A look's picture, after the words: what the page shows, for a click at a point on it.
       const shot = done.reading.shot;
       if (typeof shot?.data === "string" && shot.data.length > 0 && shot.data.length <= MAX_SHOT_CHARS) {
