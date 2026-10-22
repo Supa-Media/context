@@ -69,12 +69,18 @@ const PREVIEW_LINE = /^\s*(?:to|cc|subject|forward(?:ing)? of|fwd)\s*:/im;
 /** Asking for their yes or 👍 in the answer's own words. */
 const YES_ASK = /\b(?:say|reply|text|answer)\s+(?:yes|ok)\b|\u{1F44D}/iu;
 /** What a yes or 👍 might be asked about that only a held call can make. */
-const HELD_THING = /\b(?:send|email|forward|calendar|schedule|book|file|bug|report)\b/i;
+const HELD_THING = /\b(?:send|email|forward|calendar|schedule|book|file|bug|report|slack|dm|post)\b/i;
+/**
+ * A Slack message offered in the answer's own words (2026-10-22: "I'd DM Jo
+ * on Acme Slack: …", with nothing held, so the 👍 on it reached nothing).
+ */
+const SLACK_OFFER =
+  /\b(?:I['’]d|I would|I['’]ll|I will|want me to|shall I|should I|do you want me to)\s+(?:DM|message|post|send|reply)\b[^\n]{0,160}?\b(?:Slack|DM)\b/i;
 
 export const OFFER_NOTICE =
-  "Before this goes: you showed or offered, in your own words, an email, a calendar change or a bug report, and nothing is held for their yes. " +
+  "Before this goes: you showed or offered, in your own words, an email, a Slack message, a calendar change or a bug report, and nothing is held for their yes. " +
   "A yes or 👍 to your words alone makes nothing, and they would be asked again. If that is what you offered and you know what it is, " +
-  "make the call now (send_email, calendar_event or report_problem) with exactly that: they are shown it with your answer, and their one yes or 👍 makes it. " +
+  "make the call now (send_email, slack_api, calendar_event or report_problem) with exactly that: they are shown it with your answer, and their one yes or 👍 makes it. " +
   "Don't write out the email or ask for their yes yourself; the gateway does. " +
   "If something is missing, ask only for that. If you offered something else, send your answer again as it was.";
 
@@ -98,7 +104,7 @@ export function claimsAChange(answer) {
 /** Whether an answer offers a calendar change, an email or a bug report: as a question, a preview, or a request for their yes. */
 export function offersAHeldChange(answer) {
   const said = String(answer ?? "");
-  if (PREVIEW_LINE.test(said)) return true;
+  if (PREVIEW_LINE.test(said) || SLACK_OFFER.test(said)) return true;
   if (YES_ASK.test(said) && HELD_THING.test(said)) return true;
   for (const [, offered] of said.matchAll(OFFER)) {
     if ((CALENDAR_CHANGE.test(offered) && WHEN.test(offered) && (/\bcalendar\b/i.test(offered) || !NOT_CALENDAR.test(offered))) || EMAIL_SEND.test(offered)) return true;

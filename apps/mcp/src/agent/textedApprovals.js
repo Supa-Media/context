@@ -12,7 +12,6 @@ import { FORWARD_RULE_TOOL } from "../tools/forwardRule.js";
 import { doneLine } from "./doneLine.js";
 import { canonicalToolName } from "../tools/advertised.js";
 import { withoutHeldEcho, withoutWaitTalk } from "./heldEcho.js";
-import { scrubbed } from "./quoted.js";
 import { VAULT_PAY } from "../vault/pay.js";
 import { armForText, disarmRecords, listPending, replayAsAsked, settlePending, withdrawPending } from "../tools/approvals.js";
 
@@ -99,8 +98,19 @@ export function askLine(asked) {
   return `Before I ${asked.length === 1 ? "do that" : "do those"}, I need your OK: ${what}. ${SAY_YES} and I'll go ahead.`;
 }
 
-/** Words as the gateway reads a quote (`quoted.js`), a trailing ellipsis off: the ask is compared the same way. */
-const folded = (text) => scrubbed(String(text ?? "").replace(/\s*…\s*$/u, ""));
+/**
+ * Words as an ask and a quote of it are compared: a cut-off ending off, then
+ * letters and digits only: a tapback's quote comes back through Messages
+ * and the line, where quotes, apostrophes and emoji may come back changed
+ * (2026-10-22). The ask is compared the same way.
+ */
+const folded = (text) =>
+  String(text ?? "")
+    .replace(/\s*(?:…|\.\.\.)\s*$/u, "")
+    .normalize("NFKC")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+    .toLowerCase();
 /** Fewer words than this quoted cannot tell one ask from another. */
 const MIN_QUOTED = 24;
 
@@ -116,7 +126,7 @@ export async function thumbsUpIsYes(store, session, quoted) {
   const armed = (await listPending(store, { userId: session.actorUserId, texting: true })).map(({ record }) => record);
   if (armed.length === 0) return false;
   for (const order of [armed, [...armed].reverse()]) {
-    const shown = scrubbed(askLine(order));
+    const shown = folded(askLine(order));
     if (shown === words || shown.startsWith(words)) return true;
   }
   return false;

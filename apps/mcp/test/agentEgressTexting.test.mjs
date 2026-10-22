@@ -88,7 +88,7 @@ export async function runAgentEgressTextingChecks(check) {
     const replies = toolReplies(model.requests.at(-1));
     check(
       "a texted handle claim is asked about before it runs",
-      asked.status === 200 && /Not done yet/.test(replies[0] ?? "") && !claimed("woodshop") && pending().length === 1,
+      asked.status === 200 && /Held for their 👍/.test(replies[0] ?? "") && !claimed("woodshop") && pending().length === 1,
     );
     check(
       "the ask is in the gateway's own words, after the model's, and the answer says one call waits",
@@ -118,6 +118,24 @@ export async function runAgentEgressTextingChecks(check) {
       "the next turn sees the texted YES and what it released",
       shown.includes("Yes!") && shown.includes("Done, I claimed the handle @woodshop"),
     );
+
+    // A 👍 whose quote came back changed by Messages and the line (2026-10-22):
+    // a toned emoji, punctuation changed. Still the yes.
+    model.install([claim("kiln"), { text: "I'd set up @kiln." }]);
+    const kilnAsk = (await ask(env, TOKEN_TEXTS, "make me a kiln workspace")).body?.verbatim?.[0] ?? "";
+    const toned = kilnAsk.replace("👍", "👍🏽").replace("(handles", "— (handles");
+    before = model.requests.length;
+    const likedKiln = await request(env, TOKEN_TEXTS, "/agent", { question: "👍", quoted: toned, tapback: "Liked", conversation: "texts" });
+    check(
+      "a 👍 whose quote came back with a toned emoji or other punctuation is still the yes",
+      kilnAsk.startsWith("Before I do that") && model.requests.length === before && claimed("kiln") && /^Done, I claimed the handle @kiln/.test(likedKiln.body?.answer ?? ""),
+    );
+
+    model.install([claim("clay"), { text: "I'd set up @clay." }]);
+    const clayAsk = (await ask(env, TOKEN_TEXTS, "make me a clay workspace")).body?.verbatim?.[0] ?? "";
+    before = model.requests.length;
+    await request(env, TOKEN_TEXTS, "/agent", { question: "👍", quoted: `${clayAsk.slice(0, 70)}...`, tapback: "Liked", conversation: "texts" });
+    check("a 👍 whose quote was cut short with three dots is still the yes", model.requests.length === before && claimed("clay"));
 
     model.install([claim("pottery"), { text: "Want @pottery?" }]);
     await ask(env, TOKEN_TEXTS, "make me a pottery workspace");

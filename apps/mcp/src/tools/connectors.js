@@ -98,13 +98,63 @@ export async function toolSlackApi(store, args) {
   return toolText(`Slack (${answer.team}) answered ${method}:\n${body}`);
 }
 
-/** What a held Slack call would do, in the words the person says yes to. */
-export function slackHeldSummary(args) {
+const SLACK_PERSON = /^[UW][A-Z0-9]{2,20}$/;
+const SLACK_CONVERSATION = /^[CGD][A-Z0-9]{2,20}$/;
+const MAX_PLACE = 60;
+
+/** A name Slack gave, made safe to show in one line, or "". */
+function shown(value) {
+  return typeof value === "string" ? oneLine(value).slice(0, MAX_PLACE).trim() : "";
+}
+
+/** A Slack person's name as Slack has it: their real name, else their display name. */
+async function personName(calls, user, team) {
+  const answer = await calls.call({ provider: "slack", method: "users.info", args: { user }, ...(team ? { team } : {}) });
+  const found = answer?.ok === true && answer.body?.ok === true ? answer.body.user : null;
+  return { name: shown(found?.real_name) || shown(found?.profile?.real_name) || shown(found?.profile?.display_name), team: shown(answer?.team) };
+}
+
+/**
+ * Where a held Slack post goes, by name: `{ person }` for a direct message,
+ * `{ channel }` for a channel, with the Slack's own name as `team`; null when
+ * Slack can't say. The person is asked about a name, never an id like
+ * U0FAKE0001 (Dev2, 2026-10-22). The names come from Slack, never from the
+ * model, so a model can't put a friendlier name on somebody else's channel.
+ */
+export async function slackPlace(store, args) {
+  const calls = store?.connectors;
+  const given = args?.args && typeof args.args === "object" && !Array.isArray(args.args) ? args.args : {};
+  const channel = typeof given.channel === "string" ? given.channel.trim() : "";
+  if (!calls || slackHeldSummary(args) === null) return null;
+  const team = typeof args.team === "string" && args.team.trim() !== "" ? args.team.trim() : undefined;
+  try {
+    if (SLACK_PERSON.test(channel)) {
+      const found = await personName(calls, channel, team);
+      return found.name ? { person: found.name, team: found.team } : null;
+    }
+    if (!SLACK_CONVERSATION.test(channel)) return null;
+    const answer = await calls.call({ provider: "slack", method: "conversations.info", args: { channel }, ...(team ? { team } : {}) });
+    const found = answer?.ok === true && answer.body?.ok === true ? answer.body.channel : null;
+    if (found?.is_im === true && typeof found.user === "string" && SLACK_PERSON.test(found.user)) {
+      const person = await personName(calls, found.user, team);
+      return person.name ? { person: person.name, team: person.team || shown(answer.team) } : null;
+    }
+    const name = shown(found?.name);
+    return name ? { channel: `#${name.replace(/^#/, "")}`, team: shown(answer.team) } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** What a held Slack call would do, in the words the person says yes to; `place` names where (`slackPlace`). */
+export function slackHeldSummary(args, place = null) {
   const a = args && typeof args === "object" ? args : {};
   const method = typeof a.method === "string" ? a.method.trim() : "";
   if (!SLACK_HELD_METHODS.includes(method)) return null;
   const given = a.args && typeof a.args === "object" && !Array.isArray(a.args) ? a.args : {};
-  const where = typeof given.channel === "string" && given.channel !== "" ? ` in ${given.channel}` : "";
+  const channel = typeof given.channel === "string" && given.channel !== "" ? given.channel : "";
+  const team = place?.team ? ` (${place.team})` : "";
+  const where = place?.person ? ` to ${place.person}${team}` : place?.channel ? ` in ${place.channel}${team}` : channel ? ` in ${channel}` : "";
   const words = typeof given.text === "string" ? `: "${given.text}"` : given.blocks !== undefined ? " (a formatted message)" : "";
   const reply = typeof given.thread_ts === "string" && given.thread_ts !== "";
   const verb =
@@ -116,6 +166,8 @@ export function slackHeldSummary(args) {
           ? "schedule a Slack message"
           : reply
             ? "reply in a Slack thread"
-            : "post in Slack";
+            : place?.person
+              ? "send a Slack message"
+              : "post in Slack";
   return oneLine(`${verb}${where}${words}`);
 }
