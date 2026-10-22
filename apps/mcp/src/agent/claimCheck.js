@@ -165,8 +165,10 @@ export const HANDBACK_NOTICE =
   "Before this goes: your answer asks them to find, forward, check or look something up, and that is yours to do. " +
   "Never ask them to do what your own tools can: search their email yourself again, a different way each time (search_email by the sender with from:, " +
   "an amount or number, a date range with after: and before:, one or two words, each connected mailbox), read their notes, or open the site in your browser and sign in with a saved login. " +
+  "If their mail doesn't have it, go where else it lives: Gmail on the web in your browser, or the account, admin or billing page it came from (a billing history, an admin console), signed in with their saved login. " +
   "An email you texted about earlier is still there: find it again. Do it now, then answer with what you did or found. " +
   "Ask them only for what truly needs them: a sign-in code, a captcha, a payment, a choice, or a fact only they know. " +
+  "If it will take many steps, start a background job for it rather than handing it back. " +
   "If you tried every way and still can't, say in one line what you tried, and ask one specific question. " +
   "If those words were not asking them to do anything (their own to-do list, or what someone else said), send your answer again as it was.";
 
