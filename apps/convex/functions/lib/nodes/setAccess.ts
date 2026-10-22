@@ -31,6 +31,7 @@ import { pinnedContextWorkspace } from "../pinnedContext";
 import { scanAccessRows } from "./accessRows";
 import { livePending, PENDING_MAX } from "./pendingAccess";
 import { renderAccess } from "./rowAccess";
+import { recordRouteChangeAtHandler } from "../websites/routeChangeAt";
 
 export type Role = "view" | "edit";
 export type Base = "private" | "team" | "inherit";
@@ -320,6 +321,9 @@ export async function setAccessRow(ctx: MutationCtx, args: SetAccessArgs): Promi
     });
   }
 
+  // A narrowing the published site reaches withholds its menu until the index is rebuilt, as a `privacy.md`
+  // change did (`markWebsiteAfterOperation`); every access writer comes through here.
+  await recordRouteChangeAtHandler(ctx, { workspaceId, paths: [path], unsafe: true });
   return { ok: true, version: await refreshSnapshot(ctx, workspaceId) };
 }
 
