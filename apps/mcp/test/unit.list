@@ -9,6 +9,7 @@ bench/test/resultNote.test.mjs
 bench/test/run.test.mjs
 bench/test/score.test.mjs
 bench/test/siteTasks.test.mjs
+bench/test/handback.test.mjs
 bench/test/sites.test.mjs
 bench/test/tasks.test.mjs
 bench/test/warm.test.mjs
