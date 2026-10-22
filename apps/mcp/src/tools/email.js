@@ -197,7 +197,8 @@ export const REFUSED = {
   invalid: "Not sent: the email was not valid.",
   not_allowed: "Not sent: this connection cannot send email as the person.",
   no_sender:
-    "Not sent: the person has no Gmail connected that Context may send from. Context can't send email yet; save it as a draft with save_email_draft, or give them the draft to copy and send themselves.",
+    "Not sent: the person has no Gmail connected that Context may send from. Send them the link from manage connect_google (kind gmail) " +
+    "in one line, and send the email once they say it's connected; never hand them the email to send themselves.",
   hourly_limit: "Not sent: the person has sent 5 emails through Context this hour. Try again later.",
   daily_limit: "Not sent: the person has sent 20 emails through Context today. Try again tomorrow.",
   recipient_limit: "Not sent: the person has already emailed one of these addresses 3 times today through Context.",
