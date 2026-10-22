@@ -14,7 +14,7 @@ import { folded } from "./folded.js";
 import { canonicalToolName } from "../tools/advertised.js";
 import { withoutHeldEcho, withoutWaitTalk } from "./heldEcho.js";
 import { VAULT_PAY } from "../vault/pay.js";
-import { armForText, disarmRecords, listPending, replayAsAsked, settlePending, withdrawPending } from "../tools/approvals.js";
+import { armForText, disarmTexting, listPending, replayAsAsked, settlePending, withdrawPending } from "../tools/approvals.js";
 
 /*
   What a texted yes to a new workspace leads to (the owner, 2026-10-20). No
@@ -41,7 +41,7 @@ function afterYes(tool) {
 export const SAY_YES = "Give it a 👍";
 
 /** A text that is nothing but yes, or nothing but no; anything else goes to the model. */
-const YES = /^\s*(?:yes|yes please|yep|yeah|yup|ok|okay|sure|do it|go ahead|go for it|confirm|confirmed|approve|approved|allow|y)\s*[.!]*\s*$/i;
+const YES = /^\s*(?:yes|yes please|yep|yeah|yup|ok|okay|k|sure|do it|go ahead|go for it|confirm|confirmed|approve|approved|allow|y|sounds good|looks good|perfect|lgtm|\u{1F44C})\s*[.!]*\s*$/iu;
 const NO = /^\s*(?:no|nope|no thanks|don'?t|cancel|stop|deny|denied|never ?mind|forget it|drop it|n)\s*[.!]*\s*$/i;
 
 /*
@@ -91,13 +91,13 @@ function wordsOf(text) {
     .filter(Boolean);
 }
 
-/** Whether a text is a yes said in a sentence; `strict` wants a yes word or a word saying to send it, never "ok" or "sure" alone. */
-function sentenceYes(text, strict = false) {
+/** Whether a text is a yes said in a sentence. */
+function sentenceYes(text) {
   const words = wordsOf(text);
   if (words.length === 0 || words.length > 12 || !words.every((word) => ALSO_SAID.has(word))) return false;
   if (words.some((word) => SAYS_YES.has(word) || SAYS_SEND.has(word))) return true;
-  // "go ahead", "do it": a release in two words, as before; never for an email.
-  return !strict && (words.includes("ahead") || (words.includes("do") && words.includes("it")));
+  // "go ahead", "do it": a release in two words.
+  return words.includes("ahead") || (words.includes("do") && words.includes("it"));
 }
 
 export function approvalVerdict(text) {
@@ -179,8 +179,12 @@ export const TEXTED_ASK_CAP = 2_900;
  * switch still makes (`../tools/session.js`), and a claimed handle is never
  * given back.
  */
-export async function textedAsk(store, session, asked) {
-  if (asked.length === 0) return { ask: null, verbatim: [] };
+export async function textedAsk(store, session, asked, told = "") {
+  if (asked.length === 0) {
+    // Tex asked something else, so a bare yes now answers that, never an older ask (`textedSettle.js`).
+    if (/\?/.test(told)) await disarmTexting(store, { userId: session.actorUserId }).catch(() => {});
+    return { ask: null, verbatim: [] };
+  }
   // In a group chat a bare "yes" is chat; a reply to the ask, or "Tex, yes", reaches Tex (`groupTurn.js`).
   const ask = askLine(asked);
   const ids = asked.map((record) => record.id);
@@ -262,21 +266,20 @@ function clean(text) {
   return text.replace(/[\u0000-\u0008\u000b-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, "");
 }
 
-/**
- * An email, a calendar change or a bug report goes only on the word it asked
- * for, or a yes that says to send it: "yes", "yes please", "yes, file it",
- * "ok send it". A bare "ok" or "sure" is not a yes.
- */
-const EMAIL_YES = /^\s*yes\s*[.!]*\s*$/i;
-const strictYes = (text) => EMAIL_YES.test(text) || RELEASED_YES.test(text) || sentenceYes(text, true);
-const YES_ONLY = new Set([EMAIL_TOOL, CALENDAR_TOOL, REPORT_TOOL, FORWARD_RULE_TOOL]);
+/*
+  Any yes releases what the ask showed, an email included: "yes", "ok",
+  "sure", "go ahead", "sounds good" (Dev2, 2026-10-22, asked: a bare "ok" to
+  "Give it a 👍 and I'll send it" used to be set aside, the email dropped and
+  asked about again). What is not a yes still goes to the model: "ok
+  thanks", "yes but to Sam".
+*/
 
 /**
  * Settle what this thread's latest ask put to the person, as their text said.
  * Returns the reply, or null when nothing was waiting — in which case the text
  * is an ordinary one and the model answers it.
  */
-export async function settleByText(store, session, verdict, texted = "") {
+export async function settleByText(store, session, verdict) {
   // Only what this thread asked about, lately, and not since moved on from: a
   // yes here never releases a call some other client raised that the person was
   // not told of. Every record left armed was asked in the thread's latest ask,
@@ -284,15 +287,10 @@ export async function settleByText(store, session, verdict, texted = "") {
   const waiting = await listPending(store, { userId: session.actorUserId, texting: true });
   if (waiting.length === 0) return null;
   const replies = [];
-  const notYes = [];
   for (const entry of [...waiting].reverse()) {
     const { record } = entry;
     // A card's yes lets the model go on to fill it, so it is settled before this (`textedPay.js`).
     if (record.kind === VAULT_PAY) continue;
-    if (verdict === "approve" && YES_ONLY.has(record.tool) && !strictYes(texted)) {
-      notYes.push(entry);
-      continue;
-    }
     const settled = await settlePending(store, record.id, {
       userId: session.actorUserId,
       action: verdict,
@@ -317,11 +315,6 @@ export async function settleByText(store, session, verdict, texted = "") {
     // wrong still says what the tool said.
     if (settled.result?.isError === true) replies.push(notDone(record.summary, said));
     else replies.push(doneLine(record.summary), ...afterYes(record.tool));
-  }
-  // An email or calendar change the text did not say YES to is disarmed now: when the text settled
-  // something else, no model turn follows to disarm it, and a later bare yes must not reach it.
-  if ((await disarmRecords(store, notYes)) > 0) {
-    replies.push("I couldn't set aside what I showed you, so it is still waiting: reply NO to drop it.");
   }
   return replies.length === 0 ? null : replies.join("\n");
 }

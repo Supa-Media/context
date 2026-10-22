@@ -11,7 +11,7 @@ export function calendarToolDefinitions() {
         "whole days (2026-10-20, end the day after); work the offset out from the person's time zone. create takes title, " +
         "start, end, and optional location and notes. move and cancel name the event by its exact title and its start as it " +
         "is now (from their calendar notes); move also takes new_start and new_end. Never tell the person to make a change themselves. " +
-        "Only when the person asked for this change. At most 5 changes an hour and 20 a day.",
+        "Only when the person asked for this change. At most 20 changes an hour and 100 a day.",
       inputSchema: {
         type: "object",
         properties: {

@@ -82,6 +82,19 @@ How it works:
   Test: `a texted ask is answered in the texts and never in the app` in
   `apps/mcp/test/agentEgressTexting.test.mjs`.
 
+- **Fewer rounds per ask (Dev2, 2026-10-22, asked for each):** any yes
+  releases what the ask showed, an email or a bug report included: "ok",
+  "sure", "go ahead", "sounds good", "perfect" (a courtesy like "ok thanks"
+  is still not one). An ask stands through a side text ("one sec"): the
+  model is told it still waits and must not ask again; it stops listening
+  only when Tex's own answer asks something else (a "?" in it, so a bare yes
+  answers that), when a newer ask replaces it, on a no, or when it expires.
+  Several emails in one turn go in one ask, each shown whole, and one yes
+  sends them all; one that would outgrow a text is withdrawn, not cut. Tests:
+  `an "ok" to an email is a yes`, `a side text leaves the ask standing`, `a
+  yes after Tex asked something else sends nothing` and `two emails in one
+  texted turn go in one ask` in `apps/mcp/test/emailGate.test.mjs`.
+
 What a simplification would cost: releasing on any like makes a 👍 on "Dinner
 is booked" send an email; "always" means any text of the reply that asked,
 never a text from before it. Releasing without the hold makes a slip of the thumb

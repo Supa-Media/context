@@ -13,8 +13,7 @@
  *
  *  1. `report_problem` left out of `HELD_GATES`. → `a texted bug report is
  *     held, shown whole, and not sent` fails: it is sent at once.
- *  2. `report_problem` left out of `YES_ONLY` in `textedApprovals.js`. → `an
- *     "ok" to a bug report is not a yes` fails.
+ *  2. (Retired 2026-10-22: any yes, "ok" included, releases a report.)
  *  3. `reportGate` reading the texts before the approved replay (sending them
  *     with the held call). → `nothing of the texts leaves before the YES`
  *     fails.
@@ -55,11 +54,12 @@ export async function runReportGateChecks(check) {
     check("nothing of the texts leaves before the YES", sent().length === 0 && !JSON.stringify(sent()).includes("avocado"));
 
     let before = model.requests.length;
-    model.install([{ text: "OK." }]);
-    await ask(env, TOKEN_TEXTS, "ok");
-    model.install([{ text: "Yes what?" }]);
-    await ask(env, TOKEN_TEXTS, "yes");
-    check("an \"ok\" to a bug report is not a yes", sent().length === 0 && model.requests.length > before);
+    model.install([{ text: "Sure thing." }]);
+    await ask(env, TOKEN_TEXTS, "ok thanks");
+    check(
+      "a courtesy to a bug report is not a yes, and the ask still stands (Dev2, 2026-10-22)",
+      sent().length === 0 && model.requests.length > before && pending().length === 1,
+    );
 
     model.install([report(REPORT), { text: "Here it is again." }]);
     await ask(env, TOKEN_TEXTS, "file that bug please");

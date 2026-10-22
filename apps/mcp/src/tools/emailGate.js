@@ -26,7 +26,7 @@
  * through to `send_email` itself.
  */
 
-import { DETAIL_CAP, callKey, createPending, findPending, takeDone } from "./approvals.js";
+import { DETAIL_CAP, createPending, findPending, takeDone } from "./approvals.js";
 import { toolError } from "./results.js";
 import { EMAIL_TOOL, REFUSED, emailCopy, emailSummary, readEmail } from "./email.js";
 import { readHelperCallers } from "../agent/production.js";
@@ -156,11 +156,9 @@ export async function emailGate(supplied, { store, session, target }) {
     forwarded = read.message;
   }
 
-  // One email per texted ask: two copies in one text could outgrow it, and one YES would send both.
+  // Several emails go in one ask, every copy shown whole, and one yes sends them all (Dev2, 2026-10-22, asked);
+  // an ask that would outgrow one text is withdrawn rather than cut (`textedAsk`).
   const ledger = session.egress?.ledger ?? null;
-  if (texting && ledger?.asked.some((asked) => asked.tool === EMAIL_TOOL && asked.key !== callKey(EMAIL_TOOL, args))) {
-    return toolError("Not sent: one email at a time by text. The person is already being shown another; ask about this one after they answer.");
-  }
   let checked = null;
   if (texting) {
     checked = checking !== null ? await checking : typeof session.mailChecker === "function" ? await session.mailChecker(email) : null;

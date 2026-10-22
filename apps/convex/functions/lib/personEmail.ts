@@ -20,17 +20,17 @@
 export { GMAIL_COMPOSE_SCOPE, GMAIL_SEND_SCOPE } from "./googleOAuth";
 
 /** Most emails one person's AIs may send in a day, and in an hour. */
-export const PERSON_EMAIL_DAILY_LIMIT = 20;
-export const PERSON_EMAIL_HOURLY_LIMIT = 5;
+export const PERSON_EMAIL_DAILY_LIMIT = 100;
+export const PERSON_EMAIL_HOURLY_LIMIT = 20;
 /** Most emails to one address in a day, so an AI cannot pester somebody. */
-export const PERSON_EMAIL_RECIPIENT_DAILY_LIMIT = 3;
+export const PERSON_EMAIL_RECIPIENT_DAILY_LIMIT = 10;
 /**
  * Most drafts one person's AIs may save in an hour, and in a day. A draft
  * reaches nobody, so it spends none of the sending limits and has no
  * per-recipient one; these only stop a loop filling the Drafts folder.
  */
-export const PERSON_EMAIL_DRAFT_HOURLY_LIMIT = 10;
-export const PERSON_EMAIL_DRAFT_DAILY_LIMIT = 50;
+export const PERSON_EMAIL_DRAFT_HOURLY_LIMIT = 30;
+export const PERSON_EMAIL_DRAFT_DAILY_LIMIT = 200;
 /** Most addresses on one email, To and Cc together. */
 export const PERSON_EMAIL_MAX_RECIPIENTS = 10;
 export const PERSON_EMAIL_MAX_SUBJECT = 200;

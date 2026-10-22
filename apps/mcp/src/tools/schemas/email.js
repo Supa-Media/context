@@ -12,7 +12,7 @@ export function emailToolDefinitions() {
         "attachments (a receipt to a bookkeeper, say), pass forward with its id and start the subject with Fwd:; it goes below your words. To attach a file from a website (an invoice PDF), download it with " +
         "the browse download step and pass its download: id in attach. Don't repeat the whole email " +
         "in your answer; Context shows it to them. Only when the person asked for this email to go; if they asked for a draft, " +
-        "use save_email_draft instead. At most 10 addresses, 5 emails an hour, 20 a day, and 3 a day to one address.",
+        "use save_email_draft instead. At most 10 addresses, 20 emails an hour, 100 a day, and 10 a day to one address.",
       inputSchema: {
         type: "object",
         properties: {
@@ -54,7 +54,7 @@ export function emailToolDefinitions() {
         "Save one plain-text email as a draft in the person's own Gmail, for them to read, change and send from Gmail themselves. " +
         "Nothing is sent and nobody else sees it, so it runs at once. Use it when the person asks for a draft, or to write an email " +
         "for them to finish. Write the whole email (to, subject, body); for a reply, use the sender's address and start the subject with Re:. " +
-        "At most 10 addresses, 10 drafts an hour and 50 a day.",
+        "At most 10 addresses, 30 drafts an hour and 200 a day.",
       inputSchema: {
         type: "object",
         properties: {

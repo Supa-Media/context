@@ -62,7 +62,7 @@ held exactly as an email is ([sending-email](./sending-email.md)):
 The control plane (`/gateway/calendar/event`) decides what the gateway is not
 trusted with alone: the calendar is the token's person's own, from their
 personal workspace only, on a connection whose consent granted
-`calendar.events`; 5 changes an hour and 20 a day, all or none, spent only
+`calendar.events`; 20 changes an hour and 100 a day (5 and 20 until the owner raised them, 2026-10-22), all or none, spent only
 once the event is found.
 
 ### A move or a cancel names the event by its title and start, and must match one
