@@ -45,6 +45,7 @@ import { newLedger } from "../privacy/egress.js";
 import { json } from "../http/responses.js";
 import { appendLogEntry, builtinMeter, clock, dayOf, longDate } from "./jobLog.js";
 import { RETIRED_SKILLS_FOLDER, UNUSED_SKILL_DAYS, retireUnusedSkills } from "./learnedSkills.js";
+import { mineHandbacks } from "./handbackMiner.js";
 
 /** The dream runner's first-party client (`apps/convex/functions/lib/dreams/model.ts`). Decided by the grant. */
 export const DREAMS_CLIENT_ID = "context_dreams";
@@ -361,6 +362,18 @@ export async function handleDream(request, env, store, session, controlPlane) {
       ms: now - started,
     }),
   );
+  // The day's answers read again for work handed back (`handbackMiner.js`); never the dream's outcome.
+  if (env.HANDBACK_JUDGE === "on") {
+    await mineHandbacks({
+      dispatch,
+      transcripts,
+      since,
+      now,
+      timeZone,
+      config: aiGatewayConfig(env),
+      metadata: { feature: "handback-miner", workspace: String(session.workspaceId) },
+    }).catch(() => null);
+  }
   if (outcome === "failed") return json({ error: "model_unavailable", outcome }, 502);
   return json({ outcome, steps: turn?.steps ?? [] });
 }

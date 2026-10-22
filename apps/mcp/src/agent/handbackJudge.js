@@ -104,33 +104,41 @@ export function noticeFor(code) {
 }
 
 /**
+ * The judge's reading of one answer: its asks with their codes, or null when
+ * it could not run or answered nothing it can read. `steps` are the tools the
+ * turn ran, as `{ name, ok }`; never their results.
+ */
+export async function judgeAsks({ question, answer, steps = [], config, request = requestViaGateway, metadata }) {
+  const asked = String(question ?? "").slice(0, MAX_QUESTION_CHARS);
+  const ran = steps.slice(-MAX_STEPS).map((step) => `${step.name}: ${step.ok ? "ok" : "failed"}`).join("\n") || "(no tools ran)";
+  try {
+    const reply = await request(
+      {
+        model: HANDBACK_JUDGE_MODEL,
+        system: SYSTEM,
+        messages: [{ role: "user", text: `PERSON'S TEXT\n\n${asked}\n\nTOOLS THIS TURN RAN\n\n${ran}\n\nTEXT\n\n${String(answer ?? "").slice(0, MAX_ANSWER_CHARS)}` }],
+        tools: [],
+        maxTokens: 600,
+        effort: "low",
+      },
+      config,
+      { metadata },
+    );
+    return readAsks(reply?.text);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The judge for one texted turn: `(answer, steps) => notice | null`, or null
  * when this deployment has no model road for it. `steps` are the tools this
  * turn ran, as `{ name, ok }`.
  */
 export function handbackJudgeFor({ question, config, request = requestViaGateway, metadata, log = (line) => console.log(line) }) {
   if (!config) return null;
-  const asked = String(question ?? "").slice(0, MAX_QUESTION_CHARS);
   return async (answer, steps = []) => {
-    const ran = steps.slice(-MAX_STEPS).map((step) => `${step.name}: ${step.ok ? "ok" : "failed"}`).join("\n") || "(no tools ran)";
-    let asks = null;
-    try {
-      const reply = await request(
-        {
-          model: HANDBACK_JUDGE_MODEL,
-          system: SYSTEM,
-          messages: [{ role: "user", text: `PERSON'S TEXT\n\n${asked}\n\nTOOLS THIS TURN RAN\n\n${ran}\n\nTEXT\n\n${String(answer ?? "").slice(0, MAX_ANSWER_CHARS)}` }],
-          tools: [],
-          maxTokens: 600,
-          effort: "low",
-        },
-        config,
-        { metadata },
-      );
-      asks = readAsks(reply?.text);
-    } catch {
-      asks = null;
-    }
+    const asks = await judgeAsks({ question, answer, steps, config, request, metadata });
     const codes = asks?.map((ask) => ask.code) ?? [];
     const handBack = codes.find((code) => code.startsWith("H")) ?? null;
     // Codes only: the production hand-back rate, never the person's words or Tex's.

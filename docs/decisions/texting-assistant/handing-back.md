@@ -126,3 +126,31 @@ the link and solve it" in its own words without asking for a handoff.
   running one go.
 
 Each guard was sabotage-tested; the record is in the gateway test's header.
+
+## What went out is read again each night
+
+The judge reads an answer before it goes, and may send it back once, so
+what a person was really texted can still hand them work: a second answer
+the judge never saw, or one it let through. So once a night, after the
+dream, the gateway reads the texted turns the dream's transcripts hold since
+the last dream (`apps/mcp/src/agent/handbackMiner.js`). It is the gateway,
+never a model with tools, and it reads at most 30 answers a night, only
+those that may ask something. Each goes to the same judge, with the person's
+text and the names of the tools the turn ran. What it finds goes in the
+person's own `tex/handbacks/YYYY-MM-DD.md`: the time, the code and the
+judge's quote of Tex's words. It is theirs to read and delete, like the
+transcripts. The Worker's log gets `handbacks_mined` with counts by code
+only, which is the count across people. A turn's id carries when it began,
+so no turn is counted twice. It runs where `HANDBACK_JUDGE = "on"`.
+
+**What a simplification would cost.** Counting only the judge's verdicts
+before sending measures what the model first wrote, not what reached the
+person. If the miner were given the transcript's tool arguments, a page's
+or an email's words typed into a search could steer it. A shared results
+note written from each person's dream would carry one person's facts into
+a workspace they don't belong to, so the log carries counts only.
+
+**Tests.** `apps/mcp/test/agentHandbackMiner.test.mjs`, on transcripts
+written by the real `openTranscript`: turns read back with routines left
+out, the note, tool names but never arguments, counts-only logging, no turn
+counted twice, and a failing judge. Sabotage record in its header.
