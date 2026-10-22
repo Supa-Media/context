@@ -55,7 +55,35 @@ email often". Either comes back if people miss it.
 
 **Old copies are never deleted for the person.** They are hidden from the
 tree, search and AI, kept in Download as folders, and the person may delete
-them from Settings. That is a separate change, recorded with it.
+them from Settings (`functions/oldCopies.ts`, `lib/oldCopies/`):
+
+- A copy is what says it is one: a note whose front matter `origin` is one
+  of the passes' (`gmail-sync`, `calendar-sync`, `google-chat-sync`,
+  `desktop-imessage-sync`, `communications-sync`), a contact page the
+  renderer made (`type: contact`, an `## Activity` section) with nothing
+  under `## Notes`, and a file in a mailbox's `attachments/`. Anything else
+  is the person's, wherever it sits: a note filed beside the mail stays, and
+  so does a contact page they wrote on. Its facts decide where they were
+  read at the note's version; otherwise its text is read.
+- Hiding is a row move to `.context/old-copies/<its path>`, as a trash is
+  (`trash: true` in `rowMove.ts`, allowed for either root by
+  `underHiddenRoot`): nothing is copied or erased, the note keeps its id and
+  bytes, and the name is plumbing, so every listing, search and AI read
+  drops it. An hourly pass (`oldCopies.catchUp`) looks through each keyed
+  personal workspace once, a page at a time, and counts what it hid for the
+  Settings page. A workspace not yet keyed waits until it is.
+- Download as folders, for the owner of the whole workspace, adds an
+  `Old copies/` folder holding each hidden note under its old name
+  (`listForExport`, `readForExport`). Nobody else is told they exist.
+- No timer erases them. The trash's emptying reads only `.context/trash`.
+  Delete the copies is the owner's own press, allowed once every copy was
+  hidden, so what goes is what the page counted; the rows go first, then the
+  bytes and editing history through the trash's bucket half
+  (`trashErasures`), and the audit names the owner.
+
+`apps/convex/__tests__/oldCopies/oldCopies.test.ts` fails if a person's own
+note or a contact page they wrote on is hidden, if a member can list or read
+the hidden copies, or if anything but the owner's Delete erases them.
 
 The cost of a "simplification" that turns a pass back on: the noise the owner
 removed comes back into every search and every AI's reading, and Tex has a

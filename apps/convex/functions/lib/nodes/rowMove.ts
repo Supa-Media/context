@@ -25,7 +25,8 @@
  * rules and so checks none: the trashed note keeps its rules at its own name
  * for Restore, and its links and pins stay where they are, as a trash made in
  * one go leaves them. The flag is refused unless one end of the move is under
- * `.context/trash`.
+ * `.context/trash`, or under `.context/old-copies`, where copies Context made
+ * of mail and the rest are hidden the same way (`oldCopies.ts`).
  */
 
 import type { Doc, Id } from "../../../_generated/dataModel";
@@ -39,7 +40,7 @@ import { followMovesForMembers } from "../placesFollow";
 import { markWebsiteMoved } from "../websites/routeChangeAt";
 import { freshenMeaningAfterActivity } from "../meaningFns/rows";
 import { folderChain, nameOf } from "./table";
-import { TRASH_ROOT } from "../fileOps/store";
+import { underHiddenRoot } from "../fileOps/store";
 import { isPlumbing } from "../privacy";
 import { refreshAccess } from "./accessBackfill";
 import { MAIN_ROLES, type MainRole, jobOfName } from "@context/shared/src/folderRoles.cjs";
@@ -188,7 +189,7 @@ export async function applyRowMove(
   if (!trash && (await privacyEtagOf(ctx, ws)) !== args.privacyEtag) return refuse("rules_changed");
   const mirror = await readerMirror(ctx, ws);
   if (invalidMove(from, to)) return refuse("invalid");
-  if (trash && !from.startsWith(`${TRASH_ROOT}/`) && !to.startsWith(`${TRASH_ROOT}/`)) return refuse("invalid");
+  if (trash && !underHiddenRoot(from) && !underHiddenRoot(to)) return refuse("invalid");
 
   const max = args.maxRows ?? ROW_MOVE_MAX;
   // `subtreeOf` counts the rows beneath; the name is one of the `max`, so `max - 1` of them may sit beneath it.

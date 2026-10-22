@@ -17,7 +17,7 @@ import { v } from "convex/values";
 export const trashTables = {
   trashErasures: defineTable({
     workspaceId: v.id("workspaces"),
-    /** `.context/trash/<stamp>`: the trash this erases. */
+    /** `.context/trash/<stamp>`: the trash this erases, or `.context/old-copies` for an owner's Delete (`oldCopies.ts`). */
     folder: v.string(),
     /** The note or folder that was trashed, as the audit names it. */
     path: v.string(),

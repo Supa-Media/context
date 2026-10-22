@@ -173,6 +173,7 @@ import type * as functions_searchTimings from "../functions/searchTimings.js";
 import type * as functions_trash from "../functions/trash.js";
 import type * as functions_trashEmptying from "../functions/trashEmptying.js";
 import type * as functions_trashedNotes from "../functions/trashedNotes.js";
+import type * as functions_oldCopies from "../functions/oldCopies.js";
 import type * as functions_treeChanges from "../functions/treeChanges.js";
 import type * as functions_treeSignals from "../functions/treeSignals.js";
 import type * as functions_vault from "../functions/vault.js";
@@ -373,6 +374,7 @@ declare const fullApi: ApiFromModules<{
   "functions/trash": typeof functions_trash;
   "functions/trashEmptying": typeof functions_trashEmptying;
   "functions/trashedNotes": typeof functions_trashedNotes;
+  "functions/oldCopies": typeof functions_oldCopies;
   "functions/treeChanges": typeof functions_treeChanges;
   "functions/treeSignals": typeof functions_treeSignals;
   "functions/usage": typeof functions_usage;

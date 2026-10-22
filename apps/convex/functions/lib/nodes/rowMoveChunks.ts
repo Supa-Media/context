@@ -48,7 +48,7 @@ import { internal } from "../../../_generated/api";
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { DatabaseReader, MutationCtx } from "../../../_generated/server";
 import { clearanceOf } from "../clearance";
-import { TRASH_ROOT } from "../fileOps/store";
+import { underHiddenRoot } from "../fileOps/store";
 import { canSee } from "../privacy";
 import { MAIN_ROLES, type MainRole } from "@context/shared/src/folderRoles.cjs";
 import { followMovesForMembers } from "../placesFollow";
@@ -146,7 +146,7 @@ export async function throughRowMoves(
     if (oldName === null && newName === null) continue;
     if (await liveRowAt(db, workspaceId, path)) return path;
     if (oldName !== null) return (await liveRowAt(db, workspaceId, oldName)) ? oldName : path;
-    if (move.to.startsWith(`${TRASH_ROOT}/`)) return path;
+    if (underHiddenRoot(move.to)) return path;
     return newName as string;
   }
   return path;
@@ -305,7 +305,7 @@ export async function moveRowPage(ctx: MutationCtx, id: Id<"rowMoves">): Promise
   }
   const rowsMode = (await accessSourceOf(ctx.db)) === "rows";
   // A restore comes out of the trash, which nobody sees; the caller judged it as a whole (`restoreTrashedPath`).
-  const judged = move.from.startsWith(`${TRASH_ROOT}/`) ? null : await rulesForReaders(ctx, ws);
+  const judged = underHiddenRoot(move.from) ? null : await rulesForReaders(ctx, ws);
   const clearance = clearanceOf(move.scope, move.grantedNames);
   const prefix = `${move.from}/`;
   const lower = move.cursor ?? prefix;
