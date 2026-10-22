@@ -68,6 +68,12 @@ export const stopped = internalQuery({
   },
 });
 
+interface NudgePage {
+  moves: { from: string; to: string; result: string }[];
+  cursor: string;
+  done: boolean;
+}
+
 export const nudge = internalAction({
   args: { cursor: v.optional(v.string()), dryRun: v.boolean() },
   returns: v.object({
@@ -77,7 +83,7 @@ export const nudge = internalAction({
     cursor: v.string(),
     done: v.boolean(),
   }),
-  handler: async (ctx, { cursor, dryRun }) => {
+  handler: async (ctx, { cursor, dryRun }): Promise<NudgePage> => {
     const page: {
       moves: { id: Id<"rowMoves">; from: string; to: string }[];
       cursor: string;
@@ -86,7 +92,7 @@ export const nudge = internalAction({
       internal.functions.folderNumbersNudge.stopped,
       cursor === undefined ? {} : { cursor },
     );
-    const moves = [];
+    const moves: NudgePage["moves"] = [];
     for (const move of page.moves) {
       if (dryRun) {
         moves.push({ from: move.from, to: move.to, result: "stopped" });
