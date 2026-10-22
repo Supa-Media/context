@@ -233,8 +233,8 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
 }
 
 /**
- * A like on Tex's ask from the person it asked, held ten seconds before it
- * goes as their yes, or taken back (`thumbs.ts`). Anyone else's is ignored:
+ * A like on Tex's ask from the person it asked, which goes at once as their
+ * yes (`thumbs.ts`). Anyone else's is ignored:
  * only the asker's yes can release what was held for them.
  */
 async function acceptThumb(storage: InboxStorage, message: GroupMessage, reaction: Reaction, now: number): Promise<"queued" | "ignored"> {
@@ -274,7 +274,7 @@ async function answersOpenAsk(storage: InboxStorage, message: GroupMessage, now:
 
 /** Answer every tagged message waiting, oldest first. Called from the alarm. */
 export async function drainGroup(storage: InboxStorage, deps: GroupDeps): Promise<void> {
-  // A 👍 that stayed its ten seconds joins the queue as the asker's answer.
+  // A 👍 on the ask joins the queue as the asker's answer.
   const thumb = await dueThumb<GroupMessage>(storage, deps.now(), GROUP_THUMB_KEY);
   if (thumb !== undefined) {
     const seq = ((await storage.get<number>("gseq")) ?? 0) + 1;

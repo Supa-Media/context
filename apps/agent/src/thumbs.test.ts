@@ -1,13 +1,13 @@
 /**
- * A thumbs up on an ask is the yes, once it has stayed ten seconds (Dev2,
- * 2026-10-21). `thumbs.ts`; the gateway's half is `thumbsUpIsYes`.
+ * A thumbs up on an ask is the yes, at once (Dev2, 2026-10-21; the ten-second
+ * wait removed 2026-10-22). `thumbs.ts`; the gateway's half is `thumbsUpIsYes`.
  *
  * ## Sabotage record
  *
  * Applied, suite run, named check observed failing, reverted.
  *
- *  1. `dueThumb` releasing at once (hold 0). → `waits ten seconds …` fails.
- *  2. `dropThumb` never deleting. → `taking it back inside ten seconds …` fails.
+ *  1. `THUMB_HOLD_MS` back at 10_000. → `goes at once …` fails.
+ *  2. `dropThumb` never deleting. → `taking it back before it goes …` fails.
  *  3. Group `acceptThumb` not checking the asker. → `only the asker's like …` fails.
  *  4. `onTheAsk` returning the reaction unchanged. → `a 👍 on the line above
  *     the ask is a 👍 on the ask …` fails.
@@ -112,21 +112,18 @@ describe("a thumbs up on an ask, one to one", () => {
     expect(holdsAsYes({ how: "Liked", words: ASK, removed: true })).toBe(false);
   });
 
-  it("waits ten seconds, then goes as the tapback it is, with the ask's words", async () => {
+  it("goes at once, as the tapback it is, with the ask's words", async () => {
     const storage = new MemoryStorage();
     const asks: Record<string, unknown>[] = [];
     const clock = { now: NOW };
     expect(await react(storage, tapback("t1", "Liked", ASK), NOW)).toBe("held");
-    clock.now = NOW + THUMB_HOLD_MS - 1;
-    await drain(storage, deps(asks, clock));
-    expect(asks).toHaveLength(0);
-    clock.now = NOW + THUMB_HOLD_MS;
+    expect(storage.alarms.at(-1)).toBe(NOW);
     await drain(storage, deps(asks, clock));
     expect(asks).toHaveLength(1);
     expect(asks[0]).toMatchObject({ question: "👍", quoted: ASK, tapback: "Liked" });
   });
 
-  it("taking it back inside ten seconds sends nothing", async () => {
+  it("taking it back before it goes sends nothing", async () => {
     const storage = new MemoryStorage();
     const asks: Record<string, unknown>[] = [];
     await react(storage, tapback("t1", "Liked", ASK), NOW);
@@ -165,7 +162,7 @@ describe("a thumbs up on an ask, one to one", () => {
     expect(asks).toHaveLength(1);
     expect(asks[0]).toMatchObject({ question: "👍", quoted: ASK, tapback: "Liked" });
 
-    // Taken back inside ten seconds, it is dropped by the words it was on. ("Sent." above was a reply with no ask.)
+    // Taken back before it goes, it is dropped by the words it was on. ("Sent." above was a reply with no ask.)
     await rememberAskReply(storage, [LINE_ABOVE, ASK], NOW + 15_000);
     await react(storage, tapback("t2", "Liked", LINE_ABOVE), NOW + 20_000);
     expect(await react(storage, tapback("t3", "Liked", LINE_ABOVE, true), NOW + 22_000)).toBe("dropped");
@@ -226,7 +223,7 @@ describe("a thumbs up on an ask, in a group", () => {
     });
   });
 
-  it("only the asker's like, held ten seconds, goes, with the ask's words", async () => {
+  it("only the asker's like goes, at once, with the ask's words", async () => {
     const storage = new MemoryStorage();
     const asks: Record<string, unknown>[] = [];
     const clock = { now: 0 };
@@ -236,10 +233,7 @@ describe("a thumbs up on an ask, in a group", () => {
       msg(`Liked “${groupAsk}”`, { from, messageId: id, reaction: { how: "Liked", words: groupAsk, ...(removed ? { removed: true as const } : {}) } });
     expect(await acceptGroup(storage, like(BO, "bo"), 1_000)).toBe("ignored");
     expect(await acceptGroup(storage, like(ADA, "ada"), 1_000)).toBe("queued");
-    clock.now = 1_000 + THUMB_HOLD_MS - 1;
-    await drainGroup(storage, groupDeps(asks, clock, { answer: "Sent." }));
-    expect(asks).toHaveLength(1);
-    clock.now = 1_000 + THUMB_HOLD_MS;
+    clock.now = 1_000;
     await drainGroup(storage, groupDeps(asks, clock, { answer: "Sent." }));
     expect(asks).toHaveLength(2);
     expect(asks[1]).toMatchObject({ question: "👍", quoted: groupAsk, tapback: "Liked" });

@@ -216,7 +216,7 @@ export async function react(
   now: number,
 ): Promise<"queued" | "duplicate" | "full" | "noted" | "preview" | "held" | "dropped"> {
   const { reaction, kind: _kind, ...message } = inbound;
-  // A 👍 on an ask waits ten seconds before it goes, and taking it back drops it (`thumbs.ts`).
+  // A 👍 on an ask goes on the next alarm, at once; taking it back before then drops it (`thumbs.ts`).
   if (reaction.removed) return (await dropThumb(storage, reaction.words)) ? "dropped" : "noted";
   // On the line above an ask, it is a 👍 on the ask; taking it back still names the line it was on.
   const onAsk = await onTheAsk(storage, reaction, now);
@@ -238,7 +238,7 @@ export async function react(
 
 /** Answer everything pending, oldest first. Called from the alarm. */
 export async function drain(storage: InboxStorage, deps: InboxDeps): Promise<void> {
-  // A 👍 that stayed its ten seconds joins the queue as the tapback it is.
+  // A 👍 on an ask joins the queue as the tapback it is.
   const thumb = await dueThumb<Message>(storage, deps.now());
   if (thumb !== undefined) await accept(storage, thumb, deps.now());
   const pending = await fold(storage, await storage.list<Pending>({ prefix: "pending:" }));
