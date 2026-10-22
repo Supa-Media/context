@@ -270,3 +270,46 @@ describe("a 👍 is promoted to the ask only on a long enough, truncated match",
     expect(got.words).toBe(ASK_TEXT);
   });
 });
+
+/*
+  2026-10-22: Dev2 gave a 👍 to "Before I do that, I need your OK: post in
+  Slack … Give it a 👍 and I'll go ahead." and nothing happened. The quote a
+  tapback carries comes back through Messages and the line, and its quotes,
+  apostrophes, emoji or a cut-off ending need not match the text as sent;
+  the gateway compares exactly. A like on the ask is now sent on as the ask
+  in the words it was sent in.
+*/
+describe("a 👍 on the ask itself goes on in the words the ask was sent in", () => {
+  const SLACK_ASK =
+    "Before I do that, I need your OK: send Jo Park a Slack message: \"Hey Jo, I built the Slack connection to my app and I'm just testing it.\". Give it a 👍 and I'll go ahead.";
+  const like = (words: string) => ({ how: "Liked" as const, words });
+
+  it("takes a quote whose quotes, apostrophes and emoji came back changed", async () => {
+    const storage = new MemoryStorage();
+    await rememberAskReply(storage, ["I found him this time.", SLACK_ASK], 1_000);
+    const changed = SLACK_ASK.replace(/"Hey/, "“Hey").replace("I'm", "I’m").replace("👍", "👍🏽");
+    const got = await onTheAsk(storage, like(changed), 2_000);
+    expect(got.words).toBe(SLACK_ASK);
+    expect(holdsAsYes(got)).toBe(true);
+  });
+
+  it("takes a quote cut short with three dots", async () => {
+    const storage = new MemoryStorage();
+    await rememberAskReply(storage, [SLACK_ASK], 1_000);
+    const got = await onTheAsk(storage, like(`${SLACK_ASK.slice(0, 80)}...`), 2_000);
+    expect(got.words).toBe(SLACK_ASK);
+  });
+
+  it("never takes a like on an older ask that only starts the same way", async () => {
+    const storage = new MemoryStorage();
+    await rememberAskReply(storage, [SLACK_ASK], 1_000);
+    const older = "Before I do that, I need your OK: send Jo Park a Slack message: \"Running late\". Give it a 👍 and I'll go ahead.";
+    const got = await onTheAsk(storage, like(older), 2_000);
+    expect(got.words).toBe(older);
+  });
+
+  it("holds a like on the standing-forward ask too", () => {
+    expect(holdsAsYes(like("Here's what I'd keep doing:\n\nFrom now on, forward receipts…"))).toBe(true);
+    expect(holdsAsYes(like("Here’s the email I’d send:\n\nTo: jo@example.test"))).toBe(true);
+  });
+});

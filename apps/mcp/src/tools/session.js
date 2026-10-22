@@ -39,6 +39,7 @@ import { recordRead } from "../privacy/egress.js";
 import { createPending, findPending, takeDone } from "./approvals.js";
 import { HELD_GATES } from "./heldGates.js";
 import { irreversibleOf } from "./irreversible.js";
+import { slackPlace } from "./connectors.js";
 import { wordsOfTurn } from "../agent/conversation.js";
 import { actsOnOwnAccount } from "../agent/groupTurn.js";
 import { wideningOf } from "../privacy/widening.js";
@@ -103,8 +104,11 @@ async function egressGate(suppliedName, supplied, args, { store, session, target
     const refused = await judgedGate(name, suppliedName, args, { store, session, target, targetStore, into, personSaid });
     if (refused) return refused;
   }
-  const held = irreversibleOf(name, args, { into: typeof target.workspaceSlug === "string" ? `@${target.workspaceSlug}` : null });
-  if (held === null || session.egress?.approved === true) return null;
+  if (session.egress?.approved === true) return null;
+  // A Slack post is asked about by the name Slack gives its channel or person, never an id.
+  const slack = name === "slack_api" ? await slackPlace(targetStore ?? store, args) : null;
+  const held = irreversibleOf(name, args, { into: typeof target.workspaceSlug === "string" ? `@${target.workspaceSlug}` : null, slack });
+  if (held === null) return null;
   const { because, ...claim } = held;
   const userId = session.actorUserId;
   const released = await takeDone(store, {
@@ -144,8 +148,9 @@ async function egressGate(suppliedName, supplied, args, { store, session, target
   return {
     ...toolError(
       texting
-        ? `Not done yet: this would ${claim.summary}. It needs the person's OK first, because ${because}. ` +
-            "Tell them plainly what you want to do; they will be asked to reply YES to allow it, and it runs then. " +
+        ? `Held for their 👍, and nothing failed: this would ${claim.summary}. It needs the person's OK first, because ${because}. ` +
+            "Right after your answer, in this same reply, they are shown exactly this and asked once. " +
+            "Say in one short line what you'd do, without repeating the message or asking for their OK or 👍 yourself. " +
             "Don't call this again in this turn."
         : `Not done: this would ${claim.summary}. It needs the person's approval first, because ${because}. ` +
             "They can approve it in the Context app. " +

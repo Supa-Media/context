@@ -30,11 +30,21 @@ How it works:
   without an ask forgets them. Any taken-back like now reaches the inbox, so
   taking back one on that line drops it too.
 - **The gateway decides** (`thumbsUpIsYes`). The tapback counts as the yes
-  only when its words are the ask for exactly what is armed now, compared the
-  way a quote is read (`scrubbed`, `quoted.js`), with a trailing ellipsis
-  allowed. A like on an older ask, or on any other text, goes to the model as
+  only when its words are the ask for exactly what is armed now, compared on
+  letters and digits only, with a cut-off ending allowed. A like on an older ask, or on any other text, goes to the model as
   an ordinary tapback, which disarms what was waiting, as any other text
   does.
+
+- **The quote is not trusted to come back character for character**
+  (2026-10-22). Dev2 gave a 👍 to a Slack ask and nothing happened: a
+  tapback's quote travels back through Messages and the line, and its
+  quotes, apostrophes, emoji or a cut-off ending need not match what was
+  sent. A like that matches (letters and digits) a text of the last
+  ask-carrying reply, the ask itself included, goes on to the gateway as the
+  ask in the exact words the Worker sent, and the gateway compares the same
+  way. Every tapback is logged (`event: "tapback"`, its outcome and length,
+  never its words), so a 👍 that reached nothing can be told from one that
+  never arrived.
 
 What a simplification would cost: releasing on any like makes a 👍 on "Dinner
 is booked" send an email; "always" means any text of the reply that asked,

@@ -9,14 +9,21 @@
 
 import { v } from "convex/values";
 import { internalQuery } from "../_generated/server";
-import { folderRole, plainFolderName } from "@context/shared/src/folderRoles.cjs";
+import {
+  MAIN_ROLES,
+  folderRole,
+  plainFolderName,
+} from "@context/shared/src/folderRoles.cjs";
+import type { Doc, Id } from "../_generated/dataModel";
+import type { DatabaseReader } from "../_generated/server";
 
 /** Rows read under one numbered folder: past the biggest Inbox, a bound on the query. */
 const SCAN = 12_000;
 /** Workspaces one page reads. */
 const PAGE = 25;
 
-const builtIn = (path: string): string | null => (!path.includes("/") && folderRole(path) !== null ? path : null);
+const builtIn = (path: string): string | null =>
+  !path.includes("/") && folderRole(path) !== null ? path : null;
 
 const moveValidator = v.object({
   from: v.union(v.string(), v.null()),
@@ -42,22 +49,137 @@ const folderValidator = v.object({
   scanCapped: v.boolean(),
 });
 
+const jobValidator = v.object({
+  role: v.string(),
+  /** The row's name when it is a built-in name, else null. */
+  name: v.union(v.string(), v.null()),
+  depth: v.number(),
+  atRoot: v.boolean(),
+  gone: v.boolean(),
+  /** The parent's role, or null (no parent, or one doing no job). */
+  parentRole: v.union(v.string(), v.null()),
+  files: v.number(),
+});
+
+const plainValidator = v.object({
+  path: v.string(),
+  kind: v.string(),
+  role: v.union(v.string(), v.null()),
+  gone: v.boolean(),
+  /** Whether the row says it has no parent, as a top-level row must. */
+  noParent: v.boolean(),
+});
+
+async function filesUnder(
+  db: DatabaseReader,
+  workspaceId: Id<"workspaces">,
+  path: string,
+): Promise<{
+  files: number;
+  unkeyed: number;
+  folders: number;
+  capped: boolean;
+}> {
+  let files = 0;
+  let unkeyed = 0;
+  let folders = 0;
+  let scanned = 0;
+  const prefix = `${path}/`;
+  for await (const below of db
+    .query("nodes")
+    .withIndex("by_workspace_path", (q) =>
+      q.eq("workspaceId", workspaceId).gt("path", prefix),
+    )) {
+    if (!below.path.startsWith(prefix)) break;
+    if (scanned >= SCAN) return { files, unkeyed, folders, capped: true };
+    scanned += 1;
+    if (below.goneAt !== undefined) continue;
+    if (below.kind === "folder") folders += 1;
+    else {
+      files += 1;
+      if (below.storageKey === undefined) unkeyed += 1;
+    }
+  }
+  return { files, unkeyed, folders, capped: false };
+}
+
+async function jobsOf(db: DatabaseReader, workspaceId: Id<"workspaces">) {
+  const jobs = [];
+  for (const role of [...MAIN_ROLES, "meetings"]) {
+    const rows: Doc<"nodes">[] = await db
+      .query("nodes")
+      .withIndex("by_workspace_role", (q) =>
+        q.eq("workspaceId", workspaceId).eq("role", role),
+      )
+      .take(4);
+    for (const row of rows) {
+      const parent =
+        row.parentId === undefined ? null : await db.get(row.parentId);
+      jobs.push({
+        role,
+        name: folderRole(row.name) !== null ? row.name : null,
+        depth: row.path.split("/").length,
+        atRoot: row.parentId === undefined,
+        gone: row.goneAt !== undefined,
+        parentRole: parent?.role ?? null,
+        files: (await filesUnder(db, workspaceId, row.path)).files,
+      });
+    }
+  }
+  return jobs;
+}
+
+async function plainRowsOf(db: DatabaseReader, workspaceId: Id<"workspaces">) {
+  const rows = [];
+  for (const path of MAIN_ROLES as readonly string[]) {
+    const row = await db
+      .query("nodes")
+      .withIndex("by_workspace_path", (q) =>
+        q.eq("workspaceId", workspaceId).eq("path", path),
+      )
+      .first();
+    if (row === null) continue;
+    rows.push({
+      path,
+      kind: row.kind,
+      role: row.role ?? null,
+      gone: row.goneAt !== undefined,
+      noParent: row.parentId === undefined,
+    });
+  }
+  return rows;
+}
+
 export const page = internalQuery({
   args: { cursor: v.optional(v.string()) },
   returns: v.object({
-    workspaces: v.array(v.object({ at: v.number(), moves: v.array(moveValidator), otherMoves: v.number(), numbered: v.array(folderValidator) })),
+    workspaces: v.array(
+      v.object({
+        at: v.number(),
+        moves: v.array(moveValidator),
+        otherMoves: v.number(),
+        numbered: v.array(folderValidator),
+        jobs: v.array(jobValidator),
+        plain: v.array(plainValidator),
+      }),
+    ),
     cursor: v.string(),
     done: v.boolean(),
   }),
   handler: async (ctx, { cursor }) => {
     const now = Date.now();
-    const result = await ctx.db.query("workspaces").paginate({ cursor: cursor ?? null, numItems: PAGE });
+    const result = await ctx.db
+      .query("workspaces")
+      .paginate({ cursor: cursor ?? null, numItems: PAGE });
     const workspaces = [];
     for (const [at, workspace] of result.page.entries()) {
       const workspaceId = workspace._id;
       const moves = [];
       let otherMoves = 0;
-      for (const move of await ctx.db.query("rowMoves").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).take(50)) {
+      for (const move of await ctx.db
+        .query("rowMoves")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .take(50)) {
         const from = builtIn(move.from);
         const to = builtIn(move.to);
         if (from === null && to === null) {
@@ -79,7 +201,9 @@ export const page = internalQuery({
       const roots = (
         await ctx.db
           .query("nodes")
-          .withIndex("by_parent_name", (q) => q.eq("workspaceId", workspaceId).eq("parentId", undefined))
+          .withIndex("by_parent_name", (q) =>
+            q.eq("workspaceId", workspaceId).eq("parentId", undefined),
+          )
           .take(2_000)
       ).filter((row) => row.goneAt === undefined);
       const numbered = [];
@@ -87,39 +211,33 @@ export const page = internalQuery({
         if (row.kind !== "folder") continue;
         const plain = plainFolderName(row.name);
         if (plain === null) continue;
-        const twin = roots.find((other) => other._id !== row._id && other.name.toLowerCase() === plain.toLowerCase());
-        let files = 0;
-        let unkeyedFiles = 0;
-        let folders = 0;
-        let scanned = 0;
-        let scanCapped = false;
-        const prefix = `${row.path}/`;
-        for await (const below of ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).gt("path", prefix))) {
-          if (!below.path.startsWith(prefix)) break;
-          if (scanned >= SCAN) {
-            scanCapped = true;
-            break;
-          }
-          scanned += 1;
-          if (below.goneAt !== undefined) continue;
-          if (below.kind === "folder") folders += 1;
-          else {
-            files += 1;
-            if (below.storageKey === undefined) unkeyedFiles += 1;
-          }
-        }
+        const twin = roots.find(
+          (other) =>
+            other._id !== row._id &&
+            other.name.toLowerCase() === plain.toLowerCase(),
+        );
+        const under = await filesUnder(ctx.db, workspaceId, row.path);
         numbered.push({
           name: row.name,
           role: row.role ?? null,
           plainTaken: twin !== undefined,
           plainRole: twin?.role ?? null,
-          files,
-          unkeyedFiles,
-          folders,
-          scanCapped,
+          files: under.files,
+          unkeyedFiles: under.unkeyed,
+          folders: under.folders,
+          scanCapped: under.capped,
         });
       }
-      if (moves.length > 0 || otherMoves > 0 || numbered.length > 0) workspaces.push({ at, moves, otherMoves, numbered });
+      if (moves.length > 0 || otherMoves > 0 || numbered.length > 0) {
+        workspaces.push({
+          at,
+          moves,
+          otherMoves,
+          numbered,
+          jobs: await jobsOf(ctx.db, workspaceId),
+          plain: await plainRowsOf(ctx.db, workspaceId),
+        });
+      }
     }
     return { workspaces, cursor: result.continueCursor, done: result.isDone };
   },

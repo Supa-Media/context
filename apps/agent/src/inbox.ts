@@ -54,7 +54,7 @@ import { oweReadyText } from "./ready";
 import { clearTold, noteTold, owedTold } from "./told";
 import { rememberText } from "./threads";
 import { ackEmoji } from "./ackEmoji";
-import { answers, clearReactions, noteReaction, notedReactions, tapbackText } from "./reactions";
+import { answers, clearReactions, noteReaction, notedReactions, tapbackText, type Reaction } from "./reactions";
 import { dropThumb, dueThumb, holdsAsYes, holdThumb, onTheAsk, rememberAskReply } from "./thumbs";
 import { startTurn, steerInto } from "./steer";
 import { chatJobs, startJobs, steerJobs, type JobRun, type JobSteer } from "./jobs";
@@ -201,6 +201,11 @@ export async function accept(
   return "queued";
 }
 
+/** What became of a tapback, without its words: enough to tell a 👍 that reached nothing from one never sent. */
+function logTapback(reaction: Reaction, outcome: "held" | "answered" | "noted", promoted: boolean): void {
+  console.log(JSON.stringify({ event: "tapback", how: reaction.how, outcome, promoted, length: reaction.words.length }));
+}
+
 /**
  * A tapback (`reactions.ts`): one that answers something is queued as a text,
  * its words sent apart as the quote; any other is noted for the next turn.
@@ -218,8 +223,10 @@ export async function react(
   if (holdsAsYes(onAsk)) {
     const asked: Message = { kind: "message", ...message, text: tapbackText(onAsk.how), quoted: onAsk.words, tapback: onAsk.how };
     await holdThumb(storage, asked, reaction.words, now);
+    logTapback(reaction, "held", onAsk !== reaction);
     return "held";
   }
+  logTapback(reaction, answers(reaction) ? "answered" : "noted", false);
   if (answers(reaction)) {
     return accept(storage, { kind: "message", ...message, text: tapbackText(reaction.how), quoted: reaction.words, tapback: reaction.how }, now);
   }

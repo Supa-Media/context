@@ -14,7 +14,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { toolConnectApp, toolSlackApi, MAX_ANSWER_CHARS } from "../src/tools/connectors.js";
+import { slackPlace, toolConnectApp, toolSlackApi, MAX_ANSWER_CHARS } from "../src/tools/connectors.js";
 import { irreversibleOf } from "../src/tools/irreversible.js";
 import { groupWriteTools } from "../src/agent/groupTurn.js";
 import { toolDefinitions } from "../src/tools/registry.js";
@@ -95,4 +95,40 @@ test("a group turn is never offered Slack, since it connects for one person only
   const names = groupWriteTools(toolDefinitions()).map((tool) => tool.name);
   assert.ok(!names.includes("slack_api"));
   assert.ok(!names.includes("connect_app"));
+});
+
+/*
+  2026-10-22: Tex asked Dev2 to OK "post in Slack in U0FAKE0001: …". The
+  person is asked about a name, and the name comes from Slack, never the model.
+*/
+test("a held Slack post names the person or channel as Slack has it, never an id", async () => {
+  const asked = [];
+  const answers = {
+    "users.info": { ok: true, team: "Acme", body: { ok: true, user: { real_name: "Jo Park", profile: { display_name: "segun" } } } },
+    "conversations.info": { ok: true, team: "Acme", body: { ok: true, channel: { name: "general" } } },
+  };
+  const store = storeWith({ call: async (request) => (asked.push(request.method), answers[request.method]) });
+  const dm = { method: "chat.postMessage", args: { channel: "U0FAKE0001", text: "Just testing" } };
+  const place = await slackPlace(store, dm);
+  assert.deepEqual(place, { person: "Jo Park", team: "Acme" });
+  const held = irreversibleOf("slack_api", dm, { slack: place });
+  assert.equal(held.summary, 'send a Slack message to Jo Park (Acme): "Just testing"');
+  assert.doesNotMatch(held.summary, /U0FAKE0001/);
+
+  const posted = { method: "chat.postMessage", args: { channel: "C024BE91L", text: "Running late" } };
+  assert.match(irreversibleOf("slack_api", posted, { slack: await slackPlace(store, posted) }).summary, /^post in Slack in #general \(Acme\): "Running late"$/);
+
+  // A direct-message conversation names the person in it.
+  answers["conversations.info"] = { ok: true, team: "Acme", body: { ok: true, channel: { is_im: true, user: "U0FAKE0001" } } };
+  const im = { method: "chat.postMessage", args: { channel: "D0123ABCD", text: "Hi" } };
+  assert.equal((await slackPlace(store, im)).person, "Jo Park");
+
+  // Slack can't say: the id stays, and nothing is guessed. A read is never looked up.
+  const silent = storeWith({ call: async () => ({ ok: false, refused: "unavailable" }) });
+  assert.equal(await slackPlace(silent, dm), null);
+  asked.length = 0;
+  assert.equal(await slackPlace(store, { method: "conversations.history", args: { channel: "C024BE91L" } }), null);
+  assert.deepEqual(asked, []);
+  // The model's own words never name the place.
+  assert.equal(await slackPlace(store, { method: "chat.postMessage", args: { channel: "Mom", text: "x" } }), null);
 });
