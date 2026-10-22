@@ -68,6 +68,31 @@ describe("taking the numbers off built-in folders", () => {
     expect(after.storageKey).toBe(before.storageKey);
   });
 
+  test("a refused rename says which refusal it was, in words a public log may print", async () => {
+    const f = await keyedFixture();
+    const parentId = (await rowOf(f, "1-projects/launch"))._id;
+    await f.t.run(async (ctx) => {
+      await ctx.db.insert("nodes", {
+        workspaceId: f.ws,
+        path: "1-projects/launch/old-copy.md",
+        parentId,
+        name: "old-copy.md",
+        kind: "file",
+        etag: "e",
+        observedAt: 1,
+      } as never);
+    });
+
+    const counts = await run(f);
+
+    const keys = Object.keys(counts.refused);
+    expect(keys).toHaveLength(1);
+    expect(keys[0]).toMatch(/^CONFLICT: /);
+    expect(keys[0]).not.toContain("/");
+    expect(keys[0]).toMatch(/^[\x20-\x7e]+$/);
+    expect(await liveAt(f, "1-projects")).toBe(true);
+  });
+
   test("the folder keeps its job, so writers naming the old spelling still land in it", async () => {
     const f = await keyedFixture();
     const role = await roleAt(f, "1-projects");
