@@ -63,16 +63,36 @@ async function liveRootFolders(db: DatabaseReader, workspaceId: Id<"workspaces">
   return rows.filter((row) => row.kind === "folder" && row.goneAt === undefined && !inTrash(row));
 }
 
+/** Rows read past for one job's live folders: gone and trashed ones, before a bound on the loop ends it. */
+const JOB_ROWS_SCANNED = 200;
+
+/**
+ * Up to `limit` live folders outside the trash that carry `role`. A row keeps
+ * its job when it is tombstoned or trashed, and the index lists the oldest
+ * first, so taking a few and then filtering would miss the live folder of a
+ * job whose earlier rows went (a folder moved the old way, or trashed and
+ * made again) and the website would read as nowhere.
+ */
+export async function liveRowsDoing(
+  db: DatabaseReader,
+  workspaceId: Id<"workspaces">,
+  role: RowRole,
+  limit: number,
+): Promise<Doc<"nodes">[]> {
+  const rows: Doc<"nodes">[] = [];
+  let scanned = 0;
+  for await (const row of db.query("nodes").withIndex("by_workspace_role", (q) => q.eq("workspaceId", workspaceId).eq("role", role))) {
+    if (row.kind === "folder" && row.goneAt === undefined && !inTrash(row)) rows.push(row);
+    scanned += 1;
+    if (rows.length >= limit || scanned >= JOB_ROWS_SCANNED) break;
+  }
+  return rows;
+}
+
 /** The live rows that carry a job, wherever they are. */
 async function liveJobRows(db: DatabaseReader, workspaceId: Id<"workspaces">): Promise<Doc<"nodes">[]> {
   const rows: Doc<"nodes">[] = [];
-  for (const role of ROW_ROLES) {
-    const held = await db
-      .query("nodes")
-      .withIndex("by_workspace_role", (q) => q.eq("workspaceId", workspaceId).eq("role", role))
-      .take(4);
-    rows.push(...held.filter((row) => row.kind === "folder" && row.goneAt === undefined && !inTrash(row)));
-  }
+  for (const role of ROW_ROLES) rows.push(...(await liveRowsDoing(db, workspaceId, role, 4)));
   return rows;
 }
 

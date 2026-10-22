@@ -15,10 +15,13 @@ import {
   plainFolderName,
 } from "@context/shared/src/folderRoles.cjs";
 import type { Doc, Id } from "../_generated/dataModel";
+import { TRASH_ROOT } from "./lib/fileOps/store";
 import type { DatabaseReader } from "../_generated/server";
 
 /** Rows read under one numbered folder: past the biggest Inbox, a bound on the query. */
 const SCAN = 12_000;
+/** Rows shown for one job, oldest first: gone and trashed ones keep the job, so a few is not enough. */
+const JOB_ROWS_SHOWN = 12;
 /** Workspaces one page reads. */
 const PAGE = 25;
 
@@ -88,6 +91,8 @@ const jobValidator = v.object({
   depth: v.number(),
   atRoot: v.boolean(),
   gone: v.boolean(),
+  /** Under the trash: no longer doing its job, though the row keeps it. */
+  trashed: v.boolean(),
   /** The parent's role, or null (no parent, or one doing no job). */
   parentRole: v.union(v.string(), v.null()),
   files: v.number(),
@@ -143,13 +148,13 @@ async function filesUnder(
 
 async function jobsOf(db: DatabaseReader, workspaceId: Id<"workspaces">) {
   const jobs = [];
-  for (const role of [...MAIN_ROLES, "meetings"]) {
+  for (const role of [...MAIN_ROLES, "meetings", "website", "tex"]) {
     const rows: Doc<"nodes">[] = await db
       .query("nodes")
       .withIndex("by_workspace_role", (q) =>
         q.eq("workspaceId", workspaceId).eq("role", role),
       )
-      .take(4);
+      .take(JOB_ROWS_SHOWN);
     for (const row of rows) {
       const parent =
         row.parentId === undefined ? null : await db.get(row.parentId);
@@ -159,6 +164,7 @@ async function jobsOf(db: DatabaseReader, workspaceId: Id<"workspaces">) {
         depth: row.path.split("/").length,
         atRoot: row.parentId === undefined,
         gone: row.goneAt !== undefined,
+        trashed: row.path.startsWith(`${TRASH_ROOT}/`),
         parentRole: parent?.role ?? null,
         files: (await filesUnder(db, workspaceId, row.path)).files,
       });

@@ -39,6 +39,7 @@ import type { Doc, Id } from "../../../_generated/dataModel";
 import type { ActionCtx, DatabaseReader } from "../../../_generated/server";
 import { ROW_ROLES, plainFolderName } from "@context/shared/src/folderRoles.cjs";
 import type { OperationResult } from "../filesFns/operationTypes";
+import { liveRowsDoing } from "./folderJobs";
 
 /** Root rows read per workspace: far past any real root, a bound on a loop. */
 const ROOT_ROWS = 2_000;
@@ -102,12 +103,8 @@ export async function planFolderNumbers(db: DatabaseReader, workspaceId: Id<"wor
     if (row.kind === "folder" && plainFolderName(row.name) !== null) candidates.set(row._id, row);
   }
   for (const role of ROW_ROLES) {
-    const held = await db
-      .query("nodes")
-      .withIndex("by_workspace_role", (q) => q.eq("workspaceId", workspaceId).eq("role", role))
-      .take(4);
-    for (const row of held) {
-      if (row.kind === "folder" && row.goneAt === undefined && plainFolderName(row.name) !== null) candidates.set(row._id, row);
+    for (const row of await liveRowsDoing(db, workspaceId, role, 4)) {
+      if (plainFolderName(row.name) !== null) candidates.set(row._id, row);
     }
   }
   // The folder doing a job claims the plain name before a stray of the same job's spelling.
