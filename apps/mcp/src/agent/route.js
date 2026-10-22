@@ -292,11 +292,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   if (group !== null || job?.tainted) markUntrusted(ledger); // a job planned after a read from outside still carries it
   const background = chatTurn ? backgroundSession({ running: runningJobsOf(body.running), job, now: received }) : null;
   session.egress.turn = runner ? { note: routine?.body ?? "" } : { history, question }; // the sharing judge's
-  // Their typed yes, with nothing armed, to Tex's last text offering a held change in its own words: the yes is to those words (`tools/likedPreview.js`).
-  if (group === null && session.egress.texting && session.egress.liked === undefined && approvalVerdict(question) === "approve") {
-    const offer = lastOffer(history);
-    if (offer !== null) session.egress.liked = offer;
-  }
+  // A typed yes, nothing armed, to Tex's last text offering a held change in its own words (`tools/likedPreview.js`).
+  if (group === null && session.egress.liked === undefined && approvalVerdict(question) === "approve") session.egress.liked = lastOffer(history) ?? undefined;
 
   /*
     The Mail checker reads this thread's texts and nothing else the turn read
