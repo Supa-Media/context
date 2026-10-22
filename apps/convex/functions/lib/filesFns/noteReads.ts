@@ -86,7 +86,7 @@ export async function syncManifestHandler(
     workspaceId: Id<"workspaces">;
     cursor?: string;
     folder?: string;
-    /** `"tree"`: read the Convex tree where it serves (`treeOps.ts`). */
+    /** Accepted for older clients and ignored: the tree answers every manifest (`lib/nodes/treeReads.ts`). */
     source?: "tree";
   },
 ): Promise<Extract<OperationResult, { kind: "manifest" }>> {
@@ -104,7 +104,7 @@ export async function syncManifestHandler(
       kind: "manifest",
       ...(args.cursor === undefined ? {} : { cursor: args.cursor }),
       ...(args.folder === undefined ? {} : { folder: args.folder }),
-      ...(args.source === undefined ? {} : { source: args.source }),
+      source: "tree",
     },
   });
   return result as Extract<OperationResult, { kind: "manifest" }>;

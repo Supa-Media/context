@@ -91,20 +91,8 @@ function bucket(): MemoryStore & FileStore {
 
 describe("which store a walk reads", () => {
   test("a tree walk and the map never reach here: the barrier answers them from the Convex tree", () => {
-    for (const operation of [{ kind: "manifest", source: "tree" }, { kind: "workspaceGraph" }, { kind: "notePaths" }, { kind: "folderPaths" }, { kind: "folderNotes" }, { kind: "chaosScore" }]) {
+    for (const operation of [{ kind: "manifest", source: "tree" }, { kind: "manifest" }, { kind: "manifest", cursor: "a" }, { kind: "workspaceGraph" }, { kind: "notePaths" }, { kind: "folderPaths" }, { kind: "folderNotes" }, { kind: "chaosScore" }]) {
       expect(isTreeRead(operation), operation.kind).toBe(true);
-    }
-    expect(isTreeRead({ kind: "manifest" })).toBe(false);
-  });
-
-  test("a Publish's walk reads the bucket, and starts no sweep but the Convex tree's", async () => {
-    for (const operation of [{ kind: "manifest" }, { kind: "manifest", cursor: "a" }]) {
-      for (const served of [true, false]) {
-        const fake = fakeCtx({ served });
-        const store = bucket();
-        expect(await ops.manifestSource(fake.ctx, { ...ARGS, operation }, store)).toEqual({ store, source: "bucket" });
-        expectNoD1(fake);
-      }
     }
   });
 });

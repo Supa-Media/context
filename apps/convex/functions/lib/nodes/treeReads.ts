@@ -26,9 +26,10 @@
  * workspace with no bucket bound throws `TreeUnbound`, which the barrier
  * answers as `STORAGE_NOT_CONNECTED`.
  *
- * A `manifest` without `source: "tree"` is not here: it is the one walk that
- * still lists the bucket (`fileOps/syncManifest.ts`). No website reads it: a
- * website scan, Publish included, lists the tree too (`docs/decisions/websites.md`).
+ * Every `manifest` is here, for every caller: no walk lists the bucket for
+ * which notes exist, and each entry's etag is the version `readNote` returns
+ * for it (the row's). A website scan, Publish included, lists the tree too
+ * (`docs/decisions/websites.md`).
  */
 
 import { audienceOfNames } from "../pinnedReaders";
@@ -47,13 +48,13 @@ import { factChaosSource, factPropSource } from "./factSources";
 import { scheduleFactFill } from "./factFill";
 import { attachLinkTable, convexLinkTable } from "./linkTable";
 import { notServed, readinessAndKick, servedStoreOrLoading } from "./treeLoading";
+import { NODE_PRIVACY_KEY } from "./table";
 
 const TREE_READS = new Set(["list", "notePaths", "folderPaths", "workspaceGraph", "visiblePaths", "folderNotes", "chaosScore"]);
 
 /** Whether the tree answers this operation, with no bucket credential opened. */
-export function isTreeRead(operation: { kind: string; source?: unknown }): boolean {
-  if (operation.kind === "manifest") return operation.source === "tree";
-  return TREE_READS.has(operation.kind);
+export function isTreeRead(operation: { kind: string }): boolean {
+  return operation.kind === "manifest" || TREE_READS.has(operation.kind);
 }
 
 type ReadArgs = {
@@ -117,7 +118,12 @@ async function manifestPage(ctx: ActionCtx, args: ReadArgs, clearance: Clearance
     : null;
   const served = await servedStoreOrLoading(ctx, args.workspaceId, audienceOfNames(args.grantedNames));
   const result = await run(served, clearance, args.operation, args.workspaceId);
-  return { ...result, source: "nodes", ...(start === null ? {} : start) } as OperationResult;
+  // `privacy.md` is the rules the tree holds, not a note, and no bucket layout
+  // has it as one (non-negotiable 3), so it is never a manifest entry here.
+  const page = result.kind === "manifest"
+    ? { ...result, entries: result.entries.filter((entry) => entry.path !== NODE_PRIVACY_KEY) }
+    : result;
+  return { ...page, source: "nodes", ...(start === null ? {} : start) } as OperationResult;
 }
 
 /**
