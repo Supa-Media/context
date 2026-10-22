@@ -21,6 +21,8 @@
  *     → "an offer with nothing held is sent back; once the call is held, it goes" fails.
  *  7. `wrapWeb` not marking a call as tried (2026-10-22).
  *     → "\"I couldn't open it\" with the web untried gets one more round…" fails.
+ *  8. `offersAHeldChange` without `CALENDAR_ASK` (2026-10-22).
+ *     → "a calendar change asked about in Tex's own words…" fails.
  */
 
 import assert from "node:assert/strict";
@@ -105,6 +107,15 @@ test("an offer of a calendar change or an email, in words, is read as one; an of
   assert.ok(offersAHeldChange("Here's the message as it would go:\n\n“Hey Jo, testing.”\n\nSay yes and I'll try sending it again."));
   assert.ok(!offersAHeldChange("Say the word and I'll look it up."));
   assert.ok(!offersAHeldChange("I'll add it once you say yes below."));
+});
+
+test("a calendar change asked about in Tex's own words, with no question, is an offer (2026-10-22 5:04 PM)", () => {
+  const said = "Sunday, November 1, 3 to 5 pm, at Bethesda. Say yes and I’ll add it.";
+  assert.ok(offersAHeldChange(said));
+  assert.deepEqual(offeredKinds(said).map((entry) => entry.tool), ["calendar_event"]);
+  assert.ok(offersAHeldChange("Friday at 2 pm works. Give it a 👍 and I'll put it on your calendar."));
+  assert.ok(!offersAHeldChange("Say yes and I'll add it to your to-do list for Friday."));
+  assert.ok(!offersAHeldChange("Say the word and I'll add more detail."));
 });
 
 test("a preview in Tex's own words, or its own ask for a yes or 👍, is an offer too (2026-10-21 2:25 PM)", () => {
@@ -214,4 +225,14 @@ test("an answer backed by a write that went through goes as it is, in one round"
   const result = await turn(ai, claims, async () => ({ content: [{ type: "text", text: "Saved todo.md." }] }));
   assert.equal(result.answer, "It's on your to-do list now.");
   assert.equal(ai.calls.length, 2);
+});
+
+// Dev2, 2026-10-22: "the 2 messages from Tex should be merged into 1". The model's line about what it held goes; news stays.
+test("the model's one line about what it held is folded into the ask; anything else stays above it", async () => {
+  const { answerWithAsk } = await import("../src/agent/textedApprovals.js");
+  const ask = "Here's the email I'd send:\n\nTo: sayo@example.test\nSubject: Hi\n\nHello.\n\nGive it a 👍 and I'll send it.";
+  assert.equal(answerWithAsk("Drafted it again, the same joke note to Sayo from seyi@example.test", ask, []), ask);
+  assert.equal(answerWithAsk("I drafted the reply to Jo.", ask, []), ask);
+  assert.equal(answerWithAsk("Her quotes were for 6:30, so she may send a new one for 7.", ask, []), `Her quotes were for 6:30, so she may send a new one for 7.\n\n${ask}`);
+  assert.equal(answerWithAsk("Drafted it. Do you also want me to cc Sam?", ask, []), `Drafted it. Do you also want me to cc Sam?\n\n${ask}`);
 });

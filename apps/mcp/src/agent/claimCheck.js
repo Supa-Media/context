@@ -77,6 +77,17 @@ const PREVIEW_LINE = /^\s*(?:to|cc|subject|forward(?:ing)? of|fwd)\s*:/im;
 const YES_ASK = /\b(?:say|reply|text|answer|send)\s+(?:yes|ok|okay|go)\b|\bsay the word\b|\bjust say\b|\blet me know (?:and|if)\b|\bgive (?:it|this|me) a\b|\u{1F44D}/iu;
 /** What a yes or 👍 might be asked about that only a held call can make: "sending it again" too. */
 const HELD_THING = /\b(?:send(?:ing)?|email(?:ing)?|forward(?:ing)?|calendar|schedul(?:e|ing)|book(?:ing)?|fil(?:e|ing)|bug|report|slack|dm|post(?:ing)?)\b/i;
+/*
+  A calendar change asked for in the answer's own words: "Sunday, November 1,
+  3 to 5 pm, at Bethesda. Say yes and I'll add it." (2026-10-22 5:04 PM). The
+  verb was "add", which `HELD_THING` doesn't name, so nothing was held, their
+  "yes" reached a model that only then raised the hold, and they were asked a
+  second time for a 👍. "Add" with a day or time is a calendar change unless
+  it names their own list or notes.
+*/
+const CALENDAR_ASK = {
+  test: (said) => CALENDAR_CHANGE.test(said) && WHEN.test(said) && (/\bcalendar\b/i.test(said) || !NOT_CALENDAR.test(said)),
+};
 /**
  * A Slack message offered in the answer's own words (2026-10-22: "I'd DM Jo
  * on Acme Slack: …", with nothing held, so the 👍 on it reached nothing).
@@ -107,6 +118,14 @@ export function offeredKinds(answer) {
 
 /** The notice for an offer of these kinds (`offeredKinds`). */
 export function offerNotice(kinds = OFFER_KINDS) {
+  // Their own calendar takes no yes (the owner, 2026-10-22): the offer is made, not asked about.
+  if (kinds.length === 1 && kinds[0].tool === "calendar_event") {
+    return (
+      "Before this goes: you offered a change to their calendar in your own words and didn't make it. " +
+      "A change to their own calendar needs no yes: make it now with calendar_event, exactly as you offered it, then say in one short line that it's done. " +
+      "Ask first only if they asked you to check with them, or something you need is missing. If you offered something else, send your answer again as it was."
+    );
+  }
   const what = joinOr(kinds.map((entry) => entry.kind));
   const calls = joinOr(kinds.map((entry) => entry.tool));
   return (
@@ -248,11 +267,17 @@ export function claimsAChange(answer) {
 export function offersAHeldChange(answer) {
   const said = String(answer ?? "");
   if (PREVIEW_LINE.test(said) || SLACK_OFFER.test(said)) return true;
-  if (YES_ASK.test(said) && HELD_THING.test(said)) return true;
+  if (YES_ASK.test(said) && (HELD_THING.test(said) || CALENDAR_ASK.test(said))) return true;
   for (const [, offered] of said.matchAll(OFFER)) {
     if ((CALENDAR_CHANGE.test(offered) && WHEN.test(offered) && (/\bcalendar\b/i.test(offered) || !NOT_CALENDAR.test(offered))) || EMAIL_SEND.test(offered)) return true;
   }
   return false;
+}
+
+/** Tex's last text, when it offered a held change in its own words; null otherwise. */
+export function lastOffer(history) {
+  const said = (Array.isArray(history) ? history : []).filter((turn) => turn?.role === "assistant" && typeof turn.text === "string").at(-1)?.text;
+  return typeof said === "string" && offersAHeldChange(said) ? said : null;
 }
 
 /** Whether their text asks never to be texted about something. */

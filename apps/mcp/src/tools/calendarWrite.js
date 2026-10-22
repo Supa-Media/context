@@ -3,9 +3,9 @@
  * person's own primary Google Calendar
  * (`docs/decisions/communications/calendar-writes.md`).
  *
- * This handler only ever runs for a change the person said yes to, word for
- * word: every call is held by `calendarGate.js` first, and only the approved
- * replay reaches here. The control plane finds the event, holds the limits and
+ * Every call passes `calendarGate.js` first: Tex's change to the person's own
+ * calendar runs at once (the owner, 2026-10-22), and another AI's only as the
+ * replay of one they approved. The control plane finds the event, holds the limits and
  * makes the change (`apps/convex/functions/lib/gatewayRoutes/calendarWrite.ts`).
  */
 

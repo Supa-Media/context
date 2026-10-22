@@ -46,3 +46,38 @@ export function likedPreviewAllows(session, args, place) {
   egress.liked = null;
   return true;
 }
+
+/*
+  THE SAME FOR AN EMAIL, AND FOR A TYPED YES (Dev2, 2026-10-22, "FIX
+  THISSSSSS"). Tex offered a change in its own words with nothing held ("Say
+  yes and I'll add it"); their "yes" reached a model that only then raised the
+  hold, and they were asked again for a 👍. The claim check now turns such an
+  offer into a real hold before it goes (`agent/claimCheck.js`), and their own
+  calendar takes no yes at all (`calendarGate.js`); this is for an email whose
+  offer the check does not catch.
+
+  `session.egress.liked` holds the words they agreed to: those they 👍'd, or,
+  for a typed yes with nothing armed, Tex's own last text when it offered a
+  held change (`agent/route.js`). The email goes at once, without a second
+  ask, only when every recipient and its whole body are in those words, word
+  for word. Every other check of the gate (limits, the Mail checker) still
+  runs first. Once a turn, as above.
+*/
+/** Folded, with digits apart from letters: "3-5pm" reads as "3 5 pm". */
+const words = (value) => folded(value).replace(/(\p{N})(?=\p{L})|(\p{L})(?=\p{N})/gu, "$1$2 ");
+
+/** At least one part this long, so a few digits alone never match. */
+const MIN_PART = 3;
+
+/** Whether the words they agreed to hold every one of `parts` (a part may be a list of ways to say it); spends the agreement when they do. */
+export function agreedWordsHold(session, parts) {
+  const egress = session?.egress;
+  const agreed = typeof egress?.liked === "string" ? words(egress.liked) : "";
+  if (egress?.texting !== true || agreed === "" || !Array.isArray(parts) || parts.length === 0) return false;
+  const needed = parts.map((part) => [part].flat().map(words).filter(Boolean));
+  const padded = ` ${agreed} `;
+  const said = needed.map((ways) => ways.find((way) => padded.includes(` ${way} `)));
+  if (said.some((way) => way === undefined) || !said.some((way) => way.length >= MIN_PART)) return false;
+  egress.liked = null;
+  return true;
+}

@@ -67,10 +67,11 @@ export function readTapback(text: string): Reaction | null {
 
 /** A taken-back like or heart, and the words it was on; null for anything else. */
 export function readRemovedTapback(text: string): Reaction | null {
-  const match = /^Removed an? (like|heart) from [“"]([\s\S]*)[”"]$/u.exec(text.trim());
+  // Messages writes it in the relay's language: "Dejó de gustarle “…”" reached Tex as a text (2026-10-22).
+  const match = /^(?:Removed an? (like|heart) from|Dejó de (gustarle|encantarle)) [“"]([\s\S]*)[”"]$/u.exec(text.trim());
   if (match === null) return null;
-  const words = match[2].trim().slice(0, MAX_WORDS);
-  return words === "" ? null : { how: match[1] === "like" ? "Liked" : "Loved", words, removed: true };
+  const words = match[3].trim().slice(0, MAX_WORDS);
+  return words === "" ? null : { how: match[1] === "like" || match[2] === "gustarle" ? "Liked" : "Loved", words, removed: true };
 }
 
 /**

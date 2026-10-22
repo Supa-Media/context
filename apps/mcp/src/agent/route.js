@@ -3,7 +3,7 @@
  * very dispatcher an MCP client's calls go through (`callToolForSession`).
  */
 
-import { claimCheck } from "./claimCheck.js";
+import { claimCheck, lastOffer } from "./claimCheck.js";
 import { handbackJudgeFor } from "./handbackJudge.js";
 import { actorFor, contextsFor } from "../context/identity.js";
 import { AgentRefusal, agentTools, MAX_QUESTION_LENGTH, openProvider, runTurn } from "./turn.js";
@@ -56,7 +56,7 @@ import { disarmTexting, withdrawPending } from "../tools/approvals.js";
 import { askedWith, quotedOf, reactedLine, reactedOf, tapbackLine } from "./quoted.js";
 import { threadPrompt, threadView } from "./threadView.js";
 import { steerFor, steeredLine } from "./steer.js";
-import { answerWithAsk, textedAsk, thumbsUpIsYes } from "./textedApprovals.js";
+import { answerWithAsk, approvalVerdict, textedAsk, thumbsUpIsYes } from "./textedApprovals.js";
 import { setAsideLine, settleTextedText } from "./textedSettle.js";
 import { paidLine } from "./textedPay.js";
 import { backgroundSession, jobOf, jobPrompt, jobSavedLine, runningJobsOf, startedJobs, withBackground, withJobSteps } from "./background.js";
@@ -293,6 +293,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   if (group !== null || job?.tainted) markUntrusted(ledger); // a job planned after a read from outside still carries it
   const background = chatTurn ? backgroundSession({ running: runningJobsOf(body.running), job, now: received }) : null;
   session.egress.turn = runner ? { note: routine?.body ?? "" } : { history, question }; // the sharing judge's
+  // A typed yes, nothing armed, to Tex's last text offering a held change in its own words (`tools/likedPreview.js`).
+  if (group === null && session.egress.liked === undefined && approvalVerdict(question) === "approve") session.egress.liked = lastOffer(history) ?? undefined;
 
   /*
     The Mail checker reads this thread's texts and nothing else the turn read

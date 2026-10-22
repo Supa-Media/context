@@ -387,7 +387,7 @@ export async function verifySendblueSecret(secret: string, headers: Headers): Pr
  * 2026-10-19).
  */
 export const TAPBACK =
-  /^(?:Loved|Liked|Disliked|Laughed at|Emphasi[sz]ed|Questioned|Removed an? .{1,40} from|Reacted .{1,16} to|Le encantó|Le gustó|No le gustó) [“"][\s\S]*[”"]$/u;
+  /^(?:Loved|Liked|Disliked|Laughed at|Emphasi[sz]ed|Questioned|Removed an? .{1,40} from|Reacted .{1,16} to|Le encantó|Le gustó|No le gustó|Dejó de (?:gustarle|encantarle)) [“"][\s\S]*[”"]$/u;
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

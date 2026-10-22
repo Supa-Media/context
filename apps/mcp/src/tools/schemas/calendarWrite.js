@@ -5,8 +5,8 @@ export function calendarToolDefinitions() {
       name: "calendar_event",
       title: "Change the calendar",
       description:
-        "Add, move or cancel one event on the person's own Google Calendar. It is never done straight away: the person is " +
-        "shown this exact change and must say yes to it. Times carry their UTC offset (2026-10-20T15:00:00-04:00) or are " +
+        "Add, move or cancel one event on the person's own Google Calendar. When Tex makes it, it is done at once, with no " +
+        "yes to ask for (nobody else is on the event); another AI's change waits for the person's yes in the app. Times carry their UTC offset (2026-10-20T15:00:00-04:00) or are " +
         "whole days (2026-10-20, end the day after); work the offset out from the person's time zone. create takes title, " +
         "start, end, and optional location and notes. move and cancel name the event by its exact title and its start as it " +
         "is now (from their calendar notes); move also takes new_start and new_end. Never an event with guests. " +

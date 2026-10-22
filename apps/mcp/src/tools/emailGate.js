@@ -33,6 +33,8 @@ import { readHelperCallers } from "../agent/production.js";
 import { parseEmailId } from "./emailRead.js";
 import { standingForward } from "./forwardRule.js";
 import { attachedFiles } from "./emailAttach.js";
+import { agreedWordsHold } from "./likedPreview.js";
+import { recordChange } from "../activity/record.js";
 
 export { EMAIL_TOOL };
 
@@ -180,6 +182,13 @@ export async function emailGate(supplied, { store, session, target }) {
     return toolError(
       `Not sent: this email is too long to show the person whole in a text. Shorten it to under ${TEXTED_COPY_CAP.toLocaleString("en-US")} characters, or give them the draft.`,
     );
+  }
+  // Their yes or 👍 to Tex's own preview of this email: every address and the whole body in the words they agreed to (`likedPreview.js`).
+  // Never for a forward or attachments, whose contents the preview can't have shown.
+  if (texting && !email.forward && attached.length === 0 && agreedWordsHold(session, [...email.to, ...email.cc, email.body])) {
+    await recordChange(store, "approve_action", session.scope, [], { tool: EMAIL_TOOL, by: "yes_to_offer", client_id: session.actorClientId ?? null, team_visible: false }).catch(() => {});
+    console.log(JSON.stringify({ event: "yes_to_offer", tool: EMAIL_TOOL, released: true }));
+    return null;
   }
   const existing = await findPending(store, { name: EMAIL_TOOL, args, userId: session.actorUserId });
   const record =

@@ -16,8 +16,10 @@ held for the person. A typed yes still works as before.
 
 How it works:
 
-- **The Worker only waits** (`apps/agent/src/thumbs.ts`). A like or heart on
-  a text that reads as an ask is held for ten seconds. "Removed a like from …"
+- **The Worker only hands it on** (`apps/agent/src/thumbs.ts`). A like or
+  heart on a text that reads as an ask goes at once (Dev2, 2026-10-22: "can
+  we remove the 10 second wait, there is just no need"; until then it was
+  held for ten seconds). "Removed a like from …"
   inside that time drops it. Once the ten seconds pass, it goes to `/agent` as
   the tapback it is (`👍`, with the words it was on as `quoted`). In a group,
   only the person the ask was put to can hold one, for half an hour after the
@@ -78,3 +80,20 @@ whoever the model picked. Tests: `apps/agent/src/thumbs.test.ts`,
 `apps/mcp/test/connectors.test.mjs`, `a yes said in a sentence` in
 `apps/mcp/test/agentEgressTexting.test.mjs`, and `a 👍 on the ask for
 what is waiting sends it` in `apps/mcp/test/reportGate.test.mjs`.
+
+- **A one-to-one 👍 is never taken by the group drain** (2026-10-22). Proven
+  from Sendblue's record of the line (`.github/workflows/tapback-evidence.yml`,
+  shapes only): Dev2's Apple 👍 arrived as a plain inbound text, "Le gustó
+  “…”" (the relay writes tapbacks in Spanish; a take-back is "Dejó de
+  gustarle “…”"), naming the ask in `reply_to`. It was held, and then the
+  inbox's alarm drained a group's queue first, and the group drain took the
+  👍 out of the shared `thumb` key as a group's and dropped it. Every held
+  one-to-one 👍 was lost this way; a typed yes never passes through the hold,
+  which is why it always worked. A group's 👍 is held under `gthumb`. Test:
+  `thumbs.test.ts`, "a real Apple 👍 on an email ask survives the alarm".
+- **One text, not two.** The model's one line about what it held ("Drafted
+  it again…") said what the ask says, as a second text; it is dropped when it
+  is only that (`answerWithAsk`), and anything else it said stays above the
+  ask. A typed yes or a 👍 to an email Tex previewed in its own words, with
+  nothing held, sends it once its every recipient and whole body are in that
+  preview (`likedPreview.js`, `agreedWordsHold`).

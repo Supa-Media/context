@@ -1,7 +1,8 @@
 /**
- * THE CALENDAR GATE: no change reaches the person's calendar without their
- * yes to that exact change (`docs/decisions/communications/calendar-writes.md`),
- * held the way `emailGate.js` holds an email:
+ * THE CALENDAR GATE (`docs/decisions/communications/calendar-writes.md`).
+ * Tex changes the person's own calendar at once (the owner, 2026-10-22);
+ * another connected AI's change waits for their yes to that exact change in
+ * the app, held the way `emailGate.js` holds an email:
  *
  *   1. The change is checked as the control plane will check it, and the
  *      limits are asked about without spending them, so the person is never
@@ -54,6 +55,16 @@ export async function calendarGate(supplied, { store, session, target }) {
   if (room?.ok !== true) return toolError(REFUSED[room?.refused] ?? REFUSED.unavailable);
 
   const texting = session.egress?.texting === true;
+  /*
+    Tex changes the person's own calendar at once (the owner, 2026-10-22: "as
+    long as there isn't a second person added in a calendar event, there is no
+    need to get permission ... we only need confirmation when you are sending
+    things to another human being"). Every event this tool touches is theirs
+    alone: a new one takes no attendees and one with guests is refused
+    (`has_guests`), so nobody else is told. Another AI's change still waits
+    for the app.
+  */
+  if (texting) return null;
   // One change per texted ask, as one email: one YES releases exactly what was read.
   const ledger = session.egress?.ledger ?? null;
   if (texting && ledger?.asked.some((asked) => asked.tool === CALENDAR_TOOL && asked.key !== callKey(CALENDAR_TOOL, supplied))) {

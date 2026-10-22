@@ -1,0 +1,34 @@
+# What reached Tex's line around one moment, for a tapback that did nothing:
+# Sendblue's record of every message on the line, with which message each
+# answers. Prints shapes only, never a phone number or a message's words.
+# Run by hand.
+on:
+  workflow_dispatch:
+    inputs:
+      from:
+        description: "Start, ISO time (UTC)"
+        required: true
+      to:
+        description: "End, ISO time (UTC)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Read what arrived
+        env:
+          SENDBLUE_API_KEY_ID: ${{ secrets.SENDBLUE_API_KEY_ID }}
+          SENDBLUE_API_SECRET: ${{ secrets.SENDBLUE_API_SECRET }}
+          FROM: ${{ inputs.from }}
+          TO: ${{ inputs.to }}
+        run: node .github/scripts/tapback-evidence.mjs

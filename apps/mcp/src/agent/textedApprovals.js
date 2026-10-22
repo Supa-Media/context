@@ -217,7 +217,23 @@ export async function textedAsk(store, session, asked) {
 export function answerWithAsk(told, ask, asked) {
   if (ask === null) return told;
   const said = withoutWaitTalk(withoutHeldEcho(told, asked));
-  return said === "" ? ask : `${said}\n\n${ask}`;
+  // The model's one line about what it held ("Adding it for Sunday, Nov 1") says what the ask
+  // says, as a second text (Dev2, 2026-10-22: "should be merged into 1"); more than that is kept.
+  return said === "" || saysOnlyWhatIsAsked(said) ? ask : `${said}\n\n${ask}`;
+}
+
+/*
+  The line the model is told to write about a held call ("Drafted it again,
+  the same joke note to Sayo", "Adding it for Sunday, Nov 1"): one short
+  paragraph, no question, saying what Tex drafted or is doing. Anything else
+  ("Her quotes were for 6:30, so she may send a new one for 7.") is news and
+  stays above the ask.
+*/
+const ASK_ECHO_MAX = 240;
+const ABOUT_THE_HELD =
+  /^(?:drafted|drafting|adding|added|sending|here(?:'|’)?s|ready|got it|ok(?:ay)?|sure|done)\b|\bI(?:'|’)?(?:ve|ll|d|m)?\s+(?:have\s+|will\s+|would\s+)?(?:drafted|draft|wrote|written|add|added|adding|send|sending|put|prepared|made|set up|lined up)\b/i;
+function saysOnlyWhatIsAsked(said) {
+  return said.length <= ASK_ECHO_MAX && !/\n\s*\n/.test(said) && !said.includes("?") && ABOUT_THE_HELD.test(said.trim());
 }
 
 /*
