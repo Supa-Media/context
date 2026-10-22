@@ -13,17 +13,51 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { internalAction, internalQuery } from "../_generated/server";
+import { internalAction, internalMutation, internalQuery } from "../_generated/server";
 import { keyedWorkspace } from "./lib/noteIds/keyedState";
+import { pinUnkeyed, unpin } from "./lib/oldCopies/folders";
 import { type FolderNumbersCounts, dropFolderNumbersIn, folderNumbersPlanValidator, planFolderNumbers } from "./lib/nodes/folderNumbers";
 import type { OperationResult } from "./lib/filesFns/operationTypes";
 
 const DEFAULT_PAGE = 25;
+/** Rows under a folder read per pin page: well inside one mutation's reads. */
+const PIN_SCAN = 500;
 
 export const plan = internalQuery({
   args: { workspaceId: v.id("workspaces") },
   returns: folderNumbersPlanValidator,
   handler: async (ctx, { workspaceId }) => await planFolderNumbers(ctx.db, workspaceId, await keyedWorkspace(ctx.db, workspaceId)),
+});
+
+/**
+ * Pin one page of the unkeyed file rows under `folder` (their key set to the
+ * path their bytes are at, `lib/oldCopies/folders.ts`), so the rename's row
+ * move takes them instead of refusing the folder. Answers the rows pinned and
+ * where the next page starts.
+ */
+export const pinPage = internalMutation({
+  args: { workspaceId: v.id("workspaces"), folder: v.string(), after: v.optional(v.string()) },
+  returns: v.object({ pinned: v.array(v.id("nodes")), next: v.union(v.string(), v.null()) }),
+  handler: async (ctx, { workspaceId, folder, after }) => {
+    const rows = await ctx.db
+      .query("nodes")
+      .withIndex("by_workspace_path", (q) =>
+        q.eq("workspaceId", workspaceId).gt("path", after ?? `${folder}/`).lt("path", `${folder}0`),
+      )
+      .take(PIN_SCAN);
+    const pinned = await pinUnkeyed(ctx, rows);
+    return { pinned, next: rows.length < PIN_SCAN ? null : rows[rows.length - 1].path };
+  },
+});
+
+/** Take back pins a refused rename did not use. */
+export const unpinRows = internalMutation({
+  args: { ids: v.array(v.id("nodes")) },
+  returns: v.null(),
+  handler: async (ctx, { ids }) => {
+    await unpin(ctx, ids);
+    return null;
+  },
 });
 
 export const workspacePage = internalQuery({

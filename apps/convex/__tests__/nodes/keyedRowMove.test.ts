@@ -214,6 +214,36 @@ describe("a keyed move refuses what it cannot make true, and changes nothing", (
     expect(await treeOf(f)).toEqual(treeBefore);
   });
 
+  test("plumbing hides nothing from one caller more than another, so a folder holding it still moves", async () => {
+    const f = await keyedFixture();
+    const launch = await rowOf(f, "1-projects/launch");
+    await f.t.run(async (ctx) => {
+      await ctx.db.insert("nodes", {
+        workspaceId: f.ws,
+        noteId: NOTE_ID(254),
+        path: "1-projects/launch/.manifest.json",
+        parentId: launch._id,
+        name: ".manifest.json",
+        kind: "file",
+        observedAt: 1,
+        storageKey: "1-projects/launch/.manifest.json",
+      } as never);
+    });
+
+    const moved = await startQueuedMove(f.ctx, {
+      workspaceId: f.ws,
+      store: f.store,
+      from: "1-projects/launch",
+      to: "3-resources/launch",
+      clearance: TEAM,
+      now: Date.now(),
+    });
+
+    expect(moved).toMatchObject({ rowed: true });
+    expect(await liveAt(f, "3-resources/launch/.manifest.json")).toBe(true);
+    // A note the team cannot see still refuses its folder (the test above), plumbing beside it or not.
+  });
+
   test("a folder of one row more than the cap moves whole, in pages, at the real limit (`keyedChunkedMove.test.ts`)", async () => {
     const f = await keyedFixture();
     await f.t.run(async (ctx) => {
