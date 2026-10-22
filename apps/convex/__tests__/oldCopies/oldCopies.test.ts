@@ -73,6 +73,17 @@ describe("hiding old copies", () => {
     expect(await f.member.query(api.functions.oldCopies.summary, { workspaceId: f.ws })).toBeNull();
   });
 
+  test("Keep them hidden is the owner's answer: the row goes and the copies stay", async () => {
+    const f = await copiesFixture();
+    await hideAll(f);
+    await expect(f.member.mutation(api.functions.oldCopies.keepCopies, { workspaceId: f.ws })).rejects.toThrow();
+    await f.owner.mutation(api.functions.oldCopies.keepCopies, { workspaceId: f.ws });
+
+    expect(await f.owner.query(api.functions.oldCopies.summary, { workspaceId: f.ws })).toBeNull();
+    for (const path of ALL_COPIES) expect(await liveAt(f, hidden(path))).toBe(true);
+    expect(await f.owner.action(api.functions.oldCopies.listForExport, { workspaceId: f.ws })).toHaveLength(5);
+  });
+
   test("a workspace is looked through once: a second run moves nothing and counts nothing again", async () => {
     const f = await copiesFixture();
     await hideAll(f);
@@ -149,7 +160,8 @@ describe("deleting them is the owner's own step", () => {
     await f.t.mutation(internal.functions.oldCopies.erasePage, { workspaceId: f.ws });
 
     for (const path of ALL_COPIES) await expect(rowOf(f, hidden(path))).rejects.toThrow();
-    expect(await f.owner.query(api.functions.oldCopies.summary, { workspaceId: f.ws })).toMatchObject({ state: "deleted" });
+    expect(await f.owner.query(api.functions.oldCopies.summary, { workspaceId: f.ws })).toBeNull();
+    expect(await f.t.run(async (ctx) => await ctx.db.query("oldCopyHides").first())).toMatchObject({ state: "deleted" });
     expect(await f.owner.action(api.functions.oldCopies.listForExport, { workspaceId: f.ws })).toEqual([]);
 
     await eraseWorkspaceTrash(f.ctx, f.ws, async () => f.store);

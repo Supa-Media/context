@@ -33,6 +33,8 @@ export const oldCopiesTables = {
     lastDay: v.optional(v.string()),
     startedAt: v.number(),
     hiddenAt: v.optional(v.number()),
+    /** The owner chose Keep them hidden: the Settings row goes, and the copies stay as they are. */
+    keptAt: v.optional(v.number()),
     deleteAskedAt: v.optional(v.number()),
     deletedAt: v.optional(v.number()),
   }).index("by_workspace", ["workspaceId"]),

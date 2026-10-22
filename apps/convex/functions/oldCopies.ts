@@ -16,7 +16,8 @@
  *    trash. Nothing is erased, and no timer ever erases it.
  *  - Download as folders still carries them, under `Old copies/`
  *    (`listForExport`, `readForExport`).
- *  - The owner may delete them from Settings (`summary`, `deleteCopies`):
+ *  - The owner may keep them hidden or delete them from Settings (`summary`,
+ *    `keepCopies`, `deleteCopies`):
  *    the rows go first, then the bucket half the trash uses removes the bytes
  *    (`trashEmptying.ts`).
  *
@@ -244,7 +245,10 @@ const summaryValidator = v.union(
     files: v.number(),
     firstDay: v.union(v.string(), v.null()),
     lastDay: v.union(v.string(), v.null()),
-    hiddenAt: v.union(v.number(), v.null()),
+    /** When copying stopped and the hiding began: "Copied before" this day. */
+    since: v.number(),
+    /** The Google accounts the copies came from, for "From a and b". */
+    addresses: v.array(v.string()),
   }),
 );
 
@@ -259,15 +263,23 @@ async function ownerOf(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<Id
   }
 }
 
-/** What the Old copies page says, for the owner; `null` when there is nothing to say. */
+/**
+ * What the Old copies row and page say, for the owner; `null` when there is
+ * nothing to say: no copies were found, or the owner already kept them hidden
+ * or deleted them (board b1: "one row, gone once kept or deleted").
+ */
 export const summary = query({
   args: { workspaceId: v.id("workspaces") },
   returns: summaryValidator,
   handler: async (ctx, { workspaceId }) => {
     if ((await ownerOf(ctx, workspaceId)) === null) return null;
     const record = await hideRecord(ctx, workspaceId);
-    if (record === null) return null;
-    if (record.state !== "deleted" && record.days + record.contacts + record.files === 0) return null;
+    if (record === null || record.keptAt !== undefined || record.state === "deleted") return null;
+    if (record.days + record.contacts + record.files === 0) return null;
+    const connections = await ctx.db
+      .query("googleConnections")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+      .take(20);
     return {
       state: record.state,
       days: record.days,
@@ -275,8 +287,21 @@ export const summary = query({
       files: record.files,
       firstDay: record.firstDay ?? null,
       lastDay: record.lastDay ?? null,
-      hiddenAt: record.hiddenAt ?? null,
+      since: record.startedAt,
+      addresses: [...new Set(connections.map((row) => row.address.toLowerCase()))].sort(),
     };
+  },
+});
+
+/** Keep them hidden: the owner's answer, so the row goes. Nothing about the copies changes. */
+export const keepCopies = mutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.null(),
+  handler: async (ctx, { workspaceId }) => {
+    if ((await ownerOf(ctx, workspaceId)) === null) throw new ConvexError({ code: "FORBIDDEN", message: "Only an owner can choose this." });
+    const record = await hideRecord(ctx, workspaceId);
+    if (record !== null && record.keptAt === undefined) await ctx.db.patch(record._id, { keptAt: Date.now() });
+    return null;
   },
 });
 
