@@ -17,6 +17,7 @@ import { modules } from "../test.setup";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
+import { beginCopyPass, copyRowOf } from "../functions/lib/noteIds/state";
 
 /**
  * Bound to our schema on purpose. `ReturnType<typeof convexTest>` would
@@ -282,6 +283,11 @@ export async function drainScheduled(t: TestConvex): Promise<void> {
  * as a real one waits for the next sweep.
  */
 export async function copyTree(t: TestConvex, workspaceId: Id<"workspaces">): Promise<void> {
+  await sweepToEnd(t, workspaceId);
+  await keyWorkspace(t, workspaceId);
+}
+
+async function sweepToEnd(t: TestConvex, workspaceId: Id<"workspaces">): Promise<void> {
   for (let pass = 0; pass < 50; pass += 1) {
     await t.action(internal.functions.files.runFileOperation, {
       workspaceId,
@@ -289,9 +295,34 @@ export async function copyTree(t: TestConvex, workspaceId: Id<"workspaces">): Pr
       operation: { kind: "nodesSweep" },
     });
     const state = await t.query(internal.functions.nodes.state, { workspaceId });
-    if (state?.status === "ready" && state.cursor === undefined) return;
+    if (state?.status === "ready" && state.cursor === undefined && state.dirty !== true) return;
   }
   throw new Error("the tree's first copy never finished");
+}
+
+/**
+ * Key the workspace the way production keyed every workspace: every note
+ * copied to its id key by the real copy pass, and the pass's end flipping the
+ * rows to those keys. After it, the bucket's path objects are frozen copies
+ * nothing reads again, so a test changes notes through the product, never by
+ * writing a path into the bucket.
+ */
+export async function keyWorkspace(t: TestConvex, workspaceId: Id<"workspaces">): Promise<void> {
+  if (await t.run(async (ctx) => (await copyRowOf(ctx.db, workspaceId))?.keyedDoneAt !== undefined)) return;
+  await t.run(async (ctx) => {
+    const layout = await ctx.db.query("noteIdLayout").first();
+    if (layout === null) await ctx.db.insert("noteIdLayout", { paused: false, mode: "keys", updatedAt: 1 });
+    else if (layout.mode !== "keys") await ctx.db.patch(layout._id, { mode: "keys" });
+    // A whole listing first, so every row names the version the bucket holds now.
+    const tree = (await ctx.db.query("nodeTrees").collect()).find((row) => row.workspaceId === workspaceId);
+    if (tree !== undefined) await ctx.db.patch(tree._id, { dirty: true });
+  });
+  await sweepToEnd(t, workspaceId);
+  await t.mutation(internal.functions.noteIdsCopy.backfill, { workspaceId });
+  await t.run((ctx) => beginCopyPass(ctx, workspaceId, { force: true }));
+  await drainScheduled(t);
+  const row = await t.run((ctx) => copyRowOf(ctx.db, workspaceId));
+  if (row?.keyedDoneAt === undefined) throw new Error(`the workspace never finished keying: ${JSON.stringify(row?.failures.slice(0, 3))}`);
 }
 
 /**
