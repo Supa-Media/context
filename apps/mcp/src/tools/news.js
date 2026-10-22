@@ -40,6 +40,12 @@ import { unlistedArgumentAdvice } from "./liveList.js";
  */
 export const TOOL_NEWS = Object.freeze([
   {
+    date: "2026-10-22",
+    text:
+      'send_email and save_email_draft take `attach`: up to 5 "download:<id>" ids a browse `download` step gave. Each goes in as a real ' +
+      "attachment, so a PDF found on a site (an invoice, a statement) reaches the recipient without the person downloading it.",
+  },
+  {
     date: "2026-10-21",
     text:
       'fetch id "calendar:" with args `{ date: "YYYY-MM-DD", days? }` reads what is on the person\'s calendar that day (and up to 13 days after), ' +
@@ -266,7 +272,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "812c15a6";
+export const TOOL_SHAPE = "2a5a0c0c";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

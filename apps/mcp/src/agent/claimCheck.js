@@ -142,6 +142,20 @@ const HANDBACK = [
   /\b(?:give|tell|text) me\s+(?:its|the|that|their|her|his)\s+(?:\w+\s+)?(?:subject|sender|date|id|address|link|number|url)\b/i,
   /\byou(?:'ll| will)?\s+(?:need to|have to|can|could|should|might want to|may want to|'d need to|would need to)\s+(?:check|look|search|find|forward|download|log ?in|sign in|open|send|pull up|dig up|go to|grab|contact|ask)\b/i,
 ];
+/*
+  A FILE ON A SITE IS TEX'S TO DOWNLOAD AND ATTACH (2026-10-22). Tex texted "I
+  can't put a file from the admin console into an email myself. Tap the
+  download arrow next to September, attach it to the draft to Kansi". The
+  browse `download` step and `attach` on the email tools do exactly that, so
+  these hand it back even with a "tap" in them, which otherwise marks a step
+  only the person can take.
+*/
+const FILE_HANDBACK = [
+  /\b(?:can't|cannot|can not|am unable to|'m unable to|have no way to)\s+(?:put|attach|add|include|download|save|get)\b[^.?!\n]{0,80}?\b(?:files?|pdfs?|invoices?|receipts?|statements?|attachments?)\b/i,
+  /\b(?:can't|cannot|can not)\s+(?:put|attach|add|include)\b[^.?!\n]{0,80}?\b(?:into|in|to|on)\s+(?:an?|the|your|that)\s+(?:email|draft|message|reply)\b/i,
+  /\b(?:tap|click|press|hit)\s+(?:the|its|that)\s+(?:\w+\s+)?download\b/i,
+  /(?:^|,\s*|\b(?:and|then|please|just)\s+)attach (?:it|them|the \w+|that \w+|this \w+)\s+(?:to|in|on)\s+(?:the|your|that|a)\s+(?:\w+\s+)?(?:email|draft|message|reply)\b/i,
+];
 /** A sentence that opens by telling them to go and do it. */
 const HANDBACK_IMPERATIVE =
   /^(?:please\s+|maybe\s+|just\s+|so\s+)?(?:check|look (?:up|in|at|through|for)|search|find|dig up|pull up|go to|head to|download|grab|forward|log ?in|sign in|open up|reach out to|contact)\b(?![-'])/i;
@@ -157,7 +171,9 @@ export function handsWorkBack(answer) {
     .map((sentence) => sentence.trim())
     .filter(Boolean);
   return sentences.some(
-    (sentence) => !THEIRS_TO_DO.test(sentence) && (HANDBACK_IMPERATIVE.test(sentence) || HANDBACK.some((pattern) => pattern.test(sentence))),
+    (sentence) =>
+      FILE_HANDBACK.some((pattern) => pattern.test(sentence)) ||
+      (!THEIRS_TO_DO.test(sentence) && (HANDBACK_IMPERATIVE.test(sentence) || HANDBACK.some((pattern) => pattern.test(sentence)))),
   );
 }
 
@@ -165,6 +181,7 @@ export const HANDBACK_NOTICE =
   "Before this goes: your answer asks them to find, forward, check or look something up, and that is yours to do. " +
   "Never ask them to do what your own tools can: search their email yourself again, a different way each time (search_email by the sender with from:, " +
   "an amount or number, a date range with after: and before:, one or two words, each connected mailbox), read their notes, or open the site in your browser and sign in with a saved login. " +
+  "A file on a site (an invoice or receipt PDF, a statement) is yours to take: a browse download step saves it, and attach on send_email or save_email_draft puts it in the email. " +
   "If their mail doesn't have it, go where else it lives: Gmail on the web in your browser, or the account, admin or billing page it came from (a billing history, an admin console), signed in with their saved login. " +
   "An email you texted about earlier is still there: find it again. Do it now, then answer with what you did or found. " +
   "Ask them only for what truly needs them: a sign-in code, a captcha, a payment, a choice, or a fact only they know. " +

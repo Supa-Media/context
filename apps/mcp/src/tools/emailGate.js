@@ -32,6 +32,7 @@ import { EMAIL_TOOL, REFUSED, emailCopy, emailSummary, readEmail } from "./email
 import { readHelperCallers } from "../agent/production.js";
 import { parseEmailId } from "./emailRead.js";
 import { standingForward } from "./forwardRule.js";
+import { attachedFiles } from "./emailAttach.js";
 
 export { EMAIL_TOOL };
 
@@ -98,9 +99,17 @@ export async function emailGate(supplied, { store, session, target }) {
   }
 
   if (typeof store?.email?.check !== "function") return toolError(REFUSED.not_configured);
+  // Files it attaches are shown by name, and must still be kept, before the person is asked.
+  let attached = [];
+  if (email.attach) {
+    const files = await attachedFiles(store, email.attach);
+    if (files.error) return toolError(`Not sent: ${files.error}.`);
+    attached = files.files.map((file) => file.filename);
+  }
+  const { attach: _ids, ...plain } = email;
   let room;
   try {
-    room = await store.email.check(email);
+    room = await store.email.check(plain);
   } catch {
     room = { ok: false, refused: "unavailable" };
   }
@@ -155,7 +164,7 @@ export async function emailGate(supplied, { store, session, target }) {
   // An unsure or unchecked email is still put to the person, as the email
   // alone: the checker's reason is a model's guess, and texted beside the
   // copy it read as part of the email (2026-10-19).
-  const detail = emailCopy({ ...email, from: email.from ?? room.from }, forwarded);
+  const detail = emailCopy({ ...email, from: email.from ?? room.from }, forwarded, attached);
   // The person may allow only what they read, so a copy the record would cut is never asked about.
   if (detail.length > DETAIL_CAP) return toolError("Not sent: this email is too long to show the person whole. Shorten it.");
   if (texting && detail.length > TEXTED_COPY_CAP) {

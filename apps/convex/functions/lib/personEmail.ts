@@ -56,6 +56,44 @@ export interface PersonEmail {
   replyTo: string | null;
   /** The Gmail id of a message in the sending mailbox this forwards, attachments and all (`personEmailForward.ts`). */
   forward: string | null;
+  /**
+   * Files the email carries besides a forward's: ones the person's AI
+   * downloaded and keeps in their own bucket (`apps/mcp/src/tools/emailAttach.js`),
+   * sent once and never kept here.
+   */
+  files: Array<{ filename: string; contentType: string; bytes: Uint8Array }>;
+}
+
+/** Kept equal to `apps/mcp/src/tools/emailAttach.js`. */
+export const PERSON_EMAIL_MAX_FILES = 5;
+export const PERSON_EMAIL_MAX_FILE_BYTES = 10 * 1024 * 1024;
+const FILE_TYPE = /^[A-Za-z0-9!#$&^_.+-]{1,64}\/[A-Za-z0-9!#$&^_.+-]{1,64}$/;
+
+/** The files an email carries, decoded and checked, or null for anything malformed. */
+function filesOf(value: unknown): PersonEmail["files"] | null {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > PERSON_EMAIL_MAX_FILES) return null;
+  const files: PersonEmail["files"] = [];
+  let total = 0;
+  for (const item of value) {
+    const raw = item as { filename?: unknown; contentType?: unknown; data?: unknown } | null;
+    if (!raw || typeof raw.filename !== "string" || typeof raw.data !== "string" || typeof raw.contentType !== "string") return null;
+    const filename = raw.filename.trim();
+    if (filename === "" || filename.length > 200 || /[\u0000-\u001f\u007f/\\]/.test(filename)) return null;
+    if (!FILE_TYPE.test(raw.contentType) || !/^[A-Za-z0-9+/]+=*$/.test(raw.data)) return null;
+    let bytes: Uint8Array;
+    try {
+      const binary = atob(raw.data);
+      bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    } catch {
+      return null;
+    }
+    total += bytes.length;
+    if (bytes.length === 0 || total > PERSON_EMAIL_MAX_FILE_BYTES) return null;
+    files.push({ filename, contentType: raw.contentType.toLowerCase(), bytes });
+  }
+  return files;
 }
 
 /** The headers that put a reply inside its thread (`replyHeadersOf`). */
@@ -125,7 +163,9 @@ export function readPersonEmail(value: unknown): PersonEmail | null {
   if (forward !== null && (typeof forward !== "string" || !MESSAGE_ID.test(forward))) return null;
   // A forward goes from the mailbox that holds it too, and is never also a reply.
   if (forward !== null && (from.length === 0 || replyTo !== null)) return null;
-  return { from: from[0] ?? null, to, cc, subject, body, replyTo, forward };
+  const files = filesOf(raw.files);
+  if (files === null) return null;
+  return { from: from[0] ?? null, to, cc, subject, body, replyTo, forward, files };
 }
 
 const MESSAGE_ID = /^[A-Za-z0-9_-]{1,64}$/;

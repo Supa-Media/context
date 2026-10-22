@@ -117,3 +117,59 @@ export async function releaseSession(env: BrowserbaseEnv, id: string, fetcher: t
     body: JSON.stringify({ projectId: env.BROWSERBASE_PROJECT_ID, status: "REQUEST_RELEASE" }),
   }, fetcher);
 }
+
+type RawDownload = { id?: unknown; filename?: unknown; mimeType?: unknown; size?: unknown; createdAt?: unknown };
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * The newest file this browser downloaded at or after `since`, waiting up to
+ * `waitMs` for it to arrive (Browserbase syncs each download to its storage
+ * as it lands), then removed from Browserbase: the gateway keeps it in the
+ * person's own bucket, and nothing of theirs stays with the vendor. Null when
+ * none came; `{ refused }` for one over `maxBytes`, which is never fetched.
+ */
+export async function takeDownload(
+  env: BrowserbaseEnv,
+  sessionId: string,
+  since: number,
+  waitMs: number,
+  maxBytes: number,
+  fetcher: typeof fetch = fetch,
+  pauseMs = 1_000,
+): Promise<{ name: string; type: string; size: number; data: string } | { refused: string } | null> {
+  const until = Date.now() + waitMs;
+  const query = new URLSearchParams({ sessionId, createdAfter: new Date(since).toISOString(), limit: "20" });
+  for (;;) {
+    const listed = await api<{ downloads?: RawDownload[] }>(env, `/downloads?${query}`, { method: "GET" }, fetcher).catch(() => null);
+    const newest = (Array.isArray(listed?.downloads) ? listed.downloads : [])
+      .filter((d) => typeof d?.id === "string" && Date.parse(String(d.createdAt)) >= since - 1_000)
+      .sort((a, b) => Date.parse(String(b.createdAt)) - Date.parse(String(a.createdAt)))[0];
+    if (newest) {
+      const id = encodeURIComponent(String(newest.id));
+      const forget = () => fetcher(`${API}/downloads/${id}`, { method: "DELETE", headers: { "X-BB-API-Key": env.BROWSERBASE_API_KEY ?? "" } }).catch(() => undefined);
+      if (Number(newest.size) > maxBytes) {
+        await forget();
+        return { refused: `that file is over the ${maxBytes / 1024 / 1024} MB a file can be` };
+      }
+      const response = await fetcher(`${API}/downloads/${id}`, {
+        method: "GET",
+        headers: { "X-BB-API-Key": env.BROWSERBASE_API_KEY ?? "", Accept: "application/octet-stream" },
+      });
+      if (!response.ok) return null;
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      await forget();
+      if (bytes.length > maxBytes) return { refused: `that file is over the ${maxBytes / 1024 / 1024} MB a file can be` };
+      let binary = "";
+      for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      return {
+        name: typeof newest.filename === "string" ? newest.filename : "",
+        type: typeof newest.mimeType === "string" ? newest.mimeType : "",
+        size: bytes.length,
+        data: btoa(binary),
+      };
+    }
+    if (Date.now() + pauseMs > until) return null;
+    await sleep(pauseMs);
+  }
+}
