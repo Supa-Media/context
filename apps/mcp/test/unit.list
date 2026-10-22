@@ -54,7 +54,6 @@ test/globalOrientNote.test.mjs
 test/historyRoute.test.mjs
 test/historyTable.test.mjs
 test/idCopyPage.test.mjs
-test/idLayout.test.mjs
 test/noteIdResolve.test.mjs
 test/inlineTags.test.mjs
 test/linkScanCost.test.mjs

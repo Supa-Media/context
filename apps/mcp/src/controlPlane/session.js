@@ -108,10 +108,10 @@ export function createSessionMethods({ post, required }) {
         // Phase 3, an eighth sibling: the privacy rules while they are the
         // authority, absent while `privacy.md` is (`store/privacyAuthority.js`).
         privacy: parsed.privacy ?? null,
-        // The layout the bytes are read from: `"ids"` while staff have switched
-        // to the id copies, `"keys"` once notes may live only at their id keys
-        // (`store/idLayout.js`), `null` for paths. Anything else is paths.
-        idLayout: parsed.idLayout === "ids" || parsed.idLayout === "keys" ? parsed.idLayout : null,
+        // `"keys"`: notes live only at their id keys (`store/idLayout.js`). Every
+        // workspace is keyed; anything else is a control plane that cannot say
+        // where notes are, and the session store refuses it.
+        idLayout: parsed.idLayout === "keys" ? "keys" : null,
         // The staff console's feature switches (`functions/featureSwitches.ts`):
         // only a literal `true` turns one on, so a missing or odd value is off.
         features: { vaultKeyUse: parsed.features?.vaultKeyUse === true },

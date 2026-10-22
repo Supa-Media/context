@@ -96,7 +96,6 @@ function keyedPlane(options: { keyed: boolean }) {
         noteCount: null,
         managedEncryption: null,
         encryptionKey: null,
-        keyed: options.keyed,
       };
     },
     async record() {
@@ -109,7 +108,7 @@ function keyedPlane(options: { keyed: boolean }) {
         const row = rows.get(path);
         if (row) notes[path] = row;
       }
-      return { copies: {}, keyed: true, notes };
+      return { keyed: options.keyed, notes };
     },
     async noteIdAdopt(ticket: string, note: { path: string; noteId: string; key: string; etag: string }) {
       calls.push(`adopt:${ticket}`);
@@ -209,15 +208,14 @@ describe("mail into a keyed workspace", () => {
     expect(bucket.objects.size).toBe(0);
   });
 
-  it("a workspace that is not keyed is unchanged: the note lands at its path and no id call is made", async () => {
+  it("a workspace the control plane says is not keyed takes nothing: no path write, no row", async () => {
     const plane = keyedPlane({ keyed: false });
     const bucket = bucketStub();
     const observed = await deliver(plane, bucket);
 
-    expect(observed.rejected).toEqual([]);
+    expect(observed.rejected).toHaveLength(1);
+    expect([...bucket.objects.keys()].filter((key) => key.startsWith("0-inbox/"))).toEqual([]);
     expect(idKeysIn(bucket)).toHaveLength(0);
-    expect([...bucket.objects.keys()].some((key) => /^0-inbox\/email\/[0-9a-f]{24}\.md$/.test(key))).toBe(true);
-    expect(plane.calls.some((call) => /^(lookup|adopt|wrote):/.test(call))).toBe(false);
     expect(plane.rows.size).toBe(0);
   });
 });

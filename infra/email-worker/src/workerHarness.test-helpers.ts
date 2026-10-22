@@ -167,12 +167,48 @@ export interface StubOptions {
 /** The shape the handler needs, plus the call log the assertions read. */
 export type StubbedControlPlane = NonNullable<
   NonNullable<Parameters<typeof handleEmail>[2]>["controlPlane"]
-> & { calls: string[] };
+> & { calls: string[]; rows: Map<string, KeyedRow> };
 
+/** A keyed row, as the control plane holds it: the note's id key and the key's version. */
+export interface KeyedRow {
+  state: "keyed";
+  key: string;
+  etag: string;
+  noteId: string;
+}
+
+/**
+ * The control plane the handler talks to. Every workspace is keyed, so it
+ * answers the id routes the way the Convex handlers do: rows by path, a lookup
+ * that names them, adopt refused for a name already held, and a record kept
+ * only for the row's own key. `rows` is the tree, by path.
+ */
 export function controlPlaneStub(options: StubOptions = {}): StubbedControlPlane {
   const calls: string[] = [];
+  const rows = new Map<string, KeyedRow>();
   return {
     calls,
+    rows,
+    async noteIdLookup(_ticket: string, paths: string[]) {
+      const notes: Record<string, KeyedRow> = {};
+      for (const path of paths) {
+        const row = rows.get(path);
+        if (row) notes[path] = row;
+      }
+      return { keyed: true, notes };
+    },
+    async noteIdAdopt(_ticket: string, note: { path: string; noteId: string; key: string; etag: string }) {
+      const held = rows.get(note.path);
+      if (held) return { adopted: false, taken: held };
+      rows.set(note.path, { state: "keyed", key: note.key, etag: note.etag, noteId: note.noteId });
+      return { adopted: true, taken: null };
+    },
+    async noteIdWrote(_ticket: string, copy: { path: string; key: string; etag: string }) {
+      const row = rows.get(copy.path);
+      if (!row || row.key !== copy.key) return { recorded: false };
+      row.etag = copy.etag;
+      return { recorded: true };
+    },
     async resolveIngestion() {
       calls.push("resolve");
       if (options.resolveThrows) throw new Error("control plane down");
@@ -206,6 +242,7 @@ export async function run(
     from = "alice@example.com",
     bucket = bucketStub(),
     stub = {},
+    plane,
     meter,
   }: {
     env?: Env;
@@ -213,11 +250,13 @@ export async function run(
     from?: string;
     bucket?: ReturnType<typeof bucketStub>;
     stub?: StubOptions;
+    /** The control plane of an earlier run, so a redelivery meets the same tree. */
+    plane?: StubbedControlPlane;
     meter?: { read: number };
   } = {},
 ) {
   const { message, observed } = inbound(raw, to, from, meter);
-  const controlPlane = controlPlaneStub(stub);
+  const controlPlane = plane ?? controlPlaneStub(stub);
   const fullEnv: Env = { ...env, TEST_BUCKET: bucket };
   let threw: unknown = null;
   try {
@@ -229,7 +268,17 @@ export async function run(
   } catch (error) {
     threw = error;
   }
-  return { observed, bucket, threw, controlPlane };
+  return { observed, bucket, threw, controlPlane, notes: notesOf(bucket, controlPlane) };
+}
+
+/** What each note's name holds: the tree's rows read through the bucket, by path. */
+export function notesOf(bucket: ReturnType<typeof bucketStub>, controlPlane: StubbedControlPlane): Map<string, string> {
+  const notes = new Map<string, string>();
+  for (const [path, row] of controlPlane.rows) {
+    const body = bucket.objects.get(row.key);
+    if (body !== undefined) notes.set(path, body);
+  }
+  return notes;
 }
 
 /**
