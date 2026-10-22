@@ -25,6 +25,8 @@
  *     Gmail found nothing for is asked again...` fails.
  *  8. The any-word retry kept to searches that found nothing (2026-10-22). →
  *     `a search that found only a few is asked again...` fails.
+ *  9. `sources` dropped from `toolReadEmail`'s result (2026-10-22). → `the
+ *     next text is told the id of the email...` fails.
  *  4. `read_email` removed from UNTRUSTED_READS. → `an email read live marks the
  *     texted turn as having read from outside` fails.
  */
@@ -199,6 +201,15 @@ export async function runEmailReadChecks(check) {
     check(
       "Tex reads an email live in a texted turn",
       texted.status === 200 && controlPlane.mailReadCalls.some((entry) => entry.path === "/gateway/email/read"),
+    );
+    // The owner's receipt, 2026-10-22: found, offered, and gone a text later.
+    model.install([{ text: "Yes, I can forward it." }]);
+    const before2 = model.requests.length;
+    await ask(env, TOKEN_TEXTS, "can you forward that to my lawyer?");
+    const nextSystem = JSON.stringify(model.requests.slice(before2).map((body) => body.system ?? body.messages?.filter((m) => m.role === "system")));
+    check(
+      "the next text is told the id of the email an earlier answer read, and to forward it rather than ask for it",
+      nextSystem.includes("Emails you found: email:me@example.com/18c0ffee") && nextSystem.includes("pass it as forward"),
     );
   } finally {
     world.restore();

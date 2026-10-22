@@ -150,6 +150,6 @@ test("every texted turn is told never to hand them work, whatever its production
   for (const notes of [null, { prompt: "You are Tex, from the production note." }]) {
     const prompt = systemPrompt(null, { texting: true, notes });
     assert.ok(prompt.includes(DO_IT_YOURSELF_LINE), "the rule is in the prompt");
-    assert.ok(prompt.includes("Never take back something an earlier answer"), "and so is the rule against taking back what it read");
+    assert.ok(prompt.includes("Never take back what an earlier answer said"), "and so is the rule against taking back what it read");
   }
 });
