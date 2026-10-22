@@ -93,6 +93,25 @@ and its links through `pdfLinks`, which become links the turn may follow
 (`pdfPage`, `browserProviders.js`). The bytes never reach the model. Tests:
 `fetchText.test.ts` ("a PDF at the address"), `test/pdfPage.test.mjs`.
 
+## A page a site refuses us is asked for through Browserbase (2026-10-22)
+
+Many sites answer a request from a Cloudflare address with 403, 429, 503 or
+a challenge, and Cloudflare's browser comes from the same addresses, so such a
+page cost a browser start and still failed. When the plain request is turned
+away (`fetchRead` says `refused`), `/read` asks once more through Browserbase's
+Fetch API (`browserbaseFetch.ts`): one proxied request from Browserbase's
+network, no browser, a second or two. It is shaped as a `fetch`, so the same
+code reads its answer: Browserbase is told never to follow a redirect
+(`allowRedirects: false`), and each hop is followed by hand under the same
+public-https lock. Only HTML and Markdown come through, because a PDF arrives
+as text and would be mangled. Only the address is sent, as with every page
+Browserbase opens for us. A page that answers but draws itself with
+JavaScript is not refused, and goes straight to the browser as before.
+Browserbase browsers also start with `blockAds: true`, its own ad and tracker
+blocker, so a cluttered page loads faster and reads in fewer steps; no
+extension is uploaded. Tests: `browserbaseFetch.test.ts`, `fetchText.test.ts`
+("says when the site turned the request away…").
+
 An action called on the wrong one of the six (`write { action: "progress" }`,
 seen twice) runs under the family that has it, with that family's grants,
 instead of failing (`sixTools.js`; "an action called on the wrong one of the
