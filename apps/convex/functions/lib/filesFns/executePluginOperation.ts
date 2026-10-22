@@ -271,12 +271,17 @@ export async function executePluginOperation(
             current.etag,
           );
         }
+        // A keyed workspace's row move checks the row's version, which is the note's bytes' etag. A collaborative
+        // note reads back its revision instead (what the plugin was handed by `vault.modify`), so the row is asked
+        // for the version it holds: the one `readFile` took beside that revision. The revision check above already
+        // proved the note is the one the plugin saw; the row move re-checks the row atomically.
+        const keyed = await isKeyedStore(store);
         const moved = await movePath(store, {
           from: operation.from,
           to: operation.to,
           clearance,
           now,
-          expectedEtag: operation.expectedEtag,
+          expectedEtag: keyed ? (current.rawEtag ?? current.etag) : operation.expectedEtag,
           requireAtomic: true,
         });
         return { kind: "moved", ...moved };
@@ -284,8 +289,17 @@ export async function executePluginOperation(
       case "pluginDelete": {
         // A keyed workspace's file is at its id key, which this store's reads do not reach: the version is
         // checked by the row move, and the file is trashed as its row (restorable), not deleted.
+        // The row is asked for the version it holds, as the rename below does (see `pluginRename`).
         if (await isKeyedStore(store)) {
-          return { kind: "deleted", ...(await trashKeyedRows(store, { path: operation.path, clearance, now, expectedEtag: operation.expectedEtag })) };
+          const current = await readFile(store, { path: operation.path, clearance });
+          if (current.etag !== operation.expectedEtag) {
+            throw new FileOpError(
+              "CONFLICT",
+              "That file changed somewhere else while the plugin was using it.",
+              current.etag,
+            );
+          }
+          return { kind: "deleted", ...(await trashKeyedRows(store, { path: operation.path, clearance, now, expectedEtag: current.rawEtag ?? current.etag })) };
         }
         const current = await readFile(store, { path: operation.path, clearance });
         if (current.etag !== operation.expectedEtag) {
