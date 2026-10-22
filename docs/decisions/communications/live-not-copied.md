@@ -38,7 +38,10 @@ workspaces, and because a kind may be added back on purpose.
   (`googleSync.sweepDueGoogleSyncs` and the `googleForwardSync` operation) is
   kept unscheduled so a kind can be added back.
   `apps/convex/__tests__/copiesStopped.test.ts` fails if anything schedules it
-  again.
+  again. That includes a reported pass queueing the next one: that drain
+  (`lib/googleSync/drain.ts`) kept the passes already running at the stop
+  starting each other, still writing mail under the Inbox a day later
+  (2026-10-22), so it is gone too.
 - The Mac app's iMessage import is off, and a settings file that turned it on
   reads as off (`apps/desktop/src/core/settings.ts`). The tray item is gone.
 - Mail health has one state that needs the person, `needs_reconnect`. With no

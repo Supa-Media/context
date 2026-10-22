@@ -155,7 +155,7 @@ test("copies still read at their path, left under 0-inbox by a rename of the Inb
 test("a workspace an older folder step already looked at is looked at again", async () => {
   const { t, workspaceId } = await boundWorkspace();
   await t.run(async (ctx) => {
-    await ctx.db.insert("oldCopyHides", { workspaceId, state: "hidden", days: 0, contacts: 0, files: 0, startedAt: 1, foldersAt: 1, hiddenAt: 1 });
+    await ctx.db.insert("oldCopyHides", { workspaceId, state: "hidden", days: 0, contacts: 0, files: 0, startedAt: 1, foldersAt: 1, foldersVersion: 2, hiddenAt: 1 });
   });
   await t.mutation(internal.functions.oldCopies.catchUp, {});
   const queued = (await t.run(async (ctx) => await ctx.db.system.query("_scheduled_functions").collect())).filter(
@@ -165,5 +165,5 @@ test("a workspace an older folder step already looked at is looked at again", as
 
   await t.action(internal.functions.oldCopies.hideWorkspace, { workspaceId });
   expect(await livePaths(t, workspaceId)).not.toContain(COPIES.days[0]);
-  expect(await t.run(async (ctx) => await ctx.db.query("oldCopyHides").first())).toMatchObject({ foldersVersion: 2, days: 5 });
+  expect(await t.run(async (ctx) => await ctx.db.query("oldCopyHides").first())).toMatchObject({ foldersVersion: 3, days: 5 });
 });

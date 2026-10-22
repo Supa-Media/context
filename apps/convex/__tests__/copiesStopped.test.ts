@@ -15,7 +15,8 @@ import { describe, expect, test } from "vitest";
  *
  * Sabotage record (2026-10-21, applied, run, reverted): putting the cron entry
  * back fails the first check; putting `runAfter(..., sweepDueGoogleSyncs)` back
- * in `lib/googlePush/pending.ts` fails the second.
+ * in `lib/googlePush/pending.ts` fails the second, and so (2026-10-22) does
+ * putting it back in `lib/googleSync/drain.ts`.
  */
 
 const ROOT = join(__dirname, "..");
@@ -35,11 +36,11 @@ describe("copying stopped", () => {
     expect(crons).not.toMatch(/internal\.functions\.googleSync\.sweepDueGoogleSyncs/);
   });
 
-  test("only a pass that already ran schedules the sweep, so with none running it never starts", () => {
+  test("nothing schedules the sweep, not even a pass that just reported", () => {
     const schedulers = sources(join(ROOT, "functions"))
-      .filter((path) => /runAfter\([^)]*sweepDueGoogleSyncs/s.test(readFileSync(path, "utf8")))
+      .filter((path) => /(runAfter|runAt)\([^)]*sweepDueGoogleSyncs/s.test(readFileSync(path, "utf8")))
       .map((path) => relative(ROOT, path));
-    // `drain.ts` runs after a pass reports; nothing else may start one.
-    expect(schedulers).toEqual(["functions/lib/googleSync/drain.ts"]);
+    // A pass's own drain kept passes in flight at the stop starting each other, a day later (2026-10-22).
+    expect(schedulers).toEqual([]);
   });
 });
