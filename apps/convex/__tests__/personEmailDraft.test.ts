@@ -102,7 +102,7 @@ describe("saving an email as a draft in the person's Gmail", () => {
     }
     expect(PERSON_EMAIL_DRAFT_HOURLY_LIMIT).toBeGreaterThan(PERSON_EMAIL_HOURLY_LIMIT);
     expect(await post(t, "/gateway/email/draft", ACCESS_A, aliceWs)).toEqual({ ok: false, refused: "hourly_limit" });
-    // The same address, drafted to ten times, can still be sent to.
+    // The same address, drafted to thirty times, can still be sent to.
     expect(await post(t, "/gateway/email/send", ACCESS_A, aliceWs)).toEqual({ ok: true, from: "alice@gmail.example" });
     expect(calls).toHaveLength(PERSON_EMAIL_DRAFT_HOURLY_LIMIT + 1);
   });

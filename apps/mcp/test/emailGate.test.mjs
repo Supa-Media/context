@@ -136,7 +136,19 @@ export async function runEmailGateChecks(check) {
       sends().length === before && pending().length === 0 && JSON.stringify(model.requests.at(-1)?.messages ?? []).includes("Sent from seyi@gmail.example"),
     );
 
-    /* ---------------- moving on disarms it ---------------- */
+    /* ---------------- a side text leaves it standing; Tex asking something else does not ---------------- */
+
+    model.install([{ toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "Re: one sec" } }] }, verdict("yes"), { text: "Drafted." }]);
+    await ask(env, TOKEN_TEXTS, "tell Jo one sec works");
+    model.install([{ text: "No rush." }]);
+    await ask(env, TOKEN_TEXTS, "one sec");
+    const stood = JSON.stringify(model.requests.at(-1)?.messages ?? []);
+    before = sends().length;
+    await ask(env, TOKEN_TEXTS, "yes");
+    check(
+      "a side text leaves the ask standing, the model is told so, and the yes after it sends (Dev2, 2026-10-22)",
+      stood.includes("it still waits") && stood.includes("Re: one sec") && sends().length === before + 1 && sends().at(-1).email.subject === "Re: one sec",
+    );
 
     model.install([
       { toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "Re: Friday" } }] },
@@ -148,14 +160,14 @@ export async function runEmailGateChecks(check) {
     await ask(env, TOKEN_TEXTS, "hmm wait, what time did they suggest?");
     const movedOn = JSON.stringify(model.requests.at(-1)?.messages ?? []);
     check(
-      "the turn that set a held email aside is told so, naming it, so it never says it is still waiting",
-      movedOn.includes("This text is not that yes") && movedOn.includes("Re: Friday") && movedOn.includes("Never say it is still waiting"),
+      "the turn after an ask is told it still waits, naming it, so it neither asks again nor says it was dropped",
+      movedOn.includes("This text is not that yes") && movedOn.includes("Re: Friday") && movedOn.includes("don't show it again or ask for the yes again"),
     );
     model.install([{ text: "Yes what?" }]);
     before = sends().length;
     const late = await ask(env, TOKEN_TEXTS, "yes");
     check(
-      "a yes after the person moved on sends nothing",
+      "a yes after Tex asked something else sends nothing: it answers Tex's question",
       sends().length === before && /Yes what/.test(late.body?.answer ?? ""),
     );
     check(
@@ -193,18 +205,16 @@ export async function runEmailGateChecks(check) {
       pending().length === before && JSON.stringify(model.requests.at(-1)?.messages ?? []).includes("too long to show the person whole in a text"),
     );
 
-    /* ---------------- only a YES sends an email ---------------- */
+    /* ---------------- any yes sends an email ---------------- */
 
     model.install([{ toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "Re: ok" } }] }, verdict("yes"), { text: "Drafted." }]);
     await ask(env, TOKEN_TEXTS, "email Jo that it's fine");
-    model.install([{ text: "It goes when you say so. Reply YES." }]);
     before = sends().length;
+    const turnsBeforeOk = model.requests.length;
     const okay = await ask(env, TOKEN_TEXTS, "ok");
-    model.install([{ text: "Yes what?" }]);
-    await ask(env, TOKEN_TEXTS, "yes");
     check(
-      'an "ok" to an email is not a yes: it goes to the model and disarms the email',
-      sends().length === before && /Reply YES/.test(okay.body?.answer ?? ""),
+      'an "ok" to an email is a yes: it sends it, without a model (Dev2, 2026-10-22)',
+      sends().length === before + 1 && sends().at(-1).email.subject === "Re: ok" && model.requests.length === turnsBeforeOk && /^Done, I sent an email/.test(okay.body?.answer ?? ""),
     );
     for (const left of await approvals()) await request(env, TOKEN_CONSOLE, "/approvals", { id: left.id, action: "deny" });
 
@@ -237,11 +247,9 @@ export async function runEmailGateChecks(check) {
     const mixed = await ask(env, TOKEN_TEXTS, "set up a mixed co workspace and email Jo it's fine");
     before = sends().length;
     await ask(env, TOKEN_TEXTS, "ok");
-    model.install([{ text: "Yes what?" }]);
-    await ask(env, TOKEN_TEXTS, "yes");
     check(
-      'an "ok" that settles another ask still drops the email beside it',
-      mixed.body?.asked === 2 && sends().length === before && !held().some((left) => left.tool === "send_email" && left.summary.includes("Re: mixed")),
+      'one "ok" answers the whole ask: the workspace and the email beside it',
+      mixed.body?.asked === 2 && sends().length === before + 1 && !held().some((left) => left.tool === "send_email" && left.summary.includes("Re: mixed")),
     );
     for (const left of await approvals()) await request(env, TOKEN_CONSOLE, "/approvals", { id: left.id, action: "deny" });
 
@@ -249,17 +257,20 @@ export async function runEmailGateChecks(check) {
       { toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "Re: one" } }] },
       verdict("yes"),
       { toolCalls: [{ name: "send_email", args: { ...EMAIL, subject: "Re: two" } }] },
-      { text: "Drafted the first." },
+      verdict("yes"),
+      { text: "Drafted both." },
     ]);
     const two = await ask(env, TOKEN_TEXTS, "email Jo twice");
+    before = sends().length;
+    await ask(env, TOKEN_TEXTS, "yes");
     check(
-      "a second email in one texted turn is refused",
-      two.body?.asked === 1 &&
-        pending().length === 1 &&
-        !(two.body?.answer ?? "").includes("Re: two") &&
-        JSON.stringify(model.requests.at(-1)?.messages ?? []).includes("one email at a time by text"),
+      "two emails in one texted turn go in one ask, each shown whole, and one yes sends both (Dev2, 2026-10-22)",
+      two.body?.asked === 2 &&
+        (two.body?.verbatim?.[0] ?? "").startsWith("Here are the emails I'd send:") &&
+        (two.body?.verbatim?.[0] ?? "").includes("Re: one") &&
+        (two.body?.verbatim?.[0] ?? "").includes("Re: two") &&
+        sends().length === before + 2,
     );
-    await ask(env, TOKEN_TEXTS, "no");
 
     /* ---------------- the Mail checker ---------------- */
 
@@ -307,7 +318,7 @@ export async function runEmailGateChecks(check) {
     await ask(env, TOKEN_TEXTS, "send Jo the thursday email");
     check(
       "an email the limits would refuse is never put to the person",
-      pending().length === 0 && JSON.stringify(model.requests.at(-1)?.messages ?? []).includes("5 emails through Context this hour"),
+      pending().length === 0 && JSON.stringify(model.requests.at(-1)?.messages ?? []).includes("20 emails through Context this hour"),
     );
     controlPlane.flags.emailRefusal = "reconnect_required";
     model.install([{ toolCalls: [{ name: "send_email", args: EMAIL }] }, { text: "Your Gmail needs reconnecting." }]);

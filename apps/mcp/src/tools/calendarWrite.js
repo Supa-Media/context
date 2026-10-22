@@ -171,8 +171,8 @@ export const REFUSED = {
   no_calendar:
     "Not changed: the person has no Google Calendar connected that Context may change. Send them the link from manage connect_google " +
     "(kind calendar) in one line, and make the change once they say it's connected; never tell them to make it themselves.",
-  hourly_limit: "Not changed: the person has made 5 calendar changes through Context this hour. Try again later.",
-  daily_limit: "Not changed: the person has made 20 calendar changes through Context today. Try again tomorrow.",
+  hourly_limit: "Not changed: the person has made 20 calendar changes through Context this hour. Try again later.",
+  daily_limit: "Not changed: the person has made 100 calendar changes through Context today. Try again tomorrow.",
   not_found: "Not changed: no event with exactly that title starts at that time. Check the title and start against their calendar.",
   ambiguous: "Not changed: more than one event has exactly that title and start, and nothing else tells them apart here. Say so in one line.",
   has_guests: "Not changed: that event has guests now, who would be told. Call calendar_event again and the person is asked first.",

@@ -24,8 +24,8 @@
 export { CALENDAR_WRITE_SCOPE } from "./googleOAuth";
 
 /** Most calendar changes one person's AIs may make in a day, and in an hour. */
-export const CALENDAR_WRITE_DAILY_LIMIT = 20;
-export const CALENDAR_WRITE_HOURLY_LIMIT = 5;
+export const CALENDAR_WRITE_DAILY_LIMIT = 100;
+export const CALENDAR_WRITE_HOURLY_LIMIT = 20;
 export const CALENDAR_MAX_TITLE = 200;
 export const CALENDAR_MAX_LOCATION = 300;
 export const CALENDAR_MAX_NOTES = 2_000;
