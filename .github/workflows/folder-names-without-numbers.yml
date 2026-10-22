@@ -23,6 +23,10 @@ on:
         description: "Count only; rename nothing."
         type: boolean
         default: true
+      diagnose:
+        description: "Only report stuck renames (built-in names and counts); change nothing."
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -44,7 +48,27 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - name: Diagnose
+        if: ${{ inputs.diagnose }}
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          cursor=""
+          page=0
+          while :; do
+            page=$((page + 1))
+            if [ -z "$cursor" ]; then args='{}'; else args=$(jq -cn --arg cursor "$cursor" '{cursor: $cursor}'); fi
+            answer=$(npx convex run functions/folderNumbersDiagnose:page "$args")
+            echo "page $page:"
+            echo "$answer" | jq -c '.workspaces[]'
+            if [ "$(echo "$answer" | jq -r '.done')" = "true" ]; then break; fi
+            cursor=$(echo "$answer" | jq -r '.cursor')
+            if [ "$page" -ge 400 ]; then echo "stopped after $page pages"; exit 1; fi
+          done
+
       - name: Rename
+        if: ${{ !inputs.diagnose }}
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
           DRY_RUN: ${{ inputs.dry_run }}
