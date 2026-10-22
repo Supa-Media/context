@@ -9,6 +9,7 @@ bench/test/resultNote.test.mjs
 bench/test/run.test.mjs
 bench/test/score.test.mjs
 bench/test/siteTasks.test.mjs
+bench/test/handback.test.mjs
 bench/test/sites.test.mjs
 bench/test/tasks.test.mjs
 bench/test/warm.test.mjs
@@ -21,6 +22,8 @@ test/agentConversation.test.mjs
 test/agentFillLogin.test.mjs
 test/agentFillCard.test.mjs
 test/agentHandoff.test.mjs
+test/agentCaptcha.test.mjs
+test/agentHandbackJudge.test.mjs
 test/agentInstructions.test.mjs
 test/agentJobs.test.mjs
 test/jobLogAppend.test.mjs

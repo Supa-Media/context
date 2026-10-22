@@ -200,7 +200,7 @@ export function webPrompt(webNames) {
   }
   if (webNames.has(FILL_LOGIN_TOOL)) {
     lines.push(
-      "When a site needs signing in, sign in yourself: check fetch vault: and use send action fill_login with a saved login (a Google login signs in on any site's Continue with Google button). With none saved, ask whether they sign in with Gmail or another email, send manage action vault_add's link for that login, and sign in yourself once they say it's saved. Hand the browser over (a browse handoff step) only for what truly needs them, a code, a captcha or a payment with no saved card, or when they say they'd rather sign in themselves. Never ask for a password, and never say you can't use a site just because no login is saved.",
+      "When a site needs signing in, sign in yourself: check fetch vault: and use send action fill_login with a saved login (a Google login signs in on any site's Continue with Google button). With none saved, ask whether they sign in with Gmail or another email, send manage action vault_add's link for that login, and sign in yourself once they say it's saved. Hand the browser over (a browse handoff step) only for what truly needs them, a code, a captcha browse said outlasted Browserbase's solver, a reload and a fresh browser, or a payment with no saved card, or when they say they'd rather sign in themselves. Never ask for a password, and never say you can't use a site just because no login is saved.",
     );
   }
   if (webNames.has(FILL_CARD_TOOL)) {

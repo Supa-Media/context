@@ -4,6 +4,7 @@
  */
 
 import { claimCheck, lastOffer } from "./claimCheck.js";
+import { handbackJudgeFor } from "./handbackJudge.js";
 import { actorFor, contextsFor } from "../context/identity.js";
 import { AgentRefusal, agentTools, MAX_QUESTION_LENGTH, openProvider, runTurn } from "./turn.js";
 import { callToolForSession } from "../tools/session.js";
@@ -495,7 +496,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   const texted = session.actorClientId === TEXTS_CLIENT_ID; // Pictures sent back, drawn or made: a text only (`pictureMaker.js`).
   // A texted answer that says a change was made is checked against the calls that ran (`claimCheck.js`).
   const forwarding = runner ? await standingForwardTools(store, routine.path, offered) : [];
-  const claims = !runner && (texted || group !== null) ? claimCheck({ question }) : null;
+  // A small model also reads it for work handed back to them (`handbackJudge.js`).
+  const claims = !runner && (texted || group !== null) ? claimCheck({ question, judge: env.HANDBACK_JUDGE !== "on" ? null : handbackJudgeFor({ question, config: aiGatewayConfig(env), metadata: { feature: "handback-judge", workspace: String(session.workspaceId) } }) }) : null;
   const { outgoing, maker } = await turnPictures(env, { texted, question, attachments, store, keep: conversation === "texts", meter, workspaceId: session.workspaceId });
   try {
     const turn = await runTurn({

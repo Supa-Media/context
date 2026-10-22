@@ -296,6 +296,8 @@ async function answerJobs(options, { bench, test, testName = options.test ?? opt
         // and each query is paid for once a run.
         ai: cachedEmbeddings(workersAi(process.env.CLOUDFLARE_ACCOUNT_ID, process.env.CLOUDFLARE_AI_TOKEN, process.env.AI_GATEWAY_ID ?? null)),
         searchKey: process.env.BRAVE_SEARCH_API_KEY,
+        // Production reads answers for work handed back (wrangler.toml HANDBACK_JUDGE), so a real run does too.
+        handbackJudge: true,
       };
   if (scripted) {
     models.sites = bench.sites;

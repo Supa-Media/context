@@ -569,7 +569,7 @@ export async function runTurn(options) {
     }
 
     if (answer.toolCalls.length === 0) {
-      const recheck = round < rounds - 1 ? answerCheck?.(answer.text) ?? null : null;
+      const recheck = round < rounds - 1 ? (await answerCheck?.(answer.text)) ?? null : null;
       if (recheck === null) return { answer: answer.text, provider, model, steps, usage, usageByModel, timing: { ...timing, trace } };
       messages.push({ role: "assistant", text: answer.text }, { role: "user", text: recheck });
       continue;

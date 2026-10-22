@@ -42,6 +42,7 @@
  * written by a call the person's dispatcher allowed.
  */
 
+import { mayAsk } from "./handbackJudge.js";
 import { toolDefinitions } from "../tools/registry.js";
 import { ATTENTION_SETTINGS_PATH, HEARTBEAT_SETTINGS_PATH } from "./checkIns.js";
 
@@ -204,10 +205,32 @@ export const HANDBACK_NOTICE =
   "A file on a site (an invoice or receipt PDF, a statement) is yours to take: a browse download step saves it, and attach on send_email or save_email_draft puts it in the email. " +
   "If their mail doesn't have it, go where else it lives: Gmail on the web in your browser, or the account, admin or billing page it came from (a billing history, an admin console), signed in with their saved login. " +
   "An email you texted about earlier is still there: find it again. Do it now, then answer with what you did or found. " +
-  "Ask them only for what truly needs them: a sign-in code, a captcha, a payment, a choice, or a fact only they know. " +
+  "Ask them only for what truly needs them: a sign-in with no saved login, a code on their phone, a captcha browse said outlasted every try, a payment or other yes, a choice, or a fact only they know. " +
   "If it will take many steps, start a background job for it rather than handing it back. " +
   "If you tried every way and still can't, say in one line what you tried, and ask one specific question. " +
   "If those words were not asking them to do anything (their own to-do list, or what someone else said), send your answer again as it was.";
+
+/*
+  A captcha is the person's only after the browser tried every way past it
+  (the owner, 2026-10-22: "make sure agents try using those bypasses and
+  other browserbase hacks before handing back"). The browse tool runs those
+  tries itself (`captchaLadder.js`) and marks a result whose captcha outlasted
+  them; an answer that hands them a captcha with no such result this turn
+  gets one more round.
+*/
+const CAPTCHA_ASK =
+  /\b(?:solve|tick|check|complete|pass|clear|get (?:past|through)|click|do)\b[^.?!\n]{0,40}\b(?:captcha|not a robot|robot check|bot check)\b|\b(?:captcha|robot check|bot check)\b[^.?!\n]{0,60}\b(?:you|your|tap|solve|tick|complete)\b/i;
+
+/** Whether an answer asks them to get past a captcha. */
+export function handsOverACaptcha(answer) {
+  return CAPTCHA_ASK.test(String(answer ?? "").replace(/[\u2018\u2019]/g, "'"));
+}
+
+export const CAPTCHA_NOTICE =
+  "Before this goes: your answer asks them to get past a captcha, but none outlasted the browser's tries this turn. " +
+  "Whenever a page shows a captcha, browse tries Browserbase's solver, a reload and a fresh browser with a new address by itself, so open the page with browse and carry on. " +
+  "Only a captcha the browse result says is still there after every try is theirs, and then only with everything else on the page done. " +
+  "If those words weren't asking them to solve anything, send your answer again as it was.";
 
 export const CLAIM_NOTICE =
   "Before this goes: your answer says something was added or saved, but no change to their notes went through in this turn. " +
@@ -274,7 +297,7 @@ const KEPT_WISHES = new Set([ATTENTION_SETTINGS_PATH, HEARTBEAT_SETTINGS_PATH]);
  * `check` to `runTurn` as `answerCheck`. `check` answers a notice, at most
  * once, or null to let the answer go.
  */
-export function claimCheck({ question }) {
+export function claimCheck({ question, judge = null }) {
   let wrote = false;
   let keptWish = false;
   let held = false;
@@ -282,16 +305,31 @@ export function claimCheck({ question }) {
   let hadWeb = false;
   let triedWeb = false;
   let handedBack = false;
+  let captchaStuck = false;
+  let captchaNoticed = false;
+  // The tools this turn ran, by name, for the hand-back judge (`handbackJudge.js`).
+  const steps = [];
+  let judged = false;
   return {
     /** The turn's web (`turnWeb.js`), watched for whether anything on it was tried. */
     wrapWeb(web) {
       if (web === null) return null;
       hadWeb = true;
-      return { ...web, call: (name, args) => ((triedWeb = true), web.call(name, args)) };
+      return {
+        ...web,
+        call: async (name, args) => {
+          triedWeb = true;
+          const result = await web.call(name, args);
+          steps.push({ name, ok: result?.isError !== true });
+          if (result?.captchaStuck === true) captchaStuck = true;
+          return result;
+        },
+      };
     },
     wrap(callTool) {
       return async (name, args) => {
         const result = await callTool(name, args);
+        steps.push({ name, ok: result?.isError !== true });
         if (result?.held === true) held = true;
         if (result?.isError !== true && isWrite(name)) {
           wrote = true;
@@ -308,7 +346,11 @@ export function claimCheck({ question }) {
         handedBack = true;
         return HANDBACK_NOTICE;
       }
-      if (noticed) return null;
+      if (!captchaNoticed && !captchaStuck && handsOverACaptcha(answer)) {
+        captchaNoticed = true;
+        return CAPTCHA_NOTICE;
+      }
+      if (noticed) return judgeOnce(answer);
       const notice =
         asksToMute(question) && !keptWish
           ? MUTE_NOTICE
@@ -319,8 +361,22 @@ export function claimCheck({ question }) {
               : hadWeb && !triedWeb && saysItCouldNot(answer)
                 ? TRY_NOTICE
                 : null;
-      if (notice !== null) noticed = true;
-      return notice;
+      if (notice !== null) {
+        noticed = true;
+        return notice;
+      }
+      return judgeOnce(answer);
     },
   };
+
+  /**
+   * Last, and once a turn: the hand-back judge (`handbackJudge.js`) on an
+   * answer that may ask them something. A promise, which `runTurn` awaits;
+   * null when there is no judge or nothing to judge.
+   */
+  function judgeOnce(answer) {
+    if (judge === null || judged || !mayAsk(answer)) return null;
+    judged = true;
+    return Promise.resolve(judge(answer, steps.slice())).catch(() => null);
+  }
 }

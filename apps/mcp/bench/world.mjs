@@ -357,6 +357,8 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
     // a run offers the same tools (decided 2026-10-09; round two measured a
     // shorter tool list than production). The run command passes the key.
     ...(typeof models.searchKey === "string" && models.searchKey ? { BRAVE_SEARCH_API_KEY: models.searchKey } : {}),
+    // The hand-back judge, as production runs it (`agent/handbackJudge.js`); a scripted model leaves it off, since it would answer the judge's call too.
+    ...(models.handbackJudge === true ? { HANDBACK_JUDGE: "on" } : {}),
     // A scripted web answers searches itself, so no real key is needed or sent.
     ...(web ? { BRAVE_SEARCH_API_KEY: "bench-scripted-search", SITE_SHOTS: web.binding } : {}),
     // The deployment's search settings (`src/search/settings.js`): what a

@@ -126,6 +126,20 @@ describe("browseOnBrowserbase", () => {
     expect(api.calls.some((c) => c.method === "POST" && c.url.endsWith("/sessions"))).toBe(false);
   });
 
+  it("drops the owner's running browser and starts a new one when a fresh browser is asked for", async () => {
+    const api = fakeApi({ running: [{ id: "mine", connectUrl: "wss://connect.example/mine", userMetadata: { owner: OWNER } }] });
+    const result = await call(ENV, { owner: OWNER, steps: [{ do: "read" }], fresh: true }, api);
+    expect(result.body.session).toBe("new-1");
+    const released = api.calls.find((c) => c.url.endsWith("/sessions/mine"));
+    expect(released?.body).toMatchObject({ status: "REQUEST_RELEASE" });
+    expect(api.cdp[0]).toBe("connect https://connect.example/new-1");
+  });
+
+  it("names no captcha when the page shows none", async () => {
+    const result = await call(ENV, { owner: OWNER, steps: [{ do: "read" }] });
+    expect(result.body.captcha).toBeUndefined();
+  });
+
   it("never asks Browserbase for its live-view link, even when a handoff is asked for", async () => {
     const result = await call(ENV, { owner: OWNER, steps: [{ do: "read" }], handoff: true });
     expect(result.body.liveUrl).toBeUndefined();

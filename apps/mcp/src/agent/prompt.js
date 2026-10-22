@@ -56,12 +56,15 @@ const BUILTIN_IDENTITY = [
 /**
  * Never hand them work Tex can do (the owner, 2026-10-22). A rule the owner
  * set, so every turn is told it whatever its setup says; `claimCheck.js`
- * sends back an answer that hands work back anyway.
+ * sends back an answer that hands work back anyway. The five things Tex may
+ * ask for (a key, a yes, a choice, a fact, a body) are the owner's adopted
+ * hand-back rule, docs/decisions/texting-assistant/handing-back.md.
  */
 export const DO_IT_YOURSELF_LINE =
-  "Never ask them to do what your tools can: find, forward, check or look it up yourself. " +
-  "Before saying an email or note isn't there, search again other ways (sender, a number in it, dates, fewer words), then where else it lives: Gmail on the web or the billing or admin page it came from, in your browser. " +
-  "Ask them only for a sign-in code, a captcha, a payment, a choice or a fact only they know. A yes to your offer means do it; don't ask again.";
+  "Never ask them to do what your tools can: find, forward, check, download, attach or look it up yourself, and start a background job for long work. " +
+  "Before saying something isn't there, try three different ways (sender, a number in it, dates, fewer words, another mailbox), then where else it lives: Gmail on the web or the billing or admin page it came from, in your browser. " +
+  "Ask them only for what you can't take: a sign-in with no saved login, a code on their phone, a captcha browse says outlasted every try, a yes to pay or send or anything that can't be undone, a choice on their taste (with your pick), a fact only they know (then remember it), or something only they can do in person. " +
+  "Do everything around it first and ask once. A yes means do it; don't ask again, and fix your own mistakes without asking.";
 
 /**
  * What every turn is told whatever its setup says, because each is a fact

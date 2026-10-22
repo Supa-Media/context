@@ -43,6 +43,14 @@
  *   `download` step naming it gets a small PDF of that name back.
  * - `search:` words: a `search_web` query with one of them lists the site's
  *   pages, so finding a site is part of the task.
+ * - `captcha: 2` (or `captcha: always`): the page shows a "verify you are
+ *   human" wall, and nothing else, on its first two loads in the
+ *   conversation, and the run answers `captcha: "unsolved"` as the screenshot
+ *   Worker does once Browserbase's solver gave up (`infra/site-shots/src/captcha.ts`).
+ *   The gateway's reload is the second load and its fresh browser
+ *   (`fresh: true`) the third (`apps/mcp/src/agent/captchaLadder.js`), so
+ *   `captcha: 1` clears on the reload, `2` on the fresh browser, and
+ *   `always` only when the person solves it through a handoff.
  *
  * The person signs in only through a handoff: once a turn handed the browser
  * over, the next text from the person comes after they signed in on that
@@ -145,7 +153,7 @@ export function parseSite(raw, label = "site") {
     const t = line.trim();
     const heading = line.match(/^## (https:\/\/\S+)\s*$/);
     if (heading) {
-      page = { url: heading[1], title: "", text: [], signedInOnly: false, elements: [] };
+      page = { url: heading[1], title: "", text: [], signedInOnly: false, elements: [], captcha: 0 };
       site.pages.set(placeOf(heading[1]), page);
       return;
     }
@@ -153,6 +161,7 @@ export function parseSite(raw, label = "site") {
     let m;
     if ((m = t.match(/^title:\s*(.*)$/))) page.title = m[1];
     else if (t === "signed in only") page.signedInOnly = true;
+    else if ((m = t.match(/^captcha:\s*(\d+|always)$/))) page.captcha = m[1] === "always" ? Infinity : Number(m[1]);
     else if ((m = t.match(/^text(?:\s+\(([^)]+)\))?:\s*(.*)$/))) page.text.push({ when: readFlags(m[1], where), line: m[2] });
     else if ((m = t.match(ELEMENT))) page.elements.push(readElement(m[1], readFlags(m[2], where), m[3], where));
     else throw new Error(`${where}: cannot read "${t}"`);
@@ -175,6 +184,9 @@ export function createWeb(sites) {
   const chosen = new Map();
   const events = [];
   const browsers = new Map();
+  // A captcha page's loads this conversation, and the ones the person solved.
+  const loads = new Map();
+  const solved = new Set();
   let handedOff = null;
   let sessions = 0;
 
@@ -207,6 +219,16 @@ export function createWeb(sites) {
     browser.values = new Map();
     browser.history.push(browser.url);
     events.push(`open ${placeOf(browser.url)}`);
+    const place = placeOf(browser.url);
+    loads.set(place, (loads.get(place) ?? 0) + 1);
+  }
+
+  /** Whether the page the browser is on still stands behind its captcha. */
+  function walled(browser) {
+    const page = browser.url === null ? null : pageFor(browser.url);
+    if (!page || page.captcha === 0) return false;
+    const place = placeOf(browser.url);
+    return !solved.has(place) && (loads.get(place) ?? 0) <= page.captcha;
   }
 
   /** The page's elements whose flags hold (or that have none), with their place in the file. */
@@ -221,6 +243,7 @@ export function createWeb(sites) {
   function reading(browser, note = "") {
     const page = pageFor(browser.url);
     if (!page) return { url: browser.url, title: "Page not found", text: "This page doesn't exist.", truncated: false, elements: [] };
+    if (walled(browser)) return { url: browser.url, title: "Just a moment...", text: "Verify you are human by completing the action below.", truncated: false, elements: [] };
     const text = page.text.filter((t) => shows(t.when, flags)).map((t) => t.line);
     if (note) text.unshift(note);
     const elements = visible(page).map(({ el, i }, shown) => {
@@ -253,7 +276,8 @@ export function createWeb(sites) {
   }
 
   function step(browser, s) {
-    const page = pageFor(browser.url);
+    // Behind a captcha wall, nothing on the page can be pressed.
+    const page = walled(browser) ? null : pageFor(browser.url);
     // A ref numbers the elements the last reading showed; values are kept by place in the file.
     const picked = page && Number.isInteger(s.ref) ? visible(page)[s.ref - 1] ?? null : null;
     const el = picked?.el ?? null;
@@ -321,6 +345,11 @@ export function createWeb(sites) {
 
   function browse(body) {
     const owner = body.provider === "browserbase" ? body.owner : null;
+    // A fresh browser: the running one is let go, sign-ins come back from the jar (`signedIn` is the site's).
+    if (owner && body.fresh === true && browsers.has(owner)) {
+      browsers.delete(owner);
+      events.push("fresh browser");
+    }
     let browser = owner ? browsers.get(owner) : body.session ? [...browsers.values()].find((b) => b.session === body.session) : null;
     if (!browser) {
       sessions += 1;
@@ -357,7 +386,17 @@ export function createWeb(sites) {
       handedOff = browser;
       events.push(`handoff ${hostOf(browser.url ?? "")}`);
     }
-    return { session: browser.session, ran, page: browser.url === null ? null : reading(browser, note), ...(liveUrl ? { liveUrl } : {}), ...(file ? { file } : {}) };
+    // The screenshot Worker's answer once Browserbase's solver has had its wait; never on a handoff, which skips it.
+    const captcha = body.handoff !== true && walled(browser) ? "unsolved" : null;
+    if (captcha) events.push(`captcha ${placeOf(browser.url)}`);
+    return {
+      session: browser.session,
+      ran,
+      page: browser.url === null ? null : reading(browser, note),
+      ...(liveUrl ? { liveUrl } : {}),
+      ...(file ? { file } : {}),
+      ...(captcha ? { captcha } : {}),
+    };
   }
 
   function read(body) {
@@ -410,6 +449,10 @@ export function createWeb(sites) {
       handedOff = null;
       const site = siteFor(browser.url ?? "");
       if (!site) return;
+      if (walled(browser)) {
+        solved.add(placeOf(browser.url));
+        events.push(`solved captcha ${placeOf(browser.url)}`);
+      }
       signedIn.add(site.host);
       events.push(`signed in ${site.host}`);
       if (site.signIn && placeOf(browser.url) === placeOf(site.signIn) && browser.returnTo) {
