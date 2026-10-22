@@ -71,6 +71,17 @@ How it works:
   permission is told to the person in their terms. The gateway logs each 👍
   it compares (`event: "thumbs_up"`, how many were armed, whether it matched).
 
+- **Tex's asks are answered in the texts and nowhere else** (Dev2,
+  2026-10-22: a day of re-asks had left a pile of them in the app's
+  Approvals panel, two copies of one email each one tap from sending). A
+  record raised for a texted turn carries `asked_by_text`; once the thread
+  moves on it is dropped, not left for the app, and the app neither lists
+  nor settles one (`askedByText` in `apps/mcp/src/tools/approvals.js`; older
+  records are known by Tex's client name). A key's first use, which Tex too
+  is allowed in the app, and every other AI's ask still wait in the panel.
+  Test: `a texted ask is answered in the texts and never in the app` in
+  `apps/mcp/test/agentEgressTexting.test.mjs`.
+
 What a simplification would cost: releasing on any like makes a 👍 on "Dinner
 is booked" send an email; "always" means any text of the reply that asked,
 never a text from before it. Releasing without the hold makes a slip of the thumb
