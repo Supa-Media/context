@@ -37,10 +37,16 @@ function granteeOf(grant: Doc<"nodeAccess">): Grantee | null {
  * truth the snapshot is rebuilt from, and the fallback while there is none.
  */
 export async function scanAccessRows(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<AccessRow[]> {
-  const rows = await ctx.db
-    .query("nodes")
-    .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId))
-    .collect();
+  // Only the rows with a setting of their own, and the rows a grant names: a big workspace's whole tree is more
+  // than one function may read (a chunked Archive rename stopped for good on "Too many bytes read", 2026-10-22).
+  const rows = new Map<string, Doc<"nodes">>();
+  for (const base of ["private", "team"] as const) {
+    const set = await ctx.db
+      .query("nodes")
+      .withIndex("by_workspace_access", (q) => q.eq("workspaceId", workspaceId).eq("access.base", base))
+      .collect();
+    for (const row of set) rows.set(row._id, row);
+  }
   const grants = await ctx.db
     .query("nodeAccess")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
@@ -52,9 +58,15 @@ export async function scanAccessRows(ctx: QueryCtx, workspaceId: Id<"workspaces"
     const list = granteesByNode.get(grant.nodeId) ?? [];
     list.push(grantee);
     granteesByNode.set(grant.nodeId, list);
+    if (!rows.has(grant.nodeId)) {
+      const row = await ctx.db.get(grant.nodeId);
+      if (row !== null && row.workspaceId === workspaceId) rows.set(row._id, row);
+    }
   }
+  // In path order, as the tree's index gave them before.
+  const ordered = [...rows.values()].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   const out: AccessRow[] = [];
-  for (const row of rows) {
+  for (const row of ordered) {
     const grantees = granteesByNode.get(row._id) ?? [];
     if (row.access === undefined && grantees.length === 0) continue;
     out.push({
