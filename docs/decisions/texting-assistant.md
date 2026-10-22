@@ -493,6 +493,9 @@ status; the gateway does that question on Cloudflare's browser, which cannot be
 handed over, and skips Browserbase for ten minutes
 (`apps/mcp/test/agentBrowserbaseRefused.test.mjs`).
 
+A failed Browserbase run is debugged from a digest of Browserbase's session
+log, never page content: [debugging a failed run](./texting-assistant/computer.md#a-failed-browser-run-is-debugged-from-browserbases-session-log-2026-10-22).
+
 **What a simplification would cost:** letting the model type anything
 anywhere lets a page collect the person's notes through a search box. The
 tests that fail are `apps/mcp/test/agentBrowse.test.mjs` ("with no site named,

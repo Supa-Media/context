@@ -78,11 +78,11 @@ export class BrowserIdle extends DurableObject<Env> {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     if (request.method === "POST" && (url.pathname === "/browse" || url.pathname === "/browse/close")) {
       const body = await request.json().catch(() => null);
-      if ((body as { provider?: unknown })?.provider === "browserbase") return await browseOnBrowserbase(env, url.pathname, body);
+      if ((body as { provider?: unknown })?.provider === "browserbase") return await browseOnBrowserbase(env, url.pathname, body, fetch, (work) => ctx?.waitUntil(work));
       return await browse(env, url.pathname, body);
     }
     if (request.method === "POST" && (url.pathname === "/view/frame" || url.pathname === "/view/input")) {
