@@ -31,6 +31,22 @@ export async function inboxFolders(store) {
 
 /** `path` under the Inbox's default name, carried to each of `folders`: `inbox/email` → `Capture/email`. */
 export function underInbox(folders, path) {
-  const rest = path.startsWith(`${INBOX_FOLDER}/`) ? path.slice(INBOX_FOLDER.length) : `/${path}`;
+  const rest = path === INBOX_FOLDER || path.startsWith(`${INBOX_FOLDER}/`) ? path.slice(INBOX_FOLDER.length) : `/${path}`;
   return folders.map((folder) => `${folder}${rest}`);
+}
+
+/**
+ * `path` under the Inbox's default name, carried to the folder the tree says
+ * does the Inbox's job, for a writer. A keyed write is carried by the control
+ * plane anyway; an unkeyed one lands at the path it names, so without this a
+ * workspace whose Inbox is still `0-inbox` would grow a second `inbox/`.
+ *
+ * @param {object} store
+ * @param {string} path
+ * @returns {Promise<string>}
+ */
+export async function inboxPath(store, path) {
+  if (path !== INBOX_FOLDER && !path.startsWith(`${INBOX_FOLDER}/`)) return path;
+  const { home } = await inboxFolders(store);
+  return underInbox([home ?? INBOX_FOLDER], path)[0];
 }

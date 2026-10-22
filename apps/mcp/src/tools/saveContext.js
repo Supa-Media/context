@@ -8,6 +8,7 @@ import {
 } from "./sessionArchive.js";
 import { clearExactVisibilityIfAbsent } from "../moves/objects.js";
 import { defaultSessionFolder, visibilityOf } from "../privacy/engine.js";
+import { inboxPath } from "../communications/inboxFolders.js";
 import { normalizeVisibility } from "../notes/format.js";
 import { persistExactVisibility } from "../privacy/state.js";
 import { readSaveProcedure } from "../orient/frontPage.js";
@@ -55,7 +56,8 @@ export async function toolSaveContext(store, scope, rules, overrides, args) {
   // than cached: they may have edited `index.md` in Obsidian a minute ago, and
   // a stale destination writes somewhere they have stopped using.
   const procedure = await readSaveProcedure(store, scope, rules, overrides);
-  const folder = procedure?.destination || defaultSessionFolder(rules);
+  // The fallback names the Inbox by its default name; it goes to the folder doing that job.
+  const folder = procedure?.destination || (await inboxPath(store, defaultSessionFolder(rules)));
   const path = await uniqueSessionPath(store, platform, at, folder);
   const content = formatChatArchive({
     platform,

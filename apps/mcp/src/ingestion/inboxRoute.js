@@ -18,6 +18,8 @@ import {
 } from "./inbox.js";
 import { json } from "../http/responses.js";
 import { recordChange } from "../activity/record.js";
+import { inboxPath } from "../communications/inboxFolders.js";
+import { INBOX_FOLDER } from "../../../../packages/communications/src/protocol.js";
 
 /* -------------------------------- inbox ---------------------------------- */
 
@@ -85,13 +87,14 @@ export async function writeInboxCapture(store, capture, { actorScope = "inbox", 
   const attendees = normalizeInboxAttendees(capture.attendees);
   const metadata = capture.metadata ?? null;
   const sourceSlug = safeSlug(source, 30);
+  const inbox = await inboxPath(store, INBOX_FOLDER);
   let key;
   if (externalId) {
     const fingerprint = await sha256Hex(`${source}\0${externalId}`);
-    key = `inbox/${sourceSlug}/${fingerprint.slice(0, 24)}.md`;
+    key = `${inbox}/${sourceSlug}/${fingerprint.slice(0, 24)}.md`;
   } else {
     const titleSlug = safeSlug(title, 40);
-    key = `inbox/${now.toISOString().slice(0, 19).replace(/[:]/g, "-")}-${titleSlug}.md`;
+    key = `${inbox}/${now.toISOString().slice(0, 19).replace(/[:]/g, "-")}-${titleSlug}.md`;
   }
 
   const existing = await getWithLegacyFallback(store, key);

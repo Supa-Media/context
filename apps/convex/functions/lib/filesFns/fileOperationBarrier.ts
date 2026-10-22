@@ -47,6 +47,7 @@ import { attachPlacesFollower } from "../nodes/followPlaces";
 import { attachLandedTouch } from "../nodes/landedTouch";
 import { attachTreeListing } from "../nodes/treeNames";
 import { attachWorkspaceKeyed } from "../noteIds/keyedStore";
+import { jobLens } from "./jobLens";
 import { attachArrivalAccess } from "../nodes/arrivalAccess";
 import { servedNoteCount } from "../nodes/servedCount";
 import { attachMeaningIndex } from "../../../../mcp/src/search/meaning/store.js";
@@ -112,6 +113,9 @@ export async function runFileOperationHandler(
   // (`lib/websites/siteLens.ts`, owner 2026-10-21).
   const lens = await siteLens(ctx, args);
   if (lens !== null) return lens.relabel(await runFileOperationHandler(ctx, { ...args, operation: lens.operation as typeof args.operation }));
+  // A path under a built-in folder's default name (`inbox/...`) goes to the folder doing that job (`jobLens.ts`).
+  const job = await jobLens(ctx, args);
+  if (job !== null) return await runFileOperationHandler(ctx, { ...args, operation: job as typeof args.operation });
   // In rows mode the rows are the truth and `privacy.md` is not written: a change to who can see something
   // is made on the rows (`filesFns/visibility.ts`), and a rules write reaching here is refused, before any
   // credential is opened.
