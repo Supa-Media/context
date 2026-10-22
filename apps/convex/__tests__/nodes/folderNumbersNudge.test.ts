@@ -6,7 +6,7 @@
 
 import { describe, expect, test } from "vitest";
 import { internal } from "../../_generated/api";
-import { errorWords } from "../../functions/folderNumbersNudge";
+import { errorWords } from "../../functions/lib/nodes/folderNumbers";
 import { keyedFixture } from "./keyedFixture.helpers";
 
 const HOUR = 60 * 60_000;

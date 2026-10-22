@@ -66,6 +66,15 @@ export interface FolderNumbersCounts {
   refused: Record<string, number>;
 }
 
+/** An error's words, with paths and quoted text removed: what a public job log may print. ASCII, so it can key a record. */
+export function errorWords(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message
+    .replace(/"[^"]*"|'[^']*'|`[^`]*`/g, "...")
+    .replace(/\S*[/\\]\S*/g, "<path>")
+    .slice(0, 300);
+}
+
 function parentPath(path: string): string {
   const slash = path.lastIndexOf("/");
   return slash < 0 ? "" : path.slice(0, slash);
@@ -152,8 +161,11 @@ export async function dropFolderNumbersIn(
     if (result.kind === "moveQueued" && result.queued) {
       counts.renamed += 1;
     } else {
-      const code = (result as { error?: string }).error ?? "NOT_QUEUED";
-      counts.refused[code] = (counts.refused[code] ?? 0) + 1;
+      const refusedWith = result as { error?: string; message?: string };
+      const code = refusedWith.error ?? "NOT_QUEUED";
+      // The code alone does not say which refusal it was (CONFLICT is busy, unkeyed or changed alike).
+      const key = refusedWith.message === undefined ? code : `${code}: ${errorWords(refusedWith.message)}`;
+      counts.refused[key] = (counts.refused[key] ?? 0) + 1;
     }
     current = await plan();
   }

@@ -29,6 +29,18 @@ describe("the stuck-rename report", () => {
         observedAt: 1,
         parentId: projects._id,
       } as never);
+      for (const path of [
+        "1-projects/Email/thread.md",
+        "1-projects/Secret Folder/x.md",
+      ]) {
+        await ctx.db.insert("nodes", {
+          workspaceId: f.ws,
+          path,
+          name: path.slice(path.lastIndexOf("/") + 1),
+          kind: "file",
+          observedAt: 1,
+        } as never);
+      }
       await ctx.db.insert("rowMoves", {
         workspaceId: f.ws,
         from: "1-projects",
@@ -70,6 +82,8 @@ describe("the stuck-rename report", () => {
     const text = JSON.stringify(page);
     expect(text).not.toContain("secret-plan");
     expect(text).not.toContain("my-own");
+    expect(text).not.toContain("Secret Folder");
+    expect(text).not.toContain("thread");
     const mine = page.workspaces[0];
     expect(mine.otherMoves).toBe(1);
     expect(mine.moves).toEqual([
@@ -101,8 +115,19 @@ describe("the stuck-rename report", () => {
         name: "1-projects",
         plainTaken: true,
         plainRole: "projects",
-        unkeyedFiles: 1,
+        unkeyedFiles: 3,
       }),
     );
+    type Numbered = {
+      name: string;
+      unkeyedWhere: { channel: string | null; ext: string; etag: boolean }[];
+    };
+    const where =
+      (mine.numbered as Numbered[]).find((row) => row.name === "1-projects")
+        ?.unkeyedWhere ?? [];
+    expect(where.map((row) => row.channel).sort()).toEqual(
+      ["email", "other", null].sort(),
+    );
+    expect(where.every((row) => row.ext === "md" && !row.etag)).toBe(true);
   });
 });

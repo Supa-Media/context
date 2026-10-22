@@ -16,6 +16,7 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { internalAction, internalQuery } from "../_generated/server";
 import { folderRole } from "@context/shared/src/folderRoles.cjs";
+import { errorWords } from "./lib/nodes/folderNumbers";
 
 /** A move this long without a page is stopped, not slow: the watchdog's lease is thirty seconds. */
 const STOPPED_MS = 10 * 60_000;
@@ -23,15 +24,6 @@ const PAGE = 25;
 
 const builtIn = (path: string): boolean =>
   !path.includes("/") && folderRole(path) !== null;
-
-/** An error's words, with paths and quoted text removed: what the log may print. */
-export function errorWords(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  return message
-    .replace(/"[^"]*"|'[^']*'|`[^`]*`/g, "…")
-    .replace(/\S*[/\\]\S*/g, "<path>")
-    .slice(0, 300);
-}
 
 export const stopped = internalQuery({
   args: { cursor: v.optional(v.string()) },

@@ -45,9 +45,41 @@ const folderValidator = v.object({
   plainRole: v.union(v.string(), v.null()),
   files: v.number(),
   unkeyedFiles: v.number(),
+  /** The first few unkeyed files: what they are, without a name (`unkeyedShape`). */
+  unkeyedWhere: v.array(
+    v.object({
+      depth: v.number(),
+      /** The Inbox channel folder it sits in, when its first folder is one; "other" for a folder of the person's own; null at the top. */
+      channel: v.union(v.string(), v.null()),
+      ext: v.string(),
+      etag: v.boolean(),
+      noteId: v.boolean(),
+      observedDaysAgo: v.number(),
+    }),
+  ),
   folders: v.number(),
   scanCapped: v.boolean(),
 });
+
+/** The Inbox's own channel folders, the only folder names an unkeyed file's description may print. */
+const CHANNELS = new Set(["calendar", "contacts", "email", "forms", "google-chat", "imessage", "meetings", "memories", "sessions"]);
+const UNKEYED_SHOWN = 5;
+
+/** An unkeyed file described by its shape only: this is printed in a public job log. */
+function unkeyedShape(path: string, prefix: string, row: Doc<"nodes">, now: number) {
+  const rest = path.slice(prefix.length).split("/");
+  const first = rest.length > 1 ? rest[0].toLowerCase().replace(/\s+/g, "-") : null;
+  const dot = rest[rest.length - 1].lastIndexOf(".");
+  const ext = dot < 0 ? "" : rest[rest.length - 1].slice(dot + 1).toLowerCase();
+  return {
+    depth: rest.length,
+    channel: first === null ? null : CHANNELS.has(first) ? first : "other",
+    ext: /^[a-z0-9]{1,8}$/.test(ext) ? ext : "?",
+    etag: row.etag !== undefined,
+    noteId: row.noteId !== undefined,
+    observedDaysAgo: Math.floor((now - row.observedAt) / 86_400_000),
+  };
+}
 
 const jobValidator = v.object({
   role: v.string(),
@@ -77,11 +109,14 @@ async function filesUnder(
 ): Promise<{
   files: number;
   unkeyed: number;
+  unkeyedWhere: ReturnType<typeof unkeyedShape>[];
   folders: number;
   capped: boolean;
 }> {
   let files = 0;
   let unkeyed = 0;
+  const unkeyedWhere: ReturnType<typeof unkeyedShape>[] = [];
+  const now = Date.now();
   let folders = 0;
   let scanned = 0;
   const prefix = `${path}/`;
@@ -91,16 +126,19 @@ async function filesUnder(
       q.eq("workspaceId", workspaceId).gt("path", prefix),
     )) {
     if (!below.path.startsWith(prefix)) break;
-    if (scanned >= SCAN) return { files, unkeyed, folders, capped: true };
+    if (scanned >= SCAN) return { files, unkeyed, unkeyedWhere, folders, capped: true };
     scanned += 1;
     if (below.goneAt !== undefined) continue;
     if (below.kind === "folder") folders += 1;
     else {
       files += 1;
-      if (below.storageKey === undefined) unkeyed += 1;
+      if (below.storageKey === undefined) {
+        unkeyed += 1;
+        if (unkeyedWhere.length < UNKEYED_SHOWN) unkeyedWhere.push(unkeyedShape(below.path, prefix, below, now));
+      }
     }
   }
-  return { files, unkeyed, folders, capped: false };
+  return { files, unkeyed, unkeyedWhere, folders, capped: false };
 }
 
 async function jobsOf(db: DatabaseReader, workspaceId: Id<"workspaces">) {
@@ -224,6 +262,7 @@ export const page = internalQuery({
           plainRole: twin?.role ?? null,
           files: under.files,
           unkeyedFiles: under.unkeyed,
+          unkeyedWhere: under.unkeyedWhere,
           folders: under.folders,
           scanCapped: under.capped,
         });
