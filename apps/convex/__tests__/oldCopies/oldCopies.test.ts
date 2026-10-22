@@ -109,6 +109,7 @@ describe("hiding old copies", () => {
     await f.t.mutation(internal.functions.oldCopies.catchUp, {});
     expect(await scheduled()).toMatchObject([{ args: [{ workspaceId: f.ws }] }]);
 
+    await f.t.mutation(internal.functions.oldCopies.hideFolders, { workspaceId: f.ws, now: Date.now() });
     await hideAll(f);
     await f.t.run(async (ctx) => {
       for (const job of await ctx.db.system.query("_scheduled_functions").collect()) await ctx.scheduler.cancel(job._id);

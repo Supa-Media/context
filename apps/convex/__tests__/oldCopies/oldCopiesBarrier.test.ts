@@ -120,3 +120,50 @@ test("a workspace another move is still carrying waits, and its Settings row say
   expect(await t.run(async (ctx) => await ctx.db.query("oldCopyHides").first())).toMatchObject({ state: "hiding", problem: "busy" });
   expect((await t.run(async (ctx) => await ctx.db.query("oldCopyHides").first()))?.passAt).toBeUndefined();
 });
+
+test("copies still read at their path, left under 0-inbox by a rename of the Inbox, are hidden too", async () => {
+  const { t, workspaceId } = await boundWorkspace();
+  // The rename moved the Inbox's own row to `inbox`; what it could not carry stayed under `0-inbox`, unkeyed.
+  await t.run(async (ctx) => {
+    const rows = await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId)).collect();
+    for (const row of rows) {
+      if (row.path === "0-inbox") await ctx.db.insert("nodes", { ...row, _id: undefined, _creationTime: undefined, path: "inbox", name: "inbox" } as never);
+      if (row.kind === "file" && row.path.startsWith("0-inbox/")) await ctx.db.patch(row._id, { storageKey: undefined });
+    }
+  });
+
+  await t.action(internal.functions.oldCopies.hideWorkspace, { workspaceId });
+
+  const live = await livePaths(t, workspaceId);
+  for (const path of [...COPIES.days, ...COPIES.contacts]) {
+    expect(live).not.toContain(path);
+    expect(live).toContain(`${OLD_COPIES_ROOT}/${path}`);
+  }
+  // Pinned where its bytes are, so the owner's Download still reads it.
+  const day = await t.run(async (ctx) =>
+    await ctx.db.query("nodes").withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", `${OLD_COPIES_ROOT}/${COPIES.days[0]}`)).unique(),
+  );
+  expect(day?.storageKey).toBe(COPIES.days[0]);
+  const read = await t.action(internal.functions.files.runFileOperation, {
+    workspaceId,
+    scope: "private",
+    operation: { kind: "readOldCopies", paths: [COPIES.days[0]] },
+  });
+  expect(read).toMatchObject({ kind: "oldCopyTexts", results: [{ outcome: "read", note: { text: SEEDED[COPIES.days[0]] } }] });
+});
+
+test("a workspace an older folder step already looked at is looked at again", async () => {
+  const { t, workspaceId } = await boundWorkspace();
+  await t.run(async (ctx) => {
+    await ctx.db.insert("oldCopyHides", { workspaceId, state: "hidden", days: 0, contacts: 0, files: 0, startedAt: 1, foldersAt: 1, hiddenAt: 1 });
+  });
+  await t.mutation(internal.functions.oldCopies.catchUp, {});
+  const queued = (await t.run(async (ctx) => await ctx.db.system.query("_scheduled_functions").collect())).filter(
+    (job) => job.name.includes("hideWorkspace") && job.state.kind === "pending",
+  );
+  expect(queued).toHaveLength(1);
+
+  await t.action(internal.functions.oldCopies.hideWorkspace, { workspaceId });
+  expect(await livePaths(t, workspaceId)).not.toContain(COPIES.days[0]);
+  expect(await t.run(async (ctx) => await ctx.db.query("oldCopyHides").first())).toMatchObject({ foldersVersion: 2, days: 5 });
+});
