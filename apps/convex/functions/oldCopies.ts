@@ -51,8 +51,10 @@ const ROW_PAGE = 300;
  * The channel-folder step's version: a workspace whose folders an older one
  * looked at is looked at again. 2 pins copies still read at their path and
  * looks under a root `inbox` and `0-inbox` as well as the Inbox job's folder.
+ * 3 looks once more after the last Gmail passes stopped starting each other
+ * (`lib/googleSync/drain.ts`), for what they wrote after the folders went.
  */
-const FOLDERS_VERSION = 2;
+const FOLDERS_VERSION = 3;
 /** How long a pass under way keeps `catchUp` from starting a second one beside it. */
 const PASS_LEASE_MS = 15 * 60_000;
 /** Workspaces one page of the ten-minute look (`catchUp`) reads. */

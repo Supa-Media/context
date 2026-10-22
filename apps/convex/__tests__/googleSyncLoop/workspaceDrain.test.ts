@@ -5,8 +5,9 @@ import { seedGoogleConnection } from "../fixtures.helpers";
 import { MINUTE, enableMailSync, patchConnection, readConnection, scenario, sweep } from "./fixtures.helpers";
 
 /**
- * One workspace's Google passes run back to back, and a pushed one goes first
- * (`lib/googleSync/drain.ts`, 2026-10-19).
+ * A pushed connection goes first when a sweep runs (`lib/googleSync/drain.ts`,
+ * 2026-10-19). A finished pass no longer queues the next one: with copying
+ * stopped (2026-10-21) that chain was the only thing still starting passes.
  *
  * A person with three accounts, each with Gmail, Calendar and Chat, shares one
  * writer lock between nine product turns. Waiting for the five-minute cron
@@ -18,7 +19,7 @@ import { MINUTE, enableMailSync, patchConnection, readConnection, scenario, swee
  *   workspaceHasDuePass answers true for every workspace        -> 1 test failed
  *   the sweep keeps the index's order, pushed or not            -> 1 test failed
  */
-describe("a workspace's passes run back to back", () => {
+describe("a workspace's Google passes", () => {
   beforeEach(() => enableMailSync());
 
   /** Two accounts in one workspace, both with Chat, so one writer lock covers them. */
@@ -56,28 +57,10 @@ describe("a workspace's passes run back to back", () => {
     });
   }
 
-  test("a finished pass starts the workspace's next due pass now, not at the next cron tick", async () => {
+  test("a finished pass starts nothing, even with another pass due: copying stopped", async () => {
+    // Passes still in flight when copying stopped kept starting each other here, writing under the Inbox for a day (2026-10-22).
     const s = await twoAccounts();
-    // The first account's pass is running, so the second waits on the lock.
     await patchConnection(s.t, s.connectionId, { syncStartedAt: Date.now(), nextSyncAt: Date.now() + 5 * MINUTE });
-    expect((await sweep(s.t)).started).toBe(0);
-
-    await finishPass(s, s.connectionId);
-    expect(await queuedSweeps(s)).toBe(1);
-  });
-
-  test("with nothing else due, a finished pass queues nothing", async () => {
-    const s = await twoAccounts();
-    await patchConnection(s.t, s.connectionId, {
-      syncStartedAt: Date.now(),
-      chat: { scopes: [], nonceSeed: "first", lastSyncedAt: Date.now() },
-    });
-    await patchConnection(s.t, s.second, {
-      lastSyncAt: Date.now(),
-      nextSyncAt: Date.now() + 5 * MINUTE,
-      gmail: { ...(await readConnection(s.t, s.second)).gmail!, lastSyncedAt: Date.now() },
-      chat: { scopes: [], nonceSeed: "second", lastSyncedAt: Date.now() },
-    });
 
     await finishPass(s, s.connectionId);
     expect(await queuedSweeps(s)).toBe(0);
