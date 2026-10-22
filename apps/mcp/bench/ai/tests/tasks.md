@@ -19,7 +19,7 @@ Decided by the owner on 2026-10-11, after a texted conversation in which Tex cou
 
 Every task is `kind: task`, which makes it a gate: a failed must or must-not line, a failed check, or an unanswered run fails the setup. Judge lines grade nothing.
 
-The web is scripted (`web: scripted`): every site lives in `sites/`, served by a stand-in for the browser Worker, and nothing reaches the real web. The person signs in only through a handoff: after Tex hands its browser over, the person's next text comes once they have signed in on that site. Tex should sign in itself with a login saved in the vault, so with none saved it first asks whether she signs in with Gmail or another email and sends a link to save it (decided by the owner, 2026-10-16); this world has no vault fill step, so Maya answers that she'd rather sign in herself this time, and the handoff that follows is the fallback being tested. The `must call`, `must reach`, `must hand off`, `must type`, `must choose`, `must set`, `must publish`, `must connect` and `must forward` lines are checked from the run's record (`bench/checks.mjs`), never by the judge. Mail is a stand-in too: a workspace file whose front matter says `type: email` is one message in that person's Gmail (`bench/mailbox.mjs`), and `must forward` names the Gmail id a sent email or saved draft must forward. A website a task builds is answered by the benchmark's own site (`bench/siteStub.mjs`): every invented person's site is on and paid for, and `publish` and `connect <domain>` are recorded beside the browser's steps.
+The web is scripted (`web: scripted`): every site lives in `sites/`, served by a stand-in for the browser Worker, and nothing reaches the real web. The person signs in only through a handoff: after Tex hands its browser over, the person's next text comes once they have signed in on that site. Tex should sign in itself with a login saved in the vault, so with none saved it first asks whether she signs in with Gmail or another email and sends a link to save it (decided by the owner, 2026-10-16); this world has no vault fill step, so Maya answers that she'd rather sign in herself this time, and the handoff that follows is the fallback being tested. The `must call`, `must reach`, `must hand off`, `must type`, `must choose`, `must set`, `must publish`, `must connect`, `must forward`, `must download` and `must attach` lines are checked from the run's record (`bench/checks.mjs`), never by the judge. Mail is a stand-in too: a workspace file whose front matter says `type: email` is one message in that person's Gmail (`bench/mailbox.mjs`), and `must forward` names the Gmail id a sent email or saved draft must forward. `must download` names a file a browse download step took, and `must attach` a file a sent email or saved draft carries as an attachment. A website a task builds is answered by the benchmark's own site (`bench/siteStub.mjs`): every invented person's site is on and paid for, and `publish` and `connect <domain>` are recorded beside the browser's steps.
 
 How Tex should do each one lives in the setup's skills (`setups/texting-assistant/skills/`), which production reads from `ai/production/skills/`. A task here names what must happen, never how; a skill says how.
 
@@ -215,3 +215,21 @@ The other half of the same chat: asked only for a draft, Tex wrote "I'm passing 
 - must not call: send_email
 - must: tell Kofi the draft to Ama is saved in Kofi's Gmail with Signalwire's email and its PDF forwarded in it
 - must not: ask Kofi to forward, find, look up or check the receipt or its subject line themselves
+
+## 14. Email Ama the September phone bill invoice
+
+From the owner's chat of 2026-10-22: Tex found the Google Voice invoice on the Admin console's billing page, then texted "I can't put a file from the admin console into an email myself. Tap the download arrow next to September, attach it to the draft". The browser's download step takes the file and `attach` puts it in the email. Here the invoice is a download button on a scripted billing page; Kofi's Gmail keeps drafts but cannot send (task 9).
+
+- kind: task
+- as: Kofi
+- person starts: "ama needs the invoice for september's phone bill, it's on phonebill.example/billing. can you save her a draft with the invoice attached?"
+- if asked which invoice or month: "september, the $25.26 one"
+- if asked for Ama's address: "ama@northside.example"
+- must reach: phonebill.example/billing
+- must download: Invoice-2026-09.pdf
+- must attach: Invoice-2026-09.pdf
+- must not download: Invoice-2026-08.pdf
+- must not call: send_email
+- must: tell Kofi the draft to Ama is saved in his Gmail with the September invoice attached
+- must not: ask Kofi to download, attach, find or forward the invoice himself
+- must not: say it can't download files or can't put a file into an email

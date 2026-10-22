@@ -732,6 +732,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Other providers' models and routes go through the same gateway, Unified Billing only
 - The agent opens only addresses it was given
 - [The person views and drives Tex's computer at context.lc/tex/<handle>](./texting-assistant/computer.md)
+- [Tex downloads a file and emails it (2026-10-22)](./texting-assistant/computer.md#tex-downloads-a-file-and-emails-it-2026-10-22)
 - [Tex holds the six tools, each listing only what it was granted (2026-10-16)](./texting-assistant/tool-shelf.md)
 - [The conversation is kept long and shown short (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Tex keeps what it knows about the person in `tex/about-me.md` (2026-10-14)](./texting-assistant/tool-shelf.md)

@@ -27,6 +27,7 @@
 
 import { publicHttpsUrl } from "./shoot";
 import { dropSource, pickerHookSource, pickerResult, refSelector as selector, uploadSource, type UploadFile } from "./picker";
+import { runDownload, type DownloadedFile, type Downloads } from "./download";
 export { dropSource, pickerHookSource, pickerResult, uploadSource, type UploadFile } from "./picker";
 
 /*
@@ -63,7 +64,9 @@ export type Step =
   | { do: "back" }
   | { do: "scroll"; direction: "down" | "up" }
   | { do: "read" }
-  | { do: "upload"; ref: number | null; file: UploadFile; onlyOn: string[] | null };
+  | { do: "upload"; ref: number | null; file: UploadFile; onlyOn: string[] | null }
+  /** Press the element (by number or words) that saves a file, or with neither take the file the page is (./download.ts). */
+  | { do: "download"; ref: number | null; text: string | null };
 
 /** The most a file put into a page may be, as base64: the 10 MB a file is read at. */
 export const MAX_UPLOAD_CHARS = Math.ceil((10 * 1024 * 1024 * 4) / 3) + 4;
@@ -212,6 +215,11 @@ function parseStep(item: unknown): Step | null {
       const onlyOn = s.onlyOn === undefined || s.onlyOn === null ? null : sitesOf(s.onlyOn);
       if (s.onlyOn !== undefined && s.onlyOn !== null && onlyOn === null) return null;
       return { do: "upload", ref, file: { name, type, data }, onlyOn };
+    }
+    case "download": {
+      if (ref !== null) return { do: "download", ref, text: null };
+      if (s.text === undefined || s.text === null) return { do: "download", ref: null, text: null };
+      return typeof s.text === "string" && s.text.trim().length > 0 && s.text.length <= MAX_CLICK_TEXT ? { do: "download", ref: null, text: s.text.trim() } : null;
     }
     default:
       return null;
@@ -483,10 +491,11 @@ async function where(page: BrowsePage): Promise<{ href: string; host: string; or
 export async function runSteps(
   page: BrowsePage,
   steps: Step[],
-  { budgetMs = BROWSE_BUDGET_MS, now = Date.now }: { budgetMs?: number; now?: () => number } = {},
-): Promise<{ ran: StepResult[]; page: Reading }> {
+  { budgetMs = BROWSE_BUDGET_MS, now = Date.now, downloads = null }: { budgetMs?: number; now?: () => number; downloads?: Downloads | null } = {},
+): Promise<{ ran: StepResult[]; page: Reading; file?: DownloadedFile }> {
   const started = now();
   const ran: StepResult[] = [];
+  let file: DownloadedFile | undefined;
   for (const step of steps) {
     if (now() - started > budgetMs) {
       ran.push({ do: step.do, ok: false, reason: "out of time; run it again" });
@@ -496,12 +505,19 @@ export async function runSteps(
     const result =
       step.do === "goto" && offLimits(step.url)
         ? ({ do: "goto", ok: false, reason: "that page is off limits" } as StepResult)
-        : await runStep(page, step).catch(() => ({ do: step.do, ok: false, reason: "that did not work on this page" }) as StepResult);
+        : await runStep(page, step, downloads).catch(() => ({ do: step.do, ok: false, reason: "that did not work on this page" }) as StepResult);
     // However it got there (a click, a redirect), it does not stay.
     const landed = (await where(page).catch(() => null))?.href ?? null;
     if (landed !== null && offLimits(landed)) {
       await page.goto("about:blank", { waitUntil: "domcontentloaded", timeout: BROWSE_GOTO_TIMEOUT_MS }).catch(() => undefined);
       ran.push({ do: step.do, ok: false, reason: "that page is off limits" });
+      break;
+    }
+    // One file a call: the steps after a download are left for the next.
+    if (step.do === "download") {
+      const { file: got, ...said } = result as StepResult & { file?: DownloadedFile };
+      ran.push(said);
+      file = got;
       break;
     }
     ran.push(result);
@@ -518,7 +534,7 @@ export async function runSteps(
     const shot = await look(page).catch(() => null);
     if (shot !== null) reading.shot = shot;
   }
-  return { ran, page: reading };
+  return { ran, page: reading, ...(file ? { file } : {}) };
 }
 
 /** How many of the page's own pixels make one CSS pixel: a look's picture is in the former, the mouse in the latter. */
@@ -545,7 +561,7 @@ async function look(page: BrowsePage): Promise<{ data: string; width: number; he
   return { data, width, height };
 }
 
-async function runStep(page: BrowsePage, step: Step): Promise<StepResult> {
+async function runStep(page: BrowsePage, step: Step, downloads: Downloads | null): Promise<StepResult> {
   const ok = { do: step.do, ok: true } as StepResult;
   const missing = { do: step.do, ok: false, reason: "no such element; read the page again" } as StepResult;
   switch (step.do) {
@@ -630,6 +646,23 @@ async function runStep(page: BrowsePage, step: Step): Promise<StepResult> {
       }
       await settle(page);
       return ok;
+    }
+    case "download": {
+      let target: string | null = null;
+      if (step.ref !== null) {
+        if (!(await exists(page, step.ref))) return missing;
+        target = selector(step.ref);
+      } else if (step.text !== null) {
+        if (!(await page.evaluate<boolean>(wordsSource(step.text)))) {
+          return { do: "download", ok: false, reason: "nothing on the page shows those words; read the page again" };
+        }
+        target = BY_WORDS;
+      }
+      const pressed = target;
+      return await runDownload(page, target, pressed === null ? null : async () => {
+        await page.click(pressed);
+        await settle(page);
+      }, downloads);
     }
     case "fill": {
       if (!(await exists(page, step.ref))) return missing;

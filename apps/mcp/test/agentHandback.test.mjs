@@ -19,6 +19,9 @@
  *     only the email" fails.
  *  3. `readEmail` without `passesSomethingOn`. → "an email that says it passes
  *     a receipt on, with nothing forwarded, is refused" fails.
+ *  4. `handsWorkBack` without `FILE_HANDBACK` (the Google Voice invoice
+ *     Tex said it couldn't put in an email). → "the texts that handed the
+ *     receipt back are read as handing work back" fails.
  */
 
 import assert from "node:assert/strict";
@@ -37,6 +40,10 @@ test("the texts that handed the receipt back are read as handing work back", () 
     "Check Google Voice's billing history for the October 14 payment, or forward me the receipt if you find it.",
     "You'll need to log in to Google Voice and download it.",
     "Could you send me the receipt?",
+    // 2026-10-22, the Google Voice invoice: a file on a site is Tex's to download and attach.
+    "I can't put a file from the admin console into an email myself.",
+    "Tap the download arrow next to September, attach it to the draft to Kansi, and it's ready to send.",
+    "Click the download button and attach the PDF to your email.",
   ]) {
     assert.ok(handsWorkBack(said), said);
   }
@@ -53,6 +60,8 @@ test("a step only they can take, an offer, a report, or their own to-do is not h
     "Your notes don't have his number.",
     "I'll attach it to the draft to Kansi.",
     "Kansi asked you to send her the receipt.",
+    "I downloaded the September invoice and attached it to the draft to Kansi.",
+    "I'll attach it to the email once you say yes.",
   ]) {
     assert.ok(!handsWorkBack(said), said);
   }

@@ -9,7 +9,8 @@ export function emailToolDefinitions() {
         "the person is shown this exact email and must say yes to it, and any change is a new email they are asked about again. " +
         "Write the whole email first (to, subject, body as they would send it) from what the person asked for; for a reply, " +
         "pass in_reply_to with the email's id from search_email, use the sender's address and start the subject with Re:. To pass an email on with its " +
-        "attachments (a receipt to a bookkeeper, say), pass forward with its id and start the subject with Fwd:; it goes below your words. Don't repeat the whole email " +
+        "attachments (a receipt to a bookkeeper, say), pass forward with its id and start the subject with Fwd:; it goes below your words. To attach a file from a website (an invoice PDF), download it with " +
+        "the browse download step and pass its download: id in attach. Don't repeat the whole email " +
         "in your answer; Context shows it to them. Only when the person asked for this email to go; if they asked for a draft, " +
         "use save_email_draft instead. At most 10 addresses, 5 emails an hour, 20 a day, and 3 a day to one address.",
       inputSchema: {
@@ -32,6 +33,13 @@ export function emailToolDefinitions() {
             type: "string",
             description:
               "Optional: the email:<address>/<id> id search_email gave for an email to forward. It goes below the body with all of its attachments, from that mailbox.",
+          },
+          attach: {
+            type: "array",
+            items: { type: "string" },
+            maxItems: 5,
+            description:
+              "Optional: files to attach, by the download:<id> ids a browse download step gave (an invoice or statement from a website). Up to 5, 10 MB together.",
           },
         },
         required: ["to", "subject", "body"],
@@ -66,6 +74,13 @@ export function emailToolDefinitions() {
             type: "string",
             description:
               "Optional: the email:<address>/<id> id search_email gave for an email to forward. It goes below the body with all of its attachments, from that mailbox.",
+          },
+          attach: {
+            type: "array",
+            items: { type: "string" },
+            maxItems: 5,
+            description:
+              "Optional: files to attach, by the download:<id> ids a browse download step gave (an invoice or statement from a website). Up to 5, 10 MB together.",
           },
         },
         required: ["to", "subject", "body"],

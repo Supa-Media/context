@@ -189,3 +189,40 @@ test("checks grade the run's record: calls, pages, handoffs, typing, choices and
   assert.deepEqual(nothing.map((v) => v.pass), [false, false, false, false, false, false, false, false]);
   assert.deepEqual(nothing.map((v) => v.kind), ["must", "must not", "must", "must", "must", "must", "must", "must not"]);
 });
+
+test("a download button gives back its file, by number or by its words, and the next steps wait", async () => {
+  const BILLING = `---
+site: bill.example
+---
+
+## https://bill.example/billing
+title: Billing
+text: September, $25.26.
+- download: Download September invoice [file Invoice-2026-09.pdf]
+- button: Help
+`;
+  assert.throws(() => parseSite(BILLING.replace(" [file Invoice-2026-09.pdf]", "")), /names its file/);
+  const web = createWeb([parseSite(BILLING)]);
+  const byRef = await post(web, "/browse", { provider: "browserbase", owner: "o", steps: [{ do: "goto", url: "https://bill.example/billing" }, { do: "download", ref: 1 }, { do: "scroll" }] });
+  assert.deepEqual(byRef.body.ran.map((r) => r.do), ["goto", "download"]);
+  assert.equal(byRef.body.file.name, "Invoice-2026-09.pdf");
+  assert.match(Buffer.from(byRef.body.file.data, "base64").toString("latin1"), /^%PDF-1\.4 bill\.example Download September invoice$/);
+  assert.equal(byRef.body.page.elements[0].kind, "button");
+  const byWords = await post(web, "/browse", { provider: "browserbase", owner: "o", steps: [{ do: "download", text: "download september invoice" }] });
+  assert.equal(byWords.body.file.name, "Invoice-2026-09.pdf");
+  const none = await post(web, "/browse", { provider: "browserbase", owner: "o", steps: [{ do: "download", ref: 2 }] });
+  assert.equal(none.body.ran[0].ok, false);
+  assert.equal(none.body.file, undefined);
+  assert.deepEqual(web.events().filter((e) => e.startsWith("download")), ['download bill.example/billing "Invoice-2026-09.pdf"', 'download bill.example/billing "Invoice-2026-09.pdf"']);
+});
+
+test("download and attach checks read the browser's record and the emails saved", () => {
+  const question = { checks: ["- must download: Invoice-2026-09.pdf", "- must attach: Invoice-2026-09.pdf", "- must not download: Invoice-2026-08.pdf"].map(readCheck) };
+  const done = {
+    browser: ['download phonebill.example/billing "Invoice-2026-09.pdf"'],
+    emails: [{ to: ["ama@northside.example"], files: [{ filename: "Invoice-2026-09.pdf", contentType: "application/pdf", data: "JVBERi0=" }], draft: true }],
+  };
+  assert.deepEqual(checkVerdicts(question, done).map((v) => v.pass), [true, true, true]);
+  const wrong = { browser: ['download phonebill.example/billing "Invoice-2026-08.pdf"'], emails: [{ to: ["ama@northside.example"], body: "The invoice is attached." }] };
+  assert.deepEqual(checkVerdicts(question, wrong).map((v) => v.pass), [false, false, false]);
+});

@@ -12,6 +12,9 @@
  * answer carries none when a jar sent in could not be put back, so a failed
  * restore never reads as a sign-out.
  *
+ * Downloads are allowed into Browserbase's storage on every call, and a
+ * `download` step takes its file from there (./download.ts).
+ *
  * `owner` is the gateway's tag for the person (./browserbase.ts); the browser
  * is found by it, so a question that comes back after a sign-in carries on in
  * the same browser. Browserbase's own live-view link is never asked for: it
@@ -27,8 +30,10 @@ import {
   createSession,
   findSession,
   releaseSession,
+  takeDownload,
   type BrowserbaseEnv,
 } from "./browserbase";
+import { MAX_DOWNLOAD_BYTES, asFile, type Downloads } from "./download";
 import { attachPage, cdpPage, connectCdp } from "./cdp";
 import { touchIdle } from "./idle";
 import { captureJar, parseJar, restoreCookies, restoreStorage, type Jar } from "./jar";
@@ -90,8 +95,18 @@ export async function browseOnBrowserbase(env: BrowserbaseEnv, path: string, bod
         restored = false;
       }
     }
+    // Every file the browser downloads goes to Browserbase's storage for this
+    // session, where a download step takes it (./download.ts). Only "downloads"
+    // syncs there, the vendor's own folder name.
+    await cdp.send("Browser.setDownloadBehavior", { behavior: "allow", downloadPath: "downloads", eventsEnabled: true }).catch(() => undefined);
+    const downloads: Downloads = {
+      async take(since, waitMs) {
+        const got = await takeDownload(env, session.id, since, waitMs, MAX_DOWNLOAD_BYTES, fetcher);
+        return got === null || "refused" in got ? got : asFile(got);
+      },
+    };
     const page = await cdpPage(cdp, attached);
-    const result = await runSteps(page, parsed.steps);
+    const result = await runSteps(page, parsed.steps, { downloads });
     const jar = keep && restored ? await captureJar(cdp, attached).catch(() => null) : null;
     // Step kinds and timing only, as for Cloudflare's browser.
     console.log(JSON.stringify({ event: "site_shots_browse", provider: "browserbase", steps: parsed.steps.map((s) => s.do), ok: result.ran.every((r) => r.ok), ms: Date.now() - started }));

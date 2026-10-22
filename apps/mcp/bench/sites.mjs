@@ -27,6 +27,7 @@
  *   text (connected context): Context: connected.
  *   - button: Add -> https://chatgpt.com/plugins/new
  *   - button: Create -> https://mcp.context.lc/authorize [needs Name, MCP server URL = https://mcp.context.lc/mcp] [sets connected context]
+ *   - download: Download September invoice [file Invoice-2026-09.pdf]
  *
  * - `signed in only`: a browser that is signed out lands on `sign_in`
  *   instead, and goes on to the page it wanted once the person signs in.
@@ -38,6 +39,8 @@
  * - `[needs Label, Label = value]`: the button goes nowhere until those boxes
  *   are filled (or hold that value, or that option is chosen, or that box is
  *   ticked), and the page then says what is missing.
+ * - `- download:` is a button that saves a file, `[file name]`: a browse
+ *   `download` step naming it gets a small PDF of that name back.
  * - `search:` words: a `search_web` query with one of them lists the site's
  *   pages, so finding a site is part of the task.
  *
@@ -56,7 +59,7 @@ import { normalize, parseFront } from "./frontMatter.mjs";
 
 export const LIVE_VIEW_ORIGIN = "https://live.bench.invalid";
 
-const ELEMENT = /^- (link|button|textbox|select|checkbox|password)(?:\s+\(([^)]+)\))?:\s*(.*)$/;
+const ELEMENT = /^- (link|button|textbox|select|checkbox|password|download)(?:\s+\(([^)]+)\))?:\s*(.*)$/;
 
 /** An address without its scheme or trailing slash: how a check names a page. */
 export const placeOf = (url) => {
@@ -88,10 +91,12 @@ function readElement(kind, when, rest, where) {
   let text = rest.trim();
   const needs = [];
   const sets = [];
+  let file = null;
   for (;;) {
-    const tail = text.match(/\s*\[(needs|sets)\s+([^\]]+)\]\s*$/);
+    const tail = text.match(/\s*\[(needs|sets|file)\s+([^\]]+)\]\s*$/);
     if (!tail) break;
-    if (tail[1] === "sets") sets.unshift(tail[2].trim());
+    if (tail[1] === "file") file = tail[2].trim();
+    else if (tail[1] === "sets") sets.unshift(tail[2].trim());
     else {
       for (const part of tail[2].split(",")) {
         const [label, value] = part.split("=").map((s) => s.trim());
@@ -116,7 +121,8 @@ function readElement(kind, when, rest, where) {
     options = listed[2].split(",").map((s) => s.trim()).filter(Boolean);
   }
   if (!text) throw new Error(`${where}: an element needs a label`);
-  return { kind, when, label: text, href, needs, sets, options };
+  if (kind === "download" && !file) throw new Error(`${where}: a download names its file, as "Label [file name.pdf]"`);
+  return { kind, when, label: text, href, needs, sets, options, file };
 }
 
 /** One site file, parsed. Throws with the line that is wrong. */
@@ -219,7 +225,7 @@ export function createWeb(sites) {
     if (note) text.unshift(note);
     const elements = visible(page).map(({ el, i }, shown) => {
       const value = valueOf(browser, page, i);
-      const item = { ref: shown + 1, kind: el.kind === "password" ? "textbox (password)" : el.kind, label: el.kind === "select" ? `${el.label} (now: ${value})` : el.label };
+      const item = { ref: shown + 1, kind: el.kind === "password" ? "textbox (password)" : el.kind === "download" ? "button" : el.kind, label: el.kind === "select" ? `${el.label} (now: ${value})` : el.label };
       if (el.href) item.href = el.href;
       if (el.kind === "checkbox") item.checked = value === true;
       else if ((el.kind === "textbox" || el.kind === "password") && value) item.filled = true;
@@ -290,6 +296,14 @@ export function createWeb(sites) {
         events.push(`type ${placeOf(browser.url)} "${String(s.text ?? "").slice(0, 120)}"`);
         return { ok: true };
       }
+      case "download": {
+        // By number, or by the words on it, as the real browser takes it.
+        const named = el ?? (page && typeof s.text === "string" ? visible(page).find(({ el: e }) => e.label.toLowerCase() === s.text.trim().toLowerCase())?.el ?? null : null);
+        if (!named?.file) return { ok: false, reason: "no file came from that; look at the page to see what it did, or name the download button or link itself" };
+        events.push(`download ${placeOf(browser.url)} "${named.file}"`);
+        const data = Buffer.from(`%PDF-1.4 ${hostOf(browser.url)} ${named.label}`, "latin1").toString("base64");
+        return { ok: true, file: { name: named.file, type: "application/pdf", data } };
+      }
       case "select": {
         if (!el || el.kind !== "select") return { ok: false, reason: "that is not a list" };
         const option = el.options.find((o) => o.toLowerCase() === String(s.option ?? "").toLowerCase());
@@ -315,6 +329,7 @@ export function createWeb(sites) {
     }
     const ran = [];
     let note = "";
+    let file = null;
     for (const [i, s] of (body.steps ?? []).entries()) {
       if (browser.url === null && s.do !== "goto") {
         ran.push({ do: s.do, ok: false, reason: "no page open" });
@@ -325,6 +340,11 @@ export function createWeb(sites) {
       // A refused step, with the element number it named: why a driver's form never filled.
       if (!result.ok) events.push(`refused ${s.do} ${placeOf(browser.url)}${Number.isInteger(s.ref) ? ` [${s.ref}]` : ""}: ${result.reason}`);
       if (result.note) note = result.note;
+      // One file a call, and the steps after a download are left for the next, as the real browser does.
+      if (s.do === "download") {
+        file = result.file ?? null;
+        break;
+      }
       // A click that changed the page leaves the steps after it for the next call.
       if (result.moved && s.do !== "goto" && i < body.steps.length - 1) {
         ran.push({ do: "read", ok: true, reason: "the page changed, so the steps after this one were not run" });
@@ -337,7 +357,7 @@ export function createWeb(sites) {
       handedOff = browser;
       events.push(`handoff ${hostOf(browser.url ?? "")}`);
     }
-    return { session: browser.session, ran, page: browser.url === null ? null : reading(browser, note), ...(liveUrl ? { liveUrl } : {}) };
+    return { session: browser.session, ran, page: browser.url === null ? null : reading(browser, note), ...(liveUrl ? { liveUrl } : {}), ...(file ? { file } : {}) };
   }
 
   function read(body) {

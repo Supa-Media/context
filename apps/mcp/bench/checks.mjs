@@ -17,6 +17,9 @@
  *   - must set: connected chatgpt    a flag a scripted button set
  *   - must publish: website          a site publish that went through (`siteStub.mjs`)
  *   - must connect: mayaruns.com     a domain connected to the workspace's site
+ *   - must download: Invoice-2026-09.pdf   a file a browse download step took (`sites.mjs`)
+ *   - must attach: Invoice-2026-09.pdf     an email saved as a draft or sent that
+ *                                    carries that file as an attachment
  *   - must forward: 19a2f0c4         an email saved as a draft or sent that
  *                                    forwards the message with that Gmail id
  *                                    (`mailbox.mjs`), its attachments with it
@@ -38,7 +41,7 @@
 
 import { cadenceFromFolder, parseTime, parseWeekdays } from "../../../packages/shared/src/routines.cjs";
 
-const CHECK = /^- (must|must not) (call|reach|hand off|type|choose|set|publish|connect|write|file|forward):\s*(.+)$/;
+const CHECK = /^- (must|must not) (call|reach|hand off|type|choose|set|publish|connect|write|file|forward|download|attach):\s*(.+)$/;
 
 /** A check line, or null when the line is not one. */
 export function readCheck(line) {
@@ -75,6 +78,10 @@ function happened(check, answer) {
       return events.some((event) => event.toLowerCase() === `connect ${value}`);
     case "forward":
       return (answer.emails ?? []).some((email) => email.forward === check.value);
+    case "download":
+      return events.some((event) => event.startsWith("download ") && event.endsWith(` "${check.value}"`));
+    case "attach":
+      return (answer.emails ?? []).some((email) => (email.files ?? []).some((file) => file.filename === check.value));
     case "write":
       return wrote(check.value, answer.changes ?? []);
     case "file":

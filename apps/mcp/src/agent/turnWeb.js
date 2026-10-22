@@ -21,6 +21,7 @@ import { browserOwner } from "./browserProviders.js";
 import { texViewerUrl } from "../http/texComputer.js";
 import { decisionEngine } from "./decide.js";
 import { resolveUpload } from "./uploads.js";
+import { keepDownload } from "./downloads.js";
 import { markUntrusted } from "../privacy/egress.js";
 
 /**
@@ -58,6 +59,8 @@ export async function openTurnWeb(env, { session, texting, group, question, vouc
           asks: texting || group ? ledger : null,
           // The person's own files, read as them, for a page's upload box (`uploads.js`).
           files: (step) => resolveUpload(step, { dispatch, store }),
+          // A file the browser downloaded, kept in their bucket for an email or another page (`downloads.js`).
+          keep: (file) => keepDownload(store, file),
         });
   // A page or a search result is text from outside the workspace: once one
   // is read, every widening in this turn asks (`privacy/egress.js`).

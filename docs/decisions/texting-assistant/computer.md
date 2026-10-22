@@ -140,3 +140,51 @@ This is done in the page rather than with Browserbase's uploads API and CDP
 same code runs on both providers. Tests: `browse.test.ts` ("presses a button
 that makes its file box only when pressed…", sabotaged by skipping the press),
 plus an app-style button, a label and a plain button checked in real Chromium.
+
+## Tex downloads a file and emails it (2026-10-22)
+
+Tex found a Google Voice invoice on the Admin console's billing page and texted
+the owner "I can't put a file from the admin console into an email myself. Tap
+the download arrow next to September, attach it to the draft". The owner: "it
+should be able to download a pdf and email it, if not we are severely lacking
+in capability". Browserbase had kept every download all along; nothing asked
+for them.
+
+- **The step.** A browse step `download` presses the element that saves a file
+  (by number or by its words), or with neither takes the file the page itself
+  is (`infra/site-shots/src/download.ts`). On Browserbase the browser is told
+  to allow downloads into `downloads`, the only folder its storage syncs
+  (`Browser.setDownloadBehavior`), and the file is taken from its Downloads
+  API by session (`GET /v1/downloads?sessionId=`, then the file), then
+  deleted there, so nothing of the person's stays with the vendor. When no
+  file arrives in 8 seconds, and on Cloudflare's browser, the link's address
+  is fetched in the page with its cookies: https, `blob:` or `data:` only, and
+  never a web page passed off as a file. 10 MB at most, as a file is read at.
+- **Where it is kept.** In the person's own bucket, `.context/agent/downloads/<id>.json`,
+  under a random `download:` id that carries when it was kept (`agent/downloads.js`).
+  The owner, the same day: "store it in a hidden folder in the bucket just so
+  that it persists across Tex sessions". Up to 5 MB it stays 30 days; up to
+  10 MB, 24 hours, enough for an email waiting on a yes. Expired files are
+  refused by id and swept on the next download. Not a note: it is a working
+  file, and the bucket is the tenancy boundary, so an id names nothing in
+  another person's.
+- **Into an email.** `send_email` and `save_email_draft` take `attach`, a list
+  of up to five `download:` ids (`tools/emailAttach.js`); the person's copy
+  names each file before their yes (`emailGate.js`), and the bytes go to the
+  control plane once, to be sent, beside or after a forward's own files
+  (`gatewayRoutes/personEmail.ts`). An email that says "attached" with a file
+  attached is no longer refused as receipt-less. An upload step takes a
+  `download:` id too, so a file can go from one site to another.
+- **Tex sees the words, not the bytes.** A downloaded PDF's words come back
+  with the id, marked as the site's, so Tex can check it took the right
+  invoice before emailing it.
+- **Handing it back is caught.** "I can't put a file … into an email" and
+  "tap the download arrow … attach it to the draft" are hand-backs
+  (`claimCheck.js` `FILE_HANDBACK`), even with a "tap" in them.
+
+Tests: `download.test.ts` (the step, the vendor's API, the https-only fetch,
+sabotaged by letting any address through), `agentDownloads.test.mjs` (kept,
+expired, attached, named at the gate; sabotage record in the file),
+`personEmail.test.ts` (files as real attachments, in a reply's thread, after a
+forward's), `agentHandback.test.mjs`, and golden task 14 on a scripted billing
+page (`must download:`, `must attach:`).
