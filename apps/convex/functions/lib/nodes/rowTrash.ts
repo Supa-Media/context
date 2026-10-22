@@ -34,6 +34,7 @@ import { canSee } from "../privacy";
 import { refusal } from "./rowMoveStart";
 import { carryRowHistory } from "./rowHistory";
 import { driveRowMove, plannedFiles, recordedMove } from "./rowMoveDrive";
+import { rowEtagFor } from "./handedVersion";
 
 /** Trash destinations tried for one stamp before the trash is refused: the bucket's own bound. */
 const TRASH_ATTEMPTS = 100;
@@ -105,7 +106,9 @@ export async function startRowTrash(
   }
 
   // The caller's version is the key's (`idLayout.js`); a row the key moved on from without telling it catches up first.
-  await catchUpKeyedRows(ctx, workspaceId, store, [{ path, expectedEtag: args.expectedEtag }]);
+  // The caller's version as the row carries it (`handedVersion.ts`).
+  const expectedEtag = await rowEtagFor(store, path, args.expectedEtag);
+  await catchUpKeyedRows(ctx, workspaceId, store, [{ path, expectedEtag }]);
   const stamp = timestampSlug(now);
   const destination = (n: number) => `${TRASH_ROOT}/${n === 1 ? stamp : `${stamp}-${n}`}/${path}`;
   const attempt = (to: string) =>
@@ -118,13 +121,16 @@ export async function startRowTrash(
       chunk: { scope: clearance.scope, grantedNames: [...clearance.names] },
       now,
       trash: true,
-      ...(args.expectedEtag === undefined ? {} : { expectedEtag: args.expectedEtag }),
+      ...(expectedEtag === undefined ? {} : { expectedEtag }),
     });
   let to = destination(1);
   let answer = await attempt(to);
   for (let n = 2; !answer.ok && answer.reason === "taken" && n <= TRASH_ATTEMPTS; n += 1) {
     to = destination(n);
     answer = await attempt(to);
+  }
+  if (!answer.ok && answer.reason === "changed") {
+    throw new FileOpError("CONFLICT", "That note changed somewhere else after this was asked for.", answer.currentEtag);
   }
   if (!answer.ok) throw refusal(answer.reason, path, true);
 

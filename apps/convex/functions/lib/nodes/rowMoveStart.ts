@@ -44,6 +44,8 @@ import type { RowMoveRefusal } from "./rowMove";
 import { driveRowMove, plannedFiles, recordedMove } from "./rowMoveDrive";
 import { afterArchiveMove, archivePlanFor, type ArchivePlan } from "./archiveFollow";
 import { clearanceOf } from "../clearance";
+import { handedEtagAt, rowEtagFor } from "./handedVersion";
+import { carryRowHistory } from "./rowHistory";
 
 /** The refusal a row move answers with, in the words the console and agents already get for each case. */
 export function refusal(reason: RowMoveRefusal, to: string, visibleTarget: boolean): Error {
@@ -147,8 +149,10 @@ export async function startRowMove(ctx: ActionCtx, args: RowMoveArgs): Promise<M
   // between here and the move refuses it.
   if (rowsTruth) carried.etag = await ctx.runQuery(internal.functions.nodesAccess.privacyEtagNow, { workspaceId });
   await touchNodesNow(ctx, workspaceId, store, { paths: [], files: [PRIVACY_KEY] });
+  // The caller's version as the row carries it (`handedVersion.ts`), read only once the caller may see the note.
+  const expectedEtag = await rowEtagFor(store, from, args.expectedEtag);
   // The caller's version is the key's (`idLayout.js`); a row the key moved on from without telling it catches up first.
-  await catchUpKeyedRows(ctx, workspaceId, store, [{ path: from, expectedEtag: args.expectedEtag }]);
+  await catchUpKeyedRows(ctx, workspaceId, store, [{ path: from, expectedEtag }]);
 
   const answer = await ctx.runMutation(internal.functions.nodeRowMoves.rowMove, {
     workspaceId,
@@ -159,7 +163,7 @@ export async function startRowMove(ctx: ActionCtx, args: RowMoveArgs): Promise<M
     ...(plan.tooLarge ? {} : { plannedFiles: planned.files }),
     chunk: { scope: clearance.scope, grantedNames: [...clearance.names] },
     now,
-    ...(args.expectedEtag === undefined ? {} : { expectedEtag: args.expectedEtag }),
+    ...(expectedEtag === undefined ? {} : { expectedEtag }),
   });
   if (!answer.ok) {
     // Nothing moved: take the carried rules back, as a move that never drew does.
@@ -170,6 +174,9 @@ export async function startRowMove(ctx: ActionCtx, args: RowMoveArgs): Promise<M
       plan.kind === "folder"
         ? folderVisibleAtScope(to, clearance, state.rules, state.overrides)
         : canSee(to, clearance.scope, state.rules, state.overrides, clearance.names);
+    if (answer.reason === "changed") {
+      throw new FileOpError("CONFLICT", "That note changed somewhere else after this was asked for.", answer.currentEtag);
+    }
     throw refusal(answer.reason, to, visibleTarget);
   }
   if (answer.chunked === undefined) {
@@ -211,6 +218,10 @@ async function settleRowMove(
   const { workspaceId, store, from, to, now } = args;
   if (!moved.rowsTruth && moved.left === 0) await releasePrivacy(store, { from, undone: false, added: { folders: [], notes: [] } });
   await touchNodesNow(ctx, workspaceId, store, { paths: [], files: [PRIVACY_KEY] });
+  // A renamed note keeps its collaboration history under its new name, as a trash does (`rowHistory.ts`), so the
+  // version it was handed before the move is still the one a read of the new name hands out.
+  await carryRowHistory(store, moved.files);
+  const etag = moved.kind === "file" ? ((await handedEtagAt(store, to)) ?? moved.etag) : undefined;
   await recordForwarding(store, [{ from, to, kind: moved.kind === "folder" ? ("folder" as const) : ("note" as const) }], { now });
   if (moved.kind === "folder") await remapFolderIcons(store, from, to);
   else await remapIcons(store, [{ from, to }]);
@@ -223,8 +234,9 @@ async function settleRowMove(
     paths: [to],
     queued: moved.files.length,
     rowed: true,
+    historyCarried: true,
     moved: moved.files,
-    ...(moved.etag === undefined ? {} : { etag: moved.etag }),
+    ...(etag === undefined ? {} : { etag }),
   };
 }
 

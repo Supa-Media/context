@@ -82,7 +82,12 @@ export type RowMoveAnswer =
       /** Set when only the root moved here and the rows beneath follow in pages (`rowMoveChunks.ts`). */
       chunked?: Id<"rowMoves">;
     }
-  | { ok: false; reason: RowMoveRefusal };
+  | {
+      ok: false;
+      reason: RowMoveRefusal;
+      /** For `changed`: the row's Markdown etag now, which the caller's conflict reports. */
+      currentEtag?: string;
+    };
 
 /** The root and the live rows under `from`, read from `path` order, stopping past `max`. */
 export interface Subtree {
@@ -209,7 +214,9 @@ export async function applyRowMove(
   }
   if (args.expectedEtag !== undefined) {
     if (root.kind !== "file") return refuse("invalid");
-    if (!etagIs(root, args.expectedEtag)) return refuse("changed");
+    if (!etagIs(root, args.expectedEtag)) {
+      return root.etag === undefined ? refuse("changed") : { ok: false, reason: "changed", currentEtag: root.etag };
+    }
   }
   const rows = [root, ...subtree.below];
   if (args.plannedFiles !== undefined) {

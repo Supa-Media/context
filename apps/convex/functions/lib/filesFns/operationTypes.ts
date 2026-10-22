@@ -429,7 +429,7 @@ export type OperationResult =
   | HidePass
   | { kind: "oldCopyTexts"; results: OldCopyText[] }
   /** `nodesMoveStart`: whether the move was queued; `false` with no `error` sends the caller the old way. */
-  | { kind: "moveQueued"; queued: boolean; count?: number; rowed?: boolean; moved?: { from: string; to: string }[]; error?: string; message?: string }
+  | { kind: "moveQueued"; queued: boolean; count?: number; rowed?: boolean; historyCarried?: boolean; moved?: { from: string; to: string }[]; error?: string; message?: string }
   /** `nodesMoveBatch`: every move made (`ok`, with each old and new name), or none (`error` and `message`). */
   | { kind: "moveBatch"; ok: boolean; moves?: { from: string; to: string }[]; error?: string; message?: string }
   | { kind: "nodesParity"; clearances: number; mismatches: number; privacyMatches: boolean }

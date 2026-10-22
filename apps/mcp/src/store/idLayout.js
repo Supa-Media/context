@@ -140,6 +140,20 @@ export class NoteNameTaken extends Error {
 }
 
 /**
+ * Thrown when a new note's id key already holds bytes nobody here wrote: the
+ * create lost that key to someone else's object. The row is not written, so
+ * the path has no version to report; `currentEtag` is the etag of what holds
+ * the key, for the caller's conflict. Only ever an etag, never content.
+ */
+export class NoteCreateRaced extends Error {
+  constructor(currentEtag) {
+    super("the id this note was created under is already taken");
+    this.name = "NoteCreateRaced";
+    this.currentEtag = currentEtag;
+  }
+}
+
+/**
  * Thrown when the control plane answers for a workspace, or a row, that is not
  * keyed. Every workspace is keyed (2026-10-22), so this is a fault to report,
  * never a layout to serve: the bucket's path objects are not notes.
@@ -266,6 +280,16 @@ export function withIdLayout(store, { lookup, wrote, adopt, removed, now = Date.
     return result;
   };
 
+  /** The etag of whatever holds `key`, or `undefined` when nothing answers. */
+  const etagAtKey = async (key) => {
+    try {
+      const head = typeof store.head === "function" ? await store.head(key) : await store.get(key);
+      return typeof head?.etag === "string" ? head.etag : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+
   /**
    * A new note in a keyed workspace: a new id, its bytes at the new key, then
    * the row. A name taken meanwhile removes the bytes just written; an
@@ -277,6 +301,8 @@ export function withIdLayout(store, { lookup, wrote, adopt, removed, now = Date.
     const noteId = newNoteId(now());
     const key = idKeyFor(noteId, path);
     const result = await store.put(key, body, { ...unconditional(options), onlyIf: { absent: true } });
+    // The key is a fresh id, so a refusal here means somebody else's object is already at it.
+    if (result === null) throw new NoteCreateRaced(await etagAtKey(key));
     if (!written(result)) return result;
     const size = sizeOf(body);
     let answer;

@@ -284,6 +284,7 @@ export const movedValidator = v.object({
    * keyed rename through `moveEntry` failed validation after the rows had already moved.
    */
   rowed: v.optional(v.boolean()),
+  historyCarried: v.optional(v.boolean()),
   moved: v.optional(v.array(v.object({ from: v.string(), to: v.string() }))),
 });
 

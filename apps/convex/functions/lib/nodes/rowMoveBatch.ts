@@ -31,6 +31,7 @@ import { loadPrivacyState, type PrivacyState } from "../fileOps/privacyState";
 import { followInProjection, type ProjectionClient } from "../fileOps/search";
 import type { FileStore } from "../fileOps/store";
 import { catchUpKeyedRows } from "./rowCatchUp";
+import { rowEtagFor } from "./handedVersion";
 import { PRIVACY_KEY, canSee } from "../privacy";
 import { type AddedRules, carryPrivacy, releasePrivacy } from "./movePrivacy";
 import { touchNodesNow } from "./run";
@@ -143,15 +144,17 @@ export async function startRowMoveBatch(
   }
   await touchNodesNow(ctx, workspaceId, store, { paths: [], files: [PRIVACY_KEY] });
   // The callers' versions are the keys' (`idLayout.js`); rows the keys moved on from without telling them catch up first.
-  await catchUpKeyedRows(ctx, workspaceId, store, moves.map((move) => ({ path: move.from, expectedEtag: move.expectedEtag })));
+  // Each caller's version as the row carries it (`handedVersion.ts`).
+  const expectations = await Promise.all(planned.map(({ move }) => rowEtagFor(store, move.from, move.expectedEtag)));
+  await catchUpKeyedRows(ctx, workspaceId, store, planned.map(({ move }, index) => ({ path: move.from, expectedEtag: expectations[index] })));
 
   try {
     await ctx.runMutation(internal.functions.nodeRowMoves.rowMoveBatch, {
       workspaceId,
-      moves: planned.map(({ move, files }) => ({
+      moves: planned.map(({ move, files }, index) => ({
         from: move.from,
         to: move.to,
-        ...(move.expectedEtag === undefined ? {} : { expectedEtag: move.expectedEtag }),
+        ...(expectations[index] === undefined ? {} : { expectedEtag: expectations[index] }),
         plannedFiles: files,
       })),
       privacyEtag,

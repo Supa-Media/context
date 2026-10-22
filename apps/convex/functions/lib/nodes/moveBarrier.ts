@@ -150,6 +150,7 @@ export async function runMoveOperation(
     queued: true,
     count: moved.queued ?? 0,
     ...(moved.rowed === true ? { rowed: true } : {}),
+    ...(moved.historyCarried === true ? { historyCarried: true } : {}),
     ...(moved.moved === undefined ? {} : { moved: moved.moved }),
   };
 }
