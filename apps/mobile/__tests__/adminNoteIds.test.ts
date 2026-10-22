@@ -7,33 +7,12 @@ import {
   handleLabel,
   needsLookLines,
   sharedIdsLine,
-  type NoteIdsWorkspace,
 } from "../features/admin/noteIds";
 
 /**
  * The "Notes by id" card's pure helper (`features/admin/noteIds.ts`): the
- * percent and the bar, the counts line, the order of the workspace rows, and
- * the words for a status and a diagnosis. The rules worth a red test: a
- * percent never reads 100.0% while a note is left, no files reads as a dash
- * rather than a divide-by-zero, failures come first, and a failed copy says
- * why.
+ * words for a diagnosis, shared ids and the old-copy cleanup.
  */
-
-const row = (fields: Partial<NoteIdsWorkspace> & { workspaceId: string }): NoteIdsWorkspace => ({
-  handle: null,
-  files: 100,
-  copied: 0,
-  failed: 0,
-  status: "idle",
-  error: null,
-  diagnosis: null,
-  liveFiles: 0,
-  keyed: 0,
-  keyedAt: null,
-  keyedDoneAt: null,
-  archived: false,
-  ...fields,
-});
 
 describe("diagnosis line", () => {
   test("counts what was checked, missing and differing", () => {
