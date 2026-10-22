@@ -107,6 +107,16 @@ export async function emailGate(supplied, { store, session, target }) {
     attached = files.files.map((file) => file.filename);
   }
   const { attach: _ids, ...plain } = email;
+  /*
+    The Mail checker reads while the control plane checks the limits: each
+    can take seconds, and one after the other they ran past the turn's limit
+    for a call, so the email was neither held nor asked about and the person
+    was told it "timed out" three times for one email (2026-10-22).
+  */
+  const texting = session.egress?.texting === true;
+  // Not when this turn already asked about an email: the second is refused below, unread.
+  const early = texting && typeof session.mailChecker === "function" && !session.egress?.ledger?.asked.some((asked) => asked.tool === EMAIL_TOOL);
+  const checking = early ? Promise.resolve(session.mailChecker(email)).catch(() => null) : null;
   let room;
   try {
     room = await store.email.check(plain);
@@ -144,7 +154,6 @@ export async function emailGate(supplied, { store, session, target }) {
     forwarded = read.message;
   }
 
-  const texting = session.egress?.texting === true;
   // One email per texted ask: two copies in one text could outgrow it, and one YES would send both.
   const ledger = session.egress?.ledger ?? null;
   if (texting && ledger?.asked.some((asked) => asked.tool === EMAIL_TOOL && asked.key !== callKey(EMAIL_TOOL, args))) {
@@ -152,7 +161,7 @@ export async function emailGate(supplied, { store, session, target }) {
   }
   let checked = null;
   if (texting) {
-    checked = typeof session.mailChecker === "function" ? await session.mailChecker(email) : null;
+    checked = checking !== null ? await checking : typeof session.mailChecker === "function" ? await session.mailChecker(email) : null;
     if (checked?.verdict === "no") {
       return toolError(
         `Not sent, and not put to the person: the Mail checker read their texts and says ${checked.reason || "they did not ask for this email"}. ` +
@@ -194,8 +203,8 @@ export async function emailGate(supplied, { store, session, target }) {
   return {
     ...toolError(
       texting
-        ? "Held for their YES, and nothing failed: right after your answer they are texted this exact email and asked " +
-            "to say yes, and it sends then. Say in one short line what you drafted. Don't repeat the email, don't give " +
+        ? "Held for their 👍, and nothing failed: right after your answer they are texted this exact email and asked " +
+            "for their 👍, and it sends then. Say in one short line what you drafted. Don't repeat the email, don't give " +
             "them a copy to send themselves, and don't call send_email again in this turn."
         : "Waiting for the person, and nothing failed: they must approve this exact email in the Context app. " +
             "Once they have, call send_email again with exactly the same arguments and you will be told it was sent.",
