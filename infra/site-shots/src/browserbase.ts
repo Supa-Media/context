@@ -39,6 +39,12 @@ export interface BrowserbaseEnv {
   BROWSERBASE_PROJECT_ID?: string;
   /** Ends a browser five minutes after its last use (./idle.ts). */
   BROWSER_IDLE?: IdleNamespace;
+  /** "off" starts browsers on Browserbase's own addresses rather than residential proxies. */
+  BROWSERBASE_PROXIES?: string;
+  /** "off" leaves out advanced stealth. */
+  BROWSERBASE_STEALTH?: string;
+  /** Where the browser runs: one of `REGIONS`, else Browserbase's default. */
+  BROWSERBASE_REGION?: string;
 }
 
 export interface BrowserbaseSession {
@@ -92,27 +98,85 @@ export async function ownerSessionIds(env: BrowserbaseEnv, owner: string, fetche
     .map((raw) => String(raw.id));
 }
 
+/** The regions Browserbase runs browsers in. */
+export const REGIONS = ["us-west-2", "us-east-1", "eu-central-1", "ap-southeast-1"] as const;
+
+/**
+ * What a new browser is asked for, best first (the owner, 2026-10-22: "let's
+ * use all these features we are paying for"):
+ *
+ * - **Residential proxies.** Google's admin pages, banks, airlines and shops
+ *   block or captcha a data centre's address far more than a home's. Billed
+ *   by the gigabyte; `BROWSERBASE_PROXIES=off` turns them off.
+ * - **Advanced stealth**, a browser with a real fingerprint for the hardest
+ *   bot checks, where the plan has it (`BROWSERBASE_STEALTH=off`).
+ * - **A region** near the people using it (`BROWSERBASE_REGION`).
+ *
+ * A plan without one of them refuses the whole request, so each later entry
+ * drops the most expensive extra, and the last is the plain browser that
+ * always worked. Captcha solving is Browserbase's default and stays on.
+ */
+export function sessionRequests(env: BrowserbaseEnv, owner: string): Array<Record<string, unknown>> {
+  const base = {
+    projectId: env.BROWSERBASE_PROJECT_ID,
+    keepAlive: true,
+    timeout: SESSION_LIFETIME_S,
+    userMetadata: { owner },
+    // blockAds: Browserbase's own ad and tracker blocker, so a cluttered
+    // page loads faster and reads with fewer steps (2026-10-22).
+    browserSettings: { recordSession: false, blockAds: true, viewport: { width: 1280, height: 860 } },
+  };
+  const region = (REGIONS as readonly string[]).includes(env.BROWSERBASE_REGION ?? "") ? { region: env.BROWSERBASE_REGION } : {};
+  const proxies = env.BROWSERBASE_PROXIES !== "off";
+  const stealth = env.BROWSERBASE_STEALTH !== "off";
+  const tiers: Array<Record<string, unknown>> = [];
+  if (proxies && stealth) {
+    tiers.push({ ...base, ...region, proxies: true, browserSettings: { ...base.browserSettings, advancedStealth: true } });
+  }
+  if (proxies) tiers.push({ ...base, ...region, proxies: true });
+  if (stealth && !proxies) tiers.push({ ...base, ...region, browserSettings: { ...base.browserSettings, advancedStealth: true } });
+  if (Object.keys(region).length > 0) tiers.push({ ...base, ...region });
+  tiers.push(base);
+  return tiers;
+}
+
+/** A refusal that names what was asked for (a plan without it), not the account or the moment. */
+const PLAN_REFUSAL = /^browserbase (400|403|422)$/;
+
+/**
+ * How many extras this Worker's plan was last seen to refuse, so a browser
+ * does not pay for the same refusals each time it starts. Kept per isolate
+ * only: a plan that gains a feature is asked again after the next deploy.
+ */
+let refusedTiers = 0;
+
+/** For tests: forget which extras the plan refused. */
+export function forgetRefusedTiers(): void {
+  refusedTiers = 0;
+}
+
 export async function createSession(env: BrowserbaseEnv, owner: string, fetcher: typeof fetch = fetch): Promise<BrowserbaseSession> {
-  const raw = await api<RawSession>(
-    env,
-    "/sessions",
-    {
-      method: "POST",
-      body: JSON.stringify({
-        projectId: env.BROWSERBASE_PROJECT_ID,
-        keepAlive: true,
-        timeout: SESSION_LIFETIME_S,
-        userMetadata: { owner },
-        // blockAds: Browserbase's own ad and tracker blocker, so a cluttered
-        // page loads faster and reads with fewer steps (2026-10-22).
-        browserSettings: { recordSession: false, blockAds: true, viewport: { width: 1280, height: 860 } },
-      }),
-    },
-    fetcher,
-  );
-  const session = asSession(raw);
-  if (!session) throw new Error("browserbase gave no session");
-  return session;
+  const tiers = sessionRequests(env, owner);
+  const start = Math.min(refusedTiers, tiers.length - 1);
+  for (const [i, body] of tiers.entries()) {
+    if (i < start) continue;
+    let raw: RawSession;
+    try {
+      raw = await api<RawSession>(env, "/sessions", { method: "POST", body: JSON.stringify(body) }, fetcher);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      // Billing (402), too many browsers (429) and outages are not about what
+      // was asked for: a plainer browser would be refused the same way.
+      if (i === tiers.length - 1 || !PLAN_REFUSAL.test(message)) throw error;
+      console.log(JSON.stringify({ event: "site_shots_browserbase_tier_refused", tier: i, status: message.slice(-3) }));
+      continue;
+    }
+    const session = asSession(raw);
+    if (!session) throw new Error("browserbase gave no session");
+    refusedTiers = i;
+    return session;
+  }
+  throw new Error("browserbase gave no session");
 }
 
 export async function releaseSession(env: BrowserbaseEnv, id: string, fetcher: typeof fetch = fetch): Promise<void> {

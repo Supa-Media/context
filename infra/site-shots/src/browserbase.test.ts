@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { SESSION_LIFETIME_S } from "./browserbase";
+import { beforeEach, describe, expect, it } from "vitest";
+import { SESSION_LIFETIME_S, createSession, forgetRefusedTiers, sessionRequests } from "./browserbase";
 import { browseOnBrowserbase } from "./browserbaseRoute";
 import { READ_WORLD, STORAGE_WORLD } from "./jar";
 
@@ -86,6 +86,8 @@ async function call(env: Record<string, string>, body: unknown, api = fakeApi(),
   return { status: response.status, body: (await response.json()) as Record<string, unknown>, api };
 }
 
+beforeEach(() => forgetRefusedTiers());
+
 describe("browseOnBrowserbase", () => {
   it("answers 501 with no key, so the gateway keeps Cloudflare's browser", async () => {
     const result = await call({}, { owner: OWNER, steps: [{ do: "read" }] });
@@ -103,7 +105,8 @@ describe("browseOnBrowserbase", () => {
       keepAlive: true,
       timeout: SESSION_LIFETIME_S,
       userMetadata: { owner: OWNER },
-      browserSettings: { recordSession: false, blockAds: true, viewport: { width: 1280, height: 860 } },
+      proxies: true,
+      browserSettings: { recordSession: false, blockAds: true, viewport: { width: 1280, height: 860 }, advancedStealth: true },
     });
     expect(JSON.stringify(created?.body)).not.toContain("context");
     expect(result.body.page).toMatchObject({ url: "https://shop.example.com/" });
@@ -232,5 +235,75 @@ describe("sign-ins kept between browsers", () => {
     } finally {
       socketOptions.failSetCookies = false;
     }
+  });
+});
+
+describe("what a new browser is asked for", () => {
+  const plain = {
+    projectId: "proj-test",
+    keepAlive: true,
+    timeout: SESSION_LIFETIME_S,
+    userMetadata: { owner: OWNER },
+    browserSettings: { recordSession: false, blockAds: true, viewport: { width: 1280, height: 860 } },
+  };
+
+  it("asks for proxies, stealth and the region first, and ends with the plain browser", () => {
+    const tiers = sessionRequests({ ...ENV, BROWSERBASE_REGION: "us-east-1" }, OWNER);
+    expect(tiers[0]).toMatchObject({ proxies: true, region: "us-east-1", browserSettings: { advancedStealth: true, recordSession: false } });
+    expect(tiers[1]).toMatchObject({ proxies: true, region: "us-east-1" });
+    expect((tiers[1]!.browserSettings as Record<string, unknown>).advancedStealth).toBeUndefined();
+    expect(tiers.at(-1)).toEqual(plain);
+    // Every tier stays unrecorded and stateless.
+    for (const tier of tiers) {
+      expect((tier.browserSettings as Record<string, unknown>).recordSession).toBe(false);
+      expect(JSON.stringify(tier)).not.toContain("context");
+    }
+  });
+
+  it("leaves out what is turned off, and a region it does not know", () => {
+    expect(sessionRequests({ ...ENV, BROWSERBASE_PROXIES: "off", BROWSERBASE_STEALTH: "off", BROWSERBASE_REGION: "mars-1" }, OWNER)).toEqual([plain]);
+    const noProxies = sessionRequests({ ...ENV, BROWSERBASE_PROXIES: "off" }, OWNER);
+    expect(noProxies.some((tier) => "proxies" in tier)).toBe(false);
+    expect(noProxies[0]).toMatchObject({ browserSettings: { advancedStealth: true } });
+  });
+
+  function vendor(statuses: number[]) {
+    const bodies: Array<Record<string, unknown>> = [];
+    const fetcher = (async (_url: string, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      const status = statuses.shift() ?? 200;
+      return status === 200 ? Response.json({ id: "s-1", connectUrl: "wss://connect.example/s-1" }) : new Response("{}", { status });
+    }) as unknown as typeof fetch;
+    return { bodies, fetcher };
+  }
+
+  it("steps down to a plainer browser when the plan refuses an extra", async () => {
+    const { bodies, fetcher } = vendor([400, 403]);
+    expect(await createSession(ENV, OWNER, fetcher)).toEqual({ id: "s-1", connectUrl: "wss://connect.example/s-1" });
+    expect(bodies).toHaveLength(3);
+    expect(bodies[0]).toMatchObject({ proxies: true, browserSettings: { advancedStealth: true } });
+    expect(bodies[1]).toMatchObject({ proxies: true });
+    expect(bodies[2]).toEqual(plain);
+  });
+
+  it("starts the next browser at the extras the plan took, without asking again for the ones it refused", async () => {
+    await createSession(ENV, OWNER, vendor([400, 403]).fetcher);
+    const next = vendor([]);
+    await createSession(ENV, OWNER, next.fetcher);
+    expect(next.bodies).toEqual([plain]);
+  });
+
+  it("never steps down for billing, too many browsers or an outage", async () => {
+    for (const status of [402, 429, 500]) {
+      const { bodies, fetcher } = vendor([status]);
+      await expect(createSession(ENV, OWNER, fetcher)).rejects.toThrow(`browserbase ${status}`);
+      expect(bodies).toHaveLength(1);
+    }
+  });
+
+  it("gives up when even the plain browser is refused", async () => {
+    const { bodies, fetcher } = vendor([400, 400, 400]);
+    await expect(createSession(ENV, OWNER, fetcher)).rejects.toThrow("browserbase 400");
+    expect(bodies).toHaveLength(3);
   });
 });
