@@ -408,7 +408,8 @@ with the same key and seal as a login, its associated data naming the jar, so
 the bucket alone never yields one and no entry's part opens as it.
 
 - **What is kept.** Every cookie the browser holds (a partitioned one aside)
-  and each https site's localStorage, where many apps keep a sign-in, as it
+  and each https site's localStorage and (since 2026-10-22, below) IndexedDB,
+  where many apps keep a sign-in, as it
   was when Tex last read a page there; a site read with nothing kept loses its
   saved storage, so signing out stays signed out.
 - **Where it goes.** Gateway to the screenshot Worker and back, with the
@@ -433,7 +434,7 @@ between browsers"); restore and read-back were checked in real Chromium.
 
 Weighed again 2026-10-22, when the owner asked to use every Browserbase
 feature we pay for. A Browserbase Context is a saved Chrome profile kept at
-Browserbase between sessions. It would keep more than the jar does (IndexedDB,
+Browserbase between sessions. It would keep more than the jar did (IndexedDB,
 service workers, a sign-in bound to the browser's own key), but it fails the
 rule this jar exists for, which non-negotiable #1 now names: the browser's
 sign-ins live sealed in the person's own bucket, with the key outside it.
@@ -452,12 +453,41 @@ sign-ins live sealed in the person's own bucket, with the key outside it.
   `browserbase.test.ts` checks the request body never names one. Turning it on
   is an owner decision recorded here, not a field flipped in a PR.
 
-The jar's known gaps are the cost of this choice: a site that keeps its
-sign-in in IndexedDB (Firebase Auth's default on the web), in sessionStorage,
-or bound to the browser by Chrome's device-bound session credentials, starts
-signed out in a new browser, and Tex signs in again with the vault's login or
-hands the browser over. Closing a gap means carrying more into the sealed jar,
-never keeping a profile at Browserbase.
+Closing a gap means carrying more into the sealed jar, never keeping a
+profile at Browserbase. So the same day the jar took IndexedDB too (the owner's
+"use all these features", over leaving it), since Firebase Auth keeps its web
+sign-in there and every app built on it started signed out
+(`infra/site-shots/src/jarIdb.ts`):
+
+- **Whole databases of plain data.** A database is kept only when every value
+  is plain JSON and every key a string or number, so it comes back exactly as
+  it was; one holding a Blob, Date or buffer, or past 256 KB for its origin,
+  is left out whole, since half an app's database is worse than none.
+- **Put back only where nothing is.** A saved database is created only when
+  the origin has none by that name, inside the open's own upgrade, so the
+  page's own open waits until it is whole. One the browser holds is never
+  touched and its version does not move. Own origin only, in the isolated
+  world, as for localStorage.
+- **Read as storage is.** The origin the browser is on is read back after the
+  steps; an empty list is a sign-out and drops what was held, a read that
+  failed keeps it. A full jar gives up the IndexedDB read longest ago first.
+- **Read in an isolated world.** Both reads (localStorage and IndexedDB) run
+  in a fresh isolated world of the main frame, not the page's own: a page
+  that replaced `Promise` could otherwise answer with another site's origin
+  and plant data that would be restored there. `browserbase.test.ts` ("gives
+  a new browser the jar's cookies…") fails if a read moves back to the
+  page's world.
+
+What still starts signed out: sessionStorage, and a sign-in bound to the
+browser by Chrome's device-bound session credentials. Tex signs in again with
+the vault's login or hands the browser over.
+
+Tests: `infra/site-shots/src/jarIdb.test.ts` (sabotaged: dropping the
+existing-database check, the own-origin check, and the plain-data check) and
+`apps/mcp/test/agentBrowserJar.test.mjs` ("a site's IndexedDB is sealed like
+its storage…", "a full jar gives up the IndexedDB…"). A Firebase-shaped
+sign-in read from one Chromium and restored into a fresh one, before the
+page's own open, was checked by hand; another origin stayed signed out.
 
 ### A card pays only on the person's yes, each time
 

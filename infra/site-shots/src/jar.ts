@@ -12,6 +12,7 @@
  */
 
 import type { AttachedPage, CdpTransport } from "./cdp";
+import { idbRestoreSource, OWN_IDB_SOURCE, parseDatabases, type IdbDatabase } from "./jarIdb";
 
 export interface JarCookie {
   name: string;
@@ -29,6 +30,8 @@ export interface Jar {
   cookies: JarCookie[];
   /** One https origin's localStorage, as it was when last read. */
   storage: Record<string, Record<string, string>>;
+  /** One https origin's IndexedDB databases, as they were when last read (./jarIdb.ts). */
+  idb?: Record<string, IdbDatabase[]>;
 }
 
 export const MAX_COOKIES = 1_000;
@@ -71,7 +74,7 @@ function itemsOf(raw: unknown): Record<string, string> | null {
 
 /** A jar as sent, or null when it is not one. Anything malformed in it is dropped, never guessed at. */
 export function parseJar(raw: unknown): Jar | null {
-  const j = raw as { cookies?: unknown; storage?: unknown };
+  const j = raw as { cookies?: unknown; storage?: unknown; idb?: unknown };
   if (!j || typeof j !== "object" || !Array.isArray(j.cookies)) return null;
   const cookies = j.cookies.slice(0, MAX_COOKIES).map(cookieOf).filter((c): c is JarCookie => c !== null);
   const storage: Jar["storage"] = {};
@@ -81,7 +84,14 @@ export function parseJar(raw: unknown): Jar | null {
       if (items !== null) storage[origin] = items;
     }
   }
-  return { cookies, storage };
+  const idb: NonNullable<Jar["idb"]> = {};
+  if (j.idb && typeof j.idb === "object" && !Array.isArray(j.idb)) {
+    for (const [origin, raw] of Object.entries(j.idb as Record<string, unknown>).slice(0, MAX_ORIGINS)) {
+      const dbs = ORIGIN.test(origin) ? parseDatabases(raw) : null;
+      if (dbs !== null) idb[origin] = dbs;
+    }
+  }
+  return { cookies, storage, ...(Object.keys(idb).length > 0 ? { idb } : {}) };
 }
 
 /** Give a new browser the jar's cookies. Browser-wide, so on no page's session. */
@@ -114,9 +124,15 @@ export const STORAGE_WORLD = "tex-signins";
 
 /** Put back each saved origin's storage as its pages open, for as long as this connection lasts. */
 export async function restoreStorage(page: AttachedPage, jar: Jar): Promise<void> {
-  if (Object.keys(jar.storage).length === 0) return;
+  const idb = jar.idb ?? {};
+  if (Object.keys(jar.storage).length === 0 && Object.keys(idb).length === 0) return;
   await page.send("Page.enable");
-  await page.send("Page.addScriptToEvaluateOnNewDocument", { source: storageSource(jar.storage), worldName: STORAGE_WORLD });
+  if (Object.keys(jar.storage).length > 0) {
+    await page.send("Page.addScriptToEvaluateOnNewDocument", { source: storageSource(jar.storage), worldName: STORAGE_WORLD });
+  }
+  if (Object.keys(idb).length > 0) {
+    await page.send("Page.addScriptToEvaluateOnNewDocument", { source: idbRestoreSource(idb), worldName: STORAGE_WORLD });
+  }
 }
 
 /** What the page's own origin keeps in localStorage, when it is an https one. */
@@ -129,18 +145,49 @@ export const OWN_STORAGE_SOURCE = `(() => {
   } catch { return null; }
 })()`;
 
+export const READ_WORLD = "tex-signins-read";
+
 /**
- * Read the jar back out: every cookie the browser holds, and the storage of
- * the origin it is on (an empty one included, so a sign-out is kept too).
+ * Run page code in a fresh isolated world of the page's main frame. The jar is
+ * read there, not in the page's own world, because a page's scripts can
+ * replace `Promise` or `JSON` and answer with any origin they like; an
+ * isolated world shares the page's storage but none of its scripts.
+ */
+async function evaluateApart<T>(page: AttachedPage, source: string): Promise<T> {
+  const tree = await page.send<{ frameTree?: { frame?: { id?: unknown } } }>("Page.getFrameTree");
+  const frameId = tree?.frameTree?.frame?.id;
+  if (typeof frameId !== "string") throw new Error("no main frame");
+  const world = await page.send<{ executionContextId?: unknown }>("Page.createIsolatedWorld", { frameId, worldName: READ_WORLD });
+  if (typeof world?.executionContextId !== "number") throw new Error("no isolated world");
+  const result = await page.send<{ result?: { value?: unknown }; exceptionDetails?: unknown }>("Runtime.evaluate", {
+    expression: source,
+    contextId: world.executionContextId,
+    returnByValue: true,
+    awaitPromise: true,
+  });
+  if (result.exceptionDetails) throw new Error("the read threw");
+  return result.result?.value as T;
+}
+
+/**
+ * Read the jar back out: every cookie the browser holds, and the storage and
+ * IndexedDB of the origin it is on (an empty one included, so a sign-out is
+ * kept too). IndexedDB that could not be read is left out, not read as empty.
  */
 export async function captureJar(cdp: CdpTransport, page: AttachedPage): Promise<Jar> {
   const got = await cdp.send<{ cookies?: unknown[] }>("Storage.getCookies");
   const cookies = (Array.isArray(got?.cookies) ? got.cookies : []).slice(0, MAX_COOKIES).map(cookieOf).filter((c): c is JarCookie => c !== null);
   const storage: Jar["storage"] = {};
-  const own = await page.evaluate<{ origin?: unknown; items?: unknown } | null>(OWN_STORAGE_SOURCE).catch(() => null);
+  const own = await evaluateApart<{ origin?: unknown; items?: unknown } | null>(page, OWN_STORAGE_SOURCE).catch(() => null);
   if (own && typeof own.origin === "string" && ORIGIN.test(own.origin)) {
     const items = itemsOf(own.items);
     if (items !== null) storage[own.origin] = items;
   }
-  return { cookies, storage };
+  const idb: NonNullable<Jar["idb"]> = {};
+  const ownIdb = await evaluateApart<{ origin?: unknown; dbs?: unknown } | null>(page, OWN_IDB_SOURCE).catch(() => null);
+  if (ownIdb && typeof ownIdb.origin === "string" && ORIGIN.test(ownIdb.origin)) {
+    const dbs = parseDatabases(ownIdb.dbs);
+    if (dbs !== null) idb[ownIdb.origin] = dbs;
+  }
+  return { cookies, storage, ...(Object.keys(idb).length > 0 ? { idb } : {}) };
 }

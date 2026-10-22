@@ -5,7 +5,9 @@
  * Sabotage record (2026-10-20): sealing the jar as plain JSON fails "a bucket
  * read never yields a sign-in"; letting `browseResult` pass `jar` on fails "the
  * jar never reaches the turn"; dropping the personal check fails "only a
- * personal workspace keeps one".
+ * personal workspace keeps one". 2026-10-22: dropping IndexedDB from the
+ * size trim fails "a full jar gives up the IndexedDB…"; merging IndexedDB as
+ * the cookies are (the read replaces the jar) fails "…keeps what was held".
  */
 
 import assert from "node:assert/strict";
@@ -68,6 +70,37 @@ test("the browser's cookies replace the jar's, and a site that signed out keeps 
     cookies: [{ name: "new" }],
     storage: { "https://b.example": { t: "2" } },
   });
+});
+
+const FIREBASE = [{ name: "firebaseLocalStorageDb", version: 1, stores: [{ name: "firebaseLocalStorage", keyPath: "fbase_key", autoIncrement: false, indexes: [], records: [{ value: { fbase_key: "firebase:authUser", value: { refreshToken: "fb-refresh-s3cret" } } }] }] }];
+
+test("a site's IndexedDB is sealed like its storage, and a site read without it keeps what was held", async () => {
+  const store = memoryStore();
+  await browserJar(store).save({ ...READ, idb: { "https://fb.example": FIREBASE } });
+  const raw = store.objects.get(JAR_KEY);
+  for (const plain of ["fb-refresh-s3cret", "firebaseLocalStorageDb", "fb.example"]) assert.equal(raw.includes(plain), false, `${plain} is in the bucket`);
+  assert.deepEqual((await browserJar(store).load()).idb, { "https://fb.example": FIREBASE });
+
+  const held = { cookies: [], storage: {}, idb: { "https://fb.example": FIREBASE, "https://other.example": FIREBASE } };
+  // Not read this time (another site, or IndexedDB that could not be read): kept.
+  assert.deepEqual(mergeJar(held, { cookies: [], storage: {} }).idb, held.idb);
+  // Read and empty: that site signed out, so nothing of it is kept.
+  assert.deepEqual(mergeJar(held, { cookies: [], storage: {}, idb: { "https://fb.example": [] } }).idb, { "https://other.example": FIREBASE });
+  assert.equal("idb" in mergeJar({ cookies: [], storage: {}, idb: { "https://fb.example": FIREBASE } }, { cookies: [], storage: {}, idb: { "https://fb.example": [] } }), false);
+});
+
+test("a full jar gives up the IndexedDB read longest ago before any site's storage", async () => {
+  const store = memoryStore();
+  const jar = browserJar(store);
+  const big = "x".repeat(200 * 1024);
+  const db = (tag) => [{ name: "d", version: 1, stores: [{ name: "s", keyPath: "id", autoIncrement: false, indexes: [], records: [{ value: { id: tag, big } }] }] }];
+  await jar.save({ cookies: [], storage: { "https://keep.example": { t: "small" } } });
+  for (let i = 0; i < 12; i++) await jar.save({ cookies: [], storage: {}, idb: { [`https://s${i}.example`]: db(i) } });
+  const kept = await browserJar(store).load();
+  assert.ok(kept.idb["https://s11.example"], "the newest sign-in is kept");
+  assert.equal(kept.idb["https://s0.example"], undefined);
+  assert.deepEqual(kept.storage, { "https://keep.example": { t: "small" } });
+  assert.ok(store.objects.get(JAR_KEY).length <= MAX_JAR_CHARS);
 });
 
 test("the jar goes to the browser and comes back to the vault, and never reaches the turn", async () => {
