@@ -13,6 +13,8 @@
  *  3. `check` giving its notice every time it is asked.
  *     → "the notice is given once, so the check never loops" fails.
  *  5. `offersAHeldChange` without its preview and yes-ask checks.
+ *  6. `offersAHeldChange` without `SLACK_OFFER`. → `a Slack message offered
+ *     in Tex's own words is an offer too`.
  *     → emailGate's "a preview of a forward in Tex's own words is held as it
  *     is shown…" and "a preview of an email…" fail.
  *  4. `check` never giving `OFFER_NOTICE`.
@@ -106,6 +108,14 @@ test("a preview in Tex's own words, or its own ask for a yes or 👍, is an offe
   assert.ok(offersAHeldChange("Want me to file a bug?"));
   assert.ok(!offersAHeldChange("Reply yes if you want the list."));
   assert.ok(!offersAHeldChange("To be fair, that's fine."));
+});
+
+test("a Slack message offered in Tex's own words is an offer too (2026-10-22)", () => {
+  assert.ok(offersAHeldChange("I found him this time. I'd DM Jo Park on Acme Slack: \"Hey Jo, just testing.\""));
+  assert.ok(offersAHeldChange("Want me to post that in #general on Slack?"));
+  assert.ok(offersAHeldChange("Shall I message Jo on Slack?"));
+  assert.ok(!offersAHeldChange("Jo posted in #general on Slack this morning."));
+  assert.ok(!offersAHeldChange("I'd check Slack first."));
 });
 
 test("an offer with nothing held is sent back; once the call is held, it goes", async () => {
