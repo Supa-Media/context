@@ -13,9 +13,12 @@
  * until Google's review Context asks only of testers (decided by the owner,
  * 2026-10-17: "it should work for testing accounts before we need it
  * approved"; `TESTER_WRITE_SCOPES` in `googleOAuth.ts`). Only the primary
- * calendar, and never an event with guests: a change to one would email
- * them, which is sending mail by another door. Nothing of an event is kept
- * here: the limits count changes, never titles or times.
+ * calendar. An event with guests is moved or cancelled only when the change
+ * says `notify_guests`, which the gateway sets only on a change the person
+ * gave their yes to with the guests named (the owner, 2026-10-22: "we only
+ * need confirmation when you are sending things to another human being");
+ * Google then tells the guests. Nothing of an event is kept here: the limits
+ * count changes, never titles or times.
  */
 
 export { CALENDAR_WRITE_SCOPE } from "./googleOAuth";
@@ -56,6 +59,8 @@ export interface CalendarChange {
   newEnd: CalendarTime | null;
   location: string | null;
   notes: string | null;
+  /** move and cancel only: the person said yes to telling the event's guests. */
+  notifyGuests: boolean;
 }
 
 export type CalendarRefusal =
@@ -113,7 +118,9 @@ export function readCalendarChange(value: unknown): CalendarChange | null {
   const location = text(raw.location, CALENDAR_MAX_LOCATION, CONTROL);
   const notes = text(raw.notes, CALENDAR_MAX_NOTES, NOTES_CONTROL);
   if (location === false || notes === false) return null;
-  const change: CalendarChange = { action, title, start, end: null, newStart: null, newEnd: null, location: null, notes: null };
+  if (raw.notify_guests !== undefined && (raw.notify_guests !== true || action === "create")) return null;
+  const notifyGuests = raw.notify_guests === true;
+  const change: CalendarChange = { action, title, start, end: null, newStart: null, newEnd: null, location: null, notes: null, notifyGuests };
   if (action === "create") {
     const end = time(raw.end);
     if (end === null || !span(start, end)) return null;
@@ -151,7 +158,7 @@ interface GoogleEvent {
   summary?: unknown;
   status?: unknown;
   start?: { date?: unknown; dateTime?: unknown };
-  attendees?: Array<{ self?: unknown }>;
+  attendees?: Array<{ self?: unknown; email?: unknown; displayName?: unknown }>;
 }
 
 /**
@@ -174,4 +181,18 @@ export function matchingEvents(items: unknown, change: CalendarChange): GoogleEv
 /** Whether anybody besides the person is on it, who a change would notify. */
 export function hasGuests(event: GoogleEvent): boolean {
   return Array.isArray(event.attendees) && event.attendees.some((attendee) => attendee.self !== true);
+}
+
+/** Most guests named back to the gateway, which shows them to the person before their yes. */
+const MAX_GUESTS_NAMED = 10;
+
+/** The guests a change to this event would tell, by name, or by address when they have none. */
+export function guestNames(event: GoogleEvent): string[] {
+  if (!Array.isArray(event.attendees)) return [];
+  const names = event.attendees
+    .filter((attendee) => attendee.self !== true)
+    .map((attendee) => (typeof attendee.displayName === "string" && attendee.displayName.trim() !== "" ? attendee.displayName : attendee.email))
+    .filter((name): name is string => typeof name === "string" && name.trim() !== "")
+    .map((name) => name.replace(CONTROL, " ").trim().slice(0, 120));
+  return names.slice(0, MAX_GUESTS_NAMED);
 }

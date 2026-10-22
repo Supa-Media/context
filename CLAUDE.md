@@ -107,8 +107,9 @@ breaking one, stop and say so rather than working around it.
    when the person's own words ask for it, with nothing to tap. What still
    waits for a yes, checked by the gateway and never by the model, is a step
    nobody can take back: an email, a handle claim, a vault key's first use
-   (a change to the person's own calendar, which tells nobody, no longer
-   waits for Tex: decided by the owner, 2026-10-22)
+   (a change to the person's own calendar that tells nobody no longer
+   waits for Tex; one Google would tell a guest about does: decided by the
+   owner, 2026-10-22)
    ([agent-egress](./docs/decisions/privacy-and-sharing/agent-egress.md)).
 
 Only a *personal* context has an ingestion alias; a shared context has no capture

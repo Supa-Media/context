@@ -1,8 +1,10 @@
 /**
  * THE CALENDAR GATE (`docs/decisions/communications/calendar-writes.md`).
- * Tex changes the person's own calendar at once (the owner, 2026-10-22);
- * another connected AI's change waits for their yes to that exact change in
- * the app, held the way `emailGate.js` holds an email:
+ * Tex changes the person's own calendar at once when nobody else is on the
+ * event (the owner, 2026-10-22). A move or a cancel that Google would tell a
+ * guest about waits for the person's 👍 or yes to that exact change, guests
+ * named; so does every change another connected AI asks for, in the app. It
+ * is held the way `emailGate.js` holds an email:
  *
  *   1. The change is checked as the control plane will check it, and the
  *      limits are asked about without spending them, so the person is never
@@ -55,32 +57,37 @@ export async function calendarGate(supplied, { store, session, target }) {
   if (room?.ok !== true) return toolError(REFUSED[room?.refused] ?? REFUSED.unavailable);
 
   const texting = session.egress?.texting === true;
+  const guests = Array.isArray(room.guests) ? room.guests : [];
   /*
     Tex changes the person's own calendar at once (the owner, 2026-10-22: "as
     long as there isn't a second person added in a calendar event, there is no
     need to get permission ... we only need confirmation when you are sending
-    things to another human being"). Every event this tool touches is theirs
-    alone: a new one takes no attendees and one with guests is refused
-    (`has_guests`), so nobody else is told. Another AI's change still waits
-    for the app.
+    things to another human being, so a cal invite to another person"). A new
+    event takes no attendees, so only a move or a cancel of one with guests
+    tells anybody: that one is put to the person with the guests named, and
+    their 👍 or yes makes it and lets Google tell them (`notify_guests`). The
+    owner, 2026-10-22, on Tex refusing to move a meeting with a guest and
+    telling them to do it themselves: "it should've suggested the change and
+    had me 👍 to approve it". Another AI's change still waits for the app.
   */
-  if (texting) return null;
+  if (texting && guests.length === 0) return null;
+  const held = guests.length > 0 ? { ...supplied, notify_guests: true } : supplied;
   // One change per texted ask, as one email: one YES releases exactly what was read.
   const ledger = session.egress?.ledger ?? null;
-  if (texting && ledger?.asked.some((asked) => asked.tool === CALENDAR_TOOL && asked.key !== callKey(CALENDAR_TOOL, supplied))) {
+  if (texting && ledger?.asked.some((asked) => asked.tool === CALENDAR_TOOL && asked.key !== callKey(CALENDAR_TOOL, held))) {
     return toolError("Not changed: one calendar change at a time by text. Ask about this one after the person answers.");
   }
-  const existing = await findPending(store, { name: CALENDAR_TOOL, args: supplied, userId });
+  const existing = await findPending(store, { name: CALENDAR_TOOL, args: held, userId });
   const record =
     existing?.record ??
     (await createPending(store, {
       name: CALENDAR_TOOL,
-      args: supplied,
+      args: held,
       actor: store.actor,
       tier: session.scope,
       scopes: session.scopes,
       widening: { summary: calendarSummary(read.change), audience: "outside" },
-      detail: calendarCopy(read.change),
+      detail: calendarCopy(read.change, Date.now(), guests),
       workspaceId: target.workspaceId,
       texting,
       armed: false, // armed by `textedAsk` once the ask goes out whole
@@ -93,7 +100,8 @@ export async function calendarGate(supplied, { store, session, target }) {
     ...toolError(
       texting
         ? "Held for their yes, and nothing failed: right after your answer, in this same reply, they are shown this exact change " +
-            "and asked, and one yes makes it. Say in one short line what you'd add or change, without repeating it or asking for their yes. " +
+            "and asked, and one yes or 👍 makes it" + (guests.length > 0 ? " and Google tells the guests" : "") +
+            ". Say in one short line what you'd change, without repeating it or asking for their yes. " +
             "Never say it is still waiting, and never point them to another message, app or confirmation. Don't call this again in this turn."
         : "Not changed yet: the person must approve this exact change in the Context app. " +
             "Once they have, call calendar_event again with exactly the same arguments and you will be told it was done.",

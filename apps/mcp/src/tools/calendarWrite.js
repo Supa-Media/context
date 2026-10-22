@@ -61,7 +61,11 @@ export function readCalendarChange(args) {
   const location = optional(args?.location, "location", MAX_LOCATION, CONTROL);
   const notes = optional(args?.notes, "notes", MAX_NOTES, NOTES_CONTROL);
   for (const part of [location, notes]) if (part.error) return { error: part.error };
-  const change = { action, title, start: args.start };
+  // Set by `calendarGate.js` on a change to an event with guests, held for the person's yes; never by a model to skip it.
+  if (args.notify_guests !== undefined && (args.notify_guests !== true || action === "create")) {
+    return { error: "notify_guests is not something to pass; leave it out." };
+  }
+  const change = { action, title, start: args.start, ...(args.notify_guests === true ? { notify_guests: true } : {}) };
   if (action === "create") {
     const wrong = span(args.start, args.end);
     if (wrong) return { error: wrong };
@@ -123,8 +127,20 @@ export function spanWords(start, end, now = Date.now()) {
   return `${dayWords(start.slice(0, 10), now)}, ${first} to ${to.text} ${to.half}${zone(end)}`;
 }
 
-/** The change exactly as the person reads it before they say yes, its times in words. */
-export function calendarCopy(change, now = Date.now()) {
+/** Who hears about a change to an event with guests: "Blessing Aodu", "Jo and Sam", "Jo, Sam and 2 others". */
+function guestWords(guests) {
+  if (guests.length <= 2) return guests.join(" and ");
+  if (guests.length === 3) return `${guests[0]}, ${guests[1]} and ${guests[2]}`;
+  return `${guests[0]}, ${guests[1]} and ${guests.length - 2} others`;
+}
+
+/** The change exactly as the person reads it before they say yes, its times in words, and who Google will tell. */
+export function calendarCopy(change, now = Date.now(), guests = []) {
+  const told = guests.length > 0 ? [`Google will let ${guestWords(guests)} know.`] : [];
+  return [...plainCopy(change, now), ...told].join("\n");
+}
+
+function plainCopy(change, now) {
   if (change.action === "create") {
     return [
       "Add to your Google Calendar:",
@@ -132,12 +148,12 @@ export function calendarCopy(change, now = Date.now()) {
       spanWords(change.start, change.end, now),
       ...(change.location ? [`Where: ${change.location}`] : []),
       ...(change.notes ? ["", change.notes] : []),
-    ].join("\n");
+    ];
   }
   if (change.action === "move") {
-    return [`Move on your Google Calendar:`, `${change.title}, now ${momentWords(change.start, now)}`, `To ${spanWords(change.new_start, change.new_end, now)}`].join("\n");
+    return [`Move on your Google Calendar:`, `${change.title}, now ${momentWords(change.start, now)}`, `To ${spanWords(change.new_start, change.new_end, now)}`];
   }
-  return [`Cancel on your Google Calendar:`, `${change.title}, ${momentWords(change.start, now)}`].join("\n");
+  return [`Cancel on your Google Calendar:`, `${change.title}, ${momentWords(change.start, now)}`];
 }
 
 /** One line for the approvals list and the "Done, I …" reply (`agent/doneLine.js`). */
@@ -158,7 +174,7 @@ export const REFUSED = {
   daily_limit: "Not changed: the person has made 20 calendar changes through Context today. Try again tomorrow.",
   not_found: "Not changed: no event with exactly that title starts at that time. Check the title and start against their calendar.",
   ambiguous: "Not changed: more than one event has that title and start. Ask the person which, and change it in their calendar themselves.",
-  has_guests: "Not changed: that event has guests, who would be told. Context only changes events the person has to themselves.",
+  has_guests: "Not changed: that event has guests now, who would be told. Call calendar_event again and the person is asked first.",
   not_configured: "Not changed: this Context deployment does not change calendars.",
   unavailable: "Not changed: Google Calendar did not take the change just now. Nothing was changed; it can be asked for again.",
 };
