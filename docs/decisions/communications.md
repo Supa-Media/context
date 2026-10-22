@@ -123,6 +123,10 @@ Moved to [Adding a product must not silently drop another one](./communications/
 
 Moved to [The five open decisions, and who settles them](./communications/chat-sync-and-products.md#the-five-open-decisions-and-who-settles-them).
 
+### Mail, calendar, chat, contacts and iMessage are read from their source, not copied into notes
+
+In [Mail, calendar, chat, contacts and iMessage are read from their source, not copied into notes](./communications/live-not-copied.md#mail-calendar-chat-contacts-and-imessage-are-read-from-their-source-not-copied-into-notes) (owner, 2026-10-21). It reverses the copying the rest of this file describes; the layout stays documented for the copies that already exist.
+
 ### The Gmail connection: control plane, sync algorithm, and what phase 1 actually wires up
 
 Moved to [The Gmail connection: control plane, sync algorithm, and what phase 1 actually wires up](./communications/gmail-and-sync-loop.md#the-gmail-connection-control-plane-sync-algorithm-and-what-phase-1-actually-wires-up).

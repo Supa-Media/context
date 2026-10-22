@@ -129,7 +129,8 @@ export function createConsoleWindowOpener(ctx: MainContext): Pick<MainActions, "
       drain: () => void drain(),
       writeMeeting: writeMeetingFromConsole,
       imessage: () => imessage.status(),
-      setImessageEnabled: (enabled) => void update({ imessageEnabled: enabled }),
+      // Messages are no longer copied into notes (owner, 2026-10-21): the import stays off.
+      setImessageEnabled: () => void update({ imessageEnabled: false }),
       requestImessageFullDiskAccess: async () => {
         const parent = ctx.consoleWindow === null || ctx.consoleWindow.isDestroyed() ? null : ctx.consoleWindow;
         const answer = await askSomething(parent, {

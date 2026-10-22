@@ -180,7 +180,9 @@ export function normalizeSettings(raw: unknown): DesktopSettings {
     // string, which is truthy — must not resolve to silent recording.
     askBeforeEveryMeeting: bool(source["askBeforeEveryMeeting"], true),
     blocklist,
-    imessageEnabled: bool(source["imessageEnabled"], DEFAULT_SETTINGS.imessageEnabled),
+    // Always off, whatever an older file says: messages are no longer copied
+    // into notes (owner, 2026-10-21; `docs/decisions/communications/live-not-copied.md`).
+    imessageEnabled: false,
     transcription: source["transcription"] === "cloud" ? "cloud" : "on-device",
     // The same guard as the base URL: https, or a loopback address for a local
     // gateway. A settings file naming an `http://` endpoint would otherwise

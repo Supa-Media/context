@@ -221,9 +221,13 @@ describe("personal communications stay out of shared workspaces", () => {
     // The sections' own words, not ours: every heading is
     // `settingsSectionLabel` now, so none can drift from the row that opens it
     // the way "Integrations" over a row reading "Mail, calendar & chats" did.
-    for (const label of ["Email", "Calendar", "Chats", "Meetings"]) {
+    // "Calendar" used to be asserted on the card's "Bring in Gmail, Calendar
+    // and Chat" line; nothing is brought in since the copies stopped
+    // (2026-10-21), so the section's own heading carries it.
+    for (const label of ["Mail and calendar", "Meetings"]) {
       expect(text).toContain(label);
     }
+    expect(text).toContain("Your AI reads mail, calendar and chat from Google when you ask.");
     expect(text).toContain("Google accounts");
     expect(text).not.toContain("Switch to a personal workspace");
   });

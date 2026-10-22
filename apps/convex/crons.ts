@@ -468,12 +468,14 @@ crons.interval(
   {},
 );
 
-crons.interval(
-  "sync due Google accounts",
-  { minutes: 5 },
-  internal.functions.googleSync.sweepDueGoogleSyncs,
-  {},
-);
+/*
+ * No "sync due Google accounts" job: mail, calendar and chat are read from
+ * Google when asked and never copied into notes (owner, 2026-10-21;
+ * `docs/decisions/communications/live-not-copied.md`). The pass it started
+ * (`googleSync.sweepDueGoogleSyncs`) is kept, unscheduled, so a kind can be
+ * added back on purpose; `__tests__/copiesStopped.test.ts` fails if anything
+ * schedules it again.
+ */
 
 /**
  * Custom domains: restart a check run whose next check went missing, re-read
