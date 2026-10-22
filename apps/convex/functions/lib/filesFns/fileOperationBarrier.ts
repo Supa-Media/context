@@ -420,10 +420,12 @@ export async function runFileOperationHandler(
   // While staff have switched reads to the id copies, the app reads and saves through them as an AI client does.
   const idLayout = await consoleIdLayoutHooks(ctx, args.workspaceId);
   // A plaintext secret is in scope from here to the end of this function. It
-  // is used to construct one store and nothing else — it is not logged, not
+  // is used to construct the stores below and nothing else — it is not logged, not
   // returned, and not passed to `lib/fileOps.ts`, which only ever sees the
   // store.
   let store: FileStore;
+  // The owner's Download of old copies reads each at the key its row names, a pinned path included, so past the id layer (`lib/oldCopies/folders.ts`).
+  let keyStore: FileStore | null = null;
   try {
     // One table decides which backend this workspace got — the same table
     // the gateway uses, so the console reads and writes exactly what an AI
@@ -454,6 +456,9 @@ export async function runFileOperationHandler(
       managedEncryption,
       idLayout,
     }) as unknown as FileStore;
+    if (args.operation.kind === "readOldCopies") {
+      keyStore = storeForBinding(credential, undefined, { fetchImpl: timeoutFetch, managedEncryption }) as unknown as FileStore;
+    }
   } catch {
     // The constructor's message can quote the endpoint the customer typed.
     // Nothing it says helps here, and re-throwing it would put provider text
@@ -507,7 +512,7 @@ export async function runFileOperationHandler(
     return await hideOldCopiesPass(ctx, args.workspaceId, store, projection, args.operation.cursor ?? null);
   }
   if (args.operation.kind === "readOldCopies") {
-    return { kind: "oldCopyTexts", results: await readOldCopyTexts(ctx, args.workspaceId, store, args.operation.paths) };
+    return { kind: "oldCopyTexts", results: await readOldCopyTexts(ctx, args.workspaceId, keyStore ?? store, args.operation.paths) };
   }
 
   if (meaning !== null && args.operation.kind === "projectMeaning") {

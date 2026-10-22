@@ -39,7 +39,7 @@ import { defaultGoogleDestinationFolder } from "./lib/googleConnect/validation";
 import { applyRowMove, type RowMoveRefusal } from "./lib/nodes/rowMove";
 import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { rowVerdict } from "./lib/oldCopies/classify";
-import { CHANNEL_FOLDERS, hideChannelFolders } from "./lib/oldCopies/folders";
+import { CHANNEL_FOLDERS, hideChannelFolders, pinUnkeyed, unpin } from "./lib/oldCopies/folders";
 import { folderJobsOf } from "./lib/nodes/folderJobs";
 import type { HidePass } from "./lib/oldCopies/hiding";
 import { isPlumbing } from "./lib/privacy";
@@ -47,6 +47,12 @@ import { dropLinks, removeRow } from "./trash";
 
 /** Rows one pass looks at. */
 const ROW_PAGE = 300;
+/**
+ * The channel-folder step's version: a workspace whose folders an older one
+ * looked at is looked at again. 2 pins copies still read at their path and
+ * looks under a root `inbox` and `0-inbox` as well as the Inbox job's folder.
+ */
+const FOLDERS_VERSION = 2;
 /** How long a pass under way keeps `catchUp` from starting a second one beside it. */
 const PASS_LEASE_MS = 15 * 60_000;
 /** Workspaces one page of the ten-minute look (`catchUp`) reads. */
@@ -95,7 +101,9 @@ export const catchUp = internalMutation({
       const workspace = await ctx.db.get(copies.workspaceId);
       if (workspace === null || workspace.kind !== "personal") continue;
       const record = await hideRecord(ctx, copies.workspaceId);
-      if (record !== null && record.state !== "hiding") continue;
+      // Looked through, and its channel folders hidden by the current version of that step.
+      const foldersDone = (record?.foldersVersion ?? 0) >= FOLDERS_VERSION;
+      if (record !== null && record.state !== "hiding" && (foldersDone || record.state !== "hidden")) continue;
       // A pass is under way and hands on to the next itself.
       if (record?.passAt !== undefined && Date.now() - record.passAt < PASS_LEASE_MS) continue;
       await ctx.scheduler.runAfter(0, internal.functions.oldCopies.hideWorkspace, { workspaceId: copies.workspaceId });
@@ -164,7 +172,8 @@ export const hideFolders = internalMutation({
       await ctx.db.insert("oldCopyHides", { workspaceId, state: "hiding", days: 0, contacts: 0, files: 0, startedAt: now, passAt: now });
       record = await hideRecord(ctx, workspaceId);
     }
-    if (record === null || record.state !== "hiding" || record.foldersAt !== undefined) return { stopped: null };
+    if (record === null || (record.state !== "hiding" && record.state !== "hidden")) return { stopped: null };
+    if ((record.foldersVersion ?? 0) >= FOLDERS_VERSION) return { stopped: null };
     const hidden = await hideChannelFolders(ctx, workspaceId, now);
     const firstDay = [record.firstDay, hidden.firstDay].filter((day): day is string => day !== undefined).sort()[0];
     const lastDay = [record.lastDay, hidden.lastDay].filter((day): day is string => day !== undefined).sort().at(-1);
@@ -175,7 +184,7 @@ export const hideFolders = internalMutation({
       ...(firstDay === undefined ? {} : { firstDay }),
       ...(lastDay === undefined ? {} : { lastDay }),
       // Stopped: what is left waits for the next look, and the page says why.
-      ...(hidden.stopped === undefined ? { foldersAt: now, problem: undefined } : { problem: hidden.stopped, passAt: undefined }),
+      ...(hidden.stopped === undefined ? { foldersAt: now, foldersVersion: FOLDERS_VERSION, problem: undefined } : { problem: hidden.stopped, passAt: undefined }),
     });
     return { stopped: hidden.stopped ?? null };
   },
@@ -255,7 +264,8 @@ export const candidatePage = internalQuery({
     // Channel folders already handed to a whole-folder move: rows its pages have not reached yet are its to move.
     const record = await hideRecord(ctx, workspaceId);
     const inbox = record?.foldersAt === undefined ? null : (await folderJobsOf(ctx.db, workspaceId)).jobs.inbox;
-    const moving = typeof inbox === "string" ? CHANNEL_FOLDERS.map((name) => `${inbox}/${name}/`) : [];
+    const roots = [...new Set([inbox, "inbox", "0-inbox"])].filter((root): root is string => typeof root === "string" && root !== "");
+    const moving = inbox === null ? [] : roots.flatMap((root) => CHANNEL_FOLDERS.map((name) => `${root}/${name}/`));
     const page = await ctx.db
       .query("nodes")
       .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId))
@@ -286,9 +296,16 @@ export const hideRows = internalMutation({
     const moved: { from: string; to: string }[] = [];
     for (const path of paths) {
       if (isPlumbing(path)) continue;
+      // A copy still read at its path is pinned there first, as the folder hide does (`folders.ts`).
+      const row = await ctx.db
+        .query("nodes")
+        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))
+        .unique();
+      const pinned = row === null ? [] : await pinUnkeyed(ctx, [row]);
       const answer = await applyRowMove(ctx, { workspaceId, from: path, to: `${OLD_COPIES_ROOT}/${path}`, privacyEtag: null, now, trash: true });
       if (answer.ok) moved.push(...answer.files);
-      else if (STOPPING.has(answer.reason)) return { moved, stopped: answer.reason };
+      else await unpin(ctx, pinned);
+      if (!answer.ok && STOPPING.has(answer.reason)) return { moved, stopped: answer.reason };
     }
     return { moved, stopped: null };
   },

@@ -64,7 +64,17 @@ them from Settings (`functions/oldCopies.ts`, `lib/oldCopies/`):
   and the owner said so (2026-10-22: "isn't the first step just to hide it?
   Hiding it is an instant thing"; "there's no handwritten things in
   contacts or iMessage or email"). A note-by-note first version opened each
-  note to judge it and left the owner's copies showing for hours.
+  note to judge it and left the owner's copies showing for hours. The
+  folders are looked for under the folder doing the Inbox job and under a
+  root `inbox` or `0-inbox` too, because a rename of the Inbox that stopped
+  part way leaves what it could not carry under the old name. A copy written
+  before its workspace was keyed still reads at its path (no `storageKey`),
+  and a row move refuses it; so each such row is pinned first, its key set
+  to the path its bytes are at, which the cleanup counts as read and never
+  removes, and a refused move takes the pins back. The second version of the
+  folder step (`FOLDERS_VERSION` in `oldCopies.ts`) runs again for a
+  workspace the first version already marked done, since that one passed
+  these copies over without saying so.
 - After that, a copy anywhere else is what says it is one: a note whose front matter `origin` is one
   of the passes' (`gmail-sync`, `calendar-sync`, `google-chat-sync`,
   `desktop-imessage-sync`, `communications-sync`), a contact page the
@@ -86,7 +96,8 @@ them from Settings (`functions/oldCopies.ts`, `lib/oldCopies/`):
   move is still carrying waits too, and the Settings row says which.
 - Download as folders, for the owner of the whole workspace, adds an
   `Old copies/` folder holding each hidden note under its old name
-  (`listForExport`, `readForExport`). Nobody else is told they exist.
+  (`listForExport`, `readForExport`), read at each row's key past the id
+  layer, so a pinned copy reads too. Nobody else is told they exist.
 - No timer erases them. The trash's emptying reads only `.context/trash`.
   Delete the copies is the owner's own press, allowed once every copy was
   hidden, so what goes is what the page counted; the rows go first, then the

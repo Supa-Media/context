@@ -36,6 +36,8 @@ export const oldCopiesTables = {
     passAt: v.optional(v.number()),
     /** When the Inbox's channel folders were hidden whole (`lib/oldCopies/folders.ts`). */
     foldersAt: v.optional(v.number()),
+    /** Which version of that step ran (`FOLDERS_VERSION` in `oldCopies.ts`); an older one is run again. */
+    foldersVersion: v.optional(v.number()),
     /** Why hiding last stopped short (a row-move refusal), shown on the Settings row until it moves again. */
     problem: v.optional(v.string()),
     hiddenAt: v.optional(v.number()),
