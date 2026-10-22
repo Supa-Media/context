@@ -79,7 +79,10 @@ import * as gatewayBinding from "./lib/storage/gatewayBinding";
 import * as rekeyWorkspace from "./lib/storage/rekeyWorkspaceSecrets";
 import * as rekeyConnectors from "./lib/storage/rekeyConnectorSecrets";
 import * as rekeyPlatform from "./lib/storage/rekeyPlatformSecrets";
-import { forgetWorkspaceTree } from "./nodesPurge";
+import { forgetWorkspaceTree, keepKeyedTreeForStorage } from "./nodesPurge";
+import { keyedWorkspace } from "./lib/noteIds/keyedState";
+import { keyIfBornEmpty } from "./lib/noteIds/born";
+import { managedBucketName } from "./lib/managedStorage";
 import * as bindingView from "./lib/storage/bindingView";
 import * as validators from "./lib/storage/validators";
 import * as bindingActions from "./lib/storage/bindingActions";
@@ -394,7 +397,9 @@ export const applyBinding = internalMutation({
     */
     if (storageMoved(existing, fields)) {
       await ctx.runMutation(internal.functions.fastSearch.releaseForStorage, { workspaceId: args.workspaceId });
-      await forgetWorkspaceTree(ctx, args.workspaceId, { storageMoved: true }); // its rows name the old bucket's keys
+      // A keyed workspace's rows are its notes' only names, and its keys moved with it as they were: they stay.
+      if (await keyedWorkspace(ctx.db, args.workspaceId)) await keepKeyedTreeForStorage(ctx, args.workspaceId);
+      else await forgetWorkspaceTree(ctx, args.workspaceId, { storageMoved: true }); // its rows name the old bucket's keys
     }
 
     let bindingId: Id<"storageBindings">;
@@ -403,6 +408,8 @@ export const applyBinding = internalMutation({
         ...fields,
         createdAt: now,
       });
+      // Its own new managed bucket holds nothing yet: the workspace starts keyed, never on path keys.
+      if (args.bucket === managedBucketName(args.workspaceId)) await keyIfBornEmpty(ctx, args.workspaceId);
     } else {
       await ctx.db.patch(existing._id, fields);
       bindingId = existing._id;

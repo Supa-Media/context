@@ -74,6 +74,33 @@ that pass's end flips it. A finished, complete pass that is still unkeyed in
 keys mode (its flip ran before the tree was ready) is flipped again. Removing
 either fails `__tests__/noteIds/firstCopy.test.ts`.
 
+## A new workspace is born keyed; every workspace is pushed and proven
+
+*Decided by the owner, 2026-10-22* ("make sure that new and current workspaces
+are all notes by id"). A workspace bound to its own new managed bucket, with no
+tree rows, tree state or copy row yet, is keyed at that binding
+(`lib/noteIds/born.ts`, from `storage.applyBinding`): its copy row is written
+done and keyed, and its tree ready (a keyed workspace is never swept, so
+nothing else would make it serve). Its first notes are written at their id
+keys. A bucket the owner brings may already hold files, so it is left to the
+cron's first pass, which copies them before it flips. The workflow **Notes by
+id for every workspace** (`functions/noteIdsAll.ts`) counts each workspace's
+stage, starts what is owed (dry run first), and verifies from the rows that no
+live note is still off its id key. Removing the born-keyed call fails
+`__tests__/noteIds/bornKeyed.test.ts`; `everyWorkspace.test.ts` covers the job.
+
+## A storage move keeps a keyed workspace's tree
+
+*Found 2026-10-22.* `applyBinding` forgot the whole tree when a workspace's
+storage moved to another bucket, because the rows used to be copies of the old
+bucket's names. In a keyed workspace the rows are the only names there are, and
+the keys (`notes/<noteId>.md`) move as they are, so forgetting them left the
+workspace empty with nothing able to rebuild it. A keyed workspace now keeps
+its rows, links, grants and log (`keepKeyedTreeForStorage`); only queued byte
+moves and the small-data sync state go, and a diagnosis checks every key in the
+new bucket so rows take its versions (a move may seal or unseal them).
+Forgetting the rows again fails `__tests__/noteIds/keyedStorageMove.test.ts`.
+
 ## Moves in a keyed workspace are row changes
 
 *Built on the keyed rows (PR A), 2026-10-15.* In a keyed workspace (switch at
