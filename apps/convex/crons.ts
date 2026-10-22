@@ -132,6 +132,14 @@ crons.interval("empty the trash", { hours: 24 }, internal.functions.trash.emptyD
 crons.interval("tidy Archive's date folders", { hours: 1 }, internal.functions.archiveTidy.catchUp, {});
 
 /**
+ * Hide the copies of mail, calendar, chat, contacts and iMessage Context made
+ * before it stopped (`functions/oldCopies.ts`, owner 2026-10-21): each keyed
+ * personal workspace is looked through once, its copies moved to a hidden
+ * name and never erased by a timer. Once all are done, a read of one row each.
+ */
+crons.interval("hide old copies of mail and calendar", { hours: 1 }, internal.functions.oldCopies.catchUp, {});
+
+/**
  * Grant founding Premium to accounts still owed it (`lib/billing/founding.ts`),
  * so accounts made before it shipped do not wait for the next sign-up. Once
  * the hundred are granted it returns at its first read.

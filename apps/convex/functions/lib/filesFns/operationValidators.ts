@@ -76,6 +76,25 @@ export const operationResultValidator = v.union(
   v.object({ kind: v.literal("indexPruned"), deleted: v.number(), checked: v.boolean() }),
   v.object({ kind: v.literal("trashedText"), path: v.string(), text: v.string(), encrypted: v.boolean() }),
   v.object({
+    kind: v.literal("oldCopiesHidden"),
+    cursor: v.union(v.string(), v.null()),
+    days: v.number(),
+    contacts: v.number(),
+    files: v.number(),
+    firstDay: v.optional(v.string()),
+    lastDay: v.optional(v.string()),
+    stopped: v.optional(v.string()),
+  }),
+  v.object({
+    kind: v.literal("oldCopyTexts"),
+    results: v.array(
+      v.union(
+        v.object({ path: v.string(), outcome: v.literal("read"), note: v.object({ text: v.string() }) }),
+        v.object({ path: v.string(), outcome: v.literal("error"), code: v.string(), message: v.string() }),
+      ),
+    ),
+  }),
+  v.object({
     kind: v.literal("moveQueued"),
     queued: v.boolean(),
     count: v.optional(v.number()),
@@ -484,6 +503,10 @@ export const operationValidator = v.union(
   v.object({ kind: v.literal("restoreTrash"), from: v.string(), to: v.string() }),
   /** Sent only by `trashedNotes.readTrashedNote`, with the key the audit trail named. */
   v.object({ kind: v.literal("readTrashed"), path: v.string(), trash: v.string() }),
+  /** Sent only by `oldCopies.hideWorkspace`. */
+  v.object({ kind: v.literal("hideOldCopies"), cursor: v.optional(v.string()) }),
+  /** Sent only by `oldCopies.readForExport`, for an owner. */
+  v.object({ kind: v.literal("readOldCopies"), paths: v.array(v.string()) }),
   v.object({
     kind: v.literal("delete"),
     path: v.string(),

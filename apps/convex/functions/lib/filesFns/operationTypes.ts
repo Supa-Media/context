@@ -28,6 +28,7 @@ import type { StorageLayoutState } from "../storageLayout";
 import type { WorkspaceGraphResult } from "../fileOps/graph";
 import type { Visibility } from "../privacy";
 import type { WorkspaceRole } from "../workspaceAuth";
+import type { HidePass, OldCopyText } from "../oldCopies/hiding";
 import type { ContextPluginRow, ManagedInstalls, PluginInventory } from "./pluginValidators";
 
 /**
@@ -191,6 +192,10 @@ export type FileOperation =
   | { kind: "restoreTrash"; from: string; to: string }
   /** A trashed note's text, read-only, at the key its trail names (`fileOps/trashedReading.ts`); run by the barrier. */
   | { kind: "readTrashed"; path: string; trash: string }
+  /** One pass hiding the copies Context made of mail and the rest (`lib/oldCopies/hiding.ts`); run by the barrier. */
+  | { kind: "hideOldCopies"; cursor?: string }
+  /** Hidden old copies' text for the owner's Download as folders (`lib/oldCopies/hiding.ts`); run by the barrier. */
+  | { kind: "readOldCopies"; paths: string[] }
   | { kind: "delete"; path: string; confirmation: string }
   | { kind: "setVisibility"; path: string; visibility: "private" | "team" }
   | { kind: "setNoteGroup"; path: string; group: string }
@@ -421,6 +426,8 @@ export type OperationResult =
   | { kind: "indexPruned"; deleted: number; checked: boolean }
   /** `readTrashed`: the note's text where the trash holds it, never anything to save over. */
   | { kind: "trashedText"; path: string; text: string; encrypted: boolean }
+  | HidePass
+  | { kind: "oldCopyTexts"; results: OldCopyText[] }
   /** `nodesMoveStart`: whether the move was queued; `false` with no `error` sends the caller the old way. */
   | { kind: "moveQueued"; queued: boolean; count?: number; rowed?: boolean; moved?: { from: string; to: string }[]; error?: string; message?: string }
   /** `nodesMoveBatch`: every move made (`ok`, with each old and new name), or none (`error` and `message`). */

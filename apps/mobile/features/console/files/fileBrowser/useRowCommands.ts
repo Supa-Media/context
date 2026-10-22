@@ -15,7 +15,7 @@
    in the same function, so the rule can no longer see they are stable. */
 import { useCallback } from "react";
 import { toFileError } from "../browser";
-import { type ReadResult, archiveEntries, collectNotes, downloadNotice, pathsUnder } from "../download";
+import { type ReadResult, archiveEntries, collectNotes, collectOldCopies, downloadNotice, pathsUnder } from "../download";
 import { buildZip, downloadName } from "../zip";
 import { saveFile } from "../saveFile";
 import { afterPaste, planPaste, put } from "../clipboard";
@@ -47,10 +47,12 @@ type RowCommandsDeps =
     | "copyEntry"
     | "duplicateEntry"
     | "exportAccessAction"
+    | "listOldCopiesAction"
     | "moveEntry"
     | "notePathsAction"
     | "readNote"
     | "readNotesAction"
+    | "readOldCopiesAction"
     | "restoreTrashEntry"
     | "trashEntry"
     | "workspaceId"
@@ -93,7 +95,7 @@ type RowCommandsDeps =
 export function useRowCommands(deps: RowCommandsDeps) {
   const {
     archiveEntry, autosave, clipboard, copyEntry, dispatch, editorRef, drawListingMove, drawMove,
-    duplicateEntry, exportAccessAction, followRename, listings, moveEntry, moveResult, notePathsAction, noteRenamed, queueMoveOf,
+    duplicateEntry, exportAccessAction, followRename, listOldCopiesAction, readOldCopiesAction, listings, moveEntry, moveResult, notePathsAction, noteRenamed, queueMoveOf,
     queueRemovalOf, readNote, readNotesAction, renamingRef, restoreTrashEntry, run, select, selectedPath,
     setClipboard, setNotice, setSelectedPath, trashEntry, viaQueue, workspaceId,
     writeNote, beginOnlineMove, beginOnlineCreate, drawLocally, pendingMoveTo, pendingCreateTo, workspaceGenerationRef,
@@ -342,26 +344,34 @@ export function useRowCommands(deps: RowCommandsDeps) {
               ? "Downloading 1 note…"
               : `Downloading ${wanted.length} notes…`,
           );
-          const { entries, missed } = await collectNotes(wanted, async (batch) => {
+          const readBatch = async (batch: string[]) => {
             const answer = await readNotesAction({ workspaceId, paths: batch });
             return answer.results as readonly ReadResult[];
-          });
-          const saved = saveFile(
-            downloadName(path, ".zip"),
-            buildZip(archiveEntries(entries, access)),
-            "application/zip",
-          );
+          };
+          const notes = await collectNotes(wanted, readBatch);
+          // The whole workspace carries the old copies of mail and the rest too, for its owner.
+          const old = path === ""
+            ? await collectOldCopies(
+                () => listOldCopiesAction({ workspaceId }),
+                async (batch) => (await readOldCopiesAction({ workspaceId, paths: batch })).results as readonly ReadResult[],
+              )
+            : { entries: [], missed: [], short: false };
+          const entries = [...archiveEntries(notes.entries, access), ...old.entries];
+          const missed = [...notes.missed, ...old.missed];
+          const saved = saveFile(downloadName(path, ".zip"), buildZip(entries), "application/zip");
           setNotice(
-            saved
-              ? downloadNotice("folder", entries.length, missed.length)
-              : "This device cannot save a file. Open the console in a browser to download.",
+            !saved
+              ? "This device cannot save a file. Open the console in a browser to download."
+              : old.short
+                ? `${downloadNotice("folder", notes.entries.length, missed.length)} Your old copies of mail and calendar could not all be listed, so they are not in it.`
+                : downloadNotice("folder", notes.entries.length + old.entries.length, missed.length),
           );
         } catch (error) {
           setNotice(toFileError(error).message);
         }
       })();
     },
-    [exportAccessAction, notePathsAction, readNote, readNotesAction, workspaceId],
+    [exportAccessAction, listOldCopiesAction, notePathsAction, readNote, readNotesAction, readOldCopiesAction, workspaceId],
   );
 
   const archive = useCallback(

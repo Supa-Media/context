@@ -53,6 +53,19 @@ export const MANIFEST_CAS_ATTEMPTS = 5;
  */
 export const RECOVER_PREFIX = ".context/recover/";
 export const TRASH_ROOT = ".context/trash";
+/**
+ * Copies of mail, calendar, chat, contacts and iMessage that Context made
+ * before it stopped copying them (owner, 2026-10-21;
+ * `docs/decisions/communications/live-not-copied.md`): their rows moved here,
+ * hidden as the trash is, never erased by a timer, still in Download as
+ * folders, and deleted only when the owner asks (`functions/oldCopies.ts`).
+ */
+export const OLD_COPIES_ROOT = ".context/old-copies";
+
+/** Whether `path` is under a root a row moves into without taking rules, links or pins: the trash, or old copies. */
+export function underHiddenRoot(path: string): boolean {
+  return path.startsWith(`${TRASH_ROOT}/`) || path.startsWith(`${OLD_COPIES_ROOT}/`);
+}
 
 /**
  * Retired as a constant: which folder is *the* archive is a question about the

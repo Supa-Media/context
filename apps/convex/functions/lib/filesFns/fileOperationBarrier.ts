@@ -72,6 +72,7 @@ import {
 import { operationValidator } from "./operationValidators";
 import { runPrunePass } from "./prunePass";
 import { readTrashedText } from "../fileOps/trashedReading";
+import { hideOldCopiesPass, readOldCopyTexts } from "../oldCopies/hiding";
 import { toConvexError } from "./operationErrors";
 import { afterMaintenance } from "./maintenanceFollowUps";
 
@@ -214,7 +215,7 @@ export async function runFileOperationHandler(
   // `maintainIndex` stops here, before any credential, and `indexNotes`
   // follows the change into the database alone.
   let operation: FileOperation = args.operation as FileOperation;
-  if (args.operation.kind === "maintainIndex" || args.operation.kind === "indexNotes" || args.operation.kind === "nodesMoveWork" || args.operation.kind === "pruneIndex") {
+  if (args.operation.kind === "maintainIndex" || args.operation.kind === "indexNotes" || args.operation.kind === "nodesMoveWork" || args.operation.kind === "pruneIndex" || args.operation.kind === "hideOldCopies") {
     // Never fails the operation it rides on: a move's copy must not stop over a derivative.
     const target = await ctx
       .runQuery(internal.functions.fastSearch.projectionTargetForWorkspace, { workspaceId: args.workspaceId })
@@ -495,6 +496,14 @@ export async function runFileOperationHandler(
   if (args.operation.kind === "readTrashed") {
     const clearance = clearanceOf(args.scope, args.grantedNames ?? []);
     return await readTrashedText(store, { ...args.operation, clearance }).catch((error) => rethrowUnreadable(toConvexError(error)));
+  }
+
+  // Old copies (`lib/oldCopies/hiding.ts`): rows moved to a hidden name, and the owner's export reading them back.
+  if (args.operation.kind === "hideOldCopies") {
+    return await hideOldCopiesPass(ctx, args.workspaceId, store, projection, args.operation.cursor ?? null);
+  }
+  if (args.operation.kind === "readOldCopies") {
+    return { kind: "oldCopyTexts", results: await readOldCopyTexts(ctx, args.workspaceId, store, args.operation.paths) };
   }
 
   if (meaning !== null && args.operation.kind === "projectMeaning") {

@@ -12,6 +12,8 @@ import { describe, expect, test } from "@jest/globals";
 import {
   archiveEntries,
   collectNotes,
+  collectOldCopies,
+  OLD_COPIES_FOLDER,
   downloadNotice,
   pathsUnder,
   READ_BATCH,
@@ -185,5 +187,31 @@ describe("what the person is told", () => {
     expect(downloadNotice("folder", 10, 1)).toBe(
       "Downloaded 10 notes; 1 could not be read and is not in the archive.",
     );
+  });
+});
+
+describe("old copies of mail and the rest, in a whole-workspace download", () => {
+  const readAll = async (paths: string[]) => paths.map((path) => ({ path, outcome: "read" as const, note: { text: `text of ${path}` } }));
+
+  test("each hidden copy is carried under Old copies/, with its own name inside it", async () => {
+    const { entries, missed, short } = await collectOldCopies(async () => ["0-inbox/email/me/2026/09/2026-09-07.md"], readAll);
+    expect(short).toBe(false);
+    expect(missed).toEqual([]);
+    expect(entries.map((entry) => entry.path)).toEqual([`${OLD_COPIES_FOLDER}/0-inbox/email/me/2026/09/2026-09-07.md`]);
+    expect(new TextDecoder().decode(entries[0].bytes)).toBe("text of 0-inbox/email/me/2026/09/2026-09-07.md");
+  });
+
+  test("none to carry (anyone but the owner, or nothing hidden) reads nothing", async () => {
+    let asked = 0;
+    const outcome = await collectOldCopies(async () => [], async (paths) => {
+      asked += 1;
+      return readAll(paths);
+    });
+    expect(outcome).toEqual({ entries: [], missed: [], short: false });
+    expect(asked).toBe(0);
+  });
+
+  test("a list that could not be finished is said, never a quietly short archive", async () => {
+    expect(await collectOldCopies(async () => null, readAll)).toEqual({ entries: [], missed: [], short: true });
   });
 });

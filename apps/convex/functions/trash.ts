@@ -156,7 +156,7 @@ export const emptyDue = internalMutation({
 });
 
 /** Remove one row and what hangs off it in the control plane: its grants. */
-async function removeRow(ctx: MutationCtx, row: Doc<"nodes">): Promise<void> {
+export async function removeRow(ctx: MutationCtx, row: Doc<"nodes">): Promise<void> {
   for (const grant of await ctx.db.query("nodeAccess").withIndex("by_node", (q) => q.eq("nodeId", row._id)).collect()) {
     await ctx.db.delete(grant._id);
   }
@@ -164,7 +164,7 @@ async function removeRow(ctx: MutationCtx, row: Doc<"nodes">): Promise<void> {
 }
 
 /** Links a trashed note left at its own name (a trash leaves them there, for Restore), when nothing lives there now. */
-async function dropLinks(ctx: MutationCtx, workspaceId: Id<"workspaces">, path: string): Promise<void> {
+export async function dropLinks(ctx: MutationCtx, workspaceId: Id<"workspaces">, path: string): Promise<void> {
   const holder = await ctx.db
     .query("nodes")
     .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", path))

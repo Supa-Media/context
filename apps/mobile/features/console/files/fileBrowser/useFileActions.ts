@@ -59,6 +59,8 @@ export function useFileActions(deps: FileActionsDeps) {
   const reportSearchScreen = useMutation(api.functions.searchTimings.reportScreen);
   const notePathsAction = useAction(api.functions.files.notePaths);
   const exportAccessAction = useAction(api.functions.exportAccess.exportAccess);
+  const listOldCopiesAction = useAction(api.functions.oldCopies.listForExport);
+  const readOldCopiesAction = useAction(api.functions.oldCopies.readForExport);
   const writeNote = useAction(api.functions.files.writeNote);
   const submitFormAction = useAction(api.functions.forms.submitForm);
   const storeNoteImageAction = useAction(api.functions.files.storeNoteImage);
@@ -138,6 +140,7 @@ export function useFileActions(deps: FileActionsDeps) {
   return {
     workspaceId, workspaceGenerationRef, slug, listFiles, readNote, readNotesAction, searchContext, reportSearchScreen, notePathsAction,
     writeNote, submitFormAction, storeNoteImageAction, readNoteImageAction, readRemoteImageAction, readEmojiAction, imageCache, exportAccessAction,
+    listOldCopiesAction, readOldCopiesAction,
     voteFormAction, updateSubmissionAction, retractSubmissionAction, createDirectory, undoNewFolder, moveEntry,
     startContextMoveAction, resumeContextMoveAction, dismissContextMoveMutation,
     copyEntry, duplicateEntry, archiveEntry, trashEntry, restoreTrashEntry, setNoteVisibility,
