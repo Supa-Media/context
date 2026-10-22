@@ -42,6 +42,12 @@ export const TOOL_NEWS = Object.freeze([
   {
     date: "2026-10-22",
     text:
+      "calendar_event moves and cancels events with guests too: the person is shown the change with the guests named, and their yes " +
+      "or 👍 makes it and Google tells the guests. `notify_guests` is set by Context on that approved change; leave it out.",
+  },
+  {
+    date: "2026-10-22",
+    text:
       'send_email and save_email_draft take `attach`: up to 5 "download:<id>" ids a browse `download` step gave. Each goes in as a real ' +
       "attachment, so a PDF found on a site (an invoice, a statement) reaches the recipient without the person downloading it.",
   },
@@ -272,7 +278,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "2a5a0c0c";
+export const TOOL_SHAPE = "48d56bf3";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

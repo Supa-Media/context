@@ -17,6 +17,8 @@
  *  2. `calendarGate` holding a texted change as before 2026-10-22. → `a
  *     texted change to their own calendar is made at once…` and `the first
  *     text makes the change…` fail.
+ *  3. `calendarGate` letting a texted change through whatever its guests. →
+ *     `a move that would tell a guest is put to the person…` fails.
  */
 
 import { ask, call, textOf, createEgressWorld, TOKEN_MCP, TOKEN_ROUTINE, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
@@ -76,6 +78,30 @@ export async function runCalendarGateChecks(check) {
       "the first text makes the change, with no yes asked for",
       changes().length === made + 1 && pending().length === waiting && !/👍|say yes/i.test(String(mari.body?.answer ?? "")),
     );
+
+    // The owner's chat, 2026-10-22 6:10 PM: "move my meeting with Sayo today to 9" was refused for its guest, and they were told to do it themselves.
+    const MOVE = { action: "move", title: "Sayo / Seyi", start: "2026-10-22T19:00:00-04:00", new_start: "2026-10-22T21:00:00-04:00", new_end: "2026-10-22T22:00:00-04:00" };
+    controlPlane.flags.calendarGuests = ["Blessing Aodu"];
+    model.install([{ toolCalls: [{ name: "calendar_event", args: MOVE }] }, { text: "I'd move it to 9 and let Blessing know." }]);
+    const beforeGuest = changes().length;
+    const proposed = await ask(env, TOKEN_TEXTS, "can you move my meeting with Sayo today to 9");
+    const shown = (proposed.body?.verbatim ?? []).join("\n");
+    check(
+      "a move that would tell a guest is put to the person with the guest named, not made and not refused",
+      changes().length === beforeGuest &&
+        shown.includes("Move on your Google Calendar:") &&
+        shown.includes("Google will let Blessing Aodu know.") &&
+        shown.includes("👍") &&
+        !/yourself/i.test(String(proposed.body?.answer ?? "")),
+    );
+    const yes = await ask(env, TOKEN_TEXTS, "yes");
+    check(
+      "their yes makes it, and Google tells the guest",
+      yes.status === 200 && changes().length === beforeGuest + 1 && changes().at(-1).change.notify_guests === true && changes().at(-1).answer.ok === true,
+    );
+    controlPlane.flags.calendarGuests = [];
+    const sneaky = await ask(env, TOKEN_TEXTS, "x").then(() => call(env, TOKEN_MCP, "calendar_event", { ...MOVE, notify_guests: true }));
+    check("another AI passing notify_guests itself still waits for the app", sneaky.isError === true && /Context app/.test(textOf(sneaky)) && changes().length === beforeGuest + 1);
 
     const bad = await call(env, TOKEN_MCP, "calendar_event", { ...CREATE, start: "tuesday 3pm" });
     check("a time with no offset is refused before anything", bad.isError === true && /start is a time with its offset/.test(textOf(bad)));

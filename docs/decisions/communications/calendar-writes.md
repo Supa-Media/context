@@ -22,6 +22,22 @@ calendar is made at once".
 An invite to another person is a message to them and would wait for a yes,
 as an email does; it is not built.
 
+### A change that tells a guest waits for one 👍 (2026-10-22)
+
+The owner, the same evening, after Tex refused to move a meeting with one
+guest and told them to move it themselves: "it should've suggested the
+change and had me 👍 to approve it". A move or a cancel of an event with
+guests is no longer refused. The control plane's check of a move or a cancel
+finds the event and names its guests (nothing spent, nothing changed); with
+none, Tex's change runs at once as above. With any, the gate holds it as one
+ask that shows the change and "Google will let <guests> know.", and the
+person's yes or 👍 makes it with `notify_guests`, which is the only way the
+control plane changes an event with guests, and then with
+`sendUpdates=all`. A change without it to an event with guests is still
+refused (`has_guests`). Tests: `calendarGate.test.mjs`, "a move that would
+tell a guest is put to the person…", and in Convex "a move the person said
+yes to with its guests named goes".
+
 ### Before 2026-10-22: no calendar change without the person's yes to that exact change
 
 Decided by the owner on 2026-10-17: "weren't you supposed to … enable sending

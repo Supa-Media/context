@@ -4,16 +4,17 @@
  * (`lib/calendarWrite.ts`).
  *
  * Body `{ accessToken, expectedWorkspaceId, change, check? }`. Answers
- * `{ ok: true, calendar }` (with `check`, nothing changes) or
- * `{ ok: false, refused }`.
+ * `{ ok: true, calendar, guests? }` (with `check`, nothing changes; a move or
+ * cancel checked names the event's guests) or `{ ok: false, refused }`.
  *
- * The gateway calls this only for a change the person said yes to, word for
- * word (`apps/mcp/src/tools/calendarGate.js`). Decided here: the calendar is
- * one of the token's person's own connections that granted
- * `calendar.events`, the limits hold, and a move or a cancel reaches exactly
- * one event, which has no guests. Guests would be emailed about the change,
- * and `sendUpdates=none` is asked for besides. Nothing of the event is
- * stored or logged; Google's error body can quote it, so only a status is.
+ * The gateway makes Tex's change to an event nobody else is on at once, and
+ * holds any other for the person's yes (`apps/mcp/src/tools/calendarGate.js`).
+ * Decided here: the calendar is one of the token's person's own connections
+ * that granted `calendar.events`, the limits hold, and a move or a cancel
+ * reaches exactly one event. One with guests is changed only with
+ * `notify_guests`, and then Google tells them (`sendUpdates=all`); otherwise
+ * `sendUpdates=none`. Nothing of the event is stored or logged; Google's
+ * error body can quote it, so only a status is.
  */
 
 import { internal } from "../../../_generated/api";
@@ -21,7 +22,7 @@ import type { ActionCtx } from "../../../_generated/server";
 import { hashToken } from "../crypto";
 import { json, stringField } from "../gatewayAuth";
 import type { CalendarChange } from "../calendarWrite";
-import { googleTime, hasGuests, matchingEvents, readCalendarChange, searchWindow } from "../calendarWrite";
+import { googleTime, guestNames, hasGuests, matchingEvents, readCalendarChange, searchWindow } from "../calendarWrite";
 
 const EVENTS_ENDPOINT = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
 
@@ -29,11 +30,11 @@ function log(fields: Record<string, string | number | boolean>): void {
   console.log(JSON.stringify({ event: "calendar_write", ...fields }));
 }
 
-type Found = { ok: true; eventId: string | null } | { ok: false; refused: "not_found" | "ambiguous" | "has_guests" | "unavailable" };
+type Found = { ok: true; eventId: string | null; guests: string[] } | { ok: false; refused: "not_found" | "ambiguous" | "has_guests" | "unavailable" };
 
 /** The one event a move or a cancel names, or why there is not exactly one. */
-async function findEvent(accessToken: string, change: CalendarChange): Promise<Found> {
-  if (change.action === "create") return { ok: true, eventId: null };
+async function findEvent(accessToken: string, change: CalendarChange, check = false): Promise<Found> {
+  if (change.action === "create") return { ok: true, eventId: null, guests: [] };
   const query = new URLSearchParams({ ...searchWindow(change.start), singleEvents: "true", q: change.title, maxResults: "50" });
   const response = await fetch(`${EVENTS_ENDPOINT}?${query}`, { headers: { Authorization: `Bearer ${accessToken}` } });
   if (!response.ok) {
@@ -44,13 +45,14 @@ async function findEvent(accessToken: string, change: CalendarChange): Promise<F
   const matches = matchingEvents(listed?.items, change);
   if (matches.length === 0) return { ok: false, refused: "not_found" };
   if (matches.length > 1) return { ok: false, refused: "ambiguous" };
-  if (hasGuests(matches[0]!)) return { ok: false, refused: "has_guests" };
-  return { ok: true, eventId: matches[0]!.id as string };
+  const guests = hasGuests(matches[0]!) ? guestNames(matches[0]!) : [];
+  if (hasGuests(matches[0]!) && !change.notifyGuests && !check) return { ok: false, refused: "has_guests" };
+  return { ok: true, eventId: matches[0]!.id as string, guests: hasGuests(matches[0]!) && guests.length === 0 ? ["a guest"] : guests };
 }
 
 /** The one request that makes the change. */
 function changeRequest(change: CalendarChange, eventId: string | null): { url: string; method: string; body?: string } {
-  const quiet = "?sendUpdates=none";
+  const quiet = change.notifyGuests ? "?sendUpdates=all" : "?sendUpdates=none";
   if (change.action === "create") {
     return {
       url: `${EVENTS_ENDPOINT}${quiet}`,
@@ -89,7 +91,7 @@ export async function gatewayCalendarWriteHandler(ctx: ActionCtx, body: Record<s
     log({ outcome: "refused", reason: room.refused, check });
     return json({ ok: false, refused: room.refused });
   }
-  if (check) return json({ ok: true, calendar: room.address });
+  if (check && change.action === "create") return json({ ok: true, calendar: room.address });
 
   const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessToken, { connectionId: room.connectionId });
   if (minted === null) {
@@ -97,11 +99,13 @@ export async function gatewayCalendarWriteHandler(ctx: ActionCtx, body: Record<s
     return json({ ok: false, refused: "unavailable" });
   }
   try {
-    const found = await findEvent(minted.accessToken, change);
+    const found = await findEvent(minted.accessToken, change, check);
     if (!found.ok) {
-      log({ outcome: "refused", reason: found.refused, action: change.action });
+      log({ outcome: "refused", reason: found.refused, action: change.action, check });
       return json({ ok: false, refused: found.refused });
     }
+    // A move or a cancel checked: whether it would tell anybody, so the gateway knows to ask first.
+    if (check) return json({ ok: true, calendar: room.address, guests: found.guests });
     // Spent before the change is made: one that fails after Google took it
     // still counted, the safe direction for a limit.
     const spent = await claim(true);

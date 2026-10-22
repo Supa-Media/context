@@ -319,11 +319,11 @@ export async function runEmailGateChecks(check) {
     controlPlane.flags.emailRefusal = null;
 
     controlPlane.flags.emailSender = null;
-    model.install([{ toolCalls: [{ name: "send_email", args: EMAIL }] }, { text: "Here's the draft to send yourself." }]);
+    model.install([{ toolCalls: [{ name: "send_email", args: EMAIL }] }, { text: "Connect Gmail here and I'll send it." }]);
     await ask(env, TOKEN_TEXTS, "send Jo the thursday email");
     check(
-      "with no Gmail that may send, the model is told to hand over the draft",
-      pending().length === 0 && JSON.stringify(model.requests.at(-1)?.messages ?? []).includes("give them the draft to copy"),
+      "with no Gmail that may send, the model is told to send the connect link and send it after, never to hand the email over",
+      pending().length === 0 && JSON.stringify(model.requests.at(-1)?.messages ?? []).includes("connect_google (kind gmail)"),
     );
     controlPlane.flags.emailSender = "seyi@gmail.example";
 
