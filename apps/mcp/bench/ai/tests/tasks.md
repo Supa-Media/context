@@ -19,7 +19,7 @@ Decided by the owner on 2026-10-11, after a texted conversation in which Tex cou
 
 Every task is `kind: task`, which makes it a gate: a failed must or must-not line, a failed check, or an unanswered run fails the setup. Judge lines grade nothing.
 
-The web is scripted (`web: scripted`): every site lives in `sites/`, served by a stand-in for the browser Worker, and nothing reaches the real web. The person signs in only through a handoff: after Tex hands its browser over, the person's next text comes once they have signed in on that site. Tex should sign in itself with a login saved in the vault, so with none saved it first asks whether she signs in with Gmail or another email and sends a link to save it (decided by the owner, 2026-10-16); this world has no vault fill step, so Maya answers that she'd rather sign in herself this time, and the handoff that follows is the fallback being tested. The `must call`, `must reach`, `must hand off`, `must type`, `must choose`, `must set`, `must publish`, `must connect`, `must forward`, `must download` and `must attach` lines are checked from the run's record (`bench/checks.mjs`), never by the judge. Mail is a stand-in too: a workspace file whose front matter says `type: email` is one message in that person's Gmail (`bench/mailbox.mjs`), and `must forward` names the Gmail id a sent email or saved draft must forward. `must download` names a file a browse download step took, and `must attach` a file a sent email or saved draft carries as an attachment. A website a task builds is answered by the benchmark's own site (`bench/siteStub.mjs`): every invented person's site is on and paid for, and `publish` and `connect <domain>` are recorded beside the browser's steps.
+The web is scripted (`web: scripted`): every site lives in `sites/`, served by a stand-in for the browser Worker, and nothing reaches the real web. The person signs in only through a handoff: after Tex hands its browser over, the person's next text comes once they have signed in on that site. Tex should sign in itself with a login saved in the vault, so with none saved it first asks whether she signs in with Gmail or another email and sends a link to save it (decided by the owner, 2026-10-16); this world has no vault fill step, so Maya answers that she'd rather sign in herself this time, and the handoff that follows is the fallback being tested. The `must call`, `must reach`, `must hand off`, `must type`, `must choose`, `must set`, `must publish`, `must connect`, `must forward`, `must download`, `must attach` and `must write` lines are checked from the run's record (`bench/checks.mjs`), never by the judge. Mail is a stand-in too: a workspace file whose front matter says `type: email` is one message in that person's Gmail (`bench/mailbox.mjs`), and `must forward` names the Gmail id a sent email or saved draft must forward. `must download` names a file a browse download step took, and `must attach` a file a sent email or saved draft carries as an attachment. A website a task builds is answered by the benchmark's own site (`bench/siteStub.mjs`): every invented person's site is on and paid for, and `publish` and `connect <domain>` are recorded beside the browser's steps.
 
 How Tex should do each one lives in the setup's skills (`setups/texting-assistant/skills/`), which production reads from `ai/production/skills/`. A task here names what must happen, never how; a skill says how.
 
@@ -137,18 +137,22 @@ Maya has an account at names.example with a saved card. Buying a domain spends h
 
 ## 8. Put my site on the domain I already have
 
-Maya already owns mayaruns.com at names.example and wants to add its DNS records herself. Tex connects the domain and walks her through the records; it does not sign in to her registrar without her OK.
+Revised 2026-10-22, when the owner adopted the hand-back rule (`docs/decisions/texting-assistant/handing-back.md`): Tex adds the DNS records itself and checks them itself later. Maya owns mayaruns.com at names.example and asks for her site to be put on it, which is her yes to adding the records; a record can be deleted again, so asking her to type them in is handing her work (H4), and asking her to text back once they're in is handing her the follow-up (H11). Tex connects the domain, signs in to names.example (with no saved login in this world, through the handoff, as in task 4), adds the records, writes itself a one-off routine to check them, and tells her it will text when the site is live. Until 2026-10-22 this task had Maya do the DNS herself and text back.
 
 - kind: task
-- person starts: "i already own mayaruns.com at names.example, can you put my site on it? i'll do the dns myself, just tell me what to add"
-- if asked whether Tex may add the records itself: "No, just tell me what to add"
+- person starts: "i already own mayaruns.com at names.example, can you put my site on it?"
+- if asked whether she signs in with Gmail or another email, or sent a link to save her login: "I'd rather just sign in myself this time"
+- if asked to sign in, open a link, or take over the browser: "Done, I'm signed in"
+- if asked whether Tex may add the records itself: "Yes, of course"
 - if asked where the domain's DNS is managed: "names.example"
 - must call: read_skill
 - must connect: mayaruns.com
-- must not type: customers.context.lc
-- must not hand off: names.example
-- must: give Maya each DNS record to add with its type, host and value, including customers.context.lc
-- must: tell Maya to text back once the records are in, so Tex can check them
+- must reach: names.example/dns
+- must type: customers.context.lc
+- must set: added dns record
+- must write: maya/tex/routines/once/
+- must: tell Maya the records are added at names.example, and that Tex will check them itself and text her once the site is live at mayaruns.com
+- must not: give Maya the DNS records to add herself, or ask her to text back once the records are in
 - must not: say the site is live on mayaruns.com yet
 
 ## 9. Email Jo back for me
