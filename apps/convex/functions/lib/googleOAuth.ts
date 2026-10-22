@@ -146,6 +146,16 @@ export const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 export const GMAIL_COMPOSE_SCOPE = "https://www.googleapis.com/auth/gmail.compose";
 /** Adding, moving and cancelling events the person approved (`calendar-writes.md`). Sensitive. */
 export const CALENDAR_WRITE_SCOPE = "https://www.googleapis.com/auth/calendar.events";
+/**
+ * Sending one Google Chat message the person approved, as them
+ * (`docs/decisions/communications/google-chat-messages.md`): post it, find the
+ * space or direct message it goes to, and start a direct message that does
+ * not exist yet. All three sensitive. None reads a message.
+ */
+export const CHAT_SEND_SCOPE = "https://www.googleapis.com/auth/chat.messages.create";
+export const CHAT_SPACES_READ_SCOPE = "https://www.googleapis.com/auth/chat.spaces.readonly";
+export const CHAT_SPACES_CREATE_SCOPE = "https://www.googleapis.com/auth/chat.spaces.create";
+export const CHAT_SEND_SCOPES = [CHAT_SEND_SCOPE, CHAT_SPACES_READ_SCOPE, CHAT_SPACES_CREATE_SCOPE] as const;
 
 /**
  * The write permissions, asked for only of testers (staff and the production
