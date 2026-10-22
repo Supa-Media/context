@@ -238,10 +238,17 @@ held, and the person was told the send "timed out", then shown Tex's own
 preview, which no 👍 could release. Now the checker reads while the limits are
 asked (`emailGate.js`; not when the turn already asked about an email, which
 is refused unread), and a texted turn gives `send_email` and
-`save_email_draft` 55 seconds, a calendar change and a Slack call 40
-(`route.js`). Cost of reverting: the person's first yes reaches a call that
-never got as far as asking them. Tests: `emailGateTiming.test.mjs` and `a
-texted turn gives a held send long enough` in `gatewaySourceGuards.test.mjs`.
+`save_email_draft` two minutes, a calendar change and a Slack call 40
+seconds (`route.js`), and the control plane waits 110 seconds on Gmail
+(`controlPlane/email.js`). Two minutes is the owner's floor ("at least 2
+minutes … it's a crucial thing"): a slow email is still held rather than
+dropped. A person's own texted turn streams and has nine minutes of tool time;
+a quick turn (a group chat, two minutes in all) cuts any call to end 30
+seconds past its tool budget (`turn.js`), so its answer still goes back. Cost
+of reverting: the person's first yes reaches a call that never got as far as
+asking them. Tests: `emailGateTiming.test.mjs`, `a texted turn gives a held
+send long enough` in `gatewaySourceGuards.test.mjs`, and `a tool's own limit
+is cut` in `agentProgress.test.mjs`.
 
 ### What is deliberately not built
 
