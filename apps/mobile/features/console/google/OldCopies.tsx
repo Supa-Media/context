@@ -9,7 +9,6 @@ import {
   DELETE_TITLE,
   KEEP_LINE,
   KEEP_TITLE,
-  KEPT_EITHER_WAY,
   deleteLine,
   oldCopiesFrom,
   oldCopiesRowLine,
@@ -145,9 +144,6 @@ export function OldCopiesPage({
           {error}
         </Text>
       )}
-      <Text variant="rowSub" style={styles.foot}>
-        {KEPT_EITHER_WAY}
-      </Text>
     </View>
   );
 }

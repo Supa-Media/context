@@ -14,6 +14,8 @@ export interface OldCopiesSummary {
   firstDay: string | null;
   lastDay: string | null;
   since: number;
+  /** Why hiding is waiting: a row-move refusal (`busy`, `not_served`, `not_keyed`), or `null`. */
+  problem: string | null;
   addresses: string[];
 }
 
@@ -42,14 +44,27 @@ function listed(words: readonly string[]): string {
 
 /** The row's title, and the page's: what is there, by what a person would call it. */
 export function oldCopiesTitle(summary: OldCopiesSummary): string {
+  if (summary.days + summary.contacts + summary.files === 0) return "Copies of mail, calendar and chat";
   if (summary.days > 0) return `${plural(summary.days, "day", "days")} of mail, calendar and chat`;
   if (summary.contacts > 0) return plural(summary.contacts, "contact page", "contact pages");
   return plural(summary.files, "mail attachment", "mail attachments");
 }
 
 /** The line under the row in Mail and calendar. */
+/** Why hiding is waiting, in words: what holds it, and that it is tried again. */
+function waitingLine(problem: string): string {
+  const why =
+    problem === "busy"
+      ? "Another move in this workspace is still running"
+      : problem === "not_served" || problem === "not_keyed"
+        ? "Your notes are still being set up"
+        : "Something stopped it";
+  return `Not hidden yet. ${why}; Context tries again every 10 minutes.`;
+}
+
 export function oldCopiesRowLine(summary: OldCopiesSummary): string {
   if (summary.state === "deleting") return "Deleting them now.";
+  if (summary.state === "hiding" && summary.problem !== null) return waitingLine(summary.problem);
   if (summary.state === "hiding") return "Being hidden from your notes, search and AI now. Still in Download as folders.";
   return `Copied before ${shortDate(summary.since)}. Hidden from your notes, search and AI. Still in Download as folders.`;
 }
@@ -69,7 +84,6 @@ export function oldCopiesFrom(summary: OldCopiesSummary): string {
 export const KEEP_TITLE = "Keep them hidden";
 export const KEEP_LINE = "Nothing changes. They stay in your storage and in Download as folders.";
 export const DELETE_TITLE = "Delete the copies";
-export const KEPT_EITHER_WAY = "Contact pages you wrote your own notes on are kept either way.";
 
 /** What goes, said before the second press: "696 days and 1,306 contact pages". */
 export function whatGoes(summary: OldCopiesSummary): string {

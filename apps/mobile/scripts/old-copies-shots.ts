@@ -39,6 +39,7 @@ const SUMMARY = {
   firstDay: "2026-09-07",
   lastDay: "2026-10-21",
   since: new Date(2026, 9, 22, 9).getTime(),
+  problem: null,
   addresses: ["someone.with.a.long.address@example-company.test", "team.inbox@example.test"],
 };
 

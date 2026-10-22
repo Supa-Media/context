@@ -57,13 +57,21 @@ email often". Either comes back if people miss it.
 tree, search and AI, kept in Download as folders, and the person may delete
 them from Settings (`functions/oldCopies.ts`, `lib/oldCopies/`):
 
-- A copy is what says it is one: a note whose front matter `origin` is one
+- First, and at once, the Inbox's channel folders go whole: `calendar`,
+  `contacts`, `email`, `google-chat` and `imessage`, each one row move of the
+  folder (a big one in pages, as a big folder goes to the Trash), everything
+  in them included (`lib/oldCopies/folders.ts`). Only the passes wrote there,
+  and the owner said so (2026-10-22: "isn't the first step just to hide it?
+  Hiding it is an instant thing"; "there's no handwritten things in
+  contacts or iMessage or email"). A note-by-note first version opened each
+  note to judge it and left the owner's copies showing for hours.
+- After that, a copy anywhere else is what says it is one: a note whose front matter `origin` is one
   of the passes' (`gmail-sync`, `calendar-sync`, `google-chat-sync`,
   `desktop-imessage-sync`, `communications-sync`), a contact page the
   renderer made (`type: contact`, an `## Activity` section) with nothing
   under `## Notes`, and a file in a mailbox's `attachments/`. Anything else
-  is the person's, wherever it sits: a note filed beside the mail stays, and
-  so does a contact page they wrote on. Its facts decide where they were
+  is the person's: a note of theirs outside those folders stays, and so does
+  a contact page outside them they wrote on. Its facts decide where they were
   read at the note's version; otherwise its text is read.
 - Hiding is a row move to `.context/old-copies/<its path>`, as a trash is
   (`trash: true` in `rowMove.ts`, allowed for either root by
@@ -74,7 +82,8 @@ them from Settings (`functions/oldCopies.ts`, `lib/oldCopies/`):
   on to the next at once, so a workspace is done in minutes and no run nears
   an action's time limit (a first version made up to 60 passes in one hourly
   run, too slow for a large workspace). It counts what it hid for the
-  Settings page. A workspace not yet keyed waits until it is.
+  Settings page. A workspace not yet keyed waits until it is; one another
+  move is still carrying waits too, and the Settings row says which.
 - Download as folders, for the owner of the whole workspace, adds an
   `Old copies/` folder holding each hidden note under its old name
   (`listForExport`, `readForExport`). Nobody else is told they exist.
@@ -84,8 +93,10 @@ them from Settings (`functions/oldCopies.ts`, `lib/oldCopies/`):
   bytes and editing history through the trash's bucket half
   (`trashErasures`), and the audit names the owner.
 
-`apps/convex/__tests__/oldCopies/oldCopies.test.ts` fails if a person's own
-note or a contact page they wrote on is hidden, if a member can list or read
+`apps/convex/__tests__/oldCopies/oldCopiesBarrier.test.ts` fails if the
+channel folders are not hidden whole through the real job, or a blocked one
+does not say why; `oldCopies.test.ts` fails if a person's own note outside
+them or a contact page they wrote on is hidden, if a member can list or read
 the hidden copies, or if anything but the owner's Delete erases them.
 
 The cost of a "simplification" that turns a pass back on: the noise the owner

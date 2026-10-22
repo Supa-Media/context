@@ -34,6 +34,10 @@ export const oldCopiesTables = {
     startedAt: v.number(),
     /** When the pass under way began; unset between runs, so `catchUp` starts no second pass beside it. */
     passAt: v.optional(v.number()),
+    /** When the Inbox's channel folders were hidden whole (`lib/oldCopies/folders.ts`). */
+    foldersAt: v.optional(v.number()),
+    /** Why hiding last stopped short (a row-move refusal), shown on the Settings row until it moves again. */
+    problem: v.optional(v.string()),
     hiddenAt: v.optional(v.number()),
     /** The owner chose Keep them hidden: the Settings row goes, and the copies stay as they are. */
     keptAt: v.optional(v.number()),

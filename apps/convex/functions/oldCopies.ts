@@ -39,6 +39,8 @@ import { defaultGoogleDestinationFolder } from "./lib/googleConnect/validation";
 import { applyRowMove, type RowMoveRefusal } from "./lib/nodes/rowMove";
 import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { rowVerdict } from "./lib/oldCopies/classify";
+import { CHANNEL_FOLDERS, hideChannelFolders } from "./lib/oldCopies/folders";
+import { folderJobsOf } from "./lib/nodes/folderJobs";
 import type { HidePass } from "./lib/oldCopies/hiding";
 import { isPlumbing } from "./lib/privacy";
 import { dropLinks, removeRow } from "./trash";
@@ -108,6 +110,12 @@ export const hideWorkspace = internalAction({
   args: { workspaceId: v.id("workspaces") },
   returns: v.object({ done: v.boolean() }),
   handler: async (ctx, { workspaceId }): Promise<{ done: boolean }> => {
+    // The Inbox's channel folders first, whole and at once (`lib/oldCopies/folders.ts`).
+    const folders = await ctx.runMutation(internal.functions.oldCopies.hideFolders, { workspaceId, now: Date.now() });
+    if (folders.stopped !== null) {
+      console.log(JSON.stringify({ event: "oldCopies.folders_stopped", workspaceId, reason: folders.stopped }));
+      return { done: false };
+    }
     const cursor = await ctx.runMutation(internal.functions.oldCopies.beginPass, { workspaceId, now: Date.now() });
     if (cursor === false) return { done: true };
     const pass = (await ctx.runAction(internal.functions.files.runFileOperation, {
@@ -119,6 +127,7 @@ export const hideWorkspace = internalAction({
       workspaceId,
       cursor: pass.cursor,
       stopped: pass.stopped !== undefined,
+      ...(pass.stopped === undefined ? {} : { reason: pass.stopped }),
       days: pass.days,
       contacts: pass.contacts,
       files: pass.files,
@@ -138,6 +147,37 @@ export const hideWorkspace = internalAction({
     if (pass.stopped !== undefined || pass.cursor === null) return { done: pass.stopped === undefined };
     await ctx.scheduler.runAfter(0, internal.functions.oldCopies.hideWorkspace, { workspaceId });
     return { done: false };
+  },
+});
+
+/**
+ * Hide the Inbox's channel folders whole, once per workspace, before the
+ * note-by-note passes; answers why it could not yet, if it could not.
+ */
+export const hideFolders = internalMutation({
+  args: { workspaceId: v.id("workspaces"), now: v.number() },
+  returns: v.object({ stopped: v.union(v.string(), v.null()) }),
+  handler: async (ctx, { workspaceId, now }) => {
+    if (!(await keyedWorkspace(ctx.db, workspaceId))) return { stopped: null };
+    let record = await hideRecord(ctx, workspaceId);
+    if (record === null) {
+      await ctx.db.insert("oldCopyHides", { workspaceId, state: "hiding", days: 0, contacts: 0, files: 0, startedAt: now, passAt: now });
+      record = await hideRecord(ctx, workspaceId);
+    }
+    if (record === null || record.state !== "hiding" || record.foldersAt !== undefined) return { stopped: null };
+    const hidden = await hideChannelFolders(ctx, workspaceId, now);
+    const firstDay = [record.firstDay, hidden.firstDay].filter((day): day is string => day !== undefined).sort()[0];
+    const lastDay = [record.lastDay, hidden.lastDay].filter((day): day is string => day !== undefined).sort().at(-1);
+    await ctx.db.patch(record._id, {
+      days: record.days + hidden.days,
+      contacts: record.contacts + hidden.contacts,
+      files: record.files + hidden.files,
+      ...(firstDay === undefined ? {} : { firstDay }),
+      ...(lastDay === undefined ? {} : { lastDay }),
+      // Stopped: what is left waits for the next look, and the page says why.
+      ...(hidden.stopped === undefined ? { foldersAt: now, problem: undefined } : { problem: hidden.stopped, passAt: undefined }),
+    });
+    return { stopped: hidden.stopped ?? null };
   },
 });
 
@@ -163,6 +203,8 @@ export const recordPass = internalMutation({
     workspaceId: v.id("workspaces"),
     cursor: v.union(v.string(), v.null()),
     stopped: v.boolean(),
+    /** Why a pass stopped, for the Settings page. */
+    reason: v.optional(v.string()),
     days: v.number(),
     contacts: v.number(),
     files: v.number(),
@@ -186,6 +228,7 @@ export const recordPass = internalMutation({
       cursor: args.cursor ?? undefined,
       // Still held while the next pass is handed on; let go at the end, or when a pass stopped.
       passAt: args.cursor !== null && !args.stopped ? args.now : undefined,
+      problem: args.stopped ? (args.reason ?? "stopped") : undefined,
       ...(finished ? { state: "hidden" as const, hiddenAt: args.now } : {}),
     });
     return null;
@@ -209,6 +252,10 @@ export const candidatePage = internalQuery({
   }),
   handler: async (ctx, { workspaceId, cursor }) => {
     const folders = await attachmentFolders(ctx, workspaceId);
+    // Channel folders already handed to a whole-folder move: rows its pages have not reached yet are its to move.
+    const record = await hideRecord(ctx, workspaceId);
+    const inbox = record?.foldersAt === undefined ? null : (await folderJobsOf(ctx.db, workspaceId)).jobs.inbox;
+    const moving = typeof inbox === "string" ? CHANNEL_FOLDERS.map((name) => `${inbox}/${name}/`) : [];
     const page = await ctx.db
       .query("nodes")
       .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId))
@@ -216,6 +263,7 @@ export const candidatePage = internalQuery({
     const rows = [];
     for (const row of page.page) {
       if (row.goneAt !== undefined || isPlumbing(row.path)) continue;
+      if (moving.some((prefix) => row.path.startsWith(prefix))) continue;
       const verdict = rowVerdict(row, folders);
       if (verdict === null) continue;
       rows.push({ path: row.path, verdict, ...(verdict === "read" && row.storageKey !== undefined ? { key: row.storageKey } : {}) });
@@ -261,6 +309,8 @@ const summaryValidator = v.union(
     lastDay: v.union(v.string(), v.null()),
     /** When copying stopped and the hiding began: "Copied before" this day. */
     since: v.number(),
+    /** Why hiding is waiting (a row-move refusal: `busy`, `not_served`, `not_keyed`), or `null`. */
+    problem: v.union(v.string(), v.null()),
     /** The Google accounts the copies came from, for "From a and b". */
     addresses: v.array(v.string()),
   }),
@@ -289,7 +339,8 @@ export const summary = query({
     if ((await ownerOf(ctx, workspaceId)) === null) return null;
     const record = await hideRecord(ctx, workspaceId);
     if (record === null || record.keptAt !== undefined || record.state === "deleted") return null;
-    if (record.days + record.contacts + record.files === 0) return null;
+    // Nothing found, and nothing left to look at: there is nothing to say. While hiding, the row says so, and why it waits.
+    if (record.state !== "hiding" && record.days + record.contacts + record.files === 0) return null;
     const connections = await ctx.db
       .query("googleConnections")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
@@ -302,6 +353,7 @@ export const summary = query({
       firstDay: record.firstDay ?? null,
       lastDay: record.lastDay ?? null,
       since: record.startedAt,
+      problem: record.state === "hiding" ? (record.problem ?? null) : null,
       addresses: [...new Set(connections.map((row) => row.address.toLowerCase()))].sort(),
     };
   },
