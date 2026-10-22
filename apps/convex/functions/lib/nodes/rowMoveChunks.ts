@@ -7,7 +7,7 @@
  * the destination and everything under it is free, the rules are the ones the
  * caller judged, nothing overlapping is moving), then moves the root row, stands
  * the destination's folders and records the move. Each page after it
- * (`moveRowPage`) moves the next `ROW_MOVE_MAX` live rows under the old name,
+ * (`moveRowPage`) moves the next `ROW_MOVE_PAGE` live rows under the old name,
  * in path order, so a folder always moves before what is in it. Row ids are
  * kept, so a moved row's children still point at it.
  *
@@ -62,7 +62,6 @@ import { type PrivacyMirror, nameOf } from "./table";
 import { type PendingMove, pendingMoves } from "./moveOverlay";
 import type { AccessRow } from "./rowAccess";
 import {
-  ROW_MOVE_MAX,
   type RowMoveAnswer,
   chainAt,
   followMovedFiles,
@@ -73,8 +72,14 @@ import {
   standFolders,
 } from "./rowMove";
 
+/**
+ * Rows one page moves. Smaller than `ROW_MOVE_MAX`: each moved file also reads its destination, its grants, every
+ * link out of it and the change log, and a page of 500 linked notes went past the 4,096 reads one function may make,
+ * so a move of Dev2's Archive stopped at its second page (2026-10-22).
+ */
+export const ROW_MOVE_PAGE = 100;
 /** Rows of tombstones and left rows one page may read past before it stops: bounds a page's reads. */
-const PAGE_SCAN = ROW_MOVE_MAX * 4;
+const PAGE_SCAN = ROW_MOVE_PAGE * 4;
 /** How long a page's progress holds off the watchdog: the request is driving it. */
 export const ROW_MOVE_LEASE_MS = 30_000;
 /** How long a moved record waits for its request to settle the bucket's side before the watchdog lets it go. */
@@ -319,7 +324,7 @@ export async function moveRowPage(ctx: MutationCtx, id: Id<"rowMoves">): Promise
     .withIndex("by_workspace_path", (q) => q.eq("workspaceId", ws).gt("path", lower));
   for await (const row of rows) {
     if (!row.path.startsWith(prefix)) break;
-    if (page.length >= ROW_MOVE_MAX || scanned >= PAGE_SCAN) {
+    if (page.length >= ROW_MOVE_PAGE || scanned >= PAGE_SCAN) {
       ended = false;
       break;
     }

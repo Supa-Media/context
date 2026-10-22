@@ -1,6 +1,6 @@
 /**
  * A keyed folder move bigger than one transaction (`lib/nodes/rowMoveChunks.ts`):
- * the root moves at once and the rows beneath follow in pages of `ROW_MOVE_MAX`.
+ * the root moves at once and the rows beneath follow in pages of `ROW_MOVE_PAGE`.
  *
  * Runs the real functions through `convex-test`. Each case fails if its guard
  * is removed:
@@ -15,7 +15,9 @@
  *    changed under);
  *  - the watchdog and the resume (`continueRowMove`, `rowMoveFor`: a move whose
  *    request stopped is never finished);
- *  - the overlap check (`overlapsRowMove`: a second move inside the moving one lands).
+ *  - the overlap check (`overlapsRowMove`: a second move inside the moving one lands);
+ *  - the page size (`ROW_MOVE_PAGE`: a page of `ROW_MOVE_MAX` linked notes went past
+ *    the reads one function may make, and the move stopped for good).
  */
 
 import { describe, expect, test } from "vitest";
@@ -28,6 +30,7 @@ import { setFolderVisibility } from "../../functions/lib/fileOps";
 import { touchNodesNow } from "../../functions/lib/nodes/run";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
 import { NOTE_ID, keyedFixture, privacyEtag, rowOf, treeOf } from "./keyedFixture.helpers";
+import { ROW_MOVE_PAGE } from "../../functions/lib/nodes/rowMoveChunks";
 
 type Fixture = Awaited<ReturnType<typeof keyedFixture>>;
 
@@ -268,7 +271,7 @@ describe("a keyed folder over the row cap moves in pages", { timeout: 60_000 }, 
     await f.t.mutation(internal.functions.nodeRowMoves.continueRowMove, { id });
     const waited = await treeOf(f);
     expect(waited.filter((row) => row.live && row.path.startsWith(`${FROM}/`)).length).toBeGreaterThan(0);
-    for (let pass = 0; pass < 20 && (await records(f))[0]?.state === "moving"; pass += 1) {
+    for (let pass = 0; pass < 40 && (await records(f))[0]?.state === "moving"; pass += 1) {
       await f.t.run(async (ctx) => await ctx.db.patch(id, { updatedAt: 0 }));
       await f.t.mutation(internal.functions.nodeRowMoves.continueRowMove, { id });
     }
@@ -279,6 +282,17 @@ describe("a keyed folder over the row cap moves in pages", { timeout: 60_000 }, 
     // The bucket's side is the request's: asking for the same move again does it and lets the record go.
     await start(f, FROM, TO);
     expect(await records(f)).toEqual([]);
+  });
+
+  test("a page moves at most a page of rows, well inside what one function may read", async () => {
+    const f = await keyedFixture();
+    await bigTree(f);
+    const id = await begin(f);
+    const first = await page(f, id);
+    expect(first.state).toBe("moving");
+    expect(first.files.length).toBeGreaterThan(0);
+    expect(first.files.length).toBeLessThanOrEqual(ROW_MOVE_PAGE);
+    expect(ROW_MOVE_PAGE).toBeLessThanOrEqual(100);
   });
 
   test("a page run twice, or after the move finished, moves nothing twice", async () => {
