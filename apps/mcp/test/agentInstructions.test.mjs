@@ -221,6 +221,7 @@ test("an overgrown file is refused, so it cannot crowd out the question", async 
   // and from 7,000 when every turn was told when to offer a shared workspace (workspaces.js; 7,664 then),
   // and from 8,000 when texted turns were told where their calendar and email sync to (prompt.js; 8,150 then),
   // and from 8,500 when they were told to answer a call from the meetings list (prompt.js, MEETINGS_LINE; 8,7xx then),
-  // and from 9,000 when they were told never to hand back work they can do (prompt.js, DO_IT_YOURSELF_LINE, 2026-10-22).
-  assert.ok(system.length < 9_600, `system was ${system.length} characters`);
+  // and from 9,000 when they were told never to hand back work they can do (prompt.js, DO_IT_YOURSELF_LINE, 2026-10-22),
+  // and from 9,600 when that line became the adopted hand-back rule: what they may be asked for, captchas only after every try (9,884 then).
+  assert.ok(system.length < 10_000, `system was ${system.length} characters`);
 });

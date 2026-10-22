@@ -21,6 +21,7 @@ test/agentConversation.test.mjs
 test/agentFillLogin.test.mjs
 test/agentFillCard.test.mjs
 test/agentHandoff.test.mjs
+test/agentCaptcha.test.mjs
 test/agentInstructions.test.mjs
 test/agentJobs.test.mjs
 test/jobLogAppend.test.mjs
