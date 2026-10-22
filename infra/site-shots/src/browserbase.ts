@@ -103,7 +103,9 @@ export async function createSession(env: BrowserbaseEnv, owner: string, fetcher:
         keepAlive: true,
         timeout: SESSION_LIFETIME_S,
         userMetadata: { owner },
-        browserSettings: { recordSession: false, viewport: { width: 1280, height: 860 } },
+        // blockAds: Browserbase's own ad and tracker blocker, so a cluttered
+        // page loads faster and reads with fewer steps (2026-10-22).
+        browserSettings: { recordSession: false, blockAds: true, viewport: { width: 1280, height: 860 } },
       }),
     },
     fetcher,

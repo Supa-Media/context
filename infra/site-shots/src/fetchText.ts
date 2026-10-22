@@ -38,7 +38,7 @@ export const MIN_HTML_TEXT_CHARS = 200;
  */
 export const MAX_PDF_BYTES = 10 * 1024 * 1024;
 
-type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
+export type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
 
 // Wrapped, not passed bare: the Workers runtime refuses a detached `fetch`
 // ("Illegal invocation").
@@ -46,6 +46,26 @@ const workerFetch: FetchLike = (url, init) => fetch(url, init);
 
 /** The page's text without a browser, or null when only a browser can read it. Never throws. */
 export async function fetchPage(url: string, fetchImpl: FetchLike = workerFetch): Promise<PageRead | null> {
+  return (await fetchRead(url, fetchImpl)).page;
+}
+
+/**
+ * Statuses a site answers a request it takes for a bot with. From here that
+ * is a Cloudflare address; through Browserbase's Fetch API
+ * (`./browserbaseFetch.ts`) it is a residential one, which often gets the page.
+ */
+const REFUSED = new Set([403, 429, 503, 999]);
+
+/**
+ * `fetchPage`, saying also whether the site turned the request away (a
+ * refusing status, a challenge, or no answer at all) rather than sending a
+ * page only a browser can read. Never throws.
+ */
+export async function fetchRead(
+  url: string,
+  fetchImpl: FetchLike = workerFetch,
+  timeoutMs = FETCH_TIMEOUT_MS,
+): Promise<{ page: PageRead | null; refused: boolean }> {
   let current = publicHttpsUrl(url);
   for (let hop = 0; current !== null && hop <= MAX_REDIRECTS; hop += 1) {
     let response: Response;
@@ -53,10 +73,10 @@ export async function fetchPage(url: string, fetchImpl: FetchLike = workerFetch)
       response = await fetchImpl(current, {
         headers: { accept: "text/markdown, text/html;q=0.9" },
         redirect: "manual",
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        signal: AbortSignal.timeout(timeoutMs),
       });
     } catch {
-      return null;
+      return { page: null, refused: true };
     }
     if (response.status >= 300 && response.status < 400) {
       await response.body?.cancel().catch(() => undefined);
@@ -64,21 +84,26 @@ export async function fetchPage(url: string, fetchImpl: FetchLike = workerFetch)
       current = location === null ? null : publicHttpsUrl(safeResolve(location, current));
       continue;
     }
+    // Cloudflare's bot check, whatever status came with it.
+    if (response.headers.get("cf-mitigated") === "challenge") {
+      await response.body?.cancel().catch(() => undefined);
+      return { page: null, refused: true };
+    }
     const type = response.headers.get("content-type") ?? "";
-    if (response.ok && /^application\/pdf\b/i.test(type)) return await pdfPage(current, response);
+    if (response.ok && /^application\/pdf\b/i.test(type)) return { page: await pdfPage(current, response), refused: false };
     const markdown = /^text\/markdown\b/i.test(type);
     if (!response.ok || !(markdown || /^text\/html\b/i.test(type))) {
       await response.body?.cancel().catch(() => undefined);
-      return null;
+      return { page: null, refused: REFUSED.has(response.status) };
     }
     try {
       const body = await readCapped(response, MAX_FETCH_BYTES);
-      return markdown ? fromMarkdown(current, body) : await fromHtml(current, body);
+      return { page: markdown ? fromMarkdown(current, body) : await fromHtml(current, body), refused: false };
     } catch {
-      return null;
+      return { page: null, refused: false };
     }
   }
-  return null;
+  return { page: null, refused: false };
 }
 
 /** A PDF, handed on whole for the gateway to read; null when it is too big or not a PDF after all. */

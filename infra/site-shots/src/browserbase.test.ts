@@ -88,7 +88,7 @@ describe("browseOnBrowserbase", () => {
       keepAlive: true,
       timeout: SESSION_LIFETIME_S,
       userMetadata: { owner: OWNER },
-      browserSettings: { recordSession: false, viewport: { width: 1280, height: 860 } },
+      browserSettings: { recordSession: false, blockAds: true, viewport: { width: 1280, height: 860 } },
     });
     expect(JSON.stringify(created?.body)).not.toContain("context");
     expect(result.body.page).toMatchObject({ url: "https://shop.example.com/" });

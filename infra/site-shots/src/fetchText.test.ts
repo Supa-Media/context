@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_PDF_BYTES, MAX_REDIRECTS, fetchPage, fromMarkdown, htmlToText } from "./fetchText";
+import { MAX_PDF_BYTES, MAX_REDIRECTS, fetchPage, fetchRead, fromMarkdown, htmlToText } from "./fetchText";
 import { MAX_LINKS, MAX_TEXT_CHARS } from "./read";
 
 type Reply = { status?: number; type?: string; body?: string; location?: string; throws?: boolean };
@@ -48,6 +48,28 @@ describe("fetchPage", () => {
     expect(await fetchPage("https://example.com/html", impl)).toBeNull();
     expect(await fetchPage("https://example.com/gone", impl)).toBeNull();
     expect(await fetchPage("https://example.com/down", impl)).toBeNull();
+  });
+
+  it("says when the site turned the request away, so Browserbase's Fetch API is worth a try", async () => {
+    const challenged = new Headers({ "content-type": "text/html", "cf-mitigated": "challenge" });
+    const { impl } = fakeFetch({
+      "https://shop.example/403": { status: 403, type: "text/html", body: "Access denied" },
+      "https://shop.example/429": { status: 429 },
+      "https://shop.example/down": { throws: true },
+      "https://shop.example/404": { status: 404, type: "text/html", body: "Not found" },
+      "https://shop.example/js": { type: "text/html", body: "<div id=root></div>" },
+    });
+    for (const path of ["403", "429", "down"]) {
+      expect(await fetchRead(`https://shop.example/${path}`, impl)).toEqual({ page: null, refused: true });
+    }
+    // Not refusals: a page that is not there, and one only a browser can draw.
+    for (const path of ["404", "js"]) {
+      expect(await fetchRead(`https://shop.example/${path}`, impl)).toEqual({ page: null, refused: false });
+    }
+    for (const status of [200, 403]) {
+      const challenge = async () => new Response("Just a moment", { status, headers: challenged });
+      expect(await fetchRead("https://shop.example/", challenge)).toEqual({ page: null, refused: true });
+    }
   });
 
   it("follows a redirect to another public page, and reports where it ended", async () => {
