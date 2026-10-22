@@ -13,7 +13,9 @@
  * restore never reads as a sign-out.
  *
  * Downloads are allowed into Browserbase's storage on every call, and a
- * `download` step takes its file from there (./download.ts).
+ * `download` step takes its file from there (./download.ts). An `upload`
+ * step's file goes the other way, into the session's storage, and the browser
+ * sets it on the page's box itself (./upload.ts).
  *
  * A run that fails is logged with a digest of the session's own Browserbase
  * log (./sessionLogs.ts), after the answer has gone (`later`): hosts, status
@@ -39,6 +41,7 @@ import {
 } from "./browserbase";
 import { MAX_DOWNLOAD_BYTES, asFile, type Downloads } from "./download";
 import { attachPage, cdpPage, connectCdp } from "./cdp";
+import { browserbaseUploads } from "./upload";
 import { touchIdle } from "./idle";
 import { captureJar, parseJar, restoreCookies, restoreStorage, type Jar } from "./jar";
 import { reportFailedRun, type FailedRun } from "./sessionLogs";
@@ -129,7 +132,9 @@ export async function browseOnBrowserbase(
       },
     };
     const page = await cdpPage(cdp, attached);
-    const result = await runSteps(page, parsed.steps, { downloads });
+    // A file goes in as the browser's own, through Browserbase's uploads (./upload.ts).
+    const uploads = browserbaseUploads(env, session.id, fetcher);
+    const result = await runSteps(page, parsed.steps, { downloads, uploads });
     const jar = keep && restored ? await captureJar(cdp, attached).catch(() => null) : null;
     const ok = result.ran.every((r) => r.ok);
     // Step kinds and timing only, as for Cloudflare's browser.

@@ -25,10 +25,12 @@ export interface FrameDoc {
   click(selector: string): Promise<void>;
   /** Type into what `selector` names in this frame. */
   type(selector: string, text: string): Promise<void>;
+  /** Set files the browser holds (`paths` on its own disk) on the file box `selector` names, as the browser itself (./upload.ts). */
+  setFiles?(selector: string, paths: string[]): Promise<boolean>;
 }
 
 /** The page itself or one of its frames: what a step acts on. */
-export type Doc = Pick<FrameDoc, "evaluate" | "click" | "type">;
+export type Doc = Pick<FrameDoc, "evaluate" | "click" | "type" | "setFiles">;
 
 export const FRAME_REF_BASE = 1_000;
 export const MAX_FRAMES = 8;

@@ -17,6 +17,7 @@
 
 import type { CdpTransport } from "./cdp";
 import { MAX_FRAMES, type FrameDoc } from "./frames";
+import { setFileInput } from "./upload";
 
 type Send = <T = unknown>(method: string, params?: Record<string, unknown>) => Promise<T>;
 type Point = { x: number; y: number };
@@ -179,5 +180,6 @@ async function frameDoc(
       // Keys go to the frame that has focus; the frame's own session first, the page's if it has no input of its own.
       await session.send("Input.insertText", { text }).catch(() => topSend("Input.insertText", { text }));
     },
+    setFiles: (selector, paths) => setFileInput(session.send, selector, paths, contextId),
   };
 }

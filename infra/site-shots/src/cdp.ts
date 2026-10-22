@@ -9,6 +9,7 @@
 
 import type { BrowsePage } from "./browse";
 import { frameLister } from "./cdpFrames";
+import { setFileInput } from "./upload";
 
 /** One CDP connection: send a method, get its result. */
 export interface CdpTransport {
@@ -200,6 +201,7 @@ export async function cdpPage(cdp: CdpTransport, attached?: AttachedPage): Promi
       },
     },
     frames: frameLister(cdp, send, mouseClick),
+    setFiles: (selector, paths) => setFileInput(send, selector, paths, null),
     async screenshot({ quality }) {
       const shot = await send<{ data?: unknown }>("Page.captureScreenshot", { format: "jpeg", quality });
       if (typeof shot?.data !== "string") throw new Error("no picture");
