@@ -34,9 +34,10 @@ function invitedClause(people) {
 
 /**
  * `{ audience, permanent, summary, because }` for a call that waits, or null.
- * `into` is the addressed workspace's @name, for an invite into one that exists.
+ * `into` is the addressed workspace's @name, for an invite into one that exists;
+ * `slack` is where a Slack post goes, by name (`slackPlace`).
  */
-export function irreversibleOf(name, args, { into = null } = {}) {
+export function irreversibleOf(name, args, { into = null, slack = null } = {}) {
   const a = args && typeof args === "object" ? args : {};
   if (name === "create_workspace") {
     if (a.dry_run === true) return null;
@@ -67,7 +68,7 @@ export function irreversibleOf(name, args, { into = null } = {}) {
   }
   if (name === "slack_api") {
     // A post is read the moment it lands; a reaction or a read is not held.
-    const summary = slackHeldSummary(a);
+    const summary = slackHeldSummary(a, slack);
     if (summary === null) return null;
     return { audience: "outside", permanent: true, summary, because: SLACK_IS_READ };
   }

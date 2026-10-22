@@ -69,6 +69,16 @@ person's YES to the words, as an invitation is. Reads, `reactions.add` and
 `conversations.open` run at once. (Pending the owner's pick on the decision
 card of 2026-10-21; asking per message is the default until then.)
 
+The ask names where the post goes as Slack names it, never by an id
+(2026-10-22: Dev2 was asked to OK "post in Slack in U0FAKE0001"). Before the
+hold, `slackPlace` (`apps/mcp/src/tools/connectors.js`) asks Slack
+(`users.info`, `conversations.info`) for the person's name or the channel's
+`#name` and the Slack's own name: "send a Slack message to Jo Park
+(Acme): …". The name comes from Slack, never from the model's
+arguments, so a model can't put a friendlier name on somebody else's channel;
+when Slack can't say, the id stays. Test: "a held Slack post names the person
+or channel as Slack has it, never an id" in `apps/mcp/test/connectors.test.mjs`.
+
 ### The Slack app
 
 One app, "Tex by Context", serves dev, staging and production, with token

@@ -26,7 +26,7 @@ const THUMB_KEY = "thumb";
  * text that reads as one is held; the gateway still checks the words match
  * what is waiting.
  */
-const ASK = /(?:Give (?:this|it) a 👍|^(?:Here's the (?:bug report|email|change) I'd|Here are the emails I'd|Before I (?:pay|do th)))/u;
+const ASK = /(?:Give (?:this|it) a \S+ and I['’]ll|^(?:Here['’]s (?:the (?:bug report|email|change)|what) I['’]d|Here are the emails I['’]d|Before I (?:pay|do th)))/u;
 
 /** Whether a tapback is a yes to hold: a like or a love on an ask. */
 export function holdsAsYes(reaction: Reaction): boolean {
@@ -82,16 +82,36 @@ export async function rememberAskReply(storage: InboxStorage, texts: readonly st
 /** Fewest characters that tell one message from another, as `MIN_QUOTED` in the gateway. */
 const MIN_PROMOTED = 24;
 
+/**
+ * Words as two copies of one text are compared: letters and digits only. A
+ * tapback's quote comes back through Messages and the line, and the ask it
+ * was on reached the person the same way, so quotes, apostrophes, the 👍 in
+ * "Give it a 👍" and a cut-off "…" or "..." may each come back changed
+ * (2026-10-22: a 👍 on a Slack ask reached nothing). The letters do not.
+ */
+function folded(value: string): string {
+  return value
+    .normalize("NFKC")
+    .replace(/\s*(?:…|\.\.\.)\s*$/u, "")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+    .toLowerCase();
+}
+
 /** Whether `quoted` is `text` as a message quotes it: the same words, or those words cut short. */
 function quotesText(text: string, quoted: string): boolean {
-  const fold = (value: string) => value.replace(/\s+/g, " ").replace(/\s*…\s*$/u, "").trim();
-  const [whole, part] = [fold(text), fold(quoted)];
+  const [whole, part] = [folded(text), folded(quoted)];
   return part.length >= MIN_PROMOTED && whole.startsWith(part);
 }
 
-/** A like or love on a text of the last reply that carried an ask, as a like on that ask; anything else as it was. */
+/**
+ * A like or love on a text of the last reply that carried an ask, the ask
+ * itself included, as a like on that ask in the words it was sent in;
+ * anything else as it was. The gateway compares the words exactly, so the
+ * copy kept here is what it gets, never the quote as the line returned it.
+ */
 export async function onTheAsk(storage: InboxStorage, reaction: Reaction, now: number): Promise<Reaction> {
-  if (reaction.removed || (reaction.how !== "Liked" && reaction.how !== "Loved") || ASK.test(reaction.words)) return reaction;
+  if (reaction.removed || (reaction.how !== "Liked" && reaction.how !== "Loved")) return reaction;
   const kept = await storage.get<AskReply>(ASK_REPLY_KEY);
   if (kept === undefined || now - kept.at > ASK_REPLY_FOR_MS) return reaction;
   return kept.texts.some((text) => quotesText(text, reaction.words)) ? { ...reaction, words: kept.ask } : reaction;
@@ -125,7 +145,7 @@ export async function dueThumb<T>(storage: InboxStorage, now: number): Promise<T
 
 /** Messages may quote a long text cut short with an ellipsis; either may be the shorter. */
 function sameWords(a: string, b: string): boolean {
-  const fold = (text: string) => text.replace(/\s+/g, " ").replace(/\s*…\s*$/u, "").trim();
-  const [x, y] = [fold(a), fold(b)];
+  const [x, y] = [folded(a), folded(b)];
+  if (x === "" || y === "") return false;
   return x === y || x.startsWith(y) || y.startsWith(x);
 }
