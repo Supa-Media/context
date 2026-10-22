@@ -52,6 +52,7 @@ export const UNTRUSTED_READS = new Set([
   "read_file",
   "read_image",
   "slack_api",
+  "google_chat",
   "app_read",
   "app_change",
   "read_proposal",

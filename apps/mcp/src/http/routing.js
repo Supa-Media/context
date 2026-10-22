@@ -80,6 +80,17 @@ export function attachLinkCalls(store, session, controlPlane, env) {
     writable: false,
     configurable: true,
   });
+  // A Google Chat message the person said yes to (`tools/googleChat.js`), and their spaces, by name.
+  Object.defineProperty(store, "googleChat", {
+    value: {
+      check: (message) => controlPlane.sendGoogleChat(session.accessToken, session.workspaceId, message, { check: true }),
+      send: (message) => controlPlane.sendGoogleChat(session.accessToken, session.workspaceId, message),
+      spaces: () => controlPlane.googleChatSpaces(session.accessToken, session.workspaceId),
+    },
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
   // Setting a workspace up (`tools/workspaces.js`): created as this person,
   // laid out, connected or invited into in this context. The control plane clears each.
   Object.defineProperty(store, "workspaceSetup", {

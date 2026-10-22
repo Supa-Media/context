@@ -313,6 +313,10 @@ describe("no public function can reach a storage secret", () => {
         // THE PERSON'S OWN CALENDAR. `/gateway/calendar/event`, the same
         // shape as the Gmail route; see its CREDENTIAL_HTTP_ROUTES entry.
         "http.gatewayCalendarWrite",
+        // THE PERSON'S OWN GOOGLE CHAT. `/gateway/chat/send` and
+        // `/gateway/chat/spaces`; see their CREDENTIAL_HTTP_ROUTES entry.
+        "http.gatewayChatSend",
+        "http.gatewayChatSpaces",
         // THE PERSON'S OWN GMAIL, READ. `/gateway/email/search` and
         // `/gateway/email/read`; see their CREDENTIAL_HTTP_ROUTES entry.
         "http.gatewayPersonMailSearch",

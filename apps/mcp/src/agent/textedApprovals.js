@@ -7,6 +7,7 @@
 import { callToolForSession } from "../tools/session.js";
 import { EMAIL_TOOL } from "../tools/email.js";
 import { CALENDAR_TOOL } from "../tools/calendarWrite.js";
+import { GOOGLE_CHAT_TOOL } from "../tools/googleChat.js";
 import { REPORT_TOOL } from "../tools/reportProblem.js";
 import { FORWARD_RULE_TOOL } from "../tools/forwardRule.js";
 import { doneLine } from "./doneLine.js";
@@ -118,6 +119,9 @@ export function askLine(asked) {
   const emails = asked.filter((record) => record.tool === EMAIL_TOOL && typeof record.detail === "string");
   if (asked.length === 1 && asked[0].tool === CALENDAR_TOOL && typeof asked[0].detail === "string") {
     return `Here's the change I'd make:\n\n${clean(asked[0].detail)}\n\n${SAY_YES} and I'll make the change.`;
+  }
+  if (asked.length === 1 && asked[0].tool === GOOGLE_CHAT_TOOL && typeof asked[0].detail === "string") {
+    return `Here's the Google Chat message I'd send:\n\n${clean(asked[0].detail)}\n\n${SAY_YES} and I'll send it.`;
   }
   if (asked.length === 1 && asked[0].tool === REPORT_TOOL && typeof asked[0].detail === "string") {
     return `Here's the bug report I'd send to the Context team:\n\n${clean(asked[0].detail)}\n\n${SAY_YES} and I'll send it.`;

@@ -41,6 +41,14 @@ import { unlistedArgumentAdvice } from "./liveList.js";
 export const TOOL_NEWS = Object.freeze([
   {
     date: "2026-10-22",
+    newTool: true,
+    text:
+      "send `google_chat` (google_chat `{ to | space, text }`, or `{ action: \"spaces\" }` to list their spaces) sends one Google Chat " +
+      "message as the person: a direct message to a person by their work email, or a post in a space by its name. It waits for their 👍 " +
+      "to the exact message. Until their Google account allows it, it says so and how they reconnect.",
+  },
+  {
+    date: "2026-10-22",
     text:
       'send_email and save_email_draft take `attach`: up to 5 "download:<id>" ids a browse `download` step gave. Each goes in as a real ' +
       "attachment, so a PDF found on a site (an invoice, a statement) reaches the recipient without the person downloading it.",
@@ -272,7 +280,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "2a5a0c0c";
+export const TOOL_SHAPE = "501a11d9";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

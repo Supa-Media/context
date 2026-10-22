@@ -277,6 +277,15 @@ test("send slack is slack_api with its args as they are", () => {
   });
 });
 
+test("send google_chat is google_chat with its args as they are", () => {
+  const args = { to: "jo@example.com", text: "Hi Jo" };
+  assert.deepEqual(translated("send", { action: "google_chat", args }), {
+    name: "google_chat",
+    arguments: args,
+    v2: { tool: "send", action: "google_chat" },
+  });
+});
+
 test("send app is app_change with its args as they are", () => {
   const args = { app: "linear", tool: "create_issue", arguments: { title: "Fix login" } };
   assert.deepEqual(translated("send", { action: "app", args }), {
@@ -412,7 +421,7 @@ test("every row of ACTIONS names a tool, and every row is covered above", () => 
   const covered = new Set([
     ...["write.save", "write.comment", "write.mail", "write.upload", "write.remember", "write.propose", "write.answer", "write.update_answer", "write.retract_answer", "write.vote", "write.save_session", "write.report_problem"],
     ...MANAGE.map(([action]) => `manage.${action}`),
-    ...["manage.website", "send.api", "send.email", "send.email_draft", "send.calendar", "send.forward_rule", "send.notify", "send.slack", "send.app"],
+    ...["manage.website", "send.api", "send.email", "send.email_draft", "send.calendar", "send.forward_rule", "send.notify", "send.slack", "send.google_chat", "send.app"],
   ]);
   assert.deepEqual(rows.filter((row) => !covered.has(row)), []);
   assert.deepEqual([...covered].filter((row) => !rows.includes(row)), []);

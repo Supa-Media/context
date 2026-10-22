@@ -169,10 +169,15 @@ export const CHAT_SEND_SCOPES = [CHAT_SEND_SCOPE, CHAT_SPACES_READ_SCOPE, CHAT_S
  * `GMAIL_COMPOSE_SCOPE` is the one that does not: a draft saved with it is
  * read by nobody until the person sends it from Gmail themselves
  * (`docs/decisions/communications/sending-email.md`).
+ *
+ * Google Chat's send scopes ride on the Gmail connect every texter already
+ * has, so one reconnect lets Tex message people on Chat as them (approved by
+ * the owner, 2026-10-22). They work only on a Google Workspace account.
  */
 export const TESTER_WRITE_SCOPES: Partial<Record<GoogleProduct, readonly string[]>> = {
-  gmail: [GMAIL_SEND_SCOPE, GMAIL_COMPOSE_SCOPE],
+  gmail: [GMAIL_SEND_SCOPE, GMAIL_COMPOSE_SCOPE, ...CHAT_SEND_SCOPES],
   calendar: [CALENDAR_WRITE_SCOPE],
+  chat: [...CHAT_SEND_SCOPES],
 };
 
 /** `scopesForProducts`, plus the write scopes of those products for a tester. */

@@ -19,6 +19,7 @@
 
 import { internal } from "../../../_generated/api";
 import type { ActionCtx } from "../../../_generated/server";
+import type { Id } from "../../../_generated/dataModel";
 import { hashToken } from "../crypto";
 import { json, stringField } from "../gatewayAuth";
 import { timeoutFetch } from "../filesFns/forwardSyncSupport";
@@ -108,8 +109,8 @@ async function startDirectMessage(accessToken: string, to: string): Promise<{ ok
   return { ok: false, refused: made.status === 400 || made.status === 404 ? "person_not_found" : why };
 }
 
-async function mint(ctx: ActionCtx, connectionId: string) {
-  return await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessToken, { connectionId: connectionId as never });
+async function mint(ctx: ActionCtx, connectionId: Id<"googleConnections">) {
+  return await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessToken, { connectionId });
 }
 
 export async function gatewayChatSendHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {

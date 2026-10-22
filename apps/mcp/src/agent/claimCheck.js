@@ -76,7 +76,7 @@ const PREVIEW_LINE = /^\s*(?:to|cc|subject|forward(?:ing)? of|fwd)\s*:/im;
 // "Say the word and I'll send it", "just say go", "let me know and I'll post it" (2026-10-22: a 👍 on each reached nothing).
 const YES_ASK = /\b(?:say|reply|text|answer|send)\s+(?:yes|ok|okay|go)\b|\bsay the word\b|\bjust say\b|\blet me know (?:and|if)\b|\bgive (?:it|this|me) a\b|\u{1F44D}/iu;
 /** What a yes or 👍 might be asked about that only a held call can make: "sending it again" too. */
-const HELD_THING = /\b(?:send(?:ing)?|email(?:ing)?|forward(?:ing)?|calendar|schedul(?:e|ing)|book(?:ing)?|fil(?:e|ing)|bug|report|slack|dm|post(?:ing)?)\b/i;
+const HELD_THING = /\b(?:send(?:ing)?|email(?:ing)?|forward(?:ing)?|calendar|schedul(?:e|ing)|book(?:ing)?|fil(?:e|ing)|bug|report|slack|chat|dm|post(?:ing)?)\b/i;
 /*
   A calendar change asked for in the answer's own words: "Sunday, November 1,
   3 to 5 pm, at Bethesda. Say yes and I'll add it." (2026-10-22 5:04 PM). The
@@ -104,6 +104,7 @@ const SLACK_OFFER =
 */
 const OFFER_KINDS = [
   { kind: "an email", tool: "send_email", test: (said) => PREVIEW_LINE.test(said) || /\b(?:email|e-mail|forward|reply to|write back|draft)\b/i.test(said) },
+  { kind: "a Google Chat message", tool: "google_chat", test: (said) => /\bgoogle chat\b/i.test(said) },
   { kind: "a Slack message", tool: "slack_api", test: (said) => SLACK_OFFER.test(said) || /\bslack\b/i.test(said) },
   { kind: "a calendar change", tool: "calendar_event", test: (said) => /\bcalendar\b/i.test(said) || (CALENDAR_CHANGE.test(said) && WHEN.test(said)) },
   { kind: "a bug report", tool: "report_problem", test: (said) => /\b(?:bug|report)\b/i.test(said) },
