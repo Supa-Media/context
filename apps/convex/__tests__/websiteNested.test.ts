@@ -125,6 +125,15 @@ describe("a website nested in another folder", () => {
     expect(await indexedKeys(f)).toEqual(["website/about.md", "website/index.md"]);
   }, 30_000);
 
+  test("its own listing says it is the website, for a page opened before its parent has listed", async () => {
+    const f = await nested();
+    const owner = asUser(f.t, f.owner);
+    const own = await owner.query(api.functions.nodesListing.listFolder, { workspaceId: f.workspaceId, path: ROOT });
+    expect(own?.role).toBe("website");
+    const parent = await owner.query(api.functions.nodesListing.listFolder, { workspaceId: f.workspaceId, path: "Work" });
+    expect(parent?.role).toBeUndefined();
+  }, 30_000);
+
   test("publishes its pages at the addresses they always had", async () => {
     const f = await nested();
     expect(await indexedKeys(f)).toEqual(["website/about.md", "website/index.md"]);

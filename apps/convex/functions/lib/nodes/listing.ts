@@ -14,7 +14,7 @@
 import type { Doc, Id } from "../../../_generated/dataModel";
 import type { QueryCtx } from "../../../_generated/server";
 import type { Clearance } from "../clearance";
-import { listFolder, type FolderListing } from "../fileOps/listing";
+import { folderVisibleAtScope, listFolder, type FolderListing } from "../fileOps/listing";
 import { requireFolderPath } from "../fileOps/paths";
 import type { FileStore } from "../fileOps/store";
 import { mirrorFile, readMirror } from "./privacyMirror";
@@ -24,7 +24,7 @@ import { childrenThroughMoves } from "./moveOverlay";
 import { drawnMoves } from "./rowMoveChunks";
 import { NODE_PRIVACY_KEY, type PrivacyMirror } from "./table";
 import { folderJobsOf } from "./folderJobs";
-import { compareListingEntries, isRowRole, jobAt } from "@context/shared/src/folderRoles.cjs";
+import { compareListingEntries, isRowRole, jobAt, type RowRole } from "@context/shared/src/folderRoles.cjs";
 
 export { readMirror };
 
@@ -175,7 +175,24 @@ export async function listFolderFromNodes(
     clearance,
     judged: { ...judged, manifestUsable },
   });
-  return await withFolderJobs(ctx, workspaceId, folder, rows, listing);
+  // Read whether or not the caller may see the folder, so a withheld folder costs what an absent one does.
+  const job = await ownJob(ctx, workspaceId, folder);
+  const own = folderVisibleAtScope(folder, clearance, judged.rules, judged.overrides) ? job : null;
+  return { ...(await withFolderJobs(ctx, workspaceId, folder, rows, listing)), ...(own === null ? {} : { role: own }) };
+}
+
+/**
+ * The listed folder's own job, so a page opened on a nested built-in folder
+ * (a website moved into Areas, opened before Areas has listed) knows what it
+ * is without its parent's listing. Its row's job, or at the top level the one
+ * its name gives it, as its parent's listing would say.
+ */
+async function ownJob(ctx: QueryCtx, workspaceId: Id<"workspaces">, folder: string): Promise<RowRole | null> {
+  if (folder === "") return null;
+  const row = await rowAt(ctx, workspaceId, folder);
+  const byName = folder.includes("/") ? null : jobAt(await folderJobsOf(ctx.db, workspaceId), folder);
+  if (row === null || row.goneAt !== undefined || row.kind !== "folder") return null;
+  return isRowRole(row.role) ? row.role : byName;
 }
 
 /**

@@ -39,6 +39,8 @@ export interface JobEntry {
 
 export interface JobListing<Entry extends JobEntry = JobEntry> {
   entries: readonly Entry[];
+  /** The listed folder's own job, from the server, so it is known before its parent lists. */
+  role?: string | null;
 }
 
 export type JobListings = Readonly<Record<string, JobListing | undefined>>;
@@ -58,12 +60,19 @@ export function listingJobs(folder: string, listing: JobListing): Map<string, Ro
   return jobs;
 }
 
-/** The job of every loaded folder that has one. */
+/**
+ * The job of every loaded folder that has one: from its parent's listing, or
+ * from its own when the parent has not listed (a Website moved into Areas and
+ * followed there by its page, with Areas closed).
+ */
 export function loadedJobs(listings: JobListings): Map<string, RowRole> {
   const jobs = new Map<string, RowRole>();
   for (const [folder, listing] of Object.entries(listings)) {
     if (listing === undefined) continue;
     for (const [path, job] of listingJobs(folder, listing)) if (!jobs.has(path)) jobs.set(path, job);
+  }
+  for (const [folder, listing] of Object.entries(listings)) {
+    if (folder !== "" && isRowRole(listing?.role) && !jobs.has(folder) && listings[parentOf(folder)] === undefined) jobs.set(folder, listing.role);
   }
   return jobs;
 }
@@ -106,7 +115,10 @@ function parentOf(path: string): string {
 export function jobOfPath(listings: JobListings, path: string): RowRole | null | undefined {
   const parent = parentOf(path);
   const listing = listings[parent];
-  if (listing === undefined) return undefined;
+  if (listing === undefined) {
+    const own = listings[path];
+    return isRowRole(own?.role) ? own.role : undefined;
+  }
   return listingJobs(parent, listing).get(path) ?? null;
 }
 
