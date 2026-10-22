@@ -49,6 +49,36 @@ report the same codes:
   - F1 a fact only they know
   - B1 something done in person
 
+## A small model reads an answer that asks them something
+
+A phrase can show "forward me the receipt" (`claimCheck.js` `handsWorkBack`),
+but it can't show "which receipt does she need?". That sentence is a
+hand-back only because the receipt is in their mail. So a texted answer that
+may ask the person something (a question mark, "text me", "you'll need to"…)
+is read by a small model, the hand-back judge (`apps/mcp/src/agent/handbackJudge.js`,
+Haiku, `HANDBACK_JUDGE = "on"`). The judge is told what Tex can do. It reads
+the person's text, the answer, and the names of the tools this turn ran with
+ok or failed. It labels each ask with the codes above. An H-code sends the
+answer back once, with a notice written for that code. For H11, for example,
+the notice says to write a routine note and check it itself.
+
+It never reads a tool's result, a note, a page or an email, so nothing a
+stranger wrote can steer it. It can only ask for more work, never let
+through an answer another check stopped. When it can't run, the answer goes
+as it is. Each verdict is logged as `handback_judged` with codes only, never
+words: that is the production hand-back rate.
+
+**What a simplification would cost.** Without the judge, the only
+hand-backs caught are those a fixed phrase can show. The H9, H10 and H11
+asks, which are most of the "typical" column in the design's use cases, go
+out. If the judge were shown tool results, any email or page could tell it
+an ask was fair.
+
+**Tests.** `apps/mcp/test/agentHandbackJudge.test.mjs`: strict reading,
+which answers are judged, one notice per code, codes-only logging, never a
+result, once a turn, and `runTurn` awaiting it. Sabotage record in its
+header.
+
 ## A captcha is the person's only after every way past it was tried
 
 The owner, the same day: "make sure agents try using those bypasses and other
