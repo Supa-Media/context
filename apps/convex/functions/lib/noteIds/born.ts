@@ -17,8 +17,6 @@ import { copyRowOf } from "./state";
 
 /** Mark `workspaceId` keyed with nothing left to flip, when it qualifies; whether it did. */
 export async function keyIfBornEmpty(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<boolean> {
-  const layout = await ctx.db.query("noteIdLayout").first();
-  if (layout?.mode !== "keys") return false;
   if ((await copyRowOf(ctx.db, workspaceId)) !== null) return false;
   const anyRow = await ctx.db
     .query("nodes")

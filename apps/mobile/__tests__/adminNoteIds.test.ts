@@ -1,29 +1,12 @@
 import { describe, expect, test } from "@jest/globals";
 import {
-  barShare,
   cleanupButtons,
   cleanupSummary,
   deleteLabel,
-  countsLine,
   diagnosisLine,
-  failureLines,
-  formatPercent,
   handleLabel,
-  isFailing,
-  keysLabel,
-  keysNote,
-  keysSwitch,
-  keyedLine,
-  modeLabel,
-  nextMode,
   needsLookLines,
-  pauseLabel,
   sharedIdsLine,
-  percentOf,
-  sortWorkspaces,
-  statusLabel,
-  switchLabel,
-  switchNote,
   type NoteIdsWorkspace,
 } from "../features/admin/noteIds";
 
@@ -52,108 +35,6 @@ const row = (fields: Partial<NoteIdsWorkspace> & { workspaceId: string }): NoteI
   ...fields,
 });
 
-describe("percent copied", () => {
-  test("is null when there are no files, and the card shows a dash", () => {
-    expect(percentOf(0, 0)).toBeNull();
-    expect(formatPercent(0, 0)).toBe("—");
-    expect(barShare(0, 0)).toBe(0);
-  });
-
-  test("reads one decimal, floored", () => {
-    expect(formatPercent(1, 3)).toBe("33.3%");
-    expect(formatPercent(2, 3)).toBe("66.6%");
-    expect(formatPercent(29, 100)).toBe("29.0%");
-    expect(formatPercent(7, 10)).toBe("70.0%");
-  });
-
-  test("never reads 100.0% while a note is left", () => {
-    expect(formatPercent(9_999, 10_000)).toBe("99.9%");
-    expect(formatPercent(12_499, 12_500)).toBe("99.9%");
-    expect(formatPercent(12_500, 12_500)).toBe("100.0%");
-  });
-
-  test("clamps copied to the files, and to zero below", () => {
-    expect(formatPercent(150, 100)).toBe("100.0%");
-    expect(formatPercent(-4, 100)).toBe("0.0%");
-    expect(percentOf(150, 100)).toBe(100);
-    expect(barShare(150, 100)).toBe(1);
-  });
-
-  test("the bar's fill is the share, 0 to 1", () => {
-    expect(barShare(1, 4)).toBe(0.25);
-    expect(barShare(0, 4)).toBe(0);
-  });
-});
-
-describe("counts line", () => {
-  test("says how many of how many, with the failures only when there are some", () => {
-    const totals = { liveFiles: 0, keyed: 0 };
-    expect(countsLine({ files: 12_500, copied: 12_034, failed: 3, ...totals })).toBe("12,034 of 12,500 files copied · 3 failed");
-    expect(countsLine({ files: 12_500, copied: 12_500, failed: 0, ...totals })).toBe("12,500 of 12,500 files copied");
-  });
-});
-
-describe("row order", () => {
-  test("failed first, then the lowest percent copied", () => {
-    const rows = sortWorkspaces([
-      row({ workspaceId: "a", handle: "alpha", copied: 90 }),
-      row({ workspaceId: "b", handle: "beta", copied: 10 }),
-      row({ workspaceId: "c", handle: "gamma", copied: 50, failed: 2 }),
-      row({ workspaceId: "d", handle: "delta", copied: 5, status: "failed", error: "Listing failed" }),
-    ]);
-    expect(rows.map((entry) => entry.workspaceId)).toEqual(["d", "c", "b", "a"]);
-  });
-
-  test("a workspace with no files has no percent and sorts after the ones that do", () => {
-    const rows = sortWorkspaces([
-      row({ workspaceId: "empty", handle: "empty", files: 0, copied: 0 }),
-      row({ workspaceId: "half", handle: "half", copied: 50 }),
-    ]);
-    expect(rows.map((entry) => entry.workspaceId)).toEqual(["half", "empty"]);
-  });
-
-  test("ties go by handle, then by id, so the order holds between refreshes", () => {
-    const rows = sortWorkspaces([
-      row({ workspaceId: "w2", handle: "maya" }),
-      row({ workspaceId: "w1", handle: "maya" }),
-      row({ workspaceId: "w3", handle: null }),
-      row({ workspaceId: "w0", handle: "amy" }),
-    ]);
-    expect(rows.map((entry) => entry.workspaceId)).toEqual(["w0", "w1", "w2", "w3"]);
-  });
-
-  test("does not reorder the array it was given", () => {
-    const input = [row({ workspaceId: "a", copied: 90 }), row({ workspaceId: "b", copied: 10 })];
-    sortWorkspaces(input);
-    expect(input.map((entry) => entry.workspaceId)).toEqual(["a", "b"]);
-  });
-
-  test("a row is failing when files failed or its copy said so", () => {
-    expect(isFailing(row({ workspaceId: "a", failed: 1 }))).toBe(true);
-    expect(isFailing(row({ workspaceId: "b", status: "failed" }))).toBe(true);
-    expect(isFailing(row({ workspaceId: "c", status: "copying", copied: 40 }))).toBe(false);
-  });
-});
-
-describe("status words", () => {
-  test("each status reads in words", () => {
-    expect(statusLabel(row({ workspaceId: "a", status: "idle" }))).toBe("Not started");
-    expect(statusLabel(row({ workspaceId: "a", status: "copying" }))).toBe("Copying");
-    expect(statusLabel(row({ workspaceId: "a", status: "done" }))).toBe("Copied");
-  });
-
-  test("a failed copy says why", () => {
-    expect(statusLabel(row({ workspaceId: "a", status: "failed", error: "Bucket refused the write" }))).toBe(
-      "Failed: Bucket refused the write",
-    );
-  });
-
-  test("a failure with no reason still says it failed", () => {
-    expect(statusLabel(row({ workspaceId: "a", status: "failed" }))).toBe("Failed");
-    expect(statusLabel(row({ workspaceId: "a", status: "failed", error: "  " }))).toBe("Failed");
-  });
-});
-
 describe("diagnosis line", () => {
   test("counts what was checked, missing and differing", () => {
     expect(diagnosisLine({ checkedAt: 1, checked: 120, missing: 0, differs: 1 })).toBe(
@@ -166,19 +47,6 @@ describe("diagnosis line", () => {
   });
 });
 
-describe("failure lines", () => {
-  test("say which note failed and why, in words", () => {
-    expect(failureLines([{ noteId: "3f2a9c1b-0000-4000-8000-000000000000", reason: "too_large" }])).toEqual([
-      "Note 3f2a9c1b: too big to copy",
-    ]);
-  });
-
-  test("an unknown reason is shown as it is, and none means no lines", () => {
-    expect(failureLines([{ noteId: "abcdef12", reason: "new_reason" }])).toEqual(["Note abcdef12: new_reason"]);
-    expect(failureLines(undefined)).toEqual([]);
-  });
-});
-
 describe("labels", () => {
   test("a handle shows with its @, and a workspace without one says so", () => {
     expect(handleLabel("maya")).toBe("@maya");
@@ -187,96 +55,6 @@ describe("labels", () => {
     expect(handleLabel("  ")).toBe("(no handle)");
   });
 
-  test("the toggle says what pressing it does", () => {
-    expect(pauseLabel(false)).toBe("Pause");
-    expect(pauseLabel(true)).toBe("Resume");
-  });
-});
-
-describe("keys mode", () => {
-  test("says how many live files are on notes/ only, in plain words", () => {
-    expect(keyedLine(12, 40)).toBe("12 of 40 on notes/ only");
-    expect(keyedLine(0, 0)).toBe("0 of 0 on notes/ only");
-    expect(keyedLine(1_200, 12_500)).toBe("1,200 of 12,500 on notes/ only");
-  });
-
-  test("reads from notes/ only, and has no switch back: the mode stays keys", () => {
-    expect(modeLabel("keys")).toBe("Reading from notes/ only");
-    expect(nextMode("keys")).toBe("keys");
-    expect(switchLabel("keys")).toBe("Reads come from notes/ only");
-    expect(switchNote("keys")).toMatch(/no switch back/);
-  });
-});
-
-describe("the read switch", () => {
-  test("says in plain words which keys reads use now", () => {
-    expect(modeLabel("paths")).toBe("Reading from paths");
-    expect(modeLabel("ids")).toBe("Reading from notes/");
-  });
-
-  test("the button names the mode it switches to", () => {
-    expect(switchLabel("paths")).toBe("Switch to notes/");
-    expect(switchLabel("ids")).toBe("Switch back to paths");
-    expect(nextMode("paths")).toBe("ids");
-    expect(nextMode("ids")).toBe("paths");
-  });
-
-  test("the confirm says what reads will use, that saves go to both, and that a switch back loses nothing", () => {
-    const toIds = switchNote("paths");
-    expect(toIds).toMatch(/notes\//);
-    expect(toIds).toMatch(/both/);
-    expect(toIds).toMatch(/switch back/i);
-    expect(toIds).toMatch(/until its copy catches up/);
-    expect(switchNote("ids")).toMatch(/paths again/);
-    expect(switchNote("ids")).toMatch(/Nothing is deleted/);
-  });
-});
-
-describe("make notes/ the only copy", () => {
-  const copied = (id: string, fields: Partial<NoteIdsWorkspace> = {}) =>
-    row({ workspaceId: id, files: 10, copied: 10, status: "done", ...fields });
-
-  test("is offered in ids mode only", () => {
-    expect(keysSwitch("paths", [copied("a")]).shown).toBe(false);
-    expect(keysSwitch("keys", [copied("a")]).shown).toBe(false);
-    expect(keysSwitch("ids", [copied("a")]).shown).toBe(true);
-  });
-
-  test("is enabled once every live workspace is fully copied", () => {
-    expect(keysSwitch("ids", [copied("a"), copied("b")])).toEqual({ shown: true, enabled: true, reason: null });
-  });
-
-  test("is disabled, with a plain reason, while a workspace is not fully copied", () => {
-    const pending = keysSwitch("ids", [copied("a"), row({ workspaceId: "b", files: 10, copied: 4, status: "copying" })]);
-    expect(pending).toEqual({ shown: true, enabled: false, reason: "1 workspace is not fully copied yet." });
-    const several = keysSwitch("ids", [
-      row({ workspaceId: "a", files: 3 }),
-      row({ workspaceId: "b", files: 3, status: "failed", error: "x" }),
-    ]);
-    expect(several.enabled).toBe(false);
-    expect(several.reason).toBe("2 workspaces are not fully copied yet.");
-  });
-
-  test("a failed file keeps it disabled even when every file is copied", () => {
-    expect(keysSwitch("ids", [copied("a", { failed: 1 })]).enabled).toBe(false);
-  });
-
-  test("a copy that is done but short is not ready", () => {
-    expect(keysSwitch("ids", [copied("a", { copied: 9 })]).enabled).toBe(false);
-  });
-
-  test("an archived workspace does not hold the switch back", () => {
-    const archived = row({ workspaceId: "old", files: 10, copied: 0, archived: true });
-    expect(keysSwitch("ids", [copied("a"), archived]).enabled).toBe(true);
-  });
-
-  test("the button and the confirm say what they do, in plain words", () => {
-    expect(keysLabel()).toBe("Make notes/ the only copy");
-    const note = keysNote();
-    expect(note).toMatch(/only under notes\//);
-    expect(note).toMatch(/names live only in Context/);
-    expect(note).toMatch(/cannot be switched back/);
-  });
 });
 
 describe("old copies: the count and the delete", () => {

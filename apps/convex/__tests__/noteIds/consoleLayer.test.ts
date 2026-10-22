@@ -97,14 +97,6 @@ async function copied(t: T, ws: Id<"workspaces">) {
 }
 
 describe("the app's store and the id switch", () => {
-  test("off keys (a deployment that never migrated) there are no hooks, and the store is returned as it was", async () => {
-    const t = tester();
-    const ws = await boundWorkspace(t, "console-paths");
-    const { watched } = await copied(t, ws);
-    expect(await consoleIdLayoutHooks(actionCtx(t), ws)).toBeNull();
-    expect(await appStore(t, ws, watched)).toBe(watched);
-  });
-
   test("on keys, the app's new note lands at its own id key, never its path, and gets a keyed row", async () => {
     const t = tester();
     const ws = await boundWorkspace(t, "console-keys-create");

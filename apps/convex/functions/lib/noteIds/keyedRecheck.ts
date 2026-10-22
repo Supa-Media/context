@@ -20,7 +20,7 @@ export const KEYED_RECHECKS_PER_TICK = 20;
 
 /** Whether `row`'s workspace is keyed and has had no diagnosis, and no recheck, since rows could be left behind. */
 export function keyedRecheckOwed(row: Doc<"noteIdCopies">): boolean {
-  if (row.keyedAt === undefined || row.status !== "done") return false;
+  if (row.status !== "done") return false;
   if (row.keyedRecheckAt !== undefined) return false;
   return (row.diagnosis?.checkedAt ?? 0) < KEYED_RECHECK_SINCE;
 }

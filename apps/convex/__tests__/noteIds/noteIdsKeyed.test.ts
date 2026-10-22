@@ -170,18 +170,6 @@ describe("notesFor: what the tree says about each path", () => {
     ]);
   });
 
-  test("keyed is false while the switch is not at keys, or the flip has not begun", async () => {
-    const t = tester();
-    const ws = await boundWorkspace(t, "keyed-notes-flag");
-    await adopt(t, ws, PLAIN, A);
-    expect((await notes(t, ws, [PLAIN])).keyed).toBe(false);
-    await t.run(async (ctx) => {
-      await ctx.db.insert("noteIdLayout", { paused: false, mode: "keys", updatedAt: 1, updatedBy: "test" });
-    });
-    expect((await notes(t, ws, [PLAIN])).keyed).toBe(false);
-    await keyedWorkspace(t, ws);
-    expect((await notes(t, ws, [PLAIN])).keyed).toBe(true);
-  });
 });
 
 describe("adoptKeyed: a new note gets its row at its own id key", () => {
@@ -288,21 +276,6 @@ describe("adoptKeyed: a new note gets its row at its own id key", () => {
     expect(await adopt(t, ws, "privacy.md", A)).toEqual({ adopted: false, taken: null });
     expect(await adopt(t, ws, ".context/x.md", B)).toEqual({ adopted: false, taken: null });
     expect(await rowAt(t, ws, "privacy.md")).toBeNull();
-  });
-
-  test("refused in a workspace that is not keyed: on the id switch, and on keys before the flip", async () => {
-    const t = tester();
-    const ws = await boundWorkspace(t, "adopt-not-keyed");
-    await t.run(async (ctx) => {
-      await ctx.db.insert("noteIdLayout", { paused: false, mode: "ids", updatedAt: 1, updatedBy: "test" });
-    });
-    expect(await adopt(t, ws, PLAIN, A)).toEqual({ adopted: false, taken: null });
-    await t.run(async (ctx) => {
-      const layout = await ctx.db.query("noteIdLayout").first();
-      await ctx.db.patch(layout!._id, { mode: "keys" });
-    });
-    expect(await adopt(t, ws, PLAIN, A)).toEqual({ adopted: false, taken: null });
-    expect(await rowAt(t, ws, PLAIN)).toBeNull();
   });
 
   test("refused when another row in the workspace already holds that note id: taken null", async () => {

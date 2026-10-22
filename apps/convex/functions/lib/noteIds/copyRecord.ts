@@ -14,7 +14,7 @@ import type { MutationCtx } from "../../../_generated/server";
 import { applyObservation } from "../nodes/observe";
 import { convexNodeTable } from "../nodes/convexTable";
 import { COPY_FAILED_LABEL, COPY_HEAL_MAX, COPY_STREAK_MAX, COPY_STUCK_LABEL, FAILURES_MAX, idKeyFor } from "../nodes/noteIds";
-import { copyRowOf, idCopyPaused, leaseHeld, nodeAt, type CopyRow, type NodeDoc } from "./state";
+import { copyRowOf, leaseHeld, nodeAt, type CopyRow, type NodeDoc } from "./state";
 
 export type CopyResult = {
   path: string;
@@ -30,14 +30,13 @@ export type CopyResult = {
 };
 export type CopyRefusal = { noteId: string; reason: string };
 
-/** A lease for this run's next page, or `null` when the run is not current, paused, or already leased. */
+/** A lease for this run's next page, or `null` when the run is not current or already leased. */
 export async function claimCopyRun(
   ctx: MutationCtx,
   args: { workspaceId: Id<"workspaces">; runId: number; now: number },
 ): Promise<{ cursor?: string } | null> {
   const row = await copyRowOf(ctx.db, args.workspaceId);
   if (row === null || row.runId !== args.runId || row.status !== "copying") return null;
-  if (await idCopyPaused(ctx.db)) return null;
   if (leaseHeld(row, args.now)) return null;
   await ctx.db.patch(row._id, { leaseAt: args.now });
   return row.cursor === undefined ? {} : { cursor: row.cursor };
@@ -106,7 +105,7 @@ export interface CopyPageRecord {
   results: CopyResult[];
 }
 
-export type CopyNext = "more" | "restart" | "paused" | "done" | "stale";
+export type CopyNext = "more" | "restart" | "done" | "stale";
 
 /**
  * Apply one page: mark the copies that are still true, count the failures, and
@@ -182,15 +181,14 @@ export async function recordCopyPage(
   }
 
   const found = args.found || copiedAny || editedAny;
-  const paused = await idCopyPaused(ctx.db);
   const fields = { files, copied, failed, failures, leaseAt: undefined, updatedAt: now };
   if (!args.done) {
     await ctx.db.patch(row._id, { ...fields, cursor: args.next });
-    return { next: paused ? "paused" : "more", found };
+    return { next: "more", found };
   }
   if (found) {
     await ctx.db.patch(row._id, { ...fields, cursor: undefined });
-    return { next: paused ? "paused" : "restart", found };
+    return { next: "restart", found };
   }
   await ctx.db.patch(row._id, { ...fields, cursor: undefined, status: "done", error: undefined });
   return { next: "done", found: false };

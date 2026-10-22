@@ -27,13 +27,10 @@ export type ConsoleIdLayoutHooks = {
 };
 
 /**
- * The hooks for this workspace's store, or `null` when the switch is not at
- * keys (a deployment that never ran the migration). Every workspace is keyed:
- * the layer refuses one that is not, and never reads paths.
+ * The hooks for this workspace's store. Every workspace is keyed
+ * (`notes-by-id.md`), so there is no store without them.
  */
-export async function consoleIdLayoutHooks(ctx: ActionCtx, workspaceId: Id<"workspaces">): Promise<ConsoleIdLayoutHooks | null> {
-  const layout = await ctx.runQuery(internal.functions.noteIds.idLayout, {});
-  if (layout !== "keys") return null;
+export function consoleIdLayoutHooks(ctx: ActionCtx, workspaceId: Id<"workspaces">): ConsoleIdLayoutHooks {
   return {
     lookup: async (paths: string[]) => {
       const noted = await ctx.runQuery(internal.functions.noteIdsKeyed.notesFor, { workspaceId, paths });

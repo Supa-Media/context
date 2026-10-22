@@ -4,8 +4,8 @@
  * refusal is pinned without a database.
  *
  * What is proved:
- *  - a Count is refused only while paused or while a run is already going;
- *  - a Delete is refused, with its own code, for: paused, running, not keyed,
+ *  - a Count is refused only while a run is already going;
+ *  - a Delete is refused, with its own code, for: running, no keyed time,
  *    fewer than 7 days after the flip, no count yet, a count older than 24
  *    hours, and any live note still read from its old path;
  *  - the first refusal that applies is the one given, so the message is the
@@ -33,8 +33,6 @@ const NOW = Date.UTC(2026, 9, 16, 12, 0, 0);
 function ready(overrides: Partial<CleanupGateInput> = {}): CleanupGateInput {
   return {
     now: NOW,
-    paused: false,
-    keyed: true,
     keyedAt: NOW - CLEANUP_WAIT_MS - DAY,
     cleanup: { running: undefined, countedAt: NOW - DAY / 2, readingPaths: 0 },
     ...overrides,
@@ -48,33 +46,20 @@ describe("the constants", () => {
   });
 });
 
-describe("Count is refused only while paused or running", () => {
-  test("paused: refused with the pause code", () => {
-    expect(countRefusal(ready({ paused: true }))?.code).toBe("NOTE_IDS_PAUSED");
-  });
+describe("Count is refused only while running", () => {
   test("a count or a delete already running: refused", () => {
     expect(countRefusal(ready({ cleanup: { running: "count", readingPaths: 0 } }))?.code).toBe("CLEANUP_RUNNING");
     expect(countRefusal(ready({ cleanup: { running: "delete", readingPaths: 0 } }))?.code).toBe("CLEANUP_RUNNING");
   });
   test("idle, and not keyed yet: allowed, since a count is a dry run", () => {
     expect(countRefusal(ready())).toBeNull();
-    expect(countRefusal(ready({ keyed: false, keyedAt: undefined, cleanup: undefined }))).toBeNull();
+    expect(countRefusal(ready({ keyedAt: undefined, cleanup: undefined }))).toBeNull();
   });
 });
 
 describe("Delete: each refusal, in order", () => {
-  test("paused is first", () => {
-    expect(deleteRefusal(ready({ paused: true, keyed: false }))?.code).toBe("NOTE_IDS_PAUSED");
-  });
-
   test("running is second", () => {
-    expect(deleteRefusal(ready({ cleanup: { running: "count", readingPaths: 0 }, keyed: false }))?.code).toBe("CLEANUP_RUNNING");
-  });
-
-  test("not keyed: the switch to notes/ only has not made this workspace keyed", () => {
-    const refusal = deleteRefusal(ready({ keyed: false, keyedAt: undefined }));
-    expect(refusal?.code).toBe("CLEANUP_NOT_KEYED");
-    expect(refusal?.message).toMatch(/keyed/);
+    expect(deleteRefusal(ready({ cleanup: { running: "count", readingPaths: 0 } }))?.code).toBe("CLEANUP_RUNNING");
   });
 
   test("waiting: fewer than seven days since the flip, in whole days left", () => {

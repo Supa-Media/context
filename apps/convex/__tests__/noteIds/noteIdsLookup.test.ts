@@ -188,10 +188,4 @@ describe("POST /gateway/note-ids/lookup in a keyed workspace", () => {
     expect(body.keyed).toBe(true);
   });
 
-  test("an unkeyed workspace's answer says keyed false", async () => {
-    const f = await fixture();
-    await seedCopies(f);
-    const body = await bodyOf(await lookup(f, { accessToken: OWNER, workspaceId: f.ws, paths: [PLAN] }));
-    expect(body.keyed).toBe(false);
-  });
 });

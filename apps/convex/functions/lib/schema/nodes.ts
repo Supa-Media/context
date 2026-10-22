@@ -479,9 +479,11 @@ export const nodeTables = {
   }).index("by_workspace", ["workspaceId"]),
 
   /**
-   * The id copy's switch, a single row (absent means running and `paths`).
-   * `mode` says which keys reads use; nothing reads ids yet, so it stays
-   * `paths` until a later phase says otherwise.
+   * RETIRED 2026-10-22 (`docs/decisions/storage-and-credentials/notes-by-id.md`).
+   * The switch and its pause are gone: every workspace is keyed. The row stays
+   * only because prod holds it at `keys` and `keyedWorkspace` and the id-layout
+   * query still read `mode`. Nothing writes it now. Remove the table, and the
+   * rows, with those readers.
    */
   noteIdLayout: defineTable({
     paused: v.boolean(),

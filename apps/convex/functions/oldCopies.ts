@@ -95,11 +95,8 @@ export const catchUp = internalMutation({
   args: { cursor: v.optional(v.string()) },
   returns: v.null(),
   handler: async (ctx, { cursor }) => {
-    const layout = await ctx.db.query("noteIdLayout").first();
-    if (layout?.mode !== "keys") return null;
     const page = await ctx.db.query("noteIdCopies").paginate({ cursor: cursor ?? null, numItems: WORKSPACE_PAGE });
     for (const copies of page.page) {
-      if (copies.keyedAt === undefined) continue;
       const workspace = await ctx.db.get(copies.workspaceId);
       if (workspace === null || workspace.kind !== "personal") continue;
       const record = await hideRecord(ctx, copies.workspaceId);
@@ -168,7 +165,6 @@ export const hideFolders = internalMutation({
   args: { workspaceId: v.id("workspaces"), now: v.number() },
   returns: v.object({ stopped: v.union(v.string(), v.null()) }),
   handler: async (ctx, { workspaceId, now }) => {
-    if (!(await keyedWorkspace(ctx.db, workspaceId))) return { stopped: null };
     let record = await hideRecord(ctx, workspaceId);
     if (record === null) {
       await ctx.db.insert("oldCopyHides", { workspaceId, state: "hiding", days: 0, contacts: 0, files: 0, startedAt: now, passAt: now });
@@ -197,7 +193,6 @@ export const beginPass = internalMutation({
   args: { workspaceId: v.id("workspaces"), now: v.number() },
   returns: v.union(v.string(), v.null(), v.literal(false)),
   handler: async (ctx, { workspaceId, now }) => {
-    if (!(await keyedWorkspace(ctx.db, workspaceId))) return false;
     const record = await hideRecord(ctx, workspaceId);
     if (record === null) {
       await ctx.db.insert("oldCopyHides", { workspaceId, state: "hiding", days: 0, contacts: 0, files: 0, startedAt: now, passAt: now });

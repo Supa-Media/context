@@ -37,6 +37,26 @@ moves many notes, so the cost was paid constantly.
   migration.
 - There is no gateway mode without a control plane.
 
+## The migration is finished; its machinery is gone
+
+*Decided by the owner, 2026-10-22* ("remove all code that does not operate on
+notes by id and every fallback"). Production was 29 of 31 workspaces keyed, with
+none of their notes off their id keys; the other two have no storage or are
+archived with no rows.
+
+What was removed: the switch (`noteIds.setMode`, `setPaused`, `startAll`,
+`start`, `restart`), the workflow that started every workspace and verified its
+rows, the cron's copy starts (`keepCurrent` now only re-checks keyed rows),
+the copy-pass counts in the admin report, and the cleanup's pause gate. Still
+to go, after the keyed predicate is removed: the gateway's unlayered session
+arm and the `keyed` flag on the lookup answer. What stays is
+the keyed row, the old-copy cleanup, the diagnosis and the shared-id repair.
+
+The copy pass itself (`beginCopyPass`, `noteIdsCopy.run`, `copyPage`, `flip`)
+is kept only because the test fixture keys a test workspace through it. No
+production path starts it. Removing it means rewriting that fixture to write
+keyed rows directly.
+
 **The migration** (owner, 2026-10-15). Every row gets its `noteId`. The
 mover copies each object to its id key, and the row records the version of the
 source it copied; a copy counts only while the note's current version still
@@ -74,7 +94,7 @@ that pass's end flips it. A finished, complete pass that is still unkeyed in
 keys mode (its flip ran before the tree was ready) is flipped again. Removing
 either fails `__tests__/noteIds/firstCopy.test.ts`.
 
-## A new workspace is born keyed; every workspace is pushed and proven
+## A new workspace is born keyed
 
 *Decided by the owner, 2026-10-22* ("make sure that new and current workspaces
 are all notes by id"). A workspace bound to its own new managed bucket, with no
@@ -82,12 +102,8 @@ tree rows, tree state or copy row yet, is keyed at that binding
 (`lib/noteIds/born.ts`, from `storage.applyBinding`): its copy row is written
 done and keyed, and its tree ready (a keyed workspace is never swept, so
 nothing else would make it serve). Its first notes are written at their id
-keys. A bucket the owner brings may already hold files, so it is left to the
-cron's first pass, which copies them before it flips. The workflow **Notes by
-id for every workspace** (`functions/noteIdsAll.ts`) counts each workspace's
-stage, starts what is owed (dry run first), and verifies from the rows that no
-live note is still off its id key. Removing the born-keyed call fails
-`__tests__/noteIds/bornKeyed.test.ts`; `everyWorkspace.test.ts` covers the job.
+keys. The born-keyed call no longer checks a switch, since there is none.
+Removing it fails `__tests__/noteIds/bornKeyed.test.ts`.
 
 ## A storage move keeps a keyed workspace's tree
 
