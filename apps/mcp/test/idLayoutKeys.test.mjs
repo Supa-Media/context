@@ -11,11 +11,12 @@
  *  - keep the bytes of a create whose name was taken: the taken case fails;
  *  - delete the key before retiring the row: the delete-order case fails;
  *  - swallow a failed lookup: the strict case fails;
+ *  - serve an unkeyed workspace or row from its path: the two refusal cases fail;
  *  - leave `existsMetadata` to the path: the create case fails (read_note's probe).
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { NoteNameTaken, isKeyedWorkspace, withIdLayout } from "../src/store/idLayout.js";
+import { NoteNameTaken, NotKeyed, isKeyedWorkspace, withIdLayout } from "../src/store/idLayout.js";
 import { idKeyFor, isNoteId } from "../src/store/noteIdKeys.js";
 import { storeForSession } from "../src/sessionStore.js";
 import { createControlPlane } from "../src/controlPlane/index.js";
@@ -179,12 +180,15 @@ test("a keyed workspace has no note where the tree has no live row, whatever the
   assert.equal(await layered.existsMetadata("1-projects/unknown.md"), false);
 });
 
-test("a workspace that is not keyed yet still reads its paths in the keys layout", async () => {
+test("a workspace the control plane says is not keyed is refused: its path objects are never served as notes", async () => {
   const store = bucket();
   await store.put("1-projects/a.md", "PATH BODY");
   const cp = controlPlaneOver({}, { keyed: false });
   const layered = withIdLayout(store, cp.hooks);
-  assert.equal(await (await layered.get("1-projects/a.md")).text(), "PATH BODY");
+  await assert.rejects(layered.get("1-projects/a.md"), NotKeyed);
+  await assert.rejects(layered.put("1-projects/a.md", "NEW"), NotKeyed);
+  assert.equal(store.objects.get("1-projects/a.md").body, "PATH BODY");
+  assert.deepEqual(puts(store), ["1-projects/a.md"]);
 });
 
 test("a failed lookup fails the request in the keys layout: a path read could be a frozen copy", async () => {
@@ -336,16 +340,17 @@ test("a write onto a folder's name in a keyed workspace is refused", async () =>
   await assert.rejects(layered.put("1-projects", "x"), NoteNameTaken);
 });
 
-test("a note still at its path while its workspace is being keyed is written there and mirrored", async () => {
+test("a row still at its path is refused, read and write: nothing is written to the path or reported", async () => {
   const store = bucket();
   await store.put("1-projects/a.md", "OLD");
-  const cp = controlPlaneOver({ "1-projects/a.md": { state: "path", key: KEY, etag: "e1", keyEtag: null, fresh: false } });
+  store.log.length = 0;
+  const cp = controlPlaneOver({ "1-projects/a.md": { state: "path" } });
   const layered = withIdLayout(store, cp.hooks);
-  await layered.put("1-projects/a.md", "NEW");
-  assert.equal(store.objects.get("1-projects/a.md").body, "NEW");
-  assert.equal(store.objects.get(KEY).body, "NEW");
-  const reported = cp.calls.find(([name]) => name === "wrote")[1];
-  assert.equal(reported.keyed, undefined);
+  await assert.rejects(layered.put("1-projects/a.md", "NEW"), NotKeyed);
+  await assert.rejects(layered.get("1-projects/a.md"), NotKeyed);
+  assert.equal(store.objects.get("1-projects/a.md").body, "OLD");
+  assert.deepEqual(puts(store), []);
+  assert.equal(cp.calls.some(([name]) => name === "wrote"), false);
 });
 
 /* ------------------------------- deletes ------------------------------- */
@@ -482,7 +487,7 @@ test("noteIdLookup keeps only well-formed note entries, and says whether the wor
   assert.equal(answer.keyed, true);
   assert.deepEqual(answer.notes, {
     "a.md": { state: "keyed", key: KEY, etag: "k1", noteId: "0192f1a2-3b4c-7d5e-8f60-000000000001", size: 3, legacyEtag: "p1" },
-    "d.md": { state: "path", key: OTHER_KEY, etag: "p", keyEtag: "k", fresh: true },
+    "d.md": { state: "path" },
     "e.md": { state: "gone" },
     f: { state: "folder" },
   });
@@ -552,13 +557,6 @@ test("a keyed workspace answers keyed, and a keys layout that is not keyed yet d
   assert.equal(await isKeyedWorkspace(withIdLayout(store, controlPlaneOver({}, { keyed: false }).hooks)), false);
 });
 
-test("the ids layout is never keyed, and does not ask the control plane", async () => {
-  const cp = controlPlaneOver({}, { keyed: true });
-  const layered = withIdLayout(bucket(), { ...cp.hooks, mode: "ids" });
-  assert.equal(await isKeyedWorkspace(layered), false);
-  assert.deepEqual(cp.calls, []);
-});
-
 test("a store with no id layer is not keyed, and a failed lookup refuses rather than answering no", async () => {
   assert.equal(await isKeyedWorkspace(bucket()), false);
   const { store, cp } = await keyedNote();
@@ -571,18 +569,10 @@ test("a store with no id layer is not keyed, and a failed lookup refuses rather 
   await assert.rejects(isKeyedWorkspace(layered), /control plane down/);
 });
 
-test("the lookup passes the control plane's keyed answer through, and an unkeyed answer keeps its shape", async () => {
-  const answers = [
-    { copies: { "a.md": { key: "notes/x.md", etag: "e1", fresh: true } }, keyed: true },
-    { copies: { "a.md": { key: "notes/x.md", etag: "e1", fresh: true } } },
-  ];
-  let asked = 0;
-  const fetchImpl = async () => new Response(JSON.stringify(answers[asked++]), {
+test("a lookup answer with no note entries is malformed: there is no copies-only control plane to read", async () => {
+  const fetchImpl = async () => new Response(JSON.stringify({ copies: {}, keyed: true }), {
     headers: { "content-type": "application/json" },
   });
   const cp = createControlPlane(ENV, { fetchImpl });
-  const keyed = await cp.noteIdLookup("tok", "w1", ["a.md"]);
-  assert.equal(keyed.keyed, true);
-  const unkeyed = await cp.noteIdLookup("tok", "w1", ["a.md"]);
-  assert.equal("keyed" in unkeyed, false);
+  await assert.rejects(cp.noteIdLookup("tok", "w1", ["a.md"]), /malformed note id entries/);
 });

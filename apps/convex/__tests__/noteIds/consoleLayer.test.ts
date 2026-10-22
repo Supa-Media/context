@@ -9,8 +9,7 @@
  * the hooks the way the factory does.
  *
  * What is proved:
- *  - on paths there are no hooks, and the app's store is untouched;
- *  - on ids the hooks carry the id copy's lookup and record, and no keyed hooks;
+ *  - off keys there are no hooks, and the app's store is untouched;
  *  - on keys the app's create lands at its id key with a keyed row, and reads
  *    and saves go to that key, and a delete retires the row and its bytes.
  *
@@ -98,49 +97,12 @@ async function copied(t: T, ws: Id<"workspaces">) {
 }
 
 describe("the app's store and the id switch", () => {
-  test("on paths there are no hooks, and the store is returned as it was", async () => {
+  test("off keys (a deployment that never migrated) there are no hooks, and the store is returned as it was", async () => {
     const t = tester();
     const ws = await boundWorkspace(t, "console-paths");
     const { watched } = await copied(t, ws);
     expect(await consoleIdLayoutHooks(actionCtx(t), ws)).toBeNull();
     expect(await appStore(t, ws, watched)).toBe(watched);
-  });
-
-  test("on ids the hooks are the lookup and the record only: no keyed hooks", async () => {
-    const t = tester();
-    const ws = await boundWorkspace(t, "console-ids-hooks");
-    await copied(t, ws);
-    await setMode(t, "ids");
-    const hooks = (await consoleIdLayoutHooks(actionCtx(t), ws)) as Record<string, unknown>;
-    expect(hooks.mode).toBe("ids");
-    expect(typeof hooks.lookup).toBe("function");
-    expect(typeof hooks.wrote).toBe("function");
-    expect(hooks.adopt).toBeUndefined();
-    expect(hooks.removed).toBeUndefined();
-  });
-
-  test("switched to ids, the app reads a fresh note from its id key, under the path's version", async () => {
-    const t = tester();
-    const ws = await boundWorkspace(t, "console-ids");
-    const { watched, key, asked } = await copied(t, ws);
-    await setMode(t, "ids");
-    const wrapped = await appStore(t, ws, watched);
-    const object = (await wrapped.get("1-projects/a.md")) as { etag: string; text(): Promise<string> };
-    expect(await object.text()).toBe("# A\n");
-    expect(asked).toContain(key);
-    expect(object.etag).toBe((await rowAt(t, ws, "1-projects/a.md"))!.etag);
-  });
-
-  test("switched to ids, an app save lands on both keys and records the copy", async () => {
-    const t = tester();
-    const ws = await boundWorkspace(t, "console-save");
-    const { store, watched, key } = await copied(t, ws);
-    await setMode(t, "ids");
-    const wrapped = await appStore(t, ws, watched);
-    const result = (await wrapped.put("1-projects/a.md", "# A, edited\n")) as { etag: string };
-    expect(new TextDecoder().decode(store.bytesOf(key)!)).toBe("# A, edited\n");
-    const row = await rowAt(t, ws, "1-projects/a.md");
-    expect(row?.idCopy).toMatchObject({ key, etag: result.etag, keyEtag: expect.any(String) });
   });
 
   test("on keys, the app's new note lands at its own id key, never its path, and gets a keyed row", async () => {

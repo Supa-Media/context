@@ -13,6 +13,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handleEmail, type Env, type InboundMessage } from "./index";
 import { REFUSAL } from "./refusal";
+import { controlPlaneStub } from "./workerHarness.test-helpers";
 import { AUTHSERV, rawMessage, streamOf } from "./fixtures.test-helpers";
 
 const ENV: Env = {
@@ -69,7 +70,11 @@ async function deliver(bucket: ReturnType<typeof bytesBucket>, siblings: { manag
     },
     async forward() {},
   };
+  const ids = controlPlaneStub();
   const controlPlane = {
+    noteIdLookup: ids.noteIdLookup,
+    noteIdAdopt: ids.noteIdAdopt,
+    noteIdWrote: ids.noteIdWrote,
     async resolveIngestion() {
       return {
         ticket: "ticket-1",
@@ -100,11 +105,18 @@ async function deliver(bucket: ReturnType<typeof bytesBucket>, siblings: { manag
     now: () => new Date("2026-08-26T09:00:00.000Z"),
     nonce: () => "0123456789abcdef",
   });
+  lastRows = ids.rows;
   return rejected;
 }
 
+/** The rows the last delivery's tree holds. */
+let lastRows = new Map<string, { key: string }>();
+
+/** Each capture note under the inbox the tree names, with the bytes at its id key. */
 const inbox = (bucket: ReturnType<typeof bytesBucket>) =>
-  [...bucket.objects.entries()].filter(([key]) => key.startsWith("0-inbox/"));
+  [...lastRows.entries()]
+    .filter(([path]) => path.startsWith("0-inbox/"))
+    .map(([path, row]) => [path, bucket.objects.get(row.key)!] as const);
 
 beforeEach(() => {
   vi.stubGlobal("fetch", vi.fn(() => {

@@ -146,28 +146,20 @@ describe.each([
     expect([...p.destination.objects.keys()].some((key) => key.startsWith("work/acme/"))).toBe(false);
   });
 
-  test("a keyed note moves into a workspace that is not keyed yet, at its path there", async () => {
-    const p = await pair({ notes: 2, into: "own" });
-    await keyed(p, { from: true });
+  test("a move with a side not keyed yet fails and leaves the note where it was: path keys are gone", async () => {
+    for (const side of [{ from: true }, { to: true }]) {
+      const p = await pair({ notes: 2, into: "own" });
+      await keyed(p, side);
+      const before = await liveRow(p.t, p.from, "1-projects/acme/note-000.md");
 
-    const row = await move(p, "1-projects/acme/note-000.md", "work/note-000.md");
+      const row = await move(p, "1-projects/acme/note-000.md", "work/note-000.md");
 
-    expect([row?.status, row?.error]).toEqual(["complete", undefined]);
-    expect(p.destination.objects.get("work/note-000.md")?.body).toBe("# 0\n");
-    expect(await liveRow(p.t, p.from, "1-projects/acme/note-000.md")).toBeNull();
-  });
-
-  test("a note moves from a workspace not keyed yet into a keyed one, as a new keyed note", async () => {
-    const p = await pair({ notes: 2, into: "own" });
-    await keyed(p, { to: true });
-
-    const row = await move(p, "1-projects/acme/note-000.md", "work/note-000.md");
-
-    expect([row?.status, row?.error]).toEqual(["complete", undefined]);
-    const landed = await liveRow(p.t, p.to, "work/note-000.md");
-    expect(bodyAtKey(p.destination, landed?.storageKey)).toBe("# 0\n");
-    expect(p.destination.objects.has("work/note-000.md")).toBe(false);
-    expect(p.source.objects.get("1-projects/acme/note-000.md")?.body ?? "").not.toContain("# 0");
+      expect(row?.status).toBe("failed");
+      const after = await liveRow(p.t, p.from, "1-projects/acme/note-000.md");
+      expect(after?._id).toBe(before?._id);
+      expect(await liveRow(p.t, p.to, "work/note-000.md")).toBeNull();
+      expect(p.destination.objects.has("work/note-000.md")).toBe(false);
+    }
   });
 
   test("a name already taken in a keyed destination stops the move and leaves the source in place", async () => {

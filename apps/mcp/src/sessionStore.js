@@ -291,24 +291,18 @@ export async function storeForSession(session, env, controlPlane) {
 
 /**
  * The id layer's hooks for one session (`store/idLayout.js`), bound to its own
- * access token: `null` while the layout is paths, or when this control plane
- * cannot answer for ids. The "keys" layout needs all four; "ids" needs the
- * first two.
+ * access token: `null` when the control plane names no layout. The layer needs
+ * all four, and a control plane that names "keys" without them is refused.
  */
 function idLayoutHooks(layout, session, controlPlane) {
-  if (layout !== "ids" && layout !== "keys") return null;
-  if (typeof controlPlane.noteIdLookup !== "function" || typeof controlPlane.noteIdWrote !== "function") return null;
-  const hooks = {
-    mode: layout,
-    lookup: (paths) => controlPlane.noteIdLookup(session.accessToken, session.workspaceId, paths),
-    wrote: (record) => controlPlane.noteIdWrote(session.accessToken, session.workspaceId, record),
-  };
-  if (layout === "ids") return hooks;
-  if (typeof controlPlane.noteIdAdopt !== "function" || typeof controlPlane.noteIdRemoved !== "function") {
+  if (layout !== "keys") return null;
+  const methods = ["noteIdLookup", "noteIdWrote", "noteIdAdopt", "noteIdRemoved"];
+  if (methods.some((name) => typeof controlPlane[name] !== "function")) {
     throw new StorageUnavailable("the keys layout needs a control plane that adopts notes");
   }
   return {
-    ...hooks,
+    lookup: (paths) => controlPlane.noteIdLookup(session.accessToken, session.workspaceId, paths),
+    wrote: (record) => controlPlane.noteIdWrote(session.accessToken, session.workspaceId, record),
     adopt: (note) => controlPlane.noteIdAdopt(session.accessToken, session.workspaceId, note),
     removed: (note) => controlPlane.noteIdRemoved(session.accessToken, session.workspaceId, note),
   };

@@ -1,37 +1,27 @@
 /**
- * The id layer: where a note's bytes are read from and written to, once the
- * control plane has given notes their own keys
- * (`docs/decisions/storage-and-credentials/notes-by-id.md`).
+ * The id layer: where a note's bytes are read from and written to. Every
+ * workspace keeps its notes under their ids
+ * (`docs/decisions/storage-and-credentials/notes-by-id.md`): a note's bytes
+ * live only at its id key (`notes/<noteId>.md`, `files/<noteId><ext>`), and its
+ * name, folder and access live on its tree row in the control plane.
  *
  * Every path a person can name is looked up in the tree, and the row decides:
  *
- *  - **Keyed** (`state: "keyed"`): the note's bytes live only at its id key
- *    (`notes/<noteId>.md`, `files/<noteId><ext>`). Reads and writes go there,
- *    and its etag is the key's. The object still at the path is a frozen old
- *    copy that nothing reads again. Every write is reported back
- *    (`wrote`), since the row, not a bucket listing, is now what says which
- *    version a note is at.
- *  - **Path** (`state: "path"`): the path is still the note's home, as before
- *    the switch. A read prefers the id copy while the control plane says it is
- *    fresh and the path has not moved on; a write lands on the path and is
- *    mirrored to the id copy.
- *  - **No row, in a keyed workspace**: there is no note. A read finds nothing,
- *    and a write creates one: the id is minted here, the bytes go to the new
- *    id key (never the path), and the row is asked for afterwards (`adopt`).
- *    If the name was taken meanwhile, the bytes just written are removed.
- *  - **No row, elsewhere**: the path, exactly as without this layer.
+ *  - **Keyed** (`state: "keyed"`): reads and writes go to its key, and its etag
+ *    is the key's. Every write is reported back (`wrote`), since the row, not a
+ *    bucket listing, says which version a note is at.
+ *  - **No row** (or a gone one): there is no note. A read finds nothing, and a
+ *    write creates one: the id is minted here, the bytes go to the new id key,
+ *    and the row is asked for afterwards (`adopt`). If the name was taken
+ *    meanwhile, the bytes just written are removed.
+ *  - **A folder**: a write there is refused (`NoteNameTaken`).
+ *  - **Anything else** (a workspace or row the control plane says is not keyed)
+ *    is refused (`NotKeyed`). There is no path layout to fall back to: a path
+ *    object in the bucket is never a note.
  *
- * Rules that hold the wrapper:
- *  - A path-state read answers under the **path's** etag, so a conditional
- *    write made against what was read still compares against the path. A
- *    keyed read answers under the key's own etag, which is the row's.
- *  - While the layout is "ids", the id layer never fails a request: a lookup,
- *    an id read or a mirrored write that throws is swallowed and the path
- *    answers. Once it is "keys", a lookup that fails fails the request: a
- *    path read could return a note's frozen old copy.
- *  - Plumbing (`.context/`, `privacy.md`, any dot segment, id keys themselves)
- *    is never looked up, and a read with a conditional or range option on a
- *    path-state note passes straight to the path.
+ * A lookup that fails fails the request. Plumbing (`.context/`, `privacy.md`,
+ * any dot segment, id keys themselves) is never looked up and goes to the
+ * store as it is.
  *
  * Built only from the Web APIs, no Node modules, as the rest of the gateway is.
  */
@@ -43,19 +33,18 @@ import { idKeyFor, newNoteId } from "./noteIdKeys.js";
 const CONDITIONAL_OPTIONS = ["onlyIf", "range", "ifMatch", "ifNoneMatch", "ifModifiedSince", "ifUnmodifiedSince"];
 
 /**
- * What a path-based operation says in a keyed workspace, where the path holds
- * a frozen copy and not the note. Shared by every caller that refuses.
+ * What an operation that only knew paths says. Shared by every caller that
+ * refuses one.
  */
 export const KEYED_PATH_REFUSAL =
-  "this workspace keeps its notes under their ids, and this operation works on paths, so it is not available in a keyed workspace yet. Nothing was changed.";
+  "this workspace keeps its notes under their ids, and this operation works on paths, so it is not available. Nothing was changed.";
 
 /** The path a keyed question is asked with. The answer is the workspace's, whatever the path. */
 const KEYED_PROBE = ".context/keyed-probe";
 
 /**
  * Whether the store's workspace is keyed. `false` for any store with no id
- * layer, since nothing above it can be keyed without one. A layer that cannot
- * answer throws, and the caller refuses.
+ * layer. A layer that cannot answer throws, and the caller refuses.
  *
  * @param {object} store
  * @returns {Promise<boolean>}
@@ -65,17 +54,12 @@ export async function isKeyedWorkspace(store) {
   return (await store.keyedWorkspace()) === true;
 }
 
-/** A path the id layer may answer for: a note or file a person can name. */
+/** A path the id layer answers for: a note or file a person can name. */
 function mirroredPath(path) {
   return typeof path === "string" && path !== "" && !isPlumbing(path);
 }
 
-function hasConditional(options) {
-  if (!options || typeof options !== "object") return false;
-  return CONDITIONAL_OPTIONS.some((name) => options[name] !== undefined);
-}
-
-/** The write options a mirrored copy carries: the same metadata, with no precondition. */
+/** The write options with no precondition: the same metadata. */
 function unconditional(options) {
   const kept = {};
   if (!options || typeof options !== "object") return kept;
@@ -85,10 +69,7 @@ function unconditional(options) {
   return kept;
 }
 
-/**
- * Bodies that can be sent twice. A stream is read once, so the path write
- * consumes it and nothing is left for the id key: those are written once.
- */
+/** Bodies that can be sent twice. A stream is read once. */
 function replayable(body) {
   if (typeof body === "string" || body instanceof ArrayBuffer || ArrayBuffer.isView(body)) return true;
   return typeof Blob !== "undefined" && body instanceof Blob;
@@ -107,22 +88,12 @@ function written(result) {
   return result !== null && typeof result === "object" && typeof result.etag === "string" && result.etag !== "";
 }
 
-/**
- * What the control plane says about `path`: an entry from `notes` when it
- * answered them, else (an older control plane) a path-state entry built from
- * `copies`. `null` when it names no row.
- */
+/** What the control plane says about `path`, or `null` when it names no row. */
 function entryFor(answer, path) {
   const notes = answer?.notes;
-  if (notes && typeof notes === "object") {
-    if (!Object.prototype.hasOwnProperty.call(notes, path)) return null;
-    const entry = notes[path];
-    return entry && typeof entry === "object" ? entry : null;
-  }
-  const copies = answer?.copies;
-  if (!copies || typeof copies !== "object" || !Object.prototype.hasOwnProperty.call(copies, path)) return null;
-  const copy = copies[path];
-  return copy && typeof copy === "object" ? { state: "path", ...copy } : null;
+  if (!notes || typeof notes !== "object" || !Object.prototype.hasOwnProperty.call(notes, path)) return null;
+  const entry = notes[path];
+  return entry && typeof entry === "object" ? entry : null;
 }
 
 /** A keyed entry the layer can act on: a real id key and the version the row holds. */
@@ -133,20 +104,6 @@ function keyedEntry(entry) {
     typeof entry.etag === "string" &&
     entry.etag !== ""
   );
-}
-
-/** A path-state entry's id copy, when its key is a real id key: the only copy ever read or written. */
-function copyOf(entry) {
-  if (entry?.state !== "path" || !isIdKey(entry.key)) return null;
-  return entry;
-}
-
-/** The copy a read may answer from: fresh, and carrying the path version it holds. */
-function freshCopyOf(entry) {
-  const copy = copyOf(entry);
-  if (copy === null || copy.fresh !== true) return null;
-  if (typeof copy.etag !== "string" || copy.etag === "") return null;
-  return copy;
 }
 
 /**
@@ -160,21 +117,6 @@ function keyedExpectation(entry, expected) {
     return entry.etag;
   }
   return expected;
-}
-
-/**
- * The same object, answering `etag` for its version. A proxy rather than a
- * copy: a store's object carries methods that need its own state (a body
- * stream, a text decoder), and they are bound to the object they came from.
- */
-function underPathEtag(object, etag) {
-  return new Proxy(object, {
-    get(target, property) {
-      if (property === "etag") return etag;
-      const value = Reflect.get(target, property, target);
-      return typeof value === "function" ? value.bind(target) : value;
-    },
-  });
 }
 
 /**
@@ -198,13 +140,24 @@ export class NoteNameTaken extends Error {
 }
 
 /**
+ * Thrown when the control plane answers for a workspace, or a row, that is not
+ * keyed. Every workspace is keyed (2026-10-22), so this is a fault to report,
+ * never a layout to serve: the bucket's path objects are not notes.
+ */
+export class NotKeyed extends Error {
+  constructor() {
+    super("this note is not stored under its id, so it cannot be read or written; nothing was changed");
+    this.name = "NotKeyed";
+  }
+}
+
+/**
  * The store with its reads and writes routed through the id layer.
  *
- * `lookup(paths)` answers `{copies, keyed, notes}` as `noteIdLookup` does.
- * `wrote(record)` reports a write, `adopt(note)` asks for a new keyed row and
- * `removed(note)` retires one; each is bound by the caller to one request's
- * session, so this module holds no credential. `mode` is the layout the
- * control plane named: `"ids"` or `"keys"`.
+ * `lookup(paths)` answers `{keyed, notes}` as `noteIdLookup` does. `wrote(record)`
+ * reports a write, `adopt(note)` asks for a new keyed row and `removed(note)`
+ * retires one; each is bound by the caller to one request's session, so this
+ * module holds no credential. All four are required.
  *
  * Everything else delegates: the wrapper is the store's own object with the
  * same prototype and descriptors, so non-enumerable properties are carried
@@ -212,53 +165,21 @@ export class NoteNameTaken extends Error {
  *
  * @param {object} store
  * @param {{
- *   lookup: (paths: string[]) => Promise<{copies?: object, keyed?: boolean, notes?: object}>,
- *   wrote: (record: {path: string, key: string, etag: string, keyEtag?: string, keyed?: boolean, size?: number, at?: number}) => Promise<unknown>,
- *   adopt?: (note: {path: string, noteId: string, key: string, etag: string, size?: number, at: number}) => Promise<{adopted: boolean, taken?: object|null}>,
- *   removed?: (note: {path: string, key: string, at: number}) => Promise<unknown>,
- *   mode?: "ids" | "keys",
+ *   lookup: (paths: string[]) => Promise<{keyed?: boolean, notes?: object}>,
+ *   wrote: (record: {path: string, key: string, etag: string, keyed?: boolean, size?: number, at?: number}) => Promise<unknown>,
+ *   adopt: (note: {path: string, noteId: string, key: string, etag: string, size?: number, at: number}) => Promise<{adopted: boolean, taken?: object|null}>,
+ *   removed: (note: {path: string, key: string, at: number}) => Promise<unknown>,
  *   now?: () => number,
  * }} hooks
  */
-export function withIdLayout(store, { lookup, wrote, adopt, removed, mode = "ids", now = Date.now } = {}) {
-  if (!store || typeof lookup !== "function" || typeof wrote !== "function") return store;
-  const strict = mode === "keys";
-  // A keyed workspace creates and retires rows through these two; a "keys"
-  // layer without them would read frozen path copies, so it is refused outright.
-  if (strict && (typeof adopt !== "function" || typeof removed !== "function")) {
-    throw new Error("the keys layout needs adopt and removed");
+export function withIdLayout(store, { lookup, wrote, adopt, removed, now = Date.now } = {}) {
+  if (!store) return store;
+  if (typeof lookup !== "function" || typeof wrote !== "function" || typeof adopt !== "function" || typeof removed !== "function") {
+    // Without all four a write could neither create nor retire a row: refused outright, never a path store.
+    throw new Error("the id layer needs lookup, wrote, adopt and removed");
   }
 
   const wrapped = Object.create(Object.getPrototypeOf(store), Object.getOwnPropertyDescriptors(store));
-
-  /** The object at an id key, or `null` when it is missing or cannot be read. */
-  const idObject = async (read) => {
-    try {
-      return (await read()) ?? null;
-    } catch {
-      return null;
-    }
-  };
-
-  /** The path's current etag, or `null` when it is missing or cannot be asked. */
-  const pathEtag = async (path) => {
-    try {
-      return (await store.head(path))?.etag ?? null;
-    } catch {
-      return null;
-    }
-  };
-
-  /** The fresh id copy's object under the path's etag, when `current` (the path's etag) still matches it; else `null`. */
-  const fromFreshCopy = async (copy, current) => {
-    if (copy === null || current !== copy.etag) return null;
-    const object = await idObject(() => store.get(copy.key));
-    // A copy written out of order (two saves racing) holds another version
-    // than the one recorded: the key's own etag tells them apart. A record
-    // that does not name the key's version cannot, and is never trusted.
-    const same = typeof copy.keyEtag === "string" && copy.keyEtag !== "" && object?.etag === copy.keyEtag;
-    return object !== null && same ? underPathEtag(object, copy.etag) : null;
-  };
 
   /** Bytes this layer wrote and no row will ever name: removed, and left for the cleanup if that fails. */
   const discard = async (key) => {
@@ -269,82 +190,24 @@ export function withIdLayout(store, { lookup, wrote, adopt, removed, mode = "ids
     }
   };
 
-  /**
-   * A path-state write: the path first (its result is the answer), then the
-   * same bytes to the id copy and the record of it. A failed mirror is
-   * swallowed: the copy is stale until the copy pass catches it.
-   */
-  const pathPut = async (path, entry, body, rest) => {
-    const result = await store.put(path, body, ...rest);
-    if (!replayable(body) || !written(result)) return result;
-    try {
-      const copy = copyOf(entry ?? entryFor(await lookup([path]), path));
-      if (copy === null) return result;
-      const copied = await store.put(copy.key, body, unconditional(rest[0]));
-      if (!copied) return result;
-      const keyEtag = typeof copied.etag === "string" && copied.etag !== "" ? copied.etag : undefined;
-      await wrote({ path, key: copy.key, etag: result.etag, ...(keyEtag === undefined ? {} : { keyEtag }) });
-    } catch {
-      // Stale until the copy pass. Nothing about the path's write changes.
-    }
-    return result;
-  };
-
   /*
-    Whether this workspace is keyed (`keyed` on the lookup answer). A keyed
-    workspace's path objects are frozen copies, so a caller that lists or moves
-    by path must refuse it. Asked of the tree with a probe path: the answer is
-    the workspace's, not the path's. A failed lookup fails the question, as it
-    fails every read in this layout.
+    Whether this workspace is keyed (`keyed` on the lookup answer), asked of
+    the tree with a probe path: the answer is the workspace's, not the path's.
+    A failed lookup fails the question, as it fails every read.
   */
-  wrapped.keyedWorkspace = async () => strict && (await lookup([KEYED_PROBE]))?.keyed === true;
-
-  if (!strict) {
-    /* ------------- "ids": the path is home; the copy is a mirror ------------- */
-
-    /** The id copy a read of `path` may use, or `null`. A throwing lookup is no copy. */
-    const readableCopy = async (path) => {
-      try {
-        return freshCopyOf(entryFor(await lookup([path]), path));
-      } catch {
-        return null;
-      }
-    };
-
-    /**
-     * A read: the id copy under the path's etag, else the path itself. The
-     * HEAD that proves the path has not moved on is asked alongside the
-     * lookup. A `head` needs no copy at all: the path's metadata is the answer.
-     */
-    if (typeof store.get === "function") {
-      wrapped.get = async (path, ...rest) => {
-        if (!mirroredPath(path) || hasConditional(rest[0]) || typeof store.head !== "function") {
-          return await store.get(path, ...rest);
-        }
-        const [copy, current] = await Promise.all([readableCopy(path), pathEtag(path)]);
-        return (await fromFreshCopy(copy, current)) ?? (await store.get(path, ...rest));
-      };
-    }
-
-    if (typeof store.put === "function") {
-      wrapped.put = async (path, body, ...rest) => {
-        if (!mirroredPath(path) || !replayable(body)) return await store.put(path, body, ...rest);
-        return await pathPut(path, null, body, rest);
-      };
-    }
-    return wrapped;
-  }
-
-  /* --------------- "keys": the row says where a note lives --------------- */
+  wrapped.keyedWorkspace = async () => (await lookup([KEYED_PROBE]))?.keyed === true;
 
   /** What the tree says about `path`: `{keyed, entry}`. A lookup that fails fails the request. */
   const resolve = async (path) => {
     const answer = await lookup([path]);
-    return { keyed: answer?.keyed === true, entry: entryFor(answer, path) };
+    if (answer?.keyed !== true) throw new NotKeyed();
+    const entry = entryFor(answer, path);
+    if (entry !== null && entry.state !== "gone" && entry.state !== "folder" && !keyedEntry(entry)) throw new NotKeyed();
+    return { entry };
   };
 
-  /** Whether the tree's answer means "no note here": a keyed workspace with no live row at the path. */
-  const noNote = ({ keyed, entry }) => keyed && (entry === null || entry.state === "gone");
+  /** Whether the tree's answer means "no note here": no live row at the path. */
+  const noNote = ({ entry }) => entry === null || entry.state === "gone";
 
   /** Report a keyed write. Tried twice; a report that still fails leaves the row a version behind, which the diagnosis repairs. */
   const report = async (record) => {
@@ -364,13 +227,8 @@ export function withIdLayout(store, { lookup, wrote, adopt, removed, mode = "ids
     const resolved = await resolve(path);
     const { entry } = resolved;
     if (keyedEntry(entry)) return await store[method](entry.key, ...rest);
-    if (noNote(resolved)) return method === "exists" || method === "existsMetadata" ? false : null;
-    const copy = method === "get" && !hasConditional(rest[0]) && typeof store.head === "function" ? freshCopyOf(entry) : null;
-    if (copy !== null) {
-      const fromCopy = await fromFreshCopy(copy, await pathEtag(path));
-      if (fromCopy !== null) return fromCopy;
-    }
-    return await store[method](path, ...rest);
+    // No note here, or a folder: nothing to read.
+    return method === "exists" || method === "existsMetadata" ? false : null;
   };
 
   if (typeof store.get === "function") wrapped.get = routedRead("get");
@@ -434,7 +292,6 @@ export function withIdLayout(store, { lookup, wrote, adopt, removed, mode = "ids
     const taken = answer?.taken ?? null;
     if (!replayable(body)) throw new NoteNameTaken();
     if (keyedEntry(taken)) return await keyedPut(path, taken, body, unconditional(options));
-    if (taken?.state === "path") return await pathPut(path, taken, body, [unconditional(options)]);
     throw new NoteNameTaken();
   };
 
@@ -445,9 +302,7 @@ export function withIdLayout(store, { lookup, wrote, adopt, removed, mode = "ids
       const { entry } = resolved;
       if (keyedEntry(entry)) return await keyedPut(path, entry, body, rest[0]);
       if (noNote(resolved)) return await keyedCreate(path, body, rest[0]);
-      if (resolved.keyed && entry?.state === "folder") throw new NoteNameTaken();
-      if (entry?.state === "path") return await pathPut(path, entry, body, rest);
-      return await store.put(path, body, ...rest);
+      throw new NoteNameTaken();
     };
   }
 
@@ -467,26 +322,19 @@ export function withIdLayout(store, { lookup, wrote, adopt, removed, mode = "ids
         await discard(entry.key);
         return undefined;
       }
-      if (noNote(resolved)) return undefined;
-      return await store.delete(path, ...rest);
+      // No note here, or a folder: a note delete removes nothing.
+      return undefined;
     };
   }
 
   if (typeof store.copy === "function") {
     /**
-     * A server-side copy names keys, so where either side is a keyed note or
-     * in a keyed workspace it is a read and a write through this layer
-     * instead: the destination gets a row of its own. Elsewhere it is the
-     * store's own copy.
+     * A server-side copy names keys, so where either side is a note it is a
+     * read and a write through this layer instead: the destination gets a row
+     * of its own. Between plumbing keys it is the store's own copy.
      */
     wrapped.copy = async (source, destination, ...rest) => {
-      const none = { keyed: false, entry: null };
-      const [from, to] = await Promise.all([
-        mirroredPath(source) ? resolve(source) : none,
-        mirroredPath(destination) ? resolve(destination) : none,
-      ]);
-      const keyedSide = from.keyed || to.keyed || keyedEntry(from.entry) || keyedEntry(to.entry);
-      if (!keyedSide) return await store.copy(source, destination, ...rest);
+      if (!mirroredPath(source) && !mirroredPath(destination)) return await store.copy(source, destination, ...rest);
       const object = await wrapped.get(source);
       if (object === null) return null;
       const contentType = object.contentType ?? object.httpMetadata?.contentType;

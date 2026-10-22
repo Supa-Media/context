@@ -209,7 +209,7 @@ test("rotation refuses a keyed workspace whose tree cannot be walked, rather tha
   assert.equal(raw.objects.has(ROTATION_PROGRESS_PATH), false);
 });
 
-test("an unkeyed workspace's rotation is unchanged: it still lists the bucket", async () => {
+test("an unkeyed workspace's rotation refuses at its first note, rewrapping nothing: path keys are gone", async () => {
   const { raw, store } = await keyedWorkspace({ keyed: false });
   const rotating = Object.assign(store, {
     encryptionKey: { keys: { k1: KEY_1, k2: KEY_2 } },
@@ -219,9 +219,8 @@ test("an unkeyed workspace's rotation is unchanged: it still lists the bucket", 
         ? { rotation: null }
         : { encryptionKey: { keys: { k1: KEY_1, k2: KEY_2 } }, rotation: { fromGeneration: "k1", toGeneration: "k2" } },
   });
-  const text = (await toolRotateEncryptionKeys(rotating, "private")).content[0].text;
-  assert.match(text, /rotation complete/);
-  assert.ok(raw.log.some(([op, prefix]) => op === "list" && prefix === ""));
+  await assert.rejects(toolRotateEncryptionKeys(rotating, "private"), { name: "NotKeyed" });
+  assert.equal(encryptedNoteKeyId(raw.objects.get(KEY).body), "k1");
 });
 
 /* --------------------------- folder move and across contexts --------------------------- */
