@@ -27,7 +27,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { BUILTIN_PROVIDER } from "../src/agent/builtin.js";
-import { CLAIM_NOTICE, MUTE_NOTICE, OFFER_NOTICE, TRY_NOTICE, asksToMute, claimCheck, claimsAChange, offersAHeldChange, saysItCouldNot } from "../src/agent/claimCheck.js";
+import { CLAIM_NOTICE, MUTE_NOTICE, TRY_NOTICE, asksToMute, claimCheck, claimsAChange, offerNotice, offeredKinds, offersAHeldChange, saysItCouldNot } from "../src/agent/claimCheck.js";
 import { runTurn } from "../src/agent/turn.js";
 
 const MAIN = "@cf/acme/main-model";
@@ -122,7 +122,9 @@ test("a Slack message offered in Tex's own words is an offer too (2026-10-22)", 
 
 test("an offer with nothing held is sent back; once the call is held, it goes", async () => {
   const offer = "Want me to add 'Emmanuela/Sayo,' 7 to 8 pm today?";
-  assert.equal(claimCheck({ question: "dinner at 7" }).check(offer), OFFER_NOTICE);
+  const notice = claimCheck({ question: "dinner at 7" }).check(offer);
+  assert.equal(notice, offerNotice(offeredKinds(offer)));
+  assert.ok(notice.includes("calendar_event") && !notice.includes("slack_api"), "the notice names only the calendar it offered");
   const held = claimCheck({ question: "dinner at 7" });
   await held.wrap(async () => ({ isError: true, held: true, content: [] }))("calendar_event", {});
   assert.equal(held.check("I'll add Emmanuela and Sayo at 7."), null);

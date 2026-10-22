@@ -17,6 +17,9 @@
  *   - must set: connected chatgpt    a flag a scripted button set
  *   - must publish: website          a site publish that went through (`siteStub.mjs`)
  *   - must connect: mayaruns.com     a domain connected to the workspace's site
+ *   - must forward: 19a2f0c4         an email saved as a draft or sent that
+ *                                    forwards the message with that Gmail id
+ *                                    (`mailbox.mjs`), its attachments with it
  *   - must write: maya/tex/routines/once/ with at: 2026-10-09 9:00 am
  *                                    a note written at that path (a folder when
  *                                    it ends in `/`), with that front matter
@@ -35,7 +38,7 @@
 
 import { cadenceFromFolder, parseTime, parseWeekdays } from "../../../packages/shared/src/routines.cjs";
 
-const CHECK = /^- (must|must not) (call|reach|hand off|type|choose|set|publish|connect|write|file):\s*(.+)$/;
+const CHECK = /^- (must|must not) (call|reach|hand off|type|choose|set|publish|connect|write|file|forward):\s*(.+)$/;
 
 /** A check line, or null when the line is not one. */
 export function readCheck(line) {
@@ -70,6 +73,8 @@ function happened(check, answer) {
       return events.includes("publish");
     case "connect":
       return events.some((event) => event.toLowerCase() === `connect ${value}`);
+    case "forward":
+      return (answer.emails ?? []).some((email) => email.forward === check.value);
     case "write":
       return wrote(check.value, answer.changes ?? []);
     case "file":

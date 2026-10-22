@@ -7,6 +7,7 @@
 
 import { PICTURES_LINE } from "./outgoingPictures.js";
 import { NOTE_LINK_LINE } from "./noteLinks.js";
+import { isEmailSource } from "./sources.js";
 
 /** The longest any one field of the ambient place may be. A path, not a page. */
 const MAX_PLACE_FIELD = 512;
@@ -53,6 +54,16 @@ const BUILTIN_IDENTITY = [
 ];
 
 /**
+ * Never hand them work Tex can do (the owner, 2026-10-22). A rule the owner
+ * set, so every turn is told it whatever its setup says; `claimCheck.js`
+ * sends back an answer that hands work back anyway.
+ */
+export const DO_IT_YOURSELF_LINE =
+  "Never ask them to do what your tools can: find, forward, check or look it up yourself. " +
+  "Before saying an email or note isn't there, search again other ways (sender, a number in it, dates, fewer words), then where else it lives: Gmail on the web or the billing or admin page it came from, in your browser. " +
+  "Ask them only for a sign-in code, a captcha, a payment, a choice or a fact only they know. A yes to your offer means do it; don't ask again.";
+
+/**
  * What every turn is told whatever its setup says, because each is a fact
  * about this build or a rule the owner set, not a matter of voice (the owner,
  * 2026-10-08, after the texting assistant invented a phone number and links,
@@ -66,6 +77,12 @@ const GROUND_RULES = [
   "Only state a name, number, phone number, address, date or link that you read in a tool result in this conversation (an earlier answer of yours counts: its lookups happened, they just aren't shown) or that they told you. Never fill a gap with a guess; say you don't know.",
   "If a tool call fails or takes too long, tell them you couldn't check their notes just now, in one sentence, and answer only what you did read.",
   "To list the workspaces they can reach, call orient.",
+  // The owner, 2026-10-22, after Tex texted "Forward me Google's receipt" and
+  // "Check Google Voice's billing history" about a receipt it had found the
+  // day before: "Tex should never suggest the user should do something
+  // themselves that Tex has the access and capability to do."
+  DO_IT_YOURSELF_LINE,
+  "Never take back what an earlier answer said because you can't see its source: look again, and correct it only if what you find differs.",
 ];
 
 /**
@@ -153,11 +170,19 @@ function usedLine(used) {
   if (answers.length === 0) return "";
   return [
     "What you did for those earlier texts (not shown, but it happened):",
-    ...answers.map(({ question, tools, sources }) =>
-      `- "${question}": you used ${tools.join(", ")}.${Array.isArray(sources) && sources.length > 0 ? ` Web pages you read: ${sources.join(", ")}` : ""}`,
-    ),
+    ...answers.map(({ question, tools, sources }) => {
+      const kept = Array.isArray(sources) ? sources : [];
+      const pages = kept.filter((source) => !isEmailSource(source));
+      const emails = kept.filter(isEmailSource);
+      return (
+        `- "${question}": you used ${tools.join(", ")}.` +
+        (pages.length > 0 ? ` Web pages you read: ${pages.join(", ")}` : "") +
+        (emails.length > 0 ? `${pages.length > 0 ? "." : ""} Emails you found: ${emails.join(", ")}` : "")
+      );
+    }),
     "If an earlier text of yours says you hadn't checked or opened something, that text was the mistake: don't repeat it or correct yourself again.",
-    ...(answers.some(({ sources }) => Array.isArray(sources) && sources.length > 0) ? [SOURCES_LINE] : []),
+    ...(answers.some(({ sources }) => Array.isArray(sources) && sources.some((source) => !isEmailSource(source))) ? [SOURCES_LINE] : []),
+    ...(answers.some(({ sources }) => Array.isArray(sources) && sources.some(isEmailSource)) ? [EMAILS_LINE] : []),
   ].join("\n");
 }
 
@@ -170,6 +195,14 @@ function usedLine(used) {
 const SOURCES_LINE =
   "Those web pages are where that text came from: when they ask where you read something, name the page's address. " +
   "Don't doubt that you read it, and to check a detail (which translation, a verse's words), open the same page again.";
+
+/**
+ * The emails earlier answers found, by id (`sources.js`): the owner's receipt
+ * was found, offered, and lost a text later (2026-10-22).
+ */
+const EMAILS_LINE =
+  "Those emails are still in their Gmail: fetch an id to read one again, and pass it as forward to send it on. " +
+  "Never ask them to forward or find an email you already found.";
 
 export function systemPrompt(
   place,

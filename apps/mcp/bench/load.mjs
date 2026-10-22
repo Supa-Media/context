@@ -7,6 +7,7 @@ import { expandFluff, parseFluff, resolveRel } from "./fluff.mjs";
 import { normalize, parseFront, unquote } from "./frontMatter.mjs";
 import { readCheck } from "./checks.mjs";
 import { parseSite } from "./sites.mjs";
+import { isEmail, parseEmail } from "./mailbox.mjs";
 
 const ROLES = new Set(["owner", "editor", "member"]);
 // Privacy rule files at a workspace's root. They are parsed, not returned as files.
@@ -254,6 +255,7 @@ export async function readBenchFolder(dir) {
     const held = [];
     const fluff = [];
     const calendar = [];
+    const mail = [];
     for (const rel of await listMarkdown(base)) {
       const text = await readFile(join(base, rel), "utf8");
       if (rel === FLUFF_FILE || rel.endsWith(`/${FLUFF_FILE}`)) {
@@ -264,6 +266,9 @@ export async function readBenchFolder(dir) {
           throw new Error(`${label}: from names template folder "${parsed.from}", but workspaces/${BANK}/${parsed.from}/ does not exist`);
         }
         fluff.push({ dir: folderOf(rel), fluff: parsed });
+      } else if (isEmail(text)) {
+        // An email is in their Gmail, read live, never a note (`mailbox.mjs`).
+        mail.push(parseEmail(text, `workspaces/${entry.name}/${rel}`));
       } else if (isCalendarDay(text)) {
         // A calendar day is what Google answers when it is asked, never a note
         // (nothing of a calendar is copied into notes since 2026-10-21), so the
@@ -276,7 +281,7 @@ export async function readBenchFolder(dir) {
         files[rel] = text;
       }
     }
-    workspaces[entry.name] = { files, heldBack: held, fluff, calendar };
+    workspaces[entry.name] = { files, heldBack: held, fluff, calendar, mail };
   }
 
   for (const p of people) {

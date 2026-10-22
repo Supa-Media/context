@@ -82,12 +82,95 @@ const HELD_THING = /\b(?:send|email|forward|calendar|schedule|book|file|bug|repo
 const SLACK_OFFER =
   /\b(?:I['’]d|I would|I['’]ll|I will|want me to|shall I|should I|do you want me to)\s+(?:DM|message|post|send|reply)\b[^\n]{0,160}?\b(?:Slack|DM)\b/i;
 
-export const OFFER_NOTICE =
-  "Before this goes: you showed or offered, in your own words, an email, a Slack message, a calendar change or a bug report, and nothing is held for their yes. " +
-  "A yes or 👍 to your words alone makes nothing, and they would be asked again. If that is what you offered and you know what it is, " +
-  "make the call now (send_email, slack_api, calendar_event or report_problem) with exactly that: they are shown it with your answer, and their one yes or 👍 makes it. " +
-  "Don't write out the email or ask for their yes yourself; the gateway does. " +
-  "If something is missing, ask only for that. If you offered something else, send your answer again as it was.";
+/*
+  What an offer is of, so the notice names only that call. On 2026-10-22 the
+  owner asked about a receipt Tex had offered to email, and the notice that
+  named "an email, a Slack message, a calendar change or a bug report" all at
+  once was most likely what had Tex hold an old Slack test message from
+  earlier in the chat instead, and answer that.
+*/
+const OFFER_KINDS = [
+  { kind: "an email", tool: "send_email", test: (said) => PREVIEW_LINE.test(said) || /\b(?:email|e-mail|forward|reply to|write back|draft)\b/i.test(said) },
+  { kind: "a Slack message", tool: "slack_api", test: (said) => SLACK_OFFER.test(said) || /\bslack\b/i.test(said) },
+  { kind: "a calendar change", tool: "calendar_event", test: (said) => /\bcalendar\b/i.test(said) || (CALENDAR_CHANGE.test(said) && WHEN.test(said)) },
+  { kind: "a bug report", tool: "report_problem", test: (said) => /\b(?:bug|report)\b/i.test(said) },
+];
+
+/** The kinds of held change an answer offers, by what its words name; every kind when they name none. */
+export function offeredKinds(answer) {
+  const said = String(answer ?? "");
+  const named = OFFER_KINDS.filter((entry) => entry.test(said));
+  return named.length > 0 ? named : OFFER_KINDS;
+}
+
+/** The notice for an offer of these kinds (`offeredKinds`). */
+export function offerNotice(kinds = OFFER_KINDS) {
+  const what = joinOr(kinds.map((entry) => entry.kind));
+  const calls = joinOr(kinds.map((entry) => entry.tool));
+  return (
+    `Before this goes: you showed or offered, in your own words, ${what}, and nothing is held for their yes. ` +
+    "A yes or 👍 to your words alone makes nothing, and they would be asked again. If that is what you offered and you know what it is, " +
+    `make the call now (${calls}) with exactly what this answer offers: they are shown it with your answer, and their one yes or 👍 makes it. ` +
+    "Only what this answer offers: never hold something from an earlier text instead. " +
+    "Don't write out the email or ask for their yes yourself; the gateway does. " +
+    "If something is missing, ask only for that. If you offered something else, send your answer again as it was."
+  );
+}
+
+function joinOr(list) {
+  return list.length <= 1 ? (list[0] ?? "") : `${list.slice(0, -1).join(", ")} or ${list.at(-1)}`;
+}
+
+export const OFFER_NOTICE = offerNotice();
+
+/*
+  HANDING THE WORK BACK (the owner, 2026-10-22: "Tex should never suggest the
+  user should do something themselves that Tex has the access and capability
+  to do ... this is the biggest insult to get from a personal assistant").
+  That day Tex had found a receipt in the owner's Gmail, lost it by the next
+  text, searched once, and then texted "Forward Google's receipt from your
+  Public Worship Gmail to me, or give me its subject line" and "Check Google
+  Voice's billing history". An answer that tells them to find, forward, check
+  or look something up gets one more round telling Tex to do it itself. A
+  step only they can take (a code, a captcha, a payment, a sign-in link Tex
+  sent) is not handing back.
+*/
+const HANDBACK = [
+  /\bforward\b[^.?!\n]{0,80}?\bto me\b/i,
+  /\bforward me\b/i,
+  /\bsend me\b[^.?!\n]{0,40}?\b(?:receipt|email|subject|screenshot|copy|pdf|file|link|invoice|id|address|number)\b/i,
+  /\b(?:give|tell|text) me\s+(?:its|the|that|their|her|his)\s+(?:\w+\s+)?(?:subject|sender|date|id|address|link|number|url)\b/i,
+  /\byou(?:'ll| will)?\s+(?:need to|have to|can|could|should|might want to|may want to|'d need to|would need to)\s+(?:check|look|search|find|forward|download|log ?in|sign in|open|send|pull up|dig up|go to|grab|contact|ask)\b/i,
+];
+/** A sentence that opens by telling them to go and do it. */
+const HANDBACK_IMPERATIVE =
+  /^(?:please\s+|maybe\s+|just\s+|so\s+)?(?:check|look (?:up|in|at|through|for)|search|find|dig up|pull up|go to|head to|download|grab|forward|log ?in|sign in|open up|reach out to|contact)\b(?![-'])/i;
+/** What only they can do, a link Tex sent them for it, or their yes to an ask (`heldEcho.js` drops talk of that). */
+const THEIRS_TO_DO =
+  /\bhttps?:\/\/|\b(?:the|this|that) link\b|\b(?:code|captcha|pay|card|password|passcode|verification|two-factor|2fa|confirm|confirmation|approve|approval|yes|tap|take over)\b|\u{1F44D}/iu;
+
+/** Whether an answer tells them to do something Tex's own tools could. */
+export function handsWorkBack(answer) {
+  const sentences = String(answer ?? "")
+    .replace(/[\u2018\u2019]/g, "'")
+    .split(/\n+|(?<=[.!?])\s+/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+  return sentences.some(
+    (sentence) => !THEIRS_TO_DO.test(sentence) && (HANDBACK_IMPERATIVE.test(sentence) || HANDBACK.some((pattern) => pattern.test(sentence))),
+  );
+}
+
+export const HANDBACK_NOTICE =
+  "Before this goes: your answer asks them to find, forward, check or look something up, and that is yours to do. " +
+  "Never ask them to do what your own tools can: search their email yourself again, a different way each time (search_email by the sender with from:, " +
+  "an amount or number, a date range with after: and before:, one or two words, each connected mailbox), read their notes, or open the site in your browser and sign in with a saved login. " +
+  "If their mail doesn't have it, go where else it lives: Gmail on the web in your browser, or the account, admin or billing page it came from (a billing history, an admin console), signed in with their saved login. " +
+  "An email you texted about earlier is still there: find it again. Do it now, then answer with what you did or found. " +
+  "Ask them only for what truly needs them: a sign-in code, a captcha, a payment, a choice, or a fact only they know. " +
+  "If it will take many steps, start a background job for it rather than handing it back. " +
+  "If you tried every way and still can't, say in one line what you tried, and ask one specific question. " +
+  "If those words were not asking them to do anything (their own to-do list, or what someone else said), send your answer again as it was.";
 
 export const CLAIM_NOTICE =
   "Before this goes: your answer says something was added or saved, but no change to their notes went through in this turn. " +
@@ -155,6 +238,7 @@ export function claimCheck({ question }) {
   let noticed = false;
   let hadWeb = false;
   let triedWeb = false;
+  let handedBack = false;
   return {
     /** The turn's web (`turnWeb.js`), watched for whether anything on it was tried. */
     wrapWeb(web) {
@@ -175,6 +259,12 @@ export function claimCheck({ question }) {
       };
     },
     check(answer) {
+      // Handing work back is checked on its own, once, beside the others: an
+      // answer that offers an email can still ask them to go and find it.
+      if (!handedBack && handsWorkBack(answer)) {
+        handedBack = true;
+        return HANDBACK_NOTICE;
+      }
       if (noticed) return null;
       const notice =
         asksToMute(question) && !keptWish
@@ -182,7 +272,7 @@ export function claimCheck({ question }) {
           : claimsAChange(answer) && !wrote
             ? CLAIM_NOTICE
             : offersAHeldChange(answer) && !held
-              ? OFFER_NOTICE
+              ? offerNotice(offeredKinds(answer))
               : hadWeb && !triedWeb && saysItCouldNot(answer)
                 ? TRY_NOTICE
                 : null;
