@@ -100,6 +100,10 @@ test("an offer of a calendar change or an email, in words, is read as one; an of
   assert.ok(!offersAHeldChange("Want me to add a to-do for Friday?"));
   assert.ok(!offersAHeldChange("Want me to send you the list?"));
   assert.ok(!offersAHeldChange("Want me to look into it?"));
+  // 2026-10-22: two prose asks with nothing held, and a 👍 on each reached nothing.
+  assert.ok(offersAHeldChange("Not yet. Say the word and I'll send it to Jo Park on Acme Slack."));
+  assert.ok(offersAHeldChange("Here's the message as it would go:\n\n“Hey Jo, testing.”\n\nSay yes and I'll try sending it again."));
+  assert.ok(!offersAHeldChange("Say the word and I'll look it up."));
   assert.ok(!offersAHeldChange("I'll add it once you say yes below."));
 });
 

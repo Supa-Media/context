@@ -40,6 +40,7 @@ import { createPending, findPending, takeDone } from "./approvals.js";
 import { HELD_GATES } from "./heldGates.js";
 import { irreversibleOf } from "./irreversible.js";
 import { slackPlace } from "./connectors.js";
+import { likedPreviewAllows } from "./likedPreview.js";
 import { wordsOfTurn } from "../agent/conversation.js";
 import { actsOnOwnAccount } from "../agent/groupTurn.js";
 import { wideningOf } from "../privacy/widening.js";
@@ -111,6 +112,17 @@ async function egressGate(suppliedName, supplied, args, { store, session, target
   if (held === null) return null;
   const { because, ...claim } = held;
   const userId = session.actorUserId;
+  // Their 👍 on Tex's own preview of exactly this message (`likedPreview.js`).
+  if (name === "slack_api" && likedPreviewAllows(session, args, slack)) {
+    await recordChange(store, "approve_action", session.scope, [], {
+      tool: suppliedName,
+      by: "thumbs_up_on_preview",
+      client_id: session.actorClientId ?? null,
+      team_visible: false,
+    }).catch(() => {});
+    console.log(JSON.stringify({ event: "thumbs_up_preview", tool: name, released: true }));
+    return null;
+  }
   const released = await takeDone(store, {
     name: suppliedName,
     args: supplied,

@@ -72,9 +72,10 @@ const EMAIL_SEND = /\b(?:email|e-mail|forward|reply to|write back|file (?:a|the|
 /** An email laid out in the answer's own words: "To: …", "Subject: …", "Forward of: …". */
 const PREVIEW_LINE = /^\s*(?:to|cc|subject|forward(?:ing)? of|fwd)\s*:/im;
 /** Asking for their yes or 👍 in the answer's own words. */
-const YES_ASK = /\b(?:say|reply|text|answer)\s+(?:yes|ok)\b|\u{1F44D}/iu;
-/** What a yes or 👍 might be asked about that only a held call can make. */
-const HELD_THING = /\b(?:send|email|forward|calendar|schedule|book|file|bug|report|slack|dm|post)\b/i;
+// "Say the word and I'll send it", "just say go", "let me know and I'll post it" (2026-10-22: a 👍 on each reached nothing).
+const YES_ASK = /\b(?:say|reply|text|answer|send)\s+(?:yes|ok|okay|go)\b|\bsay the word\b|\bjust say\b|\blet me know (?:and|if)\b|\bgive (?:it|this|me) a\b|\u{1F44D}/iu;
+/** What a yes or 👍 might be asked about that only a held call can make: "sending it again" too. */
+const HELD_THING = /\b(?:send(?:ing)?|email(?:ing)?|forward(?:ing)?|calendar|schedul(?:e|ing)|book(?:ing)?|fil(?:e|ing)|bug|report|slack|dm|post(?:ing)?)\b/i;
 /**
  * A Slack message offered in the answer's own words (2026-10-22: "I'd DM Jo
  * on Acme Slack: …", with nothing held, so the 👍 on it reached nothing).

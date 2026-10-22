@@ -31,7 +31,7 @@
 
 import { ask, request, toolReplies, createEgressWorld } from "./agentEgressFixtures.mjs";
 import { TOKEN_CONSOLE, TOKEN_TEXTS, TOKEN_ROUTINE } from "./agentEgressFixtures.mjs";
-import { approvalVerdict } from "../src/agent/textedApprovals.js";
+import { approvalVerdict, notDone } from "../src/agent/textedApprovals.js";
 import { TOLD } from "../src/agent/conversation.js";
 
 export async function runAgentEgressTextingChecks(check) {
@@ -184,6 +184,24 @@ export async function runAgentEgressTextingChecks(check) {
         approvalVerdict("ok thanks") === null &&
         approvalVerdict("I said no last time") === null &&
         approvalVerdict("") === null,
+    );
+    // Dev2, 2026-10-22: "yes please send it already sent 👍" went to the model, which asked again.
+    check(
+      "a yes said in a sentence is a yes, and anything more is not",
+      approvalVerdict("yes please send it already sent 👍") === "approve" &&
+        approvalVerdict("👍") === "approve" &&
+        approvalVerdict("👍🏽") === "approve" &&
+        approvalVerdict("Yes!! send it pls") === "approve" &&
+        approvalVerdict("did you send it") === null &&
+        approvalVerdict("already sent it") === null &&
+        approvalVerdict("yes send it to Sam instead") === null &&
+        approvalVerdict("not yet") === null,
+    );
+    check(
+      "a Slack permission refusal is told to the person in their terms",
+      /^Not sent: Slack hasn't given me permission for that yet \(it needs im:write\)\. Reconnect Slack/.test(
+        notDone("send a Slack message to Jo Park (Acme): \"Hi\"", "Slack hasn't given this connection permission for chat.postMessage yet (it needs im:write). Ask the person to reconnect Slack in Context's Settings, under Apps Tex uses, then try again. Don't tell them it can't be done."),
+      ) && notDone("do x", "it broke") === "I tried to do x, but: it broke",
     );
 
     // A yes belongs to the question just asked, not to one asked a few texts ago.

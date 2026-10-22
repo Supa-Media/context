@@ -10,6 +10,8 @@
  *  2. It holding a read or a reaction → "a read or a reaction runs at once".
  *  3. `toolSlackApi` showing a long answer whole → "a long answer is refused".
  *  4. `groupWriteTools` offering the connector tools → "a group turn is never offered Slack".
+ *  5. `likedPreviewAllows` not checking the message's words, or the name,
+ *     or not spending the 👍 → "a 👍 on Tex's own preview … is its yes, once".
  */
 
 import assert from "node:assert/strict";
@@ -131,4 +133,32 @@ test("a held Slack post names the person or channel as Slack has it, never an id
   assert.deepEqual(asked, []);
   // The model's own words never name the place.
   assert.equal(await slackPlace(store, { method: "chat.postMessage", args: { channel: "Mom", text: "x" } }), null);
+});
+
+/*
+  2026-10-22: Tex texted its own preview of a Slack message ("Say yes and I'll
+  try sending it again") with nothing held, Dev2 👍'd it, and was asked again.
+  A 👍 on a preview of exactly this message, to a person they were told of,
+  is the yes; anything less is held as before.
+*/
+test("a 👍 on Tex's own preview of exactly this Slack message is its yes, once", async () => {
+  const { likedPreviewAllows } = await import("../src/tools/likedPreview.js");
+  const preview = "Here's the message as it would go: “Hey Jo, I'm testing if my assistant can connect to Slack: https://example.com” Say yes and I'll try sending it again.";
+  const dm = { method: "chat.postMessage", args: { channel: "U0FAKE0001", text: "Hey Jo, I'm testing if my assistant can connect to Slack: https://example.com" } };
+  const place = { person: "Jo Park", team: "Acme" };
+  const told = [{ role: "assistant", text: "I'd DM Jo Park on Acme Slack." }];
+  const session = (over = {}) => ({ egress: { texting: true, liked: preview, turn: { history: told }, ...over } });
+
+  const once = session();
+  assert.equal(likedPreviewAllows(once, dm, place), true);
+  assert.equal(likedPreviewAllows(once, dm, place), false, "spent: a second post in the turn is held");
+
+  const other = { method: "chat.postMessage", args: { channel: "U0FAKE0001", text: "Something they never saw, long enough" } };
+  assert.equal(likedPreviewAllows(session(), other, place), false, "words they never saw");
+  assert.equal(likedPreviewAllows(session(), dm, { person: "Sam Lee", team: "Acme" }), false, "somebody they were never told of");
+  assert.equal(likedPreviewAllows(session(), dm, null), false, "a place Slack can't name");
+  assert.equal(likedPreviewAllows(session({ texting: false }), dm, place), false, "only a texted turn");
+  assert.equal(likedPreviewAllows(session({ liked: undefined }), dm, place), false, "no 👍");
+  assert.equal(likedPreviewAllows(session({ turn: { history: [] } }), dm, place), false, "a first name in the message is not who it goes to");
+  assert.equal(likedPreviewAllows(session({ turn: { history: [] }, liked: `To Jo Park: ${preview}` }), dm, place), true, "the preview names Jo Park itself");
 });
