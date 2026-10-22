@@ -292,7 +292,8 @@ export async function executePluginOperation(
         // The row is asked for the version it holds, as the rename below does (see `pluginRename`).
         if (await isKeyedStore(store)) {
           const current = await readFile(store, { path: operation.path, clearance });
-          if (current.etag !== operation.expectedEtag) {
+          // Either version names the note as it is now: the revision a read handed out, or the row's own.
+          if (current.etag !== operation.expectedEtag && current.rawEtag !== operation.expectedEtag) {
             throw new FileOpError(
               "CONFLICT",
               "That file changed somewhere else while the plugin was using it.",
