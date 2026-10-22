@@ -25,6 +25,7 @@ import { setAccessRow } from "../../functions/lib/nodes/setAccess";
 import { startRowMoveBatch } from "../../functions/lib/nodes/rowMoveBatch";
 import { asUser } from "../fixtures.helpers";
 import { fixture as filesFixture } from "../files/fixtures.helpers";
+import { bodyAtPath } from "../files/keyedNotes.helpers";
 import { OWNER, drain, fixture, listed, type Fixture } from "./moveFixture.helpers";
 import { keyedFixture, privacyEtag } from "./keyedFixture.helpers";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
@@ -163,7 +164,9 @@ describe("D: a website's folder in rows mode", () => {
 });
 
 describe("E: a console tier change in rows mode records the activity line the file path records", () => {
-  test("a note's and a folder's tier each leave their visibility line in the activity file", async () => {
+  // Two real console actions through the file path and the id layer: slower than the default 5s on a loaded runner
+  // (the same reason `contextMoveEndToEnd.test.ts` sets 30s). No assertion is changed.
+  test("a note's and a folder's tier each leave their visibility line in the activity file", { timeout: 30_000 }, async () => {
     const f = await filesFixture();
     await f.t.run(async (ctx) => {
       await ctx.db.insert("nodeMigration", { paused: false, accessSource: "rows", updatedAt: 1 });
@@ -179,8 +182,10 @@ describe("E: a console tier change in rows mode records the activity line the fi
       path: "1-projects/shared.md",
       visibility: "team",
     });
-    // The activity file's own words for each line: a team publication of the folder and of the note.
-    const activity = f.backend.snapshot()[ACTIVITY_PATH] ?? "";
+    // The activity file's own words for each line: a team publication of the folder and of the note. In a keyed
+    // workspace its bytes sit at its row's key (`notes/<noteId>.md`, notes-by-id.md), so they are read through the
+    // row, as `activity.test.ts` reads them; a read of the raw path key finds nothing and proves nothing.
+    const activity = (await bodyAtPath(f, ACTIVITY_PATH)) ?? "";
     expect(activity).toContain("gave the team `1-projects`");
     expect(activity).toContain("gave the team `1-projects/shared.md`");
   });
