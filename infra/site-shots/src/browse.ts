@@ -27,7 +27,9 @@
 
 import { publicHttpsUrl } from "./shoot";
 import { dropSource, pickerHookSource, pickerResult, refSelector as selector, uploadSource, type UploadFile } from "./picker";
-import { runDownload, type DownloadedFile, type Downloads } from "./download";
+import { DOWNLOAD_WAIT_MS, runDownload, type DownloadedFile, type Downloads } from "./download";
+import { FRAME_REF_BASE, docMarking, docWith, framesOf, type Doc, type FrameDoc } from "./frames";
+import { MAX_SCANNED, snapshot } from "./reading";
 export { dropSource, pickerHookSource, pickerResult, uploadSource, type UploadFile } from "./picker";
 
 /*
@@ -44,11 +46,7 @@ export const BROWSE_BUDGET_MS = 5_000;
 export const SETTLE_MS = 3_000;
 /** Steps in one call. */
 export const MAX_STEPS = 10;
-/** The most text and elements one reading hands back. */
-export const MAX_BROWSE_TEXT = 12_000;
-export const MAX_ELEMENTS = 80;
-/** How many of the page's elements a reading looks at for something to number; past it a page is read as far as here. */
-export const MAX_SCANNED = 5_000;
+export { MAX_BROWSE_TEXT, MAX_ELEMENTS, MAX_SCANNED, SNAPSHOT_SOURCE, snapshot, snapshotSource } from "./reading";
 const MAX_TYPED = 500;
 
 export type Step =
@@ -62,7 +60,8 @@ export type Step =
   | { do: "select"; ref: number; option: string }
   | { do: "press"; key: Key }
   | { do: "back" }
-  | { do: "scroll"; direction: "down" | "up" }
+  /** At a look's point (a frame's list), else the middle of the screen. */
+  | { do: "scroll"; direction: "down" | "up"; x: number | null; y: number | null }
   | { do: "read" }
   | { do: "upload"; ref: number | null; file: UploadFile; onlyOn: string[] | null }
   /** Press the element (by number or words) that saves a file, or with neither take the file the page is (./download.ts). */
@@ -119,7 +118,10 @@ export interface BrowsePage {
   select(selector: string, ...values: string[]): Promise<string[]>;
   goBack(options: { timeout: number }): Promise<unknown>;
   keyboard: { press(key: string): Promise<void> };
-  mouse: { click(x: number, y: number): Promise<void> };
+  /** `wheel` turns whatever is under the point; a browser without it scrolls the top page. */
+  mouse: { click(x: number, y: number): Promise<void>; wheel?(x: number, y: number, deltaY: number): Promise<void> };
+  /** The page's embedded frames, where the browser can reach them (./frames.ts). */
+  frames?(): Promise<FrameDoc[]>;
   screenshot(options: { type: "jpeg"; quality: number; encoding: "base64"; fullPage: false }): Promise<string | Uint8Array>;
   waitForNetworkIdle(options: { idleTime: number; timeout: number }): Promise<void>;
 }
@@ -199,8 +201,12 @@ function parseStep(item: unknown): Step | null {
       return typeof s.key === "string" && KEY_SET.has(s.key) ? { do: "press", key: s.key as Key } : null;
     case "back":
       return { do: "back" };
-    case "scroll":
-      return s.direction === "up" || s.direction === "down" ? { do: "scroll", direction: s.direction } : null;
+    case "scroll": {
+      if (s.direction !== "up" && s.direction !== "down") return null;
+      if (s.x === undefined && s.y === undefined) return { do: "scroll", direction: s.direction, x: null, y: null };
+      const point = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= MAX_POINT;
+      return point(s.x) && point(s.y) ? { do: "scroll", direction: s.direction, x: s.x as number, y: s.y as number } : null;
+    }
     case "read":
       return { do: "read" };
     case "look":
@@ -259,62 +265,6 @@ export function onSite(host: string, sites: string[]): boolean {
   return sites.some((site) => here === site || here.endsWith(`.${site}`));
 }
 
-/**
- * Number what can be pressed or typed into, in page order, and read the page.
- * Run as a string, for the reason `MEASURE_SOURCE` gives. A field's value is
- * never read out: only whether it has one.
- */
-export const SNAPSHOT_SOURCE = `(() => {
-  for (const el of document.querySelectorAll("[data-tex-ref]")) el.removeAttribute("data-tex-ref");
-  const visible = (el) => {
-    const box = el.getBoundingClientRect();
-    if (box.width < 1 || box.height < 1) return false;
-    const style = getComputedStyle(el);
-    return style.visibility !== "hidden" && style.display !== "none";
-  };
-  const clean = (s) => (s || "").replace(/\\s+/g, " ").trim().slice(0, 100);
-  const labelOf = (el) => {
-    const byId = el.id ? document.querySelector('label[for="' + CSS.escape(el.id) + '"]') : null;
-    return clean(el.getAttribute("aria-label")) || clean(byId && byId.innerText) || clean(el.closest("label") && el.closest("label").innerText) ||
-      clean(el.innerText) || clean(el.getAttribute("placeholder")) || clean(el.getAttribute("title")) || clean(el.getAttribute("alt")) ||
-      clean(el.getAttribute("name")) || clean(el.value && el.type === "submit" ? el.value : "");
-  };
-  const elements = [];
-  const query = "a[href], button, input:not([type=hidden]), textarea, select, summary, [onclick], [tabindex]:not([tabindex='-1']), " +
-    "[role=button], [role=link], [role=checkbox], [role=radio], [role=switch], [role=tab], [role=menuitem], [role=menuitemradio], " +
-    "[role=menuitemcheckbox], [role=option], [role=combobox], [role=treeitem], [contenteditable=true]";
-  const pointer = (el) => !!el && getComputedStyle(el).cursor === "pointer";
-  /*
-    What a page made clickable without saying so: a box with only a click
-    handler, styled with the hand cursor (a custom picker's options). Numbered
-    once, at the outermost box the hand starts on, and never when it wraps
-    something already numbered by what it is.
-  */
-  const clickable = (el) => pointer(el) && !pointer(el.parentElement) && !el.querySelector(query);
-  const all = document.body ? document.body.querySelectorAll("*") : [];
-  for (let i = 0; i < all.length && i < ${MAX_SCANNED}; i++) {
-    const el = all[i];
-    if (elements.length >= ${MAX_ELEMENTS}) break;
-    const named = el.matches(query);
-    if (!named && !clickable(el)) continue;
-    if (!visible(el) || el.disabled) continue;
-    const ref = elements.length + 1;
-    el.setAttribute("data-tex-ref", String(ref));
-    const tag = el.tagName.toLowerCase();
-    const type = (el.getAttribute("type") || "").toLowerCase();
-    const kind = tag === "input" ? "input " + (type || "text") : tag === "a" ? "link" : el.getAttribute("role") || (named ? tag : "clickable");
-    const item = { ref, kind, label: labelOf(el) };
-    if (tag === "a") item.href = el.href;
-    if (tag === "input" && (type === "checkbox" || type === "radio")) item.checked = el.checked;
-    else if (tag === "input" || tag === "textarea") item.filled = (el.value || "").length > 0;
-    else if (el.isContentEditable) item.filled = (el.innerText || "").trim().length > 0;
-    if (tag === "select") item.label = item.label + " (now: " + clean(el.selectedOptions[0] && el.selectedOptions[0].innerText) + ")";
-    elements.push(item);
-  }
-  const text = (document.body ? document.body.innerText : "") || "";
-  const uploads = document.querySelectorAll("input[type=file]").length;
-  return { url: location.href, title: document.title || "", text, elements, uploads };
-})()`;
 
 const BY_WORDS = `[data-tex-words]`;
 
@@ -357,9 +307,9 @@ export function wordsSource(words: string): string {
 }
 
 /** Press with the stand-in picker in place, and answer what the page asked of it. */
-async function pressWithPicker(page: BrowsePage, press: () => Promise<void>, file: UploadFile | null): Promise<string> {
+async function pressWithPicker(page: BrowsePage, press: () => Promise<void>, file: UploadFile | null, doc: Doc = page): Promise<string> {
   const waitMs = file === null ? 0 : 2_000;
-  await page.evaluate(pickerHookSource(file));
+  await doc.evaluate(pickerHookSource(file));
   let pressed = false;
   let got: unknown = "none";
   try {
@@ -368,7 +318,7 @@ async function pressWithPicker(page: BrowsePage, press: () => Promise<void>, fil
     await settle(page);
   } finally {
     // Read even when the press threw, so the real picker is put back; a page that left takes the stand-in with it.
-    got = await page.evaluate<unknown>(pickerResult(waitMs)).catch(() => "none");
+    got = await doc.evaluate<unknown>(pickerResult(waitMs)).catch(() => "none");
   }
   return pressed && typeof got === "string" ? got : "none";
 }
@@ -380,8 +330,11 @@ async function settle(page: BrowsePage): Promise<void> {
   await page.waitForNetworkIdle({ idleTime: 400, timeout: SETTLE_MS }).catch(() => undefined);
 }
 
-async function exists(page: BrowsePage, ref: number): Promise<boolean> {
-  return await page.evaluate<boolean>(`!!document.querySelector('${selector(ref)}')`);
+/** The page or frame holding element `ref`, or null when none does. */
+async function docOf(page: BrowsePage, ref: number): Promise<Doc | null> {
+  // The page's own numbers are below a frame's first; only a frame's number sends the search into the frames.
+  if (ref < FRAME_REF_BASE) return (await page.evaluate<boolean>(`!!document.querySelector('${selector(ref)}')`)) ? page : null;
+  return await docWith(page, selector(ref));
 }
 
 /**
@@ -389,7 +342,7 @@ async function exists(page: BrowsePage, ref: number): Promise<boolean> {
  * the page shows dots, so a search box that prints what is typed into it,
  * where a reading would show it, never receives one.
  */
-async function fieldIs(page: BrowsePage, ref: number, field: FillField): Promise<"input" | "select" | null> {
+async function fieldIs(page: Doc, ref: number, field: FillField): Promise<"input" | "select" | null> {
   // A card's expiry month or year may be a menu; every other part is a box a person types into.
   const menu = field === "cc-exp-month" || field === "cc-exp-year";
   const types = field === "password" ? ["password"] : field === "username" ? ["text", "email", "tel"] : ["text", "tel", "number", "password"];
@@ -438,7 +391,7 @@ const HIDE_CARDS_SOURCE = `(() => {
 })()`;
 
 /** Empty a field the way a person selecting all and deleting would. */
-async function clear(page: BrowsePage, ref: number): Promise<void> {
+async function clear(page: Doc, ref: number): Promise<void> {
   await page.evaluate(`(() => {
     const el = document.querySelector('${selector(ref)}');
     if (!el) return;
@@ -450,35 +403,8 @@ async function clear(page: BrowsePage, ref: number): Promise<void> {
   })()`);
 }
 
-/** Read the page as it is now. */
-export async function snapshot(page: BrowsePage): Promise<Reading> {
-  const raw = await page.evaluate<{ url?: unknown; title?: unknown; text?: unknown; elements?: unknown; uploads?: unknown }>(SNAPSHOT_SOURCE);
-  const text = typeof raw?.text === "string" ? raw.text.replace(/\n{3,}/g, "\n\n").trim() : "";
-  const elements: Element[] = [];
-  for (const item of Array.isArray(raw?.elements) ? raw.elements : []) {
-    const e = item as Record<string, unknown>;
-    if (!Number.isInteger(e.ref) || typeof e.kind !== "string") continue;
-    const element: Element = { ref: e.ref as number, kind: e.kind.slice(0, 40), label: typeof e.label === "string" ? e.label.slice(0, 160) : "" };
-    if (typeof e.href === "string") {
-      // A link the gateway may later open has to be one it could open at all.
-      const href = publicHttpsUrl(e.href);
-      if (href !== null) element.href = href;
-    }
-    if (typeof e.filled === "boolean") element.filled = e.filled;
-    if (typeof e.checked === "boolean") element.checked = e.checked;
-    elements.push(element);
-  }
-  return {
-    url: typeof raw?.url === "string" ? raw.url.slice(0, 2_000) : "",
-    title: typeof raw?.title === "string" ? raw.title.slice(0, 300) : "",
-    text: text.slice(0, MAX_BROWSE_TEXT),
-    truncated: text.length > MAX_BROWSE_TEXT,
-    elements,
-    ...(Number.isInteger(raw?.uploads) && (raw!.uploads as number) > 0 ? { uploads: Math.min(raw!.uploads as number, 100) } : {}),
-  };
-}
 
-async function where(page: BrowsePage): Promise<{ href: string; host: string; origin: string }> {
+async function where(page: Pick<Doc, "evaluate">): Promise<{ href: string; host: string; origin: string }> {
   return await page.evaluate(`({ href: location.href, host: location.hostname, origin: location.origin })`);
 }
 
@@ -502,6 +428,8 @@ export async function runSteps(
       break;
     }
     const before = (await where(page).catch(() => null))?.href ?? null;
+    const begun = downloads?.began?.() ?? 0;
+    const pressedAt = Date.now();
     const result =
       step.do === "goto" && offLimits(step.url)
         ? ({ do: "goto", ok: false, reason: "that page is off limits" } as StepResult)
@@ -519,6 +447,19 @@ export async function runSteps(
       ran.push(said);
       file = got;
       break;
+    }
+    // A click or a key that started a download (an invoice's menu, wherever it is) hands the file back too.
+    if (result.ok && (step.do === "click" || step.do === "press") && downloads?.began !== undefined && downloads.began() > begun) {
+      const got = await downloads.take(pressedAt, DOWNLOAD_WAIT_MS).catch(() => null);
+      if (got !== null && "refused" in got) {
+        ran.push({ ...result, reason: `that started a download, but ${got.refused}` });
+        break;
+      }
+      if (got !== null) {
+        ran.push({ ...result, reason: "that saved a file, handed back with this reading" });
+        file = got;
+        break;
+      }
     }
     ran.push(result);
     if (!result.ok) break;
@@ -550,6 +491,8 @@ async function pixelRatio(page: BrowsePage): Promise<{ ratio: number; width: num
 /** The page as a person sees it now, the part on screen. */
 async function look(page: BrowsePage): Promise<{ data: string; width: number; height: number }> {
   await page.evaluate(HIDE_CARDS_SOURCE);
+  // A card's boxes are often another site's frame (a payment form): blanked there too.
+  for (const frame of await framesOf(page)) await frame.evaluate(HIDE_CARDS_SOURCE);
   const { width, height } = await pixelRatio(page);
   const raw = await page.screenshot({ type: "jpeg", quality: LOOK_QUALITY, encoding: "base64", fullPage: false });
   let data = typeof raw === "string" ? raw : "";
@@ -576,36 +519,51 @@ async function runStep(page: BrowsePage, step: Step, downloads: Downloads | null
       await page.goBack({ timeout: BROWSE_GOTO_TIMEOUT_MS });
       await settle(page);
       return ok;
-    case "scroll":
-      await page.evaluate(`window.scrollBy(0, ${step.direction === "down" ? 1 : -1} * Math.round(window.innerHeight * 0.8))`);
+    case "scroll": {
+      const sign = step.direction === "down" ? 1 : -1;
+      if (typeof page.mouse.wheel === "function") {
+        // A wheel at a point (the middle of the screen, or a look's point) scrolls what is under it, a frame's list included.
+        const view = await pixelRatio(page);
+        const x = step.x !== null ? step.x / view.ratio : view.width / view.ratio / 2;
+        const y = step.y !== null ? step.y / view.ratio : view.height / view.ratio / 2;
+        await page.mouse.wheel(x, y, sign * Math.round((view.height / view.ratio) * 0.8));
+        await settle(page);
+        return ok;
+      }
+      await page.evaluate(`window.scrollBy(0, ${sign} * Math.round(window.innerHeight * 0.8))`);
       return ok;
+    }
     case "press":
       await page.keyboard.press(step.key);
       await settle(page);
       return ok;
     case "click": {
       let press: () => Promise<void>;
+      let doc: Doc = page;
       if ("x" in step) {
         // A point on the last look's picture: what a person would tap, whatever the page says it is.
         const { ratio } = await pixelRatio(page);
         press = () => page.mouse.click(step.x / ratio, step.y / ratio);
       } else if ("text" in step) {
-        if (!(await page.evaluate<boolean>(wordsSource(step.text)))) {
-          return { do: "click", ok: false, reason: "nothing on the page shows those words; read the page again" };
-        }
-        press = () => page.click(BY_WORDS);
+        const marked = await docMarking(page, wordsSource(step.text));
+        if (marked === null) return { do: "click", ok: false, reason: "nothing on the page shows those words; read the page again" };
+        doc = marked;
+        press = () => marked.click(BY_WORDS);
       } else {
-        if (!(await exists(page, step.ref))) return missing;
+        const found = await docOf(page, step.ref);
+        if (found === null) return missing;
+        doc = found;
         const ref = step.ref;
-        press = () => page.click(selector(ref));
+        press = () => found.click(selector(ref));
       }
-      const got = await pressWithPicker(page, press, null);
+      const got = await pressWithPicker(page, press, null, doc);
       return got === "asked" ? { do: "click", ok: true, reason: ASKS_FOR_FILE } : ok;
     }
-    case "select":
-      if (!(await exists(page, step.ref))) return missing;
+    case "select": {
+      const doc = await docOf(page, step.ref);
+      if (doc === null) return missing;
       // By the option's words, as the person reads them, else by its value.
-      await page.evaluate(`(() => {
+      await doc.evaluate(`(() => {
         const el = document.querySelector('${selector(step.ref)}');
         const want = ${JSON.stringify(step.option.toLowerCase())};
         const option = el && [...el.options].find((o) => o.innerText.trim().toLowerCase() === want || o.value.toLowerCase() === want);
@@ -613,14 +571,16 @@ async function runStep(page: BrowsePage, step: Step, downloads: Downloads | null
       })()`);
       await settle(page);
       return ok;
+    }
     case "type": {
-      if (!(await exists(page, step.ref))) return missing;
-      // The second lock: the host is checked now, not when the gateway agreed.
-      if (step.onlyOn !== null && !onSite((await where(page)).host, step.onlyOn)) {
+      const doc = await docOf(page, step.ref);
+      if (doc === null) return missing;
+      // The second lock: the host is checked now, not when the gateway agreed, and it is the host of the frame the box is in.
+      if (step.onlyOn !== null && !onSite((await where(doc)).host, step.onlyOn)) {
         return { do: "type", ok: false, reason: "this page is not on a site the person named" };
       }
-      await clear(page, step.ref);
-      await page.type(selector(step.ref), step.text);
+      await clear(doc, step.ref);
+      await doc.type(selector(step.ref), step.text);
       if (step.enter) {
         await page.keyboard.press("Enter");
         await settle(page);
@@ -628,19 +588,20 @@ async function runStep(page: BrowsePage, step: Step, downloads: Downloads | null
       return ok;
     }
     case "upload": {
-      if (step.ref !== null && !(await exists(page, step.ref))) return missing;
+      const doc = step.ref === null ? page : await docOf(page, step.ref);
+      if (doc === null) return missing;
       // The same second lock as typing: the person's file goes only where they said, checked now.
-      if (step.onlyOn !== null && !onSite((await where(page)).host, step.onlyOn)) {
+      if (step.onlyOn !== null && !onSite((await where(doc)).host, step.onlyOn)) {
         return { do: "upload", ok: false, reason: "this page is not on a site the person named" };
       }
-      const put = await page.evaluate<string>(uploadSource(step.ref, step.file));
+      const put = await doc.evaluate<string>(uploadSource(step.ref, step.file));
       if (put === "none") return { do: "upload", ok: false, reason: "this page has no box that takes a file; name the button that asks for one" };
       if (put === "button" && step.ref !== null) {
         // No box yet: press the element, and the box it opens gets the file instead of the device's picker.
         const ref = step.ref;
-        const got = await pressWithPicker(page, () => page.click(selector(ref)), step.file);
+        const got = await pressWithPicker(page, () => doc.click(selector(ref)), step.file, doc);
         if (got === "attached") return ok;
-        if (!(await page.evaluate<boolean>(dropSource(ref, step.file)))) return missing;
+        if (!(await doc.evaluate<boolean>(dropSource(ref, step.file)))) return missing;
         await settle(page);
         return { do: "upload", ok: true, reason: "pressing it opened no file box, so the file was dropped onto it; look to check the page took it" };
       }
@@ -649,33 +610,39 @@ async function runStep(page: BrowsePage, step: Step, downloads: Downloads | null
     }
     case "download": {
       let target: string | null = null;
+      let doc: Doc = page;
       if (step.ref !== null) {
-        if (!(await exists(page, step.ref))) return missing;
+        const found = await docOf(page, step.ref);
+        if (found === null) return missing;
+        doc = found;
         target = selector(step.ref);
       } else if (step.text !== null) {
-        if (!(await page.evaluate<boolean>(wordsSource(step.text)))) {
-          return { do: "download", ok: false, reason: "nothing on the page shows those words; read the page again" };
-        }
+        const marked = await docMarking(page, wordsSource(step.text));
+        if (marked === null) return { do: "download", ok: false, reason: "nothing on the page shows those words; read the page again" };
+        doc = marked;
         target = BY_WORDS;
       }
       const pressed = target;
-      return await runDownload(page, target, pressed === null ? null : async () => {
-        await page.click(pressed);
+      const on = doc;
+      return await runDownload(on, target, pressed === null ? null : async () => {
+        await on.click(pressed);
         await settle(page);
       }, downloads);
     }
     case "fill": {
-      if (!(await exists(page, step.ref))) return missing;
-      if ((await where(page)).origin !== step.origin) return { do: "fill", ok: false, reason: "origin mismatch" };
-      const box = await fieldIs(page, step.ref, step.field);
+      const doc = await docOf(page, step.ref);
+      if (doc === null) return missing;
+      // The origin of the frame the box is in: a login for one site never goes into another site's frame.
+      if ((await where(doc)).origin !== step.origin) return { do: "fill", ok: false, reason: "origin mismatch" };
+      const box = await fieldIs(doc, step.ref, step.field);
       if (box === null) return { do: "fill", ok: false, reason: `that is not a ${step.field} box` };
-      if (isCardField(step.field)) await page.evaluate(`document.querySelector('${selector(step.ref)}').setAttribute("data-context-card", "")`);
+      if (isCardField(step.field)) await doc.evaluate(`document.querySelector('${selector(step.ref)}').setAttribute("data-context-card", "")`);
       if (box === "select") {
-        if (!(await page.evaluate<boolean>(pickExpirySource(step.ref, step.value)))) return { do: "fill", ok: false, reason: "that menu has no option for the card's expiry" };
+        if (!(await doc.evaluate<boolean>(pickExpirySource(step.ref, step.value)))) return { do: "fill", ok: false, reason: "that menu has no option for the card's expiry" };
         return ok;
       }
-      await clear(page, step.ref);
-      await page.type(selector(step.ref), step.value);
+      await clear(doc, step.ref);
+      await doc.type(selector(step.ref), step.value);
       return ok;
     }
   }

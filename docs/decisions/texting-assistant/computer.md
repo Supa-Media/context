@@ -200,6 +200,18 @@ for them.
 - **Handing it back is caught.** "I can't put a file … into an email" and
   "tap the download arrow … attach it to the draft" are hand-backs
   (`claimCheck.js` `FILE_HANDBACK`), even with a "tap" in them.
+- **Frames, and a click's file (the same evening).** The September invoice's
+  download menu was in a payments.google.com frame inside the admin page:
+  Tex saw it in a look and could press none of it, and the click at its point
+  started a download nothing collected. A reading now includes each embedded
+  frame (Browserbase only, over CDP: `infra/site-shots/src/cdpFrames.ts`),
+  under its site's name and numbered from 1001, 2001…, and a step on a frame's
+  element runs in that frame. Every site check (a fill's origin, a type's or
+  an upload's named sites) is of the frame the element is in, never the top
+  page's, so a login never lands in another site's frame. A look blanks card
+  boxes in frames too. A scroll turns the wheel at a point, so a frame's list
+  scrolls. And a click or key that makes the browser begin a download
+  (`Browser.downloadWillBegin`) hands the file back like a download step.
 
 Tests: `download.test.ts` (the step, the vendor's API, the https-only fetch,
 sabotaged by letting any address through), `agentDownloads.test.mjs` (kept,

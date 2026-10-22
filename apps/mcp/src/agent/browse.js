@@ -129,7 +129,7 @@ const NO_UPLOAD_SENTENCE = "";
 */
 const DOWNLOAD_SENTENCE =
   "To save a file a page offers (an invoice or receipt PDF, a statement, a ticket), add a download step: ref or text names its download button or link, " +
-  "or leave both out to take the file the page itself is. You get back a download: id; attach it to an email yourself with attach on send_email or save_email_draft. " +
+  "or leave both out to take the file the page itself is (or the one a click just started). You get back a download: id; attach it to an email yourself with attach on send_email or save_email_draft. " +
   "Never tell the person to download or attach a file you can reach. ";
 
 /** The default description's two rules, and what it says instead when the setup opened the web. */
@@ -143,6 +143,7 @@ export const BROWSE_DEFINITION = {
   description:
     "Use a web browser to do things on a site: open a page, click, type, choose options, go back, scroll. " +
     "Each reading numbers what you can press or type into, like [7]; steps name those numbers as ref. " +
+    "A frame inside the page (a payment or billing menu from another site) is read after it, under its site's name, numbered from 1001. " +
     "When what you need has no number (a picker or a menu the page drew itself), click it by the words it shows (text), " +
     "or take a look step, which shows you the page as a picture, and click at x and y on that picture, in its pixels. " +
     "A person can press anything they can see, so you can too: never tell them the page can't be clicked before you have looked. " +
@@ -169,8 +170,8 @@ export const BROWSE_DEFINITION = {
             note: { type: "string", description: "upload: the note that shows the picture named in file." },
             attachment: { type: "integer", description: "upload with an email: id: which of its attachments, 1 for the first. Leave out to attach the email itself as a PDF." },
             text: { type: "string", description: "type: what to type. click, download: the words on what to press, when it has no number." },
-            x: { type: "number", description: "click: a point on the last look's picture, in its pixels, from the left." },
-            y: { type: "number", description: "click: the same point, from the top." },
+            x: { type: "number", description: "click, scroll: a point on the last look's picture, in its pixels, from the left (scroll: what is under it scrolls, like a frame's list)." },
+            y: { type: "number", description: "click, scroll: the same point, from the top." },
             enter: { type: "boolean", description: "type: press Enter afterwards." },
             option: { type: "string", description: "select: the option's words." },
             key: { type: "string", enum: KEYS, description: "press: the key." },

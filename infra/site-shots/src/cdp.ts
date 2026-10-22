@@ -8,10 +8,13 @@
  */
 
 import type { BrowsePage } from "./browse";
+import { frameLister } from "./cdpFrames";
 
 /** One CDP connection: send a method, get its result. */
 export interface CdpTransport {
   send<T = unknown>(method: string, params?: Record<string, unknown>, sessionId?: string): Promise<T>;
+  /** Hear an event the browser sends unasked (a download beginning), by its method name. */
+  on?(method: string, listener: (params: unknown, sessionId?: string) => void): void;
   close(): void;
 }
 
@@ -25,14 +28,18 @@ export async function connectCdp(wsUrl: string, fetcher: typeof fetch = fetch): 
   socket.accept();
   let next = 1;
   const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+  const listeners = new Map<string, Array<(params: unknown, sessionId?: string) => void>>();
   socket.addEventListener("message", (event) => {
-    let message: { id?: number; result?: unknown; error?: { message?: string } };
+    let message: { id?: number; method?: string; params?: unknown; sessionId?: string; result?: unknown; error?: { message?: string } };
     try {
       message = JSON.parse(typeof event.data === "string" ? event.data : new TextDecoder().decode(event.data as ArrayBuffer));
     } catch {
       return;
     }
-    if (typeof message.id !== "number") return;
+    if (typeof message.id !== "number") {
+      if (typeof message.method === "string") for (const listener of listeners.get(message.method) ?? []) listener(message.params, message.sessionId);
+      return;
+    }
     const waiting = pending.get(message.id);
     if (!waiting) return;
     pending.delete(message.id);
@@ -64,6 +71,9 @@ export async function connectCdp(wsUrl: string, fetcher: typeof fetch = fetch): 
         });
         socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
       });
+    },
+    on(method, listener) {
+      listeners.set(method, [...(listeners.get(method) ?? []), listener]);
     },
     close() {
       try {
@@ -123,6 +133,11 @@ export async function attachPage(cdp: CdpTransport): Promise<AttachedPage> {
 /** Attach to the browser's first page (or use `attached`) and drive it as a `BrowsePage`. */
 export async function cdpPage(cdp: CdpTransport, attached?: AttachedPage): Promise<BrowsePage> {
   const { send, evaluate, settle } = attached ?? (await attachPage(cdp));
+  const mouseClick = async (x: number, y: number) => {
+    for (const type of ["mouseMoved", "mousePressed", "mouseReleased"]) {
+      await send("Input.dispatchMouseEvent", { type, x, y, button: "left", clickCount: 1 });
+    }
+  };
 
   async function focus(selector: string): Promise<void> {
     const found = await evaluate<boolean>(`(() => {
@@ -177,12 +192,14 @@ export async function cdpPage(cdp: CdpTransport, attached?: AttachedPage): Promi
       },
     },
     mouse: {
-      async click(x, y) {
-        for (const type of ["mouseMoved", "mousePressed", "mouseReleased"]) {
-          await send("Input.dispatchMouseEvent", { type, x, y, button: "left", clickCount: 1 });
-        }
+      click: mouseClick,
+      // A wheel turns whatever is under the point, an embedded frame's list included.
+      async wheel(x, y, deltaY) {
+        await send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
+        await send("Input.dispatchMouseEvent", { type: "mouseWheel", x, y, deltaX: 0, deltaY });
       },
     },
+    frames: frameLister(cdp, send, mouseClick),
     async screenshot({ quality }) {
       const shot = await send<{ data?: unknown }>("Page.captureScreenshot", { format: "jpeg", quality });
       if (typeof shot?.data !== "string") throw new Error("no picture");
