@@ -429,6 +429,36 @@ the bucket, `jar` passed on to the turn, the personal check dropped),
 `infra/site-shots/src/jar.test.ts` and `browserbase.test.ts` ("sign-ins kept
 between browsers"); restore and read-back were checked in real Chromium.
 
+### Browserbase Contexts stay off; the jar is how Tex stays signed in
+
+Weighed again 2026-10-22, when the owner asked to use every Browserbase
+feature we pay for. A Browserbase Context is a saved Chrome profile kept at
+Browserbase between sessions. It would keep more than the jar does (IndexedDB,
+service workers, a sign-in bound to the browser's own key), but it fails the
+rule this jar exists for, which non-negotiable #1 now names: the browser's
+sign-ins live sealed in the person's own bucket, with the key outside it.
+
+- **A kept Context is every sign-in held at a vendor.** The profile sits in
+  Browserbase's account, not the person's bucket. It does not leave with
+  Download as folders, a person cannot see or revoke it from Context, and
+  deleting their account would have to remember to delete it there too.
+  Browserbase lets us upload a profile encrypted to its key, but not take one
+  back out, so it cannot be sealed under ours and returned to the bucket.
+- **A Context made and deleted per browser buys nothing.** A browser already
+  lives until five idle minutes pass (`idle.ts`), and the next one is handed
+  the jar. A throwaway profile would hold exactly what the running browser
+  already holds.
+- **What stays true.** `createSession` sends no `browserSettings.context`;
+  `browserbase.test.ts` checks the request body never names one. Turning it on
+  is an owner decision recorded here, not a field flipped in a PR.
+
+The jar's known gaps are the cost of this choice: a site that keeps its
+sign-in in IndexedDB (Firebase Auth's default on the web), in sessionStorage,
+or bound to the browser by Chrome's device-bound session credentials, starts
+signed out in a new browser, and Tex signs in again with the vault's login or
+hands the browser over. Closing a gap means carrying more into the sealed jar,
+never keeping a profile at Browserbase.
+
 ### A card pays only on the person's yes, each time
 
 Decided by the owner, 2026-10-21 ("add cards to the vault please"). A card is
