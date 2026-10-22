@@ -90,6 +90,8 @@ async function fixture(id) {
     NATIVE_BINDINGS: "BUCKET_ADV",
     BUCKET_ADV: a.bucket,
   };
+  // The walk names the tree's notes, never the bucket's listing: serve the tree from it.
+  controlPlane.serveTreesFrom(env);
   const logical = withLogicalDelete(new R2Store(a.bucket));
   let seq = 0;
   const call = async (name, args = {}) => {

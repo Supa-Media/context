@@ -209,18 +209,29 @@ test("rotation refuses a keyed workspace whose tree cannot be walked, rather tha
   assert.equal(raw.objects.has(ROTATION_PROGRESS_PATH), false);
 });
 
-test("an unkeyed workspace's rotation refuses at its first note, rewrapping nothing: path keys are gone", async () => {
-  const { raw, store } = await keyedWorkspace({ keyed: false });
-  const rotating = Object.assign(store, {
-    encryptionKey: { keys: { k1: KEY_1, k2: KEY_2 } },
-    actor: { workspaceId: WORKSPACE },
-    rotateEncryptionKeys: async ({ complete }) =>
-      complete !== undefined
-        ? { rotation: null }
-        : { encryptionKey: { keys: { k1: KEY_1, k2: KEY_2 } }, rotation: { fromGeneration: "k1", toGeneration: "k2" } },
-  });
-  await assert.rejects(toolRotateEncryptionKeys(rotating, "private"), { name: "NotKeyed" });
-  assert.equal(encryptedNoteKeyId(raw.objects.get(KEY).body), "k1");
+test("rotation with no tree refuses and rewrites nothing, keyed or not, and starts no rotation", async () => {
+  // Rotation walks the tree's names and never the bucket's listing, so a store
+  // with no tree has nothing it may walk: the refusal is the keyed one, and it
+  // comes before a generation is minted, not after.
+  for (const keyed of [true, false]) {
+    const { raw, store } = await keyedWorkspace({ keyed });
+    let started = 0;
+    const rotating = Object.assign(store, {
+      encryptionKey: { keys: { k1: KEY_1, k2: KEY_2 } },
+      actor: { workspaceId: WORKSPACE },
+      rotateEncryptionKeys: async () => {
+        started += 1;
+        return { encryptionKey: { keys: { k1: KEY_1, k2: KEY_2 } }, rotation: { fromGeneration: "k1", toGeneration: "k2" } };
+      },
+    });
+    const text = (await toolRotateEncryptionKeys(rotating, "private")).content[0].text;
+    assert.equal(text, KEYED_PATH_REFUSAL);
+    assert.equal(started, 0);
+    assert.deepEqual(writes(raw), []);
+    assert.ok(!raw.log.some(([op]) => op === "list"));
+    assert.equal(encryptedNoteKeyId(raw.objects.get(KEY).body), "k1");
+    assert.equal(raw.objects.has(ROTATION_PROGRESS_PATH), false);
+  }
 });
 
 /* --------------------------- folder move and across contexts --------------------------- */
