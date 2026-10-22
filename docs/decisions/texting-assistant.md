@@ -493,24 +493,8 @@ status; the gateway does that question on Cloudflare's browser, which cannot be
 handed over, and skips Browserbase for ten minutes
 (`apps/mcp/test/agentBrowserbaseRefused.test.mjs`).
 
-A Browserbase run that fails is debugged from Browserbase's own session log,
-not from a recording (2026-10-22). After the answer has gone, the screenshot
-Worker reads that session's log once and logs `site_shots_browse_failed` with
-the session id and a digest of fixed shapes: CDP method counts, failed
-responses as host and status, `net::ERR_*` codes, console-error and exception
-counts, and the hosts the tabs visited. Never a path or query, a console
-message, or anything typed, because those carry what the person searched,
-read or wrote, notes included (`infra/site-shots/src/sessionLogs.ts`). The
-session id lets whoever is debugging open that run in Browserbase's dashboard,
-behind Browserbase's sign-in, which is the read-only live view while the
-browser is still up and the full log after. The debugger link is still never
-asked for: Browserbase's "read-only" embed only turns off pointer events in an
-iframe, and whoever holds the link still drives the browser. That log line is
-the one place a session id is written down, and only for a run that failed.
-**What a simplification would cost:** logging the raw log, or a URL with its
-path, puts the person's searches and notes in our logs. The test that fails is
-`infra/site-shots/src/sessionLogs.test.ts` ("keeps hosts, statuses, error codes
-and counts, and never a path, query, console text or typed word").
+A failed Browserbase run is debugged from a digest of Browserbase's session
+log, never page content: [debugging a failed run](./texting-assistant/computer.md#a-failed-browser-run-is-debugged-from-browserbases-session-log-2026-10-22).
 
 **What a simplification would cost:** letting the model type anything
 anywhere lets a page collect the person's notes through a search box. The
