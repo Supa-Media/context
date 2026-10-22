@@ -17,6 +17,8 @@
  *   plan renames in an unkeyed workspace                           1
  *   move in a dry run                                              1
  *   drop the job rows from the plan (root folders only)            1
+ *   no pin before the rename (unkeyed file refuses it)             1
+ *   no unpin after a refused rename                                1
  */
 
 import { describe, expect, test } from "vitest";
@@ -47,6 +49,21 @@ async function folder(f: Fixture, path: string, parent?: string, role?: string):
   );
 }
 
+async function unkeyedFile(f: Fixture, path: string, parent: string): Promise<Id<"nodes">> {
+  const parentId = (await rowOf(f, parent))._id;
+  return await f.t.run(async (ctx) =>
+    await ctx.db.insert("nodes", {
+      workspaceId: f.ws,
+      path,
+      parentId,
+      name: path.slice(path.lastIndexOf("/") + 1),
+      kind: "file",
+      etag: "e",
+      observedAt: 1,
+    } as never),
+  );
+}
+
 async function roleAt(f: Fixture, path: string): Promise<string | undefined> {
   const id = (await rowOf(f, path))._id;
   return (await f.t.run(async (ctx) => await ctx.db.get(id)))?.role;
@@ -68,18 +85,39 @@ describe("taking the numbers off built-in folders", () => {
     expect(after.storageKey).toBe(before.storageKey);
   });
 
-  test("a refused rename says which refusal it was, in words a public log may print", async () => {
+  test("a file still read at its path is pinned to it and renamed with its folder", async () => {
     const f = await keyedFixture();
-    const parentId = (await rowOf(f, "1-projects/launch"))._id;
+    await unkeyedFile(f, "1-projects/launch/attachments/.manifest.json", "1-projects/launch");
+
+    const counts = await run(f);
+
+    expect(counts).toMatchObject({ renamed: 2, refused: {} });
+    expect(await liveAt(f, "1-projects")).toBe(false);
+    const moved = await rowOf(f, "projects/launch/attachments/.manifest.json");
+    // Its bytes did not move, so its key names where they are.
+    expect(moved.storageKey).toBe("1-projects/launch/attachments/.manifest.json");
+  });
+
+  test("a refused rename says which refusal it was, in words a public log may print, and takes its pins back", async () => {
+    const f = await keyedFixture();
+    const id = await unkeyedFile(f, "1-projects/launch/old-copy.md", "1-projects/launch");
+    // Something under the folder is still moving, so the rename is refused as busy.
     await f.t.run(async (ctx) => {
-      await ctx.db.insert("nodes", {
+      await ctx.db.insert("rowMoves", {
         workspaceId: f.ws,
-        path: "1-projects/launch/old-copy.md",
-        parentId,
-        name: "old-copy.md",
-        kind: "file",
-        etag: "e",
-        observedAt: 1,
+        from: "1-projects/launch",
+        to: "elsewhere",
+        trash: false,
+        state: "moving",
+        scope: "private",
+        grantedNames: [],
+        privacyEtag: null,
+        pass: 1,
+        moved: 0,
+        left: 1,
+        now: 1,
+        createdAt: 1,
+        updatedAt: Date.now(),
       } as never);
     });
 
@@ -91,6 +129,7 @@ describe("taking the numbers off built-in folders", () => {
     expect(keys[0]).not.toContain("/");
     expect(keys[0]).toMatch(/^[\x20-\x7e]+$/);
     expect(await liveAt(f, "1-projects")).toBe(true);
+    expect((await f.t.run(async (ctx) => await ctx.db.get(id)))?.storageKey).toBeUndefined();
   });
 
   test("the folder keeps its job, so writers naming the old spelling still land in it", async () => {

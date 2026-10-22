@@ -36,7 +36,7 @@ import { loadPrivacyState } from "../fileOps/privacyState";
 import type { FileStore } from "../fileOps/store";
 import { followInProjection, type ProjectionClient } from "../fileOps/search";
 import type { MoveResult } from "../fileOps/moving";
-import { PRIVACY_KEY, canSee } from "../privacy";
+import { PRIVACY_KEY, canSee, isPlumbing } from "../privacy";
 import { carryPrivacy, releasePrivacy } from "./movePrivacy";
 import { touchNodesNow } from "./run";
 import { catchUpKeyedRows } from "./rowCatchUp";
@@ -125,12 +125,15 @@ export async function startRowMove(ctx: ActionCtx, args: RowMoveArgs): Promise<M
   if (state.invalid) throw new FileOpError("PRIVACY_MANIFEST_INVALID", "The privacy rules could not be read; the move was not made.");
   if (!canSee(from, clearance.scope, state.rules, state.overrides, clearance.names)) throw notFound();
   // A folder with something in it this caller cannot see cannot move as one: the row move takes all of it.
-  // The refusal says nothing of what is hidden, so it does not show that anything is.
-  if (planned.files.some((key) => !canSee(key, clearance.scope, state.rules, state.overrides, clearance.names))) {
+  // The refusal says nothing of what is hidden, so it does not show that anything is. Plumbing (a dot
+  // segment, such as a mail pass's attachment list) is hidden from every caller alike, so it hides nothing
+  // from this one and goes with its folder.
+  const seen = planned.files.filter((key) => !isPlumbing(key));
+  if (seen.some((key) => !canSee(key, clearance.scope, state.rules, state.overrides, clearance.names))) {
     throw new FileOpError("CONFLICT", "That folder cannot move in one step.");
   }
   const pairs = planned.files.map((key) => ({ source: key, destination: `${to}${key.slice(from.length)}` }));
-  assertMoveDestinationsVisible(pairs, clearance, state);
+  assertMoveDestinationsVisible(pairs.filter((pair) => !isPlumbing(pair.source)), clearance, state);
 
   // In rows mode the rows are the truth and the rules are not carried: a folder that would widen keeps its
   // narrowing on its own row, which the move then carries (`narrowMove`). The file's own rules are left alone.

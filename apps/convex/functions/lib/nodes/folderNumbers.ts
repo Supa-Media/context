@@ -20,6 +20,12 @@
  *   counted as a twin, so two folders are never merged by a migration;
  * - an unkeyed workspace is left alone, because there a rename is a byte
  *   move of every note under it;
+ * - in a keyed one, a file row still read at its path (written by path
+ *   after keying, such as a mail pass's attachment list) would make the row
+ *   move refuse the whole folder ("unkeyed"), so it is pinned first, as
+ *   hiding old copies pins them (`lib/oldCopies/folders.ts`): its key set to
+ *   the path its bytes are at, so it reads the same after the rename. A
+ *   refused rename takes the pins back;
  * - the plan is read again after every rename, so a folder renamed by an
  *   earlier one (an Archive twin, a nested job) is never moved twice.
  *
@@ -130,6 +136,21 @@ export async function planFolderNumbers(db: DatabaseReader, workspaceId: Id<"wor
   return { keyed, renames, twins };
 }
 
+/** Pin every unkeyed file row under `folder`, a page at a time; answers the rows pinned. */
+async function pinUnder(ctx: ActionCtx, workspaceId: Id<"workspaces">, folder: string): Promise<Id<"nodes">[]> {
+  const pinned: Id<"nodes">[] = [];
+  let after: string | undefined;
+  for (;;) {
+    const page: { pinned: Id<"nodes">[]; next: string | null } = await ctx.runMutation(
+      internal.functions.folderNumbers.pinPage,
+      { workspaceId, folder, ...(after === undefined ? {} : { after }) },
+    );
+    pinned.push(...page.pinned);
+    if (page.next === null) return pinned;
+    after = page.next;
+  }
+}
+
 /**
  * One workspace's pass. `move` is the console's rename (the action passes
  * `runFileOperation`; a test passes the barrier with its own store).
@@ -157,10 +178,12 @@ export async function dropFolderNumbersIn(
     const next = current.renames.find((rename) => !tried.has(rename.from));
     if (next === undefined) break;
     tried.add(next.from);
+    const pinned = await pinUnder(ctx, workspaceId, next.from);
     const result = await move(next.from, next.to);
     if (result.kind === "moveQueued" && result.queued) {
       counts.renamed += 1;
     } else {
+      if (pinned.length > 0) await ctx.runMutation(internal.functions.folderNumbers.unpinRows, { ids: pinned });
       const refusedWith = result as { error?: string; message?: string };
       const code = refusedWith.error ?? "NOT_QUEUED";
       // The code alone does not say which refusal it was (CONFLICT is busy, unkeyed or changed alike).
