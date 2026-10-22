@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useConvex, useMutation, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { OldCopiesPage, OldCopiesRow } from "./OldCopies";
@@ -9,7 +9,12 @@ import { OldCopiesPage, OldCopiesRow } from "./OldCopies";
  * nothing for anyone but the owner, nothing once the owner has answered, and
  * nothing in the read-only demo, which never renders this.
  */
-export function LiveOldCopies({
+export function LiveOldCopies(props: Parameters<typeof ReadOldCopies>[0]) {
+  // No client above it (a screen drawn from fixtures): there is nothing to ask, so nothing is drawn.
+  return useConvex() === undefined ? null : <ReadOldCopies {...props} />;
+}
+
+function ReadOldCopies({
   workspaceId,
   open,
   onOpen,
