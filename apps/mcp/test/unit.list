@@ -2,6 +2,7 @@ bench/test/checks.test.mjs
 bench/test/fluff.test.mjs
 bench/test/judge.test.mjs
 bench/test/load.test.mjs
+bench/test/mailbox.test.mjs
 bench/test/models.test.mjs
 bench/test/report.test.mjs
 bench/test/resultNote.test.mjs

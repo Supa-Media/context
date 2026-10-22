@@ -19,6 +19,7 @@
  * matter, so "untouched for a month" means the same on every run.
  */
 
+import { readMailbox, searchMailbox } from "./mailbox.mjs";
 import { TRANSCRIPTS_FOLDER } from "../src/agent/transcript.js";
 import { HOUSEKEEPING_CLIENT_ID } from "../src/agent/housekeeping.js";
 import worker from "../src/index.js";
@@ -231,6 +232,17 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
   // The person's calendar, as Google would answer for it: their personal
   // workspace's calendar days, read live by `calendar:` (`load.mjs`).
   controlPlane.flags.calendarDays = calendarAnswer(bench.workspaces[own.workspace]?.calendar ?? []);
+  // Their Gmail, as Google would answer for it (`mailbox.mjs`): searched and
+  // read live, and a mailbox that may keep drafts. Sending stays off, as it is
+  // until Google's review adds the send scope (tests/tasks.md, task 9).
+  const mail = bench.workspaces[own.workspace]?.mail ?? [];
+  if (mail.length > 0) {
+    const address = mail[0].address;
+    controlPlane.flags.mailboxes = [{ address, folder: "0-inbox/email" }];
+    controlPlane.flags.mailResults = (query) => searchMailbox(mail, query);
+    controlPlane.flags.mailMessage = (body) => readMailbox(mail, body.address, body.id);
+    controlPlane.flags.emailDrafter = address;
+  }
   // The listing tools list from the Convex tree, copied here from each S3 bucket.
   controlPlane.serveTreesFrom(null, { s3 });
   // A warmed world answers searches from a copy of the snapshot's database.
@@ -543,6 +555,11 @@ export async function createWorld(bench, person, setupRaw, models, today = null,
         out[note] = found ? { at: `${workspace}/${found.path}`, front: frontOf(found.body), text: found.body.slice(0, MAX_FILED_TEXT) } : null;
       }
       return out;
+    },
+
+    /** The emails the conversation saved as drafts or sent, never a check (`checks.mjs` `forward`). */
+    emails() {
+      return controlPlane.emailCalls.filter((entry) => !entry.check && entry.answer?.ok === true).map((entry) => ({ ...entry.email, draft: entry.draft === true }));
     },
 
     /** What the scripted browser did this conversation (`sites.mjs`); empty without one. */
