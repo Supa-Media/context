@@ -21,6 +21,7 @@ import type { Id } from "../_generated/dataModel";
 import { internalMutation, type MutationCtx } from "../_generated/server";
 import { isAuthority, privacyAuthorityOn, scheduleExport } from "./lib/nodes/privacyAuthority";
 import { purgeSmallDataBatch, resetSmallDataForStorage } from "./lib/smallData/purge";
+import { scheduleDiagnosis } from "./lib/noteIds/state";
 
 /** Rows one batch deletes. */
 const PURGE_BATCH = 1_000;
@@ -127,6 +128,28 @@ export async function forgetWorkspaceTree(
   if (options.storageMoved === true) await resetSmallDataForStorage(ctx, workspaceId);
   else await purgeSmallDataBatch(ctx, workspaceId);
   await purgeBatch(ctx, workspaceId);
+}
+
+/**
+ * A keyed workspace's storage moved: its tree stays. Its rows are the only
+ * record of every note's name, folder and access, and they name keys
+ * (`notes/<noteId>.md`), which a storage move copies as they are, so they
+ * describe the new bucket as well as they did the old one. Forgotten, nothing
+ * could rebuild them: the new bucket names no path.
+ *
+ * What does describe the old bucket goes: queued byte moves, and the icons,
+ * emoji and ledger sync state (written to the new bucket again). A move may
+ * reseal or unseal the keys on the way, so every key is checked against its
+ * row (`scheduleDiagnosis`), and rows take the new bucket's versions.
+ */
+export async function keepKeyedTreeForStorage(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<void> {
+  const moves = await ctx.db
+    .query("moveQueue")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const row of moves) await ctx.db.delete(row._id);
+  await resetSmallDataForStorage(ctx, workspaceId);
+  await scheduleDiagnosis(ctx, workspaceId);
 }
 
 /** The next batch of a purge `forgetWorkspaceTree` started. */

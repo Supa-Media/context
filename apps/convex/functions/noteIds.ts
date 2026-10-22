@@ -22,7 +22,7 @@ import { cleanupViewOf, cleanupViewValidator, type CleanupView } from "./noteIds
 import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { KEYED_RECHECKS_PER_TICK, keyedRecheckOwed } from "./lib/noteIds/keyedRecheck";
 import { copyStateOf, planGroup, renameSnapshotId, sharedGroupsPage } from "./lib/noteIds/sharedIds";
-import { beginCopyPass, copyPassOwed, copyRowOf, ensureCopyRow, idCopyPaused, leaseHeld, nodeAt } from "./lib/noteIds/state";
+import { beginCopyPass, copyPassOwed, copyRowOf, idCopyPaused, leaseHeld, nodeAt, scheduleDiagnosis } from "./lib/noteIds/state";
 import { boundWorkspaces, liveBoundWorkspaces, staffOnly } from "./nodesMigration";
 
 const statusValidator = v.union(v.literal("idle"), v.literal("copying"), v.literal("done"), v.literal("failed"));
@@ -379,19 +379,6 @@ export const recordCopy = internalMutation({
     return true;
   },
 });
-
-/** Schedule the diagnosis for one workspace: every copy it holds is compared with its bucket. */
-async function scheduleDiagnosis(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<void> {
-  const row = await ensureCopyRow(ctx, workspaceId);
-  await ctx.scheduler.runAfter(0, internal.functions.noteIdsCopy.runCheck, {
-    workspaceId,
-    runId: row.runId,
-    checkedAt: Date.now(),
-    checked: 0,
-    missing: 0,
-    differs: 0,
-  });
-}
 
 /** Check one workspace's id copies against its bucket. Missing or differing copies are copied again. */
 export const diagnose = mutation({

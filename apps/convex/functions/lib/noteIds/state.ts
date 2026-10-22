@@ -39,6 +39,19 @@ export async function ensureCopyRow(ctx: MutationCtx, workspaceId: Id<"workspace
   return (await ctx.db.get(id)) as CopyRow;
 }
 
+/** Schedule the diagnosis for one workspace: every copy and key it holds is compared with its bucket. */
+export async function scheduleDiagnosis(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<void> {
+  const row = await ensureCopyRow(ctx, workspaceId);
+  await ctx.scheduler.runAfter(0, internal.functions.noteIdsCopy.runCheck, {
+    workspaceId,
+    runId: row.runId,
+    checkedAt: Date.now(),
+    checked: 0,
+    missing: 0,
+    differs: 0,
+  });
+}
+
 /** The switch: absent means running. */
 export async function idCopyPaused(db: DatabaseReader): Promise<boolean> {
   const row = await db.query("noteIdLayout").first();

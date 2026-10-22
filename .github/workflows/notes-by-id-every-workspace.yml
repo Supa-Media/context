@@ -1,0 +1,115 @@
+# Put every workspace on notes by id, and prove none was skipped
+# (owner, 2026-10-22: "make sure that new and current workspaces are all notes
+# by id").
+#
+# Manual only. Run it with `dry_run` first: that counts each workspace's stage
+# and changes nothing. Without it, each workspace's owed work is started (a
+# first copy pass, a pass again after failures, a stalled page, the flip of a
+# finished copy); passes finish in the background, so run it again to count.
+# Every run ends with `verify`, which reads the tree rows themselves and
+# counts live notes still not at their id keys. It pages through
+# `functions/noteIdsAll`, which answers with counts and never a path, an id or
+# a name: this repository is public, and so is this job's log.
+name: Notes by id for every workspace
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which deployment to check."
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
+      dry_run:
+        description: "Count only; start nothing."
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  every-workspace:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Stages
+        working-directory: apps/convex
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          cursor=""
+          page=0
+          totals='{}'
+          started=0
+          while :; do
+            page=$((page + 1))
+            if [ -z "$cursor" ]; then
+              args=$(jq -cn --argjson dry "$DRY_RUN" '{dryRun: $dry}')
+            else
+              args=$(jq -cn --argjson dry "$DRY_RUN" --arg cursor "$cursor" '{dryRun: $dry, cursor: $cursor}')
+            fi
+            answer=$(npx convex run functions/noteIdsAll:run "$args")
+            echo "page $page: $(echo "$answer" | jq -c 'del(.cursor)')"
+            totals=$(jq -cn --argjson a "$totals" --argjson b "$(echo "$answer" | jq -c '.stages')" \
+              '$a as $x | $b | with_entries(.value += ($x[.key] // 0))')
+            started=$((started + $(echo "$answer" | jq -r '.started')))
+            if [ "$(echo "$answer" | jq -r '.done')" = "true" ]; then break; fi
+            cursor=$(echo "$answer" | jq -r '.cursor')
+            if [ "$page" -ge 400 ]; then echo "stopped after $page pages"; exit 1; fi
+          done
+          echo "stages: $totals"
+          echo "started: $started"
+          {
+            echo "### Stages"
+            echo
+            echo '```'
+            echo "$totals" | jq .
+            echo "started: $started"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify the rows
+        working-directory: apps/convex
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          cursor=""
+          page=0
+          live=0
+          unkeyed=0
+          in_keyed=0
+          while :; do
+            page=$((page + 1))
+            if [ -z "$cursor" ]; then args='{}'; else args=$(jq -cn --arg cursor "$cursor" '{cursor: $cursor}'); fi
+            answer=$(npx convex run functions/noteIdsAll:verify "$args")
+            live=$((live + $(echo "$answer" | jq -r '.liveNotes')))
+            unkeyed=$((unkeyed + $(echo "$answer" | jq -r '.unkeyed')))
+            in_keyed=$((in_keyed + $(echo "$answer" | jq -r '.unkeyedInKeyed')))
+            if [ "$(echo "$answer" | jq -r '.done')" = "true" ]; then break; fi
+            cursor=$(echo "$answer" | jq -r '.cursor')
+            if [ "$page" -ge 2000 ]; then echo "stopped after $page pages"; exit 1; fi
+          done
+          echo "live notes: $live; not at their id keys: $unkeyed; of those, in workspaces marked keyed: $in_keyed"
+          {
+            echo "### Rows"
+            echo
+            echo "live notes: $live; not at their id keys: $unkeyed; of those, in workspaces marked keyed: $in_keyed"
+          } >> "$GITHUB_STEP_SUMMARY"
