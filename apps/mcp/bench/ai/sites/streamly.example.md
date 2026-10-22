@@ -25,8 +25,10 @@ text: Sign in to Streamly.
 ## https://streamly.example/account
 title: Your account | Streamly
 signed in only
-text: Plan: Premium, 13.99 a month. Your plan renews on November 2, 2026.
+text (!cancelled plan): Plan: Premium, 13.99 a month. Your plan renews on November 2, 2026.
+text (cancelled plan): Plan: Premium, cancelled. You can watch until November 2, 2026, and won't be charged again.
 - link: Change plan -> https://streamly.example/plans
+- button (!cancelled plan): Cancel plan -> https://streamly.example/account [sets cancelled plan]
 
 ## https://streamly.example/plans
 title: Plans | Streamly

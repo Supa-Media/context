@@ -90,7 +90,7 @@ export function siteShotsComputer(env, { owner = null, viewer = null, jar = null
   const refused = () => browserbaseRefusedAt !== null && now() - browserbaseRefusedAt < BROWSERBASE_REFUSED_PAUSE_MS;
   const browserbaseWanted = () => typeof owner === "string" && owner.length > 0 && !browserbaseMissing && !refused();
 
-  async function browseOn(session, steps, handoff) {
+  async function browseOn(session, steps, handoff, fresh) {
     if (browserbaseWanted()) {
       // `handoff` tells the screenshot Worker (and the bench's stand-in for it)
       // the person is being handed this browser; it asks Browserbase for nothing.
@@ -100,6 +100,8 @@ export function siteShotsComputer(env, { owner = null, viewer = null, jar = null
         owner,
         steps,
         ...(handoff ? { handoff: true } : {}),
+        // A new browser, a new address: the last try past a captcha (`captchaLadder.js`).
+        ...(fresh ? { fresh: true } : {}),
         ...(jar !== null ? { keep: true, ...(held !== null ? { jar: held } : {}) } : {}),
       });
       // 402: Browserbase won't start a browser until its bill is paid.
@@ -126,8 +128,8 @@ export function siteShotsComputer(env, { owner = null, viewer = null, jar = null
       return body.page.file ? await pdfPage(env?.AI, body.page) : body.page;
     },
 
-    async browse(session, steps, { handoff = false } = {}) {
-      return await withFileWords(env?.AI, await browseOn(session, steps, handoff));
+    async browse(session, steps, { handoff = false, fresh = false } = {}) {
+      return await withFileWords(env?.AI, await browseOn(session, steps, handoff, fresh));
     },
 
     /** Whether a question may carry on in a browser an earlier one opened. */

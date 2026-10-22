@@ -30,6 +30,11 @@ compatibility_date = "2026-08-01"
 # gateway below; leave it out to let such calls run at once.
 SHARING_JUDGE = "on"
 
+# The hand-back judge (docs/decisions/texting-assistant/handing-back.md): a small
+# model reads a texted answer that asks the person something, and one that hands
+# them work Tex could do goes back for one more round. Needs the AI gateway.
+HANDBACK_JUDGE = "on"
+
 # The gateway's own public origin, e.g. "https://mcp.example.com" (no trailing
 # slash).
 #
@@ -201,6 +206,7 @@ workers_dev = true
 
 [env.staging.vars]
 SHARING_JUDGE = "on"
+HANDBACK_JUDGE = "on"
 PUBLIC_ORIGIN = "https://mcp-staging.context.lc"
 ALLOWED_ORIGINS = "https://staging.context.lc https://tex-staging.context.lc"
 APP_ORIGIN = "https://staging.context.lc"

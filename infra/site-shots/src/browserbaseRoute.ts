@@ -17,6 +17,13 @@
  * step's file goes the other way, into the session's storage, and the browser
  * sets it on the page's box itself (./upload.ts).
  *
+ * A captcha left on the page after the steps is given time to clear on its
+ * own, Browserbase's solver being on in every browser; the answer's
+ * `captcha` says `solved` or `unsolved` (./captcha.ts). `fresh: true` drops
+ * the person's running browser and starts another, a new address and
+ * fingerprint, which is the gateway's last try before a captcha is handed
+ * over (apps/mcp/src/agent/captchaLadder.js).
+ *
  * A run that fails is logged with a digest of the session's own Browserbase
  * log (./sessionLogs.ts), after the answer has gone (`later`): hosts, status
  * codes and counts, never the page, an address's path or what was typed.
@@ -45,6 +52,7 @@ import { browserbaseUploads } from "./upload";
 import { touchIdle } from "./idle";
 import { captureJar, parseJar, restoreCookies, restoreStorage, type Jar } from "./jar";
 import { reportFailedRun, type FailedRun } from "./sessionLogs";
+import { settleCaptcha } from "./captcha";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -70,6 +78,8 @@ export async function browseOnBrowserbase(
   const parsed = parseBrowseRequest({ steps: (body as { steps?: unknown })?.steps });
   if (parsed === null) return json({ error: "those steps could not be read" }, 400);
   const keep = (body as { keep?: unknown })?.keep === true;
+  const startOver = (body as { fresh?: unknown })?.fresh === true;
+  const handingOver = (body as { handoff?: unknown })?.handoff === true;
   const held: Jar | null = keep ? parseJar((body as { jar?: unknown })?.jar) : null;
   const started = Date.now();
   const steps = parsed.steps.map((s) => s.do);
@@ -83,6 +93,12 @@ export async function browseOnBrowserbase(
   let fresh = false;
   try {
     session = await findSession(env, owner, fetcher);
+    // A fresh browser: the running one is let go first, so the new one is
+    // the only one this person has and the next question finds it.
+    if (session !== null && startOver) {
+      await releaseSession(env, session.id, fetcher).catch(() => undefined);
+      session = null;
+    }
     if (session === null) {
       session = await createSession(env, owner, fetcher);
       fresh = true;
@@ -134,13 +150,16 @@ export async function browseOnBrowserbase(
     const page = await cdpPage(cdp, attached);
     // A file goes in as the browser's own, through Browserbase's uploads (./upload.ts).
     const uploads = browserbaseUploads(env, session.id, fetcher);
-    const result = await runSteps(page, parsed.steps, { downloads, uploads });
+    let result = await runSteps(page, parsed.steps, { downloads, uploads });
+    // Not while the person is being handed the browser: it is theirs then.
+    const captcha = handingOver ? null : await settleCaptcha(attached.evaluate);
+    if (captcha === "solved") result = { ...result, page: (await runSteps(page, [{ do: "read" }])).page };
     const jar = keep && restored ? await captureJar(cdp, attached).catch(() => null) : null;
     const ok = result.ran.every((r) => r.ok);
     // Step kinds and timing only, as for Cloudflare's browser.
     console.log(JSON.stringify({ event: "site_shots_browse", provider: "browserbase", steps, ok, ms: Date.now() - started }));
     if (!ok) failed(session.id, "steps", result.ran.map((r) => ({ do: r.do, ok: r.ok, ...(r.reason && !r.ok ? { reason: r.reason.slice(0, 200) } : {}) })));
-    return json({ session: session.id, ...result, ...(jar !== null ? { jar } : {}) });
+    return json({ session: session.id, ...result, ...(captcha !== null ? { captcha } : {}), ...(jar !== null ? { jar } : {}) });
   } catch {
     failed(session.id, "run");
     return json({ session: session.id, error: "the browser could not do that" }, 502);

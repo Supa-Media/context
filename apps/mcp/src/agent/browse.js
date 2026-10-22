@@ -45,6 +45,7 @@
 
 import { addressesIn, canonicalUrl } from "./computer.js";
 import { keptLine } from "./downloads.js";
+import { captchaLadder } from "./captchaLadder.js";
 
 export const BROWSE_TOOL = "browse";
 
@@ -105,7 +106,7 @@ export const NO_LINK_LINE = "I couldn't make a link to my browser this time, so 
 
 /** What the description says about handing the browser over, when this browser can be. */
 const HANDOFF_SENTENCE =
-  "When the person has to do something themselves (a code, a captcha, a payment with no saved card, or a sign-in they said they'd rather do), add a handoff step: " +
+  "When the person has to do something themselves (a code, a captcha this tool said outlasted every try, a payment with no saved card, or a sign-in they said they'd rather do), add a handoff step: " +
   "a link to this browser is added to your reply, so tell them to open it, finish, and text you; never ask for their password. " +
   "Hand over rarely: a sign-in is yours to do with a login saved in the vault, and a payment with fill_card when a card is saved, so ask for one to be saved before handing over. ";
 /** And when it cannot: a model told a link is coming says so, and none comes. */
@@ -258,6 +259,8 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
   let session = null;
   let origin = null;
   let steps = 0;
+  // A captcha is tried every other way before it is ever the person's (`captchaLadder.js`).
+  const captchas = captchaLadder();
   // The person's own page for taking the browser over (`context.lc/tex/<handle>`),
   // never the model's and never a link to the browser itself: texted the
   // moment it exists when the turn can text mid-task (`say`), else added to
@@ -289,8 +292,8 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
   const handoffLine = () =>
     `Open this to take over the browser${hostLabel()}, then text me when you're done: ${handoffLink}`;
 
-  async function run(planned, { handoff = false } = {}) {
-    const result = await computer.browse(session, planned, handoff ? { handoff: true } : undefined);
+  async function run(planned, { handoff = false, fresh = false } = {}) {
+    const result = await computer.browse(session, planned, handoff || fresh ? { ...(handoff ? { handoff: true } : {}), ...(fresh ? { fresh: true } : {}) } : undefined);
     if (typeof result?.handoffUrl === "string" && result.handoffUrl.startsWith("https://")) handoffLink = result.handoffUrl;
     if (result?.session) session = result.session;
     const reading = result?.page;
@@ -306,7 +309,7 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
       const url = canonicalUrl(href);
       if (url) allowed.add(url);
     }
-    return { reading, ran: Array.isArray(result.ran) ? result.ran : [], file: result.file ?? null };
+    return { reading, ran: Array.isArray(result.ran) ? result.ran : [], file: result.file ?? null, captcha: result.captcha ?? null };
   }
 
   /** Keep a downloaded file in the person's bucket and say how to use it; the bytes never reach the model. */
@@ -417,8 +420,16 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
       }
       steps += planned.length;
       let done;
+      let captchaLine = "";
       try {
-        done = await run(planned, { handoff });
+        // The steps go first with no handoff, so a captcha they meet is
+        // tried every other way before the browser is handed over for it.
+        done = await run(planned);
+        let cleared = false;
+        if (done !== null) ({ done, line: captchaLine, cleared } = await captchas.settle(done, (s, o) => run(s, o)));
+        // Got past a captcha: nothing is left for the person to do there.
+        if (cleared) handoff = false;
+        if (handoff && done !== null) done = await run([{ do: "read" }], { handoff: true });
       } catch {
         done = null;
       }
@@ -445,9 +456,11 @@ export function browserSession(computer, { allowed, addresses, takePages, say = 
             ? "\n\nThe link to this browser could not be made. Tell the person what to do on the site themselves."
             : "";
       const kept = done.file ? await keepFile(done.file) : "";
-      const result = textResult(readingText(done.reading, done.ran) + told + kept, done.ran.some((r) => !r.ok) || kept.startsWith("\n\nNot kept"));
+      const result = textResult(readingText(done.reading, done.ran) + captchaLine + told + kept, done.ran.some((r) => !r.ok) || kept.startsWith("\n\nNot kept"));
       // The page it read, kept with the answer (`sources.js`), even when a step on the way failed.
       result.sources = [done.reading.url];
+      // For the answer check: a captcha that outlasted every try is the only one the person may be asked to solve (`claimCheck.js`).
+      if (captchas.stuck()) result.captchaStuck = true;
       // A look's picture, after the words: what the page shows, for a click at a point on it.
       const shot = done.reading.shot;
       if (typeof shot?.data === "string" && shot.data.length > 0 && shot.data.length <= MAX_SHOT_CHARS) {
