@@ -551,7 +551,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       maxRounds: production?.maxSteps ?? undefined,
       // A browser call can open a page and settle it (`infra/site-shots`
       // budgets 17 s); the default would cut a slow one short and lose it.
-      toolTimeouts: { browse: 30_000, fill_login: 30_000, draw_picture: 40_000, make_picture: 70_000 },
+      // An email or calendar change is checked by the control plane and the Mail checker before it is held (2026-10-22: three "timed out" for one email).
+      toolTimeouts: { browse: 30_000, fill_login: 30_000, draw_picture: 40_000, make_picture: 70_000, send_email: 55_000, save_email_draft: 55_000, calendar_event: 40_000, slack_api: 40_000 },
       // A background job is long whether or not it streams (`background.js`).
       planned: job !== null, ...(channel !== null || job !== null ? { ...(channel !== null ? { progress: channel } : {}), roundCap: LONG_MAX_ROUNDS, toolBudgetMs: LONG_TOOL_BUDGET_MS } : {}),
     });

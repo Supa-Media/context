@@ -548,6 +548,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A hold is armed for a texted yes only once its ask goes out whole
 - A draft saved in the person's Gmail needs no yes (owner, 2026-10-19)
 - A standing forward: one 👍 lets a routine keep forwarding one kind of mail (owner, 2026-10-21)
+- An email is checked in time to be held (2026-10-22)
 - No calendar change is made without the person's yes to that exact change (owner, 2026-10-17)
 - A move or a cancel names the event by its title and start, and must match one
 - Never an event with guests

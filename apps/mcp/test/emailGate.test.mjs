@@ -361,7 +361,7 @@ export async function runEmailGateChecks(check) {
     const toldModel = JSON.stringify(model.requests.at(-1)?.messages ?? []);
     check(
       "a held email reaches the model as waiting for a yes, not as a failed call",
-      toldModel.includes("Held for their YES, and nothing failed") && !toldModel.includes('"is_error":true'),
+      toldModel.includes("Held for their 👍, and nothing failed") && !toldModel.includes('"is_error":true'),
     );
     const onceText = once.body?.answer ?? "";
     check(
@@ -408,7 +408,8 @@ export async function runEmailGateChecks(check) {
     );
     controlPlane.flags.mailMessage = null;
     const pendingBeforeGone = pending().length;
-    model.install([{ toolCalls: [{ name: "send", args: { action: "email", args: { ...FORWARD, subject: "Fwd: gone" } } }] }, { text: "It's gone." }]);
+    // The Mail checker reads while Gmail is asked, so it has read this one too (2026-10-22).
+    model.install([{ toolCalls: [{ name: "send", args: { action: "email", args: { ...FORWARD, subject: "Fwd: gone" } } }] }, verdict("yes"), { text: "It's gone." }]);
     const gone = await ask(env, TOKEN_TEXTS, "forward the anthropic receipt to books@receipts.example");
     check(
       "a forward of an email Gmail no longer has is never put to the person",

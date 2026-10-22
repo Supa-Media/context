@@ -228,6 +228,21 @@ writes there. Tests: `apps/mcp/test/forwardRule.test.mjs` (a texted rule is
 held, its 👍 keeps it, the routine then forwards without asking, never twice,
 never elsewhere, another routine never sends, stop needs no 👍).
 
+### An email is checked in time to be held (2026-10-22)
+
+One email to a colleague took four rounds: each time Tex called
+`send_email`, the gate asked the control plane about the limits and then the
+Mail checker read the texts, one after the other, and together they ran past
+the 20 seconds a texted turn gives a call. The call was stopped, nothing was
+held, and the person was told the send "timed out", then shown Tex's own
+preview, which no 👍 could release. Now the checker reads while the limits are
+asked (`emailGate.js`; not when the turn already asked about an email, which
+is refused unread), and a texted turn gives `send_email` and
+`save_email_draft` 55 seconds, a calendar change and a Slack call 40
+(`route.js`). Cost of reverting: the person's first yes reaches a call that
+never got as far as asking them. Tests: `emailGateTiming.test.mjs` and `a
+texted turn gives a held send long enough` in `gatewaySourceGuards.test.mjs`.
+
 ### What is deliberately not built
 
 Attaching a file that is not already on an email (a note's PDF, a picture),
