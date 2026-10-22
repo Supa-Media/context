@@ -33,6 +33,6 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           SENDBLUE_API_KEY_ID: ${{ secrets.SENDBLUE_API_KEY_ID }}
           SENDBLUE_API_SECRET: ${{ secrets.SENDBLUE_API_SECRET }}
-          FROM: ${{ inputs.from || '2026-10-22T20:50:00Z' }}
+          FROM: ${{ inputs.from || '2026-10-22T20:40:00Z' }}
           TO: ${{ inputs.to || '2026-10-22T21:02:00Z' }}
         run: node .github/scripts/tapback-evidence.mjs

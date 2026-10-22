@@ -69,6 +69,7 @@ async function sendblueMessages() {
   const body = await response.json();
   const list = Array.isArray(body) ? body : (body.data ?? body.messages ?? []);
   console.log(`\n## Sendblue messages: ${list.length} (response keys ${JSON.stringify(Object.keys(body))})`);
+  const handles = list.map((message) => message.message_handle);
   for (const message of list) {
     const content = typeof message.content === "string" ? message.content : "";
     const extra = {};
@@ -83,6 +84,13 @@ async function sendblueMessages() {
         first: TAPBACK.test(content) ? content.split(/\s/u)[0] : null,
         thumbs: content.includes("\u{1F44D}"),
         length: content.length,
+        // A tapback's frame, never the words between: code points of the first 10 and last 3 characters, outside letters.
+        head: [...content].slice(0, 10).map((c) => (/\p{L}/u.test(c) ? "L" : `U+${c.codePointAt(0).toString(16)}`)).join(" "),
+        tail: [...content].slice(-3).map((c) => (/\p{L}/u.test(c) ? "L" : `U+${c.codePointAt(0).toString(16)}`)).join(" "),
+        index: handles.indexOf(message.message_handle),
+        replies_to: handles.indexOf(message.reply_to?.message_handle),
+        originator: handles.indexOf(message.thread_originator?.message_handle),
+        part: message.reply_to?.part_index ?? message.thread_originator?.part ?? null,
         extra,
       }),
     );
