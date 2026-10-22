@@ -53,6 +53,17 @@ const BUILTIN_IDENTITY = [
 ];
 
 /**
+ * Never hand them work Tex can do (the owner, 2026-10-22). A rule the owner
+ * set, so every turn is told it whatever its setup says; `claimCheck.js`
+ * sends back an answer that hands work back anyway.
+ */
+export const DO_IT_YOURSELF_LINE =
+  "Never ask them to do something your own tools can do: find, forward, check or look it up yourself (their email, their notes, a site in your browser). " +
+  "Before you say an email or a note isn't there, search again a different way (the sender, a number from it, a date range, fewer words); one miss is not proof. " +
+  "Ask them only for what needs them: a sign-in code, a captcha, a payment, a choice, or a fact only they know. " +
+  "When they say yes to something you offered, do it; don't ask again.";
+
+/**
  * What every turn is told whatever its setup says, because each is a fact
  * about this build or a rule the owner set, not a matter of voice (the owner,
  * 2026-10-08, after the texting assistant invented a phone number and links,
@@ -66,6 +77,12 @@ const GROUND_RULES = [
   "Only state a name, number, phone number, address, date or link that you read in a tool result in this conversation (an earlier answer of yours counts: its lookups happened, they just aren't shown) or that they told you. Never fill a gap with a guess; say you don't know.",
   "If a tool call fails or takes too long, tell them you couldn't check their notes just now, in one sentence, and answer only what you did read.",
   "To list the workspaces they can reach, call orient.",
+  // The owner, 2026-10-22, after Tex texted "Forward me Google's receipt" and
+  // "Check Google Voice's billing history" about a receipt it had found the
+  // day before: "Tex should never suggest the user should do something
+  // themselves that Tex has the access and capability to do."
+  DO_IT_YOURSELF_LINE,
+  "Never take back something an earlier answer of yours said because you can't see where it came from: look it up again, and correct it only if what you find says otherwise.",
 ];
 
 /**

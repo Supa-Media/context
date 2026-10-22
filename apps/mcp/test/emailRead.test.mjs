@@ -23,6 +23,8 @@
  *     connection is not offered...` fails.
  *  7. The any-word retry dropped from `toolSearchEmail`. → `a long search
  *     Gmail found nothing for is asked again...` fails.
+ *  8. The any-word retry kept to searches that found nothing (2026-10-22). →
+ *     `a search that found only a few is asked again...` fails.
  *  4. `read_email` removed from UNTRUSTED_READS. → `an email read live marks the
  *     texted turn as having read from outside` fails.
  */
@@ -88,6 +90,23 @@ export async function runEmailReadChecks(check) {
     check(
       "a search with Gmail operators, or of a word or two, is never loosened",
       controlPlane.mailReadCalls.slice(before).length === 1,
+    );
+    // A few every-word results are not the end of it (2026-10-22): "Google Voice
+    // receipt" found the colleague asking for the receipt, never Google's own.
+    const ASKED = { ...LIVE, id: "18c0aaaa", from: "Kansi <kansi@example.com>", subject: "Fwd: receipt for the Google Voice charge?", snippet: "Can you send me the receipt" };
+    const RECEIPT = { ...LIVE, id: "18c0bbbb", from: "Google Payments <payments-noreply@google.com>", subject: "Your Google Voice order", snippet: "Amount paid $25.26" };
+    controlPlane.flags.mailResults = (query) => (query.startsWith("{") ? [ASKED, RECEIPT] : [ASKED]);
+    before = controlPlane.mailReadCalls.length;
+    const few = textOf(await call(env, TOKEN_MCP, "search", { query: "Google Voice receipt", args: { email: true } }));
+    check(
+      "a search that found only a few is asked again for any of its words, and lists the new ones apart",
+      controlPlane.mailReadCalls.slice(before).length === 2 &&
+        few.includes("email:me@example.com/18c0aaaa") && few.includes("email:me@example.com/18c0bbbb") &&
+        few.indexOf("only some of those words") < few.indexOf("18c0bbbb") && few.split("18c0aaaa").length === 2,
+    );
+    check(
+      "...and says how else to search before calling an email missing, never to ask the person",
+      few.includes("from:") && few.includes("after:") && few.includes("Never ask the person to forward it"),
     );
     controlPlane.flags.mailResults = [LIVE];
 

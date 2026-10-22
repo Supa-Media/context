@@ -46,6 +46,42 @@ function addresses(value, field) {
   return { list: out };
 }
 
+/*
+  Words that say the email carries something on with it: "attached",
+  "enclosed", "I'm passing it on", "here's the receipt", a "Fwd:" subject.
+  On 2026-10-22 Tex saved the owner a draft to a colleague saying "Google sent
+  that receipt only to my Public Worship inbox, so I'm passing it on to you",
+  with nothing forwarded, and the owner found the draft with no receipt in it.
+  An email can carry another only as a forward (`forward`), so such words
+  without one are refused, for a draft as for a send, the way Gmail asks
+  about a forgotten attachment. An ask for something ("can you send me the
+  attachment?") is none of these.
+*/
+const PASSES_ON = [
+  /\b(?:I(?:'ve| have)?|I'm|I am|we(?:'ve| have)?)\s+(?:just\s+)?(?:attach(?:ed|ing)|enclos(?:ed|ing)|forwarding)\b/i,
+  /\b(?:please\s+)?(?:find|see)\s+(?:it\s+)?(?:attached|enclosed|below)\b/i,
+  /\b(?:is|are|it's|they're)\s+(?:attached|enclosed)\b/i,
+  /\battached\s+(?:is|are|here|below|to this)\b/i,
+  /\b(?:receipts?|invoices?|pdfs?|files?|statements?|documents?|copy|copies)\s+(?:is\s+|are\s+)?(?:attached|enclosed)\b/i,
+  /\bpassing\s+(?:it|this|that|them|these|those)\s+(?:on|along)\b/i,
+  /\bhere(?:'s| is| are)\s+(?:the|a|your|her|his|their|that|my)\s+(?:\w+\s+){0,3}(?:receipts?|invoices?|pdfs?|files?|statements?|documents?|copy|copies|attachments?|confirmations?)\b/i,
+  /\b(?:receipts?|invoices?|pdfs?|files?|statements?|documents?|attachments?|email)\s+(?:is\s+|are\s+)?below\b/i,
+];
+const FORWARD_SUBJECT = /^\s*(?:fwd?|fw)\s*:/i;
+
+export const PASSES_ON_ERROR =
+  "the email says it passes something on (attached, forwarded, here's the receipt), but nothing goes with it. " +
+  "An email carries another only as a forward: find that email with search_email (by sender with from:, an amount, a date range, or fewer words) " +
+  "and pass its id as forward, so it goes below your words with its attachments. Don't ask the person to forward or find it. " +
+  "Take the line out only if nothing is meant to go with this email.";
+
+/** Whether an email's words say it carries something on with it. */
+export function passesSomethingOn(subject, body) {
+  if (FORWARD_SUBJECT.test(String(subject ?? ""))) return true;
+  const said = String(body ?? "").replace(/[\u2018\u2019]/g, "'");
+  return PASSES_ON.some((pattern) => pattern.test(said));
+}
+
 /**
  * The email a call asks for, `{ email }` with addresses lowercased, or
  * `{ error }` saying what to fix. Never repaired: what is sent is exactly what
@@ -88,6 +124,7 @@ export function readEmail(args) {
       return { error: `A forward goes from the mailbox the email is in: leave from out, or make it ${forward.address}.` };
     }
   }
+  if (forward === null && passesSomethingOn(subject, body)) return { error: PASSES_ON_ERROR };
   const sender = reply ? reply.address : forward ? forward.address : from.list[0];
   return {
     email: {
