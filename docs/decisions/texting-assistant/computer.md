@@ -240,3 +240,24 @@ the one place a session id is written down, and only for a run that failed.
 path, puts the person's searches and notes in our logs. The test that fails is
 `infra/site-shots/src/sessionLogs.test.ts` ("keeps hosts, statuses, error codes
 and counts, and never a path, query, console text or typed word").
+
+### A new Browserbase browser asks for every extra the plan has (2026-10-22)
+
+The owner, on the Browserbase audit: "let's use all these features we are
+paying for". A new browser is asked for with residential proxies
+(`proxies: true`), advanced stealth (`browserSettings.advancedStealth`) and a
+region (`BROWSERBASE_REGION`, `us-east-1` in `wrangler.jsonc`, since the people
+texting Tex are in the US), on top of `blockAds` and captcha solving. Google's
+admin pages, banks, airlines and shops refuse or captcha a data centre's
+address far more than a home's. Proxies are billed by the gigabyte;
+`BROWSERBASE_PROXIES=off` or `BROWSERBASE_STEALTH=off` turns one off without a
+code change. A plan without an extra refuses the whole request with 400, 403
+or 422, so `createSession` asks again with the next plainer request, ending at
+the plain browser that always worked, and remembers for the isolate's life how
+far down it had to go. It never steps down on 402, 429 or 5xx, which a plainer
+browser would get too. Every request stays unrecorded and without a Context.
+**What a simplification would cost:** sending only the full request fails
+every browser on a plan without stealth; stepping down on any error hides a
+billing or capacity problem behind a weaker browser. Tests:
+`browserbase.test.ts` ("what a new browser is asked for"; sabotaged by
+dropping the refusal check and the remembered tier).

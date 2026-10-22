@@ -46,6 +46,9 @@
   "observability": {
     "enabled": true
   },
+  // Where a Browserbase browser runs (src/browserbase.ts): near the people
+  // texting Tex, who are in the US so far.
+  "vars": { "BROWSERBASE_REGION": "us-east-1" },
   "env": {
     "staging": {
       "name": "context-site-shots-staging",
@@ -53,7 +56,8 @@
       "browser": { "binding": "BROWSER" },
       "durable_objects": {
         "bindings": [{ "name": "BROWSER_IDLE", "class_name": "BrowserIdle" }]
-      }
+      },
+      "vars": { "BROWSERBASE_REGION": "us-east-1" }
     }
   }
 }
