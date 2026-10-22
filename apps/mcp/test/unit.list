@@ -47,6 +47,7 @@ test/encryptedGenerationFooter.test.mjs
 test/contextIcons.test.mjs
 test/folderIcons.test.mjs
 test/folderRoles.test.mjs
+test/inboxFolders.test.mjs
 test/gatewaySourceGuards.test.mjs
 test/globalOrientNote.test.mjs
 test/historyRoute.test.mjs

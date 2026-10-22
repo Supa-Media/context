@@ -226,6 +226,14 @@ workspaces we aren't adding that").
   (`asInboxKey`, `isMeetingNotePath`, contact lookups) accept both. The
   unauthenticated preview's guessable paths list both spellings
   (`PRODUCT_MANDATED_PATHS`).
+- **Unkeyed workspaces are carried too** (found by the staging dry run,
+  where every workspace was unkeyed): the credential barrier's job lens
+  (`lib/filesFns/jobLens.ts`) carries a read, write, listing or new folder
+  under a job's default name to the folder doing the job before anything
+  else reads the path, and the gateway's own Inbox writers (remember, the
+  capture route, the session fallback) ask the tree for the Inbox first
+  (`inboxPath`). Without it an unkeyed write to `inbox/...` beside `0-inbox`
+  was refused as a twin, and the memory or capture was lost.
 
 **What a "simplification" costs.** Dropping the old spellings from the
 readers breaks every workspace not yet renamed and every client still

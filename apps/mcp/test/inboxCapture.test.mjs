@@ -21,7 +21,7 @@ export async function runInboxCaptureChecks() {
     { waitUntil() {} }
   );
   const inboxBody = await inbox.json();
-  check("inbox capture lands in inbox", inboxBody.ok && inboxBody.path.startsWith("inbox/") && objects.has(inboxBody.path));
+  check("inbox capture lands in inbox", inboxBody.ok && /^inbox\/[^/]+\.md$/.test(inboxBody.path) && objects.has(inboxBody.path));
   const granolaPayload = {
     title: "Weekly Leadership Sync",
     text: "## Summary\nWe made a decision.",
