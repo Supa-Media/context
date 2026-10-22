@@ -21,7 +21,7 @@
 import { MAX_REPLY_TEXT, ServiceError, type Fetch } from "./clients";
 import { CARD_VERSION } from "./card";
 import { MAX_INBOUND_ATTACHMENTS, MAX_INBOUND_TEXT, type Inbound, type InboundAttachment } from "./inbound";
-import { readRemovedTapback, readTapback } from "./reactions";
+import { logShape, sendblueTapback } from "./sendblueTapbacks";
 
 /** The base address docs.sendblue.com names for every call. */
 export const SENDBLUE_API = "https://api.sendblue.com";
@@ -405,9 +405,29 @@ export function parseSendblueInbound(payload: unknown): Inbound {
   if (!isRecord(payload)) return { kind: "invalid" };
   const handle = payload.message_handle;
   if (typeof handle !== "string" || handle === "" || handle.length > 200) return { kind: "invalid" };
+  const group = payload.group_id;
+  // A tapback first, whatever else the payload says: one shape of it was read as no message at all (`sendblueTapbacks.ts`).
+  const tapback = typeof group === "string" && group !== "" ? null : sendblueTapback(payload);
+  if (tapback !== null || (payload.message_type !== undefined && payload.message_type !== "message")) logShape(payload, tapback === null ? "other" : "tapback");
+  // Only Apple vouches for who sent a tapback: an SMS one could be typed by anyone claiming the number.
+  if (tapback !== null && payload.is_outbound !== true && (payload.service === "iMessage" || payload.service === undefined)) {
+    const from = payload.from_number;
+    const ours = line(payload);
+    if (typeof from !== "string" || !E164.test(from)) return { kind: "ignored", reason: "sender" };
+    if (ours === undefined) return { kind: "invalid" };
+    const reaction = "reaction" in tapback ? tapback.reaction : { how: tapback.bare.how, words: "", ...(tapback.bare.removed ? { removed: true as const } : {}) };
+    return {
+      kind: "reaction",
+      eventId: `sendblue:${handle}`,
+      chatId: sendblueChatId(ours, from),
+      from,
+      messageId: handle,
+      reaction,
+      ...("bare" in tapback ? { on: tapback.bare.on } : {}),
+    };
+  }
   if (payload.is_outbound !== false) return { kind: "ignored", reason: "event_type" };
 
-  const group = payload.group_id;
   if ((typeof group === "string" && group !== "") || (payload.message_type !== undefined && payload.message_type !== "message")) {
     return { kind: "ignored", reason: "group" };
   }
@@ -423,14 +443,8 @@ export function parseSendblueInbound(payload: unknown): Inbound {
   if (ours === undefined) return { kind: "invalid" };
 
   const text = typeof payload.content === "string" ? payload.content.trim() : "";
-  if (TAPBACK.test(text) && !payload.media_url) {
-    // A tapback is noted or answered (`reactions.ts`); one taken back is dropped.
-    // A like taken back off an ask is read too, so a yes being held can be dropped (`thumbs.ts`).
-    const reaction = readTapback(text) ?? readRemovedTapback(text);
-    // A taken-back like or heart may be one held as a yes, on the ask or on a text beside it (`thumbs.ts`).
-    if (reaction === null) return { kind: "ignored", reason: "reaction" };
-    return { kind: "reaction", eventId: `sendblue:${handle}`, chatId: sendblueChatId(ours, from), from, messageId: handle, reaction };
-  }
+  // Tapback-shaped words no tapback could be read from: not a message either.
+  if (TAPBACK.test(text) && !payload.media_url) return { kind: "ignored", reason: "reaction" };
   const attachments: InboundAttachment[] = [];
   // A link's preview card is not something they sent (`isLinkPreview`).
   const preview = typeof payload.media_url === "string" && payload.media_url !== "" && isLinkPreview(payload.media_url, text);

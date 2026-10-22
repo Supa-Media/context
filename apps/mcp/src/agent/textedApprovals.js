@@ -10,6 +10,7 @@ import { CALENDAR_TOOL } from "../tools/calendarWrite.js";
 import { REPORT_TOOL } from "../tools/reportProblem.js";
 import { FORWARD_RULE_TOOL } from "../tools/forwardRule.js";
 import { doneLine } from "./doneLine.js";
+import { folded } from "./folded.js";
 import { canonicalToolName } from "../tools/advertised.js";
 import { withoutHeldEcho, withoutWaitTalk } from "./heldEcho.js";
 import { VAULT_PAY } from "../vault/pay.js";
@@ -61,9 +62,47 @@ const RELEASED_YES = new RegExp(
   "i",
 );
 
+/*
+  A yes said in a sentence (Dev2, 2026-10-22: "yes please send it already sent
+  👍" got nothing, after a 👍 that got nothing). A text whose every word is
+  one of these, with at least one that says yes or says to send it, is a yes.
+  Any other word, "but", "to", a name, "not", sends it to the model, so "yes
+  but send it to Sam" and "did you send it" are still not a yes.
+*/
+const SAYS_YES = new Set(["yes", "yess", "yesss", "yep", "yeah", "yea", "ya", "yup", "y", "\u{1F44D}", "\u2705", "\u2714"]);
+const SAYS_SEND = new Set(["send", "file", "confirm", "confirmed", "approve", "approved"]);
+const ALSO_SAID = new Set([
+  ...SAYS_YES, ...SAYS_SEND,
+  "ok", "okay", "k", "sure", "please", "pls", "plz", "it", "them", "that", "this", "now", "already", "just", "go", "ahead", "do",
+  "for", "right", "away", "asap", "the", "message", "email", "dm", "text", "again", "thanks", "thank", "you", "ty", "sent", "so",
+  "and", "then", "absolutely", "definitely", "of", "course", "lol", "haha", "\u{1F64F}", "\u{1F525}", "\u2764", "\u{1F44C}",
+]);
+
+/** The words of a short text, emoji as words of their own, punctuation dropped. */
+function wordsOf(text) {
+  return text
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[\u{1F3FB}-\u{1F3FF}\uFE0F\u200D]/gu, "")
+    .replace(/(\p{Extended_Pictographic}|\u2705|\u2714)/gu, " $1 ")
+    .replace(/[^\p{L}\p{N}\p{Extended_Pictographic}\u2705\u2714]+/gu, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean);
+}
+
+/** Whether a text is a yes said in a sentence; `strict` wants a yes word or a word saying to send it, never "ok" or "sure" alone. */
+function sentenceYes(text, strict = false) {
+  const words = wordsOf(text);
+  if (words.length === 0 || words.length > 12 || !words.every((word) => ALSO_SAID.has(word))) return false;
+  if (words.some((word) => SAYS_YES.has(word) || SAYS_SEND.has(word))) return true;
+  // "go ahead", "do it": a release in two words, as before; never for an email.
+  return !strict && (words.includes("ahead") || (words.includes("do") && words.includes("it")));
+}
+
 export function approvalVerdict(text) {
   if (typeof text !== "string") return null;
-  if (YES.test(text) || RELEASED_YES.test(text)) return "approve";
+  if (YES.test(text) || RELEASED_YES.test(text) || sentenceYes(text)) return "approve";
   if (NO.test(text)) return "deny";
   return null;
 }
@@ -98,19 +137,6 @@ export function askLine(asked) {
   return `Before I ${asked.length === 1 ? "do that" : "do those"}, I need your OK: ${what}. ${SAY_YES} and I'll go ahead.`;
 }
 
-/**
- * Words as an ask and a quote of it are compared: a cut-off ending off, then
- * letters and digits only: a tapback's quote comes back through Messages
- * and the line, where quotes, apostrophes and emoji may come back changed
- * (2026-10-22). The ask is compared the same way.
- */
-const folded = (text) =>
-  String(text ?? "")
-    .replace(/\s*(?:…|\.\.\.)\s*$/u, "")
-    .normalize("NFKC")
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
-    .trim()
-    .toLowerCase();
 /** Fewer words than this quoted cannot tell one ask from another. */
 const MIN_QUOTED = 24;
 
@@ -124,12 +150,13 @@ export async function thumbsUpIsYes(store, session, quoted) {
   const words = folded(quoted.words);
   if (words.length < MIN_QUOTED) return false;
   const armed = (await listPending(store, { userId: session.actorUserId, texting: true })).map(({ record }) => record);
-  if (armed.length === 0) return false;
-  for (const order of [armed, [...armed].reverse()]) {
+  const matched = armed.length > 0 && [armed, [...armed].reverse()].some((order) => {
     const shown = folded(askLine(order));
-    if (shown === words || shown.startsWith(words)) return true;
-  }
-  return false;
+    return shown === words || shown.startsWith(words);
+  });
+  // Without its words: enough to tell a 👍 on nothing armed from one on other words (2026-10-22).
+  console.log(JSON.stringify({ event: "thumbs_up", armed: armed.length, matched, length: words.length }));
+  return matched;
 }
 
 /** The longest ask holding an email: one text, under the 3,000 a text keeps (`apps/agent/src/clients.ts`). */
@@ -193,6 +220,27 @@ export function answerWithAsk(told, ask, asked) {
   return said === "" ? ask : `${said}\n\n${ask}`;
 }
 
+/*
+  What a released call that failed tells the person. Slack's refusal for a
+  permission the connection was never given is written for the model ("Ask the
+  person to reconnect Slack …"), so it is said to them in their terms
+  (2026-10-22: the Slack app had been asked for im:write and mpim:write).
+*/
+const SLACK_SCOPE = /^Slack hasn't given this connection permission for \S+ yet(?: \(it needs ([^)]{1,80})\))?/;
+
+/** "Not sent: …" for a released call that failed, in words the person can act on. */
+export function notDone(summary, said) {
+  const scope = SLACK_SCOPE.exec(said);
+  if (scope !== null) {
+    const needs = scope[1] ? ` (it needs ${scope[1]})` : "";
+    return (
+      `Not sent: Slack hasn't given me permission for that yet${needs}. ` +
+      "Reconnect Slack in Context's Settings, under Apps Tex uses, then ask me again and I'll send it."
+    );
+  }
+  return `I tried to ${summary}, but: ${said}`;
+}
+
 /** Control characters and bidi overrides out of words the model wrote, before a person reads them. */
 function clean(text) {
   return text.replace(/[\u0000-\u0008\u000b-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, "");
@@ -204,7 +252,7 @@ function clean(text) {
  * "ok send it". A bare "ok" or "sure" is not a yes.
  */
 const EMAIL_YES = /^\s*yes\s*[.!]*\s*$/i;
-const strictYes = (text) => EMAIL_YES.test(text) || RELEASED_YES.test(text);
+const strictYes = (text) => EMAIL_YES.test(text) || RELEASED_YES.test(text) || sentenceYes(text, true);
 const YES_ONLY = new Set([EMAIL_TOOL, CALENDAR_TOOL, REPORT_TOOL, FORWARD_RULE_TOOL]);
 
 /**
@@ -251,7 +299,7 @@ export async function settleByText(store, session, verdict, texted = "") {
     // written: projects/x.md (etag c2.doc-…) visibility: team" failed every
     // voice line the judge has), in the past tense (`doneLine.js`). What went
     // wrong still says what the tool said.
-    if (settled.result?.isError === true) replies.push(`I tried to ${record.summary}, but: ${said}`);
+    if (settled.result?.isError === true) replies.push(notDone(record.summary, said));
     else replies.push(doneLine(record.summary), ...afterYes(record.tool));
   }
   // An email or calendar change the text did not say YES to is disarmed now: when the text settled

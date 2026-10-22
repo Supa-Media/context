@@ -46,8 +46,35 @@ How it works:
   never its words), so a 👍 that reached nothing can be told from one that
   never arrived.
 
+- **Every shape of Apple's 👍, a 👍 on a preview, and a yes in a sentence**
+  (2026-10-22). Three of Dev2's 👍 tapbacks on asks reached nothing while a
+  typed "yes" sent at once ("please make sure we are actually counting the
+  default 👍 from apple"). Sendblue documents its receive webhook only for
+  messages, so the Worker reads a tapback first, in any shape
+  (`sendblueTapbacks.ts`): "Liked “…”" whatever `message_type`, `service` or
+  `is_outbound` say, or a reaction of its own naming the message it was on,
+  whose words are read from Sendblue as an inline reply's are. Never over SMS,
+  where anyone could type one from the number. Every payload that is not a
+  plain message is logged by its shape (keys, `message_type`, never words or
+  numbers). A 👍 on any text of Tex's that asks something in words ("Say yes
+  and I'll try sending it again", "Say the word") is answered, no longer only
+  noted, and the model is told to say how it went: "Sent ✓", or what failed.
+  When Tex's own preview held nothing, a 👍 on it releases a Slack post the
+  turn then raises, without a second ask, only when the liked words hold the
+  message's whole text and Slack's name for where it goes is in them or in
+  Tex's last few texts (`tools/likedPreview.js`), once a turn. A typed yes in
+  a sentence ("yes please send it already sent 👍") is a yes when every word
+  in it is one of a fixed few and one says yes or send; any other word, "to",
+  a name, "but", still goes to the model. A Slack refusal for a missing
+  permission is told to the person in their terms. The gateway logs each 👍
+  it compares (`event: "thumbs_up"`, how many were armed, whether it matched).
+
 What a simplification would cost: releasing on any like makes a 👍 on "Dinner
 is booked" send an email; "always" means any text of the reply that asked,
 never a text from before it. Releasing without the hold makes a slip of the thumb
-irreversible. Tests: `apps/agent/src/thumbs.test.ts` and `a 👍 on the ask for
+irreversible. Releasing on a liked preview without the name check sends to
+whoever the model picked. Tests: `apps/agent/src/thumbs.test.ts`,
+`apps/agent/src/sendblueTapbacks.test.ts`, `a 👍 on Tex's own preview` in
+`apps/mcp/test/connectors.test.mjs`, `a yes said in a sentence` in
+`apps/mcp/test/agentEgressTexting.test.mjs`, and `a 👍 on the ask for
 what is waiting sends it` in `apps/mcp/test/reportGate.test.mjs`.

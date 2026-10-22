@@ -195,13 +195,15 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   // A texted yes or no settles a pending approval before any model runs (`textedSettle.js`).
   let setAside = [];
   let paid = [];
+  let thumbsUp = false;
   // A group chat's yes is its tagger's, said to Tex in the chat (`groupTurn.js`).
   if ((session.actorClientId === TEXTS_CLIENT_ID || group !== null) && job === null) {
     // A 👍 that stayed on the ask is that yes (`thumbsUpIsYes`).
-    const thumbsUp = await thumbsUpIsYes(store, session, quoted);
+    thumbsUp = await thumbsUpIsYes(store, session, quoted);
     const settled = await settleTextedText(store, session, {
       dispatch,
-      question: thumbsUp ? "yes" : group !== null ? withoutTexName(question) : question,
+      // A tapback's own text is its emoji: a 👍 on other words is not a typed 👍, so it is no verdict.
+      question: thumbsUp ? "yes" : quoted.tapback ? "" : group !== null ? withoutTexName(question) : question,
       keep: group !== null ? keepGroupSettled(store, group) : null,
       hasAttachments: sent.length > 0,
       now: received,
@@ -270,6 +272,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     texting: session.actorClientId === TEXTS_CLIENT_ID || group !== null,
     // The routine this run is, for a standing forward only it may use (`tools/forwardRule.js`).
     ...(runner ? { routine: routine.path } : {}),
+    // A 👍 on words that were not the armed ask: Tex's own preview, maybe (`tools/likedPreview.js`).
+    ...(group === null && !thumbsUp && (quoted.tapback === "Liked" || quoted.tapback === "Loved") ? { liked: quoted.words } : {}),
   };
 
   /*

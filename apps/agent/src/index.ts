@@ -35,7 +35,7 @@ import { runDueHousekeeping } from "./housekeeping";
 import type { Picture } from "./line";
 import { hostPicture, OBJECT_ID, ORIGIN_KEY, serveMedia, workerOrigin } from "./media";
 import { bearerMatches, parseTellRequest, tellEveryone, tellNewLine, type Told } from "./newLine";
-import { parseSendblueInbound, sendblueKeys, threadContext, verifySendblueSecret } from "./sendblue";
+import { parseSendblueInbound, repliedToText, sendblueKeys, threadContext, verifySendblueSecret } from "./sendblue";
 import { parseSendblueGroup, type GroupMessage } from "./sendblueGroups";
 import { acceptGroup, drainGroup, groupInboxName } from "./groupInbox";
 import { verifyLinqSignature } from "./signature";
@@ -146,6 +146,13 @@ export default {
 
     // A tapback is answered or noted by the sender's queue (`reactions.ts`), never read from Sendblue.
     if (inbound.kind === "reaction") {
+      // Named rather than quoted: the words it was on are read from Sendblue, as an inline reply's are.
+      if (inbound.on !== undefined) {
+        const keys = sendblueKeys(env.SENDBLUE_API_KEY_ID, env.SENDBLUE_API_SECRET);
+        const words = keys === null ? null : await repliedToText((input, init) => fetch(input, init), keys, inbound.on, inbound.chatId);
+        inbound.reaction = { ...inbound.reaction, words: (words ?? "").slice(0, 500) };
+        delete inbound.on;
+      }
       const stub = env.SENDER_INBOX.get(env.SENDER_INBOX.idFromName(inbound.from));
       const result = await stub.fetch("https://inbox/react", { method: "POST", body: JSON.stringify(inbound) });
       return new Response(null, { status: result.ok ? 200 : 503 });

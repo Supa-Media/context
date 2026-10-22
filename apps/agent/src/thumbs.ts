@@ -114,6 +114,8 @@ export async function onTheAsk(storage: InboxStorage, reaction: Reaction, now: n
   if (reaction.removed || (reaction.how !== "Liked" && reaction.how !== "Loved")) return reaction;
   const kept = await storage.get<AskReply>(ASK_REPLY_KEY);
   if (kept === undefined || now - kept.at > ASK_REPLY_FOR_MS) return reaction;
+  // On a message whose words Sendblue could not give (`sendblueTapbacks.ts`): the ask is the one waiting; the gateway still checks it is armed.
+  if (reaction.words === "") return { ...reaction, words: kept.ask };
   return kept.texts.some((text) => quotesText(text, reaction.words)) ? { ...reaction, words: kept.ask } : reaction;
 }
 
