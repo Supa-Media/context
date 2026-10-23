@@ -22,6 +22,9 @@
  *  4. `handsWorkBack` without `FILE_HANDBACK` (the Google Voice invoice
  *     Tex said it couldn't put in an email). → "the texts that handed the
  *     receipt back are read as handing work back" fails.
+ *  5. `handsWorkBack` without `CHANGE_HANDBACK` (applied 2026-10-23,
+ *     observed failing) → "the texts that handed the receipt back are read
+ *     as handing work back" (the calendar changes handed back).
  */
 
 import assert from "node:assert/strict";
@@ -44,6 +47,10 @@ test("the texts that handed the receipt back are read as handing work back", () 
     "I can't put a file from the admin console into an email myself.",
     "Tap the download arrow next to September, attach it to the draft to Kansi, and it's ready to send.",
     "Click the download button and attach the PDF to your email.",
+    // 2026-10-22 and 23: a calendar change handed back.
+    "Move it to 9:00 pm yourself in Google Calendar, and it will tell her.",
+    "Still open: add 150 McGuinness Blvd Apt 2, Brooklyn to Lau's party event yourself, since I can't edit an existing event's location.",
+    "I can't edit an existing event's location.",
   ]) {
     assert.ok(handsWorkBack(said), said);
   }
@@ -62,6 +69,8 @@ test("a step only they can take, an offer, a report, or their own to-do is not h
     "Kansi asked you to send her the receipt.",
     "I downloaded the September invoice and attached it to the draft to Kansi.",
     "I'll attach it to the email once you say yes.",
+    "Added the address to Lau's party.",
+    "You said you'd book it yourself, so I left it.",
   ]) {
     assert.ok(!handsWorkBack(said), said);
   }
@@ -161,4 +170,14 @@ test("every texted turn is told never to hand them work, whatever its production
     assert.ok(prompt.includes(DO_IT_YOURSELF_LINE), "the rule is in the prompt");
     assert.ok(prompt.includes("Never take back what an earlier answer said"), "and so is the rule against taking back what it read");
   }
+});
+
+test("every texted turn is told what it can do outside the notes, and to keep a fact they give at once", async () => {
+  const { ACTIONS_LINE, REMEMBER_LINE, systemPrompt } = await import("../src/agent/prompt.js");
+  for (const notes of [null, { prompt: "You are Tex. If it says Context can't change their calendar, tell them what to change themselves." }]) {
+    const prompt = systemPrompt(null, { texting: true, notes, edits: true });
+    assert.ok(prompt.indexOf(ACTIONS_LINE) > prompt.indexOf("You are Tex"), "said after the setup's own words, which it overrides");
+    assert.ok(prompt.includes(REMEMBER_LINE));
+  }
+  assert.ok(!systemPrompt(null, { texting: true, edits: false }).includes(REMEMBER_LINE), "a turn that can't write isn't told to");
 });

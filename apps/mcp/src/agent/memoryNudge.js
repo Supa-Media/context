@@ -15,6 +15,9 @@
  * `write_note` on `tex/about-me.md` in their own workspace and nothing else
  * (`nudgeCallTool`), and the note's own size limit holds (`aboutMe.js`).
  *
+ * It also runs at once when their newest text answers a question Tex asked
+ * them (`answersAskAboutThem`): that is how a home address arrives.
+ *
  * The count is kept in `.context/agent/memory-nudge.json` as the time of the
  * newest text the last nudge saw, so a text is counted once whether or not its
  * exchange was saved before this ran. The first turn after this shipped only
@@ -86,6 +89,37 @@ export function textsSince(history, since) {
   };
 }
 
+/**
+ * Whether their newest text answers a question Tex asked about them ("Your
+ * home address isn't in your notes ... What is it?"): a fact given that way
+ * is kept now, not ten texts later (the owner, 2026-10-23).
+ */
+const ABOUT_THEM =
+  /\byour\s+(?:\w+\s+){0,2}(?:address|home|birthday|email|phone|number|work|office|job|partner|wife|husband|kids?|children|daughter|son|name|allerg\w*|diet|car|commute|school|gym|doctor|dentist|time ?zone|size)\b|\bwhere do you (?:live|work)\b|\bwhen(?:'s| is) your\b/i;
+
+export function answersAskAboutThem(history) {
+  for (let i = history.length - 1; i > 0; i -= 1) {
+    if (history[i].role !== "user" || history[i].theirs !== true) continue;
+    const asked = history[i - 1];
+    if (asked?.role !== "assistant" || typeof asked.text !== "string") return false;
+    const last = asked.text.trim().split(/\n+/).at(-1) ?? "";
+    return /\?\s*$/.test(last) && ABOUT_THEM.test(asked.text);
+  }
+  return false;
+}
+
+/** The history with this turn's text and answer at the end, when it isn't there yet. */
+function withThisTurn(history, current, now) {
+  if (typeof current?.question !== "string" || current.question.trim() === "") return history;
+  const lastTheirs = [...history].reverse().find((turn) => turn.role === "user" && turn.theirs === true);
+  if (lastTheirs?.text === current.question) return history;
+  return [
+    ...history,
+    { role: "user", theirs: true, text: current.question, at: now },
+    { role: "assistant", text: String(current.answer ?? ""), ...(current.tainted === true ? { tainted: true } : {}) },
+  ];
+}
+
 const cut = (text) => {
   const words = String(text ?? "").trim();
   return words.length > MAX_TEXT_SHOWN ? `${words.slice(0, MAX_TEXT_SHOWN)}…` : words;
@@ -124,7 +158,7 @@ function log(session, fields) {
  * once `NUDGE_EVERY` of their texts have come since the last time. Never
  * throws, never texts.
  */
-export async function memoryNudge({ env, controlPlane, store, session, offered, dispatch, now = Date.now() }) {
+export async function memoryNudge({ env, controlPlane, store, session, offered, dispatch, now = Date.now(), current = null }) {
   try {
     const history = await readConversation(store, "texts", { entries: READ_EXCHANGES });
     const marker = await readMarker(store);
@@ -134,8 +168,14 @@ export async function memoryNudge({ env, controlPlane, store, session, offered, 
       await store.put(NUDGE_MARKER, JSON.stringify({ at: latest || now }));
       return;
     }
-    const since = textsSince(history, marker);
-    if (since.count < NUDGE_EVERY) return;
+    const counted = textsSince(history, marker);
+    // This turn's own exchange is saved after this runs, so it is added here to see what it answered.
+    const withCurrent = withThisTurn(history, current, now);
+    const asked = withCurrent !== history && answersAskAboutThem(withCurrent);
+    if (counted.count < NUDGE_EVERY && !asked) return;
+    const since = asked ? textsSince(withCurrent, marker) : counted;
+    // Their own answer is theirs even when Tex's reply read a page: it is shown, and that reply is not.
+    if (asked && current.tainted === true) since.shown.push({ at: now, question: current.question, answer: "", tainted: false });
     // Counted whatever comes of it, so a failing nudge is not retried every text.
     await store.put(NUDGE_MARKER, JSON.stringify({ at: since.newest }));
     if (since.shown.length === 0) return log(session, { outcome: "nothing_shown", texts: since.count });
