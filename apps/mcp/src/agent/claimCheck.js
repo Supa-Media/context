@@ -178,6 +178,18 @@ const FILE_HANDBACK = [
   /\b(?:tap|click|press|hit)\s+(?:the|its|that)\s+(?:\w+\s+)?download\b/i,
   /(?:^|,\s*|\b(?:and|then|please|just)\s+)attach (?:it|them|the \w+|that \w+|this \w+)\s+(?:to|in|on)\s+(?:the|your|that|a)\s+(?:\w+\s+)?(?:email|draft|message|reply)\b/i,
 ];
+/*
+  A CHANGE TEX CAN MAKE, HANDED BACK (2026-10-22 and 23): "Move it to 9:00 pm
+  yourself in Google Calendar" and "add 150 McGuinness Blvd to Lau's party
+  event yourself, since I can't edit an existing event's location". Not
+  checked on a turn that held a change for their yes: its copy said back is
+  `heldEcho.js`'s to drop.
+*/
+const CHANGE_HANDBACK = [
+  /^(?![^\n]*\byou(?:'d| said| wanted| want| prefer| would| asked)\b)[^\n]*?\b(?:add|edit|change|update|move|send|book|cancel|set|put|create|delete|remove|reply|email|message|schedule|rsvp|fill|submit|post)\b[^.?!\n]{0,120}\byourself\b/i,
+  /\b(?:can't|cannot|can not|am unable to|'m unable to|have no way to)\s+(?:edit|change|update|move|add|send|create|delete|book|cancel|reply|rsvp|invite|reschedule)\b[^.?!\n]{0,60}\b(?:events?|calendar|invites?|meetings?|emails?|messages?|location|time|title)\b/i,
+];
+
 /** A sentence that opens by telling them to go and do it. */
 const HANDBACK_IMPERATIVE =
   /^(?:please\s+|maybe\s+|just\s+|so\s+)?(?:check|look (?:up|in|at|through|for)|search|find|dig up|pull up|go to|head to|download|grab|forward|log ?in|sign in|open up|reach out to|contact)\b(?![-'])/i;
@@ -186,7 +198,7 @@ const THEIRS_TO_DO =
   /\bhttps?:\/\/|\b(?:the|this|that) link\b|\b(?:code|captcha|pay|card|password|passcode|verification|two-factor|2fa|confirm|confirmation|approve|approval|yes|tap|take over)\b|\u{1F44D}/iu;
 
 /** Whether an answer tells them to do something Tex's own tools could. */
-export function handsWorkBack(answer) {
+export function handsWorkBack(answer, { held = false } = {}) {
   const sentences = String(answer ?? "")
     .replace(/[\u2018\u2019]/g, "'")
     .split(/\n+|(?<=[.!?])\s+/)
@@ -195,6 +207,7 @@ export function handsWorkBack(answer) {
   return sentences.some(
     (sentence) =>
       FILE_HANDBACK.some((pattern) => pattern.test(sentence)) ||
+      (!held && CHANGE_HANDBACK.some((pattern) => pattern.test(sentence))) ||
       (!THEIRS_TO_DO.test(sentence) && (HANDBACK_IMPERATIVE.test(sentence) || HANDBACK.some((pattern) => pattern.test(sentence)))),
   );
 }
@@ -203,6 +216,8 @@ export const HANDBACK_NOTICE =
   "Before this goes: your answer asks them to find, forward, check or look something up, and that is yours to do. " +
   "Never ask them to do what your own tools can: search their email yourself again, a different way each time (search_email by the sender with from:, " +
   "an amount or number, a date range with after: and before:, one or two words, each connected mailbox), read their notes, or open the site in your browser and sign in with a saved login. " +
+  "A calendar change is yours: calendar_event adds, edits any part of (title, time, place, notes, guests, Meet, reminders, repeats), moves, cancels or answers an event. " +
+  "So are an email (send_email), a Slack post (slack) and a Google Chat message (google_chat): each is shown to them for one 👍, so just call it. " +
   "A file on a site (an invoice or receipt PDF, a statement) is yours to take: a browse download step saves it, and attach on send_email or save_email_draft puts it in the email. " +
   "If their mail doesn't have it, go where else it lives: Gmail on the web in your browser, or the account, admin or billing page it came from (a billing history, an admin console), signed in with their saved login. " +
   "An email you texted about earlier is still there: find it again. Do it now, then answer with what you did or found. " +
@@ -343,7 +358,7 @@ export function claimCheck({ question, judge = null }) {
     check(answer) {
       // Handing work back is checked on its own, once, beside the others: an
       // answer that offers an email can still ask them to go and find it.
-      if (!handedBack && handsWorkBack(answer)) {
+      if (!handedBack && handsWorkBack(answer, { held })) {
         handedBack = true;
         return HANDBACK_NOTICE;
       }

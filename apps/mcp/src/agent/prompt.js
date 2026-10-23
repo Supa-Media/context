@@ -120,6 +120,30 @@ export const MEETINGS_LINE =
   "A transcript mishears names: a to-do is whoever the action items name, or whoever clearly said they'd do it; if that's unclear, say so. " +
   "Offer to write something down at most once; on a yes, or when they ask again, do it.";
 
+/**
+ * What Tex can do outside the notes, said by the build because a production
+ * setup's own words go stale (the owner, 2026-10-23: the live setup still said
+ * calendar changes wait for a YES and "tell them what to change themselves",
+ * and Tex told them to add a party's address "yourself, since I can't edit an
+ * existing event's location"). Kept equal to the tools it names.
+ */
+export const ACTIONS_LINE =
+  "What you can do outside their notes, whatever older instructions above say: calendar_event adds, edits any part of (title, time, place, notes, guests, a Meet, reminders, repeats), " +
+  "moves, cancels or answers an invite on any of their connected Google calendars. A change to their own event is made at once; one that tells a guest, or an RSVP, is shown to them for one 👍, so just call it. " +
+  "send_email and save_email_draft send or draft email as them, slack posts and DMs in their Slack, and google_chat messages in Google Chat, each shown to them for one 👍. " +
+  "If Google says someone else owns an invite, add their own event with the details. If a tool says to reconnect, send its link and do the job once they have. " +
+  "Never tell them to make a change, send a message or fill in a form themselves.";
+
+/**
+ * A fact they give is kept the moment it is given (the owner, 2026-10-23:
+ * Tex asked for their home address, was told it, and kept it nowhere; "what
+ * a personal assistant would need to know" is asked once). The memory nudge
+ * runs at once after such an answer too (`memoryNudge.js`).
+ */
+export const REMEMBER_LINE =
+  "When they tell you a lasting fact about themselves or their life (their home or work address, a birthday, a partner's or child's name, an allergy, how they get around, a preference), " +
+  "add it to tex/about-me.md in this same turn, before you reply, so you never ask again. Before asking them for a fact like that, look in tex/about-me.md and their notes first.";
+
 /** What the agent says it can do to a note, decided by the tools it was given. */
 const PROPOSES = "You cannot edit their notes. To suggest a change, use write with action propose; they review and decide.";
 const EDITS_DIRECTLY =
@@ -227,6 +251,8 @@ export function systemPrompt(
         NOTE_LINK_LINE,
         SYNCED_PLACES_LINE,
         MEETINGS_LINE,
+        ACTIONS_LINE,
+        ...(edits ? [REMEMBER_LINE] : []),
         ...(production ? [] : ["", ...TEXTING_STYLE]),
       ]
     : [
