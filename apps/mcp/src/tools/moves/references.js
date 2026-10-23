@@ -286,14 +286,13 @@ export async function referenceCandidates(store, renames) {
 /**
  * Every note key, with this move's renames applied: what a bare link's name
  * is resolved against. Listed from the Convex tree (`tree/served.js`), one
- * request; it throws where the tree cannot answer. A store with no tree to ask
- * (a background job, which has no person's grant) lists the bucket. The tree
+ * request; it throws where the tree cannot answer, and the bucket is never
+ * listed for names (its keys are note ids). The tree
  * may not have heard of this move yet, so an old name is dropped and its new
  * one counted; against a bucket that has already moved that changes nothing.
  */
 async function noteInventory(store, renames) {
-  const listing = typeof store?.treeManifest === "function" ? servedListingStore(store) : store;
-  return withRenames((await listAllNoteKeys(listing)).map(({ key }) => key), renames);
+  return withRenames((await listAllNoteKeys(servedListingStore(store))).map(({ key }) => key), renames);
 }
 
 function withRenames(keys, renames) {
