@@ -144,6 +144,11 @@ describe("calling a connected app", () => {
     stubLinear();
     const w = await world(t);
     await connect(t, w);
+    // Sabotage: drop `convexSafe` from `capped`, and the listing fails on `$schema`.
+    expect(await call(t, w, "tools.list", {})).toMatchObject({
+      ok: true,
+      body: { tools: expect.arrayContaining([expect.objectContaining({ name: "list_issues", inputSchema: { type: "object", properties: { team: { type: "string" } } } })]) },
+    });
     expect(await call(t, w, "tools.call", { name: "list_issues", arguments: {} })).toMatchObject({ ok: true, body: { content: [{ text: "ran list_issues" }] } });
     expect(await call(t, w, "tools.call", { name: "create_issue", arguments: {} })).toEqual({ ok: false, refused: "needs_yes" });
     expect(await call(t, w, "tools.call", { name: "unmarked", arguments: {} })).toEqual({ ok: false, refused: "needs_yes" });
