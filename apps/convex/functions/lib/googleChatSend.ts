@@ -25,8 +25,8 @@ const DAY_MS = 24 * HOUR_MS;
 const ADDRESS = /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$/;
 /** A space's resource name, as Google gives it. */
 export const SPACE_NAME = /^spaces\/[A-Za-z0-9_-]{1,64}$/;
-const TEXT_CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f‪-‮⁦-⁩]/;
-const LINE_CONTROL = /[\u0000-\u001f\u007f‪-‮⁦-⁩]/;
+const TEXT_CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f\u202a-\u202e\u2066-\u2069]/;
+const LINE_CONTROL = /[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/;
 
 export type ChatRefusal =
   | "invalid"

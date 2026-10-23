@@ -21,8 +21,8 @@ export const MAX_TEXT = 4_000;
 export const MAX_SPACE = 128;
 
 const ADDRESS = /^[A-Za-z0-9.!#$%&\x27*+/=?^_\x60{|}~-]{1,64}@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$/;
-const TEXT_CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f‪-‮⁦-⁩]/;
-const LINE_CONTROL = /[\u0000-\u001f\u007f‪-‮⁦-⁩]/;
+const TEXT_CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f\u202a-\u202e\u2066-\u2069]/;
+const LINE_CONTROL = /[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/;
 
 /** Whether a call sends (and so waits for a yes), rather than lists spaces. */
 export function chatSends(args) {

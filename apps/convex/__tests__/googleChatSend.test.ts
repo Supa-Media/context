@@ -187,7 +187,7 @@ describe("what a message may be, and who is asked for it", () => {
     expect(readChatMessage({ ...DM, space: "Portal" })).toBeNull();
     expect(readChatMessage({ text: "hi" })).toBeNull();
     expect(readChatMessage({ to: "Jo <jo@example.com>", text: "hi" })).toBeNull();
-    expect(readChatMessage({ ...DM, text: "a ‮ b" })).toBeNull();
+    expect(readChatMessage({ ...DM, text: "a \u202e b" })).toBeNull();
     expect(readChatMessage({ ...DM, text: " " })).toBeNull();
     expect(readChatMessage({ ...SPACE, space: "a\nb" })).toBeNull();
   });
