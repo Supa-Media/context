@@ -9,9 +9,9 @@
  *
  * Sent through the person's own connected Gmail, and only one whose consent
  * granted `gmail.send` (decided by the owner, 2026-10-17: "Wait for Gmail",
- * rather than sending from their Context address). Until Google has reviewed
- * that scope, Context asks for it only of testers (`TESTER_WRITE_SCOPES` in
- * `googleOAuth.ts`), so only their connections send. Nothing of an email is kept here:
+ * rather than sending from their Context address). Every Gmail connect asks
+ * for it (`WRITE_SCOPES` in `googleOAuth.ts`); one connected before that
+ * reconnects once. Nothing of an email is kept here:
  * the limits count hashes of recipient addresses, never the addresses, the
  * subject or the body (non-negotiable #1, metadata only).
  */

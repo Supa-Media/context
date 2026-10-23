@@ -6,7 +6,9 @@
  * may be changed (null for none), `calendarRefusal` answers every change
  * and check with that word instead, and `calendarGuests` are the guests on
  * the event a move or a cancel names: named back on a check, and a change
- * without `notify_guests` refused, as the real route does.
+ * without `notify_guests` refused, as the real route does. A create's own
+ * `guests` are its invitees, refused without `notify_guests` and named back
+ * on a check; a create with `meet` answers a Meet link.
  *
  * `/gateway/calendar/days` (`gatewayRoutes/personCalendar.ts`) is answered by
  * `calendarDays`, a function of the request body returning the route's
@@ -24,10 +26,15 @@ export function createCalendarRoute(clearedEditor, flags) {
     if (!cleared) answer = { ok: false, refused: "not_allowed" };
     else if (flags.calendarRefusal) answer = { ok: false, refused: flags.calendarRefusal };
     else if (!flags.calendarAddress) answer = { ok: false, refused: "no_calendar" };
-    else {
-      const guests = body.change?.action === "create" ? [] : (flags.calendarGuests ?? []);
+    else if (body.change?.action === "create") {
+      const guests = body.change.guests ?? [];
+      if (guests.length > 0 !== (body.change.notify_guests === true)) answer = { ok: false, refused: "invalid" };
+      else if (body.check === true) answer = { ok: true, calendar: flags.calendarAddress, ...(guests.length > 0 ? { guests } : {}) };
+      else answer = { ok: true, calendar: flags.calendarAddress, ...(body.change.meet === true ? { meet: "https://meet.google.com/abc-defg-hij" } : {}) };
+    } else {
+      const guests = flags.calendarGuests ?? [];
       if (guests.length > 0 && body.check !== true && body.change?.notify_guests !== true) answer = { ok: false, refused: "has_guests" };
-      else answer = { ok: true, calendar: flags.calendarAddress, ...(body.check === true && body.change?.action !== "create" ? { guests } : {}) };
+      else answer = { ok: true, calendar: flags.calendarAddress, ...(body.check === true ? { guests } : {}) };
     }
     calls.push({ accessToken: body.accessToken, change: body.change, check: body.check === true, answer });
     return answer;

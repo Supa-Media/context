@@ -19,7 +19,13 @@ import { CALENDAR_WRITE_SCOPE, calendarWritePolicies } from "./lib/calendarWrite
 import type { RateLimitPolicy } from "./lib/rateLimit";
 import { tryConsumeRateLimit } from "./lib/rateLimit";
 
-const refusal = v.union(v.literal("not_allowed"), v.literal("no_calendar"), v.literal("hourly_limit"), v.literal("daily_limit"));
+const refusal = v.union(
+  v.literal("not_allowed"),
+  v.literal("no_calendar"),
+  v.literal("calendar_read_only"),
+  v.literal("hourly_limit"),
+  v.literal("daily_limit"),
+);
 
 /** Whether this key has room for one more, without spending it. */
 async function hasRoom(ctx: MutationCtx, policy: RateLimitPolicy): Promise<boolean> {
@@ -59,7 +65,12 @@ export const claimCalendarWrite = internalMutation({
     const writer = connections.find(
       (row) => row.disconnectedAt === undefined && row.products.includes("calendar") && row.scopes.includes(CALENDAR_WRITE_SCOPE),
     );
-    if (writer === undefined) return { ok: false as const, refused: "no_calendar" as const };
+    if (writer === undefined) {
+      // Connected, but before the consent asked to change it: one reconnect
+      // grants it, which "not connected" would never get the person to do.
+      const reader = connections.some((row) => row.disconnectedAt === undefined && row.products.includes("calendar"));
+      return { ok: false as const, refused: reader ? ("calendar_read_only" as const) : ("no_calendar" as const) };
+    }
     const policies = calendarWritePolicies(cleared.actorUserId);
     for (const policy of policies) {
       if (!(await hasRoom(ctx, policy))) return { ok: false as const, refused: policy.refusal };

@@ -17,6 +17,8 @@ export const CALENDAR_TOOL = "calendar_event";
 export const MAX_TITLE = 200;
 export const MAX_LOCATION = 300;
 export const MAX_NOTES = 2_000;
+export const MAX_GUESTS = 10;
+const EMAIL = /^[^\s@<>",;()[\]\\]+@[^\s@<>",;()[\]\\]+\.[^\s@<>",;()[\]\\]+$/;
 const MAX_SPAN_MS = 14 * 24 * 60 * 60 * 1000;
 
 const DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:\d{2})$/;
@@ -46,6 +48,20 @@ function optional(value, field, max, control) {
   return { value: value.trim() === "" ? undefined : value };
 }
 
+/** A create's guests: none, or 1 to 10 distinct email addresses; `{ error }` otherwise. */
+function guestList(value) {
+  if (value === undefined || value === null) return { value: [] };
+  const wrong = { error: `guests is a list of 1 to ${MAX_GUESTS} different email addresses, like ["sam@example.com"].` };
+  if (!Array.isArray(value) || value.length === 0 || value.length > MAX_GUESTS) return wrong;
+  const seen = new Set();
+  for (const guest of value) {
+    if (typeof guest !== "string" || guest.length > 254 || !EMAIL.test(guest) || CONTROL.test(guest)) return wrong;
+    if (seen.has(guest.toLowerCase())) return wrong;
+    seen.add(guest.toLowerCase());
+  }
+  return { value };
+}
+
 /**
  * The change a call asks for, `{ change }`, or `{ error }` saying what to fix.
  * Never repaired: what is changed is exactly what the person was shown.
@@ -61,18 +77,30 @@ export function readCalendarChange(args) {
   const location = optional(args?.location, "location", MAX_LOCATION, CONTROL);
   const notes = optional(args?.notes, "notes", MAX_NOTES, NOTES_CONTROL);
   for (const part of [location, notes]) if (part.error) return { error: part.error };
-  // Set by `calendarGate.js` on a change to an event with guests, held for the person's yes; never by a model to skip it.
-  if (args.notify_guests !== undefined && (args.notify_guests !== true || action === "create")) {
+  // Set by `calendarGate.js` on a change that tells guests, held for the person's yes; never by a model to skip it.
+  const guests = guestList(args.guests);
+  if (guests.error) return { error: guests.error };
+  if (args.notify_guests !== undefined && (args.notify_guests !== true || (action === "create" && guests.value.length === 0))) {
     return { error: "notify_guests is not something to pass; leave it out." };
   }
+  if (args.meet !== undefined && args.meet !== true) return { error: "meet is true, or left out." };
   const change = { action, title, start: args.start, ...(args.notify_guests === true ? { notify_guests: true } : {}) };
   if (action === "create") {
     const wrong = span(args.start, args.end);
     if (wrong) return { error: wrong };
-    return { change: { ...change, end: args.end, ...(location.value ? { location: location.value } : {}), ...(notes.value ? { notes: notes.value } : {}) } };
+    return {
+      change: {
+        ...change,
+        end: args.end,
+        ...(location.value ? { location: location.value } : {}),
+        ...(notes.value ? { notes: notes.value } : {}),
+        ...(guests.value.length > 0 ? { guests: guests.value } : {}),
+        ...(args.meet === true ? { meet: true } : {}),
+      },
+    };
   }
-  if (location.value || notes.value || args.end !== undefined) {
-    return { error: `${action} names the event by its title and its start as they are now; it takes no end, location or notes.` };
+  if (location.value || notes.value || args.end !== undefined || args.guests !== undefined || args.meet !== undefined) {
+    return { error: `${action} names the event by its title and its start as they are now; it takes no end, location, notes, guests or meet.` };
   }
   if (action === "cancel") {
     return args.new_start === undefined && args.new_end === undefined ? { change } : { error: "cancel takes no new_start or new_end." };
@@ -136,7 +164,8 @@ function guestWords(guests) {
 
 /** The change exactly as the person reads it before they say yes, its times in words, and who Google will tell. */
 export function calendarCopy(change, now = Date.now(), guests = []) {
-  const told = guests.length > 0 ? [`Google will let ${guestWords(guests)} know.`] : [];
+  const told =
+    change.action === "create" && change.guests ? ["Google emails them the invite."] : guests.length > 0 ? [`Google will let ${guestWords(guests)} know.`] : [];
   return [...plainCopy(change, now), ...told].join("\n");
 }
 
@@ -147,6 +176,8 @@ function plainCopy(change, now) {
       `${change.title}`,
       spanWords(change.start, change.end, now),
       ...(change.location ? [`Where: ${change.location}`] : []),
+      ...(change.meet ? ["With a Google Meet link"] : []),
+      ...(change.guests ? [`Invite: ${change.guests.join(", ")}`] : []),
       ...(change.notes ? ["", change.notes] : []),
     ];
   }
@@ -159,7 +190,7 @@ function plainCopy(change, now) {
 /** One line for the approvals list and the "Done, I …" reply (`agent/doneLine.js`). */
 export function calendarSummary(change) {
   const title = `"${change.title.slice(0, 120)}"`;
-  if (change.action === "create") return `add ${title} to your calendar`;
+  if (change.action === "create") return `add ${title} to your calendar${change.guests ? ` and invite ${guestWords(change.guests)}` : ""}`;
   if (change.action === "move") return `move ${title} on your calendar`;
   return `cancel ${title} on your calendar`;
 }
@@ -169,8 +200,12 @@ export const REFUSED = {
   invalid: "Not changed: the calendar change was not valid.",
   not_allowed: "Not changed: this connection cannot change the person's calendar.",
   no_calendar:
-    "Not changed: the person has no Google Calendar connected that Context may change. Send them the link from manage connect_google " +
+    "Not changed: the person has no Google Calendar connected. Send them the link from manage connect_google " +
     "(kind calendar) in one line, and make the change once they say it's connected; never tell them to make it themselves.",
+  calendar_read_only:
+    "Not changed: their Google Calendar is connected, but from before Context asked to change it, so it can only be read. " +
+    "Never say it isn't connected. Send the link from manage connect_google (kind calendar) in one line, saying one reconnect " +
+    "lets you add it, and make the change once they say it's done; never tell them to make it themselves.",
   hourly_limit: "Not changed: the person has made 20 calendar changes through Context this hour. Try again later.",
   daily_limit: "Not changed: the person has made 100 calendar changes through Context today. Try again tomorrow.",
   not_found: "Not changed: no event with exactly that title starts at that time. Check the title and start against their calendar.",
@@ -190,6 +225,9 @@ export async function toolCalendarEvent(store, args) {
   } catch {
     return toolError(REFUSED.unavailable);
   }
-  if (answer?.ok === true) return toolText(`Done on ${answer.calendar}'s calendar: ${calendarSummary(read.change)}.`);
+  if (answer?.ok === true) {
+    const meet = typeof answer.meet === "string" ? ` Google Meet link: ${answer.meet}` : read.change.meet ? " Google made no Meet link." : "";
+    return toolText(`Done on ${answer.calendar}'s calendar: ${calendarSummary(read.change)}.${meet}`);
+  }
   return toolError(REFUSED[answer?.refused] ?? REFUSED.unavailable);
 }

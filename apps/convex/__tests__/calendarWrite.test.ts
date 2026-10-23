@@ -14,6 +14,9 @@
  *     moved or cancelled" fails (without `notify_guests`).
  *  3. Taking the first of several matches. → "a move that matches two events
  *     changes neither" fails.
+ *  4. Dropping `notifyGuests !== guests.length > 0` from `readCalendarChange`.
+ *     → "a new event invites its guests with a Google Meet only as the change
+ *     the person said yes to" fails.
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -40,7 +43,7 @@ function calendar(events: Listed[] = [], status = 200) {
     const method = init?.method ?? "GET";
     calls.push({ method, url, auth: new Headers(init?.headers).get("Authorization"), body: init?.body ? JSON.parse(String(init.body)) : null });
     if (method === "GET") return new Response(JSON.stringify({ items: events }), { status: 200 });
-    return new Response(method === "DELETE" ? null : JSON.stringify({ id: "evt_fake" }), { status: method === "DELETE" && status === 200 ? 204 : status });
+    return new Response(method === "DELETE" ? null : JSON.stringify({ id: "evt_fake", hangoutLink: "https://meet.google.com/abc-defg-hij" }), { status: method === "DELETE" && status === 200 ? 204 : status });
   });
   return calls;
 }
@@ -153,12 +156,39 @@ describe("changing the person's own calendar", () => {
     expect(calls[1]!.url).toBe("https://www.googleapis.com/calendar/v3/calendars/primary/events/evt_1?sendUpdates=all");
   });
 
-  test("a calendar connected to read only changes nothing", async () => {
+  test("a calendar connected to read only changes nothing, and says a reconnect fixes it", async () => {
     const calls = calendar();
     const { t, aliceWs } = await connected({ write: false });
-    expect(await change(t, ACCESS_A, aliceWs, CREATE)).toEqual({ ok: false, refused: "no_calendar" });
+    expect(await change(t, ACCESS_A, aliceWs, CREATE)).toEqual({ ok: false, refused: "calendar_read_only" });
+    expect(await change(t, ACCESS_A, aliceWs, CREATE, { check: true })).toEqual({ ok: false, refused: "calendar_read_only" });
+    expect(calls).toHaveLength(0);
+  });
+
+  test("with no calendar connected at all, it says so", async () => {
+    const calls = calendar();
+    const { t, aliceWs } = await twoConnectedTenants();
     expect(await change(t, ACCESS_A, aliceWs, CREATE, { check: true })).toEqual({ ok: false, refused: "no_calendar" });
     expect(calls).toHaveLength(0);
+  });
+
+  test("a new event invites its guests with a Google Meet only as the change the person said yes to", async () => {
+    const calls = calendar();
+    const { t, aliceWs } = await connected();
+    const invite = { ...CREATE, guests: ["seyi@example.invalid"], meet: true };
+    expect(await change(t, ACCESS_A, aliceWs, invite)).toEqual({ ok: false, refused: "invalid" });
+    expect(await change(t, ACCESS_A, aliceWs, { ...invite, notify_guests: true }, { check: true })).toEqual({
+      ok: true,
+      calendar: "alice@gmail.example",
+      guests: ["seyi@example.invalid"],
+    });
+    expect(calls).toHaveLength(0);
+    expect(await change(t, ACCESS_A, aliceWs, { ...invite, notify_guests: true })).toEqual({ ok: true, calendar: "alice@gmail.example", meet: "https://meet.google.com/abc-defg-hij" });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe("https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all&conferenceDataVersion=1");
+    const body = calls[0]!.body as Record<string, any>;
+    expect(body.attendees).toEqual([{ email: "seyi@example.invalid" }]);
+    expect(body.conferenceData.createRequest.conferenceSolutionKey).toEqual({ type: "hangoutsMeet" });
+    expect(typeof body.conferenceData.createRequest.requestId).toBe("string");
   });
 
   test("another tenant's token, or a grant on a shared workspace, never reaches it", async () => {
@@ -207,5 +237,18 @@ describe("what a change may be", () => {
     expect(readCalendarChange({ ...CREATE, notify_guests: true })).toBeNull();
     expect(readCalendarChange({ ...MOVE, notify_guests: "yes" })).toBeNull();
     expect(readCalendarChange({ ...MOVE, notify_guests: true })?.notifyGuests).toBe(true);
+  });
+
+  test("only a create invites, 1 to 10 distinct addresses", () => {
+    const yes = { ...CREATE, notify_guests: true };
+    expect(readCalendarChange({ ...yes, guests: ["seyi@example.invalid"] })?.guests).toEqual(["seyi@example.invalid"]);
+    expect(readCalendarChange({ ...yes, guests: [] })).toBeNull();
+    expect(readCalendarChange({ ...yes, guests: ["Seyi <seyi@example.invalid>"] })).toBeNull();
+    expect(readCalendarChange({ ...yes, guests: ["a@example.invalid", "A@example.invalid"] })).toBeNull();
+    expect(readCalendarChange({ ...yes, guests: Array.from({ length: 11 }, (_, i) => `p${i}@example.invalid`) })).toBeNull();
+    expect(readCalendarChange({ ...MOVE, notify_guests: true, guests: ["seyi@example.invalid"] })).toBeNull();
+    expect(readCalendarChange({ ...CREATE, meet: true })?.meet).toBe(true);
+    expect(readCalendarChange({ ...CREATE, meet: "yes" })).toBeNull();
+    expect(readCalendarChange({ ...CANCEL, meet: true })).toBeNull();
   });
 });

@@ -17,7 +17,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { createWorkspace, gatewayPost, seedGoogleConnection, seedStorageBinding } from "./fixtures.helpers";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { ACCESS_A, ACCESS_B, bodyOf, twoConnectedTenants } from "./controlPlane/fixtures.helpers";
-import { CHAT_READ_SCOPE, CHAT_SEND_SCOPES, TESTER_WRITE_SCOPES } from "../functions/lib/googleOAuth";
+import { CHAT_READ_SCOPE, CHAT_SEND_SCOPES, WRITE_SCOPES } from "../functions/lib/googleOAuth";
 import { CHAT_READ_HOURLY_LIMIT } from "../functions/googleChatSend";
 
 const realFetch = globalThis.fetch;
@@ -137,6 +137,6 @@ describe("reading the Google Chat written to the person, for check-ins", () => {
   });
 
   test("reading is asked of testers with the Gmail connect, never of anyone else", () => {
-    expect(TESTER_WRITE_SCOPES.gmail).toContain(CHAT_READ_SCOPE);
+    expect(WRITE_SCOPES.gmail).toContain(CHAT_READ_SCOPE);
   });
 });

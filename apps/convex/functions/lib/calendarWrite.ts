@@ -10,11 +10,11 @@
  * `functions/calendarWrite.ts`.
  *
  * Only a connection whose consent granted `calendar.events` writes, which
- * until Google's review Context asks only of testers (decided by the owner,
- * 2026-10-17: "it should work for testing accounts before we need it
- * approved"; `TESTER_WRITE_SCOPES` in `googleOAuth.ts`). Only the primary
- * calendar. An event with guests is moved or cancelled only when the change
- * says `notify_guests`, which the gateway sets only on a change the person
+ * Context asks of everyone who connects Calendar (`EVERYONE_WRITE_SCOPES` in
+ * `googleOAuth.ts`, the owner, 2026-10-23); one connected before that is
+ * refused `calendar_read_only`, and one reconnect fixes it. Only the primary
+ * calendar. An event with guests is moved or cancelled, and a new one invites
+ * anybody, only when the change says `notify_guests`, which the gateway sets only on a change the person
  * gave their yes to with the guests named (the owner, 2026-10-22: "we only
  * need confirmation when you are sending things to another human being");
  * Google then tells the guests. Nothing of an event is kept here: the limits
@@ -34,6 +34,10 @@ const MAX_SPAN_MS = 14 * 24 * 60 * 60 * 1000;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
+
+/** Most people one new event invites. */
+export const CALENDAR_MAX_GUESTS = 10;
+const EMAIL = /^[^\s@<>",;()\[\]\\]+@[^\s@<>",;()\[\]\\]+\.[^\s@<>",;()\[\]\\]+$/;
 
 /** A date-time with its offset, or a whole day; nothing a guess could fill in. */
 const DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:\d{2})$/;
@@ -59,14 +63,19 @@ export interface CalendarChange {
   newEnd: CalendarTime | null;
   location: string | null;
   notes: string | null;
-  /** move and cancel only: the person said yes to telling the event's guests. */
+  /** The person said yes to telling the event's guests: a move or cancel of one with guests, or a create inviting them. */
   notifyGuests: boolean;
+  /** create only: who is invited, by address; set only with `notifyGuests`. */
+  guests: string[];
+  /** create only: the event gets a Google Meet link. */
+  meet: boolean;
 }
 
 export type CalendarRefusal =
   | "invalid"
   | "not_allowed"
   | "no_calendar"
+  | "calendar_read_only"
   | "hourly_limit"
   | "daily_limit"
   | "not_found"
@@ -118,20 +127,56 @@ export function readCalendarChange(value: unknown): CalendarChange | null {
   const location = text(raw.location, CALENDAR_MAX_LOCATION, CONTROL);
   const notes = text(raw.notes, CALENDAR_MAX_NOTES, NOTES_CONTROL);
   if (location === false || notes === false) return null;
-  if (raw.notify_guests !== undefined && (raw.notify_guests !== true || action === "create")) return null;
+  if (raw.notify_guests !== undefined && raw.notify_guests !== true) return null;
   const notifyGuests = raw.notify_guests === true;
-  const change: CalendarChange = { action, title, start, end: null, newStart: null, newEnd: null, location: null, notes: null, notifyGuests };
+  const change: CalendarChange = {
+    action,
+    title,
+    start,
+    end: null,
+    newStart: null,
+    newEnd: null,
+    location: null,
+    notes: null,
+    notifyGuests,
+    guests: [],
+    meet: false,
+  };
   if (action === "create") {
     const end = time(raw.end);
     if (end === null || !span(start, end)) return null;
-    return { ...change, end, location, notes };
+    const guests = guestList(raw.guests);
+    if (guests === null || (raw.meet !== undefined && raw.meet !== true)) return null;
+    // An invite tells somebody, so it goes only as the change the person said yes to.
+    if (notifyGuests !== guests.length > 0) return null;
+    return { ...change, end, location, notes, guests, meet: raw.meet === true };
   }
-  if (location !== null || notes !== null || raw.end !== undefined) return null;
+  if (location !== null || notes !== null || raw.end !== undefined || raw.guests !== undefined || raw.meet !== undefined) return null;
   if (action === "cancel") return raw.new_start === undefined && raw.new_end === undefined ? change : null;
   const newStart = time(raw.new_start);
   const newEnd = time(raw.new_end);
   if (newStart === null || newEnd === null || !span(newStart, newEnd)) return null;
   return { ...change, newStart, newEnd };
+}
+
+/** A create's guests: none, or 1 to 10 distinct addresses; null when any is not one. */
+function guestList(value: unknown): string[] | null {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length === 0 || value.length > CALENDAR_MAX_GUESTS) return null;
+  const seen = new Set<string>();
+  for (const guest of value) {
+    if (typeof guest !== "string" || guest.length > 254 || !EMAIL.test(guest) || CONTROL.test(guest)) return null;
+    const key = guest.toLowerCase();
+    if (seen.has(key)) return null;
+    seen.add(key);
+  }
+  return value as string[];
+}
+
+/** The Meet link Google answered a create with, only when it is one. */
+export function meetLink(created: unknown): string | null {
+  const link = (created as { hangoutLink?: unknown } | null)?.hangoutLink;
+  return typeof link === "string" && /^https:\/\/meet\.google\.com\/[a-z0-9-]{1,64}$/i.test(link) ? link : null;
 }
 
 /** The counters one change spends, all or none (`functions/calendarWrite.ts`). */

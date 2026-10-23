@@ -83,14 +83,33 @@ attendees, and every request asks Google for `sendUpdates=none` besides.
 Inviting people is a follow-up that has to come through the email gate's
 reasoning first.
 
-### Testers only until Google's review
+### Asked of everyone who connects Calendar
 
-`calendar.events` is a sensitive scope. Until our OAuth client is verified for
-it, Context asks for it only of testers: verified staff addresses
-(`ADMIN_EMAILS`) and the production test account (`isGoogleWriteTester`,
-`TESTER_WRITE_SCOPES` in `googleOAuth.ts`). A tester reconnects Google once to
-grant it. Everyone else's change refuses with `no_calendar` and the AI tells
-them what to change instead.
+Decided by the owner on 2026-10-23, reversing the testers-only rule of
+2026-10-17. A texter with Calendar connected asked Tex to book a meeting, and
+Tex said Calendar wasn't connected and sent a link: only staff had been asked
+for `calendar.events`, so her connection could read and not write, and
+reconnecting changed nothing. The owner: "??? what happened here", then "Yes,
+everyone" for email, drafts and Chat as well. Our OAuth client is not yet
+verified, so every consent screen already shows Google's unverified-app
+warning for Gmail's restricted read; the write scopes add no screen anybody
+would not see. Every connect now asks for the write scopes of the products it
+connects (`WRITE_SCOPES` in `googleOAuth.ts`), and the tester check is gone.
+
+A connection made before that grants read only. A change then refuses with
+`calendar_read_only`, never `no_calendar`, and Tex sends the reconnect link
+saying one reconnect lets it make the change, then makes it.
+
+### A new event can invite guests and get a Google Meet
+
+`create` takes `guests` (1 to 10 addresses) and `meet: true` (decided by the
+owner, 2026-10-23, the same booking). An invite reaches somebody, so it is held
+like a move of an event with guests: the person reads the event with "Invite:"
+and the addresses, and their 👍 or yes releases it with `notify_guests`, which
+the control plane requires on any create with guests and Google then emails
+(`sendUpdates=all`). A Meet is added with `conferenceDataVersion=1` and its
+link is given back to say in the reply; a Meet alone tells nobody, so it runs
+at once.
 
 Tests: `apps/convex/__tests__/calendarWrite.test.ts`,
 `apps/mcp/test/calendarGate.test.mjs`,

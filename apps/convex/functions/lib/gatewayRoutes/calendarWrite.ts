@@ -4,8 +4,9 @@
  * (`lib/calendarWrite.ts`).
  *
  * Body `{ accessToken, expectedWorkspaceId, change, check? }`. Answers
- * `{ ok: true, calendar, guests? }` (with `check`, nothing changes; a move or
- * cancel checked names the event's guests) or `{ ok: false, refused }`.
+ * `{ ok: true, calendar, guests?, meet? }` (with `check`, nothing changes; a
+ * move or cancel checked names the event's guests, a create its invitees; a
+ * create with a Meet answers its link) or `{ ok: false, refused }`.
  *
  * The gateway makes Tex's change to an event nobody else is on at once, and
  * holds any other for the person's yes (`apps/mcp/src/tools/calendarGate.js`).
@@ -13,7 +14,8 @@
  * that granted `calendar.events`, the limits hold, and a move or a cancel
  * reaches exactly one event. One with guests is changed only with
  * `notify_guests`, and then Google tells them (`sendUpdates=all`); otherwise
- * `sendUpdates=none`. Nothing of the event is stored or logged; Google's
+ * `sendUpdates=none`. A new event invites guests only with it too, and gets a
+ * Google Meet with `meet` (`conferenceDataVersion=1`). Nothing of the event is stored or logged; Google's
  * error body can quote it, so only a status is.
  */
 
@@ -22,7 +24,7 @@ import type { ActionCtx } from "../../../_generated/server";
 import { hashToken } from "../crypto";
 import { json, stringField } from "../gatewayAuth";
 import type { CalendarChange } from "../calendarWrite";
-import { googleTime, guestNames, hasGuests, matchingEvents, readCalendarChange, searchWindow } from "../calendarWrite";
+import { googleTime, guestNames, hasGuests, matchingEvents, meetLink, readCalendarChange, searchWindow } from "../calendarWrite";
 
 const EVENTS_ENDPOINT = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
 
@@ -55,7 +57,7 @@ function changeRequest(change: CalendarChange, eventId: string | null): { url: s
   const quiet = change.notifyGuests ? "?sendUpdates=all" : "?sendUpdates=none";
   if (change.action === "create") {
     return {
-      url: `${EVENTS_ENDPOINT}${quiet}`,
+      url: `${EVENTS_ENDPOINT}${quiet}${change.meet ? "&conferenceDataVersion=1" : ""}`,
       method: "POST",
       body: JSON.stringify({
         summary: change.title,
@@ -63,6 +65,10 @@ function changeRequest(change: CalendarChange, eventId: string | null): { url: s
         end: googleTime(change.end!),
         ...(change.location !== null ? { location: change.location } : {}),
         ...(change.notes !== null ? { description: change.notes } : {}),
+        ...(change.guests.length > 0 ? { attendees: change.guests.map((email) => ({ email })) } : {}),
+        ...(change.meet
+          ? { conferenceData: { createRequest: { requestId: crypto.randomUUID(), conferenceSolutionKey: { type: "hangoutsMeet" } } } }
+          : {}),
       }),
     };
   }
@@ -91,7 +97,9 @@ export async function gatewayCalendarWriteHandler(ctx: ActionCtx, body: Record<s
     log({ outcome: "refused", reason: room.refused, check });
     return json({ ok: false, refused: room.refused });
   }
-  if (check && change.action === "create") return json({ ok: true, calendar: room.address });
+  if (check && change.action === "create") {
+    return json({ ok: true, calendar: room.address, ...(change.guests.length > 0 ? { guests: change.guests } : {}) });
+  }
 
   const minted = await ctx.runAction(internal.functions.googleConnect.mintGoogleAccessToken, { connectionId: room.connectionId });
   if (minted === null) {
@@ -118,9 +126,10 @@ export async function gatewayCalendarWriteHandler(ctx: ActionCtx, body: Record<s
     });
     log({ outcome: response.ok ? "changed" : "http_error", action: change.action, status: response.status });
     if (!response.ok) return json({ ok: false, refused: "unavailable" });
+    const meet = change.meet ? meetLink(await response.json().catch(() => null)) : null;
+    return json({ ok: true, calendar: room.address, ...(meet !== null ? { meet } : {}) });
   } catch {
     log({ outcome: "transport_error", action: change.action });
     return json({ ok: false, refused: "unavailable" });
   }
-  return json({ ok: true, calendar: room.address });
 }

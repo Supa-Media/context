@@ -50,7 +50,8 @@ export async function calendarGate(supplied, { store, session, target }) {
   if (typeof store?.calendar?.check !== "function") return toolError(REFUSED.not_configured);
   let room;
   try {
-    room = await store.calendar.check(read.change);
+    // A new event's invitees are checked as the change their yes would release.
+    room = await store.calendar.check(read.change.guests ? { ...read.change, notify_guests: true } : read.change);
   } catch {
     room = { ok: false, refused: "unavailable" };
   }
@@ -63,9 +64,9 @@ export async function calendarGate(supplied, { store, session, target }) {
     long as there isn't a second person added in a calendar event, there is no
     need to get permission ... we only need confirmation when you are sending
     things to another human being, so a cal invite to another person"). A new
-    event takes no attendees, so only a move or a cancel of one with guests
-    tells anybody: that one is put to the person with the guests named, and
-    their 👍 or yes makes it and lets Google tell them (`notify_guests`). The
+    event inviting guests, or a move or a cancel of one with guests, tells
+    somebody: that one is put to the person with the guests named, and their
+    👍 or yes makes it and lets Google tell them (`notify_guests`). The
     owner, 2026-10-22, on Tex refusing to move a meeting with a guest and
     telling them to do it themselves: "it should've suggested the change and
     had me 👍 to approve it". Another AI's change still waits for the app.

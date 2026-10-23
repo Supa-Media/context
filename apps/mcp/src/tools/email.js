@@ -197,8 +197,9 @@ export const REFUSED = {
   invalid: "Not sent: the email was not valid.",
   not_allowed: "Not sent: this connection cannot send email as the person.",
   no_sender:
-    "Not sent: the person has no Gmail connected that Context may send from. Send them the link from manage connect_google (kind gmail) " +
-    "in one line, and send the email once they say it's connected; never hand them the email to send themselves.",
+    "Not sent: no Gmail of theirs lets Context send yet; one connected before Context asked to send can only be read, so never say it " +
+    "isn't connected. Send them the link from manage connect_google (kind gmail) in one line, saying one reconnect lets you send it, " +
+    "and send the email once they say it's done; never hand them the email to send themselves.",
   hourly_limit: "Not sent: the person has sent 20 emails through Context this hour. Try again later.",
   daily_limit: "Not sent: the person has sent 100 emails through Context today. Try again tomorrow.",
   recipient_limit: "Not sent: the person has already emailed one of these addresses 10 times today through Context.",
@@ -232,7 +233,9 @@ export const DRAFT_REFUSED = {
   invalid: "Not saved: the draft was not valid.",
   not_allowed: "Not saved: this connection cannot save drafts in the person's Gmail.",
   no_sender:
-    "Not saved: the person has no Gmail connected that Context may save drafts in. Give them the draft to copy instead.",
+    "Not saved: no Gmail of theirs lets Context save drafts yet; one connected before Context asked can only be read, so never say it " +
+    "isn't connected. Send them the link from manage connect_google (kind gmail) in one line, saying one reconnect lets you save it, " +
+    "and save it once they say it's done.",
   hourly_limit: "Not saved: 30 drafts were saved through Context this hour. Give them this one to copy instead.",
   daily_limit: "Not saved: 200 drafts were saved through Context today. Give them this one to copy instead.",
   not_configured: "Not saved: this Context deployment does not save drafts.",
