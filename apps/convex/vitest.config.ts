@@ -18,6 +18,9 @@ export default defineConfig({
     // test also pays for loading every function module: past 5s on a loaded
     // runner without anything being wrong.
     testTimeout: 30_000,
+    // On pushes to main CI records which files each test used, for the next
+    // pull request to pick its tests from (testImpact.setup.ts).
+    setupFiles: process.env.CONVEX_TEST_MAP_RECORD ? ["./testImpact.setup.ts"] : [],
     // `@supa-media/convex` ships TypeScript source rather than a build, so it
     // has to be transformed by vite rather than imported natively by node.
     server: { deps: { inline: ["convex-test", "@supa-media/convex"] } },

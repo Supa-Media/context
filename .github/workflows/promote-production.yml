@@ -1,0 +1,39 @@
+name: Promote to Production
+
+# A green staging run from a merge starts Deploy to Production for that commit
+# (decided by the owner, 2026-10-23), once CI on main has passed on it too.
+# scripts/promote-production.mjs says what it checks; Deploy to Production
+# checks staging again itself, so this adds no way past that gate.
+#
+# To make production manual again, set the repository variable
+# AUTO_DEPLOY_PRODUCTION to `off` (Settings → Secrets and variables → Actions
+# → Variables). Nothing else changes: Deploy to Production still runs by hand.
+on:
+  workflow_run:
+    workflows: ["Deploy Staging"]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  promote:
+    name: Start Deploy to Production
+    if: ${{ vars.AUTO_DEPLOY_PRODUCTION != 'off' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - name: Promote this commit if CI and staging passed and it is still main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STAGED_SHA: ${{ github.event.workflow_run.head_sha }}
+          STAGED_EVENT: ${{ github.event.workflow_run.event }}
+          STAGED_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          STAGED_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+        run: node scripts/promote-production.mjs

@@ -670,6 +670,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [The Convex suite watches the gateway files Convex reaches](./testing/ci-pipelines.md)
 - [The gateway suite runs as two jobs, and its slow file in shards](./testing/ci-pipelines.md)
 - [Per push, a real browser tests only the note editor](./testing/ci-pipelines.md)
+- [A pull request runs the Convex tests its change reaches](./testing/convex-test-impact.md)
 
 ## [Vocabulary and the workspace model](./vocabulary-and-workspaces.md)
 
