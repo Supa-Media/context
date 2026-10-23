@@ -231,6 +231,55 @@ test("the next tag knows which note the last one wrote, so it never disowns it (
   assert.match(system, /fetch it by that exact path/);
 });
 
+test("the chat's memory is a note in tex/groups/ that people can read and fix (the owner, 2026-10-23)", async (t) => {
+  const people = chat({ members: "e".repeat(64) });
+  // The workspace's owner made tex/ a team folder; until then the memory stays in its hidden file (below).
+  const manifest = world.team.get("privacy.md");
+  world.team.set("privacy.md", { body: manifest.body.replace("1-projects: team", "1-projects: team\n  tex: team"), etag: "t0-tex" });
+  t.after(() => world.team.set("privacy.md", manifest));
+  world.model.install([{ text: "Noted: the gig is Friday." }]);
+  await ask(TOKEN_GROUP, { question: "the gig is friday", group: people });
+  const [path] = [...world.team.keys()].filter((key) => key.startsWith("tex/groups/chat-"));
+  assert.ok(path, "the chat's note was written");
+  const note = bodyAt(world.team, path);
+  assert.match(note, /# Tex's memory of this group chat/);
+  assert.match(note, /@ada: the gig is friday\n\n\*\*Tex:\*\* Noted: the gig is Friday\./);
+  assert.doesNotMatch(path, /e{12}|a{12}/, "named by a hash, never the chat's key");
+
+  // Somebody fixes it, here through the same writes the app's editor makes.
+  world.model.install([
+    { toolCalls: [{ name: "read_note", args: { path } }] },
+    (request) => {
+      const read = toolResults(request).at(-1);
+      const etag = /etag: (\S+)/.exec(read)?.[1];
+      const body = read.slice(read.indexOf("\n\n") + 2).replace("the gig is friday", "the gig is saturday").replace("the gig is Friday", "the gig is Saturday");
+      return { toolCalls: [{ name: "write_note", args: { path, content: body, expected_etag: etag } }] };
+    },
+    { text: "Fixed." },
+    { text: "Saturday, like the note says." },
+  ]);
+  await ask(TOKEN_GROUP, { question: "fix your memory: it's saturday", group: chat({ members: "9".repeat(64) }) });
+  await ask(TOKEN_GROUP, { question: "when's the gig?", group: people });
+  const remembered = JSON.stringify(world.model.requests.at(-1).messages);
+  assert.match(remembered, /the gig is saturday/);
+  assert.doesNotMatch(remembered, /the gig is friday/, "the fix is what Tex goes by");
+  assert.match(bodyAt(world.team, path), /the gig is saturday[\s\S]*Saturday, like the note says\./, "and the next exchange is added to the fixed note");
+});
+
+test("a tagger who can't write still has the chat's memory, and an untouched note never hides it", async (t) => {
+  const people = chat({ members: "f".repeat(64) });
+  const manifest = world.team.get("privacy.md");
+  world.team.set("privacy.md", { body: manifest.body.replace("1-projects: team", "1-projects: team\n  tex: team"), etag: "t0-tex-2" });
+  t.after(() => world.team.set("privacy.md", manifest));
+  world.model.install([{ text: "Noted: Friday." }, { text: "Load-in is 6." }, { text: "Friday at 6." }]);
+  await ask(TOKEN_GROUP, { question: "the gig is friday", group: people });
+  await ask(TOKEN_GROUP_READER, { question: "load-in is at 6", group: people });
+  await ask(TOKEN_GROUP, { question: "when's the gig?", group: people });
+  const remembered = JSON.stringify(world.model.requests.at(-1).messages);
+  assert.match(remembered, /the gig is friday/);
+  assert.match(remembered, /load-in is at 6/, "the read-only tagger's exchange is kept though the note couldn't take it");
+});
+
 test("a stale etag changes nothing, and routines and hidden paths are refused in a group", async () => {
   world.model.install([
     {

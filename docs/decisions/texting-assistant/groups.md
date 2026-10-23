@@ -286,3 +286,32 @@ and notes from the chat's memory brings back the disowned note.
 `apps/agent/src/groupInbox.test.ts` ("answers \"Tex turn this guy into a
 cat\"") and `apps/mcp/test/agentGroupTurn.test.mjs` ("the next tag knows which
 note the last one wrote") fail if either is reversed.
+
+## A chat's memory as a note people can fix (the owner, 2026-10-23)
+
+The owner chose "Visible tex/ folder, team-wide" over memory nobody can see.
+Each chat, filed by its exact set of people as before, keeps
+`tex/groups/chat-<id>.md` in its workspace (`groupMemoryNote.js`): every
+question with the chat lines before it, every answer, and a hidden line under
+each answer naming the tools it used and the notes and pages behind it. Tex
+reads the note before answering and rewrites it after, over the etag it read,
+so a line someone changed or deleted is what Tex goes by and an edit made
+mid-turn is never overwritten.
+
+It is written through the dispatcher under the tagger's own grant, like a
+transcript, so the folder's visibility decides: a team connection may only
+create a note where the folder is shared with the team, and every workspace
+starts private. Until the owner shares a `tex` folder with the team (once,
+in the app), and for a tagger whose role can't write, the memory stays in
+the hidden file it always had (`.context/agent/groups/`). That file stays
+the fallback, and records the etag of the note Tex last wrote: the note is
+preferred only once somebody changed it since, so an exchange that reached
+only the hidden file is not lost. Everyone in the workspace can read the
+note, people not in the chat included; that was the owner's choice.
+
+**What a simplification would cost:** reading only the hidden file makes the
+note decoration nobody's fix reaches; writing the note without the etag
+overwrites a fix made while Tex was answering; preferring the note whenever
+it exists loses a read-only tagger's exchanges. `apps/mcp/test/agentGroupTurn.test.mjs`
+("the chat's memory is a note in tex/groups/", "a tagger who can't write
+still has the chat's memory") fails if any is reversed.

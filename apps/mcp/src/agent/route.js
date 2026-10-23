@@ -206,7 +206,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       dispatch,
       // A tapback's own text is its emoji: a 👍 on other words is not a typed 👍, so it is no verdict.
       question: thumbsUp ? "yes" : quoted.tapback ? "" : group !== null ? withoutTexName(question) : question,
-      keep: group !== null ? keepGroupSettled(store, group) : null,
+      keep: group !== null ? keepGroupSettled(store, group, dispatch) : null,
       hasAttachments: sent.length > 0,
       now: received,
       timeZone: readTimeZone(body.timeZone),
@@ -290,7 +290,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       ? body.conversation
       : null;
   // A group chat remembers in its own file, never the tagger's texts; its turns are other people's words, so untrusted (`groupTurn.js`).
-  const history = group !== null ? await readGroupMemory(store, group) : conversation === null ? [] : await readConversation(store, conversation);
+  const history = group !== null ? await readGroupMemory(store, group, dispatch) : conversation === null ? [] : await readConversation(store, conversation);
   if (group !== null || job?.tainted) markUntrusted(ledger); // a job planned after a read from outside still carries it
   const background = chatTurn ? backgroundSession({ running: runningJobsOf(body.running), job, now: received }) : null;
   session.egress.turn = runner ? { note: routine?.body ?? "" } : { history, question }; // the sharing judge's
@@ -624,7 +624,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     await afterAnswer(afterTextedTurn({ env, controlPlane, store, session, offered, question, turn, tainted: ledger.untrusted === true, ownText: !runner && job === null && group === null, learned, canWrite: textingWriting.some((tool) => tool.name === "write_note"), timeZone }));
 
     // Best effort, as below: a memory that failed to save costs the chat some context, not this answer.
-    if (group !== null && !turn.exhausted) await keepGroupExchange(store, group, history, jobSavedLine(job) || question, answer, { tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []) }).catch(() => {});
+    if (group !== null && !turn.exhausted) await keepGroupExchange(store, group, history, jobSavedLine(job) || question, answer, { tainted: ledger.untrusted, tools: turn.steps.filter((step) => step.ok).map((step) => step.tool), sources: turn.steps.flatMap((step) => step.sources ?? []), dispatch }).catch(() => {});
     if (conversation !== null && !turn.exhausted) {
       try {
         const saved = [reactedLine(reacted), jobSavedLine(job) || tapbackLine(quoted) || question, attachmentsLine(attachments, (await transcript?.kept()) ?? []), steeredLine(steer?.words ?? [])].filter(Boolean).join("\n"); // names only, never bytes
