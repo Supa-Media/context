@@ -207,9 +207,8 @@ export async function copyPrivacy(
 ): Promise<void> {
   const state = await loadPrivacyState(store);
   if (state.invalid) return;
-  const rows = rowAccessOf(store);
   if (state.text === null) {
-    if (rows !== undefined) await copyPrivacyOnRows(store, rows, state, pairs, folderCopy);
+    await copyPrivacyOnRows(store, rowAccessOf(store) ?? NO_ROW_WRITER, state, pairs, folderCopy);
     return;
   }
   const wasVisibleAs = new Map<string, Visibility>();
@@ -255,6 +254,9 @@ interface RowAccess {
   setTier: (path: string, tier: string, options?: { folder?: boolean }) => Promise<{ ok: boolean; code?: string }>;
 }
 
+/** A store with no tier writer cannot narrow a copy, so a copy that needs narrowing is refused rather than made wider. */
+const NO_ROW_WRITER: RowAccess = { setTier: async () => ({ ok: false, code: "NO_ROW_WRITER" }) };
+
 function rowAccessOf(store: FileStore): RowAccess | undefined {
   const access = (store as { rowAccess?: RowAccess }).rowAccess;
   return access !== undefined && typeof access.setTier === "function" ? access : undefined;
@@ -290,9 +292,12 @@ async function copyPrivacyOnRows(
   }
 }
 
-/** A copy that would be wider than its source is taken back, and the copy refused. */
+/**
+ * A copy that would be wider than its source is taken back, and the copy refused. Every destination here is one this
+ * copy just created (a taken name is refused before anything is written), so retiring it removes only the duplicate.
+ */
 async function refuseCopy(store: FileStore, pairs: { from: string; to: string }[]): Promise<never> {
-  for (const pair of pairs) await store.delete(pair.to).catch(() => {});
+  for (const pair of pairs) await store.delete(pair.to, { retire: true } as never).catch(() => {});
   throw new FileOpError("STORAGE_UNSAFE", "The copy could not keep its source's privacy, so it was not made.");
 }
 
