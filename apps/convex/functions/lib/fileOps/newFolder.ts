@@ -49,9 +49,11 @@ export async function removeNewFolder(
   const kept = new FileOpError("FOLDER_NOT_EMPTY", `${baseName(folder)} has something in it now, so it was kept.`);
   if (keys.length > 1 || listing.truncated || keys[0] !== about) throw kept;
 
-  // The about note's bytes are at its id key, and the path holds nothing this store can judge, so the check
-  // above is the tree's: the folder holds only its about note. The folder then moves to the trash as rows,
-  // which Restore reverses. The text typed into the about note is not compared here; it stays in the trash
-  // with the folder.
+  // The check above is the tree's: the folder holds only its about note. Its words are read by name,
+  // through the id layer, and must still be what `createFolder` wrote. The folder then moves to the trash
+  // as rows, which Restore reverses.
+  const note = await store.get(about);
+  if (note === null) throw notFound();
+  if ((await note.text()) !== renderNewFolderAbout(folder)) throw kept;
   return await trashKeyedRows(store, { path: folder, clearance: options.clearance, now: Date.now() });
 }
