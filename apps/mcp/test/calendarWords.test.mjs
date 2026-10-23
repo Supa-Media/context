@@ -36,3 +36,37 @@ test("a move and a cancel name the event's time in words too, and no raw timesta
   assert.equal(cancel, "Cancel on your Google Calendar:\nDentist, Wednesday, October 21, 3 pm");
   assert.ok(!/\d{4}-\d{2}-\d{2}/.test(move + cancel));
 });
+
+test("an edit and an RSVP read as the change, in words", () => {
+  const edit = calendarCopy(
+    {
+      action: "edit",
+      title: "Standup",
+      start: "2026-10-21T09:00:00-04:00",
+      all_events: true,
+      new_start: "2026-10-21T10:00:00-04:00",
+      new_end: "2026-10-21T10:30:00-04:00",
+      location: "",
+      add_guests: ["jo@example.invalid"],
+      reminders: [10, 60],
+      recurrence: ["RRULE:FREQ=WEEKLY;BYDAY=MO,WE;COUNT=6"],
+    },
+    NOW,
+    ["jo@example.invalid"],
+  );
+  assert.equal(
+    edit,
+    [
+      "Change on your Google Calendar:",
+      "Standup, every time it repeats, from Wednesday, October 21, 9 am",
+      "New time: Wednesday, October 21, 10 to 10:30 am",
+      "Take off the location",
+      "Invite: jo@example.invalid",
+      "Reminders: 10 minutes and 1 hour before",
+      "Repeats every week on Monday, Wednesday, 6 times",
+      "Google will let jo@example.invalid know.",
+    ].join("\n"),
+  );
+  const rsvp = calendarCopy({ action: "rsvp", title: "Party", start: "2026-10-24T19:00:00-04:00", response: "tentative" }, NOW, ["Lau"]);
+  assert.equal(rsvp, "Reply to the invite on your Google Calendar:\nParty, Saturday, October 24, 7 pm\nAnswer: Maybe\nGoogle will let Lau know.");
+});

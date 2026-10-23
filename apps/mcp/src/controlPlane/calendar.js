@@ -18,6 +18,8 @@ const REFUSALS = new Set([
   "not_found",
   "ambiguous",
   "has_guests",
+  "not_organizer",
+  "not_invited",
   "not_configured",
   "unavailable",
 ]);

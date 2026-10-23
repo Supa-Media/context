@@ -22,6 +22,8 @@
  *  4. `calendarGate` checking a create's invitees without `notify_guests`. →
  *     `a booking that invites somebody is put to the person…` fails (the
  *     check is refused invalid).
+ *  5. `readCalendarChange` without `edit`, as before 2026-10-23. → `an
+ *     existing event of their own gets its address at once…` fails.
  */
 
 import { ask, call, textOf, createEgressWorld, TOKEN_MCP, TOKEN_ROUTINE, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
@@ -105,6 +107,44 @@ export async function runCalendarGateChecks(check) {
     controlPlane.flags.calendarGuests = [];
     const sneaky = await ask(env, TOKEN_TEXTS, "x").then(() => call(env, TOKEN_MCP, "calendar_event", { ...MOVE, notify_guests: true }));
     check("another AI passing notify_guests itself still waits for the app", sneaky.isError === true && /Context app/.test(textOf(sneaky)) && changes().length === beforeGuest + 1);
+
+    // The owner's chat, 2026-10-23: "Still open: add 150 McGuinness Blvd Apt 2, Brooklyn to Lau's party event yourself, since I can't edit an existing event's location."
+    const ADDRESS = { action: "edit", title: "Lau's Birthday", start: "2026-10-24T19:00:00-04:00", location: "150 McGuinness Blvd Apt 2, Brooklyn" };
+    model.install([{ toolCalls: [{ name: "send", args: { action: "calendar", args: ADDRESS } }] }, { text: "Done, Lau's party has the address." }]);
+    const beforeEdit = changes().length;
+    const waitingEdit = pending().length;
+    const edited = await ask(env, TOKEN_TEXTS, "make sure the calendar items have the actual addresses");
+    check(
+      "an existing event of their own gets its address at once, with nothing to approve",
+      changes().length === beforeEdit + 1 &&
+        JSON.stringify(changes().at(-1).change) === JSON.stringify(ADDRESS) &&
+        pending().length === waitingEdit &&
+        !/yourself|can't edit/i.test(String(edited.body?.answer ?? "")),
+    );
+
+    controlPlane.flags.calendarGuests = ["Lau"];
+    const RSVP = { action: "rsvp", title: "Lau's Birthday", start: "2026-10-24T19:00:00-04:00", response: "accepted" };
+    model.install([{ toolCalls: [{ name: "calendar_event", args: RSVP }] }, { text: "I'd tell Lau you're going." }]);
+    const beforeRsvp = changes().length;
+    const rsvped = await ask(env, TOKEN_TEXTS, "rsvp yes to lau's party");
+    const rsvpShown = (rsvped.body?.verbatim ?? []).join("\n");
+    check(
+      "an RSVP tells the organizer, so it is put to the person for one 👍 first",
+      changes().length === beforeRsvp && rsvpShown.includes("Reply to the invite") && rsvpShown.includes("Answer: Going") && rsvpShown.includes("Google will let Lau know."),
+    );
+    await ask(env, TOKEN_TEXTS, "\u{1F44D}");
+    check("their 👍 sends the answer", changes().length === beforeRsvp + 1 && changes().at(-1).change.notify_guests === true);
+    controlPlane.flags.calendarGuests = [];
+
+    controlPlane.flags.calendarRefusal = "not_organizer";
+    model.install([{ toolCalls: [{ name: "calendar_event", args: { ...ADDRESS, location: "Elsewhere" } }] }, { text: "Added your own copy with the address." }]);
+    await ask(env, TOKEN_TEXTS, "put the address on lau's party");
+    check(
+      "an invite somebody else organizes has Tex add the person's own event with the details, never hand it back",
+      /create their own event/.test(JSON.stringify(model.requests.at(-1)?.messages ?? [])) &&
+        /Never tell the person to change it themselves/.test(JSON.stringify(model.requests.at(-1)?.messages ?? [])),
+    );
+    controlPlane.flags.calendarRefusal = null;
 
     // Blessing's text, 2026-10-23: book "Sayo / Seyi" Thursday 6:30 to 7, with a Google Meet, and invite Seyi.
     const BOOK = {

@@ -45,7 +45,11 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const CONTROL = /[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/;
 const NOTES_CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f\u202a-\u202e\u2066-\u2069]/;
 
-export type CalendarAction = "create" | "move" | "cancel";
+import type { EditFields, RsvpResponse } from "./calendarEdit";
+import type { GoogleAttendee } from "./calendarEdit";
+import { readEditFields, readRsvp, recurrenceList, reminderList } from "./calendarEdit";
+
+export type CalendarAction = "create" | "edit" | "move" | "cancel" | "rsvp";
 
 /** A start or end: a moment with its offset, or a whole day. */
 export type CalendarTime = { dateTime: string } | { date: string };
@@ -69,6 +73,16 @@ export interface CalendarChange {
   guests: string[];
   /** create only: the event gets a Google Meet link. */
   meet: boolean;
+  /** create only: popup reminders, minutes before; null for the calendar's own. */
+  reminders: number[] | null;
+  /** create only: how it repeats; null for once. */
+  recurrence: string[] | null;
+  /** edit only: what changes. */
+  edit: EditFields<CalendarTime> | null;
+  /** rsvp only: the person's answer. */
+  response: RsvpResponse | null;
+  /** edit, move, cancel or rsvp of a repeating event: every time it happens. */
+  allEvents: boolean;
 }
 
 export type CalendarRefusal =
@@ -81,6 +95,8 @@ export type CalendarRefusal =
   | "not_found"
   | "ambiguous"
   | "has_guests"
+  | "not_organizer"
+  | "not_invited"
   | "not_configured"
   | "unavailable";
 
@@ -119,15 +135,14 @@ export function readCalendarChange(value: unknown): CalendarChange | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const raw = value as Record<string, unknown>;
   const action = raw.action;
-  if (action !== "create" && action !== "move" && action !== "cancel") return null;
+  if (action !== "create" && action !== "edit" && action !== "move" && action !== "cancel" && action !== "rsvp") return null;
   const title = typeof raw.title === "string" ? raw.title : "";
   if (title.trim() === "" || title.length > CALENDAR_MAX_TITLE || CONTROL.test(title)) return null;
   const start = time(raw.start);
   if (start === null) return null;
-  const location = text(raw.location, CALENDAR_MAX_LOCATION, CONTROL);
-  const notes = text(raw.notes, CALENDAR_MAX_NOTES, NOTES_CONTROL);
-  if (location === false || notes === false) return null;
   if (raw.notify_guests !== undefined && raw.notify_guests !== true) return null;
+  if (raw.all_events !== undefined && (raw.all_events !== true || action === "create")) return null;
+  if (raw.response !== undefined && action !== "rsvp") return null;
   const notifyGuests = raw.notify_guests === true;
   const change: CalendarChange = {
     action,
@@ -141,7 +156,33 @@ export function readCalendarChange(value: unknown): CalendarChange | null {
     notifyGuests,
     guests: [],
     meet: false,
+    reminders: null,
+    recurrence: null,
+    edit: null,
+    response: null,
+    allEvents: raw.all_events === true,
   };
+  if (action === "edit") {
+    const edit = readEditFields<CalendarTime>(raw, {
+      time,
+      span,
+      text,
+      guestList,
+      CONTROL,
+      NOTES_CONTROL,
+      maxTitle: CALENDAR_MAX_TITLE,
+      maxLocation: CALENDAR_MAX_LOCATION,
+      maxNotes: CALENDAR_MAX_NOTES,
+    });
+    return edit === null ? null : { ...change, edit };
+  }
+  if (action === "rsvp") {
+    const response = readRsvp(raw);
+    return response === null ? null : { ...change, response };
+  }
+  const location = text(raw.location, CALENDAR_MAX_LOCATION, CONTROL);
+  const notes = text(raw.notes, CALENDAR_MAX_NOTES, NOTES_CONTROL);
+  if (location === false || notes === false) return null;
   if (action === "create") {
     const end = time(raw.end);
     if (end === null || !span(start, end)) return null;
@@ -149,9 +190,13 @@ export function readCalendarChange(value: unknown): CalendarChange | null {
     if (guests === null || (raw.meet !== undefined && raw.meet !== true)) return null;
     // An invite tells somebody, so it goes only as the change the person said yes to.
     if (notifyGuests !== guests.length > 0) return null;
-    return { ...change, end, location, notes, guests, meet: raw.meet === true };
+    const reminders = reminderList(raw.reminders);
+    const recurrence = recurrenceList(raw.recurrence, false);
+    if (reminders === null || recurrence === null) return null;
+    return { ...change, end, location, notes, guests, meet: raw.meet === true, reminders: reminders ?? null, recurrence: recurrence ?? null };
   }
-  if (location !== null || notes !== null || raw.end !== undefined || raw.guests !== undefined || raw.meet !== undefined) return null;
+  const extra = ["end", "location", "notes", "guests", "meet", "reminders", "recurrence", "new_title", "add_guests", "remove_guests"];
+  if (extra.some((field) => raw[field] !== undefined)) return null;
   if (action === "cancel") return raw.new_start === undefined && raw.new_end === undefined ? change : null;
   const newStart = time(raw.new_start);
   const newEnd = time(raw.new_end);
@@ -198,12 +243,17 @@ export function searchWindow(start: CalendarTime): { timeMin: string; timeMax: s
   return { timeMin: new Date(at - DAY_MS).toISOString(), timeMax: new Date(at + DAY_MS).toISOString() };
 }
 
-interface GoogleEvent {
+export interface GoogleEvent {
   id?: unknown;
   summary?: unknown;
   status?: unknown;
-  start?: { date?: unknown; dateTime?: unknown };
-  attendees?: Array<{ self?: unknown; email?: unknown; displayName?: unknown }>;
+  start?: { date?: unknown; dateTime?: unknown; timeZone?: unknown };
+  end?: { date?: unknown; dateTime?: unknown; timeZone?: unknown };
+  attendees?: GoogleAttendee[];
+  organizer?: { self?: unknown; email?: unknown; displayName?: unknown };
+  guestsCanModify?: unknown;
+  recurringEventId?: unknown;
+  recurrence?: unknown;
 }
 
 /**
@@ -215,12 +265,25 @@ export function matchingEvents(items: unknown, change: CalendarChange): GoogleEv
   if (!Array.isArray(items)) return [];
   const title = change.title.trim().toLowerCase();
   const wanted = change.start;
-  return (items as GoogleEvent[]).filter((event) => {
+  const atStart = (items as GoogleEvent[]).filter((event) => {
     if (event.status === "cancelled" || typeof event.summary !== "string" || typeof event.id !== "string") return false;
-    if (event.summary.trim().toLowerCase() !== title) return false;
     if ("date" in wanted) return event.start?.date === wanted.date;
     return typeof event.start?.dateTime === "string" && Date.parse(event.start.dateTime) === instant(wanted);
   });
+  const exact = atStart.filter((event) => (event.summary as string).trim().toLowerCase() === title);
+  if (exact.length > 0) return exact;
+  // A model that writes "Lau's party" for "Lau's Birthday Party 🎉" still names
+  // the one event at that moment sharing a word with it; two such are ambiguous.
+  const words = new Set(titleWords(title));
+  return atStart.filter((event) => titleWords(event.summary as string).some((word) => words.has(word)));
+}
+
+/** A title's words of three letters or more, lower case, for the loose match. */
+function titleWords(title: string): string[] {
+  return title
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((word) => word.length >= 3);
 }
 
 /** Whether anybody besides the person is on it, who a change would notify. */

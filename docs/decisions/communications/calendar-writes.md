@@ -2,6 +2,39 @@
 
 _Part of [Communications](../communications.md). See `docs/decisions/README.md` for the index._
 
+### Tex edits any part of an event (2026-10-23)
+
+The owner, 2026-10-23, after Tex added commute blocks but told them to put a
+party's address on the party "yourself, since I can't edit an existing
+event's location": "why can't tex edit calendar items ... plug in every
+freaking gap". `calendar_event` now has `edit` and `rsvp` beside create,
+move and cancel:
+
+- `edit` finds the event as move does (title and start as they are now) and
+  changes any of `new_title`, `new_start` + `new_end`, `location`, `notes`
+  (`""` takes either off), `add_guests`, `remove_guests`, `meet`, `reminders`
+  and `recurrence`. A repeating event is found as the one time it happens;
+  `all_events: true` (and any change to how it repeats) reaches the series,
+  whose start moves by as much as that one time's did. `recurrence: []`
+  stops the series after this time.
+- `rsvp` answers an invite (`accepted`, `declined`, `tentative`), changing
+  only the person's own answer. It always tells the organizer, so it is held
+  for one 👍, named.
+- `create` also takes `reminders` and `recurrence`.
+
+The approval rule is unchanged: an edit tells nobody unless the event has
+guests, or the edit adds or removes some, and then it is put to the person
+with them named. A reminder is the person's own and never asks. The control
+plane refuses the shared parts of an invite somebody else organizes
+(`not_organizer`, before any request, since Google would refuse it), and the
+gateway then has Tex add the person's own event with the details instead of
+handing the change back. The event is looked for on each connected calendar
+that may be changed, not only the first, and a title written a little
+differently still finds the one event at that moment that shares a word with
+it. Tests: `apps/convex/__tests__/calendarEdit.test.ts`,
+`apps/mcp/test/calendarGate.test.mjs` ("an existing event of their own gets
+its address at once").
+
 ### Tex changes the person's own calendar without asking (2026-10-22)
 
 Decided by the owner on 2026-10-22: "as long as there isn't a second person

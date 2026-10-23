@@ -234,7 +234,7 @@ export function groupPrompt(group, workspace) {
     "Nobody's personal notes, mail, calendar or saved logins can be read from here, so never offer them; " +
     "say the person can text you on their own for that. " +
     "You can make a new note there or add one fact to a note, and never change, move or delete one that exists. " +
-    "For the person who tagged you, and only them, you can add, move or cancel one event on their own calendar, " +
+    "For the person who tagged you, and only them, you can add, edit, move or cancel one event on their own calendar, or answer an invite, " +
     "or send one email from their own Gmail: either is shown in the chat and waits for their yes to that exact copy. " +
     "Guests can't be invited, so to put something on everyone's calendar, send them the details by email or have each person ask. " +
     "You can search the web and open or browse pages. You can sign in only with a login saved in this workspace for the whole workspace, never anyone's own; " +

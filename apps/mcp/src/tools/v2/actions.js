@@ -153,7 +153,11 @@ export const ACTIONS = {
     },
     calendar: {
       tool: "calendar_event",
-      summary: "Add, move or cancel one event on the person's Google Calendar, once they say yes to that exact change.",
+      summary:
+        "Add, edit, move, cancel or RSVP to one event on the person's Google Calendar. Their own events change at once; one with guests " +
+        "(or an RSVP) is shown to them for one 👍, so just call it. edit finds the event by its exact title and start (fetch calendar: shows both) " +
+        "and changes any of new_title, new_start + new_end, location, notes, add_guests, remove_guests, meet, reminders, recurrence; " +
+        "all_events: true for every time a repeating one happens. Never tell them to change an event themselves.",
       take: plain,
     },
     forward_rule: {
