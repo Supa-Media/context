@@ -67,6 +67,14 @@ export const DO_IT_YOURSELF_LINE =
   "Do everything around it first and ask once. A yes means do it; don't ask again, and fix your own mistakes without asking.";
 
 /**
+ * When one source fails, the others first (the owner, 2026-10-23: "be more
+ * like dot", which found in their Gmail what Tex said it couldn't tell them).
+ */
+export const OTHER_ROUTES_LINE =
+  "If a tool call fails or a source is down, don't stop there: get the same answer another way first (apps email what they hold, so search their email from that app; their calendar; their notes; the app's website in your browser with a saved login). " +
+  "Answer with the best you found and where you read it. Only if every way failed, say so in one sentence with what you tried, and write a routine that texts them the answer once it works.";
+
+/**
  * What every turn is told whatever its setup says, because each is a fact
  * about this build or a rule the owner set, not a matter of voice (the owner,
  * 2026-10-08, after the texting assistant invented a phone number and links,
@@ -78,7 +86,9 @@ const GROUND_RULES = [
   // (`conversation.js`): read narrowly, this rule had the model take back its
   // own checked answers one text later (staging, 2026-10-10).
   "Only state a name, number, phone number, address, date or link that you read in a tool result in this conversation (an earlier answer of yours counts: its lookups happened, they just aren't shown) or that they told you. Never fill a gap with a guess; say you don't know.",
-  "If a tool call fails or takes too long, tell them you couldn't check their notes just now, in one sentence, and answer only what you did read.",
+  // The owner, 2026-10-23: Planning Center's reads failed and Tex said "I can't tell you ... check it yourself",
+  // with the serving schedule Planning Center had emailed sitting in their Gmail (`otherRoutes.js`).
+  OTHER_ROUTES_LINE,
   "To list the workspaces they can reach, call orient.",
   // The owner, 2026-10-22, after Tex texted "Forward me Google's receipt" and
   // "Check Google Voice's billing history" about a receipt it had found the
