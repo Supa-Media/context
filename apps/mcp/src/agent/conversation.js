@@ -25,7 +25,7 @@
 
 import { getWithLegacyFallback } from "../storageLayout.js";
 import { eventsSupported, importLegacy, readEventTurns, writeExchange } from "./events.js";
-import { sourcesOf } from "./sources.js";
+import { NOTE_SOURCE_PREFIX, isNoteSource, sourcesOf } from "./sources.js";
 
 /** The conversations a caller may name. A name is never a path. */
 const CONVERSATIONS = {
@@ -112,7 +112,7 @@ export function trimHistory(turns, { turns: most = MAX_HISTORY_TURNS, chars: roo
 }
 
 /** A kept turn as a turn reads it: the words, and only the marks this module writes. */
-function keptTurn({ role, text, tainted, tools, sources, id, at, thread, theirs }) {
+export function keptTurn({ role, text, tainted, tools, sources, id, at, thread, theirs }) {
   const names = toolNames(tools);
   const read = role === "assistant" ? sourcesOf(sources) : [];
   return {
@@ -185,7 +185,13 @@ export function earlierTextsResult(history) {
   if (history.length === 0) return { content: [{ type: "text", text: "There are no earlier texts." }] };
   const lines = history.map((turn) => {
     const read = turn.role === "assistant" ? sourcesOf(turn.sources) : [];
-    return `${turn.role === "user" ? "They" : "You"}: ${turn.text}${read.length > 0 ? `\n(Web pages you read for this: ${read.join(", ")})` : ""}`;
+    const notes = read.filter(isNoteSource);
+    const pages = read.filter((source) => !isNoteSource(source));
+    return [
+      `${turn.role === "user" ? "They" : "You"}: ${turn.text}`,
+      ...(pages.length > 0 ? [`(Web pages you read for this: ${pages.join(", ")})`] : []),
+      ...(notes.length > 0 ? [`(Notes you wrote for this: ${notes.map((note) => note.slice(NOTE_SOURCE_PREFIX.length)).join(", ")})`] : []),
+    ].join("\n");
   });
   return { content: [{ type: "text", text: lines.join("\n\n") }] };
 }

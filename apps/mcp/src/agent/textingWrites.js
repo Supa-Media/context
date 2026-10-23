@@ -32,6 +32,7 @@ import { routineFromPath, routineRootOf } from "../../../../packages/shared/src/
 import { normalizePath } from "../notes/paths.js";
 import { isPlumbing } from "../privacy/engine.js";
 import { toolError } from "../tools/results.js";
+import { NOTE_SOURCE_PREFIX } from "./sources.js";
 
 /**
  * Tools a text is never offered, with the reason. None: the owner decided on
@@ -178,11 +179,24 @@ export function textingAwareCallTool(callTool, writeTools) {
     if (extra.length > 0) return toolError(`${extra.join(", ")} can't be passed from a text.`);
     const refusal = refusalFor(name, given);
     if (refusal) return toolError(refusal);
-    if (name === "write_note" && given.expected_etag === undefined && isRoutineFilePath(given.path)) {
-      return Promise.resolve(callTool(name, given)).then((result) => withOtherRoutines(callTool, given.path, result));
-    }
-    return callTool(name, given);
+    const done = name === "write_note" && given.expected_etag === undefined && isRoutineFilePath(given.path)
+      ? Promise.resolve(callTool(name, given)).then((result) => withOtherRoutines(callTool, given.path, result))
+      : Promise.resolve(callTool(name, given));
+    return done.then((result) => withWrittenNotes(result, given));
   };
+}
+
+/**
+ * A write that went through names the notes it touched, as `note:<path>`
+ * sources the conversation keeps (`sources.js`), so the next text knows what
+ * this one wrote rather than doubting it.
+ */
+function withWrittenNotes(result, args) {
+  if (!result || typeof result !== "object" || result.isError === true || result.held === true) return result;
+  const where = typeof args.context === "string" && args.context.startsWith("@") ? `${args.context}/` : "";
+  const notes = [...new Set(pathsIn(args))].map((path) => `${NOTE_SOURCE_PREFIX}${where}${path}`);
+  if (notes.length === 0) return result;
+  return { ...result, sources: [...(Array.isArray(result.sources) ? result.sources : []), ...notes] };
 }
 
 /** How many of their other routines a new one's result names. */

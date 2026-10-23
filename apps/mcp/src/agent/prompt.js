@@ -7,7 +7,7 @@
 
 import { PICTURES_LINE } from "./outgoingPictures.js";
 import { NOTE_LINK_LINE } from "./noteLinks.js";
-import { isEmailSource } from "./sources.js";
+import { NOTE_SOURCE_PREFIX, isEmailSource, isNoteSource } from "./sources.js";
 
 /** The longest any one field of the ambient place may be. A path, not a page. */
 const MAX_PLACE_FIELD = 512;
@@ -207,17 +207,20 @@ function usedLine(used) {
     "What you did for those earlier texts (not shown, but it happened):",
     ...answers.map(({ question, tools, sources }) => {
       const kept = Array.isArray(sources) ? sources : [];
-      const pages = kept.filter((source) => !isEmailSource(source));
+      const pages = kept.filter((source) => !isEmailSource(source) && !isNoteSource(source));
       const emails = kept.filter(isEmailSource);
-      return (
-        `- "${question}": you used ${tools.join(", ")}.` +
-        (pages.length > 0 ? ` Web pages you read: ${pages.join(", ")}` : "") +
-        (emails.length > 0 ? `${pages.length > 0 ? "." : ""} Emails you found: ${emails.join(", ")}` : "")
-      );
+      const notes = kept.filter(isNoteSource).map((source) => source.slice(NOTE_SOURCE_PREFIX.length));
+      return [
+        `- "${question}": you used ${tools.join(", ")}.`,
+        ...(pages.length > 0 ? [`Web pages you read: ${pages.join(", ")}.`] : []),
+        ...(emails.length > 0 ? [`Emails you found: ${emails.join(", ")}.`] : []),
+        ...(notes.length > 0 ? [`Notes you wrote or changed: ${notes.join(", ")}.`] : []),
+      ].join(" ");
     }),
     "If an earlier text of yours says you hadn't checked or opened something, that text was the mistake: don't repeat it or correct yourself again.",
-    ...(answers.some(({ sources }) => Array.isArray(sources) && sources.some((source) => !isEmailSource(source))) ? [SOURCES_LINE] : []),
+    ...(answers.some(({ sources }) => Array.isArray(sources) && sources.some((source) => !isEmailSource(source) && !isNoteSource(source))) ? [SOURCES_LINE] : []),
     ...(answers.some(({ sources }) => Array.isArray(sources) && sources.some(isEmailSource)) ? [EMAILS_LINE] : []),
+    ...(answers.some(({ sources }) => Array.isArray(sources) && sources.some(isNoteSource)) ? [NOTES_LINE] : []),
   ].join("\n");
 }
 
@@ -235,6 +238,15 @@ const SOURCES_LINE =
  * The emails earlier answers found, by id (`sources.js`): the owner's receipt
  * was found, offered, and lost a text later (2026-10-22).
  */
+/**
+ * The notes earlier answers wrote (`sources.js`): a feature request saved in
+ * a group chat was disowned one tag later, after a search that missed it
+ * (2026-10-23).
+ */
+const NOTES_LINE =
+  "Those notes were written: to check one, fetch it by that exact path (search can miss a note made minutes ago). " +
+  "Never say you didn't write one unless fetching its path says it isn't there.";
+
 const EMAILS_LINE =
   "Those emails are still in their Gmail: fetch an id to read one again, and pass it as forward to send it on. " +
   "Never ask them to forward or find an email you already found.";
