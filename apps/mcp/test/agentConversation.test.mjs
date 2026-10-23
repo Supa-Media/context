@@ -344,3 +344,11 @@ test("a kept address drops a sign-in: no user, password, fragment or secret-look
   assert.equal(sourceAddress(`https://example.com/${"a".repeat(400)}`), null);
   assert.equal(sourcesOf(Array.from({ length: 20 }, (_, i) => `https://example.com/${i}`)).length, MAX_SOURCES);
 });
+
+test("a written note is kept as its path, and a path that climbs or names nothing is not (2026-10-23)", () => {
+  assert.equal(sourceAddress("note:1-projects/image-reading.md"), "note:1-projects/image-reading.md");
+  assert.equal(sourceAddress("note:@supa/products/x.md"), "note:@supa/products/x.md");
+  for (const bad of ["note:", "note:../secret.md", "note:a/../../b.md", "note:/abs.md", "note:a//b.md", `note:${"a".repeat(300)}`, "note:a\nb"]) {
+    assert.equal(sourceAddress(bad), null, bad);
+  }
+});

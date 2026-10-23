@@ -28,7 +28,18 @@
   read, or the first few a search found, is kept as its id: a mailbox address
   and Gmail's id, nothing anyone outside wrote (no subject, no sender's name).
 */
+/*
+  AND THE NOTES IT WROTE (the group chat of 2026-10-23). Tex saved a feature
+  request as a note in the shared workspace, and the next tag, keeping only
+  the answer's words, could not find it and said it had never saved anything.
+  So a note an answer wrote, moved or archived is kept as its path,
+  `note:<path>`: a name in the workspace the turn already wrote to, never
+  what is in it.
+*/
 import { EMAIL_ID_PREFIX, parseEmailId } from "../tools/emailRead.js";
+
+export const NOTE_SOURCE_PREFIX = "note:";
+const NOTE_PATH = /^[^\s/][^\n]{0,240}$/;
 
 /** At most this many addresses an answer, and this long each. */
 export const MAX_SOURCES = 8;
@@ -40,6 +51,10 @@ const SECRET_PARAM = /token|key|secret|sig|auth|code|session|pass|otp|ticket|non
 /** An address (or an email's id) as an answer keeps it, or null when it is neither. */
 export function sourceAddress(raw) {
   if (typeof raw !== "string" || raw.length === 0 || raw.length > 2000) return null;
+  if (raw.startsWith(NOTE_SOURCE_PREFIX)) {
+    const path = raw.slice(NOTE_SOURCE_PREFIX.length);
+    return NOTE_PATH.test(path) && !path.split("/").some((segment) => segment === "" || segment === "." || segment === "..") ? raw : null;
+  }
   if (raw.startsWith(EMAIL_ID_PREFIX)) {
     const email = parseEmailId(raw.trim());
     return email === null ? null : `${EMAIL_ID_PREFIX}${email.address}/${email.messageId}`;
@@ -66,6 +81,11 @@ export function sourcesOf(value) {
   if (!Array.isArray(value)) return [];
   const kept = value.map(sourceAddress).filter((address) => address !== null);
   return [...new Set(kept)].slice(0, MAX_SOURCES);
+}
+
+/** Whether a kept source is a note the answer wrote. */
+export function isNoteSource(source) {
+  return typeof source === "string" && source.startsWith(NOTE_SOURCE_PREFIX);
 }
 
 /** Whether a kept source is an email's id rather than a web address. */

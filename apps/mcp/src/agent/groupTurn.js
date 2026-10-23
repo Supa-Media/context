@@ -32,7 +32,7 @@
  * `earlier_chat`.
  */
 
-import { MAX_HISTORY_CHARS, MAX_HISTORY_TURNS } from "./conversation.js";
+import { MAX_HISTORY_CHARS, MAX_HISTORY_TURNS, keptTurn } from "./conversation.js";
 import { textingAwareCallTool, textingWriteTools } from "./textingWrites.js";
 import { routineRootOf } from "../../../../packages/shared/src/routines.cjs";
 import { toolError } from "../tools/results.js";
@@ -155,7 +155,8 @@ export async function readGroupMemory(store, group) {
     if (!object) return [];
     const parsed = JSON.parse(await object.text());
     const turns = Array.isArray(parsed?.turns) ? parsed.turns.filter(isTurn) : [];
-    return trimGroupTurns(turns.map(({ role, text, tainted }) => ({ role, text, ...(tainted === true ? { tainted: true } : {}) })));
+    // The words, and what each answer used and wrote, as a person's own texts keep them (`conversation.js`).
+    return trimGroupTurns(turns.map(({ role, text, tainted, tools, sources }) => keptTurn({ role, text, tainted, tools, sources })));
   } catch {
     return [];
   }
@@ -194,11 +195,11 @@ function askOnly(text) {
 }
 
 /** One exchange added to the chat's memory, with what the chat said before it. */
-export async function keepGroupExchange(store, group, history, question, answer, { tainted = false } = {}) {
+export async function keepGroupExchange(store, group, history, question, answer, { tainted = false, tools = [], sources = [] } = {}) {
   const turns = trimGroupTurns([
     ...history,
     { role: "user", text: [chatLines(group), groupQuestionLine(group, question)].filter(Boolean).join("\n\n") },
-    { role: "assistant", text: answer, ...(tainted ? { tainted: true } : {}) },
+    keptTurn({ role: "assistant", text: answer, tainted, tools, sources }),
   ]);
   await store.put(await groupMemoryPath(group), JSON.stringify({ version: 1, turns }));
 }

@@ -217,6 +217,20 @@ test("a group turn changes notes as a text does: edit by etag, make, move and ar
   assert.match(bodyAt(world.team, "1-projects/gigs/friday.md") ?? "", /Load in at 6/);
 });
 
+test("the next tag knows which note the last one wrote, so it never disowns it (the group chat of 2026-10-23)", async () => {
+  const people = chat({ members: "d".repeat(64) });
+  world.model.install([
+    { toolCalls: [{ name: "write_note", args: { path: "1-projects/image-reading.md", content: "# Read pictures in groups\n" } }] },
+    { text: "Saved it in 1-projects." },
+    { text: "It's there." },
+  ]);
+  await ask(TOKEN_GROUP, { question: "add a feature request for reading pictures", group: people });
+  await ask(TOKEN_GROUP, { question: "did you actually save it?", group: people });
+  const system = JSON.stringify(world.model.requests.at(-1).system);
+  assert.match(system, /you used write_note\. Notes you wrote or changed: 1-projects\/image-reading\.md/, system);
+  assert.match(system, /fetch it by that exact path/);
+});
+
 test("a stale etag changes nothing, and routines and hidden paths are refused in a group", async () => {
   world.model.install([
     {

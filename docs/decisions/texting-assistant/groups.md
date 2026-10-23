@@ -263,3 +263,26 @@ brings back "I can't edit that from this chat"; re-showing a shown ask buries
 every answer under it. Tests: `apps/mcp/test/agentProduction.test.mjs`,
 `apps/mcp/test/agentGroupActions.test.mjs`,
 `apps/mcp/test/agentGroupTurn.test.mjs`, `apps/agent/src/groupInbox.test.ts`.
+
+## What wakes Tex, and what it remembers it did (the group chat of 2026-10-23)
+
+"Tex turn this guy into a cat", with a picture, got no answer at all: a
+message opening with Tex's name and no punctuation was a tag only when the
+next word was on a fixed list of asking verbs, and "turn" wasn't. Now any
+word after the name makes it a tag, unless the word reads as talking about
+Tex (a past or third-person verb, or "was", "got", "lol" and the like), so
+"Tex got that wrong lol" still isn't one.
+
+A chat's memory now keeps, with each answer, the names of the tools it used
+and the paths of the notes it wrote, as a person's own texts keep the tools
+and the pages they read (`conversation.js`, `sources.js`). Without them the
+next tag saw "I saved it in products/context-lc" with nothing behind it,
+searched, missed a note made a minute before, and told the chat it had never
+saved it. A note's path is kept, never what is in it.
+
+**What a simplification would cost:** going back to the list of asking verbs
+leaves an ordinary ask unanswered with no sign it was heard; dropping tools
+and notes from the chat's memory brings back the disowned note.
+`apps/agent/src/groupInbox.test.ts` ("answers \"Tex turn this guy into a
+cat\"") and `apps/mcp/test/agentGroupTurn.test.mjs` ("the next tag knows which
+note the last one wrote") fail if either is reversed.
