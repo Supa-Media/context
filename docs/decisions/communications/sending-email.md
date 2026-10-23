@@ -76,15 +76,13 @@ person.
 Decided by the owner on 2026-10-17 ("Wait for Gmail"): an email is sent from
 the person's own connected Gmail, never from a context.lc address, so replies
 land in their mailbox and their name is on it. Sending needs Gmail's
-`gmail.send` scope, which our production OAuth client asks for only of
-testers while the restricted-scope review is open (see
-[gmail-and-sync-loop](./gmail-and-sync-loop.md)). Decided by the owner on
-2026-10-17: "it should work for testing accounts before we need it
-approved". A tester is a verified staff address (`ADMIN_EMAILS`) or the
-production test account (`isGoogleWriteTester`); Google lets an unverified
-app's listed test users grant restricted scopes. A tester reconnects Google
-once to grant it. Everyone else's sends refuse with `no_sender` and Tex hands
-over the draft to copy. Nothing in the gate changes when the review clears:
+`gmail.send` scope, which every Gmail connect asks for (`WRITE_SCOPES`;
+decided by the owner on 2026-10-23, "Yes, everyone", reversing the
+testers-only rule of 2026-10-17 once a texter's connected Google refused Tex:
+see [calendar-writes](./calendar-writes.md)). A connection made before that
+reads only and reconnects once; a send refuses with `no_sender`, and Tex sends
+the reconnect link, never the email to send themselves, and never says Gmail
+isn't connected. Nothing in the gate changes when Google's review clears:
 a connection whose granted `scopes` include `gmail.send` becomes a sender,
 and the `from` an email names must be one of the person's own such
 connections.
@@ -123,8 +121,8 @@ draft, then "yes" to building it). `send` action `email_draft`
 (`save_email_draft`) saves one email in the person's own Gmail Drafts and
 sends nothing, so it runs at once: nothing reaches anyone until the person
 opens Gmail and sends it themselves, which is the yes. It needs Gmail's
-`gmail.compose` scope, asked of testers beside `gmail.send`
-(`TESTER_WRITE_SCOPES`); a tester reconnects Google once to grant it. Google
+`gmail.compose` scope, asked beside `gmail.send` (`WRITE_SCOPES`); a
+connection made before reconnects once to grant it. Google
 has no drafts-only scope and `gmail.compose` can also send, so the control
 plane sends only through a connection that granted `gmail.send`, and uses
 `gmail.compose` for drafts alone (`claimPersonEmail` with `draft: true`,

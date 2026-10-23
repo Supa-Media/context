@@ -12,6 +12,7 @@ const REFUSALS = new Set([
   "invalid",
   "not_allowed",
   "no_calendar",
+  "calendar_read_only",
   "hourly_limit",
   "daily_limit",
   "not_found",
@@ -49,7 +50,8 @@ export function createCalendarMethods({ post }) {
       if (answer?.ok === true && typeof answer.calendar === "string") {
         // A move or cancel checked names who it would tell (`calendarGate.js` asks first when anybody).
         const guests = Array.isArray(answer.guests) ? answer.guests.filter((name) => typeof name === "string" && name !== "").slice(0, 10) : [];
-        return { ok: true, calendar: answer.calendar, guests };
+        const meet = typeof answer.meet === "string" && /^https:\/\/meet\.google\.com\/[a-z0-9-]{1,64}$/i.test(answer.meet) ? answer.meet : null;
+        return { ok: true, calendar: answer.calendar, guests, ...(meet !== null ? { meet } : {}) };
       }
       return { ok: false, refused: REFUSALS.has(answer?.refused) ? answer.refused : "unavailable" };
     },

@@ -19,11 +19,10 @@ What is built:
 - The scopes are `chat.messages.create`, `chat.spaces.readonly` (find the
   direct message or space) and `chat.spaces.create` (start a direct message
   that does not exist yet), all sensitive, none of them reading a message.
-  They ride on the **Gmail** connect as tester-only write scopes, beside
-  `gmail.send` (`TESTER_WRITE_SCOPES`), so one reconnect of the Google
-  account a person already uses adds Chat. They work only on a Google
-  Workspace account. Widening them past testers waits for Google's review,
-  as email does.
+  They ride on the **Gmail** connect as write scopes asked of everyone,
+  beside `gmail.send` (`WRITE_SCOPES`; the owner, 2026-10-23, "Yes,
+  everyone"), so one reconnect of the Google account a person already uses
+  adds Chat. They work only on a Google Workspace account.
 - A message reaches another human, so it waits for the person's one yes or
   👍 to that exact message and place (the approval rule of 2026-10-22: a
   go-ahead only when something goes to another human). The gate
@@ -62,8 +61,8 @@ and in a named space only a message that mentions them. Bots are left out.
 Their own Chat id comes from their membership of a space, looked up by their
 address, since Chat names people only by id.
 
-- `chat.messages.readonly` is restricted, so it rides on the testers' Gmail
-  connect like the send scopes: one reconnect grants both.
+- `chat.messages.readonly` is restricted, and rides on the Gmail connect
+  like the send scopes: one reconnect grants both.
 - `claimChatRead` (in `functions/googleChatSend.ts`) uses the same
   own-account clearance as a send, wants a connection that granted reading,
   and allows 30 reads an hour. Nothing of a message is stored or logged.

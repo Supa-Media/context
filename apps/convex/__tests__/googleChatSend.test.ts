@@ -21,7 +21,7 @@ import { createWorkspace, gatewayPost, seedGoogleConnection, seedStorageBinding 
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { ACCESS_A, ACCESS_B, bodyOf, twoConnectedTenants } from "./controlPlane/fixtures.helpers";
 import { CHAT_SEND_HOURLY_LIMIT, CHAT_SEND_SCOPES, chatFailure, readChatMessage } from "../functions/lib/googleChatSend";
-import { TESTER_WRITE_SCOPES, scopesForConnect } from "../functions/lib/googleOAuth";
+import { WRITE_SCOPES, scopesForConnect } from "../functions/lib/googleOAuth";
 
 const realFetch = globalThis.fetch;
 
@@ -198,9 +198,9 @@ describe("what a message may be, and who is asked for it", () => {
     expect(chatFailure(401, null)).toBe("reconnect_required");
   });
 
-  test("only testers are asked for Chat sending, on the Gmail connect", () => {
-    expect(TESTER_WRITE_SCOPES.gmail).toEqual(expect.arrayContaining([...CHAT_SEND_SCOPES]));
-    expect(scopesForConnect(["gmail"], false).some((scope) => scope.includes("/chat."))).toBe(false);
-    expect(scopesForConnect(["gmail"], true)).toEqual(expect.arrayContaining([...CHAT_SEND_SCOPES]));
+  test("everyone is asked for Chat sending, on the Gmail connect", () => {
+    expect(WRITE_SCOPES.gmail).toEqual(expect.arrayContaining([...CHAT_SEND_SCOPES]));
+    expect(scopesForConnect(["gmail"])).toEqual(expect.arrayContaining([...CHAT_SEND_SCOPES]));
+    expect(scopesForConnect(["calendar"]).some((scope) => scope.includes("/chat."))).toBe(false);
   });
 });

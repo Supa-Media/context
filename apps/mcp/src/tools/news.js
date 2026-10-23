@@ -40,6 +40,12 @@ import { unlistedArgumentAdvice } from "./liveList.js";
  */
 export const TOOL_NEWS = Object.freeze([
   {
+    date: "2026-10-23",
+    text:
+      "calendar_event create takes `guests` (email addresses to invite) and `meet: true` (a Google Meet link, given back when made). " +
+      "An invite is shown to the person with the guests named, and their yes or 👍 makes it and Google emails the invite.",
+  },
+  {
     date: "2026-10-22",
     newTool: true,
     text:
@@ -291,7 +297,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "b9a07f91";
+export const TOOL_SHAPE = "da19cf4d";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

@@ -19,6 +19,9 @@
  *     text makes the change…` fail.
  *  3. `calendarGate` letting a texted change through whatever its guests. →
  *     `a move that would tell a guest is put to the person…` fails.
+ *  4. `calendarGate` checking a create's invitees without `notify_guests`. →
+ *     `a booking that invites somebody is put to the person…` fails (the
+ *     check is refused invalid).
  */
 
 import { ask, call, textOf, createEgressWorld, TOKEN_MCP, TOKEN_ROUTINE, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
@@ -102,6 +105,49 @@ export async function runCalendarGateChecks(check) {
     controlPlane.flags.calendarGuests = [];
     const sneaky = await ask(env, TOKEN_TEXTS, "x").then(() => call(env, TOKEN_MCP, "calendar_event", { ...MOVE, notify_guests: true }));
     check("another AI passing notify_guests itself still waits for the app", sneaky.isError === true && /Context app/.test(textOf(sneaky)) && changes().length === beforeGuest + 1);
+
+    // Blessing's text, 2026-10-23: book "Sayo / Seyi" Thursday 6:30 to 7, with a Google Meet, and invite Seyi.
+    const BOOK = {
+      action: "create",
+      title: "Sayo / Seyi",
+      start: "2026-10-29T18:30:00-04:00",
+      end: "2026-10-29T19:00:00-04:00",
+      guests: ["seyi@example.invalid"],
+      meet: true,
+    };
+    model.install([{ toolCalls: [{ name: "calendar_event", args: BOOK }] }, { text: "I'd book it with a Meet and invite Seyi." }]);
+    const beforeBook = changes().length;
+    const booking = await ask(env, TOKEN_TEXTS, "book sayo / seyi thursday 6:30-7 with a google meet and invite seyi");
+    const read = (booking.body?.verbatim ?? []).join("\n");
+    check(
+      "a booking that invites somebody is put to the person with the invitee and the Meet named",
+      changes().length === beforeBook &&
+        read.includes("Add to your Google Calendar:") &&
+        read.includes("Invite: seyi@example.invalid") &&
+        read.includes("With a Google Meet link") &&
+        read.includes("👍"),
+    );
+    model.install([{ text: "Booked, Meet link https://meet.google.com/abc-defg-hij" }]);
+    const thumbs = await ask(env, TOKEN_TEXTS, "\u{1F44D}");
+    check(
+      "one 👍 books it, invites Seyi and gets the Meet link",
+      thumbs.status === 200 &&
+        changes().length === beforeBook + 1 &&
+        changes().at(-1).change.notify_guests === true &&
+        changes().at(-1).change.guests?.[0] === "seyi@example.invalid" &&
+        changes().at(-1).answer.meet === "https://meet.google.com/abc-defg-hij",
+    );
+    const solo = await call(env, TOKEN_MCP, "calendar_event", { ...CREATE, notify_guests: true });
+    check("notify_guests on a create with nobody invited is refused", solo.isError === true && /notify_guests/.test(textOf(solo)));
+
+    controlPlane.flags.calendarRefusal = "calendar_read_only";
+    model.install([{ toolCalls: [{ name: "calendar_event", args: { ...CREATE, title: "Run" } }] }, { text: "One reconnect and I'll add it." }]);
+    await ask(env, TOKEN_TEXTS, "add run");
+    check(
+      "a calendar connected before write access asks for one reconnect, and never says it isn't connected",
+      JSON.stringify(model.requests.at(-1)?.messages ?? []).includes("Never say it isn't connected"),
+    );
+    controlPlane.flags.calendarRefusal = null;
 
     const bad = await call(env, TOKEN_MCP, "calendar_event", { ...CREATE, start: "tuesday 3pm" });
     check("a time with no offset is refused before anything", bad.isError === true && /start is a time with its offset/.test(textOf(bad)));
