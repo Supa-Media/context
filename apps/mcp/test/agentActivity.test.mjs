@@ -357,6 +357,8 @@ export async function runAgentActivityChecks(check) {
       OTHER_BUCKET: otherBucket,
       PRESENCE_ROOM: rooms,
     };
+    // The tree (and so the access rules) is copied from the buckets above, as production does.
+    controlPlane.serveTreesFrom(env);
 
     // The team agent reads the roadmap and writes it; the owner's agent reads
     // the private rates note; the console opens a note of its own.

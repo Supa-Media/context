@@ -36,16 +36,24 @@ import assert from "node:assert/strict";
 import { callTool, TREE_LISTING_TOOLS } from "../src/tools/dispatch.js";
 import { compareKeys, servedListingStore, TREE_LOADING, TREE_UNREACHABLE, TreeUnavailable } from "../src/tree/served.js";
 import { propsOf } from "../src/tree/props.js";
+import { withPrivacyAuthority } from "../src/store/privacyAuthority.js";
 
-const PRIVACY =
-  "---\nrole: privacy-manifest\n---\n\n" +
-  "<!-- BEGIN BRAIN PRIVACY RULES -->\n\n```yaml\ndefault_visibility: private\n\n" +
-  "folder_defaults:\n  1-projects: team\n  0-inbox: team\n\nnote_overrides:\n  # none\n```\n\n" +
-  "<!-- END BRAIN PRIVACY RULES -->\n";
+/**
+ * The access rows the control plane serves beside the binding: `1-projects/` and `0-inbox/` are the team's,
+ * everything else private. The gateway judges by these, never by a `privacy.md` in the bucket.
+ */
+const ROWS = {
+  etag: "rows-1",
+  accessVersion: 1,
+  folders: [
+    { prefix: "1-projects", visibility: "team" },
+    { prefix: "0-inbox", visibility: "team" },
+  ],
+  notes: [],
+};
 
 const NOTES = {
   "index.md": "# Home\n",
-  "privacy.md": PRIVACY,
   "1-projects/about.md": "# Projects\n\n```list\nfrom: 1-projects/alpha\nshow: status\n```\n",
   "1-projects/alpha/overview.md": "---\nstatus: in progress\n---\n# Alpha\n",
   "1-projects/alpha/notes.md": "# Alpha notes\n",
@@ -145,11 +153,30 @@ function treeOf(bucket, { see = () => true, pageSize = 3, served = true } = {}) 
   return { requests, manifest, facts };
 }
 
+/**
+ * The bucket with the access rows in front of it, as a session has it. A row change goes to `setAccess`,
+ * which keeps the rows here, so a write's own row is in the rules a later check reads.
+ */
+function withRows(bucket) {
+  const notes = [];
+  let version = 1;
+  const authority = {
+    rules: { ...ROWS, notes },
+    async setAccess(change) {
+      version += 1;
+      const others = notes.filter((note) => note.path !== change.path);
+      notes.splice(0, notes.length, ...others, ...(change.base === "inherit" ? [] : [{ path: change.path, visibility: change.base }]));
+      return { ok: true, version };
+    },
+  };
+  return withPrivacyAuthority(bucket, authority);
+}
+
 function served(bucket, tree) {
   const store = Object.create(bucket);
   Object.defineProperty(store, "treeManifest", { value: tree.manifest, enumerable: false });
   if (tree.facts) Object.defineProperty(store, "treeFacts", { value: tree.facts, enumerable: false });
-  return store;
+  return withRows(store);
 }
 
 const teamSees = (key) => key.startsWith("1-projects/") || key.startsWith("0-inbox/");
@@ -167,7 +194,7 @@ const CALLS = [
 for (const scope of ["private", "team"]) {
   test(`at ${scope} clearance, every listing tool answers as the bucket does, without listing a note folder`, async () => {
     for (const [name, args] of CALLS) {
-      const plain = bucketOf(NOTES);
+      const plain = withRows(bucketOf(NOTES));
       const expected = await callTool(name, args, plain, scope);
       const bucket = bucketOf(NOTES);
       const tree = treeOf(bucket, { see: scope === "private" ? () => true : teamSees });

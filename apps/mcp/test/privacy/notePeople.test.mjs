@@ -40,19 +40,15 @@ class MemoryStore {
 
 const FILE = [PRIVACY_RULES_BEGIN, "", "```yaml", "default_visibility: private", "folder_defaults:", "  1-projects: team", "```", "", PRIVACY_RULES_END, ""].join("\n");
 
+/** `rows: false` is a store with no access rows at all (no control plane authority), which is what "not yet" meant. */
 function world(answer = () => ({ ok: true, version: 8 }), { rows = true } = {}) {
   const memory = new MemoryStore();
   memory.seed(PRIVACY_KEY, FILE);
   memory.seed("1-projects/plan.md", "# Plan\n");
   const calls = [];
+  if (!rows) return { store: withPrivacyAuthority(memory, null), calls };
   const authority = {
-    rules: { etag: "r1", folders: [{ prefix: "1-projects", visibility: "team" }], notes: [], ...(rows ? { accessVersion: 7 } : {}) },
-    async write() {
-      return null;
-    },
-    async written() {},
-    async exported() {},
-    async owed() {},
+    rules: { etag: "r1", folders: [{ prefix: "1-projects", visibility: "team" }], notes: [], accessVersion: 7 },
     async setAccess(change) {
       calls.push({ op: "setAccess", ...change });
       return { ok: true, version: 8 };

@@ -17,6 +17,7 @@ import { toolMoveFolder } from "../src/tools/moves/folder.js";
 import { toolArchiveNote } from "../src/tools/moves/archive.js";
 import { toolMoveNotes } from "../src/tools/moves/notes.js";
 import { readDocument as readCollaborationDocument } from "@context/collaboration";
+import { withPrivacyAuthority } from "../src/store/privacyAuthority.js";
 
 /** A bucket fake with the methods a note move reads and writes. */
 function bucket(files) {
@@ -63,7 +64,11 @@ function noteWrites(writes) {
   return writes.filter(([, key]) => !key.startsWith(".context/") && key !== "activity.md");
 }
 
-/** A store with the control plane's answer to a move, recording what it was asked. */
+/**
+ * A store with the control plane's answer to a move, recording what it was asked. The access rows sit behind
+ * it as they do in a session (`withPrivacyAuthority`): a move the old way writes its row through `setAccess`,
+ * and the rows the gateway judges by are the ones it wrote.
+ */
 function keyed(files, answer, { keyedLayout = true } = {}) {
   const made = bucket(files);
   const asked = [];
@@ -72,6 +77,18 @@ function keyed(files, answer, { keyedLayout = true } = {}) {
     asked.push({ from, to, expectedEtag });
     return typeof answer === "function" ? answer() : answer;
   };
+  const notes = [];
+  let version = 1;
+  const authority = {
+    rules: { etag: "rows-1", accessVersion: version, folders: [], notes },
+    async setAccess(change) {
+      version += 1;
+      const others = notes.filter((note) => note.path !== change.path);
+      notes.splice(0, notes.length, ...others, ...(change.base === "inherit" ? [] : [{ path: change.path, visibility: change.base }]));
+      return { ok: true, version };
+    },
+  };
+  made.store = withPrivacyAuthority(made.store, authority);
   return { ...made, asked };
 }
 

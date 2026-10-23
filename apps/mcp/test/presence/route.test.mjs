@@ -41,6 +41,12 @@ import {
 export async function runPresenceRouteChecks(check) {
   /* ============================== the route ============================== */
 
+  // The SHA-256 hex of a note path: the name its collaboration head is stored under.
+  const pathHash = async (path) =>
+    [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(path)))]
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
+
   const controlPlane = createControlPlaneStub();
   const restore = controlPlane.install();
   try {
@@ -167,25 +173,13 @@ export async function runPresenceRouteChecks(check) {
     bucket.seed("1-projects/roadmap.md", "the roadmap, for everyone here");
     bucket.seed("1-projects/live.md", "the live collaboration note");
     bucket.seed("1-projects/group.md", "the writers group note");
-    const livePathDigest = await crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode("1-projects/live.md"),
-    );
-    const livePathHash = [...new Uint8Array(livePathDigest)]
-      .map((byte) => byte.toString(16).padStart(2, "0"))
-      .join("");
+    const livePathHash = await pathHash("1-projects/live.md");
     bucket.seed(
       `.context/collaboration/v1/heads/${livePathHash}.json`,
       JSON.stringify({ status: "active", documentId: "doc-route-live" }),
     );
     bucket.seed("1-projects/rates.md", "RATESECRET what we charge");
-    const ratesPathDigest = await crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode("1-projects/rates.md"),
-    );
-    const ratesPathHash = [...new Uint8Array(ratesPathDigest)]
-      .map((byte) => byte.toString(16).padStart(2, "0"))
-      .join("");
+    const ratesPathHash = await pathHash("1-projects/rates.md");
     bucket.seed(
       `.context/collaboration/v1/heads/${ratesPathHash}.json`,
       JSON.stringify({ status: "active", documentId: "doc-private-live" }),
@@ -210,6 +204,7 @@ export async function runPresenceRouteChecks(check) {
       OTHER_BUCKET: otherBucket,
       PRESENCE_ROOM: rooms,
     };
+    controlPlane.serveTreesFrom(env); // the tree, and so the access rules, come from these buckets
 
     /* -- the production room performs the whole live authorization path ---- */
 

@@ -136,6 +136,8 @@ before(async () => {
   const s3 = createS3Backend(S3_ENDPOINT);
   restore.push(s3.install());
   restore.push(controlPlane.install());
+  // The rules a binding carries are rendered from the tree this bucket serves.
+  controlPlane.serveTreesFrom(null, { s3 });
   const below = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const url = typeof input === "string" ? input : input.url;

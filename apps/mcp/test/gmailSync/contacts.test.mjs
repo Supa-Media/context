@@ -18,6 +18,7 @@ import { openContactLookup, writeContactDraft } from "../../src/communications/c
 import { syncOneDay } from "../../src/communications/gmail/render.js";
 import { runIncrementalSync } from "../../src/communications/gmail/sync.js";
 import { createFixtureGmail, fixtureMessage } from "./fixtures.mjs";
+import { withPrivacyAuthority } from "../../src/store/privacyAuthority.js";
 
 /** A store with every guard a move asks for: conditional create, write and delete, and a paged list. */
 function guardedStore(seed = {}) {
@@ -68,9 +69,25 @@ function guardedStore(seed = {}) {
   };
 }
 
-const PRIVACY =
-  "---\nrole: privacy-manifest\nversion: 1\n---\n\n<!-- BEGIN BRAIN PRIVACY RULES -->\n\n```yaml\n" +
-  "default_visibility: private\n\nfolder_defaults:\n  index.md: team\n\nnote_overrides:\n  # none\n```\n\n<!-- END BRAIN PRIVACY RULES -->\n";
+/**
+ * The access rows behind a store, as the control plane keeps them: the workspace is private by default, and a
+ * row's tier is one `setAccess` the fixture records here. A move that lands a note at a new path writes its
+ * row through this, so a later check sees it.
+ */
+function withRows(store) {
+  const notes = [];
+  let version = 1;
+  const authority = {
+    rules: { etag: "rows-1", folders: [], notes, accessVersion: version },
+    async setAccess(change) {
+      version += 1;
+      const others = notes.filter((note) => note.path !== change.path);
+      notes.splice(0, notes.length, ...others, ...(change.base === "inherit" ? [] : [{ path: change.path, visibility: change.base }]));
+      return { ok: true, version };
+    },
+  };
+  return withPrivacyAuthority(store, authority);
+}
 
 const claire = (extra = {}) => ({
   name: "Claire",
@@ -96,11 +113,10 @@ export async function runGmailContactChecks(check) {
   {
     // The archived page, and a note of the owner's that links to it.
     const archived = "archive/inbox/contacts/c/claire.md";
-    const store = guardedStore({
-      "privacy.md": PRIVACY,
+    const store = withRows(guardedStore({
       [archived]: page("Claire", "claire@example.invalid"),
       "2-areas/people.md": "# People\n\n- [[archive/inbox/contacts/c/claire|Claire]]\n",
-    });
+    }));
     await writeContactDraft(store, claire(), { remainingQuotaBytes: 1_000_000 });
     check("an archived contact is moved back to its live path by the next message, and updated there",
       store.text(archived) === null && store.text("inbox/contacts/c/claire.md")?.includes("2026-10-12") && contactKeys(store).length === 1);
@@ -165,13 +181,12 @@ export async function runGmailContactChecks(check) {
       activity: [{ date, path: `inbox/email/me/${date.slice(0, 4)}/${date.slice(5, 7)}/${date}.md`, anchor: "msg-0123456789abcdef", label: "hi", channel: "email" }],
     });
     const seed = () => ({
-      "privacy.md": PRIVACY,
       "inbox/contacts/c/claire.md": dated("Claire", "claire@example.invalid", "2025-06-01"),
       "inbox/contacts/d/dana.md": dated("Dana", "dana@example.invalid", "2026-09-01"),
       "2-areas/people.md": "# People\n\n- [[inbox/contacts/c/claire|Claire]]\n",
     });
     {
-      const store = guardedStore(seed());
+      const store = withRows(guardedStore(seed()));
       const contacts = await openContactLookup(store);
       const swept = await contacts.sweepDormant({ now: NOW });
       check("the gateway sweep archives a dormant page at its mirror path and keeps an active one",
@@ -185,14 +200,14 @@ export async function runGmailContactChecks(check) {
           store.text("2-areas/people.md").includes("[[inbox/contacts/c/claire|Claire]]") && contactKeys(store).length === 2);
     }
     {
-      const store = guardedStore(seed());
+      const store = withRows(guardedStore(seed()));
       store.capabilities = { conditionalWrite: true };
       const swept = await (await openContactLookup(store)).sweepDormant({ now: NOW });
       check("on a bucket that cannot move a note safely the sweep does not try, and the page stays live",
         swept.failed === 0 && swept.archived.length === 0 && store.text("inbox/contacts/c/claire.md") !== null);
     }
     {
-      const store = guardedStore(seed());
+      const store = withRows(guardedStore(seed()));
       store.list = async () => { throw new Error("listing refused"); };
       let threw = false;
       try {
@@ -214,7 +229,7 @@ export async function runGmailContactChecks(check) {
       });
     };
     {
-      const store = guardedStore(seed());
+      const store = withRows(guardedStore(seed()));
       const result = await pass(store);
       check("a Gmail forward pass sweeps dormant contacts after its own writes",
         result.daysTouched.length === 1 && store.text("archive/inbox/contacts/c/claire.md") !== null &&
@@ -223,7 +238,7 @@ export async function runGmailContactChecks(check) {
         JSON.parse(store.text(CONTACT_INDEX_KEY)).pages["archive/inbox/contacts/c/claire.md"] !== undefined);
     }
     {
-      const store = guardedStore(seed());
+      const store = withRows(guardedStore(seed()));
       store.delete = async () => { throw new Error("store unreachable"); };
       let threw = false;
       let result;

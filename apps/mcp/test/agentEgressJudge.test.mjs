@@ -28,6 +28,7 @@
 
 import { ask, call, request, textOf, toolReplies, createEgressWorld } from "./agentEgressFixtures.mjs";
 import { TOKEN_MCP, TOKEN_TEXTS } from "./agentEgressFixtures.mjs";
+import { teamNow } from "./accessRows.mjs";
 import { AI_GATEWAY_ENV } from "./agentModelFixture.mjs";
 import { judgedWords, judgeWords, MAX_JUDGED_WORDS } from "../src/privacy/judge.js";
 
@@ -42,7 +43,8 @@ function judgeText(request) {
 
 export async function runAgentEgressJudgeChecks(check) {
   const world = await createEgressWorld();
-  const { model, team, env, teamVisible, pending, objectsUnder } = world;
+  const { model, team, env, controlPlane, bucket, pending, objectsUnder } = world;
+  const teamVisible = (path) => teamNow(controlPlane, "ws_egress", bucket.get("privacy.md")?.body, path);
   env.SHARING_JUDGE = "on";
 
   try {

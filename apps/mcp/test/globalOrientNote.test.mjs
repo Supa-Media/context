@@ -84,6 +84,8 @@ before(async () => {
   restoreS3 = s3.install();
   const controlPlane = createControlPlaneStub();
   restoreControlPlane = controlPlane.install();
+  // The access rules and the tree come from each workspace's own bucket, as the control plane serves them.
+  controlPlane.serveTreesFrom(null, { s3 });
 
   controlPlane.addWorkspace("ws_mine", "mine", binding("global-mine", "AA"));
   controlPlane.addWorkspace("ws_pinned", "context-lc", binding("global-pinned", "BB"), { kind: "shared" });

@@ -256,6 +256,29 @@ export async function runActivityWiredChecks(check) {
       beforeHiding.includes("3-resources/rates.md"),
   );
 
+  /*
+    (3) POINTED AT A GROUP. No gateway tool mints a group rule — `setNoteGroup`
+    is the console's — so the rules record is seeded directly, in exactly the
+    form that action produces (`@name`, undecorated in the rule value). What it
+    proves is about the reader, not the writer: `read_activity` calls `canSee`
+    with four arguments, so `grantedGroups` is `undefined` and a group-pointed
+    note is invisible to every team-tier caller. A line already written about
+    it must go with it.
+
+    This is written FIRST, before the two row changes below. The control plane
+    stub holds a row change in memory, not in the bucket, so a seed written
+    after those changes would be read from the bucket and would silently drop
+    them. Seeding first means each later row change is made over this rule.
+  */
+  const manifest = await store.get("privacy.md");
+  await store.put(
+    "privacy.md",
+    (await manifest.text()).replace(
+      "note_overrides:\n",
+      "note_overrides:\n  3-resources/rates.md: @supa-leads\n",
+    ),
+  );
+
   // (1) HELD BACK BY NAME — an exact-note override inside a team folder.
   await call(OWNER, "set_visibility", { path: "2-areas/held-back.md", visibility: "private" });
   // (2) A PRIVATE SUBFOLDER under a team one.
@@ -279,24 +302,6 @@ export async function runActivityWiredChecks(check) {
     "the private-subfolder rule actually applied, or the check below proves nothing",
     Boolean(privacyEtag) && !folderApplied?.isError,
   );
-  /*
-    (3) POINTED AT A GROUP. No gateway tool mints a group rule — `setNoteGroup`
-    is the console's — so the manifest is written directly, in exactly the form
-    that action produces (`@name`, undecorated in the rule value). What it
-    proves is about the reader, not the writer: `read_activity` calls `canSee`
-    with four arguments, so `grantedGroups` is `undefined` and a group-pointed
-    note is invisible to every team-tier caller. A line already written about
-    it must go with it.
-  */
-  const manifest = await store.get("privacy.md");
-  await store.put(
-    "privacy.md",
-    (await manifest.text()).replace(
-      "note_overrides:\n",
-      "note_overrides:\n  3-resources/rates.md: @supa-leads\n",
-    ),
-  );
-
   const afterHiding = textOf(await call(TEAM, "read_activity", {}));
   check(
     "a note held back by name drops out of the line written while it was shared",

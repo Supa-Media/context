@@ -75,9 +75,9 @@ export async function gatewayBindingHandler(
     },
   );
   if (opened === null) return json({ binding: null });
-  // Phase 3: the workspace's privacy rules, while they are the authority
-  // (`nodesPrivacy.ts`); absent while `privacy.md` is. The workspace is the
-  // one the grant opened, never one the request named.
+  // The workspace's access rules, rendered from its rows for this reader (`nodesPrivacy.ts`). Absent only when
+  // they cannot be read, and the gateway then fails closed. The workspace is the one the grant opened, never one
+  // the request named.
   const privacy = await ctx
     .runQuery(internal.functions.nodesPrivacy.authority, {
       workspaceId: opened.binding.workspaceId as Id<"workspaces">,
@@ -126,8 +126,8 @@ export async function gatewayBindingHandler(
     // absent otherwise. A gateway that gets a mode and no usable key refuses
     // the store rather than serving sealed bytes — `store/managedEncryption.js`.
     managedEncryption: opened.managedEncryption,
-    // Eighth: the rules `privacy.md` is written from, while they are the
-    // authority. Absent otherwise, and then the gateway reads the file.
+    // Eighth: the access rules the gateway judges by. Absent only when they
+    // could not be read, and then the gateway treats everything as private.
     ...(privacy === null ? {} : { privacy }),
     // Ninth: absent unless reads use the id keys (`notes/<id>.md`, `files/<id><ext>`).
     ...(idLayout === null ? {} : { idLayout }),

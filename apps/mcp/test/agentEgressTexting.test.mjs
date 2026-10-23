@@ -33,10 +33,12 @@ import { ask, request, toolReplies, createEgressWorld } from "./agentEgressFixtu
 import { TOKEN_CONSOLE, TOKEN_TEXTS, TOKEN_ROUTINE } from "./agentEgressFixtures.mjs";
 import { approvalVerdict, notDone } from "../src/agent/textedApprovals.js";
 import { TOLD } from "../src/agent/conversation.js";
+import { teamNow } from "./accessRows.mjs";
 
 export async function runAgentEgressTextingChecks(check) {
   const world = await createEgressWorld();
-  const { model, controlPlane, env, teamVisible, pending, bucket } = world;
+  const { model, controlPlane, env, pending, bucket } = world;
+  const teamVisible = (path) => teamNow(controlPlane, "ws_egress", bucket.get("privacy.md")?.body, path);
   const claimed = (slug) => controlPlane.workspaceSetupCalls.some((entry) => entry.dryRun === false && entry.slug === slug);
   const claim = (slug) => ({ toolCalls: [{ name: "create_workspace", args: { slug, name: slug } }] });
   // Deny whatever is waiting, so the next ask starts from an empty queue.

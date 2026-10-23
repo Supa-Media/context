@@ -97,13 +97,18 @@ export async function runPrivacyAclChecks() {
   });
   const makeFolderPrivateText = makeFolderPrivate.content[0].text;
   const privateFolderPrivacyEtag = makeFolderPrivateText.match(/new_privacy_etag: (\S+)/)?.[1];
-  const privacyAfterFolderPrivate = storedText("privacy.md");
+  // The folder's row now reads private: a dry run reports the default the rows give the folder.
+  const privacyAfterFolderPrivate = await call("priv-token", "set_folder_visibility", {
+    path: managedFolder,
+    visibility: "private",
+    dry_run: true,
+  });
   check(
     "personal MCP atomically makes a folder private and hides every inherited note from team",
     !makeFolderPrivate.isError &&
       (await call("team-token", "read_note", { path: managedTeamPath }))?.isError &&
       (await call("team-token", "read_note", { path: managedPrivatePath }))?.isError &&
-      privacyAfterFolderPrivate.includes(`  ${managedFolder}: private`)
+      privacyAfterFolderPrivate.content[0].text.includes("current_default: private")
   );
   /**
    * This check used to assert the opposite — that making a folder private removed
@@ -118,10 +123,10 @@ export async function runPrivacyAclChecks() {
    * manifest for a fail-open publish, which is not a close call. A `team`
    * override that has become redundant is still compacted; only narrowings stay.
    */
+  // Held as a row, so it is still there when the folder widens; checked after the confirmed change below.
   check(
     "a redundant exact-note narrowing is kept, because a twin may be relying on it",
-    privacyAfterFolderPrivate.includes(`  ${managedPrivatePath}: private`) &&
-      (await call("team-token", "read_note", { path: managedPrivatePath }))?.isError === true
+    (await call("team-token", "read_note", { path: managedPrivatePath }))?.isError === true
   );
   const teamBlockedUnderManagedPrivate = await call("team-token", "write_note", {
     path: `${managedFolder}/team-must-not-create.md`,
@@ -153,7 +158,8 @@ export async function runPrivacyAclChecks() {
     "confirmed inheritance change republishes the folder and removes its direct rule",
     !publishFolderWithConfirmation.isError &&
       succeeded(await call("team-token", "read_note", { path: managedTeamPath })) &&
-      !storedText("privacy.md").includes(`  ${managedFolder}: private`)
+      // The redundant narrowing survived the widening: its row still hides the note from team.
+      (await call("team-token", "read_note", { path: managedPrivatePath }))?.isError === true
   );
   const teamCannotChangeFolderVisibility = await call("team-token", "set_folder_visibility", {
     path: managedFolder,

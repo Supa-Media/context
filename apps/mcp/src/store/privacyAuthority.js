@@ -53,6 +53,16 @@ function parsedRules(rules) {
   return { rules: rules.folders.map((folder) => ({ prefix: folder.prefix, vis: folder.visibility })), overrides };
 }
 
+/**
+ * The rules' etag after a row change. The control plane's is `<mirror>.<accessVersion>`, so the new one is the same
+ * mirror at the answer's version; an answer that names its etag is taken as given, and any other shape is made new.
+ */
+function etagAfter(etag, answer) {
+  if (typeof answer.etag === "string") return answer.etag;
+  const at = etag.lastIndexOf(".");
+  return `${at === -1 ? etag : etag.slice(0, at)}.${answer.version}`;
+}
+
 function objectFor(text, etag, preParsed) {
   const bytes = new TextEncoder().encode(text);
   return {
@@ -97,12 +107,11 @@ export function withPrivacyAuthority(store, authority) {
       held.folders.map((rule) => ({ prefix: rule.prefix, vis: rule.visibility })),
     );
     const base = !folder && tier !== "inherit" && tier === inherited ? "inherit" : tier;
-    const answer = await authority.setAccess({
-      path,
-      base,
-      expectedVersion: held.accessVersion,
-      ...(folder ? { kind: "folder" } : {}),
-    });
+    const change = { path, base, ...(folder ? { kind: "folder" } : {}) };
+    let answer = await authority.setAccess({ ...change, expectedVersion: held.accessVersion });
+    // The version is the whole workspace's, so another row's change since this request began moves it. One row's
+    // base is the same write whatever else changed, so it is sent once more without the version rather than failing.
+    if (answer?.ok !== true && answer?.code === "CONFLICT") answer = await authority.setAccess(change);
     if (answer?.ok !== true) return answer ?? { ok: false };
     const listKey = folder ? "folders" : "notes";
     const field = folder ? "prefix" : "path";
@@ -110,7 +119,7 @@ export function withPrivacyAuthority(store, authority) {
     const after = visibilityAfter(base, existing);
     const others = held[listKey].filter((rule) => rule[field] !== path);
     const entries = after === null ? others : [...others, folder ? { prefix: path, visibility: after } : { path, visibility: after }];
-    held = { ...held, [listKey]: entries, accessVersion: answer.version };
+    held = { ...held, [listKey]: entries, accessVersion: answer.version, etag: etagAfter(held.etag, answer) };
     return answer;
   };
 

@@ -315,7 +315,7 @@ export function createTreeRoutes(grantForAccessToken, bindings, gatewayJobs = ne
     const base = (await rulesText(workspaceId)) ?? "# Privacy\n\n<!-- BEGIN BRAIN PRIVACY RULES -->\n<!-- END BRAIN PRIVACY RULES -->\n";
     changed.set(workspaceId, { from: object?.etag ?? null, text: spliceRulesBlock(base, kept, overrides) });
     versions.set(workspaceId, version + 1);
-    return { ok: true, version: version + 1 };
+    return { ok: true, version: version + 1, etag: (await rulesFor(workspaceId)).etag };
   }
 
   const routes = {

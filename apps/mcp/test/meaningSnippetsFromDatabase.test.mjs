@@ -171,8 +171,9 @@ test("a rows-mode workspace never asks the bucket for privacy.md, and its rules 
   assert.deepEqual(gets.filter((key) => key === PRIVACY_KEY), []);
   assert.equal(canSee("team/open.md", "team", state.rules, state.overrides), true);
   assert.equal(canSee("team/held.md", "team", state.rules, state.overrides), false);
-  // While the file is the authority, it is read as before.
-  const legacy = withPrivacyAuthority(bucket, { rules: { ...rules, accessVersion: undefined } });
-  await loadPrivacyState(legacy);
-  assert.ok(gets.includes(PRIVACY_KEY));
+  // Without an access version the rows still decide, and the bucket is still never asked for the file.
+  const unversioned = withPrivacyAuthority(bucket, { rules: { ...rules, accessVersion: undefined } });
+  const unversionedState = await loadPrivacyState(unversioned);
+  assert.deepEqual(gets.filter((key) => key === PRIVACY_KEY), []);
+  assert.equal(canSee("team/held.md", "team", unversionedState.rules, unversionedState.overrides), false);
 });

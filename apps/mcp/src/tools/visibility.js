@@ -194,7 +194,7 @@ export async function toolSetFolderVisibility(store, scope, args) {
   } catch (error) {
     return rowsRefusal(error, "folder");
   }
-  const privacyEtag = state.etag;
+  const privacyEtag = (await loadPrivacyState(store)).etag;
   await recordChange(store, "set_folder_visibility", scope, [path], {
     from: beforeDefault,
     to: afterDefault,

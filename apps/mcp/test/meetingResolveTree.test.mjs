@@ -34,12 +34,10 @@ import { R2Store, createBucket, createSearchBudget, syncShardedIndex } from "./s
 import { resolveMeetingNotePath } from "../src/meetings/notes.js";
 import { propsOf } from "../src/tree/props.js";
 import { compareKeys } from "../src/tree/served.js";
+import { withPrivacyAuthority } from "../src/store/privacyAuthority.js";
 
-const PRIVACY =
-  "---\nrole: privacy-manifest\n---\n\n" +
-  "<!-- BEGIN BRAIN PRIVACY RULES -->\n\n```yaml\ndefault_visibility: private\n\n" +
-  "folder_defaults:\n  1-projects: team\n\nnote_overrides:\n  # none\n```\n\n" +
-  "<!-- END BRAIN PRIVACY RULES -->\n";
+// The access rows the control plane sends beside the binding: 1-projects is team, everything else private.
+const RULES = { etag: "rows-v1", accessVersion: 1, folders: [{ prefix: "1-projects", visibility: "team" }], notes: [] };
 
 const MEETING_A = "mtg_resolve_a";
 const MEETING_B = "mtg_resolve_b";
@@ -50,10 +48,12 @@ function meetingNote(id, title = TITLE) {
   return `---\nmeeting-id: ${id}\nstarted: 2026-10-05T09:00:00Z\n---\n# ${title}\n\nThe discussion.\n`;
 }
 
-/** Notes a bucket holds, with the tree's facts for it. `unread` names notes whose props the tree has not read. */
+/**
+ * Notes a bucket holds, with the tree's facts for it. `unread` names notes whose props the tree has not read.
+ * The access rules come from the control plane's rows (`withPrivacyAuthority`), not from a file in the bucket.
+ */
 function treeBackedStore(notes, { unread = [], ledger = [], treeServed = true } = {}) {
   const bucket = createBucket();
-  bucket.seed("privacy.md", PRIVACY);
   for (const [key, text] of Object.entries(notes)) bucket.seed(key, text);
   const store = new R2Store(bucket);
   Object.defineProperty(store, "treeFacts", {
@@ -80,7 +80,7 @@ function treeBackedStore(notes, { unread = [], ledger = [], treeServed = true } 
     configurable: true,
     value: { read: async () => ledger, record: async () => {} },
   });
-  return { store, bucket };
+  return { store: withPrivacyAuthority(store, { rules: RULES }), bucket };
 }
 
 /** Build the search index the way the maintenance behind a response would, then forget those reads. */

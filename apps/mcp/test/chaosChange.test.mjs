@@ -28,17 +28,22 @@ import { R2Store } from "../src/store/r2.js";
 import { memoryBucket } from "./store/fixtures.mjs";
 import { canSee } from "../src/privacy/engine.js";
 import { loadPrivacyState } from "../src/privacy/state.js";
+import { withPrivacyAuthority } from "../src/store/privacyAuthority.js";
 import { changeChaos, keysAfterChange } from "../src/chaos/change.js";
 import { liveTotals, scoreKeys } from "../src/chaos/live.js";
 import { chaosLines, takeChaos } from "../src/chaos/report.js";
 import { recordChange } from "../src/activity/record.js";
 
-/** `1-projects/` is the team's, everything else private. */
-const PRIVACY =
-  "---\nrole: privacy-manifest\n---\n\n" +
-  "<!-- BEGIN BRAIN PRIVACY RULES -->\n\n```yaml\ndefault_visibility: private\n\n" +
-  "folder_defaults:\n  1-projects: team\n\nnote_overrides:\n  # none\n```\n\n" +
-  "<!-- END BRAIN PRIVACY RULES -->\n";
+/**
+ * The access rows the control plane serves beside the binding: `1-projects/` is the team's, everything else
+ * private. The gateway judges by these, never by a `privacy.md` in the bucket.
+ */
+const ROWS = {
+  etag: "rows-1",
+  accessVersion: 1,
+  folders: [{ prefix: "1-projects", visibility: "team" }],
+  notes: [],
+};
 
 const words = "plan budget people risks notes ideas launch review hiring roadmap legal design press travel".split(" ");
 
@@ -56,13 +61,15 @@ function workspaceKeys() {
 
 /**
  * A session store over a bucket, with the Convex tree serving `keys` and its
- * facts answering `extras`. The bucket holds `privacy.md` and any `texts`.
+ * facts answering `extras`. The access rows are `rules` (`ROWS` by default,
+ * `null` for a session the control plane has sent no rules to), wrapped the
+ * way the real session wraps its store. The bucket holds any `texts`.
  */
-async function servedStore({ keys = workspaceKeys(), extras = [], texts = {}, served = true, facts = true } = {}) {
+async function servedStore({ keys = workspaceKeys(), extras = [], texts = {}, served = true, facts = true, rules = ROWS } = {}) {
   const raw = memoryBucket();
-  await raw.put("privacy.md", PRIVACY);
   for (const [path, text] of Object.entries(texts)) await raw.put(path, text);
-  const store = Object.create(new R2Store(raw));
+  const bare = new R2Store(raw);
+  const store = Object.create(rules ? withPrivacyAuthority(bare, { rules }) : bare);
   const asked = [];
   Object.defineProperty(store, "treeManifest", {
     value: async () => {
@@ -184,9 +191,8 @@ test("4. no tree, no facts, no answer, and never a throw", async () => {
   const broken = await servedStore();
   Object.defineProperty(broken, "treeFacts", { value: async () => { throw new Error("down"); } });
   assert.equal(await changeChaos(broken, { files: ["1-projects/a.md"] }), null);
-  const badManifest = await servedStore();
-  await badManifest.put("privacy.md", "not a manifest");
-  assert.doesNotReject(changeChaos(badManifest, { files: ["1-projects/a.md"] }));
+  // A session the control plane has sent no access rows to judges nothing: the score is not guessed.
+  assert.equal(await changeChaos(await servedStore({ rules: null }), { files: ["1-projects/a.md"] }), null);
 });
 
 test("5. a team reader is never named a folder the team cannot open", async () => {
