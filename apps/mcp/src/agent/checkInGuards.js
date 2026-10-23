@@ -18,6 +18,17 @@
  *      new thread, "not a follow-up" or the `[continues N]` marker, or a
  *      lead-in like "Here's the text:", is the model talking to us, never
  *      to them, and comes off.
+ *
+ * And what a routine or a check-in texts (the owner, 2026-10-23: one morning
+ * texted "I couldn't reliably see recent Context code changes; no status
+ * update. SKIP", then a one-off reminder's own words, "Remind them to call
+ * Apple about actually reviewing the Context app"):
+ *
+ *   3. A quiet answer that explains itself. SKIP anywhere it stands alone at
+ *      the start or the end of the answer is quiet, whatever came before it.
+ *   4. Instructions read back. An answer that opens "Remind them to", "Tell
+ *      them", "Text the person that" is the routine's note, not a text to
+ *      them, and is turned into one: "Reminder: call Apple ...".
  */
 
 import { mutedWord, readAttentionSettings } from "./attention.js";
@@ -48,4 +59,40 @@ export function withoutPreamble(text) {
   const introduced = INTRODUCES.exec(said);
   if (introduced !== null && introduced.index < 240) said = said.slice(introduced.index + introduced[0].length);
   return said.trim();
+}
+
+/** The word an answer with nothing to say is. */
+export const QUIET_WORD = "SKIP";
+
+/**
+ * Whether an answer means "nothing to text": SKIP on its own (any case), or
+ * an upper-case SKIP that opens or closes it, as when a model explains why it
+ * is quiet and then says so. A text that only uses the word ("Skip the
+ * meeting today") is still a text.
+ */
+export function saysQuiet(text) {
+  const said = String(text ?? "").trim();
+  if (said === "" || said.replace(/[.!]$/, "").toUpperCase() === QUIET_WORD) return true;
+  return /^SKIP\b/.test(said) || /(?:^|[\s.;:,!—-])SKIP[.!]?$/.test(said);
+}
+
+const THEM = "(?:them|him|her|the (?:person|user))";
+const INSTRUCTION_LEAD = new RegExp(
+  `^(?:please\\s+)?(?:(remind)\\s+(?:${THEM}|me)|(?:tell|text|message|ping)\\s+${THEM}|let\\s+${THEM}\\s+know)\\s*(?:,|:|\\bto\\s+|\\bthat\\s+|\\babout\\s+|\\bof\\s+)?\\s*`,
+  "i",
+);
+
+/**
+ * The answer as a text to them: a routine's instructions read back ("Remind
+ * them to call Apple") become the reminder itself ("Reminder: call Apple").
+ * Leaves anything else exactly as it was.
+ */
+export function spokenToThem(text) {
+  const said = String(text ?? "").trim();
+  const lead = INSTRUCTION_LEAD.exec(said);
+  if (lead === null) return said;
+  const rest = said.slice(lead[0].length).trim();
+  if (rest === "") return said;
+  if (lead[1] !== undefined) return `Reminder: ${rest}`;
+  return rest[0].toUpperCase() + rest.slice(1);
 }

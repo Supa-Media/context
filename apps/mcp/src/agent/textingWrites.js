@@ -59,7 +59,9 @@ const ROUTINE_HELP =
   "until: <when to stop>, paused: yes. " +
   // The owner, 2026-10-18: routines are personal. One texts only the person who wrote it, and one in a shared workspace never runs.
   "A routine texts only the person who wrote it, and runs only in their own personal workspace, never in a shared one. " +
-  "The body is plain instructions for the assistant, written as the person asked. " +
+  "The body is plain instructions for the assistant, written as the person asked; " +
+  "a reminder's body is the reminder itself, with any link they gave (\"Call Apple about the app review: <link>\"). " +
+  "One routine per thing: when they change a reminder (\"every 3 hours until I do it\"), edit or archive the old one, never add a second. " +
   // The owner, 2026-10-14: a reply that restated the whole reminder read like a chatbot; a friend says "Will do."
   "After saving, answer the way a friend would: \"Will do.\" or \"Sure.\" Name the time only when you picked it, " +
   "and say where the note is or how to stop it only when they ask.";
@@ -169,6 +171,43 @@ export function textingAwareCallTool(callTool, writeTools) {
     if (extra.length > 0) return toolError(`${extra.join(", ")} can't be passed from a text.`);
     const refusal = refusalFor(name, given);
     if (refusal) return toolError(refusal);
+    if (name === "write_note" && given.expected_etag === undefined && isRoutineFilePath(given.path)) {
+      return Promise.resolve(callTool(name, given)).then((result) => withOtherRoutines(callTool, given.path, result));
+    }
     return callTool(name, given);
   };
+}
+
+/** How many of their other routines a new one's result names. */
+const OTHER_ROUTINES_SHOWN = 20;
+
+/**
+ * A new routine's result names the others they have, so one that says the
+ * same thing is changed or archived rather than left beside it (the owner,
+ * 2026-10-23: "remind me tomorrow" then "every 3 hours until I do it" left a
+ * one-off and an every-3-hours routine that both texted at 9:00, because the
+ * second turn no longer knew the first one's path). Best effort: a listing
+ * that fails leaves the result as it was.
+ */
+async function withOtherRoutines(callTool, path, result) {
+  if (result?.isError === true) return result;
+  try {
+    const others = [];
+    for (const prefix of ["tex/routines/", "routines/"]) {
+      const listed = await callTool("list_notes", { prefix });
+      const text = listed?.isError === true ? "" : String(listed?.content?.[0]?.text ?? "");
+      for (const line of text.split("\n")) {
+        const key = line.replace(/\s+\(\d+ bytes\)$/, "").trim();
+        if (key !== path && isRoutineFilePath(key)) others.push(key);
+      }
+    }
+    if (others.length === 0) return result;
+    const shown = others.slice(0, OTHER_ROUTINES_SHOWN).join(", ");
+    const note =
+      `Their other routines: ${shown}. If one of these is about the same thing as the one you just wrote, ` +
+      "archive it now, or they will be texted twice.";
+    return { ...result, content: [...(result?.content ?? []), { type: "text", text: note }] };
+  } catch {
+    return result;
+  }
 }

@@ -146,6 +146,21 @@ outcomes in the run history, not texts. Tests (`agentRoutine.test.mjs`): "a
 routine is refused from any other connection", "a routine its writer can no
 longer see does not run", "a paused routine costs no turn".
 
+### A run's answer is the text, said to them, and once (the owner, 2026-10-23)
+
+One morning a run texted "...no status update. SKIP", a one-off texted its own
+note ("Remind them to call Apple ..."), and an every-3-hours routine about the
+same call texted beside it at 9:00. So: an upper-case SKIP that opens or closes
+an answer is quiet too (`saysQuiet`); an answer that opens "Remind them to" or
+"Tell them" is turned into the text itself ("Reminder: ...", `spokenToThem`);
+each run is shown the last texts with them, naming which routine or check-in
+sent each, never a tainted turn, and stays quiet when another already said it;
+the texting Worker runs one person's due routines one after another so the
+second sees the first; and a new routine's write result names the person's
+other routines so a replaced one is archived. Undo any of these and the
+morning above comes back. Tests: `routineVoice.test.mjs`, and "runs one
+person's routines one after another" (`apps/agent/src/routines.test.ts`).
+
 ### The texting Worker pulls due runs, and only texts phones that texted first
 
 The texting Worker (`apps/agent`) runs routines from a Cron Trigger every

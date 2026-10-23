@@ -185,7 +185,9 @@ export async function runAgentRoutineTexChecks(check) {
       old.status === 200 &&
         old.body?.outcome === "answered" &&
         userText(model.requests.at(-1)).includes("Say what the old one says.") &&
-        !userText(model.requests.at(-1)).includes("the new one answered"),
+        // Its last answer is its own; the twin's text is only among the last texts, named as the other routine's (2026-10-23).
+        !/you answered:(?:\\n|\s)+New: the new one answered/.test(userText(model.requests.at(-1))) &&
+        userText(model.requests.at(-1)).includes("You (your routine tex/routines/daily/standup.md): New: the new one answered"),
     );
     check(
       "a tex/routines/ note's history is kept apart from its routines/ twin",
@@ -200,7 +202,7 @@ export async function runAgentRoutineTexChecks(check) {
     const told = userText(model.requests.at(-1));
     check(
       "each run is told only its own last answer",
-      told.includes("the new one answered") && !told.includes("the old one answered"),
+      /you answered:(?:\\n|\s)+New: the new one answered/.test(told) && !/you answered:(?:\\n|\s)+Old: the old one answered/.test(told),
     );
 
     /* ---------------- a one-off in the new root ---------------- */
