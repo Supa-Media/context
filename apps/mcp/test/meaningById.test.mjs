@@ -29,6 +29,7 @@ import { attachMeaningIndex, writeMeaningNote } from "../src/search/meaning/stor
 import { followChangeAfterResponse } from "../src/search/writeProjection.js";
 import { listNoteObjects } from "../src/search/shards/listing.js";
 import { createSearchBudget } from "../src/search/maintain.js";
+import { withPrivacyAuthority } from "../src/store/privacyAuthority.js";
 
 const ALPHA = "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a51";
 const BETA = "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a52";
@@ -70,10 +71,13 @@ function fakeAi() {
   };
 }
 
-/** A gateway store: notes by path, each row's id through `noteIdAt`, writes deferred. */
-function gatewayStore(notes, ids) {
+/**
+ * A gateway store: notes by path, each row's id through `noteIdAt`, writes deferred. Its access rules come from the
+ * control plane's rows (`withPrivacyAuthority`), as in a real session: without them every note is private.
+ */
+function gatewayStore(notes, ids, rules = { folders: [], notes: [{ path: "b/two.md", visibility: "team" }] }) {
   const deferred = [];
-  const store = {
+  const raw = {
     actor: { workspaceId: "ws1" },
     defer: (promise) => deferred.push(promise),
     async get(key) {
@@ -87,7 +91,8 @@ function gatewayStore(notes, ids) {
     },
   };
   const ai = fakeAi();
-  attachMeaningIndex(store, DESCRIPTOR, ai);
+  attachMeaningIndex(raw, DESCRIPTOR, ai);
+  const store = withPrivacyAuthority(raw, { rules: { etag: "rows-v1", accessVersion: 1, ...rules } });
   return { store, ai, settle: () => Promise.all(deferred) };
 }
 

@@ -1,23 +1,17 @@
 import { describe, expect, test } from "vitest";
 import { clearanceOf } from "../../functions/lib/clearance";
-import {
-  DELETE_CONFIRMATION,
-  type FileStore,
-  deletePath,
-  listFolder,
-  movePath,
-  readFile,
-  setFolderVisibility,
-  setVisibility,
-  trashPath,
-} from "../../functions/lib/fileOps";
-import { PRIVACY_KEY } from "../../functions/lib/privacy";
+import { DELETE_CONFIRMATION, type FileStore, deletePath, listFolder, movePath, readFile, trashPath } from "../../functions/lib/fileOps";
 import { NOW, bucket, capture, errorShape, names, shareProjects } from "./fixtures.helpers";
 import { type KeyedBucket, bodyAt, keyedBucket, liveRowAt } from "../keyedFixture.fileops2.helpers";
 import { treeView } from "../../functions/lib/fileOps/walk";
+import { setFolderVisibility, setVisibility } from "../seededRules.helpers";
+import { rowRulesIn } from "./keyedFixture.fileops1.helpers";
 
-/** The privacy manifest as the keyed workspace holds it. */
-const manifestOf = (k: KeyedBucket) => k.raw.snapshot()[PRIVACY_KEY] as string;
+/** The rules the keyed workspace's rows give, as `prefix: visibility` lines (exceptions included). */
+async function ruleLines(k: KeyedBucket): Promise<string[]> {
+  const { rules, overrides } = await rowRulesIn(k.t, k.ws);
+  return [...rules.map((rule) => `${rule.prefix}: ${rule.vis}`), ...[...overrides].map(([path, vis]) => `${path}: ${vis}`)];
+}
 
 describe('a bulk operation acts only on what the caller can see', () => {
   /**
@@ -98,9 +92,7 @@ describe('a bulk operation acts only on what the caller can see', () => {
       now: NOW,
     });
 
-    const lines = manifestOf(k)
-      .split("\n")
-      .filter((line) => line.includes("1-projects/zzz/hr:"));
+    const lines = (await ruleLines(k)).filter((line) => line.startsWith("1-projects/zzz/hr:"));
     expect(lines).toHaveLength(1);
     expect(lines[0]).toContain("private");
     expect(
@@ -138,9 +130,7 @@ describe('a bulk operation acts only on what the caller can see', () => {
     expect(refused.code).toBe("CONFLICT");
 
     // Nothing changed, so the one rule over the survivors is still written, once.
-    const lines = manifestOf(k)
-      .split("\n")
-      .filter((line) => line.trim().startsWith("1-projects/mixed/hr:"));
+    const lines = (await ruleLines(k)).filter((line) => line.startsWith("1-projects/mixed/hr:"));
     expect(lines).toHaveLength(1);
     for (const path of ["1-projects/mixed/hr/pay.md", "1-projects/mixed/hr/bonus.md"]) {
       expect((await capture(() => readFile(k.store, { path, clearance: clearanceOf("team") }))).code).toBe(

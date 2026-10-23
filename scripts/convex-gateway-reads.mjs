@@ -14,9 +14,7 @@
  * - every `apps/mcp` file reached by following imports out of every file in
  *   `apps/convex` (functions, helpers and tests alike; deploy-plan's walk);
  * - every `apps/mcp` file a Convex file names by a path literal, relative
- *   (`../../mcp/src/index.js`) or repository-absolute (`"apps/mcp/src/x.js"`);
- * - every `apps/mcp` file a patch under `docs/deferred/` touches, because
- *   `deferredPatches.test.ts` applies them.
+ *   (`../../mcp/src/index.js`) or repository-absolute (`"apps/mcp/src/x.js"`).
  *
  * A path literal that names a directory or a glob (`import.meta.glob(
  * "../../mcp/src/**\/*.js")`) reads the whole gateway, and no filter short of
@@ -74,17 +72,6 @@ export function namedGatewayPaths(file, source, root = ROOT) {
     });
 }
 
-/** The files every patch under docs/deferred/ touches, from its own headers. */
-export function deferredPatchFiles(root = ROOT) {
-  const dir = join(root, "docs/deferred");
-  if (!existsSync(dir)) return [];
-  const files = new Set();
-  for (const name of readdirSync(dir).filter((entry) => entry.endsWith(".patch"))) {
-    for (const [, path] of readFileSync(join(dir, name), "utf8").matchAll(/^(?:\+\+\+ b|--- a)\/(\S+)/gm)) files.add(path);
-  }
-  return [...files];
-}
-
 export function convexGatewayReads(root = ROOT) {
   const convexFiles = sources(root, CONVEX);
   const files = new Set();
@@ -98,7 +85,6 @@ export function convexGatewayReads(root = ROOT) {
       else files.add(path);
     }
   }
-  for (const file of deferredPatchFiles(root)) if (file.startsWith(GATEWAY)) files.add(file);
   return { files: [...files].sort(), scanners: [...scanners].sort() };
 }
 
@@ -155,7 +141,6 @@ function selfTest() {
   // the privacy engine and reads the gateway whole in at least two places,
   // and it reaches nothing of the texting assistant.
   if (!files.includes("apps/mcp/src/privacy/engine.js")) throw new Error("the walk no longer reaches the privacy engine");
-  if (!deferredPatchFiles().length) throw new Error("no deferred patch was read");
   if (scanners.length < 2) throw new Error(`only ${scanners.length} whole-gateway readers found`);
   if (scannerTests().length < 2) throw new Error("no test runs the whole-gateway readers");
 }

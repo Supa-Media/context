@@ -82,7 +82,6 @@ export {
   validateCustomFolders,
 } from "./scaffold/customFolders";
 
-export { renderPrivacyManifest, renderPrivacyManifestForFolders } from "./scaffold/privacyManifest";
 
 export { renderCustomFolderReadme, renderFolderReadme, renderIndex } from "./scaffold/readmes";
 

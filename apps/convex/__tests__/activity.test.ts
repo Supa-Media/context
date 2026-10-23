@@ -28,7 +28,6 @@ import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { ACTIVITY_PATH, parseFile } from "@context/shared/src/activity.cjs";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { memoryS3, type MemoryS3 } from "./storeStub.helpers";
 import { bodyAtPath } from "./files/keyedNotes.helpers";
@@ -42,6 +41,7 @@ import {
   createWorkspace,
   setupTest,
 } from "./fixtures.helpers";
+import { renderPrivacyManifest } from "./seededRules.helpers";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -69,6 +69,8 @@ async function fixture(): Promise<Fixture> {
   const backend = memoryS3(FAKE_STORAGE.bucket);
   backend.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
   backend.seed("index.md", "# Context\n");
+  // A folder the console can set exists in the tree only once a note sits in it.
+  backend.seed("1-projects/plan.md", "# Plan\n");
   vi.stubGlobal("fetch", backend.fetchImpl);
 
   const encryptedSecretAccessKey = await encryptSecret(
@@ -165,6 +167,42 @@ describe("a person editing in the console", { timeout: 60_000 }, () => {
 
     // Private by inheritance: a file at the root of the context is private
     // unless the owner says otherwise, so no member may read the trail.
+    await expect(
+      asUser(f.t, f.member).action(api.functions.files.readNote, {
+        workspaceId: f.workspaceId,
+        path: ACTIVITY_PATH,
+      }),
+    ).rejects.toThrow();
+  });
+
+  test("a row set team does not publish the trail: the next write takes it back to private, and a member is still refused", async () => {
+    const f = await fixture();
+    await asUser(f.t, f.owner).action(api.functions.files.writeNote, {
+      workspaceId: f.workspaceId,
+      path: "1-projects/week-one.md",
+      text: BODY,
+    });
+    // Someone, or a bad change, sets the trail's own row to team.
+    await f.t.mutation(internal.functions.nodesAccess.setAccess, {
+      workspaceId: f.workspaceId,
+      path: ACTIVITY_PATH,
+      base: "team",
+      kind: "file",
+      actor: { userId: f.owner, role: "owner" },
+    });
+    // The next line the console writes is what re-privatises it, through the rows, as the gateway does.
+    await asUser(f.t, f.owner).action(api.functions.files.writeNote, {
+      workspaceId: f.workspaceId,
+      path: "1-projects/week-two.md",
+      text: BODY,
+    });
+    const row = await f.t.run(async (ctx) =>
+      await ctx.db
+        .query("nodes")
+        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.workspaceId).eq("path", ACTIVITY_PATH))
+        .unique(),
+    );
+    expect(row?.access).toEqual({ base: "private" });
     await expect(
       asUser(f.t, f.member).action(api.functions.files.readNote, {
         workspaceId: f.workspaceId,

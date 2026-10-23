@@ -21,7 +21,10 @@
 import { describe, expect, test } from "vitest";
 import { internal } from "../../_generated/api";
 import { executeOperation } from "../../functions/lib/filesFns/executeOperation";
+import type { FileStore } from "../../functions/lib/fileOps";
 import { attachQueueMove } from "../../functions/lib/nodes/moveBarrier";
+import { mirrorFile } from "../../functions/lib/nodes/privacyMirror";
+import { readerMirror } from "../../functions/lib/nodes/readerRules";
 import { startRowTrash } from "../../functions/lib/nodes/rowTrash";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
 import { OWNER, TEAM, listed, start, type Fixture } from "./moveFixture.helpers";
@@ -29,14 +32,31 @@ import { bigFolder, bytesOf, keyedFixture, liveAt, logOf, rowOf, treeOf } from "
 
 type Moved = { kind: "moved"; from: string; to: string; paths: string[]; queued?: number };
 
-function operate(
+/**
+ * The store a keyed workspace's operations read in rows mode: `privacy.md` answers with the rows' rules, as the
+ * served tree hands it out (`manifestStore.ts`, `mirrorFile`), not with the file the bucket holds, which the
+ * rows no longer write. A rule a move wrote on a row (a note's own private access) is then seen by the trash.
+ */
+async function rowsStore(f: Fixture): Promise<FileStore> {
+  const served = mirrorFile(await f.t.run(async (ctx) => await readerMirror(ctx as never, f.ws)));
+  return new Proxy(f.store, {
+    get(target, key) {
+      if (key === "get") return async (path: string) => (path === PRIVACY_KEY ? served : await target.get(path));
+      const value = Reflect.get(target, key, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  }) as FileStore;
+}
+
+async function operate(
   f: Fixture,
   operation: { kind: "trash"; path: string } | { kind: "restoreTrash"; from: string; to: string },
   clearance = OWNER,
 ) {
+  const store = await rowsStore(f);
   const args = { workspaceId: f.ws, scope: clearance.scope, operation: { kind: operation.kind } };
-  attachQueueMove(f.ctx, args, f.store, f.store);
-  return executeOperation(f.store, clearance, operation, Date.now()) as Promise<Moved>;
+  attachQueueMove(f.ctx, args, store, store);
+  return (await executeOperation(store, clearance, operation, Date.now())) as Moved;
 }
 
 describe("trashing a note or folder in a keyed workspace moves its rows", () => {

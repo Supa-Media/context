@@ -18,6 +18,7 @@ import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { beginCopyPass, copyRowOf } from "../functions/lib/noteIds/state";
+import { translateBucketRules } from "./seededRules.helpers";
 
 /**
  * Bound to our schema on purpose. `ReturnType<typeof convexTest>` would
@@ -288,9 +289,15 @@ export async function drainScheduled(t: TestConvex): Promise<void> {
 export async function copyTree(t: TestConvex, workspaceId: Id<"workspaces">): Promise<void> {
   await sweepToEnd(t, workspaceId);
   await keyWorkspace(t, workspaceId);
+  await translateBucketRules(t, workspaceId);
 }
 
 async function sweepToEnd(t: TestConvex, workspaceId: Id<"workspaces">): Promise<void> {
+  // Notes seeded since the last copy are listed too: the tree is marked dirty so the sweep walks the bucket again.
+  await t.run(async (ctx) => {
+    const tree = (await ctx.db.query("nodeTrees").collect()).find((row) => row.workspaceId === workspaceId);
+    if (tree !== undefined) await ctx.db.patch(tree._id, { dirty: true });
+  });
   for (let pass = 0; pass < 50; pass += 1) {
     await t.action(internal.functions.files.runFileOperation, {
       workspaceId,

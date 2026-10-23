@@ -1,11 +1,11 @@
 /**
- * What a website may publish, decided by `privacy.md` and nothing else.
+ * What a website may publish, decided by the tree's access rows and nothing else.
  *
  * A website is the owner's folder link over `website/`: it publishes what that
  * folder already publishes to the workspace, and never more. So every read
  * that could put page bytes, a title or a list row in front of a visitor
  * happens at the clearance a link resolves at — `team` scope with no granted
- * names. A note `privacy.md` holds as private, one held back by name, and one
+ * names. A note the rows hold as private, one held back by name, and one
  * pointed at a group are absent at that clearance, so they are absent from the
  * site whatever their frontmatter says. `audience: members` only ever narrows
  * what this clearance already allows.
@@ -30,25 +30,26 @@ export const PUBLICATION_CLEARANCE: {
 
 /**
  * Turning a website on is the owner's gesture that publishes `website/`, so it
- * records that in `privacy.md` as a `team` folder rule — unless the manifest
- * already has a rule for the folder, which is the owner's and stands. A
- * `website/` the owner keeps private serves nothing.
- */
-/**
- * The same default in rows mode (`nodesAccess.ensureFolderDefault`): the row takes `team` only when it has no
- * base of its own. The change and its activity line are the file path's, answered in the same shape.
+ * records that on the folder's row as `team` — unless the row already has a base
+ * of its own, which is the owner's and stands. A `website/` the owner keeps
+ * private serves nothing.
+ *
+ * The default is `nodesAccess.ensureFolderDefault`: the row takes `team` only when it has no base of its own.
  */
 async function publishRowsDefault(
   ctx: ActionCtx,
   args: { workspaceId: Id<"workspaces">; actorUserId?: Id<"users">; actorName?: string | null },
 ): Promise<{ kind: "visibility"; path: string; visibility: "private" | "team" } | { kind: "none" }> {
-  // Only a person's gesture can be an owner's change to a row; a repair with no person behind it changes nothing.
-  if (args.actorUserId === undefined) return { kind: "none" };
+  // Only a person's gesture can be an owner's change to a row. A repair acts for the owner who turned the site on;
+  // with no such owner it throws, so the repair is not marked done and a later pass tries again.
+  const actorUserId =
+    args.actorUserId ?? (await ctx.runQuery(internal.functions.websites.publicationRepairActor, { workspaceId: args.workspaceId }));
+  if (actorUserId === null) throw new Error("PUBLICATION_REPAIR_NO_OWNER");
   // The row is the website's folder wherever it is nested now (`./siteRoot.ts`).
   const root = await ctx.runQuery(internal.functions.websites.siteRootNow, { workspaceId: args.workspaceId });
   const answer = await ctx.runMutation(internal.functions.nodesAccess.ensureFolderDefault, {
     workspaceId: args.workspaceId,
-    actorUserId: args.actorUserId,
+    actorUserId,
     path: root,
   });
   if (!answer.ok) return { kind: "none" };
@@ -74,25 +75,8 @@ export async function ensureWebsitePublicationRule(
     actorName?: string | null;
   },
 ): Promise<void> {
-  // In rows mode the rows are the truth and `privacy.md` is not written: the default goes on the folder's row.
-  const rows = await ctx.runQuery(internal.functions.nodesAccess.rowsMode, {});
-  const result = rows
-    ? await publishRowsDefault(ctx, args)
-    : await ctx.runAction(
-    internal.functions.files.runFileOperation,
-    {
-      workspaceId: args.workspaceId,
-      scope: "private",
-      grantedNames: [],
-      ...(args.actorName === undefined ? {} : { actorName: args.actorName }),
-      operation: {
-        kind: "setFolderVisibility",
-        path: DEFAULT_WEBSITE_ROOT,
-        visibility: "team",
-        onlyIfUnset: true,
-      },
-    },
-  );
+  // The rows are the access map: the default goes on the folder's row (`publishRowsDefault`).
+  const result = await publishRowsDefault(ctx, args);
   if (result.kind !== "visibility") return;
   await ctx.runMutation(internal.functions.audit.recordEvent, {
     workspaceId: args.workspaceId,

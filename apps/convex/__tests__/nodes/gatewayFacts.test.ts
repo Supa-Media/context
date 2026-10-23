@@ -38,6 +38,7 @@ import { modules } from "../../test.setup";
 import { gatewayPost, responseFingerprint, seedStorageBinding } from "../fixtures.helpers";
 import { registerClient, seedConnectedClient, token } from "../controlPlane/fixtures.helpers";
 import { hashToken } from "../../functions/lib/crypto";
+import { translateMirror } from "../seededRules.helpers";
 
 type T = ReturnType<typeof convexTest>;
 
@@ -48,12 +49,12 @@ const CAPTURE = token("facts_capture");
 const OTHER = token("facts_other");
 const CLIENT = "mcp_client_facts";
 
+// Rows are keyed by their path with no trailing slash, so a folder's rule names it the same way.
 const RULES = {
-  etag: "privacy-1",
   invalid: false,
   folders: [
-    { prefix: "1-projects/", visibility: "team" },
-    { prefix: "1-projects/secret/", visibility: "private" },
+    { prefix: "1-projects", visibility: "team" },
+    { prefix: "1-projects/secret", visibility: "private" },
   ],
   notes: [{ path: "2-areas/shared.md", visibility: "team" }],
 };
@@ -80,7 +81,7 @@ async function observe(t: T, workspaceId: Id<"workspaces">, paths: string[]) {
 
 async function proved(t: T, workspaceId: Id<"workspaces">, paths: string[], mismatches = 0) {
   await observe(t, workspaceId, paths);
-  await t.mutation(internal.functions.nodes.savePrivacy, { workspaceId, mirror: RULES, at: 10 });
+  await translateMirror(t, workspaceId, RULES);
   await t.mutation(internal.functions.nodes.begin, { workspaceId, at: 5 });
   await t.mutation(internal.functions.nodes.finish, { workspaceId, at: 20, files: paths.length });
   await t.mutation(internal.functions.nodes.saveParity, {

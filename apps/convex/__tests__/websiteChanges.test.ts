@@ -130,10 +130,7 @@ describe("website derivative invalidation", () => {
 describe("changes outside website/ that may narrow a site", () => {
   const moved = { kind: "moved", from: "features", to: "capabilities" } as OperationResult;
 
-  test("names the paths of privacy changes, moves and deletes", () => {
-    expect(
-      websiteNarrowingPaths({ kind: "setFolderVisibility", path: "features", visibility: "private" } as FileOperation, written),
-    ).toEqual(["features"]);
+  test("names the paths of moves and deletes (privacy changes come through the rows, not an operation)", () => {
     expect(websiteNarrowingPaths({ kind: "move", from: "features", to: "capabilities" }, moved)).toEqual([
       "features",
       "capabilities",
@@ -145,9 +142,6 @@ describe("changes outside website/ that may narrow a site", () => {
 
   test("names nothing for a write, or for what operationTouchesWebsite already answers", () => {
     expect(websiteNarrowingPaths({ kind: "write", path: "features/forms.md", text: "x" }, written)).toEqual([]);
-    expect(
-      websiteNarrowingPaths({ kind: "setFolderVisibility", path: "website/blog", visibility: "private" } as FileOperation, written),
-    ).toEqual([]);
   });
 });
 

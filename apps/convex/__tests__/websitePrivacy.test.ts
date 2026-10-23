@@ -14,7 +14,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import { asUser, copyTree, drainScheduled } from "./fixtures.helpers";
-import { fixture, publish, publishWebsiteFolder, type Fixture } from "./website.helpers";
+import { fixture, publish, publishWebsiteFolder, writeNote, type Fixture } from "./website.helpers";
 
 // Each test keys a workspace and runs its tree to the end, which takes longer than the default five seconds.
 vi.setConfig({ testTimeout: 30_000 });
@@ -39,6 +39,7 @@ const resolveAs = (f: Fixture, routePath: string, user?: Fixture["owner"]) =>
  */
 async function setNotePrivate(f: Fixture, path: string): Promise<void> {
   await publishWebsiteFolder(f.t, f.owner, f.workspaceId);
+  await copyTree(f.t, f.workspaceId);
   await asUser(f.t, f.owner).action(api.functions.files.setNoteVisibility, {
     workspaceId: f.workspaceId,
     path,
@@ -83,6 +84,7 @@ describe("a note held back is never served", () => {
       const f = await fixture();
       f.backend.seed("website/index.md", HOME);
       f.backend.seed("website/diary.md", `---\ntitle: Diary\nnav: 2\n---\n\n${SECRET}\n`);
+      await copyTree(f.t, f.workspaceId);
       await setNotePrivate(f, "website/diary.md");
       await publish(f);
       if (path === "probed") await forgetIndex(f);
@@ -107,6 +109,7 @@ describe("a note held back is never served", () => {
         "website/team.md",
         `---\ntitle: Team\naudience: members\n---\n\n${SECRET}\n`,
       );
+      await copyTree(f.t, f.workspaceId);
       await setNotePrivate(f, "website/team.md");
       await publish(f);
       if (path === "probed") await forgetIndex(f);
@@ -121,10 +124,8 @@ describe("a note held back is never served", () => {
     test(`a members page pointed at a group is not served, even to the group (${path})`, async () => {
       const f = await fixture();
       f.backend.seed("website/index.md", HOME);
-      f.backend.seed(
-        "website/leads.md",
-        `---\ntitle: Leads\naudience: members\n---\n\n${SECRET}\n`,
-      );
+      await copyTree(f.t, f.workspaceId);
+      await writeNote(f, "website/leads.md", `---\ntitle: Leads\naudience: members\n---\n\n${SECRET}\n`);
       const group = await asUser(f.t, f.owner).mutation(api.functions.groups.createGroup, {
         workspaceId: f.workspaceId,
         label: "leads",
@@ -152,6 +153,7 @@ describe("a note held back is never served", () => {
     const f = await fixture();
     f.backend.seed("website/index.md", HOME);
     f.backend.seed("website/diary.md", "---\ntitle: Diary\nnav: 2\n---\n\nDiary\n");
+    await copyTree(f.t, f.workspaceId);
     await setNotePrivate(f, "website/diary.md");
     await publish(f);
 
@@ -165,6 +167,7 @@ describe("a note held back is never served", () => {
     const f = await fixture();
     f.backend.seed("website/index.md", HOME);
     f.backend.seed("website/diary.md", "---\ntitle: Diary\n---\n\nDiary\n");
+    await copyTree(f.t, f.workspaceId);
     await setNotePrivate(f, "website/diary.md");
     await publish(f); // the owner's refresh
     const byOwner = (await indexRows(f)).map((row) => row.objectKey);
@@ -185,6 +188,7 @@ describe("a note held back is never served", () => {
     );
     f.backend.seed("website/posts/open.md", "---\ntitle: Open post\n---\n\n# Open post\n");
     f.backend.seed("website/posts/closed.md", "---\ntitle: Closed post\n---\n\n# Closed post\n");
+    await copyTree(f.t, f.workspaceId);
     await setNotePrivate(f, "website/posts/closed.md");
     await publish(f);
 
@@ -202,6 +206,7 @@ describe("making a published page private takes it off the site", () => {
     await publish(f);
     await expect(resolveAs(f, "/about")).resolves.toMatchObject({ kind: "page" });
 
+    await copyTree(f.t, f.workspaceId);
     await setNotePrivate(f, "website/about.md");
 
     // The manifest change is a website change that may narrow a route, so the
@@ -222,6 +227,7 @@ describe("making a published page private takes it off the site", () => {
     expect((await indexRows(f)).find((row) => row.objectKey === "website/about.md")?.releaseId)
       .toBeDefined();
 
+    await copyTree(f.t, f.workspaceId);
     await setNotePrivate(f, "website/about.md");
     // Storage now fails every read: only the release could answer.
     vi.stubGlobal("fetch", async () => {
@@ -235,7 +241,10 @@ describe("making a published page private takes it off the site", () => {
 describe("turning a website on publishes its folder", () => {
   test("enabling marks website/ as team, and the homepage serves", async () => {
     const f = await fixture();
+    // The tree is copied first, as production does, so the workspace is keyed before the product writes a note.
     await copyTree(f.t, f.workspaceId);
+    // The website folder needs a note before the console can set it: written through the product.
+    await writeNote(f, "website/index.md", "---\ntitle: Home\n---\n\nHome\n");
     await asUser(f.t, f.owner).action(api.functions.workspaces.enableWebsite, {
       workspaceId: f.workspaceId,
     });
@@ -247,7 +256,10 @@ describe("turning a website on publishes its folder", () => {
 
   test("a website/ rule the owner already set to private is left alone, and nothing is served", async () => {
     const f = await fixture();
+    // The tree is copied first, as production does, so the workspace is keyed before the product writes a note.
     await copyTree(f.t, f.workspaceId);
+    // The website folder needs a note before the console can set it: written through the product.
+    await writeNote(f, "website/index.md", "---\ntitle: Home\n---\n\nHome\n");
     await asUser(f.t, f.owner).action(api.functions.files.setDirectoryVisibility, {
       workspaceId: f.workspaceId,
       path: "website",
@@ -285,6 +297,7 @@ describe("turning a website on publishes its folder", () => {
     await expect(resolveAs(f, "/")).resolves.toMatchObject({ kind: "page", title: "Home" });
 
     // Once repaired, a later owner choice stands.
+    await copyTree(f.t, f.workspaceId);
     await asUser(f.t, f.owner).action(api.functions.files.setDirectoryVisibility, {
       workspaceId: f.workspaceId,
       path: "website",

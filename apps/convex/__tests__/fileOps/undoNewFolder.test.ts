@@ -1,8 +1,9 @@
 import { describe, expect, test } from "vitest";
 import { clearanceOf } from "../../functions/lib/clearance";
-import { createFolder, removeNewFolder, setVisibility, writeFile } from "../../functions/lib/fileOps";
+import { createFolder, removeNewFolder, writeFile } from "../../functions/lib/fileOps";
 import { NOW, capture, shareProjects } from "./fixtures.helpers";
 import { keyedBucket, liveRowsUnder, PARA_SEEDS, textAt } from "./keyedFixture.fileops1.helpers";
+import { setVisibility } from "../seededRules.helpers";
 
 /**
  * Undo after "New folder" (board 05c of the phone Home artboards, approved by

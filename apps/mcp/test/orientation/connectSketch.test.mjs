@@ -9,7 +9,7 @@
 import { rpc, orientText, PRIVACY_MANIFEST, OWNER_TOKEN, TEAM_TOKEN, BROKEN_TOKEN, WIDE_TOKEN, SKETCH_BUDGET, OBSERVED_CLIENT_CUT } from "./fixtures.mjs";
 
 export async function runOrientationConnectSketchChecks(check, harness) {
-  const { bucket, env, wide } = harness;
+  const { bucket, dead, env, wide, controlPlane } = harness;
 
   // -- the connect-time sketch, and the handshake it must never endanger
   const connect = async (token) => {
@@ -200,7 +200,20 @@ export async function runOrientationConnectSketchChecks(check, harness) {
   bucket.seed("privacy.md", PRIVACY_MANIFEST);
   bucket.seed("index.md", "# The front page\n\nShipping the gateway.");
 
+  // An unreachable bucket with the control plane still answering. The access
+  // rows live on the control plane, so the rules still reach the gateway and
+  // only the bucket's own objects fail. The stub renders those rules from a
+  // privacy.md in the bucket it serves, so that one key is read from the live
+  // bucket and every other key fails exactly as the dead bucket does.
+  const deadWithRules = {
+    get: async (key) => (key === "privacy.md" ? bucket.get(key) : dead.get(key)),
+    put: dead.put,
+    delete: dead.delete,
+    list: dead.list,
+  };
+  controlPlane.serveTree("ws_dead", deadWithRules);
   const deadConnect = await connect(BROKEN_TOKEN);
+  controlPlane.resumeServing("ws_dead");
   check(
     "an unreachable bucket still completes the handshake",
     deadConnect.status === 200 && deadConnect.ok
@@ -211,12 +224,17 @@ export async function runOrientationConnectSketchChecks(check, harness) {
       !deadConnect.instructions.includes("WHAT IS IN HERE")
   );
 
-  // A privacy manifest nobody can parse must fail closed everywhere, and the
-  // handshake is now one of the places that reads it.
+  // Rules nobody can parse must fail closed everywhere, and the handshake is
+  // one of the places that reads them. The rules are rows now, so there is no
+  // file for a person to break. The stub still renders rows from a privacy.md,
+  // so an unparseable one reaches the gateway as no rules at all. With no rules
+  // a team connection is judged private everywhere: the handshake completes and
+  // the sketch is withheld. (The owner is not the control here: an owner holds
+  // the private scope, so with no rules the owner still sees their own sketch.)
   bucket.seed("privacy.md", "# not a manifest at all\n");
-  const brokenPrivacy = await connect(OWNER_TOKEN);
+  const brokenPrivacy = await connect(TEAM_TOKEN);
   check(
-    "a broken privacy manifest costs the sketch, not the connection",
+    "unparseable rules cost a team connection the sketch, not the connection",
     brokenPrivacy.status === 200 &&
       brokenPrivacy.ok &&
       brokenPrivacy.instructions.includes("PARA") &&

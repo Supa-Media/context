@@ -46,6 +46,7 @@
 import { propsOf } from "../../src/tree/props.js";
 import { isLogicalDeleteMarker } from "../../src/store/logicalDelete.js";
 import { addForwarding } from "../../src/forwarding.js";
+import { PrivacyOverrides, parsePrivacyManifest, spliceRulesBlock } from "../../src/privacy/engine.js";
 
 const NOT_SERVED = { served: false };
 
@@ -245,8 +246,81 @@ export function createTreeRoutes(grantForAccessToken, bindings, gatewayJobs = ne
     return { served: true, files, folders, notes };
   }
 
+  /*
+    Access rules. The real control plane renders them from the tree's rows and sends them beside the binding
+    (`privacy`), and `/gateway/privacy` changes one row. A test seeds them the way it always wrote them, as a
+    `privacy.md` in the bucket it serves: that text is read here as the fixture's record, turned into the rules
+    the binding carries, and a row change is written back into it. The gateway never reads the file itself.
+  */
+  /** workspaceId → `{ from, text }`: the rules text after a row change, and the bucket version it was made over. */
+  const changed = new Map();
+  const versions = new Map();
+  const PRIVACY = "privacy.md";
+
+  async function rulesText(workspaceId) {
+    const source = sources.has(workspaceId) ? sources.get(workspaceId) : boundSource(workspaceId);
+    const object = source ? await source.get(PRIVACY) : null;
+    const etag = object?.etag ?? null;
+    const held = changed.get(workspaceId);
+    if (held && held.from === etag) return held.text;
+    changed.delete(workspaceId);
+    return object ? await object.text() : null;
+  }
+
+  async function parsedRules(workspaceId) {
+    const text = await rulesText(workspaceId);
+    if (text === null) return { text: null, rules: [], overrides: new PrivacyOverrides() };
+    try {
+      const parsed = parsePrivacyManifest(text);
+      return { text, rules: parsed.rules, overrides: parsed.overrides };
+    } catch {
+      return { text, rules: [], overrides: new PrivacyOverrides() };
+    }
+  }
+
+  /** The rules the binding carries for a workspace, as the control plane renders them. */
+  async function rulesFor(workspaceId) {
+    const { text, rules, overrides } = await parsedRules(workspaceId);
+    const version = versions.get(workspaceId) ?? 1;
+    return {
+      etag: `rules-${version}-${text === null ? 0 : text.length}`,
+      accessVersion: version,
+      folders: rules.map((rule) => ({ prefix: rule.prefix, visibility: rule.vis })),
+      notes: [...overrides.entries()].map(([path, visibility]) => ({ path, visibility })),
+    };
+  }
+
+  /** `/gateway/privacy`: one row's base (`setAccess`), written back into the workspace's rules text. */
+  async function privacy(body) {
+    let workspaceId = null;
+    if (typeof body.ticket === "string") workspaceId = jobWorkspace(body.ticket);
+    else {
+      const grant = await grantForAccessToken(body.accessToken);
+      if (grant?.scopes?.includes("context:write")) workspaceId = await reached(body);
+    }
+    if (workspaceId === null || workspaceId !== body.expectedWorkspaceId) return { ok: false, code: "FORBIDDEN" };
+    if (body.op !== "setAccess") return { ok: false, code: "NOT_SUPPORTED" };
+    const version = versions.get(workspaceId) ?? 1;
+    if (Number.isFinite(body.expectedVersion) && body.expectedVersion !== version) return { ok: false, code: "CONFLICT" };
+    const { rules, overrides } = await parsedRules(workspaceId);
+    const path = String(body.path ?? "");
+    const folder = body.kind === "folder" || rules.some((rule) => rule.prefix === path);
+    const kept = rules.filter((rule) => rule.prefix !== path);
+    if (folder) {
+      if (body.base !== "inherit") kept.push({ prefix: path, vis: body.base });
+    } else if (body.base === "inherit") overrides.delete(path);
+    else overrides.set(path, body.base);
+    const source = sources.has(workspaceId) ? sources.get(workspaceId) : boundSource(workspaceId);
+    const object = source ? await source.get(PRIVACY) : null;
+    const base = (await rulesText(workspaceId)) ?? "# Privacy\n\n<!-- BEGIN BRAIN PRIVACY RULES -->\n<!-- END BRAIN PRIVACY RULES -->\n";
+    changed.set(workspaceId, { from: object?.etag ?? null, text: spliceRulesBlock(base, kept, overrides) });
+    versions.set(workspaceId, version + 1);
+    return { ok: true, version: version + 1, etag: (await rulesFor(workspaceId)).etag };
+  }
+
   const routes = {
     requests,
+    rulesFor,
     iconMoves,
     /** The ledger the control plane holds for a workspace, oldest first. */
     ledgerOf: (workspaceId) => ledgers.get(workspaceId)?.entries ?? [],
@@ -278,6 +352,7 @@ export function createTreeRoutes(grantForAccessToken, bindings, gatewayJobs = ne
     /** The answer for a tree route, or undefined for any other path. */
     async handle(path, body) {
       if (path === "/gateway/tree/touch") return touch(body);
+      if (path === "/gateway/privacy") return await privacy(body);
       if (path !== "/gateway/tree/manifest" && path !== "/gateway/tree/facts") return undefined;
       requests.push({ path, body });
       reading += 1;

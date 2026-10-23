@@ -78,7 +78,8 @@ describe("the access scan", () => {
       );
       return { paths: rows.map((r) => r.path), reads };
     });
-    expect(answer.paths).toEqual(["b-team", "m-granted", "z-private"]);
+    // The keyed fixture's own folder rules are access rows too, so the scan finds them with the three added here.
+    expect(answer.paths).toEqual(["1-projects", "1-projects/secret", "3-resources", "b-team", "m-granted", "z-private"]);
     expect(answer.reads).toBeLessThan(10);
   });
 });

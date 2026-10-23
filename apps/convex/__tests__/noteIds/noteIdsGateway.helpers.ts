@@ -12,6 +12,7 @@ import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import { setupTest } from "../fixtures.helpers";
 import { registerClient, seedConnectedClient, token } from "../controlPlane/fixtures.helpers";
+import { translateMirror } from "../seededRules.helpers";
 
 export type T = ReturnType<typeof convexTest>;
 
@@ -29,8 +30,8 @@ const RULES = {
   etag: "privacy-ids-1",
   invalid: false,
   folders: [
-    { prefix: "1-projects/", visibility: "team" },
-    { prefix: "1-projects/secret/", visibility: "private" },
+    { prefix: "1-projects", visibility: "team" },
+    { prefix: "1-projects/secret", visibility: "private" },
   ],
   notes: [],
 };
@@ -73,7 +74,7 @@ async function observe(t: T, workspaceId: Id<"workspaces">, paths: string[]) {
 
 async function proved(t: T, workspaceId: Id<"workspaces">, paths: string[]) {
   await observe(t, workspaceId, paths);
-  await t.mutation(internal.functions.nodes.savePrivacy, { workspaceId, mirror: RULES, at: 10 });
+  await translateMirror(t, workspaceId, RULES);
   await t.mutation(internal.functions.nodes.begin, { workspaceId, at: 5 });
   await t.mutation(internal.functions.nodes.finish, { workspaceId, at: 20, files: paths.length });
   await t.mutation(internal.functions.nodes.saveParity, {

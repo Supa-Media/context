@@ -41,14 +41,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
-import {
-  listFolder,
-  setFolderVisibility,
-  setVisibility,
-  type FileStore,
-} from "../functions/lib/fileOps";
+import { listFolder, type FileStore } from "../functions/lib/fileOps";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import {
   MAX_PREVIEW_CHILDREN,
   MAX_PREVIEW_CHILD_NAME,
@@ -58,6 +52,7 @@ import {
   previewChildrenFrom,
   titleFromPath,
 } from "../functions/lib/shareTitle";
+import { renderPrivacyManifest, setFolderVisibility, setVisibility } from "./seededRules.helpers";
 
 /** Characters a filename can carry that a card must never. */
 const ESC = String.fromCharCode(27);

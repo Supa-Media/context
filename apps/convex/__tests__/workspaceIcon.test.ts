@@ -65,7 +65,6 @@ import { api, internal } from "../_generated/api";
 import * as fileFunctions from "../functions/files";
 import type { Id } from "../_generated/dataModel";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { IMAGE_PREFIX } from "../functions/lib/fileOps";
 import {
   PINNED_CONTEXT_SLUG,
@@ -86,6 +85,7 @@ import {
   seedStorageBinding,
   setupTest,
 } from "./fixtures.helpers";
+import { renderPrivacyManifest } from "./seededRules.helpers";
 
 afterEach(() => {
   vi.unstubAllGlobals();

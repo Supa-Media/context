@@ -35,7 +35,6 @@ vi.setConfig({ testTimeout: 30_000 });
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { memoryS3, type MemoryS3, type MemoryS3Options } from "./storeStub.helpers";
 import {
@@ -49,6 +48,7 @@ import {
   setupTest,
   type TestConvex,
 } from "./fixtures.helpers";
+import { renderPrivacyManifest } from "./seededRules.helpers";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -139,6 +139,7 @@ async function fixture(options: MemoryS3Options = {}): Promise<Fixture> {
   );
 
   // `1-projects` is what a share can reach; `2-areas` stays private.
+  await copyTree(t, workspaceId);
   await asUser(t, owner).action(api.functions.files.setDirectoryVisibility, {
     workspaceId,
     path: "1-projects",
@@ -146,7 +147,6 @@ async function fixture(options: MemoryS3Options = {}): Promise<Fixture> {
   });
 
   // The tree copied, as a bound workspace's is: writes ask it which names are taken.
-  await copyTree(t, workspaceId);
   return { t, owner, lk, stranger, workspaceId, backend };
 }
 

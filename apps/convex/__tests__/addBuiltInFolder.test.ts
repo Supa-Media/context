@@ -13,7 +13,7 @@ import { memoryStore, type MemoryStore } from "./storeStub.helpers";
 import { FileOpError, type FileStore } from "../functions/lib/fileOps";
 import { addBuiltInFolder } from "../functions/lib/fileOps/builtInFolders";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
+import { renderPrivacyManifest } from "./seededRules.helpers";
 
 const NOW = 1_800_000_000_000;
 const OWNER = clearanceOf("private");

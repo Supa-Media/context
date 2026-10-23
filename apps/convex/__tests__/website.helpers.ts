@@ -8,7 +8,6 @@ import { vi } from "vitest";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { memoryS3 } from "./storeStub.helpers";
 import {
   FAKE_STORAGE,
@@ -21,7 +20,9 @@ import {
   seedStorageBinding,
   setupTest,
   type TestConvex,
+  copyTree,
 } from "./fixtures.helpers";
+import { renderPrivacyManifest } from "./seededRules.helpers";
 
 export interface Fixture {
   t: TestConvex;
@@ -59,6 +60,16 @@ export async function publishWebsiteFolder(
   owner: Id<"users">,
   workspaceId: Id<"workspaces">,
 ): Promise<void> {
+  // The folder must have its row before the console can set it: the tree is copied first, as production does.
+  await copyTree(t, workspaceId);
+  // A site with no page yet has no `website` row, so there is no folder to set: the console answers "does not exist".
+  const folder = await t.run((ctx) =>
+    ctx.db
+      .query("nodes")
+      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", workspaceId).eq("path", "website"))
+      .unique(),
+  );
+  if (folder === null) return;
   await asUser(t, owner).action(api.functions.files.setDirectoryVisibility, {
     workspaceId,
     path: "website",
@@ -67,6 +78,15 @@ export async function publishWebsiteFolder(
 }
 
 export async function publish(f: Fixture): Promise<void> {
+  // A site needs a page in its folder before the folder can be published: a home page the caller has not written is written here.
+  await copyTree(f.t, f.workspaceId);
+  const folder = await f.t.run((ctx) =>
+    ctx.db
+      .query("nodes")
+      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.workspaceId).eq("path", "website"))
+      .unique(),
+  );
+  if (folder === null) await writeNote(f, "website/index.md", "---\ntitle: Home\n---\n\nHome\n");
   await publishWebsiteFolder(f.t, f.owner, f.workspaceId);
   await f.t.run(async (ctx) => {
     await ctx.db.insert("websiteStates", {

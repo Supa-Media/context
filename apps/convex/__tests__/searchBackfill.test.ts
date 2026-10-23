@@ -106,9 +106,9 @@ import { clearanceOf } from "../functions/lib/clearance";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
 import { stubD1 } from "./searchBackfill.helpers";
 import { cancelPendingJobs } from "./searchBackfill.trigger.helpers";
-import { type FileStore, projectSearchIndex, setFolderVisibility } from "../functions/lib/fileOps";
+import { type FileStore, projectSearchIndex } from "../functions/lib/fileOps";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
+import { renderPrivacyManifest, setFolderVisibility } from "./seededRules.helpers";
 
 afterEach(async () => {
   await cancelPendingJobs();

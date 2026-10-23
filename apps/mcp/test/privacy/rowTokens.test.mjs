@@ -4,13 +4,13 @@
  * The control plane renders a row's grant list as `@#<noteId>` and hands it to
  * the gateway as the authority's rules, and a grant carries the same name as
  * `#<noteId>`. Both must survive the gateway unchanged, and nothing may let a
- * token into `privacy.md`: the parser keeps refusing it in file text, so file
- * mode reads exactly as it did.
+ * token into `privacy.md`: the file is never written, and a write of it is
+ * refused with `PRIVACY_MANIFEST_READ_ONLY`.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
 import { withPrivacyAuthority } from "../../src/store/privacyAuthority.js";
-import { loadPrivacyState, persistExactVisibility } from "../../src/privacy/state.js";
+import { loadPrivacyState } from "../../src/privacy/state.js";
 import { canSee, PRIVACY_KEY, PRIVACY_RULES_BEGIN, PRIVACY_RULES_END } from "../../src/privacy/engine.js";
 import { ROW_NAME_PATTERN, ROW_TOKEN_PATTERN, tokenFor } from "../../src/privacy/rowAccess.js";
 import { accessForLiveGrant, SCOPE_PRIVATE, SCOPE_READ, SCOPE_WRITE } from "../../src/session.js";
@@ -103,32 +103,18 @@ test("a row token in the held rules is judged as the rule says: granted names op
   assert.equal(canSee("1-projects/other.md", "team", state.rules, state.overrides, new Set()), true);
 });
 
-test("file mode is unchanged: a row token written in privacy.md is still refused, failing closed", async () => {
-  const store = new MemoryStore();
-  store.seed(PRIVACY_KEY, fileWithBlock([`  2-areas: ${TOKEN}`]));
-  const state = await loadPrivacyState(store);
-  // The parser strips `#` comments, so the token line reads as a broken rule: refused either way.
-  assert.match(state.error ?? "", /invalid privacy rule/);
-  assert.deepEqual(state.rules, []);
-});
-
-test("a row token never reaches privacy.md: export, a rule write and a file write are all refused", async () => {
+test("a row token never reaches privacy.md: a write or delete of the file is refused with its code, and the file shows no token", async () => {
   const store = new MemoryStore();
   const original = fileWithBlock(["  1-projects: team"]);
   store.seed(PRIVACY_KEY, original);
   const wrapped = withPrivacyAuthority(store, authorityHolding(HELD));
 
-  await assert.rejects(wrapped.exportPrivacy(), /not written from access rows/);
+  await assert.rejects(wrapped.put(PRIVACY_KEY, "rewritten"), (error) => error.code === "PRIVACY_MANIFEST_READ_ONLY");
+  await assert.rejects(wrapped.delete(PRIVACY_KEY), (error) => error.code === "PRIVACY_MANIFEST_READ_ONLY");
 
-  const state = await loadPrivacyState(wrapped);
-  await assert.rejects(
-    persistExactVisibility(wrapped, "1-projects/other.md", "team", state.rules),
-    /would not read back/,
-  );
-
-  const text = await (await store.get(PRIVACY_KEY)).text();
-  assert.equal(text, original, "the bucket's privacy.md is untouched");
-  assert.ok(!text.includes("@#"), "no token in the bucket's file");
+  const bucket = await (await store.get(PRIVACY_KEY)).text();
+  assert.equal(bucket, original, "the bucket's privacy.md is untouched");
+  assert.ok(!bucket.includes("@#"), "no token in the bucket's file");
 });
 
 test("a grant's row name is accepted at the grant boundary, as the token form, and a malformed one is not", () => {

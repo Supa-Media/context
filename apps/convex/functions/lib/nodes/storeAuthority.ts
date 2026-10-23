@@ -1,30 +1,31 @@
 /**
- * The privacy authority (`privacyAuthority.ts`) as the credential barrier
- * hands it to the store it opens (`apps/mcp/src/store/privacyAuthority.js`):
- * the rules read once per operation, and each change one internal mutation.
+ * The access rules as the credential barrier hands them to the store it opens
+ * (`apps/mcp/src/store/privacyAuthority.js`): the rows, rendered for the reader, read once per operation.
  */
-
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
-import type { HeldRules } from "./privacyAuthority";
 import type { Audience } from "./rowAccess";
 
-type Rules = Pick<HeldRules, "folders" | "notes">;
-
-export interface StorePrivacyAuthority {
-  rules: HeldRules | null;
-  write: (change: Rules & { expected: string | null }) => Promise<{ etag: string } | { current: HeldRules } | null>;
-  written: (change: Rules & { previous: string | null; etag: string }) => Promise<void>;
-  exported: (done: { rendered: string; etag: string | null }) => Promise<void>;
-  owed: () => Promise<void>;
+/** The rules a store judges by: the rows rendered for a member or a guest, with the rows' version. */
+export interface HeldRules {
+  etag: string;
+  folders: { prefix: string; visibility: string }[];
+  notes: { path: string; visibility: string }[];
+  accessVersion: number;
 }
 
-/** Only the two lists the authority keeps, whatever else a caller's object carries. */
-const rulesOnly = (change: Rules): Rules => ({
-  folders: change.folders.map((rule) => ({ prefix: rule.prefix, visibility: rule.visibility })),
-  notes: change.notes.map((rule) => ({ path: rule.path, visibility: rule.visibility })),
-});
+export interface StorePrivacyAuthority {
+  rules: HeldRules;
+  /** One row's tier, set by the operation's own rule (`nodesAccess.setOperationTier`). */
+  setAccess: (change: {
+    path: string;
+    base: string;
+    expectedVersion?: number;
+    kind?: string;
+    grantees?: unknown;
+  }) => Promise<{ ok: true; version: number } | { ok: false; code?: string }>;
+}
 
 /** `audience` is the caller's (`audienceOfNames`): a pin reader holds the rules a guest is judged by. */
 export async function storePrivacyAuthority(
@@ -32,25 +33,20 @@ export async function storePrivacyAuthority(
   workspaceId: Id<"workspaces">,
   audience: Audience = "member",
 ): Promise<StorePrivacyAuthority> {
-  const rules = await ctx.runQuery(internal.functions.nodesPrivacy.authority, { workspaceId, audience });
   return {
-    rules,
-    write: (change) =>
-      ctx.runMutation(internal.functions.nodesPrivacy.write, { workspaceId, expected: change.expected, ...rulesOnly(change) }),
-    written: async (change) => {
-      await ctx.runMutation(internal.functions.nodesPrivacy.written, {
+    rules: await ctx.runQuery(internal.functions.nodesPrivacy.authority, { workspaceId, audience }),
+    setAccess: async ({ path, base, expectedVersion, kind, grantees }) => {
+      // A tier only: an operation never names people, and anything else is a caller's mistake.
+      if (grantees !== undefined) return { ok: false, code: "INVALID" };
+      if (base !== "private" && base !== "team" && base !== "inherit") return { ok: false, code: "INVALID" };
+      if (kind !== undefined && kind !== "file" && kind !== "folder") return { ok: false, code: "INVALID" };
+      return await ctx.runMutation(internal.functions.nodesAccess.setOperationTier, {
         workspaceId,
-        previous: change.previous,
-        etag: change.etag,
-        at: Date.now(),
-        ...rulesOnly(change),
+        path,
+        base,
+        ...(expectedVersion === undefined ? {} : { expectedVersion }),
+        ...(kind === undefined ? {} : { kind }),
       });
-    },
-    exported: async (done) => {
-      await ctx.runMutation(internal.functions.nodesPrivacy.exported, { workspaceId, ...done });
-    },
-    owed: async () => {
-      await ctx.runMutation(internal.functions.nodesPrivacy.owed, { workspaceId });
     },
   };
 }

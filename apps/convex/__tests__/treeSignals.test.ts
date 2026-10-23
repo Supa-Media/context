@@ -23,7 +23,7 @@ import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { PRIVACY_KEY, type PrivacyRule, type Visibility } from "../functions/lib/privacy";
 // A workspace laid out before the numbers were dropped (2026-10-21): its folders keep them.
-import { LEGACY_PARA_FOLDERS, renderPrivacyManifestForFolders } from "../functions/lib/scaffold";
+import { LEGACY_PARA_FOLDERS } from "../functions/lib/scaffold";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { audiencesOf, treeAudiences } from "../functions/lib/treeAudiences";
 import { memoryS3, type MemoryS3 } from "./storeStub.helpers";
@@ -37,6 +37,7 @@ import {
   createWorkspace,
   setupTest,
 } from "./fixtures.helpers";
+import { renderPrivacyManifestForFolders } from "./seededRules.helpers";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -153,6 +154,10 @@ async function fixture(): Promise<Fixture> {
   );
   // The tree copied, as a bound workspace's is: writes ask it which names are taken.
   await copyTree(t, workspaceId);
+  // Setting up the starting access stamped hints; the cases measure from a tree nobody has watched change yet.
+  await t.run(async (ctx) => {
+    for (const row of await ctx.db.query("treeSignals").collect()) await ctx.db.delete(row._id);
+  });
   return { t, owner, member, outsider, workspaceId, backend };
 }
 

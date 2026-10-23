@@ -27,11 +27,11 @@
 import { describe, expect, test } from "vitest";
 import { clearanceOf } from "../functions/lib/clearance";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
-import { type FileStore, maintainSearchIndex, searchNotes, setFolderVisibility } from "../functions/lib/fileOps";
+import { type FileStore, maintainSearchIndex, searchNotes } from "../functions/lib/fileOps";
 import { loadPrivacyState } from "../functions/lib/fileOps/privacyState";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { toolSearchNotes } from "../../mcp/src/tools/search.js";
+import { renderPrivacyManifest, setFolderVisibility } from "./seededRules.helpers";
 
 function bucket(): MemoryStore & FileStore {
   const store = memoryStore() as MemoryStore & FileStore;

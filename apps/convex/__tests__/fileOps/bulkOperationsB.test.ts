@@ -1,13 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { clearanceOf } from "../../functions/lib/clearance";
-import {
-  movePath,
-  readFile,
-  setFolderVisibility,
-  setVisibility,
-  trashPath,
-} from "../../functions/lib/fileOps";
-import { PRIVACY_KEY } from "../../functions/lib/privacy";
+import { movePath, readFile, trashPath } from "../../functions/lib/fileOps";
 import { NOW, capture, errorShape, shareProjects } from "./fixtures.helpers";
 import {
   type KeyedBucket,
@@ -16,11 +9,16 @@ import {
   keyedBucket,
   liveRowAt,
 } from "../keyedFixture.fileops2.helpers";
+import { setFolderVisibility, setVisibility } from "../seededRules.helpers";
+import { rowRulesIn } from "./keyedFixture.fileops1.helpers";
 
 type KeyedStoreOf = Parameters<KeySeed>[0];
 
-/** The privacy manifest as the keyed workspace holds it. */
-const manifestOf = (k: KeyedBucket) => k.raw.snapshot()[PRIVACY_KEY] as string;
+/** The rules the keyed workspace's rows give, as `folder prefix: visibility` lines (exceptions are `prefix: vis` too). */
+async function ruleLines(k: KeyedBucket): Promise<string[]> {
+  const { rules, overrides } = await rowRulesIn(k.t, k.ws);
+  return [...rules.map((rule) => `${rule.prefix}: ${rule.vis}`), ...[...overrides].map(([path, vis]) => `${path}: ${vis}`)];
+}
 
 describe("a bulk operation acts only on what the caller can see", () => {
   /**
@@ -122,11 +120,11 @@ describe("a bulk operation acts only on what the caller can see", () => {
       clearance: clearanceOf("private"),
       now: NOW,
     });
-    const manifest = manifestOf(k);
-    expect(manifest).toContain("2-areas/renamed: team");
+    const lines = await ruleLines(k);
+    expect(lines).toContain("2-areas/renamed: team");
     // The old prefix keeps no rule. The rule follows the folder, and nothing is
     // left pointing at an empty prefix.
-    expect(manifest).not.toContain("2-areas/shared: team");
+    expect(lines).not.toContain("2-areas/shared: team");
     expect(await liveRowAt(k, "2-areas/shared/a.md")).toBeNull();
     expect(await liveRowAt(k, "2-areas/renamed/a.md")).not.toBeNull();
     // The exception travelled with it, so the note is private at its new path.
@@ -232,9 +230,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
       now: NOW,
     });
 
-    const lines = manifestOf(k)
-      .split("\n")
-      .filter((line) => line.includes("1-projects/dst/hr:"));
+    const lines = (await ruleLines(k)).filter((line) => line.startsWith("1-projects/dst/hr:"));
     expect(lines).toHaveLength(1);
     expect(lines[0]).toContain("private");
     // ...and the note that arrived under it is still private, which is what
@@ -505,7 +501,7 @@ describe("a bulk operation acts only on what the caller can see", () => {
 
     // Nothing landed, and no rule was written into the owner's private tree.
     expect(await liveRowAt(miss.k, "2-areas/divorce/plan.md")).toBeNull();
-    expect(manifestOf(miss.k)).not.toContain("2-areas/divorce");
+    expect((await ruleLines(miss.k)).some((line) => line.startsWith("2-areas/divorce"))).toBe(false);
 
     // The control: the same folder renamed inside shared space still moves.
     const allowed = await keyedBucket(async (store) => {

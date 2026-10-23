@@ -9,8 +9,6 @@
  *    big to re-check asks for a sweep instead.
  *  - `nodesParity`: compare the rows with the bucket at every clearance
  *    (`parity.ts`) and keep the answer on the workspace's `nodeTrees` row.
- *  - `nodesPrivacyExport`: write `privacy.md` from the rules, where they are
- *    the authority and the last write of the file is owed (phase 3).
  *  - `nodesFactFill`: read the notes that changed and record their links and
  *    front matter (`factFill.ts`).
  *  - `nodesSmallData`: import the icons, emoji and forwarding files once, then
@@ -36,7 +34,7 @@ import { type LeftAudiences, type NodeSink, NODE_PARITY_CONFIRM_MS, NODE_SWEEP_C
 
 export type NodesOperation = Extract<
   FileOperation,
-  { kind: "nodesSweep" | "nodesTouch" | "nodesParity" | "nodesPrivacyExport" | "nodesFactFill" | "nodesSmallData" }
+  { kind: "nodesSweep" | "nodesTouch" | "nodesParity" | "nodesFactFill" | "nodesSmallData" }
 >;
 
 export function isNodesOperation(operation: { kind: string }): operation is NodesOperation {
@@ -44,7 +42,6 @@ export function isNodesOperation(operation: { kind: string }): operation is Node
     operation.kind === "nodesSweep" ||
     operation.kind === "nodesTouch" ||
     operation.kind === "nodesParity" ||
-    operation.kind === "nodesPrivacyExport" ||
     operation.kind === "nodesFactFill" ||
     operation.kind === "nodesSmallData"
   );
@@ -146,23 +143,6 @@ export async function runNodesOperation(
   const { workspaceId, operation } = args;
   const sink = sinkFor(ctx, workspaceId);
   const listing = listingOf(workspaceId, store);
-
-  // Who sees what is not part of the copy, so a pause never holds it back.
-  if (operation.kind === "nodesPrivacyExport") {
-    const exportPrivacy = (store as FileStore & { exportPrivacy?: () => Promise<unknown> }).exportPrivacy;
-    // Settled since it was asked for (the writer exported, or a later export did): nothing to write.
-    if (!(await ctx.runQuery(internal.functions.nodesPrivacy.exportOwedNow, { workspaceId }))) {
-      return { kind: "nodesKept", complete: true };
-    }
-    try {
-      await exportPrivacy?.();
-      return { kind: "nodesKept", complete: true };
-    } catch {
-      // The store has already marked it owed and asked for a retry.
-      console.error("nodes.privacy_export_failed", { workspaceId });
-      return { kind: "nodesKept", complete: false };
-    }
-  }
 
   // The icons, emoji and forwarding files: not part of the copy, so a pause never holds them back.
   if (operation.kind === "nodesSmallData") {

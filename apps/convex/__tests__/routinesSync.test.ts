@@ -268,6 +268,9 @@ describe("who a routine runs as", () => {
 
   test("a console write records the person who made it", async () => {
     const f = await routineFixture();
+    // A note in routines/ gives the folder a row to share (rows hold a folder's access, so it must exist first).
+    // It sits directly in the root, so no schedule is read from it.
+    f.backend.seed("routines/loose.md", "Not in a schedule folder.\n");
     // Keyed like every workspace: the console write lands as a row at its id key.
     await copyTree(f.t, f.workspaceId);
     await asUser(f.t, f.owner).action(api.functions.files.setDirectoryVisibility, {

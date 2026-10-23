@@ -53,9 +53,9 @@ async function nested(earlier = 0): Promise<Fixture> {
   f.backend.seed("Work/plans.md", "# Plans\n");
   await copyTree(f.t, f.workspaceId);
   const owner = asUser(f.t, f.owner);
+  await copyTree(f.t, f.workspaceId);
   await owner.action(api.functions.files.setDirectoryVisibility, { workspaceId: f.workspaceId, path: ROOT, visibility: "team" });
   await owner.action(api.functions.files.setNoteVisibility, { workspaceId: f.workspaceId, path: `${ROOT}/held.md`, visibility: "private" });
-  await copyTree(f.t, f.workspaceId);
   await f.t.run(async (ctx) => {
     const row = await ctx.db
       .query("nodes")
@@ -150,6 +150,7 @@ describe("a website nested in another folder", () => {
 
   test("the real folder made private takes every page off the site", async () => {
     const f = await nested();
+    await copyTree(f.t, f.workspaceId);
     await asUser(f.t, f.owner).action(api.functions.files.setDirectoryVisibility, {
       workspaceId: f.workspaceId,
       path: ROOT,

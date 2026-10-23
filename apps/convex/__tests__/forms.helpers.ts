@@ -8,7 +8,6 @@ import { vi } from "vitest";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { memoryS3, type MemoryS3, type MemoryS3Options } from "./storeStub.helpers";
 import {
@@ -20,6 +19,7 @@ import {
   createWorkspace,
   setupTest,
 } from "./fixtures.helpers";
+import { renderPrivacyManifest } from "./seededRules.helpers";
 
 export const FORM_NOTE = "1-projects/feedback.md";
 export const RESPONSES = "1-projects/feedback-responses.md";

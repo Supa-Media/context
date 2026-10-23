@@ -16,14 +16,14 @@
 import { describe, expect, test } from "vitest";
 import { clearanceOf } from "../functions/lib/clearance";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
-import { type FileStore, maintainSearchIndex, setFolderVisibility, setVisibility } from "../functions/lib/fileOps";
+import { type FileStore, maintainSearchIndex } from "../functions/lib/fileOps";
 import { LINKS_BEHIND_MIN, LINKS_BEHIND_SHARE, linksBehind, workspaceGraph } from "../functions/lib/fileOps/graph";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { attachLinkTable } from "../functions/lib/nodes/linkTable";
 import { factsOf } from "../functions/lib/nodes/factFill";
 import { isFactNote } from "../functions/lib/nodes/facts";
 import { DOCMAP_KEY } from "../../mcp/src/search/shards/constants.js";
+import { renderPrivacyManifest, setFolderVisibility, setVisibility } from "./seededRules.helpers";
 
 type Bucket = MemoryStore & FileStore;
 const OWNER = clearanceOf("private");

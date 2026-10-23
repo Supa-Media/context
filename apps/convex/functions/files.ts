@@ -93,7 +93,6 @@ import {
   manifestValidator,
   movedValidator,
   notesValidator,
-  privacyResetValidator,
   storageMigrationResultValidator,
   vaultImportJobStatusValidator,
   vaultImportResultValidator,
@@ -147,7 +146,6 @@ import {
   trashEntryHandler,
 } from "./lib/filesFns/entries";
 import {
-  resetPrivacyHandler,
   setDirectoryVisibilityHandler,
   setFolderGroupHandler,
   setNoteGroupHandler,
@@ -747,13 +745,6 @@ export const setDirectoryVisibility = action({
   },
   returns: visibilityResultValidator,
   handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "visibility" }>> => await setDirectoryVisibilityHandler(ctx, args),
-});
-
-/** See `resetPrivacyHandler` in `lib/filesFns/visibility.ts`. */
-export const resetPrivacy = action({
-  args: { workspaceId: v.id("workspaces") },
-  returns: privacyResetValidator,
-  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "privacyReset" }>> => await resetPrivacyHandler(ctx, args),
 });
 
 /** See `updateStorageLayoutHandler` in `lib/filesFns/storageLayout.ts`. */

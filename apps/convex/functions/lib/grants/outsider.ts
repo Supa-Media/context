@@ -52,7 +52,6 @@ import type { Doc, Id } from "../../../_generated/dataModel";
 import type { QueryCtx } from "../../../_generated/server";
 import { clearanceOf } from "../clearance";
 import { normalizePath } from "../fileOps";
-import { accessSourceOf } from "../nodes/accessBackfill";
 import { isCanonicalPath } from "../filesFns/memberWrite";
 import { accessRowsOf } from "../nodes/accessRows";
 import { blockedBy } from "../blocks";
@@ -146,7 +145,6 @@ export async function guestViewOf(
   workspaceId: Id<"workspaces">,
   emails?: readonly string[],
 ): Promise<GuestView | null> {
-  if ((await accessSourceOf(ctx.db)) !== "rows") return null;
   if ((await ctx.db.get(workspaceId)) === null) return null;
   if ((await getMembership(ctx, workspaceId, userId)) !== null) return null;
   const rows = await accessRowsOf(ctx, workspaceId);
@@ -291,7 +289,6 @@ export async function visibleGrantedPaths(
  * node is live and open to them (`guestCanSee`).
  */
 export async function outsiderGrantsFor(ctx: QueryCtx, userId: Id<"users">): Promise<OutsiderGrant[]> {
-  if ((await accessSourceOf(ctx.db)) !== "rows") return [];
   const emails = await ownedConfirmedEmailsOf(ctx, userId);
   const candidates = await candidateGrants(ctx, userId, emails);
 

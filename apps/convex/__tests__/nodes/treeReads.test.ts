@@ -35,15 +35,16 @@ import { getFunctionName } from "convex/server";
 import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import { clearanceOf } from "../../functions/lib/clearance";
-import { setFolderVisibility, setVisibility, type FileStore } from "../../functions/lib/fileOps";
+import { type FileStore } from "../../functions/lib/fileOps";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
-import { renderPrivacyManifest } from "../../functions/lib/scaffold";
 import { privacyMirrorOf } from "../../functions/lib/nodes/privacyMirror";
 import { answerFromFacts } from "../../functions/lib/filesFns/folderNotes";
 import { TREE_LOADING } from "../../functions/lib/nodes/treeLoading";
 import { fillAll, observeBucket, tester, workspace, type Tester } from "./facts.helpers";
 import { memoryStore, type MemoryStore } from "../storeStub.helpers";
 import { seedStorageBinding } from "../fixtures.helpers";
+import { renderPrivacyManifest, setFolderVisibility, setVisibility } from "../seededRules.helpers";
+import { translateMirror } from "../seededRules.helpers";
 
 const OWNER = clearanceOf("private");
 
@@ -69,7 +70,7 @@ async function fixture(options: { facts?: boolean } = {}) {
   const store = await bucket();
   await t.mutation(internal.functions.nodes.begin, { workspaceId: ws, at: 1 });
   await observeBucket(t, ws, store, 2);
-  await t.mutation(internal.functions.nodes.savePrivacy, { workspaceId: ws, mirror: await privacyMirrorOf(store), at: 2 });
+  await translateMirror(t, ws, await privacyMirrorOf(store));
   await t.mutation(internal.functions.nodes.finish, { workspaceId: ws, at: 3, files: 7 });
   if (options.facts !== false) await fillAll(t, ws, store);
   return { t, ws, store };

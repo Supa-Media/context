@@ -1,13 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { clearanceOf } from "../../functions/lib/clearance";
-import {
-  type FileStore,
-  listFolder,
-  readFile,
-  setFolderVisibility,
-  setVisibility,
-  writeFile,
-} from "../../functions/lib/fileOps";
+import { type FileStore, listFolder, readFile, writeFile } from "../../functions/lib/fileOps";
 import {
   PRIVACY_KEY,
   canSee,
@@ -21,6 +14,7 @@ import {
   listingShape,
   names,
 } from "./fixtures.helpers";
+import { setFolderVisibility, setVisibility } from "../seededRules.helpers";
 
 describe("listing a folder", () => {
   test("folders come first, then files, each alphabetically", async () => {

@@ -92,17 +92,6 @@ describe("the cron starts the move", () => {
     expect(await migrationRow(w)).toEqual(before);
   });
 
-  test("does nothing outside rows mode", async () => {
-    const w = await pinnedWorld();
-    await drainScheduled(w.t);
-    await w.t.run(async (ctx) => {
-      const row = await ctx.db.query("nodeMigration").first();
-      await ctx.db.patch(row!._id, { accessSource: "file" });
-    });
-    expect(await tick(w)).toBe(false);
-    expect(await pagesQueued(w)).toBe(0);
-  });
-
   test("a chain that stopped is started again once it has gone quiet, from the pass the switch says is next", async () => {
     const w = await pinnedWorld();
     await drainScheduled(w.t);

@@ -442,20 +442,6 @@ describe("a filtered view says so and does not fill in the gap", () => {
     expect(text).not.toContain("held back from you");
   });
 
-  test("a manifest that will not parse is reported, not drawn as all-private rules", () => {
-    const broken: FolderListing = {
-      path: "",
-      folderDefault: "private",
-      entries: [folder("1-projects", "private")],
-      truncated: false,
-      manifestUsable: false,
-    };
-    const host = panel({ role: "owner", kind: "personal", listings: { "": broken } });
-    expect(host.querySelector('[data-testid="privacy-manifest-broken"]')).not.toBeNull();
-    // The rows are not drawn over a file nothing could read.
-    expect(host.querySelector('[data-testid="privacy-folder-1-projects"]')).toBeNull();
-  });
-
   test("a pane rendered over a stub browser draws what it has and does not crash", () => {
     /*
       Not hypothetical: the whole-scroll pane renders every block, and several

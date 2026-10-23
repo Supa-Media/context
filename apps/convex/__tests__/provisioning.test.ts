@@ -36,7 +36,7 @@ import {
 } from "./fixtures.helpers";
 import { bodyAtPath, notePaths, objectsOutsideNotes } from "./keyedFixture.onboard.helpers";
 import { type MemoryS3Options, memoryS3 } from "./storeStub.helpers";
-import { gatewayInternals } from "./gatewayFormat.helpers";
+import { canSeeInRows, rowFolderRules } from "./scaffold/rowsAccess.helpers";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
 
 afterEach(() => {
@@ -734,14 +734,13 @@ describe("scaffolding the layout the caller asked for", () => {
     expect(await notePaths(t, workspaceId)).toEqual(
       ["inbox/about.md", "projects/about.md", "areas/about.md", "resources/about.md", "archive/about.md", "index.md"].sort(),
     );
-    expect(objectsOutsideNotes(backend)).toEqual([PRIVACY_KEY]);
+    expect(objectsOutsideNotes(backend)).toEqual([]);
+    expect(backend.objects.has(PRIVACY_KEY)).toBe(false);
 
-    const { parsePrivacyManifest } = gatewayInternals();
-    expect(
-      parsePrivacyManifest(backend.objects.get(PRIVACY_KEY)!.body).rules.map(
-        (rule) => rule.prefix,
-      ).sort(),
-    ).toEqual([...PARA_FOLDERS].sort());
+    // The access is on the rows: one folder rule per PARA folder, all private.
+    const rules = await rowFolderRules(t, workspaceId);
+    expect(rules.map((rule) => rule.prefix)).toEqual([...PARA_FOLDERS].sort());
+    expect(rules.every((rule) => rule.vis === "private")).toBe(true);
   });
 
   test("a custom layout gets the owner's own folders, with their own words", async () => {
@@ -759,21 +758,18 @@ describe("scaffolding the layout the caller asked for", () => {
     });
 
     expect(await notePaths(t, workspaceId)).toEqual(["clients/about.md", "index.md", "reading/about.md"]);
-    expect(objectsOutsideNotes(backend)).toEqual([PRIVACY_KEY]);
-    // Their description, verbatim, in the folder's about.md and in the manifest.
+    expect(objectsOutsideNotes(backend)).toEqual([]);
+    expect(backend.objects.has(PRIVACY_KEY)).toBe(false);
+    // Their description, verbatim, in the folder's about.md and in the index.
     expect(await bodyAtPath(t, workspaceId, backend, "clients/about.md")).toContain("One folder per client.");
     expect(await bodyAtPath(t, workspaceId, backend, "index.md")).toContain(
       "`reading/` — Books and articles worth keeping.",
     );
-    // …and every one of them starts private, read back through the gateway's
-    // own parser.
-    const { parsePrivacyManifest } = gatewayInternals();
-    const parsed = parsePrivacyManifest(backend.objects.get(PRIVACY_KEY)!.body);
-    expect(parsed.rules.map((rule) => rule.prefix).sort()).toEqual([
-      "clients",
-      "reading",
-    ]);
-    expect(parsed.rules.every((rule) => rule.vis === "private")).toBe(true);
+    // …and every one of them starts private, judged over the rows.
+    const rules = await rowFolderRules(t, workspaceId);
+    expect(rules.map((rule) => rule.prefix)).toEqual(["clients", "reading"]);
+    expect(rules.every((rule) => rule.vis === "private")).toBe(true);
+    expect(await canSeeInRows(t, workspaceId, "clients/acme.md", "team")).toBe(false);
   });
 
   /**
@@ -857,9 +853,9 @@ describe("scaffolding the layout the caller asked for", () => {
 
     // Notes sit under their ids beneath the prefix; the manifest at its plain path.
     expect(await notePaths(t, workspaceId)).toEqual(["index.md", "work/about.md"]);
-    expect([...backend.objects.keys()].filter((key) => !/notes\/[0-9a-f-]+\.md$/.test(key)).sort()).toEqual([
-      "notes/workspace/privacy.md",
-    ]);
+    // Only note bodies, under their ids: no access file, and nothing else beside them.
+    expect([...backend.objects.keys()].filter((key) => !/notes\/[0-9a-f-]+\.md$/.test(key)).sort()).toEqual([]);
+    expect(backend.objects.has("notes/workspace/privacy.md")).toBe(false);
     // Nothing derived from a workspace id ever appears in a key.
     for (const key of backend.objects.keys()) {
       expect(key).not.toContain(workspaceId);

@@ -7,7 +7,6 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { memoryS3 } from "./storeStub.helpers";
 import { publishWebsiteFolder, writeNote } from "./website.helpers";
 import {
@@ -21,6 +20,7 @@ import {
   setupTest,
   type TestConvex,
 } from "./fixtures.helpers";
+import { renderPrivacyManifest } from "./seededRules.helpers";
 
 // Each test keys a workspace and runs its tree to the end, which takes longer than the default five seconds.
 vi.setConfig({ testTimeout: 30_000 });
@@ -76,12 +76,12 @@ async function claimLegacyLink(
   f: Fixture,
   slug: string,
 ): Promise<Id<"noteShares">> {
+  await copyTree(f.t, f.workspaceId);
   await asUser(f.t, f.owner).action(api.functions.files.setNoteVisibility, {
     workspaceId: f.workspaceId,
     path: "index.md",
     visibility: "team",
   });
-  await copyTree(f.t, f.workspaceId);
   const { token } = await asUser(f.t, f.owner).action(
     api.functions.shares.createLinkShare,
     { workspaceId: f.workspaceId, path: "index.md" },

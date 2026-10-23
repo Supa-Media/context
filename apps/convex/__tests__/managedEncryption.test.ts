@@ -26,7 +26,6 @@
 
 import { describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
-import { PRIVACY_KEY } from "../functions/lib/privacy";
 import {
   asUser,
   captureError,
@@ -79,15 +78,15 @@ describe("the walk", () => {
     expect(await row(t, theirs)).toBeNull();
     await drainScheduled(t);
 
-    // Every object in the bucket is walked: the privacy manifest, the keyed
-    // notes at `notes/<noteId>.md`, and the frozen path copies the copy left.
+    // Every object in the bucket is walked: the keyed notes at `notes/<noteId>.md`
+    // and the frozen path copies the copy left. There is no access file to walk.
     const objects = Object.keys(backend.snapshot());
     expect(await row(t, ours)).toMatchObject({
       state: "encrypted",
       filesDone: objects.length,
       filesTotal: objects.length,
     });
-    for (const key of [PRIVACY_KEY, await keyOf(bucket, "index.md"), await keyOf(bucket, "1-projects/plan.md")]) {
+    for (const key of [await keyOf(bucket, "index.md"), await keyOf(bucket, "1-projects/plan.md")]) {
       expect(isSealed(backend.bytesOf(key))).toBe(true);
     }
     for (const key of objects) expect(isSealed(backend.bytesOf(key))).toBe(true);

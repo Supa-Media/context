@@ -316,6 +316,18 @@ export async function runMeetingSummaryChecks(check) {
       etag: "s0",
     });
     s3.bucketFor("tenant-summary-pinned").set("ai/production/meeting-summaries.md", { body: SETUP_NOTE, etag: "s1" });
+    // The pinned workspace's access rules come from its tree, so its bucket is served as one, as production does.
+    controlPlane.serveTree("ws_pinned", {
+      async list({ prefix = "" } = {}) {
+        const pinned = s3.bucketFor("tenant-summary-pinned");
+        const keys = [...pinned.keys()].filter((key) => key.startsWith(prefix)).sort();
+        return { objects: keys.map((key) => ({ key, etag: pinned.get(key).etag })), truncated: false };
+      },
+      async get(key) {
+        const object = s3.bucketFor("tenant-summary-pinned").get(key);
+        return object ? { text: async () => object.body, etag: object.etag } : null;
+      },
+    });
     await controlPlane.addGrant({
       accessToken: TOKEN_MEMBER,
       workspaceId: "ws_summary",

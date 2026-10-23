@@ -1,59 +1,23 @@
 /**
- * `POST /gateway/privacy`: the gateway's half of the privacy authority
- * (phase 3, `functions/nodesPrivacy.ts`). The gateway's store writes
- * `privacy.md` through `apps/mcp/src/store/privacyAuthority.js`, and each of
- * that store's calls to the control plane arrives here.
+ * `POST /gateway/privacy`: the gateway's half of the access rows. The gateway's store writes one row's access
+ * through `apps/mcp/src/store/privacyAuthority.js`, and each of that store's calls to the control plane arrives
+ * here (`setAccess`, `addGrantees`). There is no `privacy.md` to write.
  *
  * Both proofs, as `/gateway/binding`: the gateway secret (the factory) and the
  * person's access token. The workspace is the grant's, compared with the one
  * the gateway names and used only after it matches, so no request can change
- * the rules of a workspace its token does not reach. The rules themselves are
- * checked for shape and size; which rules a person may write is the privacy
- * code's decision, made in the gateway before it renders the file, exactly as
- * it is made before it writes the file to the bucket.
+ * the access of a workspace its token does not reach.
  */
 
 import { internal } from "../../../_generated/api";
 import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { hashToken } from "../crypto";
-import { json, nullableStringField, stringField } from "../gatewayAuth";
+import { json, stringField } from "../gatewayAuth";
 import { addGranteesOp, setAccessOp } from "./privacySetAccess";
 
-/** The grant scope that may change a workspace's notes, and so its rules. */
+/** The grant scope that may change a workspace's notes, and so its access. */
 const SCOPE_WRITE = "context:write";
-
-/** The ops that write the rules `privacy.md` is rendered from: refused once the rows are the truth. */
-const ROWS_REFUSED_OPS = new Set(["write", "written", "exported", "owed"]);
-
-/** Rules one request may carry: far above any manifest we have, and a bound on a mutation. */
-export const PRIVACY_ROUTE_RULES = 5_000;
-const MAX_NAME = 1_024;
-
-type FolderRule = { prefix: string; visibility: string };
-type NoteRule = { path: string; visibility: string };
-
-function rulesOf(body: Record<string, unknown>): { folders: FolderRule[]; notes: NoteRule[] } | null {
-  const { folders, notes } = body;
-  if (!Array.isArray(folders) || !Array.isArray(notes)) return null;
-  if (folders.length > PRIVACY_ROUTE_RULES || notes.length > PRIVACY_ROUTE_RULES) return null;
-  const text = (value: unknown) => typeof value === "string" && value.length > 0 && value.length <= MAX_NAME;
-  const outFolders: FolderRule[] = [];
-  for (const rule of folders) {
-    if (!rule || typeof rule !== "object") return null;
-    const { prefix, visibility } = rule as Record<string, unknown>;
-    if (!text(prefix) || !text(visibility)) return null;
-    outFolders.push({ prefix: prefix as string, visibility: visibility as string });
-  }
-  const outNotes: NoteRule[] = [];
-  for (const rule of notes) {
-    if (!rule || typeof rule !== "object") return null;
-    const { path, visibility } = rule as Record<string, unknown>;
-    if (!text(path) || !text(visibility)) return null;
-    outNotes.push({ path: path as string, visibility: visibility as string });
-  }
-  return { folders: outFolders, notes: outNotes };
-}
 
 export async function gatewayPrivacyHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
   const refused = () => json({ ok: false });
@@ -90,47 +54,6 @@ export async function gatewayPrivacyHandler(ctx: ActionCtx, body: Record<string,
     // People named on one row by an AI client, after the person's yes. The rows decide; owner only.
     if (actor === undefined) return refused();
     return await addGranteesOp(ctx, body, workspaceId, actor);
-  }
-  // In rows mode the rules are not written any more: the rows are the truth, and the gateway writes them through `setAccess`.
-  if (ROWS_REFUSED_OPS.has(op) && (await ctx.runQuery(internal.functions.nodesAccess.rowsMode, {}))) {
-    return json({ ok: false, code: "ROWS_MODE" });
-  }
-
-  if (op === "owed") {
-    await ctx.runMutation(internal.functions.nodesPrivacy.owed, { workspaceId });
-    return json({ ok: true });
-  }
-  if (op === "exported") {
-    const rendered = stringField(body, "rendered");
-    const etag = nullableStringField(body, "etag");
-    if (rendered === null || !etag.ok) return refused();
-    await ctx.runMutation(internal.functions.nodesPrivacy.exported, { workspaceId, rendered, etag: etag.value });
-    return json({ ok: true });
-  }
-  const rules = rulesOf(body);
-  if (rules === null) return refused();
-  if (op === "write") {
-    const previous = nullableStringField(body, "expected");
-    if (!previous.ok) return refused();
-    const swapped = await ctx.runMutation(internal.functions.nodesPrivacy.write, {
-      workspaceId,
-      expected: previous.value,
-      ...rules,
-    });
-    return json({ ok: true, swapped });
-  }
-  if (op === "written") {
-    const previous = nullableStringField(body, "previous");
-    const etag = stringField(body, "etag");
-    if (!previous.ok || etag === null) return refused();
-    await ctx.runMutation(internal.functions.nodesPrivacy.written, {
-      workspaceId,
-      previous: previous.value,
-      etag,
-      at: Date.now(),
-      ...rules,
-    });
-    return json({ ok: true });
   }
   return refused();
 }

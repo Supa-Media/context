@@ -365,24 +365,6 @@ export const folderCreatedValidator = v.object({
   readme: v.string(),
 });
 
-export const privacyResetValidator = v.object({
-  kind: v.literal("privacyReset"),
-  path: v.string(),
-  folders: v.array(v.string()),
-  /**
-   * A `.context/recover/` key, and the one place the console is told one.
-   *
-   * Shown because "we replaced your file" and "we replaced your file and here
-   * is where the old one went" are different sentences to somebody whose
-   * manifest had forty rules in it. This is the only copy this product still
-   * keeps of anything: `.history/` snapshots are gone, and versioning is the
-   * customer's to enable at their provider.
-   */
-  backedUpTo: v.union(v.string(), v.null()),
-  /** `folders` is short: the walk hit its cap, or a name could not be a rule. */
-  partial: v.boolean(),
-});
-
 export const storageMigrationResultValidator = v.object({
   kind: v.literal("storageMigrated"),
   state: storageLayoutStateValidator,

@@ -8,7 +8,6 @@ import {
   requireKeyset,
 } from "../../functions/lib/crypto";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
-import { renderPrivacyManifest } from "../../functions/lib/scaffold";
 import { memoryS3 } from "../storeStub.helpers";
 import {
   FAKE_STORAGE,
@@ -21,6 +20,7 @@ import {
   SECRET_BODY_MARKER,
   fixture,
 } from "./fixtures.helpers";
+import { renderPrivacyManifest } from "../seededRules.helpers";
 
 describe('Obsidian plugin inventory', { timeout: 60_000 }, () => {
   /*

@@ -25,25 +25,9 @@
 import { describe, expect, test } from "vitest";
 import { clearanceOf } from "../functions/lib/clearance";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
-import {
-  FileOpError,
-  type FileStore,
-  listFolder,
-  MANIFEST_PAGE_ENTRIES,
-  MANIFEST_PAGE_FOLDERS,
-  READ_BATCH_BYTES,
-  READ_BATCH_PATHS,
-  READ_CONCURRENCY,
-  type SyncManifest,
-  readFile,
-  readFiles,
-  setFolderVisibility,
-  setVisibility,
-  syncManifest,
-  writeFile,
-} from "../functions/lib/fileOps";
+import { FileOpError, type FileStore, listFolder, MANIFEST_PAGE_ENTRIES, MANIFEST_PAGE_FOLDERS, READ_BATCH_BYTES, READ_BATCH_PATHS, READ_CONCURRENCY, type SyncManifest, readFile, readFiles, syncManifest, writeFile } from "../functions/lib/fileOps";
 import { PRIVACY_KEY, type Visibility } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
+import { renderPrivacyManifest, setFolderVisibility, setVisibility } from "./seededRules.helpers";
 
 const NOW = 1_800_000_000_000;
 const OWNER = clearanceOf("private");

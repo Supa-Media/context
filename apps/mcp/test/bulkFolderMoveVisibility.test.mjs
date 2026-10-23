@@ -327,11 +327,15 @@ export async function runBulkFolderMoveVisibilityChecks(check) {
     destination: "1-projects/circle",
   });
   check("a group-held folder moves", !groupMove?.isError);
-  const manifest = primary.get("privacy.md")?.body || "";
-  // In one go, each moved note carries its narrower value as its own
-  // exception (the logical path wrote one folder rule; the queue's tests hold
-  // that shape now).
-  const groupNotes = [...manifest.matchAll(/^  1-projects\/circle\/note-\d{4}\.md: (\S+)$/gm)].map((match) => match[1]);
+  // In one go, each moved note carries its narrower value as its own row. The owner sees every note, so each
+  // one's read names the tier its row gives it.
+  const groupNotes = [];
+  for (let n = 0; n < GROUP_BULK; n += 1) {
+    const read = textOf(
+      await callTool(env, TOKEN_OWNER, "read_note", { path: `1-projects/circle/note-${String(n).padStart(4, "0")}.md` }),
+    );
+    groupNotes.push(read.match(/^visibility: (\S+)$/m)?.[1]);
+  }
   check(
     "...and each moved note carries the GROUP, not a retiering to private",
     groupNotes.length === GROUP_BULK && groupNotes.every((value) => value === "@bulkvis-circle")

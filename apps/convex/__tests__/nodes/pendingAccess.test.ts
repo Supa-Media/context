@@ -26,6 +26,7 @@ import { internal } from "../../_generated/api";
 import type { MutationCtx, QueryCtx } from "../../_generated/server";
 import { canSee } from "../../functions/lib/privacy";
 import { idKeyFor } from "../../functions/lib/nodes/noteIds";
+import { PARA_FOLDERS } from "../../functions/lib/scaffold/store";
 import { PENDING_MAX, PENDING_TTL_MS } from "../../functions/lib/nodes/pendingAccess";
 import { convexNodeTable } from "../../functions/lib/nodes/convexTable";
 import { rulesForReaders } from "../../functions/lib/nodes/readerRules";
@@ -65,6 +66,18 @@ async function adopt(f: Fixture, path: string, noteId: string) {
     etag: `k-${noteId}`,
     at: Date.now(),
   });
+}
+
+/**
+ * The PARA folders the fixture's seeded `privacy.md` names (`renderPrivacyManifest("para")`) have no rows, so they
+ * wait as pending entries the whole run. They are fixture noise, not what a case asserts about, so the waiting
+ * list a case reads leaves them out. Every other entry still counts.
+ */
+const FIXTURE_WAITING = new Set<string>(PARA_FOLDERS);
+
+async function waitingOf(f: Fixture) {
+  const state = await stateOf(f);
+  return (state?.pending ?? []).filter((entry) => !FIXTURE_WAITING.has(entry.path));
 }
 
 async function nodeAt(f: Fixture, path: string) {
@@ -111,7 +124,7 @@ describe("a private base asked before the row exists", () => {
     expect((await nodeAt(f, NEW))?.access).toEqual({ base: "private" });
     expect(await listed(f.member, f.ws, "1-projects")).not.toContain(NEW);
     expect(await listed(f.owner, f.ws, "1-projects")).toContain(NEW);
-    expect((await stateOf(f))?.pending).toEqual([]);
+    expect(await waitingOf(f)).toEqual([]);
   });
 
   test("a team base waits too, and the row is team under a private folder", async () => {
@@ -144,7 +157,7 @@ describe("a private base asked before the row exists", () => {
 
     expect(await adopt(f, NEW, NEW_ID)).toEqual({ adopted: true });
     expect((await nodeAt(f, NEW))?.access).toBeUndefined();
-    expect((await stateOf(f))?.pending).toEqual([]);
+    expect(await waitingOf(f)).toEqual([]);
   });
 
   test("inherit drops a waiting entry, so the row is born with no base", async () => {
@@ -162,18 +175,22 @@ describe("a private base asked before the row exists", () => {
   test("a second ask replaces the first and moves the version, and a stale version is a conflict", async () => {
     const f = await keyedFixture();
     await setRowsMode(f);
-    await askFor(f, NEW, "private");
-    expect(await askFor(f, NEW, "team")).toEqual({ ok: true, version: 2 });
+    const first = await askFor(f, NEW, "private");
+    expect(first).toMatchObject({ ok: true });
+    const firstVersion = (first as { version: number }).version;
+    expect(await askFor(f, NEW, "team")).toEqual({ ok: true, version: firstVersion + 1 });
     expect(await f.t.run(async (ctx) => setAccessRow(ctx as MutationCtx, {
-      workspaceId: f.ws, path: NEW, base: "private", grantees: [], expectedVersion: 1, actor: { userId: f.ownerId, role: "owner" },
+      workspaceId: f.ws, path: NEW, base: "private", grantees: [], expectedVersion: firstVersion, actor: { userId: f.ownerId, role: "owner" },
     }))).toEqual({ ok: false, code: "CONFLICT" });
-    expect((await stateOf(f))?.pending?.map((entry) => entry.base)).toEqual(["team"]);
+    expect((await waitingOf(f)).filter((entry) => entry.path === NEW).map((entry) => entry.base)).toEqual(["team"]);
   });
 
   test("the waiting list has a cap: past it a new path is refused, and an existing one may change", async () => {
     const f = await keyedFixture();
     await setRowsMode(f);
-    for (let n = 0; n < PENDING_MAX; n += 1) expect(await askFor(f, `1-projects/p${n}.md`, "private")).toMatchObject({ ok: true });
+    // The fixture's own waiting entries count toward the cap, so fill only the room that is left.
+    const used = (await stateOf(f))?.pending?.length ?? 0;
+    for (let n = 0; n < PENDING_MAX - used; n += 1) expect(await askFor(f, `1-projects/p${n}.md`, "private")).toMatchObject({ ok: true });
     expect(await askFor(f, "1-projects/one-too-many.md", "private")).toEqual({ ok: false, code: "PENDING_FULL" });
     expect(await askFor(f, "1-projects/p0.md", "team")).toMatchObject({ ok: true });
   });
@@ -188,7 +205,7 @@ describe("a private base asked before the row exists", () => {
       await ctx.db.insert("nodes", { workspaceId: f.ws, path: NEW, name: "new.md", kind: "file", observedAt: 1 });
     });
     expect(await setBase(f, NEW, "team")).toMatchObject({ ok: true });
-    expect((await stateOf(f))?.pending).toEqual([]);
+    expect(await waitingOf(f)).toEqual([]);
     expect((await nodeAt(f, NEW))?.access).toEqual({ base: "team" });
     expect(await readersSee(f, NEW, "team")).toBe(true);
   });
@@ -206,7 +223,7 @@ describe("a private base asked before the row exists", () => {
       }),
     );
     expect(answer).toEqual({ ok: false, code: "NOT_FOUND" });
-    expect((await stateOf(f))?.pending ?? []).toEqual([]);
+    expect(await waitingOf(f)).toEqual([]);
   });
 });
 

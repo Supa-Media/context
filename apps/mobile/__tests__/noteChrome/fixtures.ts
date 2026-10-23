@@ -241,8 +241,6 @@ export function dataWith(
     setScope: () => {},
     openLinkPaths: new Set<string>(),
     linkPaths: [],
-    resetPrivacy: () => {},
-    canResetPrivacy: false,
     canSetVisibility: true,
     canShare: true,
     shares: [],

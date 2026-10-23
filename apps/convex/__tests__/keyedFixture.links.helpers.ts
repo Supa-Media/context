@@ -24,7 +24,7 @@ import { attachTreeListing } from "../functions/lib/nodes/treeNames";
 import { runNodesOperation } from "../functions/lib/nodes/run";
 import { attachWorkspaceKeyed } from "../functions/lib/noteIds/keyedStore";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
+import { renderPrivacyManifest } from "./seededRules.helpers";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
 import { bridge } from "./nodes/moveFixture.helpers";
 import type { TestConvex } from "./fixtures.helpers";

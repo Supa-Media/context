@@ -25,7 +25,6 @@ import {
   dirtyState,
   failState,
   finishState,
-  privacyIsNewer,
   progressState,
   pruneUnobserved,
   unsupportedState,
@@ -37,8 +36,7 @@ import { readerMirror } from "./lib/nodes/readerRules";
 import { liveNode } from "./lib/nodes/facts";
 import { mirrorRules } from "./lib/nodes/log";
 import { canSee } from "./lib/privacy";
-import { mirrorFollowsFile, noticePrivacyListing, RULES_VERSION_PREFIX } from "./lib/nodes/privacyAuthority";
-import { accessSourceOf, refreshAccess } from "./lib/nodes/accessBackfill";
+import { refreshSnapshot } from "./lib/nodes/accessBackfill";
 import { migrationPaused } from "./lib/nodes/pause";
 import {
   NODE_PRIVACY_KEY,
@@ -203,8 +201,6 @@ export const observe = internalMutation({
     if (args.vanishedUnder.length > OBSERVE_BATCH) throw new ConvexError({ code: "TOO_MANY_PREFIXES" });
     if ((args.left?.length ?? 0) > OBSERVE_BATCH) throw new ConvexError({ code: "TOO_MANY_LEFT" });
     const table = convexNodeTable(ctx, args.workspaceId, args.left ?? []);
-    const privacyRow = args.rows.find((row) => row.path === NODE_PRIVACY_KEY);
-    if (privacyRow !== undefined) await noticePrivacyListing(ctx, args.workspaceId, privacyRow.etag);
     // A listing of path objects: in a keyed workspace it adopts nothing (`observe.ts`).
     const keyed = await keyedWorkspace(ctx.db, args.workspaceId);
     const result = await applyObservation(
@@ -474,39 +470,16 @@ export const readiness = internalQuery({
   },
 });
 
+
 /**
- * Saves the privacy rules read at `at`. A save observed earlier than what is
- * stored is ignored: the newer read of `privacy.md` is the one that stands.
+ * Retired: the access rows are the only source of who may see what, so a `privacy.md` read is never stored as
+ * the rules. Kept as a no-op only because the bucket mirror (`lib/nodes/privacyMirror.ts`) still calls it; it goes
+ * with that mirror.
  */
 export const savePrivacy = internalMutation({
   args: { workspaceId: v.id("workspaces"), mirror: mirrorValidator, at: v.number() },
   returns: v.null(),
-  handler: async (ctx, { workspaceId, mirror, at }): Promise<null> => {
-    // In rows mode the rows are the truth: a `privacy.md` read is never stored as the rules, so nothing a reader
-    // judges by (`readerRules.readerMirror`) can be moved back to an older file.
-    if ((await accessSourceOf(ctx.db)) === "rows") return null;
-    const doc = await ctx.db
-      .query("nodePrivacy")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-      .unique();
-    if (doc !== null && !privacyIsNewer(doc.observedAt, at)) return null;
-    // Once the rules are the authority, the file is their export and is never read back.
-    if (!(await mirrorFollowsFile(ctx, workspaceId))) return null;
-    // A version minted here is the rules rendered, never a read of the file:
-    // a run that began while they were the authority reads `privacy.md`
-    // through a store still holding them. Stored, it would clear `fileAhead`
-    // with the very rules the owner's file moved past, and the next listing
-    // would write them back over it.
-    if (mirror.etag?.startsWith(RULES_VERSION_PREFIX) === true) return null;
-    // This read is of the file the rules now follow, so they are no longer
-    // behind it, and they are a copy of it: no version written from here is
-    // what the bucket holds any more (`rulesAuthoredHere`).
-    const fields = { ...mirror, observedAt: at, fileAhead: undefined, exportedEtag: undefined };
-    if (doc === null) await ctx.db.insert("nodePrivacy", { workspaceId, ...fields });
-    else await ctx.db.patch(doc._id, fields);
-    await refreshAccess(ctx, workspaceId);
-    return null;
-  },
+  handler: async (): Promise<null> => null,
 });
 
 /**

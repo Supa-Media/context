@@ -43,19 +43,30 @@
 
 import { describe, expect, test } from "vitest";
 import { clearanceOf } from "../functions/lib/clearance";
-import {
-  type FileStore,
-  restoreTrashedPath,
-  setFolderVisibility,
-  setVisibility,
-  trashPath,
-  writeFile,
-} from "../functions/lib/fileOps";
+import { type FileStore, restoreTrashedPath, trashPath, writeFile } from "../functions/lib/fileOps";
 import { PRIVACY_KEY, canSee, parsePrivacyManifest } from "../functions/lib/privacy";
 import { type KeyedBucket, keyedBucket, liveAt, textAt } from "./fileOps/keyedFixture.fileops1.helpers";
+import { setFolderVisibility, setVisibility } from "./seededRules.helpers";
 
 async function bucket(): Promise<KeyedBucket> {
-  return await keyedBucket({ "2-areas/review.md": "# Review\n\nthe owner's own note\n" });
+  // A folder's access lives on its row, so the folder a test opens to the team holds a note before it does.
+  return await keyedBucket({
+    "2-areas/review.md": "# Review\n\nthe owner's own note\n",
+    "1-projects/plan.md": "# Plan\n",
+  });
+}
+
+/** The token a row naming a group carries in the rendered rules: `@#<noteId>` of the row itself. */
+async function groupTokenOf(f: KeyedBucket, path: string): Promise<string> {
+  const noteId = await f.t.run(async (ctx) => {
+    const rows = await ctx.db
+      .query("nodes")
+      .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.workspaceId).eq("path", path))
+      .collect();
+    return rows.find((row) => row.goneAt === undefined)?.noteId;
+  });
+  if (noteId === undefined) throw new Error(`no live row at ${path}`);
+  return `@#${noteId}`;
 }
 
 async function privacy(store: FileStore) {
@@ -118,12 +129,21 @@ describe("an exception that outlived its note", () => {
 
   test("a group-named caller still reaches a folder named to their group", async () => {
     const f = await bucket();
+    await f.t.run(async (ctx) => {
+      const owner = (await ctx.db.query("workspaceMembers").first())!.userId;
+      await ctx.db.insert("workspaceGroups", { workspaceId: f.workspaceId, name: "circle", createdBy: owner, createdAt: 1 });
+    });
     await setFolderVisibility(f.store, {
       path: "1-projects",
       visibility: "@circle" as never,
       clearance: clearanceOf("private"),
     });
-    const inCircle = { ...clearanceOf("team"), names: new Set(["@circle"]) };
+    // A row names its group by a token derived from the row's own id, and that token is the name a member answers to.
+    const inCircle = clearanceOf("team", [await groupTokenOf(f, "1-projects")]);
+    // Non-vacuity: without the group's name, the team caller is refused there.
+    await expect(
+      writeFile(f.store, { path: "1-projects/other.md", text: "# Other\n", clearance: clearanceOf("team"), now: Date.UTC(2026, 8, 18) }),
+    ).rejects.toMatchObject({ code: "FILE_NOT_FOUND" });
     await writeFile(f.store, {
       path: "1-projects/new.md",
       text: "# New\n",

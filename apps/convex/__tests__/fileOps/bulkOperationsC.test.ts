@@ -1,21 +1,11 @@
 import { describe, expect, test } from "vitest";
 import { clearanceOf } from "../../functions/lib/clearance";
-import {
-  type FileStore,
-  archivePath,
-  copyPath,
-  duplicatePath,
-  listFolder,
-  movePath,
-  readFile,
-  setFolderVisibility,
-  setVisibility,
-  trashPath,
-} from "../../functions/lib/fileOps";
+import { type FileStore, archivePath, copyPath, duplicatePath, listFolder, movePath, readFile, trashPath } from "../../functions/lib/fileOps";
 import { treeView } from "../../functions/lib/fileOps/walk";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
 import { NOW, bucket, shareProjects, capture, listingShape, names } from "./fixtures.helpers";
 import { type KeyedBucket, bodyAt, keyedBucket, liveRowAt } from "../keyedFixture.fileops2.helpers";
+import { setFolderVisibility, setVisibility } from "../seededRules.helpers";
 
 describe('a bulk operation acts only on what the caller can see', () => {
   /**

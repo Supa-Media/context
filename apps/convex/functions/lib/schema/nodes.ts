@@ -194,10 +194,9 @@ export const nodeTables = {
   }).index("by_workspace", ["workspaceId"]),
 
   /**
-   * One workspace's privacy rules, parsed from the `privacy.md` the bucket
-   * holds (`etag`). Rules only: the prose around the managed block is note
-   * text and is not kept. In phase 1 this is a mirror the parity check
-   * compares; phase 3 makes it the authority and writes `privacy.md` from it.
+   * retired 2026-10-22: the file-mode privacy mirror. Access is decided by the
+   * tree rows (`nodes.access`, `nodeAccess`) alone. Rows are kept, with no
+   * data migration; nothing writes or reads them any more.
    */
   nodePrivacy: defineTable({
     workspaceId: v.id("workspaces"),
@@ -208,19 +207,11 @@ export const nodeTables = {
     folders: v.array(v.object({ prefix: v.string(), visibility: v.string() })),
     notes: v.array(v.object({ path: v.string(), visibility: v.string() })),
     observedAt: v.number(),
-    /**
-     * Phase 3, while these rules are the authority: the bucket version of the
-     * last `privacy.md` written from them. A listing that shows another
-     * version means the file was edited past us, and it is written again.
-     */
+    // retired 2026-10-22: file-mode export bookkeeping, unused.
     exportedEtag: v.optional(v.string()),
-    /** The rules changed and the bucket's `privacy.md` has not been written from them yet. */
+    // retired 2026-10-22: file-mode export bookkeeping, unused.
     exportOwed: v.optional(v.boolean()),
-    /**
-     * Phase 3: these rules are only a copy of a `privacy.md` that has since
-     * moved, so they are not the authority and the file decides until the
-     * next read of it replaces them (`lib/nodes/privacyAuthority.ts`).
-     */
+    // retired 2026-10-22: file-mode authority bookkeeping, unused.
     fileAhead: v.optional(v.boolean()),
   }).index("by_workspace", ["workspaceId"]),
 
@@ -503,16 +494,9 @@ export const nodeTables = {
    */
   nodeMigration: defineTable({
     paused: v.boolean(),
-    /**
-     * Phase 3: the rules in `nodePrivacy` are the authority, and `privacy.md`
-     * is written from them (`lib/nodes/privacyAuthority.ts`). Absent or false:
-     * the file is, and the rules follow it.
-     */
+    // retired 2026-10-22: the rows are the only authority; no flag is read.
     privacyAuthority: v.optional(v.boolean()),
-    /**
-     * Which store the tree's reads answer from (`nodeAccess`, PR 2 onward).
-     * Nothing reads it yet: absent or `file` is the only behaviour today.
-     */
+    // retired 2026-10-22: reads always answer from `nodeAccess`; no source switch.
     accessSource: v.optional(v.union(v.literal("file"), v.literal("shadow"), v.literal("rows"))),
     /**
      * When the pinned workspace's `team` rows were given the `accounts` grant (`functions/pinnedAccounts.ts`).

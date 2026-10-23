@@ -56,14 +56,6 @@ function touches(
         isWebsitePath(operation.path) ||
         foldPath(operation.path.replace(/^\/+/, "")) === PRIVACY_KEY
       );
-    case "setVisibility":
-    case "setNoteGroup":
-    case "setFolderVisibility":
-    case "setFolderGroup":
-      return isWebsitePath(operation.path);
-    case "resetPrivacy":
-    case "ensurePrivacy":
-      return true;
     case "removeEncryption":
     case "delete":
     case "pluginDelete":
@@ -117,10 +109,6 @@ export function websiteNarrowingPaths(
   if (operationTouchesWebsite(operation, result, root)) return [];
   if (result.kind === "moved") return [result.from, result.to];
   switch (operation.kind) {
-    case "setVisibility":
-    case "setNoteGroup":
-    case "setFolderVisibility":
-    case "setFolderGroup":
     case "delete":
     case "pluginDelete":
     case "archive":

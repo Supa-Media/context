@@ -24,7 +24,10 @@ import { MANIFEST_CAS_ATTEMPTS, type FileStore } from "./store";
 import { FileOpError } from "./errors";
 import { loadPrivacyState } from "./privacyState";
 import { rulesSurvivorsRestOn, oneRulePerPrefix, rulesAfterFolderMove } from "./moveRules";
-import { UNWRITABLE_PATH_MESSAGE } from "./privacyReset";
+/** A path the rule format cannot record (it contains a character the format uses). */
+const UNWRITABLE_PATH_MESSAGE =
+  "That path cannot be recorded in privacy.md: it contains a character the rule " +
+  "format uses. Rename it and try again.";
 
 /* -------------------------------------------------------------------------- */
 /*                          rewriting privacy.md safely                       */
@@ -203,7 +206,11 @@ export async function copyPrivacy(
   folderCopy: { from: string; to: string } | null = null,
 ): Promise<void> {
   const state = await loadPrivacyState(store);
-  if (state.text === null || state.invalid) return;
+  if (state.invalid) return;
+  if (state.text === null) {
+    await copyPrivacyOnRows(store, rowAccessOf(store) ?? NO_ROW_WRITER, state, pairs, folderCopy);
+    return;
+  }
   const wasVisibleAs = new Map<string, Visibility>();
   for (const pair of pairs) {
     wasVisibleAs.set(pair.from, effectiveVisibility(pair.from, state.rules, state.overrides));
@@ -240,6 +247,58 @@ export async function copyPrivacy(
     }
     return { rules: deduped, overrides };
   });
+}
+
+/** The rows' tier writer a store opened by the barrier carries (`apps/mcp/src/store/privacyAuthority.js`). */
+interface RowAccess {
+  setTier: (path: string, tier: string, options?: { folder?: boolean }) => Promise<{ ok: boolean; code?: string }>;
+}
+
+/** A store with no tier writer cannot narrow a copy, so a copy that needs narrowing is refused rather than made wider. */
+const NO_ROW_WRITER: RowAccess = { setTier: async () => ({ ok: false, code: "NO_ROW_WRITER" }) };
+
+function rowAccessOf(store: FileStore): RowAccess | undefined {
+  const access = (store as { rowAccess?: RowAccess }).rowAccess;
+  return access !== undefined && typeof access.setTier === "function" ? access : undefined;
+}
+
+/**
+ * `copyPrivacy` where the rules are the tree's rows: a copy that was not open to the team, landing where the team
+ * would see it, has its own row set to private. Narrowed, never widened; a group or a named list narrows to private,
+ * which the owner can widen again. A copy whose row cannot be narrowed is deleted rather than left readable.
+ */
+async function copyPrivacyOnRows(
+  store: FileStore,
+  rows: RowAccess,
+  state: Awaited<ReturnType<typeof loadPrivacyState>>,
+  pairs: { from: string; to: string }[],
+  folderCopy: { from: string; to: string } | null,
+): Promise<void> {
+  const was = new Map(pairs.map((pair) => [pair.from, effectiveVisibility(pair.from, state.rules, state.overrides)]));
+  let now = state;
+  if (folderCopy !== null) {
+    const folderWas = visibilityOf(folderCopy.from, state.rules);
+    if (folderWas !== "team" && visibilityOf(folderCopy.to, state.rules) === "team") {
+      const answer = await rows.setTier(folderCopy.to, "private", { folder: true });
+      if (answer.ok !== true) await refuseCopy(store, pairs);
+      now = await loadPrivacyState(store);
+    }
+  }
+  for (const pair of pairs) {
+    if (was.get(pair.from) === "team") continue;
+    if (effectiveVisibility(pair.to, now.rules, now.overrides) !== "team") continue;
+    const answer = await rows.setTier(pair.to, "private");
+    if (answer.ok !== true) await refuseCopy(store, pairs);
+  }
+}
+
+/**
+ * A copy that would be wider than its source is taken back, and the copy refused. Every destination here is one this
+ * copy just created (a taken name is refused before anything is written), so retiring it removes only the duplicate.
+ */
+async function refuseCopy(store: FileStore, pairs: { from: string; to: string }[]): Promise<never> {
+  for (const pair of pairs) await store.delete(pair.to, { retire: true } as never).catch(() => {});
+  throw new FileOpError("STORAGE_UNSAFE", "The copy could not keep its source's privacy, so it was not made.");
 }
 
 /** Drop rules for things that no longer exist. */

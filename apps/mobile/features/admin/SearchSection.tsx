@@ -31,7 +31,6 @@ import { ListRow, RowValue, TableHead, TableRow, type Column } from "./AdminTabl
 import { AgentChart } from "./AgentChart";
 import { IndexesView, useIndexesAttention } from "./IndexesView";
 import { NoteIdsView } from "./NoteIdsView";
-import { PrivacyRowsView } from "./PrivacyRowsView";
 import { whenLabel } from "./agent";
 import { Segments } from "./Segments";
 import {
@@ -49,12 +48,11 @@ import {
 } from "./search";
 import { formatCount } from "./report";
 
-export type SearchSubview = "indexes" | "notes" | "rows" | "speed";
+export type SearchSubview = "indexes" | "notes" | "speed";
 
 export const SEARCH_SUBVIEWS: readonly { key: SearchSubview; label: string }[] = [
   { key: "indexes", label: "Indexes" },
   { key: "notes", label: "Notes by id" },
-  { key: "rows", label: "Privacy on rows" },
   { key: "speed", label: "Speed" },
 ];
 
@@ -81,8 +79,6 @@ export function SearchSection({ view, onView }: { view?: SearchSubview; onView?:
         <IndexesView />
       ) : shown === "notes" ? (
         <NoteIdsView />
-      ) : shown === "rows" ? (
-        <PrivacyRowsView />
       ) : (
         <SpeedView />
       )}

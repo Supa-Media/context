@@ -34,8 +34,6 @@ import {
 import { scopeOf } from "../features/console/files/scope";
 import { isGroupVisibility } from "../features/console/files/types";
 import {
-  BROKEN_MANIFEST_HEADLINE,
-  brokenManifestNext,
   exceptionLine,
   folderDefaultLine,
   noExceptionsLine,
@@ -174,16 +172,6 @@ describe("what the map draws", () => {
     expect(truncatedLine()).toMatch(/not the whole/i);
   });
 
-  test("a manifest that will not parse is its own state, and it is not 'everything private'", () => {
-    // The bucket really does read all-private in this state, but saying so as
-    // a *setting* would tell somebody their rules are being honoured when the
-    // file holding them cannot be read at all.
-    const view = privacyViewOf(
-      { "": listing("", "private", [folder("a", "private")], { manifestUsable: false }) },
-      "",
-    );
-    expect(view.state).toBe("broken");
-  });
 });
 
 describe("the control on a row", () => {
@@ -387,13 +375,6 @@ describe("the words", () => {
     // a folder's own sentence cannot say.
     expect(rootDefaultLine("private")).toMatch(/tomorrow|added/i);
     expect(rootDefaultLine("private")).not.toBe(folderDefaultLine("private"));
-  });
-
-  test("a broken manifest offers the repair only to somebody who has it", () => {
-    expect(BROKEN_MANIFEST_HEADLINE).toMatch(/privacy\.md/);
-    expect(brokenManifestNext(true)).toMatch(/browse/i);
-    expect(brokenManifestNext(false)).toMatch(/owner/i);
-    expect(brokenManifestNext(false)).not.toMatch(/browse/i);
   });
 });
 

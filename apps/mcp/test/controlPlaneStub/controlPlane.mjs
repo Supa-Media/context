@@ -440,6 +440,7 @@ export function createControlPlaneStub(options = {}) {
         // `meaningIndex` is the sixth: search by meaning's descriptor, a sibling
         // of `searchIndex` on the wire for the same reason (`storeIndexes.js`).
         const { searchIndex, meaningIndex, encryptionKey, noteCap, ...storage } = binding;
+        const privacy = await tree.rulesFor(served);
         const envelope = (workspaceId) => ({
           binding: workspaceId === null ? { ...storage } : { workspaceId, ...storage },
           ...(searchIndex ? { searchIndex } : {}),
@@ -447,6 +448,8 @@ export function createControlPlaneStub(options = {}) {
           ...(noteCap ? { noteCap } : {}),
           ...(encryptionKey ? { encryptionKey } : {}),
           ...(rotation ? { rotation } : {}),
+          // The access rules, rendered from the rows on the real route (`gatewayRoutes/credentials.ts`).
+          privacy,
         });
         if (flags.omitBindingWorkspaceId) return ok(envelope(null));
         return ok(envelope(served));

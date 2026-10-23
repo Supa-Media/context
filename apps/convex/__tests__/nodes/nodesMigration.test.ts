@@ -16,6 +16,7 @@ import { modules } from "../../test.setup";
 import { ADMIN_EMAILS_ENV_VAR } from "../../functions/lib/admin";
 import { stageOf } from "../../functions/nodesMigration";
 import { PROPS_VERSION } from "../../functions/lib/nodes/facts";
+import { translateMirror } from "../seededRules.helpers";
 
 const ADMIN = "staff@example.test";
 let previous: string | undefined;
@@ -76,6 +77,7 @@ async function scheduledSweeps(t: T): Promise<number> {
 }
 
 describe("migration report", () => {
+
   test("staff see every bound workspace's stage and counts, never a path", async () => {
     const t = convexTest(schema, modules);
     const staff = t.withIdentity({ subject: await user(t, ADMIN) });
@@ -94,7 +96,6 @@ describe("migration report", () => {
     const report = await staff.query(api.functions.nodesMigration.report, {});
     expect(report.paused).toBe(false);
     expect(report.phase).toBe(3);
-    expect(report).toMatchObject({ privacyAuthority: false, owedExports: 0 });
     const bySlug = Object.fromEntries(report.rows.map((row) => [row.slug, row]));
     expect(bySlug.copied).toMatchObject({ stage: "copied", files: 1, sweptAt: 20 });
     expect(bySlug.fresh).toMatchObject({ stage: "waiting", files: 0, sweptAt: null });
@@ -109,7 +110,6 @@ describe("migration report", () => {
       await expect(caller.mutation(api.functions.nodesMigration.setPaused, { paused: true })).rejects.toThrow();
       await expect(caller.mutation(api.functions.nodesMigration.start, {})).rejects.toThrow();
       await expect(caller.mutation(api.functions.nodesMigration.checkParity, {})).rejects.toThrow();
-      await expect(caller.mutation(api.functions.nodesMigration.setPrivacyAuthority, { on: true })).rejects.toThrow();
     }
     expect(await t.run(async (ctx) => await ctx.db.query("nodeMigration").first())).toBeNull();
   });
@@ -215,11 +215,7 @@ describe("keeping every copy current", () => {
     const serve = async (slug: string) => {
       const workspaceId = await boundWorkspace(t, slug);
       await t.mutation(internal.functions.nodes.observe, { workspaceId, at: 10, rows: [{ path: "a.md", etag: "e1" }], gone: [], vanishedUnder: [] });
-      await t.mutation(internal.functions.nodes.savePrivacy, {
-        workspaceId,
-        mirror: { etag: "p1", invalid: false, folders: [], notes: [] },
-        at: 10,
-      });
+      await translateMirror(t, workspaceId, { invalid: false, folders: [], notes: [] });
       await t.mutation(internal.functions.nodes.begin, { workspaceId, at: Date.now() - 2 });
       await t.mutation(internal.functions.nodes.finish, { workspaceId, at: Date.now() - 1, files: 1 });
       await t.mutation(internal.functions.nodes.saveParity, {

@@ -35,7 +35,7 @@ export async function runStoreGuardChecks(check, gateway) {
       list,
     },
   });
-  const hostileCall = async (list, args, tool = "search_notes") => {
+  const hostileRpc = async (list, method, params) => {
     const response = await worker.fetch(
       new Request("https://x/mcp", {
         method: "POST",
@@ -43,12 +43,7 @@ export async function runStoreGuardChecks(check, gateway) {
           Authorization: `Bearer ${gateway.ownerToken}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "tools/call",
-          params: { name: tool, arguments: args },
-        }),
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
       }),
       hostileEnv(list),
       { waitUntil() {} }
@@ -57,10 +52,16 @@ export async function runStoreGuardChecks(check, gateway) {
     if (process.env.DEBUG_STORE) console.error("HOSTILE", response.status, JSON.stringify(parsed));
     return parsed;
   };
+  const hostileCall = (list, args, tool = "search_notes") =>
+    hostileRpc(list, "tools/call", { name: tool, arguments: args });
 
-  const repeatedCursor = await hostileCall(
-    async () => ({ objects: [], truncated: true, cursor: "same-token" }),
-    { query: "anything", prefix: "1-projects" }
+  // A real move lists the bucket it changes (`tools/moves/folder.js`), so it is the tool
+  // that walks the flat key listing here. A listing tool answers from the control plane's
+  // tree and never reaches the bucket, so it cannot show the walk's guard.
+  const flatWalk = (list) => hostileCall(list, { source: "scratch", destination: "scratch-moved" }, "move_folder");
+
+  const repeatedCursor = await flatWalk(
+    async () => ({ objects: [], truncated: true, cursor: "same-token" })
   );
   check(
     "a backend replaying one continuation token stops the listing instead of looping",
@@ -78,9 +79,8 @@ export async function runStoreGuardChecks(check, gateway) {
   // for a search or a move — a partial answer there is a wrong answer") was
   // false on precisely this store. `move_folder` and `set_folder_visibility`
   // build their key sets from it.
-  const noContinuation = await hostileCall(
-    async () => ({ objects: [], truncated: true }),
-    { query: "anything", prefix: "1-projects" }
+  const noContinuation = await flatWalk(
+    async () => ({ objects: [], truncated: true })
   );
   check(
     "a backend that reports another page but offers no cursor stops the listing",
@@ -88,28 +88,31 @@ export async function runStoreGuardChecks(check, gateway) {
   );
 
   let advancing = 0;
-  const runawayPages = await hostileCall(
-    async () => ({ objects: [], truncated: true, cursor: `page-${++advancing}` }),
-    { query: "anything", prefix: "1-projects" }
+  const runawayPages = await flatWalk(
+    async () => ({ objects: [], truncated: true, cursor: `page-${++advancing}` })
   );
   check(
     "an endlessly truncated listing is capped rather than exhausting subrequests",
     /exceeded \d+ pages/.test(runawayPages.error?.message || "") && advancing <= 200
   );
 
+  // The connect handshake reads the root's delimited layout (`mcp/sessionInstructions.js`) and falls back to the
+  // static instructions when that fails, so the cap shows as a walk that stops, and a handshake that still
+  // completes. Its error is caught there, so the check reads the walk's own count.
   let delimitedPages = 0;
-  const runawayLayout = await hostileCall(
+  const runawayLayout = await hostileRpc(
     async () => ({
       objects: [],
       delimitedPrefixes: [],
       truncated: true,
       cursor: `layout-${++delimitedPages}`,
     }),
-    { query: "anything" }
+    "initialize",
+    { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "0" } }
   );
   check(
     "the delimited layout walk is capped too, not just the flat key walk",
-    /exceeded \d+ pages/.test(runawayLayout.error?.message || "") && delimitedPages <= 200
+    Boolean(runawayLayout.result) && delimitedPages >= 1 && delimitedPages <= 200
   );
 
   const dotSegmentRead = await hostileCall(async () => ({ objects: [], truncated: false }), {

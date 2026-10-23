@@ -1,15 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { clearanceOf } from "../../functions/lib/clearance";
-import {
-  copyPath,
-  listFolder,
-  movePath,
-  readFile,
-  setFolderVisibility,
-  setVisibility,
-  trashPath,
-} from "../../functions/lib/fileOps";
-import { PRIVACY_KEY } from "../../functions/lib/privacy";
+import { copyPath, listFolder, movePath, readFile, trashPath } from "../../functions/lib/fileOps";
 import { treeView } from "../../functions/lib/fileOps/walk";
 import { NOW, bucket, capture, errorShape, names, shareProjects } from "./fixtures.helpers";
 import {
@@ -19,6 +10,8 @@ import {
   liveRowAt,
   withTreeListing,
 } from "../keyedFixture.fileops2.helpers";
+import { setFolderVisibility, setVisibility } from "../seededRules.helpers";
+import { rowRulesIn } from "./keyedFixture.fileops1.helpers";
 
 /**
  * `keysUnder` walks a folder for move, copy and delete, and filtered only
@@ -435,7 +428,9 @@ describe("a bulk operation acts only on what the caller can see", () => {
     expect(refused.code).toBe("FILE_NOT_FOUND");
     // Nothing moved, and no rule was written for the destination.
     expect(await liveRowAt(k, "2-areas/elsewhere/a.md")).toBeNull();
-    expect(k.raw.snapshot()[PRIVACY_KEY] as string).not.toContain("2-areas/elsewhere");
+    const { rules, overrides } = await rowRulesIn(k.t, k.ws);
+    expect(rules.some((rule) => rule.prefix.startsWith("2-areas/elsewhere"))).toBe(false);
+    expect([...overrides.keys()].some((path) => path.startsWith("2-areas/elsewhere"))).toBe(false);
 
     // The control: the same folder inside shared space moves.
     const allowed = await keyedBucket(async (store) => {

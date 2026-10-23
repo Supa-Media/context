@@ -134,7 +134,6 @@ export function useFileActions(deps: FileActionsDeps) {
   const setNoteGroupAction = useAction(api.functions.files.setNoteGroup);
   const setFolderGroupAction = useAction(api.functions.files.setFolderGroup);
   const setDirectoryVisibility = useAction(api.functions.files.setDirectoryVisibility);
-  const resetPrivacyAction = useAction(api.functions.files.resetPrivacy);
   const updateStorageLayoutAction = useAction(api.functions.files.updateStorageLayout);
 
   return {
@@ -144,7 +143,7 @@ export function useFileActions(deps: FileActionsDeps) {
     voteFormAction, updateSubmissionAction, retractSubmissionAction, createDirectory, undoNewFolder, moveEntry,
     startContextMoveAction, resumeContextMoveAction, dismissContextMoveMutation,
     copyEntry, duplicateEntry, archiveEntry, trashEntry, restoreTrashEntry, setNoteVisibility,
-    setNoteGroupAction, setFolderGroupAction, setDirectoryVisibility, resetPrivacyAction,
+    setNoteGroupAction, setFolderGroupAction, setDirectoryVisibility,
     updateStorageLayoutAction,
   };
 }

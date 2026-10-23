@@ -8,7 +8,7 @@ import { vi } from "vitest";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
+import { renderPrivacyManifest } from "./seededRules.helpers";
 import { memoryS3 } from "./storeStub.helpers";
 import { asUser, copyTree, drainDueScheduled, seedStorageBinding, type TestConvex } from "./fixtures.helpers";
 
@@ -20,6 +20,7 @@ export async function bindSecondContext(
   const bucket = memoryS3("second-bucket");
   bucket.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
   bucket.seed("index.md", "# Another context\n");
+  bucket.seed("1-projects/README.md", "# Projects\n");
   const firstSocket = globalThis.fetch;
   vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
     const response = await firstSocket(input, init);

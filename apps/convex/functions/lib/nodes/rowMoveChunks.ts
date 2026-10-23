@@ -54,7 +54,7 @@ import { MAIN_ROLES, type MainRole } from "@context/shared/src/folderRoles.cjs";
 import { followMovesForMembers } from "../placesFollow";
 import { markWebsiteMoved } from "../websites/routeChangeAt";
 import { freshenMeaningAfterActivity } from "../meaningFns/rows";
-import { accessSourceOf, refreshAccess } from "./accessBackfill";
+import { refreshSnapshot } from "./accessBackfill";
 import { claimJobBeforeMove, jobOfRow } from "./folderJobs";
 import { followFolderSettings } from "./settingsFollow";
 import { privacyEtagOf, readerMirror, rulesForReaders } from "./readerRules";
@@ -217,8 +217,8 @@ export async function beginChunkedMove(
     state: "moving",
     scope: args.clearance.scope,
     grantedNames: args.clearance.grantedNames,
-    // A trash carries no rules, and in rows mode the rows are the rules: only a file-mode move waits on them.
-    privacyEtag: trash || (await accessSourceOf(ctx.db)) === "rows" ? null : args.privacyEtag,
+    // The rows are the rules, so a move waits on no file's version: there is no `privacyEtag` to carry.
+    privacyEtag: null,
     pass: 1,
     ...(root.parentId === undefined ? {} : { oldParentId: root.parentId }),
     moved: 1,
@@ -234,7 +234,7 @@ export async function beginChunkedMove(
   await markWebsiteMoved(ctx, ws, { from, to });
   if (!trash) await followFolderSettings(ctx, ws, from, to);
   await freshenMeaningAfterActivity(ctx, ws);
-  await refreshAccess(ctx, ws);
+  await refreshSnapshot(ctx, ws);
   await ctx.scheduler.runAfter(ROW_MOVE_LEASE_MS, internal.functions.nodeRowMoves.continueRowMove, { id });
   return { ok: true, kind: "folder", rows: 1, files: [], chunked: id };
 }
@@ -272,16 +272,14 @@ async function carriesAccess(ctx: MutationCtx, row: Doc<"nodes">): Promise<boole
  * there now. In rows mode a folder stood here is private: the rules it stood under went with the folder that
  * moved, and a left row must never come out wider than it was.
  */
-async function folderForLeft(ctx: MutationCtx, ws: Id<"workspaces">, path: string, now: number, rowsMode: boolean): Promise<Id<"nodes"> | undefined> {
+async function folderForLeft(ctx: MutationCtx, ws: Id<"workspaces">, path: string, now: number): Promise<Id<"nodes"> | undefined> {
   const chain = [...(await chainAt(ctx.db, ws, path)), { path, row: await rowAt(ctx.db, ws, path) }];
   if (chain.some((entry) => entry.row !== null && entry.row.goneAt === undefined && entry.row.kind === "file")) return undefined;
   const fresh = chain.filter((entry) => entry.row === null || entry.row.goneAt !== undefined).map((entry) => entry.path);
   const id = await standFolders(ctx, ws, chain, now);
-  if (rowsMode) {
-    for (const folder of fresh) {
-      const row = await rowAt(ctx.db, ws, folder);
-      if (row !== null && row.access === undefined) await ctx.db.patch(row._id, { access: { base: "private" } });
-    }
+  for (const folder of fresh) {
+    const row = await rowAt(ctx.db, ws, folder);
+    if (row !== null && row.access === undefined) await ctx.db.patch(row._id, { access: { base: "private" } });
   }
   return id;
 }
@@ -306,7 +304,6 @@ export async function moveRowPage(ctx: MutationCtx, id: Id<"rowMoves">): Promise
       await ctx.db.patch(id, { privacyEtag: etag });
     }
   }
-  const rowsMode = (await accessSourceOf(ctx.db)) === "rows";
   // A restore comes out of the trash, which nobody sees; the caller judged it as a whole (`restoreTrashedPath`).
   const judged = underHiddenRoot(move.from) ? null : await rulesForReaders(ctx, ws);
   const clearance = clearanceOf(move.scope, move.grantedNames);
@@ -354,7 +351,7 @@ export async function moveRowPage(ctx: MutationCtx, id: Id<"rowMoves">): Promise
       left += 1;
       // Its folder moved without it: it stays at the old name, in a folder of that name.
       if (parentMoved) {
-        const folder = await folderForLeft(ctx, ws, row.path.slice(0, row.path.lastIndexOf("/")), move.now, rowsMode);
+        const folder = await folderForLeft(ctx, ws, row.path.slice(0, row.path.lastIndexOf("/")), move.now);
         if (folder !== undefined) await ctx.db.patch(row._id, { parentId: folder });
       }
       continue;
@@ -383,11 +380,11 @@ export async function moveRowPage(ctx: MutationCtx, id: Id<"rowMoves">): Promise
     await retireEmptied(ctx, ws, move.oldParentId, move.now);
     await markWebsiteMoved(ctx, ws, { from: move.from, to: move.to });
     await freshenMeaningAfterActivity(ctx, ws);
-    await refreshAccess(ctx, ws);
+    await refreshSnapshot(ctx, ws);
     return { state: "done", files, left };
   }
   await ctx.db.patch(id, patch);
-  if (access) await refreshAccess(ctx, ws);
+  if (access) await refreshSnapshot(ctx, ws);
   return { state: "moving", files, left: patch.left ?? left };
 }
 

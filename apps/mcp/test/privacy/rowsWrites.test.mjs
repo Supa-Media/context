@@ -1,6 +1,6 @@
 /**
- * Privacy writes in rows mode (`accessVersion` in the held rules): a tier is one row's `setAccess` on the control
- * plane, from the version held, and the rules are never written. File mode is the same code as before.
+ * Privacy writes (`accessVersion` in the held rules): a tier is one row's `setAccess` on the control plane, from the
+ * version held, and privacy.md is never written. There is no file mode any more.
  *
  * Sabotage: make `setRowTier` call `authority.write` instead of `setAccess` and the "calls setAccess, never
  * write" tests fail; drop the held update and the "later check sees it" test fails.
@@ -87,13 +87,6 @@ function rowsAuthority(answer = (change) => ({ ok: true, version: change.expecte
       notes: [],
       accessVersion: 7,
     },
-    async write(change) {
-      calls.write.push(change);
-      return null;
-    },
-    async written() {},
-    async exported() {},
-    async owed() {},
     async setAccess(change) {
       calls.setAccess.push(change);
       return answer(change);
@@ -101,36 +94,17 @@ function rowsAuthority(answer = (change) => ({ ok: true, version: change.expecte
   };
 }
 
-/** A rules-mode authority with no access version: the rules are written, and nothing here is rows mode. */
-function fileAuthority() {
-  const calls = { setAccess: [], write: [] };
-  return {
-    calls,
-    rules: { etag: "ctx-file-1", folders: [{ prefix: "1-projects", visibility: "team" }], notes: [] },
-    async write(change) {
-      calls.write.push(change);
-      return { etag: "ctx-file-2" };
-    },
-    async written() {},
-    async exported() {},
-    async owed() {},
-  };
-}
-
-test("rows mode: the export of privacy.md is skipped, so the bucket's file is never written from the rows", async () => {
-  // Sabotage: drop the `accessVersion` skip in `exportNow` and `memory.puts` gains `privacy.md`.
+test("privacy.md is never written from the rows: a write of it is refused, and nothing is exported", async () => {
+  // Sabotage: let `put` pass privacy.md through to the bucket and `memory.puts` gains `privacy.md`.
   const memory = new MemoryStore();
   memory.seed(PRIVACY_KEY, FILE);
   const authority = rowsAuthority();
-  let exported = 0;
-  authority.exported = async () => {
-    exported += 1;
-  };
   const store = withPrivacyAuthority(memory, authority);
-  const answer = await store.exportPrivacy();
-  assert.equal(answer, null, "nothing was exported");
-  assert.equal(exported, 0, "the authority is not told an export happened");
+  await assert.rejects(store.put(PRIVACY_KEY, FILE, { onlyIf: { etagMatches: "ctx-rows-1" } }), {
+    code: "PRIVACY_MANIFEST_READ_ONLY",
+  });
   assert.deepEqual(memory.puts, [], "privacy.md is not written in rows mode");
+  assert.deepEqual(authority.calls.write, []);
 });
 
 test("rows mode: a note's tier is one setAccess from the held version, and the bucket's privacy.md is not written", async () => {
@@ -286,17 +260,4 @@ test("rows mode: set_folder_visibility sets the folder's own row and writes no r
   assert.deepEqual(memory.puts.filter((key) => key === PRIVACY_KEY), []);
   // A folder says so: a path with no row takes its pending access as the folder's row.
   assert.deepEqual(authority.calls.setAccess, [{ path: "2-areas", base: "private", expectedVersion: 7, kind: "folder" }]);
-});
-
-test("file mode: the same writes edit privacy.md through the authority, and never call setAccess", async () => {
-  const memory = new MemoryStore();
-  memory.seed(PRIVACY_KEY, FILE);
-  const authority = fileAuthority();
-  const store = withPrivacyAuthority(memory, authority);
-  assert.equal(store.rowAccess, undefined, "file mode has no row write");
-  const state = await loadPrivacyState(store);
-  await persistExactVisibility(store, "1-projects/a.md", "private", state.rules);
-  assert.equal(authority.calls.setAccess.length, 0);
-  assert.equal(authority.calls.write.length, 1, "the rules are written once");
-  assert.equal(authority.calls.write[0].notes[0].path, "1-projects/a.md");
 });

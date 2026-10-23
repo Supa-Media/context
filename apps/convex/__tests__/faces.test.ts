@@ -31,7 +31,6 @@ import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import * as faceFunctions from "../functions/faces";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { WORKSPACE_ICON_MAX_BYTES } from "@context/shared";
 import { memoryS3 } from "./storeStub.helpers";
 import {
@@ -45,6 +44,7 @@ import {
   seedStorageBinding,
   setupTest,
 } from "./fixtures.helpers";
+import { renderPrivacyManifest } from "./seededRules.helpers";
 
 afterEach(() => {
   vi.unstubAllGlobals();

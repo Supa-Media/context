@@ -30,8 +30,9 @@ describe("a custom layout is written in the owner's own words", () => {
     });
 
     expect(result.written.sort()).toEqual(
-      ["clients/about.md", "reading/about.md", INDEX_KEY, PRIVACY_KEY].sort(),
+      ["clients/about.md", "reading/about.md", INDEX_KEY].sort(),
     );
+    expect(store.objects.has(PRIVACY_KEY)).toBe(false);
     expect(store.objects.get("clients/about.md")!.body).toContain(
       "One folder per client.",
     );
@@ -62,27 +63,20 @@ describe("a custom layout is written in the owner's own words", () => {
    * without anyone having decided that. A default that only becomes
    * consequential later, silently, is the wrong default.
    */
-  test("every folder they named starts private, read back through the gateway", async () => {
+  test("nothing the scaffold writes opens a folder: no access file, and the default is private", async () => {
     const store = memoryStore();
     await scaffoldContext(store, {
       structureTemplate: "custom",
       customFolders: FOLDERS,
     });
 
-    const { parsePrivacyManifest, canSee } = gatewayInternals();
-    const { rules, overrides } = parsePrivacyManifest(
-      store.objects.get(PRIVACY_KEY)!.body,
-    );
-
-    expect(rules.map((rule) => rule.prefix).sort()).toEqual([
-      "clients",
-      "reading",
-    ]);
-    expect(rules.every((rule) => rule.vis === "private")).toBe(true);
+    // Access is on the rows, which start private for a personal workspace and are judged
+    // over the rows in onboarding.test.ts ("every folder starts private"). Here the bucket
+    // itself must not carry a rule that widens anything.
+    expect(store.objects.has(PRIVACY_KEY)).toBe(false);
+    const { canSee } = gatewayInternals();
     for (const key of ["clients/acme.md", "reading/a-book.md", INDEX_KEY]) {
-      expect(canSee(key, "team", rules, overrides), `${key} is team-visible`).toBe(
-        false,
-      );
+      expect(canSee(key, "team", [], new Map()), `${key} is team-visible`).toBe(false);
     }
   });
 

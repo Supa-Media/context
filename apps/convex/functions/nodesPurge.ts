@@ -19,7 +19,6 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { internalMutation, type MutationCtx } from "../_generated/server";
-import { isAuthority, privacyAuthorityOn, scheduleExport } from "./lib/nodes/privacyAuthority";
 import { purgeSmallDataBatch, resetSmallDataForStorage } from "./lib/smallData/purge";
 import { scheduleDiagnosis } from "./lib/noteIds/state";
 
@@ -60,11 +59,9 @@ async function purgeBatch(ctx: MutationCtx, workspaceId: Id<"workspaces">): Prom
  * Forget the workspace's tree: its bookkeeping, parsed rules and queued moves
  * at once, its rows a batch now and the rest in the background.
  *
- * A storage move (`storageMoved: true`) keeps rules that are the authority:
- * they are the workspace's decisions, not a description of the old bucket,
- * and the bucket's `privacy.md` may be an export behind them (one owed and
- * not yet written). Forgotten, the copy of that older file in the new bucket
- * would decide who sees what. They are written to the new bucket instead.
+ * A storage move (`storageMoved: true`) keeps the access rows: they are the
+ * workspace's decisions and live in the tree, not in the old bucket. Only the
+ * bucket's small data is reset for the new storage.
  */
 export async function forgetWorkspaceTree(
   ctx: MutationCtx,
@@ -82,20 +79,12 @@ export async function forgetWorkspaceTree(
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .collect();
   for (const row of edits) await ctx.db.delete(row._id);
+  // The privacy mirror is the bucket's copy of `privacy.md`, which is gone with the bucket: nothing to keep.
   const privacy = await ctx.db
     .query("nodePrivacy")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .collect();
-  const on = options.storageMoved === true && (await privacyAuthorityOn(ctx.db));
-  for (const row of privacy) {
-    if (on && isAuthority(row, true)) {
-      // Nothing was written to the new bucket from them yet.
-      await ctx.db.patch(row._id, { exportOwed: true, exportedEtag: undefined });
-      await scheduleExport(ctx, workspaceId, 0);
-    } else {
-      await ctx.db.delete(row._id);
-    }
-  }
+  for (const row of privacy) await ctx.db.delete(row._id);
   // Keyed moves in pages: the rows they would carry are going too.
   const rowMoves = await ctx.db
     .query("rowMoves")

@@ -19,7 +19,7 @@
 
 import { describe, expect, test, vi } from "vitest";
 import { clearanceOf, type Clearance } from "../../functions/lib/clearance";
-import { type FileStore, listFolder, setExactVisibility, setFolderVisibility, setVisibility } from "../../functions/lib/fileOps";
+import { type FileStore, listFolder } from "../../functions/lib/fileOps";
 import { listFolderPaths } from "../../functions/lib/fileOps/contextMoveExport";
 import { notePathIndex } from "../../functions/lib/fileOps/search";
 import { workspaceGraph } from "../../functions/lib/fileOps/graph";
@@ -29,7 +29,6 @@ import { factPropSource } from "../../functions/lib/nodes/factSources";
 import { propsOf } from "../../../mcp/src/tree/props.js";
 import { factCtx, fillAll, observeBucket, tester, workspace as convexWorkspace } from "./facts.helpers";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
-import { renderPrivacyManifest } from "../../functions/lib/scaffold";
 import {
   foldedPages,
   isServedStore,
@@ -42,6 +41,7 @@ import { compareKeys } from "../../functions/lib/nodes/sweep";
 import type { PendingMove } from "../../functions/lib/nodes/moveOverlay";
 import type { NodeRow, PrivacyMirror } from "../../functions/lib/nodes/table";
 import { memoryStore, type MemoryStore } from "../storeStub.helpers";
+import { renderPrivacyManifest, setExactVisibility, setFolderVisibility, setVisibility } from "../seededRules.helpers";
 
 type Store = MemoryStore & FileStore;
 const OWNER = clearanceOf("private");

@@ -39,7 +39,6 @@
 import worker from "../src/index.js";
 import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
-import { parsePrivacyManifest } from "../src/privacy/engine.js";
 
 const OWNER_TOKEN = `cat_inject_owner_${"0".repeat(15)}`;
 const TEAM_TOKEN = `cat_inject_team_${"0".repeat(16)}`;
@@ -126,6 +125,9 @@ async function callTool(env, token, name, args) {
 export async function runPathInjectionChecks(check) {
   const controlPlane = createControlPlaneStub();
   const restore = controlPlane.install();
+  /** Every row the gateway asked the control plane to set, as `setAccess` bodies. */
+  const rowWrites = () =>
+    controlPlane.calls.filter((entry) => entry.path === "/gateway/privacy" && entry.body?.op === "setAccess").map((entry) => entry.body);
   try {
     const bucket = createBucket();
     controlPlane.addWorkspace("ws_inject", "inject", {
@@ -184,9 +186,8 @@ export async function runPathInjectionChecks(check) {
       /invalid path/i.test(injected)
     );
     check(
-      "...and the manifest gained no rule from it",
-      !bucket.text("privacy.md").includes("1-projects/junk.md") &&
-        !bucket.text("privacy.md").includes("1-projects/secret.md: team")
+      "...and the control plane was asked for no row from it",
+      rowWrites().every((write) => !write.path.includes("\n") && !write.path.includes("junk"))
     );
     check(
       "...and no object was created under the forged path",
@@ -230,8 +231,8 @@ export async function runPathInjectionChecks(check) {
       /cannot be recorded in privacy.md/i.test(hash)
     );
     check(
-      "...and the manifest is untouched by it",
-      !bucket.text("privacy.md").includes("2026")
+      "...and the control plane was asked for no row from it",
+      rowWrites().every((write) => !write.path.includes("2026"))
     );
 
     // A colon used to be that case too (the value was read from the FIRST
@@ -245,12 +246,15 @@ export async function runPathInjectionChecks(check) {
     });
     check("a path with colons in it is written", /written/i.test(colon));
     check(
-      "...its rule reads back as itself, and the manifest still parses",
-      (() => {
-        const parsed = parsePrivacyManifest(bucket.text("privacy.md"));
-        return parsed.overrides.get("1-projects/1:1s/ana:ben.md") === "private";
-      })()
+      "...its row is asked for as itself, private, once",
+      rowWrites().filter((write) => write.path === "1-projects/1:1s/ana:ben.md" && write.base === "private").length === 1
     );
+    const coloned = await callTool(env, TEAM_TOKEN, "read_note", { path: "1-projects/1:1s/ana:ben.md" });
+    check("...and a team connection cannot read it, so the row took effect", !coloned.includes("# notes"));
+    // Positive control: a note in the same folder with no row of its own is readable by the team.
+    bucket.seed("1-projects/open-note.md", "OPENWORD team may read this");
+    const open = await callTool(env, TEAM_TOKEN, "read_note", { path: "1-projects/open-note.md" });
+    check("...while a team connection can read its unrowed neighbour", open.includes("OPENWORD"));
 
     /* -- and the ordinary paths still work ---------------------------------- */
 
@@ -261,8 +265,8 @@ export async function runPathInjectionChecks(check) {
     });
     check("an ordinary path is unaffected", /written/i.test(ordinary));
     check(
-      "...and its rule is written exactly once, as itself",
-      (bucket.text("privacy.md").match(/1-projects\/ordinary\.md: private/g) || []).length === 1
+      "...and its row is asked for exactly once, as itself",
+      rowWrites().filter((write) => write.path === "1-projects/ordinary.md").length === 1
     );
     // A trailing slash is still tolerated, which is the behaviour `normalizePath`
     // documents; the reject is control characters, not tidiness.

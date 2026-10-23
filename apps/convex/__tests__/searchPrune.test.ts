@@ -27,12 +27,12 @@ import { type FileStore, projectSearchIndex } from "../functions/lib/fileOps";
 import { pruneSearchIndex } from "../functions/lib/fileOps/projection";
 import { runPrunePass } from "../functions/lib/filesFns/prunePass";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { copyTree } from "./fixtures.helpers";
 import { stubD1 } from "./searchBackfill.helpers";
 import { cancelPendingJobs, opted, row } from "./searchBackfill.trigger.helpers";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
 import type { TestConvex } from "./fixtures.helpers";
+import { renderPrivacyManifest } from "./seededRules.helpers";
 
 afterEach(async () => {
   await cancelPendingJobs();

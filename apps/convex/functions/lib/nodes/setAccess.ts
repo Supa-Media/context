@@ -32,6 +32,9 @@ import { scanAccessRows } from "./accessRows";
 import { livePending, PENDING_MAX } from "./pendingAccess";
 import { renderAccess } from "./rowAccess";
 import { recordRouteChangeAtHandler } from "../websites/routeChangeAt";
+import { treeAudiences } from "../treeAudiences";
+import { stampTreeAudiences } from "../../treeSignals";
+import { rulesForReaders } from "./readerRules";
 
 export type Role = "view" | "edit";
 export type Base = "private" | "team" | "inherit";
@@ -98,7 +101,7 @@ export interface SetAccessArgs {
   actor: Actor;
 }
 
-export type SetAccessCode = "CONFLICT" | "NOT_FOUND" | "FORBIDDEN" | "NOT_ROWS_MODE" | "PENDING_FULL" | "INVALID";
+export type SetAccessCode = "CONFLICT" | "NOT_FOUND" | "FORBIDDEN" | "PENDING_FULL" | "INVALID";
 export type SetAccessAnswer = { ok: true; version: number } | { ok: false; code: SetAccessCode };
 
 /** A grant's identity for comparing two lists: who, and at what role. */
@@ -270,6 +273,8 @@ export async function setAccessRow(ctx: MutationCtx, args: SetAccessArgs): Promi
   if (state !== null && state.pending?.some((entry) => entry.path === path)) {
     await ctx.db.patch(state._id, { pending: state.pending.filter((entry) => entry.path !== path) });
   }
+  // Who could see the path before, for the tree hint below: a narrowing is news to the readers who lose it.
+  const seenBefore = await rulesForReaders(ctx, workspaceId, "member");
   const nextBase = base === "inherit" ? undefined : base;
   if (row.access?.base !== nextBase) {
     await ctx.db.patch(row._id, { access: nextBase === undefined ? undefined : { base: nextBase } });
@@ -324,7 +329,15 @@ export async function setAccessRow(ctx: MutationCtx, args: SetAccessArgs): Promi
   // A narrowing the published site reaches withholds its menu until the index is rebuilt, as a `privacy.md`
   // change did (`markWebsiteAfterOperation`); every access writer comes through here.
   await recordRouteChangeAtHandler(ctx, { workspaceId, paths: [path], unsafe: true });
-  return { ok: true, version: await refreshSnapshot(ctx, workspaceId) };
+  const version = await refreshSnapshot(ctx, workspaceId);
+  // The tree hint (`treeSignals.ts`) of everyone who could see the path before or can now, as a rules write told them
+  // (`audiencesForChange`): their open trees walk again, and a note narrowed away from them leaves it.
+  const seenAfter = await rulesForReaders(ctx, workspaceId, "member");
+  await stampTreeAudiences(ctx, workspaceId, [
+    ...treeAudiences([path], seenBefore.rules, seenBefore.overrides),
+    ...treeAudiences([path], seenAfter.rules, seenAfter.overrides),
+  ]);
+  return { ok: true, version };
 }
 
 /** The tier a member's answer is judged by: a list's token counts as private, the narrower answer. */

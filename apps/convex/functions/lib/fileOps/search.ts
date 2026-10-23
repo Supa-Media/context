@@ -405,6 +405,11 @@ export async function searchNotes(
     refreshOnMiss: options.refreshOnMiss ?? true,
   });
 
+  // A bucket that refused the manifest read is down, not unindexed: throw, so the
+  // caller reports a failure instead of "still being indexed" and schedules no index pass.
+  if (!found.indexed && (found as { unreachable?: boolean }).unreachable === true) {
+    throw new Error("STORAGE_UNREACHABLE: the storage for this context did not answer");
+  }
   if (!found.indexed) {
     return {
       hits: [],

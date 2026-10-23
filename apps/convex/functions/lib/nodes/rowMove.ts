@@ -41,7 +41,7 @@ import { freshenMeaningAfterActivity } from "../meaningFns/rows";
 import { folderChain, nameOf } from "./table";
 import { underHiddenRoot } from "../fileOps/store";
 import { isPlumbing } from "../privacy";
-import { refreshAccess } from "./accessBackfill";
+import { refreshSnapshot } from "./accessBackfill";
 import { MAIN_ROLES, type MainRole, jobOfName } from "@context/shared/src/folderRoles.cjs";
 import { claimJobBeforeMove, jobOfRow, roleForNewFolder } from "./folderJobs";
 import { followFolderSettings } from "./settingsFollow";
@@ -263,7 +263,7 @@ export async function applyRowMove(
   await freshenMeaningAfterActivity(ctx, ws);
   // The rows moved and the rules moved with them, so the access rows follow. A tombstone a rule named at the
   // destination (`nodes.access`) was replaced above; the row now holding its name takes the rule's access here.
-  await refreshAccess(ctx, ws);
+  await refreshSnapshot(ctx, ws);
 
   return {
     ok: true,
@@ -340,7 +340,7 @@ export async function followMovedFiles(
 
 /**
  * Remove a row a move replaces, with the grants on it: they name a row that is gone. A tombstone a rule
- * named is re-derived onto the row now holding its name (`refreshAccess`, at the end of the move).
+ * named is re-derived onto the row now holding its name (`refreshSnapshot`, at the end of the move).
  */
 export async function removeReplaced(ctx: MutationCtx, row: Doc<"nodes">): Promise<void> {
   const grants = await ctx.db

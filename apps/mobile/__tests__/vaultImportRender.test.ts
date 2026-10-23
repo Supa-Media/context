@@ -177,7 +177,6 @@ describe("the reusable notes importer", () => {
           existingData: true,
           startJob,
           importBatch: imported,
-          resetPrivacy: undefined,
           testIDPrefix: "settings-vault",
         }),
       );
@@ -202,48 +201,6 @@ describe("the reusable notes importer", () => {
     expect(imported).toHaveBeenCalledTimes(1);
     expect(startJob).toHaveBeenCalledTimes(1);
     expect(container.textContent ?? "").toContain("Import complete");
-
-    act(() => root.unmount());
-    container.remove();
-  });
-
-  test("fresh onboarding storage initializes the all-private access map", async () => {
-    const startJob = jest.fn(async () => jobStatus());
-    const imported = jest.fn(async () => jobStatus({
-      completedBatches: [0],
-      completedFiles: 1,
-      createdFiles: 1,
-      status: "complete",
-    }));
-    const resetPrivacy = jest.fn(async () => ({}));
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    const root = createRoot(container);
-
-    await act(async () => {
-      root.render(
-        createElement(VaultImportBody, {
-          workspaceId: "w1" as never,
-          existingData: false,
-          startJob,
-          importBatch: imported,
-          resetPrivacy,
-          testIDPrefix: "welcome-vault",
-        }),
-      );
-    });
-    const click = async (testID: string) => {
-      const node = container.querySelector(`[data-testid="${testID}"]`) as HTMLElement;
-      await act(async () => {
-        node.click();
-        await Promise.resolve();
-      });
-    };
-
-    await click("welcome-vault-choose");
-    await click("welcome-vault-upload");
-
-    expect(resetPrivacy).toHaveBeenCalledWith({ workspaceId: "w1" });
 
     act(() => root.unmount());
     container.remove();

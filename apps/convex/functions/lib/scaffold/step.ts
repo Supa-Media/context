@@ -24,7 +24,7 @@ import { storeForBinding } from "../../../../mcp/src/store/factory.js";
 import { managedEncryptionOption } from "../managedEncryptionFns/storeOption";
 import { consoleIdLayoutHooks } from "../noteIds/consoleLayer";
 import { redactSecrets } from "../verification";
-import { type CustomFolder, type ScaffoldStore, scaffoldContext } from "../scaffold";
+import { PARA_FOLDERS, type CustomFolder, type ScaffoldStore, scaffoldContext } from "../scaffold";
 
 /** The layout somebody chose, as `verifyStorageBinding` receives it. */
 export interface StructureChoice {
@@ -87,11 +87,16 @@ export async function scaffoldStep(
   // and declared the bucket sealed, leaving them unreadable (`reseal.ts`).
   // The layout itself landed either way: a refusal here must not fail it,
   // and staff's Seal again still reaches anything left plain.
-  // Rows mode derives nothing on its own: a new context's folders take their scaffolded defaults once their rows
-  // exist (`nodesPrivacy.deriveNewWorkspaceRows`, which does nothing once the workspace has an access state).
-  if (result.scaffolded && (await ctx.runQuery(internal.functions.nodesAccess.rowsMode, {}))) {
-    await ctx.scheduler.runAfter(0, internal.functions.nodesPrivacy.deriveNewWorkspaceRows, {
+  // The access rows are the only access: a new context's folders take the access their scaffold gives them once
+  // their rows exist (`nodesPrivacy.scaffoldFolderDefaults`, which does nothing once the workspace has an access state).
+  if (result.scaffolded) {
+    const kind = options.structure.kind === "shared" ? "shared" : "personal";
+    const folders =
+      options.structure.template === "para" ? [...PARA_FOLDERS] : options.structure.folders.map((entry) => entry.folder);
+    await ctx.scheduler.runAfter(0, internal.functions.nodesPrivacy.scaffoldFolderDefaults, {
       workspaceId: options.workspaceId,
+      kind,
+      folders,
       attempt: 0,
     });
   }

@@ -1,24 +1,14 @@
 /**
  * The `{rules, overrides}` every Convex reader judges by (`canSee`).
  *
- * `nodeMigration.accessSource` decides where they come from:
- *  - `file` (unset): the privacy mirror, as `mirrorRules` reads it. Today's answer.
- *  - `shadow`: the same mirror. The rows are kept up to date beside it, and
- *    staff compare the two with `nodesPrivacy.accessParity`; readers pay
- *    nothing for that, since a full row scan per read would not scale.
- *  - `rows`: `renderAccess(accessRowsOf(...), "member")`. A member's clearance
- *    is then judged against the rows, and names come from `grantedNames.ts`.
- *
- * Every reader that judges privacy in Convex goes through here, so the switch
- * has one place to be read.
+ * They come from the access rows, rendered for an audience (`renderAccess`). Every reader that judges privacy in
+ * Convex goes through here, so the answer has one place to be read. Names come from `grantedNames.ts`.
  */
 
 import type { Id } from "../../../_generated/dataModel";
 import type { QueryCtx } from "../../../_generated/server";
-import { accessSourceOf } from "./accessBackfill";
 import { accessRowsOf, accessVersionOf } from "./accessRows";
-import { mirrorRules, type Rules } from "./log";
-import { readMirror } from "./privacyMirror";
+import type { Rules } from "./log";
 import { renderAccess, type Audience } from "./rowAccess";
 import type { PrivacyMirror } from "./table";
 
@@ -33,58 +23,36 @@ async function rowRules(ctx: QueryCtx, workspaceId: Id<"workspaces">, audience: 
   return { rules, overrides };
 }
 
-/**
- * The rules a Convex reader judges this workspace by, under the deployment's
- * `accessSource`. In `file` and `shadow` this is exactly what readers judged
- * by before the switch existed.
- */
+/** The rules a Convex reader judges this workspace by. */
 export async function rulesForReaders(
   ctx: QueryCtx,
   workspaceId: Id<"workspaces">,
   audience: Audience = "member",
 ): Promise<Rules> {
-  const source = await accessSourceOf(ctx.db);
-  if (source === "rows") return await rowRules(ctx, workspaceId, audience);
-  return await mirrorRules(await readMirror(ctx.db, workspaceId));
+  return await rowRules(ctx, workspaceId, audience);
 }
 
 /**
- * The privacy mirror a Convex READER judges by, under `accessSource`. Every reader that decides who may see
- * something takes its mirror from here, never from `readMirror` directly, so that in rows mode no reader can
- * judge by the `privacy.md` the rules were last written to. In `file` and `shadow` it is `readMirror`, unchanged.
- *
- * In rows mode the view carries the rows' member rules (`rows: true`, `loadPrivacyState` takes them parsed),
- * and an etag that changes whenever those rules do, so a check of "the rules I was shown are still current"
- * (`rowMove`, `nodeMoves`) answers from the rows too.
- *
- * Writers and parity checks keep `readMirror`: they are about the file, not about who may see something.
+ * The privacy view a Convex READER judges by: the rows' member rules (`rows: true`), with an etag that changes
+ * whenever those rules do, so a check of "the rules I was shown are still current" (`rowMove`, `nodeMoves`)
+ * answers from the rows.
  */
 export async function readerMirror(
   ctx: QueryCtx,
   workspaceId: Id<"workspaces">,
   audience: Audience = "member",
-): Promise<PrivacyMirror | null> {
-  if ((await accessSourceOf(ctx.db)) !== "rows") return await readMirror(ctx.db, workspaceId);
+): Promise<PrivacyMirror> {
   return rowsMirror(await rowRules(ctx, workspaceId, audience));
 }
 
-/**
- * `readerMirror` and `rulesForReaders` together, from one read of the rules. A
- * reader that needs both (a folder listing, a feed head) reruns on every change
- * it depends on, and the access snapshot it reads is one document that can be
- * large, so it is read once rather than twice.
- */
+/** `readerMirror` and `rulesForReaders` together, from one read of the rows. */
 export async function readerView(
   ctx: QueryCtx,
   workspaceId: Id<"workspaces">,
   audience: Audience = "member",
-): Promise<{ mirror: PrivacyMirror | null; judged: Rules }> {
-  if ((await accessSourceOf(ctx.db)) === "rows") {
-    const judged = await rowRules(ctx, workspaceId, audience);
-    return { mirror: rowsMirror(judged), judged };
-  }
-  const mirror = await readMirror(ctx.db, workspaceId);
-  return { mirror, judged: await mirrorRules(mirror) };
+): Promise<{ mirror: PrivacyMirror; judged: Rules }> {
+  const judged = await rowRules(ctx, workspaceId, audience);
+  return { mirror: rowsMirror(judged), judged };
 }
 
 /** The mirror view of the rows' member rules (`readerMirror`). */
@@ -99,13 +67,11 @@ function rowsMirror({ rules, overrides }: Rules): PrivacyMirror {
 }
 
 /**
- * The version a move is judged under, as its handout and its guard both compare it. File mode: the mirror's
- * etag, as it has always been. Rows mode: the rows' rules plus the access version, so a grant (which changes no
- * rendered rule) also refuses a move that was judged before it. Feed tokens keep the rules-only etag.
+ * The version a move is judged under, as its handout and its guard both compare it: the rows' rules plus the
+ * access version, so a grant (which changes no rendered rule) also refuses a move that was judged before it.
  */
-export async function privacyEtagOf(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<string | null> {
+export async function privacyEtagOf(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<string> {
   const mirror = await readerMirror(ctx, workspaceId);
-  if (mirror === null || mirror.rows !== true) return mirror?.etag ?? null;
   return `${mirror.etag}.${await accessVersionOf(ctx, workspaceId)}`;
 }
 

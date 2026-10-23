@@ -38,18 +38,14 @@ import {
   renameCustomEmoji,
   storeCustomEmoji,
   removeNoteEncryption as removeNoteEncryptionOp,
-  resetPrivacyManifest,
   restoreTrashedPath,
   searchNotes,
-  setFolderVisibility,
-  setVisibility,
   syncManifest as syncManifestOp,
   trashKeyedRows,
   trashPath,
   writeFile,
   writeImage,
 } from "../fileOps";
-import { ensureFolderVisibility } from "../fileOps/visibility";
 import { visiblePathsOf } from "../fileOps/visiblePaths";
 import { readRoutineRuns } from "../fileOps/routineRuns";
 import { addBuiltInFolder } from "../fileOps/builtInFolders";
@@ -139,7 +135,7 @@ export async function executeOperation(
    * only moves for a `team` line: `activityAt` alone would tell them the exact
    * time of a private change the rest of the product refuses them.
    */
-  onActivity?: (landed: { teamVisible: boolean }) => void,
+  onActivity?: (landed: { teamVisible: boolean; reprivate: boolean }) => void,
   /**
    * Called when a submission landed on a form that names somebody to tell.
    *
@@ -255,23 +251,6 @@ export async function executeOperation(
         const cleared = await clearVaultBatch(store, operation.countOnly);
         return { kind: "vaultCleared", ...cleared };
       }
-      case "ensurePrivacy": {
-        try {
-          const reset = await resetPrivacyManifest(store, { clearance, now });
-          return { kind: "privacyReset", ...reset };
-        } catch (error) {
-          if (error instanceof FileOpError && error.code === "PRIVACY_MANIFEST_USABLE") {
-            return {
-              kind: "privacyReset",
-              path: PRIVACY_KEY,
-              folders: [],
-              backedUpTo: null,
-              partial: false,
-            };
-          }
-          throw error;
-        }
-      }
       case "search": {
         const results = await searchNotes(
           store,
@@ -314,7 +293,7 @@ export async function executeOperation(
           failureDetail: pass.failureDetail ?? null,
         };
       }
-      case "projectMeaning": case "pruneIndex": case "folderNotes": case "chaosScore": case "nodesSweep": case "nodesFactFill": case "nodesTouch": case "nodesParity": case "nodesMoveStart": case "nodesMoveBatch": case "nodesPrivacyExport": case "nodesSmallData": case "readTrashed": case "hideOldCopies": case "readOldCopies": // run by the barrier (`meaningPass.ts`, `treeOps.ts`, `lib/nodes/run.ts`, `fileOps/trashedReading.ts`)
+      case "projectMeaning": case "pruneIndex": case "folderNotes": case "chaosScore": case "nodesSweep": case "nodesFactFill": case "nodesTouch": case "nodesParity": case "nodesMoveStart": case "nodesMoveBatch": case "nodesSmallData": case "readTrashed": case "hideOldCopies": case "readOldCopies": // run by the barrier (`meaningPass.ts`, `treeOps.ts`, `lib/nodes/run.ts`, `fileOps/trashedReading.ts`)
         return IDLE_MEANING;
       case "maintainIndex": {
         // Scope-blind on purpose: an index describes the bucket, and building
@@ -544,50 +523,6 @@ export async function executeOperation(
         });
         return { kind: "deleted", ...deleted };
       }
-      case "setNoteGroup": {
-        // The same writer as `setVisibility`, with a group in place of a tier:
-        // `fileOps.setVisibility` has taken a `Visibility` since #418 and a
-        // group is one. A separate operation rather than a widened
-        // `setVisibility` because the ARGUMENT validator must stay two-valued —
-        // widening it would make every path that takes a visibility a way to
-        // mint a rule, which is exactly what the gateway refuses AI clients.
-        const result = await setVisibility(store, {
-          path: operation.path,
-          visibility: `@${operation.group}` as Visibility,
-          clearance,
-        });
-        return { kind: "visibility" as const, ...result };
-      }
-      case "setFolderGroup": {
-        // The same writer as `setFolderVisibility`, with a name in place of a
-        // tier: that function has taken a `Visibility` since the group
-        // namespace existed and a name is one, so nothing in the engine was
-        // ever in the way. A separate operation rather than a widened
-        // `setFolderVisibility` for the reason `setNoteGroup` is separate —
-        // the ARGUMENT validator must stay two-valued, or every path that
-        // takes a visibility becomes a way to mint a rule.
-        const result = await setFolderVisibility(store, {
-          path: operation.path,
-          visibility: `@${operation.group}` as Visibility,
-          clearance,
-        });
-        return { kind: "visibility" as const, ...result };
-      }
-      case "setVisibility": {
-        const result = await setVisibility(store, {
-          path: operation.path,
-          visibility: operation.visibility,
-          clearance,
-        });
-        // The widening only. `recordActivity` re-derives the flag from the
-        // manifest it has just changed, and the shared substance table drops
-        // the other direction: a line saying a note went private would be the
-        // disclosure the change was undoing.
-        await noteActivity("visibility.note", [operation.path], {
-          to: operation.visibility,
-        });
-        return { kind: "visibility", ...result };
-      }
       case "visibilityLine": {
         // Rows mode: the change went to the rows (`visibility.ts`), and this is the activity line the file path
         // records for the same change. The team flag is the rows' answer, not the rules'.
@@ -600,28 +535,6 @@ export async function executeOperation(
         });
         if (landed !== null) onActivity?.(landed);
         return { kind: "activityRecorded" };
-      }
-      case "setFolderVisibility": {
-        const { result, changed } = operation.onlyIfUnset === true
-          ? await ensureFolderVisibility(store, {
-              path: operation.path,
-              visibility: operation.visibility,
-              clearance,
-            })
-          : {
-              result: await setFolderVisibility(store, {
-                path: operation.path,
-                visibility: operation.visibility,
-                clearance,
-              }),
-              changed: true,
-            };
-        if (changed) {
-          await noteActivity("visibility.folder", [operation.path], {
-            to: operation.visibility,
-          });
-        }
-        return { kind: "visibility", ...result };
       }
       case "writeImage": {
         /*
@@ -670,10 +583,6 @@ export async function executeOperation(
         return { kind: "emojiRemoved" };
       case "emojiRename":
         return { kind: "emojiStored", ...(await renameCustomEmoji(store, operation)) };
-      case "resetPrivacy": {
-        const result = await resetPrivacyManifest(store, { clearance, now });
-        return { kind: "privacyReset", ...result };
-      }
       case "migrateStorage": {
         const result = await migrateStorageLayoutOp(store, {
           cleanup: operation.cleanup,
