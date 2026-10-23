@@ -199,3 +199,4 @@ test/checkInSources.test.mjs
 test/googleOffer.test.mjs
 test/sessionInstructionsTree.test.mjs
 test/agentTravelTime.test.mjs
+test/routineVoice.test.mjs

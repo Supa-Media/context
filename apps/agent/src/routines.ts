@@ -71,23 +71,38 @@ export async function runDueRoutines(deps: RoutineDeps): Promise<void> {
   if (due.length === 0) return;
   deps.log({ event: "routines_due", runs: due.length });
 
+  // One person's runs go one after another, so each sees what the one before
+  // it just texted (the owner, 2026-10-23: two reminders about the same call
+  // ran side by side at 9:00 and both texted). Different people still run at once.
+  const people = byPerson(due);
   let next = 0;
   const worker = async () => {
-    while (next < due.length) {
-      const run = due[next++];
-      try {
-        await runOne(run, deps, origin, secret, gateway);
-      } catch {
-        // One run's surprise is not the others' problem, and it is still owed
-        // an outcome, so the control plane does not wait on it.
-        deps.log({ event: "routine_run", run: run.runId, error: "unexpected" });
-        await reportRoutineResult(deps.fetch, origin, secret, { runId: run.runId, outcome: "failed", texted: 0 }).catch(
-          () => undefined,
-        );
+    while (next < people.length) {
+      for (const run of people[next++]) {
+        try {
+          await runOne(run, deps, origin, secret, gateway);
+        } catch {
+          // One run's surprise is not the others' problem, and it is still owed
+          // an outcome, so the control plane does not wait on it.
+          deps.log({ event: "routine_run", run: run.runId, error: "unexpected" });
+          await reportRoutineResult(deps.fetch, origin, secret, { runId: run.runId, outcome: "failed", texted: 0 }).catch(
+            () => undefined,
+          );
+        }
       }
     }
   };
-  await Promise.all(Array.from({ length: Math.min(ROUTINE_CONCURRENCY, due.length) }, worker));
+  await Promise.all(Array.from({ length: Math.min(ROUTINE_CONCURRENCY, people.length) }, worker));
+}
+
+/** Due runs grouped by the phones they text, in the order they came. */
+export function byPerson(due: DueRoutine[]): DueRoutine[][] {
+  const groups = new Map<string, DueRoutine[]>();
+  for (const run of due) {
+    const key = [...run.phones].sort().join(",") || `run:${run.runId}`;
+    groups.set(key, [...(groups.get(key) ?? []), run]);
+  }
+  return [...groups.values()];
 }
 
 async function runOne(run: DueRoutine, deps: RoutineDeps, origin: string, secret: string, gateway: string) {

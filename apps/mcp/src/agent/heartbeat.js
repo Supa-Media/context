@@ -60,7 +60,7 @@ import { servedListingStore } from "../tree/served.js";
 import { json } from "../http/responses.js";
 import { disarmTexting } from "../tools/approvals.js";
 import { WORTH_SAYING, heartbeatMailSection, readMailHealth, withMailboxes } from "./mailHealth.js";
-import { checkInMutes, mutedCheckIn, withoutPreamble } from "./checkInGuards.js";
+import { checkInMutes, mutedCheckIn, saysQuiet, withoutPreamble } from "./checkInGuards.js";
 import { newMailSection, newMailSince } from "./newMail.js";
 import { CALENDAR_SHOWN, calendarSection, chatSection, newChatSince, newSlackSince, slackSection, todaysCalendar } from "./checkInSources.js";
 
@@ -348,7 +348,7 @@ export function heartbeatQuestion({ changed, now, texted, recent = [], instructi
 export function checkInText(answer) {
   const said = withoutPreamble(answer);
   if (said === "" || said.toUpperCase().replace(/[^A-Z]/g, "") === SKIP_WORD) return null;
-  if (said.toUpperCase().startsWith(SKIP_WORD)) return null;
+  if (said.toUpperCase().startsWith(SKIP_WORD) || saysQuiet(said)) return null;
   return said.length > MAX_CHECK_IN_CHARS ? `${said.slice(0, MAX_CHECK_IN_CHARS - 1)}…` : said;
 }
 
