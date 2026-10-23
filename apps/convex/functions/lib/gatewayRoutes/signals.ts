@@ -454,7 +454,7 @@ export async function gatewayWebsiteHandler(
   return answered();
 }
 
-/** The most paths, and the most files, one touch names; more marks the tree dirty instead. */
+/** The most paths one touch names. */
 const TOUCH_NAMES = 50;
 /** The longest one name a touch may carry. */
 const TOUCH_NAME_LENGTH = 1024;
@@ -469,20 +469,6 @@ function touchNames(value: unknown): string[] | null {
     names.push(name);
   }
   return names;
-}
-
-/** An agent's moves, `{ from, to }` each, or `null` when malformed. */
-function touchMoves(value: unknown): { from: string; to: string }[] | null {
-  if (value === undefined) return [];
-  if (!Array.isArray(value) || value.length > TOUCH_NAMES) return null;
-  const moves: { from: string; to: string }[] = [];
-  for (const move of value) {
-    if (typeof move !== "object" || move === null) return null;
-    const [from, to] = touchNames([(move as { from?: unknown }).from, (move as { to?: unknown }).to]) ?? [];
-    if (from === undefined || to === undefined) return null;
-    moves.push({ from, to });
-  }
-  return moves;
 }
 
 /** Forwarding addresses or icon moves one touch may carry; the gateway sends more as several. */
@@ -507,46 +493,16 @@ function touchSmallData(value: unknown, withKind: boolean): { from: string; to: 
   return moves;
 }
 
-/** The longest audience label (`private`, `team`, `@name`) a touch's `left` may carry. */
-const TOUCH_AUDIENCE_LENGTH = 128;
-
 /**
- * Who could see each key a change took away, before it, or `null` when
- * malformed. Only ever narrows a gone row (`lib/nodes/convexTable.ts`), so a
- * wrong one can hide a departure, never name it to anyone new.
- */
-function touchLeft(value: unknown): { path: string; audiences: string[] }[] | null {
-  if (value === undefined) return [];
-  if (!Array.isArray(value) || value.length > TOUCH_NAMES) return null;
-  const left: { path: string; audiences: string[] }[] = [];
-  for (const entry of value) {
-    if (typeof entry !== "object" || entry === null) return null;
-    const [path] = touchNames([(entry as { path?: unknown }).path]) ?? [];
-    const audiences = (entry as { audiences?: unknown }).audiences;
-    if (path === undefined || !Array.isArray(audiences) || audiences.length > 64) return null;
-    if (!audiences.every((audience) => typeof audience === "string" && audience.length > 0 && audience.length <= TOUCH_AUDIENCE_LENGTH)) {
-      return null;
-    }
-    left.push({ path, audiences: audiences as string[] });
-  }
-  return left;
-}
-
-/**
- * The gateway's write re-checked in the Convex tree (`lib/nodes/touch.ts`):
- * the paths and files a change named, or `dirty` where it named too many.
- * `edited` names notes whose text alone changed, gathered before their
- * re-check (`nodes.queueEdits`). `left` says who could see each key a move
- * took away before it, which the tree's gone rows narrow to. `forwarding`
- * and `icons` are a move's forwarding addresses and the icons it carries,
- * recorded in Convex (`smallData.ts`) before this answers, so the agent's
- * next read follows them; the bucket's files are written from those rows.
+ * The gateway reporting a change to the tree: its forwarding addresses and the
+ * icons it carries, recorded in Convex (`smallData.ts`) before this answers, so
+ * the agent's next read follows them; the bucket's files are written from those
+ * rows. The rows of the change itself were written by its own seam.
  *
  * Names only, never text. A malformed body is a 400: its shape says nothing
  * about which contexts exist. A well-formed id that names no context is
  * answered `ok`, as `gatewayTreeHandler` answers one, so the route is not an
- * oracle. The checks run before any scheduling, and nothing here waits on the
- * bucket.
+ * oracle.
  */
 export async function gatewayTreeTouchHandler(
   ctx: ActionCtx,
@@ -554,19 +510,9 @@ export async function gatewayTreeTouchHandler(
 ): Promise<Response> {
   const answered = () => json({ ok: true });
   const workspaceId = stringField(body, "workspaceId");
-  const paths = touchNames(body.paths);
-  const files = touchNames(body.files);
-  const moves = touchMoves(body.moves);
-  const edited = touchNames(body.edited);
-  const left = touchLeft(body.left);
   const forwarding = touchSmallData(body.forwarding, true);
   const icons = touchSmallData(body.icons, false);
-  if (workspaceId === null || paths === null || files === null || moves === null || edited === null || left === null) {
-    return json({ error: "malformed_touch" }, 400);
-  }
-  if (forwarding === null || icons === null) return json({ error: "malformed_touch" }, 400);
-  if (body.dirty !== undefined && typeof body.dirty !== "boolean") return json({ error: "malformed_touch" }, 400);
-  const dirty = body.dirty === true;
+  if (workspaceId === null || forwarding === null || icons === null) return json({ error: "malformed_touch" }, 400);
   try {
     const known = await ctx.runQuery(internal.functions.treeSignals.workspaceKnown, {
       workspaceId: workspaceId as Id<"workspaces">,
@@ -582,34 +528,9 @@ export async function gatewayTreeTouchHandler(
         moves: icons.map(({ from, to }) => ({ from, to })),
       });
     }
-    if (dirty) {
-      await ctx.runMutation(internal.functions.nodes.requestSweep, { workspaceId: workspaceId as Id<"workspaces"> });
-    }
-    // Notes whose text alone changed: gathered for a few seconds, then re-checked together.
-    if (!dirty && edited.length > 0) {
-      await ctx.runMutation(internal.functions.nodes.queueEdits, {
-        workspaceId: workspaceId as Id<"workspaces">,
-        files: edited,
-      });
-    }
-    // Moves ride a touch even when the names went to a sweep: pins and recents follow them.
-    if ((!dirty && paths.length + files.length > 0) || moves.length > 0) {
-      await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
-        workspaceId: workspaceId as Id<"workspaces">,
-        scope: "private",
-        operation: {
-          kind: "nodesTouch",
-          paths: dirty ? [] : paths,
-          files: dirty ? [] : files,
-          ...(moves.length === 0 ? {} : { moves }),
-          // Who could see what a move took away, before it: the gone rows narrow to it.
-          ...(dirty || left.length === 0 ? {} : { left }),
-        },
-      });
-    }
   } catch {
-    // A workspace id that is not well formed, or a schedule that failed: the
-    // sweep the next walk asks for repairs what this did not record.
+    // A workspace id that is not well formed, or a write that failed: the
+    // small-data sync repairs what this did not record.
     return json({ error: "malformed_touch" }, 400);
   }
   return answered();

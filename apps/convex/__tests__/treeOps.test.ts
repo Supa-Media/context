@@ -98,13 +98,10 @@ describe("which store a walk reads", () => {
 });
 
 describe("a console change", () => {
-  test("is re-checked in the Convex tree before its audiences are told, and schedules nothing else", async () => {
+  test("tells its audiences, and schedules nothing but the facts fill", async () => {
     const fake = fakeCtx({ served: true });
-    await ops.keepTreeAndAnnounce(fake.ctx, ARGS, { paths: ["1-projects/a.md"], files: [], audiences: ["private", "team"] }, bucket());
-    const observed = fake.events.findIndex((event) => event.endsWith("nodes:observe"));
-    const marked = fake.events.findIndex((event) => event.endsWith("treeSignals:markTreeChanged"));
-    expect(observed).toBeGreaterThanOrEqual(0);
-    expect(marked).toBeGreaterThan(observed);
+    await ops.keepTreeAndAnnounce(fake.ctx, ARGS, { paths: ["1-projects/a.md"], files: [], audiences: ["private", "team"] });
+    expect(fake.events.some((event) => event.endsWith("treeSignals:markTreeChanged"))).toBe(true);
     const markCall = (fake.ctx as unknown as { runMutation: ReturnType<typeof vi.fn> }).runMutation.mock.calls.find(
       ([ref]) => getFunctionName(ref as never).endsWith("treeSignals:markTreeChanged"),
     );
@@ -113,10 +110,10 @@ describe("a console change", () => {
     expectNoD1(fake);
   });
 
-  test("without the bucket open, the re-check is scheduled and the audiences are told at once", async () => {
+  test("the audiences are told at once, with no listing of the bucket scheduled", async () => {
     const fake = fakeCtx({ served: true });
     await ops.keepTreeAndAnnounce(fake.ctx, ARGS, { paths: ["a.md"], files: [], audiences: ["private"] });
-    expect(fake.scheduled).toEqual([{ kind: "nodesTouch", paths: ["a.md"], files: [] }]);
+    expect(fake.scheduled.filter((operation) => operation.kind !== "nodesFactFill")).toEqual([]);
     expect(fake.events).toContain("functions/treeSignals:markTreeChanged");
     expectNoD1(fake);
   });
@@ -147,7 +144,8 @@ describe("a console change", () => {
       { kind: "deleted", paths: ["1-projects/a.md"] } as never,
       before as never,
     );
-    expect(fake.events.some((event) => event.endsWith("nodes:observe"))).toBe(true);
+    // The seam wrote the gone row before this ran; nothing re-observes it from here.
+    expect(fake.events.some((event) => event.endsWith("nodes:observe"))).toBe(false);
     expect(fake.events.at(-1)).toBe("functions/treeSignals:markTreeChanged");
     expectNoD1(fake);
   });

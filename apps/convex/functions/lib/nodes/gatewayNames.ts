@@ -18,8 +18,7 @@
  * they did over the bucket. So only a grant that may write here may ask: the
  * person's token must reach the workspace as `owner` or `editor`, with
  * `context:write`, the rule `/gateway/moves/start` holds a write to. Every
- * refusal is `{ served: false }`; a writer whose workspace is still on its
- * first copy is told `{ served: false, loading: true }` and the copy starts.
+ * refusal is `{ served: false }`.
  */
 
 import { internal } from "../../../_generated/api";
@@ -27,9 +26,8 @@ import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { hashToken } from "../crypto";
 import { stringField } from "../gatewayAuth";
-import { GATEWAY_PATH_LENGTH, STILL_LOADING } from "./gatewayManifest";
+import { GATEWAY_PATH_LENGTH } from "./gatewayManifest";
 import { servedNoteCount } from "./servedCount";
-import { readinessAndKick } from "./treeLoading";
 import { TAKEN_PATHS } from "./treeTaken";
 
 const NOT_SERVED = { served: false } as const;
@@ -37,7 +35,7 @@ const SCOPE_WRITE = "context:write";
 
 export type GatewayNamesAnswer =
   | { served: true; files: string[]; folders: string[]; notes?: number }
-  | { served: false; loading?: true };
+  | { served: false };
 
 /** Paths, each one path, at most `TAKEN_PATHS`; `null` for anything else. */
 function pathList(value: unknown): string[] | null {
@@ -58,7 +56,7 @@ export async function namesFor(ctx: ActionCtx, body: Record<string, unknown>): P
     const workspaceId = await writableWorkspace(ctx, accessToken, expected);
     if (workspaceId === null) return NOT_SERVED;
     const taken = await ctx.runQuery(internal.functions.nodesGateway.taken, { workspaceId, paths });
-    if (taken === null) return (await readinessAndKick(ctx, workspaceId)) === "loading" ? STILL_LOADING : NOT_SERVED;
+    if (taken === null) return NOT_SERVED;
     if (!count) return { served: true, ...taken };
     const counted = await servedNoteCount(ctx, workspaceId);
     return counted === null ? NOT_SERVED : { served: true, ...taken, notes: counted.notes };

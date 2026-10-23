@@ -118,6 +118,8 @@ describe("icons and emoji answer from Convex", () => {
     for (const call of calls) {
       expect(errorShape(await captureError(() => call(f.workspaceId)))).toBe(errorShape(await captureError(() => call(dangling))));
     }
+    // The icon's file is written behind, on real timers: let it land here, not in the next test's bucket.
+    await settle(f);
   });
 
   test("one workspace's rows never answer for another", async () => {
@@ -138,6 +140,7 @@ describe("icons and emoji answer from Convex", () => {
     expect(await f.t.query(internal.functions.smallData.forward, { workspaceId: theirs, paths: ["1-projects/a.md"] })).toEqual([
       "1-projects/a.md",
     ]);
+    await settle(f);
   });
 });
 

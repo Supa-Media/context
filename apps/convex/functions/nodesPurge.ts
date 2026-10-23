@@ -6,13 +6,12 @@
  * workspace's names have no reason to stay with us (the owner's decision of
  * 2026-10-12 put them here on that condition), and rows from the bucket a
  * workspace left describe somewhere its notes no longer are. Either way the
- * rows go, and a tree still in use is rebuilt by the next sweep.
+ * rows go. The seam writes the rows of a workspace still in use again as its
+ * notes are written.
  *
  * A large tree is more rows than one mutation may delete, so the first batch
  * goes with the caller's transaction and the rest are deleted by a chain of
- * scheduled batches. A sweep of the old bucket still in flight cannot keep
- * them: its next step finds no bookkeeping row and stops, and the next sweep
- * of the new bucket removes every row it did not see.
+ * scheduled batches.
  */
 
 import { v } from "convex/values";

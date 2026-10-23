@@ -4,26 +4,18 @@
  * production, checked without a deployment.
  *
  * Last observation wins: an older look never overwrites a newer one, a
- * tombstone blocks an older upsert and yields to a newer one, and a sweep
- * removes only what nothing observed since it began.
+ * tombstone blocks an older upsert and yields to a newer one.
  */
 
 import { describe, expect, test } from "vitest";
-import {
-  NodeTreeUnsupportedError,
-  applyObservation,
-  beginState,
-  finishState,
-  pruneUnobserved,
-} from "../../functions/lib/nodes/observe";
-import { PRUNE_BATCH, VANISH_SCAN, type NodeTable, type StoredNode } from "../../functions/lib/nodes/table";
-import { applyAll, memoryNodeSink, memoryNodeTable } from "../nodeTable.helpers";
+import { applyObservation } from "../../functions/lib/nodes/observe";
+import { type NodeTable, type StoredNode } from "../../functions/lib/nodes/table";
+import { applyAll, memoryNodeTable, seamRows } from "../nodeTable.helpers";
 
-const obs = (at: number, rows: { path: string; etag?: string; size?: number; uploaded?: number }[] = [], gone: string[] = [], vanishedUnder: string[] = []) => ({
+const obs = (at: number, rows: { path: string; etag?: string; size?: number; uploaded?: number }[] = [], gone: string[] = []) => ({
   at,
   rows,
   gone,
-  vanishedUnder,
 });
 
 function find(table: { rows(): StoredNode[] }, path: string): StoredNode | undefined {
@@ -65,11 +57,9 @@ describe("applyObservation: the folder chain", () => {
       byPath: (path) => inner.byPath(path),
       patch: (id, fields) => inner.patch(id, fields),
       remove: (id) => inner.remove(id),
-      underPrefix: (prefix, options) => inner.underPrefix(prefix, options),
-      observedBefore: (before, limit) => inner.observedBefore(before, limit),
     };
     const rows = Array.from({ length: 30 }, (_, index) => ({ path: `big/deep/f${index}.md`, etag: `e${index}` }));
-    await applyObservation(counting, obs(10, rows));
+    await applyObservation(counting, obs(10, seamRows(rows)));
 
     expect(folderInserts).toBe(2);
     expect(inner.rows().filter((node) => node.kind === "file")).toHaveLength(30);
@@ -100,7 +90,8 @@ describe("applyObservation: last observation wins", () => {
     await applyAll(table, obs(20, [{ path: "a.md", etag: "two" }]));
     expect(find(table, "a.md")).toMatchObject({ etag: "two", observedAt: 20 });
     expect(find(table, "a.md")?.size).toBeUndefined();
-    expect(find(table, "a.md")?.uploaded).toBeUndefined();
+    // A seam write names no upload time, so the write is it (`observeRows.ts`).
+    expect(find(table, "a.md")?.uploaded).toBe(20);
   });
 
   test("a row whose path is not a key the tree keeps is skipped", async () => {
@@ -147,52 +138,6 @@ describe("applyObservation: tombstones", () => {
   });
 });
 
-describe("applyObservation: vanishedUnder", () => {
-  test("marks only live files under the prefix that are not listed and were seen earlier", async () => {
-    const table = memoryNodeTable();
-    await applyAll(table, obs(10, [{ path: "1-projects/a.md" }, { path: "1-projects/b.md" }, { path: "1-projectsX/z.md" }]));
-    await applyAll(table, obs(20, [{ path: "1-projects/b.md" }], [], ["1-projects/"]));
-
-    expect(find(table, "1-projects/a.md")).toMatchObject({ goneAt: 20 });
-    expect(find(table, "1-projects/b.md")?.goneAt).toBeUndefined();
-    expect(find(table, "1-projectsX/z.md")?.goneAt).toBeUndefined();
-  });
-
-  test("does not mark a file observed at or after the observation", async () => {
-    const table = memoryNodeTable();
-    await applyAll(table, obs(30, [{ path: "p/n.md" }]));
-    await applyAll(table, obs(20, [], [], ["p/"]));
-    expect(find(table, "p/n.md")?.goneAt).toBeUndefined();
-  });
-
-  test("folders a vanish leaves empty are marked gone, up the chain, and keep their rows", async () => {
-    const table = memoryNodeTable();
-    await applyAll(table, obs(10, [{ path: "p/q/a.md" }]));
-    await applyAll(table, obs(20, [], [], ["p/"]));
-    expect(find(table, "p/q/a.md")?.goneAt).toBe(20);
-    expect(find(table, "p/q")?.goneAt).toBe(20);
-    expect(find(table, "p")?.goneAt).toBe(20);
-  });
-
-  test("a scan over more than VANISH_SCAN files answers more, and re-applying completes it", async () => {
-    const table = memoryNodeTable();
-    const total = VANISH_SCAN + 50;
-    const rows = Array.from({ length: total }, (_, index) => ({ path: `big/f${String(index).padStart(5, "0")}.md` }));
-    await applyAll(table, obs(10, rows));
-
-    const first = await applyObservation(table, obs(20, [], [], ["big/"]));
-    expect(first.more).toBe(true);
-    expect(first.next).toBeDefined();
-
-    const calls = await applyAll(table, obs(20, [], [], ["big/"]));
-    expect(calls).toBeGreaterThanOrEqual(1);
-    const live = table.rows().filter((node) => node.kind === "file" && node.goneAt === undefined);
-    expect(live).toHaveLength(0);
-    expect(table.rows().filter((node) => node.kind === "file" && node.goneAt === 20)).toHaveLength(total);
-    expect(find(table, "big")?.goneAt).toBe(20);
-  });
-});
-
 describe("applyObservation: emptied folders", () => {
   test("a folder that still holds something stays, and so do its parents", async () => {
     const table = memoryNodeTable();
@@ -202,17 +147,11 @@ describe("applyObservation: emptied folders", () => {
     expect(find(table, "p")?.goneAt).toBeUndefined();
   });
 
-  test("a folder marker keeps an otherwise empty folder, as the bucket's listing does", async () => {
-    const table = memoryNodeTable();
-    await applyAll(table, obs(10, [{ path: "p/a.md" }, { path: "p/" }]));
-    await applyAll(table, obs(20, [], ["p/a.md"]));
-    expect(find(table, "p")?.goneAt).toBeUndefined();
-  });
-
   test("a file observed in a gone folder brings the whole chain back", async () => {
     const table = memoryNodeTable();
     await applyAll(table, obs(10, [{ path: "p/q/a.md" }]));
-    await applyAll(table, obs(20, [], [], ["p/"]));
+    await applyAll(table, obs(20, [], ["p/q/a.md"]));
+    expect(find(table, "p/q")?.goneAt).toBeDefined();
     await applyAll(table, obs(30, [{ path: "p/q/new.md" }]));
     expect(find(table, "p/q")?.goneAt).toBeUndefined();
     expect(find(table, "p")?.goneAt).toBeUndefined();
@@ -236,167 +175,24 @@ describe("applyObservation: emptied folders", () => {
   });
 });
 
-describe("pruneUnobserved", () => {
-  test("removes what nobody observed since the sweep began, and keeps what was observed", async () => {
-    const table = memoryNodeTable();
-    await applyAll(table, obs(10, [{ path: "gone/b.md" }, { path: "t.md" }, { path: "keep/a.md" }]));
-    await applyAll(table, obs(15, [], ["t.md"]));
-    await applyAll(table, obs(50, [{ path: "keep/a.md" }]));
-
-    const result = await pruneUnobserved(table, 40);
-    expect(result).toEqual({ more: false, removedFiles: 2 });
-    expect(table.rows().map((node) => node.path).sort()).toEqual(["keep", "keep/a.md"]);
-  });
-
-  test("answers more when a batch is full, and a second call finishes", async () => {
-    const table = memoryNodeTable();
-    const rows = Array.from({ length: PRUNE_BATCH + 1 }, (_, index) => ({ path: `old/f${index}.md` }));
-    await applyAll(table, obs(10, rows));
-
-    // The batch is full of nodes, and the one folder (`old`) is among them, so
-    // the first call removes PRUNE_BATCH - 1 files.
-    const first = await pruneUnobserved(table, 40);
-    expect(first.more).toBe(true);
-    expect(first.removedFiles).toBe(PRUNE_BATCH - 1);
-    const second = await pruneUnobserved(table, 40);
-    expect(second).toEqual({ more: false, removedFiles: 2 });
-    expect(table.rows()).toHaveLength(0);
-  });
-});
-
-describe("beginState / finishState", () => {
-  test("a fresh sweep lists from the start, takes the lease, and is filling", () => {
-    const { state, cursor, startedAt } = beginState(null, 5);
-    expect(cursor).toBe("");
-    expect(startedAt).toBe(5);
-    expect(state).toMatchObject({ status: "filling", cursor: "", startedAt: 5, leaseAt: 5, dirty: false, files: 0 });
-  });
-
-  test("a ready tree stays ready while a re-sweep runs", () => {
-    const ready = { status: "ready" as const, sweptAt: 3, dirty: false, files: 4 };
-    const { state } = beginState(ready, 9);
-    expect(state.status).toBe("ready");
-    expect(state.startedAt).toBe(9);
-    expect(state.files).toBe(4);
-  });
-
-  test("joining a running sweep keeps its cursor and the earlier start, and clears dirty", () => {
-    const running = { status: "filling" as const, cursor: "a/b", startedAt: 4, leaseAt: 6, dirty: true, files: 0 };
-    const { state, cursor, startedAt } = beginState(running, 9);
-    expect(cursor).toBe("a/b");
-    expect(startedAt).toBe(4);
-    expect(state).toMatchObject({ cursor: "a/b", startedAt: 4, leaseAt: 9, dirty: false });
-  });
-
-  test("an unsupported store, tried again, begins a fresh pass from the top", () => {
-    expect(beginState({ status: "unsupported", dirty: false, files: 3 }, 7)).toEqual({
-      state: { status: "filling", cursor: "", startedAt: 7, leaseAt: 7, dirty: false, files: 3 },
-      cursor: "",
-      startedAt: 7,
-    });
-  });
-
-  test("finishing makes the tree ready and clears the sweep's bookkeeping, but keeps a dirty request", () => {
-    const running = {
-      status: "filling" as const,
-      cursor: "z",
-      startedAt: 4,
-      leaseAt: 6,
-      dirty: true,
-      files: 0,
-      error: "boom",
-    };
-    const done = finishState(running, 30, 7);
-    expect(done).toEqual({ status: "ready", sweptAt: 30, dirty: true, files: 7 });
-    expect("cursor" in done).toBe(false);
-    expect("error" in done).toBe(false);
-  });
-
-  test("an unsupported store refuses to finish", () => {
-    expect(() => finishState({ status: "unsupported", dirty: false, files: 0 }, 30, 0)).toThrow(NodeTreeUnsupportedError);
-  });
-});
-
-describe("memoryNodeSink: a sweep end to end", () => {
-  test("begin, observe, prune and finish leave a ready tree that holds what was listed", async () => {
-    const sink = memoryNodeSink();
-    const { startedAt } = await sink.begin(10);
-    await sink.observe({ at: 11, rows: [{ path: "a/x.md" }, { path: "y.md" }], gone: [], vanishedUnder: [] });
-    await sink.prune(startedAt);
-    await sink.finish(20);
-
-    expect(await sink.state()).toMatchObject({ status: "ready", sweptAt: 20, files: 2, dirty: false });
-    expect(sink.table.rows().map((node) => node.path).sort()).toEqual(["a", "a/x.md", "y.md"]);
-  });
-
-  test("a sweep prunes what the previous state held and nothing listed again", async () => {
-    const sink = memoryNodeSink();
-    await sink.begin(10);
-    await sink.observe({ at: 11, rows: [{ path: "old.md" }, { path: "kept.md" }], gone: [], vanishedUnder: [] });
-    await sink.finish(12);
-
-    const { startedAt } = await sink.begin(30);
-    await sink.observe({ at: 31, rows: [{ path: "kept.md" }], gone: [], vanishedUnder: [] });
-    await sink.prune(startedAt);
-    await sink.finish(40);
-
-    expect(sink.table.rows().map((node) => node.path)).toEqual(["kept.md"]);
-    expect(await sink.state()).toMatchObject({ status: "ready", files: 1 });
-  });
-
-  test("a dirty request survives the sweep that was running when it arrived", async () => {
-    const sink = memoryNodeSink();
-    await sink.begin(10);
-    await sink.dirty();
-    await sink.finish(20);
-    expect(await sink.state()).toMatchObject({ status: "ready", dirty: true });
-  });
-
-  test("a failure label is kept until the next finish", async () => {
-    const sink = memoryNodeSink();
-    await sink.begin(10);
-    await sink.fail("the storage listing failed");
-    expect(await sink.state()).toMatchObject({ error: "the storage listing failed" });
-    await sink.finish(20);
-    expect(await sink.state()).not.toHaveProperty("error");
-  });
-
-  test("privacy is kept only while no newer read has been saved", async () => {
-    const sink = memoryNodeSink();
-    await sink.savePrivacy({ invalid: false, folders: [], notes: [{ path: "a.md", visibility: "private" }] }, 20);
-    await sink.savePrivacy({ invalid: true, folders: [], notes: [] }, 10);
-    expect(await sink.privacy()).toEqual({ invalid: false, folders: [], notes: [{ path: "a.md", visibility: "private" }] });
-  });
-});
-
 describe("the change log (phase 6)", () => {
   test("logs what appeared, changed and left, from every path that changes a file row, and nothing else", async () => {
     const table = memoryNodeTable();
-    await applyAll(table, { at: 10, rows: [{ path: "a/x.md", etag: "1" }, { path: "a/y.md", etag: "1" }, { path: "b/z.md", etag: "1" }], gone: [], vanishedUnder: [] });
+    await applyAll(table, { at: 10, rows: [{ path: "a/x.md", etag: "1" }, { path: "a/y.md", etag: "1" }, { path: "b/z.md", etag: "1" }], gone: [] });
     // Re-seen as it was, and an older observation: nothing.
-    await applyAll(table, { at: 20, rows: [{ path: "a/x.md", etag: "1" }], gone: [], vanishedUnder: [] });
-    await applyAll(table, { at: 5, rows: [{ path: "a/x.md", etag: "0" }], gone: [], vanishedUnder: [] });
-    // A new version, an exact departure, and one found missing under a listed folder.
-    await applyAll(table, { at: 30, rows: [{ path: "a/x.md", etag: "2" }], gone: ["b/z.md"], vanishedUnder: ["a/"] });
+    await applyAll(table, { at: 20, rows: [{ path: "a/x.md", etag: "1" }], gone: [] });
+    await applyAll(table, { at: 5, rows: [{ path: "a/x.md", etag: "0" }], gone: [] });
+    // A new version and an exact departure. A file the observation does not name is left as it is.
+    await applyAll(table, { at: 30, rows: [{ path: "a/x.md", etag: "2" }], gone: ["b/z.md"] });
     // Brought back.
-    await applyAll(table, { at: 40, rows: [{ path: "b/z.md", etag: "1" }], gone: [], vanishedUnder: [] });
+    await applyAll(table, { at: 40, rows: [{ path: "b/z.md", etag: "1" }], gone: [] });
     expect(table.log()).toEqual([
       { path: "a/x.md", gone: false },
       { path: "a/y.md", gone: false },
       { path: "b/z.md", gone: false },
       { path: "a/x.md", gone: false },
       { path: "b/z.md", gone: true },
-      { path: "a/y.md", gone: true },
       { path: "b/z.md", gone: false },
     ]);
-  });
-
-  test("a sweep's prune logs a live file it removes, and not a tombstone", async () => {
-    const table = memoryNodeTable();
-    await applyAll(table, { at: 10, rows: [{ path: "a.md" }, { path: "b.md" }], gone: [], vanishedUnder: [] });
-    await applyAll(table, { at: 15, rows: [], gone: ["b.md"], vanishedUnder: [] });
-    const before = table.log().length;
-    await pruneUnobserved(table, 20);
-    expect(table.log().slice(before)).toEqual([{ path: "a.md", gone: true }]);
   });
 });

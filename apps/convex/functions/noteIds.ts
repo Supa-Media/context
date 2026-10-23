@@ -183,8 +183,6 @@ export const recordCopy = internalMutation({
         at: Date.now(),
         rows: [{ path, etag: keyEtag, keyed: { noteId: row.noteId, storageKey: key } }],
         gone: [],
-        vanishedUnder: [],
-        source: "seam",
       });
       return (await nodeAt(ctx.db, workspaceId, path))?.etag === keyEtag;
     }

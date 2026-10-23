@@ -78,8 +78,7 @@ export function createTreeMethods({ post }) {
         },
         { timeoutMs: TREE_MANIFEST_TIMEOUT_MS, maxBytes: TREE_RESPONSE_BYTE_CAP }
       );
-      // `loading` carried through: a write's names say "still loading", not "unreachable".
-      if (!parsed || parsed.served !== true) return parsed?.loading === true ? { served: false, loading: true } : { served: false };
+      if (!parsed || parsed.served !== true) return { served: false };
       return parsed;
     },
 

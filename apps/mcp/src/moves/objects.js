@@ -210,8 +210,8 @@ export function referencesLine(result) {
     const notes = result.failed === 1 ? "1 note" : `${result.failed} notes`;
     return `\nreferences: partially rewritten (${notes} could not be checked or updated)`;
   }
-  if (result.loading) {
-    return "\nreferences: not rewritten (this workspace is still loading; links to the old path forward to the new one)";
+  if (result.unreadable) {
+    return "\nreferences: not rewritten (this workspace's file list could not be read just now; links to the old path forward to the new one)";
   }
   if (result.capped) {
     return "\nreferences: not rewritten (too many notes to update in one move; links to the old path forward to the new one)";

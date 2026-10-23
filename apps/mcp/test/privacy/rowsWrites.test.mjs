@@ -17,6 +17,7 @@ import {
 } from "../../src/privacy/state.js";
 import { canSee, PRIVACY_KEY, PRIVACY_RULES_BEGIN, PRIVACY_RULES_END } from "../../src/privacy/engine.js";
 import { toolSetFolderVisibility, toolSetVisibility } from "../../src/tools/visibility.js";
+import { withServedTree } from "../servedTree.mjs";
 
 class MemoryStore {
   constructor() {
@@ -246,7 +247,7 @@ test("rows mode: set_visibility calls setAccess, answers the permission error on
 });
 
 test("rows mode: set_folder_visibility sets the folder's own row and writes no rules", async () => {
-  const memory = new MemoryStore();
+  const memory = withServedTree(new MemoryStore());
   memory.seed(PRIVACY_KEY, FILE);
   const authority = rowsAuthority();
   const store = withPrivacyAuthority(memory, authority);

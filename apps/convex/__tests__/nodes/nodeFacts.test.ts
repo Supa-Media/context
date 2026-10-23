@@ -33,7 +33,8 @@ import type { FileStore } from "../../functions/lib/fileOps";
 import { runFactFill } from "../../functions/lib/nodes/factFill";
 import { ManagedEncryptionError } from "../../../mcp/src/store/managedEncryption.js";
 import { memoryStore, type MemoryStore } from "../storeStub.helpers";
-import { factCtx, fillAll, observeBucket, observeGone, tester, workspace } from "./facts.helpers";
+import { applyTreeObservation } from "../fixtures.helpers";
+import { factCtx, fillAll, observeBucket, tester, workspace } from "./facts.helpers";
 
 type Bucket = MemoryStore & FileStore;
 
@@ -124,10 +125,17 @@ describe("the facts fill", () => {
     const t = tester();
     const ws = await workspace(t, "gamma");
     const store = bucket();
-    await observeBucket(t, ws, store);
+    // A note the store wrote under its id key (a seam write): the only kind a removal can tombstone.
+    const noteId = "0190a000-0000-7000-8000-00000000000a";
+    await applyTreeObservation(t, {
+      workspaceId: ws,
+      at: 10,
+      rows: [{ path: "1-projects/plan.md", etag: "p1", size: 1, keyed: { noteId, storageKey: `notes/${noteId}.md` } }],
+      gone: [],
+    });
     await fillAll(t, ws, store);
-    await store.delete("1-projects/plan.md");
-    await observeGone(t, ws, "1-projects/plan.md");
+    expect((await linksOf(t, ws)).some((row: string) => row.startsWith("1-projects/plan.md "))).toBe(true);
+    await applyTreeObservation(t, { workspaceId: ws, at: 20, rows: [], gone: ["1-projects/plan.md"] });
     await fillAll(t, ws, store);
     expect((await linksOf(t, ws)).some((row: string) => row.startsWith("1-projects/plan.md "))).toBe(false);
   });

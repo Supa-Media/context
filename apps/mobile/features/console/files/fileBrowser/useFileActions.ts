@@ -31,9 +31,9 @@ export function useFileActions(deps: FileActionsDeps) {
   /*
     One folder's listing, from the Convex tree (`nodesListing.listFolder`).
     The bucket is never listed for it (decided by the owner, 2026-10-13). The
-    query answers `null` while the workspace's first copy has not finished;
-    then the `listFiles` action answers instead, from the same rows, and its
-    `TREE_LOADING` (which also starts the copy) or refusal is the answer.
+    query answers `null` where the tree does not serve the workspace; then the
+    `listFiles` action answers instead, from the same rows, and its refusal is
+    the answer.
   */
   // Read through a ref: `listFiles` keeps one identity for the context's whole
   // life, because the root load re-runs (and resets the tree) whenever it changes.

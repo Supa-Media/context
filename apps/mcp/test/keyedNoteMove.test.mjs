@@ -18,6 +18,7 @@ import { toolArchiveNote } from "../src/tools/moves/archive.js";
 import { toolMoveNotes } from "../src/tools/moves/notes.js";
 import { readDocument as readCollaborationDocument } from "@context/collaboration";
 import { withPrivacyAuthority } from "../src/store/privacyAuthority.js";
+import { withServedTree } from "./servedTree.mjs";
 
 /** A bucket fake with the methods a note move reads and writes. */
 function bucket(files) {
@@ -56,7 +57,7 @@ function bucket(files) {
       return { objects: [...objects.keys()].filter((key) => key.startsWith(prefix)).sort().map((key) => ({ key })), truncated: false };
     },
   };
-  return { store, objects, writes };
+  return { store: withServedTree(store), objects, writes };
 }
 
 /** The writes that touch note bytes: not the activity record (`.context/audit/`, `activity.md`). */

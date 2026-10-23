@@ -4,6 +4,7 @@
  * module overview and the sabotage-testing record.
  */
 
+import { withServedTree } from "../servedTree.mjs";
 import {
   BIG_TOKEN,
   PRIVACY_MANIFEST,
@@ -92,7 +93,7 @@ export async function runSearchIntegrationBudgetFallbackChecks(check, harness) {
     noEtagBucket.seed("privacy.md", PRIVACY_MANIFEST);
     noEtagBucket.seed("1-projects/one.md", "# One\n\nA NARWHAL swims past.\n");
     noEtagBucket.seed("1-projects/two.md", "# Two\n\nAnother NARWHAL entirely.\n");
-    const noEtagStore = new R2Store(noEtagBucket);
+    const noEtagStore = withServedTree(new R2Store(noEtagBucket));
     const firstPass = await syncIndex(noEtagStore, { budget: createSearchBudget(50) });
     noEtagBucket.resetCounts();
     const secondPass = await syncIndex(noEtagStore, { budget: createSearchBudget(50) });

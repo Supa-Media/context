@@ -15,9 +15,8 @@
  *    the chaos score each answer from the rows and the rules mirror;
  *  - who sees what is the mirror's `canSee`: a team member never gets a
  *    private name from any of them;
- *  - a workspace whose first copy has not finished answers `TREE_LOADING`
- *    and has its copy started, and one whose store cannot be swept says so,
- *    neither one opening the bucket;
+ *  - a workspace whose tree is not ready answers `NOT_SERVED`, and no read
+ *    opens the bucket;
  *  - a List shows the last parsed front matter for a note saved since, and a
  *    note never parsed is a gap (`missing`), with no note read.
  *
@@ -37,14 +36,13 @@ import type { Id } from "../../_generated/dataModel";
 import { clearanceOf } from "../../functions/lib/clearance";
 import { type FileStore } from "../../functions/lib/fileOps";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
-import { privacyMirrorOf } from "../../functions/lib/nodes/privacyMirror";
+import { privacyMirrorOf } from "../privacyMirrorOf.helpers";
 import { answerFromFacts } from "../../functions/lib/filesFns/folderNotes";
-import { TREE_LOADING } from "../../functions/lib/nodes/treeLoading";
-import { fillAll, observeBucket, tester, workspace, type Tester } from "./facts.helpers";
+import { NOT_SERVED } from "../../functions/lib/nodes/treeGate";
+import { fillAll, tester, workspace, type Tester } from "./facts.helpers";
 import { memoryStore, type MemoryStore } from "../storeStub.helpers";
-import { seedStorageBinding } from "../fixtures.helpers";
-import { renderPrivacyManifest, setFolderVisibility, setVisibility } from "../seededRules.helpers";
-import { translateMirror } from "../seededRules.helpers";
+import { pathObjectsOf, seedStorageBinding, seedTreeRows } from "../fixtures.helpers";
+import { renderPrivacyManifest, setFolderVisibility, setVisibility, translateMirror } from "../seededRules.helpers";
 
 const OWNER = clearanceOf("private");
 
@@ -68,10 +66,8 @@ async function fixture(options: { facts?: boolean } = {}) {
   const t = tester();
   const ws = await workspace(t, "acme");
   const store = await bucket();
-  await t.mutation(internal.functions.nodes.begin, { workspaceId: ws, at: 1 });
-  await observeBucket(t, ws, store, 2);
+  await seedTreeRows(t, ws, pathObjectsOf(store));
   await translateMirror(t, ws, await privacyMirrorOf(store));
-  await t.mutation(internal.functions.nodes.finish, { workspaceId: ws, at: 3, files: 7 });
   if (options.facts !== false) await fillAll(t, ws, store);
   return { t, ws, store };
 }
@@ -91,17 +87,6 @@ async function notCopied(t: Tester) {
     const row = await ctx.db.query("nodeTrees").first();
     if (row) await ctx.db.patch(row._id, { status: "filling", sweptAt: undefined, leaseAt: undefined, cursor: "1-projects" });
   });
-}
-
-async function sweepsScheduled(t: Tester): Promise<number> {
-  return await t.run(async (ctx) =>
-    (await ctx.db.system.query("_scheduled_functions").collect()).filter(
-      (job) =>
-        getFunctionName(job.name as never) === "functions/files:runFileOperation" &&
-        (job.args[0] as { operation?: { kind?: string } })?.operation?.kind === "nodesSweep" &&
-        job.state.kind === "pending",
-    ).length,
-  );
 }
 
 const READS: Record<string, unknown>[] = [
@@ -176,20 +161,19 @@ describe("reads the tree answers with no bucket at all", () => {
   });
 });
 
-describe("a first copy not finished is still loading", () => {
-  test("every read answers TREE_LOADING, never the bucket, and the copy is started", async () => {
+describe("a tree that is not ready is not served", () => {
+  test("every read answers NOT_SERVED, never the bucket", async () => {
     const { t, ws } = await fixture({ facts: false });
     await bound(t, ws);
     await notCopied(t);
     for (const operation of READS) {
       await expect(operate(t, ws, "private", operation), operation.kind as string).rejects.toMatchObject({
-        data: { code: TREE_LOADING },
+        data: { code: NOT_SERVED },
       });
     }
-    expect(await sweepsScheduled(t)).toBeGreaterThan(0);
   });
 
-  test("with no bucket bound there is nothing to load: the barrier's own STORAGE_NOT_CONNECTED, and no copy started", async () => {
+  test("with no bucket bound there is nothing to read: the barrier's own STORAGE_NOT_CONNECTED", async () => {
     const { t, ws } = await fixture({ facts: false });
     await notCopied(t);
     for (const operation of READS) {
@@ -197,21 +181,6 @@ describe("a first copy not finished is still loading", () => {
         data: { code: "STORAGE_NOT_CONNECTED" },
       });
     }
-    expect(await sweepsScheduled(t)).toBe(0);
-  });
-
-  test("a store no sweep can copy says so in its own words", async () => {
-    const { t, ws } = await fixture({ facts: false });
-    await bound(t, ws);
-    await t.mutation(internal.functions.nodes.unsupported, { workspaceId: ws });
-    await t.run(async (ctx) => {
-      const row = await ctx.db.query("nodeTrees").first();
-      if (row) await ctx.db.patch(row._id, { status: "unsupported" });
-    });
-    await expect(operate(t, ws, "private", { kind: "list", path: "" })).rejects.toMatchObject({
-      data: { code: TREE_LOADING, message: expect.stringMatching(/could not be listed/) },
-    });
-    expect(await sweepsScheduled(t)).toBe(0);
   });
 
   test("facts not filled yet: the map and the List still answer from the rows, and the fill starts", async () => {

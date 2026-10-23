@@ -33,8 +33,9 @@ import type { PrivacyState } from "./lib/fileOps/privacyState";
 import type { Visibility } from "./lib/privacy";
 import { checkFolderIcon, visibleFolderIcons } from "./lib/fileOps/folderIcons";
 import { toConvexError } from "./lib/filesFns/operationErrors";
-import { servedNodesStore } from "./lib/nodes/manifestStore";
-import { NO_BUCKET, servedStoreOrLoading } from "./lib/nodes/treeLoading";
+import { NO_BUCKET, servedNodesStore } from "./lib/nodes/manifestStore";
+import { servedStoreOrNotServed } from "./lib/nodes/treeGate";
+import { attachTreeListing } from "./lib/nodes/treeNames";
 
 type Icons = Array<{ path: string; icon: string }>;
 
@@ -60,7 +61,7 @@ async function judgedState(ctx: ActionCtx, workspaceId: Id<"workspaces">, audien
   };
 }
 
-/** The icons this clearance may see, over the tree's rules; none while the tree is still loading. */
+/** The icons this clearance may see, over the tree's rules; none while the tree does not serve. */
 async function visible(
   ctx: ActionCtx,
   workspaceId: Id<"workspaces">,
@@ -93,7 +94,9 @@ export const set = action({
   returns: iconsValidator,
   handler: async (ctx, args): Promise<Icons> => {
     const clearance = await clearanceFor(ctx, args.workspaceId, "editor");
-    const tree = await servedStoreOrLoading(ctx, args.workspaceId);
+    const tree = await servedStoreOrNotServed(ctx, args.workspaceId);
+    // "Does the folder exist" is the tree's answer, asked through its listing (`namesListing`).
+    attachTreeListing(ctx, args.workspaceId, tree);
     let path: string;
     try {
       path = await checkFolderIcon({

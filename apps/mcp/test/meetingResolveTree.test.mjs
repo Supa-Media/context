@@ -35,6 +35,7 @@ import { resolveMeetingNotePath } from "../src/meetings/notes.js";
 import { propsOf } from "../src/tree/props.js";
 import { compareKeys } from "../src/tree/served.js";
 import { withPrivacyAuthority } from "../src/store/privacyAuthority.js";
+import { withServedTree } from "./servedTree.mjs";
 
 // The access rows the control plane sends beside the binding: 1-projects is team, everything else private.
 const RULES = { etag: "rows-v1", accessVersion: 1, folders: [{ prefix: "1-projects", visibility: "team" }], notes: [] };
@@ -55,7 +56,7 @@ function meetingNote(id, title = TITLE) {
 function treeBackedStore(notes, { unread = [], ledger = [], treeServed = true } = {}) {
   const bucket = createBucket();
   for (const [key, text] of Object.entries(notes)) bucket.seed(key, text);
-  const store = new R2Store(bucket);
+  const store = withServedTree(new R2Store(bucket));
   Object.defineProperty(store, "treeFacts", {
     configurable: true,
     value: async (request) => {

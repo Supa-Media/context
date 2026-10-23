@@ -20,8 +20,14 @@ import { runIncrementalSync } from "../../src/communications/gmail/sync.js";
 import { createFixtureGmail, fixtureMessage } from "./fixtures.mjs";
 import { withPrivacyAuthority } from "../../src/store/privacyAuthority.js";
 
-/** A store with every guard a move asks for: conditional create, write and delete, and a paged list. */
+import { withServedTree } from "../servedTree.mjs";
+
+/** A store with every guard a move asks for: conditional create, write and delete, and a paged list, its tree served as production serves it. */
 function guardedStore(seed = {}) {
+  return withServedTree(rawGuardedStore(seed));
+}
+
+function rawGuardedStore(seed = {}) {
   const objects = new Map();
   let counter = 0;
   const set = (key, body) => {
@@ -139,7 +145,8 @@ export async function runGmailContactChecks(check) {
       return put(path === TREE_PATH ? KEY : path, ...rest);
     };
     store.keyedWorkspace = async () => true;
-    store.treeManifest = async () => ({ served: true, entries: [{ path: TREE_PATH, etag: "t1", size: 10 }], cursor: null });
+    // The tree names the page by its path, not by its id key: a keyed control plane's own answer.
+    Object.defineProperty(store, "treeManifest", { configurable: true, value: async () => ({ served: true, entries: [{ path: TREE_PATH, etag: "t1", size: 10 }], cursor: null }) });
     const result = await writeContactDraft(store, claire(), { remainingQuotaBytes: 1_000_000 });
     const contactPuts = putPaths.filter((path) => path !== CONTACT_INDEX_KEY);
     check("a keyed workspace finds a contact page by the tree's name, and writes that page rather than a new one",
@@ -208,7 +215,8 @@ export async function runGmailContactChecks(check) {
     }
     {
       const store = withRows(guardedStore(seed()));
-      store.list = async () => { throw new Error("listing refused"); };
+      // The listing of names is the control plane's tree now, so that is what refuses.
+      Object.defineProperty(store, "treeManifest", { configurable: true, value: async () => { throw new Error("listing refused"); } });
       let threw = false;
       try {
         await (await openContactLookup(store)).sweepDormant({ now: NOW });

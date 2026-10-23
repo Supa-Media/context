@@ -105,9 +105,10 @@ import {
 } from "../src/search/shards.js";
 import { createSearchTrace } from "../src/search/trace.js";
 import { searchIndexedNotes } from "../src/search/visible.js";
+import { withServedTree } from "./servedTree.mjs";
 import {
   SEARCH_RESULT_LIMIT,
-  createBucket,
+  createBucket as createRawBucket,
   alwaysVisible,
   indexable,
   ROOTS,
@@ -116,6 +117,9 @@ import {
   request,
   visibleOnly,
 } from "./searchPacingFixtures.mjs";
+
+/** The fixture bucket, its control-plane tree served from its own keys as production serves names. */
+const createBucket = () => withServedTree(createRawBucket());
 
 async function runFloorIsNotAQueryProbe(check) {
   const bucket = createBucket();
@@ -454,9 +458,11 @@ export async function runSearchPacingChecks(check) {
 
     bucket.resetCounts();
     const warm = await request(bucket, { query: "narwhal", budget: 600 });
+    // The names come from the control plane's tree in one read (this fixture serves it from the bucket's own
+    // list), never from a walk of the bucket folder by folder, so there is nothing left to overlap.
     check(
-      "folder listings overlap rather than running one folder at a time",
-      bucket.peak.list > 1
+      "the note listing is one read of the tree, not one listing per folder",
+      bucket.counts.list === 1
     );
     check(
       "shard objects are read in waves, bounded by the declared width",

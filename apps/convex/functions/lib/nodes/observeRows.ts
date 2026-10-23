@@ -1,22 +1,16 @@
 /**
- * How one row of an observation lands in the tree (`observe.ts` applies the
- * observation; this file says what each row does). Two sources, two rule sets:
- *
- * - a **bucket** row (a look at a path object) changes an unkeyed row exactly as
- *   the tree always has, leaves a keyed row alone, and in a keyed workspace adopts
- *   a path that has no row not at all;
- * - a **seam** row (the store reporting its own keyed write) writes a keyed row,
- *   or is `taken`: the tree holds something else at that path, and nothing changes.
+ * How one row of a seam observation lands in the tree (`observe.ts` applies
+ * the observation; this file says what each row does). Every row is the
+ * store seam reporting its own keyed write: it writes a keyed row, or is
+ * `taken` because the tree holds something else at that path, and nothing
+ * changes. No row is ever taken from a listing of the bucket.
  *
  * Nothing here decides which rows are gone or pruned; that is `observe.ts`.
  */
 
 import { folderChain, isKeyed, nameOf, type NodeRow, type NodeTable, type Observation, type StoredNode } from "./table";
 
-/**
- * Stores one row under the rules of its observation's source. Answers
- * `taken` only for a seam row the tree cannot hold (`applySeamRow`).
- */
+/** Stores one row. Answers `taken` when the tree cannot hold it (`applySeamRow`). */
 export async function applyRow(
   table: NodeTable,
   lookup: (path: string) => Promise<StoredNode | null>,
@@ -25,77 +19,7 @@ export async function applyRow(
   path: string,
   row: NodeRow,
 ): Promise<"taken" | undefined> {
-  if (obs.source === "seam") return await applySeamRow(table, lookup, cache, obs.at, path, row);
-  await applyBucketRow(table, lookup, cache, obs, path, row);
-  return undefined;
-}
-
-/**
- * A bucket look at one path object. An unkeyed row behaves as it always did; a
- * keyed row is the store seam's and is left alone; and in a keyed workspace a
- * path with no row is not adopted, so no folder is made for it either.
- */
-async function applyBucketRow(
-  table: NodeTable,
-  lookup: (path: string) => Promise<StoredNode | null>,
-  cache: Map<string, StoredNode | null>,
-  obs: Observation,
-  path: string,
-  row: NodeRow,
-): Promise<void> {
-  const at = obs.at;
-  const before = await lookup(path);
-  if (before !== null && isKeyed(before)) return;
-  if (before === null && obs.keyedWorkspace === true) return;
-
-  const placed = await placeChain(table, lookup, cache, path, at);
-  if (placed === null) return; // a file occupies a folder's place: the row cannot be placed
-
-  // Read after the chain: a marker key (`a/`) is a folder the chain just made, and it is then the folder, not a new file.
-  const existing = await lookup(path);
-  if (existing === null) {
-    const id = await table.insert({
-      path,
-      parentId: placed.parentId,
-      name: nameOf(path),
-      kind: "file",
-      etag: row.etag,
-      size: row.size,
-      uploaded: row.uploaded,
-      observedAt: at,
-    });
-    cache.set(path, { id, path, parentId: placed.parentId, name: nameOf(path), kind: "file", etag: row.etag, size: row.size, uploaded: row.uploaded, observedAt: at });
-    await table.logChange?.(path, false);
-    await reviveChain(table, lookup, cache, path);
-    return;
-  }
-  // A folder at this key: a marker key (`a/`) names the folder it already is.
-  if (existing.kind !== "file") return;
-  if (existing.observedAt > at) return;
-  if (existing.goneAt !== undefined && existing.goneAt > at) return;
-  // A gone row seen again keeps its id, unless a move handed that id to a live row meanwhile: two live rows
-  // must never share an id (the id names the note's key), so the revived one starts afresh. Its copy described
-  // the object that went away, so it is dropped either way.
-  const back = existing.goneAt !== undefined;
-  const idTaken =
-    back &&
-    existing.noteId !== undefined &&
-    (table.idHeldElsewhere === undefined || (await table.idHeldElsewhere(existing.noteId, existing.id)));
-  const fields = {
-    etag: row.etag,
-    size: row.size,
-    uploaded: row.uploaded,
-    observedAt: at,
-    goneAt: undefined,
-    ...(back ? { idCopy: undefined, idHeals: undefined } : {}),
-    ...(idTaken ? { noteId: undefined } : {}),
-  };
-  // Only a change is logged: a sweep that re-sees a file as it was writes nothing there.
-  const changed = existing.goneAt !== undefined || existing.etag !== row.etag || existing.size !== row.size;
-  await table.patch(existing.id, fields);
-  if (changed) await table.logChange?.(path, false);
-  cache.set(path, { ...existing, ...fields });
-  await reviveChain(table, lookup, cache, path);
+  return await applySeamRow(table, lookup, cache, obs.at, path, row);
 }
 
 /**

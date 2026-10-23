@@ -18,7 +18,7 @@ import {
 import { LIST_PAGE_CAP, type FileStore } from "./store";
 import type { PrivacyState } from "./privacyState";
 import type { TreeNames } from "./treeChecks";
-import { namesListing } from "./walk";
+import { attachedTree, namesListing } from "./walk";
 import { bareNameOf } from "../../../../mcp/src/tree/links.js";
 
 /**
@@ -167,11 +167,11 @@ const CANDIDATE_BATCH = 1_000;
  * (`nodeLinks`), as the gateway narrows its own (`apps/mcp/src/tree/facts.js`): every note pointing at a
  * renamed path by path or at its bare name, every note changed since its links were read, and every renamed
  * note that holds links of its own (its relative links move with it). `null` where the facts cannot answer
- * (no tree attached, or not whole yet), and every visible note is read as before.
+ * (not whole yet), and every visible note is read as before.
  */
 async function linkCandidates(store: FileStore, renames: ReadonlyMap<string, string>): Promise<Set<string> | null> {
-  const tree = (store as { treeListing?: TreeNames }).treeListing;
-  if (typeof tree?.links !== "function" || typeof tree.linking !== "function") return null;
+  const tree = attachedTree<TreeNames>(store);
+  if (typeof tree.links !== "function" || typeof tree.linking !== "function") return null;
   const sources = [...renames.keys()];
   const names = [...new Set(sources.map((path) => bareNameOf(path) as string))];
   const found = new Set<string>();

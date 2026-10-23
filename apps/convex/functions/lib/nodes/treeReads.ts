@@ -3,11 +3,9 @@
  * a bucket credential is opened, and never from the bucket.
  *
  * Decided by the owner, 2026-10-13: "the only thing that should be reading
- * from storage directly should be actually opening and editing a note ...
- * I don't want to see even fallbacks". Until then each of these readers read
- * the rows where the tree served and walked the bucket (or the search index,
- * or the D1 tables) everywhere else, and the barrier decrypted the bucket's
- * credential for all of them, whether or not it was used.
+ * from storage directly should be actually opening and editing a note". Each
+ * of these readers reads the rows, and the barrier decrypts no credential for
+ * them.
  *
  * - a one-folder `list` (the console's listing, a shared folder link, a share
  *   card, the routines scan, an Obsidian plugin's vault listing);
@@ -17,14 +15,13 @@
  *   `workspaceGraph` (the map), `visiblePaths` (the map's moves panel);
  * - `folderNotes` (Lists and Boards) and `chaosScore`.
  *
- * Each runs over `servedStoreOrLoading`: the rows for every listing, the
+ * Each runs over `servedStoreOrNotServed`: the rows for every listing, the
  * rules mirror for `privacy.md`, and a store underneath that throws on any
  * other read, so none of these can reach the bucket even by accident. Who
  * may see what is decided by the same code as before (`listFolder`,
- * `syncManifest`, `canSee`), over the mirror. While the workspace's first
- * copy has not finished, each answers `TREE_LOADING` and starts the copy; a
- * workspace with no bucket bound throws `TreeUnbound`, which the barrier
- * answers as `STORAGE_NOT_CONNECTED`.
+ * `syncManifest`, `canSee`), over the mirror. A workspace the tree does not
+ * serve is refused as not served; a workspace with no bucket bound throws
+ * `TreeUnbound`, which the barrier answers as `STORAGE_NOT_CONNECTED`.
  *
  * Every `manifest` is here, for every caller: no walk lists the bucket for
  * which notes exist, and each entry's etag is the version `readNote` returns
@@ -47,7 +44,7 @@ import { liveChaosScoreOf, NO_CHAOS, type ChaosSource } from "../filesFns/chaosO
 import { factChaosSource, factPropSource } from "./factSources";
 import { scheduleFactFill } from "./factFill";
 import { attachLinkTable, convexLinkTable } from "./linkTable";
-import { notServed, readinessAndKick, servedStoreOrLoading } from "./treeLoading";
+import { notServed, servedStoreOrNotServed } from "./treeGate";
 import { NODE_PRIVACY_KEY } from "./table";
 
 const TREE_READS = new Set(["list", "notePaths", "folderPaths", "workspaceGraph", "visiblePaths", "folderNotes", "chaosScore"]);
@@ -64,14 +61,14 @@ type ReadArgs = {
   operation: { kind: string; [field: string]: unknown };
 };
 
-/** The answer to a tree read (`isTreeRead`), or `TREE_LOADING` thrown. Never opens the bucket. */
+/** The answer to a tree read (`isTreeRead`), or the refusal thrown. Never opens the bucket. */
 export async function treeReadAnswer(ctx: ActionCtx, args: ReadArgs): Promise<OperationResult> {
   const clearance = clearanceOf(args.scope, args.grantedNames ?? []);
   const operation = args.operation;
   if (operation.kind === "list") return await oneFolder(ctx, args);
   if (operation.kind === "manifest") return await manifestPage(ctx, args, clearance);
   // A pin reader is judged by a guest's rules (`lib/pinnedReaders.ts`).
-  const served = await servedStoreOrLoading(ctx, args.workspaceId, audienceOfNames(args.grantedNames));
+  const served = await servedStoreOrNotServed(ctx, args.workspaceId, audienceOfNames(args.grantedNames));
   if (operation.kind === "folderNotes") return await folderNotes(ctx, args.workspaceId, served, operation, clearance);
   if (operation.kind === "chaosScore") return await chaosScore(ctx, args.workspaceId, served, operation, clearance);
   const store = operation.kind === "workspaceGraph" ? await withLinks(ctx, args.workspaceId, served) : served;
@@ -100,8 +97,7 @@ async function oneFolder(ctx: ActionCtx, args: ReadArgs): Promise<OperationResul
     ...(args.grantedNames === undefined ? {} : { grantedNames: args.grantedNames }),
   });
   if (listing !== null) return listing as OperationResult;
-  const readiness = await readinessAndKick(ctx, args.workspaceId);
-  throw notServed(readiness === "served" ? "loading" : readiness);
+  throw await notServed(ctx, args.workspaceId);
 }
 
 /**
@@ -116,7 +112,7 @@ async function manifestPage(ctx: ActionCtx, args: ReadArgs, clearance: Clearance
   const start = first
     ? await ctx.runQuery(internal.functions.nodesFeed.walkStart, { workspaceId: args.workspaceId, now: Date.now() }).catch(() => null)
     : null;
-  const served = await servedStoreOrLoading(ctx, args.workspaceId, audienceOfNames(args.grantedNames));
+  const served = await servedStoreOrNotServed(ctx, args.workspaceId, audienceOfNames(args.grantedNames));
   const result = await run(served, clearance, args.operation, args.workspaceId);
   // `privacy.md` is the rules the tree holds, not a note, and no bucket layout
   // has it as one (non-negotiable 3), so it is never a manifest entry here.

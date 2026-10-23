@@ -5,6 +5,7 @@
  * record.
  */
 
+import { withServedTree } from "../servedTree.mjs";
 import {
   R2Store,
   converge,
@@ -27,7 +28,7 @@ export async function runSearchShardsMiscChecks(check) {
     // the expander finds it anyway, so a hit-based probe measures the expander.
     const bucket = createBucket();
     bucket.seed("1-projects/edge.md", "abc ".repeat(4000));
-    const pass = await syncShardedIndex(new R2Store(bucket), { budget: createSearchBudget(20) });
+    const pass = await syncShardedIndex(withServedTree(new R2Store(bucket)), { budget: createSearchBudget(20) });
     check(
       "a giant note is indexed by its head in a shard as well, at the same 2,048 characters",
       // 512 = 2,048 characters of "abc " groups. A literal, not a division of
@@ -42,7 +43,7 @@ export async function runSearchShardsMiscChecks(check) {
   {
     const bucket = createBucket();
     bucket.seed("1-projects/note.md", "# Note\n\nA TAKAHE, once.\n");
-    const store = new R2Store(bucket);
+    const store = withServedTree(new R2Store(bucket));
     await converge(store);
 
     const budget = createSearchBudget(3);

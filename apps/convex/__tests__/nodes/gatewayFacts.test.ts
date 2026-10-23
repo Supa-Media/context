@@ -28,6 +28,7 @@
  *    through a shared note goes missing, as the tree would still show it).
  */
 
+import { seedTreeRows } from "../fixtures.helpers";
 import { describe, expect, test } from "vitest";
 import { convexTest } from "convex-test";
 import { internal } from "../../_generated/api";
@@ -69,28 +70,17 @@ const PATHS = [
   "2-areas/shared.md",
 ];
 
+/** Each path's bucket object at version `e-<path>`, the version the facts answer name. */
 async function observe(t: T, workspaceId: Id<"workspaces">, paths: string[]) {
-  await t.mutation(internal.functions.nodes.observe, {
-    workspaceId,
-    at: 10,
-    rows: paths.map((path) => ({ path, etag: `e-${path}`, size: path.length, uploaded: 1_000 })),
-    gone: [],
-    vanishedUnder: [],
-  });
+  await seedTreeRows(t, workspaceId, paths.map((path) => ({ path, etag: `e-${path}` })));
 }
 
-async function proved(t: T, workspaceId: Id<"workspaces">, paths: string[], mismatches = 0) {
+async function proved(t: T, workspaceId: Id<"workspaces">, paths: string[]) {
   await observe(t, workspaceId, paths);
   await translateMirror(t, workspaceId, RULES);
-  await t.mutation(internal.functions.nodes.begin, { workspaceId, at: 5 });
-  await t.mutation(internal.functions.nodes.finish, { workspaceId, at: 20, files: paths.length });
-  await t.mutation(internal.functions.nodes.saveParity, {
-    workspaceId,
-    parity: { checkedAt: 30, clearances: 2, mismatches, privacyMatches: true },
-  });
 }
 
-async function fixture(options: { mismatches?: number } = {}) {
+async function fixture() {
   const t = convexTest(schema, modules);
   const ids = await t.run(async (ctx) => {
     const now = Date.now();
@@ -115,7 +105,7 @@ async function fixture(options: { mismatches?: number } = {}) {
     await ctx.db.insert("workspaceMembers", { workspaceId: other, userId: outsiderId, role: "owner", joinedAt: now });
     return { ws, other, ownerId, memberId, outsiderId };
   });
-  await proved(t, ids.ws, PATHS, options.mismatches ?? 0);
+  await proved(t, ids.ws, PATHS);
   await proved(t, ids.other, ["privacy.md", "1-projects/theirs.md"]);
   await registerClient(t, CLIENT);
   const grant = (accessToken: string, userId: Id<"users">, workspaceId: Id<"workspaces">, scopes: string[]) =>
@@ -227,8 +217,8 @@ describe("POST /gateway/tree/facts", () => {
     expect(notServed).toContain('{"served":false}');
   });
 
-  test("a first copy not finished is still loading for a reader the grant lets in; parity changes nothing", async () => {
-    const { t, ws, ownerId } = await fixture({ mismatches: 3 });
+  test("a tree not ready yet is not served to a reader the grant lets in", async () => {
+    const { t, ws, ownerId } = await fixture();
     await seedStorageBinding(t as never, { workspaceId: ws, boundBy: ownerId, status: "connected" });
     await withFacts(t, ws);
     expect(await facts(t, { accessToken: OWNER, expectedWorkspaceId: ws, ...LINKS })).toMatchObject({ served: true });
@@ -236,7 +226,7 @@ describe("POST /gateway/tree/facts", () => {
       const row = await ctx.db.query("nodeTrees").withIndex("by_workspace", (q) => q.eq("workspaceId", ws)).unique();
       if (row) await ctx.db.patch(row._id, { status: "filling", sweptAt: undefined });
     });
-    expect(await facts(t, { accessToken: OWNER, expectedWorkspaceId: ws, ...LINKS })).toEqual({ served: false, loading: true });
+    expect(await facts(t, { accessToken: OWNER, expectedWorkspaceId: ws, ...LINKS })).toEqual({ served: false });
   });
 
   test("props are only for notes the reader may see, and a note never read is absent", async () => {

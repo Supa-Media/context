@@ -213,7 +213,6 @@ export async function projectSearchIndex(
   const failure: string | null = result.failure ?? null;
   if (options.workspaceId) console.info("fast_search.projection_pass", {
     workspaceId: options.workspaceId,
-    source: "bucket",
     censusSize: census.size,
     listingTruncated: listed.truncated,
     budgetAfterCensus,

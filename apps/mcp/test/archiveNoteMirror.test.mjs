@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { toolArchiveNote } from "../src/tools/moves/archive.js";
 import { withPrivacyAuthority } from "../src/store/privacyAuthority.js";
+import { withServedTree } from "./servedTree.mjs";
 
 function bucket(files) {
   const objects = new Map(Object.entries(files).map(([key, body]) => [key, { body, etag: `v-${key}` }]));
@@ -49,7 +50,7 @@ function bucket(files) {
       return { objects: direct.map((key) => ({ key, etag: objects.get(key).etag, size: 1 })), delimitedPrefixes: folders, truncated: false };
     },
   };
-  return { store, objects };
+  return { store: withServedTree(store), objects };
 }
 
 const RULES = [{ prefix: "4-archive", vis: "private" }];

@@ -16,8 +16,8 @@
  *  - `walkStart` is where a catch-up after a whole walk starts.
  *
  * All of it answers once the workspace's first copy has finished
- * (`treeReadiness`); before that it is `null`, and a device's walk is told
- * the tree is still loading. Staff's Pause does not stop it.
+ * (the `nodeTrees` row is `ready`); before that it is `null`, the tree does
+ * not serve, and a device's walk is refused. Staff's Pause does not stop it.
  */
 
 import { v } from "convex/values";

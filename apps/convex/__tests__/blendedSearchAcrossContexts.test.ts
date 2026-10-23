@@ -5,8 +5,9 @@
 
 import { describe, expect, test, vi, afterEach } from "vitest";
 import { api } from "../_generated/api";
+import type { Id } from "../_generated/dataModel";
 import { BLEND_PAGE_SIZE, encodeCursor, queryFingerprint } from "../functions/lib/blendedSearch";
-import { addMember, asUser } from "./fixtures.helpers";
+import { addMember, asUser, type TestConvex } from "./fixtures.helpers";
 import {
   BOB_BUCKET,
   BOB_PRIVATE_WORD,
@@ -18,6 +19,17 @@ import {
 afterEach(() => {
   vi.unstubAllGlobals();
 });
+
+/**
+ * The tree dates each note from its row's upload time (`editedAt`). A seeded bucket has no upload
+ * times, so the test stamps one on every file row it copied, as the bucket's own objects would carry.
+ */
+async function datedTree(t: TestConvex, workspaceId: Id<"workspaces">): Promise<void> {
+  await t.run(async (ctx) => {
+    const files = (await ctx.db.query("nodes").collect()).filter((row) => row.workspaceId === workspaceId && row.kind === "file");
+    for (const row of files) await ctx.db.patch(row._id, { uploaded: Date.UTC(2026, 8, 12) });
+  });
+}
 
 describe("the blended search, across contexts", () => {
   test("a member of both contexts gets both, blended and labelled", async () => {
@@ -34,6 +46,8 @@ describe("the blended search, across contexts", () => {
       visibility: "team",
     });
     await indexBucket(f.t, f.bobWs);
+    await datedTree(f.t, f.aliceWs);
+    await datedTree(f.t, f.bobWs);
 
     const answer = await asUser(f.t, f.alice).action(api.functions.files.searchContexts, {
       query: SHARED_WORD,

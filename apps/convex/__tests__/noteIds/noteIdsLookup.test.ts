@@ -63,10 +63,10 @@ describe("POST /gateway/note-ids/lookup", () => {
     const body = await bodyOf(response);
     // `keyed` and `notes` (`noteIdsKeyedRoutes.test.ts`) are answered beside it; `copies` is unchanged.
     expect(body.copies).toEqual({
-      [PLAN]: { key: `notes/${NOTE_IDS.plan}.md`, etag: `e-${PLAN}`, keyEtag: KEY_ETAG, fresh: true },
+      [PLAN]: { key: `notes/${NOTE_IDS.plan}.md`, etag: PLAN, keyEtag: KEY_ETAG, fresh: true },
       [STALE]: { key: `notes/${NOTE_IDS.stale}.md`, etag: "an-older-etag", keyEtag: KEY_ETAG, fresh: false },
       [NO_COPY]: { key: `notes/${NOTE_IDS.noCopy}.md`, etag: null, keyEtag: null, fresh: false },
-      [PICTURE]: { key: `files/${NOTE_IDS.picture}.png`, etag: `e-${PICTURE}`, keyEtag: KEY_ETAG, fresh: true },
+      [PICTURE]: { key: `files/${NOTE_IDS.picture}.png`, etag: PICTURE, keyEtag: KEY_ETAG, fresh: true },
     });
   });
 
@@ -95,7 +95,7 @@ describe("POST /gateway/note-ids/lookup", () => {
     const asOwner = await bodyOf(await lookup(f, { accessToken: OWNER, workspaceId: f.ws, paths: [SECRET] }));
     expect((asOwner.copies as Record<string, unknown>)[SECRET]).toEqual({
       key: `notes/${NOTE_IDS.secret}.md`,
-      etag: `e-${SECRET}`,
+      etag: SECRET,
       keyEtag: KEY_ETAG,
       fresh: true,
     });

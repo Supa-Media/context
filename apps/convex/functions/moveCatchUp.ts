@@ -156,11 +156,6 @@ export const runMoveCatchUp = internalAction({
         byteBudget: MIGRATION_WAVE_BYTE_BUDGET,
       });
       log("page", { listed: page.objects.length, ...counts });
-      // What came across is not named one by one, so the Convex tree is swept
-      // for it; otherwise the console showed the bucket as it was until the cron.
-      if (counts.copied + counts.keptBeside > 0) {
-        await ctx.runMutation(internal.functions.nodes.requestSweep, { workspaceId: args.workspaceId }).catch(() => {});
-      }
       truncated = page.truncated && page.cursor !== undefined && page.cursor !== args.cursor;
       cursor = page.cursor;
     } catch (error) {

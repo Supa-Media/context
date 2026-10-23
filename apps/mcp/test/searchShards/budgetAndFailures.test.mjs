@@ -5,6 +5,7 @@
  * record.
  */
 
+import { withServedTree } from "../servedTree.mjs";
 import {
   MANIFEST_KEY,
   R2Store,
@@ -21,6 +22,19 @@ import {
   syncShardedIndex,
 } from "./fixtures.mjs";
 
+/** The bucket's keys as the control plane's tree reads them: off the bucket's own op counts, each page a read. */
+function treeOf(bucket) {
+  const tree = {
+    reads: 0,
+    async list({ prefix } = {}) {
+      tree.reads += 1;
+      const keys = [...bucket.objects.keys()].filter((key) => !prefix || key.startsWith(prefix)).sort();
+      return { objects: keys.map((key) => ({ key, etag: bucket.objects.get(key).etag })), truncated: false };
+    },
+  };
+  return tree;
+}
+
 export async function runSearchShardsBudgetAndFailuresChecks(check) {
   // -- the manifest's own cap ---------------------------------------------
 
@@ -29,7 +43,7 @@ export async function runSearchShardsBudgetAndFailuresChecks(check) {
     for (let n = 0; n < 4; n += 1) {
       bucket.seed(`1-projects/note-${n}.md`, `# Note ${n}\n\nbody ${n}\n`);
     }
-    const store = new R2Store(bucket);
+    const store = withServedTree(new R2Store(bucket));
     const overflowed = await syncShardedIndex(store, {
       budget: createSearchBudget(60),
       manifestByteCap: 120,
@@ -56,19 +70,25 @@ export async function runSearchShardsBudgetAndFailuresChecks(check) {
         bucket.seed(`f${folder}/note-${n}.md`, `# F${folder}N${n}\n\nA CAPYBARA, ${folder}-${n}.\n`);
       }
     }
-    const store = new R2Store(bucket);
+    // The tree is the control plane's, so its pages are counted apart from the bucket's ops: each is a request too.
+    // A folder's listing is charged even when the call's one tree read already holds it, so the budget may count more
+    // than was asked of storage, never less: every op done was paid for, and nothing past the budget was spent.
+    const tree = treeOf(bucket);
+    const store = withServedTree(new R2Store(bucket), tree);
     bucket.resetCounts();
+    tree.reads = 0;
     const short = await syncShardedIndex(store, { budget: createSearchBudget(10) });
     check(
       "a pass that runs out of budget reports what it did not reach and never spends past the budget",
-      short.pending > 0 && bucket.ops <= 10 && short.spent === bucket.ops
+      short.pending > 0 && short.spent <= 10 && bucket.ops + tree.reads <= short.spent
     );
     const reserved = createSearchBudget(24);
     bucket.resetCounts();
+    tree.reads = 0;
     const withReserve = await syncShardedIndex(store, { budget: reserved, reserve: 6 });
     check(
       "and a reserve is store ops the pass may not touch, whatever it still has to do",
-      bucket.ops <= 24 - 6 && reserved.remaining >= 6 && withReserve.spent === bucket.ops
+      withReserve.spent <= 24 - 6 && reserved.remaining >= 6 && bucket.ops + tree.reads <= withReserve.spent
     );
     const converged = await converge(store);
     check(
@@ -96,7 +116,7 @@ export async function runSearchShardsBudgetAndFailuresChecks(check) {
     template.seed(MANIFEST_KEY, serializeManifest(emptyManifest(2)));
     const seeded = [...pathsForShard(2, 0, 2), ...pathsForShard(2, 1, 2)];
     for (const path of seeded) template.seed(path, `# ${path}\n\nA SALAMANDER lives at ${path}.\n`);
-    await converge(new R2Store(template));
+    await converge(withServedTree(new R2Store(template)));
 
     let handedBackEmpty = 0;
     let skipped = 0;
@@ -115,7 +135,7 @@ export async function runSearchShardsBudgetAndFailuresChecks(check) {
         });
       }
       const before = new Map([...probe.objects].map(([key, entry]) => [key, entry.body]));
-      const pass = await syncShardedIndex(new R2Store(probe), {
+      const pass = await syncShardedIndex(withServedTree(new R2Store(probe)), {
         budget: createSearchBudget(allowance),
       });
       probed += 1;
@@ -144,7 +164,7 @@ export async function runSearchShardsBudgetAndFailuresChecks(check) {
     for (let folder = 0; folder < 8; folder += 1) {
       bucket.seed(`f${folder}/note.md`, `# F${folder}\n\nA MARMOT in folder ${folder}.\n`);
     }
-    const store = new R2Store(bucket);
+    const store = withServedTree(new R2Store(bucket));
     await converge(store);
     const before = storedManifest(bucket);
 
@@ -167,7 +187,7 @@ export async function runSearchShardsBudgetAndFailuresChecks(check) {
       bucket.seed(`1-projects/note-${n}.md`, `# Note ${n}\n\nAn AXOLOTL, ${n}.\n`);
     }
     bucket.failGetKeys.add("1-projects/note-3.md");
-    const store = new R2Store(bucket);
+    const store = withServedTree(new R2Store(bucket));
     const poisoned = await syncShardedIndex(store, { budget: createSearchBudget(60) });
     check(
       "a note the store refuses to read is skipped and stays pending, and the rest still land",

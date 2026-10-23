@@ -30,20 +30,6 @@ import { ROW_MOVE_PAGE } from "../../functions/lib/nodes/rowMoveChunks";
 
 type Fixture = Awaited<ReturnType<typeof keyedFixture>>;
 
-/**
- * An owner's access change in rows mode (`setAccess`): the folder's own row takes the base, and the move's
- * version (`privacyEtagNow`) moves with it, as a rule written mid-move does.
- */
-async function setBase(f: Fixture, path: string, base: "private" | "team"): Promise<void> {
-  const answer = await f.t.mutation(internal.functions.nodesAccess.setAccess, {
-    workspaceId: f.ws,
-    path,
-    base,
-    actor: { userId: f.ownerId, role: "owner" },
-  });
-  expect(answer).toMatchObject({ ok: true });
-}
-
 const FILES = 1_200;
 const FROM = "1-projects/big";
 const TO = "3-resources/big";
@@ -235,36 +221,6 @@ describe("a keyed folder over the row cap moves in pages", { timeout: 60_000 }, 
 
     while ((await page(f, id)).state !== "done");
     expect(await teamSees(f, [`${TO}/n0001.md`, `${TO}/sub/n0010.md`])).toEqual([false, false]);
-  });
-
-  test("a rule written under the old name mid-move rides with its row: the pages go on, and asking again finishes it", async () => {
-    const f = await keyedFixture();
-    await bigTree(f);
-    const id = await begin(f);
-    await page(f, id);
-    // An owner makes the subfolder private mid-move, at the old name. In rows mode the rule is the row's own access,
-    // which moves with the row, so no page is held for it (the move records no file-mode version to hold against).
-    await setBase(f, `${FROM}/sub`, "private");
-    expect(await page(f, id)).toMatchObject({ state: "moving" });
-
-    // Asked again, the request resumes the move and pages to the end: the rule reached the new name.
-    const finished = await start(f, FROM, TO);
-    expect(finished).toMatchObject({ rowed: true });
-    expect((await treeOf(f)).filter((row) => row.live && row.path.startsWith(`${TO}/`) && row.kind === "file")).toHaveLength(FILES);
-    expect(await records(f)).toEqual([]);
-    expect(await teamSees(f, [`${TO}/sub/n0010.md`, `${TO}/n0001.md`])).toEqual([false, true]);
-  });
-
-  test("a rule changed elsewhere mid-move does not hold the pages", async () => {
-    const f = await keyedFixture();
-    await bigTree(f);
-    const id = await begin(f);
-    await page(f, id);
-    const before = await privacyEtag(f);
-    await setBase(f, "1-projects/secret", "team");
-    expect(await privacyEtag(f)).not.toBe(before);
-
-    expect(await page(f, id)).toMatchObject({ state: "moving" });
   });
 
   test("a move whose request stopped mid-way is finished by the watchdog, and asking again settles it", async () => {

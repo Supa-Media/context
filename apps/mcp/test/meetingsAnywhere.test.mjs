@@ -22,6 +22,7 @@ import { test } from "node:test";
 
 import { toolListMeetings } from "../src/tools/meetings.js";
 import { withPrivacyAuthority } from "../src/store/privacyAuthority.js";
+import { withServedTree } from "./servedTree.mjs";
 
 /**
  * Another workspace's access rows, as `openContext` serves them: 2-areas is team, everything else private. A
@@ -31,7 +32,7 @@ const rowsOf = (store) => withPrivacyAuthority(store, { rules: { etag: "rows-v1"
 
 function fakeStore(notes, extra = {}) {
   const files = new Map(Object.entries(notes));
-  return {
+  const store = {
     async list({ prefix } = {}) {
       const objects = [...files.keys()]
         .filter((key) => !prefix || key.startsWith(prefix))
@@ -49,6 +50,8 @@ function fakeStore(notes, extra = {}) {
     },
     ...extra,
   };
+  // A workspace serves its tree unless the test sets its own answer.
+  return "treeManifest" in extra ? store : withServedTree(store);
 }
 
 const meeting = (started, title, attendees = "[]") =>

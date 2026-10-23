@@ -10,7 +10,6 @@ import { describe, expect, test } from "vitest";
 import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import { managedBucketName } from "../../functions/lib/managedStorage";
-import { treeReadiness } from "../../functions/lib/nodes/listing";
 import { keyedWorkspace } from "../../functions/lib/noteIds/keyedState";
 import { copyRowOf } from "../../functions/lib/noteIds/state";
 import { tester, user, type T } from "./noteIds.helpers";
@@ -60,7 +59,7 @@ describe("a new workspace", () => {
     });
     // Its tree serves at once: a keyed workspace is never swept, so nothing else would make it ready.
     const tree = await t.run(async (ctx) => (await ctx.db.query("nodeTrees").collect()).find((tree) => tree.workspaceId === ws) ?? null);
-    expect(treeReadiness(tree)).toBe("served");
+    expect(tree?.status).toBe("ready");
   });
 
   test("bound to a bucket its owner brings is keyed at once too: files already there are not picked up", async () => {

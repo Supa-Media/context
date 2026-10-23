@@ -27,7 +27,7 @@ import {
 } from "../_generated/server";
 import type { ActionCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
-import { notServed, readinessAndKick } from "./lib/nodes/treeLoading";
+import { notServed } from "./lib/nodes/treeGate";
 import {
   checkFolderSharePath,
   checkSharePath,
@@ -200,7 +200,7 @@ async function mintUnlistedLink(
       workspaceId: args.workspaceId,
       path: pathCheck.path,
     });
-    if (shareable === null) throw notServed(await readinessAndKick(ctx, args.workspaceId));
+    if (shareable === null) throw await notServed(ctx, args.workspaceId);
     if (!shareable.visible) throw notTeamVisible();
     /*
       AN UNLISTED LINK IS NOT MINTED OVER AN ENCRYPTED NOTE.

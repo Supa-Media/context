@@ -8,7 +8,7 @@
  * name is still `canSee` and `folderVisibleAtScope` over the same rules, and a
  * withheld folder still answers exactly as an absent one does. What this file
  * owns is only which rows make up a folder, and when the tree is there to
- * answer at all (`treeReadiness`).
+ * answer at all (`treeServes`).
  */
 
 import type { Doc, Id } from "../../../_generated/dataModel";
@@ -36,29 +36,12 @@ export { readMirror };
 export const NODE_LISTING_ROWS = 5_000;
 
 /**
- * Where a workspace's tree is, for a reader: `served` once its first copy has
- * finished, `loading` before that, `unsupported` for a store that cannot be
- * listed in key order (one that ignores key order), which no sweep can copy.
- *
- * Decided by the owner, 2026-10-13 ("the only thing that should be reading
- * from storage directly should be actually opening and editing a note"):
- * Convex always answers. Until then a reader read the bucket wherever the
- * last parity check differed, a pass failed, or staff paused the migration.
- * Now parity is an alarm for staff, a failed pass is retried behind a tree
- * that keeps serving, and Pause stops copying work only. A re-sweep of a
- * finished copy keeps `ready`, so it keeps serving the rows it has.
+ * Whether this workspace's tree answers its readers: its `nodeTrees` row is
+ * `ready`, the served marker the workspace was born with (`lib/noteIds/born.ts`).
+ * A workspace without one is not served, and no reader is told it is loading.
  */
-export type TreeReadiness = "served" | "loading" | "unsupported";
-
-export function treeReadiness(tree: Pick<Doc<"nodeTrees">, "status"> | null): TreeReadiness {
-  if (tree === null) return "loading";
-  if (tree.status === "unsupported") return "unsupported";
-  return tree.status === "ready" ? "served" : "loading";
-}
-
-/** Whether this workspace's tree answers its readers: its first copy has finished. */
 export function treeServes(tree: Pick<Doc<"nodeTrees">, "status"> | null): boolean {
-  return treeReadiness(tree) === "served";
+  return tree !== null && tree.status === "ready";
 }
 
 /**
@@ -139,17 +122,13 @@ export function folderRowsStore(
 }
 
 /** Where this workspace's tree is now, read in the caller's transaction. */
-export async function treeReadinessNow(db: QueryCtx["db"], workspaceId: Id<"workspaces">): Promise<TreeReadiness> {
+/** Whether the tree serves this workspace now (`treeServes`). */
+export async function treeServesNow(db: QueryCtx["db"], workspaceId: Id<"workspaces">): Promise<boolean> {
   const tree = await db
     .query("nodeTrees")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .unique();
-  return treeReadiness(tree);
-}
-
-/** Whether the tree serves this workspace now (`treeReadiness`). */
-export async function treeServesNow(db: QueryCtx["db"], workspaceId: Id<"workspaces">): Promise<boolean> {
-  return (await treeReadinessNow(db, workspaceId)) === "served";
+  return treeServes(tree);
 }
 
 /** One folder's listing at `clearance`, from the tree's rows and its privacy mirror. */

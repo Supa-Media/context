@@ -1,25 +1,24 @@
 /**
  * A served workspace and an in-memory R2 for the queued-move tests (phase 4
  * of `docs/decisions/app-and-console/convex-tree.md`): the real Convex
- * functions through `convex-test`, an owner and a member, and a tree swept
- * and proved so it serves.
+ * functions through `convex-test`, an owner and a member, and a tree seeded
+ * from its bucket so it serves.
  */
 
 import { expect } from "vitest";
 import { convexTest } from "convex-test";
-import { api, internal } from "../../_generated/api";
+import { api } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import type { ActionCtx } from "../../_generated/server";
 import schema from "../../schema";
 import { modules } from "../../test.setup";
 import { clearanceOf } from "../../functions/lib/clearance";
 import type { FileStore } from "../../functions/lib/fileOps";
-import { setFolderVisibility } from "../seededRules.helpers";
 import { PRIVACY_KEY } from "../../functions/lib/privacy";
 import { startRowMove } from "../../functions/lib/nodes/rowMoveStart";
-import { runNodesOperation } from "../../functions/lib/nodes/run";
 import { memoryStore, type MemoryStore } from "../storeStub.helpers";
-import { renderPrivacyManifest, translateSeededRules } from "../seededRules.helpers";
+import { renderPrivacyManifest, setFolderVisibility, translateSeededRules } from "../seededRules.helpers";
+import { pathObjectsOf, seedTreeRows } from "../fixtures.helpers";
 
 export type T = ReturnType<typeof convexTest>;
 export type Store = MemoryStore & FileStore;
@@ -81,15 +80,12 @@ export async function fixture(kind: "r2" | "s3" = "r2") {
   });
   const store = await bucket(kind);
   const ctx = bridge(t);
-  await runNodesOperation(ctx, { workspaceId: ids.ws, scope: "private", operation: { kind: "nodesSweep" } }, store);
+  // The tree's rows are written by the product's seam for each object in the bucket, served as a finished copy would leave them.
+  await seedTreeRows(t, ids.ws, pathObjectsOf(store));
   // The seeded rules become rows. The store keeps its copy: the store-level suites here read the rules from it.
   await translateSeededRules(t, ids.ws, {
     text: async () => (await store.get(PRIVACY_KEY))?.text() ?? null,
     remove: async () => {},
-  });
-  await t.mutation(internal.functions.nodes.saveParity, {
-    workspaceId: ids.ws,
-    parity: { checkedAt: Date.now(), clearances: 2, mismatches: 0, privacyMatches: true },
   });
   return {
     t,

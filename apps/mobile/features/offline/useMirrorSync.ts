@@ -179,8 +179,8 @@ export function useMirrorSync(options: {
         needed: (workspaceId) => neededEtags(kv, workspaceId),
         keepsBody,
         // The Convex tree's rows, as a tab's walk asks: the same `canSee` over
-        // the same keys. The bucket is never walked; a tree still copying
-        // answers `TREE_LOADING` (decided by the owner, 2026-10-13).
+        // the same keys. The bucket is never walked; a workspace the tree does
+        // not serve is refused instead (decided by the owner, 2026-10-13).
         manifest: (workspaceId, cursor) =>
           withTimeout(
             actionsRef.current.syncManifest({

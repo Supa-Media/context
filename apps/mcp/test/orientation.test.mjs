@@ -7,7 +7,7 @@
  *
  * 1. **It lies about size.** The survey lists the Convex tree in one answer, so
  *    every count is exact; where the tree cannot answer yet, orient says the
- *    workspace is still loading and draws no map, rather than walking the
+ *    workspace the tree does not serve draws no map, rather than walking the
  *    bucket. (It used to walk the bucket on a page budget and report floors.)
  * 2. **It takes the connection down with it.** The connect-time instructions
  *    now carry a live sketch of the context, which means a slow bucket, a
@@ -24,10 +24,10 @@
  * Run as temporary local edits and reverted:
  *
  * 1. **The survey's `TreeUnavailable` catch removed** (2026-10-13): "a
- *    workspace still loading is told so, with its front page and no map"
+ *    workspace the tree does not serve is told so, with its front page and no map"
  *    fails, because orient then fails whole instead of drawing its front page.
  * 2. **The tree's refusal read as an empty listing**: the same check and
- *    "...and list_notes says it is still loading" fail.
+ *    "...and list_notes says the file list cannot be read just now" fail.
  * 3. **`instructionsForSession` allowed to throw** (the `catch` removed). 2
  *    checks failed — but only after the handshake check was tightened from
  *    "HTTP 200" to "carries a result". A thrown handler is answered with a

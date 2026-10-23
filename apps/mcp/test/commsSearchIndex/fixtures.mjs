@@ -8,6 +8,7 @@
 import { NOTE_INDEX_CHAR_CAP, createSearchBudget } from "../../src/search/maintain.js";
 import { syncShardedIndex } from "../../src/search/shards.js";
 import { renderChannelDayNote } from "../../../../packages/communications/src/note.js";
+import { withServedTree } from "../servedTree.mjs";
 
 export const encoder = new TextEncoder();
 
@@ -72,7 +73,12 @@ export const NOTE_PATH = "0-inbox/email/name-at-example-com/2026-09-07.md";
 /* An in-memory bucket, R2/S3-shaped: pages, delimits, reports an etag.       */
 /* -------------------------------------------------------------------------- */
 
+/** The bucket with its control-plane tree served from its own keys, as production serves names. */
 export function createBucket() {
+  return withServedTree(rawBucket());
+}
+
+function rawBucket() {
   const objects = new Map();
   let etags = 0;
   const api = {

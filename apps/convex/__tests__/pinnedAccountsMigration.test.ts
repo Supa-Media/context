@@ -30,6 +30,7 @@ import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { createUser, createWorkspace, drainScheduled } from "./fixtures.helpers";
 import { GUIDE, OLD_BUG, PLAN, migrate, pinnedWorld, setRow, type PinnedWorld } from "./pinnedReaders.helpers";
+import { applyTreeObservation } from "./fixtures.helpers";
 
 vi.setConfig({ testTimeout: 60_000 });
 
@@ -165,12 +166,12 @@ describe("no other workspace", () => {
     const w = await pinnedWorld();
     const owner = await createUser(w.t, "acme-owner@example.invalid");
     const acme = await createWorkspace(w.t, owner, "acme", { kind: "shared", displayName: "Acme" });
-    await w.t.mutation(internal.functions.nodes.observe, {
+    await applyTreeObservation(w.t, {
       workspaceId: acme,
       at: 10,
       rows: [{ path: "team.md", etag: "e1", size: 1 }, { path: "members.md", etag: "e2", size: 1 }],
       gone: [],
-      vanishedUnder: [],
+     
     });
     await w.t.run(async (ctx) => {
       const at = (path: string) =>

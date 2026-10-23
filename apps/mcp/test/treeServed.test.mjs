@@ -5,11 +5,9 @@
  * don't want to see even fallbacks").
  *
  * The bucket below counts every listing it answers, so "the tool never walks
- * the bucket" is a number, not a reading of the code. Every tool's answer is
- * compared with the answer the bucket alone gives (a store with no control
- * plane, the one store that still lists its bucket), at owner and team
- * clearance, so serving from the tree changes where the keys and front
- * matter come from and nothing a person sees.
+ * the bucket" is a number, not a reading of the code. A workspace the tree
+ * does not serve, or a store with no control plane at all, is refused rather
+ * than listed: there is no bucket listing to compare against any more.
  *
  * ## Sabotage record
  *
@@ -23,9 +21,12 @@
  *    outside the six, writes included, never asks the tree" fails.
  * 3. An unserved answer read as an empty tree (`return []` in place of the
  *    `TreeUnavailable` throw): "a workspace the tree does not serve is told
- *    it is still loading" fails.
+ *    the file list cannot be read" fails.
  * 4. A failed request falling back to `store.list`: "a failed request says
  *    so, and lists nothing" fails on the bucket's listing count.
+ * 6. The refusal for a store with no control plane replaced by the bucket's
+ *    own listing: "a store with no control plane is refused every listing"
+ *    fails on the bucket's listing count.
  * 5. Plumbing prefixes sent to the tree: "plumbing is listed from the bucket"
  *    and "one call reads the tree once" fail.
  *
@@ -34,7 +35,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { callTool, TREE_LISTING_TOOLS } from "../src/tools/dispatch.js";
-import { compareKeys, servedListingStore, TREE_LOADING, TREE_UNREACHABLE, TreeUnavailable } from "../src/tree/served.js";
+import { compareKeys, servedListingStore, TREE_UNREACHABLE, TreeUnavailable } from "../src/tree/served.js";
 import { propsOf } from "../src/tree/props.js";
 import { withPrivacyAuthority } from "../src/store/privacyAuthority.js";
 
@@ -192,10 +193,11 @@ const CALLS = [
 ];
 
 for (const scope of ["private", "team"]) {
-  test(`at ${scope} clearance, every listing tool answers as the bucket does, without listing a note folder`, async () => {
+  test(`at ${scope} clearance, every listing tool answers as it would from the whole tree, without listing a note folder`, async () => {
     for (const [name, args] of CALLS) {
-      const plain = withRows(bucketOf(NOTES));
-      const expected = await callTool(name, args, plain, scope);
+      // The reference: a tree that holds every key, so the gateway's own rules decide what this scope sees.
+      const whole = bucketOf(NOTES);
+      const expected = await callTool(name, args, served(whole, treeOf(whole)), scope);
       const bucket = bucketOf(NOTES);
       const tree = treeOf(bucket, { see: scope === "private" ? () => true : teamSees });
       const actual = await callTool(name, args, served(bucket, tree), scope);
@@ -253,17 +255,18 @@ test("the tree only narrows: a key it holds back is absent even where the bucket
   assert.doesNotMatch(answer.content[0].text, /1-projects\/beta\.md/);
 });
 
-test("a workspace the tree does not serve is told it is still loading, and its bucket is not listed", async () => {
+test("a workspace the tree does not serve is told the file list cannot be read, and its bucket is not listed", async () => {
   for (const [name, args] of CALLS) {
     const bucket = bucketOf(NOTES);
     const tree = treeOf(bucket, { served: false });
     const answer = await callTool(name, args, served(bucket, tree), "private");
     if (name === "orient") {
       assert.ok(!answer.isError, "orient still answers");
-      assert.match(answer.content[0].text, /still loading/);
+      assert.match(answer.content[0].text, /Map not drawn/);
+      assert.ok(answer.content[0].text.includes(TREE_UNREACHABLE));
     } else {
       assert.equal(answer.isError, true, `${name} says it cannot list`);
-      assert.equal(answer.content[0].text, TREE_LOADING);
+      assert.equal(answer.content[0].text, TREE_UNREACHABLE);
     }
     // Once per subtree asked side by side (list_channel_days asks for each
     // channel's folder at once, under both of the Inbox's names when the tree
@@ -290,9 +293,10 @@ test("a tool outside the six never lists the bucket's keys; search's census is t
     bucket.objects.set(key, { text: String(body), etag: "new", uploaded: Date.now() });
     return { key, etag: "new" };
   };
-  // No facts route, so a write's chaos report (`chaos/change.js`, which asks
-  // the tree for the score on purpose) stays out of this count of listings.
-  const { facts: _facts, ...tree } = treeOf(bucket);
+  // Names only: a write's chaos report (`chaos/change.js`, which asks the tree
+  // for the score on purpose) stays out of this count of listings.
+  const full = treeOf(bucket);
+  const tree = { ...full, facts: async (request) => (request.ask === "names" ? full.facts(request) : { served: false }) };
   await callTool("write_note", { path: "1-projects/gamma.md", content: "# Gamma\n" }, served(bucket, tree), "private");
   // A new note asks whether its name twins a sibling (`tree/twins.js`), of the tree and not the bucket.
   assert.ok(tree.requests.length >= 1, "the name check asked the tree");
@@ -317,12 +321,12 @@ test("plumbing is listed from the bucket", async () => {
   assert.equal(tree.requests.length, 0);
 });
 
-test("a store with no control plane lists its own bucket: there is no tree to ask", async () => {
+test("a store with no control plane is refused every listing of names, and its bucket is not listed", async () => {
   const bucket = bucketOf(NOTES);
   const store = servedListingStore(bucket);
-  const keys = await store.treeKeys();
-  assert.ok(keys.includes("1-projects/beta.md") && !keys.some((key) => key.startsWith(".")));
-  assert.ok(bucket.listings.length > 0);
+  await assert.rejects(store.treeKeys(), (error) => error instanceof TreeUnavailable);
+  await assert.rejects(store.list({ prefix: "1-projects/" }), (error) => error instanceof TreeUnavailable);
+  assert.deepEqual(bucket.listings, [], "the bucket was not listed instead");
 });
 
 test("listings page by key, and one level answers folders as delimited prefixes", async () => {

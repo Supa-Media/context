@@ -22,21 +22,19 @@
  * cannot see is taken, as it was over the bucket, and the tools decide what
  * to say with `canSee`.
  *
- * The one store with no control plane (the single-tenant token deployment, a
- * self-hosted gateway) has no tree to ask, so it reads the bucket by name:
- * not a fallback from a tree that failed (see `served.js`).
+ * A store with no control plane has no tree to ask, so every name check is
+ * refused there (`TreeUnavailable`, as `served.js` refuses every listing).
  */
 
 import { TreeUnavailable } from "./served.js";
-import { getWithLegacyFallback } from "../storageLayout.js";
 
 /** Names one ask may carry (`TAKEN_PATHS` in the control plane). */
 const NAMES_PER_ASK = 100;
 
 /**
  * Which of `paths` the tree draws a file at, and which a folder at. Throws
- * `TreeUnavailable` while the workspace's first copy runs, or when the
- * control plane cannot be asked.
+ * `TreeUnavailable` when the tree does not serve the workspace, when the
+ * control plane cannot be asked, or when the store has no control plane.
  *
  * @param {object} store a session-bound store
  * @param {string[]} paths
@@ -48,7 +46,13 @@ export async function takenInTree(store, paths) {
   const unique = [...new Set(paths)];
   if (unique.length === 0) return { files, folders };
   if (typeof store?.treeFacts !== "function") {
-    for (const path of unique) if (await getWithLegacyFallback(store, path)) files.add(path);
+    // Inside the Convex credential barrier the rows are read directly (`lib/nodes/treeNames.ts`).
+    if (typeof store?.treeListing?.taken !== "function") throw new TreeUnavailable();
+    for (let at = 0; at < unique.length; at += NAMES_PER_ASK) {
+      const answer = await store.treeListing.taken(unique.slice(at, at + NAMES_PER_ASK));
+      for (const path of answer.files) files.add(path);
+      for (const path of answer.folders) folders.add(path);
+    }
     return { files, folders };
   }
   for (let at = 0; at < unique.length; at += NAMES_PER_ASK) {
@@ -56,10 +60,10 @@ export async function takenInTree(store, paths) {
     try {
       answer = await store.treeFacts({ ask: "names", paths: unique.slice(at, at + NAMES_PER_ASK) });
     } catch {
-      throw new TreeUnavailable("unreachable");
+      throw new TreeUnavailable();
     }
-    if (!answer || answer.served !== true) throw new TreeUnavailable(answer?.loading === true ? "loading" : "unreachable");
-    if (!Array.isArray(answer.files) || !Array.isArray(answer.folders)) throw new TreeUnavailable("unreachable");
+    if (!answer || answer.served !== true) throw new TreeUnavailable();
+    if (!Array.isArray(answer.files) || !Array.isArray(answer.folders)) throw new TreeUnavailable();
     for (const path of answer.files) if (typeof path === "string") files.add(path);
     for (const path of answer.folders) if (typeof path === "string") folders.add(path);
   }

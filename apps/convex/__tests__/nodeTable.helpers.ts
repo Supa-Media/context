@@ -9,26 +9,8 @@
  * mutates what it was handed cannot reach the stored row by accident.
  */
 
-import {
-  applyObservation,
-  beginState,
-  dirtyState,
-  failState,
-  finishState,
-  privacyIsNewer,
-  progressState,
-  pruneUnobserved,
-  unsupportedState,
-  type VanishCursor,
-} from "../functions/lib/nodes/observe";
-import type {
-  NodeSink,
-  NodeTable,
-  NodeTreeState,
-  Observation,
-  PrivacyMirror,
-  StoredNode,
-} from "../functions/lib/nodes/table";
+import { applyObservation } from "../functions/lib/nodes/observe";
+import type { NodeTable, Observation, StoredNode } from "../functions/lib/nodes/table";
 
 const copy = (node: StoredNode): StoredNode => ({ ...node });
 
@@ -73,22 +55,6 @@ export function memoryNodeTable(): NodeTable & { rows(): StoredNode[]; log(): { 
       idByPath.delete(node.path);
     },
 
-    async underPrefix(prefix, { after, limit }) {
-      return all()
-        .filter((node) => node.path.startsWith(prefix) && (after === undefined || node.path > after))
-        .sort(byPathOrder)
-        .slice(0, limit)
-        .map(copy);
-    },
-
-    async observedBefore(before, limit) {
-      return all()
-        .filter((node) => node.observedAt < before && node.storageKey === undefined)
-        .sort((a, b) => a.observedAt - b.observedAt || byPathOrder(a, b))
-        .slice(0, limit)
-        .map(copy);
-    },
-
     async hasLiveChild(parentId) {
       return all().some((node) => node.parentId === parentId && node.goneAt === undefined);
     },
@@ -111,94 +77,20 @@ export function memoryNodeTable(): NodeTable & { rows(): StoredNode[]; log(): { 
   };
 }
 
-/** Applies one observation to completion, as a caller re-sending `more` would. */
-export async function applyAll(table: NodeTable, observation: Observation): Promise<number> {
-  let cursor: VanishCursor | undefined;
-  let calls = 0;
-  for (;;) {
-    calls += 1;
-    if (calls > 10_000) throw new Error("observation did not converge");
-    const result = await applyObservation(table, observation, cursor);
-    if (!result.more) return calls;
-    cursor = result.next;
-  }
+/** Applies one seam observation. Returns how many writes it took (kept for the callers' shape). */
+/**
+ * A test row stands for the seam's keyed write of a note: each file row gets its
+ * own note and key, as the copy pass gives. Folder markers are left as they are.
+ */
+export function seamRows<R extends { path: string; keyed?: { noteId: string; storageKey: string } }>(rows: R[]): R[] {
+  return rows.map((row) =>
+    row.keyed !== undefined || row.path.endsWith("/")
+      ? row
+      : { ...row, keyed: { noteId: `note:${row.path}`, storageKey: `notes/note:${row.path}.md` } },
+  );
 }
 
-/**
- * The in-memory sink. `observe` loops until the vanish scan is done, the way a
- * production caller loops over the `observe` mutation. `finish` counts the live
- * files itself, where production counts them with `countLive` first.
- */
-export function memoryNodeSink(
-  table: NodeTable & { rows(): StoredNode[] } = memoryNodeTable(),
-  initial: NodeTreeState | null = null,
-): NodeSink & { table: NodeTable & { rows(): StoredNode[] }; treeState(): NodeTreeState | null } {
-  let current: NodeTreeState | null = initial === null ? null : { ...initial };
-  let privacyRow: (PrivacyMirror & { observedAt: number }) | null = null;
-
-  const countLiveFiles = async (): Promise<number> => {
-    let count = 0;
-    let after: string | undefined;
-    for (;;) {
-      const page = await table.underPrefix("", { after, limit: 1000 });
-      for (const node of page) if (node.kind === "file" && node.goneAt === undefined) count += 1;
-      if (page.length < 1000) return count;
-      after = page[page.length - 1].path;
-    }
-  };
-
-  return {
-    table,
-    treeState: () => (current === null ? null : { ...current }),
-
-    async state() {
-      return current === null ? null : { ...current };
-    },
-
-    async begin(at) {
-      const result = beginState(current, at);
-      current = result.state;
-      return { cursor: result.cursor, startedAt: result.startedAt };
-    },
-
-    async observe(observation) {
-      await applyAll(table, observation);
-    },
-
-    async progress(cursor, at) {
-      current = progressState(current, cursor, at);
-    },
-
-    async prune(startedAt) {
-      const { more } = await pruneUnobserved(table, startedAt);
-      return { more };
-    },
-
-    async finish(at) {
-      current = finishState(current, at, await countLiveFiles());
-    },
-
-    async unsupported() {
-      current = unsupportedState(current);
-    },
-
-    async dirty() {
-      current = dirtyState(current);
-    },
-
-    async fail(label) {
-      current = failState(current, label);
-    },
-
-    async privacy() {
-      if (privacyRow === null) return null;
-      const { observedAt: _observedAt, ...rules } = privacyRow;
-      return { ...rules, folders: [...rules.folders], notes: [...rules.notes] };
-    },
-
-    async savePrivacy(mirror, at) {
-      if (privacyRow !== null && !privacyIsNewer(privacyRow.observedAt, at)) return;
-      privacyRow = { ...mirror, observedAt: at };
-    },
-  };
+export async function applyAll(table: NodeTable, observation: Observation): Promise<number> {
+  await applyObservation(table, { ...observation, rows: seamRows(observation.rows) });
+  return 1;
 }

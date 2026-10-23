@@ -20,8 +20,7 @@ import type { Id } from "../../../_generated/dataModel";
 import type { ActionCtx } from "../../../_generated/server";
 import { countNotes, isNoteKey, type NoteCount } from "../noteCount";
 import type { ScaffoldStore } from "../scaffold";
-import { NO_BUCKET } from "./gatewayManifest";
-import { servedKeys, servedNodesStore } from "./manifestStore";
+import { NO_BUCKET, servedKeys, servedNodesStore } from "./manifestStore";
 
 export async function servedNoteCount(
   ctx: Pick<ActionCtx, "runQuery">,

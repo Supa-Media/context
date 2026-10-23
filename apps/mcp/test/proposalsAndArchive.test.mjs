@@ -7,10 +7,15 @@ import {
   storedText,
   setConcurrentCreateOnAbsent,
   setEnforceOneUseBodies,
+  controlPlane,
+  contextStore,
+  WORKSPACE_ID,
 } from "./harness.mjs";
-import { isLogicalDeleteMarker } from "../src/store/logicalDelete.js";
+import { isLogicalDeleteMarker, withLogicalDelete } from "../src/store/logicalDelete.js";
 
 export async function runProposalsAndArchiveChecks() {
+  // The tree holds live notes, as the control plane's copy does: a delete leaves a marker in the bucket, which it never holds.
+  controlPlane.serveTree(WORKSPACE_ID, withLogicalDelete(contextStore));
   // -- archive
   const arch = await call("priv-token", "archive_note", { path: "1-projects/togather/notes.md" });
   const privateArchiveKey = [...objects.keys()].find((key) => key.endsWith("/1-projects/togather/notes.md"));
@@ -346,6 +351,6 @@ export async function runProposalsAndArchiveChecks() {
     "a folder move writes no history snapshot",
     ![...objects.keys()].some((key) => key.startsWith(".history/"))
   );
-
-
+  // Back to the bucket itself, as the shared fixture serves it, for the suites after this one.
+  controlPlane.serveTree(WORKSPACE_ID, contextStore);
 }

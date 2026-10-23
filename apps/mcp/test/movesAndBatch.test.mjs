@@ -170,7 +170,7 @@ export async function runMovesAndBatchChecks() {
   /*
     Past the one-go threshold a folder moves through the Convex move queue
     (`queuedFolder.js`); this harness's control plane has no queue, which is
-    what a workspace still loading looks like. The move is refused and nothing
+    what a workspace whose queue is not taking moves looks like. The move is refused and nothing
     changes: no `.context/moves/` job is written any more (2026-10-13), because
     nothing on the way to a note reads one. These checks replace "owner
     move_folder creates a logical move for a too-large tree" and the overlay

@@ -29,6 +29,11 @@ import { messageCachePath, MESSAGE_CACHE_VERSION } from "../../src/communication
 import { getMessage, runIncrementalSync, syncDayFromGmail } from "../../src/communications/gmailSync.js";
 import { createFixtureGmail, createMemoryStore, fixtureMessage, jsonResponse } from "./fixtures.mjs";
 
+import { withServedTree } from "../servedTree.mjs";
+
+/** The fake store with the control plane's tree served from its own keys, as production serves it. */
+const servedMemoryStore = (options) => withServedTree(createMemoryStore(options));
+
 const SLUG = "p-at-example-invalid";
 const DATE = "2026-10-17";
 const NOW = Date.parse("2026-10-18T12:00:00.000Z");
@@ -69,7 +74,7 @@ export async function runGmailMessageCacheChecks(check) {
   // -- a second pass fetches only what is new -------------------------------
   const mailbox = [message("m1", 9), message("m2", 10)];
   const gmail = createFixtureGmail({ messages: mailbox });
-  const store = createMemoryStore();
+  const store = servedMemoryStore();
   await syncDayFromGmail(dayOptions(store, gmail));
   check("a day's first pass fetches every message on it", gets(gmail.calls).length === 2);
 
@@ -78,7 +83,7 @@ export async function runGmailMessageCacheChecks(check) {
   await syncDayFromGmail(dayOptions(store, later));
   check("A DAY'S NEXT PASS FETCHES ONLY THE MESSAGE IT HAS NOT SEEN", gets(later.calls).length === 1 && gets(later.calls)[0].includes("/m3?"));
 
-  const fresh = createMemoryStore();
+  const fresh = servedMemoryStore();
   await syncDayFromGmail(dayOptions(fresh, createFixtureGmail({ messages: mailbox }), { messageCache: false }));
   const remembered = await (await store.get(NOTE)).text();
   check("a day rendered from remembered messages is byte-identical to one fetched whole", remembered === (await (await fresh.get(NOTE)).text()));
@@ -94,7 +99,7 @@ export async function runGmailMessageCacheChecks(check) {
   check("a message the day's list no longer names leaves the note, cache or not", !text.includes("Subject m2") && text.includes("Subject m3"));
 
   // -- a cache that cannot be trusted is not believed -----------------------
-  const forged = createMemoryStore();
+  const forged = servedMemoryStore();
   await forged.put(
     messageCachePath(SLUG, DATE),
     JSON.stringify({ version: MESSAGE_CACHE_VERSION + 1, date: DATE, events: [{ messageId: "m1", subject: "forged", sentAt: `${DATE}T09:00:00.000Z` }] }),
@@ -110,7 +115,7 @@ export async function runGmailMessageCacheChecks(check) {
     history: { pages: [{ historyId: "20", history: [{ id: "19", messagesAdded: [{ message: { id: "i2", labelIds: ["INBOX", "UNREAD"] } }] }] }] },
   });
   await runIncrementalSync({
-    store: createMemoryStore(),
+    store: servedMemoryStore(),
     fetchImpl: incGmail.fetchImpl,
     accessToken: "tok",
     mailboxSlug: SLUG,
@@ -138,7 +143,7 @@ export async function runGmailMessageCacheChecks(check) {
     },
   });
   const quiet = await runIncrementalSync({
-    store: createMemoryStore(),
+    store: servedMemoryStore(),
     fetchImpl: noise.fetchImpl,
     accessToken: "tok",
     mailboxSlug: SLUG,
@@ -233,7 +238,7 @@ export async function runGmailMessageCacheChecks(check) {
       String(url).includes("/messages/b3?")
         ? jsonResponse({ error: { errors: [{ reason: "dailyLimitExceeded" }] } }, 403)
         : limited.fetchImpl(url);
-    const busyStore = createMemoryStore();
+    const busyStore = servedMemoryStore();
     const stopped = await syncDayFromGmail(dayOptions(busyStore, { fetchImpl: stopsAtB3 })).catch((error) => error);
     const resumed = createFixtureGmail({ messages: busy });
     await syncDayFromGmail(dayOptions(busyStore, resumed));

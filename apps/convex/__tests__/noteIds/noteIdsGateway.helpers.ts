@@ -7,6 +7,7 @@
  * proves it, so the lookup's privacy filter runs over the real mirror.
  */
 
+import { seedTreeRows } from "../fixtures.helpers";
 import type { convexTest } from "convex-test";
 import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
@@ -63,24 +64,12 @@ export interface Fixture {
 }
 
 async function observe(t: T, workspaceId: Id<"workspaces">, paths: string[]) {
-  await t.mutation(internal.functions.nodes.observe, {
-    workspaceId,
-    at: 10,
-    rows: paths.map((path) => ({ path, etag: `e-${path}`, size: path.length, uploaded: 1_000 })),
-    gone: [],
-    vanishedUnder: [],
-  });
+  await seedTreeRows(t, workspaceId, paths);
 }
 
 async function proved(t: T, workspaceId: Id<"workspaces">, paths: string[]) {
   await observe(t, workspaceId, paths);
   await translateMirror(t, workspaceId, RULES);
-  await t.mutation(internal.functions.nodes.begin, { workspaceId, at: 5 });
-  await t.mutation(internal.functions.nodes.finish, { workspaceId, at: 20, files: paths.length });
-  await t.mutation(internal.functions.nodes.saveParity, {
-    workspaceId,
-    parity: { checkedAt: 30, clearances: 2, mismatches: 0, privacyMatches: true },
-  });
 }
 
 /**

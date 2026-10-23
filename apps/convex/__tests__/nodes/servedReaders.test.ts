@@ -36,8 +36,8 @@ import {
   servedMoves,
   type NodePage,
 } from "../../functions/lib/nodes/manifestStore";
-import { privacyMirrorOf } from "../../functions/lib/nodes/privacyMirror";
-import { compareKeys } from "../../functions/lib/nodes/sweep";
+import { privacyMirrorOf } from "../privacyMirrorOf.helpers";
+import { compareKeys } from "../../functions/lib/nodes/table";
 import type { PendingMove } from "../../functions/lib/nodes/moveOverlay";
 import type { NodeRow, PrivacyMirror } from "../../functions/lib/nodes/table";
 import { memoryStore, type MemoryStore } from "../storeStub.helpers";
