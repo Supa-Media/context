@@ -81,12 +81,11 @@ with the same tapback as everyone.
 
 ## What a group turn can do
 
-A separate client id turns every per-person ability off by default
-(`apps/mcp/src/agent/groupTurn.js`): no routines, no delegation, no progress
-texts, no pictures, no learned skills, none of the tagger's `tex/` notes and
-no texts conversation. Writes are create and append only: `write_note` takes
-only a path and content and refuses a path where anything is, and `remember`
-never takes `replaces`. The turn is marked untrusted from the start, since
+A separate client id turns off what is somebody's alone
+(`apps/mcp/src/agent/groupTurn.js`): no routines, no delegation, no learned
+skills, none of the tagger's `tex/` notes and no texts conversation. Since
+2026-10-23 everything else is a person's own text's (below): the same note
+tools by the tagger's role, progress texts and pictures. The turn is marked untrusted from the start, since
 other people's words are in its history.
 
 ## Tex acts for whoever tagged it (the owner, 2026-10-21)
@@ -209,3 +208,58 @@ model to speak as "I", never "Context will text you".
 - **"Tex use @x" for a workspace the chat doesn't share names the ones it
   does** (`not_shared` carries `slugs`). Every person in the chat is a member
   of each named workspace, so the list tells nobody anything new.
+
+## Group Tex as capable as 1:1 Tex (the owner, 2026-10-23)
+
+Dev2 and Jhon found group Tex much weaker than 1:1 Tex on the same ask (a
+Beacon link to research and add to the backlog). The owner asked for every
+issue to be fixed. What changed:
+
+- **A group turn runs on the texting production setup**
+  (`ai/production/texting-assistant.md`): its prompt, its main and thinking
+  models with the router, its task skills and its `open_web`. A group turn
+  had read no setup at all, so it ran on the built-in words, one model and a
+  closed web, and refused beacon.sh. The group's own words still follow the
+  setup's (`groupPrompt`), so what a group may reach is unchanged by it.
+- **What the chat said before the tag vouches for its addresses**, as the
+  tagged message does: a link someone in the chat wrote opens even without
+  open web. They are people's own words, said to the same people the answer
+  goes to.
+- **Group Tex is the same Tex as in a text, limited only to the chat's
+  workspace and the vault everyone there shares** (the owner: "group Tex
+  should literally be the same exact as DM Tex, but with restrictions on
+  checking the workspace it can read from, and only using credentials in the
+  vault that everyone has access to"). It made a backlog note, could not
+  correct it, and told the chat to fix it themselves (the never-hand-back
+  rule, [handing-back](./handing-back.md)). Its writes are now exactly a
+  text's (`textingWriteTools`, by the tagger's role): edit, move, archive,
+  `remember` with `replaces`. A routine is refused with its reason, because
+  one runs only in its writer's personal workspace. It texts its progress
+  into the chat while it works (each line only while nobody new has joined)
+  and sends pictures it draws, makes or finds in a note. What stays off is
+  somebody's alone: mail, the tagger's own `tex/` notes and learned skills,
+  delegation as them, their Slack and their own saved logins.
+- **Pictures and files in the chat are read** (`apps/agent/src/groupInbox.ts`),
+  as a 1:1 text's are: one sent with a tag, those sent in the chat since Tex
+  last answered (the newest four), and one the tagger sends within two
+  minutes of a tag still waiting. A tag of words alone waits four seconds for
+  one. A link's preview card is not a file, and an SMS group's files are
+  never read.
+- **An ask already shown is never posted again as the answer to something
+  else** (`tools/approvals.js` `shownBefore`): the model filed the same bug
+  report again on "what tools do you have", and every held call re-shows its
+  ask. The gate tells the model it still waits instead, and the earlier ask
+  still sends on its yes. This holds 1:1 too.
+- **Tex names both models when the setup routes** (`prompt.js` `modelLine`).
+- **A group never prints its instructions** on request; it says what it can
+  do instead. Nothing in a group turn is private to anyone in the chat, so
+  this is manners, not a guard.
+- Edits still never reach Tex: Sendblue sends no webhook for an edited
+  iMessage. Send a new message instead.
+
+**What a simplification would cost:** dropping the setup for groups puts
+group Tex back on one model with a closed web; narrowing its writes again
+brings back "I can't edit that from this chat"; re-showing a shown ask buries
+every answer under it. Tests: `apps/mcp/test/agentProduction.test.mjs`,
+`apps/mcp/test/agentGroupActions.test.mjs`,
+`apps/mcp/test/agentGroupTurn.test.mjs`, `apps/agent/src/groupInbox.test.ts`.
