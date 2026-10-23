@@ -61,16 +61,23 @@ export async function gatewayConnectCallHandler(ctx: ActionCtx, body: Record<str
   if (cleared === null) return json({ ok: false, refused: "not_connected" });
   const team = stringField(body, "team");
   if (spec.kind !== "slack") {
-    return json(
-      await ctx.runAction(internal.functions.connectionApps.callApp, {
-        provider: spec.id,
-        workspaceId: cleared.workspaceId,
-        actorUserId: cleared.actorUserId,
-        clientId: cleared.clientId,
-        method,
-        args: args as Record<string, unknown>,
-      }),
-    );
+    try {
+      return json(
+        await ctx.runAction(internal.functions.connectionApps.callApp, {
+          provider: spec.id,
+          workspaceId: cleared.workspaceId,
+          actorUserId: cleared.actorUserId,
+          clientId: cleared.clientId,
+          method,
+          args: args as Record<string, unknown>,
+        }),
+      );
+    } catch (error) {
+      // Said to Tex so a person's "it didn't respond" can be traced; an error here names a step, never a token.
+      const message = error instanceof Error ? error.message.replace(/\s+/g, " ").slice(0, 200) : "unknown";
+      console.error(JSON.stringify({ event: "connect_call_failed", provider: spec.id, method, message }));
+      return json({ ok: false, refused: "unavailable", message: `Context failed calling it (${message})` });
+    }
   }
   const outcome = await ctx.runAction(internal.functions.connections.callProvider, {
     provider: spec.id,

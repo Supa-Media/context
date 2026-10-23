@@ -16,7 +16,8 @@ export type McpOutcome =
   | { kind: "ok"; result: unknown }
   | { kind: "unauthorized" }
   | { kind: "error"; message: string }
-  | { kind: "failed" };
+  /** `reason` says what went wrong (a status, a refused connection), never anything from the token. */
+  | { kind: "failed"; reason?: string };
 
 /** The JSON-RPC message answering `id` in a response body, JSON or `text/event-stream`. */
 export function readRpcAnswer(contentType: string, raw: string, id: number): Record<string, unknown> | null {
@@ -69,15 +70,20 @@ async function request(session: Session, method: string, params: Record<string, 
   let response: Response;
   try {
     response = await post(session, { jsonrpc: "2.0", id, method, params });
-  } catch {
-    return { kind: "failed" };
+  } catch (error) {
+    return { kind: "failed", reason: `${method}: could not connect (${error instanceof Error ? error.message.slice(0, 120) : "network error"})` };
   }
   if (response.status === 401 || response.status === 403) return { kind: "unauthorized" };
-  if (!response.ok) return { kind: "failed" };
+  if (!response.ok) {
+    const where = response.status >= 300 && response.status < 400 ? ` to ${response.headers.get("location") ?? "elsewhere"}` : "";
+    const said = (await response.text().catch(() => "")).replace(/\s+/g, " ").trim().slice(0, 160);
+    return { kind: "failed", reason: `${method}: the server answered ${response.status}${where}${said === "" ? "" : `: ${said}`}` };
+  }
   const sessionId = response.headers.get("mcp-session-id");
   if (sessionId !== null && sessionId !== "") session.sessionId = sessionId;
-  const answer = readRpcAnswer(response.headers.get("content-type") ?? "", await response.text(), id);
-  if (answer === null) return { kind: "failed" };
+  const contentType = response.headers.get("content-type") ?? "";
+  const answer = readRpcAnswer(contentType, await response.text(), id);
+  if (answer === null) return { kind: "failed", reason: `${method}: no answer could be read from the server's reply (${contentType || "no content type"})` };
   if (answer.error !== undefined) {
     const message = (answer.error as { message?: unknown })?.message;
     return { kind: "error", message: typeof message === "string" ? message.slice(0, 500) : "The app refused that." };
@@ -103,7 +109,7 @@ export async function mcpCall(
   try {
     await post(session, { jsonrpc: "2.0", method: "notifications/initialized" });
   } catch {
-    return { kind: "failed" };
+    return { kind: "failed", reason: "notifications/initialized: could not connect" };
   }
   return await request(session, method, params);
 }

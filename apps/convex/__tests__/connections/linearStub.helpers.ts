@@ -14,7 +14,7 @@ export const REFRESH = "lin-refresh-0000-fake";
 export type Seen = { url: string; method: string; body: string; auth: string | null };
 
 /** Linear's MCP server and its authorization server, as their metadata and JSON-RPC answer. */
-export function stubLinear(options: { expiredToken?: string } = {}) {
+export function stubLinear(options: { expiredToken?: string; scopes?: () => string[] } = {}) {
   const seen: Seen[] = [];
   vi.stubEnv("APP_ORIGIN", APP);
   vi.stubGlobal(
@@ -26,7 +26,8 @@ export function stubLinear(options: { expiredToken?: string } = {}) {
       const auth = new Headers(init?.headers).get("Authorization");
       seen.push({ url, method, body, auth });
       if (url === "https://mcp.linear.app/.well-known/oauth-protected-resource/mcp") {
-        return Response.json({ resource: SERVER, authorization_servers: ["https://mcp.linear.app"] });
+        const scopes = options.scopes?.();
+        return Response.json({ resource: SERVER, authorization_servers: ["https://mcp.linear.app"], ...(scopes === undefined ? {} : { scopes_supported: scopes }) });
       }
       if (url === "https://mcp.linear.app/.well-known/oauth-authorization-server") {
         return Response.json({

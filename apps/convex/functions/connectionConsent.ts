@@ -15,7 +15,21 @@ import { resolveClientInfo, resourceFor, scopesFor } from "./lib/connections/sta
 import { createPkcePair } from "./lib/pkce";
 import { providerValidator } from "./lib/providers/ids";
 import { standardAuthorizeUrl } from "./lib/providers/oauth";
+import { discoverMcpAuth } from "./lib/providers/mcpOAuth";
 import { providerOf } from "./lib/providers/registry";
+import type { StandardSpec } from "./lib/providers/types";
+
+/**
+ * The scopes an MCP server offers today, read again for each consent: the
+ * list saved when we registered goes stale when the app adds one (Planning
+ * Center's write access), and a person reconnecting should be asked for it.
+ * Undefined when the registry names its own scopes or the server can't say.
+ */
+async function freshScopes(spec: StandardSpec): Promise<readonly string[] | undefined> {
+  if (spec.kind !== "mcp" || spec.scopes.length > 0) return undefined;
+  const found = await discoverMcpAuth(spec.serverUrl).catch(() => null);
+  return found?.scopesSupported !== undefined && found.scopesSupported.length > 0 ? found.scopesSupported : undefined;
+}
 
 /** The consent address for a parked attempt, its verifier sealed to the attempt's workspace. Null: not set up. */
 export const standardConsentUrl = internalAction({
@@ -46,7 +60,7 @@ export const standardConsentUrl = internalAction({
       redirectUri: args.redirectUri,
       state: args.state,
       codeChallenge: challenge,
-      scopes: scopesFor(spec, client),
+      scopes: (await freshScopes(spec)) ?? scopesFor(spec, client),
       resource: resourceFor(spec, client),
       extra: spec.authorizeParams,
     });
