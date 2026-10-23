@@ -49,8 +49,10 @@ export function fakeModel() {
     },
     async handle(url, init) {
       requests.push(JSON.parse(init.body));
-      const next = script.shift();
-      if (!next) throw new Error("fake model: the script ran out");
+      const step = script.shift();
+      if (!step) throw new Error("fake model: the script ran out");
+      // A step may be a function of the request it answers, to reply with what an earlier tool returned.
+      const next = typeof step === "function" ? step(requests.at(-1)) : step;
       if (next.status) return new Response("{}", { status: next.status });
       const content = next.text ? [{ type: "text", text: next.text }] : [];
       for (const [i, call] of (next.toolCalls ?? []).entries()) {

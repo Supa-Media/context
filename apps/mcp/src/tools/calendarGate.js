@@ -20,7 +20,7 @@
  * through to `calendar_event` itself.
  */
 
-import { callKey, createPending, findPending, takeDone } from "./approvals.js";
+import { callKey, createPending, findPending, ALREADY_ASKED, shownBefore, takeDone } from "./approvals.js";
 import { toolError } from "./results.js";
 import { CALENDAR_TOOL, REFUSED, calendarCopy, calendarSummary, readCalendarChange, refusalFor } from "./calendarWrite.js";
 import { emailCaller } from "./emailGate.js";
@@ -79,6 +79,7 @@ export async function calendarGate(supplied, { store, session, target }) {
     return toolError("Not changed: one calendar change at a time by text. Ask about this one after the person answers.");
   }
   const existing = await findPending(store, { name: CALENDAR_TOOL, args: held, userId });
+  if (session.egress?.texting === true && shownBefore(existing)) return toolError(ALREADY_ASKED);
   const record =
     existing?.record ??
     (await createPending(store, {

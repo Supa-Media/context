@@ -35,14 +35,18 @@
  *   only while it is bound (`groupChat.ts`).
  */
 
-import { agentAnswer, post, record, ServiceError, type Fetch } from "./clients";
+import { askAgentStream, post, record, ServiceError, type Fetch } from "./clients";
+import { PICTURE_FAILED, shrinkPicture, type OutgoingPicture } from "./outgoing";
+import type { Picture } from "./line";
+import { prepareAttachments, type ImagesLike } from "./attachments";
+import { MAX_INBOUND_ATTACHMENTS, type InboundAttachment } from "./inbound";
 import { textsWithExact } from "./format";
 import { tapbackText, type Reaction } from "./reactions";
 import { dropThumb, dueThumb, GROUP_THUMB_KEY, holdThumb } from "./thumbs";
 import type { InboxStorage } from "./inbox";
 import type { SendblueKeys } from "./sendblue";
 import { chatBefore, dropChatLines, keepChatLine, peopleOf, setChatBound, sha256Hex } from "./groupChat";
-import { reactInGroup, readGroupMembers, readOwnGroupMessage, sendGroupText, type GroupMessage } from "./sendblueGroups";
+import { reactInGroup, readGroupMembers, readOwnGroupMessage, sendGroupMedia, sendGroupText, type GroupMessage } from "./sendblueGroups";
 import { chatJobs, noteJobSent, noteJobUpdate, startJobs, steerJobs, type JobRun, type JobSteer, type JobUpdate } from "./jobs";
 
 export type GroupDeps = {
@@ -51,6 +55,10 @@ export type GroupDeps = {
   workerSecret: string;
   gatewayOrigin: string;
   sendblue?: SendblueKeys | null;
+  /** Converts a photo the model cannot read (`attachments.ts`); absent, it is described instead. */
+  images?: ImagesLike;
+  /** Serves a picture Tex sends at a short-lived address Sendblue fetches (`media.ts`); absent, pictures aren't sent. */
+  hostPicture?: (picture: Picture) => Promise<string>;
   now: () => number;
   /** Starts a background job in an object of its own (`jobs.ts`); absent, the chat's turns are offered none. */
   spawnJob?: (id: string, run: JobRun) => Promise<void>;
@@ -72,8 +80,6 @@ const MAX_PENDING = 10;
 const MAX_SENT = 30;
 const MAX_ATTEMPTS = 3;
 const RETRY_MS = 20_000;
-/** A group turn is asked for whole; the gateway caps it too. */
-const GROUP_TURN_TIMEOUT_MS = 120_000;
 const SENT_KEY = "gsent";
 /** The workspace names Tex last asked this chat to pick from, never text: a bare "supa" then answers it. */
 const CHOICE_KEY = "gchoice";
@@ -84,6 +90,18 @@ const seenKey = (eventId: string, words: string) => `gseen:${eventId}:${words}`;
 export const SAME_ASK_MS = 10 * 60_000;
 const RECENT_KEY = "grecent";
 type Recent = { h: string; at: number };
+/**
+ * How long a tag waits before it is answered, so a picture sent just after it
+ * ("Tex, file this screenshot", then the screenshot) is read with it, as a
+ * 1:1 text's words wait for one (`inbox.ts` `TEXT_WAIT_MS`).
+ */
+export const GROUP_TEXT_WAIT_MS = 4_000;
+/** A picture from the person whose tag is still waiting joins that tag, this soon after it. */
+export const PICTURE_JOINS_MS = 2 * 60_000;
+/** The newest pictures and files a turn reads, its own and the chat's since Tex last answered. */
+export const MAX_GROUP_FILES = 4;
+/** How a picture sent without words reads in the chat Tex is handed. */
+export const PICTURE_LINE = "(sent a picture or file)";
 /** How long a yes Tex asked for stays the asker's to give without its name. */
 export const ASK_OPEN_MS = 30 * 60_000;
 const ASK_KEY = "gask";
@@ -213,6 +231,10 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
   const seen = seenKey(message.eventId, await sha256Hex(message.text));
   if ((await storage.get<number>(seen)) !== undefined) return tagged ? "duplicate" : "ignored";
   if (!tagged) {
+    if (await joinsWaitingTag(storage, message, now)) {
+      await storage.put(seen, now);
+      return "queued";
+    }
     if (!(await keepChatLine(storage, message, now))) return "ignored";
     await storage.put(seen, now);
     return "kept";
@@ -228,8 +250,32 @@ export async function acceptGroup(storage: InboxStorage, message: GroupMessage, 
   await storage.put(seen, now);
   // Whether it replies to Tex is decided now, against the handles Tex sent; the turn reads the words it quotes.
   await storage.put<Pending>(pendingKey(seq), { message: repliesToTex ? message : { ...message, replyTo: undefined }, attempts: 0, at: now });
-  await storage.setAlarm(now);
+  // Words alone wait a moment for a picture to follow them; a tag that brought one goes now.
+  await storage.setAlarm(message.attachments?.length ? now : now + GROUP_TEXT_WAIT_MS);
   return "queued";
+}
+
+/**
+ * A picture sent without words by someone whose tag is still waiting to be
+ * answered joins that tag (Jhon, 2026-10-23: "Tex, file this screenshot as a
+ * bug report first", then the screenshot, and Tex answered that it couldn't
+ * see one). Only their own tag, and only one sent a moment ago.
+ */
+async function joinsWaitingTag(storage: InboxStorage, message: GroupMessage, now: number): Promise<boolean> {
+  if (message.text !== "" || !message.attachments?.length) return false;
+  const pending = [...(await storage.list<Pending>({ prefix: "gpending:" }))].reverse();
+  const waiting = pending.find(([, item]) => item.message.from === message.from && item.attempts === 0 && now - (item.at ?? 0) < PICTURE_JOINS_MS);
+  if (waiting === undefined) return false;
+  const [key, item] = waiting;
+  const attachments = [...(item.message.attachments ?? []), ...message.attachments].slice(0, MAX_INBOUND_ATTACHMENTS);
+  await storage.put<Pending>(key, { ...item, message: { ...item.message, attachments } });
+  return true;
+}
+
+/** The pictures and files a turn reads: the newest of its own and of what the chat sent since Tex last answered, oldest first. */
+export function filesFor(message: GroupMessage, lines: readonly { attachments?: InboundAttachment[] }[]): InboundAttachment[] {
+  const all = [...lines.flatMap((line) => line.attachments ?? []), ...(message.attachments ?? [])];
+  return all.slice(-MAX_GROUP_FILES);
 }
 
 /**
@@ -339,40 +385,48 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, accepte
   const quoted = message.replyTo === undefined ? null : await readOwnGroupMessage(deps.fetch, deps.sendblue, message.replyTo, chat);
   const said = await chatBefore(storage, message, acceptedAt, deps.now());
   const handles = new Map((asked.names ?? []).map(({ phone, handle }) => [phone, handle]));
+  // Pictures sent in the chat are read, as a 1:1 text's are (the group chat of 2026-10-23).
+  const files = filesFor(message, said.lines);
+  const attachments = files.length > 0 ? await prepareAttachments(files, { fetch: deps.fetch, images: deps.images }) : [];
   const group = {
     key: await sha256Hex(`${message.line}:${message.groupId}`),
     members: await sha256Hex(people.join(",")),
     ...(asked.handle ? { from: asked.handle } : {}),
   };
-  let result: { status: number; json: unknown };
-  try {
-    result = await post(
-      deps.fetch,
-      "gateway",
-      `${deps.gatewayOrigin}/agent`,
-      asked.accessToken,
-      {
-        question: message.text,
-        group: { ...group, chat: said.lines.map((line) => ({ from: handles.get(line.from) ?? "", text: line.text })) },
-        ...(asked.timeZone ? { timeZone: asked.timeZone } : {}),
-        ...(deps.spawnJob ? { running: await chatJobs(storage, deps.now()) } : {}),
-        ...(message.reaction !== undefined
-          ? { quoted: message.reaction.words, tapback: message.reaction.how }
-          : quoted !== null
-            ? { quoted }
-            : message.replyTo !== undefined
-              ? { replied: true }
-              : {}),
-      },
-      GROUP_TURN_TIMEOUT_MS,
-    );
-  } catch {
-    throw new ServiceError("gateway", null);
-  }
-  const answer = agentAnswer(result.status, result.json);
+  /*
+    Asked for as a stream, as a person's own text is (the owner, 2026-10-23:
+    "group Tex should literally be the same exact as DM Tex"): a long ask
+    texts its progress into the chat while it works, each line only while
+    nobody new has joined, the same check the answer gets below.
+  */
+  const progress = async (text: string) => {
+    const now = await readGroupMembers(deps.fetch, deps.sendblue!, message.groupId);
+    if (now === null || now.some((phone) => phone !== message.line && !people.includes(phone))) return;
+    await say(storage, deps, message, text);
+  };
+  const answer = await askAgentStream(
+    deps.fetch,
+    deps.gatewayOrigin,
+    asked.accessToken,
+    {
+      question: message.text,
+      group: { ...group, chat: said.lines.map((line) => ({ from: handles.get(line.from) ?? "", text: line.text || PICTURE_LINE })) },
+      ...(attachments.length > 0 ? { attachments } : {}),
+      ...(asked.timeZone ? { timeZone: asked.timeZone } : {}),
+      ...(deps.spawnJob ? { running: await chatJobs(storage, deps.now()) } : {}),
+      ...(message.reaction !== undefined
+        ? { quoted: message.reaction.words, tapback: message.reaction.how }
+        : quoted !== null
+          ? { quoted }
+          : message.replyTo !== undefined
+            ? { replied: true }
+            : {}),
+    },
+    progress,
+  );
   if (answer.kind === "daily_limit") return void (await say(storage, deps, message, "That's all the questions for today. Ask me again tomorrow."));
   if (answer.kind === "no_model") return void (await say(storage, deps, message, "I can't answer from here yet."));
-  if (answer.kind !== "answer") throw new ServiceError("gateway", result.status);
+  if (answer.kind !== "answer") throw new ServiceError("gateway", null);
   // Filed in the chat's memory by that turn: this object's copy goes.
   await dropChatLines(storage, said.keys);
   // An answer that asks for a yes leaves it open for the asker; any other answer closes it.
@@ -397,6 +451,8 @@ async function answerGroup(storage: InboxStorage, message: GroupMessage, accepte
   const texts = textsWithExact(answer.text, answer.verbatim);
   // Every bubble under the message it answers, not only the first (Jhon's bug report, 2026-10-21).
   for (const text of texts) await say(storage, deps, message, text);
+  // A picture Tex drew, made or sent from a note, after the words, as in a 1:1 text.
+  for (const picture of answer.pictures) await sendPicture(storage, deps, message, picture);
   log("answered");
   // Long asks it handed off run beside the chat (`jobs.ts`), each re-checking who is here when it answers.
   if (answer.jobs && deps.spawnJob) {
@@ -495,6 +551,20 @@ async function say(storage: InboxStorage, deps: GroupDeps, message: Pick<GroupMe
   if (handle === undefined) return;
   const sent = (await storage.get<string[]>(SENT_KEY)) ?? [];
   await storage.put(SENT_KEY, [...sent.filter((entry) => entry !== handle), handle].slice(-MAX_SENT));
+}
+
+/** One picture into the chat; one Sendblue refuses becomes a line saying so, as in a 1:1 text. */
+async function sendPicture(storage: InboxStorage, deps: GroupDeps, message: GroupMessage, picture: OutgoingPicture): Promise<void> {
+  if (!deps.sendblue) throw new ServiceError("sendblue", null);
+  try {
+    const url = "url" in picture ? picture.url : deps.hostPicture ? await deps.hostPicture(await shrinkPicture(deps.images, picture)) : null;
+    if (url === null) throw new ServiceError("sendblue", 400);
+    await sendGroupMedia(deps.fetch, deps.sendblue, { line: message.line, groupId: message.groupId }, url, message.messageId);
+  } catch (error) {
+    const status = (error as { status?: number | null }).status;
+    if (typeof status !== "number" || status < 400 || status >= 500 || status === 429) throw error;
+    await say(storage, deps, message, PICTURE_FAILED);
+  }
 }
 
 /** The names this chat was asked to pick from, while that question is still open. */

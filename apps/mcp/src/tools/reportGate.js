@@ -27,7 +27,7 @@
  */
 
 import { readConversation, shownHistory } from "../agent/conversation.js";
-import { callKey, createPending, findPending } from "./approvals.js";
+import { callKey, createPending, findPending, ALREADY_ASKED, shownBefore } from "./approvals.js";
 import { REPORT_TOOL, reportMessage, sendReport } from "./reportProblem.js";
 import { toolError } from "./results.js";
 
@@ -101,6 +101,7 @@ export async function reportGate(supplied, { store, session }) {
   }
   const userId = session.actorUserId;
   const existing = await findPending(store, { name: REPORT_TOOL, args: supplied, userId });
+  if (session.egress?.texting === true && shownBefore(existing)) return toolError(ALREADY_ASKED);
   const record =
     existing?.record ??
     (await createPending(store, {

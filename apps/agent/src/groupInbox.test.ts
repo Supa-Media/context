@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { acceptGroup, addressesTex, drainGroup, GROUP_LINES, groupCommand, peopleOf, type GroupDeps } from "./groupInbox";
+import { acceptGroup, addressesTex, drainGroup, GROUP_LINES, GROUP_TEXT_WAIT_MS, groupCommand, peopleOf, PICTURE_LINE, type GroupDeps } from "./groupInbox";
 import { parseSendblueGroup, readGroupMembers, type GroupMessage } from "./sendblueGroups";
 import { parseSendblueInbound } from "./sendblue";
 import { MemoryStorage } from "./memoryStorage.testing";
@@ -11,6 +11,9 @@ const ADA = "+15555550101";
 const BO = "+15555550102";
 const CY = "+15555550103";
 const GROUP = "11111111-2222-3333-4444-555555555555";
+
+const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0, 10, 0, 0, 0, 10, 8, 2, 0, 0, 0]);
+const PICTURE = { url: "https://cdn.sendblue.example/files/IMG_0001.png", mimeType: "", filename: "IMG_0001.png", size: null };
 
 const message = (text: string, extra: Partial<GroupMessage> = {}): GroupMessage => ({
   kind: "group-message",
@@ -25,18 +28,20 @@ const message = (text: string, extra: Partial<GroupMessage> = {}): GroupMessage 
 });
 
 type World = {
-  sends: { content: string; reply_to?: unknown; from_number: string; group_id: string }[];
+  sends: { content?: string; media_url?: string; reply_to?: unknown; from_number: string; group_id: string }[];
   control: Record<string, unknown>[];
   asks: Record<string, unknown>[];
   reactions: number;
   members: (string[] | null)[] | null;
 };
 
-function deps(world: World, answers: { control?: unknown; agent?: unknown; agentStatus?: number } = {}): GroupDeps {
+function deps(world: World, answers: { control?: unknown; agent?: unknown; agentStatus?: number; stream?: string[] } = {}): GroupDeps {
   let membersRead = 0;
   let handles = 0;
   const fetcher = (async (url: string, init: RequestInit) => {
     const path = new URL(url).pathname;
+    // A picture someone sent, on Sendblue's file host: a PNG's first bytes are enough to tell it.
+    if (path.startsWith("/files/")) return new Response(PNG, { status: 200 });
     if (path.startsWith("/api/v2/groups/")) {
       if (world.members === null) return new Response("{}", { status: 404 });
       const list = world.members[Math.min(membersRead++, world.members.length - 1)];
@@ -60,6 +65,10 @@ function deps(world: World, answers: { control?: unknown; agent?: unknown; agent
     }
     if (path === "/agent") {
       world.asks.push(body);
+      if (answers.stream) {
+        const lines = [...answers.stream.map((progress) => ({ progress })), { status: 200, body: answers.agent ?? { answer: "The opener." } }];
+        return new Response(lines.map((line) => JSON.stringify(line)).join("\n") + "\n", { headers: { "content-type": "application/x-ndjson" } });
+      }
       return Response.json(answers.agent ?? { answer: "The opener." }, { status: answers.agentStatus ?? 200 });
     }
     throw new Error(`unexpected ${path}`);
@@ -70,6 +79,7 @@ function deps(world: World, answers: { control?: unknown; agent?: unknown; agent
     workerSecret: "secret",
     gatewayOrigin: "https://gateway.example.test",
     sendblue: { keyId: "id", secret: "key" },
+    hostPicture: async (picture) => `https://agent.example.test/media/${picture.name}`,
     now: () => 1_000,
   };
 }
@@ -141,6 +151,13 @@ describe("the group webhook", () => {
     expect(parseSendblueGroup(payload({ is_outbound: true }))).toEqual({ kind: "ignored", reason: "event_type" });
     expect(parseSendblueGroup(payload({ participants: Array.from({ length: 65 }, () => BO) }))).toEqual({ kind: "ignored", reason: "group_size" });
   });
+  it("keeps a picture sent without words, and never a link's preview card (2026-10-23)", () => {
+    const picture = parseSendblueGroup(payload({ content: "", media_url: PICTURE.url }));
+    expect(picture).toMatchObject({ kind: "group-message", text: "", attachments: [{ url: PICTURE.url, filename: "IMG_0001.png" }] });
+    expect(parseSendblueGroup(payload({ content: "", media_url: "https://cdn.sendblue.example/files/x.pluginPayloadAttachment" }))).toEqual({ kind: "ignored", reason: "empty" });
+    expect(parseSendblueGroup(payload({ content: "https://beacon.example", media_url: "https://cdn.sendblue.example/files/card.png" }))).not.toHaveProperty("attachments");
+    expect(parseSendblueGroup(payload({ content: "", media_url: PICTURE.url, service: "SMS" }))).toEqual({ kind: "ignored", reason: "empty" });
+  });
   it("reads members from whatever shape the answer has", async () => {
     const fetcher = (async () => Response.json({ data: { members: [{ phone_number: BO }, ADA, { nested: { number: CY } }] } })) as unknown as Fetch;
     expect((await readGroupMembers(fetcher, { keyId: "a", secret: "b" }, GROUP))?.sort()).toEqual([ADA, BO, CY].sort());
@@ -185,6 +202,51 @@ describe("a group's queue", () => {
     await acceptGroup(storage, message("Tex, what did we say?", { messageId: "t2", from: CY, participants: [ADA, BO, CY, LINE] }), 2);
     await drainGroup(storage, deps(w));
     expect(w.asks[1]).toMatchObject({ group: { chat: [] } });
+  });
+
+  it("reads a picture sent just after the tag with it (Jhon's screenshot, 2026-10-23)", async () => {
+    const storage = new MemoryStorage();
+    const w = world();
+    await acceptGroup(storage, message("Tex, hi"), 0);
+    await drainGroup(storage, deps(w));
+    expect(await acceptGroup(storage, message("Tex, file this screenshot as a bug report", { messageId: "t2" }), 10)).toBe("queued");
+    expect(storage.alarms.at(-1)).toBe(10 + GROUP_TEXT_WAIT_MS);
+    // Somebody else's picture is chat, not the tagger's screenshot.
+    expect(await acceptGroup(storage, message("", { from: BO, messageId: "p0", attachments: [PICTURE] }), 11)).toBe("kept");
+    expect(await acceptGroup(storage, message("", { messageId: "p1", attachments: [PICTURE] }), 12)).toBe("queued");
+    await drainGroup(storage, deps(w));
+    expect(w.asks).toHaveLength(2);
+    expect(w.asks[1]).toMatchObject({ question: "Tex, file this screenshot as a bug report", attachments: [{ name: "IMG_0001.png", mediaType: "image/png" }] });
+    expect((w.asks[1].attachments as { data?: string }[])[0].data).toBeTruthy();
+  });
+
+  it("texts its progress into the chat and sends pictures, as in a 1:1 text (2026-10-23)", async () => {
+    const storage = new MemoryStorage();
+    const w = world();
+    const picture = { name: "chart.png", mediaType: "image/png", data: btoa("png") };
+    await acceptGroup(storage, message("Tex, research beacon.sh and draw it"), 0);
+    await drainGroup(storage, deps(w, { stream: ["Reading the page now."], agent: { answer: "Here it is.", pictures: [picture] } }));
+    expect(w.sends.map((sent) => sent.content ?? sent.media_url)).toEqual(["Reading the page now.", "Here it is.", "https://agent.example.test/media/chart.png"]);
+    expect(w.sends.every((sent) => (sent.reply_to as { message_handle?: string } | undefined)?.message_handle === "h_in")).toBe(true);
+  });
+
+  it("sends no progress line once someone new has joined", async () => {
+    const storage = new MemoryStorage();
+    const w = world([[ADA, BO], [ADA, BO, CY]]);
+    await acceptGroup(storage, message("Tex, research this"), 0);
+    await drainGroup(storage, deps(w, { stream: ["Reading the page now."] }));
+    expect(w.sends.map((sent) => sent.content)).toEqual([GROUP_LINES.joined]);
+  });
+
+  it("reads a picture sent in the chat before the tag", async () => {
+    const storage = new MemoryStorage();
+    const w = world();
+    await acceptGroup(storage, message("Tex, hi"), 0);
+    await drainGroup(storage, deps(w));
+    expect(await acceptGroup(storage, message("", { from: BO, messageId: "p1", attachments: [PICTURE] }), 1)).toBe("kept");
+    await acceptGroup(storage, message("Tex, what's in that picture?", { messageId: "t2" }), 2);
+    await drainGroup(storage, deps(w));
+    expect(w.asks[1]).toMatchObject({ group: { chat: [{ text: PICTURE_LINE }] }, attachments: [{ mediaType: "image/png" }] });
   });
 
   it("keeps the chat's lines when the turn fails, so the retry still has them", async () => {

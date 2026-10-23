@@ -27,7 +27,7 @@
  * through to `send_email` itself.
  */
 
-import { DETAIL_CAP, createPending, findPending, takeDone } from "./approvals.js";
+import { DETAIL_CAP, createPending, findPending, ALREADY_ASKED, shownBefore, takeDone } from "./approvals.js";
 import { toolError } from "./results.js";
 import { EMAIL_TOOL, REFUSED, emailCopy, emailSummary, readEmail } from "./email.js";
 import { readHelperCallers } from "../agent/production.js";
@@ -209,6 +209,7 @@ export async function emailGate(supplied, { store, session, target }) {
     return null;
   }
   const existing = await findPending(store, { name: EMAIL_TOOL, args, userId: session.actorUserId });
+  if (session.egress?.texting === true && shownBefore(existing)) return toolError(ALREADY_ASKED);
   const record =
     existing?.record ??
     (await createPending(store, {

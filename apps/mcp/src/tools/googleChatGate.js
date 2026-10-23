@@ -20,7 +20,7 @@
  * (`session.egress.approved`) passes through to `google_chat` itself.
  */
 
-import { callKey, createPending, findPending, takeDone } from "./approvals.js";
+import { callKey, createPending, findPending, ALREADY_ASKED, shownBefore, takeDone } from "./approvals.js";
 import { toolError } from "./results.js";
 import { GOOGLE_CHAT_TOOL, REFUSED, chatCopy, chatSends, chatSummary, placeName, readChatMessage } from "./googleChat.js";
 import { emailCaller } from "./emailGate.js";
@@ -71,6 +71,7 @@ export async function googleChatGate(supplied, { store, session, target }) {
     return toolError("Not sent: one Google Chat message at a time by text. Ask about this one after the person answers.");
   }
   const existing = await findPending(store, { name: GOOGLE_CHAT_TOOL, args: supplied, userId });
+  if (session.egress?.texting === true && shownBefore(existing)) return toolError(ALREADY_ASKED);
   const record =
     existing?.record ??
     (await createPending(store, {
