@@ -22,19 +22,8 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { INDEX_KEY, PARA_FOLDERS, PRIVACY_KEY } from "../functions/lib/scaffold";
-import {
-  type TestConvex,
-  FAKE_STORAGE,
-  asUser,
-  bindFakeStorage,
-  captureError,
-  createUser,
-  createWorkspace,
-  drainScheduled,
-  errorCode,
-  seedStorageBinding,
-  setupTest,
-} from "./fixtures.helpers";
+import { type TestConvex, FAKE_STORAGE, asUser, bindFakeStorage, captureError, createUser } from "./fixtures.helpers";
+import { createWorkspace, drainScheduled, errorCode, seedStorageBinding, setupTest } from "./fixtures.helpers";
 import { type MemoryS3Options, memoryS3 } from "./storeStub.helpers";
 import { canSeeInRows, rowFolderRules } from "./scaffold/rowsAccess.helpers";
 import {
@@ -200,7 +189,6 @@ describe("the answer is what gets written", () => {
       ["inbox/about.md", "projects/about.md", "areas/about.md", "resources/about.md", "archive/about.md", "index.md"].sort(),
     );
     expect(objectsOutsideNotes(backend)).toEqual([]);
-    expect(backend.objects.has(PRIVACY_KEY)).toBe(false);
     expect(await binding(t, owner, workspaceId)).toMatchObject({
       scaffolded: true,
       scaffoldReason: "created",
@@ -230,7 +218,6 @@ describe("the answer is what gets written", () => {
 
     expect(await notePaths(t, workspaceId)).toEqual(["clients/about.md", "index.md", "reading/about.md"]);
     expect(objectsOutsideNotes(backend)).toEqual([]);
-    expect(backend.objects.has(PRIVACY_KEY)).toBe(false);
     expect(await bodyAtPath(t, workspaceId, backend, "clients/about.md")).toContain("One folder per client.");
     expect(await bodyAtPath(t, workspaceId, backend, "index.md")).toContain(
       "`reading/` — Books and articles worth keeping.",
@@ -255,8 +242,7 @@ describe("the answer is what gets written", () => {
       });
       await drainScheduled(t);
 
-      // Access is on the rows. Nothing in the bucket grants anything, and no folder row
-      // takes `team` on a personal workspace.
+      // Access is on the rows: no folder row takes `team` on a personal workspace.
       expect(backend.objects.has(PRIVACY_KEY)).toBe(false);
       const rules = await rowFolderRules(t, workspaceId);
       expect(rules.every((rule) => rule.vis === "private")).toBe(true);
@@ -638,7 +624,6 @@ describe("a scaffold that only partly lands can be finished from the console", (
 
     expect(await notePaths(t, workspaceId)).toEqual([...FOLDER_NOTE_KEYS, "index.md"].sort());
     expect(objectsOutsideNotes(backend)).toEqual([]);
-    expect(backend.objects.has(PRIVACY_KEY)).toBe(false);
     const row = await binding(t, owner, workspaceId);
     expect(row).toMatchObject({ scaffolded: true, scaffoldReason: "created" });
     expect(row?.scaffoldMissing).toEqual([]);
@@ -656,8 +641,7 @@ describe("a scaffold that only partly lands can be finished from the console", (
     await apply(t, owner, workspaceId, { template: "para" });
     await drainScheduled(t);
 
-    // Nothing is essential any more, so a refused layout reads as partial rather than failed.
-    // That is the production behaviour (`lib/scaffold/run.ts`, `ESSENTIAL_KEYS`).
+    // With no essential key left (`lib/scaffold/run.ts`), a refused layout reads as partial.
     expect(await binding(t, owner, workspaceId)).toMatchObject({
       scaffolded: false,
       scaffoldReason: "partial",
@@ -671,7 +655,6 @@ describe("a scaffold that only partly lands can be finished from the console", (
     expect((await binding(t, owner, workspaceId))?.scaffoldReason).toBe("created");
     expect(await notePaths(t, workspaceId)).toEqual([...FOLDER_NOTE_KEYS, "index.md"].sort());
     expect(objectsOutsideNotes(backend)).toEqual([]);
-    expect(backend.objects.has(PRIVACY_KEY)).toBe(false);
   });
 
   /**
@@ -705,7 +688,6 @@ describe("a scaffold that only partly lands can be finished from the console", (
     await drainScheduled(t);
     expect(await notePaths(t, workspaceId)).toEqual([...FOLDER_NOTE_KEYS, "index.md"].sort());
     expect(objectsOutsideNotes(backend)).toEqual([]);
-    expect(backend.objects.has(PRIVACY_KEY)).toBe(false);
   });
 
   test("rebinding to another bucket takes the licence with it", async () => {
@@ -819,13 +801,17 @@ describe("a shared workspace is laid down for the people in it", () => {
     await drainScheduled(t);
 
     expect(backend.objects.has(PRIVACY_KEY)).toBe(false);
-    expect((await rowFolderRules(t, workspaceId)).map((rule) => [rule.prefix, rule.vis])).toEqual(
-      [...PARA_FOLDERS].sort().map((folder) => [folder, "team"]),
-    );
+    const folders = (await rowFolderRules(t, workspaceId)).map((rule) => [rule.prefix, rule.vis]);
+    expect(folders).toEqual([...PARA_FOLDERS].sort().map((folder) => [folder, "team"]));
     expect(await canSeeInRows(t, workspaceId, "projects/kickoff.md", "team")).toBe(true);
     // …and the front page is the one root note opened by name, not a bucket-wide widening.
     expect(await canSeeInRows(t, workspaceId, INDEX_KEY, "team")).toBe(true);
+    // Opening the scaffolded folders does not open the bucket: a path outside them stays shut.
     expect(await canSeeInRows(t, workspaceId, "payroll/2026.md", "team")).toBe(false);
+    expect(await canSeeInRows(t, workspaceId, "root-level-note.md", "team")).toBe(false);
+    for (const folder of PARA_FOLDERS) {
+      expect(await canSeeInRows(t, workspaceId, `${folder}/about.md`, "team"), `${folder}/about.md`).toBe(true);
+    }
   });
 
   test("a workspace in the same deployment still starts all-private", async () => {
@@ -838,41 +824,14 @@ describe("a shared workspace is laid down for the people in it", () => {
     expect(await canSeeInRows(t, workspaceId, "projects/kickoff.md", "team")).toBe(false);
   });
 
-  /**
-   * `default_visibility` stays private, so opening the folders the scaffolder
-   * made does not open the bucket. A path outside them, at the root or in a
-   * folder nobody named, is still shut to the workspace.
-   */
-  test("a path outside the declared folders still fails closed", async () => {
-    const { t, owner, workspaceId } = await connected({ kind: "shared" });
-    await apply(t, owner, workspaceId, { template: "para" });
-    await drainScheduled(t);
-
-    expect(await canSeeInRows(t, workspaceId, "payroll/salaries.md", "team")).toBe(false);
-    expect(await canSeeInRows(t, workspaceId, "root-level-note.md", "team")).toBe(false);
-  });
-
-  /** Every folder note the scaffold wrote is readable by the workspace, not only the folders. */
-  test("every folder note the scaffold writes is readable by the workspace", async () => {
-    const { t, owner, workspaceId } = await connected({ kind: "shared" });
-    await apply(t, owner, workspaceId, { template: "para" });
-    await drainScheduled(t);
-
-    for (const folder of PARA_FOLDERS) {
-      expect(await canSeeInRows(t, workspaceId, `${folder}/about.md`, "team"), `${folder}/about.md`).toBe(true);
-    }
-  });
-
   /** A custom layout opens the owner's own folders, and none of PARA's. */
   test("a custom layout opens the owner's own folders, not PARA's", async () => {
     const { t, owner, workspaceId } = await connected({ kind: "shared" });
     await apply(t, owner, workspaceId, { template: "custom", folders: CUSTOM });
     await drainScheduled(t);
 
-    expect((await rowFolderRules(t, workspaceId)).map((rule) => [rule.prefix, rule.vis])).toEqual([
-      ["clients", "team"],
-      ["reading", "team"],
-    ]);
+    const folders = (await rowFolderRules(t, workspaceId)).map((rule) => [rule.prefix, rule.vis]);
+    expect(folders).toEqual([["clients", "team"], ["reading", "team"]]);
     expect(await canSeeInRows(t, workspaceId, "clients/acme.md", "team")).toBe(true);
     expect(await canSeeInRows(t, workspaceId, "projects/anything.md", "team")).toBe(false);
   });

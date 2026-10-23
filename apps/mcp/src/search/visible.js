@@ -363,17 +363,11 @@ async function answerFromIndex(store, options) {
     readSnippets = true,
   } = options;
 
-  // One op, and the only thing between a caller and an answer. `null` is every way
-  // the manifest can fail to arrive; both surfaces say something other than "no matches".
-  // A store that refused the read is marked `unreachable`, so a caller that reports
-  // per-source state can say "failed" rather than "still being indexed".
-  let unreachable = false;
-  const manifest = await loadIndexManifest(store, budget, limit).catch(() => {
-    unreachable = true;
-    return null;
-  });
-  const indexHasDocs = Boolean(manifest && manifest.stats.some((entry) => entry.docCount > 0));
-  if (!indexHasDocs) return unreachable ? { indexed: false, unreachable: true } : { indexed: false };
+  // One op, and the only thing between a caller and an answer. `null` is every way the manifest can fail to
+  // arrive; a refused read is also `unreachable`, so a per-source caller says "failed", not "indexing".
+  const manifest = await loadIndexManifest(store, budget, limit).catch(() => "unreachable");
+  const indexHasDocs = Boolean(manifest && manifest !== "unreachable" && manifest.stats.some((entry) => entry.docCount > 0));
+  if (!indexHasDocs) return manifest === "unreachable" ? { indexed: false, unreachable: true } : { indexed: false };
 
   // The caller's own share of `shedNotePathsOf(manifest)` — raw and
   // unfiltered until this line, exactly like `manifest.filters`. Computed
