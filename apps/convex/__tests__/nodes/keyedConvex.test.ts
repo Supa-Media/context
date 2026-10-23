@@ -70,14 +70,7 @@ describe("keyedWorkspace: what counts as keyed", () => {
     expect(await t.run((ctx) => keyedWorkspace(ctx.db, ws))).toBe(false);
   });
 
-  test("keyedAt without keys mode is not keyed (the switch has not been thrown)", async () => {
-    const t = convexTest(schema, modules);
-    const ws = await workspace(t, "ids");
-    await setKeyedState(t, ws, "ids", 5);
-    expect(await t.run((ctx) => keyedWorkspace(ctx.db, ws))).toBe(false);
-  });
-
-  test("keys mode and keyedAt together make a keyed workspace, and only that workspace", async () => {
+  test("keyedAt makes a keyed workspace, and only that workspace", async () => {
     const t = convexTest(schema, modules);
     const ws = await workspace(t, "keyed");
     const other = await workspace(t, "other");

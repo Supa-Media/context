@@ -95,8 +95,8 @@ describe("hiding old copies", () => {
   test("a workspace that is not keyed is left alone until it is", async () => {
     const f = await copiesFixture();
     await f.t.run(async (ctx) => {
-      const layout = await ctx.db.query("noteIdLayout").first();
-      await ctx.db.patch(layout!._id, { mode: "ids" });
+      // Not flipped: its copy row has no keyedAt.
+      for (const row of await ctx.db.query("noteIdCopies").collect()) await ctx.db.patch(row._id, { keyedAt: undefined });
     });
     expect(await hideAll(f)).toEqual({ days: 0, contacts: 0, files: 0 });
     for (const path of ALL_COPIES) expect(await liveAt(f, path)).toBe(true);

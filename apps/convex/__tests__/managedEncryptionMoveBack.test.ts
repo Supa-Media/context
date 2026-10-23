@@ -41,6 +41,15 @@ import {
   row,
 } from "./managedEncryption.helpers";
 import { configured } from "./managedProvisioning/fixtures.helpers";
+import { keyOf, keyedFixture } from "./keyedFixture.encrypt.helpers";
+
+/**
+ * Moved out from a keyed workspace. The `while-away` note exists before the
+ * move, so the row and its key exist: the copy back then arrives as plain
+ * bytes at the key the row already names, which is what a switch back does.
+ */
+const movedOutKeyed = () =>
+  encryptedThenMovedOut(() => keyedFixture({}, { "1-projects/while-away.md": "# Written while away\n" }));
 
 resetAfterEach();
 
@@ -85,15 +94,19 @@ describe("moving out keeps what the kept bucket needs", () => {
 
 describe("switching back within the week", () => {
   test("re-adopts the sealed bucket, reads both kinds at once, and walks it back to encrypted", async () => {
-    const { t, staff, ours, backend } = await encryptedThenMovedOut();
-    const sealedBefore = backend.bytesOf("index.md");
+    const { t, staff, ours, backend } = await movedOutKeyed();
+    const bucket = { t, workspaceId: ours, backend };
+    const indexKey = await keyOf(bucket, "index.md");
+    const planKey = await keyOf(bucket, "1-projects/plan.md");
+    const awayKey = await keyOf(bucket, "1-projects/while-away.md");
+    const sealedBefore = backend.bytesOf(indexKey);
     expect(isSealed(sealedBefore)).toBe(true);
 
     // The copy back into the kept bucket: a note edited while away arrives
-    // plain over its sealed copy, a new note arrives plain, and a note they
-    // never touched is still the sealed copy from before.
-    backend.seed("1-projects/plan.md", "# Plan\n\nEdited in their own bucket.\n");
-    backend.seed("1-projects/while-away.md", "# Written while away\n");
+    // plain over its sealed copy, a note written while away arrives plain at
+    // its key, and a note they never touched is still the sealed copy from before.
+    backend.seed(planKey, "# Plan\n\nEdited in their own bucket.\n");
+    backend.seed(awayKey, "# Written while away\n");
     await readyMigration(t, ours, staff, {
       direction: "to_managed",
       bucket: managedBucketName(ours),
@@ -118,14 +131,15 @@ describe("switching back within the week", () => {
     expect(await row(t, ours)).toMatchObject({ state: "encrypted" });
     for (const [key] of backend.objects) expect(isSealed(backend.bytesOf(key)), key).toBe(true);
     // The untouched note was already sealed and was left as it was.
-    expect(backend.bytesOf("index.md")).toEqual(sealedBefore);
+    expect(backend.bytesOf(indexKey)).toEqual(sealedBefore);
     expect(await read("1-projects/plan.md")).toBe("# Plan\n\nEdited in their own bucket.\n");
   });
 });
 
 describe("the kept bucket after a move out", () => {
   test("is read in its own mode, so a late pass copies plain text, not ciphertext", async () => {
-    const { t, ours, backend } = await encryptedThenMovedOut();
+    const { t, ours, backend } = await movedOutKeyed();
+    const planKey = await keyOf({ t, workspaceId: ours, backend }, "1-projects/plan.md");
     expect(await t.query(internal.functions.managedEncryption.keptBucketMode, { workspaceId: ours })).toBe("encrypted");
     // What a catch-up pass does with `keptManagedBucketOption`: the kept
     // bucket's credential, in the kept bucket's mode, with the workspace key.
@@ -146,12 +160,12 @@ describe("the kept bucket after a move out", () => {
         managedEncryption: { workspaceId: String(ours), mode: "encrypted", current: key!.current, keys: key!.keys },
       },
     );
-    expect(isSealed(backend.bytesOf("1-projects/plan.md"))).toBe(true);
-    expect(await (await kept.get("1-projects/plan.md"))!.text()).toBe("# Plan\n\nThe words people typed.\n");
+    expect(isSealed(backend.bytesOf(planKey))).toBe(true);
+    expect(await (await kept.get(planKey))!.text()).toBe("# Plan\n\nThe words people typed.\n");
   });
 
   test("its row goes once the bucket is deleted, and not while it is in use again", async () => {
-    const { t, staff, ours } = await encryptedThenMovedOut();
+    const { t, staff, ours } = await movedOutKeyed();
     // Back inside the week: the row is live again and must stay.
     await readyMigration(t, ours, staff, {
       direction: "to_managed",

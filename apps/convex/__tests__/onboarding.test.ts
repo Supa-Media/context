@@ -37,6 +37,13 @@ import {
 } from "./fixtures.helpers";
 import { type MemoryS3Options, memoryS3 } from "./storeStub.helpers";
 import { gatewayInternals } from "./gatewayFormat.helpers";
+import {
+  bodyAtPath,
+  folderNoteBodies,
+  notePaths,
+  objectsOutsideNotes,
+  refuseNotesWithBodies,
+} from "./keyedFixture.onboard.helpers";
 import { clampScopes, visibilityTierOf } from "../functions/lib/consentScopes";
 
 afterEach(() => {
@@ -189,17 +196,10 @@ describe("the answer is what gets written", () => {
     });
     await drainScheduled(t);
 
-    expect([...backend.objects.keys()].sort()).toEqual(
-      [
-        "inbox/about.md",
-        "projects/about.md",
-        "areas/about.md",
-        "resources/about.md",
-        "archive/about.md",
-        "index.md",
-        "privacy.md",
-      ].sort(),
+    expect(await notePaths(t, workspaceId)).toEqual(
+      ["inbox/about.md", "projects/about.md", "areas/about.md", "resources/about.md", "archive/about.md", "index.md"].sort(),
     );
+    expect(objectsOutsideNotes(backend)).toEqual([PRIVACY_KEY]);
     expect(await binding(t, owner, workspaceId)).toMatchObject({
       scaffolded: true,
       scaffoldReason: "created",
@@ -211,7 +211,7 @@ describe("the answer is what gets written", () => {
     await apply(t, owner, workspaceId, { template: "para" });
     await drainScheduled(t);
 
-    const index = backend.objects.get("index.md")!.body;
+    const index = (await bodyAtPath(t, workspaceId, backend, "index.md"))!;
     for (const folder of PARA_FOLDERS) {
       expect(index).toContain(`\`${folder}/\` —`);
     }
@@ -227,16 +227,10 @@ describe("the answer is what gets written", () => {
     ).toMatchObject({ template: "custom", folders: ["clients", "reading"] });
     await drainScheduled(t);
 
-    expect([...backend.objects.keys()].sort()).toEqual([
-      "clients/about.md",
-      "index.md",
-      "privacy.md",
-      "reading/about.md",
-    ]);
-    expect(backend.objects.get("clients/about.md")!.body).toContain(
-      "One folder per client.",
-    );
-    expect(backend.objects.get("index.md")!.body).toContain(
+    expect(await notePaths(t, workspaceId)).toEqual(["clients/about.md", "index.md", "reading/about.md"]);
+    expect(objectsOutsideNotes(backend)).toEqual([PRIVACY_KEY]);
+    expect(await bodyAtPath(t, workspaceId, backend, "clients/about.md")).toContain("One folder per client.");
+    expect(await bodyAtPath(t, workspaceId, backend, "index.md")).toContain(
       "`reading/` — Books and articles worth keeping.",
     );
   });
@@ -607,9 +601,8 @@ describe("a scaffold that only partly lands can be finished from the console", (
   const FOLDER_NOTE_KEYS = PARA_FOLDERS.map((folder) => `${folder}/about.md`);
 
   test("lost folders are reported as a caveat on a success, not as a failure", async () => {
-    const { t, owner, workspaceId, backend } = await connected({
-      refuseWrite: (key) => key.endsWith("/about.md"),
-    });
+    const { t, owner, workspaceId, backend } = await connected();
+    refuseNotesWithBodies(backend, () => true, folderNoteBodies());
 
     await apply(t, owner, workspaceId, { template: "para" });
     await drainScheduled(t);
@@ -634,9 +627,8 @@ describe("a scaffold that only partly lands can be finished from the console", (
 
   test("the owner can retry and finish it — no S3 client required", async () => {
     const refuse = { readmes: true };
-    const { t, owner, workspaceId, backend } = await connected({
-      refuseWrite: (key) => refuse.readmes && key.endsWith("/about.md"),
-    });
+    const { t, owner, workspaceId, backend } = await connected();
+    refuseNotesWithBodies(backend, () => refuse.readmes, folderNoteBodies());
     await apply(t, owner, workspaceId, { template: "para" });
     await drainScheduled(t);
     expect((await binding(t, owner, workspaceId))?.scaffoldReason).toBe("partial");
@@ -648,9 +640,8 @@ describe("a scaffold that only partly lands can be finished from the console", (
     });
     await drainScheduled(t);
 
-    expect([...backend.objects.keys()].sort()).toEqual(
-      [...FOLDER_NOTE_KEYS, "index.md", "privacy.md"].sort(),
-    );
+    expect(await notePaths(t, workspaceId)).toEqual([...FOLDER_NOTE_KEYS, "index.md"].sort());
+    expect(objectsOutsideNotes(backend)).toEqual([PRIVACY_KEY]);
     const row = await binding(t, owner, workspaceId);
     expect(row).toMatchObject({ scaffolded: true, scaffoldReason: "created" });
     expect(row?.scaffoldMissing).toEqual([]);
@@ -679,9 +670,8 @@ describe("a scaffold that only partly lands can be finished from the console", (
     await drainScheduled(t);
 
     expect((await binding(t, owner, workspaceId))?.scaffoldReason).toBe("created");
-    expect([...backend.objects.keys()].sort()).toEqual(
-      [...FOLDER_NOTE_KEYS, "index.md", "privacy.md"].sort(),
-    );
+    expect(await notePaths(t, workspaceId)).toEqual([...FOLDER_NOTE_KEYS, "index.md"].sort());
+    expect(objectsOutsideNotes(backend)).toEqual([PRIVACY_KEY]);
   });
 
   /**
@@ -692,9 +682,8 @@ describe("a scaffold that only partly lands can be finished from the console", (
    */
   test("re-verifying in between does not strand the half-written bucket", async () => {
     const refuse = { readmes: true };
-    const { t, owner, workspaceId, backend } = await connected({
-      refuseWrite: (key) => refuse.readmes && key.endsWith("/about.md"),
-    });
+    const { t, owner, workspaceId, backend } = await connected();
+    refuseNotesWithBodies(backend, () => refuse.readmes, folderNoteBodies());
     await apply(t, owner, workspaceId, { template: "para" });
     await drainScheduled(t);
 
@@ -714,15 +703,13 @@ describe("a scaffold that only partly lands can be finished from the console", (
     refuse.readmes = false;
     await apply(t, owner, workspaceId, { template: "para" });
     await drainScheduled(t);
-    expect([...backend.objects.keys()].sort()).toEqual(
-      [...FOLDER_NOTE_KEYS, "index.md", "privacy.md"].sort(),
-    );
+    expect(await notePaths(t, workspaceId)).toEqual([...FOLDER_NOTE_KEYS, "index.md"].sort());
+    expect(objectsOutsideNotes(backend)).toEqual([PRIVACY_KEY]);
   });
 
   test("rebinding to another bucket takes the licence with it", async () => {
-    const { t, owner, workspaceId } = await connected({
-      refuseWrite: (key) => key.endsWith("/about.md"),
-    });
+    const { t, owner, workspaceId, backend } = await connected();
+    refuseNotesWithBodies(backend, () => true, folderNoteBodies());
     await apply(t, owner, workspaceId, { template: "para" });
     await drainScheduled(t);
     expect((await binding(t, owner, workspaceId))?.scaffoldMissing).not.toEqual([]);

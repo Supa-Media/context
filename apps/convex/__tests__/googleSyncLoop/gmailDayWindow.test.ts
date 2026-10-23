@@ -1,11 +1,8 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { internal } from "../../_generated/api";
-import { FAKE_STORAGE } from "../fixtures.helpers";
 import { readDocument } from "@context/collaboration";
-import { S3Store } from "../../../mcp/src/store/s3.js";
-import { withLogicalDelete } from "../../../mcp/src/store/logicalDelete.js";
 import { REPAIR_DAYS_PER_PASS, remainingRepairDays, repairDaysSince } from "../../functions/lib/googleSync/repairDays";
-import { enableMailSync, endToEnd, googleAndBucket, patchConnection, readConnection, runPass, scenario } from "./fixtures.helpers";
+import { enableMailSync, endToEnd, googleAndBucket, keyedStoreOver, patchConnection, readConnection, runPass, scenario } from "./fixtures.helpers";
 
 /**
  * The window repair (`functions/gmailDayRepair.ts:queueDayRepair`): the owner
@@ -69,7 +66,7 @@ describe("the Gmail window repair", () => {
     vi.stubGlobal("fetch", googleAndBucket({ backend, history: { messageIds: [], historyId: "1100" }, messages: [old] }).fetchImpl);
     await runPass(t, workspaceId, connectionId);
 
-    const store = withLogicalDelete(new S3Store({ ...FAKE_STORAGE, forcePathStyle: true, fetchImpl: backend.fetchImpl }));
+    const store = keyedStoreOver(t, workspaceId, backend);
     const path = `inbox/email/person-at-example-invalid/${owed[0].slice(0, 4)}/${owed[0].slice(5, 7)}/${owed[0]}.md`;
     expect((await readDocument(store, path)).text).toContain("Pricing for the thirtieth");
     const after = await readConnection(t, connectionId);

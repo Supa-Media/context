@@ -83,9 +83,9 @@ describe("a refresh Google could not answer is not a reconnect", () => {
   });
 
   test("a Calendar 401 drops the cached token and is not an account failure", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-09-12T16:00:00.000Z"));
+    // Keyed before the clock is pinned: a frozen clock would stop the drain that keys the bucket.
     const { t, workspaceId, connectionId, backend } = await endToEnd();
+    vi.useFakeTimers({ shouldAdvanceTime: true, now: new Date("2026-09-12T16:00:00.000Z") });
     await patchConnection(t, connectionId, {
       products: ["calendar"],
       gmail: undefined,
@@ -167,9 +167,9 @@ describe("Calendar and Chat rate limits stay their own product's", () => {
   });
 
   test("a Calendar pass Google rate-limited leaves the account healthy", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-09-12T16:00:00.000Z"));
+    // Keyed before the clock is pinned: a frozen clock would stop the drain that keys the bucket.
     const { t, workspaceId, connectionId, backend } = await endToEnd();
+    vi.useFakeTimers({ shouldAdvanceTime: true, now: new Date("2026-09-12T16:00:00.000Z") });
     await patchConnection(t, connectionId, {
       products: ["calendar"],
       gmail: undefined,

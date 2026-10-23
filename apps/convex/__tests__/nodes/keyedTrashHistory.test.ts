@@ -84,6 +84,8 @@ async function addNewFolder(f: Fixture, path: string, extra?: string): Promise<v
     }
   });
   f.store.seed(`notes/${NOTE_ID(901)}.md`, renderNewFolderAbout(path));
+  // This store has no id layer, so Undo's read of the about note's words, by name, reads the path.
+  f.store.seed(`${path}/about.md`, renderNewFolderAbout(path));
 }
 
 describe("a keyed trash carries the note's collaboration history with its row", () => {

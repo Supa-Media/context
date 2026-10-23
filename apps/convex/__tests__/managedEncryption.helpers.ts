@@ -177,8 +177,11 @@ export async function cancelLaterJobs(t: TestConvex): Promise<CatchUpArgs | null
   });
 }
 
-export async function encryptedThenMovedOut() {
-  const f = await fixture();
+/** The fixture a moved-out test starts from: the plain one, or a keyed one (`keyedFixture.encrypt.helpers.ts`). */
+export type EncryptionFixture = Awaited<ReturnType<typeof fixture>>;
+
+export async function encryptedThenMovedOut(start: () => Promise<EncryptionFixture> = fixture) {
+  const f = await start();
   const { t, staff, ours } = f;
   await managedPlan(t, ours);
   await asUser(t, staff).mutation(api.functions.managedEncryption.startRollout, { scope: "ours" });

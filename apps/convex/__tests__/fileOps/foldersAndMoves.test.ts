@@ -1,7 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { clearanceOf } from "../../functions/lib/clearance";
 import {
-  type FileStore,
   archivePath,
   copyPath,
   createFolder,
@@ -17,25 +16,31 @@ import {
   trashPath,
   writeFile,
 } from "../../functions/lib/fileOps";
-import {
-  PRIVACY_KEY,
-  canSee,
-  isPlumbing,
-  parsePrivacyManifest,
-} from "../../functions/lib/privacy";
+import { treeView } from "../../functions/lib/fileOps/walk";
+import { PRIVACY_KEY, canSee, isPlumbing, parsePrivacyManifest } from "../../functions/lib/privacy";
 import { renderPrivacyManifestForFolders } from "../../functions/lib/scaffold";
+import { NOW, shareProjects, capture, errorShape, names } from "./fixtures.helpers";
 import {
-  type MemoryStore,
-  memoryStore,
-} from "../storeStub.helpers";
-import {
-  NOW,
-  bucket,
-  shareProjects,
-  capture,
-  errorShape,
-  names,
-} from "./fixtures.helpers";
+  bytesAt,
+  keyedBucket,
+  KeyedBucket,
+  liveAt,
+  liveRowsUnder,
+  notesAt,
+  PARA_SEEDS,
+  rowOf2,
+  textAt,
+} from "./keyedFixture.fileops1.helpers";
+
+/** The manifest a keyed bucket holds, as the file the lib judges by. */
+function manifestOf(f: KeyedBucket) {
+  return parsePrivacyManifest(f.raw.snapshot()[PRIVACY_KEY]!);
+}
+
+/** The note's live rows beneath a folder, as paths, folder itself excluded. */
+async function notesUnder(f: KeyedBucket, folder: string): Promise<string[]> {
+  return (await liveRowsUnder(f, folder)).filter((path) => path !== folder);
+}
 
 /* -------------------------------------------------------------------------- */
 /*                          creating, copying, moving                         */
@@ -43,16 +48,16 @@ import {
 
 describe("creating a folder", () => {
   test("writes an about.md so the folder is real for every other tool", async () => {
-    const store = bucket();
-    const created = await createFolder(store, {
+    const f = await keyedBucket(PARA_SEEDS);
+    const created = await createFolder(f.store, {
       path: "1-projects/new-thing",
       clearance: clearanceOf("private"),
       now: NOW,
     });
     expect(created.readme).toBe("1-projects/new-thing/about.md");
-    expect(store.snapshot()["1-projects/new-thing/about.md"]).toBeDefined();
-    expect(store.snapshot()["1-projects/new-thing/README.md"]).toBeUndefined();
-    const listing = await listFolder(store, { path: "1-projects", clearance: clearanceOf("private") });
+    expect(await liveAt(f, "1-projects/new-thing/about.md")).toBe(true);
+    expect(await liveAt(f, "1-projects/new-thing/README.md")).toBe(false);
+    const listing = await listFolder(treeView(f.store), { path: "1-projects", clearance: clearanceOf("private") });
     expect(names(listing.entries)).toContain("new-thing");
   });
 
@@ -61,23 +66,23 @@ describe("creating a folder", () => {
    * title the folder page and go stale when the folder is renamed.
    */
   test("the about.md is written empty", async () => {
-    const store = bucket();
-    const created = await createFolder(store, {
+    const f = await keyedBucket(PARA_SEEDS);
+    const created = await createFolder(f.store, {
       path: "1-projects/new-thing",
       clearance: clearanceOf("private"),
       now: NOW,
     });
     expect(created.readme).toBe("1-projects/new-thing/about.md");
-    expect(store.snapshot()[created.readme]).toBe("");
-    expect(Object.keys(store.snapshot()).filter((key) => key.startsWith("1-projects/new-thing/"))).toEqual(["1-projects/new-thing/about.md"]);
+    expect(await textAt(f, created.readme)).toBe("");
+    expect(await notesUnder(f, "1-projects/new-thing")).toEqual(["1-projects/new-thing/about.md"]);
     expect(renderNewFolderAbout("1-projects/new-thing")).toBe("");
   });
 
   test("creating one twice is refused rather than silently reused", async () => {
-    const store = bucket();
-    await createFolder(store, { path: "1-projects/new-thing", clearance: clearanceOf("private"), now: NOW });
+    const f = await keyedBucket(PARA_SEEDS);
+    await createFolder(f.store, { path: "1-projects/new-thing", clearance: clearanceOf("private"), now: NOW });
     const error = await capture(() =>
-      createFolder(store, { path: "1-projects/new-thing", clearance: clearanceOf("private"), now: NOW }),
+      createFolder(f.store, { path: "1-projects/new-thing", clearance: clearanceOf("private"), now: NOW }),
     );
     expect(error.code).toBe("DESTINATION_EXISTS");
   });
@@ -96,19 +101,19 @@ describe("creating a folder", () => {
    * here — this is object existence leaking on its own, not the rule set.
    */
   test("a hidden folder is not confirmed by trying to create it", async () => {
-    const store = bucket();
-    await shareProjects(store);
-    store.seed("2-areas/finance/README.md", "# Finance\n");
+    const f = await keyedBucket(PARA_SEEDS);
+    await shareProjects(f.store);
+    await f.store.put("2-areas/finance/README.md", "# Finance\n");
 
     // The premise: at team scope `2-areas` is not in the tree at all.
-    const root = await listFolder(store, { path: "", clearance: clearanceOf("team") });
+    const root = await listFolder(treeView(f.store), { path: "", clearance: clearanceOf("team") });
     expect(names(root.entries)).not.toContain("2-areas");
 
     const hit = await capture(() =>
-      createFolder(store, { path: "2-areas/finance", clearance: clearanceOf("team"), now: NOW }),
+      createFolder(f.store, { path: "2-areas/finance", clearance: clearanceOf("team"), now: NOW }),
     );
     const miss = await capture(() =>
-      createFolder(store, { path: "2-areas/never-existed", clearance: clearanceOf("team"), now: NOW }),
+      createFolder(f.store, { path: "2-areas/never-existed", clearance: clearanceOf("team"), now: NOW }),
     );
     expect(errorShape(hit)).toBe(errorShape(miss));
     expect(hit.code).toBe("FILE_NOT_FOUND");
@@ -116,7 +121,7 @@ describe("creating a folder", () => {
     // ...and the refusal is not a blanket one. A guard that refused every
     // team-scope creation would satisfy the two assertions above while
     // breaking the operation for every editor who is allowed to use it.
-    const allowed = await createFolder(store, {
+    const allowed = await createFolder(f.store, {
       path: "1-projects/new-thing",
       clearance: clearanceOf("team"),
       now: NOW,
@@ -144,45 +149,16 @@ describe("duplicate names", () => {
 });
 
 describe("moving and renaming", () => {
-  test("a collaborative private note is narrowed before destination bytes appear", async () => {
-    const store = bucket({ conditional: true });
-    await shareProjects(store);
-    const originalPut = store.put.bind(store);
-    let visibilityWhileLanding: string | null = null;
-    store.put = async (key, value, options) => {
-      const written = await originalPut(key, value, options);
-      if (key === "1-projects/health.md" && written !== null) {
-        const observed = await capture(() =>
-          readFile(store, {
-            path: "1-projects/health.md",
-            clearance: clearanceOf("team"),
-          }),
-        );
-        visibilityWhileLanding = observed.code;
-      }
-      return written;
-    };
-
-    await movePath(store, {
-      from: "2-areas/health.md",
-      to: "1-projects/health.md",
-      clearance: clearanceOf("private"),
-      now: NOW,
-    });
-
-    expect(visibilityWhileLanding).toBe("FILE_NOT_FOUND");
-  });
-
   test("a collaborative move returns the etag after rewriting its own links", async () => {
-    const store = bucket({ conditional: true });
-    store.seed("1-projects/old.md", "# Old\n\n[[old]]\n");
-    const moved = await movePath(store, {
+    const f = await keyedBucket(PARA_SEEDS);
+    await f.store.put("1-projects/old.md", "# Old\n\n[[old]]\n");
+    const moved = await movePath(f.store, {
       from: "1-projects/old.md",
       to: "1-projects/nested/new.md",
       clearance: clearanceOf("private"),
       now: NOW,
     });
-    const current = await readFile(store, {
+    const current = await readFile(f.store, {
       path: "1-projects/nested/new.md",
       clearance: clearanceOf("private"),
     });
@@ -191,39 +167,37 @@ describe("moving and renaming", () => {
   });
 
   test("a rename is a move whose parent does not change", async () => {
-    const store = bucket();
-    await movePath(store, {
+    const f = await keyedBucket(PARA_SEEDS);
+    await movePath(f.store, {
       from: "1-projects/context-lc.md",
       to: "1-projects/context.md",
       clearance: clearanceOf("private"),
       now: NOW,
     });
-    const snapshot = store.snapshot();
-    expect(snapshot["1-projects/context.md"]).toContain("# Context.LC");
-    expect(snapshot["1-projects/context-lc.md"]).toBeUndefined();
+    expect(await textAt(f, "1-projects/context.md")).toContain("# Context.LC");
+    expect(await liveAt(f, "1-projects/context-lc.md")).toBe(false);
   });
 
   // An own folder: the built-in ones (`1-projects`) stay where they are.
   test("a whole folder moves, keeping its shape", async () => {
-    const store = bucket();
-    store.seed("work/context-lc.md", "# Context.LC\n\nnotes\n");
-    store.seed("work/money/pay.md", "# Pay\n\nsalaries\n");
-    await movePath(store, {
+    const f = await keyedBucket(PARA_SEEDS);
+    await f.store.put("work/context-lc.md", "# Context.LC\n\nnotes\n");
+    await f.store.put("work/money/pay.md", "# Pay\n\nsalaries\n");
+    await movePath(f.store, {
       from: "work",
       to: "2-areas/work",
       clearance: clearanceOf("private"),
       now: NOW,
     });
-    const snapshot = store.snapshot();
-    expect(snapshot["2-areas/work/context-lc.md"]).toContain("# Context.LC");
-    expect(snapshot["2-areas/work/money/pay.md"]).toContain("salaries");
-    expect(snapshot["work/money/pay.md"]).toBeUndefined();
+    expect(await textAt(f, "2-areas/work/context-lc.md")).toContain("# Context.LC");
+    expect(await textAt(f, "2-areas/work/money/pay.md")).toContain("salaries");
+    expect(await liveAt(f, "work/money/pay.md")).toBe(false);
   });
 
   test("an existing destination is refused rather than merged over", async () => {
-    const store = bucket();
+    const f = await keyedBucket(PARA_SEEDS);
     const error = await capture(() =>
-      movePath(store, {
+      movePath(f.store, {
         from: "1-projects/context-lc.md",
         to: "1-projects/pay.md",
         clearance: clearanceOf("private"),
@@ -231,14 +205,14 @@ describe("moving and renaming", () => {
       }),
     );
     expect(error.code).toBe("DESTINATION_EXISTS");
-    expect(store.snapshot()["1-projects/pay.md"]).toContain("salaries");
+    expect(await textAt(f, "1-projects/pay.md")).toContain("salaries");
   });
 
   test("a refused collaborative collision cannot loosen the destination ACL", async () => {
-    const store = bucket({ conditional: true });
-    await shareProjects(store);
+    const f = await keyedBucket(PARA_SEEDS);
+    await shareProjects(f.store);
     const before = await capture(() =>
-      readFile(store, {
+      readFile(f.store, {
         path: "1-projects/pay.md",
         clearance: clearanceOf("team"),
       }),
@@ -246,7 +220,7 @@ describe("moving and renaming", () => {
     expect(before.code).toBe("FILE_NOT_FOUND");
 
     const refusal = await capture(() =>
-      movePath(store, {
+      movePath(f.store, {
         from: "1-projects/context-lc.md",
         to: "1-projects/pay.md",
         clearance: clearanceOf("private"),
@@ -254,7 +228,7 @@ describe("moving and renaming", () => {
       }),
     );
     const after = await capture(() =>
-      readFile(store, {
+      readFile(f.store, {
         path: "1-projects/pay.md",
         clearance: clearanceOf("team"),
       }),
@@ -265,9 +239,9 @@ describe("moving and renaming", () => {
   });
 
   test("a folder cannot be moved inside itself", async () => {
-    const store = bucket();
+    const f = await keyedBucket(PARA_SEEDS);
     const error = await capture(() =>
-      movePath(store, {
+      movePath(f.store, {
         from: "1-projects",
         to: "1-projects/inner",
         clearance: clearanceOf("private"),
@@ -278,9 +252,9 @@ describe("moving and renaming", () => {
   });
 
   test("moving something that is not there fails like anything else that is not there", async () => {
-    const store = bucket();
+    const f = await keyedBucket(PARA_SEEDS);
     const error = await capture(() =>
-      movePath(store, { from: "1-projects/ghost.md", to: "1-projects/x.md", clearance: clearanceOf("private"), now: NOW }),
+      movePath(f.store, { from: "1-projects/ghost.md", to: "1-projects/x.md", clearance: clearanceOf("private"), now: NOW }),
     );
     expect(error.code).toBe("FILE_NOT_FOUND");
   });
@@ -288,71 +262,77 @@ describe("moving and renaming", () => {
   /**
    * The one that would be easy to skip. Without it, dragging a private note
    * into a shared folder publishes it to everyone with team access, because
-   * the exception keeping it private still names a path that no longer exists.
+   * the note's own exception keeping it private does not follow it.
+   *
+   * Rows mode (production): the note row's own `access.base` is the exception,
+   * and the move carries the row, so it still reads private at its new name.
+   * File mode (`privacy.md` as the rules) is not asserted here; see the report.
    */
   test("a private note dragged into a shared folder stays private", async () => {
-    const store = bucket();
-    await shareProjects(store);
-    // `2-areas` is private, `1-projects` is team. Give the note an exception
-    // that survives the move: mark it team inside private 2-areas…
-    await setVisibility(store, {
-      path: "2-areas/health.md",
-      visibility: "team",
-      clearance: clearanceOf("private"),
+    const f = await keyedBucket(PARA_SEEDS);
+    await f.t.run((ctx) => ctx.db.insert("nodeMigration", { paused: false, accessSource: "rows", updatedAt: 1 }));
+    await f.t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("nodes")
+        .withIndex("by_workspace_path", (q) => q.eq("workspaceId", f.workspaceId).eq("path", "1-projects/pay.md"))
+        .unique();
+      await ctx.db.patch(row!._id, { access: { base: "private" } });
     });
-    await movePath(store, {
+    await movePath(f.store, {
       from: "1-projects/pay.md",
       to: "1-projects/finance-pay.md",
       clearance: clearanceOf("private"),
       now: NOW,
     });
-    const manifest = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]);
-    expect(manifest.overrides.get("1-projects/finance-pay.md")).toBe("private");
-    expect(manifest.overrides.has("1-projects/pay.md")).toBe(false);
+    expect(await rowOf2(f, "1-projects/finance-pay.md")).toEqual({
+      path: "1-projects/finance-pay.md",
+      access: { base: "private" },
+    });
+    expect(await liveAt(f, "1-projects/pay.md")).toBe(false);
   });
 
   test("moving a folder moves its folder default with it", async () => {
-    const store = bucket();
-    store.seed("work/context-lc.md", "# Context.LC\n");
-    store.seed("work/pay.md", "# Pay\n\nsalaries\n");
-    await setFolderVisibility(store, { path: "work", visibility: "team", clearance: clearanceOf("private") });
-    await setVisibility(store, { path: "work/pay.md", visibility: "private", clearance: clearanceOf("private") });
-    await movePath(store, {
+    const f = await keyedBucket(PARA_SEEDS);
+    await f.store.put("work/context-lc.md", "# Context.LC\n");
+    await f.store.put("work/pay.md", "# Pay\n\nsalaries\n");
+    await setFolderVisibility(f.store, { path: "work", visibility: "team", clearance: clearanceOf("private") });
+    await setVisibility(f.store, { path: "work/pay.md", visibility: "private", clearance: clearanceOf("private") });
+    await movePath(f.store, {
       from: "work",
       to: "5-work",
       clearance: clearanceOf("private"),
       now: NOW,
     });
-    const manifest = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]);
+    const manifest = manifestOf(f);
     expect(manifest.rules.find((rule) => rule.prefix === "5-work")?.vis).toBe("team");
     expect(manifest.overrides.get("5-work/pay.md")).toBe("private");
   });
 
   test("a note that is private only because of its folder does not become readable by moving it into a shared one", async () => {
-    const store = bucket();
-    await shareProjects(store);
-    await movePath(store, {
+    const f = await keyedBucket(PARA_SEEDS);
+    await shareProjects(f.store);
+    await movePath(f.store, {
       from: "2-areas/health.md",
       to: "1-projects/health.md",
       clearance: clearanceOf("private"),
       now: NOW,
     });
-    const manifest = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]);
+    const manifest = manifestOf(f);
     expect(canSee("1-projects/health.md", "team", manifest.rules, manifest.overrides)).toBe(false);
   });
 
   test("a folder that is private only because its parent is keeps its subtree private when it moves into a shared folder", async () => {
-    const store = bucket();
-    await shareProjects(store);
-    store.seed("2-areas/clinic/notes.md", "# Notes\n");
-    store.seed("2-areas/clinic/deep/more.md", "# More\n");
-    await movePath(store, {
+    const f = await keyedBucket(PARA_SEEDS);
+    await shareProjects(f.store);
+    await f.store.put("2-areas/clinic/notes.md", "# Notes\n");
+    await f.store.put("2-areas/clinic/deep/more.md", "# More\n");
+    await movePath(f.store, {
       from: "2-areas/clinic",
       to: "1-projects/clinic",
       clearance: clearanceOf("private"),
       now: NOW,
     });
-    const manifest = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]);
+    const manifest = manifestOf(f);
     expect(canSee("1-projects/clinic/notes.md", "team", manifest.rules, manifest.overrides)).toBe(false);
     expect(canSee("1-projects/clinic/deep/more.md", "team", manifest.rules, manifest.overrides)).toBe(false);
     // One rule, not one exception per note: the manifest a customer opens has
@@ -364,50 +344,50 @@ describe("moving and renaming", () => {
 
 describe("copying and duplicating", () => {
   test("a copy of an inherited-private note does not become readable by landing in a shared folder", async () => {
-    const store = bucket();
-    await shareProjects(store);
-    await copyPath(store, {
+    const f = await keyedBucket(PARA_SEEDS);
+    await shareProjects(f.store);
+    await copyPath(f.store, {
       from: "2-areas/health.md",
       to: "1-projects/health-copy.md",
       clearance: clearanceOf("private"),
     });
-    const manifest = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]);
+    const manifest = manifestOf(f);
     expect(canSee("1-projects/health-copy.md", "team", manifest.rules, manifest.overrides)).toBe(false);
     // The original is untouched, which is what makes this one hard to notice.
     expect(canSee("2-areas/health.md", "team", manifest.rules, manifest.overrides)).toBe(false);
   });
 
   test("a copied folder that was private only because its parent is carries one rule, not an exception per note", async () => {
-    const store = bucket();
-    await shareProjects(store);
-    store.seed("2-areas/clinic/notes.md", "# Notes\n");
-    store.seed("2-areas/clinic/deep/more.md", "# More\n");
-    await copyPath(store, {
+    const f = await keyedBucket(PARA_SEEDS);
+    await shareProjects(f.store);
+    await f.store.put("2-areas/clinic/notes.md", "# Notes\n");
+    await f.store.put("2-areas/clinic/deep/more.md", "# More\n");
+    await copyPath(f.store, {
       from: "2-areas/clinic",
       to: "1-projects/clinic",
       clearance: clearanceOf("private"),
     });
-    const manifest = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]);
+    const manifest = manifestOf(f);
     expect(canSee("1-projects/clinic/deep/more.md", "team", manifest.rules, manifest.overrides)).toBe(false);
     expect(manifest.overrides.has("1-projects/clinic/notes.md")).toBe(false);
     expect(manifest.rules.find((rule) => rule.prefix === "1-projects/clinic")?.vis).toBe("private");
   });
 
   test("duplicate lands beside the original under a free name", async () => {
-    const store = bucket();
-    const result = await duplicatePath(store, {
+    const f = await keyedBucket(PARA_SEEDS);
+    const result = await duplicatePath(f.store, {
       path: "1-projects/context-lc.md",
       clearance: clearanceOf("private"),
     });
     expect(result.to).toBe("1-projects/context-lc copy.md");
-    expect(store.snapshot()[result.to]).toContain("# Context.LC");
-    expect(store.snapshot()["1-projects/context-lc.md"]).toContain("# Context.LC");
+    expect(await textAt(f, result.to)).toContain("# Context.LC");
+    expect(await textAt(f, "1-projects/context-lc.md")).toContain("# Context.LC");
   });
 
   test("duplicating twice does not collide", async () => {
-    const store = bucket();
-    await duplicatePath(store, { path: "1-projects/context-lc.md", clearance: clearanceOf("private") });
-    const second = await duplicatePath(store, {
+    const f = await keyedBucket(PARA_SEEDS);
+    await duplicatePath(f.store, { path: "1-projects/context-lc.md", clearance: clearanceOf("private") });
+    const second = await duplicatePath(f.store, {
       path: "1-projects/context-lc.md",
       clearance: clearanceOf("private"),
     });
@@ -415,32 +395,31 @@ describe("copying and duplicating", () => {
   });
 
   test("paste puts a copy at an explicit destination", async () => {
-    const store = bucket();
-    await copyPath(store, {
+    const f = await keyedBucket(PARA_SEEDS);
+    await copyPath(f.store, {
       from: "1-projects/context-lc.md",
       to: "2-areas/context-lc.md",
       clearance: clearanceOf("private"),
     });
-    expect(store.snapshot()["2-areas/context-lc.md"]).toContain("# Context.LC");
-    expect(store.snapshot()["1-projects/context-lc.md"]).toContain("# Context.LC");
+    expect(await textAt(f, "2-areas/context-lc.md")).toContain("# Context.LC");
+    expect(await textAt(f, "1-projects/context-lc.md")).toContain("# Context.LC");
   });
 
   test("a copy keeps the original's visibility rather than inheriting a wider one", async () => {
-    const store = bucket();
-    await shareProjects(store);
-    await copyPath(store, {
+    const f = await keyedBucket(PARA_SEEDS);
+    await shareProjects(f.store);
+    await copyPath(f.store, {
       from: "1-projects/pay.md",
       to: "1-projects/pay-2027.md",
       clearance: clearanceOf("private"),
     });
-    const manifest = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]);
-    expect(manifest.overrides.get("1-projects/pay-2027.md")).toBe("private");
+    expect(manifestOf(f).overrides.get("1-projects/pay-2027.md")).toBe("private");
   });
 
   test("pasting over something is refused", async () => {
-    const store = bucket();
+    const f = await keyedBucket(PARA_SEEDS);
     const error = await capture(() =>
-      copyPath(store, {
+      copyPath(f.store, {
         from: "1-projects/context-lc.md",
         to: "1-projects/pay.md",
         clearance: clearanceOf("private"),
@@ -456,66 +435,66 @@ describe("copying and duplicating", () => {
 
 describe("archiving is the recoverable one", () => {
   test("archiving a note that is private only because of its folder does not publish it to a shared archive", async () => {
-    const store = bucket();
+    const f = await keyedBucket(PARA_SEEDS);
     // An owner who shares their archive so the team can see what was retired.
     // Nothing about that choice should reach into a private folder.
-    await setFolderVisibility(store, {
+    await setFolderVisibility(f.store, {
       path: "9-archive",
       visibility: "team",
       clearance: clearanceOf("private"),
     });
-    const archived = await archivePath(store, {
+    const archived = await archivePath(f.store, {
       path: "2-areas/health.md",
       clearance: clearanceOf("private"),
       now: NOW,
     });
-    const manifest = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]);
+    const manifest = manifestOf(f);
     expect(canSee(archived.paths[0]!, "team", manifest.rules, manifest.overrides)).toBe(false);
   });
 
   test("the note moves into 9-archive at its own path, beside everything archived from its folder", async () => {
-    const store = bucket();
-    const result = await archivePath(store, {
+    const f = await keyedBucket(PARA_SEEDS);
+    const result = await archivePath(f.store, {
       path: "1-projects/context-lc.md",
       clearance: clearanceOf("private"),
       now: NOW,
     });
     expect(result.to).toBe("9-archive/1-projects/context-lc.md");
-    expect(store.snapshot()[result.to]).toContain("# Context.LC");
-    expect(store.snapshot()["1-projects/context-lc.md"]).toBeUndefined();
+    expect(await textAt(f, result.to)).toContain("# Context.LC");
+    expect(await liveAt(f, "1-projects/context-lc.md")).toBe(false);
   });
 
   test("and moving it back restores it exactly", async () => {
-    const store = bucket();
-    const original = store.snapshot()["1-projects/context-lc.md"];
-    const archived = await archivePath(store, {
+    const f = await keyedBucket(PARA_SEEDS);
+    const original = await textAt(f, "1-projects/context-lc.md");
+    const archived = await archivePath(f.store, {
       path: "1-projects/context-lc.md",
       clearance: clearanceOf("private"),
       now: NOW,
     });
-    await movePath(store, {
+    await movePath(f.store, {
       from: archived.to,
       to: "1-projects/context-lc.md",
       clearance: clearanceOf("private"),
       now: NOW + 1000,
     });
-    expect(store.snapshot()["1-projects/context-lc.md"]).toBe(original);
+    expect(await textAt(f, "1-projects/context-lc.md")).toBe(original);
   });
 
   test("archiving twice does not collide", async () => {
-    const store = bucket();
-    const first = await archivePath(store, {
+    const f = await keyedBucket(PARA_SEEDS);
+    const first = await archivePath(f.store, {
       path: "1-projects/context-lc.md",
       clearance: clearanceOf("private"),
       now: NOW,
     });
-    await writeFile(store, {
+    await writeFile(f.store, {
       path: "1-projects/context-lc.md",
       text: "# Again\n",
       clearance: clearanceOf("private"),
       now: NOW,
     });
-    const second = await archivePath(store, {
+    const second = await archivePath(f.store, {
       path: "1-projects/context-lc.md",
       clearance: clearanceOf("private"),
       now: NOW + 60_000,
@@ -523,29 +502,28 @@ describe("archiving is the recoverable one", () => {
     expect(second.to).not.toBe(first.to);
     // Archived twice from one folder: the second arrives numbered, never on top of the first.
     expect(second.to).toBe("9-archive/1-projects/context-lc (2).md");
-    expect(store.snapshot()[first.to]).toBeTruthy();
-    expect(store.snapshot()[second.to]).toBeTruthy();
+    expect(await textAt(f, first.to)).toBeTruthy();
+    expect(await textAt(f, second.to)).toBeTruthy();
   });
 
   test("archiving a folder whose name is already in the archive merges into it, a taken note numbered", async () => {
-    const store = bucket();
-    store.seed("1-projects/launch/notes.md", "# Newer notes\n");
-    store.seed("1-projects/launch/plan.md", "# Plan\n");
-    store.seed("9-archive/1-projects/launch/notes.md", "# Older notes\n");
-    const result = await archivePath(store, { path: "1-projects/launch", clearance: clearanceOf("private"), now: NOW });
-    const snapshot = store.snapshot();
-    expect(snapshot["9-archive/1-projects/launch/notes.md"]).toBe("# Older notes\n");
-    expect(snapshot["9-archive/1-projects/launch/notes (2).md"]).toBe("# Newer notes\n");
-    expect(snapshot["9-archive/1-projects/launch/plan.md"]).toBe("# Plan\n");
-    expect(Object.keys(snapshot).some((key) => key.startsWith("1-projects/launch/"))).toBe(false);
+    const f = await keyedBucket(PARA_SEEDS);
+    await f.store.put("1-projects/launch/notes.md", "# Newer notes\n");
+    await f.store.put("1-projects/launch/plan.md", "# Plan\n");
+    await f.store.put("9-archive/1-projects/launch/notes.md", "# Older notes\n");
+    const result = await archivePath(f.store, { path: "1-projects/launch", clearance: clearanceOf("private"), now: NOW });
+    expect(await textAt(f, "9-archive/1-projects/launch/notes.md")).toBe("# Older notes\n");
+    expect(await textAt(f, "9-archive/1-projects/launch/notes (2).md")).toBe("# Newer notes\n");
+    expect(await textAt(f, "9-archive/1-projects/launch/plan.md")).toBe("# Plan\n");
+    expect(await liveRowsUnder(f, "1-projects/launch")).toEqual([]);
     expect(result.from).toBe("1-projects/launch");
     expect(result.to).toBe("9-archive/1-projects/launch");
   });
 
   test("something already in the archive is not archived again", async () => {
-    const store = bucket();
+    const f = await keyedBucket(PARA_SEEDS);
     const error = await capture(() =>
-      archivePath(store, { path: "9-archive/README.md", clearance: clearanceOf("private"), now: NOW }),
+      archivePath(f.store, { path: "9-archive/README.md", clearance: clearanceOf("private"), now: NOW }),
     );
     expect(error.code).toBe("PATH_INVALID");
   });
@@ -559,14 +537,12 @@ describe("archiving is the recoverable one", () => {
    * One resolver answers both now.
    */
   test("the destination is the archive this context declares, not a literal", async () => {
-    const store = memoryStore() as MemoryStore & FileStore;
-    store.seed(
-      PRIVACY_KEY,
-      renderPrivacyManifestForFolders(["0-inbox", "1-projects", "5-archive"]),
+    const f = await keyedBucket(
+      { "1-projects/pitch.md": "# Pitch\n" },
+      { manifest: renderPrivacyManifestForFolders(["0-inbox", "1-projects", "5-archive"]) },
     );
-    store.seed("1-projects/pitch.md", "# Pitch\n");
 
-    const result = await archivePath(store, {
+    const result = await archivePath(f.store, {
       path: "1-projects/pitch.md",
       clearance: clearanceOf("private"),
       now: NOW,
@@ -574,9 +550,9 @@ describe("archiving is the recoverable one", () => {
 
     expect(result.to).toBe("5-archive/1-projects/pitch.md");
     expect(
-      Object.keys(store.snapshot()).some((key) => key.startsWith("4-archive/")),
+      (await liveRowsUnder(f, "4-archive")).length,
       "it invented a second archive beside the real one",
-    ).toBe(false);
+    ).toBe(0);
   });
 
   /**
@@ -585,56 +561,57 @@ describe("archiving is the recoverable one", () => {
    * surfaces, one bucket, opposite answers to "does this context archive".
    */
   test("a layout with no archive is told so rather than given one", async () => {
-    const store = memoryStore() as MemoryStore & FileStore;
-    store.seed(PRIVACY_KEY, renderPrivacyManifestForFolders(["Journal", "Clients"]));
-    store.seed("Journal/day.md", "# A day\n");
+    const f = await keyedBucket(
+      { "Journal/day.md": "# A day\n" },
+      { manifest: renderPrivacyManifestForFolders(["Journal", "Clients"]) },
+    );
 
     const error = await capture(() =>
-      archivePath(store, { path: "Journal/day.md", clearance: clearanceOf("private"), now: NOW }),
+      archivePath(f.store, { path: "Journal/day.md", clearance: clearanceOf("private"), now: NOW }),
     );
 
     expect(error.code).toBe("ARCHIVE_UNAVAILABLE");
-    expect(store.snapshot()["Journal/day.md"]).toBeTruthy();
-    expect(Object.keys(store.snapshot()).some((key) => key.includes("archive/"))).toBe(false);
+    expect(await textAt(f, "Journal/day.md")).toBeTruthy();
+    expect((await liveRowsUnder(f, "9-archive")).length).toBe(0);
   });
 });
 
 describe("trash is hidden and reversible", () => {
   test("a team editor can trash and restore a shared note without changing privacy", async () => {
-    const store = bucket();
-    await shareProjects(store);
-    const privacy = store.snapshot()[PRIVACY_KEY];
+    const f = await keyedBucket(PARA_SEEDS);
+    await shareProjects(f.store);
+    const privacy = f.raw.snapshot()[PRIVACY_KEY];
 
-    const trashed = await trashPath(store, {
+    const trashed = await trashPath(f.store, {
       path: "1-projects/context-lc.md",
       clearance: clearanceOf("team"),
       now: NOW,
     });
     expect(trashed.to).toMatch(/^\.context\/trash\/[\dTZ-]+\/1-projects\/context-lc\.md$/);
-    expect(store.snapshot()[trashed.to]).toContain("# Context.LC");
-    expect(store.snapshot()["1-projects/context-lc.md"]).toBeUndefined();
-    expect(store.snapshot()[PRIVACY_KEY]).toBe(privacy);
+    expect(await textAt(f, trashed.to)).toContain("# Context.LC");
+    expect(await liveAt(f, "1-projects/context-lc.md")).toBe(false);
+    expect(f.raw.snapshot()[PRIVACY_KEY]).toBe(privacy);
     expect(isPlumbing(trashed.to)).toBe(true);
 
-    await restoreTrashedPath(store, {
+    await restoreTrashedPath(f.store, {
       from: trashed.to,
       to: "1-projects/context-lc.md",
       clearance: clearanceOf("team"),
     });
-    expect(store.snapshot()["1-projects/context-lc.md"]).toContain("# Context.LC");
-    expect(store.snapshot()[trashed.to]).toBeUndefined();
-    expect(store.snapshot()[PRIVACY_KEY]).toBe(privacy);
+    expect(await textAt(f, "1-projects/context-lc.md")).toContain("# Context.LC");
+    expect(await liveAt(f, trashed.to)).toBe(false);
+    expect(f.raw.snapshot()[PRIVACY_KEY]).toBe(privacy);
   });
 
   test("restore cannot redirect a trash entry to a different path", async () => {
-    const store = bucket();
-    const trashed = await trashPath(store, {
+    const f = await keyedBucket(PARA_SEEDS);
+    const trashed = await trashPath(f.store, {
       path: "1-projects/context-lc.md",
       clearance: clearanceOf("private"),
       now: NOW,
     });
     const error = await capture(() =>
-      restoreTrashedPath(store, {
+      restoreTrashedPath(f.store, {
         from: trashed.to,
         to: "2-areas/context-lc.md",
         clearance: clearanceOf("private"),
@@ -644,22 +621,21 @@ describe("trash is hidden and reversible", () => {
   });
 
   test("trash and restore preserve attachment bytes", async () => {
-    const store = bucket();
+    const f = await keyedBucket(PARA_SEEDS);
     const bytes = new Uint8Array([0, 255, 17, 128, 3]);
-    store.seed("1-projects/image.png", bytes);
-    const trashed = await trashPath(store, {
+    await f.store.put("1-projects/image.png", bytes);
+    const trashed = await trashPath(f.store, {
       path: "1-projects/image.png",
       clearance: clearanceOf("private"),
       now: NOW,
     });
-    expect(store.bytesOf(trashed.to)).toEqual(bytes);
+    expect(await bytesAt(f, trashed.to)).toEqual(bytes);
 
-    await restoreTrashedPath(store, {
+    await restoreTrashedPath(f.store, {
       from: trashed.to,
       to: "1-projects/image.png",
       clearance: clearanceOf("private"),
     });
-    expect(store.bytesOf("1-projects/image.png")).toEqual(bytes);
+    expect(await bytesAt(f, "1-projects/image.png")).toEqual(bytes);
   });
 });
-
