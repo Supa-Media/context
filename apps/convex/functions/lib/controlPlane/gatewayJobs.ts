@@ -176,7 +176,8 @@ export async function claimGatewayJobHandler(
     .query("gatewayJobs")
     .withIndex("by_hashed_ticket", (q) => q.eq("hashedTicket", args.hashedTicket))
     .unique();
-  if (job === null) return null;
+  // A retired byte move's leftover row (#2100) is spent: only uploads run now.
+  if (job === null || job.kind !== "image_upload") return null;
   if (job.expiresAt <= Date.now()) return null;
   const now = Date.now();
   if (job.status === "running") {
