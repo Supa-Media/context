@@ -19,9 +19,11 @@
  */
 
 import type { InboxStorage } from "./inbox";
+import type { InboundAttachment } from "./inbound";
 import type { GroupMessage } from "./sendblueGroups";
 
-export type ChatLine = { at: number; from: string; text: string; people: string };
+/** `attachments`: a picture or file sent in the chat, by Sendblue's address, read only if a tag follows (`groupInbox.ts`). */
+export type ChatLine = { at: number; from: string; text: string; people: string; attachments?: InboundAttachment[] };
 
 const CHAT_PREFIX = "gchat:";
 const CHAT_SEQ = "gchatseq";
@@ -54,7 +56,8 @@ export async function keepChatLine(storage: InboxStorage, message: GroupMessage,
   if ((await storage.get<string>(BOUND_KEY)) !== people) return false;
   const seq = ((await storage.get<number>(CHAT_SEQ)) ?? 0) + 1;
   await storage.put(CHAT_SEQ, seq);
-  await storage.put<ChatLine>(chatKey(seq), { at: now, from: message.from, text: message.text, people });
+  const files = message.attachments?.length ? { attachments: message.attachments } : {};
+  await storage.put<ChatLine>(chatKey(seq), { at: now, from: message.from, text: message.text, people, ...files });
   await pruneChat(storage, now);
   return true;
 }
