@@ -74,11 +74,11 @@ test('only a successful staging run from a push to main counts', async () => {
   await assert.rejects(promote({ ...env, STAGED_SHA: 'main' }, quiet), /invalid staged commit/);
 });
 
-test('the workflow follows Deploy Staging only, and one variable turns it off', () => {
+test('the workflow follows Deploy Staging only, and runs only when the variable asks for after-staging', () => {
   const text = readFileSync(new URL('../.github/workflows/promote-production.yml', import.meta.url), 'utf8');
   assert.deepEqual([...parseOnBlock(text).keys()], ['workflow_run']);
   assert.match(text, /workflows: \["Deploy Staging"\]/);
-  assert.match(text, /if: \$\{\{ vars\.AUTO_DEPLOY_PRODUCTION != 'off' && github\.event\.workflow_run\.conclusion == 'success' && github\.event\.workflow_run\.event == 'push' && github\.event\.workflow_run\.head_branch == 'main' \}\}/);
+  assert.match(text, /if: \$\{\{ vars\.AUTO_DEPLOY_PRODUCTION == 'after-staging' && github\.event\.workflow_run\.conclusion == 'success' && github\.event\.workflow_run\.event == 'push' && github\.event\.workflow_run\.head_branch == 'main' \}\}/);
   assert.match(text, /STAGED_SHA: \$\{\{ github\.event\.workflow_run\.head_sha \}\}/);
   assert.match(text, /run: node scripts\/promote-production\.mjs/);
 });

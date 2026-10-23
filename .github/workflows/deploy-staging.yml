@@ -45,6 +45,25 @@ permissions:
   contents: read
 
 jobs:
+  # Production deploys beside staging rather than after it (decided by the
+  # owner, 2026-10-23: a Tex change should reach production in about five
+  # minutes). The repository variable AUTO_DEPLOY_PRODUCTION puts staging back
+  # in front: `after-staging` waits for this run and main's CI
+  # (promote-production.yml), `off` leaves production to a manual run.
+  production:
+    name: Start production alongside staging
+    if: ${{ github.event_name == 'push' && vars.AUTO_DEPLOY_PRODUCTION != 'off' && vars.AUTO_DEPLOY_PRODUCTION != 'after-staging' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Start Deploy to Production for main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh workflow run deploy-production.yml --ref main -f alongside_staging=true
+
   plan:
     name: Choose what to deploy
     runs-on: ubuntu-latest

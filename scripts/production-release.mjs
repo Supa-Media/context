@@ -9,6 +9,11 @@ export async function requireStagingRelease(env, request = fetch) {
     throw new Error('Missing or invalid release commit/repository.');
   }
   if (!env.GH_TOKEN) throw new Error('Missing GitHub Actions read token.');
+  // Started by a merge beside staging (deploy-staging.yml), the default since
+  // the owner's 2026-10-23 decision: staging and main's CI are still running,
+  // by design. AUTO_DEPLOY_PRODUCTION=after-staging restores the wait below
+  // for every automatic release.
+  if (env.ALONGSIDE_STAGING === 'true') return 'started alongside staging';
   const run = await newestRun(env, request, 'deploy-staging.yml', 'staging deployment');
   if (!run || run.status !== 'completed' || run.conclusion !== 'success') {
     throw new Error('This commit has not completed staging successfully; finish or rerun Deploy Staging before promoting it.');
@@ -39,7 +44,7 @@ async function newestRun(env, request, workflow, what) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
-    console.log(`Staging passed for ${process.env.GITHUB_SHA}: ${await requireStagingRelease(process.env)}`);
+    console.log(`Releasing ${process.env.GITHUB_SHA}: ${await requireStagingRelease(process.env)}`);
   } catch (error) {
     console.error(error.message);
     process.exitCode = 1;

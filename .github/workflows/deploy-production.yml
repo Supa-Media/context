@@ -34,6 +34,10 @@ on:
         description: Deploy every component, whatever changed
         type: boolean
         default: false
+      alongside_staging:
+        description: Started by a merge beside staging, so do not wait for staging or main's CI
+        type: boolean
+        default: false
 
 concurrency:
   group: deploy-production
@@ -70,6 +74,7 @@ jobs:
       - run: node scripts/production-release.mjs
         env:
           GH_TOKEN: ${{ github.token }}
+          ALONGSIDE_STAGING: ${{ inputs.alongside_staging }}
       - name: Compare with what production is running
         id: plan
         env:

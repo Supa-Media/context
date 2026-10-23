@@ -189,6 +189,17 @@ asked for an easy way back to staging as a real stop: set the repository
 variable `AUTO_DEPLOY_PRODUCTION` to `off`, and the press is manual again.
 `promote-production.test.mjs` pins the trigger, the flag and each condition.
 
+**Amended again the same day by the owner: production deploys beside
+staging.** A Tex change should reach production in about five minutes, and
+staging (3 to 6 minutes) plus main's full suite (about 3) in front of
+production's own 3 to 4.5 cannot. So a merge's `Deploy Staging` run starts
+`Deploy to Production` in its first job, with `alongside_staging`, which skips
+the staging and CI wait in `production-release.mjs` and nothing else. The
+owner chose this knowing a test a pull request's selection skipped can reach
+production before main's full run reports it. `AUTO_DEPLOY_PRODUCTION=after-staging`
+restores the gated promotion above; `off` makes production manual.
+`production-release.test.mjs` pins both lanes.
+
 The import-coverage guard now checks `deploy-staging.yml`; its unfiltered main
 push covers every bundled file, including future packages. Production deploys
 the whole backend when explicitly promoted, so it has no path filter to drift.
