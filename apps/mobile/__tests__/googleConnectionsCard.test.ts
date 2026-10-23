@@ -241,6 +241,16 @@ describe("the account's health belongs to the account", () => {
     expect(accountStatus(stale)).toEqual({ tone: "crit", text: "Google wants you to sign in again." });
   });
 
+  // @blessing, 2026-10-23: Settings said Connected while Tex could only read her calendar.
+  test("a service Context can only read is said on the row, with a Reconnect, never just Connected", () => {
+    const readOnly = connection({ readOnly: ["calendar"] });
+    expect(accountStatus(readOnly)).toEqual({ tone: "warn", text: "Calendar read only. Reconnect and tick Select all." });
+    expect(accountStatus(connection({ readOnly: [] }))).toEqual({ tone: "ok", text: "Connected" });
+    const screen = render(createElement(GoogleConnectionsCard, { connections: [readOnly], actions }));
+    expect(screen.text()).toContain("Calendar read only.");
+    screen.unmount();
+  });
+
   test("a failure left by the last copying pass is not news: nothing is copied any more", () => {
     expect(accountStatus(connection({ syncStatus: "error", lastError: "Google refused this mailbox." }))).toEqual({
       tone: "ok",

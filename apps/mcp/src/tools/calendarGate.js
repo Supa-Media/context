@@ -22,7 +22,7 @@
 
 import { callKey, createPending, findPending, takeDone } from "./approvals.js";
 import { toolError } from "./results.js";
-import { CALENDAR_TOOL, REFUSED, calendarCopy, calendarSummary, readCalendarChange } from "./calendarWrite.js";
+import { CALENDAR_TOOL, REFUSED, calendarCopy, calendarSummary, readCalendarChange, refusalFor } from "./calendarWrite.js";
 import { emailCaller } from "./emailGate.js";
 
 export { CALENDAR_TOOL };
@@ -55,7 +55,7 @@ export async function calendarGate(supplied, { store, session, target }) {
   } catch {
     room = { ok: false, refused: "unavailable" };
   }
-  if (room?.ok !== true) return toolError(REFUSED[room?.refused] ?? REFUSED.unavailable);
+  if (room?.ok !== true) return toolError(refusalFor(room));
 
   const texting = session.egress?.texting === true;
   const guests = Array.isArray(room.guests) ? room.guests : [];

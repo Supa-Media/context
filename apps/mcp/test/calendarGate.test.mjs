@@ -187,6 +187,12 @@ export async function runCalendarGateChecks(check) {
       "a calendar connected before write access asks for one reconnect, and never says it isn't connected",
       JSON.stringify(model.requests.at(-1)?.messages ?? []).includes("Never say it isn't connected"),
     );
+    // @blessing, 2026-10-23: two accounts, and Tex never said which one needed it.
+    check(
+      "it names the account Google said can only be read, and says it once",
+      JSON.stringify(model.requests.at(-1)?.messages ?? []).includes("The account to reconnect: sayo@example.invalid.") &&
+        JSON.stringify(model.requests.at(-1)?.messages ?? []).includes("Say it once"),
+    );
     controlPlane.flags.calendarRefusal = null;
 
     const bad = await call(env, TOKEN_MCP, "calendar_event", { ...CREATE, start: "tuesday 3pm" });

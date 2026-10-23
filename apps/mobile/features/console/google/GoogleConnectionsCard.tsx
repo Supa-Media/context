@@ -15,6 +15,7 @@ import {
   enabledServices,
   listWords,
   needsReconnect,
+  readOnlyOf,
   type GoogleService,
 } from "./googleStatus";
 import { useGoogleStart } from "./useGoogleStart";
@@ -49,6 +50,12 @@ export interface GoogleConnection {
   connectionId: string;
   email: string;
   syncServices: GoogleSyncServices;
+  /**
+   * Services the grant lets Context read but not act through. Settings said
+   * "Connected" over these while Tex told @blessing it could only read her
+   * calendar (2026-10-23); now the row says so, with its Reconnect.
+   */
+  readOnly?: GoogleService[];
   syncStatus: string;
   /**
    * How often this account is polled, and how the last poll went.
@@ -265,7 +272,7 @@ function GoogleAccountRow({
   const canReconnect = google !== undefined && google.redirectUri !== null;
   const broken = status.tone === "crit";
   // Reconnect is offered on the row only when signing in again is what fixes it.
-  const offerReconnect = needsReconnect(connection) && canReconnect;
+  const offerReconnect = (needsReconnect(connection) || readOnlyOf(connection).length > 0) && canReconnect;
 
   const sentence = status.text;
   const tint = broken ? styles.critText : null;
@@ -339,7 +346,7 @@ function GoogleAccountRow({
           {services.map((service) => (
             <View key={service} style={styles.serviceMark}>
               <Icon name={SERVICE_ICONS[service]} size={13} color={colors.text2} />
-              <Dot tone={serviceTone(connection)} size={9} style={styles.serviceDot} />
+              <Dot tone={serviceTone(connection, service)} size={9} style={styles.serviceDot} />
             </View>
           ))}
         </View>
@@ -414,15 +421,17 @@ function GoogleAccountRow({
 }
 
 /** A service's own health, for its dot: only a grant Google refuses is news. */
-function serviceTone(connection: GoogleConnection): DotTone {
-  return needsReconnect(connection) ? "crit" : "ok";
+function serviceTone(connection: GoogleConnection, service: GoogleService): DotTone {
+  if (needsReconnect(connection)) return "crit";
+  return readOnlyOf(connection).includes(service) ? "warn" : "ok";
 }
 
 /** The marks in words, with each one's health: an icon and a dot are not a label. */
 function serviceLabel(connection: GoogleConnection, services: GoogleService[]): string {
   if (services.length === 0) return "No services granted";
-  const said = needsReconnect(connection) ? "stopped" : "connected";
-  return services.map((service) => `${SERVICE_TITLES[service]} ${said}`).join(", ");
+  const said = (service: GoogleService) =>
+    needsReconnect(connection) ? "stopped" : readOnlyOf(connection).includes(service) ? "read only" : "connected";
+  return services.map((service) => `${SERVICE_TITLES[service]} ${said(service)}`).join(", ");
 }
 
 /**

@@ -24,7 +24,7 @@ export function createCalendarRoute(clearedEditor, flags) {
     const cleared = await clearedEditor(body);
     let answer;
     if (!cleared) answer = { ok: false, refused: "not_allowed" };
-    else if (flags.calendarRefusal) answer = { ok: false, refused: flags.calendarRefusal };
+    else if (flags.calendarRefusal) answer = { ok: false, refused: flags.calendarRefusal, ...(flags.calendarRefusal === "calendar_read_only" ? { accounts: ["sayo@example.invalid"] } : {}) };
     else if (!flags.calendarAddress) answer = { ok: false, refused: "no_calendar" };
     else if (body.change?.action === "create") {
       const guests = body.change.guests ?? [];

@@ -174,6 +174,8 @@ export interface GoogleConnectionSummary {
   connectionId: Id<"googleConnections">;
   email: string;
   syncServices: { gmail: boolean; calendar: boolean; chat: boolean };
+  /** Services Context can read but not act through (send, add events, post). */
+  readOnly?: Array<"gmail" | "calendar" | "chat">;
   syncStatus: string;
   /** How often this account is polled, and how the last poll went. */
   sync: {

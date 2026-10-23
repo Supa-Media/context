@@ -133,6 +133,21 @@ A connection made before that grants read only. A change then refuses with
 `calendar_read_only`, never `no_calendar`, and Tex sends the reconnect link
 saying one reconnect lets it make the change, then makes it.
 
+**Google is asked before anybody is told to reconnect** (2026-10-23, after
+Tex told @blessing twice that her calendar could only be read while Settings
+said "Connected"; the owner: "why wouldnt you actually check to see if you
+have write access before sending this"). The stored scopes are what Google
+granted at the last connect; when they say read-only, the control plane
+refreshes each calendar connection's token and asks Google's tokeninfo what
+the grant holds (`functions/googleScopeCheck.ts`). A stored list that was
+behind is corrected and the change goes. A grant that truly can't change
+events is refused with the accounts named, and Tex says once which account
+needs the reconnect and to tick Select all. Settings marks a service the
+grant can only read ("Calendar read only. Reconnect and tick Select all.")
+with its Reconnect, instead of "Connected" (`lib/googleWriteAccess.ts`).
+Reversing either fails `apps/convex/__tests__/calendarWrite.test.ts` or
+`apps/mobile/__tests__/googleConnectionsCard.test.ts`.
+
 ### A new event can invite guests and get a Google Meet
 
 `create` takes `guests` (1 to 10 addresses) and `meet: true` (decided by the

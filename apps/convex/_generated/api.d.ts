@@ -86,6 +86,7 @@ import type * as functions_lib_fastSearch from "../functions/lib/fastSearch.js";
 import type * as functions_lib_fileOps from "../functions/lib/fileOps.js";
 import type * as functions_lib_gatewayAuth from "../functions/lib/gatewayAuth.js";
 import type * as functions_lib_googleOAuth from "../functions/lib/googleOAuth.js";
+import type * as functions_lib_googleWriteAccess from "../functions/lib/googleWriteAccess.js";
 import type * as functions_lib_identities from "../functions/lib/identities.js";
 import type * as functions_lib_ingestLog from "../functions/lib/ingestLog.js";
 import type * as functions_lib_ingestion from "../functions/lib/ingestion.js";
@@ -107,6 +108,7 @@ import type * as functions_lib_workspaceAuth from "../functions/lib/workspaceAut
 import type * as functions_calendarConnect from "../functions/calendarConnect.js";
 import type * as functions_googleConnect from "../functions/googleConnect.js";
 import type * as functions_googlePush from "../functions/googlePush.js";
+import type * as functions_googleScopeCheck from "../functions/googleScopeCheck.js";
 import type * as functions_googleReconnect from "../functions/googleReconnect.js";
 import type * as functions_googleSync from "../functions/googleSync.js";
 import type * as functions_meetings_demoTranscribe from "../functions/meetings/demoTranscribe.js";
@@ -286,6 +288,7 @@ declare const fullApi: ApiFromModules<{
   "functions/lib/fileOps": typeof functions_lib_fileOps;
   "functions/lib/gatewayAuth": typeof functions_lib_gatewayAuth;
   "functions/lib/googleOAuth": typeof functions_lib_googleOAuth;
+  "functions/lib/googleWriteAccess": typeof functions_lib_googleWriteAccess;
   "functions/lib/identities": typeof functions_lib_identities;
   "functions/lib/ingestLog": typeof functions_lib_ingestLog;
   "functions/lib/ingestion": typeof functions_lib_ingestion;
@@ -307,6 +310,7 @@ declare const fullApi: ApiFromModules<{
   "functions/calendarConnect": typeof functions_calendarConnect;
   "functions/googleConnect": typeof functions_googleConnect;
   "functions/googlePush": typeof functions_googlePush;
+  "functions/googleScopeCheck": typeof functions_googleScopeCheck;
   "functions/googleReconnect": typeof functions_googleReconnect;
   "functions/googleSync": typeof functions_googleSync;
   "functions/meetings/demoTranscribe": typeof functions_meetings_demoTranscribe;

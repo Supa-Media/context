@@ -42,7 +42,21 @@ export function needsReconnect(connection: GoogleConnection): boolean {
  * says "Connected" where it said "Up to date · 3:57 PM", and only a grant
  * Google refuses is news (a Reconnect sits beside it).
  */
-export function accountStatus(connection: GoogleConnection): { tone: "ok" | "crit"; text: string } {
+export function accountStatus(connection: GoogleConnection): { tone: "ok" | "warn" | "crit"; text: string } {
   if (needsReconnect(connection)) return { tone: "crit", text: "Google wants you to sign in again." };
+  const readOnly = readOnlyOf(connection);
+  if (readOnly.length > 0) {
+    return { tone: "warn", text: `${listWords(readOnly.map((service) => SERVICE_TITLES[service]))} read only. Reconnect and tick Select all.` };
+  }
   return { tone: "ok", text: "Connected" };
+}
+
+/**
+ * The services this account carries that Context can read but not act
+ * through: its grant predates the write scopes, or a box was left unticked
+ * on Google's consent screen. "Connected" over these was why Settings and
+ * Tex disagreed for @blessing (2026-10-23).
+ */
+export function readOnlyOf(connection: GoogleConnection): GoogleService[] {
+  return SERVICES.filter((service) => connection.syncServices[service] && (connection.readOnly ?? []).includes(service));
 }

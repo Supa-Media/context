@@ -102,10 +102,20 @@ export async function gatewayCalendarWriteHandler(ctx: ActionCtx, body: Record<s
       action: change.action,
       spend,
     });
-  const room = await claim(false);
+  let room = await claim(false);
+  // Stored scopes said read-only: Google is asked what the grant really holds before anybody is told to reconnect (`googleScopeCheck.ts`).
+  let readOnly: string[] = [];
+  if (!room.ok && room.refused === "calendar_read_only") {
+    const recheck = await ctx.runAction(internal.functions.googleScopeCheck.recheckCalendarWrite, {
+      hashedAccessToken: await hashToken(accessToken),
+      expectedWorkspaceId: expected,
+    });
+    readOnly = recheck.readOnly;
+    if (recheck.writable) room = await claim(false);
+  }
   if (!room.ok) {
     log({ outcome: "refused", reason: room.refused, check });
-    return json({ ok: false, refused: room.refused });
+    return json({ ok: false, refused: room.refused, ...(room.refused === "calendar_read_only" ? { accounts: readOnly } : {}) });
   }
 
   try {
