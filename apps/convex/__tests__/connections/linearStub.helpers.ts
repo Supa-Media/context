@@ -56,7 +56,13 @@ export function stubLinear(options: { expiredToken?: string; scopes?: () => stri
         if (rpc.method === "tools/list") {
           return answer({
             tools: [
-              { name: "list_issues", description: "List issues.", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } },
+              {
+                name: "list_issues",
+                description: "List issues.",
+                // As Planning Center's server sends it: Convex refuses a field named `$schema`.
+                inputSchema: { $schema: "http://json-schema.org/draft-07/schema#", type: "object", properties: { team: { type: "string" } } },
+                annotations: { readOnlyHint: true },
+              },
               { name: "create_issue", description: "Create an issue.", inputSchema: { type: "object" }, annotations: { readOnlyHint: false } },
               { name: "unmarked", description: "Says nothing about itself.", inputSchema: { type: "object" } },
             ],

@@ -320,8 +320,25 @@ function unavailable(message: string | undefined): AppCallOutcome {
 }
 
 function capped(outcome: AppCallOutcome): AppCallOutcome {
-  if (outcome.ok && JSON.stringify(outcome.body ?? null).length > MAX_ANSWER_CHARS) return { ok: false, refused: "too_large" };
-  return outcome;
+  if (!outcome.ok) return outcome;
+  if (JSON.stringify(outcome.body ?? null).length > MAX_ANSWER_CHARS) return { ok: false, refused: "too_large" };
+  return { ...outcome, body: convexSafe(outcome.body) };
+}
+
+/**
+ * An app's answer with every field name Convex can't carry left out: a name
+ * starting with `$` (a tool's JSON Schema opens with `$schema`, which failed
+ * every Planning Center read) or one outside printable ASCII. What Tex reads
+ * from a tool list is its arguments' names and types, which keep theirs.
+ */
+export function convexSafe(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(convexSafe);
+  if (value === null || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => key !== "" && !key.startsWith("$") && /^[\x20-\x7e]+$/.test(key))
+      .map(([key, entry]) => [key, convexSafe(entry)]),
+  );
 }
 
 export type { Id };
