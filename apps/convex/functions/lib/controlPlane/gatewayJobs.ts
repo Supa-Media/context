@@ -178,6 +178,8 @@ export async function claimGatewayJobHandler(
     .unique();
   if (job === null) return null;
   if (job.expiresAt <= Date.now()) return null;
+  // A row the retired byte mover left is spent: only image uploads are claimed.
+  if (job.kind !== "image_upload") return null;
   const now = Date.now();
   if (job.status === "running") {
     // A running upload holds its lease; once that lapses the ticket is spent.
@@ -273,12 +275,14 @@ export async function reportGatewayJobHandler(
 
 export const IMAGE_UPLOAD_SWEEP_BATCH = 200;
 
-/** Delete image-upload tickets past their ten minutes, spent or not. They are tickets, not history. */
+/**
+ * Delete gateway tickets past their expiry, spent or not. They are tickets, not history: image uploads after
+ * their ten minutes, and rows the retired byte mover left behind.
+ */
 export async function sweepImageUploadsHandler(ctx: MutationCtx): Promise<number> {
   const expired = await ctx.db
     .query("gatewayJobs")
     .withIndex("by_expiresAt", (q) => q.lt("expiresAt", Date.now()))
-    .filter((q) => q.eq(q.field("kind"), "image_upload"))
     .take(IMAGE_UPLOAD_SWEEP_BATCH);
   for (const row of expired) await ctx.db.delete(row._id);
   return expired.length;

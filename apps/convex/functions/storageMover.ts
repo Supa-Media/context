@@ -103,7 +103,8 @@ export const claimPage = internalMutation({
       .unique();
     if (row === null) return null;
     await ctx.db.delete(row._id);
-    if (row.expiresAt <= args.now) return null;
+    // A ticket of the retired move into another context (`carry`) is spent, like an expired one.
+    if (row.expiresAt <= args.now || row.phase === "carry") return null;
     return {
       workspaceId: row.workspaceId,
       ...(row.migrationId === undefined ? {} : { migrationId: row.migrationId }),

@@ -26,7 +26,7 @@ import { GATEWAY_SECRET_ENV_VAR, randomOpaqueToken } from "./gatewayAuth";
 import { MOVER_PAGE_TIMEOUT_MS } from "./managedProvisioningFns/constants";
 import type { MigrationPageResult } from "./managedProvisioningFns/migrationRun";
 
-type TicketPhase = Doc<"moverTickets">["phase"];
+type TicketPhase = Exclude<Doc<"moverTickets">["phase"], "carry">;
 /**
  * The job a ticket names. `mintPage` checks that exactly one is set, and that
  * a job's own phases carry its own fields, so a loose type here is safe.

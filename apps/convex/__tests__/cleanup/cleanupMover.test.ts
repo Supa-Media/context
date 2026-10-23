@@ -102,4 +102,15 @@ describe("cleanup tickets", () => {
     const left = await t.run((ctx) => ctx.db.query("moverTickets").collect());
     expect(left).toEqual([]);
   });
+  test("a ticket of the retired move into another context is spent, never claimed", async () => {
+    // Production may still hold `carry` tickets from the removed move between contexts.
+    const t = tester();
+    const ws = await boundWorkspace(t, "carry-ticket");
+    const hashedTicket = await hashToken("carry-ticket-secret");
+    await t.run((ctx) =>
+      ctx.db.insert("moverTickets", { hashedTicket, workspaceId: ws, phase: "carry", objects: [], createdAt: Date.now(), expiresAt: Date.now() + 60_000 } as never),
+    );
+    expect(await t.mutation(internal.functions.storageMover.claimPage, { hashedTicket, now: Date.now() })).toBeNull();
+    expect(await t.run((ctx) => ctx.db.query("moverTickets").collect())).toEqual([]);
+  });
 });

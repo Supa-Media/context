@@ -122,6 +122,20 @@ describe("/gateway/jobs/* image uploads", () => {
     expect(await t.run((ctx) => ctx.db.query("gatewayJobs").collect())).toHaveLength(0);
   });
 
+  test("a row the retired byte mover left opens nothing, and the sweep deletes it once expired", async () => {
+    // Production still held `materialize_move` rows when the mover was removed, so the schema keeps the kind
+    // until they are gone. Such a row must never be claimed as an upload.
+    const { t, aliceWs } = await twoConnectedTenants();
+    const ticket = (await mint(t, ACCESS_A, aliceWs)).ticket as string;
+    const [row] = await t.run((ctx) => ctx.db.query("gatewayJobs").collect());
+    await t.run((ctx) => ctx.db.patch(row._id, { kind: "materialize_move", moveId: "old-move" }));
+    expect(await open(t, ticket, SHA)).toBeNull();
+    expect(await t.mutation(internal.functions.controlPlane.sweepImageUploads, {})).toBe(0);
+    await t.run((ctx) => ctx.db.patch(row._id, { expiresAt: Date.now() - 1 }));
+    expect(await t.mutation(internal.functions.controlPlane.sweepImageUploads, {})).toBe(1);
+    expect(await t.run((ctx) => ctx.db.query("gatewayJobs").collect())).toHaveLength(0);
+  });
+
   test("it opens while the rows judge privacy, when the held rules carry the rows' version", async () => {
     // Production since 2026-10-17: the privacy authority is on and the rows
     // judge, so `nodesPrivacy.authority` answers `accessVersion` beside the

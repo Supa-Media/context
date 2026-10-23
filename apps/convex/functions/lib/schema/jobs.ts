@@ -106,7 +106,12 @@ export const jobTables = {
     actorUserId: v.id("users"),
     actorClientId: v.string(),
     grantId: v.id("oauthGrants"),
-    kind: v.literal("image_upload"),
+    /**
+     * `materialize_move` is only for rows the retired byte mover left in production: they expire and the
+     * image-upload sweep deletes them. Narrow this (and `moveId`) once production holds none.
+     */
+    kind: v.union(v.literal("image_upload"), v.literal("materialize_move")),
+    moveId: v.optional(v.string()),
     /** An image upload's ticket names the bytes it takes: their SHA-256 and length. Never the bytes. */
     imageSha256: v.optional(v.string()),
     imageBytes: v.optional(v.number()),
@@ -158,6 +163,9 @@ export const jobTables = {
     workspaceId: v.id("workspaces"),
     migrationId: v.optional(v.id("managedStorageMigrations")),
     walkRunId: v.optional(v.number()),
+    /** Left on tickets of the retired move into another context (phase `carry`); nothing writes them. */
+    contextMoveId: v.optional(v.id("contextMoves")),
+    objects: v.optional(v.array(v.object({ source: v.string(), destination: v.string(), size: v.number() }))),
     /**
      * A page of the path-to-id copy (`id_copy`) or its check (`id_check`): the
      * copy pass's run, and the items this ticket may copy or check, each with
@@ -183,6 +191,7 @@ export const jobTables = {
       v.literal("check"),
       v.literal("unseal"),
       v.literal("confirm"),
+      v.literal("carry"),
       v.literal("id_copy"),
       v.literal("id_check"),
       v.literal("cleanup_list"),
