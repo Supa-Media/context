@@ -21,6 +21,7 @@
  * exchange that reached only the plumbing file is not lost.
  */
 
+import { loadPrivacyState, setRowTier } from "../privacy/state.js";
 import { sourcesOf } from "./sources.js";
 
 export const GROUP_NOTES_FOLDER = "tex/groups";
@@ -143,6 +144,35 @@ export async function readGroupNote(dispatch, path) {
     return { etag, text: text.slice(body + 2) };
   } catch {
     return null;
+  }
+}
+
+/**
+ * Share `tex/groups/` with the workspace the first time a chat's note can't
+ * be written there, so the owner never has to make the folder by hand. Only
+ * that folder, never `tex/` (which holds transcripts, about-me and the like),
+ * and only when nobody has set `tex/` or anything under `tex/groups/`, private
+ * included, and nothing this grant can see is filed there yet: a choice
+ * someone made is never widened, and a note held back by name keeps its own
+ * setting (the nearest setting wins). The control plane decides whether this
+ * grant may change access at all (owners and editors); a refusal leaves things
+ * as they were. Whether it shared the folder.
+ */
+export async function shareGroupNotesFolder(store) {
+  if (typeof store?.rowAccess?.setTier !== "function") return false;
+  try {
+    const { rules, error } = await loadPrivacyState(store);
+    if (error) return false;
+    const set = (raw) => {
+      const prefix = String(raw ?? "").replace(/\/+$/, "");
+      return prefix === "tex" || prefix === GROUP_NOTES_FOLDER || prefix.startsWith(`${GROUP_NOTES_FOLDER}/`);
+    };
+    if (rules.some((rule) => set(rule.prefix))) return false;
+    const filed = await store.list({ prefix: `${GROUP_NOTES_FOLDER}/`, limit: 1 });
+    if ((filed?.objects ?? filed?.keys ?? []).length > 0) return false;
+    return await setRowTier(store, GROUP_NOTES_FOLDER, "team", { folder: true });
+  } catch {
+    return false;
   }
 }
 

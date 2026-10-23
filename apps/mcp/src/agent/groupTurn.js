@@ -33,7 +33,7 @@
  */
 
 import { MAX_HISTORY_CHARS, MAX_HISTORY_TURNS, keptTurn } from "./conversation.js";
-import { GROUP_NOTES_FOLDER, groupNotePath, parseGroupNote, readGroupNote, writeGroupNote } from "./groupMemoryNote.js";
+import { GROUP_NOTES_FOLDER, groupNotePath, parseGroupNote, readGroupNote, shareGroupNotesFolder, writeGroupNote } from "./groupMemoryNote.js";
 import { textingAwareCallTool, textingWriteTools } from "./textingWrites.js";
 import { routineRootOf } from "../../../../packages/shared/src/routines.cjs";
 import { toolError } from "../tools/results.js";
@@ -214,7 +214,11 @@ export async function keepGroupExchange(store, group, history, question, answer,
   // Only over the note this turn read, so an edit made meanwhile is never overwritten.
   const seen = NOTE_STATE.get(history) ?? { etag: null, kept: null };
   const path = groupNotePath(hash);
-  const written = dispatch === null ? null : await writeGroupNote(dispatch, path, turns, seen.etag);
+  let written = dispatch === null ? null : await writeGroupNote(dispatch, path, turns, seen.etag);
+  // A chat's first note in a workspace that never set tex/groups/: share that folder, then write it.
+  if (written === null && dispatch !== null && seen.etag === null && (await shareGroupNotesFolder(store))) {
+    written = await writeGroupNote(dispatch, path, turns, null);
+  }
   // The etag a read gives (a collaborative note's own, not the object's), so the next read knows it untouched.
   const noteEtag = written === null ? seen.kept : ((await readGroupNote(dispatch, path))?.etag ?? written);
   await store.put(await groupMemoryPath(group), JSON.stringify({ version: 1, turns, ...(noteEtag ? { noteEtag } : {}) }));

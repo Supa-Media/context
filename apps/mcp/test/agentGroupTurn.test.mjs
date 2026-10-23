@@ -109,6 +109,7 @@ beforeEach(async () => {
   const env = { CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, ...AI_GATEWAY_ENV };
   Object.assign(world, {
     model,
+    controlPlane,
     team,
     own,
     env,
@@ -182,10 +183,10 @@ test("a group turn is offered note writes but none of the tagger's own tools", a
   assert.match(system, /GROUP CHAT/);
   assert.match(system, /@ada tagged you/);
   assert.match(system, /@band/);
-  // The texts conversation, the transcript and the tagger's own tex/ notes are untouched.
+  // The texts conversation, the transcript and the tagger's own tex/ notes are untouched: only the chat's own note.
   assert.deepEqual(live(world.team, ".context/agent/conversations/"), []);
   assert.deepEqual(live(world.own, ".context/"), []);
-  assert.deepEqual(live(world.team, "tex/"), []);
+  assert.deepEqual(live(world.team, "tex/").filter((key) => !key.startsWith("tex/groups/chat-")), []);
 });
 
 test("a group turn changes notes as a text does: edit by etag, make, move and archive (the owner, 2026-10-23)", async () => {
@@ -231,14 +232,17 @@ test("the next tag knows which note the last one wrote, so it never disowns it (
   assert.match(system, /fetch it by that exact path/);
 });
 
-test("the chat's memory is a note in tex/groups/ that people can read and fix (the owner, 2026-10-23)", async (t) => {
+const folderShares = () =>
+  world.controlPlane.calls
+    .filter((entry) => entry.path === "/gateway/privacy" && entry.body?.op === "setAccess" && entry.body?.kind === "folder")
+    .map((entry) => `${entry.body.path}: ${entry.body.base}`);
+
+test("the chat's memory is a note in tex/groups/ that people can read and fix (the owner, 2026-10-23)", async () => {
   const people = chat({ members: "e".repeat(64) });
-  // The workspace's owner made tex/ a team folder; until then the memory stays in its hidden file (below).
-  const manifest = world.team.get("privacy.md");
-  world.team.set("privacy.md", { body: manifest.body.replace("1-projects: team", "1-projects: team\n  tex: team"), etag: "t0-tex" });
-  t.after(() => world.team.set("privacy.md", manifest));
   world.model.install([{ text: "Noted: the gig is Friday." }]);
   await ask(TOKEN_GROUP, { question: "the gig is friday", group: people });
+  // Nobody had to make the folder: the first note shared tex/groups/ (never tex/) with the workspace.
+  assert.deepEqual(folderShares(), ["tex/groups: team"]);
   const [path] = [...world.team.keys()].filter((key) => key.startsWith("tex/groups/chat-"));
   assert.ok(path, "the chat's note was written");
   const note = bodyAt(world.team, path);
@@ -266,11 +270,8 @@ test("the chat's memory is a note in tex/groups/ that people can read and fix (t
   assert.match(bodyAt(world.team, path), /the gig is saturday[\s\S]*Saturday, like the note says\./, "and the next exchange is added to the fixed note");
 });
 
-test("a tagger who can't write still has the chat's memory, and an untouched note never hides it", async (t) => {
+test("a tagger who can't write still has the chat's memory, and an untouched note never hides it", async () => {
   const people = chat({ members: "f".repeat(64) });
-  const manifest = world.team.get("privacy.md");
-  world.team.set("privacy.md", { body: manifest.body.replace("1-projects: team", "1-projects: team\n  tex: team"), etag: "t0-tex-2" });
-  t.after(() => world.team.set("privacy.md", manifest));
   world.model.install([{ text: "Noted: Friday." }, { text: "Load-in is 6." }, { text: "Friday at 6." }]);
   await ask(TOKEN_GROUP, { question: "the gig is friday", group: people });
   await ask(TOKEN_GROUP_READER, { question: "load-in is at 6", group: people });
@@ -278,6 +279,31 @@ test("a tagger who can't write still has the chat's memory, and an untouched not
   const remembered = JSON.stringify(world.model.requests.at(-1).messages);
   assert.match(remembered, /the gig is friday/);
   assert.match(remembered, /load-in is at 6/, "the read-only tagger's exchange is kept though the note couldn't take it");
+});
+
+test("a tex/ folder someone made private is never shared for the chat's note, and the memory still works", async (t) => {
+  const people = chat({ members: "d".repeat(64) });
+  const manifest = world.team.get("privacy.md");
+  world.team.set("privacy.md", { body: manifest.body.replace("1-projects: team", "1-projects: team\n  tex: private"), etag: "t0-tex-private" });
+  t.after(() => world.team.set("privacy.md", manifest));
+  world.model.install([{ text: "Noted: Friday." }, { text: "Friday." }]);
+  await ask(TOKEN_GROUP, { question: "the gig is friday", group: people });
+  await ask(TOKEN_GROUP, { question: "when's the gig?", group: people });
+  assert.deepEqual(folderShares(), [], "the owner's private tex/ is left as they set it");
+  assert.deepEqual([...world.team.keys()].filter((key) => key.startsWith("tex/groups/")), []);
+  assert.match(JSON.stringify(world.model.requests.at(-1).messages), /the gig is friday/, "kept in the hidden file instead");
+});
+
+test("a member who can't write never shares tex/groups/", async () => {
+  const people = chat({ members: "b".repeat(64), from: "bo" });
+  world.model.install([{ text: "Noted." }, { text: "6." }]);
+  await ask(TOKEN_GROUP_READER, { question: "load-in is at 6", group: people });
+  assert.deepEqual([...world.team.keys()].filter((key) => key.startsWith("tex/groups/")), []);
+  const tried = folderShares().length;
+  // The control plane refused the read-only grant, so the folder was still unset when an editor came.
+  await ask(TOKEN_GROUP, { question: "when's load-in?", group: chat({ members: "b".repeat(64) }) });
+  assert.equal(folderShares().length, tried + 1, "the editor found tex/groups/ unshared and shared it");
+  assert.equal([...world.team.keys()].filter((key) => key.startsWith("tex/groups/")).length, 1);
 });
 
 test("a stale etag changes nothing, and routines and hidden paths are refused in a group", async () => {
@@ -300,7 +326,7 @@ test("a stale etag changes nothing, and routines and hidden paths are refused in
   assert.match(routine, /can't be set from a group chat/);
   assert.match(hidden, /can't be used/);
   assert.match(bodyAt(world.team, "1-projects/setlist.md"), /Closer is Hey Jude/);
-  assert.deepEqual(live(world.team, "tex/"), []);
+  assert.deepEqual(live(world.team, "tex/").filter((key) => !key.startsWith("tex/groups/chat-")), [], "no routine was written");
 });
 
 test("a member's read-only chat grant writes nothing", async () => {
