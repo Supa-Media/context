@@ -92,7 +92,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const HEARTBEAT_READS = new Set(["read_note", "list_notes", "search_notes", "read_email", "read_calendar"]);
 
 /** Tex's own job output, which never counts as something that changed. */
-const OWN_OUTPUT = [`${HEARTBEAT_FOLDER}/`, `${DREAMS_FOLDER}/`, "tex/housekeeping/", `${ATTENTION_FOLDER}/`, `${LEARNED_SKILLS_FOLDER}/`];
+const OWN_OUTPUT = [`${HEARTBEAT_FOLDER}/`, `${DREAMS_FOLDER}/`, "tex/housekeeping/", "tex/handbacks/", `${ATTENTION_FOLDER}/`, `${LEARNED_SKILLS_FOLDER}/`];
 const OWN_NOTES = new Set([ABOUT_ME_PATH, HEARTBEAT_SETTINGS_PATH, ATTENTION_SETTINGS_PATH]);
 
 export { HEARTBEAT_READS };
