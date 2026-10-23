@@ -62,6 +62,9 @@ export const RUN_EVERYTHING = [
 /** Share of a directory's files a test must use to count as globbing it. */
 const GLOB_SHARE = 0.5;
 
+/** vitest's own snapshot file for a test, which it reads where no recorder sees. */
+const snapshotOf = (test) => join(dirname(test), "__snapshots__", `${test.split("/").at(-1)}.snap`);
+
 const matches = (file, pattern) =>
   pattern.endsWith("/**") ? file.startsWith(pattern.slice(0, -2)) : file === pattern;
 
@@ -99,7 +102,7 @@ export function selectTests({ tests, map, changes, filesIn }) {
 
   const reasons = new Map();
   for (const test of tests) {
-    if (touched.has(test)) reasons.set(test, "changed");
+    if (touched.has(test) || touched.has(snapshotOf(test))) reasons.set(test, "changed");
     else if (!known.has(test)) reasons.set(test, "not in the map yet");
     else {
       const deps = known.get(test);

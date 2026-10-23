@@ -24,6 +24,7 @@ test('an edit runs the tests that used the file, plus tests the map has not seen
 test('a changed test file always runs, and a file no test used runs none of the mapped ones', () => {
   assert.deepEqual(pick([`M\t${T}chat.test.ts`]).files, [`${T}brandNew.test.ts`, `${T}chat.test.ts`]);
   assert.deepEqual(pick(['M\tdocs/decisions/testing.md']).files, [`${T}brandNew.test.ts`]);
+  assert.deepEqual(pick([`M\t${T}__snapshots__/chat.test.ts.snap`]).files, [`${T}brandNew.test.ts`, `${T}chat.test.ts`]);
 });
 
 test('adding or deleting a file runs the tests that read most of its directory', () => {
