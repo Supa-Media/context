@@ -19,12 +19,20 @@
  *     texts, never a tainted one` fails.
  *  4. `textingAwareCallTool` not calling `withOtherRoutines`. → `a new
  *     routine's result names the others` fails.
+ *  5. `repeatsItself` reading every cadence. → `an every-few-minutes routine
+ *     never texts the same line twice` fails.
+ *  6. The minute-cadence refusal removed. → `a text never makes a routine
+ *     that runs more often than hourly` fails.
+ *
+ * Later that day an every-5-minutes "retry Planning Center" check texted
+ * "Planning Center's connected." over and over while every read failed, and
+ * "I couldn't stop this check myself" with a pause sent for approval.
  */
 
 import test from "node:test";
 import assert from "node:assert/strict";
 import { saysQuiet, spokenToThem } from "../src/agent/checkInGuards.js";
-import { recentTextsSection, routineQuestion, runOutcome } from "../src/agent/routine.js";
+import { recentTextsSection, repeatsItself, routineQuestion, runOutcome } from "../src/agent/routine.js";
 import { checkInText } from "../src/agent/heartbeat.js";
 import { textingAwareCallTool } from "../src/agent/textingWrites.js";
 
@@ -119,4 +127,41 @@ test("a new routine's result names the others", async () => {
   assert.equal(edited.content.length, 1);
   const note = await call("write_note", { path: "projects/a.md", content: "x" });
   assert.equal(note.content.length, 1);
+});
+
+const fiveMinutes = { path: "tex/routines/every-5-minutes/retry-pc.md", cadence: { unit: "minute", every: 5 }, settings: {}, body: "Retry Planning Center." };
+
+test("an every-few-minutes routine never texts the same line twice", () => {
+  const runs = [{ at: 1, outcome: "answered", text: "Planning Center's connected." }];
+  assert.equal(runOutcome("Planning Center’s connected!", { routine: fiveMinutes, runs }).outcome, "skipped");
+  assert.equal(runOutcome("Planning Center answered: 3 services.", { routine: fiveMinutes, runs }).outcome, "answered");
+  const everyThree = { ...fiveMinutes, cadence: { unit: "hour", every: 3 } };
+  assert.equal(repeatsItself(everyThree, [{ at: 1, outcome: "answered", text: "Reminder: call Apple." }], "Reminder: call Apple."), false);
+  assert.equal(runOutcome("Reminder: call Apple.", { routine: everyThree, runs: [{ at: 1, outcome: "answered", text: "Reminder: call Apple." }] }).outcome, "answered");
+});
+
+test("a run is told it stops itself with DONE:, and claims only what a call showed", () => {
+  const question = routineQuestion(fiveMinutes, { now: Date.UTC(2026, 9, 23, 15), timeZone: "UTC" });
+  assert.match(question, /To stop this routine .* start your answer with DONE:/);
+  assert.match(question, /Never send a change to it for approval/);
+  assert.match(question, /an app listed as connected is not a read that worked/);
+});
+
+test("a text never makes a routine that runs more often than hourly", async () => {
+  const calls = [];
+  const dispatch = async (name, args) => {
+    calls.push([name, args.path ?? args.prefix]);
+    return { content: [{ type: "text", text: "ok" }] };
+  };
+  const write = { name: "write_note", inputSchema: { properties: { path: {}, content: {}, expected_etag: {} } } };
+  const call = textingAwareCallTool(dispatch, [write]);
+  const refused = await call("write_note", { path: "tex/routines/every-5-minutes/retry-pc.md", content: "x" });
+  assert.equal(refused.isError, true);
+  assert.match(refused.content[0].text, /more often than hourly/);
+  assert.deepEqual(calls, []);
+  // An existing one can still be edited (to pause or slow it).
+  const edited = await call("write_note", { path: "tex/routines/every-5-minutes/retry-pc.md", content: "x", expected_etag: "e1" });
+  assert.notEqual(edited.isError, true);
+  const hourly = await call("write_note", { path: "tex/routines/hourly/retry-pc.md", content: "x" });
+  assert.notEqual(hourly.isError, true);
 });

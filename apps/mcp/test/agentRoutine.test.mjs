@@ -435,6 +435,8 @@ export async function runAgentRoutineChecks(check) {
         !offeredTo(model.requests.at(-1)).includes("manage.move") &&
         offeredTo(model.requests.at(-1)).includes("fetch"),
     );
+    // 2026-10-23: a routine run sent a pause of itself for approval; it stops itself with DONE: instead.
+    check("a routine's own run is never offered a proposal", !offeredTo(model.requests.at(-1)).includes("write.propose"));
     model.install([{ text: "ok" }]);
     await ask(env, TOKEN_TEXTS_READ, { question: "every morning tell me what's due" });
     check(

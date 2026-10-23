@@ -161,6 +161,17 @@ other routines so a replaced one is archived. Undo any of these and the
 morning above comes back. Tests: `routineVoice.test.mjs`, and "runs one
 person's routines one after another" (`apps/agent/src/routines.test.ts`).
 
+Later the same day an every-5-minutes "retry Planning Center" check texted
+"Planning Center's connected." over and over while every read failed, said
+"I couldn't stop this check myself" and sent a pause for approval. So: a text
+never makes a routine that runs more often than hourly (an existing one can
+still be edited); a routine stops itself by starting its answer with `DONE:`
+and is never offered a proposal; a minute-cadence run that would text exactly
+its last answer stays quiet; a run is told to claim only what a call in it
+showed; and when the person asks to stop a routine, Tex archives it at once.
+Tests: `routineVoice.test.mjs`, "a routine's own run is never offered a
+proposal" (`agentRoutine.test.mjs`).
+
 ### The texting Worker pulls due runs, and only texts phones that texted first
 
 The texting Worker (`apps/agent`) runs routines from a Cron Trigger every
