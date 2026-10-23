@@ -406,6 +406,7 @@ export async function runTurn(options) {
       pictures,
       notes,
       model: answering,
+      models: router !== null ? { main: mainModel, think: router.think } : null,
       edits: tools.some((tool) => tool.name === "write_note"),
       continued: history.length > 0,
       used: usedTools(history),

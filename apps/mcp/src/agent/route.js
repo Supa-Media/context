@@ -329,15 +329,15 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
   // A text has the MCP's own write tools (`textingWrites.js`, the owner,
   // 2026-10-08); a routine's own run never may.
   const textingWriting = textingWriteTools(offered, { texting: session.actorClientId === TEXTS_CLIENT_ID });
-  // A group chat's writes are create and append only (`groupTurn.js`).
+  // A group chat edits as its tagger could in the app, never moving or deleting a note (`groupTurn.js`).
   const groupWriting = group !== null ? groupWriteTools(offered) : [];
   /*
-    A long task texts its progress (`progress.js`): only a person's own texted
-    turn, asked for as a stream by the texting Worker. A routine runs
+    A long task texts its progress (`progress.js`): a person's own texted
+    turn or a group's, asked for as a stream by the texting Worker. A routine runs
     unattended and texts once, so it never gets one.
   */
   const channel =
-    typeof progress === "function" && session.actorClientId === TEXTS_CLIENT_ID ? progressChannel(progress) : null;
+    typeof progress === "function" && (session.actorClientId === TEXTS_CLIENT_ID || group !== null) ? progressChannel(progress) : null;
   // Clef is metered with the turn (`meter` below).
   /*
     AN ADDRESS IS VOUCHED FOR BY THE PERSON, NEVER BY A PREVIOUS ANSWER.
@@ -350,20 +350,20 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
     every run — which is the exfiltration `computer.js`'s guard exists to
     prevent, laundered through the bucket. So a routine vouches for the
     addresses in its own body and nothing else. The routine's *path* is not in
-    the body either, which keeps `watch.md` from reading as a hostname.
+    the body either, which keeps `watch.md` from reading as a hostname. A group's chat lines are people's own words.
   */
-  const vouched = runner ? routine?.body ?? "" : question;
+  const vouched = runner ? routine?.body ?? "" : [chatLines(group), question].filter(Boolean).join("\n\n");
   // Another agent's mail is someone else's words, like a page (`supervise.js`).
   if (supervision !== null) markUntrusted(ledger);
   const { opened, web } = await openTurnWeb(env, { session, texting, group, question, vouched, channel, store, dispatch, ledger });
 
   /*
     THE PRODUCTION SETUP (`production.js`): the texting job's file on a texted
-    turn, none otherwise. Its prompt replaces the built-in words, and
+    turn or a group chat's (2026-10-23), none otherwise. Its prompt replaces the built-in words, and
     its model is used only when this deployment can call it: an uncallable one
     falls back.
   */
-  const production = await readProductionSetup(store, session, { texting });
+  const production = await readProductionSetup(store, session, { texting: texting || group !== null });
   // What of the conversation this turn is shown: the setup's `history:`, else the default; a text typed in a thread, that thread (`threadView.js`).
   const { shown, ...inThread } = threadView(history, quoted, production?.history ?? SHOWN_HISTORY_TURNS);
   // A previous answer written after a read from outside still carries it.
@@ -493,12 +493,12 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       })
     : null;
 
-  const texted = session.actorClientId === TEXTS_CLIENT_ID; // Pictures sent back, drawn or made: a text only (`pictureMaker.js`).
+  const texted = session.actorClientId === TEXTS_CLIENT_ID; // Pictures sent back, drawn or made: a text or a group's (`pictureMaker.js`).
   // A texted answer that says a change was made is checked against the calls that ran (`claimCheck.js`).
   const forwarding = runner ? await standingForwardTools(store, routine.path, offered) : [];
   // A small model also reads it for work handed back to them (`handbackJudge.js`).
   const claims = !runner && (texted || group !== null) ? claimCheck({ question, judge: env.HANDBACK_JUDGE !== "on" ? null : handbackJudgeFor({ question, config: aiGatewayConfig(env), metadata: { feature: "handback-judge", workspace: String(session.workspaceId) } }) }) : null;
-  const { outgoing, maker } = await turnPictures(env, { texted, question, attachments, store, keep: conversation === "texts", meter, workspaceId: session.workspaceId });
+  const { outgoing, maker } = await turnPictures(env, { texted: texted || group !== null, question, attachments, store, keep: conversation === "texts", meter, workspaceId: session.workspaceId });
   try {
     const turn = await runTurn({
       question: [chatLines(group), reactedLine(reacted), setAsideLine(setAside), paidLine(paid), sentNoteLinksLine(question, noteLinking.origin), askedWith(question, quoted)].filter(Boolean).join("\n\n"),
@@ -522,7 +522,7 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
           withMailAgent(supervision?.mail ?? null, withDelegate(delegation, withLearnedSkills(learned, withSkills(skills, withNoteLinks(group !== null ? groupAwareCallTool(dispatch, groupWriting) : textingAwareCallTool(dispatch, textingWriting), noteLinking)), { tainted: () => ledger.untrusted === true, dispatch }))),
         )),
       ))),
-      pictures: texted,
+      pictures: texted || group !== null,
       attachments,
       env,
       providerOptions: {
