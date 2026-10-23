@@ -59,6 +59,7 @@ import { claimJobBeforeMove, jobOfRow } from "./folderJobs";
 import { followFolderSettings } from "./settingsFollow";
 import { privacyEtagOf, readerMirror, rulesForReaders } from "./readerRules";
 import { type PrivacyMirror, nameOf } from "./table";
+import { mirrorRules } from "./log";
 import type { PendingMove } from "./moveOverlay";
 import type { AccessRow } from "./rowAccess";
 import {
@@ -310,6 +311,8 @@ export async function moveRowPage(ctx: MutationCtx, id: Id<"rowMoves">): Promise
   const prefix = `${move.from}/`;
   const lower = move.cursor ?? prefix;
 
+  // Who could see each old path, judged before this page's rows move (`followMovedFiles`).
+  const before = await mirrorRules(await readerMirror(ctx, ws));
   const page: Doc<"nodes">[] = [];
   let scanned = 0;
   let ended = true;
@@ -364,7 +367,7 @@ export async function moveRowPage(ctx: MutationCtx, id: Id<"rowMoves">): Promise
     moved += 1;
     if (row.kind === "file") files.push({ from: row.path, to: destination });
   }
-  await followMovedFiles(ctx, ws, files, move.trash);
+  await followMovedFiles(ctx, ws, files, move.trash, before);
 
   const patch: Partial<Doc<"rowMoves">> = { moved: move.moved + moved, left, updatedAt: Date.now() };
   if (!ended) {
