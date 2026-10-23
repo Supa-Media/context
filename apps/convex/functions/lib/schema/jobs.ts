@@ -106,7 +106,9 @@ export const jobTables = {
     actorUserId: v.id("users"),
     actorClientId: v.string(),
     grantId: v.id("oauthGrants"),
-    kind: v.literal("image_upload"),
+    // `materialize_move` and `moveId` are retired (#2100); kept so production's leftover rows still validate.
+    kind: v.union(v.literal("materialize_move"), v.literal("image_upload")),
+    moveId: v.optional(v.string()),
     /** An image upload's ticket names the bytes it takes: their SHA-256 and length. Never the bytes. */
     imageSha256: v.optional(v.string()),
     imageBytes: v.optional(v.number()),
@@ -173,6 +175,9 @@ export const jobTables = {
      * spent (`lib/cleanup/mover.ts`). A list page's cursor travels in `expectedCursor`.
      */
     cleanupRunId: v.optional(v.number()),
+    /** Retired with context moves (#2100); kept so leftover rows still validate. */
+    contextMoveId: v.optional(v.id("contextMoves")),
+    objects: v.optional(v.array(v.object({ source: v.string(), destination: v.string(), size: v.number() }))),
     cleanupKeys: v.optional(v.array(v.string())),
     /** The migration's (or the walk's) phase and cursor when the page was handed out. */
     phase: v.union(
@@ -183,6 +188,8 @@ export const jobTables = {
       v.literal("check"),
       v.literal("unseal"),
       v.literal("confirm"),
+      // Retired with context moves (#2100); kept so leftover rows still validate.
+      v.literal("carry"),
       v.literal("id_copy"),
       v.literal("id_check"),
       v.literal("cleanup_list"),

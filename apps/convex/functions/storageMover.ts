@@ -103,7 +103,8 @@ export const claimPage = internalMutation({
       .unique();
     if (row === null) return null;
     await ctx.db.delete(row._id);
-    if (row.expiresAt <= args.now) return null;
+    // A retired context move's leftover ticket (#2100) is spent, never carried.
+    if (row.expiresAt <= args.now || row.phase === "carry") return null;
     return {
       workspaceId: row.workspaceId,
       ...(row.migrationId === undefined ? {} : { migrationId: row.migrationId }),

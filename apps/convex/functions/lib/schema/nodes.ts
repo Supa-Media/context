@@ -253,6 +253,67 @@ export const nodeTables = {
   }).index("by_workspace_seq", ["workspaceId", "seq"]),
 
   /**
+   * RETIRED 2026-10-23: nothing reads or writes it since #2100 made moves row
+   * changes only. Kept so production's leftover rows still validate; remove
+   * the table once those rows are deleted.
+   *
+   * Moves the tree shows already and the bucket has not finished (phase 4).
+   *
+   * One row per move, oldest first. `from` and `to` are paths as they were
+   * named when the move was made, so a move of a whole folder is this one row
+   * however many notes it carries: every listing folds the rows' paths
+   * through these (`apps/mcp/src/moves/queued.js`), and a scheduled pass
+   * copies the objects behind it (`lib/nodes/moveWork.ts`), oldest move first.
+   *
+   * `preparing` holds the names while `privacy.md` is rewritten for the
+   * destination, and nothing draws it yet; `moving` is drawn everywhere. A row
+   * is deleted when its last object has moved. `added` is what the move wrote
+   * into `privacy.md`, so Undo takes back exactly that.
+   */
+  moveQueue: defineTable({
+    workspaceId: v.id("workspaces"),
+    from: v.string(),
+    to: v.string(),
+    kind: v.union(v.literal("file"), v.literal("folder")),
+    state: v.union(v.literal("preparing"), v.literal("moving")),
+    /** Who moved it, at what clearance: link rewriting at the end reaches only what they could see. */
+    actorUserId: v.optional(v.id("users")),
+    scope: v.union(v.literal("private"), v.literal("team")),
+    grantedNames: v.array(v.string()),
+    /** Objects under `from` when the move was made, and how many have moved since. Counts only. */
+    total: v.number(),
+    moved: v.number(),
+    added: v.object({
+      folders: v.array(v.object({ prefix: v.string(), visibility: v.string(), was: v.optional(v.string()) })),
+      notes: v.array(v.object({ path: v.string(), visibility: v.string(), was: v.optional(v.string()) })),
+    }),
+    /** Set by Undo: the move now carries everything back. */
+    undone: v.optional(v.boolean()),
+    /**
+     * A move into the hidden trash (`lib/nodes/trashStart.ts`): `to` is under
+     * `.context/trash/`, so every listing drops the note at once. It carries no
+     * rules and rewrites no links, as a trash made in one go never did, and a
+     * Restore while it is pending turns it around (`undone`).
+     */
+    trash: v.optional(v.boolean()),
+    /** A pass holding this move; another one waits. */
+    leaseAt: v.optional(v.number()),
+    /** Failed passes in a row, and a fixed, path-free label for the last one. */
+    attempts: v.number(),
+    lastError: v.optional(v.string()),
+    /** The next pass is due at this time (a back-off after a failure). */
+    nextAt: v.number(),
+    /** Objects a second, smoothed over passes (`moveLag.ts`): what an estimate of the time left divides by. */
+    rate: v.optional(v.number()),
+    /** When staff were told this move fell behind; a recovery mail follows its finish. */
+    lateAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_next", ["nextAt"]),
+
+  /**
    * A keyed folder move too big for one transaction (`lib/nodes/rowMoveChunks.ts`):
    * its root has moved, and the rows beneath follow a page at a time. While
    * it is `moving`, listings, the id layer's lookups and the access rows read
