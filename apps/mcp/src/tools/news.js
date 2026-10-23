@@ -41,6 +41,14 @@ import { unlistedArgumentAdvice } from "./liveList.js";
 export const TOOL_NEWS = Object.freeze([
   {
     date: "2026-10-22",
+    newTool: true,
+    text:
+      "send `google_chat` (google_chat `{ to | space, text }`, or `{ action: \"spaces\" }` to list their spaces) sends one Google Chat " +
+      "message as the person: a direct message to a person by their work email, or a post in a space by its name. It waits for their 👍 " +
+      "to the exact message. Until their Google account allows it, it says so and how they reconnect.",
+  },
+  {
+    date: "2026-10-22",
     text:
       "calendar_event moves and cancels events with guests too: the person is shown the change with the guests named, and their yes " +
       "or 👍 makes it and Google tells the guests. `notify_guests` is set by Context on that approved change; leave it out.",
@@ -278,7 +286,7 @@ export const TOOL_NEWS = Object.freeze([
  * The fingerprint of every advertised tool's name and argument names at the
  * time of the newest entry above. See `toolNews.test.mjs`.
  */
-export const TOOL_SHAPE = "48d56bf3";
+export const TOOL_SHAPE = "0ac08106";
 
 /** How many entries orient shows before summing up the rest. */
 const NEWS_LIMIT = 8;

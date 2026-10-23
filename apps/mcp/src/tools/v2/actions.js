@@ -143,6 +143,14 @@ export const ACTIONS = {
       summary: "Make one change through an app the person connected (app, tool, arguments), once they say yes to it.",
       take: plain,
     },
+    google_chat: {
+      tool: "google_chat",
+      summary:
+        "Send one Google Chat message as the person: to (a person's work email) for a direct message, or space (its name in Chat) " +
+        "for a space, with text. They are asked for a 👍 to the exact message, so just call it. action spaces lists their spaces. " +
+        "Use this, never the browser, for Google Chat; if it says to reconnect, give them the link from manage connect_google (kind gmail).",
+      take: plain,
+    },
     calendar: {
       tool: "calendar_event",
       summary: "Add, move or cancel one event on the person's Google Calendar, once they say yes to that exact change.",

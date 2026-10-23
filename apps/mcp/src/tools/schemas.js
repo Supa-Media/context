@@ -21,6 +21,7 @@ import { feedbackToolDefinitions } from "./schemas/feedback.js";
 import { vaultToolDefinitions } from "./schemas/vault.js";
 import { emailToolDefinitions } from "./schemas/email.js";
 import { calendarToolDefinitions } from "./schemas/calendarWrite.js";
+import { googleChatToolDefinitions } from "./schemas/googleChat.js";
 import { forwardRuleToolDefinitions } from "./schemas/forwardRule.js";
 import { workspaceToolDefinitions } from "./schemas/workspaces.js";
 import { connectorToolDefinitions } from "./schemas/connectors.js";
@@ -43,6 +44,7 @@ export function baseToolDefinitions() {
     ...vaultToolDefinitions(),
     ...emailToolDefinitions(),
     ...calendarToolDefinitions(),
+    ...googleChatToolDefinitions(),
     ...forwardRuleToolDefinitions(),
     ...workspaceToolDefinitions(),
     ...connectorToolDefinitions(),

@@ -91,6 +91,7 @@ import { runEmailGateChecks } from "./emailGate.test.mjs";
 import { runEmailDraftChecks } from "./emailDraft.test.mjs";
 import { runEmailReadChecks } from "./emailRead.test.mjs";
 import { runCalendarGateChecks } from "./calendarGate.test.mjs";
+import { runGoogleChatGateChecks } from "./googleChatGate.test.mjs";
 import { runForwardRuleChecks } from "./forwardRule.test.mjs";
 import { runReportGateChecks } from "./reportGate.test.mjs";
 import { runAgentEgressJudgeChecks } from "./agentEgressJudge.test.mjs";
@@ -156,6 +157,8 @@ const SUITES = [
   ["runEmailReadChecks", () => runEmailReadChecks(check)],
   // The calendar gate: every change waits for the person's yes to it.
   ["runCalendarGateChecks", () => runCalendarGateChecks(check)],
+  // A Google Chat message waits for the person's one yes or 👍 to it.
+  ["runGoogleChatGateChecks", () => runGoogleChatGateChecks(check)],
   ["runForwardRuleChecks", () => runForwardRuleChecks(check)],
   // The bug-report gate: a report filed by text waits for the person's YES, and only then carries their texts.
   ["runReportGateChecks", () => runReportGateChecks(check)],

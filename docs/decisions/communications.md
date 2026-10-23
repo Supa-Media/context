@@ -155,6 +155,10 @@ Moved to [No email leaves without the person's yes to that exact copy](./communi
 
 Moved to [No calendar change is made without the person's yes to that exact change](./communications/calendar-writes.md#no-calendar-change-is-made-without-the-persons-yes-to-that-exact-change).
 
+### Tex sends a Google Chat message as the person, on their one 👍
+
+Moved to [Tex sends a Google Chat message as the person, on their one 👍](./communications/google-chat-messages.md#tex-sends-a-google-chat-message-as-the-person-on-their-one--2026-10-22).
+
 ### Synced mail first, then Gmail for what the sync does not hold
 
 Moved to [Synced mail first, then Gmail for what the sync does not hold](./communications/reading-mail.md#synced-mail-first-then-gmail-for-what-the-sync-does-not-hold).

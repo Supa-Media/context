@@ -28,6 +28,7 @@
 
 import { createEmailRoute } from "./email.mjs";
 import { createCalendarRoute } from "./calendar.mjs";
+import { createGoogleChatRoute } from "./googleChat.mjs";
 import { createClearances } from "./clearances.mjs";
 import { createMailRoutes } from "./mail.mjs";
 import { createTreeRoutes } from "./tree.mjs";
@@ -289,6 +290,7 @@ export function createControlPlaneStub(options = {}) {
   const mail = createMailRoutes(grantForAccessToken, coveredContexts);
   const email = createEmailRoute(clearedOwnAccount, flags, clearedEditor);
   const calendar = createCalendarRoute(clearedOwnAccount, flags);
+  const googleChat = createGoogleChatRoute(clearedOwnAccount);
   // Setting a workspace up (`workspaces.mjs`).
   const workspaceSetup = createWorkspaceRoutes({ grantForAccessToken, coveredContexts, workspaces, grants });
   const dreams = createDreamRoutes(clearedOwner);
@@ -886,7 +888,7 @@ export function createControlPlaneStub(options = {}) {
       default: {
         const answered =
           (await mail.handle(path, body)) ?? (await tree.handle(path, body)) ?? (await workspaceSetup.handle(path, body)) ?? (await email.handle(path, body)) ??
-          (await calendar.handle(path, body)) ?? (await dreams.handle(path, body));
+          (await calendar.handle(path, body)) ?? (await googleChat.handle(path, body)) ?? (await dreams.handle(path, body));
         if (answered !== undefined) return ok(answered);
         return new Response(JSON.stringify({ error: "not_found" }), { status: 404 });
       }
@@ -959,6 +961,7 @@ export function createControlPlaneStub(options = {}) {
     emailCalls: email.calls,
     mailReadCalls: email.mailCalls,
     calendarCalls: calendar.calls,
+    googleChat,
     workspaceSetupCalls: workspaceSetup.calls,
     accessTokens,
     refreshTokens,

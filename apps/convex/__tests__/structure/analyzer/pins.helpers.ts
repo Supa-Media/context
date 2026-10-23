@@ -183,6 +183,18 @@ export const CREDENTIAL_HTTP_ROUTES = new Set([
   // inside their limits, never an event with guests.
   // `__tests__/calendarWrite.test.ts` carries the behavioural half.
   "http.gatewayCalendarWrite",
+  // The person's own Google Chat (`/gateway/chat/send` and
+  // `/gateway/chat/spaces`, owner 2026-10-22: Tex messages people on Chat).
+  // The same argument as the calendar route: gateway secret plus the
+  // person's live write grant; the account is resolved from that grant's own
+  // personal workspace, and only a connection whose consent granted every
+  // Chat send scope. The token is minted inside the route, spent on finding
+  // the direct message or space and one message (or one listing of spaces),
+  // and never returned, logged or stored. A stolen gateway secret alone sends
+  // nothing; with a live token, that one person's messages, inside their
+  // limits. `__tests__/googleChatSend.test.ts` carries the behavioural half.
+  "http.gatewayChatSend",
+  "http.gatewayChatSpaces",
   // The person's own Gmail, read (`/gateway/email/search` and
   // `/gateway/email/read`, owner 2026-10-18: mail the sync does not hold is
   // read from the connection). Gateway secret plus the person's live access
