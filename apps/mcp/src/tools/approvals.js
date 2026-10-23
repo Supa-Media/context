@@ -157,6 +157,24 @@ export async function createPending(
 }
 
 /**
+ * The same held call made again when the person was already shown it in an
+ * earlier text and it still waits for their yes. It is not shown again: on
+ * 2026-10-23 group Tex answered "what tools do you have" and "what models do
+ * you use" each with the whole bug report it had asked about before, because
+ * the model filed it again and every held call re-shows its ask. The model is
+ * told instead, and answers what was asked.
+ */
+export function shownBefore(existing, now = Date.now()) {
+  const record = existing?.record;
+  return record?.texting === true && (record.texting_until ?? record.expires_at) > now;
+}
+
+/** What the model is told when `shownBefore`. */
+export const ALREADY_ASKED =
+  "Not shown again: this exact one already waits for their 👍 from an earlier text, and their yes or 👍 there still sends it. " +
+  "Don't call it again. Answer what they asked in this text; if it's about this, say in a line that it's waiting above.";
+
+/**
  * This thread asked for exactly this call again, and the person is about to be
  * told. A record that is already armed for the thread is returned as it is; one
  * that was raised by another client, or that the thread has since moved on

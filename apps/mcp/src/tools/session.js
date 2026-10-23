@@ -36,7 +36,7 @@ import { toolError } from "./results.js";
 import { toolMoveNoteAcrossContexts } from "./moves/acrossContexts.js";
 import { NoteCapReached, asRelocation } from "../store/noteCap.js";
 import { recordRead } from "../privacy/egress.js";
-import { createPending, findPending, takeDone } from "./approvals.js";
+import { createPending, findPending, ALREADY_ASKED, shownBefore, takeDone } from "./approvals.js";
 import { HELD_GATES } from "./heldGates.js";
 import { irreversibleOf } from "./irreversible.js";
 import { slackPlace } from "./connectors.js";
@@ -132,6 +132,7 @@ async function egressGate(suppliedName, supplied, args, { store, session, target
   const ledger = session.egress?.ledger ?? null;
   const texting = session.egress?.texting === true;
   const existing = await findPending(store, { name: suppliedName, args: supplied, userId });
+  if (session.egress?.texting === true && shownBefore(existing)) return toolError(ALREADY_ASKED);
   const record =
     existing?.record ??
     (await createPending(store, {

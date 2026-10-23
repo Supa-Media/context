@@ -121,3 +121,47 @@ test("a group turn can browse, and sign in only from its workspace's vault", asy
   assert.doesNotMatch(login, /filled|signed in/i, login);
   assert.match(page, /All fine/, "the page was read");
 });
+
+test("a link somebody wrote in the chat before the tag opens (beacon.sh, 2026-10-23)", async () => {
+  world.model.install([
+    { toolCalls: [{ name: "send", args: { action: "open_page", args: { urls: ["https://example.com/status"] } } }] },
+    { text: "It says all fine." },
+  ]);
+  const said = [{ from: "ada", text: "https://example.com/status" }];
+  const { status } = await request(world.env, TOKEN_GROUP_EGRESS, "/agent", {
+    question: "Tex could you look into this and add it to the backlog",
+    group: { key: KEY, members: MEMBERS, from: "ada", chat: said },
+    timeZone: "UTC",
+  });
+  assert.equal(status, 200);
+  const [page] = toolReplies(world.model.requests.at(-1));
+  assert.match(page, /All fine/, "the page was read");
+
+  // An address nobody in the chat wrote is still refused (no production setup opens the web here).
+  world.model.install([
+    { toolCalls: [{ name: "send", args: { action: "open_page", args: { urls: ["https://example.com/status"] } } }] },
+    { text: "Couldn't." },
+  ]);
+  await tagged(TOKEN_GROUP_EGRESS, "Tex what's the status?", "ada");
+  const [refused] = toolReplies(world.model.requests.at(-1));
+  assert.doesNotMatch(refused, /All fine/, refused);
+});
+
+test("an ask already shown isn't re-posted as the answer to the next question (2026-10-23)", async () => {
+  const again = { ...EMAIL, subject: "Saturday", body: "Hi Jo,\n\nSaturday at 2.\n\nCy" };
+  world.model.install([{ toolCalls: [{ name: "send", args: { action: "email", args: again } }] }, verdict("yes"), { text: "Drafted it for Jo." }]);
+  const first = await tagged(TOKEN_GROUP_MEMBER, "Tex email Jo that it's Saturday at 2", "cy");
+  assert.match(first.body?.answer ?? "", /Give it a 👍/);
+
+  world.model.install([{ toolCalls: [{ name: "send", args: { action: "email", args: again } }] }, verdict("yes"), { text: "I can read and write notes here, search the web and send one email for you." }]);
+  const next = await tagged(TOKEN_GROUP_MEMBER, "Tex what tools do you have?", "cy");
+  assert.equal(next.status, 200);
+  const [refused] = toolReplies(world.model.requests.at(-1));
+  assert.match(refused, /Not shown again/);
+  assert.doesNotMatch(next.body?.answer ?? "", /Give it a 👍|Saturday at 2/, "the old ask is not the answer");
+  assert.match(next.body?.answer ?? "", /search the web/);
+  assert.equal(sends().length, 1, "nothing new was sent");
+
+  const yes = await tagged(TOKEN_GROUP_MEMBER, "Tex, yes", "cy");
+  assert.match(yes.body?.answer ?? "", /^Done, I sent an email/, "the earlier ask still sends on their yes");
+});
