@@ -147,7 +147,17 @@ const ASKING =
   "find|check|make|add|save|remember|note|tell|show|look|search|use|stop|start|write|help|list|summarize|summarise|remind|give|get|pull|read)\\b";
 /** "Tex ^ do this", "Tex ↑": the message above is the ask. */
 const POINTS_UP = "(?:\\^+|↑|⬆️?|☝️?|👆)";
-const OPENS = new RegExp(`^\\s*(?:(?:(?:hey|hi|yo|ok|okay)\\s+${WORD})|(?:${WORD}(?:\\s*[,:;!?.-]|\\s*$|\\s*${POINTS_UP}|\\s+${ASKING})))`, "i");
+/*
+  Any other word after the name is an ask too ("Tex turn this guy into a cat",
+  2026-10-23, went unanswered because "turn" was not on the list above),
+  unless it reads as talking about Tex: a past or third-person verb, or a word
+  people use about it ("Tex got that wrong lol", "Tex was down", "Tex sucks").
+*/
+const ABOUT = "(?:was|were|got|gets|has|had|have|said|says|just|keeps|kept|always|never|really|seems|thinks|lol|lmao|haha|too|again|isn't|wasn't|can't|won't|didn't|doesn't|[a-z]+ed|[a-z]+s)\\b";
+const OPENS = new RegExp(
+  `^\\s*(?:(?:(?:hey|hi|yo|ok|okay)\\s+${WORD})|(?:${WORD}(?:\\s*[,:;!?.-]|\\s*$|\\s*${POINTS_UP}|\\s+${ASKING}|\\s+(?!${ABOUT})[a-z])))`,
+  "i",
+);
 const CLOSES = new RegExp(`(?:^|[\\s,])${WORD}[\\s?!.]*$`, "i");
 const NAMED = new RegExp(`(?:^|[^\\w-])${WORD}`, "i");
 /** A reply to Tex that needs no answer. */

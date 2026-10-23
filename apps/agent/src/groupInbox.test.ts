@@ -95,9 +95,15 @@ describe("what wakes Tex in a group", () => {
     expect(addressesTex("is tex going to know this?", false)).toBe(true);
     expect(addressesTex("Tex what time is load in", false)).toBe(true);
     expect(addressesTex("tex stop", false)).toBe(true);
+    // Any ask, not only the words on a list (2026-10-23: this one went unanswered).
+    expect(addressesTex("Tex turn this guy into a cat", false)).toBe(true);
+    expect(addressesTex("Tex draw me a dog", false)).toBe(true);
   });
   it("never a mention in passing, Tex-Mex or Texas", () => {
     expect(addressesTex("tex got that wrong lol", false)).toBe(false);
+    expect(addressesTex("Tex was down earlier", false)).toBe(false);
+    expect(addressesTex("Tex sucks at this", false)).toBe(false);
+    expect(addressesTex("Tex turned it off", false)).toBe(false);
     expect(addressesTex("tex-mex tonight", false)).toBe(false);
     expect(addressesTex("Texas was hot", false)).toBe(false);
     expect(addressesTex("ok cool", false)).toBe(false);
@@ -228,6 +234,15 @@ describe("a group's queue", () => {
     await drainGroup(storage, deps(w, { stream: ["Reading the page now."], agent: { answer: "Here it is.", pictures: [picture] } }));
     expect(w.sends.map((sent) => sent.content ?? sent.media_url)).toEqual(["Reading the page now.", "Here it is.", "https://agent.example.test/media/chart.png"]);
     expect(w.sends.every((sent) => (sent.reply_to as { message_handle?: string } | undefined)?.message_handle === "h_in")).toBe(true);
+  });
+
+  it("answers \"Tex turn this guy into a cat\" with the picture it came with (2026-10-23)", async () => {
+    const storage = new MemoryStorage();
+    const w = world();
+    expect(await acceptGroup(storage, message("Tex turn this guy into a cat", { attachments: [PICTURE] }), 0)).toBe("queued");
+    await drainGroup(storage, deps(w));
+    expect(w.asks[0]).toMatchObject({ question: "Tex turn this guy into a cat", attachments: [{ mediaType: "image/png" }] });
+    expect(w.sends.map((sent) => sent.content)).toEqual(["The opener."]);
   });
 
   it("sends no progress line once someone new has joined", async () => {
@@ -481,6 +496,9 @@ describe("the group chat of 2026-10-21", () => {
     expect(addressesTex("tex ^^", false)).toBe(true);
     expect(addressesTex("Tex 👆", false)).toBe(true);
     expect(addressesTex("tex got that wrong lol", false)).toBe(false);
+    expect(addressesTex("Tex was down earlier", false)).toBe(false);
+    expect(addressesTex("Tex sucks at this", false)).toBe(false);
+    expect(addressesTex("Tex turned it off", false)).toBe(false);
   });
 
   it("takes the asker's bare yes as theirs to give, and nobody else's", async () => {
