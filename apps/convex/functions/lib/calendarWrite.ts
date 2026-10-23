@@ -83,6 +83,8 @@ export interface CalendarChange {
   response: RsvpResponse | null;
   /** edit, move, cancel or rsvp of a repeating event: every time it happens. */
   allEvents: boolean;
+  /** Which connected account, by address: a create goes there, anything else is looked for there only. */
+  calendar: string | null;
 }
 
 export type CalendarRefusal =
@@ -97,6 +99,7 @@ export type CalendarRefusal =
   | "has_guests"
   | "not_organizer"
   | "not_invited"
+  | "other_calendar"
   | "not_configured"
   | "unavailable";
 
@@ -143,6 +146,7 @@ export function readCalendarChange(value: unknown): CalendarChange | null {
   if (raw.notify_guests !== undefined && raw.notify_guests !== true) return null;
   if (raw.all_events !== undefined && (raw.all_events !== true || action === "create")) return null;
   if (raw.response !== undefined && action !== "rsvp") return null;
+  if (raw.calendar !== undefined && (typeof raw.calendar !== "string" || raw.calendar.length > 254 || !EMAIL.test(raw.calendar))) return null;
   const notifyGuests = raw.notify_guests === true;
   const change: CalendarChange = {
     action,
@@ -161,6 +165,7 @@ export function readCalendarChange(value: unknown): CalendarChange | null {
     edit: null,
     response: null,
     allEvents: raw.all_events === true,
+    calendar: typeof raw.calendar === "string" ? raw.calendar : null,
   };
   if (action === "edit") {
     const edit = readEditFields<CalendarTime>(raw, {

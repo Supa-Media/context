@@ -182,6 +182,20 @@ describe("editing an existing event", () => {
   });
 });
 
+describe("choosing the calendar", () => {
+  test("a new event goes on the account named, and an address they never connected is refused", async () => {
+    const calls = calendar({ lists: {} });
+    const { t, alice, aliceWs } = await connected();
+    await connectCalendar(t, aliceWs, alice, "alice@work.example", "ya29.work");
+    const create = { action: "create", title: "Lau Bday", start: START, end: "2026-10-24T20:45:00-04:00", calendar: "Alice@Work.example" };
+    expect(await change(t, aliceWs, create, { check: true })).toEqual({ ok: true, calendar: "alice@work.example" });
+    expect(await change(t, aliceWs, create)).toEqual({ ok: true, calendar: "alice@work.example" });
+    expect(calls.find((call) => call.method === "POST")!.token).toBe("ya29.work");
+    expect(await change(t, aliceWs, { ...create, calendar: "someone@else.example" })).toEqual({ ok: false, refused: "other_calendar" });
+    expect(calls.filter((call) => call.method === "POST")).toHaveLength(1);
+  });
+});
+
 describe("repeating events", () => {
   const INSTANCE: Event = { id: "evt_s_20261027", summary: "Standup", recurringEventId: "evt_s", start: { dateTime: "2026-10-27T09:00:00-04:00" }, end: { dateTime: "2026-10-27T09:15:00-04:00" } };
   const MASTER: Event = {

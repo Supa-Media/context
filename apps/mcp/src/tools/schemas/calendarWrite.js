@@ -47,6 +47,10 @@ export function calendarToolDefinitions() {
           },
           all_events: { type: "boolean", description: "edit, move, cancel or rsvp of a repeating event: true for every time it happens, not just this one." },
           response: { type: "string", enum: ["accepted", "declined", "tentative"], description: "rsvp only: their answer to the invite." },
+          calendar: {
+            type: "string",
+            description: "Optional: which of their connected Google accounts, by address (fetch calendar: names each). create puts it there; otherwise only that one is searched.",
+          },
           notify_guests: { type: "boolean", description: "Leave out: Context sets it on a change the person said yes to." },
         },
         required: ["action", "title", "start"],

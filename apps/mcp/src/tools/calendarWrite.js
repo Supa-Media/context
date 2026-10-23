@@ -80,6 +80,9 @@ export function readCalendarChange(args) {
     return { error: "all_events is true, or left out, and only for an event that already repeats." };
   }
   if (args.response !== undefined && action !== "rsvp") return { error: "response is only for rsvp." };
+  if (args.calendar !== undefined && (typeof args.calendar !== "string" || args.calendar.length > 254 || !EMAIL.test(args.calendar))) {
+    return { error: "calendar is the address of one of their connected Google accounts, like seyi@example.com, or left out for their main one." };
+  }
   // Set by `calendarGate.js` on a change that tells guests, held for the person's yes; never by a model to skip it.
   if (args.notify_guests !== undefined && (args.notify_guests !== true || (action === "create" && (args.guests ?? []).length === 0))) {
     return { error: "notify_guests is not something to pass; leave it out." };
@@ -89,6 +92,7 @@ export function readCalendarChange(args) {
     title,
     start: args.start,
     ...(args.all_events === true ? { all_events: true } : {}),
+    ...(args.calendar !== undefined ? { calendar: args.calendar } : {}),
     ...(args.notify_guests === true ? { notify_guests: true } : {}),
   };
   if (action === "edit") {
@@ -200,7 +204,7 @@ export function calendarCopy(change, now = Date.now(), guests = []) {
 function plainCopy(change, now) {
   if (change.action === "create") {
     return [
-      "Add to your Google Calendar:",
+      `Add to your Google Calendar${change.calendar ? ` (${change.calendar})` : ""}:`,
       `${change.title}`,
       spanWords(change.start, change.end, now),
       ...(change.location ? [`Where: ${change.location}`] : []),
@@ -268,6 +272,9 @@ export const REFUSED = {
     "and the new details on it, say in one line that the invite is the host's so you added their own with the details, and offer to " +
     "decline the original (rsvp) if they'd like only one.",
   not_invited: "Not changed: the person isn't a guest on that event, so there is no invite to answer; it's their own event.",
+  other_calendar:
+    "Not changed: that address isn't a Google account they connected with calendar changes allowed. Leave calendar out to use their main one, " +
+    "or send the link from manage connect_google (kind calendar) for that account and make the change once they say it's connected.",
   ambiguous: "Not changed: more than one event has exactly that title and start, and nothing else tells them apart here. Say so in one line.",
   has_guests: "Not changed: that event has guests now, who would be told. Call calendar_event again and the person is asked first.",
   not_configured: "Not changed: this Context deployment does not change calendars.",
