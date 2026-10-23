@@ -237,6 +237,7 @@ export function googleConnectionsFrom(
           connectionId: connection.connectionId,
           email: connection.email,
           syncServices: connection.syncServices,
+          readOnly: connection.readOnly ?? [],
           syncStatus: connection.syncStatus,
           sync: connection.sync,
           lastSyncStartedAt: connection.lastSyncStartedAt,

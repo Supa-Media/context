@@ -258,9 +258,10 @@ export const REFUSED = {
     "Not changed: the person has no Google Calendar connected. Send them the link from manage connect_google " +
     "(kind calendar) in one line, and make the change once they say it's connected; never tell them to make it themselves.",
   calendar_read_only:
-    "Not changed: their Google Calendar is connected, but from before Context asked to change it, so it can only be read. " +
-    "Never say it isn't connected. Send the link from manage connect_google (kind calendar) in one line, saying one reconnect " +
-    "lets you add it, and make the change once they say it's done; never tell them to make it themselves.",
+    "Not changed: Google says just now that their Google Calendar can only be read: Context may not add or change events on it. " +
+    "Never say it isn't connected. Say it once, in one short text: send the link from manage connect_google (kind calendar), " +
+    "saying one reconnect lets you add it and to tick Select all on Google's screen, and make the change once they say it's done; " +
+    "never tell them to make it themselves. Don't say it is connected or that you can add it until a calendar_event call has succeeded.",
   hourly_limit: "Not changed: the person has made 20 calendar changes through Context this hour. Try again later.",
   daily_limit: "Not changed: the person has made 100 calendar changes through Context today. Try again tomorrow.",
   not_found:
@@ -295,5 +296,17 @@ export async function toolCalendarEvent(store, args) {
     const meet = typeof answer.meet === "string" ? ` Google Meet link: ${answer.meet}` : read.change.meet ? " Google made no Meet link." : "";
     return toolText(`Done on ${answer.calendar}'s calendar: ${calendarSummary(read.change)}.${meet}`);
   }
-  return toolError(REFUSED[answer?.refused] ?? REFUSED.unavailable);
+  return toolError(refusalFor(answer));
+}
+
+/**
+ * What a refusal tells the model. A read-only calendar names the accounts
+ * Google said can only be read, so a person with two hears which one needs
+ * the reconnect (@blessing, 2026-10-23).
+ */
+export function refusalFor(answer) {
+  const said = REFUSED[answer?.refused] ?? REFUSED.unavailable;
+  const accounts = Array.isArray(answer?.accounts) ? answer.accounts : [];
+  if (answer?.refused !== "calendar_read_only" || accounts.length === 0) return said;
+  return `${said} The account${accounts.length === 1 ? "" : "s"} to reconnect: ${accounts.join(", ")}.`;
 }

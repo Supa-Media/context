@@ -10,6 +10,7 @@ import { v } from "convex/values";
 import type { ObjectType } from "convex/values";
 import type { QueryCtx } from "../../../_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
+import { readOnlyServices } from "../googleWriteAccess";
 
 // The scheduling half of a connection is the loop's (`googleSync.ts`), and the
 // console reads both halves off one row. The view is imported from the leaf
@@ -52,6 +53,8 @@ export const listGoogleConnectionsReturns = v.array(
     connectionId: v.id("googleConnections"),
     email: v.string(),
     syncServices: v.object({ gmail: v.boolean(), calendar: v.boolean(), chat: v.boolean() }),
+    /** Services the grant lets Context read but not act through: Settings says so rather than "Connected" (`googleWriteAccess.ts`). */
+    readOnly: v.array(v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"))),
     syncStatus: v.string(),
     lastSyncStartedAt: v.optional(v.number()),
     lastSyncCompletedAt: v.optional(v.number()),
@@ -193,6 +196,7 @@ export async function listGoogleConnectionsHandler(
         calendar: calendar !== undefined,
         chat: chat !== undefined,
       },
+      readOnly: readOnlyServices({ gmail: gmail !== undefined, calendar: calendar !== undefined, chat: chat !== undefined }, row.scopes),
       syncStatus:
         row.disconnectedAt !== undefined
           ? "disconnected"

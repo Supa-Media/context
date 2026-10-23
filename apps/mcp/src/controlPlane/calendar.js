@@ -56,7 +56,12 @@ export function createCalendarMethods({ post }) {
         const meet = typeof answer.meet === "string" && /^https:\/\/meet\.google\.com\/[a-z0-9-]{1,64}$/i.test(answer.meet) ? answer.meet : null;
         return { ok: true, calendar: answer.calendar, guests, ...(meet !== null ? { meet } : {}) };
       }
-      return { ok: false, refused: REFUSALS.has(answer?.refused) ? answer.refused : "unavailable" };
+      const refused = REFUSALS.has(answer?.refused) ? answer.refused : "unavailable";
+      // The accounts Google said can only be read, by address alone (`gatewayRoutes/calendarWrite.ts`).
+      const accounts = refused === "calendar_read_only" && Array.isArray(answer?.accounts)
+        ? answer.accounts.filter((address) => typeof address === "string" && /^[^\s@]{1,64}@[^\s@]{1,190}$/.test(address)).slice(0, 5)
+        : [];
+      return { ok: false, refused, ...(accounts.length > 0 ? { accounts } : {}) };
     },
   };
 }

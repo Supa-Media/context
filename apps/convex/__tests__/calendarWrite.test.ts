@@ -48,6 +48,28 @@ function calendar(events: Listed[] = [], status = 200) {
   return calls;
 }
 
+/**
+ * Google's token endpoints, answered here: a refresh mints a token, and
+ * tokeninfo says the grant holds `scopes`. Each URL asked, recorded. Calls
+ * after `calendar()`, whose stub it wraps.
+ */
+function grant(scopes: string[]) {
+  vi.stubEnv("GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id.apps.googleusercontent.com");
+  const asked: string[] = [];
+  const inner = globalThis.fetch;
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (!url.startsWith("https://oauth2.googleapis.com/")) return await inner(input, init);
+    asked.push(url);
+    if (url.endsWith("/token")) return new Response(JSON.stringify({ access_token: "ya29.fresh", expires_in: 3600 }), { status: 200 });
+    if (url.endsWith("/tokeninfo") && String(init?.body ?? "").includes("access_token=ya29.fresh")) {
+      return new Response(JSON.stringify({ scope: scopes.join(" ") }), { status: 200 });
+    }
+    return new Response("{}", { status: 400 });
+  });
+  return asked;
+}
+
 type Tenants = Awaited<ReturnType<typeof twoConnectedTenants>>;
 
 /** A calendar on Alice's workspace; `write` grants calendar.events, with a cached token. */
@@ -157,12 +179,26 @@ describe("changing the person's own calendar", () => {
     expect(calls[1]!.url).toBe("https://www.googleapis.com/calendar/v3/calendars/primary/events/evt_1?sendUpdates=all");
   });
 
-  test("a calendar connected to read only changes nothing, and says a reconnect fixes it", async () => {
+  test("a calendar connected to read only changes nothing, and says a reconnect fixes it, naming the account", async () => {
     const calls = calendar();
+    const google = grant(["https://www.googleapis.com/auth/calendar.events.readonly"]);
     const { t, aliceWs } = await connected({ write: false });
-    expect(await change(t, ACCESS_A, aliceWs, CREATE)).toEqual({ ok: false, refused: "calendar_read_only" });
-    expect(await change(t, ACCESS_A, aliceWs, CREATE, { check: true })).toEqual({ ok: false, refused: "calendar_read_only" });
+    expect(await change(t, ACCESS_A, aliceWs, CREATE)).toEqual({ ok: false, refused: "calendar_read_only", accounts: ["alice@gmail.example"] });
+    expect(await change(t, ACCESS_A, aliceWs, CREATE, { check: true })).toEqual({ ok: false, refused: "calendar_read_only", accounts: ["alice@gmail.example"] });
     expect(calls).toHaveLength(0);
+    // Google was asked what the grant holds, with the token in a body, never a URL.
+    expect(google.filter((url) => url.endsWith("/tokeninfo"))).toHaveLength(2);
+  });
+
+  // @blessing, 2026-10-23: told twice "your Google connection can only read your calendar" while Settings said Connected.
+  test("stored scopes that say read-only are checked with Google first, and a grant that can write books the event", async () => {
+    const calls = calendar();
+    grant(["https://www.googleapis.com/auth/calendar.events.readonly", CALENDAR_WRITE_SCOPE]);
+    const { t, aliceWs } = await connected({ write: false });
+    expect(await change(t, ACCESS_A, aliceWs, CREATE)).toEqual({ ok: true, calendar: "alice@gmail.example" });
+    expect(calls.map((call) => call.method)).toEqual(["POST"]);
+    const rows = await t.run((ctx) => ctx.db.query("googleConnections").collect());
+    expect(rows.some((row) => row.scopes.includes(CALENDAR_WRITE_SCOPE))).toBe(true);
   });
 
   test("with no calendar connected at all, it says so", async () => {

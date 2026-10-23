@@ -438,13 +438,13 @@ describe("no public function can reach a storage secret", () => {
         "functions.googleConnect.exchangeAndBind",
         "functions.googleConnect.exchangeAndBindGoogle",
         "functions.googleConnect.mintGoogleAccessToken",
-        // The same mint saying why there is no token, so a pass can tell
-        // Google not answering from Google refusing the grant; and the daily
-        // re-check that forces one refresh per revoked grant through it
-        // (`functions/googleReconnect.ts`). Neither returns a credential to
-        // anything outside the barrier but the sync pass's own action.
+        // The same mint saying why there is no token, so a pass can tell Google not answering from Google
+        // refusing the grant; the daily re-check that forces one refresh per revoked grant through it
+        // (`googleReconnect.ts`), and the calendar scope re-check (`googleScopeCheck.ts`, answers only
+        // booleans and addresses). None returns a credential outside the barrier but the sync pass's own action.
         "functions.googleConnect.mintGoogleAccessTokenOutcome",
         "functions.googleReconnect.recheckRevokedGrants",
+        "functions.googleScopeCheck.recheckCalendarWrite",
         "functions.googleConnect.revokeGoogleGrant",
         // CHAT'S OWN CONNECT ROUND TRIP — the same PKCE-verifier decrypt
         // `googleConnect.ts`'s `exchangeAndBind` needs, on its own sibling
