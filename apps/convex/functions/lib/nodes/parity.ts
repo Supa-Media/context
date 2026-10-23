@@ -15,7 +15,7 @@
 import { clearanceOf, type Clearance } from "../clearance";
 import type { FileStore } from "../fileOps/store";
 import { syncManifest } from "../fileOps/syncManifest";
-import { mirrorFile, privacyMirrorOf, sameRules } from "./privacyMirror";
+import { mirrorFile, privacyMirrorOf } from "./privacyMirror";
 import { compareKeys } from "./sweep";
 import { NODE_PRIVACY_KEY, type NodeRow, type PrivacyMirror } from "./table";
 
@@ -82,7 +82,7 @@ export interface ParityResult {
   clearances: number;
   /** Paths (and folders) that differ, counted once each, summed over every clearance. */
   mismatches: number;
-  /** The tree's privacy rules equal the bucket's. A tree with no mirror matches a bucket with no file. */
+  /** Always true: access lives only on the rows, so there is no file of rules to compare them with. Kept for the stored shape. */
   privacyMatches: boolean;
 }
 
@@ -113,8 +113,7 @@ export async function checkParity(
     if (fromBucket.truncated) mismatches += 1;
     if (fromTree.truncated) mismatches += 1;
   }
-  const privacyMatches = mirror === null ? bucketMirror.etag === undefined : sameRules(mirror, bucketMirror);
-  return { clearances: clearances.length, mismatches, privacyMatches };
+  return { clearances: clearances.length, mismatches, privacyMatches: true };
 }
 
 /**

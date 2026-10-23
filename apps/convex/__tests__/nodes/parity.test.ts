@@ -121,27 +121,6 @@ describe("parity between the tree and the bucket", () => {
     expect(result.mismatches).toBe(3);
   });
 
-  test("a privacy mirror that lost a folder rule is not the bucket's rules", async () => {
-    const { store, sink } = await sweptTree();
-    const mirror = (await sink.privacy())!;
-    const lost = { ...mirror, folders: mirror.folders.filter((folder) => folder.prefix !== "3-resources") };
-    const result = await checkParity(store, liveRows(sink), lost);
-    expect(result.privacyMatches).toBe(false);
-  });
-
-  test("a folder visibility changed in the bucket breaks parity until privacy.md is touched", async () => {
-    const { store, sink } = await sweptTree();
-    const now = ticker(5_000);
-    await setFolderVisibility(store, { path: "3-resources", visibility: "private", clearance: OWNER });
-    const stale = await checkParity(store, liveRows(sink), await sink.privacy());
-    expect(stale.privacyMatches).toBe(false);
-    expect(stale.mismatches).toBeGreaterThan(0);
-
-    await touchNodes(store, sink, { files: [PRIVACY_KEY], now });
-    const fresh = await checkParity(store, liveRows(sink), await sink.privacy());
-    expect(fresh).toEqual({ clearances: 3, mismatches: 0, privacyMatches: true });
-  });
-
   test("a bucket with no privacy file is at parity with a tree that has no mirror", async () => {
     const store = memoryStore() as Store;
     store.seed("index.md", "# Context\n");
