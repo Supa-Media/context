@@ -10,6 +10,7 @@
  */
 
 import { toolError, toolText } from "./results.js";
+import { readEditFields, readRsvpFields, recurrenceList, recurrenceWords, reminderList, reminderWords } from "./calendarEdit.js";
 
 export const CALENDAR_TOOL = "calendar_event";
 
@@ -20,6 +21,7 @@ export const MAX_NOTES = 2_000;
 export const MAX_GUESTS = 10;
 const EMAIL = /^[^\s@<>",;()[\]\\]+@[^\s@<>",;()[\]\\]+\.[^\s@<>",;()[\]\\]+$/;
 const MAX_SPAN_MS = 14 * 24 * 60 * 60 * 1000;
+export const ACTIONS = ["create", "edit", "move", "cancel", "rsvp"];
 
 const DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:\d{2})$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -68,26 +70,47 @@ function guestList(value) {
  */
 export function readCalendarChange(args) {
   const action = args?.action;
-  if (action !== "create" && action !== "move" && action !== "cancel") return { error: 'action is "create", "move" or "cancel".' };
+  if (!ACTIONS.includes(action)) return { error: 'action is "create", "edit", "move", "cancel" or "rsvp".' };
   const title = typeof args?.title === "string" ? args.title : "";
   if (title.trim() === "" || title.length > MAX_TITLE || CONTROL.test(title)) return { error: `title is one line of 1 to ${MAX_TITLE} characters.` };
   if (time(args?.start) === null) {
     return { error: "start is a time with its offset, like 2026-10-20T15:00:00-04:00, or a whole day, like 2026-10-20." };
   }
+  if (args.all_events !== undefined && (args.all_events !== true || action === "create")) {
+    return { error: "all_events is true, or left out, and only for an event that already repeats." };
+  }
+  if (args.response !== undefined && action !== "rsvp") return { error: "response is only for rsvp." };
+  // Set by `calendarGate.js` on a change that tells guests, held for the person's yes; never by a model to skip it.
+  if (args.notify_guests !== undefined && (args.notify_guests !== true || (action === "create" && (args.guests ?? []).length === 0))) {
+    return { error: "notify_guests is not something to pass; leave it out." };
+  }
+  const change = {
+    action,
+    title,
+    start: args.start,
+    ...(args.all_events === true ? { all_events: true } : {}),
+    ...(args.notify_guests === true ? { notify_guests: true } : {}),
+  };
+  if (action === "edit") {
+    const read = readEditFields(args, { span, optional, guestList, CONTROL, NOTES_CONTROL, MAX_TITLE, MAX_LOCATION, MAX_NOTES });
+    return read.error ? { error: read.error } : { change: { ...change, ...read.fields } };
+  }
+  if (action === "rsvp") {
+    const read = readRsvpFields(args);
+    return read.error ? { error: read.error } : { change: { ...change, ...read.fields } };
+  }
   const location = optional(args?.location, "location", MAX_LOCATION, CONTROL);
   const notes = optional(args?.notes, "notes", MAX_NOTES, NOTES_CONTROL);
   for (const part of [location, notes]) if (part.error) return { error: part.error };
-  // Set by `calendarGate.js` on a change that tells guests, held for the person's yes; never by a model to skip it.
-  const guests = guestList(args.guests);
-  if (guests.error) return { error: guests.error };
-  if (args.notify_guests !== undefined && (args.notify_guests !== true || (action === "create" && guests.value.length === 0))) {
-    return { error: "notify_guests is not something to pass; leave it out." };
-  }
-  if (args.meet !== undefined && args.meet !== true) return { error: "meet is true, or left out." };
-  const change = { action, title, start: args.start, ...(args.notify_guests === true ? { notify_guests: true } : {}) };
   if (action === "create") {
+    const guests = guestList(args.guests);
+    if (guests.error) return { error: guests.error };
+    if (args.meet !== undefined && args.meet !== true) return { error: "meet is true, or left out." };
     const wrong = span(args.start, args.end);
     if (wrong) return { error: wrong };
+    const reminders = reminderList(args.reminders);
+    const recurrence = recurrenceList(args.recurrence, { allowEmpty: false });
+    for (const part of [reminders, recurrence]) if (part.error) return { error: part.error };
     return {
       change: {
         ...change,
@@ -96,12 +119,15 @@ export function readCalendarChange(args) {
         ...(notes.value ? { notes: notes.value } : {}),
         ...(guests.value.length > 0 ? { guests: guests.value } : {}),
         ...(args.meet === true ? { meet: true } : {}),
+        ...(reminders.value !== undefined ? { reminders: reminders.value } : {}),
+        ...(recurrence.value !== undefined ? { recurrence: recurrence.value } : {}),
       },
     };
   }
-  if (location.value || notes.value || args.end !== undefined || args.guests !== undefined || args.meet !== undefined) {
-    return { error: `${action} names the event by its title and its start as they are now; it takes no end, location, notes, guests or meet.` };
-  }
+  const extra = ["end", "location", "notes", "guests", "meet", "reminders", "recurrence", "new_title", "add_guests", "remove_guests"].find(
+    (field) => args[field] !== undefined,
+  );
+  if (extra) return { error: `${action} names the event by its title and its start as they are now; it takes no ${extra}. Use edit to change anything else.` };
   if (action === "cancel") {
     return args.new_start === undefined && args.new_end === undefined ? { change } : { error: "cancel takes no new_start or new_end." };
   }
@@ -162,6 +188,8 @@ function guestWords(guests) {
   return `${guests[0]}, ${guests[1]} and ${guests.length - 2} others`;
 }
 
+const RSVP_WORDS = { accepted: "Going", declined: "Not going", tentative: "Maybe" };
+
 /** The change exactly as the person reads it before they say yes, its times in words, and who Google will tell. */
 export function calendarCopy(change, now = Date.now(), guests = []) {
   const told =
@@ -178,8 +206,29 @@ function plainCopy(change, now) {
       ...(change.location ? [`Where: ${change.location}`] : []),
       ...(change.meet ? ["With a Google Meet link"] : []),
       ...(change.guests ? [`Invite: ${change.guests.join(", ")}`] : []),
+      ...(change.reminders ? [reminderWords(change.reminders)] : []),
+      ...(change.recurrence ? [recurrenceWords(change.recurrence)] : []),
       ...(change.notes ? ["", change.notes] : []),
     ];
+  }
+  const which = `${change.title}, ${change.all_events ? "every time it repeats, from " : ""}${momentWords(change.start, now)}`;
+  if (change.action === "edit") {
+    return [
+      "Change on your Google Calendar:",
+      which,
+      ...(change.new_title ? [`New title: ${change.new_title}`] : []),
+      ...(change.new_start ? [`New time: ${spanWords(change.new_start, change.new_end, now)}`] : []),
+      ...(change.location !== undefined ? [change.location === "" ? "Take off the location" : `Where: ${change.location}`] : []),
+      ...(change.meet ? ["Add a Google Meet link"] : []),
+      ...(change.add_guests ? [`Invite: ${change.add_guests.join(", ")}`] : []),
+      ...(change.remove_guests ? [`Take off: ${change.remove_guests.join(", ")}`] : []),
+      ...(change.reminders ? [reminderWords(change.reminders)] : []),
+      ...(change.recurrence ? [recurrenceWords(change.recurrence)] : []),
+      ...(change.notes !== undefined ? (change.notes === "" ? ["Take off the description"] : ["Description:", change.notes]) : []),
+    ];
+  }
+  if (change.action === "rsvp") {
+    return [`Reply to the invite on your Google Calendar:`, which, `Answer: ${RSVP_WORDS[change.response]}`];
   }
   if (change.action === "move") {
     return [`Move on your Google Calendar:`, `${change.title}, now ${momentWords(change.start, now)}`, `To ${spanWords(change.new_start, change.new_end, now)}`];
@@ -192,6 +241,8 @@ export function calendarSummary(change) {
   const title = `"${change.title.slice(0, 120)}"`;
   if (change.action === "create") return `add ${title} to your calendar${change.guests ? ` and invite ${guestWords(change.guests)}` : ""}`;
   if (change.action === "move") return `move ${title} on your calendar`;
+  if (change.action === "edit") return `update ${title} on your calendar${change.add_guests ? ` and invite ${guestWords(change.add_guests)}` : ""}`;
+  if (change.action === "rsvp") return `answer ${RSVP_WORDS[change.response].toLowerCase()} to ${title}`;
   return `cancel ${title} on your calendar`;
 }
 
@@ -208,7 +259,15 @@ export const REFUSED = {
     "lets you add it, and make the change once they say it's done; never tell them to make it themselves.",
   hourly_limit: "Not changed: the person has made 20 calendar changes through Context this hour. Try again later.",
   daily_limit: "Not changed: the person has made 100 calendar changes through Context today. Try again tomorrow.",
-  not_found: "Not changed: no event with exactly that title starts at that time. Check the title and start against their calendar.",
+  not_found:
+    "Not changed: no event with that title starts at that time on a calendar Context can change. Fetch calendar: for that day, " +
+    "then call again with the event's exact title and start as shown there.",
+  not_organizer:
+    "Not changed: somebody else sent that invite, so Google lets only its organizer change its title, time, place or guests. " +
+    "Never tell the person to change it themselves. Right away, without asking, create their own event with the same title and time " +
+    "and the new details on it, say in one line that the invite is the host's so you added their own with the details, and offer to " +
+    "decline the original (rsvp) if they'd like only one.",
+  not_invited: "Not changed: the person isn't a guest on that event, so there is no invite to answer; it's their own event.",
   ambiguous: "Not changed: more than one event has exactly that title and start, and nothing else tells them apart here. Say so in one line.",
   has_guests: "Not changed: that event has guests now, who would be told. Call calendar_event again and the person is asked first.",
   not_configured: "Not changed: this Context deployment does not change calendars.",

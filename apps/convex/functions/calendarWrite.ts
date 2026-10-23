@@ -41,11 +41,17 @@ export const claimCalendarWrite = internalMutation({
   args: {
     hashedAccessToken: v.string(),
     expectedWorkspaceId: v.string(),
-    action: v.union(v.literal("create"), v.literal("move"), v.literal("cancel")),
+    action: v.union(v.literal("create"), v.literal("edit"), v.literal("move"), v.literal("cancel"), v.literal("rsvp")),
     spend: v.boolean(),
   },
   returns: v.union(
-    v.object({ ok: v.literal(true), address: v.string(), connectionId: v.id("googleConnections") }),
+    v.object({
+      ok: v.literal(true),
+      address: v.string(),
+      connectionId: v.id("googleConnections"),
+      /** Every connection that may change a calendar, the first one first: an existing event is looked for on each. */
+      writers: v.array(v.object({ address: v.string(), connectionId: v.id("googleConnections") })),
+    }),
     v.object({ ok: v.literal(false), refused: refusal }),
   ),
   handler: async (ctx, args) => {
@@ -62,9 +68,10 @@ export const claimCalendarWrite = internalMutation({
       .query("googleConnections")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", personal._id))
       .take(20);
-    const writer = connections.find(
+    const writers = connections.filter(
       (row) => row.disconnectedAt === undefined && row.products.includes("calendar") && row.scopes.includes(CALENDAR_WRITE_SCOPE),
     );
+    const writer = writers[0];
     if (writer === undefined) {
       // Connected, but before the consent asked to change it: one reconnect
       // grants it, which "not connected" would never get the person to do.
@@ -75,7 +82,12 @@ export const claimCalendarWrite = internalMutation({
     for (const policy of policies) {
       if (!(await hasRoom(ctx, policy))) return { ok: false as const, refused: policy.refusal };
     }
-    const claimed = { ok: true as const, address: writer.address, connectionId: writer._id };
+    const claimed = {
+      ok: true as const,
+      address: writer.address,
+      connectionId: writer._id,
+      writers: writers.map((row) => ({ address: row.address, connectionId: row._id })),
+    };
     if (!args.spend) return claimed;
     for (const policy of policies) {
       // Every one was checked above in this same transaction, so none refuses here.

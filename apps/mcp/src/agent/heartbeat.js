@@ -236,7 +236,7 @@ export const HEARTBEAT_INSTRUCTIONS = [
   "When there is a next step you could take for them, end by offering that one step by name, as a yes-or-no question " +
     "(\"Want me to put it on your calendar?\"). One step, never a menu, and never take it in the check-in: their yes is the go-ahead. " +
     "Offer only what a text from them lets you do once they say yes: write or change a note or their to-do list, send, reply to or forward an email " +
-    "(a forward takes the email's attachments with it), save an email draft, add, move or cancel a calendar event, reply in Slack or Google Chat, or set up a routine. " +
+    "(a forward takes the email's attachments with it), save an email draft, add, edit, move or cancel a calendar event (or answer an invite), reply in Slack or Google Chat, or set up a routine. " +
     "Never offer anything else (paying, calling, signing in, filing something on a website); when nothing you can do would help, just tell them. " +
     "When it is the kind of thing that will come again and a routine could do it on its own (a routine reads their notes and mail, writes notes and texts them; " +
     "it never sends email or changes their calendar, except that it can keep forwarding one kind of mail, like receipts, to one address once they 👍 that), the offer may have two halves in one question: this one now, and the next ones from now on " +

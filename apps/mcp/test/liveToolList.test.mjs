@@ -95,7 +95,10 @@ test("the full list stays compact", () => {
   // connected through its own MCP server: the list stood at 14,265 with 64.
   // Raised to 15,000 on 2026-10-22 for send_email's and save_email_draft's
   // `attach`, a file Tex downloaded: the list stood at 14,707.
-  assert.ok(liveToolListSection(toolDefinitions()).length < 15_000);
+  // Raised to 15,500 on 2026-10-23 for calendar_event's edit and rsvp
+  // (new_title, add_guests, remove_guests, reminders, recurrence, all_events,
+  // response): the list stood at 15,011 with 70 tools.
+  assert.ok(liveToolListSection(toolDefinitions()).length < 15_500);
 });
 
 /* -------------------------------------------------------------------------- */

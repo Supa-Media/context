@@ -120,7 +120,8 @@ describe("changing the person's own calendar", () => {
     const calls = calendar([]);
     const { t, aliceWs } = await connected();
     expect(await change(t, ACCESS_A, aliceWs, CANCEL)).toEqual({ ok: false, refused: "not_found" });
-    expect(calls.map((call) => call.method)).toEqual(["GET"]);
+    // Asked by title, then once more by the moment alone, which a title written differently still finds.
+    expect(calls.map((call) => call.method)).toEqual(["GET", "GET"]);
     const limits = await t.run((ctx) => ctx.db.query("rateLimits").collect());
     expect(limits.filter((row) => row.key.startsWith("calendar_write."))).toHaveLength(0);
   });

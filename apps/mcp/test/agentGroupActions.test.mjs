@@ -67,7 +67,7 @@ test("a group turn is offered email, calendar and the web, and nothing that read
   const sent = world.model.requests.at(-1);
   const send = JSON.stringify(sendTool(sent) ?? {});
   assert.match(send, /- email: Send one email as the person/, "email is offered");
-  assert.match(send, /- calendar: Add, move or cancel one event/, "calendar is offered");
+  assert.match(send, /- calendar: Add, edit, move, cancel or RSVP to one event/, "calendar is offered");
   assert.match(send, /- open_page: /, "and the web");
   const shown = JSON.stringify(sent.tools);
   for (const reads of ["search_email", "read_email", "email_search"]) assert.ok(!shown.includes(`"${reads}"`), `${reads} is not a group turn's`);
