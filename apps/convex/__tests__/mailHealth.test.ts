@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { api } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { hashToken } from "../functions/lib/crypto";
+import { GMAIL_SEND_SCOPE } from "../functions/lib/googleOAuth";
 import { TELL_AGAIN_AFTER_MS, mailboxState } from "../functions/lib/mailHealth/model";
 import {
   addMember,
@@ -53,7 +54,7 @@ const OWNER_SCOPES = ["context:read", "context:write", "context:private"];
 const HOUR = 60 * 60 * 1000;
 
 type T = ReturnType<typeof setupTest>;
-type Mailbox = { address: string; state: string; lastSyncedAt: number | null; tell: boolean };
+type Mailbox = { address: string; state: string; lastSyncedAt: number | null; tell: boolean; readOnly: boolean };
 
 afterEach(() => {
   vi.useRealTimers();
@@ -213,6 +214,19 @@ describe("who reads a person's mailboxes", () => {
       { address: "ada@example.invalid", state: "ok", tell: false },
     ]);
     expect(typeof mailboxes![1]!.lastSyncedAt).toBe("number");
+  });
+
+  test("a mailbox connected before Context asked to send is read-only, and says so", async () => {
+    const t = setupTest();
+    const { userId, workspaceId } = await person(t);
+    await mailbox(t, workspaceId, userId, "old@example.invalid", (row) => ({ scopes: row.scopes.filter((scope) => scope !== GMAIL_SEND_SCOPE) }));
+    await mailbox(t, workspaceId, userId, "new@example.invalid", (row) => ({ scopes: [...row.scopes, GMAIL_SEND_SCOPE] }));
+    const token = await grant(t, workspaceId, userId);
+    const mailboxes = await readHealth(t, token, workspaceId);
+    expect(mailboxes!.map(({ address, readOnly }) => ({ address, readOnly }))).toEqual([
+      { address: "new@example.invalid", readOnly: false },
+      { address: "old@example.invalid", readOnly: true },
+    ]);
   });
 
   test("another tenant reads nothing of theirs, and is told only of its own", async () => {

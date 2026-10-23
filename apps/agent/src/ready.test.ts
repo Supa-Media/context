@@ -36,7 +36,8 @@ function deps(opts: { ready: () => unknown; status?: () => number; linqStatus?: 
     if (path.endsWith("/messages")) {
       const status = opts.linqStatus?.() ?? 200;
       if (status < 300) {
-        opts.sent.push({ chatId: path.split("/").at(-2)!, text: body.message.parts[0].value, idempotency: body.message.idempotency_key });
+        const part = body.message.parts[0];
+        opts.sent.push({ chatId: path.split("/").at(-2)!, text: part.type === "media" ? `[picture ${part.url}]` : part.value, idempotency: body.message.idempotency_key });
       }
       return new Response("{}", { status });
     }
@@ -50,6 +51,8 @@ describe("the ready text", () => {
     expect(READY_COPY.ready).toContain("personal Gmail");
     expect(READY_COPY.ready).toContain("main email");
     expect(READY_COPY.ready).not.toContain("asks for an email");
+    expect(READY_COPY.guide).toContain("Advanced");
+    expect(READY_COPY.guide).toContain("Select all");
   });
 
   it("waits for the first look, then asks until the notes are ready, and texts the line and the link once", async () => {
@@ -76,7 +79,8 @@ describe("the ready text", () => {
     ready = true;
     now += READY_EVERY_MS;
     await checkReady(storage, d);
-    expect(sent.map((s) => s.text)).toEqual([READY_COPY.ready, LINK]);
+    // The owner, 2026-10-23: Google's warning and "Select all" said up front, with a picture of both screens.
+    expect(sent.map((s) => s.text)).toEqual([READY_COPY.ready, LINK, READY_COPY.guide, "[picture https://app.example/og/google-connect.png]"]);
     expect(sent.every((s) => s.chatId === "chat_1")).toBe(true);
     expect(await storage.get(READY_KEY)).toBeUndefined();
     // The next turn's history is owed it, by name only: no link is kept (`told.ts`).
@@ -86,7 +90,7 @@ describe("the ready text", () => {
 
     now += READY_EVERY_MS;
     await checkReady(storage, d);
-    expect(sent).toHaveLength(2);
+    expect(sent).toHaveLength(4);
   });
 
   it("never texts a link that is not an https link to a path", async () => {
@@ -147,6 +151,6 @@ describe("the ready text", () => {
     linq = 200;
     now += READY_EVERY_MS;
     await checkReady(storage, d);
-    expect(sent.map((s) => s.idempotency)).toEqual(["ready:0:0", "ready:0:1"]);
+    expect(sent.map((s) => s.idempotency)).toEqual(["ready:0:0", "ready:0:1", "ready:0:2", "ready:0:3"]);
   });
 });

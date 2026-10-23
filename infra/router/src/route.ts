@@ -55,6 +55,7 @@ import {
   isCrawler,
   OG_CARD_PATH,
   CONNECT_SLACK_CARD_PATH,
+  GOOGLE_CONNECT_GUIDE_PATH,
   consoleNoteFrom,
   previewFor,
   shareCardTokenFrom,
@@ -126,6 +127,7 @@ export type RouteDecision =
   // Tex's card, likewise from the bundle. See `texHost.ts`.
   | { kind: "tex-card" }
   | { kind: "connect-slack-card" }
+  | { kind: "google-connect-guide" }
   // The site's favicons, served from the bundle. See `icons.ts`.
   | { kind: "icon"; name: IconName }
   // The apex's robots.txt, plain text from the Worker. See `icons.ts`.
@@ -243,6 +245,10 @@ export function route(url: URL, userAgent?: string | null): RouteDecision {
   // The card a Slack connect link unfurls with (`preview/meta.ts`).
   if (pathname === CONNECT_SLACK_CARD_PATH) {
     return { kind: "connect-slack-card" };
+  }
+  // The picture Tex texts with a Google connect link (`apps/mcp/src/tools/workspaces.js`).
+  if (pathname === GOOGLE_CONNECT_GUIDE_PATH) {
+    return { kind: "google-connect-guide" };
   }
 
   // The favicons, for the same reason: Google's favicon fetcher is a crawler,

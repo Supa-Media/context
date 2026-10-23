@@ -538,6 +538,8 @@ describe("sendblue sending", () => {
     expect(sent).toEqual([
       { number: PHONE, from_number: LINE, content: READY_COPY.ready },
       { number: PHONE, from_number: LINE, content: "https://app.example/s/abc" },
+      { number: PHONE, from_number: LINE, content: READY_COPY.guide },
+      { number: PHONE, from_number: LINE, media_url: "https://app.example/og/google-connect.png" },
     ]);
   });
 });

@@ -66,6 +66,7 @@ export {
   SITE_NAME,
   OG_CARD_PATH,
   CONNECT_SLACK_CARD_PATH,
+  GOOGLE_CONNECT_GUIDE_PATH,
   GENERIC_PREVIEW,
   normalisePath,
   previewFor,

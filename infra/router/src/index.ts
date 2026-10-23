@@ -29,6 +29,7 @@ import texCard from "./og-tex-card.png";
 // The Slack connect link's card: the Slack mark and Tex, reviewed with the
 // owner with the connect flow's artboards (docs/decisions/connectors.md).
 import connectSlackCard from "./og-connect-slack.png";
+import googleConnectGuide from "./og-google-connect.png"; // Tex texts it with a Google link (og-google-connect.source.html)
 import { isTexHost, TEX_ROBOTS_TXT } from "./texHost";
 import { ingestResponse } from "./analyticsIngest";
 
@@ -214,6 +215,7 @@ async function respond(
         return staticAsset(texCard, "image/png");
       case "connect-slack-card":
         return staticAsset(connectSlackCard, "image/png");
+      case "google-connect-guide": return staticAsset(googleConnectGuide, "image/png");
 
       case "icon":
         return iconResponse(decision.name);

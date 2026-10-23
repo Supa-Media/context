@@ -306,6 +306,10 @@ test("connect_google hands back the app's page in the personal workspace, and re
   assert.doesNotMatch(home.text, /accounts\.google\.com/);
   // Gmail's page has one Connect Gmail button (2026-10-20).
   assert.match(home.text, /tap Connect Gmail/);
+  // Google's warning, then "Select all", and the picture of both screens beside the app (owner, 2026-10-23).
+  assert.match(home.text, /tap Advanced, then Go to Context \(unsafe\)/);
+  assert.match(home.text, /tick Select all and tap Continue/);
+  assert.match(home.text, /\[picture https:\/\/app\.context\.test\/og\/google-connect\.png\]/);
   // Calendar opens Connected apps, where a broken sign-in is fixed by Reconnect beside the account.
   const calendar = await manage(OWNER, "connect_google", { kind: "calendar" });
   assert.match(calendar.text, /Reconnect with Google/);

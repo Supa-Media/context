@@ -186,6 +186,19 @@ describe("a host that is not ours is still a customer's", () => {
   });
 });
 
+describe("the Google connect guide Tex texts", () => {
+  it("is served as the bundled 1080x1350 PNG", async () => {
+    const png = readFileSync(fileURLToPath(new URL("./og-google-connect.png", import.meta.url)));
+    const response = await get("https://context.lc/og/google-connect.png", BROWSER);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toBe("image/png");
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    expect(bytes).toEqual(new Uint8Array(png));
+    const view = new DataView(bytes.buffer);
+    expect([view.getUint32(16), view.getUint32(20)]).toEqual([1080, 1350]);
+  });
+});
+
 describe("a Slack connect link", () => {
   const png = readFileSync(fileURLToPath(new URL("./og-connect-slack.png", import.meta.url)));
   const IMESSAGE = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_1) AppleWebKit/601.2.4 (KHTML, like Gecko) Version/9.0.1 Safari/601.2.4 facebookexternalhit/1.1 Facebot Twitterbot/1.0";
