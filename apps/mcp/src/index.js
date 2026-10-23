@@ -58,7 +58,7 @@
 
 /*
  * Module map. This file is the Worker's entry and nothing more: the default
- * export's `fetch` and `scheduled` handlers, the presence room's
+ * export's `fetch` and `scheduled` handlers (and a drain-only `queue`), the presence room's
  * Durable Object class, and the names tests import from here. Everything else
  * lives by subject, and no module imports this file back:
  *
@@ -186,5 +186,17 @@ export default {
       }
       return json({ error: "server_error" }, 500);
     }
+  },
+
+  /*
+   * Drain-only. The byte-move queue (`context-gateway-jobs`) is retired, but
+   * Cloudflare keeps this Worker attached as its consumer until the consumer
+   * is removed by hand, and refuses to deploy a consumer with no `queue`
+   * handler. Every message left on it is a byte move that no longer applies,
+   * so each is acknowledged and dropped. Remove this once the queues and
+   * their consumers are deleted.
+   */
+  async queue(batch) {
+    for (const message of batch?.messages || []) message.ack();
   },
 };
