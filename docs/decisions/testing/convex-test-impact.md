@@ -55,15 +55,18 @@ schema file). Recording costs about 8% on the full run.
 
 A selection can miss a test: a constant read only at module load, or a
 behaviour reached through a path the map's last recording did not take. So
-the selection is not the last word. `main` runs the whole suite, and
+the selection is not the last word: `main` runs the whole suite on every
+merge. Under `AUTO_DEPLOY_PRODUCTION=after-staging`,
 `scripts/production-release.mjs` refuses a commit whose CI on `main` has not
-passed, so a missed failure stops the release rather than shipping. Before
-this, production did not check CI on `main` at all; on 2026-10-22 and 23
-three merges went red there (Convex shards) and were promoted anyway.
+passed, so a missed failure stops the release. By default (owner, 2026-10-23)
+production deploys beside staging and does not wait for that run, so a missed
+failure can ship and is caught minutes later on `main`, where the next merge
+fixes it; that is the trade the owner chose for a five-minute release.
 
 **What a simplification costs.** Dropping the coverage filter for plain
 imports puts every HTTP test back on every Tex change. Dropping the
 `RUN_EVERYTHING` list lets a schema change run nothing. Dropping the
-production check on `main`'s CI makes a missed test a production bug.
+production check on `main`'s CI removes the one setting that keeps a missed
+test out of production.
 `scripts/convex-tests.test.mjs` pins each rule, and
 `production-release.test.mjs` fails if production stops requiring CI.

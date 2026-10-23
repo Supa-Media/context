@@ -1,13 +1,14 @@
 name: Promote to Production
 
-# A green staging run from a merge starts Deploy to Production for that commit
-# (decided by the owner, 2026-10-23), once CI on main has passed on it too.
-# scripts/promote-production.mjs says what it checks; Deploy to Production
-# checks staging again itself, so this adds no way past that gate.
+# With the repository variable AUTO_DEPLOY_PRODUCTION set to `after-staging`
+# (Settings → Secrets and variables → Actions → Variables), a green staging
+# run from a merge starts Deploy to Production for that commit, once CI on
+# main has passed on it too. scripts/promote-production.mjs says what it
+# checks; Deploy to Production checks staging again itself.
 #
-# To make production manual again, set the repository variable
-# AUTO_DEPLOY_PRODUCTION to `off` (Settings → Secrets and variables → Actions
-# → Variables). Nothing else changes: Deploy to Production still runs by hand.
+# Unset (the default since 2026-10-23), production starts beside staging from
+# deploy-staging.yml and this workflow does nothing. `off` leaves production
+# to a manual run.
 on:
   workflow_run:
     workflows: ["Deploy Staging"]
@@ -20,7 +21,7 @@ permissions:
 jobs:
   promote:
     name: Start Deploy to Production
-    if: ${{ vars.AUTO_DEPLOY_PRODUCTION != 'off' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' }}
+    if: ${{ vars.AUTO_DEPLOY_PRODUCTION == 'after-staging' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
