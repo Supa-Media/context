@@ -612,7 +612,8 @@ export async function runEmailGateChecks(check) {
     readVerdict('{"verdict":"yes","reason":"ok"}').verdict === "yes" &&
       readVerdict('{"verdict":"definitely"}').verdict === "unsure" &&
       readVerdict("sure, send it").verdict === "unsure" &&
-      readVerdict('Answer: {"verdict":"no","reason":"wrong person"}').verdict === "no",
+      readVerdict('Answer: {"verdict":"no","reason":"wrong person"}').verdict === "no" &&
+      readVerdict('{"verdict":"unasked","reason":"Tex brought it up"}').verdict === "unasked",
   );
   /*
     In a group chat "PERSON" is not one person. `keepGroupExchange` stores what

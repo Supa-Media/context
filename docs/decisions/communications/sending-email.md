@@ -20,11 +20,22 @@ what happens to the draft (`apps/mcp/src/tools/emailGate.js`):
    model (`apps/mcp/src/agent/mailChecker.js`, Haiku) shown exactly two
    things: the person's recent texts with what Tex texted back, and the draft.
    It never sees the email being answered, a note, a page or a tool result, so
-   nothing a stranger wrote reaches it. "No" (a recipient, words or timing the
-   person did not ask for) refuses before the person is bothered; "unsure",
-   or a checker that cannot run, still puts the email to the person, and the
+   nothing a stranger wrote reaches it. "No" (a recipient, words or timing
+   that goes against what the person said, or a "wait" or "just draft it")
+   refuses before the person is bothered; "unasked" (Tex proposing an email
+   nothing in the texts asks for, and nothing contradicts), "unsure", or a
+   checker that cannot run, still puts the email to the person, and the
    checker's reason is never texted (2026-10-19: beside the copy it read as
-   part of the email, and it was wrong).
+   part of the email, and it was wrong). "Unasked" exists because a proposal
+   refused as "no" was asked about in Tex's own words with nothing held, and
+   the owner gave three 👍s before one forward went (2026-10-23: "tex asked
+   for like 4 confirmations again"). A tapback reaches the checker with the
+   words it was on, since "👍" alone asks for nothing. After a "no", Tex asks
+   in one short text, and their yes or 👍 on it sends a forward that text
+   offered to every recipient once the checker, reading that 👍, says yes; any
+   other email still needs its whole text in the words they agreed to
+   (`apps/mcp/src/tools/likedPreview.js`). Reversing either fails
+   `apps/mcp/test/emailGate.test.mjs` ("the owner, 2026-10-23").
 4. **The call is held as a pending approval carrying the whole email.** The
    copy is texted exactly as written, outside the reply's formatting (which
    drops links and lines) and in a text of its own, as every ask now is

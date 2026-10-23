@@ -15,8 +15,9 @@
  *      tab's switches, `@context-lc ai/agents/mail-checker.md`); with no note,
  *      Tex only. A routine or a dream has no person on the line and never may.
  *   3. On a texted turn the Mail checker (`agent/mailChecker.js`) reads the
- *      person's own texts and the draft, and refuses an email they did not ask
- *      for, or one whose recipient, words or timing differ from what they said.
+ *      person's own texts and the draft, and refuses an email whose
+ *      recipient, words or timing differ from what they said. One Tex only
+ *      proposes is put to them like any other.
  *   4. The call is held as a pending approval whose record carries the whole
  *      email, which the person reads before their YES. A texted YES within
  *      twelve hours releases it; any other text disarms it, so a changed
@@ -33,7 +34,7 @@ import { readHelperCallers } from "../agent/production.js";
 import { parseEmailId } from "./emailRead.js";
 import { standingForward } from "./forwardRule.js";
 import { attachedFiles } from "./emailAttach.js";
-import { agreedWordsHold } from "./likedPreview.js";
+import { agreedToForward, agreedWordsHold } from "./likedPreview.js";
 import { recordChange } from "../activity/record.js";
 
 export { EMAIL_TOOL };
@@ -162,15 +163,30 @@ export async function emailGate(supplied, { store, session, target }) {
   let checked = null;
   if (texting) {
     checked = checking !== null ? await checking : typeof session.mailChecker === "function" ? await session.mailChecker(email) : null;
+    /*
+      A "no" is an email that goes against what they said. Its old answer here
+      ("Show them the draft and ask whether they want it sent") had Tex ask in
+      its own words with nothing held, and the owner gave three 👍s before one
+      forward went (2026-10-23). An email Tex merely proposes is "unasked"
+      now, and held like any other. For a "no", their yes or 👍 to Tex's one
+      short question releases a forward (`agreedToForward`) or an email whose
+      whole text it showed (`agreedWordsHold`), and the claim check lets that
+      question go (`checkerRefused`, `agent/claimCheck.js`).
+    */
     if (checked?.verdict === "no") {
-      return toolError(
-        `Not sent, and not put to the person: the Mail checker read their texts and says ${checked.reason || "they did not ask for this email"}. ` +
-          "Show them the draft and ask whether they want it sent.",
-      );
+      return {
+        ...toolError(
+          `Not sent, and not put to the person: the Mail checker read their texts and says ${checked.reason || "it goes against what they said"}. ` +
+            "Fix the email to match what they said and call send_email again. If it already does, ask them in one short text whether to send it, " +
+            "naming who it goes to and, for a forward, which email; for any other email, show its whole text. Their 👍 or yes to that text sends it. " +
+            "Don't tell them a mail check held it.",
+        ),
+        checkerRefused: true,
+      };
     }
   }
 
-  // An unsure or unchecked email is still put to the person, as the email
+  // An unasked, unsure or unchecked email is still put to the person, as the email
   // alone: the checker's reason is a model's guess, and texted beside the
   // copy it read as part of the email (2026-10-19).
   const detail = emailCopy({ ...email, from: email.from ?? room.from }, forwarded, attached);
@@ -182,8 +198,12 @@ export async function emailGate(supplied, { store, session, target }) {
     );
   }
   // Their yes or 👍 to Tex's own preview of this email: every address and the whole body in the words they agreed to (`likedPreview.js`).
-  // Never for a forward or attachments, whose contents the preview can't have shown.
-  if (texting && !email.forward && attached.length === 0 && agreedWordsHold(session, [...email.to, ...email.cc, email.body])) {
+  // A forward's offer names who it goes to, and the Mail checker, reading their 👍 or yes on it, says they asked for it (`agreedToForward`).
+  // Never for attached files, whose contents no offer can have shown.
+  const recipients = [...email.to, ...email.cc];
+  const agreed =
+    texting && attached.length === 0 && (email.forward ? checked?.verdict === "yes" && agreedToForward(session, recipients) : agreedWordsHold(session, [...recipients, email.body]));
+  if (agreed) {
     await recordChange(store, "approve_action", session.scope, [], { tool: EMAIL_TOOL, by: "yes_to_offer", client_id: session.actorClientId ?? null, team_visible: false }).catch(() => {});
     console.log(JSON.stringify({ event: "yes_to_offer", tool: EMAIL_TOOL, released: true }));
     return null;
