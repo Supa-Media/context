@@ -5,8 +5,7 @@
  * that store's calls to the control plane arrives here.
  *
  * Both proofs, as `/gateway/binding`: the gateway secret (the factory) and the
- * person's access token, or, for a queued move, its job ticket while the job
- * holds its lease. The workspace is the grant's (or the job's), compared with the one
+ * person's access token. The workspace is the grant's, compared with the one
  * the gateway names and used only after it matches, so no request can change
  * the rules of a workspace its token does not reach. The rules themselves are
  * checked for shape and size; which rules a person may write is the privacy
@@ -59,10 +58,9 @@ function rulesOf(body: Record<string, unknown>): { folders: FolderRule[]; notes:
 export async function gatewayPrivacyHandler(ctx: ActionCtx, body: Record<string, unknown>): Promise<Response> {
   const refused = () => json({ ok: false });
   const accessToken = stringField(body, "accessToken");
-  const ticket = stringField(body, "ticket");
   const expected = stringField(body, "expectedWorkspaceId");
   const op = stringField(body, "op");
-  if ((accessToken === null) === (ticket === null) || expected === null || op === null) return refused();
+  if (accessToken === null || expected === null || op === null) return refused();
   // The id the gateway named is compared, never looked up: it must be the one the proof reaches.
   let reached: string | undefined;
   let actor: { userId: Id<"users">; role: "owner" | "editor" } | undefined;
@@ -79,12 +77,6 @@ export async function gatewayPrivacyHandler(ctx: ActionCtx, body: Record<string,
       (session?.scopes ?? []).includes(SCOPE_WRITE);
     reached = writes ? entry.workspaceId : undefined;
     if (writes && session) actor = { userId: session.actorUserId, role: entry.role as "owner" | "editor" };
-  } else {
-    // A queued move holds a ticket, not a person's token: it counts while its lease does.
-    const leased = await ctx.runQuery(internal.functions.nodesPrivacy.jobWorkspace, {
-      hashedTicket: await hashToken(ticket as string),
-    });
-    reached = leased === expected ? leased : undefined;
   }
   if (reached === undefined) return refused();
   const workspaceId = reached as Id<"workspaces">;

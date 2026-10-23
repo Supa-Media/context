@@ -178,13 +178,11 @@ describe("what a built-in folder may do", () => {
 
   test("a main folder can be renamed or moved where notes are kept by id, never removed", async () => {
     expect(await guarded("1-projects", "move", true)).toBe("allowed");
-    expect(await guarded("1-projects", "move", false)).toMatch(/can't be renamed or moved here yet/);
     expect(await guarded("1-projects", "remove", true)).toMatch(/can't be archived or deleted/);
   });
 
   test("the website folder moves where notes are kept by id, and stays put elsewhere; own folders are free", async () => {
     expect(await guarded("website", "move", true)).toBe("allowed");
-    expect(await guarded("website", "move", false)).toMatch(/Website keeps its name and place here/);
     expect(await guarded("website", "remove", true)).toBe("allowed");
     expect(await guarded("recipes", "move", false)).toBe("allowed");
     expect(await guarded("recipes", "remove", false)).toBe("allowed");

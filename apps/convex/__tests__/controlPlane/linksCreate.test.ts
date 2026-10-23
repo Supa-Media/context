@@ -61,10 +61,12 @@ async function fixture() {
   const backend = memoryS3(FAKE_STORAGE.bucket);
   backend.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
   backend.seed("index.md", "# Context\n");
-  backend.seed(TEAM_NOTE, "# Intake\n");
-  backend.seed(PRIVATE_NOTE, "# New client\n");
   vi.stubGlobal("fetch", backend.fetchImpl);
   await bindFakeStorage(t, owner, workspaceId);
+  // A first binding starts keyed, so the notes are written through the product, at their ids.
+  for (const [path, text] of [[TEAM_NOTE, "# Intake\n"], [PRIVATE_NOTE, "# New client\n"]]) {
+    await asUser(t, owner).action(api.functions.files.writeNote, { workspaceId, path, text });
+  }
   await asUser(t, owner).action(api.functions.files.setDirectoryVisibility, {
     workspaceId,
     path: "1-projects",

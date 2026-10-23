@@ -157,21 +157,6 @@ test("a database that fails reads the notes, and the answer keeps its snippets",
   }
 });
 
-test("a note moving somewhere the caller cannot see is never asked for", async () => {
-  const notes = { "team/plan.md": "# Plan\n\nthe secret plan\n" };
-  const { store, reads, d1, finish } = world(notes);
-  store.pendingMoves = [{ from: "team", to: "private" }];
-  const isVisible = (path) => !path.startsWith("private/");
-  try {
-    const result = await meaningOnly(store, [match("team/plan.md", 0.9)], { isVisible });
-    assert.deepEqual(result.hits, []);
-    assert.deepEqual(reads, []);
-    assert.ok(d1.requests.every((request) => !JSON.stringify(request.params ?? []).includes("team/plan.md")));
-  } finally {
-    finish();
-  }
-});
-
 test("a rows-mode workspace never asks the bucket for privacy.md, and its rules still decide", async () => {
   const gets = [];
   const bucket = {

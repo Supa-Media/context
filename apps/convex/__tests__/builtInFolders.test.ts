@@ -16,14 +16,28 @@ import {
   DELETE_CONFIRMATION,
   FileOpError,
   type FileStore,
-  movePath,
   trashPath,
 } from "../functions/lib/fileOps";
+import { assertNotProtectedFolder } from "../functions/lib/fileOps/nameTwins";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { renderPrivacyManifest } from "../functions/lib/scaffold";
 
 const NOW = 1_800_000_000_000;
 const OWNER = clearanceOf("private");
+
+/**
+ * What the guard decides, on any store. Trash, archive and delete of a main
+ * folder are refused by it before any store operation runs, so a plain store
+ * answers the rule itself. (A keyed workspace refuses permanent delete for
+ * every path, and moves a main folder as its row; `folderJobs.test.ts` covers
+ * that side.)
+ */
+async function protectedOutcome(store: FileStore, path: string, intent: "move" | "remove"): Promise<string> {
+  return await assertNotProtectedFolder(store, path, OWNER, intent).then(
+    () => "allowed",
+    (error: Error) => error.message,
+  );
+}
 
 function bucket(): MemoryStore & FileStore {
   const store = memoryStore({}) as MemoryStore & FileStore;
@@ -46,39 +60,34 @@ async function refusal(fn: () => Promise<unknown>): Promise<FileOpError> {
 }
 
 describe("built-in folders stay where they are", () => {
-  test.each(["0-inbox", "1-projects", "2-areas", "3-resources", "4-archive"])("%s cannot be renamed or moved", async (folder) => {
-    const store = bucket();
-    const error = await refusal(() => movePath(store, { from: folder, to: "elsewhere", clearance: OWNER, now: NOW }));
-    expect(error.message).toMatch(/is a built-in folder/);
-    expect(store.objects.has(`${folder}/README.md`)).toBe(true);
-  });
-
   test("cannot be trashed, archived or deleted", async () => {
     const store = bucket();
     for (const op of [
       () => trashPath(store, { path: "1-projects", clearance: OWNER, now: NOW }),
       () => archivePath(store, { path: "2-areas", clearance: OWNER, now: NOW }),
-      () => deletePath(store, { path: "0-inbox", confirmation: DELETE_CONFIRMATION, clearance: OWNER }),
     ]) {
       expect((await refusal(op)).message).toMatch(/is a built-in folder/);
     }
+    // A keyed workspace refuses permanent delete of any path before the guard is asked, so a main folder is never removed that way either.
+    const gone = await refusal(() => deletePath(store, { path: "0-inbox", confirmation: DELETE_CONFIRMATION, clearance: OWNER }));
+    expect(gone.message).toMatch(/Permanent delete is not available/);
     expect(store.objects.has("1-projects/README.md") && store.objects.has("2-areas/README.md") && store.objects.has("0-inbox/README.md")).toBe(true);
+  });
+
+  test("the guard refuses remove for each of the five, and lets nothing else be removed by its name", async () => {
+    const store = bucket();
+    for (const folder of ["0-inbox", "1-projects", "2-areas", "3-resources", "4-archive"]) {
+      expect(await protectedOutcome(store, folder, "remove")).toMatch(/is a built-in folder/);
+    }
+    expect(await protectedOutcome(store, "4-clients", "remove")).toBe("allowed");
+    expect(await protectedOutcome(store, "recipes", "remove")).toBe("allowed");
   });
 
   test("a role nobody plays yet is refused by name, whether or not that folder exists", async () => {
     const store = bucket();
     store.objects.delete("4-archive/README.md");
-    const error = await refusal(() => movePath(store, { from: "9-archive", to: "elsewhere", clearance: OWNER, now: NOW }));
+    const error = await refusal(() => trashPath(store, { path: "9-archive", clearance: OWNER, now: NOW }));
     expect(error.message).toMatch(/Archive is a built-in folder/);
-  });
-
-  test("what is inside them, extras and own folders still move", async () => {
-    const store = bucket();
-    await movePath(store, { from: "1-projects/launch", to: "1-projects/spring-launch", clearance: OWNER, now: NOW });
-    expect(store.objects.has("1-projects/spring-launch/plan.md")).toBe(true);
-    await movePath(store, { from: "4-clients", to: "customers", clearance: OWNER, now: NOW });
-    await movePath(store, { from: "recipes", to: "cooking", clearance: OWNER, now: NOW });
-    expect(store.objects.has("customers/README.md") && store.objects.has("cooking/README.md")).toBe(true);
   });
 });
 
@@ -97,25 +106,20 @@ describe("a duplicate of a built-in folder is an ordinary folder", () => {
     return store;
   }
 
-  test("the duplicate can be trashed, deleted and merged away; the real one cannot", async () => {
+  test("the duplicate passes the guard for removal; the real one is refused", async () => {
     const store = twinned();
-    await trashPath(store, { path: "projects", clearance: OWNER, now: NOW });
-    expect(store.objects.has("projects/about.md")).toBe(false);
-    expect((await refusal(() => trashPath(store, { path: "Projects", clearance: OWNER, now: NOW }))).message).toMatch(
-      /is a built-in folder/,
-    );
-    // Deleted outright works too, for the other duplicate in this bucket.
-    await deletePath(store, { path: "Archive", confirmation: DELETE_CONFIRMATION, clearance: OWNER });
-    expect(store.objects.has("Archive/about.md")).toBe(false);
+    expect(await protectedOutcome(store, "projects", "remove")).toBe("allowed");
+    expect(await protectedOutcome(store, "Archive", "remove")).toBe("allowed");
+    expect(await protectedOutcome(store, "Projects", "remove")).toMatch(/is a built-in folder/);
+    const error = await refusal(() => trashPath(store, { path: "Projects", clearance: OWNER, now: NOW }));
+    expect(error.message).toMatch(/is a built-in folder/);
+    expect(store.objects.has("Projects/launch.md")).toBe(true);
   });
 
   test("a numbered pair keeps the first protected and frees the second", async () => {
     const store = twinned();
     // `4-archive` sorts before `Archive`, so it is the archive; `Archive` moves like any folder.
-    await movePath(store, { from: "Archive", to: "4-archive/old", clearance: OWNER, now: NOW });
-    expect(store.objects.has("4-archive/old/about.md")).toBe(true);
-    expect((await refusal(() => movePath(store, { from: "4-archive", to: "x", clearance: OWNER, now: NOW }))).message).toMatch(
-      /Archive is a built-in folder/,
-    );
+    expect(await protectedOutcome(store, "4-archive", "remove")).toMatch(/Archive is a built-in folder/);
+    expect(await protectedOutcome(store, "Archive", "move")).toBe("allowed");
   });
 });

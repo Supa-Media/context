@@ -43,6 +43,7 @@ import {
   addMember,
   asUser,
   captureError,
+  copyTree,
   createUser,
   createWorkspace,
   errorCode,
@@ -170,6 +171,9 @@ async function fixture(options: { premium?: boolean; choice?: string } = {}): Pr
       updatedAt: now,
     }),
   );
+  // The notes were seeded straight into the bucket, so the workspace is keyed from them: every
+  // note gets its id key and a tree row, which is where a read finds its name and its clearance.
+  await copyTree(t, workspaceId);
   return { t, owner, editor, member, workspaceId, sent };
 }
 

@@ -14,8 +14,7 @@
  *    for notes the reader may see, and a note never read is absent;
  *  - the forwarding ledger (`ask: "forwarding"`, held in Convex since
  *    2026-10-14) names no path the reader may not see: an entry from such a
- *    path is absent, and one to such a path says only `to: null`; a queued
- *    move's ticket reads the whole ledger only while its job holds the lease.
+ *    path is absent, and one to such a path says only `to: null`.
  *
  * Sabotage (temporary local edits, reverted):
  *  - dropping the `visible` filter on candidates: the member case fails;
@@ -27,8 +26,6 @@
  *  - judging a folder entry by `canSee` rather than the folder rule: the
  *    same case fails (the rename of a private folder the team reaches
  *    through a shared note goes missing, as the tree would still show it).
- *  - a ticket answered for any workspace it names, not only its job's: the
- *    refusal case fails (`ticket` with another workspace answers).
  */
 
 import { describe, expect, test } from "vitest";
@@ -130,31 +127,6 @@ async function fixture(options: { mismatches?: number } = {}) {
   return { t, ...ids };
 }
 
-const TICKET = token("facts_move_ticket");
-
-/** A queued move holding its lease, as `/gateway/jobs/open` leaves it. */
-async function leasedJob(t: T, workspaceId: Id<"workspaces">) {
-  return await t.run(async (ctx) => {
-    const now = Date.now();
-    const member = await ctx.db.query("workspaceMembers").filter((q) => q.eq(q.field("workspaceId"), workspaceId)).first();
-    const grant = await ctx.db.query("oauthGrants").first();
-    return await ctx.db.insert("gatewayJobs", {
-      hashedTicket: await hashToken(TICKET),
-      workspaceId,
-      actorUserId: member!.userId,
-      actorClientId: CLIENT,
-      grantId: grant!._id,
-      kind: "materialize_move",
-      status: "running",
-      attempts: 1,
-      createdAt: now,
-      updatedAt: now,
-      expiresAt: now + 60_000,
-      leasedAt: now,
-    });
-  });
-}
-
 async function withFacts(t: T, workspaceId: Id<"workspaces">) {
   await t.run(async (ctx) => {
     await ctx.db.insert("nodeFactState", { workspaceId, ready: true, seq: Number.MAX_SAFE_INTEGER });
@@ -246,12 +218,7 @@ describe("POST /gateway/tree/facts", () => {
       { accessToken: CAPTURE, expectedWorkspaceId: ws, ask: "forwarding" },
       { accessToken: OTHER, expectedWorkspaceId: ws, ask: "forwarding" },
       { accessToken: OWNER, expectedWorkspaceId: other, ask: "forwarding" },
-      { ticket: token("facts_no_job"), expectedWorkspaceId: ws, ask: "forwarding" },
-      { ticket: TICKET, expectedWorkspaceId: ws, ...LINKS },
-      { ticket: TICKET, expectedWorkspaceId: other, ask: "forwarding" },
-      { ticket: TICKET, accessToken: OWNER, expectedWorkspaceId: ws, ask: "forwarding" },
     ];
-    await leasedJob(t, ws);
     for (const body of refusals) {
       const response = await gatewayPost(t, "/gateway/tree/facts", body);
       expect(await responseFingerprint(response), JSON.stringify(body).slice(0, 60)).toBe(notServed);
@@ -339,17 +306,6 @@ describe("POST /gateway/tree/facts", () => {
       ]);
       for (const unseen of ["secret", "old-mine"]) expect(text).not.toContain(unseen);
     }
-  });
-
-  test("a queued move's ticket reads the whole ledger while its job holds the lease, and nothing else", async () => {
-    const { t, ws } = await fixture();
-    const moves = [{ from: "1-projects/was.md", to: "1-projects/secret/codes.md", kind: "note" as const }];
-    await t.mutation(internal.functions.smallData.recordForwarding, { workspaceId: ws, moves, now: 1_000 });
-    const job = await leasedJob(t, ws);
-    const asJob = await facts(t, { ticket: TICKET, expectedWorkspaceId: ws, ask: "forwarding" });
-    expect(asJob.forwarding.map(({ from, to }: Record<string, string>) => [from, to])).toEqual([["1-projects/was.md", "1-projects/secret/codes.md"]]);
-    await t.run(async (ctx) => ctx.db.patch(job, { status: "complete" }));
-    expect(await facts(t, { ticket: TICKET, expectedWorkspaceId: ws, ask: "forwarding" })).toEqual({ served: false });
   });
 
   test("another workspace's ledger never answers", async () => {

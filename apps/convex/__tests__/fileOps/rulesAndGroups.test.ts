@@ -20,13 +20,8 @@ import {
   type MemoryStore,
   memoryStore,
 } from "../storeStub.helpers";
-import {
-  NOW,
-  bucket,
-  shareProjects,
-  capture,
-  names,
-} from "./fixtures.helpers";
+import { NOW, bucket, capture, names, shareProjects } from "./fixtures.helpers";
+import { keyedBucket } from "../keyedFixture.fileops2.helpers";
 
 /**
  * Renaming a folder must not publish what the arriving one held back.
@@ -57,85 +52,89 @@ describe("a folder rename keeps the narrower of two colliding rules", () => {
   }
 
   test("a group rule arriving over a team one survives the move", async () => {
-    const store = bucket();
-    store.seed(
-      PRIVACY_KEY,
-      manifestWith([
-        "1-projects/dst: private",
-        "1-projects/dst/hr: team",
-        "1-projects/src: private",
-        "1-projects/src/hr: @supa-leads",
-      ]),
-    );
-    store.seed("1-projects/src/hr/comp.md", "# Comp\n");
+    const k = await keyedBucket(async (store) => {
+      store.seed(
+        PRIVACY_KEY,
+        manifestWith([
+          "1-projects/dst: private",
+          "1-projects/dst/hr: team",
+          "1-projects/src: private",
+          "1-projects/src/hr: @supa-leads",
+        ]),
+      );
+      store.seed("1-projects/src/hr/comp.md", "# Comp\n");
+    });
 
-    await movePath(store, {
+    await movePath(k.store, {
       from: "1-projects/src",
       to: "1-projects/dst",
       clearance: clearanceOf("private"),
       now: NOW,
     });
 
-    const manifest = store.snapshot()[PRIVACY_KEY];
+    const manifest = k.raw.snapshot()[PRIVACY_KEY];
     expect(manifest).toContain("1-projects/dst/hr: @supa-leads");
     expect(manifest).not.toContain("1-projects/dst/hr: team");
 
     // The consequence, stated as the thing that actually matters: a team
     // connection still cannot read what moved.
     const leak = await capture(() =>
-      readFile(store, { path: "1-projects/dst/hr/comp.md", clearance: clearanceOf("team") }),
+      readFile(k.store, { path: "1-projects/dst/hr/comp.md", clearance: clearanceOf("team") }),
     );
     expect(leak.code).toBe("FILE_NOT_FOUND");
   });
 
   test("two different groups colliding resolve to private, not to whichever came first", async () => {
-    const store = bucket();
-    store.seed(
-      PRIVACY_KEY,
-      manifestWith([
-        "1-projects/dst: private",
-        "1-projects/dst/hr: @supa-owners",
-        "1-projects/src: private",
-        "1-projects/src/hr: @supa-leads",
-      ]),
-    );
-    store.seed("1-projects/src/hr/comp.md", "# Comp\n");
+    const k = await keyedBucket(async (store) => {
+      store.seed(
+        PRIVACY_KEY,
+        manifestWith([
+          "1-projects/dst: private",
+          "1-projects/dst/hr: @supa-owners",
+          "1-projects/src: private",
+          "1-projects/src/hr: @supa-leads",
+        ]),
+      );
+      store.seed("1-projects/src/hr/comp.md", "# Comp\n");
+    });
 
-    await movePath(store, {
+    await movePath(k.store, {
       from: "1-projects/src",
       to: "1-projects/dst",
       clearance: clearanceOf("private"),
       now: NOW,
     });
 
-    const manifest = store.snapshot()[PRIVACY_KEY];
+    const manifest = k.raw.snapshot()[PRIVACY_KEY];
     expect(manifest).toContain("1-projects/dst/hr: private");
     expect(manifest).not.toContain("@supa-owners");
     expect(manifest).not.toContain("@supa-leads");
   });
 
   test("the two tiers still collide exactly as they did", async () => {
-    const store = bucket();
-    store.seed(
-      PRIVACY_KEY,
-      manifestWith([
-        "1-projects/dst: private",
-        "1-projects/dst/hr: team",
-        "1-projects/src: private",
-        "1-projects/src/hr: private",
-      ]),
-    );
-    store.seed("1-projects/src/hr/comp.md", "# Comp\n");
+    const k = await keyedBucket(async (store) => {
+      store.seed(
+        PRIVACY_KEY,
+        manifestWith([
+          "1-projects/dst: private",
+          "1-projects/dst/hr: team",
+          "1-projects/src: private",
+          "1-projects/src/hr: private",
+        ]),
+      );
+      store.seed("1-projects/src/hr/comp.md", "# Comp\n");
+    });
 
-    await movePath(store, {
+    await movePath(k.store, {
       from: "1-projects/src",
       to: "1-projects/dst",
       clearance: clearanceOf("private"),
       now: NOW,
     });
 
-    expect(store.snapshot()[PRIVACY_KEY]).toContain("1-projects/dst/hr: private");
+    expect(k.raw.snapshot()[PRIVACY_KEY]).toContain("1-projects/dst/hr: private");
   });
+
 });
 
 /**

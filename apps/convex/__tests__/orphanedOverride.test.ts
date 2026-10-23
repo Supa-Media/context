@@ -43,7 +43,6 @@
 
 import { describe, expect, test } from "vitest";
 import { clearanceOf } from "../functions/lib/clearance";
-import { memoryStore, type MemoryStore } from "./storeStub.helpers";
 import {
   type FileStore,
   restoreTrashedPath,
@@ -53,13 +52,10 @@ import {
   writeFile,
 } from "../functions/lib/fileOps";
 import { PRIVACY_KEY, canSee, parsePrivacyManifest } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
+import { type KeyedBucket, keyedBucket, liveAt, textAt } from "./fileOps/keyedFixture.fileops1.helpers";
 
-function bucket(): MemoryStore & FileStore {
-  const store = memoryStore() as MemoryStore & FileStore;
-  store.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
-  store.seed("2-areas/review.md", "# Review\n\nthe owner's own note\n");
-  return store;
+async function bucket(): Promise<KeyedBucket> {
+  return await keyedBucket({ "2-areas/review.md": "# Review\n\nthe owner's own note\n" });
 }
 
 async function privacy(store: FileStore) {
@@ -68,104 +64,105 @@ async function privacy(store: FileStore) {
 }
 
 /** Publish one note out of the private `2-areas`, then trash it. */
-async function orphanAnOverride(store: FileStore): Promise<void> {
-  await setVisibility(store, {
+async function orphanAnOverride(f: KeyedBucket): Promise<void> {
+  await setVisibility(f.store, {
     path: "2-areas/review.md",
     visibility: "team",
     clearance: clearanceOf("private"),
   });
-  await trashPath(store, {
+  await trashPath(f.store, {
     path: "2-areas/review.md",
     clearance: clearanceOf("private"),
     now: Date.UTC(2026, 8, 18),
   });
-  const state = await privacy(store);
+  const state = await privacy(f.store);
   // The premise, asserted rather than assumed: the exception really is still
   // there with nothing at that path. If trash ever starts clearing it, this
   // whole suite is about a window that no longer exists and should say so.
   expect(state.overrides.get("2-areas/review.md")).toBe("team");
-  expect(await store.get("2-areas/review.md")).toBeNull();
+  expect(await liveAt(f, "2-areas/review.md")).toBe(false);
 }
 
 describe("an exception that outlived its note", () => {
   test("a team caller cannot create a note at it inside a private folder", async () => {
-    const store = bucket();
-    await orphanAnOverride(store);
+    const f = await bucket();
+    await orphanAnOverride(f);
 
+    // Refused as a note the team caller cannot see, not as a write it may not make in that folder.
     await expect(
-      writeFile(store, {
+      writeFile(f.store, {
         path: "2-areas/review.md",
         text: "# Review\n\nwritten by a team member into the owner's private folder\n",
         clearance: clearanceOf("team"),
         now: Date.UTC(2026, 8, 18),
       }),
-    ).rejects.toThrow();
-    expect(await store.get("2-areas/review.md")).toBeNull();
+    ).rejects.toMatchObject({ code: "FILE_NOT_FOUND" });
+    expect(await liveAt(f, "2-areas/review.md")).toBe(false);
   });
 
   test("the ordinary team create still works in a genuinely team folder", async () => {
-    const store = bucket();
-    await setFolderVisibility(store, {
+    const f = await bucket();
+    await setFolderVisibility(f.store, {
       path: "1-projects",
       visibility: "team",
       clearance: clearanceOf("private"),
     });
-    await writeFile(store, {
+    await writeFile(f.store, {
       path: "1-projects/new.md",
       text: "# New\n",
       clearance: clearanceOf("team"),
       now: Date.UTC(2026, 8, 18),
     });
-    expect(await store.get("1-projects/new.md")).not.toBeNull();
+    expect(await textAt(f, "1-projects/new.md")).toBe("# New\n");
   });
 
   test("a group-named caller still reaches a folder named to their group", async () => {
-    const store = bucket();
-    await setFolderVisibility(store, {
+    const f = await bucket();
+    await setFolderVisibility(f.store, {
       path: "1-projects",
       visibility: "@circle" as never,
       clearance: clearanceOf("private"),
     });
     const inCircle = { ...clearanceOf("team"), names: new Set(["@circle"]) };
-    await writeFile(store, {
+    await writeFile(f.store, {
       path: "1-projects/new.md",
       text: "# New\n",
       clearance: inCircle as never,
       now: Date.UTC(2026, 8, 18),
     });
-    expect(await store.get("1-projects/new.md")).not.toBeNull();
+    expect(await textAt(f, "1-projects/new.md")).toBe("# New\n");
   });
 
   test("the owner is unaffected", async () => {
-    const store = bucket();
-    await orphanAnOverride(store);
-    await writeFile(store, {
+    const f = await bucket();
+    await orphanAnOverride(f);
+    await writeFile(f.store, {
       path: "2-areas/review.md",
       text: "# Review\n\nthe owner's replacement\n",
       clearance: clearanceOf("private"),
       now: Date.UTC(2026, 8, 18),
     });
-    expect(await store.get("2-areas/review.md")).not.toBeNull();
+    expect(await textAt(f, "2-areas/review.md")).toBe("# Review\n\nthe owner's replacement\n");
   });
 
   test("trash and restore still returns a note at the visibility it had", async () => {
-    const store = bucket();
-    await setVisibility(store, {
+    const f = await bucket();
+    await setVisibility(f.store, {
       path: "2-areas/review.md",
       visibility: "team",
       clearance: clearanceOf("private"),
     });
-    const trashed = await trashPath(store, {
+    const trashed = await trashPath(f.store, {
       path: "2-areas/review.md",
       clearance: clearanceOf("private"),
       now: Date.UTC(2026, 8, 18),
     });
-    await restoreTrashedPath(store, {
+    await restoreTrashedPath(f.store, {
       from: trashed.to,
       to: "2-areas/review.md",
       clearance: clearanceOf("private"),
     });
-    const state = await privacy(store);
+    const state = await privacy(f.store);
     expect(canSee("2-areas/review.md", "team", state.rules, state.overrides)).toBe(true);
   });
 });

@@ -18,7 +18,8 @@
 
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { api, internal } from "../../_generated/api";
-import { asUser, createUser, createWorkspace, errorCode, setupTest } from "../fixtures.helpers";
+import { asUser, createUser, createWorkspace, errorCode, setupTest, type TestConvex } from "../fixtures.helpers";
+import type { Id } from "../../_generated/dataModel";
 import { encryptSecret, requireKeyset } from "../../functions/lib/crypto";
 import { RECENT_IMPORT_MAX_ATTEMPTS } from "../../functions/lib/googleConnect/recentImport";
 import { gmailBindingArgs } from "../googleConnect/fixtures.helpers";
@@ -26,6 +27,7 @@ import {
   enableMailSync,
   endToEnd,
   googleAndBucket,
+  notePathsUnder,
   patchConnection,
   readConnection,
   runPass,
@@ -46,8 +48,9 @@ const MAILBOX = ["2026-10-16", "2026-10-15", "2026-10-14"].flatMap((date, dayInd
   })),
 );
 
-function dayNotes(snapshot: Record<string, string>) {
-  return Object.keys(snapshot).filter((key) => /\/\d{4}-\d{2}-\d{2}\.md$/.test(key)).sort();
+/** The day notes the workspace holds, named through its rows (a keyed workspace keeps bytes at their ids). */
+async function dayNotes(t: TestConvex, workspaceId: Id<"workspaces">) {
+  return (await notePathsUnder(t, workspaceId, "")).filter((path) => /\/\d{4}-\d{2}-\d{2}\.md$/.test(path));
 }
 
 describe("who is owed an import", () => {
@@ -151,8 +154,7 @@ describe("the import, end to end", { timeout: 30_000 }, () => {
     expect(google.calls).not.toContain("/gmail/v1/users/me/history");
     expect(google.calls).not.toContain("/gmail/v1/users/me/profile");
 
-    const written = backend.snapshot();
-    expect(dayNotes(written)).toHaveLength(3);
+    expect(await dayNotes(t, workspaceId)).toHaveLength(3);
     const row = await readConnection(t, connectionId);
     expect(row.gmail?.historyId).toBe("4000");
     expect(row.gmail?.recentImport).toMatchObject({ status: "done", messages: 60 });
@@ -194,7 +196,7 @@ describe("the import, end to end", { timeout: 30_000 }, () => {
     await runPass(t, workspaceId, connectionId);
 
     expect(google.calls).toEqual(FORWARD_PASS);
-    expect(dayNotes(backend.snapshot())).toEqual([]);
+    expect(await dayNotes(t, workspaceId)).toEqual([]);
   });
 
   test("a row with no cursor takes its baseline before it reads", async () => {
@@ -259,6 +261,6 @@ describe("the import, end to end", { timeout: 30_000 }, () => {
     await runPass(t, workspaceId, connectionId);
 
     expect(google.calls).toEqual([]);
-    expect(dayNotes(backend.snapshot())).toEqual([]);
+    expect(await dayNotes(t, workspaceId)).toEqual([]);
   });
 });

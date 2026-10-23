@@ -61,7 +61,6 @@ import { useDemoConsoleData } from "../features/console/useDemoConsoleData";
 import { SettingsOverlay } from "../features/console/settings/SettingsOverlay";
 import { SharedLinksPanel } from "../features/console/settings/panels/SharedLinksPanel";
 import { ActivityPanel } from "../features/console/settings/panels/ActivityPanel";
-import { FolderMovesCard } from "../features/console/settings/panels/StorageTools";
 import type { ConsoleData } from "../features/console/types";
 import {
   SETTINGS_SECTIONS,
@@ -794,24 +793,4 @@ describe("what a non-owner is told instead of the controls", () => {
     expect(container.textContent ?? "").not.toContain("conflictCheck");
   });
 
-  test("storage: a durable move shows its measured phase and percentage", () => {
-    const container = mount(() =>
-      createElement(FolderMovesCard, {
-          view: {
-            jobs: [{
-              jobId: "job-1",
-              status: "running",
-              phase: "copying",
-              completed: 400,
-              total: 500,
-              updatedAt: 0,
-            }],
-            loading: false,
-            failure: null,
-          },
-      }),
-    );
-    expect(container.textContent ?? "").toContain("Copying safely · 400 of 500 · 80%");
-    expect(container.querySelector('[data-testid="durable-move-progress"]')).not.toBeNull();
-  });
 });

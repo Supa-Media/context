@@ -82,7 +82,6 @@ import * as rekeyPlatform from "./lib/storage/rekeyPlatformSecrets";
 import { forgetWorkspaceTree, keepKeyedTreeForStorage } from "./nodesPurge";
 import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { keyIfBornEmpty } from "./lib/noteIds/born";
-import { managedBucketName } from "./lib/managedStorage";
 import * as bindingView from "./lib/storage/bindingView";
 import * as validators from "./lib/storage/validators";
 import * as bindingActions from "./lib/storage/bindingActions";
@@ -408,8 +407,9 @@ export const applyBinding = internalMutation({
         ...fields,
         createdAt: now,
       });
-      // Its own new managed bucket holds nothing yet: the workspace starts keyed, never on path keys.
-      if (args.bucket === managedBucketName(args.workspaceId)) await keyIfBornEmpty(ctx, args.workspaceId);
+      // A first binding starts keyed, never on path keys: a managed bucket is new and empty, and files
+      // already in a bucket the person brings are not picked up (nothing written outside the app is).
+      await keyIfBornEmpty(ctx, args.workspaceId);
     } else {
       await ctx.db.patch(existing._id, fields);
       bindingId = existing._id;

@@ -106,8 +106,7 @@ export const jobTables = {
     actorUserId: v.id("users"),
     actorClientId: v.string(),
     grantId: v.id("oauthGrants"),
-    kind: v.union(v.literal("materialize_move"), v.literal("image_upload")),
-    moveId: v.optional(v.string()),
+    kind: v.literal("image_upload"),
     /** An image upload's ticket names the bytes it takes: their SHA-256 and length. Never the bytes. */
     imageSha256: v.optional(v.string()),
     imageBytes: v.optional(v.number()),
@@ -131,7 +130,6 @@ export const jobTables = {
     progressPerMinute: v.optional(v.number()),
   })
     .index("by_hashed_ticket", ["hashedTicket"])
-    .index("by_workspace_kind_move", ["workspaceId", "kind", "moveId"])
     .index("by_workspace_status", ["workspaceId", "status"])
     .index("by_workspace_updatedAt", ["workspaceId", "updatedAt"])
     .index("by_expiresAt", ["expiresAt"]),
@@ -161,12 +159,6 @@ export const jobTables = {
     migrationId: v.optional(v.id("managedStorageMigrations")),
     walkRunId: v.optional(v.number()),
     /**
-     * A batch of a move into another context: the move, and the files this
-     * ticket may carry, decided here and never by the mover's caller.
-     */
-    contextMoveId: v.optional(v.id("contextMoves")),
-    objects: v.optional(v.array(v.object({ source: v.string(), destination: v.string(), size: v.number() }))),
-    /**
      * A page of the path-to-id copy (`id_copy`) or its check (`id_check`): the
      * copy pass's run, and the items this ticket may copy or check, each with
      * the row's etag and key when it was handed out (`lib/noteIds/mover.ts`).
@@ -182,7 +174,7 @@ export const jobTables = {
      */
     cleanupRunId: v.optional(v.number()),
     cleanupKeys: v.optional(v.array(v.string())),
-    /** The migration's (or the walk's) phase and cursor when the page was handed out; `carry` for a context move. */
+    /** The migration's (or the walk's) phase and cursor when the page was handed out. */
     phase: v.union(
       v.literal("copy"),
       v.literal("verify_source"),
@@ -191,7 +183,6 @@ export const jobTables = {
       v.literal("check"),
       v.literal("unseal"),
       v.literal("confirm"),
-      v.literal("carry"),
       v.literal("id_copy"),
       v.literal("id_check"),
       v.literal("cleanup_list"),

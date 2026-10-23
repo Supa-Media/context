@@ -25,7 +25,6 @@ import {
   scheduleExport,
 } from "./lib/nodes/privacyAuthority";
 import { privacyIsNewer } from "./lib/nodes/observe";
-import { leasedGatewayJobWorkspace } from "./lib/controlPlane/gatewayJobs";
 import { accessDerived, accessSourceOf, backfillAccess, deriveAccess, deriveAccessPage, refreshAccess } from "./lib/nodes/accessBackfill";
 import { accessVersionOf } from "./lib/nodes/accessRows";
 import { accessParityPage } from "./lib/nodes/accessParity";
@@ -101,13 +100,6 @@ export const exportOwedNow = internalQuery({
       .unique();
     return row?.exportOwed === true && isAuthority(row, await privacyAuthorityOn(ctx.db));
   },
-});
-
-/** The workspace a queued move's ticket proves, while its lease holds (`/gateway/privacy`). */
-export const jobWorkspace = internalQuery({
-  args: { hashedTicket: v.string() },
-  returns: v.union(v.null(), v.id("workspaces")),
-  handler: async (ctx, { hashedTicket }) => await leasedGatewayJobWorkspace(ctx, hashedTicket),
 });
 
 /**

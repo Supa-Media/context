@@ -181,7 +181,7 @@ export async function servedNodesStore(
       cursor: result.cursor,
     };
   };
-  const moves = await ctx.runQuery(internal.functions.nodeMoves.active, { workspaceId });
+  const moves = await ctx.runQuery(internal.functions.nodeRowMoves.drawn, { workspaceId });
   return nodesPagedStore(base, moves.length === 0 ? listed : foldedPages(listed, moves), served.mirror, moves);
 }
 

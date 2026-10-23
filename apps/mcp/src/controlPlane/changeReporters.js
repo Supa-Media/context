@@ -1,8 +1,8 @@
 /**
  * The reporters a write's `recordChange` reaches for, bound to one workspace.
- * Split out of `http/route.js` so the queue consumer (`moves/queueConsumer.js`)
- * binds the same ones: a move finished by a queued job is a write like any
- * other, and the Convex tree hears of it only through `reportTreeTouch`.
+ * Split out of `http/route.js` so every store a request opens binds the same
+ * ones: a move is a write like any other, and the Convex tree hears of it only
+ * through `reportTreeTouch`.
  */
 
 /**
@@ -28,17 +28,6 @@ export function attachChangeReporters(store, workspaceId, controlPlane, { readLe
     controlPlane.reportWebsiteChange(workspaceId, paths).catch(() => {});
   store.reportRoutineChange = (paths, userId) =>
     controlPlane.reportRoutineChange(workspaceId, userId, paths).catch(() => {});
-  // A note leaving this context for another: the console map's record of it.
-  // Deferred and swallowed like `reportActivity`; the move itself has landed.
-  store.reportContextMove = (move) => {
-    const send = controlPlane.reportContextMove(workspaceId, move).catch(() => {});
-    if (typeof store.defer !== "function") return;
-    try {
-      store.defer(send);
-    } catch {
-      // A host whose `waitUntil` refuses the work simply does not report.
-    }
-  };
   // How long a search took and which index answered (`search/visibleNotes.js`),
   // for the admin console's search timing log. Behind the answer, like the rest.
   store.reportSearchTiming = (timing) => {
@@ -70,7 +59,7 @@ export function attachChangeReporters(store, workspaceId, controlPlane, { readLe
  * back; the control plane writes both from its rows.
  *
  * - Reading the ledger asks `/gateway/tree/facts`: with `readLedger` where
- *   the caller names how (a queued move's ticket, `moves/queueConsumer.js`;
+ *   the caller names how (a gateway job's ticket;
  *   the console's token, `live/presenceRoute.js`), else with this request's
  *   own token (`store.treeFacts`, `http/routing.js`), and gets it only as far
  *   as that proof may see. A store with neither reads no ledger at all: an

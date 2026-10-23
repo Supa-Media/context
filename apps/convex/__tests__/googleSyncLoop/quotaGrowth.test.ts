@@ -4,6 +4,7 @@ import {
   endToEnd,
   googleAndBucket,
   patchConnection,
+  noteBody,
   readConnection,
   runPass,
 } from "./fixtures.helpers";
@@ -41,7 +42,7 @@ describe("the write quota counts what the bucket grew by", () => {
     );
     await runPass(t, workspaceId, connectionId);
     const first = (await readConnection(t, connectionId)).syncBytesWritten ?? 0;
-    const firstDay = new TextEncoder().encode(backend.snapshot()[day]!).byteLength;
+    const firstDay = new TextEncoder().encode((await noteBody(t, workspaceId, backend, day))!).byteLength;
 
     await patchConnection(t, connectionId, { syncStartedAt: Date.now() });
     vi.stubGlobal(
@@ -50,9 +51,9 @@ describe("the write quota counts what the bucket grew by", () => {
     );
     await runPass(t, workspaceId, connectionId);
     const second = (await readConnection(t, connectionId)).syncBytesWritten ?? 0;
-    const secondDay = new TextEncoder().encode(backend.snapshot()[day]!).byteLength;
+    const secondDay = new TextEncoder().encode((await noteBody(t, workspaceId, backend, day))!).byteLength;
 
-    expect(backend.snapshot()[day]).toContain("Follow-up");
+    expect(await noteBody(t, workspaceId, backend, day)).toContain("Follow-up");
     expect(second - first).toBe(secondDay - firstDay);
   });
 

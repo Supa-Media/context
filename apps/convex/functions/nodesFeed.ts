@@ -6,7 +6,7 @@
  *
  *  - `head` is a live query each device subscribes to. Its answer moves when
  *    a change this reader may hear of lands, the rules change, or a queued
- *    folder move starts, finishes or is undone, and that is the device's cue
+ *    folder move starts or finishes, and that is the device's cue
  *    to catch up. A move is answered with a walk (`movesMark`), because it
  *    renames everything under it without a log row. A change they may not hear of moves
  *    nothing.
@@ -34,7 +34,7 @@ import { audienceOfNames } from "./lib/pinnedReaders";
 import { accessSourceOf } from "./lib/nodes/accessBackfill";
 import { accessVersionOf } from "./lib/nodes/accessRows";
 import type { PrivacyMirror } from "./lib/nodes/table";
-import { MOVES_PER_WORKSPACE } from "./lib/nodes/moveOverlay";
+import { movingRowMoves } from "./lib/nodes/rowMoveChunks";
 import {
   NODE_HEAD_SCAN,
   NODE_LOG_PAGE,
@@ -51,18 +51,9 @@ import {
   type FeedMove,
 } from "./lib/nodes/log";
 
-/**
- * The queued folder moves every listing draws already (`moving`; a
- * `preparing` row is drawn nowhere yet), as the feed reads them.
- */
+/** The keyed moves every listing draws already (`moving`), as the feed reads them. */
 async function feedMoves(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<FeedMove[]> {
-  const rows = await ctx.db
-    .query("moveQueue")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-    .take(MOVES_PER_WORKSPACE * 2);
-  return rows
-    .filter((row) => row.state === "moving")
-    .map((row) => ({ id: row._id, from: row.from, to: row.to, ...(row.undone === true ? { undone: true } : {}) }));
+  return (await movingRowMoves(ctx.db, workspaceId)).map((row) => ({ id: row._id, from: row.from, to: row.to }));
 }
 
 async function nodeAt(ctx: QueryCtx, workspaceId: Id<"workspaces">, path: string): Promise<Doc<"nodes"> | null> {

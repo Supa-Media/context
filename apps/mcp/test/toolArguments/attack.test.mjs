@@ -251,8 +251,9 @@ export async function runToolArgumentAttackChecks(check, harness) {
     // which is the failure mode deriving it was supposed to remove — and this
     // set should only ever grow, so a shrink is a decision somebody has to
     // come here and make rather than one a green run can hide. It shrank once,
-    // from four: the owner removed `export_encryption_keys` on 2026-10-08.
-    maskedNames.length >= 3,
+    // from four: the owner removed `export_encryption_keys` on 2026-10-08, and
+    // again from three to two when `materialize_move` was removed (2026-10-22).
+    maskedNames.length >= 2,
   );
   for (const masked of maskedNames) {
     const withJunk = await callTool(env, TOKEN_TEAM, masked, { workspaceId: WORKSPACE_OTHER });

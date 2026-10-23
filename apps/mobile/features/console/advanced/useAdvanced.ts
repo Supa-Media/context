@@ -9,7 +9,6 @@ import {
   canReadAuditTrail,
   deletionBlockedReason,
   type AdvancedView,
-  type DurableMoveJob,
   type ConsoleAuditEvent,
   type KeyExportAction,
   type KeyExportDocument,
@@ -89,10 +88,6 @@ export function useAdvanced(options: {
         query: api.functions.audit.listEvents,
         args: { workspaceId, limit: AUDIT_LIMIT },
       },
-      moves: {
-        query: api.functions.files.listDurableMoves,
-        args: { workspaceId },
-      },
       /*
         Only for the one fact the deletion card needs: whether the bucket
         behind this workspace is one we run. The plan itself is Premium's
@@ -112,9 +107,6 @@ export function useAdvanced(options: {
   const raw = results.events;
   const events = usable<ConsoleAuditEvent[]>(raw) ?? [];
   const failed = raw instanceof Error ? raw : null;
-  const rawMoves = results.moves;
-  const moves = usable<DurableMoveJob[]>(rawMoves) ?? [];
-  const movesFailed = rawMoves instanceof Error ? rawMoves : null;
 
   const billing = usable<{ storageIsManaged: boolean }>(results.billing);
 
@@ -175,16 +167,6 @@ export function useAdvanced(options: {
   }, [workspaceId, isOwner, exportEncryptionKeys]);
 
   return {
-    moves: {
-      jobs: moves,
-      loading: workspaceId !== null && isOwner && rawMoves === undefined,
-      failure:
-        movesFailed === null ? null : describeQueryFailure(movesFailed, "folder move progress"),
-      readOnlyReason:
-        workspaceId === null || isOwner
-          ? undefined
-          : "Only an owner of this context can see background folder moves.",
-    },
     audit: {
       events,
       // A query that threw is an answer, not a wait. And a non-owner is never

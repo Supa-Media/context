@@ -59,7 +59,7 @@ import { claimJobBeforeMove, jobOfRow } from "./folderJobs";
 import { followFolderSettings } from "./settingsFollow";
 import { privacyEtagOf, readerMirror, rulesForReaders } from "./readerRules";
 import { type PrivacyMirror, nameOf } from "./table";
-import { type PendingMove, pendingMoves } from "./moveOverlay";
+import type { PendingMove } from "./moveOverlay";
 import type { AccessRow } from "./rowAccess";
 import {
   type RowMoveAnswer,
@@ -110,13 +110,11 @@ export async function movingRowMoves(db: DatabaseReader, workspaceId: Id<"worksp
 }
 
 /**
- * Every move the tree draws already, as a listing folds them (`moveOverlay.ts`): the queued byte moves, then
- * the keyed moves still moving. A keyed workspace never has the first and an unkeyed one never the second
- * (`rowMove.ts` refuses while a byte move is queued), so the order never composes two kinds.
+ * Every move the tree draws already, as a listing folds them (`moveOverlay.ts`): the keyed moves still moving,
+ * oldest first. Only a keyed workspace moves rows, so this is every move the tree has pending.
  */
 export async function drawnMoves(db: DatabaseReader, workspaceId: Id<"workspaces">): Promise<PendingMove[]> {
-  const keyed = (await movingRowMoves(db, workspaceId)).map((row) => ({ from: row.from, to: row.to }));
-  return [...(await pendingMoves(db, workspaceId)), ...keyed];
+  return (await movingRowMoves(db, workspaceId)).map((row) => ({ from: row.from, to: row.to }));
 }
 
 /** Whether a move of `from` to `to` touches a name a keyed move is still carrying: one move per subtree at a time. */

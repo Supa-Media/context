@@ -6,7 +6,7 @@
  */
 
 import { canSee } from "../privacy/engine.js";
-import { extrasAtTreeNames, liveSummary, liveTotals, scoreKeys } from "./live.js";
+import { liveSummary, liveTotals, scoreKeys } from "./live.js";
 import { factChaos } from "../tree/facts.js";
 import { chaosWord } from "./rubric.js";
 import { within } from "./report.js";
@@ -62,7 +62,7 @@ export async function factSection(store, audience, visible, rules, overrides) {
     if (keys === null) return null;
     const facts = await factChaos(store);
     if (facts === null) return null;
-    const extras = extrasAtTreeNames(facts.extras, store.pendingMoves);
+    const extras = facts.extras;
     const folders = scoreKeys(keys, extras, (path) => canSee(path, "team", rules, overrides));
     if (audience === "all") {
       const keep = () => factChaos(store, liveTotals(folders)).catch(() => null);

@@ -25,7 +25,7 @@ import { VaultPanel } from "../settings/panels/VaultPanel";
 import { SettingsStorageChoice, SettingsVaultImport } from "../storage/SettingsStorageChoice";
 import { ActivityPanel } from "../settings/panels/ActivityPanel";
 import { SharingSection } from "../settings/panels/SharingSection";
-import { EncryptionKeysBlock, FolderMovesCard } from "../settings/panels/StorageTools";
+import { EncryptionKeysBlock } from "../settings/panels/StorageTools";
 import { DeleteWorkspaceCard } from "../settings/DeleteWorkspaceCard";
 import { PluginsPanel } from "../settings/panels/PluginsPanel";
 import { selectedContext, type ConsoleData, type ConsoleStorage } from "../types";
@@ -326,8 +326,6 @@ export function SettingsPane({
           />
         </>
       )}
-
-      <FolderMovesCard view={data.advanced.moves} />
 
       {storage?.connected === true && actions && !unsupported ? (
         <SettingsVaultImport workspaceId={actions.workspaceId} />

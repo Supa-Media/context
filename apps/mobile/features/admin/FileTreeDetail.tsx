@@ -1,11 +1,10 @@
 /**
  * The file tree's box in an Indexes row's detail (`./IndexRows`): the Convex
  * copy (what the app and AI clients list notes from), its facts behind Lists,
- * Boards, the map and the chaos score, and the folder moves still copying,
- * each with its buttons. The facts fill follows the copy, so Repair copies
+ * Boards, the map and the chaos score, each with its buttons. The facts fill
+ * follows the copy, so Repair copies
  * again and the facts catch up after it; the D1 tables and their Fill left
- * in phase 7 of the tree migration. The moves used to be their own panel under the table; the
- * owner approved folding them into the workspace's row (2026-10-13).
+ * in phase 7 of the tree migration.
  *
  * Seal again shows only while notes were saved unsealed into the sealed
  * bucket (`unreadableOf`): it walks the bucket once more, which seals them.
@@ -16,10 +15,8 @@
 
 import { StyleSheet, View } from "react-native";
 import { Button, Dot, Text, space, useThemedStyles, type Colors } from "../design";
-import { whenLabel } from "./agent";
 import { relativeTime } from "./report";
-import { lateWords, timeLeftWords } from "./storageLag";
-import { healthTone, parityWords, type IndexHealth, type MigrationRow, type MoveRow, type WorkspaceIndexes } from "./searchIndexes";
+import { healthTone, parityWords, type IndexHealth, type MigrationRow, type WorkspaceIndexes } from "./searchIndexes";
 import type { IndexActions } from "./IndexRows";
 
 export function FileTreeDetail({ row, actions }: { row: WorkspaceIndexes; actions: IndexActions }) {
@@ -66,25 +63,6 @@ export function FileTreeDetail({ row, actions }: { row: WorkspaceIndexes; action
         text={`Lists, Boards and map details. ${factsNote(copy)}`}
         problem={row.details.problem}
       />
-      {row.moves.map((move) => (
-        <View key={move.id} style={styles.move} testID={`admin-move-${move.id}`}>
-          <Dot tone={move.stuck ? "crit" : move.running ? "ok" : "neutral"} />
-          <Text variant="meta" style={styles.grow}>
-            {moveNote(move, now)}
-          </Text>
-          {button(`retry:${move.id}`, "Retry move", "Retrying…", () => actions.retryMove(move.id), `admin-move-retry-${move.id}`, move.running)}
-          {move.stuck
-            ? button(
-                `undo:${move.id}`,
-                "Undo move",
-                "Undoing…",
-                () => actions.undoMove(move.id),
-                `admin-move-undo-${move.id}`,
-                !move.canUndo || move.running,
-              )
-            : null}
-        </View>
-      ))}
     </View>
   );
 }
@@ -134,14 +112,6 @@ export function factsNote(copy: MigrationRow | null): string {
   return "Every note read, and kept current after each change.";
 }
 
-/** One sentence for a folder move still copying. */
-export function moveNote(move: MoveRow, now: number): string {
-  const head = move.undone ? "Folder move, undoing" : "Folder move";
-  const failed = move.lastError === null ? "" : ` · ${move.lastError} (${move.attempts} tries)`;
-  const late = lateWords(move.late);
-  return `${head}: ${Math.min(move.moved, move.total)} of ${move.total} files copied${timeLeftWords(move.etaMs)} · started ${whenLabel(move.createdAt, now)}${failed}${late && move.late !== "stuck" ? ` · ${late}` : ""}`;
-}
-
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     box: {
@@ -160,5 +130,4 @@ const makeStyles = (colors: Colors) =>
     lineTop: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6 },
     strong: { fontWeight: "600", color: colors.text },
     problem: { color: colors.critText },
-    move: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: space.x2 },
   });

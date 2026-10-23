@@ -26,20 +26,24 @@ import {
   searchNotes,
   writeFile,
 } from "../functions/lib/fileOps";
-import { PRIVACY_KEY } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
-import { memoryStore, type MemoryStore } from "./storeStub.helpers";
+import { attachQueueMove } from "../functions/lib/nodes/moveBarrier";
 import { sqliteProjection } from "./sqliteProjection.helpers";
+import { type KeyedBucket, keyedBucket } from "./fileOps/keyedFixture.fileops1.helpers";
 
-async function indexed(): Promise<MemoryStore & FileStore> {
-  const store = memoryStore() as MemoryStore & FileStore;
-  store.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
-  store.seed("index.md", "# Context\n");
-  store.seed("2-areas/older.md", "# Older\n\nA narwhalist was here once.\n");
+/**
+ * A keyed workspace with an index converged over `2-areas/older.md`. Writes and
+ * moves go through the id layer, as the product's do, so a note is found by its
+ * name and its bytes sit at their key.
+ */
+async function indexed(): Promise<KeyedBucket> {
+  const f = await keyedBucket({
+    "index.md": "# Context\n",
+    "2-areas/older.md": "# Older\n\nA narwhalist was here once.\n",
+  });
   for (let pass = 0; pass < 10; pass += 1) {
-    if ((await maintainSearchIndex(store)).complete) break;
+    if ((await maintainSearchIndex(f.store)).complete) break;
   }
-  return store;
+  return f;
 }
 
 const owner = clearanceOf("private");
@@ -49,23 +53,32 @@ async function found(store: FileStore): Promise<string[]> {
   return answer.hits.map((hit) => hit.path).sort();
 }
 
+/**
+ * The barrier's move seam with the search projection attached, as
+ * `fileOperationBarrier.ts` attaches it: a keyed move follows the projection
+ * inside the move (`settleRowMove`), and says it did not queue.
+ */
+function moveWithProjection(f: KeyedBucket, database: ReturnType<typeof sqliteProjection>): void {
+  attachQueueMove(f.ctx, { workspaceId: f.workspaceId, scope: "private", operation: { kind: "move" } } as never, f.store, f.store, database.client as never);
+}
+
 describe("indexing on save", () => {
   test("a written note is found by the next search, beside the older match", async () => {
-    const store = await indexed();
+    const f = await indexed();
     const operation = { kind: "write" as const, path: "2-areas/fresh.md", text: "# Fresh\n\nA second narwhalist.\n" };
-    await writeFile(store, { path: operation.path, text: operation.text, clearance: owner, now: Date.now() });
+    await writeFile(f.store, { path: operation.path, text: operation.text, clearance: owner, now: Date.now() });
     const change = indexChangeOf(operation);
     expect(change).toEqual({ written: ["2-areas/fresh.md"], gone: [] });
-    await indexChangedNotes(store, change!);
-    expect(await found(store)).toEqual(["2-areas/fresh.md", "2-areas/older.md"]);
+    await indexChangedNotes(f.store, change!);
+    expect(await found(f.store)).toEqual(["2-areas/fresh.md", "2-areas/older.md"]);
   });
 
   test("a moved note is found at its new path and not at its old one", async () => {
-    const store = await indexed();
+    const f = await indexed();
     const operation = { kind: "move" as const, from: "2-areas/older.md", to: "2-areas/renamed.md" };
-    await movePath(store, { from: operation.from, to: operation.to, clearance: owner, now: Date.now() });
-    await indexChangedNotes(store, indexChangeOf(operation)!);
-    expect(await found(store)).toEqual(["2-areas/renamed.md"]);
+    await movePath(f.store, { from: operation.from, to: operation.to, clearance: owner, now: Date.now() });
+    await indexChangedNotes(f.store, indexChangeOf(operation)!);
+    expect(await found(f.store)).toEqual(["2-areas/renamed.md"]);
   });
 
   test("folder-wide and read-only operations schedule nothing", () => {
@@ -94,37 +107,41 @@ describe("indexing on save", () => {
  */
 describe("following a change into a ready fast search database", () => {
   test("a renamed note leaves its old path and is projected at its new one", async () => {
-    const store = await indexed();
+    const f = await indexed();
     const database = sqliteProjection();
     database.seed("2-areas/older.md", "# Older\n\nA narwhalist was here once.\n");
+    moveWithProjection(f, database);
     const operation = { kind: "move" as const, from: "2-areas/older.md", to: "2-areas/renamed.md" };
-    const moved = await movePath(store, { from: operation.from, to: operation.to, clearance: owner, now: Date.now() });
+    const moved = await movePath(f.store, { from: operation.from, to: operation.to, clearance: owner, now: Date.now() });
+    // A keyed move has already followed the projection inside the move (`settleRowMove`), so the change
+    // says it is queued and nothing is followed twice. The projection below is what proves it followed.
     const change = indexChangeOf(operation, { kind: "moved", ...moved });
-    expect(change?.moved).toEqual([["2-areas/older.md", "2-areas/renamed.md"]]);
-    await indexChangedNotes(store, change!, database.client);
+    expect(change?.queued).toBe(true);
+    await indexChangedNotes(f.store, change!, database.client);
     expect(database.paths()).toEqual(["2-areas/renamed.md"]);
   });
 
   test("a moved folder's notes are renamed in place", async () => {
-    const store = await indexed();
-    store.seed("2-areas/trip/day.md", "# Day\n\nA narwhalist sighting.\n");
+    const f = await indexed();
+    await f.store.put("2-areas/trip/day.md", "# Day\n\nA narwhalist sighting.\n");
     const database = sqliteProjection();
     database.seed("2-areas/older.md", "# Older\n\nA narwhalist was here once.\n");
     database.seed("2-areas/trip/day.md", "# Day\n\nA narwhalist sighting.\n");
+    moveWithProjection(f, database);
     const operation = { kind: "move" as const, from: "2-areas/trip", to: "2-areas/journey" };
-    const moved = await movePath(store, { from: operation.from, to: operation.to, clearance: owner, now: Date.now() });
-    await indexChangedNotes(store, indexChangeOf(operation, { kind: "moved", ...moved })!, database.client);
+    const moved = await movePath(f.store, { from: operation.from, to: operation.to, clearance: owner, now: Date.now() });
+    await indexChangedNotes(f.store, indexChangeOf(operation, { kind: "moved", ...moved })!, database.client);
     expect(database.paths()).toEqual(["2-areas/journey/day.md", "2-areas/older.md"]);
   });
 
   test("a queued folder move is not followed until its copy lands", async () => {
-    const store = await indexed();
+    const f = await indexed();
     const database = sqliteProjection();
     database.seed("2-areas/trip/day.md", "# Day\n\nA narwhalist sighting.\n");
     const operation = { kind: "move" as const, from: "2-areas/trip", to: "2-areas/journey" };
     const change = indexChangeOf(operation, { kind: "moved", from: "2-areas/trip", to: "2-areas/journey", paths: ["2-areas/journey"], queued: 1 });
     expect(change?.queued).toBe(true);
-    await indexChangedNotes(store, change!, database.client);
+    await indexChangedNotes(f.store, change!, database.client);
     expect(database.paths()).toEqual(["2-areas/trip/day.md"]);
   });
 });

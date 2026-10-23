@@ -57,12 +57,6 @@ describe("the ingest binding's keyed flag", () => {
     expect("keyed" in (await bindingBody(t))).toBe(false);
   });
 
-  test("a flip whose switch is back on paths is not keyed", async () => {
-    const { t, workspaceId } = await ready();
-    await setSwitch(t, workspaceId, "paths", 1);
-    expect("keyed" in (await bindingBody(t))).toBe(false);
-  });
-
   test("an ordinary context is not keyed and the field is absent", async () => {
     const { t } = await ready();
     expect("keyed" in (await bindingBody(t))).toBe(false);

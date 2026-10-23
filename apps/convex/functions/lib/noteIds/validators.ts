@@ -39,7 +39,6 @@ export const copyPageValidator = v.object({
 export const keyedItemValidator = v.object({ path: v.string(), key: v.string(), etag: v.string() });
 
 export const checkPageValidator = v.object({
-  paused: v.boolean(),
   items: v.array(itemValidator),
   keyed: v.array(keyedItemValidator),
   next: v.optional(v.string()),

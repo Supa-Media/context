@@ -71,17 +71,6 @@ function nested(a, b) {
   return a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
 }
 
-/** Whether a pending move's old or new name overlaps the move being asked for. */
-function crossesPendingMove(moves, source, destination) {
-  if (!Array.isArray(moves)) return false;
-  return moves.some(
-    (move) =>
-      typeof move?.from === "string" &&
-      typeof move?.to === "string" &&
-      [source, destination].some((path) => nested(path, move.from) || nested(path, move.to)),
-  );
-}
-
 /** The etag `read_note` answers for a note with editing history: its collaboration revision, not a storage version. */
 const COLLABORATION_ETAG = "c2.";
 
@@ -200,23 +189,11 @@ export async function startQueuedFolderMove(store, scope, source, destination, p
   try {
     answer = await store.startQueuedMove(source, destination);
   } catch {
-    // With a move already running, the old way could act on names that are still
-    // moving. Without one, the old way is exactly what this did before.
-    if (Array.isArray(store.pendingMoves) && store.pendingMoves.length > 0) {
-      return toolError("could not start the move right now; try again in a moment");
-    }
+    // The control plane is out of reach: the caller decides what the old way does.
     return null;
   }
   if (!answer || answer.queued !== true) {
-    if (typeof answer?.error !== "string") {
-      // The old way lists the bucket, which still holds a moving folder at its
-      // old name: moving the copied half now and letting the worker bring the
-      // rest to the old destination would split the folder.
-      if (crossesPendingMove(store.pendingMoves, source, destination)) {
-        return toolError("could not move that folder while part of it is still moving; try again once that move finishes");
-      }
-      return null;
-    }
+    if (typeof answer?.error !== "string") return null;
     if (answer.error === "FILE_NOT_FOUND") return toolError("not found");
     const message = typeof answer.message === "string" ? answer.message : "the move was refused";
     return toolError(answer.error === "DESTINATION_EXISTS" || answer.error === "CONFLICT" ? `conflict: ${message}` : message);

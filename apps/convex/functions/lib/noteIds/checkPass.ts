@@ -150,7 +150,6 @@ export async function runCheckChain(ctx: ActionCtx, args: CheckArgs, deps: Check
       ...(args.after === undefined ? {} : { after: args.after }),
       limit: COPY_PAGE,
     });
-    if (page.paused) return;
     let { checked, missing, differs } = args;
     if (page.items.length > 0) {
       const answers = await checkItems(ctx, args, page.items, deps);

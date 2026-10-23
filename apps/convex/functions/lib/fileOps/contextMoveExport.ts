@@ -20,7 +20,6 @@ import { loadPrivacyState } from "./privacyState";
 import { folderVisibleAtScope } from "./listing";
 import { assertWritablePath } from "./writing";
 import { isFolder, namesListing } from "./walk";
-import { isKeyedStore } from "../noteIds/keyedStore";
 
 /* -------------------------------------------------------------------------- */
 /*                       moving between two contexts                          */
@@ -44,9 +43,7 @@ import { isKeyedStore } from "../noteIds/keyedStore";
  * have required a second credential barrier to exist, holding two customers'
  * plaintext secrets in one scope. The enumeration in
  * `__tests__/structure.test.ts` says what that costs; this is the shape that
- * does not pay it. (The gateway's mover, where it is set, is the one place
- * that holds both, for one batch, by the owner's choice: see
- * `lib/contextMoveMover.ts` and `planContextMoveBatch` below.)
+ * does not pay it.
  *
  * The order is copy, verify, delete, per batch, which is the discipline the
  * gateway's `materialize_move` already uses: nothing is removed from the
@@ -106,8 +103,6 @@ export interface ContextMoveObject {
   bytes: ArrayBuffer;
   /** What the source held when it was read. The delete is conditional on it. */
   etag: string;
-  /** Exact collaboration revision to tombstone after the other context lands it. */
-  collaborationEtag?: string;
   /**
    * The source's effective visibility, collapsed to the two tiers.
    *
@@ -264,11 +259,9 @@ async function listMoveCandidates(
   const to = requirePath(options.to);
   assertWritablePath(from);
   assertWritablePath(to);
-  // In a keyed workspace the bucket's paths are frozen copies: what moves is
-  // listed from the tree's rows, and each note is read at its key through the
-  // store's id layer (`lib/noteIds/keyedStore.ts`).
-  const keyed = await isKeyedStore(store);
-  const listed = keyed ? namesListing(store) : store;
+  // The bucket's paths are frozen copies: what moves is listed from the tree's rows, and each note is read at
+  // its key through the store's id layer (`lib/noteIds/keyedStore.ts`).
+  const listed = namesListing(store);
   // Before the first read, not after the first copy: a move that discovered
   // this on the way to retiring a source would already have written the
   // destination, and the only way out of that is a duplicate.
@@ -333,7 +326,7 @@ async function listMoveCandidates(
     }
   }
 
-  return { from, to, state, sourceIsFolder, candidates, remaining, keyed };
+  return { from, to, state, sourceIsFolder, candidates, remaining };
 }
 
 /**
@@ -369,7 +362,7 @@ export async function exportContextMoveBatch(
     maxBytes?: number;
   },
 ): Promise<ContextMoveExport> {
-  const { from, to, state, sourceIsFolder, candidates, remaining, keyed } = await listMoveCandidates(store, options);
+  const { from, to, state, sourceIsFolder, candidates, remaining } = await listMoveCandidates(store, options);
   const maxBytes = options.maxBytes ?? CONTEXT_MOVE_BATCH_BYTES;
 
   const objects: ContextMoveObject[] = [];
@@ -411,41 +404,31 @@ export async function exportContextMoveBatch(
       skipped.push({ path: key, reason: "encrypted" });
       continue;
     }
-    let collaborationEtag: string | undefined;
     let etag = object.etag;
     if (sourceText !== null && collaborationSupported(store) &&
         collaborationEligible(key, sourceText)) {
       // A keyed note leaves by the trash, history and all, so it needs no conditional delete and no tombstone:
       // its accepted text is what is carried (`deleteMovedSources`).
-      if (!keyed && store.capabilities?.conditionalDelete !== true) {
-        throw new FileOpError(
-          "STORAGE_UNSAFE",
-          "This storage cannot safely retire a collaboratively edited note. Nothing from this batch was removed.",
-        );
-      }
       try {
         const base = await readCollaborationDocument(store, key);
         bytes = new TextEncoder().encode(base.text).buffer;
-        if (!keyed) collaborationEtag = base.etag;
       } catch {
         throw new FileOpError(
           "CONFLICT",
           "A note changed while this context move was reading it. Nothing from this batch was removed.",
         );
       }
-      if (keyed) {
-        // Reading the document can finish its Markdown, which writes the key after `object` was read. The
-        // version the trash is checked against is the one holding the text carried, or the source would
-        // read as edited by the move's own read (`deleteMovedSources`).
-        const settled = await store.get(key);
-        if (settled === null || (await settled.text()) !== new TextDecoder().decode(bytes)) {
-          throw new FileOpError(
-            "CONFLICT",
-            "A note changed while this context move was reading it. Nothing from this batch was removed.",
-          );
-        }
-        etag = settled.etag;
+      // Reading the document can finish its Markdown, which writes the key after `object` was read. The
+      // version the trash is checked against is the one holding the text carried, or the source would
+      // read as edited by the move's own read (`deleteMovedSources`).
+      const settled = await store.get(key);
+      if (settled === null || (await settled.text()) !== new TextDecoder().decode(bytes)) {
+        throw new FileOpError(
+          "CONFLICT",
+          "A note changed while this context move was reading it. Nothing from this batch was removed.",
+        );
       }
+      etag = settled.etag;
     }
     carried += bytes.byteLength;
     objects.push({
@@ -453,7 +436,6 @@ export async function exportContextMoveBatch(
       destination: sourceIsFolder ? `${to}${key.slice(from.length)}` : to,
       bytes,
       etag,
-      ...(collaborationEtag === undefined ? {} : { collaborationEtag }),
       sourceVisibility:
         effectiveVisibility(key, state.rules, state.overrides) === "team" ? "team" : "private",
     });
@@ -463,61 +445,6 @@ export async function exportContextMoveBatch(
   // here rather than set at each `break` above, because the two ceilings and
   // the skip both leave work behind and only one of them is a loop exit.
   return { objects, skipped, remaining: remaining || looked < candidates.length };
-}
-
-/** One file of a batch the gateway's mover will carry: names and a size, never a byte. */
-export interface PlannedContextMoveObject {
-  source: string;
-  destination: string;
-  /** From the listing, so the mover can bound what it holds at once. */
-  size: number;
-  sourceVisibility: "private" | "team";
-}
-
-/**
- * The next batch of a move out of this context, by name only, for the
- * gateway's mover to carry (`apps/mcp/src/moves/contextMovePage.js`).
- *
- * The same listing and the same checks as `exportContextMoveBatch`; what that
- * function then learns by reading each file (a note encrypted to this
- * context, a file too large) the mover learns where it reads it, and reports
- * by name. A file the listing already shows to be over `maxObjectBytes` is
- * left behind here, unread.
- */
-export async function planContextMoveBatch(
-  store: FileStore,
-  options: {
-    from: string;
-    to: string;
-    clearance: Clearance;
-    skip?: readonly string[];
-    limit?: number;
-    maxObjectBytes: number;
-  },
-): Promise<{ objects: PlannedContextMoveObject[]; skipped: ContextMoveSkip[]; remaining: boolean }> {
-  const { from, to, state, sourceIsFolder, candidates, remaining } = await listMoveCandidates(store, options);
-  if (!sourceIsFolder && candidates.length > 0 && typeof store.head === "function") {
-    // One file is named, not listed: ask the bucket whether it is there (and
-    // how large) without reading it, as the export learns by reading it.
-    const meta = await store.head(from);
-    if (meta === null) return { objects: [], skipped: [], remaining: false };
-    if (typeof meta.size === "number") candidates[0] = { key: from, size: meta.size };
-  }
-  const objects: PlannedContextMoveObject[] = [];
-  const skipped: ContextMoveSkip[] = [];
-  for (const { key, size } of candidates) {
-    if (typeof size === "number" && size > options.maxObjectBytes) {
-      skipped.push({ path: key, reason: "too_large" });
-      continue;
-    }
-    objects.push({
-      source: key,
-      destination: sourceIsFolder ? `${to}${key.slice(from.length)}` : to,
-      size: typeof size === "number" ? size : 0,
-      sourceVisibility: effectiveVisibility(key, state.rules, state.overrides) === "team" ? "team" : "private",
-    });
-  }
-  return { objects, skipped, remaining };
 }
 
 /**

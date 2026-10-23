@@ -18,7 +18,7 @@ import { isIndexableNote } from "../../../../mcp/src/search/indexable.js";
 import { followChange } from "../../../../mcp/src/search/d1/follow.js";
 import { effectiveVisibility } from "../privacy";
 import { answerFromProjection, pageDepth } from "../../../../mcp/src/search/d1/serve.js";
-import { atTreeNames, meaningMatches, meaningSearchable, withMeaning } from "../../../../mcp/src/search/meaning/serve.js";
+import { meaningMatches, meaningSearchable, withMeaning } from "../../../../mcp/src/search/meaning/serve.js";
 import type { FileStore } from "./store";
 import { notFound } from "./errors";
 import { requireFolderPath } from "./paths";
@@ -330,19 +330,12 @@ export async function searchNotes(
     const wordsMs = Date.now() - started;
     // `evidence` (the word rank and closeness behind each hit) is for the
     // gateway's search across workspaces; a console answer carries hits only.
-    // Shown at the names the tree draws while a queued folder move copies,
-    // judged again there, as `search_notes` answers (`atTreeNames`).
-    const withMoves = atTreeNames(
-      await withMeaning(store, found, await meaningPending, {
-        keyField: "path",
-        isVisible,
-        // Snippets for the notes only meaning found, out of the database in one statement rather than a read each.
-        ...(projection !== null ? { projection: { client: () => projection, filling: projection.filling === true } } : {}),
-      }),
-      (store as { pendingMoves?: unknown }).pendingMoves,
-      { isVisible, prefix: underFolder, keyField: "path" },
-    );
-    const { meaning: _meaning, evidence, ...results } = withMoves;
+    const withMeaningHits = await withMeaning(store, found, await meaningPending, {
+      keyField: "path",
+      // Snippets for the notes only meaning found, out of the database in one statement rather than a read each.
+      ...(projection !== null ? { projection: { client: () => projection, filling: projection.filling === true } } : {}),
+    });
+    const { meaning: _meaning, evidence, ...results } = withMeaningHits;
     // `withMeaning` moves `loose` off the hits into `evidence`; the console
     // puts it back on, since its rows count the words a loose hit has
     // ("Has 2 of 3 words", board B1 of the leadership weekly, 2026-10-17).
@@ -586,8 +579,7 @@ export async function indexChangedNotes(
  * The same change, followed into a `ready` fast search database: a moved
  * note's old rows out and its new path projected, a moved folder renamed in
  * place, a gone note removed (`search/d1/follow.js`, shared with the gateway).
- * A queued folder move is skipped by the caller: the bucket has not moved yet,
- * and the move's worker follows it here when its copy lands (`nodes/moveWork.ts`).
+ * A row move is followed by the caller (`rowMoveChunks.ts`), once its rows land.
  * Never throws: the database is a derivative, and the sweep repairs it.
  */
 export async function followInProjection(

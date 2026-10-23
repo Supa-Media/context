@@ -200,22 +200,6 @@ describe("the flip: which rows are keyed, and when", () => {
     expect((await copyRow(t, ws))?.keyedDoneAt).toEqual(expect.any(Number));
   });
 
-  test("no flip in ids mode: production stays as it is", async () => {
-    const t = tester();
-    const ws = await boundWorkspace(t, "flipids");
-    const store = bucket({ "1-projects/a.md": "# A\n" });
-    await observeKeys(t, ws, store, ["1-projects/a.md"]);
-    const c = chain(t, ws, store);
-    await setTree(t, ws, "ready");
-    await setLayout(t, "ids");
-    await runPass(c);
-    await flipNow(c);
-
-    expect((await rowAt(t, ws, "1-projects/a.md"))?.storageKey).toBeUndefined();
-    expect(await copyRow(t, ws)).toMatchObject({ status: "done" });
-    expect((await copyRow(t, ws))?.keyedAt).toBeUndefined();
-  });
-
   test("no flip while the tree is still filling, and the flip runs once it is ready", async () => {
     const t = tester();
     const ws = await boundWorkspace(t, "flipfilling");
@@ -323,30 +307,6 @@ describe("the flip: which rows are keyed, and when", () => {
     expect((await copyRow(t, ws))?.keyedDoneAt).toBeUndefined();
   });
 
-  test("the admin report counts keyed files and live files in keys mode, and nothing in ids mode", async () => {
-    const t = tester();
-    const ws = await boundWorkspace(t, "flipreport");
-    const store = bucket({ "1-projects/a.md": "# A\n", "1-projects/b.md": "# B\n" });
-    await observeKeys(t, ws, store, ["1-projects/a.md", "1-projects/b.md"]);
-    const c = chain(t, ws, store);
-    await runPass(c);
-    await keysReady(t, ws);
-    store.seed("1-projects/b.md", "# B, edited\n");
-    await observeKeys(t, ws, store, ["1-projects/b.md"], Date.now() + 1_000);
-    await flipNow(c);
-
-    const staff = t.withIdentity({ subject: await user(t, ADMIN) });
-    const report = await staff.query(api.functions.noteIds.report, {});
-    expect(report.mode).toBe("keys");
-    expect(report.workspaces.find((row) => row.handle === "flipreport")).toMatchObject({
-      liveFiles: 2,
-      keyed: 1,
-      keyedAt: expect.any(Number),
-      keyedDoneAt: null,
-    });
-    expect(report.totals).toMatchObject({ liveFiles: 2, keyed: 1 });
-    expect(JSON.stringify(report)).not.toMatch(/1-projects|\.md/);
-  });
 });
 
 describe("keyed rows through the copy pass and the diagnosis", () => {

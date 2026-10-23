@@ -21,7 +21,7 @@
  */
 
 import { folderNumbers, liveSummary, liveTotals, scoreKeys } from "../../../../mcp/src/chaos/live.js";
-import { logicalPath as queuedLogicalPath } from "../../../../mcp/src/moves/queued.js";
+import { logicalPath as queuedLogicalPath } from "../nodes/movePaths";
 import { servedKeys, servedMoves } from "../nodes/manifestStore";
 import { chaosWord } from "../../../../mcp/src/chaos/rubric.js";
 import type { Clearance } from "../clearance";

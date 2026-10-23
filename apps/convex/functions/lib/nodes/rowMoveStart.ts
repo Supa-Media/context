@@ -7,7 +7,7 @@
  * thrown, because the old way would move the frozen path copies the bucket
  * still holds, and those are not the notes (`keyed-design.md`).
  *
- * In order, as `moveStart.ts` does for a queued move:
+ * In order:
  *  1. The names the caller may see (`canSee`), and the notes under a folder
  *     it may not see in full are refused (a row move cannot leave them behind).
  *  2. The rules are carried to the new name (`carryPrivacy`), so the moved

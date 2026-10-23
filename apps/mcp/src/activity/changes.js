@@ -32,7 +32,6 @@ export const TREE_ACTIONS = new Set([
   "move_note",
   "move_notes",
   "move_folder",
-  "materialize_move",
   "set_visibility",
   "set_folder_visibility",
 ]);
@@ -93,7 +92,6 @@ export function treeHintOf(action, paths, details) {
     case "move_note":
     case "archive_note":
     case "move_folder":
-    case "materialize_move":
       return { paths: paths.length === 2 ? [paths[1]] : paths, known };
     case "move_notes": {
       const moved = typeof details?.moved === "number" ? details.moved : paths.length / 2;

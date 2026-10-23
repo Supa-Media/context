@@ -38,7 +38,6 @@ import { isDrawingPath, parseDrawing } from "../../../../../packages/drawings/sr
 import { isEncryptedNote } from "../../encryption.js";
 import { isPersonalCommunicationsPath, normalizePath } from "../../notes/paths.js";
 import { parseFormBlocks } from "../../forms.js";
-import { pathUnderActiveMovedSource } from "../../moves/jobs.js";
 import { persistExactVisibility, UNWRITABLE_PATH_REFUSAL, writesOneRule } from "../../privacy/state.js";
 import { projectWrittenNoteAfterResponse } from "../../search/writeProjection.js";
 import { recordChange } from "../../activity/record.js";
@@ -116,9 +115,6 @@ export async function toolWriteNote(store, scope, rules, overrides, args, option
       `the form block at line ${brokenForm.line} is not valid: ${brokenForm.error}. ` +
         "Fix it or remove it — a note is not saved with a form that cannot be used."
     );
-  }
-  if (await pathUnderActiveMovedSource(store, path)) {
-    return toolError("conflict: that folder is being moved; write to the destination path instead");
   }
   // Any override that is not `team` is a destination a team connection may not
   // write, and `!== "team"` rather than `=== "private"` is the whole of it.

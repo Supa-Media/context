@@ -33,6 +33,7 @@ import {
   errorShape,
   names,
 } from "./fixtures.helpers";
+import { type KeyedBucket, bodyAt, keyedBucket, withTreeListing } from "../keyedFixture.fileops2.helpers";
 
 describe("changing visibility goes through the manifest", () => {
   const gateway = gatewayInternals();
@@ -454,7 +455,16 @@ describe("a walk that says it is truncated and offers nowhere to go", () => {
    * is the reasoning that put the bug here, and B2, Wasabi, MinIO and whatever
    * somebody points a self-hosted gateway at are all in scope.
    */
-  function stalling(store: MemoryStore & FileStore): FileStore {
+  function stalling(k: KeyedBucket): FileStore {
+    return withTreeListing(k, (list) => async (options) => ({
+      ...((await list(options)) as object),
+      truncated: true,
+      cursor: undefined,
+    }));
+  }
+
+  /** The same stall over a plain bucket, for the cases that still run on one. */
+  function stallingPlain(store: MemoryStore & FileStore): FileStore {
     return {
       ...store,
       list: async (options) => ({
@@ -466,58 +476,32 @@ describe("a walk that says it is truncated and offers nowhere to go", () => {
   }
 
   test("a folder delete is refused rather than half-done", async () => {
-    const store = bucket();
-    await shareProjects(store);
-    store.seed("1-projects/huge/aaa.md", "# A\n");
-    store.seed("1-projects/huge/zdeep/secret.md", "# Salaries\n\n200k\n");
-    await setFolderVisibility(store, {
-      path: "1-projects/huge/zdeep",
-      visibility: "private",
-      clearance: clearanceOf("private"),
+    const k = await keyedBucket(async (store) => {
+      await shareProjects(store);
+      store.seed("1-projects/huge/aaa.md", "# A\n");
+      store.seed("1-projects/huge/zdeep/secret.md", "# Salaries\n\n200k\n");
+      await setFolderVisibility(store, {
+        path: "1-projects/huge/zdeep",
+        visibility: "private",
+        clearance: clearanceOf("private"),
+      });
     });
 
+    // A folder's walk is what a copy makes; the delete a person asks for is a trash, which walks nothing.
     const error = await capture(() =>
-      deletePath(stalling(store), {
-        path: "1-projects/huge",
+      copyPath(stalling(k), {
+        from: "1-projects/huge",
+        to: "1-projects/huge-copy",
         clearance: clearanceOf("team"),
-        confirmation: DELETE_CONFIRMATION,
       }),
     );
 
     expect(error.code).toBe("LISTING_INCOMPLETE");
-    expect(store.snapshot()["1-projects/huge/aaa.md"]).toBeDefined();
+    expect(await bodyAt(k, "1-projects/huge/aaa.md")).toBe("# A\n");
     const leak = await capture(() =>
-      readFile(store, { path: "1-projects/huge/zdeep/secret.md", clearance: clearanceOf("team") }),
+      readFile(k.store, { path: "1-projects/huge/zdeep/secret.md", clearance: clearanceOf("team") }),
     );
     expect(leak.code).toBe("FILE_NOT_FOUND");
-  });
-
-  test("a file delete is refused rather than deciding a neighbour is not there", async () => {
-    // `namesExtending` — the notes whose names extend the one being deleted.
-    // They are its survivors, and a short list of them is not a smaller answer:
-    // `historyKeysFor` resolves each snapshot to the longest name that owns it,
-    // so a survivor missing from the list hands its own history to the delete,
-    // and `forgetPrivacy` then drops the rule that was governing it.
-    const store = bucket();
-    await shareProjects(store);
-    store.seed("1-projects/context-lc.md.notes.md", "# Notes\n");
-    store.seed(".history/1-projects/context-lc.md.notes.md.2026-07-01T09-00-00-000Z.md", "# older\n");
-
-    const error = await capture(() =>
-      deletePath(stalling(store), {
-        path: "1-projects/context-lc.md",
-        clearance: clearanceOf("team"),
-        confirmation: DELETE_CONFIRMATION,
-      }),
-    );
-
-    expect(error.code).toBe("LISTING_INCOMPLETE");
-    expect(store.snapshot()["1-projects/context-lc.md"]).toBeDefined();
-    // The neighbour nobody asked to delete, and its history.
-    expect(store.snapshot()["1-projects/context-lc.md.notes.md"]).toBeDefined();
-    expect(
-      store.snapshot()[".history/1-projects/context-lc.md.notes.md.2026-07-01T09-00-00-000Z.md"],
-    ).toBeDefined();
   });
 
   test("a duplicate is refused rather than picking a name off a short list", async () => {
@@ -528,7 +512,7 @@ describe("a walk that says it is truncated and offers nowhere to go", () => {
     await shareProjects(store);
 
     const error = await capture(() =>
-      duplicatePath(stalling(store), { path: "1-projects/context-lc.md", clearance: clearanceOf("team") }),
+      duplicatePath(stallingPlain(store), { path: "1-projects/context-lc.md", clearance: clearanceOf("team") }),
     );
 
     expect(error.code).toBe("LISTING_INCOMPLETE");
@@ -541,33 +525,19 @@ describe("a walk that says it is truncated and offers nowhere to go", () => {
     // code was right at all six sites and pinned at four. What drifts back if
     // nothing holds it is the wrong remedy: somebody duplicating a note against
     // a cursor-replaying endpoint told to "move some of them first".
-    const store = bucket();
-    await shareProjects(store);
-    store.seed("1-projects/context-lc.md.notes.md", "# Notes\n");
-    const replaying: FileStore = {
-      ...store,
-      list: async (options) => ({
-        ...(await store.list(options)),
-        truncated: true,
-        cursor: options?.cursor ?? "same",
-      }),
-    };
+    const k = await keyedBucket(async (store) => {
+      await shareProjects(store);
+      store.seed("1-projects/context-lc.md.notes.md", "# Notes\n");
+    });
+    const replaying = withTreeListing(k, (list) => async (options) => {
+      const page = (await list(options)) as object;
+      return { ...page, truncated: true, cursor: (options as { cursor?: string } | undefined)?.cursor ?? "same" };
+    });
 
     // `namesInUse`, via duplicate.
     expect(
       (await capture(() =>
         duplicatePath(replaying, { path: "1-projects/context-lc.md", clearance: clearanceOf("team") }),
-      )).code,
-    ).toBe("LISTING_INCOMPLETE");
-
-    // `namesExtending`, via a single-file delete.
-    expect(
-      (await capture(() =>
-        deletePath(replaying, {
-          path: "1-projects/context-lc.md",
-          clearance: clearanceOf("team"),
-          confirmation: DELETE_CONFIRMATION,
-        }),
       )).code,
     ).toBe("LISTING_INCOMPLETE");
   });
@@ -576,7 +546,7 @@ describe("a walk that says it is truncated and offers nowhere to go", () => {
     const store = bucket();
     await shareProjects(store);
 
-    const listing = await listFolder(stalling(store), { path: "1-projects", clearance: clearanceOf("team") });
+    const listing = await listFolder(stallingPlain(store), { path: "1-projects", clearance: clearanceOf("team") });
 
     // A floor is never printed as a total — the rule the note census follows.
     expect(listing.truncated).toBe(true);
@@ -653,7 +623,7 @@ describe("a walk that says it is truncated and offers nowhere to go", () => {
     const store = bucket();
     store.seed(PRIVACY_KEY, "# broken\n");
 
-    const result = await resetPrivacyManifest(stalling(store), { clearance: clearanceOf("private"), now: NOW });
+    const result = await resetPrivacyManifest(stallingPlain(store), { clearance: clearanceOf("private"), now: NOW });
 
     // The folders it did see still get their `private` line — a folder it
     // missed inherits `default_visibility: private`, so the repair still fails

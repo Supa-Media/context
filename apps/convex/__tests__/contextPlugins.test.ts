@@ -35,6 +35,7 @@ import {
   addMember,
   asUser,
   captureError,
+  copyTree,
   createUser,
   createWorkspace,
   errorCode,
@@ -114,6 +115,8 @@ async function fixture(options: MemoryS3Options & { conditionalWrite?: boolean }
       updatedAt: Date.now(),
     }),
   );
+  // Keyed like every workspace: the seeded notes are copied to their id keys and named by rows.
+  await copyTree(t, workspaceId);
   const f: Fixture = { t, owner, member, stranger, workspaceId, backend };
   /*
     A real form, written by the owner — which is also what creates its response

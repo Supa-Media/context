@@ -43,7 +43,7 @@ import { recordProjectionOutcome } from "./projectionOutcome";
 import { isNodesOperation, requestNodesSweep, runNodesOperation } from "../nodes/run";
 import { isTreeRead, treeReadAnswer } from "../nodes/treeReads";
 import { TreeUnbound } from "../nodes/treeLoading";
-import { attachQueueMove, isMoveOperation, pendingMovesLookup, runMoveOperation, storeWithMoves } from "../nodes/moveBarrier";
+import { attachQueueMove, isMoveOperation, pendingMovesLookup, runMoveOperation } from "../nodes/moveBarrier";
 import { attachPlacesFollower } from "../nodes/followPlaces";
 import { attachLandedTouch } from "../nodes/landedTouch";
 import { attachTreeListing } from "../nodes/treeNames";
@@ -220,7 +220,7 @@ export async function runFileOperationHandler(
   // `maintainIndex` stops here, before any credential, and `indexNotes`
   // follows the change into the database alone.
   let operation: FileOperation = args.operation as FileOperation;
-  if (args.operation.kind === "maintainIndex" || args.operation.kind === "indexNotes" || args.operation.kind === "nodesMoveWork" || args.operation.kind === "pruneIndex" || args.operation.kind === "hideOldCopies") {
+  if (args.operation.kind === "maintainIndex" || args.operation.kind === "indexNotes" || args.operation.kind === "pruneIndex" || args.operation.kind === "hideOldCopies") {
     // Never fails the operation it rides on: a move's copy must not stop over a derivative.
     const target = await ctx
       .runQuery(internal.functions.fastSearch.projectionTargetForWorkspace, { workspaceId: args.workspaceId })
@@ -365,7 +365,7 @@ export async function runFileOperationHandler(
     .runQuery(internal.functions.billing.noteCap, { workspaceId: args.workspaceId })
     .catch(() => null);
   const encryptionLookup = managedEncryptionOption(ctx, args.workspaceId).catch(() => undefined);
-  // Queued moves the tree draws already (`lib/nodes/moveBarrier.ts`); a failed read fails the operation.
+  // Keyed moves the tree draws already (`lib/nodes/moveBarrier.ts`); a failed read fails the operation.
   const movesLookup = pendingMovesLookup(ctx, args.workspaceId);
 
   let credential: GatewayCredential | null;
@@ -493,10 +493,7 @@ export async function runFileOperationHandler(
     attachTreeListing(ctx, args.workspaceId, store);
     return await runPrunePass(ctx, { ...args, operation: args.operation }, store, projection, await movesLookup);
   }
-
-  // While moves are pending, a note is moved to where the tree draws it before it is read or written.
   const bucket = store;
-  store = await storeWithMoves(ctx, args, store, await movesLookup);
 
   // Non-enumerable, as the gateway attaches it: `searchNotes` asks it, and
   // no serializer walking the store can carry the token out.
@@ -553,7 +550,7 @@ export async function runFileOperationHandler(
   // from the trash and a move in from another context all add one, and stay
   // capped.
   const listing = await manifestSource(ctx, args, store);
-  attachQueueMove(ctx, args, listing.store, bucket, undefined, projection);
+  attachQueueMove(ctx, args, listing.store, bucket, projection);
   attachTreeListing(ctx, args.workspaceId, listing.store);
   attachWorkspaceKeyed(ctx, args.workspaceId, listing.store);
   await attachArrivalAccess(ctx, args, listing.store);

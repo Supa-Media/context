@@ -52,12 +52,6 @@ export async function scheduleDiagnosis(ctx: MutationCtx, workspaceId: Id<"works
   });
 }
 
-/** The switch: absent means running. */
-export async function idCopyPaused(db: DatabaseReader): Promise<boolean> {
-  const row = await db.query("noteIdLayout").first();
-  return row?.paused === true;
-}
-
 /** A page of a pass holds the row's lease, so no second page runs beside it. */
 export function leaseHeld(row: CopyRow, now: number): boolean {
   return row.leaseAt !== undefined && now - row.leaseAt < COPY_LEASE_MS;
@@ -103,23 +97,6 @@ export async function logSeq(db: DatabaseReader, workspaceId: Id<"workspaces">):
     .order("desc")
     .first();
   return last?.seq ?? 0;
-}
-
-/** How long a finished pass that failed some files waits before the cron tries them again. */
-export const FAILED_COPY_RETRY_MS = 60 * 60 * 1000;
-
-/**
- * Whether the cron should start a finished pass again. Each pass reads every
- * row of the tree, so it runs only when it could find something new: never
- * once every row is keyed (a keyed row owes no copy, and the flip that would
- * follow has finished), once the change log moved past the pass, or hourly
- * while files the last pass could not copy are waiting.
- */
-export async function copyPassOwed(db: DatabaseReader, row: CopyRow, now: number): Promise<boolean> {
-  if (row.keyedDoneAt !== undefined) return false;
-  if (row.passSeq === undefined) return true;
-  if ((await logSeq(db, row.workspaceId)) > row.passSeq) return true;
-  return row.failed > 0 && now - row.updatedAt >= FAILED_COPY_RETRY_MS;
 }
 
 export async function nodeAt(db: DatabaseReader, workspaceId: Id<"workspaces">, path: string): Promise<NodeDoc | null> {

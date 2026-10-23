@@ -96,13 +96,7 @@ export async function forgetWorkspaceTree(
       await ctx.db.delete(row._id);
     }
   }
-  // Queued moves describe objects in the bucket the workspace left, or in none.
-  const moves = await ctx.db
-    .query("moveQueue")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-    .collect();
-  for (const row of moves) await ctx.db.delete(row._id);
-  // So do keyed moves in pages: the rows they would carry are going too.
+  // Keyed moves in pages: the rows they would carry are going too.
   const rowMoves = await ctx.db
     .query("rowMoves")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
@@ -137,17 +131,12 @@ export async function forgetWorkspaceTree(
  * describe the new bucket as well as they did the old one. Forgotten, nothing
  * could rebuild them: the new bucket names no path.
  *
- * What does describe the old bucket goes: queued byte moves, and the icons,
- * emoji and ledger sync state (written to the new bucket again). A move may
- * reseal or unseal the keys on the way, so every key is checked against its
- * row (`scheduleDiagnosis`), and rows take the new bucket's versions.
+ * What does describe the old bucket goes: the icons, emoji and ledger sync
+ * state (written to the new bucket again). A move may reseal or unseal the
+ * keys on the way, so every key is checked against its row
+ * (`scheduleDiagnosis`), and rows take the new bucket's versions.
  */
 export async function keepKeyedTreeForStorage(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<void> {
-  const moves = await ctx.db
-    .query("moveQueue")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-    .collect();
-  for (const row of moves) await ctx.db.delete(row._id);
   await resetSmallDataForStorage(ctx, workspaceId);
   await scheduleDiagnosis(ctx, workspaceId);
 }

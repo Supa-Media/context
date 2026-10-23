@@ -23,11 +23,7 @@ export const GATE_CLOSED_LABEL = "Deleting old copies stopped: the switch or the
 
 export interface CleanupGateInput {
   now: number;
-  /** The id copy is paused: nothing new starts. */
-  paused: boolean;
-  /** `keyedWorkspace`: the switch is at keys and the flip started. */
-  keyed: boolean;
-  /** When the flip started (the copy row's `keyedAt`). */
+  /** When the workspace was keyed (the copy row's `keyedAt`): the 7-day wait counts from it. */
   keyedAt: number | undefined;
   cleanup:
     | {
@@ -45,9 +41,8 @@ export interface Refusal {
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? `${n} ${one}` : `${n} ${many}`);
 
-/** A Count is a dry run: it is refused only while paused or while a run is already going. */
+/** A Count is a dry run: it is refused only while a run is already going. */
 export function countRefusal(input: CleanupGateInput): Refusal | null {
-  if (input.paused) return { code: "NOTE_IDS_PAUSED", message: "The id copy is paused. Resume it first." };
   if (input.cleanup?.running !== undefined) {
     return { code: "CLEANUP_RUNNING", message: "A count or a delete is already running for this workspace." };
   }
@@ -56,17 +51,17 @@ export function countRefusal(input: CleanupGateInput): Refusal | null {
 
 /**
  * The Delete's gate, read again while the run goes on. The run's own `running`
- * flag is not a refusal here; every other gate is, paused included.
+ * flag is not a refusal here; every other gate is.
  */
 export function deleteRecheckRefusal(input: CleanupGateInput): Refusal | null {
   return deleteRefusal({ ...input, cleanup: input.cleanup === undefined ? undefined : { ...input.cleanup, running: undefined } });
 }
 
-/** A Delete is refused in this order: paused, running, not keyed, waiting, not counted, stale count, notes still read by path. */
+/** A Delete is refused in this order: running, not keyed (no keyed time), waiting, not counted, stale count, notes still read by path. */
 export function deleteRefusal(input: CleanupGateInput): Refusal | null {
   const running = countRefusal(input);
   if (running !== null) return running;
-  if (!input.keyed || input.keyedAt === undefined) {
+  if (input.keyedAt === undefined) {
     return {
       code: "CLEANUP_NOT_KEYED",
       message: "Only a workspace whose notes are keyed can have its old copies deleted.",

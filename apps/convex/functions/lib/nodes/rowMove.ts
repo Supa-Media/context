@@ -6,8 +6,7 @@
  * rows themselves, which keep their ids), and nothing is copied or queued.
  *
  * Refused, with nothing written, when:
- *  - the workspace is not keyed (`keyedWorkspace`): the old way moves it;
- *  - a queued byte move is still pending here (its names are not settled);
+ *  - the workspace is not keyed (`keyedWorkspace`);
  *  - the destination, or any path a moved row would take, is held by a live row;
  *  - any file under the name has no key (its flip is not finished);
  *  - another keyed move still moving overlaps either name (`busy`, `rowMoveChunks.ts`);
@@ -19,7 +18,7 @@
  * A move within the cap is one mutation, so a refusal leaves nothing behind and
  * a success is all of it. Privacy rules are not written here: they live in
  * `privacy.md`, which the caller carries before and releases after
- * (`rowMoveStart.ts`, as `moveStart.ts` does for a queued move).
+ * (`rowMoveStart.ts`).
  *
  * A move into or out of the trash (`trash: true`, `rowTrash.ts`) writes no
  * rules and so checks none: the trashed note keeps its rules at its own name
@@ -187,9 +186,6 @@ export async function applyRowMove(
 
   if (!(await keyedWorkspace(ctx.db, ws))) return refuse("not_keyed");
   if (!(await treeServesNow(ctx.db, ws))) return refuse("not_served");
-  // A byte move still queued from before the flip names paths the rows no longer hold the notes at.
-  const queued = await ctx.db.query("moveQueue").withIndex("by_workspace", (q) => q.eq("workspaceId", ws)).first();
-  if (queued !== null) return refuse("busy");
   // The version the caller was handed (`privacyEtagNow`), taken the same way here: the rows' in rows mode.
   if (!trash && (await privacyEtagOf(ctx, ws)) !== args.privacyEtag) return refuse("rules_changed");
   const mirror = await readerMirror(ctx, ws);

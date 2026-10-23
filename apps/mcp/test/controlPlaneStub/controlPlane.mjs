@@ -625,28 +625,8 @@ export function createControlPlaneStub(options = {}) {
           });
           return ok({ ticket });
         }
-        const grant = await grantForAccessToken(body.accessToken);
-        if (!grant) return ok({ ticket: null });
-        const covered = coveredContexts(grant);
-        const named = covered.find((entry) => entry.workspaceId === body.expectedWorkspaceId);
-        if (!named || named.role !== "owner") return ok({ ticket: null });
-        if (!grant.scopes.includes("context:write") || !grant.scopes.includes("context:private")) {
-          return ok({ ticket: null });
-        }
-        if (body.job?.kind !== "materialize_move" || typeof body.job?.moveId !== "string") {
-          return ok({ ticket: null });
-        }
-        const ticket = `job-ticket-${gatewayJobs.size + 1}`;
-        gatewayJobs.set(ticket, {
-          workspaceId: named.workspaceId,
-          actorUserId: grant.userId,
-          actorClientId: grant.clientId,
-          grantId: grant.grantId,
-          kind: "materialize_move",
-          moveId: body.job.moveId,
-          status: "queued",
-        });
-        return ok({ ticket });
+        // Image uploads are the only jobs now: a move is rows in the control plane, not a job.
+        return ok({ ticket: null });
       }
 
       case "/gateway/jobs/open": {

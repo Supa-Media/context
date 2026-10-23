@@ -4,8 +4,7 @@
  * A keyed note's bytes sit at `notes/<noteId>.md`, so a trash that moved bytes
  * would move frozen path copies and leave the live note where it was. Instead
  * the note's row (or a folder's rows) move into `.context/trash/<stamp>/<path>`,
- * the same destination the queued byte trash names (`trashStart.ts`), and
- * Restore moves them back. Nothing is copied, deleted or queued, and no privacy
+ * the hidden trash folder, and Restore moves them back. Nothing is copied, deleted or queued, and no privacy
  * rule is written: the note keeps its rules at its own name for Restore, as a
  * trash made in one go does (`trashPath`).
  *

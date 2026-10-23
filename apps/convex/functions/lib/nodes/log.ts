@@ -105,28 +105,27 @@ export function feedToken(mirror: PrivacyMirror | null, moves = "", access?: num
   return `${FEED_PREFIX}${mirror?.etag ?? ""}${moves === "" ? "" : `#${moves}`}${rows}`;
 }
 
-/** A pending move as the feed reads it: its row, and whether Undo turned it round. */
+/** A pending move as the feed reads it: its row, and its names. */
 export interface FeedMove {
   id: string;
   from: string;
   to: string;
-  undone?: boolean;
 }
 
 /**
  * Which moves are pending, as a short mark for `feedToken`, or `""` for none.
  *
- * A queued folder move changes what every name under it is called without
- * writing a log row (the rows stay physical until the copy lands, `moveWork.ts`),
- * so a copy built from the log alone would keep the old names for as long as
- * the copy runs. Putting the pending moves in the version a copy is judged by
- * makes a device walk when one starts, and again when it finishes or is
- * undone, and the walk folds the moves in (`manifestStore.ts`).
+ * A folder move changes what every name under it is called without writing a
+ * log row (the rows stay where they were until the move's pages land), so a
+ * copy built from the log alone would keep the old names for as long as the
+ * copy runs. Putting the pending moves in the version a copy is judged by
+ * makes a device walk when one starts, and again when it finishes, and the
+ * walk folds the moves in (`manifestStore.ts`).
  */
 export function movesMark(moves: readonly FeedMove[]): string {
   if (moves.length === 0) return "";
   let hash = 0x811c9dc5;
-  const text = moves.map((move) => `${move.id}${move.undone === true ? "~" : ""}`).join(",");
+  const text = moves.map((move) => move.id).join(",");
   for (let index = 0; index < text.length; index += 1) {
     hash ^= text.charCodeAt(index);
     hash = Math.imul(hash, 0x01000193) >>> 0;

@@ -10,7 +10,6 @@ import { LINK_SCAN_CAP } from "../../moves/objects.js";
 import { listAllNoteKeys } from "../../notes/visibleKeys.js";
 import { mapInBatches } from "../../notes/storage.js";
 import { forwardPath, readForwarding } from "../../forwarding.js";
-import { loadMoveJobs } from "../../moves/jobs.js";
 import { replaceText as replaceCollaborationText } from "@context/collaboration";
 import { factCandidates } from "../../tree/facts.js";
 import { servedListingStore, TreeUnavailable } from "../../tree/served.js";
@@ -59,7 +58,6 @@ export async function rewriteReferences(store, scope, rules, overrides, renames,
   after,
   limit,
   paths,
-  currentJobId,
   inventoryKeys,
   candidates,
 } = {}) {
@@ -78,18 +76,6 @@ export async function rewriteReferences(store, scope, rules, overrides, renames,
   }
   keys.sort();
   const allVisibleKeys = keys;
-  // Only the background worker finishing an old-style folder move
-  // (`.context/moves/`, `materialize.js`) names its job, and only it reads the
-  // others: a request's rewrite never lists move jobs (2026-10-13).
-  const activeJobs = currentJobId ? await loadMoveJobs(store) : [];
-  const unavailable = new Set();
-  for (const job of activeJobs) {
-    for (const item of job.objects) {
-      unavailable.add(item.source);
-      if (job.id !== currentJobId) unavailable.add(item.destination);
-    }
-  }
-  keys = keys.filter((key) => !unavailable.has(key));
   // The Convex tree's facts named the notes that can hold a link to what
   // moved (`tree/facts.js`): only those are read. Every visible note still feeds
   // `byName` below, because a bare link is unambiguous only across them all.
@@ -288,8 +274,7 @@ export async function rewriteReferencesAfterMove(store, scope, rules, overrides,
  * this workspace.
  *
  * `null` only for a store with no person's grant to ask the tree with: the
- * background worker draining an old-style move job, which inventories the
- * bucket itself, a page per pass (`materialize.js`).
+ * caller that inventories the bucket itself.
  */
 export async function referenceCandidates(store, renames) {
   if (renames.size === 0 || typeof store?.treeManifest !== "function") return null;

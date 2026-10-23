@@ -9,20 +9,15 @@ import {
   readFile,
   setFolderVisibility,
   setVisibility,
+  trashPath,
 } from "../../functions/lib/fileOps";
-import {
-  PRIVACY_KEY,
-  canSee,
-} from "../../functions/lib/privacy";
-import {
-  NOW,
-  bucket,
-  historyKeys,
-  shareProjects,
-  capture,
-  errorShape,
-  names,
-} from "./fixtures.helpers";
+import { PRIVACY_KEY } from "../../functions/lib/privacy";
+import { NOW, bucket, capture, errorShape, names, shareProjects } from "./fixtures.helpers";
+import { type KeyedBucket, bodyAt, keyedBucket, liveRowAt } from "../keyedFixture.fileops2.helpers";
+import { treeView } from "../../functions/lib/fileOps/walk";
+
+/** The privacy manifest as the keyed workspace holds it. */
+const manifestOf = (k: KeyedBucket) => k.raw.snapshot()[PRIVACY_KEY] as string;
 
 describe('a bulk operation acts only on what the caller can see', () => {
   /**
@@ -35,25 +30,26 @@ describe('a bulk operation acts only on what the caller can see', () => {
    * added for, four commits later.
    */
   test("a move the writer would hide is refused, not stranded", async () => {
-    const store = bucket();
-    await shareProjects(store);
-    store.seed("1-projects/aaa-team/plan.md", "# The team's plan\n");
-    // The destination folder must NOT exist, or the merge refusal answers first
-    // and this proves nothing about the guard. A stale rule is enough to make
-    // the rename collide.
-    await setFolderVisibility(store, {
-      path: "1-projects/zzz-hidden",
-      visibility: "private",
-      clearance: clearanceOf("private"),
-    });
-    await setFolderVisibility(store, {
-      path: "1-projects/aaa-team",
-      visibility: "team",
-      clearance: clearanceOf("private"),
+    const k = await keyedBucket(async (store) => {
+      await shareProjects(store);
+      store.seed("1-projects/aaa-team/plan.md", "# The team's plan\n");
+      // The destination folder must NOT exist, or the merge refusal answers first
+      // and this proves nothing about the guard. A stale rule is enough to make
+      // the rename collide.
+      await setFolderVisibility(store, {
+        path: "1-projects/zzz-hidden",
+        visibility: "private",
+        clearance: clearanceOf("private"),
+      });
+      await setFolderVisibility(store, {
+        path: "1-projects/aaa-team",
+        visibility: "team",
+        clearance: clearanceOf("private"),
+      });
     });
 
     const error = await capture(() =>
-      movePath(store, {
+      movePath(k.store, {
         from: "1-projects/aaa-team",
         to: "1-projects/zzz-hidden",
         clearance: clearanceOf("team"),
@@ -62,8 +58,8 @@ describe('a bulk operation acts only on what the caller can see', () => {
     );
     expect(error.code).toBe("FILE_NOT_FOUND");
     // The note stayed where its owner can still reach it.
-    expect(store.snapshot()["1-projects/aaa-team/plan.md"]).toBeDefined();
-    const listing = await listFolder(store, { path: "1-projects/aaa-team", clearance: clearanceOf("team") });
+    expect(await bodyAt(k, "1-projects/aaa-team/plan.md")).toBe("# The team's plan\n");
+    const listing = await listFolder(treeView(k.store), { path: "1-projects/aaa-team", clearance: clearanceOf("team") });
     expect(names(listing.entries)).toEqual(["plan.md"]);
   });
 
@@ -75,40 +71,42 @@ describe('a bulk operation acts only on what the caller can see', () => {
    * rule sorts first, the pre-existing `team` rule last.
    */
   test("the arriving rule wins on privacy, not on order", async () => {
-    const store = bucket();
-    store.seed("1-projects/aaa/v.md", "# V\n");
-    store.seed("1-projects/aaa/hr/secret.md", "# Salaries\n\n200k\n");
-    await setFolderVisibility(store, {
-      path: "1-projects/aaa",
-      visibility: "team",
-      clearance: clearanceOf("private"),
-    });
-    await setFolderVisibility(store, {
-      path: "1-projects/aaa/hr",
-      visibility: "private",
-      clearance: clearanceOf("private"),
-    });
-    await setFolderVisibility(store, {
-      path: "1-projects/zzz/hr",
-      visibility: "team",
-      clearance: clearanceOf("private"),
+    const k = await keyedBucket(async (store) => {
+      store.seed("1-projects/aaa/v.md", "# V\n");
+      store.seed("1-projects/aaa/hr/secret.md", "# Salaries\n\n200k\n");
+      await setFolderVisibility(store, {
+        path: "1-projects/aaa",
+        visibility: "team",
+        clearance: clearanceOf("private"),
+      });
+      await setFolderVisibility(store, {
+        path: "1-projects/aaa/hr",
+        visibility: "private",
+        clearance: clearanceOf("private"),
+      });
+      await setFolderVisibility(store, {
+        path: "1-projects/zzz/hr",
+        visibility: "team",
+        clearance: clearanceOf("private"),
+      });
     });
 
-    await movePath(store, {
+    await movePath(k.store, {
       from: "1-projects/aaa",
       to: "1-projects/zzz",
       clearance: clearanceOf("private"),
       now: NOW,
     });
 
-    const manifest = store.snapshot()[PRIVACY_KEY] as string;
-    const lines = manifest.split("\n").filter((line) => line.includes("1-projects/zzz/hr:"));
+    const lines = manifestOf(k)
+      .split("\n")
+      .filter((line) => line.includes("1-projects/zzz/hr:"));
     expect(lines).toHaveLength(1);
     expect(lines[0]).toContain("private");
     expect(
       (
         await capture(() =>
-          readFile(store, { path: "1-projects/zzz/hr/secret.md", clearance: clearanceOf("team") }),
+          readFile(k.store, { path: "1-projects/zzz/hr/secret.md", clearance: clearanceOf("team") }),
         )
       ).code,
     ).toBe("FILE_NOT_FOUND");
@@ -121,30 +119,31 @@ describe('a bulk operation acts only on what the caller can see', () => {
    * on one rule is the case that needs both.
    */
   test("two survivors resting on one rule put it back once", async () => {
-    const store = bucket();
-    await shareProjects(store);
-    store.seed("1-projects/mixed/public.md", "# Public\n");
-    store.seed("1-projects/mixed/hr/pay.md", "# Pay\n");
-    store.seed("1-projects/mixed/hr/bonus.md", "# Bonus\n");
-    await setFolderVisibility(store, {
-      path: "1-projects/mixed/hr",
-      visibility: "private",
-      clearance: clearanceOf("private"),
+    const k = await keyedBucket(async (store) => {
+      await shareProjects(store);
+      store.seed("1-projects/mixed/public.md", "# Public\n");
+      store.seed("1-projects/mixed/hr/pay.md", "# Pay\n");
+      store.seed("1-projects/mixed/hr/bonus.md", "# Bonus\n");
+      await setFolderVisibility(store, {
+        path: "1-projects/mixed/hr",
+        visibility: "private",
+        clearance: clearanceOf("private"),
+      });
     });
 
-    await deletePath(store, {
-      path: "1-projects/mixed",
-      clearance: clearanceOf("team"),
-      confirmation: DELETE_CONFIRMATION,
-    });
+    // Keyed moves refuse a folder holding something the caller cannot see; whether to move it along or leave it behind is an open owner decision (2026-10-22).
+    const refused = await capture(() =>
+      trashPath(k.store, { path: "1-projects/mixed", clearance: clearanceOf("team"), now: NOW }),
+    );
+    expect(refused.code).toBe("CONFLICT");
 
-    const manifest = store.snapshot()[PRIVACY_KEY] as string;
-    const lines = manifest
+    // Nothing changed, so the one rule over the survivors is still written, once.
+    const lines = manifestOf(k)
       .split("\n")
       .filter((line) => line.trim().startsWith("1-projects/mixed/hr:"));
     expect(lines).toHaveLength(1);
     for (const path of ["1-projects/mixed/hr/pay.md", "1-projects/mixed/hr/bonus.md"]) {
-      expect((await capture(() => readFile(store, { path, clearance: clearanceOf("team") }))).code).toBe(
+      expect((await capture(() => readFile(k.store, { path, clearance: clearanceOf("team") }))).code).toBe(
         "FILE_NOT_FOUND",
       );
     }
@@ -158,134 +157,75 @@ describe('a bulk operation acts only on what the caller can see', () => {
    * publishes the note.
    */
   test("the rule put back is the one that decided the survivor", async () => {
-    const store = bucket();
-    await shareProjects(store);
-    store.seed("1-projects/mixed/public.md", "# Public\n");
-    store.seed("1-projects/mixed/hr/comp/secret.md", "# Salaries\n\n200k\n");
-    await setFolderVisibility(store, {
-      path: "1-projects/mixed/hr",
-      visibility: "team",
-      clearance: clearanceOf("private"),
-    });
-    await setFolderVisibility(store, {
-      path: "1-projects/mixed/hr/comp",
-      visibility: "private",
-      clearance: clearanceOf("private"),
+    const k = await keyedBucket(async (store) => {
+      await shareProjects(store);
+      store.seed("1-projects/mixed/public.md", "# Public\n");
+      store.seed("1-projects/mixed/hr/comp/secret.md", "# Salaries\n\n200k\n");
+      await setFolderVisibility(store, {
+        path: "1-projects/mixed/hr",
+        visibility: "team",
+        clearance: clearanceOf("private"),
+      });
+      await setFolderVisibility(store, {
+        path: "1-projects/mixed/hr/comp",
+        visibility: "private",
+        clearance: clearanceOf("private"),
+      });
     });
     const secret = "1-projects/mixed/hr/comp/secret.md";
-    expect((await capture(() => readFile(store, { path: secret, clearance: clearanceOf("team") }))).code).toBe(
+    expect((await capture(() => readFile(k.store, { path: secret, clearance: clearanceOf("team") }))).code).toBe(
       "FILE_NOT_FOUND",
     );
 
-    await deletePath(store, {
-      path: "1-projects/mixed",
-      clearance: clearanceOf("team"),
-      confirmation: DELETE_CONFIRMATION,
-    });
-    expect((await capture(() => readFile(store, { path: secret, clearance: clearanceOf("team") }))).code).toBe(
+    // Keyed moves refuse a folder holding something the caller cannot see; whether to move it along or leave it behind is an open owner decision (2026-10-22).
+    const refused = await capture(() =>
+      trashPath(k.store, { path: "1-projects/mixed", clearance: clearanceOf("team"), now: NOW }),
+    );
+    expect(refused.code).toBe("CONFLICT");
+    expect((await capture(() => readFile(k.store, { path: secret, clearance: clearanceOf("team") }))).code).toBe(
       "FILE_NOT_FOUND",
     );
   });
-
-  test("a sibling listing that cannot finish refuses the delete", async () => {
-    const store = bucket();
-    store.seed("1-projects/a.md", "# A\n");
-    store.seed("1-projects/a.md.one.md", "# One\n");
-    store.seed(".history/1-projects/a.md.one.md.2026-07-01T09-00-00-000Z.md", "# older\n");
-
-    // Only the sibling walk is made endless; the folder walk is untouched, so
-    // this pins `namesExtending` rather than `keysUnder`.
-    const endless: FileStore = {
-      ...store,
-      list: async (options) => {
-        const page = await store.list(options);
-        return options?.prefix === "1-projects/a.md."
-          ? { ...page, truncated: true, cursor: `c${Math.random()}` }
-          : page;
-      },
-    };
-    const error = await capture(() =>
-      deletePath(endless, {
-        path: "1-projects/a.md",
-        clearance: clearanceOf("private"),
-        confirmation: DELETE_CONFIRMATION,
-      }),
-    );
-    expect(error.code).toBe("FOLDER_TOO_LARGE");
-    // Nothing was deleted, so nothing lost a history it should have kept.
-    expect(store.snapshot()["1-projects/a.md"]).toBeDefined();
-    expect(historyKeys(store).some((key) => key.includes("a.md.one.md."))).toBe(true);
-  });
-
-
-  test("deleting a note with two extending siblings keeps both their histories", async () => {
-    const store = bucket();
-    store.seed("1-projects/a.md", "# A\n");
-    store.seed("1-projects/a.md.one.md", "# One\n");
-    store.seed("1-projects/a.md.two.md", "# Two\n");
-    store.seed(".history/1-projects/a.md.2026-07-01T09-00-00-000Z.md", "# older a\n");
-    store.seed(".history/1-projects/a.md.one.md.2026-07-01T09-00-00-000Z.md", "# older one\n");
-    store.seed(".history/1-projects/a.md.two.md.2026-07-01T09-00-00-000Z.md", "# older two\n");
-
-    await deletePath(store, {
-      path: "1-projects/a.md",
-      clearance: clearanceOf("private"),
-      confirmation: DELETE_CONFIRMATION,
-    });
-    expect(historyKeys(store).some((key) => key.includes("a.md.one.md."))).toBe(true);
-    expect(historyKeys(store).some((key) => key.includes("a.md.two.md."))).toBe(true);
-    expect(
-      historyKeys(store).some((key) => key.endsWith("1-projects/a.md.2026-07-01T09-00-00-000Z.md")),
-    ).toBe(false);
-  });
-
 
   test("a survivor whose name prefixes the deleted one does not shield it", async () => {
-    const store = bucket();
-    // An own folder: the built-in `1-projects` cannot be deleted.
-    await setFolderVisibility(store, { path: "work", visibility: "team", clearance: clearanceOf("private") });
-    store.seed("work/a.md.notes.md", "# Notes\n");
-    store.seed("work/a.md", "# A\n");
-    store.seed(
-      ".history/work/a.md.notes.md.2026-07-01T09-00-00-000Z.md",
-      "# older notes\n",
-    );
-    // The survivor is the SHORTER name, held back from the caller.
-    await setVisibility(store, {
-      path: "work/a.md",
-      visibility: "private",
-      clearance: clearanceOf("private"),
+    const k = await keyedBucket(async (store) => {
+      // An own folder: the built-in `1-projects` cannot be trashed as a whole.
+      await setFolderVisibility(store, { path: "work", visibility: "team", clearance: clearanceOf("private") });
+      store.seed("work/a.md.notes.md", "# Notes\n");
+      store.seed("work/a.md", "# A\n");
+      // The survivor is the SHORTER name, held back from the caller.
+      await setVisibility(store, {
+        path: "work/a.md",
+        visibility: "private",
+        clearance: clearanceOf("private"),
+      });
     });
 
-    const result = await deletePath(store, {
-      path: "work",
-      clearance: clearanceOf("team"),
-      confirmation: DELETE_CONFIRMATION,
-    });
-    expect(result.paths).toContain("work/a.md.notes.md");
-    expect(result.paths).not.toContain("work/a.md");
-    // The deleted note keeps no copy, even though a survivor's name prefixes it.
-    expect(historyKeys(store).some((key) => key.includes("a.md.notes.md."))).toBe(false);
+    // Keyed moves refuse a folder holding something the caller cannot see; whether to move it along or leave it behind is an open owner decision (2026-10-22).
+    const refused = await capture(() =>
+      trashPath(k.store, { path: "work", clearance: clearanceOf("team"), now: NOW }),
+    );
+    expect(refused.code).toBe("CONFLICT");
+    // Nothing moved: the survivor keeps its bytes, and the note whose name it prefixes is still live.
+    expect(await bodyAt(k, "work/a.md")).toBe("# A\n");
+    expect(await liveRowAt(k, "work/a.md.notes.md")).not.toBeNull();
   });
 
   test("deleting a note does not take the history of one whose name extends it", async () => {
-    const store = bucket();
-    await shareProjects(store);
-    store.seed("1-projects/a.md", "# A\n");
-    store.seed("1-projects/a.md.notes.md", "# Notes\n");
-    store.seed(".history/1-projects/a.md.2026-07-01T09-00-00-000Z.md", "# older a\n");
-    store.seed(".history/1-projects/a.md.notes.md.2026-07-01T09-00-00-000Z.md", "# older notes\n");
+    const k = await keyedBucket(async (store) => {
+      await shareProjects(store);
+      store.seed("1-projects/a.md", "# A\n");
+      store.seed("1-projects/a.md.notes.md", "# Notes\n");
+    });
 
-    await deletePath(store, {
+    await trashPath(k.store, {
       path: "1-projects/a.md",
       clearance: clearanceOf("private"),
-      confirmation: DELETE_CONFIRMATION,
+      now: NOW,
     });
-    expect(store.snapshot()["1-projects/a.md.notes.md"]).toBeDefined();
-    expect(historyKeys(store).some((key) => key.includes("a.md.notes.md."))).toBe(true);
-    expect(
-      historyKeys(store).some((key) => key.endsWith("1-projects/a.md.2026-07-01T09-00-00-000Z.md")),
-    ).toBe(false);
+    // The extending note is a sibling, not part of the trashed one, and stays live where it was.
+    expect(await bodyAt(k, "1-projects/a.md.notes.md")).toBe("# Notes\n");
+    expect(await liveRowAt(k, "1-projects/a.md")).toBeNull();
   });
 
   /**
@@ -295,32 +235,26 @@ describe('a bulk operation acts only on what the caller can see', () => {
    * over-matched note is a survivor.
    */
   test("a partial delete keeps the history of the note it kept", async () => {
-    const store = bucket();
-    await shareProjects(store);
-    store.seed("1-projects/hist/a.md", "# A\n");
-    // A survivor whose own name begins with the deleted note's name.
-    store.seed("1-projects/hist/a.md.notes.md", "# Notes\n");
-    store.seed(
-      ".history/1-projects/hist/a.md.notes.md.2026-07-01T09-00-00-000Z.md",
-      "# older notes\n",
-    );
-    store.seed(".history/1-projects/hist/a.md.2026-07-01T09-00-00-000Z.md", "# older a\n");
-    await setVisibility(store, {
-      path: "1-projects/hist/a.md.notes.md",
-      visibility: "private",
-      clearance: clearanceOf("private"),
+    const k = await keyedBucket(async (store) => {
+      await shareProjects(store);
+      store.seed("1-projects/hist/a.md", "# A\n");
+      // A survivor whose own name begins with the deleted note's name.
+      store.seed("1-projects/hist/a.md.notes.md", "# Notes\n");
+      await setVisibility(store, {
+        path: "1-projects/hist/a.md.notes.md",
+        visibility: "private",
+        clearance: clearanceOf("private"),
+      });
     });
 
-    const result = await deletePath(store, {
-      path: "1-projects/hist",
-      clearance: clearanceOf("team"),
-      confirmation: DELETE_CONFIRMATION,
-    });
-    expect(result.paths).toEqual(["1-projects/hist/a.md"]);
-    // The deleted note's history is gone...
-    expect(historyKeys(store).some((key) => key.endsWith("hist/a.md.2026-07-01T09-00-00-000Z.md"))).toBe(false);
-    // ...and the survivor's is not.
-    expect(historyKeys(store).some((key) => key.includes("a.md.notes.md."))).toBe(true);
+    // Keyed moves refuse a folder holding something the caller cannot see; whether to move it along or leave it behind is an open owner decision (2026-10-22).
+    const refused = await capture(() =>
+      trashPath(k.store, { path: "1-projects/hist", clearance: clearanceOf("team"), now: NOW }),
+    );
+    expect(refused.code).toBe("CONFLICT");
+    // Nothing moved: the survivor is still live where it was, and so is the note it would have trashed.
+    expect(await bodyAt(k, "1-projects/hist/a.md.notes.md")).toBe("# Notes\n");
+    expect(await bodyAt(k, "1-projects/hist/a.md")).toBe("# A\n");
   });
 
   /**
@@ -331,18 +265,19 @@ describe('a bulk operation acts only on what the caller can see', () => {
    * the copy path stayed correct and the suite stayed green.
    */
   test("moving onto a destination hidden by its own exception discloses nothing", async () => {
-    const store = bucket();
-    await shareProjects(store);
-    store.seed("1-projects/src.md", "# Src\n");
-    store.seed("1-projects/hidden-name.md", "# Hidden\n");
-    await setVisibility(store, {
-      path: "1-projects/hidden-name.md",
-      visibility: "private",
-      clearance: clearanceOf("private"),
+    const k = await keyedBucket(async (store) => {
+      await shareProjects(store);
+      store.seed("1-projects/src.md", "# Src\n");
+      store.seed("1-projects/hidden-name.md", "# Hidden\n");
+      await setVisibility(store, {
+        path: "1-projects/hidden-name.md",
+        visibility: "private",
+        clearance: clearanceOf("private"),
+      });
     });
 
     const taken = await capture(() =>
-      movePath(store, {
+      movePath(k.store, {
         from: "1-projects/src.md",
         to: "1-projects/hidden-name.md",
         clearance: clearanceOf("team"),
@@ -353,7 +288,7 @@ describe('a bulk operation acts only on what the caller can see', () => {
     // reasons it cannot see one must not be distinguishable. A *visible* free
     // name succeeds, and that residual is the folder default, not the object.
     const elsewhere = await capture(() =>
-      movePath(store, {
+      movePath(k.store, {
         from: "1-projects/src.md",
         to: "2-areas/never-existed.md",
         clearance: clearanceOf("team"),
@@ -366,13 +301,13 @@ describe('a bulk operation acts only on what the caller can see', () => {
     expect(taken.message).not.toContain("hidden-name.md");
 
     // ...and the operation still works where it is allowed to.
-    const moved = await movePath(store, {
+    const moved = await movePath(k.store, {
       from: "1-projects/src.md",
       to: "1-projects/free.md",
       clearance: clearanceOf("team"),
       now: NOW,
     });
-    expect(moved.paths).toEqual(["1-projects/free.md"]);
+    expect(moved.moved?.map((move) => move.to)).toEqual(["1-projects/free.md"]);
   });
 
   /**
@@ -417,54 +352,52 @@ describe('a bulk operation acts only on what the caller can see', () => {
    * away the other is all that is left.
    */
   test("a folder move does not rename a rule belonging to a name it prefixes", async () => {
-    const store = bucket();
-    await shareProjects(store);
-    store.seed("1-projects/sub/note.md", "# Note\n");
-    store.seed("1-projects/subway/secret.md", "# Secret\n");
-    await setFolderVisibility(store, {
-      path: "1-projects/subway",
-      visibility: "private",
-      clearance: clearanceOf("private"),
+    const k = await keyedBucket(async (store) => {
+      await shareProjects(store);
+      store.seed("1-projects/sub/note.md", "# Note\n");
+      store.seed("1-projects/subway/secret.md", "# Secret\n");
+      await setFolderVisibility(store, {
+        path: "1-projects/subway",
+        visibility: "private",
+        clearance: clearanceOf("private"),
+      });
     });
 
-    await movePath(store, {
+    await movePath(k.store, {
       from: "1-projects/sub",
       to: "1-projects/sub-moved",
       clearance: clearanceOf("team"),
       now: NOW,
     });
     const leak = await capture(() =>
-      readFile(store, { path: "1-projects/subway/secret.md", clearance: clearanceOf("team") }),
+      readFile(k.store, { path: "1-projects/subway/secret.md", clearance: clearanceOf("team") }),
     );
     expect(leak.code).toBe("FILE_NOT_FOUND");
+    expect(await bodyAt(k, "1-projects/sub-moved/note.md")).toBe("# Note\n");
   });
 
-  test("a folder holding nothing visible is not found, not empty", async () => {
-    const store = bucket();
-    await shareProjects(store);
-    store.seed("1-projects/allhidden/one.md", "# One\n");
-    await setVisibility(store, {
-      path: "1-projects/allhidden/one.md",
-      visibility: "private",
-      clearance: clearanceOf("private"),
+  test("a folder holding nothing visible is refused as a whole, not reported as absent", async () => {
+    const k = await keyedBucket(async (store) => {
+      await shareProjects(store);
+      store.seed("1-projects/allhidden/one.md", "# One\n");
+      await setVisibility(store, {
+        path: "1-projects/allhidden/one.md",
+        visibility: "private",
+        clearance: clearanceOf("private"),
+      });
     });
 
+    // Keyed trashes refuse a folder holding something the caller cannot see; whether to move it along or leave it behind is an open owner decision (2026-10-22).
     const hidden = await capture(() =>
-      deletePath(store, {
-        path: "1-projects/allhidden",
-        clearance: clearanceOf("team"),
-        confirmation: DELETE_CONFIRMATION,
-      }),
+      trashPath(k.store, { path: "1-projects/allhidden", clearance: clearanceOf("team"), now: NOW }),
     );
     const absent = await capture(() =>
-      deletePath(store, {
-        path: "1-projects/never-existed",
-        clearance: clearanceOf("team"),
-        confirmation: DELETE_CONFIRMATION,
-      }),
+      trashPath(k.store, { path: "1-projects/never-existed", clearance: clearanceOf("team"), now: NOW }),
     );
-    expect(errorShape(hidden)).toBe(errorShape(absent));
-    expect(store.snapshot()["1-projects/allhidden/one.md"]).toBeDefined();
+    expect(hidden.code).toBe("CONFLICT");
+    expect(absent.code).toBe("FILE_NOT_FOUND");
+    expect(await bodyAt(k, "1-projects/allhidden/one.md")).toBe("# One\n");
   });
+
 });
 

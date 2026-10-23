@@ -15,7 +15,6 @@
 import { describe, expect, test } from "vitest";
 import { api, internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
-import { leasedGatewayJobWorkspace } from "../../functions/lib/controlPlane/gatewayJobs";
 import { hashToken } from "../../functions/lib/crypto";
 import { addMember, asUser, createUser, gatewayPost, type TestConvex } from "../fixtures.helpers";
 import { ACCESS_A, CLIENT_A, bodyOf, seedConnectedClient, token, twoConnectedTenants } from "./fixtures.helpers";
@@ -69,7 +68,6 @@ describe("/gateway/jobs/* image uploads", () => {
     expect(await mint(t, ACCESS_A, aliceWs, { bytes: 0 })).toEqual({ ticket: null });
     expect(await mint(t, ACCESS_A, aliceWs, { bytes: 5_000_001 })).toEqual({ ticket: null });
     expect(await mint(t, ACCESS_A, aliceWs, { bytes: 1.5 })).toEqual({ ticket: null });
-    expect(await mint(t, ACCESS_A, aliceWs, { moveId: "move-aaaaaaaaaaaa" })).toEqual({ ticket: null });
     expect(await t.run((ctx) => ctx.db.query("gatewayJobs").collect())).toHaveLength(0);
   });
 
@@ -122,19 +120,6 @@ describe("/gateway/jobs/* image uploads", () => {
     expect(await open(t, ticket, SHA)).toBeNull();
     expect(await t.mutation(internal.functions.controlPlane.sweepImageUploads, {})).toBe(1);
     expect(await t.run((ctx) => ctx.db.query("gatewayJobs").collect())).toHaveLength(0);
-  });
-
-  test("an upload is never mistaken for a move", async () => {
-    const { t, alice, aliceWs } = await twoConnectedTenants();
-    const ticket = (await mint(t, ACCESS_A, aliceWs)).ticket as string;
-    expect((await open(t, ticket, SHA))?.job).toBeTruthy();
-    // Running, leased and owned by an owner: a move's ticket would prove its workspace here.
-    const hashedTicket = await hashToken(ticket);
-    expect(await t.run((ctx) => leasedGatewayJobWorkspace(ctx, hashedTicket))).toBeNull();
-    const moves = await asUser(t, alice).query(api.functions.files.listDurableMoves, {
-      workspaceId: aliceWs as Id<"workspaces">,
-    });
-    expect(moves).toEqual([]);
   });
 
   test("it opens while the rows judge privacy, when the held rules carry the rows' version", async () => {

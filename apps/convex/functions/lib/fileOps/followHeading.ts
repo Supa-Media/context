@@ -36,7 +36,8 @@ export async function followHeading(
   moved: MoveResult,
   options: { clearance: Clearance; now: number },
 ): Promise<string | undefined> {
-  if (moved.queued !== undefined || moved.etag === undefined || moved.paths.length !== 1) return undefined;
+  // A row move (`rowed`) has landed whole; only a queued one still has its bucket catching up.
+  if ((moved.queued !== undefined && moved.rowed !== true) || moved.etag === undefined || moved.paths.length !== 1) return undefined;
   if (moved.paths[0] !== moved.to) return undefined;
   // Read as every open reads it, so a collaborative note's version is its
   // document's, the one the move answered with, not the bucket object's.

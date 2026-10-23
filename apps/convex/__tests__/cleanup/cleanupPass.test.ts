@@ -261,17 +261,6 @@ describe("Delete is refused by name, and nothing starts", () => {
     expect(cleanup?.running).toBeUndefined();
   });
 
-  test("paused is refused with the pause code", async () => {
-    const t = tester();
-    const ws = await keyedWorkspace(t, "paused", 8, 1000);
-    await t.run(async (ctx) => {
-      const layout = await ctx.db.query("noteIdLayout").first();
-      if (layout !== null) await ctx.db.patch(layout._id, { paused: true });
-    });
-    const error = await (await staffOf(t)).mutation(api.functions.noteIdsCleanup.deleteOld, { workspaceId: ws }).catch((caught) => caught);
-    expect(errorCode(error)).toBe("NOTE_IDS_PAUSED");
-  });
-
   test("a stranger and nobody are refused, and nothing is counted or deleted", async () => {
     const t = tester();
     const ws = await keyedWorkspace(t, "strangers", 8, 1000);

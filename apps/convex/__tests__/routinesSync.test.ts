@@ -268,6 +268,8 @@ describe("who a routine runs as", () => {
 
   test("a console write records the person who made it", async () => {
     const f = await routineFixture();
+    // Keyed like every workspace: the console write lands as a row at its id key.
+    await copyTree(f.t, f.workspaceId);
     await asUser(f.t, f.owner).action(api.functions.files.setDirectoryVisibility, {
       workspaceId: f.workspaceId,
       path: "routines",

@@ -12,13 +12,8 @@ import {
   PRIVACY_KEY,
   canSee,
 } from "../../functions/lib/privacy";
-import {
-  NOW,
-  bucket,
-  shareProjects,
-  capture,
-  errorShape,
-} from "./fixtures.helpers";
+import { NOW, bucket, shareProjects, capture, errorShape } from "./fixtures.helpers";
+import { bodyAt, keyedBucket, liveRowAt } from "../keyedFixture.fileops2.helpers";
 
 describe("three guards that no test was holding", () => {
   /**
@@ -34,11 +29,12 @@ describe("three guards that no test was holding", () => {
     // its privacy rests entirely on the folder rule — which the destination
     // does not have. Without the guard the note lands in a `team` folder with
     // nothing carried across and becomes readable.
-    const store = bucket();
-    await shareProjects(store);
+    const k = await keyedBucket(async (store) => {
+      await shareProjects(store);
+    });
 
     const refusal = await capture(() =>
-      movePath(store, {
+      movePath(k.store, {
         from: "2-areas/health.md",
         to: "1-projects/leaked.md",
         clearance: clearanceOf("team"),
@@ -46,7 +42,7 @@ describe("three guards that no test was holding", () => {
       }),
     );
     const absent = await capture(() =>
-      movePath(store, {
+      movePath(k.store, {
         from: "2-areas/never-existed.md",
         to: "1-projects/leaked.md",
         clearance: clearanceOf("team"),
@@ -56,8 +52,8 @@ describe("three guards that no test was holding", () => {
 
     expect(refusal.code).toBe("FILE_NOT_FOUND");
     expect(errorShape(refusal)).toBe(errorShape(absent));
-    expect(store.snapshot()["2-areas/health.md"]).toBeDefined();
-    expect(store.snapshot()["1-projects/leaked.md"]).toBeUndefined();
+    expect(await bodyAt(k, "2-areas/health.md")).toBe("# Health\n");
+    expect(await liveRowAt(k, "1-projects/leaked.md")).toBeNull();
   });
 
   test("a team caller cannot copy a note they cannot see", async () => {
@@ -130,54 +126,53 @@ describe("a rule no survivor needs, told truthfully", () => {
    * `return [...candidates]` and watching this fail.
    */
   test("the moved folder's own rule does not stay behind on a private prefix", async () => {
-    const store = bucket();
-    await shareProjects(store);
-    // Inside `2-areas`, which is private, one folder deliberately shared.
-    store.seed("2-areas/mixed/public.md", "# Public\n");
-    store.seed("2-areas/mixed/hr/secret.md", "# Salaries\n\n200k\n");
-    await setFolderVisibility(store, {
-      path: "2-areas/mixed",
-      visibility: "team",
-      clearance: clearanceOf("private"),
-    });
-    await setFolderVisibility(store, {
-      path: "2-areas/mixed/hr",
-      visibility: "private",
-      clearance: clearanceOf("private"),
-    });
-
-    await movePath(store, {
-      from: "2-areas/mixed",
-      to: "1-projects/renamed",
-      clearance: clearanceOf("team"),
-      now: NOW,
+    const k = await keyedBucket(async (store) => {
+      await shareProjects(store);
+      // Inside `2-areas`, which is private, one folder deliberately shared.
+      store.seed("2-areas/mixed/public.md", "# Public\n");
+      store.seed("2-areas/mixed/hr/secret.md", "# Salaries\n\n200k\n");
+      await setFolderVisibility(store, {
+        path: "2-areas/mixed",
+        visibility: "team",
+        clearance: clearanceOf("private"),
+      });
+      await setFolderVisibility(store, {
+        path: "2-areas/mixed/hr",
+        visibility: "private",
+        clearance: clearanceOf("private"),
+      });
     });
 
-    const manifest = store.snapshot()[PRIVACY_KEY] as string;
-    // The survivor is still hidden, and stays hidden. It does not
-    // need `2-areas/mixed/hr: private` to be, because with `2-areas/mixed: team`
-    // gone it rests on `2-areas: private` — which is exactly the reasoning
-    // `rulesSurvivorsRestOn` does, and why it retains a rule only when removing
-    // it would change what the survivor resolves to.
+    // Keyed moves refuse a folder holding something the caller cannot see; whether to move it along or leave it behind is an open owner decision (2026-10-22).
+    const refused = await capture(() =>
+      movePath(k.store, {
+        from: "2-areas/mixed",
+        to: "1-projects/renamed",
+        clearance: clearanceOf("team"),
+        now: NOW,
+      }),
+    );
+    expect(refused.code).toBe("CONFLICT");
+
+    // Nothing moved, so the folder keeps its own rule and the survivor keeps its private one.
+    const manifest = k.raw.snapshot()[PRIVACY_KEY] as string;
+    expect(manifest).toContain("2-areas/mixed: team");
     expect(
-      (await capture(() => readFile(store, { path: "2-areas/mixed/hr/secret.md", clearance: clearanceOf("team") })))
+      (await capture(() => readFile(k.store, { path: "2-areas/mixed/hr/secret.md", clearance: clearanceOf("team") })))
         .code,
     ).toBe("FILE_NOT_FOUND");
-    // The rule no survivor rests on does not.
-    expect(manifest).not.toContain("2-areas/mixed: team");
-    // And the consequence, which is what makes this worth a test: the prefix
-    // the caller emptied is back inside the owner's private area.
-    await writeFile(store, {
+    // The folder still has its team rule, so a note written there now is readable by team.
+    await writeFile(k.store, {
       path: "2-areas/mixed/afterwards.md",
       text: "# Written later\n",
       clearance: clearanceOf("private"),
       now: NOW,
     });
-    expect(
-      (await capture(() => readFile(store, { path: "2-areas/mixed/afterwards.md", clearance: clearanceOf("team") })))
-        .code,
-    ).toBe("FILE_NOT_FOUND");
+    expect((await readFile(k.store, { path: "2-areas/mixed/afterwards.md", clearance: clearanceOf("team") })).text).toBe(
+      "# Written later\n",
+    );
   });
+
 });
 
 /**

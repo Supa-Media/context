@@ -75,16 +75,6 @@ export async function gatewayBindingHandler(
     },
   );
   if (opened === null) return json({ binding: null });
-  // Seventh: the queued folder moves the tree draws already, so the gateway
-  // reads a moved note where people see it (`moves/queued.js`). Absent unless
-  // one is pending. The workspace is the one the grant resolved to above.
-  const boundTo = (opened.binding as { workspaceId?: unknown } | null)?.workspaceId;
-  // Unreadable is no store at all: a gateway that wrote at a new name not knowing a move was
-  // pending would put a second copy beside the one the move is carrying there.
-  const pendingMoves = typeof boundTo === "string"
-    ? await ctx.runQuery(internal.functions.nodeMoves.active, { workspaceId: boundTo as Id<"workspaces"> }).catch(() => null)
-    : [];
-  if (pendingMoves === null) return json({ binding: null });
   // Phase 3: the workspace's privacy rules, while they are the authority
   // (`nodesPrivacy.ts`); absent while `privacy.md` is. The workspace is the
   // one the grant opened, never one the request named.
@@ -136,7 +126,6 @@ export async function gatewayBindingHandler(
     // absent otherwise. A gateway that gets a mode and no usable key refuses
     // the store rather than serving sealed bytes — `store/managedEncryption.js`.
     managedEncryption: opened.managedEncryption,
-    pendingMoves: pendingMoves.length > 0 ? pendingMoves : undefined,
     // Eighth: the rules `privacy.md` is written from, while they are the
     // authority. Absent otherwise, and then the gateway reads the file.
     ...(privacy === null ? {} : { privacy }),

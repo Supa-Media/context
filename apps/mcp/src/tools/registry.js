@@ -30,7 +30,6 @@ export const PRIVATE_TIER_ONLY_TOOLS = new Set([
   "read_email",
   "list_plugins",
   "rotate_encryption_keys",
-  "materialize_move",
   "migrate_storage_layout",
   /*
     The three link tools, because minting and revoking a share is the owner's.
@@ -81,7 +80,6 @@ export const PRIVATE_TIER_ONLY_TOOLS = new Set([
  */
 export const EXISTENCE_MASKED_TOOLS = new Set([
   "rotate_encryption_keys",
-  "materialize_move",
   "migrate_storage_layout",
 ]);
 

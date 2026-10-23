@@ -8,6 +8,9 @@
 
 import { INDEX_KEY, PRIVACY_KEY, type ScaffoldStore } from "./store";
 
+/** Where a keyed workspace keeps its notes' bytes, one `notes/<id>.md` each. */
+const NOTE_ID_PREFIX = "notes/";
+
 /* -------------------------------------------------------------------------- */
 /*                          detecting an existing context                     */
 /* -------------------------------------------------------------------------- */
@@ -172,6 +175,40 @@ export async function hasForeignContent(
     return (await object.text()) === body;
   };
 
+  /*
+    A keyed workspace's notes are listed at `notes/<id>.md`, which no layout
+    names. Only the app writes there, each key named by a tree row, so they are
+    ours when every one is accounted for: as many id keys as layout notes that
+    read back, by name, byte for byte.
+  */
+  const keyed = (await store.keyedWorkspace?.()) === true;
+  const idKeysAreOurs = async (): Promise<boolean> => {
+    let keys = 0;
+    let cursor: string | undefined = undefined;
+    for (let page = 0; ; page += 1) {
+      if (page === DETECT_PAGE_CAP) return false;
+      const listing: Awaited<ReturnType<ScaffoldStore["list"]>> = await store.list(
+        { prefix: NOTE_ID_PREFIX, cursor, limit: DETECT_PAGE_SIZE },
+      );
+      keys += (listing.objects ?? []).filter((object) => !isPlumbingKey(object.key)).length;
+      if (!listing.truncated) break;
+      if (!listing.cursor) return false;
+      cursor = listing.cursor;
+    }
+    let found = 0;
+    for (const file of files) {
+      if (file.key === PRIVACY_KEY) continue; // kept at its own key, read above at the root
+      const names = [file.key, legacyFolderNoteKey(file.key)].filter((name): name is string => name !== null);
+      for (const name of names) {
+        if (await isOurs(name)) {
+          found += 1;
+          break;
+        }
+      }
+    }
+    return keys <= found;
+  };
+
   const walk = async (
     prefix: string,
     delimiter: string | undefined,
@@ -187,6 +224,10 @@ export async function hasForeignContent(
       }
       for (const found of listing.delimitedPrefixes ?? []) {
         if (isPlumbingKey(found)) continue;
+        if (keyed && found === NOTE_ID_PREFIX) {
+          if (!(await idKeysAreOurs())) return true;
+          continue;
+        }
         if (!ourPrefixes.has(found)) return true;
         // Ours by name. Now prove what is under it is ours by content.
         if (await walk(found, undefined)) return true;

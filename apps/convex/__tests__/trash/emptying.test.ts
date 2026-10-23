@@ -202,8 +202,8 @@ describe("emptying the trash after 30 days", () => {
     const f = await keyedFixture();
     const key = await trash(f, "1-projects/keep.md", Date.now() - 31 * DAY);
     await f.t.run(async (ctx) => {
-      const layout = await ctx.db.query("noteIdLayout").first();
-      await ctx.db.patch(layout!._id, { mode: "ids" });
+      // Not flipped: its copy row has no keyedAt.
+      for (const row of await ctx.db.query("noteIdCopies").collect()) await ctx.db.patch(row._id, { keyedAt: undefined });
     });
 
     expect(await f.t.mutation(internal.functions.trash.claimErasure, { workspaceId: f.ws })).toBeNull();

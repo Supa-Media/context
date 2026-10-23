@@ -47,11 +47,8 @@ export const catchUp = internalMutation({
   args: { cursor: v.optional(v.string()) },
   returns: v.null(),
   handler: async (ctx, { cursor }) => {
-    const layout = await ctx.db.query("noteIdLayout").first();
-    if (layout?.mode !== "keys") return null;
     const page = await ctx.db.query("noteIdCopies").paginate({ cursor: cursor ?? null, numItems: WORKSPACE_PAGE });
     for (const copies of page.page) {
-      if (copies.keyedAt === undefined) continue;
       if (!(await owesTidy(ctx, copies.workspaceId))) continue;
       await ctx.scheduler.runAfter(0, internal.functions.archiveTidy.tidyWorkspace, { workspaceId: copies.workspaceId });
     }

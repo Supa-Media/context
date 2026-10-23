@@ -1,7 +1,8 @@
 import { describe, expect, test } from "vitest";
 import { clearanceOf } from "../../functions/lib/clearance";
 import { movePath, readFile, trashPath } from "../../functions/lib/fileOps";
-import { NOW, bucket } from "./fixtures.helpers";
+import { NOW } from "./fixtures.helpers";
+import { keyedBucket } from "./keyedFixture.fileops1.helpers";
 
 /**
  * **"just tried to name a new file kings-20 and got an error, even though I
@@ -14,30 +15,29 @@ describe("a name a note left can be given to another note", () => {
   const owner = clearanceOf("private");
 
   test("after the note there was renamed away", async () => {
-    const store = bucket({ conditional: true });
-    store.seed("2-areas/kings-20.md", "# kings-20\n\nfirst\n");
-    await movePath(store, { from: "2-areas/kings-20.md", to: "2-areas/kings.md", clearance: owner, now: NOW });
-    store.seed("2-areas/untitled-2026-10-14.md", "# kings-20\n\nsecond\n");
-    await movePath(store, { from: "2-areas/untitled-2026-10-14.md", to: "2-areas/kings-20.md", clearance: owner, now: NOW + 1 });
-    expect((await readFile(store, { path: "2-areas/kings-20.md", clearance: owner })).text).toBe("# kings-20\n\nsecond\n");
-    expect((await readFile(store, { path: "2-areas/kings.md", clearance: owner })).text).toBe("# kings-20\n\nfirst\n");
+    const f = await keyedBucket({ "2-areas/kings-20.md": "# kings-20\n\nfirst\n" });
+    await movePath(f.store, { from: "2-areas/kings-20.md", to: "2-areas/kings.md", clearance: owner, now: NOW });
+    await f.store.put("2-areas/untitled-2026-10-14.md", "# kings-20\n\nsecond\n");
+    await movePath(f.store, { from: "2-areas/untitled-2026-10-14.md", to: "2-areas/kings-20.md", clearance: owner, now: NOW + 1 });
+    expect((await readFile(f.store, { path: "2-areas/kings-20.md", clearance: owner })).text).toBe("# kings-20\n\nsecond\n");
+    expect((await readFile(f.store, { path: "2-areas/kings.md", clearance: owner })).text).toBe("# kings-20\n\nfirst\n");
   });
 
   test("after the note there was moved to the trash", async () => {
-    const store = bucket({ conditional: true });
-    store.seed("2-areas/kings-20.md", "# kings-20\n\nfirst\n");
-    await trashPath(store, { path: "2-areas/kings-20.md", clearance: owner, now: NOW });
-    store.seed("2-areas/untitled-2026-10-14.md", "# kings-20\n\nsecond\n");
-    await movePath(store, { from: "2-areas/untitled-2026-10-14.md", to: "2-areas/kings-20.md", clearance: owner, now: NOW + 1 });
-    expect((await readFile(store, { path: "2-areas/kings-20.md", clearance: owner })).text).toBe("# kings-20\n\nsecond\n");
+    const f = await keyedBucket({ "2-areas/kings-20.md": "# kings-20\n\nfirst\n" });
+    await trashPath(f.store, { path: "2-areas/kings-20.md", clearance: owner, now: NOW });
+    await f.store.put("2-areas/untitled-2026-10-14.md", "# kings-20\n\nsecond\n");
+    await movePath(f.store, { from: "2-areas/untitled-2026-10-14.md", to: "2-areas/kings-20.md", clearance: owner, now: NOW + 1 });
+    expect((await readFile(f.store, { path: "2-areas/kings-20.md", clearance: owner })).text).toBe("# kings-20\n\nsecond\n");
   });
 
   test("a name a note still holds is still refused", async () => {
-    const store = bucket({ conditional: true });
-    store.seed("2-areas/kings-20.md", "# kings-20\n\nfirst\n");
-    store.seed("2-areas/untitled-2026-10-14.md", "# kings-20\n\nsecond\n");
+    const f = await keyedBucket({
+      "2-areas/kings-20.md": "# kings-20\n\nfirst\n",
+      "2-areas/untitled-2026-10-14.md": "# kings-20\n\nsecond\n",
+    });
     await expect(
-      movePath(store, { from: "2-areas/untitled-2026-10-14.md", to: "2-areas/kings-20.md", clearance: owner, now: NOW }),
+      movePath(f.store, { from: "2-areas/untitled-2026-10-14.md", to: "2-areas/kings-20.md", clearance: owner, now: NOW }),
     ).rejects.toMatchObject({ code: "DESTINATION_EXISTS" });
   });
 });

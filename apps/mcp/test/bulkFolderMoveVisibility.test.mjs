@@ -52,7 +52,6 @@ import {
   createControlPlaneStub,
   createS3Backend,
 } from "./controlPlaneStub.mjs";
-import { seedLegacyFolderMoveInMap } from "./legacyMoveJob.mjs";
 import { createWorkerCtx } from "./workerCtx.mjs";
 import { approving } from "./egressApproval.mjs";
 
@@ -228,38 +227,6 @@ export async function runBulkFolderMoveVisibilityChecks(check) {
     "reading one note in a large folder gives it active collaboration history",
     textOf(await callTool(env, TOKEN_OWNER, "read_note", { path: activeWitness })).includes("ACTIVE-0"),
   );
-  // A job an older gateway left behind for this folder still finishes, and
-  // keeps the history a note gained before it was copied.
-  const activeMoveId = seedLegacyFolderMoveInMap(primary, "2-areas/active", "1-projects/active");
-  if (activeMoveId) {
-    let checkedReferenceBound = false;
-    for (let attempt = 0; attempt < 30; attempt += 1) {
-      const progress = await callTool(env, TOKEN_OWNER, "materialize_move", { id: activeMoveId });
-      if (!checkedReferenceBound && textOf(progress).includes("rewriting")) {
-        const key = `.context/moves/${activeMoveId}.json`;
-        const before = JSON.parse(primary.get(key).body).reference_scanned;
-        await callTool(env, TOKEN_OWNER, "materialize_move", { id: activeMoveId, batch_size: 1 });
-        const after = JSON.parse(primary.get(key).body).reference_scanned;
-        check("one-object recovery advances the reference cursor by one note", after - before === 1);
-        checkedReferenceBound = true;
-      }
-      if (textOf(progress).includes("physical storage sync: complete")) break;
-    }
-    check("large move reached a bounded reference pass", checkedReferenceBound);
-  }
-  check(
-    "materialization moves the headed note and its identity",
-    primary.get(activeWitness)?.contentType === "application/x-context-logical-tombstone" &&
-      primary.get("1-projects/active/note-0000.md")?.body.startsWith("ACTIVE-0") &&
-      [...primary.values()].some((value) => {
-        try {
-          const head = JSON.parse(value.body);
-          return head.path === activeWitness && head.status === "moved" &&
-            head.destination === "1-projects/active/note-0000.md";
-        } catch { return false; }
-      }),
-  );
-
   for (let n = 0; n < 101; n += 1) {
     primary.set(`2-areas/medium/note-${n}.md`, { body: `MEDIUM-${n}`, etag: `m${n}` });
   }

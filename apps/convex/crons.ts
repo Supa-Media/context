@@ -372,13 +372,6 @@ crons.interval(
 );
 
 /**
- * Storage falling behind the file tree: a folder move four hours old, whose
- * pace will miss five, or stuck, is marked once and mailed to the staff who
- * asked (`storageLag.ts`).
- */
-crons.interval("check storage keeps up with the file tree", { minutes: 15 }, internal.functions.storageLag.check, {});
-
-/**
  * Keep the id copy current (`functions/noteIds.ts`): a finished pass starts
  * again, so an edit is copied, a pass whose chain stopped is resumed, and a
  * workspace made after the switch gets its first pass and its flip. A
@@ -496,19 +489,6 @@ crons.interval(
   "sweep custom domains",
   { minutes: 15 },
   internal.functions.customDomains.sweep,
-  {},
-);
-
-/**
- * Queued folder moves whose chain of passes stopped (a deployment, a lost
- * schedule) are picked up again once their lease lapses
- * (`functions/nodeMoves.ts`). Moves normally chain on their own; this is the
- * safety net, and it does nothing when no move is pending.
- */
-crons.interval(
-  "resume queued moves",
-  { minutes: 5 },
-  internal.functions.nodeMoves.resume,
   {},
 );
 

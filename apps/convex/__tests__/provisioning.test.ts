@@ -31,8 +31,10 @@ import {
   createUser,
   createWorkspace,
   drainScheduled,
+  keyWorkspace,
   setupTest,
 } from "./fixtures.helpers";
+import { bodyAtPath, notePaths, objectsOutsideNotes } from "./keyedFixture.onboard.helpers";
 import { type MemoryS3Options, memoryS3 } from "./storeStub.helpers";
 import { gatewayInternals } from "./gatewayFormat.helpers";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
@@ -657,6 +659,7 @@ describe("verification classifies the bucket without touching it", () => {
   /** A freshly scaffolded bucket is counted as it now stands, not as found. */
   test("a scaffold is counted after it lands, not before", async () => {
     const { t, owner, workspaceId } = await connecting();
+    await keyWorkspace(t, workspaceId);
 
     await t.action(internal.functions.provisioning.verifyStorageBinding, {
       workspaceId,
@@ -721,23 +724,17 @@ describe("scaffolding the layout the caller asked for", () => {
 
   test("an empty bucket gets a context the gateway can read", async () => {
     const { t, backend, workspaceId } = await connecting();
+    await keyWorkspace(t, workspaceId);
     const result = await t.action(
       internal.functions.provisioning.verifyStorageBinding,
       { workspaceId, structure: PARA },
     );
 
     expect(result).toMatchObject({ scaffolded: true, scaffoldReason: "created" });
-    expect([...backend.objects.keys()].sort()).toEqual(
-      [
-        "inbox/about.md",
-        "projects/about.md",
-        "areas/about.md",
-        "resources/about.md",
-        "archive/about.md",
-        "index.md",
-        "privacy.md",
-      ].sort(),
+    expect(await notePaths(t, workspaceId)).toEqual(
+      ["inbox/about.md", "projects/about.md", "areas/about.md", "resources/about.md", "archive/about.md", "index.md"].sort(),
     );
+    expect(objectsOutsideNotes(backend)).toEqual([PRIVACY_KEY]);
 
     const { parsePrivacyManifest } = gatewayInternals();
     expect(
@@ -749,6 +746,7 @@ describe("scaffolding the layout the caller asked for", () => {
 
   test("a custom layout gets the owner's own folders, with their own words", async () => {
     const { t, backend, workspaceId } = await connecting();
+    await keyWorkspace(t, workspaceId);
     await t.action(internal.functions.provisioning.verifyStorageBinding, {
       workspaceId,
       structure: {
@@ -760,17 +758,11 @@ describe("scaffolding the layout the caller asked for", () => {
       },
     });
 
-    expect([...backend.objects.keys()].sort()).toEqual([
-      "clients/about.md",
-      "index.md",
-      "privacy.md",
-      "reading/about.md",
-    ]);
+    expect(await notePaths(t, workspaceId)).toEqual(["clients/about.md", "index.md", "reading/about.md"]);
+    expect(objectsOutsideNotes(backend)).toEqual([PRIVACY_KEY]);
     // Their description, verbatim, in the folder's about.md and in the manifest.
-    expect(backend.objects.get("clients/about.md")!.body).toContain(
-      "One folder per client.",
-    );
-    expect(backend.objects.get("index.md")!.body).toContain(
+    expect(await bodyAtPath(t, workspaceId, backend, "clients/about.md")).toContain("One folder per client.");
+    expect(await bodyAtPath(t, workspaceId, backend, "index.md")).toContain(
       "`reading/` — Books and articles worth keeping.",
     );
     // …and every one of them starts private, read back through the gateway's
@@ -817,6 +809,7 @@ describe("scaffolding the layout the caller asked for", () => {
 
   test("running it twice writes nothing the second time", async () => {
     const { t, backend, workspaceId } = await connecting();
+    await keyWorkspace(t, workspaceId);
     await t.action(internal.functions.provisioning.verifyStorageBinding, {
       workspaceId,
       structure: PARA,
@@ -853,6 +846,7 @@ describe("scaffolding the layout the caller asked for", () => {
     const { t, backend, workspaceId } = await connecting({
       rootPrefix: "notes/workspace/",
     });
+    await keyWorkspace(t, workspaceId);
     await t.action(internal.functions.provisioning.verifyStorageBinding, {
       workspaceId,
       structure: {
@@ -861,10 +855,10 @@ describe("scaffolding the layout the caller asked for", () => {
       },
     });
 
-    expect([...backend.objects.keys()].sort()).toEqual([
-      "notes/workspace/index.md",
+    // Notes sit under their ids beneath the prefix; the manifest at its plain path.
+    expect(await notePaths(t, workspaceId)).toEqual(["index.md", "work/about.md"]);
+    expect([...backend.objects.keys()].filter((key) => !/notes\/[0-9a-f-]+\.md$/.test(key)).sort()).toEqual([
       "notes/workspace/privacy.md",
-      "notes/workspace/work/about.md",
     ]);
     // Nothing derived from a workspace id ever appears in a key.
     for (const key of backend.objects.keys()) {

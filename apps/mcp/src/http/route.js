@@ -7,7 +7,7 @@
 
 import { openaiAppsChallengeResponse } from "./openaiAppsChallenge.js";
 import { actorFor, contextsFor } from "../context/identity.js";
-import { attachGatewayJobQueue, attachLinkCalls, matchWellKnown } from "./routing.js";
+import { attachLinkCalls, matchWellKnown } from "./routing.js";
 import {
   authorizationServerMetadata,
   forbiddenResponse,
@@ -316,7 +316,6 @@ export async function route(request, env, ctx) {
       // And the deployment's search settings (`search/settings.js`), on the
       // same terms; a texting setup may lay its own over them for one turn.
       store.searchSettings = searchSettingsFor(env);
-      attachGatewayJobQueue(store, session, controlPlane, env);
       attachLinkCalls(store, session, controlPlane, env);
       attachImageUploads(store, session, controlPlane, origin);
       // The one way anything in this worker gets to keep working after the
@@ -581,7 +580,6 @@ export async function route(request, env, ctx) {
         targetStore.searchSubrequestBudget = searchBudgetFor(env);
         // Read at open time, so a turn's setup settings reach the contexts it addresses.
         targetStore.searchSettings = store.searchSettings;
-        attachGatewayJobQueue(targetStore, target, controlPlane, env);
         attachLinkCalls(targetStore, target, controlPlane, env);
         attachImageUploads(targetStore, target, controlPlane, origin);
         targetStore.defer = store.defer;

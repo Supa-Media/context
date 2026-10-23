@@ -86,7 +86,6 @@ import {
 import {
   activityEntryValidator,
   deletedValidator,
-  durableMoveValidator,
   fileValidator,
   folderCreatedValidator,
   folderPathsValidator,
@@ -131,7 +130,6 @@ import {
   recordVaultImportBatchHandler,
   startVaultImportHandler,
 } from "./lib/filesFns/vaultImportJobs";
-import { listDurableMovesHandler } from "./lib/filesFns/durableMoves";
 import { namedAudienceHandler } from "./lib/filesFns/namedAudience";
 import {
   activityLastSeenHandler,
@@ -336,13 +334,6 @@ export const runStorageLayoutMigration = internalAction({
 /* -------------------------------------------------------------------------- */
 /*                              the public surface                            */
 /* -------------------------------------------------------------------------- */
-
-/** See `listDurableMovesHandler` in `lib/filesFns/durableMoves.ts`. */
-export const listDurableMoves = query({
-  args: { workspaceId: v.id("workspaces") },
-  returns: v.array(durableMoveValidator),
-  handler: async (ctx, args) => await listDurableMovesHandler(ctx, args),
-});
 
 /** One folder's contents. Any member may read. */
 export const listFiles = action({

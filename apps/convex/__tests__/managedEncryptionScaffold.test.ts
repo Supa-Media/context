@@ -28,6 +28,7 @@ import { api, internal } from "../_generated/api";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { asUser, drainScheduled } from "./fixtures.helpers";
 import { fixture, isSealed, resetAfterEach, row } from "./managedEncryption.helpers";
+import { emptyKeyedFixture, keyOf } from "./keyedFixture.encrypt.helpers";
 
 resetAfterEach();
 
@@ -40,14 +41,13 @@ function scaffolded(backend: { objects: Map<string, unknown> }): string[] {
 
 describe("a layout applied to a sealed bucket", () => {
   test("is written sealed, and reads back through the product", async () => {
-    const { t, staff, ours, backend } = await fixture();
+    const { t, staff, ours, backend } = await emptyKeyedFixture();
     await asUser(t, staff).mutation(api.functions.managedEncryption.startRollout, { scope: "ours" });
     await drainScheduled(t);
     expect(await row(t, ours)).toMatchObject({ state: "encrypted" });
 
     // The bucket a newly provisioned workspace starts with: empty, and already
     // through the walk, because a walk over nothing finishes in one pass.
-    backend.objects.clear();
 
     await t.action(internal.functions.provisioning.verifyStorageBinding, {
       workspaceId: ours,
@@ -57,7 +57,8 @@ describe("a layout applied to a sealed bucket", () => {
 
     const written = scaffolded(backend);
     expect(written).toContain(PRIVACY_KEY);
-    expect(written).toContain("index.md");
+    // The layout's index note lands at its id key, named by its row.
+    expect(written).toContain(await keyOf({ t, workspaceId: ours, backend }, "index.md"));
     for (const key of written) {
       expect(isSealed(backend.bytesOf(key)), `${key} was written in the clear`).toBe(true);
     }
@@ -73,8 +74,7 @@ describe("a layout applied to a sealed bucket", () => {
     // @segunawe, 2026-10-14: the layout began while the row was `waiting`, so
     // its store wrote plain; the walk ran over the new bucket at the same
     // moment and was `encrypted` before the last files landed.
-    const { t, staff, ours, backend } = await fixture();
-    backend.objects.clear();
+    const { t, staff, ours, backend } = await emptyKeyedFixture();
     await t.run(async (ctx) => {
       await ctx.db.insert("managedEncryptionRollout", { state: "running", scope: "ours", acceptsNew: false, updatedAt: Date.now() });
       await ctx.db.insert("managedEncryptionWorkspaces", { workspaceId: ours, state: "waiting", filesDone: 0, runId: 0, updatedAt: Date.now() });
@@ -83,7 +83,8 @@ describe("a layout applied to a sealed bucket", () => {
     vi.stubGlobal("fetch", async (input: URL | RequestInfo, init?: RequestInit) => {
       const response = await backend.fetchImpl(input, init);
       const url = String(input instanceof Request ? input.url : input);
-      if (!raced && init?.method === "PUT" && url.includes("index.md")) {
+      // The first layout write that lands: its index note is keyed, so the race is set on the privacy manifest's write.
+      if (!raced && init?.method === "PUT" && url.includes(PRIVACY_KEY)) {
         raced = true;
         // The walk, elsewhere, reaching `encrypted` between two layout writes.
         await t.run(async (ctx) => {
@@ -117,9 +118,8 @@ describe("a layout applied to a sealed bucket", () => {
   test("a bucket nobody enrolled is still written plain", async () => {
     // Same workspace, same bucket — but no rollout, so no encryption row. The
     // fix must not start sealing buckets that were never enrolled.
-    const { t, staff, ours, backend } = await fixture();
+    const { t, staff, ours, backend } = await emptyKeyedFixture();
     expect(await row(t, ours)).toBeNull();
-    backend.objects.clear();
 
     await t.action(internal.functions.provisioning.verifyStorageBinding, {
       workspaceId: ours,

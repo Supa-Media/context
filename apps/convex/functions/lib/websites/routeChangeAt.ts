@@ -1,7 +1,7 @@
 /**
  * A change named by its paths that may narrow a website from outside
  * `website/`: a privacy change, a move, a delete, or a queued move starting,
- * turning round or finishing (`nodeMoves.ts`).
+ * turning round or finishing (`rowMove.ts`, `rowMoveChunks.ts`).
  *
  * `operationTouchesWebsite` (`./changes.ts`) answers for `website/` by path
  * alone. A page can also publish the notes of a folder it names with

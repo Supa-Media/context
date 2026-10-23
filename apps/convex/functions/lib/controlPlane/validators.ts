@@ -79,7 +79,6 @@ export const openGatewayJobReturns = v.union(
       actorClientId: v.string(),
       grantId: v.id("oauthGrants"),
       kind: gatewayJobKindValidator,
-      moveId: v.optional(v.string()),
       imageSha256: v.optional(v.string()),
       imageBytes: v.optional(v.number()),
     }),

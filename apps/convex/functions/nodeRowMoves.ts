@@ -18,7 +18,7 @@ import { ConvexError, v } from "convex/values";
 import { internalMutation, internalQuery } from "../_generated/server";
 import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { ROW_MOVE_MAX, applyRowMove, subtreeOf } from "./lib/nodes/rowMove";
-import { ROW_MOVE_LEASE_MS, ROW_MOVE_SETTLE_MS, moveRowPage, overlapsRowMove, rowMoveOf } from "./lib/nodes/rowMoveChunks";
+import { ROW_MOVE_LEASE_MS, ROW_MOVE_SETTLE_MS, drawnMoves, moveRowPage, overlapsRowMove, rowMoveOf } from "./lib/nodes/rowMoveChunks";
 import { internal } from "../_generated/api";
 import { folderJobsOf } from "./lib/nodes/folderJobs";
 import { markArchiveTwins, twinsToFollow } from "./lib/nodes/archiveTwins";
@@ -43,6 +43,15 @@ export const keyedNow = internalQuery({
   args: { workspaceId: v.id("workspaces") },
   returns: v.boolean(),
   handler: async (ctx, { workspaceId }) => await keyedWorkspace(ctx.db, workspaceId),
+});
+
+const moveValidator = v.object({ from: v.string(), to: v.string() });
+
+/** The keyed moves the tree draws already, oldest first: what a request's store folds through, and what a prune waits for. */
+export const drawn = internalQuery({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.array(moveValidator),
+  handler: async (ctx, { workspaceId }) => await drawnMoves(ctx.db, workspaceId),
 });
 
 /**

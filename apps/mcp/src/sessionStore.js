@@ -16,7 +16,6 @@ import { treeNoteCount } from "./tree/names.js";
 import { ControlPlaneError } from "./controlPlane.js";
 import { withPrivacyAuthority } from "./store/privacyAuthority.js";
 import { attachSearchIndexes } from "./search/storeIndexes.js";
-import { withPendingMoves } from "./moves/queued.js";
 
 /**
  * Build the storage adapter for one session.
@@ -226,9 +225,8 @@ export async function storeForSession(session, env, controlPlane) {
   });
 
   /**
-   * Queue a folder move through the control plane (`moves/queued.js`): the
-   * tree draws it at once and the bucket catches up behind it. Bound to this
-   * request's own session, as `rotateEncryptionKeys` is.
+   * Move a folder or a note through the control plane as rows (`tools/moves/queuedFolder.js`): the
+   * tree draws it at once, and the rows are the truth. Bound to this request's own session.
    */
   Object.defineProperty(store, "startQueuedMove", {
     value: async (from, to, expectedEtag) =>
@@ -248,11 +246,6 @@ export async function storeForSession(session, env, controlPlane) {
     writable: false,
     configurable: true,
   });
-  /**
-   * Whether the workspace's notes live at their own keys (`idLayout` "keys"):
-   * then a note moves as a row change through `startQueuedMove`, and never as
-   * bytes (`tools/moves/queuedFolder.js`). Non-enumerable, as the seam is.
-   */
   /**
    * Move a note into another workspace through the control plane's engine
    * (`tools/moves/acrossKeyed.js`), from this request's workspace. Bound to
@@ -284,9 +277,7 @@ export async function storeForSession(session, env, controlPlane) {
       configurable: true,
     });
   }
-  return storeThroughMoves(store, opened.pendingMoves, (moved) =>
-    controlPlane.reportTreeTouch?.(session.workspaceId, { files: [moved.from, moved.to] })
-  );
+  return store;
 }
 
 /**
@@ -306,23 +297,6 @@ function idLayoutHooks(layout, session, controlPlane) {
     adopt: (note) => controlPlane.noteIdAdopt(session.accessToken, session.workspaceId, note),
     removed: (note) => controlPlane.noteIdRemoved(session.accessToken, session.workspaceId, note),
   };
-}
-
-/**
- * While queued moves are pending, the store a request reads through moves a
- * note to where the tree draws it before it touches it (`withPendingMoves`),
- * and tells the tree what it moved. The store itself when nothing is pending.
- */
-function storeThroughMoves(store, pendingMoves, report) {
-  return withPendingMoves(store, pendingMoves, {
-    onMoved: async (moved) => {
-      try {
-        await report(moved);
-      } catch {
-        // The tree is told again by the move's own pass; a missed hint is never a failed read.
-      }
-    },
-  });
 }
 
 export function storeForOpenedBinding(opened, expectedWorkspaceId, env) {
@@ -349,7 +323,7 @@ export function storeForOpenedBinding(opened, expectedWorkspaceId, env) {
     writable: false,
     configurable: true,
   });
-  return storeThroughMoves(store, opened?.pendingMoves, () => {});
+  return store;
 }
 
 /**

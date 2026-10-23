@@ -9,23 +9,22 @@
  * function to do with a bucket-reaching one.
  */
 
-import { ConvexError, v } from "convex/values";
+import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { internalMutation, internalQuery, mutation, query, type MutationCtx } from "../_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "../_generated/server";
 import { convexNodeTable } from "./lib/nodes/convexTable";
 import { copyIsFresh, idKeyFor, newNoteId } from "./lib/nodes/noteIds";
 import { applyObservation } from "./lib/nodes/observe";
 import { workspaceArchived } from "./lib/archivedWorkspaces";
 import { isPlumbing } from "./lib/privacy";
 import { cleanupViewOf, cleanupViewValidator, type CleanupView } from "./noteIdsCleanup";
-import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { KEYED_RECHECKS_PER_TICK, keyedRecheckOwed } from "./lib/noteIds/keyedRecheck";
-import { copyStateOf, planGroup, renameSnapshotId, sharedGroupsPage } from "./lib/noteIds/sharedIds";
-import { beginCopyPass, copyPassOwed, copyRowOf, idCopyPaused, leaseHeld, nodeAt, scheduleDiagnosis } from "./lib/noteIds/state";
+import { planGroup, renameSnapshotId, sharedGroupsPage, copyStateOf } from "./lib/noteIds/sharedIds";
+import { copyRowOf, nodeAt, scheduleDiagnosis } from "./lib/noteIds/state";
+import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { boundWorkspaces, liveBoundWorkspaces, staffOnly } from "./nodesMigration";
 
-const statusValidator = v.union(v.literal("idle"), v.literal("copying"), v.literal("done"), v.literal("failed"));
 const diagnosisValidator = v.object({
   checkedAt: v.number(),
   checked: v.number(),
@@ -37,56 +36,28 @@ const rowValidator = v.object({
   workspaceId: v.id("workspaces"),
   /** The workspace's slug, or null when it has none. */
   handle: v.union(v.string(), v.null()),
-  files: v.number(),
-  copied: v.number(),
-  failed: v.number(),
-  status: statusValidator,
-  /** A fixed, path-free label. */
-  error: v.union(v.string(), v.null()),
+  /** The last diagnosis of the workspace's id copies (`noteIdsCopy.runCheck`), or null before one ran. */
   diagnosis: v.union(v.null(), diagnosisValidator),
-  /** Why files failed: a fixed reason per note id, no paths (the first few the copy kept). */
-  failures: v.array(v.object({ noteId: v.string(), reason: v.string() })),
-  /** Keys mode only (0 otherwise): files the last copy pass counted, and how many rows the flip has keyed (`notes/` only). */
-  liveFiles: v.number(),
-  keyed: v.number(),
-  /** When the workspace's flip to keyed rows started, and when it found none left; null until then. */
-  keyedAt: v.union(v.null(), v.number()),
-  keyedDoneAt: v.union(v.null(), v.number()),
-  /** Held by an archived account: not counted by the switch to keys (`setMode`), which checks live workspaces only. */
+  /** Held by an archived account. */
   archived: v.boolean(),
   /** The old-copy cleanup: its counts, its run, and the refusal each of its buttons would get now (`noteIdsCleanup.ts`). */
   cleanup: cleanupViewValidator,
 });
 
-/** Where the id copy is, for every workspace with storage. Counts and labels only. */
+/** Where the id copies are diagnosed, for every workspace with storage. Counts and labels only. */
 export const report = query({
   args: {},
   returns: v.object({
-    paused: v.boolean(),
-    mode: v.union(v.literal("paths"), v.literal("ids"), v.literal("keys")),
-    totals: v.object({ files: v.number(), copied: v.number(), failed: v.number(), liveFiles: v.number(), keyed: v.number() }),
     workspaces: v.array(rowValidator),
     truncated: v.boolean(),
   }),
   handler: async (ctx) => {
     await staffOnly(ctx);
-    const layout = await ctx.db.query("noteIdLayout").first();
     const { ids, truncated } = await boundWorkspaces(ctx);
-    const totals = { files: 0, copied: 0, failed: 0, liveFiles: 0, keyed: 0 };
     const workspaces: Array<{
       workspaceId: Id<"workspaces">;
       handle: string | null;
-      files: number;
-      copied: number;
-      failed: number;
-      status: "idle" | "copying" | "done" | "failed";
-      error: string | null;
       diagnosis: { checkedAt: number; checked: number; missing: number; differs: number } | null;
-      failures: { noteId: string; reason: string }[];
-      liveFiles: number;
-      keyed: number;
-      keyedAt: number | null;
-      keyedDoneAt: number | null;
       archived: boolean;
       cleanup: CleanupView;
     }> = [];
@@ -94,171 +65,15 @@ export const report = query({
       const workspace = await ctx.db.get(workspaceId);
       if (workspace === null) continue;
       const row = await copyRowOf(ctx.db, workspaceId);
-      const counts = { files: row?.files ?? 0, copied: row?.copied ?? 0, failed: row?.failed ?? 0 };
-      // Keys mode only: the copy pass's file count, and the flip's own counter (never a read of the tree).
-      const keys = layout?.mode === "keys" ? { liveFiles: counts.files, keyed: row?.flipped ?? 0 } : { liveFiles: 0, keyed: 0 };
-      totals.files += counts.files;
-      totals.copied += counts.copied;
-      totals.failed += counts.failed;
-      totals.liveFiles += keys.liveFiles;
-      totals.keyed += keys.keyed;
       workspaces.push({
         workspaceId,
         handle: workspace.slug ?? null,
-        ...counts,
-        status: row?.status ?? "idle",
-        error: row?.error ?? null,
         diagnosis: row?.diagnosis ?? null,
-        failures: (row?.failures ?? []).slice(0, 5).map(({ noteId, reason }) => ({ noteId, reason })),
-        ...keys,
-        keyedAt: row?.keyedAt ?? null,
-        keyedDoneAt: row?.keyedDoneAt ?? null,
         archived: await workspaceArchived(ctx.db, workspaceId),
         cleanup: await cleanupViewOf(ctx.db, workspaceId, Date.now()),
       });
     }
-    return { paused: layout?.paused === true, mode: layout?.mode ?? "paths", totals, workspaces, truncated };
-  },
-});
-
-/** Refused while paused: a paused switch stops new work, and starting is new work. */
-async function refuseWhenPaused(ctx: MutationCtx): Promise<void> {
-  if (await idCopyPaused(ctx.db)) {
-    throw new ConvexError({ code: "NOTE_IDS_PAUSED", message: "The id copy is paused. Resume it first." });
-  }
-}
-
-/** Start the id copy for every live workspace whose pass is not already running. */
-export const startAll = mutation({
-  args: {},
-  returns: v.object({ started: v.number() }),
-  handler: async (ctx) => {
-    await staffOnly(ctx);
-    await refuseWhenPaused(ctx);
-    let started = 0;
-    for (const workspaceId of await liveBoundWorkspaces(ctx)) {
-      await ctx.scheduler.runAfter(0, internal.functions.noteIdsCopy.backfill, { workspaceId });
-      if (await beginCopyPass(ctx, workspaceId, { force: false })) started += 1;
-    }
-    return { started };
-  },
-});
-
-/** Start the id copy for one workspace (archived ones too: one's own button reaches them). */
-export const start = mutation({
-  args: { workspaceId: v.id("workspaces") },
-  returns: v.object({ started: v.number() }),
-  handler: async (ctx, { workspaceId }) => {
-    await staffOnly(ctx);
-    await refuseWhenPaused(ctx);
-    await ctx.scheduler.runAfter(0, internal.functions.noteIdsCopy.backfill, { workspaceId });
-    return { started: (await beginCopyPass(ctx, workspaceId, { force: false })) ? 1 : 0 };
-  },
-});
-
-/** Start the id copy again from the beginning, whatever it was doing: a new run, the failures cleared. */
-export const restart = mutation({
-  args: { workspaceId: v.id("workspaces") },
-  returns: v.object({ started: v.number() }),
-  handler: async (ctx, { workspaceId }) => {
-    await staffOnly(ctx);
-    await refuseWhenPaused(ctx);
-    await ctx.scheduler.runAfter(0, internal.functions.noteIdsCopy.backfill, { workspaceId });
-    return { started: (await beginCopyPass(ctx, workspaceId, { force: true })) ? 1 : 0 };
-  },
-});
-
-/**
- * Stop or resume the id copy. Stopping takes effect at each page's next
- * record. Resuming starts a fresh pass for every workspace whose pass was
- * stopped, so nothing left half-way is missed.
- */
-export const setPaused = mutation({
-  args: { paused: v.boolean() },
-  returns: v.object({ started: v.number() }),
-  handler: async (ctx, { paused }) => {
-    const userId = await staffOnly(ctx);
-    const existing = await ctx.db.query("noteIdLayout").first();
-    const fields = { paused, updatedAt: Date.now(), updatedBy: String(userId) };
-    if (existing === null) await ctx.db.insert("noteIdLayout", { mode: "paths", ...fields });
-    else await ctx.db.patch(existing._id, fields);
-    if (paused) return { started: 0 };
-    let started = 0;
-    for (const workspaceId of await liveBoundWorkspaces(ctx)) {
-      const row = await copyRowOf(ctx.db, workspaceId);
-      if (row?.status === "copying" && (await beginCopyPass(ctx, workspaceId, { force: false }))) started += 1;
-    }
-    return { started };
-  },
-});
-
-/** Whether a copy row says its workspace is fully copied: the pass done, every file copied, none failed. */
-function copyComplete(row: { status: string; files: number; copied: number; failed: number } | null): boolean {
-  return row !== null && row.status === "done" && row.failed === 0 && row.copied === row.files;
-}
-
-/**
- * The gate to keys: every live bound workspace must be fully copied. Archived
- * ones are left out, as the rest of the id copy leaves them out. `truncated`
- * means the bindings were more than one read covers, so the gate cannot see them all.
- */
-async function copyGate(ctx: MutationCtx): Promise<{ notReady: number; truncated: boolean; live: Id<"workspaces">[] }> {
-  const { ids, truncated } = await boundWorkspaces(ctx);
-  const live: Id<"workspaces">[] = [];
-  let notReady = 0;
-  for (const workspaceId of ids) {
-    if (await workspaceArchived(ctx.db, workspaceId)) continue;
-    live.push(workspaceId);
-    if (!copyComplete(await copyRowOf(ctx.db, workspaceId))) notReady += 1;
-  }
-  return { notReady, truncated, live };
-}
-
-/**
- * The switch between path keys, id keys and keyed rows: which keys reads use.
- * Staff only, and allowed while the copy is paused, since choosing the keys is
- * not new copy work. The gateway learns it from `/gateway/binding`'s `idLayout`.
- *
- * `keys` is the final switch: it is reached only from `ids`, and only once every
- * live bound workspace is fully copied (`copyGate`). It schedules the flip for
- * each live workspace at once. Once the switch is at `keys` it is one-way: any
- * other mode is refused, and the row stays as it was.
- */
-export const setMode = mutation({
-  args: { mode: v.union(v.literal("paths"), v.literal("ids"), v.literal("keys")) },
-  returns: v.object({ mode: v.union(v.literal("paths"), v.literal("ids"), v.literal("keys")) }),
-  handler: async (ctx, { mode }) => {
-    const userId = await staffOnly(ctx);
-    const existing = await ctx.db.query("noteIdLayout").first();
-    if (existing?.mode === "keys") {
-      throw new ConvexError({ code: "NOTE_IDS_KEYED", message: "The id keys are final once notes are keyed." });
-    }
-    let flipAt: Id<"workspaces">[] = [];
-    if (mode === "keys") {
-      if (existing?.mode !== "ids") {
-        throw new ConvexError({
-          code: "NOTE_IDS_NOT_IDS",
-          message: "Switch to notes/ first. The copy has to be read from its ids before notes/ becomes the only copy.",
-        });
-      }
-      const gate = await copyGate(ctx);
-      if (gate.truncated) {
-        throw new ConvexError({ code: "NOTE_IDS_TOO_MANY", message: "There are too many workspaces to check at once." });
-      }
-      if (gate.notReady > 0) {
-        const count = gate.notReady;
-        throw new ConvexError({
-          code: "NOTE_IDS_NOT_READY",
-          message: `${count} ${count === 1 ? "workspace is" : "workspaces are"} not fully copied to notes/ yet. Every copy must finish with no failures first.`,
-        });
-      }
-      flipAt = gate.live;
-    }
-    const fields = { mode, updatedAt: Date.now(), updatedBy: String(userId) };
-    if (existing === null) await ctx.db.insert("noteIdLayout", { paused: false, ...fields });
-    else await ctx.db.patch(existing._id, fields);
-    for (const workspaceId of flipAt) await ctx.scheduler.runAfter(0, internal.functions.noteIdsCopy.flip, { workspaceId });
-    return { mode };
+    return { workspaces, truncated };
   },
 });
 
@@ -274,17 +89,16 @@ export const keyedFor = internalQuery({
 });
 
 /**
- * The switch as `/gateway/binding` carries it: `"ids"` or `"keys"` (the
- * gateway reads a note through its id key in both), else null. INTERNAL.
+ * The switch as `/gateway/binding` carries it: `"keys"` once the layout row says
+ * so (the only mode left, `notes-by-id.md`), else null. Read-only; the row is
+ * retired. INTERNAL.
  */
 export const idLayout = internalQuery({
   args: {},
-  returns: v.union(v.literal("ids"), v.literal("keys"), v.null()),
+  returns: v.union(v.literal("keys"), v.null()),
   handler: async (ctx) => {
     const layout = await ctx.db.query("noteIdLayout").first();
-    if (layout?.mode === "ids") return "ids";
-    if (layout?.mode === "keys") return "keys";
-    return null;
+    return layout?.mode === "keys" ? "keys" : null;
   },
 });
 
@@ -386,7 +200,6 @@ export const diagnose = mutation({
   returns: v.object({ started: v.number() }),
   handler: async (ctx, { workspaceId }) => {
     await staffOnly(ctx);
-    await refuseWhenPaused(ctx);
     await scheduleDiagnosis(ctx, workspaceId);
     return { started: 1 };
   },
@@ -398,7 +211,6 @@ export const diagnoseAll = mutation({
   returns: v.object({ started: v.number() }),
   handler: async (ctx) => {
     await staffOnly(ctx);
-    await refuseWhenPaused(ctx);
     let started = 0;
     for (const workspaceId of await liveBoundWorkspaces(ctx)) {
       await scheduleDiagnosis(ctx, workspaceId);
@@ -408,73 +220,26 @@ export const diagnoseAll = mutation({
   },
 });
 
-/** At most this many workspaces begin their first id copy in one cron tick, so a deploy does not fan out every bucket at once. */
-export const FIRST_COPIES_PER_TICK = 20;
-
-async function treeReady(ctx: MutationCtx, workspaceId: Id<"workspaces">): Promise<boolean> {
-  const tree = await ctx.db
-    .query("nodeTrees")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
-    .unique();
-  return tree?.status === "ready";
-}
-
 /**
- * The cron (`crons.ts`): a finished pass starts again once the tree changed
- * since it began (`copyPassOwed`), so edits are caught without reading every
- * unchanged tree again, and a pass whose chain stopped is picked up once its
- * lease has lapsed. A
- * failed pass is not retried here; staff restart it. Does nothing while paused.
- *
- * A workspace made after the switch left `paths` has never had a pass, and
- * `startAll` and the switch to `keys` reached only the workspaces that existed
- * then: once its tree is ready, its first pass starts here, and that pass's end
- * flips it. Without this it stays on path keys for good. In keys mode a
- * finished, complete pass that is still unkeyed (its flip ran before the tree
- * was ready, and did nothing) is flipped again.
+ * The cron (`crons.ts`): a keyed row whose recheck is owed gets its diagnosis
+ * again (`keyedRecheck.ts`), at most `KEYED_RECHECKS_PER_TICK` a tick. Nothing
+ * else is started here: every workspace is keyed at its binding (`born.ts`) or
+ * by its first pass, and edits are written at their id keys as they happen.
  */
 export const keepCurrent = internalMutation({
   args: {},
   returns: v.object({ started: v.number() }),
   handler: async (ctx) => {
-    const layout = await ctx.db.query("noteIdLayout").first();
-    if (layout?.paused === true) return { started: 0 };
-    const mode = layout?.mode ?? "paths";
     const now = Date.now();
     let started = 0;
     let rechecks = 0;
-    let firsts = 0;
     for (const workspaceId of await liveBoundWorkspaces(ctx)) {
       const row = await copyRowOf(ctx.db, workspaceId);
-      if (row !== null && rechecks < KEYED_RECHECKS_PER_TICK && keyedRecheckOwed(row)) {
-        await ctx.db.patch(row._id, { keyedRecheckAt: now });
-        await scheduleDiagnosis(ctx, workspaceId);
-        rechecks += 1;
-        started += 1;
-        continue;
-      }
-      if (row?.status === "done") {
-        if (await copyPassOwed(ctx.db, row, now)) {
-          if (await beginCopyPass(ctx, workspaceId, { force: false })) started += 1;
-        } else if (mode === "keys" && row.keyedAt === undefined && copyComplete(row) && (await treeReady(ctx, workspaceId))) {
-          await ctx.scheduler.runAfter(0, internal.functions.noteIdsCopy.flip, { workspaceId });
-          started += 1;
-        }
-      } else if (row?.status === "copying" && !leaseHeld(row, now)) {
-        await ctx.scheduler.runAfter(0, internal.functions.noteIdsCopy.run, { workspaceId, runId: row.runId });
-        started += 1;
-      } else if (
-        (row === null || row.status === "idle") &&
-        mode !== "paths" &&
-        firsts < FIRST_COPIES_PER_TICK &&
-        (await treeReady(ctx, workspaceId))
-      ) {
-        await ctx.scheduler.runAfter(0, internal.functions.noteIdsCopy.backfill, { workspaceId });
-        if (await beginCopyPass(ctx, workspaceId, { force: false })) {
-          started += 1;
-          firsts += 1;
-        }
-      }
+      if (row === null || rechecks >= KEYED_RECHECKS_PER_TICK || !keyedRecheckOwed(row)) continue;
+      await ctx.db.patch(row._id, { keyedRecheckAt: now });
+      await scheduleDiagnosis(ctx, workspaceId);
+      rechecks += 1;
+      started += 1;
     }
     return { started };
   },
@@ -503,12 +268,11 @@ export const sharedIdReport = query({
   returns: v.object({ groups: v.array(sharedGroupValidator), next: v.union(v.string(), v.null()) }),
   handler: async (ctx, { workspaceId, after }) => {
     await staffOnly(ctx);
-    const keyed = await keyedWorkspace(ctx.db, workspaceId);
     const page = await sharedGroupsPage(ctx.db, workspaceId, after);
     return {
       groups: page.groups.map((group) => ({
         noteId: group.noteId,
-        needsLook: planGroup(group, keyed).needsLook,
+        needsLook: planGroup(group).needsLook,
         rows: group.rows.map((row) => ({ path: row.path, copy: copyStateOf(group.noteId, row) })),
       })),
       next: page.next ?? null,
@@ -526,12 +290,11 @@ export const repairSharedIdsPage = internalMutation({
   args: { workspaceId: v.id("workspaces"), after: v.optional(v.string()) },
   returns: v.object({ repaired: v.number(), needsLook: v.number() }),
   handler: async (ctx, { workspaceId, after }) => {
-    const keyed = await keyedWorkspace(ctx.db, workspaceId);
     const page = await sharedGroupsPage(ctx.db, workspaceId, after);
     let repaired = 0;
     let needsLook = 0;
     for (const group of page.groups) {
-      const plan = planGroup(group, keyed);
+      const plan = planGroup(group);
       if (plan.needsLook) {
         needsLook += 1;
         continue;

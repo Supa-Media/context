@@ -8,8 +8,8 @@
  * UI"): three stacked tables became one, opening on what needs attention.
  *
  * The file tree column is the Convex copy, which the sidebar, folder pages,
- * Home and agents read, with the folder moves still copying behind it (the
- * owner approved the board, 2026-10-13). Its detail adds the copy's facts:
+ * Home and agents read (the owner approved the board, 2026-10-13). Its detail
+ * adds the copy's facts:
  * the links and front matter Lists, Boards, the map and the chaos score read,
  * which lived in each workspace's own D1 tables until phase 7 of the tree
  * migration. Pure, so the rules are pinned by `adminSearchIndexes.test.ts`.
@@ -21,7 +21,6 @@ import type { DotTone } from "../design";
 import { meaningFailureLine, meaningStatePill, type MeaningIndexRow } from "./meaningIndexes";
 
 export type MigrationRow = FunctionReturnType<typeof api.functions.nodesMigration.report>["rows"][number];
-export type MoveRow = FunctionReturnType<typeof api.functions.nodeMovesAdmin.report>["rows"][number];
 type Priorities = MeaningIndexRow["priorities"];
 
 /** `ok` is done, `working` is on its way, `stuck` wants a person, `off` is meant, `none` has nothing. */
@@ -56,7 +55,7 @@ export const INDEXES: readonly { key: IndexKey; label: string; what: string }[] 
 export type WorkspaceIndexes = {
   workspaceId: string;
   slug: string | null;
-  /** The file tree column: the copy and its moves, worst first. */
+  /** The file tree column: the Convex copy. */
   files: IndexCell;
   fast: IndexCell;
   meaning: IndexCell;
@@ -71,8 +70,6 @@ export type WorkspaceIndexes = {
   /** The raw rows, for the buttons that act on them. */
   meaningRow: MeaningIndexRow | null;
   migrationRow: MigrationRow | null;
-  /** Folder moves still copying in this workspace. */
-  moves: readonly MoveRow[];
   /** Notes no reader of the bucket can read, and why; null when there are none. */
   unreadable: Unreadable | null;
 };
@@ -253,37 +250,6 @@ export function convexCell(row: MigrationRow | null, paused = false): IndexCell 
 
 const RANK: Record<IndexHealth, number> = { stuck: 0, working: 1, ok: 2, off: 3, none: 3 };
 
-/** "1 move copying", "2 moves copying". */
-export function movesLabel(count: number): string {
-  return `${count} ${count === 1 ? "move" : "moves"} copying`;
-}
-
-/**
- * The file tree column. The copy decides it, because the copy is what people
- * see. A folder move still copying is work on its way, and a stuck one wants
- * a person.
- */
-export function filesCell(copy: IndexCell, moves: readonly MoveRow[]): IndexCell {
-  let cell = copy;
-  if (moves.length > 0) {
-    const stuck = moves.find((move) => move.stuck);
-    const behind = moves.find((move) => move.late !== null && move.late !== "stuck");
-    const figure = [cell.figure, movesLabel(moves.length)].filter(Boolean).join(" · ");
-    if (stuck && RANK[cell.health] > RANK.stuck) {
-      cell = { ...cell, health: "stuck", figure, problem: `A folder move is stuck${stuck.lastError ? `: ${stuck.lastError}` : ""}` };
-    } else if (behind && RANK[cell.health] > RANK.stuck) {
-      // The bucket is missing the five-hour promise: a person should look, as at a stuck move.
-      cell = { ...cell, health: "stuck", figure, problem: `A folder move is behind: ${behind.late === "old" ? "over 4 hours old" : "on pace to miss 5 hours"}` };
-    } else if (!stuck && RANK[cell.health] > RANK.working) {
-      cell = { ...cell, health: "working", figure };
-    } else {
-      cell = { ...cell, figure };
-    }
-  }
-  return cell;
-}
-
-
 /** The worst of a row's three, which decides its order and whether it needs attention. */
 export function worstHealth(row: Pick<WorkspaceIndexes, IndexKey>): IndexHealth {
   return [row.files.health, row.fast.health, row.meaning.health].reduce((worst, each) =>
@@ -298,22 +264,18 @@ export function needsAttention(row: Pick<WorkspaceIndexes, IndexKey>): boolean {
 
 /**
  * One row per workspace that has any of them. `migration` is null while its
- * report loads; `paused` is the whole copy's switch; `moves` are the folder
- * moves still copying.
+ * report loads; `paused` is the whole copy's switch.
  */
 export function joinIndexes(
   meaning: readonly MeaningIndexRow[],
   migration: readonly MigrationRow[] | null = null,
   paused = false,
-  moves: readonly MoveRow[] = [],
 ): WorkspaceIndexes[] {
   const byId = new Map<string, { slug: string | null; meaning: MeaningIndexRow | null }>();
   for (const row of meaning) byId.set(row.workspaceId, { slug: row.slug, meaning: row });
-  for (const row of [...(migration ?? []), ...moves]) {
+  for (const row of migration ?? []) {
     if (!byId.has(row.workspaceId)) byId.set(row.workspaceId, { slug: row.slug, meaning: null });
   }
-  const movesOf = new Map<string, MoveRow[]>();
-  for (const move of moves) movesOf.set(move.workspaceId, [...(movesOf.get(move.workspaceId) ?? []), move]);
   const copies = new Map<string, MigrationRow>((migration ?? []).map((row) => [row.workspaceId, row] as const));
   const rows = [...byId.entries()].map(([workspaceId, entry]): WorkspaceIndexes => {
     const copy = copies.get(workspaceId) ?? null;
@@ -322,12 +284,11 @@ export function joinIndexes(
     );
     const archived = entry.meaning?.archived === true || copy?.archived === true;
     const convex = archived ? ARCHIVED : convexCell(copy, paused);
-    const pending = movesOf.get(workspaceId) ?? [];
     const unreadable = unreadableOf(copy);
     return {
       workspaceId,
       slug: entry.slug,
-      files: archived ? ARCHIVED : filesCell(convex, pending),
+      files: convex,
       fast: archived ? ARCHIVED : waitingOnUnreadable(fastCell(entry.meaning?.fastSearch ?? null), unreadable),
       meaning: archived ? ARCHIVED : waitingOnUnreadable(meaningCell(entry.meaning), unreadable),
       convex,
@@ -336,7 +297,6 @@ export function joinIndexes(
       changedAt: changed.length === 0 ? null : Math.max(...changed),
       meaningRow: entry.meaning,
       migrationRow: copy,
-      moves: pending,
       unreadable: archived ? null : unreadable,
     };
   });

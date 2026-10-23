@@ -13,9 +13,7 @@ import type {
   ContextMoveExport,
   ContextMoveImport,
   ContextMoveObject,
-  ContextMoveSkip,
   FileContents,
-  PlannedContextMoveObject,
   ProjectionPass,
   SearchResults,
   ManifestEntry,
@@ -138,7 +136,6 @@ export type FileOperation =
   | { kind: "nodesMoveStart"; from: string; to: string; expectedEtag?: string }
   /** A batch of note moves in a keyed workspace, made whole or not at all (`lib/nodes/rowMoveBatch.ts`). */
   | { kind: "nodesMoveBatch"; moves: { from: string; to: string; expectedEtag?: string }[] }
-  | { kind: "nodesMoveWork" }
   /** Write `privacy.md` from the rules held as the authority (`nodesPrivacy.ts`). */
   | { kind: "nodesPrivacyExport" }
   /** Import the icons, emoji and forwarding files once, then write them from Convex (`lib/smallData/sync.ts`). */
@@ -169,21 +166,8 @@ export type FileOperation =
   | { kind: "folderPaths" }
   | { kind: "contextMoveExport"; from: string; to: string; skip: string[] }
   | { kind: "contextMoveImport"; objects: ContextMoveObject[]; root?: string }
-  | {
-      kind: "contextMoveDelete";
-      sources: Array<{ path: string; etag: string; collaborationEtag?: string }>;
-    }
+  | { kind: "contextMoveDelete"; sources: Array<{ path: string; etag: string }> }
   | { kind: "contextMoveFinish"; from: string; survivors: string[] }
-  /** A batch for the gateway's mover, by name only (`lib/contextMoveMover.ts`). */
-  | { kind: "contextMovePlan"; from: string; to: string; skip: string[]; maxObjectBytes: number }
-  | {
-      kind: "contextMovePrepare";
-      objects: Array<{ destination: string; sourceVisibility: "private" | "team" }>;
-      root?: string;
-    }
-  /** What the mover landed here, for the tree; nothing in the bucket. */
-  | { kind: "contextMoveArrived"; paths: string[]; root?: string }
-  | { kind: "contextMoveForget"; paths: string[] }
   | { kind: "duplicate"; path: string }
   | { kind: "archive"; path: string; expectedEtag?: string }
   /** The one-time tidy of Archive's date folders into its matching places (`fileOps/archiving.ts`); owner only. */
@@ -468,13 +452,6 @@ export type OperationResult =
   | ({ kind: "contextMoveLanded" } & ContextMoveImport)
   | { kind: "contextMoveRemoved"; deleted: string[]; conflicts: string[] }
   | { kind: "contextMoveFinished" }
-  | {
-      kind: "contextMovePlanned";
-      objects: PlannedContextMoveObject[];
-      skipped: ContextMoveSkip[];
-      remaining: boolean;
-    }
-  | { kind: "contextMoveSettled" }
   | { kind: "deleted"; paths: string[] }
   | { kind: "activityRecorded" }
   | {
