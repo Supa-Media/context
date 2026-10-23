@@ -35,6 +35,10 @@
  *      owner "I couldn't open the LSB text for 28 or 29 from here", then,
  *      asked why, "I was wrong. I hadn't tried before I said it."
  *
+ *   5. A call failed and the answer gives up with other roads to the same
+ *      answer untried, or it promises to text them later with nothing in
+ *      the turn to keep it (`otherRoutes.js`, 2026-10-23).
+ *
  * Any one sends the model one more round with a notice saying what is
  * missing (`turn.js` `answerCheck`): it does the change, or says plainly that
  * it has not. The notice is given once a turn, so a check can never loop, and
@@ -43,6 +47,7 @@
  */
 
 import { mayAsk } from "./handbackJudge.js";
+import { KEEPS_A_PROMISE, LATER_NOTICE, givesUp, otherRoutesNotice, promisesLater, saysSourceIsDown, untriedRoutes } from "./otherRoutes.js";
 import { toolDefinitions } from "../tools/registry.js";
 import { ATTENTION_SETTINGS_PATH, HEARTBEAT_SETTINGS_PATH } from "./checkIns.js";
 
@@ -162,7 +167,17 @@ const HANDBACK = [
   /\bforward me\b/i,
   /\bsend me\b[^.?!\n]{0,40}?\b(?:receipt|email|subject|screenshot|copy|pdf|file|link|invoice|id|address|number)\b/i,
   /\b(?:give|tell|text) me\s+(?:its|the|that|their|her|his)\s+(?:\w+\s+)?(?:subject|sender|date|id|address|link|number|url)\b/i,
-  /\byou(?:'ll| will)?\s+(?:need to|have to|can|could|should|might want to|may want to|'d need to|would need to)\s+(?:check|look|search|find|forward|download|log ?in|sign in|open|send|pull up|dig up|go to|grab|contact|ask)\b/i,
+  /\byou(?:'ll| will)?\s+(?:also\s+|always\s+|still\s+|just\s+)?(?:need to|have to|can|could|should|might want to|may want to|'d need to|would need to)\s+(?:also\s+|always\s+|still\s+|just\s+)?(?:check|look|search|find|forward|download|log ?in|sign in|open|send|pull up|dig up|go to|grab|contact|ask|see|view|confirm|verify)\b/i,
+];
+/*
+  LOOKING IT UP YOURSELF (2026-10-23): "You can also check it yourself in the
+  Planning Center app or at planningcenteronline.com", after one failed read
+  and with the schedule sitting in their Gmail. A link to the app's own site
+  is not a sign-in link Tex sent them, so this is a hand-back with one in it.
+*/
+const LOOK_YOURSELF = [
+  /^(?![^\n]*\byou(?:'d| said| wanted| want| prefer| would| asked)\b)[^\n]*?\b(?:check|look|see|view|find|search|confirm|verify|pull)\b[^.?!\n]{0,60}\byourself\b/i,
+  /\byou can (?:also |always |still |just )?(?:see|find|check|view) (?:it|that|this|them|your [\w ]{1,30}?) (?:in|on|at) (?:the|your) [\w ]{1,30}? (?:app|website|site|portal|account|dashboard)\b/i,
 ];
 /*
   A FILE ON A SITE IS TEX'S TO DOWNLOAD AND ATTACH (2026-10-22). Tex texted "I
@@ -207,6 +222,7 @@ export function handsWorkBack(answer, { held = false } = {}) {
   return sentences.some(
     (sentence) =>
       FILE_HANDBACK.some((pattern) => pattern.test(sentence)) ||
+      LOOK_YOURSELF.some((pattern) => pattern.test(sentence)) ||
       (!held && CHANGE_HANDBACK.some((pattern) => pattern.test(sentence))) ||
       (!THEIRS_TO_DO.test(sentence) && (HANDBACK_IMPERATIVE.test(sentence) || HANDBACK.some((pattern) => pattern.test(sentence)))),
   );
@@ -325,6 +341,10 @@ export function claimCheck({ question, judge = null }) {
   let handedBack = false;
   let captchaStuck = false;
   let captchaNoticed = false;
+  // A source failed and the answer gave up, or it promised a later text nothing keeps (`otherRoutes.js`).
+  let routesNoticed = false;
+  let laterNoticed = false;
+  let keptPromise = false;
   // The tools this turn ran, by name, for the hand-back judge (`handbackJudge.js`).
   const steps = [];
   let judged = false;
@@ -350,15 +370,24 @@ export function claimCheck({ question, judge = null }) {
         steps.push({ name, ok: result?.isError !== true });
         if (result?.held === true) held = true;
         if (result?.checkerRefused === true) checkerRefused = true;
+        if (result?.isError !== true && KEEPS_A_PROMISE.has(name)) keptPromise = true;
         if (result?.isError !== true && isWrite(name)) {
           wrote = true;
           const path = typeof args?.path === "string" ? args.path.trim().replace(/^\/+/, "").toLowerCase() : "";
           if (KEPT_WISHES.has(path)) keptWish = true;
+          if (/^(?:tex\/)?routines\//.test(path)) keptPromise = true;
         }
         return result;
       };
     },
     check(answer) {
+      // First, a source that failed with the other roads to the answer untried (`otherRoutes.js`): the
+      // more exact notice, since an answer that gives up also tends to hand the looking back.
+      if (!routesNoticed && givesUp(answer) && (steps.some((step) => !step.ok) || saysSourceIsDown(answer))) {
+        routesNoticed = true;
+        const untried = untriedRoutes(steps);
+        if (untried.length > 0) return otherRoutesNotice(untried);
+      }
       // Handing work back is checked on its own, once, beside the others: an
       // answer that offers an email can still ask them to go and find it.
       if (!handedBack && handsWorkBack(answer, { held })) {
@@ -368,6 +397,10 @@ export function claimCheck({ question, judge = null }) {
       if (!captchaNoticed && !captchaStuck && handsOverACaptcha(answer)) {
         captchaNoticed = true;
         return CAPTCHA_NOTICE;
+      }
+      if (!laterNoticed && !keptPromise && promisesLater(answer)) {
+        laterNoticed = true;
+        return LATER_NOTICE;
       }
       if (noticed) return judgeOnce(answer);
       const notice =

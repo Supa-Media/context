@@ -25,6 +25,7 @@ test/agentHandoff.test.mjs
 test/agentCaptcha.test.mjs
 test/agentHandbackJudge.test.mjs
 test/agentHandbackMiner.test.mjs
+test/agentOtherRoutes.test.mjs
 test/agentInstructions.test.mjs
 test/agentJobs.test.mjs
 test/jobLogAppend.test.mjs

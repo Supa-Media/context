@@ -154,3 +154,39 @@ a workspace they don't belong to, so the log carries counts only.
 written by the real `openTranscript`: turns read back with routines left
 out, the note, tool names but never arguments, counts-only logging, no turn
 counted twice, and a failing judge. Sabotage record in its header.
+
+## When one source fails, the others first
+
+Decided by the owner on 2026-10-23 ("be more like dot"). Planning Center's
+reads were failing, and Tex answered "I can't tell you whether you're
+serving Sunday yet ... You can also check it yourself in the Planning
+Center app". Planning Center had emailed the schedule to their Gmail days
+before, and another assistant found it there and texted them unasked. None
+of the hand-back guards caught it: the answer had no question mark, so the
+judge never ran (`mayAsk`), and "you can also check it yourself" slipped
+past every phrase.
+
+So a failed source is never the end of a question. Every texted turn is
+told to get the same answer another way first (`OTHER_ROUTES_LINE`: apps
+email what they hold, so their mail from that app; their calendar; their
+notes; the app's website in the browser), and to say where it read the
+answer. An answer that gives up on a turn where a call failed, or that says
+a source is down, gets one more round naming the roads that turn didn't take
+(`apps/mcp/src/agent/otherRoutes.js`). An answer that promises to text later,
+with no routine written and no job started in the turn, gets one more round
+telling Tex to write the hourly routine (with `until:`) that keeps the
+promise and answers in that same chat; that text answers their question, so
+it is a reply, never texting first. "Check it yourself" in an app or on a
+site is a hand-back like any other, link or not, and an answer that says it
+can't tell them is judged.
+
+**What a simplification would cost.** Treating a failed app as "can't
+answer" hands the person a lookup Tex's mail search does in a second, and a
+promise with nothing behind it is a text that never comes. Reading only the
+answer, without the turn's failed calls, would send back every honest "your
+notes don't have his number".
+
+**Tests.** `apps/mcp/test/agentOtherRoutes.test.mjs` (the owner's own text,
+roads named by what the turn skipped, the promise kept by a routine or a
+job, a scripted turn that finds the serving email); bench case 8 in
+`bench/ai/tests/handback.md`. Sabotage record in the test's header.
