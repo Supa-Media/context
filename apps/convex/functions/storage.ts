@@ -82,7 +82,6 @@ import * as rekeyPlatform from "./lib/storage/rekeyPlatformSecrets";
 import { forgetWorkspaceTree, keepKeyedTreeForStorage } from "./nodesPurge";
 import { keyedWorkspace } from "./lib/noteIds/keyedState";
 import { keyIfBornEmpty } from "./lib/noteIds/born";
-import { managedBucketName } from "./lib/managedStorage";
 import * as bindingView from "./lib/storage/bindingView";
 import * as validators from "./lib/storage/validators";
 import * as bindingActions from "./lib/storage/bindingActions";

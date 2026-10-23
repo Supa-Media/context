@@ -181,7 +181,11 @@ archive of a file or folder rewrites `nodes` rows and copies nothing:
   cannot run is reported as not done and the forwarding record covers it.
   `keyedFolderMove.test.mjs` fails if it is dropped.
 - **Not carried yet:** a move made in the console does not rewrite body links
-  (forwarding covers them); routines are not re-keyed. Shares need no carrying: they follow the note by
+  (forwarding covers them); routines are not re-keyed. The console's path-move
+  link rewrite and its test (`linkRewrite.test.ts`) went with the path moves
+  (2026-10-22); carrying links on a console rename, as the gateway does with
+  `rewriteRowedLinks`, is the open follow-up to the owner's ask that renames
+  update links on both sides. Shares need no carrying: they follow the note by
   its id (below).
 
 **Known gap.** A rename can fail before the new name is claimed (the journal
