@@ -746,6 +746,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - [Every turn knows the time where the person is (2026-10-14)](./texting-assistant/tool-shelf.md)
 - [Tex keeps a daily transcript in the person's own tex/ folder (2026-10-15)](./texting-assistant/transcripts.md)
 - [Tex dreams once a night, and keeps `tex/about-me.md` current (2026-10-15)](./texting-assistant/dreams.md)
+- [Tex always knows who is texting it (2026-10-23)](./texting-assistant/who-they-are.md)
+- [What else Tex was not remembering](./texting-assistant/who-they-are.md#what-else-tex-was-not-remembering)
 - [Tex checks in on its own, three times a day, and texts only when it is worth it (2026-10-17)](./texting-assistant/heartbeat.md)
 - [Tex asks the person only for a key, a yes, a choice, a fact or a body (2026-10-22)](./texting-assistant/handing-back.md)
 - [A small model reads an answer that asks them something](./texting-assistant/handing-back.md#a-small-model-reads-an-answer-that-asks-them-something)

@@ -541,8 +541,8 @@ export async function handleAgent(request, env, store, session, controlPlane, { 
       history: shown,
       threadNote: (group !== null ? groupPrompt(group, home) : "") + threadPrompt(inThread) + (background?.prompt ?? "") + jobPrompt(job) + (texted && job === null ? await googleOfferLine(store, shown) : ""), steer,
       local: earlier,
-      // What Tex keeps about them and its open jobs, in their own workspace (`aboutMe.js`, `jobs.js`), on a texted turn.
-      ...(texting ? await readTexNotes(dispatch) : {}),
+      // What Tex keeps about them and its open jobs, in their own workspace (`aboutMe.js`, `jobs.js`), on a texted turn,
+      ...(texting ? await readTexNotes(dispatch, { controlPlane, session }) : {}), // and who they are by their account (`identity.js`)
       localNow: { now: Date.now(), timeZone },
       observe: withJobSteps(job, step, transcript?.record ?? null), // a job's steps also go to its chat (`background.js`)
       workspaces: contextsFor(session), // Where a new note goes (`workspaces.js`).
